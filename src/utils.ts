@@ -1,5 +1,5 @@
 import { Logger } from "./logger";
-import { FLAGMD_REDFLAG, LOG_LEVEL } from "./types";
+import { FLAGMD_REDFLAG, LOG_LEVEL, MAX_DOC_SIZE } from "./types";
 
 export function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
     return new Promise((res) => {
@@ -114,7 +114,7 @@ export function id2path_base(filename: string): string {
     return filename;
 }
 
-const runningProcs: string[] = [];
+let runningProcs: string[] = [];
 const pendingProcs: { [key: string]: (() => Promise<void>)[] } = {};
 function objectToKey(key: any): string {
     if (typeof key === "string") return key;
@@ -143,6 +143,58 @@ function notifyLock() {
         externalNotifier();
     }, 100);
 }
+
+export function splitPieces(data: string, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, longLineThreshold: number) {
+    return function* pieces(): Generator<string> {
+        let cPieceSize = pieceSize;
+        let leftData = data;
+        do {
+            // To keep low bandwith and database size,
+            // Dedup pieces on database.
+            // from 0.1.10, for best performance. we use markdown delimiters
+            // 1. \n[^\n]{longLineThreshold}[^\n]*\n -> long sentence shuld break.
+            // 2. \n\n shold break
+            // 3. \r\n\r\n should break
+            // 4. \n# should break.
+
+            if (plainSplit) {
+                cPieceSize = 0;
+                // lookup for next splittion .
+                // we're standing on "\n"
+                do {
+                    const n1 = leftData.indexOf("\n", cPieceSize + 1);
+                    const n2 = leftData.indexOf("\n\n", cPieceSize + 1);
+                    const n3 = leftData.indexOf("\r\n\r\n", cPieceSize + 1);
+                    const n4 = leftData.indexOf("\n#", cPieceSize + 1);
+                    if (n1 == -1 && n2 == -1 && n3 == -1 && n4 == -1) {
+                        cPieceSize = MAX_DOC_SIZE;
+                        break;
+                    }
+
+                    if (n1 > longLineThreshold) {
+                        // long sentence is an established piece
+                        cPieceSize = n1;
+                    } else {
+                        // cPieceSize = Math.min.apply([n2, n3, n4].filter((e) => e > 1));
+                        // ^ heavy.
+                        if (n1 > 0 && cPieceSize < n1) cPieceSize = n1;
+                        if (n2 > 0 && cPieceSize < n2) cPieceSize = n2 + 1;
+                        if (n3 > 0 && cPieceSize < n3) cPieceSize = n3 + 3;
+                        // Choose shorter, empty line and \n#
+                        if (n4 > 0 && cPieceSize > n4) cPieceSize = n4 + 0;
+                        cPieceSize++;
+                    }
+                } while (cPieceSize < minimumChunkSize);
+            }
+
+            // piece size determined.
+            const piece = leftData.substring(0, cPieceSize);
+            leftData = leftData.substring(cPieceSize);
+            yield piece;
+        } while (leftData != "");
+    };
+}
+
 // Just run async/await as like transacion ISOLATION SERIALIZABLE
 export function runWithLock<T>(key: unknown, ignoreWhenRunning: boolean, proc: () => Promise<T>): Promise<T> {
     // Logger(`Lock:${key}:enter`, LOG_LEVEL.VERBOSE);
@@ -150,7 +202,7 @@ export function runWithLock<T>(key: unknown, ignoreWhenRunning: boolean, proc: (
     const handleNextProcs = () => {
         if (typeof pendingProcs[lockKey] === "undefined") {
             //simply unlock
-            runningProcs.remove(lockKey);
+            runningProcs = runningProcs.filter((e) => e != lockKey);
             notifyLock();
             // Logger(`Lock:${lockKey}:released`, LOG_LEVEL.VERBOSE);
         } else {
@@ -182,7 +234,7 @@ export function runWithLock<T>(key: unknown, ignoreWhenRunning: boolean, proc: (
             }
         }
     };
-    if (runningProcs.contains(lockKey)) {
+    if (runningProcs.indexOf(lockKey) != -1) {
         if (ignoreWhenRunning) {
             return null;
         }
@@ -235,6 +287,38 @@ export function runWithLock<T>(key: unknown, ignoreWhenRunning: boolean, proc: (
     }
 }
 
+export class WrappedNotice {
+    constructor(message: string | DocumentFragment, timeout?: number) {
+        let strMessage = "";
+        if (message instanceof DocumentFragment) {
+            strMessage = message.textContent;
+        } else {
+            strMessage = message;
+        }
+        Logger(strMessage, LOG_LEVEL.NOTICE);
+    }
+
+    setMessage(message: string | DocumentFragment): this {
+        let strMessage = "";
+        if (message instanceof DocumentFragment) {
+            strMessage = message.textContent;
+        } else {
+            strMessage = message;
+        }
+        Logger(strMessage, LOG_LEVEL.NOTICE);
+        return this;
+    }
+
+    hide(): void {}
+}
+let _notice = WrappedNotice;
+
+export function setNoticeClass(notice: typeof WrappedNotice) {
+    _notice = notice;
+}
+export function NewNotice(message: string | DocumentFragment, timeout?: number) {
+    return new _notice(message, timeout);
+}
 export function isPlainText(filename: string): boolean {
     if (filename.endsWith(".md")) return true;
     if (filename.endsWith(".txt")) return true;
@@ -244,6 +328,20 @@ export function isPlainText(filename: string): boolean {
     if (filename.endsWith(".css")) return true;
     if (filename.endsWith(".js")) return true;
     if (filename.endsWith(".xml")) return true;
-
     return false;
+}
+// Referenced below
+// https://zenn.dev/sora_kumo/articles/539d7f6e7f3c63
+const Parallels = (ps = new Set<Promise<unknown>>()) => ({
+    add: (p: Promise<unknown>) => ps.add(!!p.then(() => ps.delete(p)).catch(() => ps.delete(p)) && p),
+    wait: (limit: number) => ps.size >= limit && Promise.race(ps),
+    all: () => Promise.all(ps),
+});
+export async function allSettledWithConcurrencyLimit<T>(procs: Promise<T>[], limit: number) {
+    const ps = Parallels();
+    for (const proc of procs) {
+        ps.add(proc);
+        await ps.wait(limit);
+    }
+    (await ps.all()).forEach(() => {});
 }

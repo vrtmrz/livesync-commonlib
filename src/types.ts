@@ -1,6 +1,5 @@
 // docs should be encoded as base64, so 1 char -> 1 bytes
 // and cloudant limitation is 1MB , we use 900kb;
-import * as PouchDB from "pouchdb";
 
 export const MAX_DOC_SIZE = 1000; // for .md file, but if delimiters exists. use that before.
 export const MAX_DOC_SIZE_BIN = 102400; // 100kb

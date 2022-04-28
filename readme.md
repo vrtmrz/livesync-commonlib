@@ -1,3 +1,3 @@
-# This is the common lib of xxxx-LiveSync
+The common library of Self-hosted LiveSync and its series.
 
-everything WIP.
+License: MIT
