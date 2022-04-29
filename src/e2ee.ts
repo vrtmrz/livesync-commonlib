@@ -130,12 +130,16 @@ function hexStringToUint8Array(src: string): Uint8Array {
     const arr = srcArr.reduce((acc, _, i) => (i % 2 ? acc : [...acc, srcArr.slice(i, i + 2).join("")]), [] as string[]).map((e) => parseInt(e, 16));
     return Uint8Array.from(arr);
 }
-function btoa(src: string): string {
+
+function btoa_node(src: string): string {
     return Buffer.from(src, "binary").toString("base64");
 }
-function atob(src: string): string {
+function atob_node(src: string): string {
     return Buffer.from(src, "base64").toString("binary");
 }
+const btoa = typeof window !== "undefined" ? window.btoa : btoa_node;
+const atob = typeof window !== "undefined" ? window.atob : atob_node;
+
 export async function encrypt(input: string, passphrase: string) {
     const [key, salt] = await getKeyForEncrypt(passphrase);
     // Create initial vector with semifixed part and incremental part
