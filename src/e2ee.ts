@@ -93,7 +93,7 @@ export async function getKeyForDecryption(passphrase: string, salt: Uint8Array):
         key,
         salt,
     });
-    
+
     decKeyBuffs = decKeyBuffs.filter((e) => e != f);
     while (decKeyBuffs.length > 50) {
         decKeyBuffs.shift();

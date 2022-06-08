@@ -8,6 +8,7 @@ export const VER = 10;
 export const RECENT_MOFIDIED_DOCS_QTY = 30;
 export const LEAF_WAIT_TIMEOUT = 90000; // in synchronization, waiting missing leaf time out.
 export const LOG_LEVEL = {
+    DEBUG: -1,
     VERBOSE: 1,
     INFO: 10,
     NOTICE: 100,
@@ -149,6 +150,7 @@ export type LoadedEntry = Entry & {
 export interface EntryLeaf extends DatabaseEntry {
     data: string;
     type: "leaf";
+    isCorrupted?: boolean;
 }
 
 export interface EntryVersionInfo extends DatabaseEntry {
@@ -168,6 +170,7 @@ export interface EntryNodeInfo extends DatabaseEntry {
     _id: typeof NODEINFO_DOCID;
     type: "nodeinfo";
     nodeid: string;
+    v20220607?: boolean;
 }
 
 export type EntryBody = Entry | NewEntry | PlainEntry;

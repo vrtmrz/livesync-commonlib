@@ -144,6 +144,7 @@ function notifyLock() {
     }, 100);
 }
 
+/// obsolute
 export function splitPieces(data: string, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, longLineThreshold: number) {
     return function* pieces(): Generator<string> {
         let cPieceSize = pieceSize;
@@ -192,6 +193,40 @@ export function splitPieces(data: string, pieceSize: number, plainSplit: boolean
             leftData = leftData.substring(cPieceSize);
             yield piece;
         } while (leftData != "");
+    };
+}
+export function splitPieces2(data: string, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, longLineThreshold: number) {
+    return function* pieces(): Generator<string> {
+        if (plainSplit) {
+            const leftData = data.split("\n"); //use memory
+            let buffer = "";
+            let leftLen = 0;
+            do {
+                buffer += leftData.shift();
+                leftLen = leftData.length;
+                if (leftLen > 0) buffer += "\n";
+                // In the cases of below: send chunk.
+                // - Buffer became longer than minimum chunk size,
+                // - At the tail of data.
+                // - Next line is header.
+                // - Current line is header.
+                if (buffer.length >= minimumChunkSize || leftData.length == 0 || leftData[0] == "#" || buffer[0] == "#") {
+                    do {
+                        // split to within maximum pieceSize
+                        yield buffer.substring(0, pieceSize);
+                        buffer = buffer.substring(pieceSize);
+                    } while (buffer != "");
+                }
+                // orelse, concat the piece into buffer;
+            } while (leftLen > 0);
+        } else {
+            let leftData = data;
+            do {
+                const piece = leftData.substring(0, pieceSize);
+                leftData = leftData.substring(pieceSize);
+                yield piece;
+            } while (leftData != "");
+        }
     };
 }
 
@@ -329,6 +364,10 @@ export function isPlainText(filename: string): boolean {
     if (filename.endsWith(".js")) return true;
     if (filename.endsWith(".xml")) return true;
     return false;
+}
+export function shouldSplitAsPlainText(filename: string): boolean {
+    if (filename.endsWith(".md")) return true;
+    if (filename.endsWith(".txt")) return true;
 }
 // Referenced below
 // https://zenn.dev/sora_kumo/articles/539d7f6e7f3c63
