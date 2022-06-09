@@ -393,7 +393,8 @@ export async function allSettledWithConcurrencyLimit<T>(procs: Promise<T>[], lim
 }
 
 // requires transform-pouch
-export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: string) => {
+export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: string, migrationDecrypt?: boolean) => {
+    const decrypted = new Map();
     //@ts-ignore
     db.transform({
         incoming: async (doc: EntryDoc) => {
@@ -416,9 +417,18 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                 ...doc,
             } as EntryLeaf;
             if (loadDoc._id.startsWith("h:+") || loadDoc._id == SYNCINFO_ID) {
+                if (migrationDecrypt && decrypted.has(loadDoc._id)) {
+                    return loadDoc; // once decrypted.
+                }
                 try {
                     loadDoc.data = await decrypt(loadDoc.data, passphrase);
+                    if (migrationDecrypt) {
+                        decrypted.set(loadDoc._id, true);
+                    }
                 } catch (ex) {
+                    if (migrationDecrypt && ex.name == "SyntaxError") {
+                        return loadDoc; // This logic will be removed in a while.
+                    }
                     Logger("Decryption failed.", LOG_LEVEL.NOTICE);
                     Logger(ex);
                     throw ex;
