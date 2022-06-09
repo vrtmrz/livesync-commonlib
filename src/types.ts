@@ -201,3 +201,11 @@ export type EntryDocResponse = EntryDoc & PouchDB.Core.IdMeta & PouchDB.Core.Get
 export type DatabaseConnectingStatus = "STARTED" | "NOT_CONNECTED" | "PAUSED" | "CONNECTED" | "COMPLETED" | "CLOSED" | "ERRORED";
 
 export const FLAGMD_REDFLAG = "redflag.md";
+
+export const SYNCINFO_ID = "syncinfo";
+
+export interface SyncInfo extends DatabaseEntry {
+    _id: typeof SYNCINFO_ID;
+    type: "syncinfo";
+    data: string;
+}

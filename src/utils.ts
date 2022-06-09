@@ -1,5 +1,6 @@
+import { decrypt, encrypt } from "./e2ee";
 import { Logger } from "./logger";
-import { FLAGMD_REDFLAG, LOG_LEVEL, MAX_DOC_SIZE } from "./types";
+import { EntryDoc, EntryLeaf, FLAGMD_REDFLAG, SYNCINFO_ID, LOG_LEVEL, MAX_DOC_SIZE } from "./types";
 
 export function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
     return new Promise((res) => {
@@ -231,6 +232,12 @@ export function splitPieces2(data: string, pieceSize: number, plainSplit: boolea
 }
 
 // Just run async/await as like transacion ISOLATION SERIALIZABLE
+export function getLocks() {
+    return {
+        pending: Object.keys(pendingProcs),
+        running: runningProcs,
+    };
+}
 export function runWithLock<T>(key: unknown, ignoreWhenRunning: boolean, proc: () => Promise<T>): Promise<T> {
     // Logger(`Lock:${key}:enter`, LOG_LEVEL.VERBOSE);
     const lockKey = typeof key === "string" ? key : objectToKey(key);
@@ -384,3 +391,40 @@ export async function allSettledWithConcurrencyLimit<T>(procs: Promise<T>[], lim
     }
     (await ps.all()).forEach(() => {});
 }
+
+// requires transform-pouch
+export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: string) => {
+    //@ts-ignore
+    db.transform({
+        incoming: async (doc: EntryDoc) => {
+            const saveDoc: EntryLeaf = {
+                ...doc,
+            } as EntryLeaf;
+            if (saveDoc._id.startsWith("h:+") || saveDoc._id == SYNCINFO_ID) {
+                try {
+                    saveDoc.data = await encrypt(saveDoc.data, passphrase);
+                } catch (ex) {
+                    Logger("Encryption failed.", LOG_LEVEL.NOTICE);
+                    Logger(ex);
+                    throw ex;
+                }
+            }
+            return saveDoc;
+        },
+        outgoing: async (doc: EntryDoc) => {
+            const loadDoc: EntryLeaf = {
+                ...doc,
+            } as EntryLeaf;
+            if (loadDoc._id.startsWith("h:+") || loadDoc._id == SYNCINFO_ID) {
+                try {
+                    loadDoc.data = await decrypt(loadDoc.data, passphrase);
+                } catch (ex) {
+                    Logger("Decryption failed.", LOG_LEVEL.NOTICE);
+                    Logger(ex);
+                    throw ex;
+                }
+            }
+            return loadDoc;
+        },
+    });
+};
