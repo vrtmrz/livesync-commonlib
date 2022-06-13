@@ -64,6 +64,7 @@ export interface RemoteDBSettings {
     batches_limit: number;
     useHistory: boolean;
     disableRequestURI: boolean;
+    checkConflictOnlyOnOpen: boolean;
 }
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
@@ -108,6 +109,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     useHistory: false,
     disableRequestURI: false,
     skipOlderFilesOnSync: true,
+    checkConflictOnlyOnOpen: true,
 };
 
 export interface DatabaseEntry {
