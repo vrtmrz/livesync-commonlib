@@ -46,6 +46,7 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     autoSweepPlugins: boolean;
     autoSweepPluginsPeriodic: boolean;
     notifyPluginOrSettingUpdated: boolean;
+    skipOlderFilesOnSync: boolean;
 }
 
 export interface RemoteDBSettings {
@@ -106,6 +107,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     batches_limit: 40,
     useHistory: false,
     disableRequestURI: false,
+    skipOlderFilesOnSync: true,
 };
 
 export interface DatabaseEntry {
