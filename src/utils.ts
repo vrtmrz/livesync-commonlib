@@ -132,15 +132,15 @@ export function getProcessingCounts() {
 }
 
 let externalNotifier: () => void = () => {};
-let notifyTimer: number = null;
+let notifyTimer: number | NodeJS.Timeout = null;
 export function setLockNotifier(fn: () => void) {
     externalNotifier = fn;
 }
 function notifyLock() {
     if (notifyTimer != null) {
-        window.clearTimeout(notifyTimer);
+        clearTimeout(notifyTimer as any);
     }
-    notifyTimer = window.setTimeout(() => {
+    notifyTimer = setTimeout(() => {
         externalNotifier();
     }, 100);
 }
