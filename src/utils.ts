@@ -115,22 +115,6 @@ export function id2path_base(filename: string): string {
     return filename;
 }
 
-let runningProcs: string[] = [];
-const pendingProcs: { [key: string]: (() => Promise<void>)[] } = {};
-function objectToKey(key: any): string {
-    if (typeof key === "string") return key;
-    const keys = Object.keys(key).sort((a, b) => a.localeCompare(b));
-    return keys.map((e) => e + objectToKey(key[e])).join(":");
-}
-export function getProcessingCounts() {
-    let count = 0;
-    for (const v in pendingProcs) {
-        count += pendingProcs[v].length;
-    }
-    count += runningProcs.length;
-    return count;
-}
-
 let externalNotifier: () => void = () => {};
 let notifyTimer: number | NodeJS.Timeout = null;
 export function setLockNotifier(fn: () => void) {
@@ -232,101 +216,70 @@ export function splitPieces2(data: string, pieceSize: number, plainSplit: boolea
 }
 
 // Just run async/await as like transacion ISOLATION SERIALIZABLE
+const LOCK_WAITING = 0;
+const LOCK_RUNNING = 1;
+const LOCK_DONE = 2;
+
+interface lockedEntry {
+    key: string;
+    proc: () => Promise<any>;
+    status: 0 | 1 | 2;
+}
+let locks: lockedEntry[] = [];
 export function getLocks() {
     return {
-        pending: Object.keys(pendingProcs),
-        running: runningProcs,
+        pending: locks.filter((e) => e.status == LOCK_WAITING).map((e) => e.key),
+        running: locks.filter((e) => e.status == LOCK_RUNNING).map((e) => e.key),
     };
 }
-export function runWithLock<T>(key: unknown, ignoreWhenRunning: boolean, proc: () => Promise<T>): Promise<T> {
-    // Logger(`Lock:${key}:enter`, LOG_LEVEL.VERBOSE);
-    const lockKey = typeof key === "string" ? key : objectToKey(key);
-    const handleNextProcs = () => {
-        if (typeof pendingProcs[lockKey] === "undefined") {
-            //simply unlock
-            runningProcs = runningProcs.filter((e) => e != lockKey);
-            notifyLock();
-            // Logger(`Lock:${lockKey}:released`, LOG_LEVEL.VERBOSE);
-        } else {
-            Logger(`Lock:${lockKey}:left ${pendingProcs[lockKey].length}`, LOG_LEVEL.VERBOSE);
-            let nextProc = null;
-            nextProc = pendingProcs[lockKey].shift();
-            notifyLock();
-            if (nextProc) {
-                // left some
-                nextProc()
-                    .then()
-                    .catch((err) => {
-                        Logger(err);
-                    })
-                    .finally(() => {
-                        if (pendingProcs && lockKey in pendingProcs && pendingProcs[lockKey].length == 0) {
-                            delete pendingProcs[lockKey];
-                            notifyLock();
-                        }
-                        queueMicrotask(() => {
-                            handleNextProcs();
-                        });
-                    });
-            } else {
-                if (pendingProcs && lockKey in pendingProcs && pendingProcs[lockKey].length == 0) {
-                    delete pendingProcs[lockKey];
-                    notifyLock();
-                }
-            }
-        }
-    };
-    if (runningProcs.indexOf(lockKey) != -1) {
-        if (ignoreWhenRunning) {
-            return null;
-        }
-        if (typeof pendingProcs[lockKey] === "undefined") {
-            pendingProcs[lockKey] = [];
-        }
-        let responderRes: (value: T | PromiseLike<T>) => void;
-        let responderRej: (reason?: unknown) => void;
-        const responder = new Promise<T>((res, rej) => {
-            responderRes = res;
-            responderRej = rej;
-            //wait for subproc resolved
-        });
-        const subproc = () =>
-            new Promise<void>((res, rej) => {
-                proc()
-                    .then((v) => {
-                        // Logger(`Lock:${key}:processed`, LOG_LEVEL.VERBOSE);
-                        handleNextProcs();
-                        responderRes(v);
-                        res();
-                    })
-                    .catch((reason) => {
-                        Logger(`Lock:${key}:rejected`, LOG_LEVEL.VERBOSE);
-                        handleNextProcs();
-                        rej(reason);
-                        responderRej(reason);
-                    });
-            });
 
-        pendingProcs[lockKey].push(subproc);
+export function getProcessingCounts() {
+    return locks.length;
+}
+
+async function lockRunner(key: string) {
+    let procs = locks.filter((e) => e.key == key && e.status == LOCK_WAITING);
+    while (procs.length != 0) {
+        const w = procs.shift();
+        if (!w) break;
+        w.status = LOCK_RUNNING;
         notifyLock();
-        // Logger(`Lock:${lockKey}:queud:left${pendingProcs[lockKey].length}`, LOG_LEVEL.VERBOSE);
-        return responder;
-    } else {
-        runningProcs.push(lockKey);
-        notifyLock();
-        // Logger(`Lock:${lockKey}:aqquired`, LOG_LEVEL.VERBOSE);
-        return new Promise((res, rej) => {
-            proc()
-                .then((v) => {
-                    handleNextProcs();
-                    res(v);
-                })
-                .catch((reason) => {
-                    handleNextProcs();
-                    rej(reason);
-                });
-        });
+        try {
+            await w.proc();
+        } catch (ex) {
+            Logger(`Lock:${key}:rejected `, LOG_LEVEL.VERBOSE);
+            Logger(ex, LOG_LEVEL.VERBOSE);
+        } finally {
+            w.status = LOCK_DONE;
+            notifyLock();
+        }
+        procs = locks.filter((e) => e.key == key && e.status == LOCK_WAITING);
     }
+    locks = locks.filter((e) => e.status != LOCK_DONE);
+}
+const nextProc = (key: string) => {
+    if (!locks.some((e) => e.key == key && (e.status == LOCK_RUNNING || e.status == LOCK_DONE))) {
+        lockRunner(key);
+    }
+};
+export function runWithLock<T>(key: string, ignoreWhenRunning: boolean, proc: () => Promise<T>): Promise<T> | null {
+    if (ignoreWhenRunning && locks.some((e) => e.key == key && e.status == LOCK_RUNNING)) {
+        return null;
+    }
+    return new Promise((pres, prej) => {
+        const wrappedTask = () =>
+            proc()
+                .then(pres)
+                .catch(prej)
+                .finally(() => {
+                    procObj.status = LOCK_DONE;
+                    nextProc(key);
+                });
+        const procObj: lockedEntry = { key, proc: wrappedTask, status: LOCK_WAITING };
+        locks.push(procObj);
+        notifyLock();
+        nextProc(key);
+    });
 }
 
 export class WrappedNotice {
