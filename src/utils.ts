@@ -1,4 +1,4 @@
-import { decrypt, encrypt } from "./e2ee";
+import { decrypt, encrypt } from "./e2ee_v2";
 import { Logger } from "./logger";
 import { EntryDoc, EntryLeaf, FLAGMD_REDFLAG, SYNCINFO_ID, LOG_LEVEL, MAX_DOC_SIZE } from "./types";
 
