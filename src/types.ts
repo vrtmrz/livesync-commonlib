@@ -162,12 +162,19 @@ export interface EntryVersionInfo extends DatabaseEntry {
     version: number;
 }
 
+export interface ChunkVersionRange {
+    min: number, //lower compatible chunk format version
+    max: number, //maximum compatible chunk format version.
+    current: number,//current chunk version.
+}
+
 export interface EntryMilestoneInfo extends DatabaseEntry {
     _id: typeof MILSTONE_DOCID;
     type: "milestoneinfo";
     created: number;
     accepted_nodes: string[];
     locked: boolean;
+    node_chunk_info: { [key: string]: ChunkVersionRange }
 }
 
 export interface EntryNodeInfo extends DatabaseEntry {
