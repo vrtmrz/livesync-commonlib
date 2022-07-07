@@ -132,7 +132,6 @@ export interface NewEntry extends DatabaseEntry {
     mtime: number;
     size: number;
     _conflicts?: string[];
-    NewNote: true;
     type: "newnote";
 }
 export interface PlainEntry extends DatabaseEntry {
@@ -141,8 +140,6 @@ export interface PlainEntry extends DatabaseEntry {
     ctime: number;
     mtime: number;
     size: number;
-
-    NewNote: true;
     _conflicts?: string[];
     type: "plain";
 }
