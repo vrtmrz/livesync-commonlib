@@ -47,6 +47,11 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     autoSweepPluginsPeriodic: boolean;
     notifyPluginOrSettingUpdated: boolean;
     skipOlderFilesOnSync: boolean;
+    syncInternalFiles: boolean;
+    syncInternalFilesBeforeReplication: boolean;
+    syncInternalFilesInterval: number;
+    syncInternalFilesIgnorePatterns: string;
+
 }
 
 export interface RemoteDBSettings {
@@ -110,6 +115,10 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     disableRequestURI: false,
     skipOlderFilesOnSync: true,
     checkConflictOnlyOnOpen: true,
+    syncInternalFiles: false,
+    syncInternalFilesBeforeReplication: false,
+    syncInternalFilesIgnorePatterns: "\\/node_modules\\/, \\/\\.git\\/",
+    syncInternalFilesInterval: 60
 };
 
 export interface DatabaseEntry {
