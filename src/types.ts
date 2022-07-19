@@ -117,7 +117,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     checkConflictOnlyOnOpen: true,
     syncInternalFiles: false,
     syncInternalFilesBeforeReplication: false,
-    syncInternalFilesIgnorePatterns: "\\/node_modules\\/, \\/\\.git\\/",
+    syncInternalFilesIgnorePatterns: "\\/node_modules\\/, \\/\\.git\\/, \\/obsidian-livesync\\/",
     syncInternalFilesInterval: 60
 };
 
@@ -125,41 +125,44 @@ export interface DatabaseEntry {
     _id: string;
     _rev?: string;
     _deleted?: boolean;
+    _conflicts?: string[];
 }
 
-export interface Entry extends DatabaseEntry {
-    data: string;
+export type Entry = DatabaseEntry & {
     ctime: number;
     mtime: number;
     size: number;
-    _conflicts?: string[];
-    type?: "notes";
 }
-export interface NewEntry extends DatabaseEntry {
+export type NoteEntry = Entry & {
+    data: string;
+    type: "notes";
+}
+
+export type NewEntry = Entry & {
+
     children: string[];
-    ctime: number;
-    mtime: number;
-    size: number;
-    _conflicts?: string[];
     type: "newnote";
 }
-export interface PlainEntry extends DatabaseEntry {
+export type PlainEntry = Entry & {
     children: string[];
-
-    ctime: number;
-    mtime: number;
-    size: number;
-    _conflicts?: string[];
     type: "plain";
 }
-export type LoadedEntry = Entry & {
-    children: string[];
+
+export type InternalFileEntry = NewEntry & {
+    deleted?: boolean;
+    // type: "newnote";
+}
+
+export type AnyEntry = NoteEntry | NewEntry | PlainEntry | InternalFileEntry;
+
+export type LoadedEntry = AnyEntry & {
+    data: string;
     datatype: "plain" | "newnote";
 };
 
-export interface EntryLeaf extends DatabaseEntry {
-    data: string;
+export type EntryLeaf = DatabaseEntry & {
     type: "leaf";
+    data: string;
     isCorrupted?: boolean;
 }
 
@@ -190,7 +193,8 @@ export interface EntryNodeInfo extends DatabaseEntry {
     v20220607?: boolean;
 }
 
-export type EntryBody = Entry | NewEntry | PlainEntry;
+export type EntryBody = NoteEntry | NewEntry | PlainEntry | InternalFileEntry;
+
 export type EntryDoc = EntryBody | LoadedEntry | EntryLeaf | EntryVersionInfo | EntryMilestoneInfo | EntryNodeInfo;
 
 export type diff_result_leaf = {
