@@ -70,6 +70,7 @@ export interface RemoteDBSettings {
     useHistory: boolean;
     disableRequestURI: boolean;
     checkConflictOnlyOnOpen: boolean;
+    additionalSuffixOfDatabaseName: string | null;
 }
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
@@ -118,7 +119,8 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     syncInternalFiles: false,
     syncInternalFilesBeforeReplication: false,
     syncInternalFilesIgnorePatterns: "\\/node_modules\\/, \\/\\.git\\/, \\/obsidian-livesync\\/",
-    syncInternalFilesInterval: 60
+    syncInternalFilesInterval: 60,
+    additionalSuffixOfDatabaseName: "",
 };
 
 export interface DatabaseEntry {
