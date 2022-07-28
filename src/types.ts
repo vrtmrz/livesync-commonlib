@@ -51,6 +51,7 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     syncInternalFilesBeforeReplication: boolean;
     syncInternalFilesInterval: number;
     syncInternalFilesIgnorePatterns: string;
+    lastReadUpdates: number;
 
 }
 
@@ -71,6 +72,8 @@ export interface RemoteDBSettings {
     disableRequestURI: boolean;
     checkConflictOnlyOnOpen: boolean;
     additionalSuffixOfDatabaseName: string | null;
+    ignoreVersionCheck: boolean;
+    deleteMetadataOfDeletedFiles: boolean;
 }
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
@@ -121,6 +124,9 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     syncInternalFilesIgnorePatterns: "\\/node_modules\\/, \\/\\.git\\/, \\/obsidian-livesync\\/",
     syncInternalFilesInterval: 60,
     additionalSuffixOfDatabaseName: "",
+    ignoreVersionCheck: false,
+    lastReadUpdates: 0,
+    deleteMetadataOfDeletedFiles: false,
 };
 
 export interface DatabaseEntry {
@@ -134,6 +140,7 @@ export type Entry = DatabaseEntry & {
     ctime: number;
     mtime: number;
     size: number;
+    deleted?: boolean;
 }
 export type NoteEntry = Entry & {
     data: string;
