@@ -74,6 +74,10 @@ export interface RemoteDBSettings {
     additionalSuffixOfDatabaseName: string | null;
     ignoreVersionCheck: boolean;
     deleteMetadataOfDeletedFiles: boolean;
+    syncOnlyRegEx: string;
+    syncIgnoreRegEx: string;
+    customChunkSize: number;
+    readChunksOnline: boolean;
 }
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
@@ -127,6 +131,10 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     ignoreVersionCheck: false,
     lastReadUpdates: 0,
     deleteMetadataOfDeletedFiles: false,
+    syncIgnoreRegEx: "",
+    syncOnlyRegEx: "",
+    customChunkSize: 0,
+    readChunksOnline: true,
 };
 
 export interface DatabaseEntry {
