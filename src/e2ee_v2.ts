@@ -1,5 +1,6 @@
 import { Logger } from "./logger";
 import { LOG_LEVEL } from "./types";
+//@ts-ignore
 import { webcrypto as crypto_ } from "crypto";
 
 let webcrypto: Crypto;
