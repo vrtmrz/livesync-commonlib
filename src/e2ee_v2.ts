@@ -40,8 +40,8 @@ export async function getKeyForEncrypt(passphrase: string): Promise<[CryptoKey, 
         }
         f.count--;
     }
-    const xpassphrase = new TextEncoder().encode(passphrase);
-    const digest = await webcrypto.subtle.digest({ name: "SHA-256" }, xpassphrase);
+    const passphraseBin = new TextEncoder().encode(passphrase);
+    const digest = await webcrypto.subtle.digest({ name: "SHA-256" }, passphraseBin);
     const keyMaterial = await webcrypto.subtle.importKey("raw", digest, { name: "PBKDF2" }, false, ["deriveKey"]);
     const salt = webcrypto.getRandomValues(new Uint8Array(16));
     const key = await webcrypto.subtle.deriveKey(
@@ -86,8 +86,8 @@ export async function getKeyForDecryption(passphrase: string, salt: Uint8Array):
         f.count = decKeyIdx;
         return [f.key, f.salt];
     }
-    const xpassphrase = new TextEncoder().encode(passphrase);
-    const digest = await webcrypto.subtle.digest({ name: "SHA-256" }, xpassphrase);
+    const passphraseBin = new TextEncoder().encode(passphrase);
+    const digest = await webcrypto.subtle.digest({ name: "SHA-256" }, passphraseBin);
     const keyMaterial = await webcrypto.subtle.importKey("raw", digest, { name: "PBKDF2" }, false, ["deriveKey"]);
     const key = await webcrypto.subtle.deriveKey(
         {
@@ -140,22 +140,22 @@ const btoa = typeof window !== "undefined" ? window.btoa : btoa_node;
 const atob = typeof window !== "undefined" ? window.atob : atob_node;
 
 
-const revmap: { [key: string]: number } = {};
-const nummap: { [key: number]: string } = {};
+const revMap: { [key: string]: number } = {};
+const numMap: { [key: number]: string } = {};
 for (let i = 0; i < 256; i++) {
-    revmap[(`00${i.toString(16)}`.slice(-2))] = i;
-    nummap[i] = (`00${i.toString(16)}`.slice(-2));
+    revMap[(`00${i.toString(16)}`.slice(-2))] = i;
+    numMap[i] = (`00${i.toString(16)}`.slice(-2));
 }
 function hexStringToUint8Array(src: string): Uint8Array {
     const len = src.length / 2;
     const ret = new Uint8Array(len);
     for (let i = 0; i < len; i++) {
-        ret[i] = revmap[src[i * 2] + src[i * 2 + 1]];
+        ret[i] = revMap[src[i * 2] + src[i * 2 + 1]];
     }
     return ret;
 }
 function uint8ArrayToHexString(src: Uint8Array): string {
-    return [...src].map(e => nummap[e]).join("");
+    return [...src].map(e => numMap[e]).join("");
 }
 
 // Safari's JavaScriptCOre hardcoded the argument limit to 65536
@@ -205,8 +205,8 @@ const readString = (buffer: Uint8Array) => {
     let string = "";
     while (index < end) {
         const chunk = [];
-        const cend = Math.min(index + QUANTUM, end);
-        while (index < cend) {
+        const cEnd = Math.min(index + QUANTUM, end);
+        while (index < cEnd) {
             const chr = buffer[index++];
             if (chr < 128) { // 1 byte
                 chunk.push(chr);
@@ -236,7 +236,7 @@ const readString = (buffer: Uint8Array) => {
 };
 
 
-function binaryTobinaryString(src: Uint8Array): string {
+function binaryToBinaryString(src: Uint8Array): string {
     const len = src.length;
     if (len < QUANTUM) return String.fromCharCode(...src);
     let ret = "";
@@ -251,7 +251,7 @@ function binaryTobinaryString(src: Uint8Array): string {
 
 export async function encrypt(input: string, passphrase: string) {
     const [key, salt] = await getKeyForEncrypt(passphrase);
-    // Create initial vector with semifixed part and incremental part
+    // Create initial vector with semi-fixed part and incremental part
     // I think it's not good against related-key attacks.
     const fixedPart = getSemiStaticField();
     const invocationPart = getNonce();
@@ -261,7 +261,7 @@ export async function encrypt(input: string, passphrase: string) {
     // const plainStringBuffer: Uint8Array = tex.encode(plainStringified)
     const plainStringBuffer: Uint8Array = writeString(plainStringified);
     const encryptedDataArrayBuffer: ArrayBuffer = await webcrypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plainStringBuffer);
-    const encryptedData2 = btoa(binaryTobinaryString(new Uint8Array(encryptedDataArrayBuffer)));
+    const encryptedData2 = btoa(binaryToBinaryString(new Uint8Array(encryptedDataArrayBuffer)));
     //return data with iv and salt.
     const ret = `["${encryptedData2}","${uint8ArrayToHexString(iv)}","${uint8ArrayToHexString(salt)}"]`;
     return ret;

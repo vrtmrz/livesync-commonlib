@@ -7,8 +7,8 @@ export function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
         const blob = new Blob([buffer], { type: "application/octet-binary" });
         const reader = new FileReader();
         reader.onload = function (evt) {
-            const dataurl = evt.target.result.toString();
-            res(dataurl.substr(dataurl.indexOf(",") + 1));
+            const dataURI = evt.target.result.toString();
+            res(dataURI.substr(dataURI.indexOf(",") + 1));
         };
         reader.readAsDataURL(blob);
     });
@@ -103,7 +103,7 @@ export const delay = (ms: number): Promise<void> => {
 };
 
 // For backward compatibility, using the path for determining id.
-// Only CouchDB nonacceptable ID (that starts with an underscore) has been prefixed with "/".
+// Only CouchDB unacceptable ID (that starts with an underscore) has been prefixed with "/".
 // The first slash will be deleted when the path is normalized.
 export function path2id_base(filename: string): string {
     let x = filename;
@@ -129,23 +129,23 @@ function notifyLock() {
     }, 100);
 }
 
-/// obsolute
+/// obsolete
 export function splitPieces(data: string, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, longLineThreshold: number) {
     return function* pieces(): Generator<string> {
         let cPieceSize = pieceSize;
         let leftData = data;
         do {
-            // To keep low bandwith and database size,
-            // Dedup pieces on database.
+            // To keep low bandwidth and database size,
+            // Dedupe pieces on database.
             // from 0.1.10, for best performance. we use markdown delimiters
-            // 1. \n[^\n]{longLineThreshold}[^\n]*\n -> long sentence shuld break.
-            // 2. \n\n shold break
+            // 1. \n[^\n]{longLineThreshold}[^\n]*\n -> long sentence should break.
+            // 2. \n\n should break
             // 3. \r\n\r\n should break
             // 4. \n# should break.
 
             if (plainSplit) {
                 cPieceSize = 0;
-                // lookup for next splittion .
+                // lookup for next splitting point.
                 // we're standing on "\n"
                 do {
                     const n1 = leftData.indexOf("\n", cPieceSize + 1);
@@ -202,7 +202,7 @@ export function splitPieces2(data: string, pieceSize: number, plainSplit: boolea
                         buffer = buffer.substring(pieceSize);
                     } while (buffer != "");
                 }
-                // orelse, concat the piece into buffer;
+                // or else, concat the piece into buffer;
             } while (leftLen > 0);
         } else {
             let leftData = data;
@@ -215,7 +215,7 @@ export function splitPieces2(data: string, pieceSize: number, plainSplit: boolea
     };
 }
 
-// Just run async/await as like transacion ISOLATION SERIALIZABLE
+// Just run async/await as like transaction ISOLATION SERIALIZABLE
 const LOCK_WAITING = 0;
 const LOCK_RUNNING = 1;
 const LOCK_DONE = 2;
@@ -238,9 +238,9 @@ export function getProcessingCountsOld() {
 }
 
 async function lockRunner(key: string) {
-    let procs = locks.filter((e) => e.key == key && e.status == LOCK_WAITING);
-    while (procs.length != 0) {
-        const w = procs.shift();
+    let processes = locks.filter((e) => e.key == key && e.status == LOCK_WAITING);
+    while (processes.length != 0) {
+        const w = processes.shift();
         if (!w) break;
         w.status = LOCK_RUNNING;
         notifyLock();
@@ -253,7 +253,7 @@ async function lockRunner(key: string) {
             w.status = LOCK_DONE;
             notifyLock();
         }
-        procs = locks.filter((e) => e.key == key && e.status == LOCK_WAITING);
+        processes = locks.filter((e) => e.key == key && e.status == LOCK_WAITING);
     }
     locks = locks.filter((e) => e.status != LOCK_DONE);
 }
@@ -266,11 +266,11 @@ export function runWithLockOld<T>(key: string, ignoreWhenRunning: boolean, proc:
     if (ignoreWhenRunning && locks.some((e) => e.key == key && e.status == LOCK_RUNNING)) {
         return null;
     }
-    return new Promise((pres, prej) => {
+    return new Promise((pRes, pRej) => {
         const wrappedTask = () =>
             proc()
-                .then(pres)
-                .catch(prej)
+                .then(pRes)
+                .catch(pRej)
                 .finally(() => {
                     procObj.status = LOCK_DONE;
                     nextProc(key);
@@ -336,9 +336,9 @@ export const Parallels = (ps = new Set<Promise<unknown>>()) => ({
     wait: (limit: number) => ps.size >= limit && Promise.race(ps),
     all: () => Promise.all(ps),
 });
-export async function allSettledWithConcurrencyLimit<T>(procs: Promise<T>[], limit: number) {
+export async function allSettledWithConcurrencyLimit<T>(processes: Promise<T>[], limit: number) {
     const ps = Parallels();
-    for (const proc of procs) {
+    for (const proc of processes) {
         ps.add(proc);
         await ps.wait(limit);
     }
