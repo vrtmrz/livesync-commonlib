@@ -115,7 +115,7 @@ export function id2path_base(filename: string): string {
     return filename;
 }
 
-let externalNotifier: () => void = () => {};
+let externalNotifier: () => void = () => { };
 let notifyTimer: number | NodeJS.Timeout = null;
 export function setLockNotifier(fn: () => void) {
     externalNotifier = fn;
@@ -226,14 +226,14 @@ interface lockedEntry {
     status: 0 | 1 | 2;
 }
 let locks: lockedEntry[] = [];
-export function getLocks() {
+export function getLocksOld() {
     return {
         pending: locks.filter((e) => e.status == LOCK_WAITING).map((e) => e.key),
         running: locks.filter((e) => e.status == LOCK_RUNNING).map((e) => e.key),
     };
 }
 
-export function getProcessingCounts() {
+export function getProcessingCountsOld() {
     return locks.length;
 }
 
@@ -262,7 +262,7 @@ const nextProc = (key: string) => {
         lockRunner(key);
     }
 };
-export function runWithLock<T>(key: string, ignoreWhenRunning: boolean, proc: () => Promise<T>): Promise<T> | null {
+export function runWithLockOld<T>(key: string, ignoreWhenRunning: boolean, proc: () => Promise<T>): Promise<T> | null {
     if (ignoreWhenRunning && locks.some((e) => e.key == key && e.status == LOCK_RUNNING)) {
         return null;
     }
@@ -304,7 +304,7 @@ export class WrappedNotice {
         return this;
     }
 
-    hide(): void {}
+    hide(): void { }
 }
 let _notice = WrappedNotice;
 
@@ -342,7 +342,7 @@ export async function allSettledWithConcurrencyLimit<T>(procs: Promise<T>[], lim
         ps.add(proc);
         await ps.wait(limit);
     }
-    (await ps.all()).forEach(() => {});
+    (await ps.all()).forEach(() => { });
 }
 
 // requires transform-pouch
@@ -391,3 +391,179 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
         },
     });
 };
+
+
+type QueueNotifier = {
+    key: string;
+    notify: (result: boolean) => void;
+    semaphoreStopper: Promise<SemaphoreReleaser | false>;
+    quantity: number;
+    memo?: string;
+    state: "NONE" | "RUNNING" | "DONE";
+    timer?: ReturnType<typeof setTimeout>;
+}
+type SemaphoreReleaser = () => void;
+function makeUniqueString() {
+    const randomStrSrc = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    const temp = [...Array(30)]
+        .map(() => Math.floor(Math.random() * randomStrSrc.length))
+        .map((e) => randomStrSrc[e])
+        .join("");
+    return `${Date.now()}-${temp}`;
+}
+type SemaphoreObject = {
+    _acquire(quantity: number, memo: string, timeout: number): Promise<SemaphoreReleaser | false>;
+    acquire(quantity?: number, memo?: string): Promise<SemaphoreReleaser>;
+    tryAcquire(quantity: number | undefined, timeout: number, memo?: string): Promise<SemaphoreReleaser | false>;
+    peekQueues(): QueueNotifier[];
+
+}
+/**
+ * Semaphore handling lib.
+ * @param limit Maximum number that can be acquired.
+ * @returns Instance of SemaphoreObject
+ */
+export function Semaphore(limit: number, onRelease?: (currentQueue: QueueNotifier[]) => Promise<void> | void): SemaphoreObject {
+    const _limit = limit;
+
+    let currentProcesses = 0;
+    let queue: QueueNotifier[] = [];
+    /**
+     * Semaphore processing pump
+     */
+    function execProcess() {
+        //Delete already finished 
+        queue = queue.filter(e => e.state != "DONE");
+
+        // acquiring semaphore by order
+        for (const queueItem of queue) {
+            if (queueItem.state != "NONE") continue;
+            if (queueItem.quantity + currentProcesses > _limit) {
+                break;
+            }
+            queueItem.state = "RUNNING";
+            currentProcesses += queueItem.quantity;
+            if (queueItem?.timer) {
+                clearTimeout(queueItem.timer);
+            }
+            queueItem.notify(true);
+        }
+    }
+
+    /**
+     * Mark DONE.
+     * @param key 
+     */
+    function release(key: string) {
+        const finishedTask = queue.find(e => e.key == key);
+        if (!finishedTask) {
+            throw new Error("Missing locked semaphore!");
+        }
+
+        if (finishedTask.state == "RUNNING") {
+            currentProcesses -= finishedTask.quantity;
+        }
+        finishedTask.state = "DONE";
+        if (onRelease) onRelease(queue.filter(e => e.state != "DONE"));
+        execProcess();
+    }
+    return {
+        _acquire(quantity: number, memo: string, timeout: number): Promise<SemaphoreReleaser | false> {
+            const key = makeUniqueString();
+            if (_limit < quantity) {
+                throw Error("Too big quantity");
+            }
+
+            // function for notify
+            // When we call this function, semaphore acquired by resolving promise.
+            // (Or, notify acquiring is timed out.)
+            let notify = (_: boolean) => { };
+            const semaphoreStopper = new Promise<SemaphoreReleaser | false>(res => {
+                notify = (result: boolean) => {
+                    if (result) {
+                        res(() => { release(key) })
+                    } else {
+                        res(false);
+                    }
+                }
+            })
+            const notifier: QueueNotifier = {
+                key,
+                notify,
+                semaphoreStopper,
+                quantity,
+                memo,
+                state: "NONE"
+            }
+            if (timeout) notifier.timer = setTimeout(() => {
+                // If acquiring is timed out, clear queue and notify failed.
+                release(key);
+                notify(false);
+            }, timeout)
+
+            // Push into the queue once.
+            queue.push(notifier);
+
+            //Execute loop
+            execProcess();
+
+            //returning Promise
+            return semaphoreStopper;
+        },
+        acquire(quantity = 1, memo?: string): Promise<SemaphoreReleaser> {
+            return this._acquire(quantity, memo ?? "", 0) as Promise<SemaphoreReleaser>;
+        },
+        tryAcquire(quantity = 1, timeout: number, memo?: string,): Promise<SemaphoreReleaser | false> {
+            return this._acquire(quantity, memo ?? "", timeout)
+        },
+        peekQueues() {
+            return queue;
+        }
+    }
+}
+
+const Mutexes = {} as { [key: string]: SemaphoreObject }
+
+export function getLocks() {
+    const allLocks = [...Object.values(Mutexes).map(e => e.peekQueues())].flat();
+    return {
+        pending: allLocks.filter((e) => e.state == "NONE").map((e) => e.memo),
+        running: allLocks.filter((e) => e.state == "RUNNING").map((e) => e.memo),
+    };
+}
+
+export function getProcessingCounts() {
+    return [...Object.values(Mutexes).map(e => e.peekQueues())].flat().length;
+}
+
+let semaphoreReleasedCount = 0;
+export async function runWithLock<T>(key: string, ignoreWhenRunning: boolean, proc: () => Promise<T>): Promise<T> | null {
+
+    if (semaphoreReleasedCount > 200) {
+        const deleteKeys = [] as string[];
+        for (const key in Mutexes) {
+            if (Mutexes[key].peekQueues().length == 0) {
+                deleteKeys.push(key);
+            }
+        }
+        for (const key of deleteKeys) {
+            delete Mutexes[key];
+        }
+        semaphoreReleasedCount = 0;
+    }
+    if (!(key in Mutexes)) {
+        Mutexes[key] = Semaphore(1, (queue => {
+            if (queue.length == 0) semaphoreReleasedCount++;
+        }));
+    }
+
+    const timeout = ignoreWhenRunning ? 1 : 0;
+    const releaser = await Mutexes[key].tryAcquire(1, timeout, key);
+    if (!releaser) return null;
+    try {
+        await proc();
+    } finally {
+        releaser();
+    }
+
+}
