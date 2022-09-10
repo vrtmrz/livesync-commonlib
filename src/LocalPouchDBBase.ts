@@ -763,15 +763,6 @@ export abstract class LocalPouchDBBase {
                 if (typeof this.corruptedEntries[note._id] != "undefined") {
                     delete this.corruptedEntries[note._id];
                 }
-                if (this.settings.checkIntegrityOnSave) {
-                    if (!this.sanCheck(await this.localDatabase.get(r.id))) {
-                        Logger("note save failed!", LOG_LEVEL.NOTICE);
-                    } else {
-                        Logger(`note has been surely saved:${newDoc._id}:${r.rev}`);
-                    }
-                } else {
-                    Logger(`note saved:${newDoc._id}:${r.rev}`);
-                }
             });
         } else {
             Logger(`note could not saved:${note._id}`);
@@ -1171,7 +1162,7 @@ export abstract class LocalPouchDBBase {
         const oldDB = await this.isOldDatabaseExists();
         if (oldDB) {
             oldDB.destroy();
-            Logger("Deleted! Please re-launch obsidian.", LOG_LEVEL.NOTICE);
+            Logger("Deleted!", LOG_LEVEL.NOTICE);
         } else {
             Logger("Old database is not exist.", LOG_LEVEL.NOTICE);
         }
@@ -1285,62 +1276,6 @@ export abstract class LocalPouchDBBase {
             }
         }
         return false;
-    }
-
-    garbageCheck() {
-        Logger(`Checking garbages`, LOG_LEVEL.NOTICE, "gc");
-        let docNum = 0;
-        const chunks = new Map<string, Set<string>>();
-        this.localDatabase
-            .changes({
-                since: 0,
-                include_docs: true,
-                return_docs: false,
-                style: "all_docs",
-                // selector:
-            })
-            .on("change", (e) => {
-                if (e.id.startsWith("h:")) {
-                    const chunk = e.id;
-                    let c = chunks.get(chunk);
-                    if (c == null) c = new Set<string>();
-                    chunks.set(chunk, c);
-                } else if ("children" in e.doc) {
-                    docNum++;
-                    if (docNum % 100 == 0) Logger(`Processing ${docNum}`, LOG_LEVEL.NOTICE, "gc");
-                    if (!e.deleted) {
-                        for (const chunk of e.doc.children) {
-                            let c = chunks.get(chunk);
-                            if (c == null) c = new Set<string>();
-                            c.add(e.id);
-                            chunks.set(chunk, c);
-                        }
-                    } else {
-                        for (const chunk of e.doc.children) {
-                            let c = chunks.get(chunk);
-                            if (c == null) c = new Set<string>();
-                            c.delete(e.id);
-                            chunks.set(chunk, c);
-                        }
-                    }
-                }
-            })
-            .on("complete", (v) => {
-                // console.dir(chunks);
-
-                let alive = 0;
-                let unreachable = 0;
-                for (const chunk of chunks) {
-                    const items = chunk[1];
-                    if (items.size == 0) {
-                        unreachable++;
-                    } else {
-                        alive++;
-                    }
-                }
-                Logger(`Garbage checking completed, documents:${docNum}. Used chunks:${alive}, Retained chunks:${unreachable}. Retained chunks will be reused, but you can rebuild database if you feel there are too much.`, LOG_LEVEL.NOTICE, "gc");
-            });
-        return;
     }
 
     isVersionUpgradable(ver: number) {
