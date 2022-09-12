@@ -561,7 +561,7 @@ export async function runWithLock<T>(key: string, ignoreWhenRunning: boolean, pr
     const releaser = await Mutexes[key].tryAcquire(1, timeout, key);
     if (!releaser) return null;
     try {
-        await proc();
+        return await proc();
     } finally {
         releaser();
     }
