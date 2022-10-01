@@ -1299,14 +1299,82 @@ export abstract class LocalPouchDBBase {
         return true;
     }
 
-    // Collect chunks from both local and remote.
+    collectThrottleTimeout: ReturnType<typeof setTimeout> = null;
+    collectThrottleQueuedIds = [] as string[];
+
+    // It is no de-javu.
+    chunkCollectedCallbacks: { [key: string]: ((chunk: EntryLeaf) => void)[] } = {};
+    chunkCollected(chunk: EntryLeaf) {
+        const id = chunk._id;
+        // Pull the hooks.
+        // (One id will pull some hooks)
+        if (typeof this.chunkCollectedCallbacks[id] !== "undefined") {
+            for (const func of this.chunkCollectedCallbacks[id]) {
+                func(chunk);
+            }
+            delete this.chunkCollectedCallbacks[id];
+        } else {
+            Logger(`Collected handler of ${id} is missing, it might be error but perhaps it already timed out.`, LOG_LEVEL.VERBOSE);
+        }
+    }
     async CollectChunks(ids: string[], showResult = false) {
+        // If single or first of continuous, process simply for performance.
+        const timeoutLimit = 333; // three requests per second as maximum
+        if (this.collectThrottleTimeout == null) {
+            this.collectThrottleTimeout = setTimeout(async () => {
+                this.collectThrottleTimeout = null;
+                await this.execCollect()
+            }, timeoutLimit);
+            return this.CollectChunksInternal(ids, showResult);
+        }
+        // Queue chunks for batch request.
+        this.collectThrottleQueuedIds = [...new Set([...this.collectThrottleQueuedIds, ...ids])];
+        if (this.collectThrottleQueuedIds.length > 50) {
+            clearTimeout(this.collectThrottleTimeout);
+            this.collectThrottleTimeout = setTimeout(async () => {
+                this.collectThrottleTimeout = null;
+                await this.execCollect()
+            }, timeoutLimit);
+        }
+        const promises = ids.map(id => new Promise<EntryLeaf>((res, rej) => {
+            // Set timeout.
+            const timer = setTimeout(() => rej(new Error(`Chunk reading timed out on batch:${id}`)), LEAF_WAIT_TIMEOUT);
+            // Lay the hook that be pulled when chunks are incoming.
+            if (typeof this.chunkCollectedCallbacks[id] == "undefined") {
+                this.chunkCollectedCallbacks[id] = [];
+            }
+            this.chunkCollectedCallbacks[id].push((chunk) => {
+                clearTimeout(timer);
+                res(chunk);
+            });
+        }));
+        // And wait for the chunks are really incoming.
+        // note: failed only when timed out. but also if error happen, it should be timed out finally.
+        const res = await Promise.all(promises);
+        return res;
+    }
+    async execCollect() {
+        const requesting = [...this.collectThrottleQueuedIds];
+        this.collectThrottleQueuedIds = [];
+        const chunks = await this.CollectChunksInternal(requesting, false);
+        if (!chunks) {
+            // TODO: need more explicit message. 
+            Logger(`Could not retrieve chunks`, LOG_LEVEL.NOTICE);
+            return;
+        }
+        for (const chunk of chunks) {
+            this.chunkCollected(chunk);
+        }
+    }
+
+    // Collect chunks from both local and remote.
+    async CollectChunksInternal(ids: string[], showResult = false): Promise<false | EntryLeaf[]> {
         // Fetch local chunks.
         const localChunks = await this.localDatabase.allDocs({ keys: ids, include_docs: true });
         const missingChunks = localChunks.rows.filter(e => "error" in e).map(e => e.key);
         // If we have enough chunks, return them.
         if (missingChunks.length == 0) {
-            return localChunks.rows.map(e => e.doc);
+            return localChunks.rows.map(e => e.doc) as EntryLeaf[];
         }
 
         // Fetching remote chunks.
