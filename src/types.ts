@@ -52,6 +52,7 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     syncInternalFilesInterval: number;
     syncInternalFilesIgnorePatterns: string;
     lastReadUpdates: number;
+    watchInternalFileChanges: boolean;
 
 }
 
@@ -135,6 +136,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     syncOnlyRegEx: "",
     customChunkSize: 0,
     readChunksOnline: true,
+    watchInternalFileChanges: true,
 };
 
 export interface DatabaseEntry {
