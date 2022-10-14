@@ -564,6 +564,7 @@ export async function runWithLock<T>(key: string, ignoreWhenRunning: boolean, pr
         return await proc();
     } finally {
         releaser();
+        notifyLock();
     }
 
 }
