@@ -8,7 +8,10 @@ export const isValidRemoteCouchDBURI = (uri: string): boolean => {
     return false;
 };
 
-
+export function isCloudantURI(uri: string): boolean {
+    if (uri.indexOf(".cloudantnosqldb.") !== -1 || uri.indexOf(".cloudant.com")) return true;
+    return false;
+}
 // check the version of remote.
 // if remote is higher than current(or specified) version, return false.
 export const checkRemoteVersion = async (db: PouchDB.Database, migrate: (from: number, to: number) => Promise<boolean>, barrier: number = VER): Promise<boolean> => {
