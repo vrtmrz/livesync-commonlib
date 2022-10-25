@@ -9,7 +9,7 @@ export const isValidRemoteCouchDBURI = (uri: string): boolean => {
 };
 
 export function isCloudantURI(uri: string): boolean {
-    if (uri.indexOf(".cloudantnosqldb.") !== -1 || uri.indexOf(".cloudant.com")) return true;
+    if (uri.indexOf(".cloudantnosqldb.") !== -1 || uri.indexOf(".cloudant.com") !== -1) return true;
     return false;
 }
 // check the version of remote.
