@@ -79,6 +79,7 @@ export interface RemoteDBSettings {
     syncIgnoreRegEx: string;
     customChunkSize: number;
     readChunksOnline: boolean;
+    automaticallyDeleteMetadataOfDeletedFiles: number;
 }
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
@@ -137,6 +138,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     customChunkSize: 0,
     readChunksOnline: true,
     watchInternalFileChanges: true,
+    automaticallyDeleteMetadataOfDeletedFiles: 0,
 };
 
 export interface DatabaseEntry {
@@ -221,6 +223,7 @@ export type diff_result_leaf = {
     data: string;
     ctime: number;
     mtime: number;
+    deleted?: boolean;
 };
 export type dmp_result = Array<[number, string]>;
 
