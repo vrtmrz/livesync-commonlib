@@ -631,13 +631,12 @@ export abstract class LocalPouchDBBase {
         let plainSplit = false;
         let cacheUsed = 0;
         const userPasswordHash = this.h32Raw(new TextEncoder().encode(this.settings.passphrase));
+        const minimumChunkSize = this.settings.minimumChunkSize;
         if (!saveAsBigChunk && shouldSplitAsPlainText(note._id)) {
             pieceSize = MAX_DOC_SIZE;
             plainSplit = true;
         }
 
-        const minimumChunkSize = Math.min(Math.max(40, ~~(note.data.length / 100)), maxChunkSize);
-        if (pieceSize < minimumChunkSize) pieceSize = minimumChunkSize;
         const newLeafs: EntryLeaf[] = [];
 
         const pieces = splitPieces2(note.data, pieceSize, plainSplit, minimumChunkSize, 0);
@@ -1055,10 +1054,14 @@ export abstract class LocalPouchDBBase {
                     thisCallback(e);
                 }
             })
-            .on("error", (e) => {
+            .on("error", (e: any) => {
                 this.replicationErrored(e);
                 Logger("Replication stopped.", showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO, "sync");
                 if (this.getLastPostFailedBySize()) {
+                    if ("status" in e && e.status == 413) {
+                        Logger(`Self-hosted LiveSync has detected some remote-database-incompatible chunks that exist in the local database. It means synchronization with the server had been no longer possible.\n\nThe problem may be caused by chunks that were created with the faulty version or by switching platforms of the database.\nTo solve the circumstance, configure the remote database correctly or we have to rebuild both local and remote databases.`, LOG_LEVEL.NOTICE);
+                        return;
+                    }
                     // Duplicate settings for smaller batch.
                     const tempSetting: RemoteDBSettings = JSON.parse(JSON.stringify(setting));
                     tempSetting.batch_size = Math.ceil(tempSetting.batch_size / 2) + 2;
