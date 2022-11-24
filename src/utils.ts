@@ -198,8 +198,13 @@ export function splitPieces2(data: string, pieceSize: number, plainSplit: boolea
                 if (buffer.length >= minimumChunkSize || leftData.length == 0 || leftData[0] == "#" || buffer[0] == "#") {
                     do {
                         // split to within maximum pieceSize
-                        yield buffer.substring(0, pieceSize);
-                        buffer = buffer.substring(pieceSize);
+                        let ps = pieceSize;
+                        if (buffer.charCodeAt(ps - 1) != buffer.codePointAt(ps - 1)) {
+                            // If the char at the end of the chunk has been part of the surrogate pair, grow the piece size a bit.
+                            ps++;
+                        }
+                        yield buffer.substring(0, ps);
+                        buffer = buffer.substring(ps);
                     } while (buffer != "");
                 }
                 // or else, concat the piece into buffer;
