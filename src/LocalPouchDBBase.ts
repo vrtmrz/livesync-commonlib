@@ -627,99 +627,98 @@ export abstract class LocalPouchDBBase {
         let made = 0;
         let skipped = 0;
         const maxChunkSize = MAX_DOC_SIZE_BIN * Math.max(this.settings.customChunkSize, 1);
-        let pieceSize = maxChunkSize;
+        const pieceSize = maxChunkSize;
         let plainSplit = false;
         let cacheUsed = 0;
         const userPasswordHash = this.h32Raw(new TextEncoder().encode(this.settings.passphrase));
         const minimumChunkSize = this.settings.minimumChunkSize;
         if (!saveAsBigChunk && shouldSplitAsPlainText(note._id)) {
-            pieceSize = MAX_DOC_SIZE;
+            // pieceSize = MAX_DOC_SIZE;
             plainSplit = true;
         }
 
         const newLeafs: EntryLeaf[] = [];
 
         const pieces = splitPieces2(note.data, pieceSize, plainSplit, minimumChunkSize, 0);
+        const currentDocPiece = new Map<string, string>();
+        let saved = true;
         for (const piece of pieces()) {
             processed++;
             let leafId = "";
             // Get hash of piece.
             let hashedPiece = "";
-            let hashQ = 0; // if hash collided, **IF**, count it up.
-            let tryNextHash = false;
-            let needMake = true;
             const cache = this.hashCaches.get(piece);
             if (cache) {
                 hashedPiece = "";
                 leafId = cache;
-                needMake = false;
                 skipped++;
                 cacheUsed++;
+                currentDocPiece.set(leafId, piece);
             } else {
                 if (this.settings.encrypt) {
                     // When encryption has been enabled, make hash to be different between each passphrase to avoid inferring password.
-                    hashedPiece = "+" + (this.h32Raw(new TextEncoder().encode(piece)) ^ userPasswordHash).toString(16);
+                    hashedPiece = "+" + (this.h32Raw(new TextEncoder().encode(piece)) ^ userPasswordHash ^ piece.length).toString(36);
                 } else {
-                    hashedPiece = this.h32(piece);
+                    hashedPiece = (this.h32Raw(new TextEncoder().encode(piece)) ^ piece.length).toString(36);
                 }
                 leafId = "h:" + hashedPiece;
-                do {
-                    let newLeafId = leafId;
-                    try {
-                        newLeafId = `${leafId}${hashQ}`;
-                        const pieceData = await this.localDatabase.get<EntryLeaf>(newLeafId);
-                        if (pieceData.type == "leaf" && pieceData.data == piece) {
-                            leafId = newLeafId;
-                            needMake = false;
-                            tryNextHash = false;
-                            this.hashCaches.set(piece, leafId);
-                        } else if (pieceData.type == "leaf") {
-                            Logger("hash:collision!!");
-                            hashQ++;
-                            tryNextHash = true;
-                        } else {
-                            leafId = newLeafId;
-                            tryNextHash = false;
-                        }
-                    } catch (ex) {
-                        if (ex.status && ex.status == 404) {
-                            //not found, we can use it.
-                            leafId = newLeafId;
-                            needMake = true;
-                            tryNextHash = false;
-                        } else {
-                            needMake = false;
-                            tryNextHash = false;
-                            throw ex;
-                        }
-                    }
-                } while (tryNextHash);
-                if (needMake) {
-                    //have to make
-                    const savePiece = piece;
-
-                    const d: EntryLeaf = {
-                        _id: leafId,
-                        data: savePiece,
-                        type: "leaf",
-                    };
-                    newLeafs.push(d);
-                    this.hashCaches.set(piece, leafId);
-                    made++;
-                } else {
-                    skipped++;
+            }
+            if (currentDocPiece.has(leafId)) {
+                if (currentDocPiece.get(leafId) != piece) {
+                    // conflicted
+                    // I realise that avoiding chunk name collisions is pointless here.
+                    // After replication, we will have conflicted chunks.
+                    Logger(`Hash collided! If possible, please report the following string\nA:--${currentDocPiece.get(leafId)}--\nB:--${piece}--`, LOG_LEVEL.NOTICE);
+                    Logger(`This document could not be saved:${note._id}`, LOG_LEVEL.NOTICE);
+                    saved = false;
                 }
+            } else {
+                currentDocPiece.set(leafId, piece);
             }
             savedNotes.push(leafId);
         }
-        let saved = true;
+        const newChunkIds = [...currentDocPiece.keys()];
+        do {
+            const procChunks = newChunkIds.splice(0, 100);
+            if (procChunks.length > 0) {
+                const existChunks = await this.localDatabase.allDocs({ keys: [...procChunks], include_docs: true });
+                for (const chunk of existChunks.rows) {
+                    if ("error" in chunk && (chunk as unknown as any).error == "not_found") {
+                        const d: EntryLeaf = {
+                            _id: chunk.key,
+                            data: currentDocPiece.get(chunk.key),
+                            type: "leaf",
+                        };
+                        newLeafs.push(d);
+                    } else if ("error" in chunk) {
+                        Logger("Saving chunk failed:" + (chunk as unknown as any).error);
+                    } else {
+                        const pieceData = chunk.doc;
+                        if (pieceData.type == "leaf" && pieceData.data == currentDocPiece.get(chunk.key)) {
+                            skipped++;
+                        } else if (pieceData.type == "leaf") {
+                            Logger(`Hash collided on saving! If possible, please report the following string\nA:--${currentDocPiece.get(chunk.key)}--\nB:--${pieceData}--`, LOG_LEVEL.NOTICE);
+                            Logger(`This document could not be saved:${note._id}`, LOG_LEVEL.NOTICE);
+                            saved = false;
+                        }
+                    }
+                }
+            }
+        } while (newChunkIds.length > 0);
+
+
         if (newLeafs.length > 0) {
             try {
                 const result = await this.localDatabase.bulkDocs(newLeafs);
                 for (const item of result) {
-                    if (!(item as any).ok) {
+                    if ((item as any).ok) {
+                        this.hashCaches.set(item.id, currentDocPiece.get(item.id));
+                        made++;
+                    } else {
                         if ((item as any).status && (item as any).status == 409) {
                             // conflicted, but it would be ok in children.
+                            this.hashCaches.set(item.id, currentDocPiece.get(item.id));
+                            skipped++
                         } else {
                             Logger(`Save failed:id:${item.id} rev:${item.rev}`, LOG_LEVEL.NOTICE);
                             Logger(item);

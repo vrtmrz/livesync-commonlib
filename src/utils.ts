@@ -180,35 +180,74 @@ export function splitPieces(data: string, pieceSize: number, plainSplit: boolean
         } while (leftData != "");
     };
 }
+function* pickPiece(leftData: string[], minimumChunkSize: number): Generator<string> {
+    let buffer = "";
+    L1:
+    do {
+        const curLine = leftData.shift();
+        if (typeof (curLine) === "undefined") {
+            yield buffer;
+            break L1;
+        }
+
+        // Do not use regexp for performance.
+        if (curLine.startsWith("```") || curLine.startsWith(" ```") || curLine.startsWith("  ```") || curLine.startsWith("   ```")) {
+            yield buffer;
+            buffer = curLine + (leftData.length != 0 ? "\n" : "");
+            L2:
+            do {
+                const curPx = leftData.shift();
+                if (typeof (curPx) === "undefined") {
+                    break L2;
+                }
+                buffer += curPx + (leftData.length != 0 ? "\n" : "");
+            } while (leftData.length > 0 && !(leftData[0].startsWith("```") || leftData[0].startsWith(" ```") || leftData[0].startsWith("  ```") || leftData[0].startsWith("   ```")));
+            const isLooksLikeBASE64 = buffer.endsWith("=");
+            const maybeUneditable = buffer.length > 2048;
+            // concat code block end mark
+            const endOfCodeBlock = leftData.shift();
+            if (typeof (endOfCodeBlock) !== "undefined") {
+                buffer += endOfCodeBlock;
+                buffer += (leftData.length != 0 ? "\n" : "");
+            }
+            if (!isLooksLikeBASE64 && !maybeUneditable) {
+                const splitExpr = /(.*?[;,:<])/g;
+                const sx = buffer.split(splitExpr).filter(e => e != '');
+                for (const v of sx) {
+                    yield v;
+                }
+            } else {
+                yield buffer;
+            }
+            buffer = "";
+        } else {
+            buffer += curLine + (leftData.length != 0 ? "\n" : "");
+            if (buffer.length >= minimumChunkSize || leftData.length == 0 || leftData[0] == "#" || buffer[0] == "#") {
+                yield buffer;
+                buffer = "";
+            }
+        }
+    } while (leftData.length > 0);
+}
+// Split string into pieces within specific lengths (characters).
 export function splitPieces2(data: string, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, longLineThreshold: number) {
     return function* pieces(): Generator<string> {
         if (plainSplit) {
             const leftData = data.split("\n"); //use memory
-            let buffer = "";
-            let leftLen = 0;
-            do {
-                buffer += leftData.shift();
-                leftLen = leftData.length;
-                if (leftLen > 0) buffer += "\n";
-                // In the cases of below: send chunk.
-                // - Buffer became longer than minimum chunk size,
-                // - At the tail of data.
-                // - Next line is header.
-                // - Current line is header.
-                if (buffer.length >= minimumChunkSize || leftData.length == 0 || leftData[0] == "#" || buffer[0] == "#") {
-                    do {
-                        // split to within maximum pieceSize
-                        let ps = pieceSize;
-                        if (buffer.charCodeAt(ps - 1) != buffer.codePointAt(ps - 1)) {
-                            // If the char at the end of the chunk has been part of the surrogate pair, grow the piece size a bit.
-                            ps++;
-                        }
-                        yield buffer.substring(0, ps);
-                        buffer = buffer.substring(ps);
-                    } while (buffer != "");
-                }
-                // or else, concat the piece into buffer;
-            } while (leftLen > 0);
+            const f = pickPiece(leftData, minimumChunkSize);
+            for (const piece of f) {
+                let buffer = piece;
+                do {
+                    // split to within maximum pieceSize
+                    let ps = pieceSize;
+                    if (buffer.charCodeAt(ps - 1) != buffer.codePointAt(ps - 1)) {
+                        // If the char at the end of the chunk has been part of the surrogate pair, grow the piece size a bit.
+                        ps++;
+                    }
+                    yield buffer.substring(0, ps);
+                    buffer = buffer.substring(ps);
+                } while (buffer != "");
+            }
         } else {
             let leftData = data;
             do {
