@@ -4,7 +4,6 @@ export class LRUCache {
     maxCache = 100;
     constructor() { }
     get(key: string) {
-        // debugger
         const v = this.cache.get(key);
 
         if (v) {
@@ -17,7 +16,6 @@ export class LRUCache {
         return v;
     }
     revGet(value: string) {
-        // debugger
         const key = this.revCache.get(value);
         if (value) {
             // update the key to recently used.
