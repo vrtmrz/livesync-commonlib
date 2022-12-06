@@ -3,33 +3,27 @@
 //
 import xxhash from "xxhash-wasm";
 import {
-    Entry,
     EntryDoc,
-    EntryDocResponse,
     EntryLeaf,
     EntryNodeInfo,
-    NewEntry,
-    PlainEntry,
     LoadedEntry,
     Credential,
     EntryMilestoneInfo,
     LOG_LEVEL,
     LEAF_WAIT_TIMEOUT,
-    MAX_DOC_SIZE,
-    MAX_DOC_SIZE_BIN,
     NODEINFO_DOCID,
     VER,
     MILSTONE_DOCID,
     DatabaseConnectingStatus,
     ChunkVersionRange,
-    NoteEntry,
 } from "./types.js";
 import { RemoteDBSettings } from "./types";
-import { resolveWithIgnoreKnownError, runWithLock, shouldSplitAsPlainText, splitPieces2, enableEncryption } from "./utils";
+import { resolveWithIgnoreKnownError, enableEncryption } from "./utils";
 import { Logger } from "./logger";
 import { checkRemoteVersion, putDesignDocuments } from "./utils_couchdb";
 import { LRUCache } from "./LRUCache";
 
+import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, ensureDatabaseIsCompatible, DBFunctionEnvironment } from "./LiveSyncDBFunctions.js";
 // when replicated, LiveSync checks chunk versions that every node used.
 // If all minimum version of every devices were up, that means we can convert database automatically.
 
@@ -40,24 +34,24 @@ const currentVersionRange: ChunkVersionRange = {
 }
 
 type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<void>;
-export abstract class LocalPouchDBBase {
+export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
     auth: Credential;
     dbname: string;
     settings: RemoteDBSettings;
-    localDatabase: PouchDB.Database<EntryDoc>;
+    localDatabase!: PouchDB.Database<EntryDoc>;
     nodeid = "";
     isReady = false;
 
-    h32: (input: string, seed?: number) => string;
-    h32Raw: (input: Uint8Array, seed?: number) => number;
+    h32!: (input: string, seed?: number) => string;
+    h32Raw!: (input: Uint8Array, seed?: number) => number;
     hashCaches = new LRUCache();
 
     corruptedEntries: { [key: string]: EntryDoc } = {};
     remoteLocked = false;
     remoteLockedAndDeviceNotAccepted = false;
 
-    changeHandler: PouchDB.Core.Changes<EntryDoc> = null;
-    syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc> = null;
+    changeHandler: PouchDB.Core.Changes<EntryDoc> | null = null;
+    syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc> | null = null;
 
     leafArrivedCallbacks: { [key: string]: (() => void)[] } = {};
 
@@ -292,7 +286,7 @@ export abstract class LocalPouchDBBase {
                 return w.data;
             }
             throw new Error(`Corrupted chunk detected: ${id}`);
-        } catch (ex) {
+        } catch (ex: any) {
             if (ex.status && ex.status == 404) {
                 if (waitForReady) {
                     // just leaf is not ready.
@@ -311,460 +305,25 @@ export abstract class LocalPouchDBBase {
         }
     }
 
+    // eslint-disable-next-line require-await
     async getDBEntryMeta(path: string, opt?: PouchDB.Core.GetOptions, includeDeleted = false): Promise<false | LoadedEntry> {
-        // safety valve
-        if (!this.isTargetFile(path)) {
-            return false;
-        }
-        const id = this.path2id(path);
-        try {
-            let obj: EntryDocResponse = null;
-            if (opt) {
-                obj = await this.localDatabase.get(id, opt);
-            } else {
-                obj = await this.localDatabase.get(id);
-            }
-            const deleted = "deleted" in obj ? obj.deleted : undefined;
-            if (!includeDeleted && deleted) return false;
-            if (obj.type && obj.type == "leaf") {
-                //do nothing for leaf;
-                return false;
-            }
-
-            // retrieve metadata only
-            if (!obj.type || (obj.type && obj.type == "notes") || obj.type == "newnote" || obj.type == "plain") {
-                const note = obj as Entry;
-                let children: string[] = [];
-                let type: "plain" | "newnote" = "plain";
-                if (obj.type == "newnote" || obj.type == "plain") {
-                    children = obj.children;
-                    type = obj.type;
-                }
-                const doc: LoadedEntry & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta = {
-                    data: "",
-                    _id: note._id,
-                    ctime: note.ctime,
-                    mtime: note.mtime,
-                    size: note.size,
-                    // _deleted: obj._deleted,
-                    _rev: obj._rev,
-                    _conflicts: obj._conflicts,
-                    children: children,
-                    datatype: type,
-                    deleted: deleted,
-                    type: type
-                };
-                return doc;
-            }
-        } catch (ex) {
-            if (ex.status && ex.status == 404) {
-                return false;
-            }
-            throw ex;
-        }
-        return false;
+        return getDBEntryMeta(this, path, opt, includeDeleted);
     }
+    // eslint-disable-next-line require-await
     async getDBEntry(path: string, opt?: PouchDB.Core.GetOptions, dump = false, waitForReady = true, includeDeleted = false): Promise<false | LoadedEntry> {
-        // safety valve
-        if (!this.isTargetFile(path)) {
-            return false;
-        }
-        const id = this.path2id(path);
-        try {
-            let obj: EntryDocResponse = null;
-            if (opt) {
-                obj = await this.localDatabase.get(id, opt);
-            } else {
-                obj = await this.localDatabase.get(id);
-            }
-            const deleted = "deleted" in obj ? obj.deleted : undefined;
-            if (!includeDeleted && deleted) return false;
-            if (obj.type && obj.type == "leaf") {
-                //do nothing for leaf;
-                return false;
-            }
-
-            //Check it out and fix docs to regular case
-            if (!obj.type || (obj.type && obj.type == "notes")) {
-                const note = obj as NoteEntry;
-                const doc: LoadedEntry & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta = {
-                    data: note.data,
-                    _id: note._id,
-                    ctime: note.ctime,
-                    mtime: note.mtime,
-                    size: note.size,
-                    // _deleted: obj._deleted,
-                    _rev: obj._rev,
-                    _conflicts: obj._conflicts,
-                    children: [],
-                    datatype: "newnote",
-                    deleted: deleted,
-                    type: "newnote",
-                };
-                if (typeof this.corruptedEntries[doc._id] != "undefined") {
-                    delete this.corruptedEntries[doc._id];
-                }
-                if (dump) {
-                    Logger(`Simple doc`);
-                    Logger(doc);
-                }
-
-                return doc;
-                // simple note
-            }
-            if (obj.type == "newnote" || obj.type == "plain") {
-                // search children
-                try {
-                    if (dump) {
-                        Logger(`Enhanced doc`);
-                        Logger(obj);
-                    }
-                    let children: string[] = [];
-
-                    if (this.settings.readChunksOnline) {
-                        const items = await this.CollectChunks(obj.children);
-                        if (items) {
-                            for (const v of items) {
-                                if (v && v.type == "leaf") {
-                                    children.push(v.data);
-                                } else {
-                                    if (!opt) {
-                                        Logger(`Chunks of ${obj._id} are not valid.`, LOG_LEVEL.NOTICE);
-                                        this.needScanning = true;
-                                        this.corruptedEntries[obj._id] = obj;
-                                    }
-                                    return false;
-                                }
-                            }
-                        } else {
-                            if (opt) {
-                                Logger(`Could not retrieve chunks of ${obj._id}. we have to `, LOG_LEVEL.NOTICE);
-                                this.needScanning = true;
-                            }
-                            return false;
-                        }
-                    } else {
-                        try {
-                            children = await Promise.all(obj.children.map((e) => this.getDBLeaf(e, waitForReady)));
-                            if (dump) {
-                                Logger(`Chunks:`);
-                                Logger(children);
-                            }
-                        } catch (ex) {
-                            Logger(`Something went wrong on reading chunks of ${obj._id} from database, see verbose info for detail.`, LOG_LEVEL.NOTICE);
-                            Logger(ex, LOG_LEVEL.VERBOSE);
-                            this.corruptedEntries[obj._id] = obj;
-                            return false;
-                        }
-                    }
-                    const data = children.join("");
-                    const doc: LoadedEntry & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta = {
-                        data: data,
-                        _id: obj._id,
-                        ctime: obj.ctime,
-                        mtime: obj.mtime,
-                        size: obj.size,
-                        // _deleted: obj._deleted,
-                        _rev: obj._rev,
-                        children: obj.children,
-                        datatype: obj.type,
-                        _conflicts: obj._conflicts,
-                        deleted: deleted,
-                        type: obj.type
-                    };
-                    if (dump) {
-                        Logger(`therefore:`);
-                        Logger(doc);
-                    }
-                    if (typeof this.corruptedEntries[doc._id] != "undefined") {
-                        delete this.corruptedEntries[doc._id];
-                    }
-                    return doc;
-                } catch (ex) {
-                    if (ex.status && ex.status == 404) {
-                        Logger(`Missing document content!, could not read ${obj._id} from database.`, LOG_LEVEL.NOTICE);
-                        return false;
-                    }
-                    Logger(`Something went wrong on reading ${obj._id} from database:`, LOG_LEVEL.NOTICE);
-                    Logger(ex);
-                }
-            }
-        } catch (ex) {
-            if (ex.status && ex.status == 404) {
-                return false;
-            }
-            throw ex;
-        }
-        return false;
+        return getDBEntry(this, path, opt, dump, waitForReady, includeDeleted);
     }
+    // eslint-disable-next-line require-await
     async deleteDBEntry(path: string, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
-        // safety valve
-        if (!this.isTargetFile(path)) {
-            return false;
-        }
-        const id = this.path2id(path);
-
-        try {
-            let obj: EntryDocResponse = null;
-            return await runWithLock("file:" + id, false, async () => {
-                if (opt) {
-                    obj = await this.localDatabase.get(id, opt);
-                } else {
-                    obj = await this.localDatabase.get(id);
-                }
-                const revDeletion = opt && (("rev" in opt ? opt.rev : "") != "");
-
-                if (obj.type && obj.type == "leaf") {
-                    //do nothing for leaf;
-                    return false;
-                }
-                //Check it out and fix docs to regular case
-                if (!obj.type || (obj.type && obj.type == "notes")) {
-                    obj._deleted = true;
-                    const r = await this.localDatabase.put(obj);
-                    Logger(`entry removed:${obj._id}-${r.rev}`);
-                    if (typeof this.corruptedEntries[obj._id] != "undefined") {
-                        delete this.corruptedEntries[obj._id];
-                    }
-                    return true;
-                    // simple note
-                }
-                if (obj.type == "newnote" || obj.type == "plain") {
-                    if (revDeletion) {
-                        obj._deleted = true;
-                    } else {
-                        obj.deleted = true;
-                        obj.mtime = Date.now();
-                        if (this.settings.deleteMetadataOfDeletedFiles) {
-                            obj._deleted = true;
-                        }
-                    }
-                    const r = await this.localDatabase.put(obj);
-                    Logger(`entry removed:${obj._id}-${r.rev}`);
-                    if (typeof this.corruptedEntries[obj._id] != "undefined") {
-                        delete this.corruptedEntries[obj._id];
-                    }
-                    return true;
-                } else {
-                    return false;
-                }
-            });
-        } catch (ex) {
-            if (ex.status && ex.status == 404) {
-                return false;
-            }
-            throw ex;
-        }
+        return deleteDBEntry(this, path, opt);
     }
+    // eslint-disable-next-line require-await
     async deleteDBEntryPrefix(prefixSrc: string): Promise<boolean> {
-        // delete database entries by prefix.
-        // it called from folder deletion.
-        let c = 0;
-        let readCount = 0;
-        const delDocs: string[] = [];
-        const prefix = this.path2id(prefixSrc);
-        do {
-            const result = await this.localDatabase.allDocs({ include_docs: false, skip: c, limit: 100, conflicts: true });
-            readCount = result.rows.length;
-            if (readCount > 0) {
-                //there are some result
-                for (const v of result.rows) {
-                    // let doc = v.doc;
-                    if (v.id.startsWith(prefix) || v.id.startsWith("/" + prefix)) {
-                        if (this.isTargetFile(this.id2path(v.id))) delDocs.push(v.id);
-                        // console.log("!" + v.id);
-                    } else {
-                        if (!v.id.startsWith("h:")) {
-                            // console.log("?" + v.id);
-                        }
-                    }
-                }
-            }
-            c += readCount;
-        } while (readCount != 0);
-        // items collected.
-        //bulk docs to delete?
-        let deleteCount = 0;
-        let notfound = 0;
-        for (const v of delDocs) {
-            try {
-                await runWithLock("file:" + v, false, async () => {
-                    const item = await this.localDatabase.get(v);
-                    if (item.type == "newnote" || item.type == "plain") {
-                        item.deleted = true;
-                        if (this.settings.deleteMetadataOfDeletedFiles) {
-                            item._deleted = true;
-                        }
-                        item.mtime = Date.now();
-                    } else {
-                        item._deleted = true;
-                    }
-                    await this.localDatabase.put(item);
-                });
-
-                deleteCount++;
-            } catch (ex) {
-                if (ex.status && ex.status == 404) {
-                    notfound++;
-                    // NO OP. It should be timing problem.
-                } else {
-                    throw ex;
-                }
-            }
-        }
-        Logger(`deleteDBEntryPrefix:deleted ${deleteCount} items, skipped ${notfound}`);
-        return true;
+        return deleteDBEntryPrefix(this, prefixSrc);
     }
+    // eslint-disable-next-line require-await
     async putDBEntry(note: LoadedEntry, saveAsBigChunk?: boolean) {
-        //safety valve
-        if (!this.isTargetFile(this.id2path(note._id))) {
-            return;
-        }
-
-        // let leftData = note.data;
-        const savedNotes = [];
-        let processed = 0;
-        let made = 0;
-        let skipped = 0;
-        const maxChunkSize = MAX_DOC_SIZE_BIN * Math.max(this.settings.customChunkSize, 1);
-        const pieceSize = maxChunkSize;
-        let plainSplit = false;
-        let cacheUsed = 0;
-        const userPasswordHash = this.h32Raw(new TextEncoder().encode(this.settings.passphrase));
-        const minimumChunkSize = this.settings.minimumChunkSize;
-        if (!saveAsBigChunk && shouldSplitAsPlainText(note._id)) {
-            // pieceSize = MAX_DOC_SIZE;
-            plainSplit = true;
-        }
-
-        const newLeafs: EntryLeaf[] = [];
-
-        const pieces = splitPieces2(note.data, pieceSize, plainSplit, minimumChunkSize, 0);
-        const currentDocPiece = new Map<string, string>();
-        let saved = true;
-        for (const piece of pieces()) {
-            processed++;
-            let leafId = "";
-            // Get hash of piece.
-            let hashedPiece = "";
-            const cache = this.hashCaches.get(piece);
-            if (cache) {
-                hashedPiece = "";
-                leafId = cache;
-                skipped++;
-                cacheUsed++;
-                currentDocPiece.set(leafId, piece);
-            } else {
-                if (this.settings.encrypt) {
-                    // When encryption has been enabled, make hash to be different between each passphrase to avoid inferring password.
-                    hashedPiece = "+" + (this.h32Raw(new TextEncoder().encode(piece)) ^ userPasswordHash ^ piece.length).toString(36);
-                } else {
-                    hashedPiece = (this.h32Raw(new TextEncoder().encode(piece)) ^ piece.length).toString(36);
-                }
-                leafId = "h:" + hashedPiece;
-            }
-            if (currentDocPiece.has(leafId)) {
-                if (currentDocPiece.get(leafId) != piece) {
-                    // conflicted
-                    // I realise that avoiding chunk name collisions is pointless here.
-                    // After replication, we will have conflicted chunks.
-                    Logger(`Hash collided! If possible, please report the following string\nA:--${currentDocPiece.get(leafId)}--\nB:--${piece}--`, LOG_LEVEL.NOTICE);
-                    Logger(`This document could not be saved:${note._id}`, LOG_LEVEL.NOTICE);
-                    saved = false;
-                }
-            } else {
-                currentDocPiece.set(leafId, piece);
-            }
-            savedNotes.push(leafId);
-        }
-        const newChunkIds = [...currentDocPiece.keys()];
-        do {
-            const procChunks = newChunkIds.splice(0, 100);
-            if (procChunks.length > 0) {
-                const existChunks = await this.localDatabase.allDocs({ keys: [...procChunks], include_docs: true });
-                for (const chunk of existChunks.rows) {
-                    if ("error" in chunk && (chunk as unknown as any).error == "not_found") {
-                        const d: EntryLeaf = {
-                            _id: chunk.key,
-                            data: currentDocPiece.get(chunk.key),
-                            type: "leaf",
-                        };
-                        newLeafs.push(d);
-                    } else if ("error" in chunk) {
-                        Logger("Saving chunk failed:" + (chunk as unknown as any).error);
-                    } else {
-                        const pieceData = chunk.doc;
-                        if (pieceData.type == "leaf" && pieceData.data == currentDocPiece.get(chunk.key)) {
-                            skipped++;
-                        } else if (pieceData.type == "leaf") {
-                            Logger(`Hash collided on saving! If possible, please report the following string\nA:--${currentDocPiece.get(chunk.key)}--\nB:--${pieceData}--`, LOG_LEVEL.NOTICE);
-                            Logger(`This document could not be saved:${note._id}`, LOG_LEVEL.NOTICE);
-                            saved = false;
-                        }
-                    }
-                }
-            }
-        } while (newChunkIds.length > 0);
-
-
-        if (newLeafs.length > 0) {
-            try {
-                const result = await this.localDatabase.bulkDocs(newLeafs);
-                for (const item of result) {
-                    if ((item as any).ok) {
-                        this.hashCaches.set(item.id, currentDocPiece.get(item.id));
-                        made++;
-                    } else {
-                        if ((item as any).status && (item as any).status == 409) {
-                            // conflicted, but it would be ok in children.
-                            this.hashCaches.set(item.id, currentDocPiece.get(item.id));
-                            skipped++
-                        } else {
-                            Logger(`Save failed:id:${item.id} rev:${item.rev}`, LOG_LEVEL.NOTICE);
-                            Logger(item);
-                            saved = false;
-                        }
-                    }
-                }
-            } catch (ex) {
-                Logger("Chunk save failed:", LOG_LEVEL.NOTICE);
-                Logger(ex, LOG_LEVEL.NOTICE);
-                saved = false;
-            }
-        }
-        if (saved) {
-            Logger(`Content saved:${note._id} ,pieces:${processed} (new:${made}, skip:${skipped}, cache:${cacheUsed})`);
-            const newDoc: PlainEntry | NewEntry = {
-                children: savedNotes,
-                _id: note._id,
-                ctime: note.ctime,
-                mtime: note.mtime,
-                size: note.size,
-                type: note.datatype,
-            };
-            // Here for upsert logic,
-            await runWithLock("file:" + newDoc._id, false, async () => {
-                try {
-                    const old = await this.localDatabase.get(newDoc._id);
-                    if (!old.type || old.type == "notes" || old.type == "newnote" || old.type == "plain") {
-                        // simple use rev for new doc
-                        newDoc._rev = old._rev;
-                    }
-                } catch (ex) {
-                    if (ex.status && ex.status == 404) {
-                        // NO OP/
-                    } else {
-                        throw ex;
-                    }
-                }
-                const r = await this.localDatabase.put<PlainEntry | NewEntry>(newDoc, { force: true });
-                if (typeof this.corruptedEntries[note._id] != "undefined") {
-                    delete this.corruptedEntries[note._id];
-                }
-            });
-        } else {
-            Logger(`note could not saved:${note._id}`);
-        }
+        return putDBEntry(this, note, saveAsBigChunk);
     }
 
     updateInfo: () => void = () => {
@@ -780,7 +339,7 @@ export abstract class LocalPouchDBBase {
         return new Promise((res, rej) => {
             this.openOneshotReplication(
                 setting,
-                showingNotice,
+                showingNotice ?? false,
                 async (e) => { },
                 false,
                 (e) => {
@@ -821,66 +380,17 @@ export abstract class LocalPouchDBBase {
                 return false;
             }
 
-            const defMilestonePoint: EntryMilestoneInfo = {
-                _id: MILSTONE_DOCID,
-                type: "milestoneinfo",
-                created: (new Date() as any) / 1,
-                locked: false,
-                accepted_nodes: [this.nodeid],
-                node_chunk_info: { [this.nodeid]: currentVersionRange }
-            };
-
-            const remoteMilestone: EntryMilestoneInfo = { ...defMilestonePoint, ...(await resolveWithIgnoreKnownError(dbRet.db.get(MILSTONE_DOCID), defMilestonePoint)) };
-            remoteMilestone.node_chunk_info = { ...defMilestonePoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
-            this.remoteLocked = remoteMilestone.locked;
-            this.remoteLockedAndDeviceNotAccepted = remoteMilestone.locked && remoteMilestone.accepted_nodes.indexOf(this.nodeid) == -1;
-            const writeMilestone = (
-                (
-                    remoteMilestone.node_chunk_info[this.nodeid].min != currentVersionRange.min
-                    || remoteMilestone.node_chunk_info[this.nodeid].max != currentVersionRange.max
-                )
-                || typeof remoteMilestone._rev == "undefined");
-
-            if (writeMilestone) {
-                remoteMilestone.node_chunk_info[this.nodeid].min = currentVersionRange.min;
-                remoteMilestone.node_chunk_info[this.nodeid].max = currentVersionRange.max;
-                await dbRet.db.put(remoteMilestone);
-            }
-
-            // Check compatibility and make sure available version
-            // 
-            // v min of A                  v max of A
-            // |   v  min of B             |   v max of B
-            // |   |                       |   |
-            // |   |<---   We can use  --->|   |
-            // |   |                       |   |
-            //If globalMin and globalMax is suitable, we can upgrade.
-            let globalMin = currentVersionRange.min;
-            let globalMax = currentVersionRange.max;
-            for (const nodeid of remoteMilestone.accepted_nodes) {
-                if (nodeid == this.nodeid) continue;
-                if (nodeid in remoteMilestone.node_chunk_info) {
-                    const nodeinfo = remoteMilestone.node_chunk_info[nodeid];
-                    globalMin = Math.max(nodeinfo.min, globalMin);
-                    globalMax = Math.min(nodeinfo.max, globalMax);
-                } else {
-                    globalMin = 0;
-                    globalMax = 0;
-                }
-            }
-            this.maxChunkVersion = globalMax;
-            this.minChunkVersion = globalMin;
-
-            if (this.chunkVersion >= 0 && (globalMin > this.chunkVersion || globalMax < this.chunkVersion)) {
-                if (!setting.ignoreVersionCheck) {
-                    Logger("The remote database has no compatibility with the running version. Please upgrade the plugin.", LOG_LEVEL.NOTICE);
-                    return false;
-                }
-            }
-
-            if (remoteMilestone.locked && remoteMilestone.accepted_nodes.indexOf(this.nodeid) == -1) {
-                Logger("The remote database has been rebuilt or corrupted since we have synchronized last time. Fetch rebuilt DB or explicit unlocking is required. See the settings dialog.", LOG_LEVEL.NOTICE);
+            const ensure = await ensureDatabaseIsCompatible(dbRet.db, setting, this.nodeid, currentVersionRange);
+            if (ensure == "INCOMPATIBLE") {
+                Logger("The remote database has no compatibility with the running version. Please upgrade the plugin.", LOG_LEVEL.NOTICE);
                 return false;
+            } else if (ensure == "NODE_LOCKED") {
+                Logger("The remote database has been rebuilt or corrupted since we have synchronized last time. Fetch rebuilt DB or explicit unlocking is required. See the settings dialog.", LOG_LEVEL.NOTICE);
+                this.remoteLockedAndDeviceNotAccepted = true;
+                this.remoteLocked = true;
+                return false;
+            } else if (ensure == "LOCKED") {
+                this.remoteLocked = true;
             }
         }
         const syncOptionBase: PouchDB.Replication.SyncOptions = {
@@ -957,7 +467,7 @@ export abstract class LocalPouchDBBase {
         showResult: boolean,
         callback: (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<void>,
         retrying: boolean,
-        callbackDone: (e: boolean | any) => void,
+        callbackDone: ((e: boolean | any) => void) | null,
         syncMode: "sync" | "pullOnly" | "pushOnly"
     ): Promise<boolean> {
         if (this.syncHandler != null) {
@@ -1319,7 +829,7 @@ export abstract class LocalPouchDBBase {
             Logger(`Collected handler of ${id} is missing, it might be error but perhaps it already timed out.`, LOG_LEVEL.VERBOSE);
         }
     }
-    async CollectChunks(ids: string[], showResult = false) {
+    async CollectChunks(ids: string[], showResult = false, waitForReady?: boolean) {
         // If single or first of continuous, process simply for performance.
         const timeoutLimit = 333; // three requests per second as maximum
         if (this.collectThrottleTimeout == null) {
@@ -1340,7 +850,7 @@ export abstract class LocalPouchDBBase {
         }
         const promises = ids.map(id => new Promise<EntryLeaf>((res, rej) => {
             // Set timeout.
-            const timer = setTimeout(() => rej(new Error(`Chunk reading timed out on batch:${id}`)), LEAF_WAIT_TIMEOUT);
+            const timer = setTimeout(() => rej(new Error(`Chunk reading timed out on batch:${id}`)), waitForReady ? LEAF_WAIT_TIMEOUT : timeoutLimit * 10);
             // Lay the hook that be pulled when chunks are incoming.
             if (typeof this.chunkCollectedCallbacks[id] == "undefined") {
                 this.chunkCollectedCallbacks[id] = [];
@@ -1394,6 +904,7 @@ export abstract class LocalPouchDBBase {
 
         const remoteChunkItems = remoteChunks.rows.map((e: any) => e.doc);
         const max = remoteChunkItems.length;
+        remoteChunks.rows.forEach(e => this.hashCaches.set(e.id, (e.doc as EntryLeaf).data));
         let last = 0;
         // Chunks should be ordered by as we requested.
         function findChunk(key: string) {
