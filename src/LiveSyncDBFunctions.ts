@@ -3,12 +3,21 @@ import { LRUCache } from "./LRUCache";
 import { Entry, EntryDoc, EntryDocResponse, EntryLeaf, EntryMilestoneInfo, LoadedEntry, LOG_LEVEL, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, NewEntry, NoteEntry, PlainEntry, RemoteDBSettings, ChunkVersionRange } from "./types";
 import { resolveWithIgnoreKnownError, runWithLock, shouldSplitAsPlainText, splitPieces2 } from "./utils";
 
+
+interface DBFunctionSettings {
+    minimumChunkSize: number;
+    encrypt: boolean;
+    passphrase: string;
+    deleteMetadataOfDeletedFiles: boolean;
+    customChunkSize: number;
+    readChunksOnline: boolean;
+}
 export interface DBFunctionEnvironment {
     localDatabase: PouchDB.Database<EntryDoc>,
     id2path(filename: string): string,
     path2id(filename: string): string;
     isTargetFile: (file: string) => boolean,
-    settings: RemoteDBSettings,
+    settings: DBFunctionSettings,
     corruptedEntries: { [key: string]: EntryDoc },
     CollectChunks(ids: string[], showResult?: boolean, waitForReady?: boolean): Promise<false | EntryLeaf[]>,
     getDBLeaf(id: string, waitForReady: boolean): Promise<string>,
@@ -19,10 +28,10 @@ export interface DBFunctionEnvironment {
 export async function putDBEntry(
     env: DBFunctionEnvironment,
     note: LoadedEntry,
-    saveAsBigChunk?: boolean): Promise<boolean> {
+    saveAsBigChunk?: boolean): Promise<false | PouchDB.Core.Response> {
     //safety valve
     if (!env.isTargetFile(env.id2path(note._id))) {
-        return;
+        return false;
     }
 
     // let leftData = note.data;
@@ -105,7 +114,7 @@ export async function putDBEntry(
                     Logger("Saving chunk error: " + (chunk as unknown as any).error);
                     saved = false;
                 } else {
-                    const pieceData = chunk.doc;
+                    const pieceData = chunk.doc!;
                     if (pieceData.type == "leaf" && pieceData.data == currentDocPiece.get(chunk.key)) {
                         skipped++;
                     } else if (pieceData.type == "leaf") {
@@ -182,11 +191,11 @@ export async function putDBEntry(
                 delete env.corruptedEntries[note._id];
             }
             if (r.ok) {
-                return true;
+                return r;
             } else {
                 return false;
             }
-        });
+        }) ?? false;
     } else {
         Logger(`note could not saved:${note._id}`);
         return false;
@@ -246,153 +255,136 @@ export async function getDBEntryMeta(env: DBFunctionEnvironment, path: string, o
     }
     return false;
 }
-export async function getDBEntry(env: DBFunctionEnvironment, path: string, opt?: PouchDB.Core.GetOptions, dump = false, waitForReady = true, includeDeleted = false): Promise<false | LoadedEntry> {
-    // safety valve
-    if (!env.isTargetFile(path)) {
-        return false;
-    }
-    const id = env.path2id(path);
-    try {
-        let obj: EntryDocResponse | null = null;
-        if (opt) {
-            obj = await env.localDatabase.get(id, opt);
-        } else {
-            obj = await env.localDatabase.get(id);
+export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: LoadedEntry, opt?: PouchDB.Core.GetOptions, dump = false, waitForReady = true, includeDeleted = false): Promise<false | LoadedEntry> {
+    const deleted = "deleted" in obj ? obj.deleted : undefined;
+    if (!obj.type || (obj.type && obj.type == "notes")) {
+        const note = obj as NoteEntry;
+        const doc: LoadedEntry & PouchDB.Core.IdMeta = {
+            data: note.data,
+            _id: note._id,
+            ctime: note.ctime,
+            mtime: note.mtime,
+            size: note.size,
+            // _deleted: obj._deleted,
+            _rev: obj._rev,
+            _conflicts: obj._conflicts,
+            children: [],
+            datatype: "newnote",
+            deleted: deleted,
+            type: "newnote",
+        };
+        if (typeof env.corruptedEntries[doc._id] != "undefined") {
+            delete env.corruptedEntries[doc._id];
         }
-        const deleted = "deleted" in obj ? obj.deleted : undefined;
-        if (!includeDeleted && deleted) return false;
-        if (obj.type && obj.type == "leaf") {
-            //do nothing for leaf;
-            return false;
+        if (dump) {
+            Logger(`Simple doc`);
+            Logger(doc);
         }
 
-        //Check it out and fix docs to regular case
-        if (!obj.type || (obj.type && obj.type == "notes")) {
-            const note = obj as NoteEntry;
-            const doc: LoadedEntry & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta = {
-                data: note.data,
-                _id: note._id,
-                ctime: note.ctime,
-                mtime: note.mtime,
-                size: note.size,
+        return doc;
+        // simple note
+    }
+    if (obj.type == "newnote" || obj.type == "plain") {
+        // search children
+        try {
+            if (dump) {
+                Logger(`Enhanced doc`);
+                Logger(obj);
+            }
+            let children: string[] = [];
+
+            if (env.settings.readChunksOnline) {
+                const items = await env.CollectChunks(obj.children, false, waitForReady);
+                if (items) {
+                    for (const v of items) {
+                        if (v && v.type == "leaf") {
+                            children.push(v.data);
+                        } else {
+                            if (!opt) {
+                                Logger(`Chunks of ${obj._id} are not valid.`, LOG_LEVEL.NOTICE);
+                                // env.needScanning = true;
+                                env.corruptedEntries[obj._id] = obj;
+                            }
+                            return false;
+                        }
+                    }
+                } else {
+                    if (opt) {
+                        Logger(`Could not retrieve chunks of ${obj._id}. we have to `, LOG_LEVEL.NOTICE);
+                        // env.needScanning = true;
+                    }
+                    return false;
+                }
+            } else {
+                try {
+                    if (waitForReady) {
+                        children = await Promise.all(obj.children.map((e) => env.getDBLeaf(e, waitForReady)));
+                        if (dump) {
+                            Logger(`Chunks:`);
+                            Logger(children);
+                        }
+                    } else {
+                        const chunkDocs = await env.localDatabase.allDocs({ keys: obj.children, include_docs: true });
+                        if (chunkDocs.rows.some(e => "error" in e)) {
+                            const missingChunks = chunkDocs.rows.filter(e => "error" in e).map(e => e.id).join(", ");
+                            Logger(`Could not retrieve chunks of ${obj._id}. Chunks are missing:${missingChunks}`, LOG_LEVEL.NOTICE);
+                            return false;
+                        }
+                        if (chunkDocs.rows.some(e => e.doc && e.doc.type != "leaf")) {
+                            const missingChunks = chunkDocs.rows.filter(e => e.doc && e.doc.type != "leaf").map(e => e.id).join(", ");
+                            Logger(`Could not retrieve chunks of ${obj._id}. corrupted chunks::${missingChunks}`, LOG_LEVEL.NOTICE);
+                            return false;
+                        }
+                        children = chunkDocs.rows.map(e => (e.doc as EntryLeaf).data);
+                    }
+                } catch (ex) {
+                    Logger(`Something went wrong on reading chunks of ${obj._id} from database, see verbose info for detail.`, LOG_LEVEL.NOTICE);
+                    Logger(ex, LOG_LEVEL.VERBOSE);
+                    env.corruptedEntries[obj._id] = obj;
+                    return false;
+                }
+            }
+            const data = children.join("");
+            const doc: LoadedEntry & PouchDB.Core.IdMeta = {
+                data: data,
+                _id: obj._id,
+                ctime: obj.ctime,
+                mtime: obj.mtime,
+                size: obj.size,
                 // _deleted: obj._deleted,
                 _rev: obj._rev,
+                children: obj.children,
+                datatype: obj.type,
                 _conflicts: obj._conflicts,
-                children: [],
-                datatype: "newnote",
                 deleted: deleted,
-                type: "newnote",
+                type: obj.type
             };
+            if (dump) {
+                Logger(`therefore:`);
+                Logger(doc);
+            }
             if (typeof env.corruptedEntries[doc._id] != "undefined") {
                 delete env.corruptedEntries[doc._id];
             }
-            if (dump) {
-                Logger(`Simple doc`);
-                Logger(doc);
-            }
-
             return doc;
-            // simple note
-        }
-        if (obj.type == "newnote" || obj.type == "plain") {
-            // search children
-            try {
-                if (dump) {
-                    Logger(`Enhanced doc`);
-                    Logger(obj);
-                }
-                let children: string[] = [];
-
-                if (env.settings.readChunksOnline) {
-                    const items = await env.CollectChunks(obj.children, false, waitForReady);
-                    if (items) {
-                        for (const v of items) {
-                            if (v && v.type == "leaf") {
-                                children.push(v.data);
-                            } else {
-                                if (!opt) {
-                                    Logger(`Chunks of ${obj._id} are not valid.`, LOG_LEVEL.NOTICE);
-                                    // env.needScanning = true;
-                                    env.corruptedEntries[obj._id] = obj;
-                                }
-                                return false;
-                            }
-                        }
-                    } else {
-                        if (opt) {
-                            Logger(`Could not retrieve chunks of ${obj._id}. we have to `, LOG_LEVEL.NOTICE);
-                            // env.needScanning = true;
-                        }
-                        return false;
-                    }
-                } else {
-                    try {
-                        if (waitForReady) {
-                            children = await Promise.all(obj.children.map((e) => env.getDBLeaf(e, waitForReady)));
-                            if (dump) {
-                                Logger(`Chunks:`);
-                                Logger(children);
-                            }
-                        } else {
-                            const chunkDocs = await env.localDatabase.allDocs({ keys: obj.children, include_docs: true });
-                            if (chunkDocs.rows.some(e => "error" in e)) {
-                                const missingChunks = chunkDocs.rows.filter(e => "error" in e).map(e => e.id).join(", ");
-                                Logger(`Could not retrieve chunks of ${obj._id}. Chunks are missing:${missingChunks}`, LOG_LEVEL.NOTICE);
-                                return false;
-                            }
-                            if (chunkDocs.rows.some(e => e.doc && e.doc.type != "leaf")) {
-                                const missingChunks = chunkDocs.rows.filter(e => e.doc && e.doc.type != "leaf").map(e => e.id).join(", ");
-                                Logger(`Could not retrieve chunks of ${obj._id}. corrupted chunks::${missingChunks}`, LOG_LEVEL.NOTICE);
-                                return false;
-                            }
-                            children = chunkDocs.rows.map(e => (e.doc as EntryLeaf).data);
-                        }
-                    } catch (ex) {
-                        Logger(`Something went wrong on reading chunks of ${obj._id} from database, see verbose info for detail.`, LOG_LEVEL.NOTICE);
-                        Logger(ex, LOG_LEVEL.VERBOSE);
-                        env.corruptedEntries[obj._id] = obj;
-                        return false;
-                    }
-                }
-                const data = children.join("");
-                const doc: LoadedEntry & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta = {
-                    data: data,
-                    _id: obj._id,
-                    ctime: obj.ctime,
-                    mtime: obj.mtime,
-                    size: obj.size,
-                    // _deleted: obj._deleted,
-                    _rev: obj._rev,
-                    children: obj.children,
-                    datatype: obj.type,
-                    _conflicts: obj._conflicts,
-                    deleted: deleted,
-                    type: obj.type
-                };
-                if (dump) {
-                    Logger(`therefore:`);
-                    Logger(doc);
-                }
-                if (typeof env.corruptedEntries[doc._id] != "undefined") {
-                    delete env.corruptedEntries[doc._id];
-                }
-                return doc;
-            } catch (ex: any) {
-                if (ex.status && ex.status == 404) {
-                    Logger(`Missing document content!, could not read ${obj._id} from database.`, LOG_LEVEL.NOTICE);
-                    return false;
-                }
-                Logger(`Something went wrong on reading ${obj._id} from database:`, LOG_LEVEL.NOTICE);
-                Logger(ex);
+        } catch (ex: any) {
+            if (ex.status && ex.status == 404) {
+                Logger(`Missing document content!, could not read ${obj._id} from database.`, LOG_LEVEL.NOTICE);
+                return false;
             }
+            Logger(`Something went wrong on reading ${obj._id} from database:`, LOG_LEVEL.NOTICE);
+            Logger(ex);
         }
-    } catch (ex: any) {
-        if (ex.status && ex.status == 404) {
-            return false;
-        }
-        throw ex;
     }
     return false;
+}
+export async function getDBEntry(env: DBFunctionEnvironment, path: string, opt?: PouchDB.Core.GetOptions, dump = false, waitForReady = true, includeDeleted = false): Promise<false | LoadedEntry> {
+    const meta = await getDBEntryMeta(env, path, opt, includeDeleted);
+    if (meta) {
+        return await getDBEntryFromMeta(env, meta, opt, dump, waitForReady, includeDeleted);
+    } else {
+        return false;
+    }
 }
 export async function deleteDBEntry(env: DBFunctionEnvironment, path: string, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
     // safety valve

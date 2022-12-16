@@ -53,6 +53,8 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     syncInternalFilesIgnorePatterns: string;
     lastReadUpdates: number;
     watchInternalFileChanges: boolean;
+    disableMarkdownAutoMerge: boolean;
+    writeDocumentsIfConflicted: boolean;
 
 }
 
@@ -139,6 +141,8 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     readChunksOnline: true,
     watchInternalFileChanges: true,
     automaticallyDeleteMetadataOfDeletedFiles: 0,
+    disableMarkdownAutoMerge: false,
+    writeDocumentsIfConflicted: false,
 };
 
 export interface DatabaseEntry {
