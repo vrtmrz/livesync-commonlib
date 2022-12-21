@@ -367,11 +367,13 @@ export function isPlainText(filename: string): boolean {
     if (filename.endsWith(".css")) return true;
     if (filename.endsWith(".js")) return true;
     if (filename.endsWith(".xml")) return true;
+    if (filename.endsWith(".canvas")) return true;
     return false;
 }
 export function shouldSplitAsPlainText(filename: string): boolean {
     if (filename.endsWith(".md")) return true;
     if (filename.endsWith(".txt")) return true;
+    if (filename.endsWith(".canvas")) return true;
 }
 // Referenced below
 // https://zenn.dev/sora_kumo/articles/539d7f6e7f3c63
