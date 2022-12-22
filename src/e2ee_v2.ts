@@ -31,9 +31,10 @@ const nonceBuffer: Uint32Array = new Uint32Array(1);
 // const tex = new TextEncoder();
 // const tdx = new TextDecoder();
 
-export async function getKeyForEncrypt(passphrase: string): Promise<[CryptoKey, Uint8Array]> {
+export async function getKeyForEncrypt(passphrase: string, autoCalculateIterations: boolean): Promise<[CryptoKey, Uint8Array]> {
     // For performance, the plugin reuses the key KEY_RECYCLE_COUNT times.
-    const f = KeyBuffs.get(passphrase);
+    const buffKey = `${passphrase}-${autoCalculateIterations}`;
+    const f = KeyBuffs.get(buffKey);
     if (f) {
         f.count--;
         if (f.count > 0) {
@@ -41,6 +42,8 @@ export async function getKeyForEncrypt(passphrase: string): Promise<[CryptoKey, 
         }
         f.count--;
     }
+    const passphraseLen = 15 - passphrase.length;
+    const iteration = autoCalculateIterations ? ((passphraseLen > 0 ? passphraseLen : 0) * 1000) + 121 - passphraseLen : 100000;
     const passphraseBin = new TextEncoder().encode(passphrase);
     const digest = await webcrypto.subtle.digest({ name: "SHA-256" }, passphraseBin);
     const keyMaterial = await webcrypto.subtle.importKey("raw", digest, { name: "PBKDF2" }, false, ["deriveKey"]);
@@ -49,7 +52,7 @@ export async function getKeyForEncrypt(passphrase: string): Promise<[CryptoKey, 
         {
             name: "PBKDF2",
             salt,
-            iterations: 100000,
+            iterations: iteration,
             hash: "SHA-256",
         },
         keyMaterial,
@@ -57,7 +60,7 @@ export async function getKeyForEncrypt(passphrase: string): Promise<[CryptoKey, 
         false,
         ["encrypt"]
     );
-    KeyBuffs.set(passphrase, {
+    KeyBuffs.set(buffKey, {
         key,
         salt,
         count: KEY_RECYCLE_COUNT,
@@ -67,7 +70,8 @@ export async function getKeyForEncrypt(passphrase: string): Promise<[CryptoKey, 
 let keyGCCount = KEY_RECYCLE_COUNT * 5;
 let decKeyIdx = 0;
 let decKeyMin = 0;
-export async function getKeyForDecryption(passphrase: string, salt: Uint8Array): Promise<[CryptoKey, Uint8Array]> {
+export async function getKeyForDecryption(passphrase: string, salt: Uint8Array, autoCalculateIterations: boolean): Promise<[CryptoKey, Uint8Array]> {
+
     keyGCCount--;
     if (keyGCCount < 0) {
         keyGCCount = KEY_RECYCLE_COUNT;
@@ -81,12 +85,15 @@ export async function getKeyForDecryption(passphrase: string, salt: Uint8Array):
         }
     }
     decKeyIdx++;
-    const bufKey = passphrase + uint8ArrayToHexString(salt);
+    const bufKey = passphrase + uint8ArrayToHexString(salt) + autoCalculateIterations;
     const f = decKeyBuffs.get(bufKey);
     if (f) {
         f.count = decKeyIdx;
         return [f.key, f.salt];
     }
+    const passphraseLen = 15 - passphrase.length;
+    const iteration = autoCalculateIterations ? ((passphraseLen > 0 ? passphraseLen : 0) * 1000) + 121 - passphraseLen : 100000;
+
     const passphraseBin = new TextEncoder().encode(passphrase);
     const digest = await webcrypto.subtle.digest({ name: "SHA-256" }, passphraseBin);
     const keyMaterial = await webcrypto.subtle.importKey("raw", digest, { name: "PBKDF2" }, false, ["deriveKey"]);
@@ -94,7 +101,7 @@ export async function getKeyForDecryption(passphrase: string, salt: Uint8Array):
         {
             name: "PBKDF2",
             salt,
-            iterations: 100000,
+            iterations: iteration,
             hash: "SHA-256",
         },
         keyMaterial,
@@ -250,8 +257,8 @@ function binaryToBinaryString(src: Uint8Array): string {
 }
 
 
-export async function encrypt(input: string, passphrase: string) {
-    const [key, salt] = await getKeyForEncrypt(passphrase);
+export async function encrypt(input: string, passphrase: string, autoCalculateIterations: boolean) {
+    const [key, salt] = await getKeyForEncrypt(passphrase, autoCalculateIterations);
     // Create initial vector with semi-fixed part and incremental part
     // I think it's not good against related-key attacks.
     const fixedPart = getSemiStaticField();
@@ -270,14 +277,14 @@ export async function encrypt(input: string, passphrase: string) {
 
 
 
-export async function decrypt(encryptedResult: string, passphrase: string): Promise<string> {
+export async function decrypt(encryptedResult: string, passphrase: string, autoCalculateIterations: boolean): Promise<string> {
     try {
         if (!encryptedResult.startsWith("[") || !encryptedResult.endsWith("]")) {
             throw new Error("Encrypted data corrupted!");
         }
         const w: any = encryptedResult.substring(1, encryptedResult.length - 1).split(",").map(e => e[0] == '"' ? e.substring(1, e.length - 1) : e);
         const [encryptedData, ivString, salt]: encodedData = w;
-        const [key] = await getKeyForDecryption(passphrase, hexStringToUint8Array(salt));
+        const [key] = await getKeyForDecryption(passphrase, hexStringToUint8Array(salt), autoCalculateIterations);
         const iv = hexStringToUint8Array(ivString);
         // decode base 64, it should increase speed and i should with in MAX_DOC_SIZE_BIN, so it won't OOM.
         const encryptedDataBin = atob(encryptedData);
@@ -302,8 +309,8 @@ export async function decrypt(encryptedResult: string, passphrase: string): Prom
 }
 export async function testCrypt() {
     const src = "supercalifragilisticexpialidocious";
-    const encoded = await encrypt(src, "passwordTest");
-    const decrypted = await decrypt(encoded, "passwordTest");
+    const encoded = await encrypt(src, "passwordTest", false);
+    const decrypted = await decrypt(encoded, "passwordTest", false);
     if (src != decrypted) {
         Logger("WARNING! Your device would not support encryption.", LOG_LEVEL.VERBOSE);
         return false;

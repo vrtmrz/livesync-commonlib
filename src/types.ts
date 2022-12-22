@@ -82,6 +82,8 @@ export interface RemoteDBSettings {
     customChunkSize: number;
     readChunksOnline: boolean;
     automaticallyDeleteMetadataOfDeletedFiles: number;
+    useDynamicIterationCount: boolean;
+    workingUseDynamicIterationCount: boolean;
 }
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
@@ -143,6 +145,8 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     automaticallyDeleteMetadataOfDeletedFiles: 0,
     disableMarkdownAutoMerge: false,
     writeDocumentsIfConflicted: false,
+    useDynamicIterationCount: false,
+    workingUseDynamicIterationCount: false,
 };
 
 export interface DatabaseEntry {

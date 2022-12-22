@@ -18,7 +18,7 @@ import {
     ChunkVersionRange,
 } from "./types.js";
 import { RemoteDBSettings } from "./types";
-import { resolveWithIgnoreKnownError, enableEncryption } from "./utils";
+import { resolveWithIgnoreKnownError, enableEncryption, runWithLock, delay } from "./utils";
 import { Logger } from "./logger";
 import { checkRemoteVersion, putDesignDocuments } from "./utils_couchdb";
 import { LRUCache } from "./LRUCache";
@@ -214,7 +214,7 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
                 Logger(newDbStatus);
 
                 if (this.settings.encrypt) {
-                    enableEncryption(old, this.settings.passphrase, true);
+                    enableEncryption(old, this.settings.passphrase, this.settings.useDynamicIterationCount);
                 }
                 const rep = old.replicate.to(this.localDatabase, { batch_size: 25, batches_limit: 10 });
                 rep.on("change", (e) => {
@@ -815,13 +815,13 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
     collectThrottleQueuedIds = [] as string[];
 
     // It is no de-javu.
-    chunkCollectedCallbacks: { [key: string]: ((chunk: EntryLeaf) => void)[] } = {};
+    chunkCollectedCallbacks: { [key: string]: { ok: ((chunk: EntryLeaf) => void)[], failed: (() => void) } } = {};
     chunkCollected(chunk: EntryLeaf) {
         const id = chunk._id;
         // Pull the hooks.
         // (One id will pull some hooks)
         if (typeof this.chunkCollectedCallbacks[id] !== "undefined") {
-            for (const func of this.chunkCollectedCallbacks[id]) {
+            for (const func of this.chunkCollectedCallbacks[id].ok) {
                 func(chunk);
             }
             delete this.chunkCollectedCallbacks[id];
@@ -830,53 +830,50 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
         }
     }
     async CollectChunks(ids: string[], showResult = false, waitForReady?: boolean) {
-        // If single or first of continuous, process simply for performance.
-        const timeoutLimit = 333; // three requests per second as maximum
-        if (this.collectThrottleTimeout == null) {
-            this.collectThrottleTimeout = setTimeout(async () => {
-                this.collectThrottleTimeout = null;
-                await this.execCollect()
-            }, timeoutLimit);
-            return this.CollectChunksInternal(ids, showResult);
-        }
-        // Queue chunks for batch request.
-        this.collectThrottleQueuedIds = [...new Set([...this.collectThrottleQueuedIds, ...ids])];
-        if (this.collectThrottleQueuedIds.length > 50) {
-            clearTimeout(this.collectThrottleTimeout);
-            this.collectThrottleTimeout = setTimeout(async () => {
-                this.collectThrottleTimeout = null;
-                await this.execCollect()
-            }, timeoutLimit);
-        }
+
+        // Register callbacks.
         const promises = ids.map(id => new Promise<EntryLeaf>((res, rej) => {
-            // Set timeout.
-            const timer = setTimeout(() => rej(new Error(`Chunk reading timed out on batch:${id}`)), waitForReady ? LEAF_WAIT_TIMEOUT : timeoutLimit * 10);
             // Lay the hook that be pulled when chunks are incoming.
             if (typeof this.chunkCollectedCallbacks[id] == "undefined") {
-                this.chunkCollectedCallbacks[id] = [];
+                this.chunkCollectedCallbacks[id] = { ok: [], failed: () => { delete this.chunkCollectedCallbacks[id]; rej() } };
             }
-            this.chunkCollectedCallbacks[id].push((chunk) => {
-                clearTimeout(timer);
+            this.chunkCollectedCallbacks[id].ok.push((chunk) => {
                 res(chunk);
             });
         }));
-        // And wait for the chunks are really incoming.
-        // note: failed only when timed out. but also if error happen, it should be timed out finally.
+
+        // Queue chunks for batch request.
+        this.collectThrottleQueuedIds = [...new Set([...this.collectThrottleQueuedIds, ...ids])];
+        this.execCollect();
+
         const res = await Promise.all(promises);
         return res;
     }
-    async execCollect() {
-        const requesting = [...this.collectThrottleQueuedIds];
-        this.collectThrottleQueuedIds = [];
-        const chunks = await this.CollectChunksInternal(requesting, false);
-        if (!chunks) {
-            // TODO: need more explicit message. 
-            Logger(`Could not retrieve chunks`, LOG_LEVEL.NOTICE);
-            return;
-        }
-        for (const chunk of chunks) {
-            this.chunkCollected(chunk);
-        }
+    execCollect() {
+        // do not await.
+        runWithLock("execCollect", false, async () => {
+            const timeoutLimit = 333; // three requests per second as maximum
+
+            const requesting = [...this.collectThrottleQueuedIds];
+            if (requesting.length == 0) return;
+            this.collectThrottleQueuedIds = [];
+            const chunks = await this.CollectChunksInternal(requesting, false);
+            if (chunks) {
+                for (const chunk of chunks) {
+                    this.chunkCollected(chunk);
+                }
+            } else {
+                // TODO: need more explicit message. 
+                Logger(`Could not retrieve chunks`, LOG_LEVEL.NOTICE);
+            }
+            for (const id of requesting) {
+                if (id in this.chunkCollectedCallbacks) {
+                    this.chunkCollectedCallbacks[id].failed();
+                }
+            }
+
+            await delay(timeoutLimit);
+        }).then(() => { /* fire and forget */ });
     }
 
     // Collect chunks from both local and remote.
@@ -899,12 +896,16 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
 
         const remoteChunks = await ret.db.allDocs({ keys: missingChunks, include_docs: true });
         if (remoteChunks.rows.some((e: any) => "error" in e)) {
+            Logger(`Some chunks are not exists both on remote and local database.`, showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO, "fetch");
             return false;
         }
 
         const remoteChunkItems = remoteChunks.rows.map((e: any) => e.doc);
         const max = remoteChunkItems.length;
         remoteChunks.rows.forEach(e => this.hashCaches.set(e.id, (e.doc as EntryLeaf).data));
+        // Cache remote chunks to the local database.
+        const remoteDocs = remoteChunks.rows.map(e => ({ ...e.doc }));
+        await this.localDatabase.bulkDocs(remoteDocs, { new_edits: false });
         let last = 0;
         // Chunks should be ordered by as we requested.
         function findChunk(key: string) {
@@ -929,9 +930,11 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
                 password: settings.couchDB_PASSWORD,
             },
             settings.disableRequestURI || isMobile,
-            settings.encrypt ? settings.passphrase : settings.encrypt
+            settings.encrypt ? settings.passphrase : settings.encrypt,
+            settings.useDynamicIterationCount
         );
     }
 
-    abstract connectRemoteCouchDB(uri: string, auth: { username: string; password: string }, disableRequestURI: boolean, passphrase: string | boolean): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }>;
+    abstract connectRemoteCouchDB(uri: string, auth: { username: string; password: string }, disableRequestURI: boolean, passphrase: string | boolean, useDynamicIterationCount: boolean): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }>;
+
 }

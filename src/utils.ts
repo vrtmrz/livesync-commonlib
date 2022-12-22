@@ -392,7 +392,7 @@ export async function allSettledWithConcurrencyLimit<T>(processes: Promise<T>[],
 }
 
 // requires transform-pouch
-export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: string, migrationDecrypt?: boolean) => {
+export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: string, useDynamicIterationCount: boolean, migrationDecrypt?: boolean) => {
     const decrypted = new Map();
     //@ts-ignore
     db.transform({
@@ -402,7 +402,7 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
             } as EntryLeaf;
             if (saveDoc._id.startsWith("h:+") || saveDoc._id == SYNCINFO_ID) {
                 try {
-                    saveDoc.data = await encrypt(saveDoc.data, passphrase);
+                    saveDoc.data = await encrypt(saveDoc.data, passphrase, useDynamicIterationCount);
                 } catch (ex) {
                     Logger("Encryption failed.", LOG_LEVEL.NOTICE);
                     Logger(ex);
@@ -420,17 +420,30 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                     return loadDoc; // once decrypted.
                 }
                 try {
-                    loadDoc.data = await decrypt(loadDoc.data, passphrase);
+                    loadDoc.data = await decrypt(loadDoc.data, passphrase, useDynamicIterationCount);
                     if (migrationDecrypt) {
                         decrypted.set(loadDoc._id, true);
                     }
                 } catch (ex) {
-                    if (migrationDecrypt && ex.name == "SyntaxError") {
-                        return loadDoc; // This logic will be removed in a while.
+                    if (useDynamicIterationCount) {
+                        try {
+                            loadDoc.data = await decrypt(loadDoc.data, passphrase, false);
+                            if (migrationDecrypt) {
+                                decrypted.set(loadDoc._id, true);
+                            }
+                        } catch (ex) {
+                            if (migrationDecrypt && ex.name == "SyntaxError") {
+                                return loadDoc; // This logic will be removed in a while.
+                            }
+                            Logger("Decryption failed.", LOG_LEVEL.NOTICE);
+                            Logger(ex);
+                            throw ex;
+                        }
+                    } else {
+                        Logger("Decryption failed.", LOG_LEVEL.NOTICE);
+                        Logger(ex);
+                        throw ex;
                     }
-                    Logger("Decryption failed.", LOG_LEVEL.NOTICE);
-                    Logger(ex);
-                    throw ex;
                 }
             }
             return loadDoc;
