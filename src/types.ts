@@ -128,7 +128,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     useHistory: false,
     disableRequestURI: false,
     skipOlderFilesOnSync: true,
-    checkConflictOnlyOnOpen: true,
+    checkConflictOnlyOnOpen: false,
     syncInternalFiles: false,
     syncInternalFilesBeforeReplication: false,
     syncInternalFilesIgnorePatterns: "\\/node_modules\\/, \\/\\.git\\/, \\/obsidian-livesync\\/",
