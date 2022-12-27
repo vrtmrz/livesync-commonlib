@@ -114,7 +114,7 @@ export async function putDBEntry(
                     Logger("Saving chunk error: " + (chunk as unknown as any).error);
                     saved = false;
                 } else {
-                    const pieceData = chunk.doc!;
+                    const pieceData = chunk.doc;
                     if (pieceData.type == "leaf" && pieceData.data == currentDocPiece.get(chunk.key)) {
                         skipped++;
                     } else if (pieceData.type == "leaf") {

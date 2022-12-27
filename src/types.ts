@@ -55,6 +55,7 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     watchInternalFileChanges: boolean;
     disableMarkdownAutoMerge: boolean;
     writeDocumentsIfConflicted: boolean;
+    syncAfterMerge: boolean;
 
 }
 
@@ -147,6 +148,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     writeDocumentsIfConflicted: false,
     useDynamicIterationCount: false,
     workingUseDynamicIterationCount: false,
+    syncAfterMerge: false,
 };
 
 export interface DatabaseEntry {
