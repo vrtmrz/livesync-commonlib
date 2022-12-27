@@ -1,4 +1,18 @@
-import { PouchDB as PouchDB_ } from "../pouchdb-browser-webpack/dist/pouchdb-browser.js";
+import PouchDB from 'pouchdb-core';
 
-const Pouch: PouchDB.Static = PouchDB_;
-export { Pouch as PouchDB };
+import IDBPouch from 'pouchdb-adapter-idb';
+import HttpPouch from 'pouchdb-adapter-http';
+import mapreduce from 'pouchdb-mapreduce';
+import replication from 'pouchdb-replication';
+
+import find from "pouchdb-find";
+import transform from "transform-pouch";
+
+PouchDB.plugin(IDBPouch)
+    .plugin(HttpPouch)
+    .plugin(mapreduce)
+    .plugin(replication)
+    .plugin(find)
+    .plugin(transform)
+
+export { PouchDB };
