@@ -165,7 +165,7 @@ export type Entry = DatabaseEntry & {
     deleted?: boolean;
 }
 export type NoteEntry = Entry & {
-    data: string;
+    data: string | string[];
     type: "notes";
 }
 
@@ -187,7 +187,7 @@ export type InternalFileEntry = NewEntry & {
 export type AnyEntry = NoteEntry | NewEntry | PlainEntry | InternalFileEntry;
 
 export type LoadedEntry = AnyEntry & {
-    data: string;
+    data: string | string[];
     datatype: "plain" | "newnote";
 };
 

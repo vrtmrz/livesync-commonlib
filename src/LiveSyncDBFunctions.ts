@@ -162,7 +162,7 @@ export async function putDBEntry(
         }
     }
     if (saved) {
-        Logger(`Content saved:${note._id} ,pieces:${processed} (new:${made}, skip:${skipped}, cache:${cacheUsed})`);
+        Logger(`Content saved:${note._id} ,chunks: ${processed} (new:${made}, skip:${skipped}, cache:${cacheUsed})`);
         const newDoc: PlainEntry | NewEntry = {
             children: savedNotes,
             _id: note._id,
@@ -344,7 +344,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                     return false;
                 }
             }
-            const data = children.join("");
+            const data = children;
             const doc: LoadedEntry & PouchDB.Core.IdMeta = {
                 data: data,
                 _id: obj._id,

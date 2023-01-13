@@ -2,18 +2,31 @@ import { decrypt, encrypt } from "./e2ee_v2";
 import { Logger } from "./logger";
 import { EntryDoc, EntryLeaf, FLAGMD_REDFLAG, SYNCINFO_ID, LOG_LEVEL, MAX_DOC_SIZE } from "./types";
 
-export function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string> {
+const encodeChunkSize = 3 * 50000000;
+function arrayBufferToBase64internal(buffer: DataView): Promise<string> {
     return new Promise((res) => {
         const blob = new Blob([buffer], { type: "application/octet-binary" });
         const reader = new FileReader();
         reader.onload = function (evt) {
             const dataURI = evt.target.result.toString();
-            res(dataURI.substr(dataURI.indexOf(",") + 1));
+            const result = dataURI.substr(dataURI.indexOf(",") + 1);
+            res(result);
         };
         reader.readAsDataURL(blob);
     });
 }
-
+export async function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string[]> {
+    const bufLen = buffer.byteLength;
+    const pieces = [];
+    let idx = 0;
+    do {
+        const offset = idx * encodeChunkSize;
+        const pBuf = new DataView(buffer, offset, Math.min(encodeChunkSize, buffer.byteLength - offset));
+        pieces.push(await arrayBufferToBase64internal(pBuf));
+        idx++;
+    } while (idx * encodeChunkSize < bufLen);
+    return pieces;
+}
 export function base64ToString(base64: string): string {
     try {
         const binary_string = window.atob(base64);
@@ -27,7 +40,21 @@ export function base64ToString(base64: string): string {
         return base64;
     }
 }
-export function base64ToArrayBuffer(base64: string): ArrayBuffer {
+export function base64ToArrayBuffer(base64: string | string[]): ArrayBuffer {
+    if (typeof (base64) == "string") return base64ToArrayBufferInternal(base64);
+    const bufItems = base64.map(e => base64ToArrayBufferInternal(e));
+    const len = bufItems.reduce((p, c) => p + c.byteLength, 0);
+    const mergedArray = new Uint8Array(len);
+    let offset = 0;
+    bufItems.forEach(e => {
+        mergedArray.set(new Uint8Array(e), offset);
+        offset += e.byteLength;
+    });
+    return mergedArray;
+
+}
+export function base64ToArrayBufferInternal(base64: string): ArrayBuffer {
+
     try {
         const binary_string = window.atob(base64);
         const len = binary_string.length;
@@ -230,31 +257,34 @@ function* pickPiece(leftData: string[], minimumChunkSize: number): Generator<str
     } while (leftData.length > 0);
 }
 // Split string into pieces within specific lengths (characters).
-export function splitPieces2(data: string, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, longLineThreshold: number) {
+export function splitPieces2(dataSrc: string | string[], pieceSize: number, plainSplit: boolean, minimumChunkSize: number, longLineThreshold: number) {
     return function* pieces(): Generator<string> {
-        if (plainSplit) {
-            const leftData = data.split("\n"); //use memory
-            const f = pickPiece(leftData, minimumChunkSize);
-            for (const piece of f) {
-                let buffer = piece;
+        const dataList = typeof (dataSrc) == "string" ? [dataSrc] : dataSrc;
+        for (const data of dataList) {
+            if (plainSplit) {
+                const leftData = data.split("\n"); //use memory
+                const f = pickPiece(leftData, minimumChunkSize);
+                for (const piece of f) {
+                    let buffer = piece;
+                    do {
+                        // split to within maximum pieceSize
+                        let ps = pieceSize;
+                        if (buffer.charCodeAt(ps - 1) != buffer.codePointAt(ps - 1)) {
+                            // If the char at the end of the chunk has been part of the surrogate pair, grow the piece size a bit.
+                            ps++;
+                        }
+                        yield buffer.substring(0, ps);
+                        buffer = buffer.substring(ps);
+                    } while (buffer != "");
+                }
+            } else {
+                let leftData = data;
                 do {
-                    // split to within maximum pieceSize
-                    let ps = pieceSize;
-                    if (buffer.charCodeAt(ps - 1) != buffer.codePointAt(ps - 1)) {
-                        // If the char at the end of the chunk has been part of the surrogate pair, grow the piece size a bit.
-                        ps++;
-                    }
-                    yield buffer.substring(0, ps);
-                    buffer = buffer.substring(ps);
-                } while (buffer != "");
+                    const piece = leftData.substring(0, pieceSize);
+                    leftData = leftData.substring(pieceSize);
+                    yield piece;
+                } while (leftData != "");
             }
-        } else {
-            let leftData = data;
-            do {
-                const piece = leftData.substring(0, pieceSize);
-                leftData = leftData.substring(pieceSize);
-                yield piece;
-            } while (leftData != "");
         }
     };
 }
@@ -626,4 +656,51 @@ export async function runWithLock<T>(key: string, ignoreWhenRunning: boolean, pr
         notifyLock();
     }
 
+}
+
+
+export function getDocData(doc: string | string[]) {
+    return typeof (doc) == "string" ? doc : doc.join("")
+}
+export function getDocDataAsArray(doc: string | string[]) {
+    return typeof (doc) == "string" ? [doc] : doc
+}
+const chunkCheckLen = 1000000;
+function stringYielder(src: string[]) {
+    return (function* gen() {
+        let buf = "";
+        for (const piece of src) {
+            buf += piece;
+            while (buf.length > chunkCheckLen) {
+                const p = buf.slice(0, chunkCheckLen);
+                buf = buf.substring(chunkCheckLen);
+                yield p;
+            }
+        }
+        if (buf != "") yield buf;
+        return;
+    })();
+
+}
+export function isDocContentSame(docA: string | string[], docB: string | string[]) {
+    const docAArray = getDocDataAsArray(docA);
+    const docBArray = getDocDataAsArray(docB);
+    const chunkA = stringYielder(docAArray);
+    const chunkB = stringYielder(docBArray);
+
+    let genA;
+    let genB;
+    do {
+        genA = chunkA.next();
+        genB = chunkB.next();
+        if (genA.value != genB.value) {
+            return false;
+        }
+        if (genA.done != genB.done) {
+            return false;
+        }
+    } while (!genA.done)
+
+    if (!genB.done) return false;
+    return true;
 }
