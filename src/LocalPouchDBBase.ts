@@ -24,6 +24,7 @@ import { checkRemoteVersion, putDesignDocuments } from "./utils_couchdb";
 import { LRUCache } from "./LRUCache";
 
 import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, ensureDatabaseIsCompatible, DBFunctionEnvironment } from "./LiveSyncDBFunctions.js";
+import { ObservableStore } from "./store.js";
 // when replicated, LiveSync checks chunk versions that every node used.
 // If all minimum version of every devices were up, that means we can convert database automatically.
 
@@ -59,6 +60,10 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
     docArrived = 0;
     docSent = 0;
     docSeq = "";
+    lastSyncPullSeq = 0;
+    maxPullSeq = 0;
+    lastSyncPushSeq = 0;
+    maxPushSeq = 0;
 
     isMobile = false;
 
@@ -66,6 +71,15 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
     maxChunkVersion = -1;
     minChunkVersion = -1;
     needScanning = false;
+    stat = new ObservableStore({
+        sent: 0,
+        arrived: 0,
+        maxPullSeq: 0,
+        maxPushSeq: 0,
+        lastSyncPullSeq: 0,
+        lastSyncPushSeq: 0,
+        syncStatus: "CLOSED" as DatabaseConnectingStatus
+    })
 
     abstract id2path(filename: string): string;
     abstract path2id(filename: string): string;
@@ -327,7 +341,15 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
     }
 
     updateInfo: () => void = () => {
-        console.log("Update Info default implement");
+        this.stat.set({
+            sent: this.docSent,
+            arrived: this.docArrived,
+            maxPullSeq: this.maxPullSeq,
+            maxPushSeq: this.maxPushSeq,
+            lastSyncPullSeq: this.lastSyncPullSeq,
+            lastSyncPushSeq: this.lastSyncPushSeq,
+            syncStatus: this.syncStatus
+        });
     };
     // eslint-disable-next-line require-await
     async migrate(from: number, to: number): Promise<boolean> {
@@ -481,6 +503,8 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
             Logger("Could not connect to server.", showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO, "sync");
             return;
         }
+        this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
+        this.maxPushSeq = Number(`${(await this.localDatabase.info()).update_seq}`.split("-")[0]);
         if (showResult) {
             Logger("Looking for the point last synchronized point.", LOG_LEVEL.NOTICE, "sync");
         }
@@ -498,6 +522,11 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
             this.syncHandler = this.localDatabase.sync(db, { checkpoint: "target", ...syncOptionBase });
             this.syncHandler
                 .on("change", async (e) => {
+                    if (e.direction == "pull") {
+                        this.lastSyncPullSeq = Number(`${e.change.last_seq}`.split("-")[0]);
+                    } else {
+                        this.lastSyncPushSeq = Number(`${e.change.last_seq}`.split("-")[0]);
+                    }
                     await this.replicationChangeDetected(e, showResult, docSentOnStart, docArrivedOnStart, callback);
                     if (retrying) {
                         if (this.docSent - docSentOnStart + (this.docArrived - docArrivedOnStart) > this.originalSetting.batch_size * 2) {
@@ -518,6 +547,7 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
             this.syncHandler = this.localDatabase.replicate.from(db, { checkpoint: "target", ...syncOptionBase, ...(this.settings.readChunksOnline ? { filter: "replicate/pull" } : {}) });
             this.syncHandler
                 .on("change", async (e) => {
+                    this.lastSyncPullSeq = Number(`${e.last_seq}`.split("-")[0]);
                     await this.replicationChangeDetected({ direction: "pull", change: e }, showResult, docSentOnStart, docArrivedOnStart, callback);
                     if (retrying) {
                         if (this.docSent - docSentOnStart + (this.docArrived - docArrivedOnStart) > this.originalSetting.batch_size * 2) {
@@ -537,6 +567,8 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
         } else if (syncMode == "pushOnly") {
             this.syncHandler = this.localDatabase.replicate.to(db, { checkpoint: "target", ...syncOptionBase, ...(this.settings.readChunksOnline ? { filter: "replicate/push" } : {}) });
             this.syncHandler.on("change", async (e) => {
+                this.lastSyncPushSeq = Number(`${e.last_seq}`.split("-")[0]);
+                this.updateInfo();
                 await this.replicationChangeDetected({ direction: "push", change: e }, showResult, docSentOnStart, docArrivedOnStart, callback);
                 if (retrying) {
                     if (this.docSent - docSentOnStart + (this.docArrived - docArrivedOnStart) > this.originalSetting.batch_size * 2) {
@@ -619,6 +651,8 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
                 }
                 const { db, syncOption } = ret;
                 this.syncStatus = "STARTED";
+                this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
+                this.maxPushSeq = Number(`${(await this.localDatabase.info()).update_seq}`.split("-")[0]);
                 this.updateInfo();
                 const docArrivedOnStart = this.docArrived;
                 const docSentOnStart = this.docSent;
@@ -639,6 +673,11 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
                 this.syncHandler
                     .on("active", () => this.replicationActivated(showResult))
                     .on("change", async (e) => {
+                        if (e.direction == "pull") {
+                            this.lastSyncPullSeq = Number(`${e.change.last_seq}`.split("-")[0]);
+                        } else {
+                            this.lastSyncPushSeq = Number(`${e.change.last_seq}`.split("-")[0]);
+                        }
                         await this.replicationChangeDetected(e, showResult, docSentOnStart, docArrivedOnStart, callback);
                         if (retrying) {
                             if (this.docSent - docSentOnStart + (this.docArrived - docArrivedOnStart) > this.originalSetting.batch_size * 2) {
@@ -664,10 +703,12 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
     originalSetting: RemoteDBSettings = null;
 
     closeReplication() {
-        this.syncStatus = "CLOSED";
-        this.updateInfo();
-        this.syncHandler = this.cancelHandler(this.syncHandler);
-        Logger("Replication closed");
+        if (this.syncHandler != null) {
+            this.syncStatus = "CLOSED";
+            this.updateInfo();
+            this.syncHandler = this.cancelHandler(this.syncHandler);
+            Logger("Replication closed");
+        }
     }
 
     async resetLocalOldDatabase() {

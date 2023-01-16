@@ -1,5 +1,6 @@
 import { decrypt, encrypt } from "./e2ee_v2";
 import { Logger } from "./logger";
+import { lockStore } from "./stores";
 import { EntryDoc, EntryLeaf, FLAGMD_REDFLAG, SYNCINFO_ID, LOG_LEVEL, MAX_DOC_SIZE } from "./types";
 
 const encodeChunkSize = 3 * 50000000;
@@ -613,16 +614,20 @@ export function Semaphore(limit: number, onRelease?: (currentQueue: QueueNotifie
 
 const Mutexes = {} as { [key: string]: SemaphoreObject }
 
-export function getLocks() {
+function updateStore() {
     const allLocks = [...Object.values(Mutexes).map(e => e.peekQueues())].flat();
-    return {
+    lockStore.apply((v => ({
+        ...v, count: allLocks.length,
         pending: allLocks.filter((e) => e.state == "NONE").map((e) => e.memo),
         running: allLocks.filter((e) => e.state == "RUNNING").map((e) => e.memo),
-    };
+    })));
+}
+export function getLocks() {
+    return lockStore.peek();
 }
 
 export function getProcessingCounts() {
-    return [...Object.values(Mutexes).map(e => e.peekQueues())].flat().length;
+    return lockStore.peek().count;
 }
 
 let semaphoreReleasedCount = 0;
@@ -648,12 +653,15 @@ export async function runWithLock<T>(key: string, ignoreWhenRunning: boolean, pr
 
     const timeout = ignoreWhenRunning ? 1 : 0;
     const releaser = await Mutexes[key].tryAcquire(1, timeout, key);
+    updateStore();
     if (!releaser) return null;
     try {
+
         return await proc();
     } finally {
         releaser();
         notifyLock();
+        updateStore();
     }
 
 }
