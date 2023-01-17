@@ -2,6 +2,7 @@ import { Logger } from "./logger";
 import { LOG_LEVEL } from "./types";
 //@ts-ignore
 import { webcrypto as crypto_ } from "crypto";
+import { binaryToBinaryString, uint8ArrayToHexString, writeString, btoa, atob, hexStringToUint8Array, readString } from "./strbin";
 
 let webcrypto: Crypto;
 
@@ -114,8 +115,6 @@ export async function getKeyForDecryption(passphrase: string, salt: Uint8Array, 
         salt,
         count: 0,
     });
-
-
     return [key, salt];
 }
 
@@ -138,125 +137,6 @@ function getNonce() {
     return nonceBuffer;
 }
 
-function btoa_node(src: string): string {
-    return Buffer.from(src, "binary").toString("base64");
-}
-function atob_node(src: string): string {
-    return Buffer.from(src, "base64").toString("binary");
-}
-const btoa = typeof window !== "undefined" ? window.btoa : btoa_node;
-const atob = typeof window !== "undefined" ? window.atob : atob_node;
-
-
-const revMap: { [key: string]: number } = {};
-const numMap: { [key: number]: string } = {};
-for (let i = 0; i < 256; i++) {
-    revMap[(`00${i.toString(16)}`.slice(-2))] = i;
-    numMap[i] = (`00${i.toString(16)}`.slice(-2));
-}
-function hexStringToUint8Array(src: string): Uint8Array {
-    const len = src.length / 2;
-    const ret = new Uint8Array(len);
-    for (let i = 0; i < len; i++) {
-        ret[i] = revMap[src[i * 2] + src[i * 2 + 1]];
-    }
-    return ret;
-}
-function uint8ArrayToHexString(src: Uint8Array): string {
-    return [...src].map(e => numMap[e]).join("");
-}
-
-// Safari's JavaScriptCOre hardcoded the argument limit to 65536
-// https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Function/apply
-const QUANTUM = 32768;
-
-// Super fast Text Encoder / Decoder alternative.
-// TODO: When Capacitor or Electron is upgraded, check and reappraise this.
-// Referred https://gist.github.com/kawanet/a66a0e2657464c57bcff2249286d3a24
-// https://qiita.com/kawanet/items/52062b0c86597f7dee7d
-const writeString = (string: string) => {
-    // Prepare enough buffer.
-    const buffer = new Uint8Array(string.length * 4);
-    const length = string.length;
-    let index = 0;
-    let chr = 0;
-    let idx = 0;
-    while (idx < length) {
-        chr = string.charCodeAt(idx++);
-        if (chr < 128) {
-            buffer[index++] = chr;
-        } else if (chr < 0x800) {
-            // 2 bytes
-            buffer[index++] = 0xC0 | (chr >>> 6);
-            buffer[index++] = 0x80 | (chr & 0x3F);
-        } else if (chr < 0xD800 || chr > 0xDFFF) {
-            // 3 bytes
-            buffer[index++] = 0xE0 | (chr >>> 12);
-            buffer[index++] = 0x80 | ((chr >>> 6) & 0x3F);
-            buffer[index++] = 0x80 | (chr & 0x3F);
-        } else {
-            // 4 bytes - surrogate pair
-            chr = (((chr - 0xD800) << 10) | (string.charCodeAt(idx++) - 0xDC00)) + 0x10000;
-            buffer[index++] = 0xF0 | (chr >>> 18);
-            buffer[index++] = 0x80 | ((chr >>> 12) & 0x3F);
-            buffer[index++] = 0x80 | ((chr >>> 6) & 0x3F);
-            buffer[index++] = 0x80 | (chr & 0x3F);
-        }
-    }
-    return buffer.slice(0, index);
-};
-
-const readString = (buffer: Uint8Array) => {
-    const length = buffer.length;
-    let index = 0;
-    const end = length;
-    let string = "";
-    while (index < end) {
-        const chunk = [];
-        const cEnd = Math.min(index + QUANTUM, end);
-        while (index < cEnd) {
-            const chr = buffer[index++];
-            if (chr < 128) { // 1 byte
-                chunk.push(chr);
-            } else if ((chr & 0xE0) === 0xC0) { // 2 bytes
-                chunk.push((chr & 0x1F) << 6 |
-                    (buffer[index++] & 0x3F));
-            } else if ((chr & 0xF0) === 0xE0) { // 3 bytes
-                chunk.push((chr & 0x0F) << 12 |
-                    (buffer[index++] & 0x3F) << 6 |
-                    (buffer[index++] & 0x3F));
-            } else if ((chr & 0xF8) === 0xF0) { // 4 bytes
-                let code = (chr & 0x07) << 18 |
-                    (buffer[index++] & 0x3F) << 12 |
-                    (buffer[index++] & 0x3F) << 6 |
-                    (buffer[index++] & 0x3F);
-                if (code < 0x010000) {
-                    chunk.push(code);
-                } else { // surrogate pair
-                    code -= 0x010000;
-                    chunk.push((code >>> 10) + 0xD800, (code & 0x3FF) + 0xDC00);
-                }
-            }
-        }
-        string += String.fromCharCode(...chunk);
-    }
-    return string;
-};
-
-
-function binaryToBinaryString(src: Uint8Array): string {
-    const len = src.length;
-    if (len < QUANTUM) return String.fromCharCode(...src);
-    let ret = "";
-    for (let i = 0; i < len; i += QUANTUM) {
-        ret += String.fromCharCode(
-            ...src.slice(i, i + QUANTUM)
-        );
-    }
-    return ret;
-}
-
-
 export async function encrypt(input: string, passphrase: string, autoCalculateIterations: boolean) {
     const [key, salt] = await getKeyForEncrypt(passphrase, autoCalculateIterations);
     // Create initial vector with semi-fixed part and incremental part
@@ -274,8 +154,6 @@ export async function encrypt(input: string, passphrase: string, autoCalculateIt
     const ret = `["${encryptedData2}","${uint8ArrayToHexString(iv)}","${uint8ArrayToHexString(salt)}"]`;
     return ret;
 }
-
-
 
 export async function decrypt(encryptedResult: string, passphrase: string, autoCalculateIterations: boolean): Promise<string> {
     try {
@@ -295,9 +173,7 @@ export async function decrypt(encryptedResult: string, passphrase: string, autoC
             encryptedDataArrayBuffer[i] = encryptedDataBin.charCodeAt(i);
         }
         const plainStringBuffer: ArrayBuffer = await webcrypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encryptedDataArrayBuffer);
-        // const plainStringified = tdx.decode(plainStringBuffer);
         const plainStringified = readString(new Uint8Array(plainStringBuffer));
-        // const plainStringified = String.fromCodePoint.apply(null, [...new Uint8Array(plainStringBuffer)])
         const plain = JSON.parse(plainStringified);
         return plain;
     } catch (ex) {

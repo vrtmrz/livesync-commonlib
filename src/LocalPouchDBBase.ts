@@ -18,13 +18,14 @@ import {
     ChunkVersionRange,
 } from "./types.js";
 import { RemoteDBSettings } from "./types";
-import { resolveWithIgnoreKnownError, enableEncryption, runWithLock, delay } from "./utils";
+import { resolveWithIgnoreKnownError, delay } from "./utils";
 import { Logger } from "./logger";
-import { checkRemoteVersion, putDesignDocuments } from "./utils_couchdb";
+import { checkRemoteVersion, enableEncryption, putDesignDocuments } from "./utils_couchdb";
 import { LRUCache } from "./LRUCache";
 
 import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, ensureDatabaseIsCompatible, DBFunctionEnvironment } from "./LiveSyncDBFunctions.js";
 import { ObservableStore } from "./store.js";
+import { runWithLock } from "./lock.js";
 // when replicated, LiveSync checks chunk versions that every node used.
 // If all minimum version of every devices were up, that means we can convert database automatically.
 
@@ -840,7 +841,7 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
     }
 
     isTargetFile(file: string) {
-        if (file.includes(":")) return true;
+        if (file.includes(":")) return false;
         if (this.settings.syncOnlyRegEx) {
             const syncOnly = new RegExp(this.settings.syncOnlyRegEx);
             if (!file.match(syncOnly)) return false;

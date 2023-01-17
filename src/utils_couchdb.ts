@@ -1,5 +1,6 @@
+import { decrypt, encrypt } from "./e2ee_v2";
 import { Logger } from "./logger";
-import { LOG_LEVEL, VER, VERSIONINFO_DOCID, EntryVersionInfo, SYNCINFO_ID, SyncInfo } from "./types";
+import { LOG_LEVEL, VER, VERSIONINFO_DOCID, EntryVersionInfo, SYNCINFO_ID, SyncInfo, EntryDoc, EntryLeaf } from "./types";
 import { resolveWithIgnoreKnownError } from "./utils";
 
 export const isValidRemoteCouchDBURI = (uri: string): boolean => {
@@ -31,7 +32,7 @@ export const checkRemoteVersion = async (db: PouchDB.Database, migrate: (from: n
         }
         if (version == barrier) return true;
         return false;
-    } catch (ex) {
+    } catch (ex: any) {
         if (ex.status && ex.status == 404) {
             if (await bumpRemoteVersion(db)) {
                 return true;
@@ -62,7 +63,7 @@ export const checkSyncInfo = async (db: PouchDB.Database): Promise<boolean> => {
         console.log(syncinfo);
         // if we could decrypt the doc, it must be ok.
         return true;
-    } catch (ex) {
+    } catch (ex: any) {
         if (ex.status && ex.status == 404) {
             const randomStrSrc = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
             const temp = [...Array(30)]
@@ -89,7 +90,7 @@ export const checkSyncInfo = async (db: PouchDB.Database): Promise<boolean> => {
 export async function putDesignDocuments(db: PouchDB.Database) {
     type DesignDoc = {
         _id: string;
-        _rev: string;
+        _rev?: string;
         ver: number;
         filters: {
             default: string,
@@ -124,7 +125,7 @@ export async function putDesignDocuments(db: PouchDB.Database) {
             await db.put(design);
             return true;
         }
-    } catch (ex) {
+    } catch (ex: any) {
         if (ex.status && ex.status == 404) {
             delete design._rev;
             //@ts-ignore
@@ -136,3 +137,63 @@ export async function putDesignDocuments(db: PouchDB.Database) {
     }
     return false;
 }
+
+// requires transform-pouch
+export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: string, useDynamicIterationCount: boolean, migrationDecrypt?: boolean) => {
+    const decrypted = new Map();
+    //@ts-ignore
+    db.transform({
+        incoming: async (doc: EntryDoc) => {
+            const saveDoc: EntryLeaf = {
+                ...doc,
+            } as EntryLeaf;
+            if (saveDoc._id.startsWith("h:+") || saveDoc._id == SYNCINFO_ID) {
+                try {
+                    saveDoc.data = await encrypt(saveDoc.data, passphrase, useDynamicIterationCount);
+                } catch (ex) {
+                    Logger("Encryption failed.", LOG_LEVEL.NOTICE);
+                    Logger(ex);
+                    throw ex;
+                }
+            }
+            return saveDoc;
+        },
+        outgoing: async (doc: EntryDoc) => {
+            const loadDoc: EntryLeaf = {
+                ...doc,
+            } as EntryLeaf;
+            if (loadDoc._id.startsWith("h:+") || loadDoc._id == SYNCINFO_ID) {
+                if (migrationDecrypt && decrypted.has(loadDoc._id)) {
+                    return loadDoc; // once decrypted.
+                }
+                try {
+                    loadDoc.data = await decrypt(loadDoc.data, passphrase, useDynamicIterationCount);
+                    if (migrationDecrypt) {
+                        decrypted.set(loadDoc._id, true);
+                    }
+                } catch (ex) {
+                    if (useDynamicIterationCount) {
+                        try {
+                            loadDoc.data = await decrypt(loadDoc.data, passphrase, false);
+                            if (migrationDecrypt) {
+                                decrypted.set(loadDoc._id, true);
+                            }
+                        } catch (ex: any) {
+                            if (migrationDecrypt && ex.name == "SyntaxError") {
+                                return loadDoc; // This logic will be removed in a while.
+                            }
+                            Logger("Decryption failed.", LOG_LEVEL.NOTICE);
+                            Logger(ex);
+                            throw ex;
+                        }
+                    } else {
+                        Logger("Decryption failed.", LOG_LEVEL.NOTICE);
+                        Logger(ex);
+                        throw ex;
+                    }
+                }
+            }
+            return loadDoc;
+        },
+    });
+};

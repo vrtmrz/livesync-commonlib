@@ -1,13 +1,8 @@
+import { LogEntry, logStore } from "./stores";
 import { LOG_LEVEL } from "./types";
 
-// eslint-disable-next-line require-await
-export let Logger: (message: any, level?: LOG_LEVEL, key?: string) => Promise<void> = async (message, _) => {
-    const timestamp = new Date().toLocaleString();
-    const messageContent = typeof message == "string" ? message : message instanceof Error ? `${message.name}:${message.message}` : JSON.stringify(message, null, 2);
-    const newMessage = timestamp + "->" + messageContent;
-    console.log(newMessage);
-};
-
-export function setLogger(loggerFun: (message: any, level?: LOG_LEVEL, key?: string) => Promise<void>) {
-    Logger = loggerFun;
+export function Logger(message: any, level?: LOG_LEVEL, key?: string): void {
+    const entry = { message, level, key } as LogEntry;
+    logStore.push(entry)
 }
+logStore.intercept(e => e.slice(Math.min(e.length - 200, 0)));

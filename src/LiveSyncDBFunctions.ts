@@ -1,7 +1,10 @@
+import { runWithLock } from "./lock";
 import { Logger } from "./logger";
 import { LRUCache } from "./LRUCache";
+import { shouldSplitAsPlainText } from "./path";
+import { splitPieces2 } from "./strbin";
 import { Entry, EntryDoc, EntryDocResponse, EntryLeaf, EntryMilestoneInfo, LoadedEntry, LOG_LEVEL, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, NewEntry, NoteEntry, PlainEntry, RemoteDBSettings, ChunkVersionRange } from "./types";
-import { resolveWithIgnoreKnownError, runWithLock, shouldSplitAsPlainText, splitPieces2 } from "./utils";
+import { resolveWithIgnoreKnownError } from "./utils";
 
 
 interface DBFunctionSettings {

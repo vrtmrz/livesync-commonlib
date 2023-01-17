@@ -1,6 +1,6 @@
 
 type Observer<T> = (value: T) => void | Promise<void>;
-type StreamInterceptor<T> = (value: T) => T | Promise<T>;
+type Interceptor<T> = (value: T) => T;
 type StreamSubscriber<T> = (value: T) => void | Promise<void>;
 
 abstract class ReadOnlyObservableStore<T> {
@@ -12,13 +12,20 @@ export class ObservableStore<T> extends ReadOnlyObservableStore<T> {
 
     protected value?: T;
     private observers: Observer<T>[] = [];
+    private interceptors: Interceptor<T>[] = [];
     constructor(value: T) {
         super();
         this.value = value;
     }
     set(value: T) {
         if (this.value != value) {
-            this.value = value;
+            let v = value;
+            if (this.interceptors.length > 0) {
+                for (const f of this.interceptors) {
+                    v = f(v);
+                }
+            }
+            this.value = v;
             this.invalidate();
         }
     }
@@ -37,6 +44,13 @@ export class ObservableStore<T> extends ReadOnlyObservableStore<T> {
             f(value);
         }
     }
+    intercept(interceptor: Interceptor<T>) {
+        this.interceptors.push(interceptor);
+        return () => this.removeInterceptor(interceptor);
+    }
+    removeInterceptor(interceptor: Interceptor<T>) {
+        this.interceptors = this.interceptors.filter(e => e != interceptor);
+    }
     observe(observer: Observer<T>) {
         this.observers.push(observer);
         return () => this.unobserve(observer);
@@ -46,16 +60,19 @@ export class ObservableStore<T> extends ReadOnlyObservableStore<T> {
     }
 }
 export class StreamStore<T> extends ObservableStore<T[]>{
-    private interceptors: StreamInterceptor<T>[] = [];
+    private itemInterceptors: Interceptor<T>[] = [];
     private subscribers: StreamSubscriber<T>[] = [];
 
     constructor(init: T[] | undefined) {
         super(init ?? []);
     }
-    async push(value: T) {
+    push(value: T) {
         let v = value;
-        for (const f of this.interceptors) {
-            v = await f(v);
+        for (const f of this.itemInterceptors) {
+            v = f(v);
+        }
+        for (const f of this.subscribers) {
+            f(v);
         }
         this.set([...this.value ?? [], v]);
 
@@ -66,10 +83,13 @@ export class StreamStore<T> extends ObservableStore<T[]>{
         this.set(v);
         return val;
     }
-    async unshift(value: T) {
+    unshift(value: T) {
         let v = value;
-        for (const f of this.interceptors) {
-            v = await f(v);
+        for (const f of this.itemInterceptors) {
+            v = f(v);
+        }
+        for (const f of this.subscribers) {
+            f(v);
         }
         this.set([v, ...this.value ?? []]);
     }
@@ -86,12 +106,12 @@ export class StreamStore<T> extends ObservableStore<T[]>{
         this.subscribers = this.subscribers.filter(e => e != subscriber);
     }
 
-    intercept(interceptor: StreamInterceptor<T>) {
-        this.interceptors.push(interceptor);
-        return () => this.removeInterceptor(interceptor);
+    interceptEach(interceptor: Interceptor<T>) {
+        this.itemInterceptors.push(interceptor);
+        return () => this.removeEachInterceptor(interceptor);
     }
-    removeInterceptor(interceptor: StreamInterceptor<T>) {
-        this.interceptors = this.interceptors.filter(e => e != interceptor);
+    removeEachInterceptor(interceptor: Interceptor<T>) {
+        this.itemInterceptors = this.itemInterceptors.filter(e => e != interceptor);
     }
 
 
