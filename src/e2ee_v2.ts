@@ -180,7 +180,15 @@ export async function decrypt(encryptedResult: string, passphrase: string, autoC
         Logger("Couldn't decode! You should wrong the passphrases", LOG_LEVEL.VERBOSE);
         Logger(ex, LOG_LEVEL.VERBOSE);
         throw ex;
+    }
+}
 
+export async function tryDecrypt(encryptedResult: string, passphrase: string | false, autoCalculateIterations: boolean): Promise<string | false> {
+    if (!passphrase) return false;
+    try {
+        return await decrypt(encryptedResult, passphrase, autoCalculateIterations);
+    } catch (ex) {
+        return false;
     }
 }
 export async function testCrypt() {

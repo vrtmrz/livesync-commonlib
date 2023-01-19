@@ -450,7 +450,13 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
                 this.docSent += e.change.docs.length;
             }
             if (showResult) {
-                Logger(`↑${this.docSent - docSentOnStart} ↓${this.docArrived - docArrivedOnStart}`, LOG_LEVEL.NOTICE, "sync");
+                const maxPullSeq = this.maxPullSeq;
+                const maxPushSeq = this.maxPushSeq;
+                const lastSyncPullSeq = this.lastSyncPullSeq;
+                const lastSyncPushSeq = this.lastSyncPushSeq;
+                const pushLast = ((lastSyncPushSeq == 0) ? "" : (lastSyncPushSeq >= maxPushSeq ? " (LIVE)" : ` (${maxPushSeq - lastSyncPushSeq})`));
+                const pullLast = ((lastSyncPullSeq == 0) ? "" : (lastSyncPullSeq >= maxPullSeq ? " (LIVE)" : ` (${maxPullSeq - lastSyncPullSeq})`));
+                Logger(`↑${this.docSent - docSentOnStart}${pushLast} ↓${this.docArrived - docArrivedOnStart}${pullLast}`, LOG_LEVEL.NOTICE, "sync");
             }
             this.updateInfo();
         } catch (ex) {
@@ -840,7 +846,8 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
         return true;
     }
 
-    isTargetFile(file: string) {
+    isTargetFile(filenameSrc: string) {
+        const file = filenameSrc.startsWith("i:") ? filenameSrc.substring(2) : filenameSrc;
         if (file.includes(":")) return false;
         if (this.settings.syncOnlyRegEx) {
             const syncOnly = new RegExp(this.settings.syncOnlyRegEx);
@@ -965,6 +972,9 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
 
 
     connectRemoteCouchDBWithSetting(settings: RemoteDBSettings, isMobile: boolean) {
+        if (settings.encrypt && settings.passphrase == "" && !settings.permitEmptyPassphrase) {
+            return "Empty passphrases cannot be used without explicit permission";
+        }
         return this.connectRemoteCouchDB(
             settings.couchDB_URI + (settings.couchDB_DBNAME == "" ? "" : "/" + settings.couchDB_DBNAME),
             {

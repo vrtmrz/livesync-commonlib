@@ -19,6 +19,13 @@ export const VERSIONINFO_DOCID = "obsydian_livesync_version";
 export const MILSTONE_DOCID = "_local/obsydian_livesync_milestone";
 export const NODEINFO_DOCID = "_local/obsydian_livesync_nodeinfo";
 
+export type ConfigPassphraseStore = "" /* default */ | "LOCALSTORAGE" | "ASK_AT_LAUNCH";
+export type CouchDBConnection = {
+    couchDB_URI: string,
+    couchDB_USER: string,
+    couchDB_PASSWORD: string,
+    couchDB_DBNAME: string,
+}
 interface ObsidianLiveSyncSettings_PluginSetting {
     liveSync: boolean;
     syncOnSave: boolean;
@@ -33,8 +40,6 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     trashInsteadDelete: boolean;
     periodicReplication: boolean;
     periodicReplicationInterval: number;
-    workingEncrypt: boolean;
-    workingPassphrase: string;
     doNotDeleteFolder: boolean;
     resolveConflictsByNewerFile: boolean;
     batchSave: boolean;
@@ -56,14 +61,12 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     disableMarkdownAutoMerge: boolean;
     writeDocumentsIfConflicted: boolean;
     syncAfterMerge: boolean;
-
+    configPassphraseStore: ConfigPassphraseStore;
+    encryptedPassphrase: string;
+    encryptedCouchDBConnection: string;
 }
 
-export interface RemoteDBSettings {
-    couchDB_URI: string;
-    couchDB_USER: string;
-    couchDB_PASSWORD: string;
-    couchDB_DBNAME: string;
+export type RemoteDBSettings = CouchDBConnection & {
     versionUpFlash: string;
     minimumChunkSize: number;
     longLineThreshold: number;
@@ -84,7 +87,9 @@ export interface RemoteDBSettings {
     readChunksOnline: boolean;
     automaticallyDeleteMetadataOfDeletedFiles: number;
     useDynamicIterationCount: boolean;
-    workingUseDynamicIterationCount: boolean;
+
+    // This could not be configured from Obsidian.
+    permitEmptyPassphrase: boolean;
 }
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
@@ -110,8 +115,6 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     syncOnFileOpen: false,
     encrypt: false,
     passphrase: "",
-    workingEncrypt: false,
-    workingPassphrase: "",
     doNotDeleteFolder: false,
     resolveConflictsByNewerFile: false,
     batchSave: false,
@@ -147,8 +150,11 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     disableMarkdownAutoMerge: false,
     writeDocumentsIfConflicted: false,
     useDynamicIterationCount: false,
-    workingUseDynamicIterationCount: false,
     syncAfterMerge: false,
+    configPassphraseStore: "",
+    encryptedPassphrase: "",
+    encryptedCouchDBConnection: "",
+    permitEmptyPassphrase: false,
 };
 
 export interface DatabaseEntry {
@@ -262,3 +268,5 @@ export interface SyncInfo extends DatabaseEntry {
     type: "syncinfo";
     data: string;
 }
+
+export const SALT_OF_PASSPHRASE = "rHGMPtr6oWw7VSa3W3wpa8fT8U";

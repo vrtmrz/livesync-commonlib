@@ -121,7 +121,7 @@ export async function putDBEntry(
                     if (pieceData.type == "leaf" && pieceData.data == currentDocPiece.get(chunk.key)) {
                         skipped++;
                     } else if (pieceData.type == "leaf") {
-                        Logger(`Hash collided on saving! If possible, please report the following string\nA:--${currentDocPiece.get(chunk.key)}--\nB:--${pieceData}--`, LOG_LEVEL.NOTICE);
+                        Logger(`Hash collided on saving! If possible, please report the following string\nA:--${currentDocPiece.get(chunk.key)}--\nB:--${pieceData.data}--`, LOG_LEVEL.NOTICE);
                         Logger(`This document could not be saved:${note._id}`, LOG_LEVEL.NOTICE);
                         saved = false;
                     }
