@@ -397,8 +397,8 @@ export async function deleteDBEntry(env: DBFunctionEnvironment, path: string, op
     const id = env.path2id(path);
 
     try {
-        let obj: EntryDocResponse | null = null;
         return await runWithLock("file:" + id, false, async () => {
+            let obj: EntryDocResponse | null = null;
             if (opt) {
                 obj = await env.localDatabase.get(id, opt);
             } else {
