@@ -64,6 +64,8 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     configPassphraseStore: ConfigPassphraseStore;
     encryptedPassphrase: string;
     encryptedCouchDBConnection: string;
+
+    useIndexedDBAdapter: boolean;
 }
 
 export type RemoteDBSettings = CouchDBConnection & {
@@ -127,7 +129,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     autoSweepPluginsPeriodic: false,
     notifyPluginOrSettingUpdated: false,
     checkIntegrityOnSave: false,
-    batch_size: 250,
+    batch_size: 50,
     batches_limit: 40,
     useHistory: false,
     disableRequestURI: false,
@@ -155,6 +157,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     encryptedPassphrase: "",
     encryptedCouchDBConnection: "",
     permitEmptyPassphrase: false,
+    useIndexedDBAdapter: false,
 };
 
 export interface DatabaseEntry {
@@ -260,7 +263,7 @@ export type EntryDocResponse = EntryDoc & PouchDB.Core.IdMeta & PouchDB.Core.Get
 export type DatabaseConnectingStatus = "STARTED" | "NOT_CONNECTED" | "PAUSED" | "CONNECTED" | "COMPLETED" | "CLOSED" | "ERRORED";
 
 export const FLAGMD_REDFLAG = "redflag.md";
-
+export const FLAGMD_REDFLAG2 = "redflag2.md";
 export const SYNCINFO_ID = "syncinfo";
 
 export interface SyncInfo extends DatabaseEntry {
