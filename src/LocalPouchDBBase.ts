@@ -117,12 +117,12 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
         this.isMobile = isMobile;
     }
     abstract onClose(): void;
-    close() {
+    async close() {
         Logger("Database closed (by close)");
         this.isReady = false;
         this.changeHandler = this.cancelHandler(this.changeHandler);
         if (this.localDatabase != null) {
-            this.localDatabase.close();
+            await this.localDatabase.close();
         }
         this.onClose();
         // this.kvDB.close();
@@ -146,7 +146,7 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
     abstract onInitializeDatabase(): Promise<void>;
     async initializeDatabase(): Promise<boolean> {
         await this.prepareHashFunctions();
-        if (this.localDatabase != null) this.localDatabase.close();
+        if (this.localDatabase != null) await this.localDatabase.close();
         this.changeHandler = this.cancelHandler(this.changeHandler);
         this.localDatabase = null;
 
@@ -721,7 +721,7 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
     async resetLocalOldDatabase() {
         const oldDB = await this.isOldDatabaseExists();
         if (oldDB) {
-            oldDB.destroy();
+            await oldDB.destroy();
             Logger("Deleted!", LOG_LEVEL.NOTICE);
         } else {
             Logger("Old database is not exist.", LOG_LEVEL.NOTICE);
@@ -735,7 +735,7 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
         this.isReady = false;
         await this.localDatabase.destroy();
         //await this.kvDB.destroy();
-        this.onResetDatabase();
+        await this.onResetDatabase();
         this.localDatabase = null;
         await this.initializeDatabase();
         Logger("Local Database Reset", LOG_LEVEL.NOTICE);
@@ -848,6 +848,7 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
 
     isTargetFile(filenameSrc: string) {
         const file = filenameSrc.startsWith("i:") ? filenameSrc.substring(2) : filenameSrc;
+        if (file.startsWith("ps:")) return true;
         if (file.includes(":")) return false;
         if (this.settings.syncOnlyRegEx) {
             const syncOnly = new RegExp(this.settings.syncOnlyRegEx);
