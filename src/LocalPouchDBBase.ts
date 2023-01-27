@@ -20,7 +20,7 @@ import {
 import { RemoteDBSettings } from "./types";
 import { resolveWithIgnoreKnownError, delay } from "./utils";
 import { Logger } from "./logger";
-import { checkRemoteVersion, enableEncryption, putDesignDocuments } from "./utils_couchdb";
+import { checkRemoteVersion, enableEncryption, putDesignDocuments, isErrorOfMissingDoc } from "./utils_couchdb";
 import { LRUCache } from "./LRUCache";
 
 import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, ensureDatabaseIsCompatible, DBFunctionEnvironment } from "./LiveSyncDBFunctions.js";
@@ -302,7 +302,7 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
             }
             throw new Error(`Corrupted chunk detected: ${id}`);
         } catch (ex: any) {
-            if (ex.status && ex.status == 404) {
+            if (isErrorOfMissingDoc(ex)) {
                 if (waitForReady) {
                     // just leaf is not ready.
                     // wait for on
@@ -606,7 +606,7 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
                 this.replicationErrored(e);
                 Logger("Replication stopped.", showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO, "sync");
                 if (this.getLastPostFailedBySize()) {
-                    if ("status" in e && e.status == 413) {
+                    if (e && e?.status == 413) {
                         Logger(`Self-hosted LiveSync has detected some remote-database-incompatible chunks that exist in the local database. It means synchronization with the server had been no longer possible.\n\nThe problem may be caused by chunks that were created with the faulty version or by switching platforms of the database.\nTo solve the circumstance, configure the remote database correctly or we have to rebuild both local and remote databases.`, LOG_LEVEL.NOTICE);
                         return;
                     }
@@ -885,7 +885,7 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
         const promises = ids.map(id => new Promise<EntryLeaf>((res, rej) => {
             // Lay the hook that be pulled when chunks are incoming.
             if (typeof this.chunkCollectedCallbacks[id] == "undefined") {
-                this.chunkCollectedCallbacks[id] = { ok: [], failed: () => { delete this.chunkCollectedCallbacks[id]; rej() } };
+                this.chunkCollectedCallbacks[id] = { ok: [], failed: () => { delete this.chunkCollectedCallbacks[id]; rej(new Error("Failed to collect one of chunks")); } };
             }
             this.chunkCollectedCallbacks[id].ok.push((chunk) => {
                 res(chunk);

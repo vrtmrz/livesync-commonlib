@@ -1,6 +1,8 @@
+import { isErrorOfMissingDoc } from "./utils_couchdb";
+
 export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T> {
     return new Promise((res, rej) => {
-        p.then(res).catch((ex) => (ex.status && ex.status == 404 ? res(def) : rej(ex)));
+        p.then(res).catch((ex) => (isErrorOfMissingDoc(ex) ? res(def) : rej(ex)));
     });
 }
 

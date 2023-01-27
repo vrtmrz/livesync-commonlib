@@ -5,6 +5,7 @@ import { shouldSplitAsPlainText } from "./path";
 import { splitPieces2 } from "./strbin";
 import { Entry, EntryDoc, EntryDocResponse, EntryLeaf, EntryMilestoneInfo, LoadedEntry, LOG_LEVEL, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, NewEntry, NoteEntry, PlainEntry, RemoteDBSettings, ChunkVersionRange } from "./types";
 import { resolveWithIgnoreKnownError } from "./utils";
+import { isErrorOfMissingDoc } from "./utils_couchdb";
 
 
 interface DBFunctionSettings {
@@ -147,7 +148,7 @@ export async function putDBEntry(
                     env.hashCaches.set(id, pieceData);
                     made++;
                 } else {
-                    if ((item as any).status && (item as any).status == 409) {
+                    if ((item as any)?.status == 409) {
                         // conflicted, but it would be ok in children.
                         // env.hashCaches.set(id, pieceData);
                         skipped++
@@ -183,7 +184,7 @@ export async function putDBEntry(
                     newDoc._rev = old._rev;
                 }
             } catch (ex: any) {
-                if (ex.status && ex.status == 404) {
+                if (isErrorOfMissingDoc(ex)) {
                     // NO OP/
                 } else {
                     throw ex;
@@ -251,7 +252,7 @@ export async function getDBEntryMeta(env: DBFunctionEnvironment, path: string, o
             return doc;
         }
     } catch (ex: any) {
-        if (ex.status && ex.status == 404) {
+        if (isErrorOfMissingDoc(ex)) {
             return false;
         }
         throw ex;
@@ -371,7 +372,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
             }
             return doc;
         } catch (ex: any) {
-            if (ex.status && ex.status == 404) {
+            if (isErrorOfMissingDoc(ex)) {
                 Logger(`Missing document content!, could not read ${obj._id} from database.`, LOG_LEVEL.NOTICE);
                 return false;
             }
@@ -442,7 +443,7 @@ export async function deleteDBEntry(env: DBFunctionEnvironment, path: string, op
             }
         }) ?? false;
     } catch (ex: any) {
-        if (ex.status && ex.status == 404) {
+        if (isErrorOfMissingDoc(ex)) {
             return false;
         }
         throw ex;
@@ -496,7 +497,7 @@ export async function deleteDBEntryPrefix(env: DBFunctionEnvironment, prefixSrc:
 
             deleteCount++;
         } catch (ex: any) {
-            if (ex.status && ex.status == 404) {
+            if (isErrorOfMissingDoc(ex)) {
                 notfound++;
                 // NO OP. It should be timing problem.
             } else {

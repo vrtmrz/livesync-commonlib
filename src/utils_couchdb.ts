@@ -33,7 +33,7 @@ export const checkRemoteVersion = async (db: PouchDB.Database, migrate: (from: n
         if (version == barrier) return true;
         return false;
     } catch (ex: any) {
-        if (ex.status && ex.status == 404) {
+        if (isErrorOfMissingDoc(ex)) {
             if (await bumpRemoteVersion(db)) {
                 return true;
             }
@@ -64,7 +64,7 @@ export const checkSyncInfo = async (db: PouchDB.Database): Promise<boolean> => {
         // if we could decrypt the doc, it must be ok.
         return true;
     } catch (ex: any) {
-        if (ex.status && ex.status == 404) {
+        if (isErrorOfMissingDoc(ex)) {
             const randomStrSrc = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
             const temp = [...Array(30)]
                 .map((e) => Math.floor(Math.random() * randomStrSrc.length))
@@ -126,7 +126,7 @@ export async function putDesignDocuments(db: PouchDB.Database) {
             return true;
         }
     } catch (ex: any) {
-        if (ex.status && ex.status == 404) {
+        if (isErrorOfMissingDoc(ex)) {
             delete design._rev;
             //@ts-ignore
             await db.put(design);
@@ -197,3 +197,7 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
         },
     });
 };
+
+export function isErrorOfMissingDoc(ex: any) {
+    return (ex && ex?.status) == 404;
+}
