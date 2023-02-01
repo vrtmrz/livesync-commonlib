@@ -424,7 +424,7 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
             syncOptionBase.push = { filter: 'replicate/push' };
             syncOptionBase.pull = { filter: 'replicate/pull' };
         }
-        const syncOption: PouchDB.Replication.SyncOptions = keepAlive ? { live: true, retry: true, heartbeat: 30000, ...syncOptionBase } : { ...syncOptionBase };
+        const syncOption: PouchDB.Replication.SyncOptions = keepAlive ? { live: true, retry: true, heartbeat: setting.useTimeouts ? false : 30000, ...syncOptionBase } : { ...syncOptionBase };
 
         return { db: dbRet.db, info: dbRet.info, syncOptionBase, syncOption };
     }
