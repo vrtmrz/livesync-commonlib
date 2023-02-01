@@ -89,6 +89,7 @@ export type RemoteDBSettings = CouchDBConnection & {
     readChunksOnline: boolean;
     automaticallyDeleteMetadataOfDeletedFiles: number;
     useDynamicIterationCount: boolean;
+    useTimeouts: boolean;
 
     // This could not be configured from Obsidian.
     permitEmptyPassphrase: boolean;
@@ -158,6 +159,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     encryptedCouchDBConnection: "",
     permitEmptyPassphrase: false,
     useIndexedDBAdapter: false,
+    useTimeouts: false
 };
 
 export interface DatabaseEntry {
