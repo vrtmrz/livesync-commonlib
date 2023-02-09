@@ -1,4 +1,4 @@
-import { FLAGMD_REDFLAG, FLAGMD_REDFLAG2 } from "./types";
+import { FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3 } from "./types";
 
 // --- path utilities
 export function isValidPath(filename: string): boolean {
@@ -28,6 +28,9 @@ export function shouldBeIgnored(filename: string): boolean {
         return true;
     }
     if (filename == FLAGMD_REDFLAG2) {
+        return true;
+    }
+    if (filename == FLAGMD_REDFLAG3) {
         return true;
     }
     return false;

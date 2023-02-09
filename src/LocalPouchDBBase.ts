@@ -433,7 +433,7 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
         if (keepAlive) {
             this.openContinuousReplication(setting, showResult, callback, false);
         } else {
-            this.openOneshotReplication(setting, showResult, callback, false, null, "sync");
+            return this.openOneshotReplication(setting, showResult, callback, false, null, "sync");
         }
     }
     replicationActivated(showResult: boolean) {

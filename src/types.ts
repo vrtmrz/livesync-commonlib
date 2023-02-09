@@ -266,6 +266,7 @@ export type DatabaseConnectingStatus = "STARTED" | "NOT_CONNECTED" | "PAUSED" | 
 
 export const FLAGMD_REDFLAG = "redflag.md";
 export const FLAGMD_REDFLAG2 = "redflag2.md";
+export const FLAGMD_REDFLAG3 = "redflag3.md";
 export const SYNCINFO_ID = "syncinfo";
 
 export interface SyncInfo extends DatabaseEntry {
