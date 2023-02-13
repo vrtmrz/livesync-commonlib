@@ -10,15 +10,18 @@ export function isValidFilenameInWidows(filename: string): boolean {
     return true;
 }
 export function isValidFilenameInDarwin(filename: string): boolean {
+    // eslint-disable-next-line no-control-regex
     const regex = /[\u0000-\u001f]|[:]/g;
     return !regex.test(filename);
 }
 export function isValidFilenameInLinux(filename: string): boolean {
+    // eslint-disable-next-line no-control-regex
     const regex = /[\u0000-\u001f]/g;
     return !regex.test(filename);
 }
 export function isValidFilenameInAndroid(filename: string): boolean {
     // In principle, Android can handle the path as like Linux, but most devices mount the storage in VFAT.
+    // eslint-disable-next-line no-control-regex
     const regex = /[\u0000-\u001f]|[\\":?<>|*#]/g;
     return !regex.test(filename);
 }
