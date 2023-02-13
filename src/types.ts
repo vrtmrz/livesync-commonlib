@@ -66,6 +66,7 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     encryptedCouchDBConnection: string;
 
     useIndexedDBAdapter: boolean;
+    writeLogToTheFile: boolean;
 }
 
 export type RemoteDBSettings = CouchDBConnection & {
@@ -159,7 +160,8 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     encryptedCouchDBConnection: "",
     permitEmptyPassphrase: false,
     useIndexedDBAdapter: false,
-    useTimeouts: false
+    useTimeouts: false,
+    writeLogToTheFile: false,
 };
 
 export interface DatabaseEntry {
@@ -264,6 +266,7 @@ export type EntryDocResponse = EntryDoc & PouchDB.Core.IdMeta & PouchDB.Core.Get
 
 export type DatabaseConnectingStatus = "STARTED" | "NOT_CONNECTED" | "PAUSED" | "CONNECTED" | "COMPLETED" | "CLOSED" | "ERRORED";
 
+export const PREFIXMD_LOGFILE = "LIVESYNC_LOG_";
 export const FLAGMD_REDFLAG = "redflag.md";
 export const FLAGMD_REDFLAG2 = "redflag2.md";
 export const FLAGMD_REDFLAG3 = "redflag3.md";

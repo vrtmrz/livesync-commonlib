@@ -1,15 +1,27 @@
-import { FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3 } from "./types";
+import { FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3, PREFIXMD_LOGFILE } from "./types";
 
 // --- path utilities
-export function isValidPath(filename: string): boolean {
+export function isValidFilenameInWidows(filename: string): boolean {
     // eslint-disable-next-line no-control-regex
     const regex = /[\u0000-\u001f]|[\\":?<>|*#]/g;
-    let x = filename.replace(regex, "_");
+    if (regex.test(filename)) return false;
     const win = /(\\|\/)(COM\d|LPT\d|CON|PRN|AUX|NUL|CLOCK$)($|\.)/gi;
-    const sx = (x = x.replace(win, "/_"));
-    return sx == filename;
+    if (win.test(filename)) return false;
+    return true;
 }
-
+export function isValidFilenameInDarwin(filename: string): boolean {
+    const regex = /[\u0000-\u001f]|[:]/g;
+    return !regex.test(filename);
+}
+export function isValidFilenameInLinux(filename: string): boolean {
+    const regex = /[\u0000-\u001f]/g;
+    return !regex.test(filename);
+}
+export function isValidFilenameInAndroid(filename: string): boolean {
+    // In principle, Android can handle the path as like Linux, but most devices mount the storage in VFAT.
+    const regex = /[\u0000-\u001f]|[\\":?<>|*#]/g;
+    return !regex.test(filename);
+}
 // For backward compatibility, using the path for determining id.
 // Only CouchDB unacceptable ID (that starts with an underscore) has been prefixed with "/".
 // The first slash will be deleted when the path is normalized.
@@ -31,6 +43,9 @@ export function shouldBeIgnored(filename: string): boolean {
         return true;
     }
     if (filename == FLAGMD_REDFLAG3) {
+        return true;
+    }
+    if (filename.startsWith(PREFIXMD_LOGFILE)) {
         return true;
     }
     return false;
