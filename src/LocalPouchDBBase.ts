@@ -46,7 +46,7 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
 
     h32!: (input: string, seed?: number) => string;
     h32Raw!: (input: Uint8Array, seed?: number) => number;
-    hashCaches = new LRUCache();
+    hashCaches = new LRUCache(10, 10);
 
     corruptedEntries: { [key: string]: EntryDoc } = {};
     remoteLocked = false;
@@ -115,6 +115,7 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
         this.settings = settings;
         this.cancelHandler = this.cancelHandler.bind(this);
         this.isMobile = isMobile;
+        this.hashCaches = new LRUCache(settings.hashCacheMaxCount, settings.hashCacheMaxAmount);
     }
     abstract onClose(): void;
     async close() {
@@ -990,4 +991,32 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
 
     abstract connectRemoteCouchDB(uri: string, auth: { username: string; password: string }, disableRequestURI: boolean, passphrase: string | boolean, useDynamicIterationCount: boolean): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }>;
 
+    async *findEntries(startKey: string, endKey: string, opt: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
+        const pageLimit = 100;
+        let nextKey = startKey;
+        do {
+            const docs = await this.localDatabase.allDocs({ limit: pageLimit, startkey: nextKey, endkey: endKey, include_docs: true, ...opt });
+            nextKey = "";
+            for (const row of docs.rows) {
+                const doc = row.doc;
+                nextKey = `${row.id}\u{10ffff}`;
+                if (!("type" in doc)) continue;
+                if (doc.type == "newnote" || doc.type == "plain") {
+                    yield doc;
+                }
+
+            }
+        } while (nextKey != "");
+    }
+    async *findAllDocs(opt?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
+        const f1 = this.findEntries("", "h:", opt ?? {});
+        const f2 = this.findEntries(`h:\u{10ffff}`, "", opt ?? {});
+        for await (const f of f1) {
+            yield f;
+        }
+        for await (const f of f2) {
+            yield f;
+        }
+
+    }
 }

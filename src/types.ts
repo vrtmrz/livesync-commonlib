@@ -92,6 +92,8 @@ export type RemoteDBSettings = CouchDBConnection & {
     useDynamicIterationCount: boolean;
     useTimeouts: boolean;
 
+    hashCacheMaxCount: number,
+    hashCacheMaxAmount: number,
     // This could not be configured from Obsidian.
     permitEmptyPassphrase: boolean;
 }
@@ -162,6 +164,8 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     useIndexedDBAdapter: false,
     useTimeouts: false,
     writeLogToTheFile: false,
+    hashCacheMaxCount: 300,
+    hashCacheMaxAmount: 50,
 };
 
 export interface DatabaseEntry {
