@@ -123,11 +123,12 @@ export function binaryToBinaryString(src: Uint8Array): string {
 
 const encodeChunkSize = 3 * 50000000;
 function arrayBufferToBase64internalBrowser(buffer: DataView): Promise<string> {
-    return new Promise((res) => {
+    return new Promise((res, rej) => {
         const blob = new Blob([buffer], { type: "application/octet-binary" });
         const reader = new FileReader();
         reader.onload = function (evt) {
             const dataURI = evt.target?.result?.toString() || "";
+            if (buffer.byteLength != 0 && (dataURI == "" || dataURI == "data:")) return rej(new TypeError("Could not parse the encoded string"));
             const result = dataURI.substring(dataURI.indexOf(",") + 1);
             res(result);
         };
