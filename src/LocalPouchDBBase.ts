@@ -20,7 +20,7 @@ import {
 import { RemoteDBSettings } from "./types";
 import { resolveWithIgnoreKnownError, delay } from "./utils";
 import { Logger } from "./logger";
-import { checkRemoteVersion, enableEncryption, putDesignDocuments, isErrorOfMissingDoc } from "./utils_couchdb";
+import { checkRemoteVersion, putDesignDocuments, isErrorOfMissingDoc } from "./utils_couchdb";
 import { LRUCache } from "./LRUCache";
 
 import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, ensureDatabaseIsCompatible, DBFunctionEnvironment } from "./LiveSyncDBFunctions.js";
@@ -129,21 +129,6 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
         // this.kvDB.close();
     }
 
-    async isOldDatabaseExists() {
-        const db = this.CreatePouchDBInstance<EntryDoc>(this.dbname + "-livesync", {
-            auto_compaction: this.settings.useHistory ? false : true,
-            revs_limit: 20,
-            deterministic_revs: true,
-            skip_setup: true,
-        });
-        try {
-            const info = await db.info();
-            Logger(info, LOG_LEVEL.VERBOSE);
-            return db;
-        } catch (ex) {
-            return false;
-        }
-    }
     abstract onInitializeDatabase(): Promise<void>;
     async initializeDatabase(): Promise<boolean> {
         await this.prepareHashFunctions();
@@ -158,103 +143,46 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
         });
         await this.onInitializeDatabase();
         //this.kvDB = await OpenKeyValueDatabase(this.dbname + "-livesync-kv");
+        Logger("Opening Database...");
         Logger("Database info", LOG_LEVEL.VERBOSE);
         Logger(await this.localDatabase.info(), LOG_LEVEL.VERBOSE);
-        Logger("Open Database...");
-        // The sequence after migration.
-        const nextSeq = async (): Promise<boolean> => {
-            Logger("Database Info");
-            Logger(await this.localDatabase.info(), LOG_LEVEL.VERBOSE);
-            // initialize local node information.
-            const nodeinfo: EntryNodeInfo = await resolveWithIgnoreKnownError<EntryNodeInfo>(this.localDatabase.get(NODEINFO_DOCID), {
-                _id: NODEINFO_DOCID,
-                type: "nodeinfo",
-                nodeid: "",
-                v20220607: true,
-            });
-            if (nodeinfo.nodeid == "") {
-                nodeinfo.nodeid = Math.random().toString(36).slice(-10);
-                await this.localDatabase.put(nodeinfo);
-            }
-            this.localDatabase.on("close", () => {
-                Logger("Database closed.");
-                this.isReady = false;
-                this.localDatabase.removeAllListeners();
-            });
-            this.nodeid = nodeinfo.nodeid;
-            await putDesignDocuments(this.localDatabase);
 
-            // Tracings the leaf id
-            const changes = this.localDatabase
-                .changes({
-                    since: "now",
-                    live: true,
-                    filter: (doc) => doc.type == "leaf",
-                })
-                .on("change", (e) => {
-                    if (e.deleted) return;
-                    this.leafArrived(e.id);
-                    this.docSeq = `${e.seq}`;
-                });
-            this.changeHandler = changes;
-            this.isReady = true;
-            Logger("Database is now ready.");
-            return true;
-        };
-        Logger("Checking old database", LOG_LEVEL.VERBOSE);
-        const old = await this.isOldDatabaseExists();
-
-        //Migrate.
-        if (old) {
-            const oi = await old.info();
-            if (oi.doc_count == 0) {
-                Logger("Old database is empty, proceed to next step", LOG_LEVEL.VERBOSE);
-                // already converted.
-                return nextSeq();
-            }
-            //
-            Logger("We have to upgrade database..", LOG_LEVEL.NOTICE, "conv");
-            try {
-
-                // To debug , uncomment below.
-
-                // this.localDatabase.destroy();
-                // await delay(100);
-                // this.localDatabase = new PouchDB<EntryDoc>(this.dbname + "-livesync-v2", {
-                //     auto_compaction: this.settings.useHistory ? false : true,
-                //     revs_limit: 100,
-                //     deterministic_revs: true,
-                // });
-                const newDbStatus = await this.localDatabase.info();
-                Logger("New database is initialized");
-                Logger(newDbStatus);
-
-                if (this.settings.encrypt) {
-                    enableEncryption(old, this.settings.passphrase, this.settings.useDynamicIterationCount);
-                }
-                const rep = old.replicate.to(this.localDatabase, { batch_size: 25, batches_limit: 10 });
-                rep.on("change", (e) => {
-                    Logger(`Converting ${e.docs_written} docs...`, LOG_LEVEL.NOTICE, "conv");
-                });
-                const w = await rep;
-
-                if (w.ok) {
-                    Logger("Conversion completed!", LOG_LEVEL.NOTICE, "conv");
-                    old.destroy(); // delete the old database.
-                    this.isReady = true;
-                    return await nextSeq();
-                } else {
-                    throw new Error("Conversion failed!");
-                }
-            } catch (ex) {
-                Logger("Conversion failed!, If you are fully synchronized, please drop the old database in the Hatch pane in setting dialog. or please make an issue on Github.", LOG_LEVEL.NOTICE, "conv");
-                Logger(ex);
-                this.isReady = false;
-                return false;
-            }
-        } else {
-            return await nextSeq();
+        // initialize local node information.
+        const nodeinfo: EntryNodeInfo = await resolveWithIgnoreKnownError<EntryNodeInfo>(this.localDatabase.get(NODEINFO_DOCID), {
+            _id: NODEINFO_DOCID,
+            type: "nodeinfo",
+            nodeid: "",
+            v20220607: true,
+        });
+        if (nodeinfo.nodeid == "") {
+            nodeinfo.nodeid = Math.random().toString(36).slice(-10);
+            await this.localDatabase.put(nodeinfo);
         }
+        this.localDatabase.on("close", () => {
+            Logger("Database closed.");
+            this.isReady = false;
+            this.localDatabase.removeAllListeners();
+        });
+        this.nodeid = nodeinfo.nodeid;
+        await putDesignDocuments(this.localDatabase);
+
+        // Tracings the leaf id
+        const changes = this.localDatabase
+            .changes({
+                since: "now",
+                live: true,
+                filter: (doc) => doc.type == "leaf",
+            })
+            .on("change", (e) => {
+                if (e.deleted) return;
+                this.leafArrived(e.id);
+                this.docSeq = `${e.seq}`;
+            });
+        this.changeHandler = changes;
+        this.isReady = true;
+        Logger("Database is now ready.");
+        return true;
+
     }
 
     async prepareHashFunctions() {
@@ -719,15 +647,6 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
         }
     }
 
-    async resetLocalOldDatabase() {
-        const oldDB = await this.isOldDatabaseExists();
-        if (oldDB) {
-            await oldDB.destroy();
-            Logger("Deleted!", LOG_LEVEL.NOTICE);
-        } else {
-            Logger("Old database is not exist.", LOG_LEVEL.NOTICE);
-        }
-    }
     abstract onResetDatabase(): Promise<void>;
     async resetDatabase() {
         this.changeHandler = this.cancelHandler(this.changeHandler);
