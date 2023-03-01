@@ -16,8 +16,9 @@ import {
     MILSTONE_DOCID,
     DatabaseConnectingStatus,
     ChunkVersionRange,
-} from "./types.js";
-import { RemoteDBSettings } from "./types";
+    VERSIONINFO_DOCID,
+    RemoteDBSettings
+} from "./types";
 import { resolveWithIgnoreKnownError, delay } from "./utils";
 import { Logger } from "./logger";
 import { checkRemoteVersion, putDesignDocuments, isErrorOfMissingDoc } from "./utils_couchdb";
@@ -822,27 +823,42 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
     execCollect() {
         // do not await.
         runWithLock("execCollect", false, async () => {
-            const timeoutLimit = 333; // three requests per second as maximum
-
-            const requesting = [...this.collectThrottleQueuedIds];
+            const minimumInterval = this.settings.minimumIntervalOfReadChunksOnline; // three requests per second as maximum
+            const start = Date.now();
+            const requesting = this.collectThrottleQueuedIds.splice(0, this.settings.concurrencyOfReadChunksOnline);
             if (requesting.length == 0) return;
-            this.collectThrottleQueuedIds = [];
-            const chunks = await this.CollectChunksInternal(requesting, false);
-            if (chunks) {
-                for (const chunk of chunks) {
-                    this.chunkCollected(chunk);
-                }
-            } else {
-                // TODO: need more explicit message. 
-                Logger(`Could not retrieve chunks`, LOG_LEVEL.NOTICE);
-            }
-            for (const id of requesting) {
-                if (id in this.chunkCollectedCallbacks) {
-                    this.chunkCollectedCallbacks[id].failed();
-                }
-            }
+            try {
+                const chunks = await this.CollectChunksInternal(requesting, false);
+                if (chunks) {
+                    // Remove duplicated entries.
+                    this.collectThrottleQueuedIds = this.collectThrottleQueuedIds.filter(e => !chunks.some(f => f._id == e))
+                    for (const chunk of chunks) {
+                        this.chunkCollected(chunk);
+                    }
 
-            await delay(timeoutLimit);
+                } else {
+                    // TODO: need more explicit message. 
+                    Logger(`Could not retrieve chunks`, LOG_LEVEL.NOTICE);
+                    for (const id of requesting) {
+                        if (id in this.chunkCollectedCallbacks) {
+                            this.chunkCollectedCallbacks[id].failed();
+                        }
+                    }
+                }
+
+            } catch (ex) {
+                Logger(`Exception raised while retrieving chunks`, LOG_LEVEL.NOTICE);
+                Logger(ex, LOG_LEVEL.VERBOSE);
+                for (const id of requesting) {
+                    if (id in this.chunkCollectedCallbacks) {
+                        this.chunkCollectedCallbacks[id].failed();
+                    }
+                }
+            }
+            const passed = Date.now() - start;
+            const intervalLeft = minimumInterval - passed;
+            if (this.collectThrottleQueuedIds.length == 0) return;
+            await delay(intervalLeft < 0 ? 0 : intervalLeft);
         }).then(() => { /* fire and forget */ });
     }
 
@@ -935,6 +951,34 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
         }
         for await (const f of f2) {
             yield f;
+        }
+    }
+    async *findEntryNames(startKey: string, endKey: string, opt: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
+        const pageLimit = 100;
+        let nextKey = startKey;
+        do {
+            const docs = await this.localDatabase.allDocs({ limit: pageLimit, startkey: nextKey, endkey: endKey, ...opt });
+            nextKey = "";
+            for (const row of docs.rows) {
+                nextKey = `${row.id}\u{10ffff}`;
+                yield row.id;
+            }
+        } while (nextKey != "");
+    }
+    async *findAllDocNames(opt?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
+        const targets = [
+            this.findEntryNames("", "h:", opt ?? {}),
+            this.findEntryNames(`h:\u{10ffff}`, "i:", opt ?? {}),
+            this.findEntryNames(`i:\u{10ffff}`, "ps:", opt ?? {}),
+            this.findEntryNames(`ps:\u{10ffff}`, "", opt ?? {}),
+
+        ]
+        for (const target of targets) {
+            for await (const f of target) {
+                if (f.startsWith("_")) continue;
+                if (f == VERSIONINFO_DOCID) continue;
+                yield f;
+            }
         }
 
     }

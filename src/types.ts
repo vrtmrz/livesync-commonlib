@@ -94,6 +94,9 @@ export type RemoteDBSettings = CouchDBConnection & {
 
     hashCacheMaxCount: number,
     hashCacheMaxAmount: number,
+    concurrencyOfReadChunksOnline: number,
+    minimumIntervalOfReadChunksOnline: number,
+
     // This could not be configured from Obsidian.
     permitEmptyPassphrase: boolean;
 }
@@ -166,6 +169,8 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     writeLogToTheFile: false,
     hashCacheMaxCount: 300,
     hashCacheMaxAmount: 50,
+    concurrencyOfReadChunksOnline: 100,
+    minimumIntervalOfReadChunksOnline: 333,
 };
 
 export interface DatabaseEntry {
