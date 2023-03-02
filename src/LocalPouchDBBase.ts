@@ -822,43 +822,44 @@ export abstract class LocalPouchDBBase implements DBFunctionEnvironment {
     }
     execCollect() {
         // do not await.
-        runWithLock("execCollect", false, async () => {
-            const minimumInterval = this.settings.minimumIntervalOfReadChunksOnline; // three requests per second as maximum
-            const start = Date.now();
-            const requesting = this.collectThrottleQueuedIds.splice(0, this.settings.concurrencyOfReadChunksOnline);
-            if (requesting.length == 0) return;
-            try {
-                const chunks = await this.CollectChunksInternal(requesting, false);
-                if (chunks) {
-                    // Remove duplicated entries.
-                    this.collectThrottleQueuedIds = this.collectThrottleQueuedIds.filter(e => !chunks.some(f => f._id == e))
-                    for (const chunk of chunks) {
-                        this.chunkCollected(chunk);
+        runWithLock("execCollect", true, async () => {
+            do {
+                const minimumInterval = this.settings.minimumIntervalOfReadChunksOnline; // three requests per second as maximum
+                const start = Date.now();
+                const requesting = this.collectThrottleQueuedIds.splice(0, this.settings.concurrencyOfReadChunksOnline);
+                if (requesting.length == 0) return;
+                try {
+                    const chunks = await this.CollectChunksInternal(requesting, false);
+                    if (chunks) {
+                        // Remove duplicated entries.
+                        this.collectThrottleQueuedIds = this.collectThrottleQueuedIds.filter(e => !chunks.some(f => f._id == e))
+                        for (const chunk of chunks) {
+                            this.chunkCollected(chunk);
+                        }
+                    } else {
+                        // TODO: need more explicit message. 
+                        Logger(`Could not retrieve chunks`, LOG_LEVEL.NOTICE);
+                        for (const id of requesting) {
+                            if (id in this.chunkCollectedCallbacks) {
+                                this.chunkCollectedCallbacks[id].failed();
+                            }
+                        }
                     }
 
-                } else {
-                    // TODO: need more explicit message. 
-                    Logger(`Could not retrieve chunks`, LOG_LEVEL.NOTICE);
+                } catch (ex) {
+                    Logger(`Exception raised while retrieving chunks`, LOG_LEVEL.NOTICE);
+                    Logger(ex, LOG_LEVEL.VERBOSE);
                     for (const id of requesting) {
                         if (id in this.chunkCollectedCallbacks) {
                             this.chunkCollectedCallbacks[id].failed();
                         }
                     }
                 }
-
-            } catch (ex) {
-                Logger(`Exception raised while retrieving chunks`, LOG_LEVEL.NOTICE);
-                Logger(ex, LOG_LEVEL.VERBOSE);
-                for (const id of requesting) {
-                    if (id in this.chunkCollectedCallbacks) {
-                        this.chunkCollectedCallbacks[id].failed();
-                    }
-                }
-            }
-            const passed = Date.now() - start;
-            const intervalLeft = minimumInterval - passed;
-            if (this.collectThrottleQueuedIds.length == 0) return;
-            await delay(intervalLeft < 0 ? 0 : intervalLeft);
+                const passed = Date.now() - start;
+                const intervalLeft = minimumInterval - passed;
+                if (this.collectThrottleQueuedIds.length == 0) return;
+                await delay(intervalLeft < 0 ? 0 : intervalLeft);
+            } while (this.collectThrottleQueuedIds.length > 0);
         }).then(() => { /* fire and forget */ });
     }
 
