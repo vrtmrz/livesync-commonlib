@@ -16,6 +16,7 @@ interface DBFunctionSettings {
     customChunkSize: number;
     readChunksOnline: boolean;
 }
+// This interface is expected to be unnecessary because of the change in dependency direction
 export interface DBFunctionEnvironment {
     localDatabase: PouchDB.Database<EntryDoc>,
     id2path(filename: string): string,
@@ -23,7 +24,7 @@ export interface DBFunctionEnvironment {
     isTargetFile: (file: string) => boolean,
     settings: DBFunctionSettings,
     corruptedEntries: { [key: string]: EntryDoc },
-    CollectChunks(ids: string[], showResult?: boolean, waitForReady?: boolean): Promise<false | EntryLeaf[]>,
+    collectChunks(ids: string[], showResult?: boolean, waitForReady?: boolean): Promise<false | EntryLeaf[]>,
     getDBLeaf(id: string, waitForReady: boolean): Promise<string>,
     hashCaches: LRUCache,
     h32(input: string, seed?: number): string,
@@ -298,7 +299,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
             let children: string[] = [];
 
             if (env.settings.readChunksOnline) {
-                const items = await env.CollectChunks(obj.children, false, waitForReady);
+                const items = await env.collectChunks(obj.children, false, waitForReady);
                 if (items) {
                     for (const v of items) {
                         if (v && v.type == "leaf") {
