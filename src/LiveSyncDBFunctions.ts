@@ -1,9 +1,9 @@
 import { runWithLock } from "./lock";
 import { Logger } from "./logger";
 import { LRUCache } from "./LRUCache";
-import { shouldSplitAsPlainText } from "./path";
+import { shouldSplitAsPlainText, stripAllPrefixes } from "./path";
 import { splitPieces2 } from "./strbin";
-import { Entry, EntryDoc, EntryDocResponse, EntryLeaf, EntryMilestoneInfo, LoadedEntry, LOG_LEVEL, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, NewEntry, NoteEntry, PlainEntry, RemoteDBSettings, ChunkVersionRange } from "./types";
+import { Entry, EntryDoc, EntryDocResponse, EntryLeaf, EntryMilestoneInfo, LoadedEntry, LOG_LEVEL, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, NewEntry, NoteEntry, PlainEntry, RemoteDBSettings, ChunkVersionRange, EntryHasPath, DocumentID, FilePathWithPrefix, FilePath } from "./types";
 import { resolveWithIgnoreKnownError } from "./utils";
 import { isErrorOfMissingDoc } from "./utils_couchdb";
 
@@ -19,14 +19,14 @@ interface DBFunctionSettings {
 // This interface is expected to be unnecessary because of the change in dependency direction
 export interface DBFunctionEnvironment {
     localDatabase: PouchDB.Database<EntryDoc>,
-    id2path(filename: string): string,
-    path2id(filename: string): string;
+    id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
+    path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID>;
     isTargetFile: (file: string) => boolean,
     settings: DBFunctionSettings,
     corruptedEntries: { [key: string]: EntryDoc },
     collectChunks(ids: string[], showResult?: boolean, waitForReady?: boolean): Promise<false | EntryLeaf[]>,
     getDBLeaf(id: string, waitForReady: boolean): Promise<string>,
-    hashCaches: LRUCache,
+    hashCaches: LRUCache<DocumentID, string>,
     h32(input: string, seed?: number): string,
     h32Raw(input: Uint8Array, seed?: number): number,
 }
@@ -35,10 +35,11 @@ export async function putDBEntry(
     note: LoadedEntry,
     saveAsBigChunk?: boolean): Promise<false | PouchDB.Core.Response> {
     //safety valve
-    if (!env.isTargetFile(env.id2path(note._id))) {
+    const filename = env.id2path(note._id, note);
+    if (!env.isTargetFile(filename)) {
         return false;
     }
-
+    const dispFilename = stripAllPrefixes(filename);
     // let leftData = note.data;
     const savedNotes = [];
     let processed = 0;
@@ -58,11 +59,11 @@ export async function putDBEntry(
     const newLeafs: EntryLeaf[] = [];
 
     const pieces = splitPieces2(note.data, pieceSize, plainSplit, minimumChunkSize, 0);
-    const currentDocPiece = new Map<string, string>();
+    const currentDocPiece = new Map<DocumentID, string>();
     let saved = true;
     for (const piece of pieces()) {
         processed++;
-        let leafId = "";
+        let leafId = "" as DocumentID;
         // Get hash of piece.
         let hashedPiece = "";
         const cache = env.hashCaches.revGet(piece);
@@ -79,7 +80,7 @@ export async function putDBEntry(
             } else {
                 hashedPiece = (env.h32Raw(new TextEncoder().encode(piece)) ^ piece.length).toString(36);
             }
-            leafId = "h:" + hashedPiece;
+            leafId = ("h:" + hashedPiece) as DocumentID;
         }
         if (currentDocPiece.has(leafId)) {
             if (currentDocPiece.get(leafId) != piece) {
@@ -87,7 +88,7 @@ export async function putDBEntry(
                 // I realise that avoiding chunk name collisions is pointless here.
                 // After replication, we will have conflicted chunks.
                 Logger(`Hash collided! If possible, please report the following string\nA:--${currentDocPiece.get(leafId)}--\nB:--${piece}--`, LOG_LEVEL.NOTICE);
-                Logger(`This document could not be saved:${note._id}`, LOG_LEVEL.NOTICE);
+                Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL.NOTICE);
                 saved = false;
             }
         } else {
@@ -102,7 +103,7 @@ export async function putDBEntry(
             const existChunks = await env.localDatabase.allDocs({ keys: [...procChunks], include_docs: true });
             for (const chunk of existChunks.rows) {
                 if ("error" in chunk && (chunk as unknown as any).error == "not_found") {
-                    const data = currentDocPiece.get(chunk.key);
+                    const data = currentDocPiece.get(chunk.key as DocumentID);
                     if (typeof data === "undefined") {
                         Logger("Saving chunk error: Missing data:" + (chunk.key));
                         console.log(data);
@@ -110,7 +111,7 @@ export async function putDBEntry(
                         continue;
                     }
                     const d: EntryLeaf = {
-                        _id: chunk.key,
+                        _id: chunk.key as DocumentID,
                         data: data,
                         type: "leaf",
                     };
@@ -120,11 +121,11 @@ export async function putDBEntry(
                     saved = false;
                 } else {
                     const pieceData = chunk.doc;
-                    if (pieceData.type == "leaf" && pieceData.data == currentDocPiece.get(chunk.key)) {
+                    if (pieceData.type == "leaf" && pieceData.data == currentDocPiece.get(chunk.key as DocumentID)) {
                         skipped++;
                     } else if (pieceData.type == "leaf") {
-                        Logger(`Hash collided on saving! If possible, please report the following string\nA:--${currentDocPiece.get(chunk.key)}--\nB:--${pieceData.data}--`, LOG_LEVEL.NOTICE);
-                        Logger(`This document could not be saved:${note._id}`, LOG_LEVEL.NOTICE);
+                        Logger(`Hash collided on saving! If possible, please report the following string\nA:--${currentDocPiece.get(chunk.key as DocumentID)}--\nB:--${pieceData.data}--`, LOG_LEVEL.NOTICE);
+                        Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL.NOTICE);
                         saved = false;
                     }
                 }
@@ -138,12 +139,12 @@ export async function putDBEntry(
             const result = await env.localDatabase.bulkDocs(newLeafs);
             for (const item of result) {
                 if ("ok" in item) {
-                    const id = item.id;
+                    const id = item.id as DocumentID;
 
                     const pieceData = currentDocPiece.get(id);
                     if (typeof pieceData === "undefined") {
                         saved = false;
-                        Logger(`Save failed.:id:${item.id} rev:${item.rev}`, LOG_LEVEL.NOTICE);
+                        Logger(`Save failed.: ${dispFilename} (${item.id} rev:${item.rev})`, LOG_LEVEL.NOTICE);
                         continue
                     }
                     env.hashCaches.set(id, pieceData);
@@ -154,7 +155,7 @@ export async function putDBEntry(
                         // env.hashCaches.set(id, pieceData);
                         skipped++
                     } else {
-                        Logger(`Save failed..:id:${item.id} rev:${item.rev}`, LOG_LEVEL.NOTICE);
+                        Logger(`Save failed..: ${dispFilename} (${item.id} rev:${item.rev})`, LOG_LEVEL.NOTICE);
                         Logger(item);
                         saved = false;
                     }
@@ -167,17 +168,18 @@ export async function putDBEntry(
         }
     }
     if (saved) {
-        Logger(`Content saved:${note._id} ,chunks: ${processed} (new:${made}, skip:${skipped}, cache:${cacheUsed})`);
+        Logger(`Content saved:${dispFilename} ,chunks: ${processed} (new:${made}, skip:${skipped}, cache:${cacheUsed})`);
         const newDoc: PlainEntry | NewEntry = {
             children: savedNotes,
             _id: note._id,
+            path: note.path,
             ctime: note.ctime,
             mtime: note.mtime,
             size: note.size,
             type: note.datatype,
         };
 
-        return await runWithLock("file:" + newDoc._id, false, async () => {
+        return await runWithLock("file:" + dispFilename, false, async () => {
             try {
                 const old = await env.localDatabase.get(newDoc._id);
                 if (!old.type || old.type == "notes" || old.type == "newnote" || old.type == "plain") {
@@ -202,17 +204,17 @@ export async function putDBEntry(
             }
         }) ?? false;
     } else {
-        Logger(`note could not saved:${note._id}`);
+        Logger(`note could not saved:${dispFilename}`);
         return false;
     }
 }
 
-export async function getDBEntryMeta(env: DBFunctionEnvironment, path: string, opt?: PouchDB.Core.GetOptions, includeDeleted = false): Promise<false | LoadedEntry> {
+export async function getDBEntryMeta(env: DBFunctionEnvironment, path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions, includeDeleted = false): Promise<false | LoadedEntry> {
     // safety valve
     if (!env.isTargetFile(path)) {
         return false;
     }
-    const id = env.path2id(path);
+    const id = await env.path2id(path);
     try {
         let obj: EntryDocResponse | null = null;
         if (opt) {
@@ -239,6 +241,7 @@ export async function getDBEntryMeta(env: DBFunctionEnvironment, path: string, o
             const doc: LoadedEntry & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta = {
                 data: "",
                 _id: note._id,
+                path: path,
                 ctime: note.ctime,
                 mtime: note.mtime,
                 size: note.size,
@@ -261,11 +264,17 @@ export async function getDBEntryMeta(env: DBFunctionEnvironment, path: string, o
     return false;
 }
 export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: LoadedEntry, opt?: PouchDB.Core.GetOptions, dump = false, waitForReady = true, includeDeleted = false): Promise<false | LoadedEntry> {
+    const filename = env.id2path(obj._id, obj);
+    if (!env.isTargetFile(filename)) {
+        return false;
+    }
+    const dispFilename = stripAllPrefixes(filename)
     const deleted = "deleted" in obj ? obj.deleted : undefined;
     if (!obj.type || (obj.type && obj.type == "notes")) {
         const note = obj as NoteEntry;
         const doc: LoadedEntry & PouchDB.Core.IdMeta = {
             data: note.data,
+            path: note.path,
             _id: note._id,
             ctime: note.ctime,
             mtime: note.mtime,
@@ -306,7 +315,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                             children.push(v.data);
                         } else {
                             if (!opt) {
-                                Logger(`Chunks of ${obj._id} are not valid.`, LOG_LEVEL.NOTICE);
+                                Logger(`Chunks of ${dispFilename} (${obj._id}) are not valid.`, LOG_LEVEL.NOTICE);
                                 // env.needScanning = true;
                                 env.corruptedEntries[obj._id] = obj;
                             }
@@ -315,7 +324,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                     }
                 } else {
                     if (opt) {
-                        Logger(`Could not retrieve chunks of ${obj._id}. we have to `, LOG_LEVEL.NOTICE);
+                        Logger(`Could not retrieve chunks of ${dispFilename} (${obj._id}). we have to `, LOG_LEVEL.NOTICE);
                         // env.needScanning = true;
                     }
                     return false;
@@ -332,18 +341,18 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                         const chunkDocs = await env.localDatabase.allDocs({ keys: obj.children, include_docs: true });
                         if (chunkDocs.rows.some(e => "error" in e)) {
                             const missingChunks = chunkDocs.rows.filter(e => "error" in e).map(e => e.id).join(", ");
-                            Logger(`Could not retrieve chunks of ${obj._id}. Chunks are missing:${missingChunks}`, LOG_LEVEL.NOTICE);
+                            Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id}). Chunks are missing:${missingChunks}`, LOG_LEVEL.NOTICE);
                             return false;
                         }
                         if (chunkDocs.rows.some(e => e.doc && e.doc.type != "leaf")) {
                             const missingChunks = chunkDocs.rows.filter(e => e.doc && e.doc.type != "leaf").map(e => e.id).join(", ");
-                            Logger(`Could not retrieve chunks of ${obj._id}. corrupted chunks::${missingChunks}`, LOG_LEVEL.NOTICE);
+                            Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id}). corrupted chunks::${missingChunks}`, LOG_LEVEL.NOTICE);
                             return false;
                         }
                         children = chunkDocs.rows.map(e => (e.doc as EntryLeaf).data);
                     }
                 } catch (ex) {
-                    Logger(`Something went wrong on reading chunks of ${obj._id} from database, see verbose info for detail.`, LOG_LEVEL.NOTICE);
+                    Logger(`Something went wrong on reading chunks of ${dispFilename}(${obj._id}) from database, see verbose info for detail.`, LOG_LEVEL.NOTICE);
                     Logger(ex, LOG_LEVEL.VERBOSE);
                     env.corruptedEntries[obj._id] = obj;
                     return false;
@@ -352,6 +361,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
             const data = children;
             const doc: LoadedEntry & PouchDB.Core.IdMeta = {
                 data: data,
+                path: obj.path,
                 _id: obj._id,
                 ctime: obj.ctime,
                 mtime: obj.mtime,
@@ -374,16 +384,16 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
             return doc;
         } catch (ex: any) {
             if (isErrorOfMissingDoc(ex)) {
-                Logger(`Missing document content!, could not read ${obj._id} from database.`, LOG_LEVEL.NOTICE);
+                Logger(`Missing document content!, could not read ${dispFilename}(${obj._id}) from database.`, LOG_LEVEL.NOTICE);
                 return false;
             }
-            Logger(`Something went wrong on reading ${obj._id} from database:`, LOG_LEVEL.NOTICE);
+            Logger(`Something went wrong on reading ${dispFilename}(${obj._id}) from database:`, LOG_LEVEL.NOTICE);
             Logger(ex);
         }
     }
     return false;
 }
-export async function getDBEntry(env: DBFunctionEnvironment, path: string, opt?: PouchDB.Core.GetOptions, dump = false, waitForReady = true, includeDeleted = false): Promise<false | LoadedEntry> {
+export async function getDBEntry(env: DBFunctionEnvironment, path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions, dump = false, waitForReady = true, includeDeleted = false): Promise<false | LoadedEntry> {
     const meta = await getDBEntryMeta(env, path, opt, includeDeleted);
     if (meta) {
         return await getDBEntryFromMeta(env, meta, opt, dump, waitForReady, includeDeleted);
@@ -391,12 +401,12 @@ export async function getDBEntry(env: DBFunctionEnvironment, path: string, opt?:
         return false;
     }
 }
-export async function deleteDBEntry(env: DBFunctionEnvironment, path: string, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
+export async function deleteDBEntry(env: DBFunctionEnvironment, path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
     // safety valve
     if (!env.isTargetFile(path)) {
         return false;
     }
-    const id = env.path2id(path);
+    const id = await env.path2id(path);
 
     try {
         return await runWithLock("file:" + id, false, async () => {
@@ -450,22 +460,22 @@ export async function deleteDBEntry(env: DBFunctionEnvironment, path: string, op
         throw ex;
     }
 }
-export async function deleteDBEntryPrefix(env: DBFunctionEnvironment, prefixSrc: string): Promise<boolean> {
+export async function deleteDBEntryPrefix(env: DBFunctionEnvironment, prefix: FilePathWithPrefix | FilePath): Promise<boolean> {
     // delete database entries by prefix.
     // it called from folder deletion.
     let c = 0;
     let readCount = 0;
     const delDocs: string[] = [];
-    const prefix = env.path2id(prefixSrc);
     do {
         const result = await env.localDatabase.allDocs({ include_docs: false, skip: c, limit: 100, conflicts: true });
         readCount = result.rows.length;
         if (readCount > 0) {
             //there are some result
             for (const v of result.rows) {
+                const decodedPath = env.id2path(v.id as DocumentID, v.doc as LoadedEntry);
                 // let doc = v.doc;
-                if (v.id.startsWith(prefix) || v.id.startsWith("/" + prefix)) {
-                    if (env.isTargetFile(env.id2path(v.id))) delDocs.push(v.id);
+                if (decodedPath.startsWith(prefix)) {
+                    if (env.isTargetFile(decodedPath)) delDocs.push(v.id);
                     // console.log("!" + v.id);
                 } else {
                     if (!v.id.startsWith("h:")) {

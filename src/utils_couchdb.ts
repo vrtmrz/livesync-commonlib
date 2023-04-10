@@ -1,7 +1,8 @@
 import { decrypt, encrypt } from "./e2ee_v2";
 import { Logger } from "./logger";
-import { LOG_LEVEL, VER, VERSIONINFO_DOCID, EntryVersionInfo, SYNCINFO_ID, SyncInfo, EntryDoc, EntryLeaf } from "./types";
-import { resolveWithIgnoreKnownError } from "./utils";
+import { getPath } from "./path";
+import { LOG_LEVEL, VER, VERSIONINFO_DOCID, EntryVersionInfo, SYNCINFO_ID, SyncInfo, EntryDoc, EntryLeaf, AnyEntry, FilePathWithPrefix } from "./types";
+import { isEncryptedChunkEntry, isObfuscatedEntry, isSyncInfoEntry, resolveWithIgnoreKnownError } from "./utils";
 
 export const isValidRemoteCouchDBURI = (uri: string): boolean => {
     if (uri.startsWith("https://")) return true;
@@ -48,7 +49,7 @@ export const bumpRemoteVersion = async (db: PouchDB.Database, barrier: number = 
         version: barrier,
         type: "versioninfo",
     };
-    const versionInfo = (await resolveWithIgnoreKnownError(db.get(VERSIONINFO_DOCID), vi)) as EntryVersionInfo;
+    const versionInfo = (await resolveWithIgnoreKnownError<EntryVersionInfo>(db.get(VERSIONINFO_DOCID), vi));
     if (versionInfo.type != "versioninfo") {
         return false;
     }
@@ -143,13 +144,22 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
     const decrypted = new Map();
     //@ts-ignore
     db.transform({
-        incoming: async (doc: EntryDoc) => {
-            const saveDoc: EntryLeaf = {
+        incoming: async (doc: AnyEntry | EntryLeaf) => {
+            const saveDoc = {
                 ...doc,
-            } as EntryLeaf;
-            if (saveDoc._id.startsWith("h:+") || saveDoc._id == SYNCINFO_ID) {
+            } as EntryLeaf | AnyEntry;
+            if (isEncryptedChunkEntry(saveDoc) || isSyncInfoEntry(saveDoc)) {
                 try {
                     saveDoc.data = await encrypt(saveDoc.data, passphrase, useDynamicIterationCount);
+                } catch (ex) {
+                    Logger("Encryption failed.", LOG_LEVEL.NOTICE);
+                    Logger(ex);
+                    throw ex;
+                }
+            }
+            if (isObfuscatedEntry(saveDoc)) {
+                try {
+                    saveDoc.path = await encrypt(getPath(saveDoc), passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
                 } catch (ex) {
                     Logger("Encryption failed.", LOG_LEVEL.NOTICE);
                     Logger(ex);
@@ -159,22 +169,34 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
             return saveDoc;
         },
         outgoing: async (doc: EntryDoc) => {
-            const loadDoc: EntryLeaf = {
+            const loadDoc = {
                 ...doc,
-            } as EntryLeaf;
-            if (loadDoc._id.startsWith("h:+") || loadDoc._id == SYNCINFO_ID) {
+            } as AnyEntry | EntryLeaf;
+            const _isChunkOrSyncInfo = isEncryptedChunkEntry(loadDoc) || isSyncInfoEntry(loadDoc);
+            const _isObfuscatedEntry = isObfuscatedEntry(loadDoc);
+            if (_isChunkOrSyncInfo || _isObfuscatedEntry) {
                 if (migrationDecrypt && decrypted.has(loadDoc._id)) {
                     return loadDoc; // once decrypted.
                 }
                 try {
-                    loadDoc.data = await decrypt(loadDoc.data, passphrase, useDynamicIterationCount);
+                    if (_isChunkOrSyncInfo) {
+                        loadDoc.data = await decrypt(loadDoc.data, passphrase, useDynamicIterationCount);
+                    }
+                    if (_isObfuscatedEntry) {
+                        loadDoc.path = await decrypt(getPath(loadDoc), passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
+                    }
                     if (migrationDecrypt) {
                         decrypted.set(loadDoc._id, true);
                     }
                 } catch (ex) {
                     if (useDynamicIterationCount) {
                         try {
-                            loadDoc.data = await decrypt(loadDoc.data, passphrase, false);
+                            if (_isChunkOrSyncInfo) {
+                                loadDoc.data = await decrypt(loadDoc.data, passphrase, false);
+                            }
+                            if (_isObfuscatedEntry) {
+                                loadDoc.path = await decrypt(getPath(loadDoc), passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
+                            }
                             if (migrationDecrypt) {
                                 decrypted.set(loadDoc._id, true);
                             }

@@ -5,7 +5,11 @@ import {
     EntryLeaf, LoadedEntry,
     Credential, LOG_LEVEL,
     LEAF_WAIT_TIMEOUT, VERSIONINFO_DOCID,
-    RemoteDBSettings
+    RemoteDBSettings,
+    EntryHasPath,
+    DocumentID,
+    FilePathWithPrefix,
+    FilePath,
 } from "./types";
 import { delay } from "./utils";
 import { Logger } from "./logger";
@@ -17,8 +21,8 @@ import { runWithLock } from "./lock.js";
 import type { LiveSyncDBReplicator } from "./LiveSyncReplicator";
 
 export interface LiveSyncLocalDBEnv {
-    id2path(filename: string): string;
-    path2id(filename: string): string;
+    id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
+    path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID>;
     createPouchDBInstance<T>(name?: string, options?: PouchDB.Configuration.DatabaseConfiguration): PouchDB.Database<T>
 
     beforeOnUnload(db: LiveSyncLocalDB): void;
@@ -40,7 +44,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
 
     h32!: (input: string, seed?: number) => string;
     h32Raw!: (input: Uint8Array, seed?: number) => number;
-    hashCaches = new LRUCache(10, 10);
+    hashCaches = new LRUCache<DocumentID, string>(10, 1000);
     corruptedEntries: { [key: string]: EntryDoc } = {};
 
     changeHandler: PouchDB.Core.Changes<EntryDoc> | null = null;
@@ -81,11 +85,11 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         this.refreshSettings();
 
     }
-    id2path(filename: string): string {
-        return this.env.id2path(filename);
+    id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix {
+        return this.env.id2path(id, entry, stripPrefix);
     }
-    path2id(filename: string): string {
-        return this.env.path2id(filename);
+    async path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID> {
+        return await this.env.path2id(filename, prefix);
     }
 
     async close() {
@@ -175,7 +179,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         });
     }
 
-    async getDBLeaf(id: string, waitForReady: boolean): Promise<string> {
+    async getDBLeaf(id: DocumentID, waitForReady: boolean): Promise<string> {
         // when in cache, use that.
         const leaf = this.hashCaches.revGet(id);
         if (leaf) {
@@ -208,19 +212,19 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     }
 
     // eslint-disable-next-line require-await
-    async getDBEntryMeta(path: string, opt?: PouchDB.Core.GetOptions, includeDeleted = false): Promise<false | LoadedEntry> {
+    async getDBEntryMeta(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions, includeDeleted = false): Promise<false | LoadedEntry> {
         return getDBEntryMeta(this, path, opt, includeDeleted);
     }
     // eslint-disable-next-line require-await
-    async getDBEntry(path: string, opt?: PouchDB.Core.GetOptions, dump = false, waitForReady = true, includeDeleted = false): Promise<false | LoadedEntry> {
+    async getDBEntry(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions, dump = false, waitForReady = true, includeDeleted = false): Promise<false | LoadedEntry> {
         return getDBEntry(this, path, opt, dump, waitForReady, includeDeleted);
     }
     // eslint-disable-next-line require-await
-    async deleteDBEntry(path: string, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
+    async deleteDBEntry(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
         return deleteDBEntry(this, path, opt);
     }
     // eslint-disable-next-line require-await
-    async deleteDBEntryPrefix(prefixSrc: string): Promise<boolean> {
+    async deleteDBEntryPrefix(prefixSrc: FilePathWithPrefix | FilePath): Promise<boolean> {
         return deleteDBEntryPrefix(this, prefixSrc);
     }
     // eslint-disable-next-line require-await
@@ -385,7 +389,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         }
 
         const max = remoteDocs.length;
-        remoteDocs.forEach(e => this.hashCaches.set(e._id, (e as EntryLeaf).data));
+        remoteDocs.forEach(e => this.hashCaches.set(e._id, e.data));
         // Cache remote chunks to the local database.
         await this.localDatabase.bulkDocs(remoteDocs, { new_edits: false });
         let last = 0;
@@ -459,6 +463,42 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
                 yield f;
             }
         }
+    }
+    async *findAllNormalDocs(opt?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
+        const targets = [
+            this.findEntries("", "h:", opt ?? {}),
+            this.findEntries(`h:\u{10ffff}`, "i:", opt ?? {}),
+            this.findEntries(`i:\u{10ffff}`, "ps:", opt ?? {}),
+            this.findEntries(`ps:\u{10ffff}`, "", opt ?? {}),
+        ]
+        for (const target of targets) {
+            for await (const f of target) {
+                if (f._id.startsWith("_")) continue;
+                if (f.type != "newnote" && f.type != "plain") continue;
+                yield f;
+            }
+        }
+    }
 
+
+    getRaw<T extends EntryDoc>(docId: DocumentID, options?: PouchDB.Core.GetOptions): Promise<T & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta> {
+        return this.localDatabase.get<T>(docId, options || {});
+    }
+
+    removeRaw(docId: DocumentID, revision: string, options?: PouchDB.Core.Options): Promise<PouchDB.Core.Response> {
+        return this.localDatabase.remove(docId, revision, options || {});
+    }
+
+    putRaw<T extends EntryDoc>(doc: T, options?: PouchDB.Core.PutOptions): Promise<PouchDB.Core.Response> {
+        return this.localDatabase.put(doc, options || {})
+    }
+
+    allDocsRaw<T>(options?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions | PouchDB.Core.AllDocsOptions):
+        Promise<PouchDB.Core.AllDocsResponse<T>> {
+        return this.localDatabase.allDocs(options);
+    }
+
+    bulkDocsRaw<T extends EntryDoc>(docs: Array<PouchDB.Core.PutDocument<T>>, options?: PouchDB.Core.BulkDocsOptions): Promise<Array<PouchDB.Core.Response | PouchDB.Core.Error>> {
+        return this.localDatabase.bulkDocs(docs, options || {});
     }
 }

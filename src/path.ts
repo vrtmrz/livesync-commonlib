@@ -1,5 +1,7 @@
-import { FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3, PREFIXMD_LOGFILE } from "./types";
-
+import { webcrypto } from "./mods";
+import { uint8ArrayToHexString, writeString } from "./strbin";
+import { AnyEntry, DocumentID, EntryHasPath, FilePath, FilePathWithPrefix, FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3, PREFIX_OBFUSCATED, PREFIXMD_LOGFILE } from "./types";
+import { memorizeFuncWithLRUCache } from "./utils";
 // --- path utilities
 export function isValidFilenameInWidows(filename: string): boolean {
     // eslint-disable-next-line no-control-regex
@@ -25,17 +27,98 @@ export function isValidFilenameInAndroid(filename: string): boolean {
     const regex = /[\u0000-\u001f]|[\\":?<>|*#]/g;
     return !regex.test(filename);
 }
-// For backward compatibility, using the path for determining id.
-// Only CouchDB unacceptable ID (that starts with an underscore) has been prefixed with "/".
-// The first slash will be deleted when the path is normalized.
-export function path2id_base(filename: string): string {
-    let x = filename;
-    if (x.startsWith("_")) x = "/" + x;
-    return x;
+
+
+export function isFilePath(path: FilePath | FilePathWithPrefix): path is FilePath {
+    if (path.indexOf(":") === -1) return true;
+    return false;
 }
-export function id2path_base(filename: string): string {
-    //TODO:FIXING PREFIX
-    return filename;
+export function stripAllPrefixes(prefixedPath: FilePathWithPrefix): FilePath {
+    if (isFilePath(prefixedPath)) return prefixedPath;
+    const [, body] = expandFilePathPrefix(prefixedPath);
+    return stripAllPrefixes(body);
+}
+export function addPrefix(path: FilePath | FilePathWithPrefix, prefix: string): FilePathWithPrefix {
+    if (prefix && path.startsWith(prefix)) return path;
+    return `${prefix ?? ""}${path}` as FilePathWithPrefix;
+}
+export function expandFilePathPrefix(path: FilePathWithPrefix | FilePath): [string, FilePathWithPrefix] {
+    let [prefix, body] = path.split(":", 2);
+    if (!body) {
+        body = prefix;
+        prefix = "";
+    } else {
+        prefix = prefix + ":";
+    }
+    return [prefix, body as FilePathWithPrefix];
+}
+export function expandDocumentIDPrefix(id: DocumentID): [string, FilePathWithPrefix] {
+    let [prefix, body] = id.split(":", 2);
+    if (!body) {
+        body = prefix;
+        prefix = "";
+    } else {
+        prefix = prefix + ":";
+    }
+    return [prefix, body as FilePathWithPrefix];
+}
+
+const hashString = memorizeFuncWithLRUCache(async (key: string) => {
+    const buff = writeString(key);
+    let digest = await webcrypto.subtle.digest('SHA-256', buff);
+    const len = key.length;
+    for (let i = 0; i < len; i++) {
+        // Stretching
+        digest = await webcrypto.subtle.digest('SHA-256', buff);
+    }
+    return uint8ArrayToHexString(new Uint8Array(digest));
+})
+
+export async function path2id_base(
+    filename: FilePathWithPrefix | FilePath,
+    obfuscatePassphrase: string | false,
+): Promise<DocumentID> {
+    if (filename.startsWith(PREFIX_OBFUSCATED)) return filename as string as DocumentID;
+    let x = filename;
+    if (x.startsWith("_")) x = ("/" + x) as FilePathWithPrefix;
+    if (!obfuscatePassphrase) return x as string as DocumentID;
+    // obfuscating...
+    const [prefix, body] = expandFilePathPrefix(x);
+    // Already Hashed
+    if (body.startsWith(PREFIX_OBFUSCATED)) return x as string as DocumentID;
+    const hashedPassphrase = await hashString(obfuscatePassphrase);
+    // Hash it!
+    const out = await hashString(`${hashedPassphrase}:${filename}`);
+    return (prefix + PREFIX_OBFUSCATED + out) as DocumentID;
+}
+
+export function id2path_base(id: DocumentID, entry?: EntryHasPath): FilePathWithPrefix {
+    if (entry && entry?.path) {
+        return id2path_base(entry.path as string as DocumentID);
+    }
+    if (id.startsWith(PREFIX_OBFUSCATED)) throw new Error("Entry has been obfuscated!");
+    const [prefix, body] = expandDocumentIDPrefix(id);
+    if (body.startsWith(PREFIX_OBFUSCATED)) throw new Error("Entry has been obfuscated!");
+    if (body.startsWith("/")) {
+        return body.substring(1) as FilePathWithPrefix;
+    }
+    return prefix + body as FilePathWithPrefix;
+}
+
+export function getPath(entry: AnyEntry) {
+    return id2path_base(entry._id, entry);
+
+}
+export function getPathWithoutPrefix(entry: AnyEntry) {
+    const f = getPath(entry);
+    return stripAllPrefixes(f);
+}
+export function stripPrefix(prefixedPath: FilePathWithPrefix): FilePath {
+    const [prefix, body] = prefixedPath.split(":", 2);
+    if (!body) {
+        return prefix as FilePath;
+    }
+    return body as FilePath;
 }
 
 export function shouldBeIgnored(filename: string): boolean {

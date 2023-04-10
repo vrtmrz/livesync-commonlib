@@ -1,3 +1,11 @@
+const symbolFilePath = Symbol();
+const symbolFilePathWithPrefix = Symbol();
+const symbolId = Symbol();
+export type FilePath = string & { [symbolFilePath]: never };
+export type FilePathWithPrefix = string & { [symbolFilePathWithPrefix]: never } | FilePath;
+export type DocumentID = string & { [symbolId]: never };
+
+
 // docs should be encoded as base64, so 1 char -> 1 bytes
 // and cloudant limitation is 1MB , we use 900kb;
 
@@ -15,9 +23,11 @@ export const LOG_LEVEL = {
     URGENT: 1000,
 } as const;
 export type LOG_LEVEL = typeof LOG_LEVEL[keyof typeof LOG_LEVEL];
-export const VERSIONINFO_DOCID = "obsydian_livesync_version";
-export const MILSTONE_DOCID = "_local/obsydian_livesync_milestone";
-export const NODEINFO_DOCID = "_local/obsydian_livesync_nodeinfo";
+export const VERSIONINFO_DOCID = "obsydian_livesync_version" as DocumentID;
+export const MILSTONE_DOCID = "_local/obsydian_livesync_milestone" as DocumentID;
+export const NODEINFO_DOCID = "_local/obsydian_livesync_nodeinfo" as DocumentID;
+
+
 
 export type ConfigPassphraseStore = "" /* default */ | "LOCALSTORAGE" | "ASK_AT_LAUNCH";
 export type CouchDBConnection = {
@@ -75,6 +85,7 @@ export type RemoteDBSettings = CouchDBConnection & {
     longLineThreshold: number;
     encrypt: boolean;
     passphrase: string;
+    usePathObfuscation: boolean;
     checkIntegrityOnSave: boolean;
     batch_size: number;
     batches_limit: number;
@@ -124,6 +135,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     syncOnFileOpen: false,
     encrypt: false,
     passphrase: "",
+    usePathObfuscation: false,
     doNotDeleteFolder: false,
     resolveConflictsByNewerFile: false,
     batchSave: false,
@@ -174,7 +186,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
 };
 
 export interface DatabaseEntry {
-    _id: string;
+    _id: DocumentID;
     _rev?: string;
     _deleted?: boolean;
     _conflicts?: string[];
@@ -187,16 +199,18 @@ export type Entry = DatabaseEntry & {
     deleted?: boolean;
 }
 export type NoteEntry = Entry & {
+    path: FilePathWithPrefix;
     data: string | string[];
     type: "notes";
 }
 
 export type NewEntry = Entry & {
-
+    path: FilePathWithPrefix;
     children: string[];
     type: "newnote";
 }
 export type PlainEntry = Entry & {
+    path: FilePathWithPrefix;
     children: string[];
     type: "plain";
 }
@@ -223,7 +237,9 @@ export interface EntryVersionInfo extends DatabaseEntry {
     type: "versioninfo";
     version: number;
 }
-
+export interface EntryHasPath {
+    path: FilePathWithPrefix | FilePath;
+}
 export interface ChunkVersionRange {
     min: number, //lower compatible chunk format version
     max: number, //maximum compatible chunk format version.
@@ -276,10 +292,10 @@ export type EntryDocResponse = EntryDoc & PouchDB.Core.IdMeta & PouchDB.Core.Get
 export type DatabaseConnectingStatus = "STARTED" | "NOT_CONNECTED" | "PAUSED" | "CONNECTED" | "COMPLETED" | "CLOSED" | "ERRORED";
 
 export const PREFIXMD_LOGFILE = "LIVESYNC_LOG_";
-export const FLAGMD_REDFLAG = "redflag.md";
-export const FLAGMD_REDFLAG2 = "redflag2.md";
-export const FLAGMD_REDFLAG3 = "redflag3.md";
-export const SYNCINFO_ID = "syncinfo";
+export const FLAGMD_REDFLAG = "redflag.md" as FilePath;
+export const FLAGMD_REDFLAG2 = "redflag2.md" as FilePath;
+export const FLAGMD_REDFLAG3 = "redflag3.md" as FilePath;
+export const SYNCINFO_ID = "syncinfo" as DocumentID;
 
 export interface SyncInfo extends DatabaseEntry {
     _id: typeof SYNCINFO_ID;
@@ -288,3 +304,7 @@ export interface SyncInfo extends DatabaseEntry {
 }
 
 export const SALT_OF_PASSPHRASE = "rHGMPtr6oWw7VSa3W3wpa8fT8U";
+
+export const PREFIX_OBFUSCATED = "f:";
+export const PREFIX_CHUNK = "h:";
+export const PREFIX_ENCRYPTED_CHUNK = "h:+";

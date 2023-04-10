@@ -1,18 +1,9 @@
 import { Logger } from "./logger";
 import { LOG_LEVEL } from "./types";
-//@ts-ignore
-import { webcrypto as crypto_ } from "crypto";
+
 import { binaryToBinaryString, uint8ArrayToHexString, writeString, btoa, atob, hexStringToUint8Array, readString } from "./strbin";
+import { webcrypto } from "./mods";
 
-let webcrypto: Crypto;
-
-if (typeof window !== "undefined" && window.crypto) {
-    webcrypto = window.crypto;
-} else {
-    const crypto = crypto_;
-    //@ts-ignore
-    webcrypto = crypto;
-}
 
 export type encodedData = [encryptedData: string, iv: string, salt: string];
 export type KeyBuffer = {

@@ -1,3 +1,5 @@
+import { LRUCache } from "./LRUCache";
+import { AnyEntry, DatabaseEntry, EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED as PREFIX_OBFUSCATED, SYNCINFO_ID, SyncInfo } from "./types";
 import { isErrorOfMissingDoc } from "./utils_couchdb";
 
 export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T> {
@@ -77,4 +79,48 @@ export function isDocContentSame(docA: string | string[], docB: string | string[
 
     if (!genB.done) return false;
     return true;
+}
+
+export function isObfuscatedEntry(doc: DatabaseEntry): doc is AnyEntry {
+    if (doc._id.startsWith(PREFIX_OBFUSCATED)) {
+        return true;
+    }
+    return false;
+}
+
+export function isEncryptedChunkEntry(doc: DatabaseEntry): doc is EntryLeaf {
+    if (doc._id.startsWith(PREFIX_ENCRYPTED_CHUNK)) {
+        return true;
+    }
+    return false;
+}
+
+export function isSyncInfoEntry(doc: DatabaseEntry): doc is SyncInfo {
+    if (doc._id == SYNCINFO_ID) {
+        return true;
+    }
+    return false;
+}
+
+export function memorizeFuncWithLRUCache<T, U>(func: (key: T) => U) {
+    const cache = new LRUCache<T, U>(100, 100000, true);
+    return (key: T) => {
+        const isExists = cache.has(key);
+        if (isExists) return cache.get(key);
+        const value = func(key);
+        cache.set(key, value);
+        return value;
+    };
+}
+
+export function memorizeFuncWithLRUCacheMulti<T extends Array<any>, U>(func: (...keys: T) => U) {
+    const cache = new LRUCache<string, U>(100, 100000, true);
+    return (keys: T) => {
+        const theKey = (keys.map(e => (typeof e == "string" || typeof e == "number" || typeof e == "boolean") ? e.toString() : JSON.stringify(e))).join("-");
+        const isExists = cache.has(theKey);
+        if (isExists) return cache.get(theKey);
+        const value = func(...keys);
+        cache.set(theKey, value);
+        return value;
+    };
 }
