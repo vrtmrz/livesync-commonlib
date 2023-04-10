@@ -222,7 +222,7 @@ export class LiveSyncDBReplicator {
     replicationPaused() {
         this.syncStatus = "PAUSED";
         this.updateInfo();
-        Logger("replication paused", LOG_LEVEL.VERBOSE, "sync");
+        Logger("Replication paused", LOG_LEVEL.VERBOSE, "sync");
     }
 
     async processSync(syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc>, showResult: boolean, docSentOnStart: number, docArrivedOnStart: number,

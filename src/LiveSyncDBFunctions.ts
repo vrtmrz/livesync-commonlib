@@ -51,7 +51,7 @@ export async function putDBEntry(
     let cacheUsed = 0;
     const userPasswordHash = env.h32Raw(new TextEncoder().encode(env.settings.passphrase));
     const minimumChunkSize = env.settings.minimumChunkSize;
-    if (!saveAsBigChunk && shouldSplitAsPlainText(note._id)) {
+    if (!saveAsBigChunk && shouldSplitAsPlainText(filename)) {
         // pieceSize = MAX_DOC_SIZE;
         plainSplit = true;
     }
@@ -179,7 +179,7 @@ export async function putDBEntry(
             type: note.datatype,
         };
 
-        return await runWithLock("file:" + dispFilename, false, async () => {
+        return await runWithLock("file:" + filename, false, async () => {
             try {
                 const old = await env.localDatabase.get(newDoc._id);
                 if (!old.type || old.type == "notes" || old.type == "newnote" || old.type == "plain") {
@@ -409,7 +409,7 @@ export async function deleteDBEntry(env: DBFunctionEnvironment, path: FilePathWi
     const id = await env.path2id(path);
 
     try {
-        return await runWithLock("file:" + id, false, async () => {
+        return await runWithLock("file:" + path, false, async () => {
             let obj: EntryDocResponse | null = null;
             if (opt) {
                 obj = await env.localDatabase.get(id, opt);
@@ -426,7 +426,7 @@ export async function deleteDBEntry(env: DBFunctionEnvironment, path: FilePathWi
             if (!obj.type || (obj.type && obj.type == "notes")) {
                 obj._deleted = true;
                 const r = await env.localDatabase.put(obj);
-                Logger(`entry removed:${obj._id}-${r.rev}`);
+                Logger(`Entry removed:${path} (${obj._id}-${r.rev})`);
                 if (typeof env.corruptedEntries[obj._id] != "undefined") {
                     delete env.corruptedEntries[obj._id];
                 }
@@ -444,7 +444,7 @@ export async function deleteDBEntry(env: DBFunctionEnvironment, path: FilePathWi
                     }
                 }
                 const r = await env.localDatabase.put(obj);
-                Logger(`entry removed:${obj._id}-${r.rev}`);
+                Logger(`Entry removed:${path} (${obj._id}-${r.rev})`);
                 if (typeof env.corruptedEntries[obj._id] != "undefined") {
                     delete env.corruptedEntries[obj._id];
                 }
@@ -465,9 +465,9 @@ export async function deleteDBEntryPrefix(env: DBFunctionEnvironment, prefix: Fi
     // it called from folder deletion.
     let c = 0;
     let readCount = 0;
-    const delDocs: string[] = [];
+    const delDocs: DocumentID[] = [];
     do {
-        const result = await env.localDatabase.allDocs({ include_docs: false, skip: c, limit: 100, conflicts: true });
+        const result = await env.localDatabase.allDocs<EntryDoc>({ include_docs: false, skip: c, limit: 100, conflicts: true });
         readCount = result.rows.length;
         if (readCount > 0) {
             //there are some result
@@ -475,7 +475,7 @@ export async function deleteDBEntryPrefix(env: DBFunctionEnvironment, prefix: Fi
                 const decodedPath = env.id2path(v.id as DocumentID, v.doc as LoadedEntry);
                 // let doc = v.doc;
                 if (decodedPath.startsWith(prefix)) {
-                    if (env.isTargetFile(decodedPath)) delDocs.push(v.id);
+                    if (env.isTargetFile(decodedPath)) delDocs.push(v.id as DocumentID);
                     // console.log("!" + v.id);
                 } else {
                     if (!v.id.startsWith("h:")) {
