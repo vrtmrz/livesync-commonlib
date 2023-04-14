@@ -522,7 +522,7 @@ export async function deleteDBEntryPrefix(env: DBFunctionEnvironment, prefix: Fi
 
 /// Connectivity
 
-export type ENSURE_DB_RESULT = "OK" | "INCOMPATIBLE" | "LOCKED" | "NODE_LOCKED";
+export type ENSURE_DB_RESULT = "OK" | "INCOMPATIBLE" | "LOCKED" | "NODE_LOCKED" | "NODE_CLEANED";
 export async function ensureDatabaseIsCompatible(db: PouchDB.Database<EntryDoc>, setting: RemoteDBSettings, deviceNodeID: string, currentVersionRange: ChunkVersionRange): Promise<ENSURE_DB_RESULT> {
     const defMilestonePoint: EntryMilestoneInfo = {
         _id: MILESTONE_DOC_ID,
@@ -579,6 +579,9 @@ export async function ensureDatabaseIsCompatible(db: PouchDB.Database<EntryDoc>,
 
     if (remoteMilestone.locked) {
         if (remoteMilestone.accepted_nodes.indexOf(deviceNodeID) == -1) {
+            if (remoteMilestone.cleaned) {
+                return "NODE_CLEANED";
+            }
             return "NODE_LOCKED";
         }
         return "LOCKED";

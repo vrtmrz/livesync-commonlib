@@ -112,6 +112,7 @@ export class LiveSyncDBReplicator {
     originalSetting: RemoteDBSettings = null;
     nodeid = "";
     remoteLocked = false;
+    remoteCleaned = false;
     remoteLockedAndDeviceNotAccepted = false;
 
     env: LiveSyncReplicatorEnv;
@@ -313,14 +314,14 @@ export class LiveSyncDBReplicator {
     ): Promise<boolean> {
         if (this.controller != null) {
             Logger("Replication is already in progress.", showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO, "sync");
-            return;
+            return false;
         }
         const localDB = this.env.getDatabase()
         Logger(`OneShot Sync begin... (${syncMode})`);
         const ret = await this.checkReplicationConnectivity(setting, true, retrying, showResult);
         if (ret === false) {
             Logger("Could not connect to server.", showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO, "sync");
-            return;
+            return false;
         }
         this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
         this.maxPushSeq = Number(`${(await localDB.info()).update_seq}`.split("-")[0]);
@@ -410,7 +411,7 @@ export class LiveSyncDBReplicator {
 
         const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile());
         if (typeof dbRet === "string") {
-            Logger(`could not connect to ${uri}: ${dbRet}`, showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO);
+            Logger(`Could not connect to ${uri}: ${dbRet}`, showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO);
             return false;
         }
 
@@ -420,18 +421,26 @@ export class LiveSyncDBReplicator {
                 Logger("Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed", LOG_LEVEL.NOTICE);
                 return false;
             }
-
+            this.remoteCleaned = false;
+            this.remoteLocked = false;
+            this.remoteLockedAndDeviceNotAccepted = false;
             const ensure = await ensureDatabaseIsCompatible(dbRet.db, setting, this.nodeid, currentVersionRange);
             if (ensure == "INCOMPATIBLE") {
                 Logger("The remote database has no compatibility with the running version. Please upgrade the plugin.", LOG_LEVEL.NOTICE);
                 return false;
             } else if (ensure == "NODE_LOCKED") {
-                Logger("The remote database has been rebuilt or corrupted since we have synchronized last time. Fetch rebuilt DB or explicit unlocking is required. See the settings dialog.", LOG_LEVEL.NOTICE);
+                Logger("The remote database has been rebuilt or corrupted since we have synchronized last time. Fetch rebuilt DB, explicit unlocking or chunk clean-up is required.", LOG_LEVEL.NOTICE);
                 this.remoteLockedAndDeviceNotAccepted = true;
                 this.remoteLocked = true;
                 return false;
             } else if (ensure == "LOCKED") {
                 this.remoteLocked = true;
+            } else if (ensure == "NODE_CLEANED") {
+                Logger("The remote database has been cleaned up. Fetch rebuilt DB, explicit unlocking or chunk clean-up is required.", LOG_LEVEL.NOTICE);
+                this.remoteLockedAndDeviceNotAccepted = true;
+                this.remoteLocked = true;
+                this.remoteCleaned = true;
+                return false;
             }
         }
         const syncOptionBase: PouchDB.Replication.SyncOptions = {
@@ -465,7 +474,7 @@ export class LiveSyncDBReplicator {
             const ret = await this.checkReplicationConnectivity(setting, true, true, showResult);
             if (ret === false) {
                 Logger("Could not connect to server.", showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO);
-                return;
+                return false;
             }
             if (showResult) {
                 Logger("Looking for the point last synchronized point.", LOG_LEVEL.NOTICE, "sync");
@@ -550,7 +559,7 @@ export class LiveSyncDBReplicator {
         if (typeof con2 === "string") return;
         Logger("Remote Database Created or Connected", LOG_LEVEL.NOTICE);
     }
-    async markRemoteLocked(setting: RemoteDBSettings, locked: boolean) {
+    async markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean) {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
         const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile());
         if (typeof dbRet === "string") {
@@ -567,6 +576,7 @@ export class LiveSyncDBReplicator {
             type: "milestoneinfo",
             created: (new Date() as any) / 1,
             locked: locked,
+            cleaned: lockByClean,
             accepted_nodes: [this.nodeid],
             node_chunk_info: { [this.nodeid]: currentVersionRange }
         };
@@ -575,6 +585,7 @@ export class LiveSyncDBReplicator {
         remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
         remoteMilestone.accepted_nodes = [this.nodeid];
         remoteMilestone.locked = locked;
+        remoteMilestone.cleaned = remoteMilestone.cleaned || lockByClean;
         if (locked) {
             Logger("Lock remote database to prevent data corruption", LOG_LEVEL.NOTICE);
         } else {

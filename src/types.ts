@@ -252,6 +252,7 @@ export interface EntryMilestoneInfo extends DatabaseEntry {
     created: number;
     accepted_nodes: string[];
     locked: boolean;
+    cleaned?: boolean;
     node_chunk_info: { [key: string]: ChunkVersionRange }
 }
 
