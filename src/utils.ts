@@ -1,6 +1,6 @@
-import { LRUCache } from "./LRUCache";
-import { AnyEntry, DatabaseEntry, EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED as PREFIX_OBFUSCATED, SYNCINFO_ID, SyncInfo } from "./types";
-import { isErrorOfMissingDoc } from "./utils_couchdb";
+import { LRUCache } from "./LRUCache.ts";
+import { AnyEntry, DatabaseEntry, EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED as PREFIX_OBFUSCATED, SYNCINFO_ID, SyncInfo } from "./types.ts";
+import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
 export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T> {
     return new Promise((res, rej) => {

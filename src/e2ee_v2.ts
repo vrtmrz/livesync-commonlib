@@ -1,8 +1,8 @@
-import { Logger } from "./logger";
-import { LOG_LEVEL } from "./types";
+import { Logger } from "./logger.ts";
+import { LOG_LEVEL } from "./types.ts";
 
-import { binaryToBinaryString, uint8ArrayToHexString, writeString, btoa, atob, hexStringToUint8Array, readString } from "./strbin";
-import { webcrypto } from "./mods";
+import { binaryToBinaryString, uint8ArrayToHexString, writeString, btoa, atob, hexStringToUint8Array, readString } from "./strbin.ts";
+import { webcrypto } from "./mods.ts";
 
 
 export type encodedData = [encryptedData: string, iv: string, salt: string];
@@ -38,7 +38,7 @@ export async function getKeyForEncrypt(passphrase: string, autoCalculateIteratio
     const iteration = autoCalculateIterations ? ((passphraseLen > 0 ? passphraseLen : 0) * 1000) + 121 - passphraseLen : 100000;
     const passphraseBin = new TextEncoder().encode(passphrase);
     const digest = await webcrypto.subtle.digest({ name: "SHA-256" }, passphraseBin);
-    const keyMaterial = await webcrypto.subtle.importKey("raw", digest, { name: "PBKDF2" }, false, ["deriveKey"]);
+    const keyMaterial = await webcrypto.subtle.importKey("raw", digest, { name: "PBKDF2" }, false, ["deriveKey", "deriveBits"]);
     const salt = webcrypto.getRandomValues(new Uint8Array(16));
     const key = await webcrypto.subtle.deriveKey(
         {
@@ -88,7 +88,7 @@ export async function getKeyForDecryption(passphrase: string, salt: Uint8Array, 
 
     const passphraseBin = new TextEncoder().encode(passphrase);
     const digest = await webcrypto.subtle.digest({ name: "SHA-256" }, passphraseBin);
-    const keyMaterial = await webcrypto.subtle.importKey("raw", digest, { name: "PBKDF2" }, false, ["deriveKey"]);
+    const keyMaterial = await webcrypto.subtle.importKey("raw", digest, { name: "PBKDF2" }, false, ["deriveKey", "deriveBits"]);
     const key = await webcrypto.subtle.deriveKey(
         {
             name: "PBKDF2",

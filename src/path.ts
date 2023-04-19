@@ -1,7 +1,7 @@
-import { webcrypto } from "./mods";
-import { uint8ArrayToHexString, writeString } from "./strbin";
-import { AnyEntry, DocumentID, EntryHasPath, FilePath, FilePathWithPrefix, FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3, PREFIX_OBFUSCATED, PREFIXMD_LOGFILE } from "./types";
-import { memorizeFuncWithLRUCache } from "./utils";
+import { webcrypto } from "./mods.ts";
+import { uint8ArrayToHexString, writeString } from "./strbin.ts";
+import { AnyEntry, DocumentID, EntryHasPath, FilePath, FilePathWithPrefix, FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3, PREFIX_OBFUSCATED, PREFIXMD_LOGFILE } from "./types.ts";
+import { memorizeFuncWithLRUCache } from "./utils.ts";
 // --- path utilities
 export function isValidFilenameInWidows(filename: string): boolean {
     // eslint-disable-next-line no-control-regex

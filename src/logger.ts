@@ -1,5 +1,5 @@
-import { LogEntry, logStore } from "./stores";
-import { LOG_LEVEL } from "./types";
+import { LogEntry, logStore } from "./stores.ts";
+import { LOG_LEVEL } from "./types.ts";
 
 export function Logger(message: any, level?: LOG_LEVEL, key?: string): void {
     const entry = { message, level, key } as LogEntry;

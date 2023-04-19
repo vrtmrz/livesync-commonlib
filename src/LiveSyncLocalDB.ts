@@ -10,20 +10,20 @@ import {
     DocumentID,
     FilePathWithPrefix,
     FilePath,
-} from "./types";
-import { delay } from "./utils";
-import { Logger } from "./logger";
-import { isErrorOfMissingDoc } from "./utils_couchdb";
-import { LRUCache } from "./LRUCache";
+} from "./types.ts";
+import { delay } from "./utils.ts";
+import { Logger } from "./logger.ts";
+import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
+import { LRUCache } from "./LRUCache.ts";
 
-import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, DBFunctionEnvironment } from "./LiveSyncDBFunctions.js";
-import { runWithLock } from "./lock.js";
-import type { LiveSyncDBReplicator } from "./LiveSyncReplicator";
+import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, DBFunctionEnvironment } from "./LiveSyncDBFunctions.ts";
+import { runWithLock } from "./lock.ts";
+import type { LiveSyncDBReplicator } from "./LiveSyncReplicator.ts";
 
 export interface LiveSyncLocalDBEnv {
     id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
     path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID>;
-    createPouchDBInstance<T>(name?: string, options?: PouchDB.Configuration.DatabaseConfiguration): PouchDB.Database<T>
+    createPouchDBInstance<T extends {}>(name?: string, options?: PouchDB.Configuration.DatabaseConfiguration): PouchDB.Database<T>
 
     beforeOnUnload(db: LiveSyncLocalDB): void;
     onClose(db: LiveSyncLocalDB): void;

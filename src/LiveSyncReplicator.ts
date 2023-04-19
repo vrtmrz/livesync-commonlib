@@ -5,13 +5,13 @@ import {
     MILSTONE_DOCID,
     DatabaseConnectingStatus,
     ChunkVersionRange, RemoteDBSettings, EntryLeaf
-} from "./types";
-import { resolveWithIgnoreKnownError, delay } from "./utils";
-import { Logger } from "./logger";
-import { checkRemoteVersion, putDesignDocuments } from "./utils_couchdb";
+} from "./types.ts";
+import { resolveWithIgnoreKnownError, delay } from "./utils.ts";
+import { Logger } from "./logger.ts";
+import { checkRemoteVersion, putDesignDocuments } from "./utils_couchdb.ts";
 
-import { ensureDatabaseIsCompatible } from "./LiveSyncDBFunctions.js";
-import { ObservableStore } from "./store.js";
+import { ensureDatabaseIsCompatible } from "./LiveSyncDBFunctions.ts";
+import { ObservableStore } from "./store.ts";
 
 
 const currentVersionRange: ChunkVersionRange = {
@@ -19,7 +19,7 @@ const currentVersionRange: ChunkVersionRange = {
     max: 2,
     current: 2,
 }
-type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<void>;
+type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[], seq?: string) => Promise<void>;
 
 type EventParamArray<T> =
     ["change", PouchDB.Replication.SyncResult<T>] |
@@ -117,17 +117,17 @@ export class LiveSyncDBReplicator {
 
     env: LiveSyncReplicatorEnv;
 
-    async initializeDatabaseForReplication(): Promise<boolean> {
+    async initializeDatabaseForReplication(fixedNodeId?: string): Promise<boolean> {
         const db = this.env.getDatabase();
         try {
             const nodeinfo: EntryNodeInfo = await resolveWithIgnoreKnownError<EntryNodeInfo>(db.get(NODEINFO_DOCID), {
                 _id: NODEINFO_DOCID,
                 type: "nodeinfo",
-                nodeid: "",
+                nodeid: fixedNodeId ?? "",
                 v20220607: true,
             });
             if (nodeinfo.nodeid == "") {
-                nodeinfo.nodeid = Math.random().toString(36).slice(-10);
+                nodeinfo.nodeid = fixedNodeId || Math.random().toString(36).slice(-10);
                 await db.put(nodeinfo);
             }
 
@@ -139,10 +139,10 @@ export class LiveSyncDBReplicator {
         }
     }
 
-    constructor(env: LiveSyncReplicatorEnv) {
+    constructor(env: LiveSyncReplicatorEnv, fixedNodeId?: string) {
         this.env = env;
         // initialize local node information.
-        this.initializeDatabaseForReplication();
+        this.initializeDatabaseForReplication(fixedNodeId);
         this.env.getDatabase().on("close", () => {
             this.closeReplication();
         })
@@ -171,6 +171,9 @@ export class LiveSyncDBReplicator {
             return this.openOneShotReplication(setting, showResult, false, "sync");
         }
     }
+    async openStreaming(setting: RemoteDBSettings, since: string, showResult: boolean) {
+        return await this.openContinuousReplication(setting, showResult, false, since);
+    }
     replicationActivated(showResult: boolean) {
         this.syncStatus = "CONNECTED";
         this.updateInfo();
@@ -179,7 +182,7 @@ export class LiveSyncDBReplicator {
     async replicationChangeDetected(e: PouchDB.Replication.SyncResult<EntryDoc>, showResult: boolean, docSentOnStart: number, docArrivedOnStart: number) {
         try {
             if (e.direction == "pull") {
-                await this.env.processReplication(e.change.docs);
+                await this.env.processReplication(e.change.docs, e.change.last_seq);
                 this.docArrived += e.change.docs.length;
             } else {
                 this.docSent += e.change.docs.length;
@@ -457,14 +460,14 @@ export class LiveSyncDBReplicator {
     }
 
 
-    async openContinuousReplication(setting: RemoteDBSettings, showResult: boolean, retrying: boolean): Promise<boolean> {
+    async openContinuousReplication(setting: RemoteDBSettings, showResult: boolean, retrying: boolean, since?: string): Promise<boolean> {
         if (this.controller != null) {
             Logger("Replication is already in progress.", showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO);
-            return;
+            return false;
         }
         const localDB = this.env.getDatabase();
         Logger("Before LiveSync, start OneShot once...");
-        if (await this.openOneShotReplication(
+        if (since != undefined || await this.openOneShotReplication(
             setting,
             showResult,
             false,
@@ -495,9 +498,13 @@ export class LiveSyncDBReplicator {
                 ...syncOption,
                 pull: {
                     checkpoint: "target",
+                    since: since,
+                    filter: since != undefined ? "" : syncOption?.pull?.filter,
                 },
                 push: {
+                    since: "now",
                     checkpoint: "source",
+                    filter: since != undefined ? "" : syncOption?.push?.filter,
                 },
             });
             const syncMode = "sync";
@@ -526,6 +533,7 @@ export class LiveSyncDBReplicator {
                 }
             }
         }
+        return true;
     }
 
     closeReplication() {

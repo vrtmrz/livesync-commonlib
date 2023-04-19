@@ -1,11 +1,11 @@
-import { runWithLock } from "./lock";
-import { Logger } from "./logger";
-import { LRUCache } from "./LRUCache";
-import { shouldSplitAsPlainText, stripAllPrefixes } from "./path";
-import { splitPieces2 } from "./strbin";
-import { Entry, EntryDoc, EntryDocResponse, EntryLeaf, EntryMilestoneInfo, LoadedEntry, LOG_LEVEL, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, NewEntry, NoteEntry, PlainEntry, RemoteDBSettings, ChunkVersionRange, EntryHasPath, DocumentID, FilePathWithPrefix, FilePath } from "./types";
-import { resolveWithIgnoreKnownError } from "./utils";
-import { isErrorOfMissingDoc } from "./utils_couchdb";
+import { runWithLock } from "./lock.ts";
+import { Logger } from "./logger.ts";
+import { LRUCache } from "./LRUCache.ts";
+import { shouldSplitAsPlainText, stripAllPrefixes } from "./path.ts";
+import { splitPieces2 } from "./strbin.ts";
+import { Entry, EntryDoc, EntryDocResponse, EntryLeaf, EntryMilestoneInfo, LoadedEntry, LOG_LEVEL, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, NewEntry, NoteEntry, PlainEntry, RemoteDBSettings, ChunkVersionRange, EntryHasPath, DocumentID, FilePathWithPrefix, FilePath } from "./types.ts";
+import { resolveWithIgnoreKnownError } from "./utils.ts";
+import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
 
 interface DBFunctionSettings {

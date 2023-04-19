@@ -1,8 +1,8 @@
-import { decrypt, encrypt } from "./e2ee_v2";
-import { Logger } from "./logger";
-import { getPath } from "./path";
-import { LOG_LEVEL, VER, VERSIONINFO_DOCID, EntryVersionInfo, SYNCINFO_ID, SyncInfo, EntryDoc, EntryLeaf, AnyEntry, FilePathWithPrefix } from "./types";
-import { isEncryptedChunkEntry, isObfuscatedEntry, isSyncInfoEntry, resolveWithIgnoreKnownError } from "./utils";
+import { decrypt, encrypt } from "./e2ee_v2.ts";
+import { Logger } from "./logger.ts";
+import { getPath } from "./path.ts";
+import { LOG_LEVEL, VER, VERSIONINFO_DOCID, EntryVersionInfo, SYNCINFO_ID, SyncInfo, EntryDoc, EntryLeaf, AnyEntry, FilePathWithPrefix } from "./types.ts";
+import { isEncryptedChunkEntry, isObfuscatedEntry, isSyncInfoEntry, resolveWithIgnoreKnownError } from "./utils.ts";
 
 export const isValidRemoteCouchDBURI = (uri: string): boolean => {
     if (uri.startsWith("https://")) return true;

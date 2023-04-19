@@ -1,5 +1,5 @@
-import { Semaphore, SemaphoreObject } from "./semaphore";
-import { lockStore } from "./stores";
+import { Semaphore, SemaphoreObject } from "./semaphore.ts";
+import { lockStore } from "./stores.ts";
 
 
 // --- asynchronous execution / locking utilities

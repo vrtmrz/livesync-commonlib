@@ -1,5 +1,5 @@
 //@ts-ignore
-import { webcrypto as crypto_ } from "crypto";
+import { webcrypto as crypto_ } from "node:crypto";
 let webcrypto: Crypto;
 
 if (typeof window !== "undefined" && window.crypto) {
