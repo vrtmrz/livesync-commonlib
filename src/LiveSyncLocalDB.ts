@@ -277,6 +277,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
 
     isTargetFile(filenameSrc: string) {
         const file = filenameSrc.startsWith("i:") ? filenameSrc.substring(2) : filenameSrc;
+        if (file.startsWith("ix:")) return true;
         if (file.startsWith("ps:")) return true;
         if (file.includes(":")) return false;
         if (this.settings.syncOnlyRegEx) {
@@ -310,6 +311,13 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     }
     async collectChunks(ids: string[], showResult = false, waitForReady?: boolean) {
 
+        // If already all of them are in the local database, return them immediately.
+        const localChunks = await this.localDatabase.allDocs({ keys: ids, include_docs: true });
+        const missingChunks = localChunks.rows.filter(e => "error" in e).map(e => e.key);
+        // If we have enough chunks, return them.
+        if (missingChunks.length == 0) {
+            return localChunks.rows.map(e => e.doc) as EntryLeaf[];
+        }
         // Register callbacks.
         const promises = ids.map(id => new Promise<EntryLeaf>((res, rej) => {
             // Lay the hook that be pulled when chunks are incoming.
@@ -452,7 +460,8 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         const targets = [
             this.findEntryNames("", "h:", opt ?? {}),
             this.findEntryNames(`h:\u{10ffff}`, "i:", opt ?? {}),
-            this.findEntryNames(`i:\u{10ffff}`, "ps:", opt ?? {}),
+            this.findEntryNames(`i:\u{10ffff}`, "ix:", opt ?? {}),
+            this.findEntryNames(`xi:\u{10ffff}`, "ps:", opt ?? {}),
             this.findEntryNames(`ps:\u{10ffff}`, "", opt ?? {}),
 
         ]
@@ -468,7 +477,8 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         const targets = [
             this.findEntries("", "h:", opt ?? {}),
             this.findEntries(`h:\u{10ffff}`, "i:", opt ?? {}),
-            this.findEntries(`i:\u{10ffff}`, "ps:", opt ?? {}),
+            this.findEntries(`i:\u{10ffff}`, "ix:", opt ?? {}),
+            this.findEntries(`ix:\u{10ffff}`, "ps:", opt ?? {}),
             this.findEntries(`ps:\u{10ffff}`, "", opt ?? {}),
         ]
         for (const target of targets) {
