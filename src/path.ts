@@ -18,7 +18,7 @@ export function isValidFilenameInDarwin(filename: string): boolean {
 }
 export function isValidFilenameInLinux(filename: string): boolean {
     // eslint-disable-next-line no-control-regex
-    const regex = /[\u0000-\u001f]|[:]/g;
+    const regex = /[\u0000-\u001f]/g;
     return !regex.test(filename);
 }
 export function isValidFilenameInAndroid(filename: string): boolean {

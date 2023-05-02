@@ -311,12 +311,11 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     }
     async collectChunks(ids: string[], showResult = false, waitForReady?: boolean) {
 
-        // If already all of them are in the local database, return them immediately.
-        const localChunks = await this.localDatabase.allDocs({ keys: ids, include_docs: true });
-        const missingChunks = localChunks.rows.filter(e => "error" in e).map(e => e.key);
+        const localChunks = await this.collectChunksWithCache(ids as DocumentID[]);
+        const missingChunks = localChunks.filter(e => !e.chunk).map(e => e.id);
         // If we have enough chunks, return them.
         if (missingChunks.length == 0) {
-            return localChunks.rows.map(e => e.doc) as EntryLeaf[];
+            return localChunks.map(e => e.chunk) as EntryLeaf[];
         }
         // Register callbacks.
         const promises = ids.map(id => new Promise<EntryLeaf>((res, rej) => {
@@ -345,7 +344,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
                 const requesting = this.collectThrottleQueuedIds.splice(0, this.settings.concurrencyOfReadChunksOnline);
                 if (requesting.length == 0) return;
                 try {
-                    const chunks = await this.CollectChunksInternal(requesting, false);
+                    const chunks = await this.collectChunksInternal(requesting, false);
                     if (chunks) {
                         // Remove duplicated entries.
                         this.collectThrottleQueuedIds = this.collectThrottleQueuedIds.filter(e => !chunks.some(f => f._id == e))
@@ -380,15 +379,14 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     }
 
     // Collect chunks from both local and remote.
-    async CollectChunksInternal(ids: string[], showResult = false): Promise<false | EntryLeaf[]> {
-        // Fetch local chunks.
-        const localChunks = await this.localDatabase.allDocs({ keys: ids, include_docs: true });
-        const missingChunks = localChunks.rows.filter(e => "error" in e).map(e => e.key);
+    async collectChunksInternal(ids: string[], showResult = false): Promise<false | EntryLeaf[]> {
+        // Collect chunks from the local database and the cache.
+        const localChunks = await this.collectChunksWithCache(ids as DocumentID[]);
+        const missingChunks = localChunks.filter(e => !e.chunk).map(e => e.id);
         // If we have enough chunks, return them.
         if (missingChunks.length == 0) {
-            return localChunks.rows.map(e => e.doc) as EntryLeaf[];
+            return localChunks.map(e => e.chunk) as EntryLeaf[];
         }
-
         // Fetching remote chunks.
         const remoteDocs = await this.env.getReplicator().fetchRemoteChunks(missingChunks, showResult)
         if (remoteDocs == false) {
@@ -413,7 +411,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             throw Error("Chunk collecting error");
         }
         // Merge them
-        return localChunks.rows.map(e => ("error" in e) ? (findChunk(e.key)) : e.doc as EntryLeaf);
+        return localChunks.map(e => !e.chunk ? (findChunk(e.id)) : e.chunk);
     }
 
 
@@ -510,5 +508,23 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
 
     bulkDocsRaw<T extends EntryDoc>(docs: Array<PouchDB.Core.PutDocument<T>>, options?: PouchDB.Core.BulkDocsOptions): Promise<Array<PouchDB.Core.Response | PouchDB.Core.Error>> {
         return this.localDatabase.bulkDocs(docs, options || {});
+    }
+
+    /* Read chunks from local database with cached chunks */
+    async collectChunksWithCache(keys: DocumentID[]): Promise<{ id: DocumentID, chunk: EntryLeaf | false }[]> {
+        const exists = keys.map(e => this.hashCaches.has(e) ? ({ id: e, chunk: this.hashCaches.get(e) }) : { id: e, chunk: false });
+        const notExists = exists.filter(e => e.chunk === false);
+        if (notExists.length > 0) {
+            const chunks = await this.localDatabase.allDocs({ keys: notExists.map(e => e.id), include_docs: true });
+            const existChunks = chunks.rows.filter(e => !("error" in e)).map(e => e.doc as EntryLeaf);
+            const temp = existChunks.reduce((p, c) => ({ ...p, [c._id]: c.data }), {}) as { [key: DocumentID]: string };
+            for (const chunk of existChunks) {
+                this.hashCaches.set(chunk._id, chunk.data);
+            }
+            const ret = exists.map(e => ({ id: e.id, chunk: (e.chunk ? e.chunk : (e.id in temp ? temp[e.id] : false)) }));
+            return ret.map(e => ({ id: e.id, chunk: e.chunk ? ({ _id: e.id, data: e.chunk, type: "leaf" } as EntryLeaf) : false }));
+        } else {
+            return exists.map(e => ({ id: e.id, chunk: { _id: e.id, data: e.chunk, type: "leaf" } as EntryLeaf }))
+        }
     }
 }
