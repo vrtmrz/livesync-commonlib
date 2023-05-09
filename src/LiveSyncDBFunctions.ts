@@ -4,7 +4,7 @@ import { LRUCache } from "./LRUCache";
 import { shouldSplitAsPlainText, stripAllPrefixes } from "./path";
 import { splitPieces2 } from "./strbin";
 import { Entry, EntryDoc, EntryDocResponse, EntryLeaf, EntryMilestoneInfo, LoadedEntry, LOG_LEVEL, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, NewEntry, NoteEntry, PlainEntry, RemoteDBSettings, ChunkVersionRange, EntryHasPath, DocumentID, FilePathWithPrefix, FilePath } from "./types";
-import { resolveWithIgnoreKnownError } from "./utils";
+import { globalConcurrencyController, resolveWithIgnoreKnownError } from "./utils";
 import { isErrorOfMissingDoc } from "./utils_couchdb";
 
 
@@ -15,6 +15,7 @@ interface DBFunctionSettings {
     deleteMetadataOfDeletedFiles: boolean;
     customChunkSize: number;
     readChunksOnline: boolean;
+    doNotPaceReplication: boolean;
 }
 // This interface is expected to be unnecessary because of the change in dependency direction
 export interface DBFunctionEnvironment {
@@ -306,57 +307,63 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                 Logger(obj);
             }
             let children: string[] = [];
-
-            if (env.settings.readChunksOnline) {
-                const items = await env.collectChunks(obj.children, false, waitForReady);
-                if (items) {
-                    for (const v of items) {
-                        if (v && v.type == "leaf") {
-                            children.push(v.data);
-                        } else {
-                            if (!opt) {
-                                Logger(`Chunks of ${dispFilename} (${obj._id}) are not valid.`, LOG_LEVEL.NOTICE);
-                                // env.needScanning = true;
-                                env.corruptedEntries[obj._id] = obj;
+            // Acquire semaphore to pace replication.
+            const weight = Math.min(10, Math.ceil(obj.children.length / 10)) + 1;
+            const resourceSemaphore = env.settings.doNotPaceReplication ? (() => { }) : await globalConcurrencyController.acquire(weight);
+            try {
+                if (env.settings.readChunksOnline) {
+                    const items = await env.collectChunks(obj.children, false, waitForReady);
+                    if (items) {
+                        for (const v of items) {
+                            if (v && v.type == "leaf") {
+                                children.push(v.data);
+                            } else {
+                                if (!opt) {
+                                    Logger(`Chunks of ${dispFilename} (${obj._id}) are not valid.`, LOG_LEVEL.NOTICE);
+                                    // env.needScanning = true;
+                                    env.corruptedEntries[obj._id] = obj;
+                                }
+                                return false;
                             }
-                            return false;
-                        }
-                    }
-                } else {
-                    if (opt) {
-                        Logger(`Could not retrieve chunks of ${dispFilename} (${obj._id}). we have to `, LOG_LEVEL.NOTICE);
-                        // env.needScanning = true;
-                    }
-                    return false;
-                }
-            } else {
-                try {
-                    if (waitForReady) {
-                        children = await Promise.all(obj.children.map((e) => env.getDBLeaf(e, waitForReady)));
-                        if (dump) {
-                            Logger(`Chunks:`);
-                            Logger(children);
                         }
                     } else {
-                        const chunkDocs = await env.localDatabase.allDocs({ keys: obj.children, include_docs: true });
-                        if (chunkDocs.rows.some(e => "error" in e)) {
-                            const missingChunks = chunkDocs.rows.filter(e => "error" in e).map(e => e.id).join(", ");
-                            Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id}). Chunks are missing:${missingChunks}`, LOG_LEVEL.NOTICE);
-                            return false;
+                        if (opt) {
+                            Logger(`Could not retrieve chunks of ${dispFilename} (${obj._id}). we have to `, LOG_LEVEL.NOTICE);
+                            // env.needScanning = true;
                         }
-                        if (chunkDocs.rows.some(e => e.doc && e.doc.type != "leaf")) {
-                            const missingChunks = chunkDocs.rows.filter(e => e.doc && e.doc.type != "leaf").map(e => e.id).join(", ");
-                            Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id}). corrupted chunks::${missingChunks}`, LOG_LEVEL.NOTICE);
-                            return false;
-                        }
-                        children = chunkDocs.rows.map(e => (e.doc as EntryLeaf).data);
+                        return false;
                     }
-                } catch (ex) {
-                    Logger(`Something went wrong on reading chunks of ${dispFilename}(${obj._id}) from database, see verbose info for detail.`, LOG_LEVEL.NOTICE);
-                    Logger(ex, LOG_LEVEL.VERBOSE);
-                    env.corruptedEntries[obj._id] = obj;
-                    return false;
+                } else {
+                    try {
+                        if (waitForReady) {
+                            children = await Promise.all(obj.children.map((e) => env.getDBLeaf(e, waitForReady)));
+                            if (dump) {
+                                Logger(`Chunks:`);
+                                Logger(children);
+                            }
+                        } else {
+                            const chunkDocs = await env.localDatabase.allDocs({ keys: obj.children, include_docs: true });
+                            if (chunkDocs.rows.some(e => "error" in e)) {
+                                const missingChunks = chunkDocs.rows.filter(e => "error" in e).map(e => e.id).join(", ");
+                                Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id}). Chunks are missing:${missingChunks}`, LOG_LEVEL.NOTICE);
+                                return false;
+                            }
+                            if (chunkDocs.rows.some(e => e.doc && e.doc.type != "leaf")) {
+                                const missingChunks = chunkDocs.rows.filter(e => e.doc && e.doc.type != "leaf").map(e => e.id).join(", ");
+                                Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id}). corrupted chunks::${missingChunks}`, LOG_LEVEL.NOTICE);
+                                return false;
+                            }
+                            children = chunkDocs.rows.map(e => (e.doc as EntryLeaf).data);
+                        }
+                    } catch (ex) {
+                        Logger(`Something went wrong on reading chunks of ${dispFilename}(${obj._id}) from database, see verbose info for detail.`, LOG_LEVEL.NOTICE);
+                        Logger(ex, LOG_LEVEL.VERBOSE);
+                        env.corruptedEntries[obj._id] = obj;
+                        return false;
+                    }
                 }
+            } finally {
+                resourceSemaphore();
             }
             const data = children;
             const doc: LoadedEntry & PouchDB.Core.IdMeta = {

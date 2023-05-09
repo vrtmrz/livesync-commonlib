@@ -15,6 +15,7 @@ export const VER = 10;
 
 export const RECENT_MOFIDIED_DOCS_QTY = 30;
 export const LEAF_WAIT_TIMEOUT = 90000; // in synchronization, waiting missing leaf time out.
+export const REPLICATION_BUSY_TIMEOUT = 3000000;
 export const LOG_LEVEL = {
     DEBUG: -1,
     VERBOSE: 1,
@@ -108,6 +109,8 @@ export type RemoteDBSettings = CouchDBConnection & {
     concurrencyOfReadChunksOnline: number,
     minimumIntervalOfReadChunksOnline: number,
 
+    doNotPaceReplication: boolean,
+
     // This could not be configured from Obsidian.
     permitEmptyPassphrase: boolean;
 }
@@ -179,6 +182,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     useIndexedDBAdapter: false,
     useTimeouts: false,
     writeLogToTheFile: false,
+    doNotPaceReplication: false,
     hashCacheMaxCount: 300,
     hashCacheMaxAmount: 50,
     concurrencyOfReadChunksOnline: 100,

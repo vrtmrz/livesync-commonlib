@@ -11,7 +11,7 @@ import {
     FilePathWithPrefix,
     FilePath,
 } from "./types";
-import { delay } from "./utils";
+import { delay, sendSignal, waitForSignal } from "./utils";
 import { Logger } from "./logger";
 import { isErrorOfMissingDoc } from "./utils_couchdb";
 import { LRUCache } from "./LRUCache";
@@ -49,9 +49,6 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
 
     changeHandler: PouchDB.Core.Changes<EntryDoc> | null = null;
 
-    leafArrivedCallbacks: { [key: string]: (() => void)[] } = {};
-
-    docSeq = "";
 
     chunkVersion = -1;
     maxChunkVersion = -1;
@@ -63,7 +60,6 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     onunload() {
         //this.kvDB.close();
         this.env.beforeOnUnload(this);
-        this.leafArrivedCallbacks;
         this.changeHandler?.cancel();
         this.changeHandler?.removeAllListeners();
         this.localDatabase.removeAllListeners();
@@ -137,8 +133,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             })
             .on("change", (e) => {
                 if (e.deleted) return;
-                this.leafArrived(e.id);
-                this.docSeq = `${e.seq}`;
+                sendSignal(`leaf-${e.id}`);
             });
         this.changeHandler = changes;
         this.isReady = true;
@@ -154,33 +149,8 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         this.h32Raw = h32Raw;
     }
 
-    // leaf waiting
-
-    leafArrived(id: string) {
-        if (typeof this.leafArrivedCallbacks[id] !== "undefined") {
-            for (const func of this.leafArrivedCallbacks[id]) {
-                func();
-            }
-            delete this.leafArrivedCallbacks[id];
-        }
-    }
-    // wait
-    waitForLeafReady(id: string): Promise<boolean> {
-        return new Promise((res, rej) => {
-            // Set timeout.
-            const timer = setTimeout(() => rej(new Error(`Chunk reading timed out:${id}`)), LEAF_WAIT_TIMEOUT);
-            if (typeof this.leafArrivedCallbacks[id] == "undefined") {
-                this.leafArrivedCallbacks[id] = [];
-            }
-            this.leafArrivedCallbacks[id].push(() => {
-                clearTimeout(timer);
-                res(true);
-            });
-        });
-    }
-
-    async getDBLeaf(id: DocumentID, waitForReady: boolean): Promise<string> {
-        // when in cache, use that.
+    async getDBLeafWithTimeout(id: DocumentID, limitTime: number): Promise<string> {
+        const now = Date.now();
         const leaf = this.hashCaches.revGet(id);
         if (leaf) {
             return leaf;
@@ -191,24 +161,22 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
                 this.hashCaches.set(id, w.data);
                 return w.data;
             }
-            throw new Error(`Corrupted chunk detected: ${id}`);
+            throw new Error(`Corrupted chunk has been detected: ${id}`);
         } catch (ex: any) {
             if (isErrorOfMissingDoc(ex)) {
-                if (waitForReady) {
-                    // just leaf is not ready.
-                    // wait for on
-                    if ((await this.waitForLeafReady(id)) === false) {
-                        throw new Error(`time out (waiting chunk)`);
-                    }
-                    return this.getDBLeaf(id, false);
-                } else {
-                    throw new Error(`Chunk was not found: ${id}`);
+                if (limitTime < now) {
+                    throw new Error("Could not read chunk: Timed out: ${id}");
                 }
+                await waitForSignal(`leaf-${id}`, 5000);
+                return this.getDBLeafWithTimeout(id, limitTime);
             } else {
                 Logger(`Something went wrong while retrieving chunks`);
                 throw ex;
             }
         }
+    }
+    getDBLeaf(id: DocumentID, waitForReady: boolean): Promise<string> {
+        return this.getDBLeafWithTimeout(id, waitForReady ? (Date.now() + LEAF_WAIT_TIMEOUT) : 0)
     }
 
     // eslint-disable-next-line require-await

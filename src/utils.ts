@@ -1,4 +1,5 @@
 import { LRUCache } from "./LRUCache";
+import { Semaphore } from "./semaphore";
 import { AnyEntry, DatabaseEntry, EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED as PREFIX_OBFUSCATED, SYNCINFO_ID, SyncInfo } from "./types";
 import { isErrorOfMissingDoc } from "./utils_couchdb";
 
@@ -124,3 +125,36 @@ export function memorizeFuncWithLRUCacheMulti<T extends Array<any>, U>(func: (..
         return value;
     };
 }
+
+const traps = {} as { [key: string]: (() => void)[]; }
+export function waitForSignal(id: string, timeout: number): Promise<boolean> {
+    let resolveTrap: (result: boolean) => void;
+    let trapJob: () => void;
+    const timer = setTimeout(() => {
+        if (id in traps) {
+            traps[id] = traps[id].filter(e => e != trapJob);
+        }
+        if (resolveTrap) resolveTrap(false);
+        resolveTrap = null;
+    }, timeout)
+    return new Promise((res) => {
+        if (!(id in traps)) traps[id] = [];
+        resolveTrap = res;
+        trapJob = () => {
+            if (timer) clearTimeout(timer);
+            res(true);
+        }
+        traps[id].push(trapJob);
+    });
+}
+export function sendSignal(key: string) {
+    if (!(key in traps)) {
+        return;
+    }
+    const trap = traps[key];
+    delete traps[key];
+    for (const resolver of trap) {
+        resolver();
+    }
+}
+export const globalConcurrencyController = Semaphore(50);

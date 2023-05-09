@@ -4,9 +4,9 @@ import {
     VER,
     MILSTONE_DOCID,
     DatabaseConnectingStatus,
-    ChunkVersionRange, RemoteDBSettings, EntryLeaf
+    ChunkVersionRange, RemoteDBSettings, EntryLeaf, REPLICATION_BUSY_TIMEOUT
 } from "./types";
-import { resolveWithIgnoreKnownError, delay } from "./utils";
+import { resolveWithIgnoreKnownError, delay, globalConcurrencyController } from "./utils";
 import { Logger } from "./logger";
 import { checkRemoteVersion, putDesignDocuments } from "./utils_couchdb";
 
@@ -237,6 +237,13 @@ export class LiveSyncDBReplicator {
         const gen = genReplication(syncHandler, controller.signal);
         try {
             for await (const [type, e] of gen) {
+                // Pacing replication.
+                const releaser = await globalConcurrencyController.tryAcquire(1, REPLICATION_BUSY_TIMEOUT);
+                if (releaser === false) {
+                    Logger("Replication stopped for busy.", showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO, "sync");
+                    return "FAILED";
+                }
+                releaser();
                 switch (type) {
                     case "change":
                         if ("direction" in e) {
