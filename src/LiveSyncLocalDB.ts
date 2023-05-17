@@ -489,8 +489,8 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             for (const chunk of existChunks) {
                 this.hashCaches.set(chunk._id, chunk.data);
             }
-            const ret = exists.map(e => ({ id: e.id, chunk: (e.chunk ? e.chunk : (e.id in temp ? temp[e.id] : false)) }));
-            return ret.map(e => ({ id: e.id, chunk: e.chunk ? ({ _id: e.id, data: e.chunk, type: "leaf" } as EntryLeaf) : false }));
+            const ret = exists.map(e => ({ id: e.id, chunk: (e.chunk !== false ? e.chunk : (e.id in temp ? temp[e.id] : false)) }));
+            return ret.map(e => ({ id: e.id, chunk: e.chunk !== false ? ({ _id: e.id, data: e.chunk, type: "leaf" } as EntryLeaf) : false }));
         } else {
             return exists.map(e => ({ id: e.id, chunk: { _id: e.id, data: e.chunk, type: "leaf" } as EntryLeaf }))
         }

@@ -39,7 +39,13 @@ export interface LiveSyncReplicatorEnv {
     getIsMobile(): boolean;
     getLastPostFailedBySize(): boolean;
     processReplication: ReplicationCallback;
-    connectRemoteCouchDB(uri: string, auth: { username: string; password: string }, disableRequestURI: boolean, passphrase: string | boolean, useDynamicIterationCount: boolean): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }>;
+    connectRemoteCouchDB(uri: string,
+        auth: { username: string; password: string },
+        disableRequestURI: boolean, passphrase: string | boolean,
+        useDynamicIterationCount: boolean,
+        performSetup: boolean,
+        skipInfo: boolean
+    ): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }>;
     replicationStat: ObservableStore<{
         sent: number;
         arrived: number;
@@ -416,7 +422,7 @@ export class LiveSyncDBReplicator {
             return false;
         }
 
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile());
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
         if (typeof dbRet === "string") {
             Logger(`Could not connect to ${uri}: ${dbRet}`, showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO);
             return false;
@@ -548,7 +554,7 @@ export class LiveSyncDBReplicator {
 
     async tryResetRemoteDatabase(setting: RemoteDBSettings) {
         this.closeReplication();
-        const con = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile());
+        const con = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
         if (typeof con == "string") return;
         try {
             await con.db.destroy();
@@ -561,14 +567,14 @@ export class LiveSyncDBReplicator {
     }
     async tryCreateRemoteDatabase(setting: RemoteDBSettings) {
         this.closeReplication();
-        const con2 = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile());
+        const con2 = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
 
         if (typeof con2 === "string") return;
         Logger("Remote Database Created or Connected", LOG_LEVEL.NOTICE);
     }
     async markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean) {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile());
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
         if (typeof dbRet === "string") {
             Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL.NOTICE);
             return;
@@ -602,7 +608,7 @@ export class LiveSyncDBReplicator {
     }
     async markRemoteResolved(setting: RemoteDBSettings) {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile());
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
         if (typeof dbRet === "string") {
             Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL.NOTICE);
             return;
@@ -628,7 +634,7 @@ export class LiveSyncDBReplicator {
         await dbRet.db.put(remoteMilestone);
     }
 
-    connectRemoteCouchDBWithSetting(settings: RemoteDBSettings, isMobile: boolean) {
+    connectRemoteCouchDBWithSetting(settings: RemoteDBSettings, isMobile: boolean, performSetup?: boolean, skipInfo?: boolean) {
         if (settings.encrypt && settings.passphrase == "" && !settings.permitEmptyPassphrase) {
             return "Empty passphrases cannot be used without explicit permission";
         }
@@ -640,12 +646,14 @@ export class LiveSyncDBReplicator {
             },
             settings.disableRequestURI || isMobile,
             settings.encrypt ? settings.passphrase : settings.encrypt,
-            settings.useDynamicIterationCount
+            settings.useDynamicIterationCount,
+            performSetup,
+            skipInfo,
         );
     }
 
     async fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]> {
-        const ret = await this.connectRemoteCouchDBWithSetting(this.env.getSettings(), this.env.getIsMobile());
+        const ret = await this.connectRemoteCouchDBWithSetting(this.env.getSettings(), this.env.getIsMobile(), false, true);
         if (typeof (ret) === "string") {
 
             Logger(`Could not connect to server.${ret} `, showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO, "fetch");
