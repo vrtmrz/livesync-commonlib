@@ -388,10 +388,12 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         let nextKey = startKey;
         do {
             const docs = await this.localDatabase.allDocs({ limit: pageLimit, startkey: nextKey, endkey: endKey, include_docs: true, ...opt });
-            nextKey = "";
+            if (docs.rows.length === 0) {
+                break;
+            }
+            nextKey = `${docs.rows[docs.rows.length - 1].id}\u{10ffff}`;
             for (const row of docs.rows) {
                 const doc = row.doc;
-                nextKey = `${row.id}\u{10ffff}`;
                 if (!("type" in doc)) continue;
                 if (doc.type == "newnote" || doc.type == "plain") {
                     yield doc;
