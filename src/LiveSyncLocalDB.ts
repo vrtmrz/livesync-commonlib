@@ -1,24 +1,27 @@
 //
-import xxhash from "xxhash-wasm";
+import { default as xxhashOld, type Exports } from "xxhash-wasm";
+import { default as xxhashNew } from "../patched_xxhash_wasm/xxhash-wasm.js";
+import type { XXHashAPI } from "xxhash-wasm-102";
 import {
-    EntryDoc,
-    EntryLeaf, LoadedEntry,
-    Credential, LOG_LEVEL,
+    type EntryDoc,
+    type EntryLeaf, type LoadedEntry,
+    type Credential, LOG_LEVEL,
     LEAF_WAIT_TIMEOUT, VERSIONINFO_DOCID,
-    RemoteDBSettings,
-    EntryHasPath,
-    DocumentID,
-    FilePathWithPrefix,
-    FilePath,
+    type RemoteDBSettings,
+    type EntryHasPath,
+    type DocumentID,
+    type FilePathWithPrefix,
+    type FilePath,
 } from "./types";
 import { delay, sendSignal, waitForSignal } from "./utils";
 import { Logger } from "./logger";
 import { isErrorOfMissingDoc } from "./utils_couchdb";
 import { LRUCache } from "./LRUCache";
 
-import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, DBFunctionEnvironment } from "./LiveSyncDBFunctions.js";
+import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, type DBFunctionEnvironment } from "./LiveSyncDBFunctions.js";
 import { runWithLock } from "./lock.js";
 import type { LiveSyncDBReplicator } from "./LiveSyncReplicator";
+import { writeString } from "./strbin.js";
 
 export interface LiveSyncLocalDBEnv {
     id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
@@ -44,6 +47,8 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
 
     h32!: (input: string, seed?: number) => string;
     h32Raw!: (input: Uint8Array, seed?: number) => number;
+    xxhash32: (input: string, seed?: number) => number;
+    xxhash64: ((input: string) => bigint) | false = false;
     hashCaches = new LRUCache<DocumentID, string>(10, 1000);
     corruptedEntries: { [key: string]: EntryDoc } = {};
 
@@ -144,9 +149,22 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
 
     async prepareHashFunctions() {
         if (this.h32 != null) return;
-        const { h32, h32Raw } = await xxhash();
-        this.h32 = h32;
-        this.h32Raw = h32Raw;
+        try {
+            const { h32ToString, h32Raw, h32, h64 } = await (xxhashNew as unknown as () => Promise<XXHashAPI>)();
+            this.xxhash64 = h64;
+            this.xxhash32 = h32;
+            this.h32 = h32ToString;
+            this.h32Raw = h32Raw;
+            Logger(`Newer xxhash has been initialised`, LOG_LEVEL.VERBOSE);
+        } catch (ex) {
+            Logger(`Could not initialise xxhash v1`, LOG_LEVEL.VERBOSE);
+            this.xxhash64 = false;
+            const { h32, h32Raw } = (await xxhashOld()) as unknown as Exports;
+            this.h32 = h32;
+            this.h32Raw = h32Raw;
+            this.xxhash32 = (str) => h32Raw(writeString(str));
+            Logger(ex);
+        }
     }
 
     async getDBLeafWithTimeout(id: DocumentID, limitTime: number): Promise<string> {

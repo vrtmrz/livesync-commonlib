@@ -3,7 +3,7 @@ import { Logger } from "./logger";
 import { LRUCache } from "./LRUCache";
 import { shouldSplitAsPlainText, stripAllPrefixes } from "./path";
 import { splitPieces2 } from "./strbin";
-import { Entry, EntryDoc, EntryDocResponse, EntryLeaf, EntryMilestoneInfo, LoadedEntry, LOG_LEVEL, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, NewEntry, NoteEntry, PlainEntry, RemoteDBSettings, ChunkVersionRange, EntryHasPath, DocumentID, FilePathWithPrefix, FilePath } from "./types";
+import { type Entry, type EntryDoc, type EntryDocResponse, type EntryLeaf, type EntryMilestoneInfo, type LoadedEntry, LOG_LEVEL, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, type NewEntry, type NoteEntry, type PlainEntry, type RemoteDBSettings, type ChunkVersionRange, type EntryHasPath, type DocumentID, type FilePathWithPrefix, type FilePath, type HashAlgorithm } from "./types";
 import { globalConcurrencyController, resolveWithIgnoreKnownError } from "./utils";
 import { isErrorOfMissingDoc } from "./utils_couchdb";
 
@@ -16,6 +16,7 @@ interface DBFunctionSettings {
     customChunkSize: number;
     readChunksOnline: boolean;
     doNotPaceReplication: boolean;
+    hashAlg: HashAlgorithm;
 }
 // This interface is expected to be unnecessary because of the change in dependency direction
 export interface DBFunctionEnvironment {
@@ -30,6 +31,8 @@ export interface DBFunctionEnvironment {
     hashCaches: LRUCache<DocumentID, string>,
     h32(input: string, seed?: number): string,
     h32Raw(input: Uint8Array, seed?: number): number,
+    xxhash32(input: string, seed?: number): number,
+    xxhash64: ((input: string) => bigint) | false,
 }
 export async function putDBEntry(
     env: DBFunctionEnvironment,
@@ -50,7 +53,8 @@ export async function putDBEntry(
     const pieceSize = maxChunkSize;
     let plainSplit = false;
     let cacheUsed = 0;
-    const userPasswordHash = env.h32Raw(new TextEncoder().encode(env.settings.passphrase));
+    const userPassphrase = env.settings.passphrase;
+    const userPasswordHash = env.h32Raw(new TextEncoder().encode(userPassphrase));
     const minimumChunkSize = env.settings.minimumChunkSize;
     if (!saveAsBigChunk && shouldSplitAsPlainText(filename)) {
         // pieceSize = MAX_DOC_SIZE;
@@ -75,11 +79,29 @@ export async function putDBEntry(
             cacheUsed++;
             currentDocPiece.set(leafId, piece);
         } else {
-            if (env.settings.encrypt) {
-                // When encryption has been enabled, make hash to be different between each passphrase to avoid inferring password.
-                hashedPiece = "+" + (env.h32Raw(new TextEncoder().encode(piece)) ^ userPasswordHash ^ piece.length).toString(36);
+            // When encryption has been enabled, make hash to be different between each passphrase to avoid inferring passphrase.
+            // On the old algorithm, xor is used to keep the throughput.
+            // On new algorithms, the xxhash is enough to fast. so we just add the passphrase after the content.
+            if (env.settings.hashAlg === "") {
+                if (env.settings.encrypt) {
+                    hashedPiece = "+" + (env.h32Raw(new TextEncoder().encode(piece)) ^ userPasswordHash ^ piece.length).toString(36);
+                } else {
+                    hashedPiece = (env.h32Raw(new TextEncoder().encode(piece)) ^ piece.length).toString(36);
+                }
+            } else if (env.settings.hashAlg == "xxhash64" && env.xxhash64) {
+                if (env.settings.encrypt) {
+                    hashedPiece = "+" + ((env.xxhash64(`${piece}-${userPassphrase}-${piece.length}`)).toString(36));
+                } else {
+                    hashedPiece = env.xxhash64(`${piece}-${piece.length}`).toString(36);
+                }
             } else {
-                hashedPiece = (env.h32Raw(new TextEncoder().encode(piece)) ^ piece.length).toString(36);
+                // If we could not use xxhash64, fall back to the 32bit impl.
+                // It may happen on iOS before 14.
+                if (env.settings.encrypt) {
+                    hashedPiece = "+" + env.xxhash32(`${piece}-${userPassphrase}-${piece.length}`).toString(36);
+                } else {
+                    hashedPiece = env.xxhash32(`${piece}-${piece.length}`).toString(36);
+                }
             }
             leafId = ("h:" + hashedPiece) as DocumentID;
         }
@@ -88,7 +110,7 @@ export async function putDBEntry(
                 // conflicted
                 // I realise that avoiding chunk name collisions is pointless here.
                 // After replication, we will have conflicted chunks.
-                Logger(`Hash collided! If possible, please report the following string\nA:--${currentDocPiece.get(leafId)}--\nB:--${piece}--`, LOG_LEVEL.NOTICE);
+                Logger(`Hash collided! If possible, please report the following string:${leafId}=>\nA:--${currentDocPiece.get(leafId)}--\nB:--${piece}--`, LOG_LEVEL.NOTICE);
                 Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL.NOTICE);
                 saved = false;
             }
