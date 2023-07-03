@@ -1,7 +1,7 @@
 import { Logger } from "./logger";
 import { LOG_LEVEL } from "./types";
 
-import { binaryToBinaryString, uint8ArrayToHexString, writeString, btoa, atob, hexStringToUint8Array, readString } from "./strbin";
+import { uint8ArrayToHexString, writeString, atob, hexStringToUint8Array, readString, arrayBufferToBase64Single } from "./strbin";
 import { webcrypto } from "./mods";
 
 
@@ -139,8 +139,8 @@ export async function encrypt(input: string, passphrase: string, autoCalculateIt
 
     // const plainStringBuffer: Uint8Array = tex.encode(plainStringified)
     const plainStringBuffer: Uint8Array = writeString(plainStringified);
-    const encryptedDataArrayBuffer: ArrayBuffer = await webcrypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plainStringBuffer);
-    const encryptedData2 = btoa(binaryToBinaryString(new Uint8Array(encryptedDataArrayBuffer)));
+    const encryptedDataArrayBuffer = await webcrypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plainStringBuffer);
+    const encryptedData2 = (await arrayBufferToBase64Single(encryptedDataArrayBuffer));
     //return data with iv and salt.
     const ret = `["${encryptedData2}","${uint8ArrayToHexString(iv)}","${uint8ArrayToHexString(salt)}"]`;
     return ret;
@@ -160,7 +160,7 @@ export async function decrypt(encryptedResult: string, passphrase: string, autoC
         const len = encryptedDataBin.length;
         const encryptedDataArrayBuffer = new Uint8Array(len);
         // converting binary string to arraybuffer
-        for (let i = 0; i < len; i++) {
+        for (let i = len; i >= 0; --i) {
             encryptedDataArrayBuffer[i] = encryptedDataBin.charCodeAt(i);
         }
         const plainStringBuffer: ArrayBuffer = await webcrypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encryptedDataArrayBuffer);

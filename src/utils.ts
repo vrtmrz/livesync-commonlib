@@ -1,6 +1,6 @@
 import { LRUCache } from "./LRUCache";
 import { Semaphore } from "./semaphore";
-import { AnyEntry, DatabaseEntry, EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED as PREFIX_OBFUSCATED, SYNCINFO_ID, SyncInfo } from "./types";
+import { type AnyEntry, type DatabaseEntry, type EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED, SYNCINFO_ID, type SyncInfo } from "./types";
 import { isErrorOfMissingDoc } from "./utils_couchdb";
 
 export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T> {
@@ -158,3 +158,12 @@ export function sendSignal(key: string) {
     }
 }
 export const globalConcurrencyController = Semaphore(50);
+
+export function* arrayToChunkedArray<T>(arr: T[], chunkLength: number) {
+    const source = [...arr];
+    while (source.length) {
+        const s = source.splice(0, chunkLength);
+        yield s;
+    }
+}
+

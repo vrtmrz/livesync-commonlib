@@ -122,7 +122,7 @@ export function binaryToBinaryString(src: Uint8Array): string {
 }
 
 const encodeChunkSize = 3 * 50000000;
-function arrayBufferToBase64internalBrowser(buffer: DataView): Promise<string> {
+function arrayBufferToBase64internalBrowser(buffer: DataView | Uint8Array): Promise<string> {
     return new Promise((res, rej) => {
         const blob = new Blob([buffer], { type: "application/octet-binary" });
         const reader = new FileReader();
@@ -141,7 +141,28 @@ function arrayBufferToBase64internalNode(buffer: DataView): string {
 }
 const arrayBufferToBase64internal = typeof (window) !== "undefined" ? arrayBufferToBase64internalBrowser : arrayBufferToBase64internalNode;
 
+export async function arrayBufferToBase64Single(buffer: ArrayBuffer): Promise<string> {
+    const buf = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+    if (buf.byteLength < QUANTUM) return btoa(String.fromCharCode.apply(null, [...buf]));
+    if (typeof window !== "undefined") return await arrayBufferToBase64internalBrowser(buf);
+    return Buffer.from(buf).toString("base64");
+}
 export async function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string[]> {
+    const buf = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
+    if (buf.byteLength < QUANTUM) return [btoa(String.fromCharCode.apply(null, [...buf]))];
+    const bufLen = buf.byteLength;
+    const pieces = [] as string[];
+    let idx = 0;
+    do {
+        const offset = idx * encodeChunkSize;
+        const pBuf = new DataView(buf.buffer, offset, Math.min(encodeChunkSize, buf.byteLength - offset));
+        pieces.push(await arrayBufferToBase64internal(pBuf));
+        idx++;
+    } while (idx * encodeChunkSize < bufLen);
+    return pieces;
+}
+
+export async function arrayBufferToBase64_old(buffer: ArrayBuffer): Promise<string[]> {
     const bufLen = buffer.byteLength;
     const pieces = [];
     let idx = 0;

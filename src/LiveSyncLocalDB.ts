@@ -404,12 +404,14 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     async *findEntries(startKey: string, endKey: string, opt: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
         const pageLimit = 100;
         let nextKey = startKey;
+        let req = this.localDatabase.allDocs({ limit: pageLimit, startkey: nextKey, endkey: endKey, include_docs: true, ...opt });
         do {
-            const docs = await this.localDatabase.allDocs({ limit: pageLimit, startkey: nextKey, endkey: endKey, include_docs: true, ...opt });
+            const docs = await req;
             if (docs.rows.length === 0) {
                 break;
             }
             nextKey = `${docs.rows[docs.rows.length - 1].id}\u{10ffff}`;
+            req = this.localDatabase.allDocs({ limit: pageLimit, startkey: nextKey, endkey: endKey, include_docs: true, ...opt });
             for (const row of docs.rows) {
                 const doc = row.doc;
                 if (!("type" in doc)) continue;
@@ -433,11 +435,16 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     async *findEntryNames(startKey: string, endKey: string, opt: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
         const pageLimit = 100;
         let nextKey = startKey;
+        let req = this.localDatabase.allDocs({ limit: pageLimit, startkey: nextKey, endkey: endKey, ...opt });
         do {
-            const docs = await this.localDatabase.allDocs({ limit: pageLimit, startkey: nextKey, endkey: endKey, ...opt });
-            nextKey = "";
+            const docs = await req;
+            if (docs.rows.length == 0) {
+                nextKey = "";
+                break;
+            }
+            nextKey = `${docs.rows[docs.rows.length - 1].key}\u{10ffff}`;
+            req = this.localDatabase.allDocs({ limit: pageLimit, startkey: nextKey, endkey: endKey, ...opt });
             for (const row of docs.rows) {
-                nextKey = `${row.id}\u{10ffff}`;
                 yield row.id;
             }
         } while (nextKey != "");
@@ -447,7 +454,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             this.findEntryNames("", "h:", opt ?? {}),
             this.findEntryNames(`h:\u{10ffff}`, "i:", opt ?? {}),
             this.findEntryNames(`i:\u{10ffff}`, "ix:", opt ?? {}),
-            this.findEntryNames(`xi:\u{10ffff}`, "ps:", opt ?? {}),
+            this.findEntryNames(`ix:\u{10ffff}`, "ps:", opt ?? {}),
             this.findEntryNames(`ps:\u{10ffff}`, "", opt ?? {}),
 
         ]
