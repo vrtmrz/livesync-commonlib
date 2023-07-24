@@ -1,7 +1,7 @@
 import { decrypt, encrypt } from "./e2ee_v2";
 import { Logger } from "./logger";
 import { getPath } from "./path";
-import { LOG_LEVEL, VER, VERSIONINFO_DOCID, EntryVersionInfo, SYNCINFO_ID, SyncInfo, EntryDoc, EntryLeaf, AnyEntry, FilePathWithPrefix } from "./types";
+import { LOG_LEVEL, VER, VERSIONINFO_DOCID, EntryVersionInfo, SYNCINFO_ID, SyncInfo, EntryDoc, EntryLeaf, AnyEntry, FilePathWithPrefix, CouchDBConnection } from "./types";
 import { isEncryptedChunkEntry, isObfuscatedEntry, isSyncInfoEntry, resolveWithIgnoreKnownError } from "./utils";
 
 export const isValidRemoteCouchDBURI = (uri: string): boolean => {
@@ -222,4 +222,230 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
 
 export function isErrorOfMissingDoc(ex: any) {
     return (ex && ex?.status) == 404;
+}
+
+async function prepareChunkDesignDoc(db: PouchDB.Database) {
+    const chunkDesignDoc = {
+        _id: '_design/chunks',
+        _rev: undefined as any,
+        ver: 2,
+        views: {
+            collectDangling: {
+                map: function (doc: any) {
+                    if (doc._id.startsWith("h:")) {
+                        //@ts-ignore
+                        emit([doc._id], 0);
+                    } else {
+                        if ("children" in doc) {
+                            //@ts-ignore
+                            doc.children.forEach(e => emit([e], 1));
+                        }
+                    }
+                }.toString(),
+                reduce: '_sum'
+            }
+
+        }
+    };
+    // save it
+    let updateDDoc = false;
+    try {
+        const old = await db.get<typeof chunkDesignDoc>(chunkDesignDoc._id);
+        if (old?.ver ?? 0 < chunkDesignDoc.ver) {
+            chunkDesignDoc._rev = old._rev;
+            updateDDoc = true;
+        }
+
+    } catch (ex) {
+        if (ex.status == 404) {
+            // NO OP
+            updateDDoc = true;
+        } else {
+            Logger(`Failed to make design document for operating chunks`);
+            Logger(ex, LOG_LEVEL.VERBOSE);
+            return false;
+        }
+    }
+    try {
+        if (updateDDoc) {
+            await db.put<typeof chunkDesignDoc>(chunkDesignDoc);
+        }
+    } catch (ex: any) {
+        // NO OP.
+        Logger(`Failed to make design document for operating chunks`);
+        Logger(ex, LOG_LEVEL.VERBOSE);
+        return false;
+    }
+    return true;
+}
+export async function collectChunksUsage(db: PouchDB.Database) {
+    if (!await prepareChunkDesignDoc(db)) {
+        Logger(`Could not prepare design document for operating chunks`);
+        return [];
+    }
+    const q = await db.query("chunks/collectDangling", { reduce: true, group: true });
+    const rows = q.rows as { value: number, key: string[] }[];
+    return rows;
+}
+export function collectUnreferencedChunks(db: PouchDB.Database) {
+    return collectChunks(db, "DANGLING");
+}
+export async function collectChunks(db: PouchDB.Database, type: "INUSE" | "DANGLING" | "ALL") {
+    const rows = await collectChunksUsage(db);
+
+    const rowF = type == "ALL" ? rows :
+        rows.filter(e => type == "DANGLING" ? (e.value == 0) : (e.value != 0));
+    const ids = rowF.flatMap(e => e.key);
+    const docs = (await db.allDocs({ keys: ids })).rows;
+    const items = docs.filter(e => !("error" in e)).map(e => ({ id: e.id, rev: e.value.rev }));
+    return items;
+}
+
+export async function collectUnbalancedChunks(db1: PouchDB.Database, db2: PouchDB.Database) {
+    const chunks1 = await collectChunks(db1, "INUSE");
+    const chunks2 = await collectChunks(db2, "INUSE");
+    const onlyOnAid = chunks1.filter(e => !chunks2.some(ee => ee.id == e.id))
+    const onlyOnBid = chunks2.filter(e => !chunks1.some(ee => ee.id == e.id))
+    // TODO: Perhaps too big response.
+    const onlyOnA = (await db1.allDocs({ keys: onlyOnAid.map(e => e.id), include_docs: true })).
+        rows.filter(e => !("error" in e)).map(e => e.doc);
+    const onlyOnB = (await db2.allDocs({ keys: onlyOnBid.map(e => e.id), include_docs: true })).
+        rows.filter(e => !("error" in e)).map(e => e.doc);
+    return { onlyOnA, onlyOnB };
+}
+
+export async function purgeChunksLocal(db: PouchDB.Database, docs: { id: string, rev: string }[]) {
+    for (const doc of docs) {
+        try {
+            // Back the chunk up to show the history
+            try {
+                const chunk = await db.get(doc.id);
+                delete chunk._rev;
+                chunk._id = `_local/${chunk._id}`;
+                await db.put({ _id: `_local/${chunk._id}`, ...chunk });
+            } catch (ex) {
+                if (ex.status != 409) {
+                    Logger(`Could not escape purging chunk:${doc.id}/${doc.rev}`);
+                }
+            }
+            //@ts-ignore: type def missing
+            const ret = await db.purge(doc.id, doc.rev);
+            if (("ok" in ret)) {
+                Logger(`The chunk has been purged:${doc.id}/${doc.rev}`, LOG_LEVEL.VERBOSE);
+                Logger(ret, LOG_LEVEL.VERBOSE);
+            } else {
+                Logger(`Could not purge the doc:${doc.id}/${doc.rev}`);
+            }
+        } catch (ex) {
+            Logger(`Error while purging docs:${doc.id}/${doc.rev}`);
+            Logger(ex, LOG_LEVEL.VERBOSE);
+        }
+    }
+}
+
+const _requestToCouchDBFetch = async (baseUri: string, username: string, password: string, path?: string, body?: string | any, method?: string) => {
+    const utf8str = String.fromCharCode.apply(null, new TextEncoder().encode(`${username}:${password}`));
+    const encoded = window.btoa(utf8str);
+    const authHeader = "Basic " + encoded;
+    const transformedHeaders: Record<string, string> = { authorization: authHeader, "content-type": "application/json" };
+    const uri = `${baseUri}/${path}`;
+    const requestParam = {
+        url: uri,
+        method: method || (body ? "PUT" : "GET"),
+        headers: new Headers(transformedHeaders),
+        contentType: "application/json",
+        body: JSON.stringify(body),
+    };
+    return await fetch(uri, requestParam);
+}
+export async function purgeChunksRemote(setting: CouchDBConnection, docs: { id: string, rev: string }[]) {
+    const CHUNK_SIZE = 100;
+    function makeChunkedArrayFromArray<T>(items: T[]): T[][] {
+        const chunked = [];
+        for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+            chunked.push(items.slice(i, i + CHUNK_SIZE));
+        }
+        return chunked;
+    }
+    const buffer = makeChunkedArrayFromArray(docs);
+    for (const chunkedPayload of buffer) {
+        const rets = await _requestToCouchDBFetch(
+            `${setting.couchDB_URI}/${setting.couchDB_DBNAME}`,
+            setting.couchDB_USER,
+            setting.couchDB_PASSWORD,
+            "_purge",
+            chunkedPayload.reduce((p, c) => ({ ...p, [c.id]: [c.rev] }), {}), "POST");
+        // const result = await rets();
+        Logger(JSON.stringify(await rets.json()), LOG_LEVEL.VERBOSE);
+    }
+    return;
+}
+
+function sizeToHumanReadable(size: number | undefined) {
+    if (!size) return "-";
+    const i = Math.floor(Math.log(size) / Math.log(1024));
+    return Number.parseInt((size / Math.pow(1024, i)).toFixed(2)) + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i];
+}
+
+export async function purgeUnreferencedChunks(db: PouchDB.Database, dryRun: boolean, connSetting?: CouchDBConnection, performCompact = false) {
+    const info = await db.info();
+    const getSize = function (info: PouchDB.Core.DatabaseInfo, key: "active" | "external" | "file") {
+        return Number.parseInt((info as any)?.sizes?.[key] ?? 0);
+    }
+    const keySuffix = connSetting ? "-remote" : "-local";
+    Logger(`${dryRun ? "Counting" : "Cleaning"} ${connSetting ? "remote" : "local"} database`, LOG_LEVEL.NOTICE);
+
+    if (connSetting) {
+        Logger(`Database active-size: ${sizeToHumanReadable(getSize(info, "active"))
+            }, external-size:${sizeToHumanReadable(getSize(info, "external"))
+            }, file-size: ${sizeToHumanReadable(getSize(info, "file"))}`, LOG_LEVEL.NOTICE);
+    }
+    Logger(`Collecting unreferenced chunks on ${info.db_name}`, LOG_LEVEL.NOTICE, "gc-countchunk" + keySuffix);
+    const chunks = await collectUnreferencedChunks(db);
+    if (chunks.length == 0) {
+        Logger(`No unreferenced chunks! ${info.db_name}`, LOG_LEVEL.NOTICE, "gc-countchunk" + keySuffix);
+        return;
+    }
+    Logger(`Number of unreferenced chunks on ${info.db_name}: ${chunks.length}`, LOG_LEVEL.NOTICE, "gc-countchunk" + keySuffix);
+    if (dryRun) {
+        return;
+    }
+    if (connSetting) {
+        Logger(`Cleaning unreferenced chunks on remote`, LOG_LEVEL.NOTICE, "gc-purge" + keySuffix);
+        await purgeChunksRemote(connSetting, chunks);
+    } else {
+        Logger(`Cleaning unreferenced chunks on local`, LOG_LEVEL.NOTICE, "gc-purge" + keySuffix);
+        await purgeChunksLocal(db, chunks);
+    }
+    Logger(`Cleaning unreferenced chunks done!`, LOG_LEVEL.NOTICE, "gc-purge" + keySuffix);
+    if (performCompact) {
+        await db.compact();
+    }
+    if (connSetting) {
+        const endInfo = await db.info();
+        Logger(`Processed database active-size: ${sizeToHumanReadable(getSize(endInfo, "active"))
+            }, external-size:${sizeToHumanReadable(getSize(endInfo, "external"))
+            }, file-size: ${sizeToHumanReadable(getSize(endInfo, "file"))}`, LOG_LEVEL.NOTICE);
+        Logger(`Reduced sizes: active-size: ${sizeToHumanReadable(getSize(info, "active") - getSize(endInfo, "active"))
+            }, external-size:${sizeToHumanReadable(getSize(info, "external") - getSize(endInfo, "external"))
+            }, file-size: ${sizeToHumanReadable(getSize(info, "file") - getSize(endInfo, "file"))
+            }`, LOG_LEVEL.NOTICE);
+    }
+    Logger(`Cleaning ${connSetting ? "remote" : "local"} database up: Done`, LOG_LEVEL.NOTICE);
+}
+// Complement unbalanced chunks between databases which were separately cleaned up.
+export async function balanceChunkPurgedDBs(local: PouchDB.Database, remote: PouchDB.Database) {
+    Logger(`Complement unbalanced chunks between databases`, LOG_LEVEL.NOTICE);
+    try {
+        // TODO: Perhaps too big request.
+        const { onlyOnA, onlyOnB } = await collectUnbalancedChunks(local, remote);
+        Logger(`Local <- remote: ${onlyOnB.length} docs`);
+        await local.bulkDocs(onlyOnB, { new_edits: false });
+        Logger(`Local -> remote: ${onlyOnA.length} docs`);
+        await remote.bulkDocs(onlyOnA, { new_edits: false });
+    } catch (ex) {
+        Logger("Something went wrong on balancing!", LOG_LEVEL.NOTICE);
+        Logger(ex, LOG_LEVEL.VERBOSE);
+    }
+    Logger("Complement completed!", LOG_LEVEL.NOTICE);
 }
