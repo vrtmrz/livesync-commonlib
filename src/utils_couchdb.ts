@@ -1,8 +1,9 @@
 import { decrypt, encrypt } from "./e2ee_v2";
 import { Logger } from "./logger";
 import { getPath } from "./path";
-import { LOG_LEVEL, VER, VERSIONINFO_DOCID, EntryVersionInfo, SYNCINFO_ID, SyncInfo, EntryDoc, EntryLeaf, AnyEntry, FilePathWithPrefix, CouchDBConnection } from "./types";
-import { isEncryptedChunkEntry, isObfuscatedEntry, isSyncInfoEntry, resolveWithIgnoreKnownError } from "./utils";
+import { mapAllTasksWithConcurrencyLimit } from "./task";
+import { LOG_LEVEL, VER, VERSIONINFO_DOCID, type EntryVersionInfo, SYNCINFO_ID, type SyncInfo, type EntryDoc, type EntryLeaf, type AnyEntry, type FilePathWithPrefix, type CouchDBConnection } from "./types";
+import { arrayToChunkedArray, isEncryptedChunkEntry, isObfuscatedEntry, isSyncInfoEntry, resolveWithIgnoreKnownError } from "./utils";
 
 export const isValidRemoteCouchDBURI = (uri: string): boolean => {
     if (uri.startsWith("https://")) return true;
@@ -301,20 +302,17 @@ export async function collectChunks(db: PouchDB.Database, type: "INUSE" | "DANGL
     return items;
 }
 
-export async function collectUnbalancedChunks(db1: PouchDB.Database, db2: PouchDB.Database) {
-    const chunks1 = await collectChunks(db1, "INUSE");
-    const chunks2 = await collectChunks(db2, "INUSE");
-    const onlyOnAid = chunks1.filter(e => !chunks2.some(ee => ee.id == e.id))
-    const onlyOnBid = chunks2.filter(e => !chunks1.some(ee => ee.id == e.id))
-    // TODO: Perhaps too big response.
-    const onlyOnA = (await db1.allDocs({ keys: onlyOnAid.map(e => e.id), include_docs: true })).
-        rows.filter(e => !("error" in e)).map(e => e.doc);
-    const onlyOnB = (await db2.allDocs({ keys: onlyOnBid.map(e => e.id), include_docs: true })).
-        rows.filter(e => !("error" in e)).map(e => e.doc);
-    return { onlyOnA, onlyOnB };
+export async function collectUnbalancedChunkIDs(local: PouchDB.Database, remote: PouchDB.Database) {
+    const chunksOnLocal = await collectChunks(local, "INUSE");
+    const chunksOnRemote = await collectChunks(remote, "INUSE");
+    const onlyOnLocal = chunksOnLocal.filter(e => !chunksOnRemote.some(ee => ee.id == e.id))
+    const onlyOnRemote = chunksOnRemote.filter(e => !chunksOnLocal.some(ee => ee.id == e.id))
+    return { onlyOnLocal, onlyOnRemote };
 }
 
 export async function purgeChunksLocal(db: PouchDB.Database, docs: { id: string, rev: string }[]) {
+    let processed = 0;
+    const total = docs.length;
     for (const doc of docs) {
         try {
             // Back the chunk up to show the history
@@ -332,15 +330,21 @@ export async function purgeChunksLocal(db: PouchDB.Database, docs: { id: string,
             const ret = await db.purge(doc.id, doc.rev);
             if (("ok" in ret)) {
                 Logger(`The chunk has been purged:${doc.id}/${doc.rev}`, LOG_LEVEL.VERBOSE);
-                Logger(ret, LOG_LEVEL.VERBOSE);
+                if (!ret?.documentWasRemovedCompletely) {
+                    Logger(ret, LOG_LEVEL.VERBOSE);
+                }
             } else {
                 Logger(`Could not purge the doc:${doc.id}/${doc.rev}`);
             }
+
         } catch (ex) {
             Logger(`Error while purging docs:${doc.id}/${doc.rev}`);
             Logger(ex, LOG_LEVEL.VERBOSE);
         }
+        processed++;
+        Logger(`Purging unused chunks: ${processed} / ${total}`, LOG_LEVEL.NOTICE, "purge-local");
     }
+    Logger(`Purging unused chunks done!`, LOG_LEVEL.NOTICE, "purge-local");
 }
 
 const _requestToCouchDBFetch = async (baseUri: string, username: string, password: string, path?: string, body?: string | any, method?: string) => {
@@ -389,6 +393,7 @@ function sizeToHumanReadable(size: number | undefined) {
 
 export async function purgeUnreferencedChunks(db: PouchDB.Database, dryRun: boolean, connSetting?: CouchDBConnection, performCompact = false) {
     const info = await db.info();
+    let resultCount = 0;
     const getSize = function (info: PouchDB.Core.DatabaseInfo, key: "active" | "external" | "file") {
         return Number.parseInt((info as any)?.sizes?.[key] ?? 0);
     }
@@ -402,24 +407,29 @@ export async function purgeUnreferencedChunks(db: PouchDB.Database, dryRun: bool
     }
     Logger(`Collecting unreferenced chunks on ${info.db_name}`, LOG_LEVEL.NOTICE, "gc-countchunk" + keySuffix);
     const chunks = await collectUnreferencedChunks(db);
+    resultCount = chunks.length;
     if (chunks.length == 0) {
         Logger(`No unreferenced chunks! ${info.db_name}`, LOG_LEVEL.NOTICE, "gc-countchunk" + keySuffix);
-        return;
-    }
-    Logger(`Number of unreferenced chunks on ${info.db_name}: ${chunks.length}`, LOG_LEVEL.NOTICE, "gc-countchunk" + keySuffix);
-    if (dryRun) {
-        return;
-    }
-    if (connSetting) {
-        Logger(`Cleaning unreferenced chunks on remote`, LOG_LEVEL.NOTICE, "gc-purge" + keySuffix);
-        await purgeChunksRemote(connSetting, chunks);
     } else {
-        Logger(`Cleaning unreferenced chunks on local`, LOG_LEVEL.NOTICE, "gc-purge" + keySuffix);
-        await purgeChunksLocal(db, chunks);
+        Logger(`Number of unreferenced chunks on ${info.db_name}: ${chunks.length}`, LOG_LEVEL.NOTICE, "gc-countchunk" + keySuffix);
+        if (dryRun) {
+            Logger(`DryRun of cleaning ${connSetting ? "remote" : "local"} database up: Done`, LOG_LEVEL.NOTICE);
+            return resultCount;
+        }
+        if (connSetting) {
+            Logger(`Cleaning unreferenced chunks on remote`, LOG_LEVEL.NOTICE, "gc-purge" + keySuffix);
+            await purgeChunksRemote(connSetting, chunks);
+        } else {
+            Logger(`Cleaning unreferenced chunks on local`, LOG_LEVEL.NOTICE, "gc-purge" + keySuffix);
+            await purgeChunksLocal(db, chunks);
+        }
+        Logger(`Cleaning unreferenced chunks done!`, LOG_LEVEL.NOTICE, "gc-purge" + keySuffix);
     }
-    Logger(`Cleaning unreferenced chunks done!`, LOG_LEVEL.NOTICE, "gc-purge" + keySuffix);
+
     if (performCompact) {
+        Logger(`Compacting database...`, LOG_LEVEL.NOTICE, "gc-compact" + keySuffix);
         await db.compact();
+        Logger(`Compacting database done`, LOG_LEVEL.NOTICE, "gc-compact" + keySuffix);
     }
     if (connSetting) {
         const endInfo = await db.info();
@@ -432,20 +442,58 @@ export async function purgeUnreferencedChunks(db: PouchDB.Database, dryRun: bool
             }`, LOG_LEVEL.NOTICE);
     }
     Logger(`Cleaning ${connSetting ? "remote" : "local"} database up: Done`, LOG_LEVEL.NOTICE);
+    return resultCount;
+}
+
+function transferChunks(key: string, dispKey: string, dbFrom: PouchDB.Database, dbTo: PouchDB.Database, items: {
+    id: string;
+    rev: string;
+}[]) {
+    const itemsChunked = arrayToChunkedArray(items, 25);
+    let totalProcessed = 0;
+    const total = items.length;
+    const tasks = [...itemsChunked].map(batched => async () => {
+        const processedItems = batched.length;
+
+        try {
+            const docs = await dbFrom.allDocs({ keys: batched.map(e => e.id), include_docs: true });
+            const docsToSend = docs.rows.filter(e => !("error" in e)).map(e => e.doc);
+            await dbTo.bulkDocs(docsToSend, { new_edits: false });
+        } catch (ex) {
+            Logger(`${dispKey}: Something went wrong on balancing`, LOG_LEVEL.NOTICE);
+            Logger(ex, LOG_LEVEL.VERBOSE);
+        } finally {
+            totalProcessed += processedItems;
+            Logger(`${dispKey}: ${totalProcessed} / ${total}`, LOG_LEVEL.NOTICE, "balance-" + key);
+        }
+    })
+    return tasks;
 }
 // Complement unbalanced chunks between databases which were separately cleaned up.
 export async function balanceChunkPurgedDBs(local: PouchDB.Database, remote: PouchDB.Database) {
-    Logger(`Complement unbalanced chunks between databases`, LOG_LEVEL.NOTICE);
+    Logger(`Complement missing chunks between databases`, LOG_LEVEL.NOTICE);
     try {
-        // TODO: Perhaps too big request.
-        const { onlyOnA, onlyOnB } = await collectUnbalancedChunks(local, remote);
-        Logger(`Local <- remote: ${onlyOnB.length} docs`);
-        await local.bulkDocs(onlyOnB, { new_edits: false });
-        Logger(`Local -> remote: ${onlyOnA.length} docs`);
-        await remote.bulkDocs(onlyOnA, { new_edits: false });
+        const { onlyOnLocal, onlyOnRemote } = await collectUnbalancedChunkIDs(local, remote);
+        const localToRemote = transferChunks("l2r", "local -> remote", local, remote, onlyOnLocal);
+        const remoteToLocal = transferChunks("r2l", "remote -> local", remote, local, onlyOnRemote);
+        await mapAllTasksWithConcurrencyLimit(6, [...localToRemote, ...remoteToLocal]);
+        Logger(`local -> remote: Done`, LOG_LEVEL.NOTICE, "balance-l2r");
+        Logger(`remote -> local: Done`, LOG_LEVEL.NOTICE, "balance-r2l");
     } catch (ex) {
         Logger("Something went wrong on balancing!", LOG_LEVEL.NOTICE);
         Logger(ex, LOG_LEVEL.VERBOSE);
     }
     Logger("Complement completed!", LOG_LEVEL.NOTICE);
+}
+
+export async function fetchAllUsedChunks(local: PouchDB.Database, remote: PouchDB.Database) {
+    try {
+        const chunksOnRemote = await collectChunks(remote, "INUSE");
+        const remoteToLocal = transferChunks("r2l", "remote -> local", remote, local, chunksOnRemote);
+        await mapAllTasksWithConcurrencyLimit(3, remoteToLocal);
+        Logger(`remote -> local: Done`, LOG_LEVEL.NOTICE, "balance-r2l");
+    } catch (ex) {
+        Logger("Something went wrong on balancing!", LOG_LEVEL.NOTICE);
+        Logger(ex, LOG_LEVEL.VERBOSE);
+    }
 }

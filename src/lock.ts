@@ -73,3 +73,6 @@ export async function runWithLock<T>(key: string, ignoreWhenRunning: boolean, pr
 
 }
 
+export function isLockAcquired(key: string) {
+    return (key in Mutexes) && Mutexes[key].peekQueues().length != 0;
+}

@@ -366,7 +366,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                         } else {
                             const chunkDocs = await env.localDatabase.allDocs({ keys: obj.children, include_docs: true });
                             if (chunkDocs.rows.some(e => "error" in e)) {
-                                const missingChunks = chunkDocs.rows.filter(e => "error" in e).map(e => e.id).join(", ");
+                                const missingChunks = chunkDocs.rows.filter(e => "error" in e).map(e => e.key).join(", ");
                                 Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id}). Chunks are missing:${missingChunks}`, LOG_LEVEL.NOTICE);
                                 return false;
                             }

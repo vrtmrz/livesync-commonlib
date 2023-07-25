@@ -78,6 +78,8 @@ interface ObsidianLiveSyncSettings_PluginSetting {
 
     useIndexedDBAdapter: boolean;
     writeLogToTheFile: boolean;
+    suspendParseReplicationResult: boolean;
+    doNotSuspendOnFetching: boolean;
 }
 
 export type RemoteDBSettings = CouchDBConnection & {
@@ -189,6 +191,8 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     concurrencyOfReadChunksOnline: 100,
     minimumIntervalOfReadChunksOnline: 333,
     hashAlg: "xxhash64",
+    suspendParseReplicationResult: false,
+    doNotSuspendOnFetching: false,
 };
 
 export interface DatabaseEntry {

@@ -1,10 +1,10 @@
 import {
-    EntryDoc, EntryNodeInfo, EntryMilestoneInfo,
+    type EntryDoc, type EntryNodeInfo, type EntryMilestoneInfo,
     LOG_LEVEL, NODEINFO_DOCID,
     VER,
     MILSTONE_DOCID,
-    DatabaseConnectingStatus,
-    ChunkVersionRange, RemoteDBSettings, EntryLeaf, REPLICATION_BUSY_TIMEOUT
+    type DatabaseConnectingStatus,
+    type ChunkVersionRange, type RemoteDBSettings, type EntryLeaf, REPLICATION_BUSY_TIMEOUT
 } from "./types";
 import { resolveWithIgnoreKnownError, delay, globalConcurrencyController } from "./utils";
 import { Logger } from "./logger";
@@ -169,12 +169,12 @@ export class LiveSyncDBReplicator {
         this.controller = null;
     }
 
-    async openReplication(setting: RemoteDBSettings, keepAlive: boolean, showResult: boolean) {
+    async openReplication(setting: RemoteDBSettings, keepAlive: boolean, showResult: boolean, ignoreCleanLock = false) {
         await this.initializeDatabaseForReplication();
         if (keepAlive) {
             this.openContinuousReplication(setting, showResult, false);
         } else {
-            return this.openOneShotReplication(setting, showResult, false, "sync");
+            return this.openOneShotReplication(setting, showResult, false, "sync", ignoreCleanLock);
         }
     }
     replicationActivated(showResult: boolean) {
@@ -234,7 +234,8 @@ export class LiveSyncDBReplicator {
 
     async processSync(syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc>, showResult: boolean, docSentOnStart: number, docArrivedOnStart: number,
         syncMode: "sync" | "pullOnly" | "pushOnly",
-        retrying: boolean): Promise<"DONE" | "NEED_RETRY" | "NEED_RESURRECT" | "FAILED"> {
+        retrying: boolean,
+        reportCancelledAsDone = true): Promise<"DONE" | "NEED_RETRY" | "NEED_RESURRECT" | "FAILED" | "CANCELLED"> {
         const controller = new AbortController();
         if (this.controller) {
             this.controller.abort();
@@ -309,7 +310,10 @@ export class LiveSyncDBReplicator {
                         Logger(`Unexpected synchronization status:${JSON.stringify(e)}`);
                 }
             }
-            return "DONE";
+            if (reportCancelledAsDone) {
+                return "DONE";
+            }
+            return "CANCELLED"
         } catch (ex) {
             Logger(`Unexpected synchronization exception`);
             Logger(ex, LOG_LEVEL.VERBOSE)
@@ -323,7 +327,8 @@ export class LiveSyncDBReplicator {
         setting: RemoteDBSettings,
         showResult: boolean,
         retrying: boolean,
-        syncMode: "sync" | "pullOnly" | "pushOnly"
+        syncMode: "sync" | "pullOnly" | "pushOnly",
+        ignoreCleanLock = false
     ): Promise<boolean> {
         if (this.controller != null) {
             Logger("Replication is already in progress.", showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO, "sync");
@@ -331,7 +336,7 @@ export class LiveSyncDBReplicator {
         }
         const localDB = this.env.getDatabase()
         Logger(`OneShot Sync begin... (${syncMode})`);
-        const ret = await this.checkReplicationConnectivity(setting, true, retrying, showResult);
+        const ret = await this.checkReplicationConnectivity(setting, false, retrying, showResult, ignoreCleanLock);
         if (ret === false) {
             Logger("Could not connect to server.", showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO, "sync");
             return false;
@@ -359,16 +364,19 @@ export class LiveSyncDBReplicator {
         } else if (syncMode == "pushOnly") {
             syncHandler = localDB.replicate.to(db, { checkpoint: "target", ...syncOptionBase, ...(setting.readChunksOnline ? { filter: "replicate/push" } : {}) });
         }
-        const syncResult = await this.processSync(syncHandler, showResult, docSentOnStart, docArrivedOnStart, syncMode, retrying);
+        const syncResult = await this.processSync(syncHandler, showResult, docSentOnStart, docArrivedOnStart, syncMode, retrying, false);
         if (syncResult == "DONE") {
             return true;
+        }
+        if (syncResult == "CANCELLED") {
+            return false;
         }
         if (syncResult == "FAILED") {
             return false;
         }
         if (syncResult == "NEED_RESURRECT") {
             this.terminateSync();
-            return await this.openOneShotReplication(this.originalSetting, showResult, false, syncMode);
+            return await this.openOneShotReplication(this.originalSetting, showResult, false, syncMode, ignoreCleanLock);
         }
         if (syncResult == "NEED_RETRY") {
             const tempSetting: RemoteDBSettings = JSON.parse(JSON.stringify(setting));
@@ -379,7 +387,7 @@ export class LiveSyncDBReplicator {
                 return false;
             } else {
                 Logger(`Retry with lower batch size:${tempSetting.batch_size}/${tempSetting.batches_limit}`, showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO);
-                return await this.openOneShotReplication(tempSetting, showResult, true, syncMode);
+                return await this.openOneShotReplication(tempSetting, showResult, true, syncMode, ignoreCleanLock);
             }
         }
         return false;
@@ -410,7 +418,7 @@ export class LiveSyncDBReplicator {
     }
 
 
-    async checkReplicationConnectivity(setting: RemoteDBSettings, keepAlive: boolean, skipCheck: boolean, showResult: boolean) {
+    async checkReplicationConnectivity(setting: RemoteDBSettings, keepAlive: boolean, skipCheck: boolean, showResult: boolean, ignoreCleanLock = false) {
 
         if (setting.versionUpFlash != "") {
             Logger("Open settings and check message, please.", LOG_LEVEL.NOTICE);
@@ -449,11 +457,15 @@ export class LiveSyncDBReplicator {
             } else if (ensure == "LOCKED") {
                 this.remoteLocked = true;
             } else if (ensure == "NODE_CLEANED") {
-                Logger("The remote database has been cleaned up. Fetch rebuilt DB, explicit unlocking or chunk clean-up is required.", LOG_LEVEL.NOTICE);
-                this.remoteLockedAndDeviceNotAccepted = true;
-                this.remoteLocked = true;
-                this.remoteCleaned = true;
-                return false;
+                if (ignoreCleanLock) {
+                    this.remoteLocked = true;
+                } else {
+                    Logger("The remote database has been cleaned up. Fetch rebuilt DB, explicit unlocking or chunk clean-up is required.", LOG_LEVEL.NOTICE);
+                    this.remoteLockedAndDeviceNotAccepted = true;
+                    this.remoteLocked = true;
+                    this.remoteCleaned = true;
+                    return false;
+                }
             }
         }
         const syncOptionBase: PouchDB.Replication.SyncOptions = {
