@@ -14,6 +14,11 @@ export class LRUCache<K, V> {
         this.enableReversed = !forwardOnly;
         Logger(`Cache initialized ${this.maxCache} / ${this.maxCachedLength}`, LOG_LEVEL.VERBOSE);
     }
+
+    clear() {
+        this.cache.clear();
+        this.revCache.clear();
+    }
     has(key: K) {
         return this.cache.has(key);
     }

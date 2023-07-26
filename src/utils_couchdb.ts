@@ -1,4 +1,5 @@
 import { decrypt, encrypt } from "./e2ee_v2";
+import { runWithLock } from "./lock";
 import { Logger } from "./logger";
 import { getPath } from "./path";
 import { mapAllTasksWithConcurrencyLimit } from "./task";
@@ -311,40 +312,52 @@ export async function collectUnbalancedChunkIDs(local: PouchDB.Database, remote:
 }
 
 export async function purgeChunksLocal(db: PouchDB.Database, docs: { id: string, rev: string }[]) {
-    let processed = 0;
-    const total = docs.length;
-    for (const doc of docs) {
+    await runWithLock("purge-local", false, async () => {
         try {
-            // Back the chunk up to show the history
-            try {
-                const chunk = await db.get(doc.id);
-                delete chunk._rev;
-                chunk._id = `_local/${chunk._id}`;
-                await db.put({ _id: `_local/${chunk._id}`, ...chunk });
-            } catch (ex) {
-                if (ex.status != 409) {
-                    Logger(`Could not escape purging chunk:${doc.id}/${doc.rev}`);
+            // Back chunks up to the _local of local database to see the history.
+            Logger(`Purging unused ${docs.length} chunks `, LOG_LEVEL.NOTICE, "purge-local-backup");
+            const batchDocsBackup = arrayToChunkedArray(docs, 100);
+            let total = { ok: 0, exist: 0, error: 0 };
+            for (const docsInBatch of batchDocsBackup) {
+                const backupDocsFrom = await db.allDocs({ keys: docsInBatch.map(e => e.id), include_docs: true });
+                const backupDocs = backupDocsFrom.rows.filter(e => "doc" in e).map(e => {
+                    const chunk = { ...e.doc } as any;
+                    delete chunk._rev;
+                    chunk._id = `_local/${chunk._id}`;
+                    return chunk;
+                })
+                const ret = await db.bulkDocs(backupDocs);
+                total = ret.map(e => (
+                    {
+                        ok: ("ok" in e) ? 1 : 0,
+                        exist: ("status" in e && e.status == 409) ? 1 : 0,
+                        error: ("status" in e && e.status != 409) ? 1 : 0
+                    }
+                )).reduce((p, c) => ({ ok: p.ok + c.ok, exist: p.exist + c.exist, error: p.error + c.error }), total);
+                Logger(`Local chunk backed up: new:${total.ok} ,exist:${total.exist}, error:${total.error}`, LOG_LEVEL.NOTICE, "purge-local-backup");
+                const erroredItems = ret.filter(e => "error" in e && e.status != 409);
+                for (const item of erroredItems) {
+                    Logger(`Failed to back up: ${item.id} / ${item.rev}`, LOG_LEVEL.VERBOSE);
                 }
             }
-            //@ts-ignore: type def missing
-            const ret = await db.purge(doc.id, doc.rev);
-            if (("ok" in ret)) {
-                Logger(`The chunk has been purged:${doc.id}/${doc.rev}`, LOG_LEVEL.VERBOSE);
-                if (!ret?.documentWasRemovedCompletely) {
-                    Logger(ret, LOG_LEVEL.VERBOSE);
-                }
-            } else {
-                Logger(`Could not purge the doc:${doc.id}/${doc.rev}`);
-            }
-
         } catch (ex) {
-            Logger(`Error while purging docs:${doc.id}/${doc.rev}`);
+            Logger(`Could not back up chunks`);
             Logger(ex, LOG_LEVEL.VERBOSE);
         }
-        processed++;
-        Logger(`Purging unused chunks: ${processed} / ${total}`, LOG_LEVEL.NOTICE, "purge-local");
-    }
-    Logger(`Purging unused chunks done!`, LOG_LEVEL.NOTICE, "purge-local");
+
+        Logger(`Purging unused ${docs.length} chunks... `, LOG_LEVEL.NOTICE, "purge-local");
+        const batchDocs = arrayToChunkedArray(docs, 100);
+        let totalRemoved = 0;
+        for (const docsInBatch of batchDocs) {
+            //@ts-ignore: type def missing
+            const removed = await db.purgeMulti(docsInBatch.map(e => [e.id, e.rev]));
+            const removedCount = Object.values(removed).filter(e => "ok" in (e as object)).length;
+            totalRemoved += removedCount;
+            Logger(`Purging:  ${totalRemoved} / ${docs.length}`, LOG_LEVEL.NOTICE, "purge-local");
+        }
+
+        Logger(`Purging unused chunks done!: ${totalRemoved} chunks has been deleted.`, LOG_LEVEL.NOTICE, "purge-local");
+    });
 }
 
 const _requestToCouchDBFetch = async (baseUri: string, username: string, password: string, path?: string, body?: string | any, method?: string) => {
@@ -363,26 +376,28 @@ const _requestToCouchDBFetch = async (baseUri: string, username: string, passwor
     return await fetch(uri, requestParam);
 }
 export async function purgeChunksRemote(setting: CouchDBConnection, docs: { id: string, rev: string }[]) {
-    const CHUNK_SIZE = 100;
-    function makeChunkedArrayFromArray<T>(items: T[]): T[][] {
-        const chunked = [];
-        for (let i = 0; i < items.length; i += CHUNK_SIZE) {
-            chunked.push(items.slice(i, i + CHUNK_SIZE));
+    await runWithLock("purge-remote", false, async () => {
+        const CHUNK_SIZE = 100;
+        function makeChunkedArrayFromArray<T>(items: T[]): T[][] {
+            const chunked = [];
+            for (let i = 0; i < items.length; i += CHUNK_SIZE) {
+                chunked.push(items.slice(i, i + CHUNK_SIZE));
+            }
+            return chunked;
         }
-        return chunked;
-    }
-    const buffer = makeChunkedArrayFromArray(docs);
-    for (const chunkedPayload of buffer) {
-        const rets = await _requestToCouchDBFetch(
-            `${setting.couchDB_URI}/${setting.couchDB_DBNAME}`,
-            setting.couchDB_USER,
-            setting.couchDB_PASSWORD,
-            "_purge",
-            chunkedPayload.reduce((p, c) => ({ ...p, [c.id]: [c.rev] }), {}), "POST");
-        // const result = await rets();
-        Logger(JSON.stringify(await rets.json()), LOG_LEVEL.VERBOSE);
-    }
-    return;
+        const buffer = makeChunkedArrayFromArray(docs);
+        for (const chunkedPayload of buffer) {
+            const rets = await _requestToCouchDBFetch(
+                `${setting.couchDB_URI}/${setting.couchDB_DBNAME}`,
+                setting.couchDB_USER,
+                setting.couchDB_PASSWORD,
+                "_purge",
+                chunkedPayload.reduce((p, c) => ({ ...p, [c.id]: [c.rev] }), {}), "POST");
+            // const result = await rets();
+            Logger(JSON.stringify(await rets.json()), LOG_LEVEL.VERBOSE);
+        }
+        return;
+    });
 }
 
 function sizeToHumanReadable(size: number | undefined) {
