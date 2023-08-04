@@ -1,7 +1,7 @@
 // Wrapping classes
 
 import { Logger } from "./logger";
-import { LOG_LEVEL } from "./types";
+import { LOG_LEVEL_NOTICE } from "./types";
 
 export class WrappedNotice {
     constructor(message: string | DocumentFragment, timeout?: number) {
@@ -11,7 +11,7 @@ export class WrappedNotice {
         } else {
             strMessage = message;
         }
-        Logger(strMessage, LOG_LEVEL.NOTICE);
+        Logger(strMessage, LOG_LEVEL_NOTICE);
     }
 
     setMessage(message: string | DocumentFragment): this {
@@ -21,7 +21,7 @@ export class WrappedNotice {
         } else {
             strMessage = message;
         }
-        Logger(strMessage, LOG_LEVEL.NOTICE);
+        Logger(strMessage, LOG_LEVEL_NOTICE);
         return this;
     }
 

@@ -16,14 +16,23 @@ export const VER = 10;
 export const RECENT_MOFIDIED_DOCS_QTY = 30;
 export const LEAF_WAIT_TIMEOUT = 90000; // in synchronization, waiting missing leaf time out.
 export const REPLICATION_BUSY_TIMEOUT = 3000000;
+
+export const LOG_LEVEL_DEBUG = -1;
+export const LOG_LEVEL_VERBOSE = 1;
+export const LOG_LEVEL_INFO = 10;
+export const LOG_LEVEL_NOTICE = 100;
+export const LOG_LEVEL_URGENT = 1000;
+
+export type LOG_LEVEL = typeof LOG_LEVEL_DEBUG | typeof LOG_LEVEL_VERBOSE | typeof LOG_LEVEL_INFO | typeof LOG_LEVEL_NOTICE | typeof LOG_LEVEL_URGENT;
+
 export const LOG_LEVEL = {
-    DEBUG: -1,
-    VERBOSE: 1,
-    INFO: 10,
-    NOTICE: 100,
-    URGENT: 1000,
+    DEBUG: LOG_LEVEL_DEBUG,
+    VERBOSE: LOG_LEVEL_VERBOSE,
+    INFO: LOG_LEVEL_INFO,
+    NOTICE: LOG_LEVEL_NOTICE,
+    URGENT: LOG_LEVEL_URGENT,
 } as const;
-export type LOG_LEVEL = typeof LOG_LEVEL[keyof typeof LOG_LEVEL];
+
 export const VERSIONINFO_DOCID = "obsydian_livesync_version" as DocumentID;
 export const MILSTONE_DOCID = "_local/obsydian_livesync_milestone" as DocumentID;
 export const NODEINFO_DOCID = "_local/obsydian_livesync_nodeinfo" as DocumentID;
@@ -80,6 +89,9 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     writeLogToTheFile: boolean;
     suspendParseReplicationResult: boolean;
     doNotSuspendOnFetching: boolean;
+
+    useIgnoreFiles: boolean;
+    ignoreFiles: string;
 }
 
 export type RemoteDBSettings = CouchDBConnection & {
@@ -193,6 +205,8 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     hashAlg: "xxhash64",
     suspendParseReplicationResult: false,
     doNotSuspendOnFetching: false,
+    useIgnoreFiles: false,
+    ignoreFiles: ".gitignore",
 };
 
 export interface DatabaseEntry {

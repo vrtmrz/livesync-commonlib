@@ -167,3 +167,6 @@ export function* arrayToChunkedArray<T>(arr: T[], chunkLength: number) {
     }
 }
 
+export function unique<T>(arr: T[]) {
+    return [...new Set<T>(arr)]
+}

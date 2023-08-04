@@ -1,14 +1,14 @@
-import { LOG_LEVEL } from "./types";
-export const LEVEL_DEBUG = LOG_LEVEL.DEBUG;
-export const LEVEL_INFO = LOG_LEVEL.INFO;
-export const LEVEL_NOTICE = LOG_LEVEL.NOTICE;
-export const LEVEL_URGENT = LOG_LEVEL.URGENT;
-export const LEVEL_VERBOSE = LOG_LEVEL.VERBOSE;
+import { LOG_LEVEL, LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_URGENT, LOG_LEVEL_VERBOSE } from "./types";
+export const LEVEL_DEBUG = LOG_LEVEL_DEBUG;
+export const LEVEL_INFO = LOG_LEVEL_INFO;
+export const LEVEL_NOTICE = LOG_LEVEL_NOTICE;
+export const LEVEL_URGENT = LOG_LEVEL_URGENT;
+export const LEVEL_VERBOSE = LOG_LEVEL_VERBOSE;
 
 export type LoggerFunction = typeof defaultLogger;
 
 export const defaultLoggerEnv = {
-    minLogLevel: LOG_LEVEL.INFO
+    minLogLevel: LOG_LEVEL_INFO
 }
 const defaultLogger = function defaultLogger(message: any, level: LOG_LEVEL = LEVEL_INFO, key?: string) {
     if (level < defaultLoggerEnv.minLogLevel) {

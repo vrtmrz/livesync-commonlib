@@ -5,13 +5,15 @@ import type { XXHashAPI } from "xxhash-wasm-102";
 import {
     type EntryDoc,
     type EntryLeaf, type LoadedEntry,
-    type Credential, LOG_LEVEL,
+    type Credential,
     LEAF_WAIT_TIMEOUT, VERSIONINFO_DOCID,
     type RemoteDBSettings,
     type EntryHasPath,
     type DocumentID,
     type FilePathWithPrefix,
     type FilePath,
+    LOG_LEVEL_NOTICE,
+    LOG_LEVEL_VERBOSE,
 } from "./types";
 import { delay, sendSignal, waitForSignal } from "./utils";
 import { Logger } from "./logger";
@@ -119,8 +121,8 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         });
         await this.env.onInitializeDatabase(this);
         Logger("Opening Database...");
-        Logger("Database info", LOG_LEVEL.VERBOSE);
-        Logger(await this.localDatabase.info(), LOG_LEVEL.VERBOSE);
+        Logger("Database info", LOG_LEVEL_VERBOSE);
+        Logger(await this.localDatabase.info(), LOG_LEVEL_VERBOSE);
         this.localDatabase.on("close", () => {
             Logger("Database closed.");
             this.isReady = false;
@@ -155,9 +157,9 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             this.xxhash32 = h32;
             this.h32 = h32ToString;
             this.h32Raw = h32Raw;
-            Logger(`Newer xxhash has been initialised`, LOG_LEVEL.VERBOSE);
+            Logger(`Newer xxhash has been initialised`, LOG_LEVEL_VERBOSE);
         } catch (ex) {
-            Logger(`Could not initialise xxhash v1`, LOG_LEVEL.VERBOSE);
+            Logger(`Could not initialise xxhash v1`, LOG_LEVEL_VERBOSE);
             this.xxhash64 = false;
             const { h32, h32Raw } = (await xxhashOld()) as unknown as Exports;
             this.h32 = h32;
@@ -231,18 +233,18 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         //await this.kvDB.destroy();
         this.localDatabase = null;
         await this.initializeDatabase();
-        Logger("Local Database Reset", LOG_LEVEL.NOTICE);
+        Logger("Local Database Reset", LOG_LEVEL_NOTICE);
     }
 
     async sanCheck(entry: EntryDoc): Promise<boolean> {
         if (entry.type == "plain" || entry.type == "newnote") {
             const children = entry.children;
-            Logger(`sancheck:checking:${entry._id} : ${children.length}`, LOG_LEVEL.VERBOSE);
+            Logger(`sancheck:checking:${entry._id} : ${children.length}`, LOG_LEVEL_VERBOSE);
             try {
                 const dc = await this.localDatabase.allDocs({ keys: [...children] });
                 if (dc.rows.some((e) => "error" in e)) {
                     this.corruptedEntries[entry._id] = entry;
-                    Logger(`sancheck:corrupted:${entry._id} : ${children.length}`, LOG_LEVEL.VERBOSE);
+                    Logger(`sancheck:corrupted:${entry._id} : ${children.length}`, LOG_LEVEL_VERBOSE);
                     return false;
                 }
                 return true;
@@ -292,7 +294,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             }
             delete this.chunkCollectedCallbacks[id];
         } else {
-            Logger(`Collected handler of ${id} is missing, it might be error but perhaps it already timed out.`, LOG_LEVEL.VERBOSE);
+            Logger(`Collected handler of ${id} is missing, it might be error but perhaps it already timed out.`, LOG_LEVEL_VERBOSE);
         }
     }
     async collectChunks(ids: string[], showResult = false, waitForReady?: boolean) {
@@ -339,7 +341,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
                         }
                     } else {
                         // TODO: need more explicit message. 
-                        Logger(`Could not retrieve chunks`, LOG_LEVEL.NOTICE);
+                        Logger(`Could not retrieve chunks`, LOG_LEVEL_NOTICE);
                         for (const id of requesting) {
                             if (id in this.chunkCollectedCallbacks) {
                                 this.chunkCollectedCallbacks[id].failed();
@@ -348,8 +350,8 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
                     }
 
                 } catch (ex) {
-                    Logger(`Exception raised while retrieving chunks`, LOG_LEVEL.NOTICE);
-                    Logger(ex, LOG_LEVEL.VERBOSE);
+                    Logger(`Exception raised while retrieving chunks`, LOG_LEVEL_NOTICE);
+                    Logger(ex, LOG_LEVEL_VERBOSE);
                     for (const id of requesting) {
                         if (id in this.chunkCollectedCallbacks) {
                             this.chunkCollectedCallbacks[id].failed();
@@ -376,7 +378,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         // Fetching remote chunks.
         const remoteDocs = await this.env.getReplicator().fetchRemoteChunks(missingChunks, showResult)
         if (remoteDocs == false) {
-            // Logger(`Could not fetch chunks from the server. `, showResult ? LOG_LEVEL.NOTICE : LOG_LEVEL.INFO, "fetch");
+            // Logger(`Could not fetch chunks from the server. `, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
             return false;
         }
 

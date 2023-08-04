@@ -1,7 +1,8 @@
+import { minimatch, type MinimatchOptions } from "minimatch";
 import { webcrypto } from "./mods";
 import { uint8ArrayToHexString, writeString } from "./strbin";
-import { AnyEntry, DocumentID, EntryHasPath, FilePath, FilePathWithPrefix, FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3, PREFIX_OBFUSCATED, PREFIXMD_LOGFILE } from "./types";
-import { memorizeFuncWithLRUCache } from "./utils";
+import { type AnyEntry, type DocumentID, type EntryHasPath, type FilePath, type FilePathWithPrefix, FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3, PREFIX_OBFUSCATED, PREFIXMD_LOGFILE } from "./types";
+import { memorizeFuncWithLRUCache, unique } from "./utils";
 // --- path utilities
 export function isValidFilenameInWidows(filename: string): boolean {
     // eslint-disable-next-line no-control-regex
@@ -153,4 +154,62 @@ export function shouldSplitAsPlainText(filename: string): boolean {
     if (filename.endsWith(".txt")) return true;
     if (filename.endsWith(".canvas")) return true;
     return false;
+}
+
+const matchOpts: MinimatchOptions = { platform: "linux", dot: true, flipNegate: true, nocase: true };
+
+/**
+ * returns whether the given path is accepted (not ignored) by the `.gitignore`.
+ * @param path path of the file which is relative from `.gitignore` file
+ * @param ignore lines of `.gitignore`
+ * @returns true when accepted.
+ */
+export function isAccepted(path: string, ignore: string[]): boolean {
+    if (path.indexOf("./") !== -1 || path.indexOf("../") !== -1) {
+        // We do not accept this for handle the cases which ends with `/` by wildcard
+        return false;
+    }
+    const patterns = ignore.map(e => e.trim()).filter(e => e.length > 0 && !e.startsWith("#"));
+    let result = true;
+    for (const pattern of patterns) {
+        if (pattern.endsWith("/")) {
+            // If the path ends with `/` and matched to the path. we do not handle more patterns to negate the result.
+            if (minimatch(path, `${pattern}**`, matchOpts)) {
+                return false;
+            }
+        }
+        const newResult = pattern.startsWith("!");
+        const matched =
+            minimatch(path, pattern, matchOpts) ||
+            (!pattern.endsWith("/") && minimatch(path, pattern + "/**", matchOpts))
+
+        if (matched) {
+            result = newResult;
+        }
+    }
+    return result;
+}
+
+/**
+ * Checks whether the path is accepted by all ignored files.
+ * @param path path of target file
+ * @param ignoreFiles list of ignore files. i.e. [".gitignore", ".dockerignore"]
+ * @param getList function to retrieve the file.
+ * @returns  true when accepted.
+ */
+export async function isAcceptedAll(path: string, ignoreFiles: string[], getList: (path: string) => Promise<string[] | false>) {
+    const pathBase = path.substring(0, path.lastIndexOf("/"));
+    const intermediatePaths = unique(pathBase.split("/").reduce((p, c) => [...p, p[p.length - 1] + "/" + c], [""]).map(e => e.substring(1))).reverse();
+
+    for (const intermediatePath of intermediatePaths) {
+        for (const ignoreFile of ignoreFiles) {
+            const ignoreFilePath = intermediatePath + "/" + ignoreFile;
+            const list = await getList(ignoreFilePath);
+            if (list === false) continue;
+            if (!isAccepted(path.substring(intermediatePath.length ? intermediatePath.length + 1 : 0), list)) {
+                return false;
+            }
+        }
+    }
+    return true;
 }

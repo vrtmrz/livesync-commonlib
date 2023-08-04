@@ -3,7 +3,7 @@ import { runWithLock } from "./lock";
 import { Logger } from "./logger";
 import { getPath } from "./path";
 import { mapAllTasksWithConcurrencyLimit } from "./task";
-import { LOG_LEVEL, VER, VERSIONINFO_DOCID, type EntryVersionInfo, SYNCINFO_ID, type SyncInfo, type EntryDoc, type EntryLeaf, type AnyEntry, type FilePathWithPrefix, type CouchDBConnection } from "./types";
+import { VER, VERSIONINFO_DOCID, type EntryVersionInfo, SYNCINFO_ID, type SyncInfo, type EntryDoc, type EntryLeaf, type AnyEntry, type FilePathWithPrefix, type CouchDBConnection, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types";
 import { arrayToChunkedArray, isEncryptedChunkEntry, isObfuscatedEntry, isSyncInfoEntry, resolveWithIgnoreKnownError } from "./utils";
 
 export const isValidRemoteCouchDBURI = (uri: string): boolean => {
@@ -135,7 +135,7 @@ export async function putDesignDocuments(db: PouchDB.Database) {
             await db.put(design);
             return true;
         } else {
-            Logger("Could not make design documents", LOG_LEVEL.INFO);
+            Logger("Could not make design documents", LOG_LEVEL_INFO);
         }
     }
     return false;
@@ -154,7 +154,7 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                 try {
                     saveDoc.data = await encrypt(saveDoc.data, passphrase, useDynamicIterationCount);
                 } catch (ex) {
-                    Logger("Encryption failed.", LOG_LEVEL.NOTICE);
+                    Logger("Encryption failed.", LOG_LEVEL_NOTICE);
                     Logger(ex);
                     throw ex;
                 }
@@ -163,7 +163,7 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                 try {
                     saveDoc.path = await encrypt(getPath(saveDoc), passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
                 } catch (ex) {
-                    Logger("Encryption failed.", LOG_LEVEL.NOTICE);
+                    Logger("Encryption failed.", LOG_LEVEL_NOTICE);
                     Logger(ex);
                     throw ex;
                 }
@@ -206,12 +206,12 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                             if (migrationDecrypt && ex.name == "SyntaxError") {
                                 return loadDoc; // This logic will be removed in a while.
                             }
-                            Logger("Decryption failed.", LOG_LEVEL.NOTICE);
+                            Logger("Decryption failed.", LOG_LEVEL_NOTICE);
                             Logger(ex);
                             throw ex;
                         }
                     } else {
-                        Logger("Decryption failed.", LOG_LEVEL.NOTICE);
+                        Logger("Decryption failed.", LOG_LEVEL_NOTICE);
                         Logger(ex);
                         throw ex;
                     }
@@ -264,7 +264,7 @@ async function prepareChunkDesignDoc(db: PouchDB.Database) {
             updateDDoc = true;
         } else {
             Logger(`Failed to make design document for operating chunks`);
-            Logger(ex, LOG_LEVEL.VERBOSE);
+            Logger(ex, LOG_LEVEL_VERBOSE);
             return false;
         }
     }
@@ -275,7 +275,7 @@ async function prepareChunkDesignDoc(db: PouchDB.Database) {
     } catch (ex: any) {
         // NO OP.
         Logger(`Failed to make design document for operating chunks`);
-        Logger(ex, LOG_LEVEL.VERBOSE);
+        Logger(ex, LOG_LEVEL_VERBOSE);
         return false;
     }
     return true;
@@ -315,13 +315,13 @@ export async function purgeChunksLocal(db: PouchDB.Database, docs: { id: string,
     await runWithLock("purge-local", false, async () => {
         try {
             // Back chunks up to the _local of local database to see the history.
-            Logger(`Purging unused ${docs.length} chunks `, LOG_LEVEL.NOTICE, "purge-local-backup");
+            Logger(`Purging unused ${docs.length} chunks `, LOG_LEVEL_NOTICE, "purge-local-backup");
             const batchDocsBackup = arrayToChunkedArray(docs, 100);
             let total = { ok: 0, exist: 0, error: 0 };
             for (const docsInBatch of batchDocsBackup) {
                 const backupDocsFrom = await db.allDocs({ keys: docsInBatch.map(e => e.id), include_docs: true });
                 const backupDocs = backupDocsFrom.rows.filter(e => "doc" in e).map(e => {
-                    const chunk = { ...e.doc } as any;
+                    const chunk = { ...(e as any).doc };
                     delete chunk._rev;
                     chunk._id = `_local/${chunk._id}`;
                     return chunk;
@@ -334,18 +334,18 @@ export async function purgeChunksLocal(db: PouchDB.Database, docs: { id: string,
                         error: ("status" in e && e.status != 409) ? 1 : 0
                     }
                 )).reduce((p, c) => ({ ok: p.ok + c.ok, exist: p.exist + c.exist, error: p.error + c.error }), total);
-                Logger(`Local chunk backed up: new:${total.ok} ,exist:${total.exist}, error:${total.error}`, LOG_LEVEL.NOTICE, "purge-local-backup");
+                Logger(`Local chunk backed up: new:${total.ok} ,exist:${total.exist}, error:${total.error}`, LOG_LEVEL_NOTICE, "purge-local-backup");
                 const erroredItems = ret.filter(e => "error" in e && e.status != 409);
                 for (const item of erroredItems) {
-                    Logger(`Failed to back up: ${item.id} / ${item.rev}`, LOG_LEVEL.VERBOSE);
+                    Logger(`Failed to back up: ${item.id} / ${item.rev}`, LOG_LEVEL_VERBOSE);
                 }
             }
         } catch (ex) {
             Logger(`Could not back up chunks`);
-            Logger(ex, LOG_LEVEL.VERBOSE);
+            Logger(ex, LOG_LEVEL_VERBOSE);
         }
 
-        Logger(`Purging unused ${docs.length} chunks... `, LOG_LEVEL.NOTICE, "purge-local");
+        Logger(`Purging unused ${docs.length} chunks... `, LOG_LEVEL_NOTICE, "purge-local");
         const batchDocs = arrayToChunkedArray(docs, 100);
         let totalRemoved = 0;
         for (const docsInBatch of batchDocs) {
@@ -353,10 +353,10 @@ export async function purgeChunksLocal(db: PouchDB.Database, docs: { id: string,
             const removed = await db.purgeMulti(docsInBatch.map(e => [e.id, e.rev]));
             const removedCount = Object.values(removed).filter(e => "ok" in (e as object)).length;
             totalRemoved += removedCount;
-            Logger(`Purging:  ${totalRemoved} / ${docs.length}`, LOG_LEVEL.NOTICE, "purge-local");
+            Logger(`Purging:  ${totalRemoved} / ${docs.length}`, LOG_LEVEL_NOTICE, "purge-local");
         }
 
-        Logger(`Purging unused chunks done!: ${totalRemoved} chunks has been deleted.`, LOG_LEVEL.NOTICE, "purge-local");
+        Logger(`Purging unused chunks done!: ${totalRemoved} chunks has been deleted.`, LOG_LEVEL_NOTICE, "purge-local");
     });
 }
 
@@ -394,7 +394,7 @@ export async function purgeChunksRemote(setting: CouchDBConnection, docs: { id: 
                 "_purge",
                 chunkedPayload.reduce((p, c) => ({ ...p, [c.id]: [c.rev] }), {}), "POST");
             // const result = await rets();
-            Logger(JSON.stringify(await rets.json()), LOG_LEVEL.VERBOSE);
+            Logger(JSON.stringify(await rets.json()), LOG_LEVEL_VERBOSE);
         }
         return;
     });
@@ -413,50 +413,50 @@ export async function purgeUnreferencedChunks(db: PouchDB.Database, dryRun: bool
         return Number.parseInt((info as any)?.sizes?.[key] ?? 0);
     }
     const keySuffix = connSetting ? "-remote" : "-local";
-    Logger(`${dryRun ? "Counting" : "Cleaning"} ${connSetting ? "remote" : "local"} database`, LOG_LEVEL.NOTICE);
+    Logger(`${dryRun ? "Counting" : "Cleaning"} ${connSetting ? "remote" : "local"} database`, LOG_LEVEL_NOTICE);
 
     if (connSetting) {
         Logger(`Database active-size: ${sizeToHumanReadable(getSize(info, "active"))
             }, external-size:${sizeToHumanReadable(getSize(info, "external"))
-            }, file-size: ${sizeToHumanReadable(getSize(info, "file"))}`, LOG_LEVEL.NOTICE);
+            }, file-size: ${sizeToHumanReadable(getSize(info, "file"))}`, LOG_LEVEL_NOTICE);
     }
-    Logger(`Collecting unreferenced chunks on ${info.db_name}`, LOG_LEVEL.NOTICE, "gc-countchunk" + keySuffix);
+    Logger(`Collecting unreferenced chunks on ${info.db_name}`, LOG_LEVEL_NOTICE, "gc-countchunk" + keySuffix);
     const chunks = await collectUnreferencedChunks(db);
     resultCount = chunks.length;
     if (chunks.length == 0) {
-        Logger(`No unreferenced chunks! ${info.db_name}`, LOG_LEVEL.NOTICE, "gc-countchunk" + keySuffix);
+        Logger(`No unreferenced chunks! ${info.db_name}`, LOG_LEVEL_NOTICE, "gc-countchunk" + keySuffix);
     } else {
-        Logger(`Number of unreferenced chunks on ${info.db_name}: ${chunks.length}`, LOG_LEVEL.NOTICE, "gc-countchunk" + keySuffix);
+        Logger(`Number of unreferenced chunks on ${info.db_name}: ${chunks.length}`, LOG_LEVEL_NOTICE, "gc-countchunk" + keySuffix);
         if (dryRun) {
-            Logger(`DryRun of cleaning ${connSetting ? "remote" : "local"} database up: Done`, LOG_LEVEL.NOTICE);
+            Logger(`DryRun of cleaning ${connSetting ? "remote" : "local"} database up: Done`, LOG_LEVEL_NOTICE);
             return resultCount;
         }
         if (connSetting) {
-            Logger(`Cleaning unreferenced chunks on remote`, LOG_LEVEL.NOTICE, "gc-purge" + keySuffix);
+            Logger(`Cleaning unreferenced chunks on remote`, LOG_LEVEL_NOTICE, "gc-purge" + keySuffix);
             await purgeChunksRemote(connSetting, chunks);
         } else {
-            Logger(`Cleaning unreferenced chunks on local`, LOG_LEVEL.NOTICE, "gc-purge" + keySuffix);
+            Logger(`Cleaning unreferenced chunks on local`, LOG_LEVEL_NOTICE, "gc-purge" + keySuffix);
             await purgeChunksLocal(db, chunks);
         }
-        Logger(`Cleaning unreferenced chunks done!`, LOG_LEVEL.NOTICE, "gc-purge" + keySuffix);
+        Logger(`Cleaning unreferenced chunks done!`, LOG_LEVEL_NOTICE, "gc-purge" + keySuffix);
     }
 
     if (performCompact) {
-        Logger(`Compacting database...`, LOG_LEVEL.NOTICE, "gc-compact" + keySuffix);
+        Logger(`Compacting database...`, LOG_LEVEL_NOTICE, "gc-compact" + keySuffix);
         await db.compact();
-        Logger(`Compacting database done`, LOG_LEVEL.NOTICE, "gc-compact" + keySuffix);
+        Logger(`Compacting database done`, LOG_LEVEL_NOTICE, "gc-compact" + keySuffix);
     }
     if (connSetting) {
         const endInfo = await db.info();
         Logger(`Processed database active-size: ${sizeToHumanReadable(getSize(endInfo, "active"))
             }, external-size:${sizeToHumanReadable(getSize(endInfo, "external"))
-            }, file-size: ${sizeToHumanReadable(getSize(endInfo, "file"))}`, LOG_LEVEL.NOTICE);
+            }, file-size: ${sizeToHumanReadable(getSize(endInfo, "file"))}`, LOG_LEVEL_NOTICE);
         Logger(`Reduced sizes: active-size: ${sizeToHumanReadable(getSize(info, "active") - getSize(endInfo, "active"))
             }, external-size:${sizeToHumanReadable(getSize(info, "external") - getSize(endInfo, "external"))
             }, file-size: ${sizeToHumanReadable(getSize(info, "file") - getSize(endInfo, "file"))
-            }`, LOG_LEVEL.NOTICE);
+            }`, LOG_LEVEL_NOTICE);
     }
-    Logger(`Cleaning ${connSetting ? "remote" : "local"} database up: Done`, LOG_LEVEL.NOTICE);
+    Logger(`Cleaning ${connSetting ? "remote" : "local"} database up: Done`, LOG_LEVEL_NOTICE);
     return resultCount;
 }
 
@@ -475,30 +475,30 @@ function transferChunks(key: string, dispKey: string, dbFrom: PouchDB.Database, 
             const docsToSend = docs.rows.filter(e => !("error" in e)).map(e => e.doc);
             await dbTo.bulkDocs(docsToSend, { new_edits: false });
         } catch (ex) {
-            Logger(`${dispKey}: Something went wrong on balancing`, LOG_LEVEL.NOTICE);
-            Logger(ex, LOG_LEVEL.VERBOSE);
+            Logger(`${dispKey}: Something went wrong on balancing`, LOG_LEVEL_NOTICE);
+            Logger(ex, LOG_LEVEL_VERBOSE);
         } finally {
             totalProcessed += processedItems;
-            Logger(`${dispKey}: ${totalProcessed} / ${total}`, LOG_LEVEL.NOTICE, "balance-" + key);
+            Logger(`${dispKey}: ${totalProcessed} / ${total}`, LOG_LEVEL_NOTICE, "balance-" + key);
         }
     })
     return tasks;
 }
 // Complement unbalanced chunks between databases which were separately cleaned up.
 export async function balanceChunkPurgedDBs(local: PouchDB.Database, remote: PouchDB.Database) {
-    Logger(`Complement missing chunks between databases`, LOG_LEVEL.NOTICE);
+    Logger(`Complement missing chunks between databases`, LOG_LEVEL_NOTICE);
     try {
         const { onlyOnLocal, onlyOnRemote } = await collectUnbalancedChunkIDs(local, remote);
         const localToRemote = transferChunks("l2r", "local -> remote", local, remote, onlyOnLocal);
         const remoteToLocal = transferChunks("r2l", "remote -> local", remote, local, onlyOnRemote);
         await mapAllTasksWithConcurrencyLimit(6, [...localToRemote, ...remoteToLocal]);
-        Logger(`local -> remote: Done`, LOG_LEVEL.NOTICE, "balance-l2r");
-        Logger(`remote -> local: Done`, LOG_LEVEL.NOTICE, "balance-r2l");
+        Logger(`local -> remote: Done`, LOG_LEVEL_NOTICE, "balance-l2r");
+        Logger(`remote -> local: Done`, LOG_LEVEL_NOTICE, "balance-r2l");
     } catch (ex) {
-        Logger("Something went wrong on balancing!", LOG_LEVEL.NOTICE);
-        Logger(ex, LOG_LEVEL.VERBOSE);
+        Logger("Something went wrong on balancing!", LOG_LEVEL_NOTICE);
+        Logger(ex, LOG_LEVEL_VERBOSE);
     }
-    Logger("Complement completed!", LOG_LEVEL.NOTICE);
+    Logger("Complement completed!", LOG_LEVEL_NOTICE);
 }
 
 export async function fetchAllUsedChunks(local: PouchDB.Database, remote: PouchDB.Database) {
@@ -506,9 +506,9 @@ export async function fetchAllUsedChunks(local: PouchDB.Database, remote: PouchD
         const chunksOnRemote = await collectChunks(remote, "INUSE");
         const remoteToLocal = transferChunks("r2l", "remote -> local", remote, local, chunksOnRemote);
         await mapAllTasksWithConcurrencyLimit(3, remoteToLocal);
-        Logger(`remote -> local: Done`, LOG_LEVEL.NOTICE, "balance-r2l");
+        Logger(`remote -> local: Done`, LOG_LEVEL_NOTICE, "balance-r2l");
     } catch (ex) {
-        Logger("Something went wrong on balancing!", LOG_LEVEL.NOTICE);
-        Logger(ex, LOG_LEVEL.VERBOSE);
+        Logger("Something went wrong on balancing!", LOG_LEVEL_NOTICE);
+        Logger(ex, LOG_LEVEL_VERBOSE);
     }
 }

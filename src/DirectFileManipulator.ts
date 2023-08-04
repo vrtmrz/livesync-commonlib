@@ -8,7 +8,7 @@ import { LEVEL_DEBUG, LEVEL_INFO, LEVEL_VERBOSE, Logger } from "./logger";
 import { path2id_base, shouldSplitAsPlainText } from "./path";
 import { splitPieces2 } from "./strbin";
 import { type Task, processAllTasksWithConcurrencyLimit } from "./task";
-import { type DocumentID, type FilePathWithPrefix, LOG_LEVEL, MAX_DOC_SIZE_BIN, type NewEntry, type PlainEntry } from "./types";
+import { type DocumentID, type FilePathWithPrefix, MAX_DOC_SIZE_BIN, type NewEntry, type PlainEntry, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types";
 import { default as xxhash, type XXHashAPI } from "xxhash-wasm-102";
 
 
@@ -167,7 +167,7 @@ export class DirectFileManipulator {
      * @returns 
      */
     async get(path: FilePathWithPrefix, metaOnly = false) {
-        Logger(`GET: START: ${path}`, LOG_LEVEL.VERBOSE)
+        Logger(`GET: START: ${path}`, LOG_LEVEL_VERBOSE)
         const id = await this.path2id(path);
         const ret = await this.getById(id, metaOnly);
         Logger(`GET: DONE: ${path}`, LEVEL_INFO);
@@ -182,14 +182,14 @@ export class DirectFileManipulator {
      */
     async getById(id: string, metaOnly = false): Promise<false | MetaEntry | ReadyEntry> {
         // TODO: TREAT FOR CONFLICTED FILES or OLD REVISIONS.
-        // Logger(`GET: START: ${id}`, LOG_LEVEL.VERBOSE)
+        // Logger(`GET: START: ${id}`, LOG_LEVEL_VERBOSE)
         const docEntry = await this._fetchJson([id], {}, "get");
         if (!("_id" in docEntry && "type" in docEntry && (docEntry.type == "plain" || docEntry.type == "newnote"))) {
             return false;
         }
         const doc = await this.decryptDocumentPath<MetaEntry>(docEntry);
         if (metaOnly) {
-            // Logger(`GET: DONE (METAONLY): ${id}`, LOG_LEVEL.INFO)
+            // Logger(`GET: DONE (METAONLY): ${id}`, LOG_LEVEL_INFO)
             return doc;
         }
         return this.getByMeta(doc);
@@ -200,7 +200,7 @@ export class DirectFileManipulator {
         if (data.some(e => e === false)) {
             throw new Error(`Missing chunks: ${doc.path}!`);
         }
-        Logger(`GET: DONE (META): ${doc.path}`, LOG_LEVEL.INFO)
+        Logger(`GET: DONE (META): ${doc.path}`, LOG_LEVEL_INFO)
         return { ...doc, data: data as unknown as string[] }
     }
 
@@ -214,7 +214,7 @@ export class DirectFileManipulator {
      */
     async put(path: string, data: string[], info: FileInfo, type: "newnote" | "plain" = "plain") {
         await prepareHashFunctions();
-        Logger(`PUT: START: ${path}`, LOG_LEVEL.VERBOSE)
+        Logger(`PUT: START: ${path}`, LOG_LEVEL_VERBOSE)
         const id = await this.path2id(path);
 
         const maxChunkSize = MAX_DOC_SIZE_BIN * Math.max(this.options.customChunkSize ?? 0, 1);
@@ -286,13 +286,13 @@ export class DirectFileManipulator {
         if (oldData) {
             theEntry._rev = oldData._rev;
         }
-        Logger(`PUT: UPLOADING: ${path}`, LOG_LEVEL.VERBOSE);
+        Logger(`PUT: UPLOADING: ${path}`, LOG_LEVEL_VERBOSE);
         const ret = await this._fetchJson([id], {}, "put", theEntry);
         if (ret?.ok) {
-            Logger(`PUT: DONE: ${path}`, LOG_LEVEL.INFO);
+            Logger(`PUT: DONE: ${path}`, LOG_LEVEL_INFO);
             return true;
         }
-        Logger(`PUT: FAILED: ${path}`, LOG_LEVEL.NOTICE);
+        Logger(`PUT: FAILED: ${path}`, LOG_LEVEL_NOTICE);
         return false;
     }
 
@@ -321,10 +321,10 @@ export class DirectFileManipulator {
         });
         const ret = await this._fetchJson([id], {}, "put", newData);
         if (ret?.ok) {
-            Logger(`DELETE: DONE: ${path}`, LOG_LEVEL.INFO);
+            Logger(`DELETE: DONE: ${path}`, LOG_LEVEL_INFO);
             return true;
         }
-        Logger(`DELETE: FAILED: ${path}`, LOG_LEVEL.INFO);
+        Logger(`DELETE: FAILED: ${path}`, LOG_LEVEL_INFO);
         return false;
     }
     // Untested

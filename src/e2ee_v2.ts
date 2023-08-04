@@ -1,5 +1,5 @@
 import { Logger } from "./logger";
-import { LOG_LEVEL } from "./types";
+import { LOG_LEVEL_VERBOSE } from "./types";
 
 import { uint8ArrayToHexString, writeString, atob, hexStringToUint8Array, readString, arrayBufferToBase64Single } from "./strbin";
 import { webcrypto } from "./mods";
@@ -168,8 +168,8 @@ export async function decrypt(encryptedResult: string, passphrase: string, autoC
         const plain = JSON.parse(plainStringified);
         return plain;
     } catch (ex) {
-        Logger("Couldn't decode! You should wrong the passphrases", LOG_LEVEL.VERBOSE);
-        Logger(ex, LOG_LEVEL.VERBOSE);
+        Logger("Couldn't decode! You should wrong the passphrases", LOG_LEVEL_VERBOSE);
+        Logger(ex, LOG_LEVEL_VERBOSE);
         throw ex;
     }
 }
@@ -187,10 +187,10 @@ export async function testCrypt() {
     const encoded = await encrypt(src, "passwordTest", false);
     const decrypted = await decrypt(encoded, "passwordTest", false);
     if (src != decrypted) {
-        Logger("WARNING! Your device would not support encryption.", LOG_LEVEL.VERBOSE);
+        Logger("WARNING! Your device would not support encryption.", LOG_LEVEL_VERBOSE);
         return false;
     } else {
-        Logger("CRYPT LOGIC OK", LOG_LEVEL.VERBOSE);
+        Logger("CRYPT LOGIC OK", LOG_LEVEL_VERBOSE);
         return true;
     }
 }

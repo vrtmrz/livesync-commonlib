@@ -3,7 +3,7 @@ import { Logger } from "./logger";
 import { LRUCache } from "./LRUCache";
 import { shouldSplitAsPlainText, stripAllPrefixes } from "./path";
 import { splitPieces2 } from "./strbin";
-import { type Entry, type EntryDoc, type EntryDocResponse, type EntryLeaf, type EntryMilestoneInfo, type LoadedEntry, LOG_LEVEL, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, type NewEntry, type NoteEntry, type PlainEntry, type RemoteDBSettings, type ChunkVersionRange, type EntryHasPath, type DocumentID, type FilePathWithPrefix, type FilePath, type HashAlgorithm } from "./types";
+import { type Entry, type EntryDoc, type EntryDocResponse, type EntryLeaf, type EntryMilestoneInfo, type LoadedEntry, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, type NewEntry, type NoteEntry, type PlainEntry, type RemoteDBSettings, type ChunkVersionRange, type EntryHasPath, type DocumentID, type FilePathWithPrefix, type FilePath, type HashAlgorithm, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types";
 import { globalConcurrencyController, resolveWithIgnoreKnownError } from "./utils";
 import { isErrorOfMissingDoc } from "./utils_couchdb";
 
@@ -110,8 +110,8 @@ export async function putDBEntry(
                 // conflicted
                 // I realise that avoiding chunk name collisions is pointless here.
                 // After replication, we will have conflicted chunks.
-                Logger(`Hash collided! If possible, please report the following string:${leafId}=>\nA:--${currentDocPiece.get(leafId)}--\nB:--${piece}--`, LOG_LEVEL.NOTICE);
-                Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL.NOTICE);
+                Logger(`Hash collided! If possible, please report the following string:${leafId}=>\nA:--${currentDocPiece.get(leafId)}--\nB:--${piece}--`, LOG_LEVEL_NOTICE);
+                Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
                 saved = false;
             }
         } else {
@@ -147,8 +147,8 @@ export async function putDBEntry(
                     if (pieceData.type == "leaf" && pieceData.data == currentDocPiece.get(chunk.key as DocumentID)) {
                         skipped++;
                     } else if (pieceData.type == "leaf") {
-                        Logger(`Hash collided on saving! If possible, please report the following string\nA:--${currentDocPiece.get(chunk.key as DocumentID)}--\nB:--${pieceData.data}--`, LOG_LEVEL.NOTICE);
-                        Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL.NOTICE);
+                        Logger(`Hash collided on saving! If possible, please report the following string\nA:--${currentDocPiece.get(chunk.key as DocumentID)}--\nB:--${pieceData.data}--`, LOG_LEVEL_NOTICE);
+                        Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
                         saved = false;
                     }
                 }
@@ -167,7 +167,7 @@ export async function putDBEntry(
                     const pieceData = currentDocPiece.get(id);
                     if (typeof pieceData === "undefined") {
                         saved = false;
-                        Logger(`Save failed.: ${dispFilename} (${item.id} rev:${item.rev})`, LOG_LEVEL.NOTICE);
+                        Logger(`Save failed.: ${dispFilename} (${item.id} rev:${item.rev})`, LOG_LEVEL_NOTICE);
                         continue
                     }
                     env.hashCaches.set(id, pieceData);
@@ -178,15 +178,15 @@ export async function putDBEntry(
                         // env.hashCaches.set(id, pieceData);
                         skipped++
                     } else {
-                        Logger(`Save failed..: ${dispFilename} (${item.id} rev:${item.rev})`, LOG_LEVEL.NOTICE);
+                        Logger(`Save failed..: ${dispFilename} (${item.id} rev:${item.rev})`, LOG_LEVEL_NOTICE);
                         Logger(item);
                         saved = false;
                     }
                 }
             }
         } catch (ex) {
-            Logger("Chunk save failed:", LOG_LEVEL.NOTICE);
-            Logger(ex, LOG_LEVEL.NOTICE);
+            Logger("Chunk save failed:", LOG_LEVEL_NOTICE);
+            Logger(ex, LOG_LEVEL_NOTICE);
             saved = false;
         }
     }
@@ -341,7 +341,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                                 children.push(v.data);
                             } else {
                                 if (!opt) {
-                                    Logger(`Chunks of ${dispFilename} (${obj._id}) are not valid.`, LOG_LEVEL.NOTICE);
+                                    Logger(`Chunks of ${dispFilename} (${obj._id}) are not valid.`, LOG_LEVEL_NOTICE);
                                     // env.needScanning = true;
                                     env.corruptedEntries[obj._id] = obj;
                                 }
@@ -350,7 +350,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                         }
                     } else {
                         if (opt) {
-                            Logger(`Could not retrieve chunks of ${dispFilename} (${obj._id}). we have to `, LOG_LEVEL.NOTICE);
+                            Logger(`Could not retrieve chunks of ${dispFilename} (${obj._id}). we have to `, LOG_LEVEL_NOTICE);
                             // env.needScanning = true;
                         }
                         return false;
@@ -367,19 +367,19 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                             const chunkDocs = await env.localDatabase.allDocs({ keys: obj.children, include_docs: true });
                             if (chunkDocs.rows.some(e => "error" in e)) {
                                 const missingChunks = chunkDocs.rows.filter(e => "error" in e).map(e => e.key).join(", ");
-                                Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id}). Chunks are missing:${missingChunks}`, LOG_LEVEL.NOTICE);
+                                Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id}). Chunks are missing:${missingChunks}`, LOG_LEVEL_NOTICE);
                                 return false;
                             }
                             if (chunkDocs.rows.some(e => e.doc && e.doc.type != "leaf")) {
                                 const missingChunks = chunkDocs.rows.filter(e => e.doc && e.doc.type != "leaf").map(e => e.id).join(", ");
-                                Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id}). corrupted chunks::${missingChunks}`, LOG_LEVEL.NOTICE);
+                                Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id}). corrupted chunks::${missingChunks}`, LOG_LEVEL_NOTICE);
                                 return false;
                             }
                             children = chunkDocs.rows.map(e => (e.doc as EntryLeaf).data);
                         }
                     } catch (ex) {
-                        Logger(`Something went wrong on reading chunks of ${dispFilename}(${obj._id}) from database, see verbose info for detail.`, LOG_LEVEL.NOTICE);
-                        Logger(ex, LOG_LEVEL.VERBOSE);
+                        Logger(`Something went wrong on reading chunks of ${dispFilename}(${obj._id}) from database, see verbose info for detail.`, LOG_LEVEL_NOTICE);
+                        Logger(ex, LOG_LEVEL_VERBOSE);
                         env.corruptedEntries[obj._id] = obj;
                         return false;
                     }
@@ -413,10 +413,10 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
             return doc;
         } catch (ex: any) {
             if (isErrorOfMissingDoc(ex)) {
-                Logger(`Missing document content!, could not read ${dispFilename}(${obj._id}) from database.`, LOG_LEVEL.NOTICE);
+                Logger(`Missing document content!, could not read ${dispFilename}(${obj._id}) from database.`, LOG_LEVEL_NOTICE);
                 return false;
             }
-            Logger(`Something went wrong on reading ${dispFilename}(${obj._id}) from database:`, LOG_LEVEL.NOTICE);
+            Logger(`Something went wrong on reading ${dispFilename}(${obj._id}) from database:`, LOG_LEVEL_NOTICE);
             Logger(ex);
         }
     }
