@@ -18,8 +18,9 @@ export function isValidFilenameInDarwin(filename: string): boolean {
     return !regex.test(filename);
 }
 export function isValidFilenameInLinux(filename: string): boolean {
+    // In the specification, `:` could be accepted, LiveSync should ignore this for make things simple.
     // eslint-disable-next-line no-control-regex
-    const regex = /[\u0000-\u001f]/g;
+    const regex = /[\u0000-\u001f]|[:]/g;
     return !regex.test(filename);
 }
 export function isValidFilenameInAndroid(filename: string): boolean {
@@ -163,14 +164,16 @@ const matchOpts: MinimatchOptions = { platform: "linux", dot: true, flipNegate: 
  * @param path path of the file which is relative from `.gitignore` file
  * @param ignore lines of `.gitignore`
  * @returns true when accepted.
+ * false when not accepted.
+ * undefined when the path is not mentioned in the `.gitignore` file.
  */
-export function isAccepted(path: string, ignore: string[]): boolean {
+export function isAccepted(path: string, ignore: string[]): boolean | undefined {
     if (path.indexOf("./") !== -1 || path.indexOf("../") !== -1) {
         // We do not accept this for handle the cases which ends with `/` by wildcard
         return false;
     }
     const patterns = ignore.map(e => e.trim()).filter(e => e.length > 0 && !e.startsWith("#"));
-    let result = true;
+    let result = undefined;
     for (const pattern of patterns) {
         if (pattern.endsWith("/")) {
             // If the path ends with `/` and matched to the path. we do not handle more patterns to negate the result.
@@ -195,7 +198,7 @@ export function isAccepted(path: string, ignore: string[]): boolean {
  * @param path path of target file
  * @param ignoreFiles list of ignore files. i.e. [".gitignore", ".dockerignore"]
  * @param getList function to retrieve the file.
- * @returns  true when accepted.
+ * @returns true when accepted. false when should be ignored.
  */
 export async function isAcceptedAll(path: string, ignoreFiles: string[], getList: (path: string) => Promise<string[] | false>) {
     const pathBase = path.substring(0, path.lastIndexOf("/"));
@@ -206,8 +209,9 @@ export async function isAcceptedAll(path: string, ignoreFiles: string[], getList
             const ignoreFilePath = intermediatePath + "/" + ignoreFile;
             const list = await getList(ignoreFilePath);
             if (list === false) continue;
-            if (!isAccepted(path.substring(intermediatePath.length ? intermediatePath.length + 1 : 0), list)) {
-                return false;
+            const result = isAccepted(path.substring(intermediatePath.length ? intermediatePath.length + 1 : 0), list);
+            if (result !== undefined) {
+                return result;
             }
         }
     }
