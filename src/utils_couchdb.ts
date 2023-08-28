@@ -1,10 +1,10 @@
-import { decrypt, encrypt } from "./e2ee_v2";
-import { runWithLock } from "./lock";
-import { Logger } from "./logger";
-import { getPath } from "./path";
-import { mapAllTasksWithConcurrencyLimit } from "./task";
-import { VER, VERSIONINFO_DOCID, type EntryVersionInfo, SYNCINFO_ID, type SyncInfo, type EntryDoc, type EntryLeaf, type AnyEntry, type FilePathWithPrefix, type CouchDBConnection, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types";
-import { arrayToChunkedArray, isEncryptedChunkEntry, isObfuscatedEntry, isSyncInfoEntry, resolveWithIgnoreKnownError } from "./utils";
+import { decrypt, encrypt } from "./e2ee_v2.ts";
+import { runWithLock } from "./lock.ts";
+import { Logger } from "./logger.ts";
+import { getPath } from "./path.ts";
+import { mapAllTasksWithConcurrencyLimit } from "./task.ts";
+import { VER, VERSIONINFO_DOCID, type EntryVersionInfo, SYNCINFO_ID, type SyncInfo, type EntryDoc, type EntryLeaf, type AnyEntry, type FilePathWithPrefix, type CouchDBConnection, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types.ts";
+import { arrayToChunkedArray, isEncryptedChunkEntry, isObfuscatedEntry, isSyncInfoEntry, resolveWithIgnoreKnownError } from "./utils.ts";
 
 export const isValidRemoteCouchDBURI = (uri: string): boolean => {
     if (uri.startsWith("https://")) return true;

@@ -1,5 +1,5 @@
-import { getGlobalStore, getGlobalStreamStore } from "./store";
-import { LOG_LEVEL } from "./types";
+import { getGlobalStore, getGlobalStreamStore } from "./store.ts";
+import { LOG_LEVEL } from "./types.ts";
 
 export type LockStats = {
     pending: string[],

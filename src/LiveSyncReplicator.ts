@@ -5,13 +5,13 @@ import {
     MILSTONE_DOCID,
     type DatabaseConnectingStatus,
     type ChunkVersionRange, type RemoteDBSettings, type EntryLeaf, REPLICATION_BUSY_TIMEOUT, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE
-} from "./types";
-import { resolveWithIgnoreKnownError, delay, globalConcurrencyController } from "./utils";
-import { Logger } from "./logger";
-import { checkRemoteVersion, putDesignDocuments } from "./utils_couchdb";
+} from "./types.ts";
+import { resolveWithIgnoreKnownError, delay, globalConcurrencyController } from "./utils.ts";
+import { Logger } from "./logger.ts";
+import { checkRemoteVersion, putDesignDocuments } from "./utils_couchdb.ts";
 
-import { ensureDatabaseIsCompatible } from "./LiveSyncDBFunctions.js";
-import { ObservableStore } from "./store.js";
+import { ensureDatabaseIsCompatible } from "./LiveSyncDBFunctions.ts";
+import { ObservableStore } from "./store.ts";
 
 
 const currentVersionRange: ChunkVersionRange = {

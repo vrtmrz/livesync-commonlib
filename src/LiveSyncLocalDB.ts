@@ -14,16 +14,16 @@ import {
     type FilePath,
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_VERBOSE,
-} from "./types";
-import { delay, sendSignal, waitForSignal } from "./utils";
-import { Logger } from "./logger";
-import { isErrorOfMissingDoc } from "./utils_couchdb";
-import { LRUCache } from "./LRUCache";
+} from "./types.ts";
+import { delay, sendSignal, waitForSignal } from "./utils.ts";
+import { Logger } from "./logger.ts";
+import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
+import { LRUCache } from "./LRUCache.ts";
 
-import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, type DBFunctionEnvironment } from "./LiveSyncDBFunctions.js";
-import { runWithLock } from "./lock.js";
-import type { LiveSyncDBReplicator } from "./LiveSyncReplicator";
-import { writeString } from "./strbin.js";
+import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, type DBFunctionEnvironment } from "./LiveSyncDBFunctions.ts";
+import { runWithLock } from "./lock.ts";
+import type { LiveSyncDBReplicator } from "./LiveSyncReplicator.ts";
+import { writeString } from "./strbin.ts";
 
 export interface LiveSyncLocalDBEnv {
     id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;

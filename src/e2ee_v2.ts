@@ -1,8 +1,8 @@
-import { Logger } from "./logger";
-import { LOG_LEVEL_VERBOSE } from "./types";
+import { Logger } from "./logger.ts";
+import { LOG_LEVEL_VERBOSE } from "./types.ts";
 
-import { uint8ArrayToHexString, writeString, atob, hexStringToUint8Array, readString, arrayBufferToBase64Single } from "./strbin";
-import { webcrypto } from "./mods";
+import { uint8ArrayToHexString, writeString, atob, hexStringToUint8Array, readString, arrayBufferToBase64Single } from "./strbin.ts";
+import { webcrypto } from "./mods.ts";
 
 
 export type encodedData = [encryptedData: string, iv: string, salt: string];

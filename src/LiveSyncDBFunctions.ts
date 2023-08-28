@@ -1,11 +1,11 @@
-import { runWithLock } from "./lock";
-import { Logger } from "./logger";
-import { LRUCache } from "./LRUCache";
-import { shouldSplitAsPlainText, stripAllPrefixes } from "./path";
-import { splitPieces2 } from "./strbin";
-import { type Entry, type EntryDoc, type EntryDocResponse, type EntryLeaf, type EntryMilestoneInfo, type LoadedEntry, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, type NewEntry, type NoteEntry, type PlainEntry, type RemoteDBSettings, type ChunkVersionRange, type EntryHasPath, type DocumentID, type FilePathWithPrefix, type FilePath, type HashAlgorithm, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types";
-import { globalConcurrencyController, resolveWithIgnoreKnownError } from "./utils";
-import { isErrorOfMissingDoc } from "./utils_couchdb";
+import { runWithLock } from "./lock.ts";
+import { Logger } from "./logger.ts";
+import { LRUCache } from "./LRUCache.ts";
+import { shouldSplitAsPlainText, stripAllPrefixes } from "./path.ts";
+import { splitPieces2 } from "./strbin.ts";
+import { type Entry, type EntryDoc, type EntryDocResponse, type EntryLeaf, type EntryMilestoneInfo, type LoadedEntry, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, type NewEntry, type NoteEntry, type PlainEntry, type RemoteDBSettings, type ChunkVersionRange, type EntryHasPath, type DocumentID, type FilePathWithPrefix, type FilePath, type HashAlgorithm, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types.ts";
+import { globalConcurrencyController, resolveWithIgnoreKnownError } from "./utils.ts";
+import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
 
 interface DBFunctionSettings {

@@ -1,2 +1,2 @@
-export { DirectFileManipulator } from "./DirectFileManipulator";
+export { DirectFileManipulator, type DirectFileManipulatorOptions } from "./DirectFileManipulator.ts";
 

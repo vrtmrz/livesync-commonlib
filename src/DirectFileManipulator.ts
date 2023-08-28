@@ -2,13 +2,13 @@
  * The API for manipulating files stored in the CouchDB by Self-hosted LiveSync or its families.
  */
 
-import { LRUCache } from "./LRUCache";
-import { encrypt, decrypt } from "./e2ee_v2";
-import { LEVEL_DEBUG, LEVEL_INFO, LEVEL_VERBOSE, Logger } from "./logger";
-import { path2id_base, shouldSplitAsPlainText } from "./path";
-import { splitPieces2 } from "./strbin";
-import { type Task, processAllTasksWithConcurrencyLimit } from "./task";
-import { type DocumentID, type FilePathWithPrefix, MAX_DOC_SIZE_BIN, type NewEntry, type PlainEntry, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types";
+import { LRUCache } from "./LRUCache.ts";
+import { encrypt, decrypt } from "./e2ee_v2.ts";
+import { LEVEL_DEBUG, LEVEL_INFO, LEVEL_VERBOSE, Logger } from "./logger.ts";
+import { path2id_base, shouldSplitAsPlainText } from "./path.ts";
+import { splitPieces2 } from "./strbin.ts";
+import { type Task, processAllTasksWithConcurrencyLimit } from "./task.ts";
+import { type DocumentID, type FilePathWithPrefix, MAX_DOC_SIZE_BIN, type NewEntry, type PlainEntry, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types.ts";
 import { default as xxhash, type XXHashAPI } from "xxhash-wasm-102";
 
 
