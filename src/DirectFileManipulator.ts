@@ -434,8 +434,17 @@ export class DirectFileManipulator {
             }
             Logger(`WATCH: START: (since:${this.since})`, LEVEL_INFO, "watch");
             this._abortController = new AbortController();
-            const response = await this._fetch(["_changes"], { style: "all_docs", filter: "replicate/pull", include_docs: true, since: this.since, feed: "continuous", timeout: 10000 }, "get", {}, this._abortController);
-            const reader = response.body.getReader();
+            const response = await this._fetch(["_changes"], {
+                style: "all_docs",
+                filter: "replicate/pull",
+                include_docs: true,
+                since: this.since,
+                feed: "continuous",
+                timeout: 100000,
+                heartbeat: 5000
+            }, "get", {}, this._abortController);
+            const reader = response.body?.getReader();
+            if (!reader) throw new Error("Could not get reader from response body");
             for await (const chunk of readLines(reader)) {
                 if (chunk) {
                     try {
