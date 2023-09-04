@@ -504,7 +504,59 @@ export class DirectFileManipulator {
         this._abortController = null;
 
     }
-
+    async followUpdates(callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void): Promise<string> {
+        try {
+            if (this.since == "") {
+                this.since = "0";
+            }
+            let pending = 0;
+            Logger(`FOLLOW: START: (since:${this.since})`, LEVEL_INFO, "followUpdates");
+            do {
+                const response = await this._fetch(["_changes"], {
+                    style: "all_docs",
+                    filter: "replicate/pull",
+                    include_docs: true,
+                    since: this.since,
+                    feed: "normal",
+                    limit: 25,
+                }, "get");
+                const ret = (await response.json());
+                pending = ret?.pending ?? 0;
+                const results = ret.results;
+                Logger(`FOLLOW: incoming ${results?.length ?? 0} entries, ${pending} pending.`);
+                for await (const lineData of results) {
+                    try {
+                        if ("seq" in lineData) {
+                            this.since = lineData.seq; // update seq to prevent infinite loop.
+                        }
+                        if ("doc" in lineData) {
+                            const docEntry = lineData.doc as MetaEntry;
+                            const docDecrypted = await this.decryptDocumentPath(docEntry);
+                            Logger(`FOLLOW: PROCESSING: ${docDecrypted.path}`, LEVEL_VERBOSE, "followUpdates");
+                            const doc = await this.getByMeta(docDecrypted);
+                            try {
+                                await callback(doc, lineData.seq);
+                                Logger(`FOLLOW: PROCESS DONE: ${docDecrypted.path}`, LEVEL_INFO, "followUpdates");
+                            } catch (ex) {
+                                Logger(`FOLLOW: PROCESS FAILED`, LEVEL_INFO, "followUpdates");
+                                Logger(ex, LEVEL_VERBOSE, "watch");
+                            }
+                            Logger(`FOLLOW: PROCESS DONE: ${docDecrypted.path}`, LEVEL_DEBUG, "followUpdates");
+                        }
+                    } catch (ex) {
+                        Logger(`FOLLOW: SOMETHING WENT WRONG ON EACH PROCESS`, LEVEL_VERBOSE, "followUpdates");
+                        Logger(ex, LEVEL_VERBOSE, "followUpdates");
+                    }
+                }
+            } while (pending > 0);
+        } catch (ex) {
+            Logger(`FOLLOW: SOMETHING WENT WRONG ON WATCHING`, LEVEL_VERBOSE, "followUpdates");
+            Logger(ex, LEVEL_VERBOSE, "watch");
+        } finally {
+            Logger(`FOLLOW: FINISHED AT ${this.since}.`, LEVEL_INFO, "followUpdates");
+        }
+        return this.since;
+    }
 }
 
 
