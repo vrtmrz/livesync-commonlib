@@ -1,4 +1,4 @@
-import { runWithLock } from "./lock.ts";
+import { serialized } from "./lock.ts";
 import { Logger } from "./logger.ts";
 import { LRUCache } from "./LRUCache.ts";
 import { shouldSplitAsPlainText, stripAllPrefixes } from "./path.ts";
@@ -202,7 +202,7 @@ export async function putDBEntry(
             type: note.datatype,
         };
 
-        return await runWithLock("file:" + filename, false, async () => {
+        return await serialized("file:" + filename, async () => {
             try {
                 const old = await env.localDatabase.get(newDoc._id);
                 if (!old.type || old.type == "notes" || old.type == "newnote" || old.type == "plain") {
@@ -438,7 +438,7 @@ export async function deleteDBEntry(env: DBFunctionEnvironment, path: FilePathWi
     const id = await env.path2id(path);
 
     try {
-        return await runWithLock("file:" + path, false, async () => {
+        return await serialized("file:" + path, async () => {
             let obj: EntryDocResponse | null = null;
             if (opt) {
                 obj = await env.localDatabase.get(id, opt);
@@ -454,12 +454,14 @@ export async function deleteDBEntry(env: DBFunctionEnvironment, path: FilePathWi
             //Check it out and fix docs to regular case
             if (!obj.type || (obj.type && obj.type == "notes")) {
                 obj._deleted = true;
-                const r = await env.localDatabase.put(obj);
+                const r = await env.localDatabase.put(obj, { force: !revDeletion });
+
                 Logger(`Entry removed:${path} (${obj._id}-${r.rev})`);
                 if (typeof env.corruptedEntries[obj._id] != "undefined") {
                     delete env.corruptedEntries[obj._id];
                 }
                 return true;
+
                 // simple note
             }
             if (obj.type == "newnote" || obj.type == "plain") {
@@ -472,11 +474,13 @@ export async function deleteDBEntry(env: DBFunctionEnvironment, path: FilePathWi
                         obj._deleted = true;
                     }
                 }
-                const r = await env.localDatabase.put(obj);
+                const r = await env.localDatabase.put(obj, { force: !revDeletion });
+
                 Logger(`Entry removed:${path} (${obj._id}-${r.rev})`);
                 if (typeof env.corruptedEntries[obj._id] != "undefined") {
                     delete env.corruptedEntries[obj._id];
                 }
+
                 return true;
             } else {
                 return false;
@@ -521,7 +525,7 @@ export async function deleteDBEntryPrefix(env: DBFunctionEnvironment, prefix: Fi
     let notfound = 0;
     for (const v of delDocs) {
         try {
-            await runWithLock("file:" + v, false, async () => {
+            await serialized("file:" + v, async () => {
                 const item = await env.localDatabase.get(v);
                 if (item.type == "newnote" || item.type == "plain") {
                     item.deleted = true;
@@ -532,7 +536,7 @@ export async function deleteDBEntryPrefix(env: DBFunctionEnvironment, prefix: Fi
                 } else {
                     item._deleted = true;
                 }
-                await env.localDatabase.put(item);
+                await env.localDatabase.put(item, { force: true });
             });
 
             deleteCount++;

@@ -1,5 +1,5 @@
 import { decrypt, encrypt } from "./e2ee_v2.ts";
-import { runWithLock } from "./lock.ts";
+import { serialized } from "./lock.ts";
 import { Logger } from "./logger.ts";
 import { getPath } from "./path.ts";
 import { mapAllTasksWithConcurrencyLimit } from "./task.ts";
@@ -312,7 +312,7 @@ export async function collectUnbalancedChunkIDs(local: PouchDB.Database, remote:
 }
 
 export async function purgeChunksLocal(db: PouchDB.Database, docs: { id: string, rev: string }[]) {
-    await runWithLock("purge-local", false, async () => {
+    await serialized("purge-local", async () => {
         try {
             // Back chunks up to the _local of local database to see the history.
             Logger(`Purging unused ${docs.length} chunks `, LOG_LEVEL_NOTICE, "purge-local-backup");
@@ -376,7 +376,7 @@ const _requestToCouchDBFetch = async (baseUri: string, username: string, passwor
     return await fetch(uri, requestParam);
 }
 export async function purgeChunksRemote(setting: CouchDBConnection, docs: { id: string, rev: string }[]) {
-    await runWithLock("purge-remote", false, async () => {
+    await serialized("purge-remote", async () => {
         const CHUNK_SIZE = 100;
         function makeChunkedArrayFromArray<T>(items: T[]): T[][] {
             const chunked = [];

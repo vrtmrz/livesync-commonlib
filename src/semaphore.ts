@@ -24,6 +24,7 @@ export type SemaphoreObject = {
     acquire(quantity?: number, memo?: string): Promise<SemaphoreReleaser>;
     tryAcquire(quantity: number | undefined, timeout: number, memo?: string): Promise<SemaphoreReleaser | false>;
     peekQueues(): QueueNotifier[];
+    setLimit(limit: number): void;
 
 }
 /**
@@ -32,7 +33,7 @@ export type SemaphoreObject = {
  * @returns Instance of SemaphoreObject
  */
 export function Semaphore(limit: number, onRelease?: (currentQueue: QueueNotifier[]) => Promise<void> | void): SemaphoreObject {
-    const _limit = limit;
+    let _limit = limit;
 
     let currentProcesses = 0;
     let queue: QueueNotifier[] = [];
@@ -76,6 +77,9 @@ export function Semaphore(limit: number, onRelease?: (currentQueue: QueueNotifie
         execProcess();
     }
     return {
+        setLimit(limit) {
+            _limit = limit;
+        },
         _acquire(quantity: number, memo: string, timeout: number): Promise<SemaphoreReleaser | false> {
             const key = makeUniqueString();
             if (_limit < quantity) {

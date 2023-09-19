@@ -170,3 +170,7 @@ export function* arrayToChunkedArray<T>(arr: T[], chunkLength: number) {
 export function unique<T>(arr: T[]) {
     return [...new Set<T>(arr)]
 }
+
+export function fireAndForget(p: Promise<any>) {
+    p.then(_ => {/* NO OP */ }).catch(_ => {/* NO OP */ });
+}

@@ -1,4 +1,4 @@
-import { Semaphore, SemaphoreObject } from "./semaphore.ts";
+import { Semaphore, type SemaphoreObject } from "./semaphore.ts";
 import { lockStore } from "./stores.ts";
 
 
@@ -19,10 +19,10 @@ function notifyLock() {
     }, 100);
 }
 
-const Mutexes = {} as { [key: string]: SemaphoreObject }
+const mutexes = new Map<string, SemaphoreObject>();
 
 function updateStore() {
-    const allLocks = [...Object.values(Mutexes).map(e => e.peekQueues())].flat();
+    const allLocks = [...Object.values(mutexes).map(e => e.peekQueues())].flat();
     lockStore.apply((v => ({
         ...v, count: allLocks.length,
         pending: allLocks.filter((e) => e.state == "NONE").map((e) => e.memo ?? ""),
@@ -38,28 +38,40 @@ export function getProcessingCounts() {
 }
 
 let semaphoreReleasedCount = 0;
-export async function runWithLock<T>(key: string, ignoreWhenRunning: boolean, proc: () => Promise<T>): Promise<T | null> {
+
+const LOCKMODE_SKIP = 0 as const;
+const LOCKMODE_SERIALIZED = 1 as const;
+const LOCKMODE_SCHEDULE = 2 as const;
+type LockMode = typeof LOCKMODE_SCHEDULE | typeof LOCKMODE_SERIALIZED | typeof LOCKMODE_SKIP;
+
+const CANCEL_LOCK = Symbol("CANCEL_LOCK");
+
+async function _runWithLock<T>(key: string, lockMode: LockMode, concurrency: number, proc: () => Promise<T>): Promise<T | null | typeof CANCEL_LOCK> {
 
     if (semaphoreReleasedCount > 200) {
         const deleteKeys = [] as string[];
-        for (const key in Mutexes) {
-            if (Mutexes[key].peekQueues().length == 0) {
+        for (const key in mutexes) {
+            if (mutexes.get(key).peekQueues().length == 0) {
                 deleteKeys.push(key);
             }
         }
         for (const key of deleteKeys) {
-            delete Mutexes[key];
+            mutexes.delete(key);
         }
         semaphoreReleasedCount = 0;
     }
-    if (!(key in Mutexes)) {
-        Mutexes[key] = Semaphore(1, (queue => {
+    if (!mutexes.has(key)) {
+        mutexes.set(key, Semaphore(concurrency, (queue => {
             if (queue.length == 0) semaphoreReleasedCount++;
-        }));
+        })));
+    }
+    const mutex = mutexes.get(key)!;
+    if (concurrency != 1) {
+        mutex.setLimit(concurrency);
     }
 
-    const timeout = ignoreWhenRunning ? 1 : 0;
-    const releaser = await Mutexes[key].tryAcquire(1, timeout, key);
+    const timeout = lockMode == LOCKMODE_SKIP ? 1 : 0;
+    const releaser = await mutex.tryAcquire(1, timeout, key);
     updateStore();
     if (!releaser) return null;
     try {
@@ -72,7 +84,31 @@ export async function runWithLock<T>(key: string, ignoreWhenRunning: boolean, pr
     }
 
 }
+export function runWithLock<T>(key: string, ignoreWhenRunning: boolean, proc: () => Promise<T>): Promise<T | null> {
+    return _runWithLock(key, ignoreWhenRunning ? LOCKMODE_SKIP : LOCKMODE_SERIALIZED, 1, proc) as Promise<T | null>;
+}
+export function serialized<T>(key: string, proc: () => Promise<T>): Promise<T | null> {
+    return _runWithLock(key, LOCKMODE_SERIALIZED, 1, proc) as Promise<T | null>;
+}
+
+export function skipIfDuplicated<T>(key: string, proc: () => Promise<T>): Promise<T | null> {
+    return _runWithLock(key, LOCKMODE_SKIP, 1, proc) as Promise<T | null>;
+}
+
+const waitingProcess = new Map<string, () => Promise<any>>();
+export async function scheduleOnceIfDuplicated<T>(key: string, proc: () => Promise<T>): Promise<void> {
+    if (isLockAcquired(key)) {
+        waitingProcess.set(key, proc);
+        return;
+    }
+    await serialized(key, proc);
+    if (waitingProcess.has(key)) {
+        const nextProc = waitingProcess.get(key);
+        waitingProcess.delete(key);
+        scheduleOnceIfDuplicated(key, nextProc);
+    }
+}
 
 export function isLockAcquired(key: string) {
-    return (key in Mutexes) && Mutexes[key].peekQueues().length != 0;
+    return (mutexes.get(key)?.peekQueues()?.length ?? 0) != 0;
 }

@@ -46,6 +46,15 @@ export type CouchDBConnection = {
     couchDB_PASSWORD: string,
     couchDB_DBNAME: string,
 }
+export const MODE_SELECTIVE = 0;
+export const MODE_AUTOMATIC = 1;
+export const MODE_PAUSED = 2;
+export type SYNC_MODE = typeof MODE_SELECTIVE | typeof MODE_AUTOMATIC | typeof MODE_PAUSED;
+export type PluginSyncSettingEntry = {
+    key: string,
+    mode: SYNC_MODE,
+    files: string[]
+}
 interface ObsidianLiveSyncSettings_PluginSetting {
     liveSync: boolean;
     syncOnSave: boolean;
@@ -92,6 +101,9 @@ interface ObsidianLiveSyncSettings_PluginSetting {
 
     useIgnoreFiles: boolean;
     ignoreFiles: string;
+    syncOnEditorSave: boolean;
+    pluginSyncExtendedSetting: Record<PluginSyncSettingEntry["key"], PluginSyncSettingEntry>;
+
 }
 
 export type RemoteDBSettings = CouchDBConnection & {
@@ -207,6 +219,8 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     doNotSuspendOnFetching: false,
     useIgnoreFiles: false,
     ignoreFiles: ".gitignore",
+    syncOnEditorSave: false,
+    pluginSyncExtendedSetting: {}
 };
 
 export interface DatabaseEntry {

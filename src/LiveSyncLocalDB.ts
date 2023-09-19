@@ -21,14 +21,14 @@ import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 import { LRUCache } from "./LRUCache.ts";
 
 import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, type DBFunctionEnvironment } from "./LiveSyncDBFunctions.ts";
-import { runWithLock } from "./lock.ts";
+import { skipIfDuplicated } from "./lock.ts";
 import type { LiveSyncDBReplicator } from "./LiveSyncReplicator.ts";
 import { writeString } from "./strbin.ts";
 
 export interface LiveSyncLocalDBEnv {
     id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
     path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID>;
-    createPouchDBInstance<T>(name?: string, options?: PouchDB.Configuration.DatabaseConfiguration): PouchDB.Database<T>
+    createPouchDBInstance<T extends object>(name?: string, options?: PouchDB.Configuration.DatabaseConfiguration): PouchDB.Database<T>
 
     beforeOnUnload(db: LiveSyncLocalDB): void;
     onClose(db: LiveSyncLocalDB): void;
@@ -185,7 +185,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         } catch (ex: any) {
             if (isErrorOfMissingDoc(ex)) {
                 if (limitTime < now) {
-                    throw new Error("Could not read chunk: Timed out: ${id}");
+                    throw new Error(`Could not read chunk: Timed out: ${id}`);
                 }
                 await waitForSignal(`leaf-${id}`, 5000);
                 return this.getDBLeafWithTimeout(id, limitTime);
@@ -325,7 +325,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     }
     execCollect() {
         // do not await.
-        runWithLock("execCollect", true, async () => {
+        skipIfDuplicated("execCollect", async () => {
             do {
                 const minimumInterval = this.settings.minimumIntervalOfReadChunksOnline; // three requests per second as maximum
                 const start = Date.now();
