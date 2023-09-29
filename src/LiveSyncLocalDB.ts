@@ -513,11 +513,11 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         const notExists = exists.filter(e => e.chunk === false);
         if (notExists.length > 0) {
             const chunks = await this.localDatabase.allDocs({ keys: notExists.map(e => e.id), include_docs: true });
-            const existChunks = chunks.rows.filter(e => !("error" in e)).map(e => e.doc as EntryLeaf);
+            const existChunks = chunks.rows.filter(e => !("error" in e)).map((e: any) => e.doc as EntryLeaf);
             // If the chunks are missing, possibly backed up while cleaning up.
             const nonExistsLocal = chunks.rows.filter(e => ("error" in e)).map(e => e.key);
             const purgedChunks = await this.localDatabase.allDocs({ keys: nonExistsLocal.map(e => `_local/${e}`), include_docs: true });
-            const existChunksPurged = purgedChunks.rows.filter(e => !("error" in e)).map(e => ({ ...e.doc, _id: e.id.substring(7) }) as EntryLeaf);
+            const existChunksPurged = purgedChunks.rows.filter(e => !("error" in e)).map((e: any) => ({ ...e.doc, _id: e.id.substring(7) }) as EntryLeaf);
             const temp = [...existChunks, ...existChunksPurged].reduce((p, c) => ({ ...p, [c._id]: c.data }), {}) as { [key: DocumentID]: string };
             for (const chunk of existChunks) {
                 this.hashCaches.set(chunk._id, chunk.data);

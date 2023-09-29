@@ -7,6 +7,24 @@ for (let i = 0; i < 256; i++) {
     numMap[i] = (`00${i.toString(16)}`.slice(-2));
 }
 
+function* range(from: number, to: number) {
+    for (let i = from; i <= to; i++) {
+        yield i;
+    }
+    return;
+}
+// Table for converting encoding binary
+const table = {} as Record<number, number>;
+const revTable = {} as Record<number, number>;
+
+[...range(0xc0, 0x1bf)].forEach((e, i) => {
+    table[i] = e;
+    revTable[e] = i;
+})
+
+const td = new TextDecoder("utf-16", { fatal: true });
+
+const BINARY_CHUNK_MAX = 1024 * 1024 * 30;
 export function hexStringToUint8Array(src: string): Uint8Array {
     const len = src.length / 2;
     const ret = new Uint8Array(len);
@@ -281,10 +299,38 @@ function* pickPiece(leftData: string[], minimumChunkSize: number): Generator<str
         }
     } while (leftData.length > 0);
 }
+
+// Take the total length of the string.
+function totalSize(str: string[]) {
+    return str.reduce((p, c) => p + c.length, 0);
+}
+
+const charNull = String.fromCharCode(table[0]);
+const charNewLine = String.fromCharCode(table[13]);
+
 // Split string into pieces within specific lengths (characters).
-export function splitPieces2(dataSrc: string | string[], pieceSize: number, plainSplit: boolean, minimumChunkSize: number, longLineThreshold: number) {
+export function splitPieces2(dataSrc: string | string[], pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string, useV1?: boolean) {
+    let delimiter = plainSplit ? "\n" : charNull;
+    if (filename && filename.endsWith(".pdf")) {
+        delimiter = "/";
+    }
+
+    const dataList = typeof (dataSrc) == "string" ? [dataSrc] : dataSrc;
+    if (!plainSplit && !useV1) {
+        // Optimise chunk size to efficient dedupe.
+        const clampMin = 100000; //100kb
+        const clampMax = 100000000; //100mb
+        const clampedSize = Math.max(clampMin, Math.min(clampMax, totalSize(dataList)));
+        let step = 1;
+        let w = clampedSize;
+        while (w > 10) {
+            w /= 12.5;
+            step++;
+        }
+        minimumChunkSize = Math.floor(10 ** (step - 1));
+    }
     return function* pieces(): Generator<string> {
-        const dataList = typeof (dataSrc) == "string" ? [dataSrc] : dataSrc;
+
         for (const data of dataList) {
             if (plainSplit) {
                 const leftData = data.split("\n"); //use memory
@@ -305,9 +351,31 @@ export function splitPieces2(dataSrc: string | string[], pieceSize: number, plai
             } else {
                 let leftData = data;
                 do {
-                    const piece = leftData.substring(0, pieceSize);
-                    leftData = leftData.substring(pieceSize);
-                    yield piece;
+                    let splitSize = pieceSize;
+                    if (!useV1) {
+                        // Find null (or / at PDF) or newLine, and make chunks.
+                        // To avoid making too much chunks, all chunks should be longer than minimumChunkSize.
+                        // However, we might have been capped the chunk size due to HTTP request size or document size on CouchDB.
+                        // The illustration is as follows. Each `[]` will yielded.
+                        // data         | ........ \0 ....\0 .... \0 ...\0 ...\0..
+                        // minimum   -- |{--------------}  |
+                        // pieceSize == |[============][..]|
+                        // minimum   -- |                  |{--------------}   |
+                        // pieceSize == |                  |[============][...]|
+                        let nextIdx = leftData.indexOf(delimiter, minimumChunkSize);
+                        if (nextIdx == -1) nextIdx = leftData.indexOf(charNewLine, minimumChunkSize);
+                        splitSize = nextIdx == -1 ? pieceSize : (Math.min(pieceSize, nextIdx));
+                    }
+                    let piece = leftData.substring(0, splitSize);
+                    leftData = leftData.substring(splitSize);
+                    if (useV1) {
+                        yield piece;
+                    } else {
+                        while (piece != "") {
+                            yield piece.substring(0, pieceSize);
+                            piece = piece.substring(pieceSize);
+                        }
+                    }
                 } while (leftData != "");
             }
         }
@@ -405,4 +473,104 @@ export function crc32CKHash(strSrc: string): string {
     crc ^= 0xFFFFFFFF;
     crc2 ^= 0xFFFFFFFF;
     return crc.toString(32) + "-" + crc2.toString(32);
+}
+
+
+
+export async function arrayBufferToEncoded(buffer: Uint8Array): Promise<string[]> {
+    const len = buffer.length;
+    if (len < BINARY_CHUNK_MAX) {
+        return [await _arrayBufferToEncoded(buffer)];
+    }
+    const out = [];
+    for (let i = 0; i < len; i += BINARY_CHUNK_MAX) {
+        out.push(_arrayBufferToEncoded(buffer.subarray(i, i + BINARY_CHUNK_MAX)));
+    }
+    return Promise.all(out);
+}
+
+function decode(param: Uint16Array) {
+    return td.decode(param, {});
+}
+
+function decodeAsync(buffer: Uint16Array): Promise<string> {
+    return new Promise<string>((res, rej) => {
+        const blob = new Blob([buffer], { type: "application/octet-binary" });
+        const reader = new FileReader();
+        reader.onload = function (evt) {
+            const result = evt.target?.result as string;
+            if (!result) return rej("UTF-16 Parse error");
+            return res(result);
+        };
+        reader.readAsText(blob, "utf-16");
+    });
+}
+
+// Encode Uint8Array to valid string via UTF-16.
+export async function _arrayBufferToEncoded(buffer: Uint8Array): Promise<string> {
+    const len = buffer.byteLength;
+    const out = new Uint16Array(buffer);
+    for (let i = 0; i < len; i++) {
+        const char = buffer[i];
+        if (char >= 0x26 && char <= 0x7e && char != 0x3a) {
+            // out[i] = asciiTable[char];
+            // We can leave it.
+        } else {
+            out[i] = table[char];
+        }
+    }
+    // Return it as utf-16 string.
+    if (out.length < 10240) {
+        return decode(out);
+    } else {
+        return await decodeAsync(out);
+    }
+}
+
+export function decodeToArrayBuffer(src: string[]) {
+    if (src.length == 1) return _decodeToArrayBuffer(src[0]);
+    const bufItems = src.map(e => _decodeToArrayBuffer(e));
+    const len = bufItems.reduce((p, c) => p + c.byteLength, 0);
+    const joinedArray = new Uint8Array(len);
+    let offset = 0;
+    bufItems.forEach(e => {
+        joinedArray.set(new Uint8Array(e), offset);
+        offset += e.byteLength;
+    });
+    return joinedArray;
+}
+
+export function _decodeToArrayBuffer(src: string): Uint8Array {
+    const out = new Uint8Array(src.length);
+    const len = src.length;
+    for (let i = 0; i < len; i++) {
+        // We can simply pick a char, because of it does not contains surrogate pair or any of like them.
+        const char = src.charCodeAt(i);
+        if (char >= 0x26 && char <= 0x7e && char != 0x3a) {
+            out[i] = char;
+        } else {
+            out[i] = revTable[char];
+        }
+    }
+    return out
+}
+
+export function decodeBinary(src: string | string[]) {
+    if (typeof src === "string") {
+        if (src[0] === "%") {
+            return _decodeToArrayBuffer(src.substring(1));
+        }
+    } else {
+        if (src[0][0] === "%") {
+            const [head, ...last] = src;
+            return decodeToArrayBuffer([head.substring(1), ...last]);
+        }
+    }
+    return base64ToArrayBuffer(src);
+}
+export async function encodeBinary(src: Uint8Array | ArrayBuffer, useV1: boolean): Promise<string[]> {
+    if (useV1) return await arrayBufferToBase64(src);
+    const buf = src instanceof ArrayBuffer ? new Uint8Array(src) : src;
+    const [head, ...last] = await arrayBufferToEncoded(buf);
+    return ["%" + head, ...last];
 }

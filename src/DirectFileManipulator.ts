@@ -22,6 +22,7 @@ export type DirectFileManipulatorOptions = {
     useDynamicIterationCount?: boolean,
     customChunkSize?: number,
     minimumChunkSize?: number;
+    useV1?: boolean;
 }
 
 
@@ -124,7 +125,7 @@ export class DirectFileManipulator {
                     throw new Error(`Corrupted chunk found (No data contained) (${k})`);
                 }
                 const dataSrc = `${doc.data}`;
-                const data = this.options.passphrase ? await decrypt(dataSrc, this.options.passphrase, this.options.useDynamicIterationCount) : dataSrc;
+                const data = this.options.passphrase ? await decrypt(dataSrc, this.options.passphrase, this.options.useDynamicIterationCount ?? false) : dataSrc;
                 ret[k] = data;
                 this.hashCaches.set(v.key, data);
             }
@@ -141,7 +142,7 @@ export class DirectFileManipulator {
     async encryptDocumentPath<T extends ReadyEntry | MetaEntry>(entry: T): Promise<T> {
         return {
             ...entry,
-            path: this.options.obfuscatePassphrase ? await encrypt(entry.path, this.options.obfuscatePassphrase, this.options.useDynamicIterationCount) : entry.path,
+            path: this.options.obfuscatePassphrase ? await encrypt(entry.path, this.options.obfuscatePassphrase, this.options.useDynamicIterationCount ?? false, this.options.useV1 ?? false) : entry.path,
         }
     }
     /**
@@ -152,11 +153,11 @@ export class DirectFileManipulator {
     async decryptDocumentPath<T extends ReadyEntry | MetaEntry>(entry: T): Promise<T> {
         return {
             ...entry,
-            path: this.options.passphrase ? await decrypt(entry.path, this.options.passphrase, this.options.useDynamicIterationCount) : entry.path,
+            path: this.options.passphrase ? await decrypt(entry.path, this.options.passphrase, this.options.useDynamicIterationCount ?? false) : entry.path,
         } as T;
     }
     async path2id(path: string) {
-        return await path2id_base(path as FilePathWithPrefix, this.options.obfuscatePassphrase);
+        return await path2id_base(path as FilePathWithPrefix, this.options.obfuscatePassphrase ?? false);
     }
     //#endregion
 
@@ -217,7 +218,7 @@ export class DirectFileManipulator {
         Logger(`PUT: START: ${path}`, LOG_LEVEL_VERBOSE)
         const id = await this.path2id(path);
 
-        const maxChunkSize = MAX_DOC_SIZE_BIN * Math.max(this.options.customChunkSize ?? 0, 1);
+        const maxChunkSize = Math.floor(MAX_DOC_SIZE_BIN * ((this.options.customChunkSize || 0) * (this.options.useV1 ? 1 : 0.1) + 1));
         const pieceSize = maxChunkSize;
         let plainSplit = false;
         const userPassphrase = this.options.passphrase;
@@ -227,7 +228,7 @@ export class DirectFileManipulator {
             plainSplit = true;
         }
 
-        const pieces = splitPieces2(data, pieceSize, plainSplit, minimumChunkSize, 0);
+        const pieces = splitPieces2(data, pieceSize, plainSplit, minimumChunkSize, path, this.options.useV1);
         const chunks = {} as Record<string, string>;
         const children = [];
         // Make chunks once.
@@ -256,7 +257,7 @@ export class DirectFileManipulator {
         for (const e of entries) {
             chunksToBeUploaded.push({
                 _id: e[0],
-                data: this.options.passphrase ? await encrypt(e[1], this.options.passphrase, this.options.useDynamicIterationCount) : e[1],
+                data: this.options.passphrase ? await encrypt(e[1], this.options.passphrase, this.options.useDynamicIterationCount ?? false, this.options.useV1 ?? false) : e[1],
                 type: "leaf",
             });
         }

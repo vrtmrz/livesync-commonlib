@@ -17,6 +17,7 @@ interface DBFunctionSettings {
     readChunksOnline: boolean;
     doNotPaceReplication: boolean;
     hashAlg: HashAlgorithm;
+    useV1: boolean;
 }
 // This interface is expected to be unnecessary because of the change in dependency direction
 export interface DBFunctionEnvironment {
@@ -49,7 +50,7 @@ export async function putDBEntry(
     let processed = 0;
     let made = 0;
     let skipped = 0;
-    const maxChunkSize = MAX_DOC_SIZE_BIN * Math.max(env.settings.customChunkSize, 1);
+    const maxChunkSize = Math.floor(MAX_DOC_SIZE_BIN * ((env.settings.customChunkSize || 0) * (env.settings.useV1 ? 1 : 0.1) + 1));
     const pieceSize = maxChunkSize;
     let plainSplit = false;
     let cacheUsed = 0;
@@ -63,7 +64,7 @@ export async function putDBEntry(
 
     const newLeafs: EntryLeaf[] = [];
 
-    const pieces = splitPieces2(note.data, pieceSize, plainSplit, minimumChunkSize, 0);
+    const pieces = splitPieces2(note.data, pieceSize, plainSplit, minimumChunkSize, filename, env.settings.useV1);
     const currentDocPiece = new Map<DocumentID, string>();
     let saved = true;
     for (const piece of pieces()) {
@@ -370,12 +371,12 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                                 Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id}). Chunks are missing:${missingChunks}`, LOG_LEVEL_NOTICE);
                                 return false;
                             }
-                            if (chunkDocs.rows.some(e => e.doc && e.doc.type != "leaf")) {
-                                const missingChunks = chunkDocs.rows.filter(e => e.doc && e.doc.type != "leaf").map(e => e.id).join(", ");
+                            if (chunkDocs.rows.some((e: any) => e.doc && e.doc.type != "leaf")) {
+                                const missingChunks = chunkDocs.rows.filter((e: any) => e.doc && e.doc.type != "leaf").map((e: any) => e.id).join(", ");
                                 Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id}). corrupted chunks::${missingChunks}`, LOG_LEVEL_NOTICE);
                                 return false;
                             }
-                            children = chunkDocs.rows.map(e => (e.doc as EntryLeaf).data);
+                            children = chunkDocs.rows.map((e: any) => (e.doc as EntryLeaf).data);
                         }
                     } catch (ex) {
                         Logger(`Something went wrong on reading chunks of ${dispFilename}(${obj._id}) from database, see verbose info for detail.`, LOG_LEVEL_NOTICE);

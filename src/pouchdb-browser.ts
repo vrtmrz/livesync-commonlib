@@ -1,6 +1,7 @@
 import PouchDB from 'pouchdb-core';
 
 import IDBPouch from 'pouchdb-adapter-idb';
+//@ts-ignore
 import INDEXEDDBPouch from 'pouchdb-adapter-indexeddb';
 import HttpPouch from 'pouchdb-adapter-http';
 import mapreduce from 'pouchdb-mapreduce';
@@ -8,8 +9,11 @@ import replication from 'pouchdb-replication';
 
 import find from "pouchdb-find";
 import transform from "transform-pouch";
+//@ts-ignore
 import { findPathToLeaf } from 'pouchdb-merge';
+//@ts-ignore
 import { adapterFun } from 'pouchdb-utils';
+//@ts-ignore
 import { createError, MISSING_DOC, UNKNOWN_ERROR } from 'pouchdb-errors';
 import { mapAllTasksWithConcurrencyLimit, unwrapTaskResult } from './task';
 

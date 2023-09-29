@@ -2,6 +2,7 @@ import { decrypt, encrypt } from "./e2ee_v2.ts";
 import { serialized } from "./lock.ts";
 import { Logger } from "./logger.ts";
 import { getPath } from "./path.ts";
+import { writeString } from "./strbin.ts";
 import { mapAllTasksWithConcurrencyLimit } from "./task.ts";
 import { VER, VERSIONINFO_DOCID, type EntryVersionInfo, SYNCINFO_ID, type SyncInfo, type EntryDoc, type EntryLeaf, type AnyEntry, type FilePathWithPrefix, type CouchDBConnection, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types.ts";
 import { arrayToChunkedArray, isEncryptedChunkEntry, isObfuscatedEntry, isSyncInfoEntry, resolveWithIgnoreKnownError } from "./utils.ts";
@@ -142,7 +143,7 @@ export async function putDesignDocuments(db: PouchDB.Database) {
 }
 
 // requires transform-pouch
-export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: string, useDynamicIterationCount: boolean, migrationDecrypt?: boolean) => {
+export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: string, useDynamicIterationCount: boolean, migrationDecrypt: boolean, useV1: boolean) => {
     const decrypted = new Map();
     //@ts-ignore
     db.transform({
@@ -152,7 +153,7 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
             } as EntryLeaf | AnyEntry;
             if (isEncryptedChunkEntry(saveDoc) || isSyncInfoEntry(saveDoc)) {
                 try {
-                    saveDoc.data = await encrypt(saveDoc.data, passphrase, useDynamicIterationCount);
+                    saveDoc.data = await encrypt(saveDoc.data, passphrase, useDynamicIterationCount, useV1);
                 } catch (ex) {
                     Logger("Encryption failed.", LOG_LEVEL_NOTICE);
                     Logger(ex);
@@ -161,7 +162,7 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
             }
             if (isObfuscatedEntry(saveDoc)) {
                 try {
-                    saveDoc.path = await encrypt(getPath(saveDoc), passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
+                    saveDoc.path = await encrypt(getPath(saveDoc), passphrase, useDynamicIterationCount, useV1) as unknown as FilePathWithPrefix;
                 } catch (ex) {
                     Logger("Encryption failed.", LOG_LEVEL_NOTICE);
                     Logger(ex);
@@ -207,12 +208,12 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                                 return loadDoc; // This logic will be removed in a while.
                             }
                             Logger("Decryption failed.", LOG_LEVEL_NOTICE);
-                            Logger(ex);
+                            Logger(ex, LOG_LEVEL_VERBOSE);
                             throw ex;
                         }
                     } else {
                         Logger("Decryption failed.", LOG_LEVEL_NOTICE);
-                        Logger(ex);
+                        Logger(ex, LOG_LEVEL_VERBOSE);
                         throw ex;
                     }
                 }
@@ -299,7 +300,7 @@ export async function collectChunks(db: PouchDB.Database, type: "INUSE" | "DANGL
         rows.filter(e => type == "DANGLING" ? (e.value == 0) : (e.value != 0));
     const ids = rowF.flatMap(e => e.key);
     const docs = (await db.allDocs({ keys: ids })).rows;
-    const items = docs.filter(e => !("error" in e)).map(e => ({ id: e.id, rev: e.value.rev }));
+    const items = docs.filter(e => !("error" in e)).map((e: any) => ({ id: e.id, rev: e.value.rev }));
     return items;
 }
 
@@ -361,7 +362,7 @@ export async function purgeChunksLocal(db: PouchDB.Database, docs: { id: string,
 }
 
 const _requestToCouchDBFetch = async (baseUri: string, username: string, password: string, path?: string, body?: string | any, method?: string) => {
-    const utf8str = String.fromCharCode.apply(null, new TextEncoder().encode(`${username}:${password}`));
+    const utf8str = String.fromCharCode.apply(null, [...writeString(`${username}:${password}`)]);
     const encoded = window.btoa(utf8str);
     const authHeader = "Basic " + encoded;
     const transformedHeaders: Record<string, string> = { authorization: authHeader, "content-type": "application/json" };
@@ -472,7 +473,7 @@ function transferChunks(key: string, dispKey: string, dbFrom: PouchDB.Database, 
 
         try {
             const docs = await dbFrom.allDocs({ keys: batched.map(e => e.id), include_docs: true });
-            const docsToSend = docs.rows.filter(e => !("error" in e)).map(e => e.doc);
+            const docsToSend = docs.rows.filter(e => !("error" in e)).map((e: any) => e.doc);
             await dbTo.bulkDocs(docsToSend, { new_edits: false });
         } catch (ex) {
             Logger(`${dispKey}: Something went wrong on balancing`, LOG_LEVEL_NOTICE);

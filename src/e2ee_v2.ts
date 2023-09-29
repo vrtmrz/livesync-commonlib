@@ -1,7 +1,7 @@
 import { Logger } from "./logger.ts";
 import { LOG_LEVEL_VERBOSE } from "./types.ts";
 
-import { uint8ArrayToHexString, writeString, atob, hexStringToUint8Array, readString, arrayBufferToBase64Single } from "./strbin.ts";
+import { uint8ArrayToHexString, writeString, atob, hexStringToUint8Array, readString, arrayBufferToBase64Single, encodeBinary, decodeBinary } from "./strbin.ts";
 import { webcrypto } from "./mods.ts";
 
 
@@ -128,7 +128,7 @@ function getNonce() {
     return nonceBuffer;
 }
 
-export async function encrypt(input: string, passphrase: string, autoCalculateIterations: boolean) {
+export async function encryptV1(input: string, passphrase: string, autoCalculateIterations: boolean) {
     const [key, salt] = await getKeyForEncrypt(passphrase, autoCalculateIterations);
     // Create initial vector with semi-fixed part and incremental part
     // I think it's not good against related-key attacks.
@@ -136,18 +136,52 @@ export async function encrypt(input: string, passphrase: string, autoCalculateIt
     const invocationPart = getNonce();
     const iv = new Uint8Array([...fixedPart, ...new Uint8Array(invocationPart.buffer)]);
     const plainStringified = JSON.stringify(input);
-
-    // const plainStringBuffer: Uint8Array = tex.encode(plainStringified)
     const plainStringBuffer: Uint8Array = writeString(plainStringified);
     const encryptedDataArrayBuffer = await webcrypto.subtle.encrypt({ name: "AES-GCM", iv }, key, plainStringBuffer);
     const encryptedData2 = (await arrayBufferToBase64Single(encryptedDataArrayBuffer));
-    //return data with iv and salt.
     const ret = `["${encryptedData2}","${uint8ArrayToHexString(iv)}","${uint8ArrayToHexString(salt)}"]`;
     return ret;
+}
+export async function encrypt(input: string, passphrase: string, autoCalculateIterations: boolean, useV1: boolean) {
+    if (useV1) return encryptV1(input, passphrase, autoCalculateIterations);
+    const [key, salt] = await getKeyForEncrypt(passphrase, autoCalculateIterations);
+    // Create initial vector with semi-fixed part and incremental part
+    // I think it's not good against related-key attacks.
+    const fixedPart = getSemiStaticField();
+    const invocationPart = getNonce();
+    const iv = new Uint8Array([...fixedPart, ...new Uint8Array(invocationPart.buffer)]);
+    const dataBuf = writeString(input)
+    const encryptedDataArrayBuffer = await webcrypto.subtle.encrypt({ name: "AES-GCM", iv }, key, dataBuf);
+    const encryptedData2 = (await encodeBinary(encryptedDataArrayBuffer, useV1)).join("");
+    // return data with iv and salt.
+    // |%| iv(32) | salt(32) | data ....  
+    const ret = `%${uint8ArrayToHexString(iv)}${uint8ArrayToHexString(salt)}${encryptedData2}`;
+    return ret;
+}
+
+async function decryptV2(encryptedResult: string, passphrase: string, autoCalculateIterations: boolean): Promise<string> {
+    try {
+        const ivStr = encryptedResult.substring(1, 33);
+        const salt = encryptedResult.substring(33, 65);
+        const encryptedData = encryptedResult.substring(65);
+        const [key] = await getKeyForDecryption(passphrase, hexStringToUint8Array(salt), autoCalculateIterations);
+        const iv = hexStringToUint8Array(ivStr);
+        const encryptedDataArrayBuffer = decodeBinary(encryptedData)
+        const dataBuffer = await webcrypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encryptedDataArrayBuffer);
+        const plain = readString(new Uint8Array(dataBuffer));
+        return plain;
+    } catch (ex) {
+        Logger("Couldn't decode! You should wrong the passphrases (V2)", LOG_LEVEL_VERBOSE);
+        Logger(ex, LOG_LEVEL_VERBOSE);
+        throw ex;
+    }
 }
 
 export async function decrypt(encryptedResult: string, passphrase: string, autoCalculateIterations: boolean): Promise<string> {
     try {
+        if (encryptedResult[0] == "%") {
+            return decryptV2(encryptedResult, passphrase, autoCalculateIterations);
+        }
         if (!encryptedResult.startsWith("[") || !encryptedResult.endsWith("]")) {
             throw new Error("Encrypted data corrupted!");
         }
@@ -184,9 +218,13 @@ export async function tryDecrypt(encryptedResult: string, passphrase: string | f
 }
 export async function testCrypt() {
     const src = "supercalifragilisticexpialidocious";
-    const encoded = await encrypt(src, "passwordTest", false);
+
+    const encoded = await encrypt(src, "passwordTest", false, false);
+    const encoded2 = await encrypt(src, "passwordTest", false, true);
     const decrypted = await decrypt(encoded, "passwordTest", false);
-    if (src != decrypted) {
+    const decrypted2 = await decrypt(encoded2, "passwordTest", false);
+
+    if (src != decrypted || src != decrypted2) {
         Logger("WARNING! Your device would not support encryption.", LOG_LEVEL_VERBOSE);
         return false;
     } else {

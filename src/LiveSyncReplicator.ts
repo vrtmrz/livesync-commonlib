@@ -202,7 +202,7 @@ export class LiveSyncDBReplicator {
             this.updateInfo();
         } catch (ex) {
             Logger("Replication callback error", LOG_LEVEL_NOTICE, "sync");
-            Logger(ex, LOG_LEVEL_NOTICE);
+            Logger(ex, LOG_LEVEL_VERBOSE);
             //
         }
     }
@@ -217,14 +217,14 @@ export class LiveSyncDBReplicator {
         this.updateInfo();
         this.terminateSync();
         Logger("Replication denied", LOG_LEVEL_NOTICE, "sync");
-        Logger(e);
+        Logger(e, LOG_LEVEL_VERBOSE);
     }
     replicationErrored(e: any) {
         this.syncStatus = "ERRORED";
         this.terminateSync();
         this.updateInfo();
         Logger("Replication error", LOG_LEVEL_NOTICE, "sync");
-        Logger(e);
+        Logger(e, LOG_LEVEL_VERBOSE);
     }
     replicationPaused() {
         this.syncStatus = "PAUSED";
