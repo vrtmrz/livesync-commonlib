@@ -549,7 +549,7 @@ function decodeAsyncReader(buffer: Uint16Array): Promise<string> {
 // const decodeFuncIdxMax = decodeFuncs.length;
 
 // Encode Uint8Array to valid string via UTF-16.
-export function encodeBinaryEach(buffer: Uint8Array): Promise<string> {
+export async function encodeBinaryEach(buffer: Uint8Array): Promise<string> {
     const len = buffer.byteLength;
     const out = new Uint16Array(buffer);
     for (let i = 0; i < len; i++) {
@@ -562,7 +562,7 @@ export function encodeBinaryEach(buffer: Uint8Array): Promise<string> {
         }
     }
     // Return it as utf-16 string.
-    return decodeAsync(out);
+    return await decodeAsync(out);
 }
 
 export function decodeToArrayBuffer(src: string[]) {
