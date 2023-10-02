@@ -1,7 +1,7 @@
 import { Logger } from "./logger.ts";
 import { LOG_LEVEL_VERBOSE } from "./types.ts";
 
-import { uint8ArrayToHexString, writeString, atob, hexStringToUint8Array, readString, arrayBufferToBase64Single, encodeBinary, decodeBinary } from "./strbin.ts";
+import { uint8ArrayToHexString, writeString, atob, hexStringToUint8Array, readString, arrayBufferToBase64Single, decodeBinary, encodeBinaryEach } from "./strbin.ts";
 import { webcrypto } from "./mods.ts";
 
 
@@ -152,7 +152,7 @@ export async function encrypt(input: string, passphrase: string, autoCalculateIt
     const iv = new Uint8Array([...fixedPart, ...new Uint8Array(invocationPart.buffer)]);
     const dataBuf = writeString(input)
     const encryptedDataArrayBuffer = await webcrypto.subtle.encrypt({ name: "AES-GCM", iv }, key, dataBuf);
-    const encryptedData2 = (await encodeBinary(encryptedDataArrayBuffer, useV1)).join("");
+    const encryptedData2 = "%" + await encodeBinaryEach(new Uint8Array(encryptedDataArrayBuffer));
     // return data with iv and salt.
     // |%| iv(32) | salt(32) | data ....  
     const ret = `%${uint8ArrayToHexString(iv)}${uint8ArrayToHexString(salt)}${encryptedData2}`;

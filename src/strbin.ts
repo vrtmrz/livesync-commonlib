@@ -22,7 +22,7 @@ const revTable = {} as Record<number, number>;
     revTable[e] = i;
 })
 
-const td = new TextDecoder("utf-16", { fatal: true });
+const decoderStreamAvailable = (typeof TextDecoderStream !== "undefined");
 
 const BINARY_CHUNK_MAX = 1024 * 1024 * 30;
 export function hexStringToUint8Array(src: string): Uint8Array {
@@ -140,6 +140,8 @@ export function binaryToBinaryString(src: Uint8Array): string {
 }
 
 const encodeChunkSize = 3 * 50000000;
+
+
 function arrayBufferToBase64internalBrowser(buffer: DataView | Uint8Array): Promise<string> {
     return new Promise((res, rej) => {
         const blob = new Blob([buffer], { type: "application/octet-binary" });
@@ -477,23 +479,34 @@ export function crc32CKHash(strSrc: string): string {
 
 
 
-export async function arrayBufferToEncoded(buffer: Uint8Array): Promise<string[]> {
+export async function _encodeBinary(buffer: Uint8Array): Promise<string[]> {
     const len = buffer.length;
     if (len < BINARY_CHUNK_MAX) {
-        return [await _arrayBufferToEncoded(buffer)];
+        return [await encodeBinaryEach(buffer)];
     }
     const out = [];
     for (let i = 0; i < len; i += BINARY_CHUNK_MAX) {
-        out.push(_arrayBufferToEncoded(buffer.subarray(i, i + BINARY_CHUNK_MAX)));
+        out.push(encodeBinaryEach(buffer.subarray(i, i + BINARY_CHUNK_MAX)));
     }
     return Promise.all(out);
 }
+async function decodeAsync(buffer: Uint16Array): Promise<string> {
+    if (!decoderStreamAvailable) return await decodeAsyncReader(buffer);
+    const decoderStream = new TextDecoderStream("utf-16");
+    const writer = decoderStream.writable.getWriter();
+    writer.write(buffer);
+    writer.close();
 
-function decode(param: Uint16Array) {
-    return td.decode(param, {});
+    const reader = decoderStream.readable.getReader();
+    const result = await reader.read();
+
+    if (!result.value) {
+        throw new Error("UTF-16 Parse error");
+    }
+
+    return result.value;
 }
-
-function decodeAsync(buffer: Uint16Array): Promise<string> {
+function decodeAsyncReader(buffer: Uint16Array): Promise<string> {
     return new Promise<string>((res, rej) => {
         const blob = new Blob([buffer], { type: "application/octet-binary" });
         const reader = new FileReader();
@@ -506,8 +519,37 @@ function decodeAsync(buffer: Uint16Array): Promise<string> {
     });
 }
 
+// let showResultTimer: ReturnType<typeof setTimeout>;
+// const measured = {} as Record<string, {
+//     count: number,
+//     spent: number,
+// }>;
+// const pf = window.performance;
+// export function measure(key: string) {
+//     const start = pf.now();
+//     function trimNum(e: number) {
+//         const out = `${e}`;
+//         const period = out.indexOf(".");
+//         if (period == -1) return out;
+//         return out.substring(0, period + 3);
+//     }
+//     return function end() {
+//         const end = pf.now();
+//         const spent = end - start;
+//         measured[key] = { count: (measured[key]?.count ?? 0) + 1, spent: (measured[key]?.spent ?? 0) + spent }
+//         if (showResultTimer) clearTimeout(showResultTimer);
+//         showResultTimer = setTimeout(() => {
+//             console.table(Object.fromEntries(Object.entries(measured).map(e => [e[0], { ...e[1], each: e[1].spent / e[1].count }])));
+//             // Logger(Object.entries(measured).sort((a, b) => a[0].localeCompare(b[0])).map(e => ({ key: e[0], ...e[1], each: e[1].spent / e[1].count })).map(e => `${e.key} - ${e.count} / ${trimNum(e.spent)} (${trimNum(e.each)})`).join("\n"), LOG_LEVEL_NOTICE);
+//         }, 500)
+//     }
+// }
+
+// const decodeFuncs = [decode, decode, decode, decodeAsync, decode, decodeAsync];
+// const decodeFuncIdxMax = decodeFuncs.length;
+
 // Encode Uint8Array to valid string via UTF-16.
-export async function _arrayBufferToEncoded(buffer: Uint8Array): Promise<string> {
+export function encodeBinaryEach(buffer: Uint8Array): Promise<string> {
     const len = buffer.byteLength;
     const out = new Uint16Array(buffer);
     for (let i = 0; i < len; i++) {
@@ -520,11 +562,7 @@ export async function _arrayBufferToEncoded(buffer: Uint8Array): Promise<string>
         }
     }
     // Return it as utf-16 string.
-    if (out.length < 10240) {
-        return decode(out);
-    } else {
-        return await decodeAsync(out);
-    }
+    return decodeAsync(out);
 }
 
 export function decodeToArrayBuffer(src: string[]) {
@@ -571,6 +609,6 @@ export function decodeBinary(src: string | string[]) {
 export async function encodeBinary(src: Uint8Array | ArrayBuffer, useV1: boolean): Promise<string[]> {
     if (useV1) return await arrayBufferToBase64(src);
     const buf = src instanceof ArrayBuffer ? new Uint8Array(src) : src;
-    const [head, ...last] = await arrayBufferToEncoded(buf);
+    const [head, ...last] = await _encodeBinary(buf);
     return ["%" + head, ...last];
 }
