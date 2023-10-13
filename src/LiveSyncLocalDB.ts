@@ -406,14 +406,14 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     async *findEntries(startKey: string, endKey: string, opt: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
         const pageLimit = 100;
         let nextKey = startKey;
-        let req = this.localDatabase.allDocs({ limit: pageLimit, startkey: nextKey, endkey: endKey, include_docs: true, ...opt });
+        let req = this.allDocsRaw({ limit: pageLimit, startkey: nextKey, endkey: endKey, include_docs: true, ...opt });
         do {
             const docs = await req;
             if (docs.rows.length === 0) {
                 break;
             }
-            nextKey = `${docs.rows[docs.rows.length - 1].id}\u{10ffff}`;
-            req = this.localDatabase.allDocs({ limit: pageLimit, startkey: nextKey, endkey: endKey, include_docs: true, ...opt });
+            nextKey = `${docs.rows[docs.rows.length - 1].id}`;
+            req = this.allDocsRaw({ limit: pageLimit, skip: 1, startkey: nextKey, endkey: endKey, include_docs: true, ...opt });
             for (const row of docs.rows) {
                 const doc = row.doc;
                 if (!("type" in doc)) continue;
@@ -425,27 +425,29 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         } while (nextKey != "");
     }
     async *findAllDocs(opt?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
-        const f1 = this.findEntries("", "h:", opt ?? {});
-        const f2 = this.findEntries(`h:\u{10ffff}`, "", opt ?? {});
-        for await (const f of f1) {
-            yield f;
-        }
-        for await (const f of f2) {
-            yield f;
+        const targets = [
+            () => this.findEntries("_\u{10ffff}", "h:", opt ?? {}),
+            () => this.findEntries(`h:\u{10ffff}`, "", opt ?? {}),
+        ]
+        for (const targetFun of targets) {
+            const target = targetFun();
+            for await (const f of target) {
+                yield f;
+            }
         }
     }
     async *findEntryNames(startKey: string, endKey: string, opt: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
         const pageLimit = 100;
         let nextKey = startKey;
-        let req = this.localDatabase.allDocs({ limit: pageLimit, startkey: nextKey, endkey: endKey, ...opt });
+        let req = this.allDocsRaw({ limit: pageLimit, startkey: nextKey, endkey: endKey, ...opt });
         do {
             const docs = await req;
             if (docs.rows.length == 0) {
                 nextKey = "";
                 break;
             }
-            nextKey = `${docs.rows[docs.rows.length - 1].key}\u{10ffff}`;
-            req = this.localDatabase.allDocs({ limit: pageLimit, startkey: nextKey, endkey: endKey, ...opt });
+            nextKey = `${docs.rows[docs.rows.length - 1].key}`;
+            req = this.allDocsRaw({ limit: pageLimit, skip: 1, startkey: nextKey, endkey: endKey, ...opt });
             for (const row of docs.rows) {
                 yield row.id;
             }
@@ -453,14 +455,15 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     }
     async *findAllDocNames(opt?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
         const targets = [
-            this.findEntryNames("", "h:", opt ?? {}),
-            this.findEntryNames(`h:\u{10ffff}`, "i:", opt ?? {}),
-            this.findEntryNames(`i:\u{10ffff}`, "ix:", opt ?? {}),
-            this.findEntryNames(`ix:\u{10ffff}`, "ps:", opt ?? {}),
-            this.findEntryNames(`ps:\u{10ffff}`, "", opt ?? {}),
+            () => this.findEntryNames("_\u{10ffff}", "h:", opt ?? {}),
+            () => this.findEntryNames(`h:\u{10ffff}`, "i:", opt ?? {}),
+            () => this.findEntryNames(`i:\u{10ffff}`, "ix:", opt ?? {}),
+            () => this.findEntryNames(`ix:\u{10ffff}`, "ps:", opt ?? {}),
+            () => this.findEntryNames(`ps:\u{10ffff}`, "", opt ?? {}),
 
         ]
-        for (const target of targets) {
+        for (const targetFun of targets) {
+            const target = targetFun();
             for await (const f of target) {
                 if (f.startsWith("_")) continue;
                 if (f == VERSIONINFO_DOCID) continue;
@@ -470,13 +473,14 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     }
     async *findAllNormalDocs(opt?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
         const targets = [
-            this.findEntries("", "h:", opt ?? {}),
-            this.findEntries(`h:\u{10ffff}`, "i:", opt ?? {}),
-            this.findEntries(`i:\u{10ffff}`, "ix:", opt ?? {}),
-            this.findEntries(`ix:\u{10ffff}`, "ps:", opt ?? {}),
-            this.findEntries(`ps:\u{10ffff}`, "", opt ?? {}),
+            () => this.findEntries("_\u{10ffff}", "h:", opt ?? {}),
+            () => this.findEntries(`h:\u{10ffff}`, "i:", opt ?? {}),
+            () => this.findEntries(`i:\u{10ffff}`, "ix:", opt ?? {}),
+            () => this.findEntries(`ix:\u{10ffff}`, "ps:", opt ?? {}),
+            () => this.findEntries(`ps:\u{10ffff}`, "", opt ?? {}),
         ]
-        for (const target of targets) {
+        for (const targetFun of targets) {
+            const target = targetFun();
             for await (const f of target) {
                 if (f._id.startsWith("_")) continue;
                 if (f.type != "newnote" && f.type != "plain") continue;
@@ -498,9 +502,9 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         return this.localDatabase.put(doc, options || {})
     }
 
-    allDocsRaw<T>(options?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions | PouchDB.Core.AllDocsOptions):
+    allDocsRaw<T extends EntryDoc>(options?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions | PouchDB.Core.AllDocsOptions):
         Promise<PouchDB.Core.AllDocsResponse<T>> {
-        return this.localDatabase.allDocs(options);
+        return this.localDatabase.allDocs<T>(options);
     }
 
     bulkDocsRaw<T extends EntryDoc>(docs: Array<PouchDB.Core.PutDocument<T>>, options?: PouchDB.Core.BulkDocsOptions): Promise<Array<PouchDB.Core.Response | PouchDB.Core.Error>> {
