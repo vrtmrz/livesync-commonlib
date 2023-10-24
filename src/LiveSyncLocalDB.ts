@@ -456,7 +456,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     }
     async *findAllDocNames(opt?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
         const targets = [
-            () => this.findEntries("", "_", opt ?? {}),
+            () => this.findEntryNames("", "_", opt ?? {}),
             () => this.findEntryNames("_\u{10ffff}", "h:", opt ?? {}),
             () => this.findEntryNames(`h:\u{10ffff}`, "i:", opt ?? {}),
             () => this.findEntryNames(`i:\u{10ffff}`, "ix:", opt ?? {}),
