@@ -491,6 +491,7 @@ export async function _encodeBinary(buffer: Uint8Array): Promise<string[]> {
     return Promise.all(out);
 }
 async function decodeAsync(buffer: Uint16Array): Promise<string> {
+    if (buffer.length == 0) return "";
     if (!decoderStreamAvailable) return await decodeAsyncReader(buffer);
     const decoderStream = new TextDecoderStream("utf-16");
     const writer = decoderStream.writable.getWriter();
