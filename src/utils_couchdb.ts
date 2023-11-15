@@ -1,4 +1,4 @@
-import { decrypt, encrypt } from "./e2ee_v2.ts";
+import { decrypt, encrypt, obfuscatePath } from "./e2ee_v2.ts";
 import { serialized } from "./lock.ts";
 import { Logger } from "./logger.ts";
 import { getPath } from "./path.ts";
@@ -162,7 +162,8 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
             }
             if (isObfuscatedEntry(saveDoc)) {
                 try {
-                    saveDoc.path = await encrypt(getPath(saveDoc), passphrase, useDynamicIterationCount, useV1) as unknown as FilePathWithPrefix;
+                    saveDoc.path = await obfuscatePath(getPath(saveDoc), passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
+                    // saveDoc.path = await encrypt(getPath(saveDoc), passphrase, useDynamicIterationCount, useV1) as unknown as FilePathWithPrefix;
                 } catch (ex) {
                     Logger("Encryption failed.", LOG_LEVEL_NOTICE);
                     Logger(ex);
@@ -209,11 +210,13 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                             }
                             Logger("Decryption failed.", LOG_LEVEL_NOTICE);
                             Logger(ex, LOG_LEVEL_VERBOSE);
+                            Logger(`id:${loadDoc._id}-${loadDoc._rev}`, LOG_LEVEL_VERBOSE);
                             throw ex;
                         }
                     } else {
                         Logger("Decryption failed.", LOG_LEVEL_NOTICE);
                         Logger(ex, LOG_LEVEL_VERBOSE);
+                        Logger(`id:${loadDoc._id}-${loadDoc._rev}`, LOG_LEVEL_VERBOSE);
                         throw ex;
                     }
                 }

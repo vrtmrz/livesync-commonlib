@@ -1,5 +1,5 @@
 import { Logger } from "./logger.ts";
-import { LOG_LEVEL_VERBOSE } from "./types.ts";
+import { FilePathWithPrefix, LOG_LEVEL_VERBOSE } from "./types.ts";
 
 import { uint8ArrayToHexString, writeString, atob, hexStringToUint8Array, readString, arrayBufferToBase64Single, decodeBinary, encodeBinaryEach } from "./strbin.ts";
 import { webcrypto } from "./mods.ts";
@@ -152,6 +152,53 @@ export async function encrypt(input: string, passphrase: string, autoCalculateIt
     const iv = new Uint8Array([...fixedPart, ...new Uint8Array(invocationPart.buffer)]);
     const dataBuf = writeString(input)
     const encryptedDataArrayBuffer = await webcrypto.subtle.encrypt({ name: "AES-GCM", iv }, key, dataBuf);
+    const encryptedData2 = "%" + await encodeBinaryEach(new Uint8Array(encryptedDataArrayBuffer));
+    // return data with iv and salt.
+    // |%| iv(32) | salt(32) | data ....  
+    const ret = `%${uint8ArrayToHexString(iv)}${uint8ArrayToHexString(salt)}${encryptedData2}`;
+    return ret;
+}
+async function getKeyForObfuscatePath(passphrase: string, dataBuf: Uint8Array, autoCalculateIterations: boolean): Promise<[CryptoKey, Uint8Array, Uint8Array]> {
+    const passphraseLen = 15 - passphrase.length;
+    const iteration = autoCalculateIterations ? ((passphraseLen > 0 ? passphraseLen : 0) * 1000) + 121 - passphraseLen : 100000;
+    const passphraseBin = new TextEncoder().encode(passphrase);
+    const digest = await webcrypto.subtle.digest({ name: "SHA-256" }, passphraseBin);
+    const buf2 = new Uint8Array(await webcrypto.subtle.digest({ name: "SHA-256" }, new Uint8Array([...dataBuf, ...passphraseBin])));
+    const salt = buf2.slice(0, 16);
+    const iv = buf2.slice(16, 32);
+    const keyMaterial = await webcrypto.subtle.importKey("raw", digest, { name: "PBKDF2" }, false, ["deriveKey"]);
+    const key = await webcrypto.subtle.deriveKey(
+        {
+            name: "PBKDF2",
+            salt,
+            iterations: iteration,
+            hash: "SHA-256",
+        },
+        keyMaterial,
+        { name: "AES-GCM", length: 256 },
+        false,
+        ["encrypt"]
+    );
+    return [key, salt, iv];
+}
+/**
+ * Encrypt path but deterministic.
+ * @param path Path to obfuscate
+ * @param passphrase passphrase
+ * @param autoCalculateIterations if true, iterations will be calculated.
+ * @returns An obfuscated path. Compatible with `decrypt` function.
+ */
+export async function obfuscatePath(path: FilePathWithPrefix, passphrase: string, autoCalculateIterations: boolean) {
+    const dataBuf = writeString(path)
+    const [key, salt, iv] = await getKeyForObfuscatePath(passphrase, dataBuf, autoCalculateIterations);
+    const encryptedDataArrayBuffer = await webcrypto.subtle.encrypt(
+        {
+            name: "AES-GCM",
+            iv: iv,
+        },
+        key,
+        dataBuf,
+    );
     const encryptedData2 = "%" + await encodeBinaryEach(new Uint8Array(encryptedDataArrayBuffer));
     // return data with iv and salt.
     // |%| iv(32) | salt(32) | data ....  
