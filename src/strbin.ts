@@ -1,3 +1,5 @@
+import { Logger } from "./logger";
+import { LOG_LEVEL_VERBOSE } from "./types";
 import { createTextBlob } from "./utils";
 
 // Map for converting hexString
@@ -206,6 +208,8 @@ export function base64ToString(base64: string | string[]): string {
         }
         return readString(bytes);
     } catch (ex) {
+        Logger("Base64 To String error",LOG_LEVEL_VERBOSE);
+        Logger(ex,LOG_LEVEL_VERBOSE);
         if (typeof base64 != "string") return base64.join("");
         return base64
     }
@@ -243,6 +247,8 @@ function base64ToArrayBufferInternalBrowser(base64: string): ArrayBuffer {
         }
         return bytes.buffer;
     } catch (ex) {
+        Logger("Base64 Decode error", LOG_LEVEL_VERBOSE);
+        Logger(ex, LOG_LEVEL_VERBOSE);
         const len = base64.length;
         const bytes = new Uint8Array(len);
         for (let i = 0; i < len; i++) {
@@ -368,7 +374,7 @@ export async function splitPieces2(dataSrcX: string | string[] | Blob, pieceSize
         let i = 0;
         do {
             let splitSize = pieceSize;
-            const currentData = new Uint8Array(await dataSrc.slice(i, pieceSize).arrayBuffer());
+            const currentData = new Uint8Array(await dataSrc.slice(i, i + pieceSize).arrayBuffer());
             // Find null (or / at PDF) or newLine, and make chunks.
             // To avoid making too much chunks, all chunks should be longer than minimumChunkSize.
             // However, we might have been capped the chunk size due to HTTP request size or document size on CouchDB.
