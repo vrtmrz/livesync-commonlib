@@ -1,3 +1,4 @@
+import { createTextBlob } from "./utils";
 
 // Map for converting hexString
 const revMap: { [key: string]: number } = {};
@@ -302,35 +303,12 @@ function* pickPiece(leftData: string[], minimumChunkSize: number): Generator<str
     } while (leftData.length > 0);
 }
 
-// Take the total length of the string.
-function totalSize(str: string[]) {
-    return str.reduce((p, c) => p + c.length, 0);
-}
-
-const charNull = String.fromCharCode(table[0]);
-const charNewLine = String.fromCharCode(table[13]);
+const charNewLine = "\n".charCodeAt(0);
 
 // Split string into pieces within specific lengths (characters).
-export function splitPieces2(dataSrc: string | string[], pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string, useV1?: boolean) {
-    let delimiter = plainSplit ? "\n" : charNull;
-    if (filename && filename.endsWith(".pdf")) {
-        delimiter = "/";
-    }
+export function splitPiecesText(dataSrc: string | string[], pieceSize: number, plainSplit: boolean, minimumChunkSize: number) {
 
     const dataList = typeof (dataSrc) == "string" ? [dataSrc] : dataSrc;
-    if (!plainSplit && !useV1) {
-        // Optimise chunk size to efficient dedupe.
-        const clampMin = 100000; //100kb
-        const clampMax = 100000000; //100mb
-        const clampedSize = Math.max(clampMin, Math.min(clampMax, totalSize(dataList)));
-        let step = 1;
-        let w = clampedSize;
-        while (w > 10) {
-            w /= 12.5;
-            step++;
-        }
-        minimumChunkSize = Math.floor(10 ** (step - 1));
-    }
     return function* pieces(): Generator<string> {
 
         for (const data of dataList) {
@@ -353,34 +331,63 @@ export function splitPieces2(dataSrc: string | string[], pieceSize: number, plai
             } else {
                 let leftData = data;
                 do {
-                    let splitSize = pieceSize;
-                    if (!useV1) {
-                        // Find null (or / at PDF) or newLine, and make chunks.
-                        // To avoid making too much chunks, all chunks should be longer than minimumChunkSize.
-                        // However, we might have been capped the chunk size due to HTTP request size or document size on CouchDB.
-                        // The illustration is as follows. Each `[]` will yielded.
-                        // data         | ........ \0 ....\0 .... \0 ...\0 ...\0..
-                        // minimum   -- |{--------------}  |
-                        // pieceSize == |[============][..]|
-                        // minimum   -- |                  |{--------------}   |
-                        // pieceSize == |                  |[============][...]|
-                        let nextIdx = leftData.indexOf(delimiter, minimumChunkSize);
-                        if (nextIdx == -1) nextIdx = leftData.indexOf(charNewLine, minimumChunkSize);
-                        splitSize = nextIdx == -1 ? pieceSize : (Math.min(pieceSize, nextIdx));
-                    }
-                    let piece = leftData.substring(0, splitSize);
+                    const splitSize = pieceSize;
+                    const piece = leftData.substring(0, splitSize);
                     leftData = leftData.substring(splitSize);
-                    if (useV1) {
-                        yield piece;
-                    } else {
-                        while (piece != "") {
-                            yield piece.substring(0, pieceSize);
-                            piece = piece.substring(pieceSize);
-                        }
-                    }
+                    yield piece;
                 } while (leftData != "");
             }
         }
+    };
+}
+export async function splitPieces2(dataSrcX: string | string[] | Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string) {
+    const dataSrc = (!(dataSrcX instanceof Blob)) ? createTextBlob(dataSrcX) : dataSrcX;
+    if (plainSplit) {
+        return splitPiecesText(await dataSrc.text(), pieceSize, plainSplit, minimumChunkSize);
+    }
+
+    let delimiter = 0; // Split null by default.
+    if (filename && filename.endsWith(".pdf")) {
+        delimiter = "/".charCodeAt(0);
+    }
+
+    // Optimise chunk size to efficient dedupe.
+    const clampMin = 100000; //100kb
+    const clampMax = 100000000; //100mb
+    const clampedSize = Math.max(clampMin, Math.min(clampMax, dataSrc.size));
+    let step = 1;
+    let w = clampedSize;
+    while (w > 10) {
+        w /= 12.5;
+        step++;
+    }
+    minimumChunkSize = Math.floor(10 ** (step - 1));
+
+    return async function* piecesBlob(): AsyncGenerator<string> {
+        const size = dataSrc.size;
+        let i = 0;
+        do {
+            let splitSize = pieceSize;
+            const currentData = new Uint8Array(await dataSrc.slice(i, pieceSize).arrayBuffer());
+            // Find null (or / at PDF) or newLine, and make chunks.
+            // To avoid making too much chunks, all chunks should be longer than minimumChunkSize.
+            // However, we might have been capped the chunk size due to HTTP request size or document size on CouchDB.
+            // The illustration is as follows. Each `[]` will yielded.
+            // data         | ........ \0 ....\0 .... \0 ...\0 ...\0..
+            // minimum   -- |{--------------}  |
+            // pieceSize == |[============][..]|
+            // minimum   -- |                  |{--------------}   |
+            // pieceSize == |                  |[============][...]|
+            let nextIdx = currentData.indexOf(delimiter, minimumChunkSize);
+            splitSize = nextIdx == -1 ? pieceSize : (Math.min(pieceSize, nextIdx));
+            if (nextIdx == -1) nextIdx = currentData.indexOf(charNewLine, minimumChunkSize);
+            const piece = currentData.slice(0, splitSize);
+            i += piece.length;
+            yield await arrayBufferToBase64Single(piece);
+
+        } while (i < size);
+
+
     };
 }
 
@@ -607,9 +614,6 @@ export function decodeBinary(src: string | string[]) {
     }
     return base64ToArrayBuffer(src);
 }
-export async function encodeBinary(src: Uint8Array | ArrayBuffer, useV1: boolean): Promise<string[]> {
-    if (useV1) return await arrayBufferToBase64(src);
-    const buf = src instanceof ArrayBuffer ? new Uint8Array(src) : src;
-    const [head, ...last] = await _encodeBinary(buf);
-    return ["%" + head, ...last];
+export async function encodeBinary(src: Uint8Array | ArrayBuffer): Promise<string[]> {
+    return await arrayBufferToBase64(src);
 }

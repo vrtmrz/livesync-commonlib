@@ -1,7 +1,7 @@
 import { Logger } from "./logger.ts";
-import { FilePathWithPrefix, LOG_LEVEL_VERBOSE } from "./types.ts";
+import { type FilePathWithPrefix, LOG_LEVEL_VERBOSE } from "./types.ts";
 
-import { uint8ArrayToHexString, writeString, atob, hexStringToUint8Array, readString, arrayBufferToBase64Single, decodeBinary, encodeBinaryEach } from "./strbin.ts";
+import { uint8ArrayToHexString, writeString, atob, hexStringToUint8Array, readString, arrayBufferToBase64Single, decodeBinary } from "./strbin.ts";
 import { webcrypto } from "./mods.ts";
 
 
@@ -142,8 +142,7 @@ export async function encryptV1(input: string, passphrase: string, autoCalculate
     const ret = `["${encryptedData2}","${uint8ArrayToHexString(iv)}","${uint8ArrayToHexString(salt)}"]`;
     return ret;
 }
-export async function encrypt(input: string, passphrase: string, autoCalculateIterations: boolean, useV1: boolean) {
-    if (useV1) return encryptV1(input, passphrase, autoCalculateIterations);
+export async function encrypt(input: string, passphrase: string, autoCalculateIterations: boolean) {
     const [key, salt] = await getKeyForEncrypt(passphrase, autoCalculateIterations);
     // Create initial vector with semi-fixed part and incremental part
     // I think it's not good against related-key attacks.
@@ -152,7 +151,7 @@ export async function encrypt(input: string, passphrase: string, autoCalculateIt
     const iv = new Uint8Array([...fixedPart, ...new Uint8Array(invocationPart.buffer)]);
     const dataBuf = writeString(input)
     const encryptedDataArrayBuffer = await webcrypto.subtle.encrypt({ name: "AES-GCM", iv }, key, dataBuf);
-    const encryptedData2 = "%" + await encodeBinaryEach(new Uint8Array(encryptedDataArrayBuffer));
+    const encryptedData2 = "" + await arrayBufferToBase64Single(new Uint8Array(encryptedDataArrayBuffer));
     // return data with iv and salt.
     // |%| iv(32) | salt(32) | data ....  
     const ret = `%${uint8ArrayToHexString(iv)}${uint8ArrayToHexString(salt)}${encryptedData2}`;
@@ -199,7 +198,7 @@ export async function obfuscatePath(path: FilePathWithPrefix, passphrase: string
         key,
         dataBuf,
     );
-    const encryptedData2 = "%" + await encodeBinaryEach(new Uint8Array(encryptedDataArrayBuffer));
+    const encryptedData2 = await arrayBufferToBase64Single(new Uint8Array(encryptedDataArrayBuffer));
     // return data with iv and salt.
     // |%| iv(32) | salt(32) | data ....  
     const ret = `%${uint8ArrayToHexString(iv)}${uint8ArrayToHexString(salt)}${encryptedData2}`;
@@ -266,12 +265,10 @@ export async function tryDecrypt(encryptedResult: string, passphrase: string | f
 export async function testCrypt() {
     const src = "supercalifragilisticexpialidocious";
 
-    const encoded = await encrypt(src, "passwordTest", false, false);
-    const encoded2 = await encrypt(src, "passwordTest", false, true);
+    const encoded = await encrypt(src, "passwordTest", false);
     const decrypted = await decrypt(encoded, "passwordTest", false);
-    const decrypted2 = await decrypt(encoded2, "passwordTest", false);
 
-    if (src != decrypted || src != decrypted2) {
+    if (src != decrypted) {
         Logger("WARNING! Your device would not support encryption.", LOG_LEVEL_VERBOSE);
         return false;
     } else {

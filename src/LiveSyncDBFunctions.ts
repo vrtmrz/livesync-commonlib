@@ -3,7 +3,7 @@ import { Logger } from "./logger.ts";
 import { LRUCache } from "./LRUCache.ts";
 import { shouldSplitAsPlainText, stripAllPrefixes } from "./path.ts";
 import { splitPieces2 } from "./strbin.ts";
-import { type Entry, type EntryDoc, type EntryDocResponse, type EntryLeaf, type EntryMilestoneInfo, type LoadedEntry, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, type NewEntry, type NoteEntry, type PlainEntry, type RemoteDBSettings, type ChunkVersionRange, type EntryHasPath, type DocumentID, type FilePathWithPrefix, type FilePath, type HashAlgorithm, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types.ts";
+import { type Entry, type EntryDoc, type EntryDocResponse, type EntryLeaf, type EntryMilestoneInfo, type LoadedEntry, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, type NewEntry, type NoteEntry, type PlainEntry, type RemoteDBSettings, type ChunkVersionRange, type EntryHasPath, type DocumentID, type FilePathWithPrefix, type FilePath, type HashAlgorithm, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type SavingEntry } from "./types.ts";
 import { globalConcurrencyController, resolveWithIgnoreKnownError } from "./utils.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
@@ -17,7 +17,6 @@ interface DBFunctionSettings {
     readChunksOnline: boolean;
     doNotPaceReplication: boolean;
     hashAlg: HashAlgorithm;
-    useV1: boolean;
 }
 // This interface is expected to be unnecessary because of the change in dependency direction
 export interface DBFunctionEnvironment {
@@ -37,7 +36,7 @@ export interface DBFunctionEnvironment {
 }
 export async function putDBEntry(
     env: DBFunctionEnvironment,
-    note: LoadedEntry,
+    note: SavingEntry,
     saveAsBigChunk?: boolean): Promise<false | PouchDB.Core.Response> {
     //safety valve
     const filename = env.id2path(note._id, note);
@@ -50,7 +49,7 @@ export async function putDBEntry(
     let processed = 0;
     let made = 0;
     let skipped = 0;
-    const maxChunkSize = Math.floor(MAX_DOC_SIZE_BIN * ((env.settings.customChunkSize || 0) * (env.settings.useV1 ? 1 : 0.1) + 1));
+    const maxChunkSize = Math.floor(MAX_DOC_SIZE_BIN * ((env.settings.customChunkSize || 0) * 1 + 1));
     const pieceSize = maxChunkSize;
     let plainSplit = false;
     let cacheUsed = 0;
@@ -64,10 +63,10 @@ export async function putDBEntry(
 
     const newLeafs: EntryLeaf[] = [];
 
-    const pieces = splitPieces2(note.data, pieceSize, plainSplit, minimumChunkSize, filename, env.settings.useV1);
+    const pieces = await splitPieces2(note.data, pieceSize, plainSplit, minimumChunkSize, filename);
     const currentDocPiece = new Map<DocumentID, string>();
     let saved = true;
-    for (const piece of pieces()) {
+    for await (const piece of pieces()) {
         processed++;
         let leafId = "" as DocumentID;
         // Get hash of piece.

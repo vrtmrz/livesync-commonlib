@@ -143,7 +143,7 @@ export async function putDesignDocuments(db: PouchDB.Database) {
 }
 
 // requires transform-pouch
-export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: string, useDynamicIterationCount: boolean, migrationDecrypt: boolean, useV1: boolean) => {
+export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: string, useDynamicIterationCount: boolean, migrationDecrypt: boolean) => {
     const decrypted = new Map();
     //@ts-ignore
     db.transform({
@@ -153,7 +153,7 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
             } as EntryLeaf | AnyEntry;
             if (isEncryptedChunkEntry(saveDoc) || isSyncInfoEntry(saveDoc)) {
                 try {
-                    saveDoc.data = await encrypt(saveDoc.data, passphrase, useDynamicIterationCount, useV1);
+                    saveDoc.data = await encrypt(saveDoc.data, passphrase, useDynamicIterationCount);
                 } catch (ex) {
                     Logger("Encryption failed.", LOG_LEVEL_NOTICE);
                     Logger(ex);

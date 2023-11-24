@@ -12,6 +12,8 @@ import {
     type DocumentID,
     type FilePathWithPrefix,
     type FilePath,
+    type SavingEntry,
+    type DatabaseEntry,
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_VERBOSE,
 } from "./types.ts";
@@ -216,7 +218,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         return deleteDBEntryPrefix(this, prefixSrc);
     }
     // eslint-disable-next-line require-await
-    async putDBEntry(note: LoadedEntry, saveAsBigChunk?: boolean) {
+    async putDBEntry(note: SavingEntry, saveAsBigChunk?: boolean) {
         return putDBEntry(this, note, saveAsBigChunk);
     }
 
@@ -505,7 +507,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         return this.localDatabase.put(doc, options || {})
     }
 
-    allDocsRaw<T extends EntryDoc>(options?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions | PouchDB.Core.AllDocsOptions):
+    allDocsRaw<T extends EntryDoc | DatabaseEntry>(options?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions | PouchDB.Core.AllDocsOptions):
         Promise<PouchDB.Core.AllDocsResponse<T>> {
         return this.localDatabase.allDocs<T>(options);
     }

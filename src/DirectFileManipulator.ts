@@ -10,6 +10,7 @@ import { splitPieces2 } from "./strbin.ts";
 import { type Task, processAllTasksWithConcurrencyLimit } from "./task.ts";
 import { type DocumentID, type FilePathWithPrefix, MAX_DOC_SIZE_BIN, type NewEntry, type PlainEntry, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types.ts";
 import { default as xxhash, type XXHashAPI } from "xxhash-wasm-102";
+import { createTextBlob } from "./utils.ts";
 
 
 export type DirectFileManipulatorOptions = {
@@ -142,7 +143,7 @@ export class DirectFileManipulator {
     async encryptDocumentPath<T extends ReadyEntry | MetaEntry>(entry: T): Promise<T> {
         return {
             ...entry,
-            path: this.options.obfuscatePassphrase ? await encrypt(entry.path, this.options.obfuscatePassphrase, this.options.useDynamicIterationCount ?? false, this.options.useV1 ?? false) : entry.path,
+            path: this.options.obfuscatePassphrase ? await encrypt(entry.path, this.options.obfuscatePassphrase, this.options.useDynamicIterationCount ?? false) : entry.path,
         }
     }
     /**
@@ -213,7 +214,7 @@ export class DirectFileManipulator {
      * @param type 
      * @returns 
      */
-    async put(path: string, data: string[], info: FileInfo, type: "newnote" | "plain" = "plain") {
+    async put(path: string, data: string[] | Blob, info: FileInfo, type: "newnote" | "plain" = "plain") {
         await prepareHashFunctions();
         Logger(`PUT: START: ${path}`, LOG_LEVEL_VERBOSE)
         const id = await this.path2id(path);
@@ -227,12 +228,13 @@ export class DirectFileManipulator {
             // pieceSize = MAX_DOC_SIZE;
             plainSplit = true;
         }
+        const xData = (type == "newnote" && !(data instanceof Blob)) ? createTextBlob(data) : data;
 
-        const pieces = splitPieces2(data, pieceSize, plainSplit, minimumChunkSize, path, this.options.useV1);
+        const pieces = await splitPieces2(xData, pieceSize, plainSplit, minimumChunkSize, path);
         const chunks = {} as Record<string, string>;
         const children = [];
         // Make chunks once.
-        for (const piece of pieces()) {
+        for await (const piece of pieces()) {
             let leafId = "" as DocumentID;
             let hashedPiece = "";
             const cachedLeafId = this.hashCaches.revGet(piece);
@@ -257,7 +259,7 @@ export class DirectFileManipulator {
         for (const e of entries) {
             chunksToBeUploaded.push({
                 _id: e[0],
-                data: this.options.passphrase ? await encrypt(e[1], this.options.passphrase, this.options.useDynamicIterationCount ?? false, this.options.useV1 ?? false) : e[1],
+                data: this.options.passphrase ? await encrypt(e[1], this.options.passphrase, this.options.useDynamicIterationCount ?? false) : e[1],
                 type: "leaf",
             });
         }

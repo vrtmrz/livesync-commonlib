@@ -138,7 +138,6 @@ export type RemoteDBSettings = CouchDBConnection & {
     doNotPaceReplication: boolean,
 
     hashAlg: HashAlgorithm;
-    useV1: boolean | undefined;
     // This could not be configured from Obsidian.
     permitEmptyPassphrase: boolean;
 }
@@ -222,7 +221,6 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     ignoreFiles: ".gitignore",
     syncOnEditorSave: false,
     pluginSyncExtendedSetting: {},
-    useV1: undefined,
 };
 
 export interface DatabaseEntry {
@@ -266,6 +264,10 @@ export type LoadedEntry = AnyEntry & {
     data: string | string[];
     datatype: "plain" | "newnote";
 };
+export type SavingEntry = AnyEntry & {
+    data: Blob;
+    datatype: "plain" | "newnote";
+}
 
 export type EntryLeaf = DatabaseEntry & {
     type: "leaf";

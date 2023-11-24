@@ -1,5 +1,6 @@
 import { LRUCache } from "./LRUCache.ts";
 import { Semaphore } from "./semaphore.ts";
+import { writeString } from "./strbin.ts";
 import { type AnyEntry, type DatabaseEntry, type EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED, SYNCINFO_ID, type SyncInfo } from "./types.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
@@ -42,44 +43,53 @@ export function getDocData(doc: string | string[]) {
 export function getDocDataAsArray(doc: string | string[]) {
     return typeof (doc) == "string" ? [doc] : doc
 }
-const chunkCheckLen = 1000000;
-function stringYielder(src: string[]) {
-    return (function* gen() {
-        let buf = "";
-        for (const piece of src) {
-            buf += piece;
-            while (buf.length > chunkCheckLen) {
-                const p = buf.slice(0, chunkCheckLen);
-                buf = buf.substring(chunkCheckLen);
-                yield p;
-            }
-        }
-        if (buf != "") yield buf;
-        return;
-    })();
+export function joinUInt8Array(arrays: Uint8Array[]) {
+    const len = arrays.reduce((p, c) => p + c.byteLength, 0);
+    const ret = new Uint8Array(len);
+    let i = 0;
+    for (const arr of arrays) {
+        ret.set(arr, i);
+        i += arr.length;
+    }
+    return ret;
+}
+export function getDocDataAsArrayBuffer(doc: string | string[] | ArrayBuffer) {
+    if (doc instanceof ArrayBuffer) return new Uint8Array(doc);
+    const docData = getDocDataAsArray(doc);
+    const s = docData.map(e => writeString(e));
+    return joinUInt8Array(s);
+}
+
+export function createTextBlob(data: string | string[]) {
+    const d = (Array.isArray(data)) ? data : [data];
+    return new Blob(d, { endings: "transparent", type: "text/plain" });
 
 }
-export function isDocContentSame(docA: string | string[], docB: string | string[]) {
-    const docAArray = getDocDataAsArray(docA);
-    const docBArray = getDocDataAsArray(docB);
-    const chunkA = stringYielder(docAArray);
-    const chunkB = stringYielder(docBArray);
+export function createBinaryBlob(data: Uint8Array | ArrayBuffer) {
+    return new Blob([data], { endings: "transparent", type: "application/octet-stream" });
+}
 
-    let genA;
-    let genB;
-    do {
-        genA = chunkA.next();
-        genB = chunkB.next();
-        if (genA.value != genB.value) {
+export function isDocContentSame(docA: string | string[] | Blob, docB: string | string[] | Blob) {
+    const blob1 = docA instanceof Blob ? docA : createTextBlob(docA);
+    const blob2 = docB instanceof Blob ? docB : createTextBlob(docB);
+    if (blob1.size != blob2.size) return false;
+    // const checkQuantum = 1000;
+    const stream1 = blob1.stream().getReader();
+    const stream2 = blob2.stream().getReader();
+
+    // TODO: Optimise if not performant well.
+    let read1 = stream1.read();
+    let read2 = stream2.read();
+
+    while (read1 !== null && read2 !== null) {
+        if (read1 !== read2) {
             return false;
         }
-        if (genA.done != genB.done) {
-            return false;
-        }
-    } while (!genA.done)
+        read1 = stream1.read();
+        read2 = stream2.read();
+    }
 
-    if (!genB.done) return false;
-    return true;
+    return read1 === null && read2 === null;
 }
 
 export function isObfuscatedEntry(doc: DatabaseEntry): doc is AnyEntry {
