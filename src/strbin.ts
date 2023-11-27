@@ -1,6 +1,6 @@
 import { Logger } from "./logger";
 import { LOG_LEVEL_VERBOSE } from "./types";
-import { createTextBlob } from "./utils";
+import { createTextBlob, isTextBlob } from "./utils";
 
 // Map for converting hexString
 const revMap: { [key: string]: number } = {};
@@ -49,8 +49,8 @@ function atob_node(src: string): string {
     return Buffer.from(src, "base64").toString("binary");
 }
 
-export const btoa = typeof window !== "undefined" ? window.btoa : btoa_node;
-export const atob = typeof window !== "undefined" ? window.atob : atob_node;
+export const btoa = (window && window.btoa) ? window.btoa : btoa_node;
+export const atob = (window && window.atob) ? window.atob : atob_node;
 
 //
 // Safari's JavaScriptCOre hardcoded the argument limit to 65536
@@ -158,17 +158,16 @@ function arrayBufferToBase64internalBrowser(buffer: DataView | Uint8Array): Prom
         reader.readAsDataURL(blob);
     });
 }
-function arrayBufferToBase64internalNode(buffer: DataView): string {
+function arrayBufferToBase64internalNode(buffer: DataView | Uint8Array): string {
     const ret = Buffer.from(buffer.buffer).toString("base64");
     return ret;
 }
-const arrayBufferToBase64internal = typeof (window) !== "undefined" ? arrayBufferToBase64internalBrowser : arrayBufferToBase64internalNode;
+const arrayBufferToBase64internal = window && window.btoa ? arrayBufferToBase64internalBrowser : arrayBufferToBase64internalNode;
 
 export async function arrayBufferToBase64Single(buffer: ArrayBuffer): Promise<string> {
     const buf = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
     if (buf.byteLength < QUANTUM) return btoa(String.fromCharCode.apply(null, [...buf]));
-    if (typeof window !== "undefined") return await arrayBufferToBase64internalBrowser(buf);
-    return Buffer.from(buf).toString("base64");
+    return await arrayBufferToBase64internal(buf);
 }
 export async function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string[]> {
     const buf = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
@@ -208,8 +207,8 @@ export function base64ToString(base64: string | string[]): string {
         }
         return readString(bytes);
     } catch (ex) {
-        Logger("Base64 To String error",LOG_LEVEL_VERBOSE);
-        Logger(ex,LOG_LEVEL_VERBOSE);
+        Logger("Base64 To String error", LOG_LEVEL_VERBOSE);
+        Logger(ex, LOG_LEVEL_VERBOSE);
         if (typeof base64 != "string") return base64.join("");
         return base64
     }
@@ -227,19 +226,21 @@ export function base64ToArrayBuffer(base64: string | string[]): ArrayBuffer {
     return joinedArray;
 }
 
-const base64ToArrayBufferInternal = typeof (window) !== "undefined" ? base64ToArrayBufferInternalBrowser : base64ToArrayBufferInternalNode;
+const base64ToArrayBufferInternal = (window && window.atob) ? base64ToArrayBufferInternalBrowser : base64ToArrayBufferInternalNode;
 
 function base64ToArrayBufferInternalNode(base64: string): ArrayBuffer {
     try {
         return Buffer.from(base64, "base64").buffer;
     } catch (ex) {
-        return writeString(base64).buffer;
+        Logger("Base64 decode error (Node)", LOG_LEVEL_VERBOSE);
+        Logger(ex, LOG_LEVEL_VERBOSE);
+        return new Uint8Array(0);
     }
 }
 
-function base64ToArrayBufferInternalBrowser(base64: string): ArrayBuffer {
+export function base64ToArrayBufferInternalBrowser(base64: string): ArrayBuffer {
     try {
-        const binary_string = atob(base64);
+        const binary_string = window.atob(base64);
         const len = binary_string.length;
         const bytes = new Uint8Array(len);
         for (let i = 0; i < len; i++) {
@@ -249,12 +250,7 @@ function base64ToArrayBufferInternalBrowser(base64: string): ArrayBuffer {
     } catch (ex) {
         Logger("Base64 Decode error", LOG_LEVEL_VERBOSE);
         Logger(ex, LOG_LEVEL_VERBOSE);
-        const len = base64.length;
-        const bytes = new Uint8Array(len);
-        for (let i = 0; i < len; i++) {
-            bytes[i] = base64.charCodeAt(i);
-        }
-        return bytes.buffer;
+        return new Uint8Array(0);
     }
 }
 
@@ -348,7 +344,7 @@ export function splitPiecesText(dataSrc: string | string[], pieceSize: number, p
 }
 export async function splitPieces2(dataSrcX: string | string[] | Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string) {
     const dataSrc = (!(dataSrcX instanceof Blob)) ? createTextBlob(dataSrcX) : dataSrcX;
-    if (plainSplit) {
+    if (plainSplit || isTextBlob(dataSrc)) {
         return splitPiecesText(await dataSrc.text(), pieceSize, plainSplit, minimumChunkSize);
     }
 

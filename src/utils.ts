@@ -60,6 +60,9 @@ export function getDocDataAsArrayBuffer(doc: string | string[] | ArrayBuffer) {
     return joinUInt8Array(s);
 }
 
+export function isTextBlob(blob: Blob) {
+    return blob.type === "text/plain";
+}
 export function createTextBlob(data: string | string[]) {
     const d = (Array.isArray(data)) ? data : [data];
     return new Blob(d, { endings: "transparent", type: "text/plain" });
