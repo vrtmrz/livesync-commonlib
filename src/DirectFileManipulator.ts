@@ -477,7 +477,6 @@ export class DirectFileManipulator {
                 Logger(`${mode}: PROCESS FAILED`, LEVEL_INFO, mode);
                 Logger(ex, LEVEL_VERBOSE, mode);
             }
-            Logger(`${mode}: PROCESS DONE: ${docDecrypted.path}`, LEVEL_DEBUG, mode);
         }
     }
 
