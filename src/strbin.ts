@@ -1,6 +1,6 @@
-import { Logger } from "./logger";
-import { LOG_LEVEL_VERBOSE } from "./types";
-import { createTextBlob, isTextBlob } from "./utils";
+import { Logger } from "./logger.ts";
+import { LOG_LEVEL_VERBOSE } from "./types.ts";
+import { createTextBlob, isTextBlob } from "./utils.ts";
 
 // Map for converting hexString
 const revMap: { [key: string]: number } = {};

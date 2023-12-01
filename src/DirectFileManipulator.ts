@@ -3,14 +3,14 @@
  */
 
 import { LRUCache } from "./LRUCache.ts";
-import { encrypt, decrypt } from "./e2ee_v2.ts";
+import { encrypt, decrypt, obfuscatePath } from "./e2ee_v2.ts";
 import { LEVEL_DEBUG, LEVEL_INFO, LEVEL_VERBOSE, Logger } from "./logger.ts";
 import { path2id_base, shouldSplitAsPlainText } from "./path.ts";
-import { splitPieces2 } from "./strbin.ts";
+import { decodeBinary, splitPieces2 } from "./strbin.ts";
 import { type Task, processAllTasksWithConcurrencyLimit } from "./task.ts";
 import { type DocumentID, type FilePathWithPrefix, MAX_DOC_SIZE_BIN, type NewEntry, type PlainEntry, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types.ts";
 import { default as xxhash, type XXHashAPI } from "xxhash-wasm-102";
-import { createTextBlob } from "./utils.ts";
+import { createBinaryBlob, createTextBlob } from "./utils.ts";
 
 
 export type DirectFileManipulatorOptions = {
@@ -143,7 +143,7 @@ export class DirectFileManipulator {
     async encryptDocumentPath<T extends ReadyEntry | MetaEntry>(entry: T): Promise<T> {
         return {
             ...entry,
-            path: this.options.obfuscatePassphrase ? await encrypt(entry.path, this.options.obfuscatePassphrase, this.options.useDynamicIterationCount ?? false) : entry.path,
+            path: this.options.obfuscatePassphrase ? await obfuscatePath(entry.path, this.options.obfuscatePassphrase, this.options.useDynamicIterationCount ?? false) : entry.path,
         }
     }
     /**
@@ -152,9 +152,21 @@ export class DirectFileManipulator {
      * @returns 
      */
     async decryptDocumentPath<T extends ReadyEntry | MetaEntry>(entry: T): Promise<T> {
+        let path = "";
+        if (this.options.passphrase) {
+            path = await decrypt(entry.path, this.options.passphrase, this.options.useDynamicIterationCount ?? false);
+        } else {
+            path = entry.path ?? "";
+        }
+        if (path == "") {
+            if (entry._id.indexOf(":") !== -1) {
+                path = entry._id;
+            }
+        }
+        if (path == "") throw new Error("Could not determine path");
         return {
             ...entry,
-            path: this.options.passphrase ? await decrypt(entry.path, this.options.passphrase, this.options.useDynamicIterationCount ?? false) : entry.path,
+            path,
         } as T;
     }
     async path2id(path: string) {
@@ -228,7 +240,21 @@ export class DirectFileManipulator {
             // pieceSize = MAX_DOC_SIZE;
             plainSplit = true;
         }
-        const xData = (type == "newnote" && !(data instanceof Blob)) ? createTextBlob(data) : data;
+        let xData: Blob;
+        switch (type) {
+            case "newnote":
+                if (data instanceof Blob) {
+                    xData = data;
+                } else {
+                    xData = createBinaryBlob(decodeBinary(data));
+                }
+                break;
+            case "plain":
+                xData = (data instanceof Blob) ? data : createTextBlob(data);
+                break;
+            default:
+                throw new Error("Could not prepare document data");
+        }
 
         const pieces = await splitPieces2(xData, pieceSize, plainSplit, minimumChunkSize, path);
         const chunks = {} as Record<string, string>;
@@ -420,17 +446,48 @@ export class DirectFileManipulator {
     }
 
 
-    watching: boolean;
-    _abortController: AbortController;
+    watching = false;
+    _abortController?: AbortController;
     since = "";
 
-    async beginWatch(callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void) {
+    async processJSONL(mode: string, lineData: any, callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void, checkIsInterested?: (doc: MetaEntry) => boolean) {
+
+        if ("seq" in lineData) {
+            this.since = lineData.seq; // update seq to prevent infinite loop.
+        }
+        if ("doc" in lineData) {
+            const docEntry = lineData.doc as MetaEntry;
+            if (!(docEntry.type == "newnote" || docEntry.type == "plain")) {
+                Logger(`${mode}: SKIP ${(docEntry as any)._id}: Not a document`, LOG_LEVEL_VERBOSE);
+                return;
+            }
+            const docDecrypted = await this.decryptDocumentPath(docEntry);
+            if (checkIsInterested) {
+                if (!checkIsInterested(docDecrypted)) {
+                    Logger(`${mode}: SKIP ${(docDecrypted as any)?.path ?? docEntry._id}: OUT OF TARGET FOLDER`, LOG_LEVEL_VERBOSE);
+                    return;
+                }
+            }
+            Logger(`${mode}: PROCESSING: ${docDecrypted.path}`, LEVEL_VERBOSE, mode);
+            const doc = await this.getByMeta(docDecrypted);
+            try {
+                await callback(doc, lineData.seq);
+                Logger(`${mode}: PROCESS DONE: ${docDecrypted.path}`, LEVEL_INFO, mode);
+            } catch (ex) {
+                Logger(`${mode}: PROCESS FAILED`, LEVEL_INFO, mode);
+                Logger(ex, LEVEL_VERBOSE, mode);
+            }
+            Logger(`${mode}: PROCESS DONE: ${docDecrypted.path}`, LEVEL_DEBUG, mode);
+        }
+    }
+
+    async beginWatch(callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void, checkIsInterested?: (doc: MetaEntry) => boolean) {
         if (this.watching) return false;
         this.watching = true;
         try {
             if (this._abortController) {
                 this._abortController.abort();
-                this._abortController = null;
+                this._abortController = undefined;
             }
             if (this.since == "") {
                 this.since = "0";
@@ -452,24 +509,7 @@ export class DirectFileManipulator {
                 if (chunk) {
                     try {
                         const lineData = JSON.parse(chunk);
-
-                        if ("seq" in lineData) {
-                            this.since = lineData.seq; // update seq to prevent infinite loop.
-                        }
-                        if ("doc" in lineData) {
-                            const docEntry = lineData.doc as MetaEntry;
-                            const docDecrypted = await this.decryptDocumentPath(docEntry);
-                            Logger(`WATCH: PROCESSING: ${docDecrypted.path}`, LEVEL_VERBOSE, "watch");
-                            const doc = await this.getByMeta(docDecrypted);
-                            try {
-                                await callback(doc, lineData.seq);
-                                Logger(`WATCH: PROCESS DONE: ${docDecrypted.path}`, LEVEL_INFO, "watch");
-                            } catch (ex) {
-                                Logger(`WATCH: PROCESS FAILED`, LEVEL_INFO, "watch");
-                                Logger(ex, LEVEL_VERBOSE, "watch");
-                            }
-                            Logger(`WATCH: PROCESS DONE: ${docDecrypted.path}`, LEVEL_DEBUG, "watch");
-                        }
+                        await this.processJSONL("WATCH", lineData, callback, checkIsInterested);
                     } catch (ex) {
                         // console.log(chunk);
                         if (ex.name == "AbortError") {
@@ -478,6 +518,7 @@ export class DirectFileManipulator {
                         } else {
                             Logger(`WATCH: SOMETHING WENT WRONG ON EACH PROCESS`, LEVEL_VERBOSE, "watch");
                             Logger(ex, LEVEL_VERBOSE, "watch");
+                            Logger(chunk, LOG_LEVEL_VERBOSE, "watch");
                         }
                     }
                 }
@@ -490,8 +531,8 @@ export class DirectFileManipulator {
                 Logger(`WATCH: CONNECTION HAS BEEN CLOSED, RECONNECTING...`, LEVEL_INFO, "watch");
                 this.watching = false;
                 setTimeout(() => {
-                    this.beginWatch(callback);
-                }, 1000)
+                    this.beginWatch(callback, checkIsInterested);
+                }, 10000)
             } else {
                 Logger(`WATCH: CONNECTION HAS BEEN CLOSED.`, LEVEL_INFO, "watch");
             }
@@ -504,10 +545,10 @@ export class DirectFileManipulator {
             this._abortController.abort();
             Logger(`WATCH: ABORT SIGNAL HAS BEEN SENT.`, LEVEL_INFO, "watch");
         }
-        this._abortController = null;
+        this._abortController = undefined;
 
     }
-    async followUpdates(callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void): Promise<string> {
+    async followUpdates(callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void, checkIsInterested?: (doc: MetaEntry) => boolean) {
         try {
             if (this.since == "") {
                 this.since = "0";
@@ -529,23 +570,7 @@ export class DirectFileManipulator {
                 Logger(`FOLLOW: incoming ${results?.length ?? 0} entries, ${pending} pending.`);
                 for await (const lineData of results) {
                     try {
-                        if ("seq" in lineData) {
-                            this.since = lineData.seq; // update seq to prevent infinite loop.
-                        }
-                        if ("doc" in lineData) {
-                            const docEntry = lineData.doc as MetaEntry;
-                            const docDecrypted = await this.decryptDocumentPath(docEntry);
-                            Logger(`FOLLOW: PROCESSING: ${docDecrypted.path}`, LEVEL_VERBOSE, "followUpdates");
-                            const doc = await this.getByMeta(docDecrypted);
-                            try {
-                                await callback(doc, lineData.seq);
-                                Logger(`FOLLOW: PROCESS DONE: ${docDecrypted.path}`, LEVEL_INFO, "followUpdates");
-                            } catch (ex) {
-                                Logger(`FOLLOW: PROCESS FAILED`, LEVEL_INFO, "followUpdates");
-                                Logger(ex, LEVEL_VERBOSE, "watch");
-                            }
-                            Logger(`FOLLOW: PROCESS DONE: ${docDecrypted.path}`, LEVEL_DEBUG, "followUpdates");
-                        }
+                        await this.processJSONL("FOLLOW", lineData, callback, checkIsInterested);
                     } catch (ex) {
                         Logger(`FOLLOW: SOMETHING WENT WRONG ON EACH PROCESS`, LEVEL_VERBOSE, "followUpdates");
                         Logger(ex, LEVEL_VERBOSE, "followUpdates");
