@@ -153,6 +153,10 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
 
     async prepareHashFunctions() {
         if (this.h32 != null) return;
+        if (this.settings.hashAlg == "sha1") {
+            Logger(`Fallback(SHA1) is used for hashing`, LOG_LEVEL_VERBOSE);
+            return;
+        }
         try {
             const { h32ToString, h32Raw, h32, h64 } = await (xxhashNew as unknown as () => Promise<XXHashAPI>)();
             this.xxhash64 = h64;
@@ -161,13 +165,20 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             this.h32Raw = h32Raw;
             Logger(`Newer xxhash has been initialised`, LOG_LEVEL_VERBOSE);
         } catch (ex) {
-            Logger(`Could not initialise xxhash v1`, LOG_LEVEL_VERBOSE);
-            this.xxhash64 = false;
-            const { h32, h32Raw } = (await xxhashOld()) as unknown as Exports;
-            this.h32 = h32;
-            this.h32Raw = h32Raw;
-            this.xxhash32 = (str) => h32Raw(writeString(str));
+            Logger(`Could not initialise xxhash: use v1`, LOG_LEVEL_VERBOSE);
             Logger(ex);
+            try {
+                this.xxhash64 = false;
+                const { h32, h32Raw } = (await xxhashOld()) as unknown as Exports;
+                this.h32 = h32;
+                this.h32Raw = h32Raw;
+                this.xxhash32 = (str) => h32Raw(writeString(str));
+            } catch (ex) {
+                Logger(`Could not initialise xxhash: use sha1F`, LOG_LEVEL_VERBOSE);
+                Logger(ex);
+                this.settings.hashAlg = "sha1";
+            }
+
         }
     }
 

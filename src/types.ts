@@ -37,7 +37,7 @@ export const VERSIONINFO_DOCID = "obsydian_livesync_version" as DocumentID;
 export const MILSTONE_DOCID = "_local/obsydian_livesync_milestone" as DocumentID;
 export const NODEINFO_DOCID = "_local/obsydian_livesync_nodeinfo" as DocumentID;
 
-export type HashAlgorithm = "" | "xxhash32" | "xxhash64";
+export type HashAlgorithm = "" | "xxhash32" | "xxhash64" | "sha1";
 
 export type ConfigPassphraseStore = "" /* default */ | "LOCALSTORAGE" | "ASK_AT_LAUNCH";
 export type CouchDBConnection = {

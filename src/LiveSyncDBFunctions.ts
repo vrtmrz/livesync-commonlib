@@ -2,7 +2,7 @@ import { serialized } from "./lock.ts";
 import { Logger } from "./logger.ts";
 import { LRUCache } from "./LRUCache.ts";
 import { shouldSplitAsPlainText, stripAllPrefixes } from "./path.ts";
-import { splitPieces2 } from "./strbin.ts";
+import { sha1, splitPieces2 } from "./strbin.ts";
 import { type Entry, type EntryDoc, type EntryDocResponse, type EntryLeaf, type EntryMilestoneInfo, type LoadedEntry, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, type NewEntry, type NoteEntry, type PlainEntry, type RemoteDBSettings, type ChunkVersionRange, type EntryHasPath, type DocumentID, type FilePathWithPrefix, type FilePath, type HashAlgorithm, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type SavingEntry } from "./types.ts";
 import { globalConcurrencyController, resolveWithIgnoreKnownError } from "./utils.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
@@ -54,7 +54,7 @@ export async function putDBEntry(
     let plainSplit = false;
     let cacheUsed = 0;
     const userPassphrase = env.settings.passphrase;
-    const userPasswordHash = env.h32Raw(new TextEncoder().encode(userPassphrase));
+
     const minimumChunkSize = env.settings.minimumChunkSize;
     if (!saveAsBigChunk && shouldSplitAsPlainText(filename)) {
         // pieceSize = MAX_DOC_SIZE;
@@ -82,8 +82,15 @@ export async function putDBEntry(
             // When encryption has been enabled, make hash to be different between each passphrase to avoid inferring passphrase.
             // On the old algorithm, xor is used to keep the throughput.
             // On new algorithms, the xxhash is enough to fast. so we just add the passphrase after the content.
-            if (env.settings.hashAlg === "") {
+            if (env.settings.hashAlg == "sha1") {
                 if (env.settings.encrypt) {
+                    hashedPiece = "+" + await sha1(`${piece}-${userPassphrase}-${piece.length}`);
+                } else {
+                    hashedPiece = await sha1(`${piece}-${piece.length}`);
+                }
+            } else if (env.settings.hashAlg === "") {
+                if (env.settings.encrypt) {
+                    const userPasswordHash = env.h32Raw(new TextEncoder().encode(userPassphrase));
                     hashedPiece = "+" + (env.h32Raw(new TextEncoder().encode(piece)) ^ userPasswordHash ^ piece.length).toString(36);
                 } else {
                     hashedPiece = (env.h32Raw(new TextEncoder().encode(piece)) ^ piece.length).toString(36);

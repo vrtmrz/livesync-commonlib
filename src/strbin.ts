@@ -1,4 +1,5 @@
 import { Logger } from "./logger.ts";
+import { webcrypto } from "./mods.ts";
 import { LOG_LEVEL_VERBOSE } from "./types.ts";
 import { createTextBlob, isTextBlob } from "./utils.ts";
 
@@ -618,4 +619,10 @@ export function decodeBinary(src: string | string[]) {
 }
 export async function encodeBinary(src: Uint8Array | ArrayBuffer): Promise<string[]> {
     return await arrayBufferToBase64(src);
+}
+
+export async function sha1(src: string) {
+    const bytes = writeString(src);
+    const digest = await webcrypto.subtle.digest({ name: "SHA-1" }, bytes);
+    return await arrayBufferToBase64Single(digest);
 }
