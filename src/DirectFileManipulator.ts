@@ -23,7 +23,6 @@ export type DirectFileManipulatorOptions = {
     useDynamicIterationCount?: boolean,
     customChunkSize?: number,
     minimumChunkSize?: number;
-    useV1?: boolean;
 }
 
 
@@ -231,7 +230,7 @@ export class DirectFileManipulator {
         Logger(`PUT: START: ${path}`, LOG_LEVEL_VERBOSE)
         const id = await this.path2id(path);
 
-        const maxChunkSize = Math.floor(MAX_DOC_SIZE_BIN * ((this.options.customChunkSize || 0) * (this.options.useV1 ? 1 : 0.1) + 1));
+        const maxChunkSize = Math.floor(MAX_DOC_SIZE_BIN * ((this.options.customChunkSize || 0) * 1 + 1));
         const pieceSize = maxChunkSize;
         let plainSplit = false;
         const userPassphrase = this.options.passphrase;

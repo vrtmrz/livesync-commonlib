@@ -163,7 +163,6 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
             if (isObfuscatedEntry(saveDoc)) {
                 try {
                     saveDoc.path = await obfuscatePath(getPath(saveDoc), passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
-                    // saveDoc.path = await encrypt(getPath(saveDoc), passphrase, useDynamicIterationCount, useV1) as unknown as FilePathWithPrefix;
                 } catch (ex) {
                     Logger("Encryption failed.", LOG_LEVEL_NOTICE);
                     Logger(ex);
