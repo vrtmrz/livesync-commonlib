@@ -86,7 +86,7 @@ export async function isDocContentSame(docA: string | string[] | Blob, docB: str
         const ab1 = await blob1.slice(i, i + checkQuantum).arrayBuffer();
         const ab2 = await blob2.slice(i, i + checkQuantum).arrayBuffer();
         i += checkQuantum;
-        if (arrayBufferToBase64Single(ab1) != arrayBufferToBase64Single(ab2)) return false;
+        if (await arrayBufferToBase64Single(ab1) != await arrayBufferToBase64Single(ab2)) return false;
     }
     return true;
 }
