@@ -252,12 +252,12 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     async sanCheck(entry: EntryDoc): Promise<boolean> {
         if (entry.type == "plain" || entry.type == "newnote") {
             const children = entry.children;
-            Logger(`sancheck:checking:${entry._id} : ${children.length}`, LOG_LEVEL_VERBOSE);
+            Logger(`sancheck:checking:${entry._id.substring(0, 8)} : ${children.length}`, LOG_LEVEL_VERBOSE);
             try {
                 const dc = await this.localDatabase.allDocs({ keys: [...children] });
                 if (dc.rows.some((e) => "error" in e)) {
                     this.corruptedEntries[entry._id] = entry;
-                    Logger(`sancheck:corrupted:${entry._id} : ${children.length}`, LOG_LEVEL_VERBOSE);
+                    Logger(`sancheck:corrupted:${entry._id.substring(0, 8)} : ${children.length}`, LOG_LEVEL_VERBOSE);
                     return false;
                 }
                 return true;

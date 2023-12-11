@@ -348,7 +348,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                                 children.push(v.data);
                             } else {
                                 if (!opt) {
-                                    Logger(`Chunks of ${dispFilename} (${obj._id}) are not valid.`, LOG_LEVEL_NOTICE);
+                                    Logger(`Chunks of ${dispFilename} (${obj._id.substring(0, 8)}) are not valid.`, LOG_LEVEL_NOTICE);
                                     // env.needScanning = true;
                                     env.corruptedEntries[obj._id] = obj;
                                 }
@@ -357,7 +357,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                         }
                     } else {
                         if (opt) {
-                            Logger(`Could not retrieve chunks of ${dispFilename} (${obj._id}). we have to `, LOG_LEVEL_NOTICE);
+                            Logger(`Could not retrieve chunks of ${dispFilename} (${obj._id.substring(0, 8)}). we have to `, LOG_LEVEL_NOTICE);
                             // env.needScanning = true;
                         }
                         return false;
@@ -374,18 +374,18 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                             const chunkDocs = await env.localDatabase.allDocs({ keys: obj.children, include_docs: true });
                             if (chunkDocs.rows.some(e => "error" in e)) {
                                 const missingChunks = chunkDocs.rows.filter(e => "error" in e).map(e => e.key).join(", ");
-                                Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id}). Chunks are missing:${missingChunks}`, LOG_LEVEL_NOTICE);
+                                Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id.substring(0, 8)}). Chunks are missing:${missingChunks}`, LOG_LEVEL_NOTICE);
                                 return false;
                             }
                             if (chunkDocs.rows.some((e: any) => e.doc && e.doc.type != "leaf")) {
                                 const missingChunks = chunkDocs.rows.filter((e: any) => e.doc && e.doc.type != "leaf").map((e: any) => e.id).join(", ");
-                                Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id}). corrupted chunks::${missingChunks}`, LOG_LEVEL_NOTICE);
+                                Logger(`Could not retrieve chunks of ${dispFilename}(${obj._id.substring(0, 8)}). corrupted chunks::${missingChunks}`, LOG_LEVEL_NOTICE);
                                 return false;
                             }
                             children = chunkDocs.rows.map((e: any) => (e.doc as EntryLeaf).data);
                         }
                     } catch (ex) {
-                        Logger(`Something went wrong on reading chunks of ${dispFilename}(${obj._id}) from database, see verbose info for detail.`, LOG_LEVEL_NOTICE);
+                        Logger(`Something went wrong on reading chunks of ${dispFilename}(${obj._id.substring(0, 8)}) from database, see verbose info for detail.`, LOG_LEVEL_NOTICE);
                         Logger(ex, LOG_LEVEL_VERBOSE);
                         env.corruptedEntries[obj._id] = obj;
                         return false;
@@ -420,10 +420,10 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
             return doc;
         } catch (ex: any) {
             if (isErrorOfMissingDoc(ex)) {
-                Logger(`Missing document content!, could not read ${dispFilename}(${obj._id}) from database.`, LOG_LEVEL_NOTICE);
+                Logger(`Missing document content!, could not read ${dispFilename}(${obj._id.substring(0, 8)}) from database.`, LOG_LEVEL_NOTICE);
                 return false;
             }
-            Logger(`Something went wrong on reading ${dispFilename}(${obj._id}) from database:`, LOG_LEVEL_NOTICE);
+            Logger(`Something went wrong on reading ${dispFilename}(${obj._id.substring(0, 8)}) from database:`, LOG_LEVEL_NOTICE);
             Logger(ex);
         }
     }
@@ -463,7 +463,7 @@ export async function deleteDBEntry(env: DBFunctionEnvironment, path: FilePathWi
                 obj._deleted = true;
                 const r = await env.localDatabase.put(obj, { force: !revDeletion });
 
-                Logger(`Entry removed:${path} (${obj._id}-${r.rev})`);
+                Logger(`Entry removed:${path} (${obj._id.substring(0, 8)}-${r.rev})`);
                 if (typeof env.corruptedEntries[obj._id] != "undefined") {
                     delete env.corruptedEntries[obj._id];
                 }
@@ -483,7 +483,7 @@ export async function deleteDBEntry(env: DBFunctionEnvironment, path: FilePathWi
                 }
                 const r = await env.localDatabase.put(obj, { force: !revDeletion });
 
-                Logger(`Entry removed:${path} (${obj._id}-${r.rev})`);
+                Logger(`Entry removed:${path} (${obj._id.substring(0, 8)}-${r.rev})`);
                 if (typeof env.corruptedEntries[obj._id] != "undefined") {
                     delete env.corruptedEntries[obj._id];
                 }
