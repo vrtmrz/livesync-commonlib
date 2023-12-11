@@ -1,6 +1,6 @@
 import { LRUCache } from "./LRUCache.ts";
 import { Semaphore } from "./semaphore.ts";
-import { writeString } from "./strbin.ts";
+import { arrayBufferToBase64Single, writeString } from "./strbin.ts";
 import { type AnyEntry, type DatabaseEntry, type EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED, SYNCINFO_ID, type SyncInfo } from "./types.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
@@ -72,7 +72,27 @@ export function createBinaryBlob(data: Uint8Array | ArrayBuffer) {
     return new Blob([data], { endings: "transparent", type: "application/octet-stream" });
 }
 
-export function isDocContentSame(docA: string | string[] | Blob, docB: string | string[] | Blob) {
+export async function isDocContentSame(docA: string | string[] | Blob, docB: string | string[] | Blob) {
+    const blob1 = docA instanceof Blob ? docA : createTextBlob(docA);
+    const blob2 = docB instanceof Blob ? docB : createTextBlob(docB);
+    if (blob1.size != blob2.size) return false;
+    const checkQuantum = 10000;
+    const length = blob1.size;
+
+
+    let i = 0;
+
+    while (i < length) {
+        const ab1 = await blob1.slice(i, i + checkQuantum).arrayBuffer();
+        const ab2 = await blob2.slice(i, i + checkQuantum).arrayBuffer();
+        i += checkQuantum;
+        if (arrayBufferToBase64Single(ab1) != arrayBufferToBase64Single(ab2)) return false;
+    }
+    return true;
+}
+
+// Obsolete function
+export function isDocContentSame_old(docA: string | string[] | Blob, docB: string | string[] | Blob) {
     const blob1 = docA instanceof Blob ? docA : createTextBlob(docA);
     const blob2 = docB instanceof Blob ? docB : createTextBlob(docB);
     if (blob1.size != blob2.size) return false;

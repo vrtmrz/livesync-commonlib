@@ -209,13 +209,13 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                             }
                             Logger("Decryption failed.", LOG_LEVEL_NOTICE);
                             Logger(ex, LOG_LEVEL_VERBOSE);
-                            Logger(`id:${loadDoc._id}-${loadDoc._rev}`, LOG_LEVEL_VERBOSE);
+                            Logger(`id:${loadDoc._id}-${loadDoc._rev?.substring(0, 10)}`, LOG_LEVEL_VERBOSE);
                             throw ex;
                         }
                     } else {
                         Logger("Decryption failed.", LOG_LEVEL_NOTICE);
                         Logger(ex, LOG_LEVEL_VERBOSE);
-                        Logger(`id:${loadDoc._id}-${loadDoc._rev}`, LOG_LEVEL_VERBOSE);
+                        Logger(`id:${loadDoc._id}-${loadDoc._rev?.substring(0, 10)}`, LOG_LEVEL_VERBOSE);
                         throw ex;
                     }
                 }
