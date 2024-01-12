@@ -16,16 +16,18 @@ import {
     type DatabaseEntry,
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_VERBOSE,
+    RESULT_TIMED_OUT,
 } from "./types.ts";
-import { delay, sendSignal, waitForSignal } from "./utils.ts";
+import { onlyNot, runWithInterval, sendValue, waitForValue } from "./utils.ts";
 import { Logger } from "./logger.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 import { LRUCache } from "./LRUCache.ts";
 
-import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, type DBFunctionEnvironment } from "./LiveSyncDBFunctions.ts";
-import { skipIfDuplicated } from "./lock.ts";
+import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, type DBFunctionEnvironment, getDBEntryFromMeta } from "./LiveSyncDBFunctions.ts";
 import type { LiveSyncDBReplicator } from "./LiveSyncReplicator.ts";
 import { writeString } from "./strbin.ts";
+import { QueueProcessor } from "./processor.ts";
+import { collectingChunks } from "./stores.ts";
 
 export interface LiveSyncLocalDBEnv {
     id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
@@ -142,7 +144,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             })
             .on("change", (e) => {
                 if (e.deleted) return;
-                sendSignal(`leaf-${e.id}`);
+                sendValue(`leaf-${e.id}`, e.doc);
             });
         this.changeHandler = changes;
         this.isReady = true;
@@ -182,34 +184,43 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         }
     }
 
-    async getDBLeafWithTimeout(id: DocumentID, limitTime: number): Promise<string> {
-        const now = Date.now();
+    async readChunk(id: DocumentID, timeout: number): Promise<string> {
         const leaf = this.hashCaches.revGet(id);
         if (leaf) {
             return leaf;
         }
+        let w: EntryDoc;
         try {
-            const w = await this.localDatabase.get(id);
-            if (w.type == "leaf") {
-                this.hashCaches.set(id, w.data);
-                return w.data;
-            }
-            throw new Error(`Corrupted chunk has been detected: ${id}`);
-        } catch (ex: any) {
-            if (isErrorOfMissingDoc(ex)) {
-                if (limitTime < now) {
-                    throw new Error(`Could not read chunk: Timed out: ${id}`);
-                }
-                await waitForSignal(`leaf-${id}`, 5000);
-                return this.getDBLeafWithTimeout(id, limitTime);
-            } else {
-                Logger(`Something went wrong while retrieving chunks`);
+            w = await this.localDatabase.get(id);
+        } catch (ex) {
+            if (!isErrorOfMissingDoc(ex)) {
                 throw ex;
             }
         }
+        if (w === undefined && timeout != 0) {
+            const ret = await waitForValue<EntryDoc>(`leaf-${id}`, timeout);
+            if (ret === RESULT_TIMED_OUT) {
+                throw new Error(`Timed out: ${id}`);
+            }
+            w = ret;
+        }
+        if (w.type != "leaf") {
+            throw new Error(`Corrupted chunk has been detected: ${id}`);
+        }
+        this.hashCaches.set(id, w.data);
+        return w.data;
+    }
+    async getDBLeafWithTimeout(id: DocumentID, timeout: number): Promise<string> {
+        try {
+            return await this.readChunk(id, timeout);
+        } catch (ex) {
+            Logger(`Something went wrong while retrieving chunks`);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            throw ex;
+        }
     }
     getDBLeaf(id: DocumentID, waitForReady: boolean): Promise<string> {
-        return this.getDBLeafWithTimeout(id, waitForReady ? (Date.now() + LEAF_WAIT_TIMEOUT) : 0)
+        return this.getDBLeafWithTimeout(id, waitForReady ? LEAF_WAIT_TIMEOUT : 0)
     }
 
     // eslint-disable-next-line require-await
@@ -219,6 +230,10 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     // eslint-disable-next-line require-await
     async getDBEntry(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions, dump = false, waitForReady = true, includeDeleted = false): Promise<false | LoadedEntry> {
         return getDBEntry(this, path, opt, dump, waitForReady, includeDeleted);
+    }
+    // eslint-disable-next-line require-await
+    async getDBEntryFromMeta(meta: LoadedEntry, opt?: PouchDB.Core.GetOptions, dump = false, waitForReady = true, includeDeleted = false): Promise<false | LoadedEntry> {
+        return getDBEntryFromMeta(this, meta, opt, dump, waitForReady, includeDeleted);
     }
     // eslint-disable-next-line require-await
     async deleteDBEntry(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
@@ -292,95 +307,36 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         return true;
     }
 
-    collectThrottleTimeout: ReturnType<typeof setTimeout> = null;
-    collectThrottleQueuedIds = [] as string[];
-
-    // It is no de-javu.
-    chunkCollectedCallbacks: { [key: string]: { ok: ((chunk: EntryLeaf) => void)[], failed: (() => void) } } = {};
-    chunkCollected(chunk: EntryLeaf) {
-        const id = chunk._id;
-        // Pull the hooks.
-        // (One id will pull some hooks)
-        if (typeof this.chunkCollectedCallbacks[id] !== "undefined") {
-            for (const func of this.chunkCollectedCallbacks[id].ok) {
-                func(chunk);
+    _chunkCollectProcessor = new QueueProcessor(async (requesting: string[]) => {
+        try {
+            const chunks = await this._collectChunks(requesting, false);
+            if (chunks) {
+                chunks.forEach(chunk => sendValue(`chunk-fetch-${chunk._id}`, chunk));
+            } else {
+                throw Error("Failed: CollectChunksInternal");
             }
-            delete this.chunkCollectedCallbacks[id];
-        } else {
-            Logger(`Collected handler of ${id} is missing, it might be error but perhaps it already timed out.`, LOG_LEVEL_VERBOSE);
+        } catch (ex) {
+            Logger(`Exception raised while retrieving chunks`, LOG_LEVEL_NOTICE);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            requesting.forEach((id) => sendValue(`chunk-fetch-${id}`, []));
         }
-    }
+        return;
+    }, { batchSize: 100, delay: 10, concurrentLimit: 1, suspended: false, totalRemainingReactiveSource: collectingChunks });
     async collectChunks(ids: string[], showResult = false, waitForReady?: boolean) {
-
+        this._chunkCollectProcessor.batchSize = this.settings.concurrencyOfReadChunksOnline;
         const localChunks = await this.collectChunksWithCache(ids as DocumentID[]);
         const missingChunks = localChunks.filter(e => !e.chunk).map(e => e.id);
         // If we have enough chunks, return them.
         if (missingChunks.length == 0) {
             return localChunks.map(e => e.chunk) as EntryLeaf[];
         }
-        // Register callbacks.
-        const promises = ids.map(id => new Promise<EntryLeaf>((res, rej) => {
-            // Lay the hook that be pulled when chunks are incoming.
-            if (typeof this.chunkCollectedCallbacks[id] == "undefined") {
-                this.chunkCollectedCallbacks[id] = { ok: [], failed: () => { delete this.chunkCollectedCallbacks[id]; rej(new Error("Failed to collect one of chunks")); } };
-            }
-            this.chunkCollectedCallbacks[id].ok.push((chunk) => {
-                res(chunk);
-            });
-        }));
-
-        // Queue chunks for batch request.
-        this.collectThrottleQueuedIds = [...new Set([...this.collectThrottleQueuedIds, ...ids])];
-        this.execCollect();
-
-        const res = await Promise.all(promises);
+        this._chunkCollectProcessor.enqueueAll(ids)
+        const fetchChunkTasks = ids.map(id => waitForValue<EntryLeaf>(`chunk-fetch-${id}`));
+        const res = (await Promise.all(fetchChunkTasks)).filter(onlyNot(RESULT_TIMED_OUT));
         return res;
     }
-    execCollect() {
-        // do not await.
-        skipIfDuplicated("execCollect", async () => {
-            do {
-                const minimumInterval = this.settings.minimumIntervalOfReadChunksOnline; // three requests per second as maximum
-                const start = Date.now();
-                const requesting = this.collectThrottleQueuedIds.splice(0, this.settings.concurrencyOfReadChunksOnline);
-                if (requesting.length == 0) return;
-                try {
-                    const chunks = await this.collectChunksInternal(requesting, false);
-                    if (chunks) {
-                        // Remove duplicated entries.
-                        this.collectThrottleQueuedIds = this.collectThrottleQueuedIds.filter(e => !chunks.some(f => f._id == e))
-                        for (const chunk of chunks) {
-                            this.chunkCollected(chunk);
-                        }
-                    } else {
-                        // TODO: need more explicit message. 
-                        Logger(`Could not retrieve chunks`, LOG_LEVEL_NOTICE);
-                        for (const id of requesting) {
-                            if (id in this.chunkCollectedCallbacks) {
-                                this.chunkCollectedCallbacks[id].failed();
-                            }
-                        }
-                    }
 
-                } catch (ex) {
-                    Logger(`Exception raised while retrieving chunks`, LOG_LEVEL_NOTICE);
-                    Logger(ex, LOG_LEVEL_VERBOSE);
-                    for (const id of requesting) {
-                        if (id in this.chunkCollectedCallbacks) {
-                            this.chunkCollectedCallbacks[id].failed();
-                        }
-                    }
-                }
-                const passed = Date.now() - start;
-                const intervalLeft = minimumInterval - passed;
-                if (this.collectThrottleQueuedIds.length == 0) return;
-                await delay(intervalLeft < 0 ? 0 : intervalLeft);
-            } while (this.collectThrottleQueuedIds.length > 0);
-        }).then(() => { /* fire and forget */ });
-    }
-
-    // Collect chunks from both local and remote.
-    async collectChunksInternal(ids: string[], showResult = false): Promise<false | EntryLeaf[]> {
+    async _collectChunks(ids: string[], showResult = false): Promise<false | EntryLeaf[]> {
         // Collect chunks from the local database and the cache.
         const localChunks = await this.collectChunksWithCache(ids as DocumentID[]);
         const missingChunks = localChunks.filter(e => !e.chunk).map(e => e.id);
@@ -389,7 +345,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             return localChunks.map(e => e.chunk) as EntryLeaf[];
         }
         // Fetching remote chunks.
-        const remoteDocs = await this.env.getReplicator().fetchRemoteChunks(missingChunks, showResult)
+        const remoteDocs = await runWithInterval("fetch-remote", this.settings.minimumIntervalOfReadChunksOnline, () => this.env.getReplicator().fetchRemoteChunks(missingChunks, showResult));
         if (remoteDocs == false) {
             // Logger(`Could not fetch chunks from the server. `, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
             return false;

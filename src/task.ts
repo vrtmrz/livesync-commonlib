@@ -126,3 +126,48 @@ export async function mapAllTasksWithConcurrencyLimit<T>(limit: number, tasks: T
     const ret = [...results.entries()].sort((a, b) => a[0] - b[0]).map(e => e[1]);
     return ret;
 }
+
+
+const tasks: { [key: string]: ReturnType<typeof setTimeout> } = {};
+export function scheduleTask(key: string, timeout: number, proc: (() => Promise<any> | void), skipIfTaskExist?: boolean) {
+    if (skipIfTaskExist && key in tasks) {
+        return;
+    }
+    cancelTask(key);
+    tasks[key] = setTimeout(async () => {
+        delete tasks[key];
+        await proc();
+    }, timeout);
+}
+export function cancelTask(key: string) {
+    if (key in tasks) {
+        clearTimeout(tasks[key]);
+        delete tasks[key];
+    }
+}
+export function cancelAllTasks() {
+    for (const v in tasks) {
+        clearTimeout(tasks[v]);
+        delete tasks[v];
+    }
+}
+const intervals: { [key: string]: ReturnType<typeof setInterval> } = {};
+export function setPeriodicTask(key: string, timeout: number, proc: (() => Promise<any> | void)) {
+    cancelPeriodicTask(key);
+    intervals[key] = setInterval(async () => {
+        delete intervals[key];
+        await proc();
+    }, timeout);
+}
+export function cancelPeriodicTask(key: string) {
+    if (key in intervals) {
+        clearInterval(intervals[key]);
+        delete intervals[key];
+    }
+}
+export function cancelAllPeriodicTask() {
+    for (const v in intervals) {
+        clearInterval(intervals[v]);
+        delete intervals[v];
+    }
+}

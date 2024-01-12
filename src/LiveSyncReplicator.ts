@@ -11,7 +11,7 @@ import { Logger } from "./logger.ts";
 import { checkRemoteVersion, putDesignDocuments } from "./utils_couchdb.ts";
 
 import { ensureDatabaseIsCompatible } from "./LiveSyncDBFunctions.ts";
-import { ObservableStore } from "./store.ts";
+import type { ReactiveSource } from "./reactive.ts";
 
 
 const currentVersionRange: ChunkVersionRange = {
@@ -19,7 +19,7 @@ const currentVersionRange: ChunkVersionRange = {
     max: 2,
     current: 2,
 }
-type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<void>;
+type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<void> | void;
 
 type EventParamArray<T> =
     ["change", PouchDB.Replication.SyncResult<T>] |
@@ -46,7 +46,7 @@ export interface LiveSyncReplicatorEnv {
         performSetup: boolean,
         skipInfo: boolean
     ): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }>;
-    replicationStat: ObservableStore<{
+    replicationStat: ReactiveSource<{
         sent: number;
         arrived: number;
         maxPullSeq: number;
@@ -394,7 +394,7 @@ export class LiveSyncDBReplicator {
     }
 
     updateInfo: () => void = () => {
-        this.env.replicationStat.set({
+        this.env.replicationStat.value = {
             sent: this.docSent,
             arrived: this.docArrived,
             maxPullSeq: this.maxPullSeq,
@@ -402,7 +402,7 @@ export class LiveSyncDBReplicator {
             lastSyncPullSeq: this.lastSyncPullSeq,
             lastSyncPushSeq: this.lastSyncPushSeq,
             syncStatus: this.syncStatus
-        });
+        };
     };
     replicateAllToServer(setting: RemoteDBSettings, showingNotice?: boolean) {
         return this.openOneShotReplication(

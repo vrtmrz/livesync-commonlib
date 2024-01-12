@@ -1,7 +1,7 @@
 import { LRUCache } from "./LRUCache.ts";
 import { Semaphore } from "./semaphore.ts";
 import { arrayBufferToBase64Single, writeString } from "./strbin.ts";
-import { type AnyEntry, type DatabaseEntry, type EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED, SYNCINFO_ID, type SyncInfo } from "./types.ts";
+import { type AnyEntry, type DatabaseEntry, type EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED, SYNCINFO_ID, type SyncInfo, RESULT_TIMED_OUT, type WithTimeout } from "./types.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
 export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T> {
@@ -159,37 +159,98 @@ export function memorizeFuncWithLRUCacheMulti<T extends Array<any>, U>(func: (..
     };
 }
 
-const traps = {} as { [key: string]: (() => void)[]; }
-export function waitForSignal(id: string, timeout: number): Promise<boolean> {
-    let resolveTrap: (result: boolean) => void;
+const traps = {} as { [key: string]: ((param: any) => void)[]; }
+export async function waitForSignal(id: string, timeout?: number): Promise<boolean> {
+    return await waitForValue(id, timeout) !== RESULT_TIMED_OUT;
+}
+export function waitForValue<T>(id: string, timeout?: number): Promise<WithTimeout<T>> {
+    let resolveTrap: (result: WithTimeout<T>) => void;
     let trapJob: () => void;
-    const timer = setTimeout(() => {
+    const timer = timeout ? setTimeout(() => {
         if (id in traps) {
             traps[id] = traps[id].filter(e => e != trapJob);
         }
-        if (resolveTrap) resolveTrap(false);
+        if (resolveTrap) resolveTrap(RESULT_TIMED_OUT);
         resolveTrap = null;
-    }, timeout)
+    }, timeout) : false
     return new Promise((res) => {
         if (!(id in traps)) traps[id] = [];
         resolveTrap = res;
-        trapJob = () => {
+        trapJob = (result?: T) => {
             if (timer) clearTimeout(timer);
-            res(true);
+            res(result);
         }
         traps[id].push(trapJob);
     });
 }
+
 export function sendSignal(key: string) {
+    sendValue(key, true);
+}
+export function sendValue<T>(key: string, result: T) {
     if (!(key in traps)) {
         return;
     }
     const trap = traps[key];
     delete traps[key];
     for (const resolver of trap) {
-        resolver();
+        resolver(result);
     }
 }
+
+/**
+ * 
+ * @param exclusion return only not exclusion
+ * @returns 
+ * 
+ * ["something",false,"aaaaa"].filter(onlyNot(false)) => yields ["something","aaaaaa"]. but, as string[].
+ */
+export function onlyNot<A, B>(exclusion: B) {
+    function _onlyNot(item: A | B): item is Exclude<A, B> {
+        if (item === exclusion) return false;
+        return true;
+    }
+    return _onlyNot;
+}
+
+const lastProcessed = {} as Record<string, number>;
+function markInterval(key: string, now?: number) {
+    const next = now ?? Date.now();
+    if (lastProcessed?.[key] ?? 0 < next) {
+        lastProcessed[key] = next;
+    }
+}
+/**
+ * Run task with keeping minimum interval
+ * @param key waiting key
+ * @param interval interval (ms)
+ * @param task task to perform.
+ * @returns result of task
+ * @remarks This function is not designed to be concurrent.
+ */
+export async function runWithInterval<T>(key: string, interval: number, task: () => Promise<T>): Promise<T> {
+    const now = Date.now();
+    try {
+        if (!(key in lastProcessed)) {
+            markInterval(key, now);
+            return await task();
+        }
+
+        const last = lastProcessed[key];
+        lastProcessed[key] = now; //mark before process
+        const diff = now - last;
+        if (diff < interval) {
+            markInterval(key, now);
+            await delay(diff);
+        }
+        markInterval(key);
+        return await task();
+    } finally {
+        markInterval(key);
+    }
+}
+
+
 export const globalConcurrencyController = Semaphore(50);
 
 export function* arrayToChunkedArray<T>(arr: T[], chunkLength: number) {
@@ -204,6 +265,7 @@ export function unique<T>(arr: T[]) {
     return [...new Set<T>(arr)]
 }
 
-export function fireAndForget(p: Promise<any>) {
+export function fireAndForget(p: Promise<any> | (() => Promise<any>)) {
+    if (typeof p == "function") return fireAndForget(p());
     p.then(_ => {/* NO OP */ }).catch(_ => {/* NO OP */ });
 }

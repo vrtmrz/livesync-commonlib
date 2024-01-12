@@ -2,8 +2,8 @@ import { decrypt, encrypt, obfuscatePath } from "./e2ee_v2.ts";
 import { serialized } from "./lock.ts";
 import { Logger } from "./logger.ts";
 import { getPath } from "./path.ts";
+import { QueueProcessor } from "./processor.ts";
 import { writeString } from "./strbin.ts";
-import { mapAllTasksWithConcurrencyLimit } from "./task.ts";
 import { VER, VERSIONINFO_DOCID, type EntryVersionInfo, SYNCINFO_ID, type SyncInfo, type EntryDoc, type EntryLeaf, type AnyEntry, type FilePathWithPrefix, type CouchDBConnection, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types.ts";
 import { arrayToChunkedArray, isEncryptedChunkEntry, isObfuscatedEntry, isSyncInfoEntry, resolveWithIgnoreKnownError } from "./utils.ts";
 
@@ -463,29 +463,35 @@ export async function purgeUnreferencedChunks(db: PouchDB.Database, dryRun: bool
     return resultCount;
 }
 
-function transferChunks(key: string, dispKey: string, dbFrom: PouchDB.Database, dbTo: PouchDB.Database, items: {
+function transferChunks(key: string, label: string, dbFrom: PouchDB.Database, dbTo: PouchDB.Database, items: {
     id: string;
     rev: string;
 }[]) {
-    const itemsChunked = arrayToChunkedArray(items, 25);
     let totalProcessed = 0;
     const total = items.length;
-    const tasks = [...itemsChunked].map(batched => async () => {
-        const processedItems = batched.length;
-
-        try {
-            const docs = await dbFrom.allDocs({ keys: batched.map(e => e.id), include_docs: true });
-            const docsToSend = docs.rows.filter(e => !("error" in e)).map((e: any) => e.doc);
-            await dbTo.bulkDocs(docsToSend, { new_edits: false });
-        } catch (ex) {
-            Logger(`${dispKey}: Something went wrong on balancing`, LOG_LEVEL_NOTICE);
-            Logger(ex, LOG_LEVEL_VERBOSE);
-        } finally {
-            totalProcessed += processedItems;
-            Logger(`${dispKey}: ${totalProcessed} / ${total}`, LOG_LEVEL_NOTICE, "balance-" + key);
-        }
-    })
-    return tasks;
+    return new QueueProcessor(async (batched) => {
+        const docs = await dbFrom.allDocs({ keys: batched.map(e => e.id), include_docs: true });
+        const filteredDocs = docs.rows.filter((e) => !("error" in e)).map((e: any) => e.doc as EntryLeaf);
+        return filteredDocs;
+    }, {
+        batchSize: 25, concurrentLimit: 1, suspended: true
+    }, items)
+        .pipeTo(
+            new QueueProcessor(
+                async (docs) => {
+                    try {
+                        await dbTo.bulkDocs(docs, { new_edits: false });
+                    } catch (ex) {
+                        Logger(`${label}: Something went wrong on balancing`, LOG_LEVEL_NOTICE);
+                        Logger(ex, LOG_LEVEL_VERBOSE);
+                    } finally {
+                        totalProcessed += docs.length;
+                        Logger(`${label}: ${totalProcessed} / ${total}`, LOG_LEVEL_NOTICE, "balance-" + key);
+                    }
+                    return;
+                }, { batchSize: 100, delay: 100, concurrentLimit: 2, suspended: false })
+        )
+        .startPipeline().waitForPipeline();
 }
 // Complement unbalanced chunks between databases which were separately cleaned up.
 export async function balanceChunkPurgedDBs(local: PouchDB.Database, remote: PouchDB.Database) {
@@ -494,7 +500,7 @@ export async function balanceChunkPurgedDBs(local: PouchDB.Database, remote: Pou
         const { onlyOnLocal, onlyOnRemote } = await collectUnbalancedChunkIDs(local, remote);
         const localToRemote = transferChunks("l2r", "local -> remote", local, remote, onlyOnLocal);
         const remoteToLocal = transferChunks("r2l", "remote -> local", remote, local, onlyOnRemote);
-        await mapAllTasksWithConcurrencyLimit(6, [...localToRemote, ...remoteToLocal]);
+        await Promise.all([localToRemote, remoteToLocal]);
         Logger(`local -> remote: Done`, LOG_LEVEL_NOTICE, "balance-l2r");
         Logger(`remote -> local: Done`, LOG_LEVEL_NOTICE, "balance-r2l");
     } catch (ex) {
@@ -507,8 +513,7 @@ export async function balanceChunkPurgedDBs(local: PouchDB.Database, remote: Pou
 export async function fetchAllUsedChunks(local: PouchDB.Database, remote: PouchDB.Database) {
     try {
         const chunksOnRemote = await collectChunks(remote, "INUSE");
-        const remoteToLocal = transferChunks("r2l", "remote -> local", remote, local, chunksOnRemote);
-        await mapAllTasksWithConcurrencyLimit(3, remoteToLocal);
+        await transferChunks("r2l", "remote -> local", remote, local, chunksOnRemote);
         Logger(`remote -> local: Done`, LOG_LEVEL_NOTICE, "balance-r2l");
     } catch (ex) {
         Logger("Something went wrong on balancing!", LOG_LEVEL_NOTICE);

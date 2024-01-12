@@ -76,6 +76,7 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     usePluginSettings: boolean;
     showOwnPlugins: boolean;
     showStatusOnEditor: boolean;
+    showOnlyIconsOnEditor: boolean;
     usePluginSync: boolean;
     autoSweepPlugins: boolean;
     autoSweepPluginsPeriodic: boolean;
@@ -173,6 +174,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     usePluginSettings: false,
     showOwnPlugins: false,
     showStatusOnEditor: true,
+    showOnlyIconsOnEditor: false,
     usePluginSync: false,
     autoSweepPlugins: false,
     autoSweepPluginsPeriodic: false,
@@ -351,3 +353,9 @@ export const SALT_OF_PASSPHRASE = "rHGMPtr6oWw7VSa3W3wpa8fT8U";
 export const PREFIX_OBFUSCATED = "f:";
 export const PREFIX_CHUNK = "h:";
 export const PREFIX_ENCRYPTED_CHUNK = "h:+";
+
+export const RESULT_TIMED_OUT = Symbol("timed out")
+export const RESULT_NOT_FOUND = Symbol("NotFound")
+export type WithTimeout<T> = T | typeof RESULT_TIMED_OUT;
+export type WithNotFound<T> = T | typeof RESULT_NOT_FOUND;
+export const TIME_ARGUMENT_INFINITY = Symbol("infinity")
