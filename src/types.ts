@@ -23,6 +23,17 @@ export const LOG_LEVEL_INFO = 10;
 export const LOG_LEVEL_NOTICE = 100;
 export const LOG_LEVEL_URGENT = 1000;
 
+
+// Magic Special value for arguments or results.
+
+export const CANCELLED = Symbol("cancelled");
+export const AUTO_MERGED = Symbol("auto_merged");
+export const NOT_CONFLICTED = Symbol("not_conflicted");
+export const MISSING_OR_ERROR = Symbol("missing_or_error");
+export const LEAVE_TO_SUBSEQUENT = Symbol("leave_to_subsequent_proc");
+export const TIME_ARGUMENT_INFINITY = Symbol("infinity")
+export const RESULT_TIMED_OUT = Symbol("timed out")
+export const RESULT_NOT_FOUND = Symbol("NotFound")
 export type LOG_LEVEL = typeof LOG_LEVEL_DEBUG | typeof LOG_LEVEL_VERBOSE | typeof LOG_LEVEL_INFO | typeof LOG_LEVEL_NOTICE | typeof LOG_LEVEL_URGENT;
 
 export const LOG_LEVEL = {
@@ -130,7 +141,7 @@ export type RemoteDBSettings = CouchDBConnection & {
     automaticallyDeleteMetadataOfDeletedFiles: number;
     useDynamicIterationCount: boolean;
     useTimeouts: boolean;
-
+    showMergeDialogOnlyOnActive: boolean,
     hashCacheMaxCount: number,
     hashCacheMaxAmount: number,
     concurrencyOfReadChunksOnline: number,
@@ -186,6 +197,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     disableRequestURI: false,
     skipOlderFilesOnSync: true,
     checkConflictOnlyOnOpen: false,
+    showMergeDialogOnlyOnActive: false,
     syncInternalFiles: false,
     syncInternalFilesBeforeReplication: false,
     syncInternalFilesIgnorePatterns: "\\/node_modules\\/, \\/\\.git\\/, \\/obsidian-livesync\\/",
@@ -320,12 +332,15 @@ export type diff_result_leaf = {
 };
 export type dmp_result = Array<[number, string]>;
 
+
 export type diff_result = {
     left: diff_result_leaf;
     right: diff_result_leaf;
     diff: dmp_result;
 };
-export type diff_check_result = boolean | diff_result;
+
+
+export type diff_check_result = typeof CANCELLED | typeof AUTO_MERGED | typeof NOT_CONFLICTED | typeof MISSING_OR_ERROR | diff_result;
 
 export type Credential = {
     username: string;
@@ -353,9 +368,5 @@ export const SALT_OF_PASSPHRASE = "rHGMPtr6oWw7VSa3W3wpa8fT8U";
 export const PREFIX_OBFUSCATED = "f:";
 export const PREFIX_CHUNK = "h:";
 export const PREFIX_ENCRYPTED_CHUNK = "h:+";
-
-export const RESULT_TIMED_OUT = Symbol("timed out")
-export const RESULT_NOT_FOUND = Symbol("NotFound")
 export type WithTimeout<T> = T | typeof RESULT_TIMED_OUT;
 export type WithNotFound<T> = T | typeof RESULT_NOT_FOUND;
-export const TIME_ARGUMENT_INFINITY = Symbol("infinity")

@@ -1,6 +1,8 @@
 // Reactive and less-computing expression evaluator
 // Inspired from Vue
 
+import { isObjectDifferent } from "./utils";
+
 let context: ReactiveInstance<any> | undefined;
 export type ReactiveChangeHandler<T> = (instance: ReactiveInstance<T>) => unknown;
 
@@ -34,17 +36,6 @@ type reactiveParams<T> = {
     initialValue: T
 }
 
-function isObjectChanged(a: any, b: any): boolean {
-    if (typeof a !== typeof b) {
-        return true;
-    }
-    if (typeof a === "object") {
-        const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])];
-        return keys.map(key => isObjectChanged(a?.[key], b?.[key])).some(e => e == true);
-    } else {
-        return a !== b;
-    }
-}
 function _reactive<T>({ expression, initialValue }: reactiveParams<T>): ReactiveValue<T> {
     let value: T;
     let _isDirty = false;
@@ -76,7 +67,7 @@ function _reactive<T>({ expression, initialValue }: reactiveParams<T>): Reactive
             if (_isDirty) {
                 const oldValue = value;
                 const newValue = expression();
-                if (isObjectChanged(oldValue, newValue)) {
+                if (isObjectDifferent(oldValue, newValue)) {
                     value = newValue;
                     instance.markClean();
                     instance.markDependedDirty();
@@ -85,7 +76,7 @@ function _reactive<T>({ expression, initialValue }: reactiveParams<T>): Reactive
             return value;
         },
         set value(newValue: T) {
-            if (isObjectChanged(value, newValue)) {
+            if (isObjectDifferent(value, newValue)) {
                 value = newValue;
                 instance.markDirty();
             }

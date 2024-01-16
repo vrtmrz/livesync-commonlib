@@ -269,3 +269,18 @@ export function fireAndForget(p: Promise<any> | (() => Promise<any>)) {
     if (typeof p == "function") return fireAndForget(p());
     p.then(_ => {/* NO OP */ }).catch(_ => {/* NO OP */ });
 }
+
+export function isObjectDifferent(a: any, b: any): boolean {
+    if (typeof a !== typeof b) {
+        return true;
+    }
+    if (typeof a === "object") {
+        if (a === null || b === null) {
+            return a !== b;
+        }
+        const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])];
+        return keys.map(key => isObjectDifferent(a?.[key], b?.[key])).some(e => e == true);
+    } else {
+        return a !== b;
+    }
+}

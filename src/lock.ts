@@ -30,7 +30,12 @@ async function performTask<T>(queue: Queue<T>) {
 
 // --- asynchronous execution / locking utilities
 
-function _enqueue<T>(key: string | symbol, task: Task<T>, swapIfExist?: boolean): Promise<T> {
+type QueueOptions = {
+    swapIfExist?: boolean
+    shareResult?: boolean
+}
+
+function _enqueue<T>(key: string | symbol, task: Task<T>, { swapIfExist, shareResult }: QueueOptions = {}): Promise<T> {
     let resolver: (result: T) => void = () => { };
     let rejector: (reason?: any) => void = () => { };
     const tempResult = new Promise<T>((res, rej) => {
@@ -60,12 +65,49 @@ function _enqueue<T>(key: string | symbol, task: Task<T>, swapIfExist?: boolean)
     return tempResult;
 }
 
+/**
+ * Run tasks one by one in their group.
+ * @param key key of the group
+ * @param proc process to run
+ * @returns result of the process
+ */
 export function serialized<T>(key: string | symbol, proc: Task<T>): Promise<T> {
     return _enqueue(key, proc);
 }
 
+/**
+ * If free, run task and return the result (Same as serialized).
+ * If any process has running, share the result.
+ * @param key key of the group
+ * @param proc process to run
+ */
+export function shareRunningResult<T>(key: string | symbol, proc: Task<T>): Promise<T> {
+    const current = queueTails.get(key);
+    if (!current) return _enqueue(key, proc);
+    // Buffer old resolve wrapper
+    const oldResolver = current.resolver;
+    const oldRejector = current.rejector;
+    let resolver: (result: T) => void = () => { };
+    let rejector: (reason?: any) => void = () => { };
+    // Prepare Promise of shared result 
+    const tempResult = new Promise<T>((res, rej) => {
+        resolver = res, rejector = rej;
+    });
+
+    // Inject hooked handler
+    current.resolver = (result) => {
+        oldResolver(result);
+        resolver(result);
+    }
+    current.rejector = (result) => {
+        oldRejector(result);
+        rejector(result);
+    }
+    return tempResult;
+}
+
 export function skipIfDuplicated<T>(key: string | symbol, proc: Task<T>): Promise<T | null> {
-    if (queueTails.get(key)) return null;
+    if (queueTails.get(key) !== undefined) return null;
     return _enqueue(key, proc);
 }
 
@@ -73,3 +115,4 @@ export function skipIfDuplicated<T>(key: string | symbol, proc: Task<T>): Promis
 export function isLockAcquired(key: string) {
     return queueTails.get(key) !== undefined;
 }
+

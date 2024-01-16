@@ -9,7 +9,7 @@ let processNo = 0;
 /**
  * QueueProcessor Parameters
  */
-type ProcessorParams = {
+type ProcessorParams<T> = {
     /**
      * How many processes runs concurrently
      */
@@ -39,6 +39,7 @@ type ProcessorParams = {
      * If true, processed result will be buffered until a downstream has been connected.
      */
     keepResultUntilDownstreamConnected?: boolean;
+    pipeTo?: QueueProcessor<T, any>;
 };
 
 type ProcessorResult<T> = Promise<T[]> | T[] | undefined | void | Promise<void> | Promise<undefined>;
@@ -93,7 +94,6 @@ export class QueueProcessor<T, U> {
     }
 
     resume() {
-        if (!this._isSuspended) return;
         this._isSuspended = false;
         this.requestNextFlush();
         this._run();
@@ -113,7 +113,7 @@ export class QueueProcessor<T, U> {
     }
 
 
-    constructor(processor: Processor<T, U>, params?: ProcessorParams, items?: T[], enqueueProcessor?: (queue: T[], newEntity: T) => T[]) {
+    constructor(processor: Processor<T, U>, params?: ProcessorParams<U>, items?: T[], enqueueProcessor?: (queue: T[], newEntity: T) => T[]) {
         this._root = this;
         this._processor = processor;
         this.batchSize = params?.batchSize ?? 1;
@@ -125,6 +125,9 @@ export class QueueProcessor<T, U> {
         if (params?.totalRemainingReactiveSource) this._totalRemainingReactiveSource = params?.totalRemainingReactiveSource;
         if (params?.suspended !== undefined) this._isSuspended = params?.suspended;
         if (enqueueProcessor) this.replaceEnqueueProcessor(enqueueProcessor);
+        if (params?.pipeTo !== undefined) {
+            this.pipeTo(params.pipeTo);
+        }
         if (items) this.enqueueAll(items);
 
     }
@@ -364,7 +367,7 @@ export class KeyedQueueProcessor<T, U> extends QueueProcessor<QueueItemWithKey<T
         return items;
     }
 
-    constructor(processor: Processor<T, U>, params?: ProcessorParams) {
+    constructor(processor: Processor<T, U>, params?: ProcessorParams<U>) {
         const proc = (e: QueueItemWithKey<T>[]) => processor(e.map((e) => e.entity));
         super(proc, params);
     }
