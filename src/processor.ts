@@ -386,3 +386,21 @@ export class KeyedQueueProcessor<T, U> extends QueueProcessor<QueueItemWithKey<T
         return this;
     }
 }
+
+export class BufferQueue<T> extends QueueProcessor<T, T> {
+    constructor(params?: ProcessorParams<T>) {
+        super((e) => e, { suspended: true, batchSize: 1, concurrentLimit: 1, delay: 0, yieldThreshold: 1, ...params, keepResultUntilDownstreamConnected: true });
+    }
+}
+
+export class Sink<T> extends QueueProcessor<T, void> {
+    constructor(params?: ProcessorParams<void>) {
+        super((e) => { }, { suspended: false, batchSize: 100, concurrentLimit: 1, delay: 0, yieldThreshold: 1, ...params });
+    }
+}
+
+export class KeyingQueue<T> extends QueueProcessor<T, QueueItemWithKey<T>> {
+    constructor(keyGenerator: (item: T) => string) {
+        super((e) => e.map(e => ({ entity: e, key: keyGenerator(e) })), { suspended: false, batchSize: 1, concurrentLimit: 1, delay: 0, yieldThreshold: 1 });
+    }
+}

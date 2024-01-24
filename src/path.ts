@@ -1,7 +1,7 @@
 import { minimatch, type MinimatchOptions } from "minimatch";
 import { webcrypto } from "./mods.ts";
 import { uint8ArrayToHexString, writeString } from "./strbin.ts";
-import { type AnyEntry, type DocumentID, type EntryHasPath, type FilePath, type FilePathWithPrefix, FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3, PREFIX_OBFUSCATED, PREFIXMD_LOGFILE } from "./types.ts";
+import { type AnyEntry, type DocumentID, type EntryHasPath, type FilePath, type FilePathWithPrefix, FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3, PREFIX_OBFUSCATED, PREFIXMD_LOGFILE, FLAGMD_REDFLAG2_HR, FLAGMD_REDFLAG3_HR } from "./types.ts";
 import { memorizeFuncWithLRUCache, unique } from "./utils.ts";
 // --- path utilities
 export function isValidFilenameInWidows(filename: string): boolean {
@@ -130,7 +130,13 @@ export function shouldBeIgnored(filename: string): boolean {
     if (filename == FLAGMD_REDFLAG2) {
         return true;
     }
+    if (filename == FLAGMD_REDFLAG2_HR) {
+        return true;
+    }
     if (filename == FLAGMD_REDFLAG3) {
+        return true;
+    }
+    if (filename == FLAGMD_REDFLAG3_HR) {
         return true;
     }
     if (filename.startsWith(PREFIXMD_LOGFILE)) {
