@@ -36,6 +36,10 @@ type ProcessorParams<T> = {
      */
     totalRemainingReactiveSource?: ReactiveSource<number>;
     /**
+     * ReactiveSource to notify how many items are processing;
+     */
+    processingEntitiesReactiveSource?: ReactiveSource<number>;
+    /**
      * If true, processed result will be buffered until a downstream has been connected.
      */
     keepResultUntilDownstreamConnected?: boolean;
@@ -58,6 +62,7 @@ export class QueueProcessor<T, U> {
     _instance = processNo++;
     _remainingReactiveSource?: ReactiveSource<number>;
     _totalRemainingReactiveSource?: ReactiveSource<number>;
+    _processingEntitiesReactiveSource?: ReactiveSource<number>;
     _keepResultUntilDownstreamConnected = false;
     _keptResult = [] as U[];
 
@@ -123,6 +128,7 @@ export class QueueProcessor<T, U> {
         if (params?.keepResultUntilDownstreamConnected) this._keepResultUntilDownstreamConnected = params.keepResultUntilDownstreamConnected;
         if (params?.remainingReactiveSource) this._remainingReactiveSource = params?.remainingReactiveSource;
         if (params?.totalRemainingReactiveSource) this._totalRemainingReactiveSource = params?.totalRemainingReactiveSource;
+        if (params?.processingEntitiesReactiveSource) this._processingEntitiesReactiveSource = params?.processingEntitiesReactiveSource;
         if (params?.suspended !== undefined) this._isSuspended = params?.suspended;
         if (enqueueProcessor) this.replaceEnqueueProcessor(enqueueProcessor);
         if (params?.pipeTo !== undefined) {
@@ -201,6 +207,7 @@ export class QueueProcessor<T, U> {
     _updateReactiveSource() {
         if (this._remainingReactiveSource) this._remainingReactiveSource.value = this.remaining;
         if (this._totalRemainingReactiveSource) this._totalRemainingReactiveSource.value = this.totalRemaining;
+        if (this._processingEntitiesReactiveSource) this._processingEntitiesReactiveSource.value = this.processingEntities;
     }
 
     _updateBatchProcessStatus() {
