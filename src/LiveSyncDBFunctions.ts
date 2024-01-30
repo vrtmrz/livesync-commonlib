@@ -252,7 +252,7 @@ export async function getDBEntryMeta(env: DBFunctionEnvironment, path: FilePathW
         } else {
             obj = await env.localDatabase.get(id);
         }
-        const deleted = "deleted" in obj ? obj.deleted : undefined;
+        const deleted = (obj as any)?.deleted ?? obj._deleted ?? undefined;
         if (!includeDeleted && deleted) return false;
         if (obj.type && obj.type == "leaf") {
             //do nothing for leaf;
@@ -299,7 +299,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
         return false;
     }
     const dispFilename = stripAllPrefixes(filename)
-    const deleted = "deleted" in obj ? obj.deleted : undefined;
+    const deleted = obj.deleted ?? obj._deleted ?? undefined;
     if (!obj.type || (obj.type && obj.type == "notes")) {
         const note = obj as NoteEntry;
         const doc: LoadedEntry & PouchDB.Core.IdMeta = {
@@ -327,6 +327,13 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
 
         return doc;
         // simple note
+    }
+    if (dump) {
+        const conflicts = await env.localDatabase.get(obj._id, { conflicts: true, revs_info: true });
+        Logger("Conflicts");
+        Logger(conflicts._conflicts ?? "No conflicts");
+        Logger("Revs info");
+        Logger(conflicts._revs_info);
     }
     if (obj.type == "newnote" || obj.type == "plain") {
         // search children
