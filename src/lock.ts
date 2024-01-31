@@ -107,11 +107,24 @@ export function shareRunningResult<T>(key: string | symbol, proc: Task<T>): Prom
 }
 
 export function skipIfDuplicated<T>(key: string | symbol, proc: Task<T>): Promise<T | null> {
-    if (queueTails.get(key) !== undefined) return null;
+    if (queueTails.get(key) !== undefined) return Promise.resolve(null);
     return _enqueue(key, proc);
 }
 
+const waitingProcess = new Map<string, () => Promise<any>>();
 
+export async function scheduleOnceIfDuplicated<T>(key: string, proc: () => Promise<T>): Promise<void> {
+    if (isLockAcquired(key)) {
+        waitingProcess.set(key, proc);
+        return;
+    }
+    await serialized(key, proc);
+    if (waitingProcess.has(key)) {
+        const nextProc = waitingProcess.get(key);
+        waitingProcess.delete(key);
+        scheduleOnceIfDuplicated(key, nextProc as () => Promise<T>);
+    }
+}
 export function isLockAcquired(key: string) {
     return queueTails.get(key) !== undefined;
 }
