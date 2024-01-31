@@ -1,8 +1,8 @@
-import { Logger } from "./logger";
-import type { ReactiveSource } from "./reactive";
-import { cancelTask, scheduleTask } from "./task";
-import { LOG_LEVEL_VERBOSE } from "./types";
-import { sendSignal, waitForSignal } from "./utils";
+import { Logger } from "./logger.ts";
+import type { ReactiveSource } from "./reactive.ts";
+import { cancelTask, scheduleTask } from "./task.ts";
+import { LOG_LEVEL_VERBOSE } from "./types.ts";
+import { sendSignal, waitForSignal } from "./utils.ts";
 
 let processNo = 0;
 
