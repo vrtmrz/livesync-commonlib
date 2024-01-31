@@ -1,5 +1,5 @@
 import { Logger } from "./logger.ts";
-import type { ReactiveSource } from "./reactive";
+import type { ReactiveSource } from "./reactive.ts";
 import { cancelTask, scheduleTask } from "./task.ts";
 import { LOG_LEVEL_VERBOSE } from "./types.ts";
 import { sendSignal, waitForSignal } from "./utils.ts";
@@ -36,6 +36,10 @@ type ProcessorParams<T> = {
      */
     totalRemainingReactiveSource?: ReactiveSource<number>;
     /**
+     * ReactiveSource to notify how many items are processing;
+     */
+    processingEntitiesReactiveSource?: ReactiveSource<number>;
+    /**
      * If true, processed result will be buffered until a downstream has been connected.
      */
     keepResultUntilDownstreamConnected?: boolean;
@@ -58,6 +62,7 @@ export class QueueProcessor<T, U> {
     _instance = processNo++;
     _remainingReactiveSource?: ReactiveSource<number>;
     _totalRemainingReactiveSource?: ReactiveSource<number>;
+    _processingEntitiesReactiveSource?: ReactiveSource<number>;
     _keepResultUntilDownstreamConnected = false;
     _keptResult = [] as U[];
 
@@ -123,6 +128,7 @@ export class QueueProcessor<T, U> {
         if (params?.keepResultUntilDownstreamConnected) this._keepResultUntilDownstreamConnected = params.keepResultUntilDownstreamConnected;
         if (params?.remainingReactiveSource) this._remainingReactiveSource = params?.remainingReactiveSource;
         if (params?.totalRemainingReactiveSource) this._totalRemainingReactiveSource = params?.totalRemainingReactiveSource;
+        if (params?.processingEntitiesReactiveSource) this._processingEntitiesReactiveSource = params?.processingEntitiesReactiveSource;
         if (params?.suspended !== undefined) this._isSuspended = params?.suspended;
         if (enqueueProcessor) this.replaceEnqueueProcessor(enqueueProcessor);
         if (params?.pipeTo !== undefined) {
@@ -201,6 +207,7 @@ export class QueueProcessor<T, U> {
     _updateReactiveSource() {
         if (this._remainingReactiveSource) this._remainingReactiveSource.value = this.remaining;
         if (this._totalRemainingReactiveSource) this._totalRemainingReactiveSource.value = this.totalRemaining;
+        if (this._processingEntitiesReactiveSource) this._processingEntitiesReactiveSource.value = this.processingEntities;
     }
 
     _updateBatchProcessStatus() {
@@ -384,5 +391,23 @@ export class KeyedQueueProcessor<T, U> extends QueueProcessor<QueueItemWithKey<T
     enqueueWithKey(key: string | symbol, entity: T) {
         this.enqueue({ entity, key });
         return this;
+    }
+}
+
+export class BufferQueue<T> extends QueueProcessor<T, T> {
+    constructor(params?: ProcessorParams<T>) {
+        super((e) => e, { suspended: true, batchSize: 1, concurrentLimit: 1, delay: 0, yieldThreshold: 1, ...params, keepResultUntilDownstreamConnected: true });
+    }
+}
+
+export class Sink<T> extends QueueProcessor<T, void> {
+    constructor(params?: ProcessorParams<void>) {
+        super((e) => { }, { suspended: false, batchSize: 100, concurrentLimit: 1, delay: 0, yieldThreshold: 1, ...params });
+    }
+}
+
+export class KeyingQueue<T> extends QueueProcessor<T, QueueItemWithKey<T>> {
+    constructor(keyGenerator: (item: T) => string) {
+        super((e) => e.map(e => ({ entity: e, key: keyGenerator(e) })), { suspended: false, batchSize: 1, concurrentLimit: 1, delay: 0, yieldThreshold: 1 });
     }
 }

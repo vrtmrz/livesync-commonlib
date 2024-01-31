@@ -114,6 +114,12 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     useIgnoreFiles: boolean;
     ignoreFiles: string;
     syncOnEditorSave: boolean;
+
+    syncMaxSizeInMB: number;
+    settingSyncFile: string;
+    writeCredentialsForSettingSync: boolean;
+    notifyAllSettingSyncFile: boolean;
+
     pluginSyncExtendedSetting: Record<PluginSyncSettingEntry["key"], PluginSyncSettingEntry>;
 
 }
@@ -235,7 +241,34 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     ignoreFiles: ".gitignore",
     syncOnEditorSave: false,
     pluginSyncExtendedSetting: {},
+    syncMaxSizeInMB: 50,
+    settingSyncFile: "",
+    writeCredentialsForSettingSync: false,
+    notifyAllSettingSyncFile: false,
 };
+
+
+export const PREFERRED_SETTING_CLOUDANT: Partial<ObsidianLiveSyncSettings> = {
+    syncMaxSizeInMB: 50,
+    customChunkSize: 0,
+    concurrencyOfReadChunksOnline: 50,
+    minimumIntervalOfReadChunksOnline: 333,
+    settingSyncFile: "livesync/setting.md"
+}
+export const PREFERRED_SETTING_SELF_HOSTED: Partial<ObsidianLiveSyncSettings> = {
+    ...PREFERRED_SETTING_CLOUDANT,
+    customChunkSize: 100,
+    concurrencyOfReadChunksOnline: 100,
+    minimumIntervalOfReadChunksOnline: 100,
+    settingSyncFile: "livesync/setting.md"
+}
+export const PREFERRED_SETTING_NOTES = {
+    syncMaxSizeInMB: "The maximum size of the file is not set. This setting may cause a hang-up on the mobile device while synchronising large files. The preferred size is {}.",
+    customChunkSize: "Enhancing chunk size could be configured for suitable performance",
+    concurrencyOfReadChunksOnline: 100,
+    minimumIntervalOfReadChunksOnline: 100,
+}
+
 
 export interface DatabaseEntry {
     _id: DocumentID;
@@ -354,7 +387,9 @@ export type DatabaseConnectingStatus = "STARTED" | "NOT_CONNECTED" | "PAUSED" | 
 export const PREFIXMD_LOGFILE = "LIVESYNC_LOG_";
 export const FLAGMD_REDFLAG = "redflag.md" as FilePath;
 export const FLAGMD_REDFLAG2 = "redflag2.md" as FilePath;
+export const FLAGMD_REDFLAG2_HR = "flag_rebuild.md" as FilePath;
 export const FLAGMD_REDFLAG3 = "redflag3.md" as FilePath;
+export const FLAGMD_REDFLAG3_HR = "flag_fetch.md" as FilePath;
 export const SYNCINFO_ID = "syncinfo" as DocumentID;
 
 export interface SyncInfo extends DatabaseEntry {
