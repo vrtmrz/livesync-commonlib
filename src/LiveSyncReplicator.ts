@@ -358,11 +358,11 @@ export class LiveSyncDBReplicator {
         this.terminateSync();
         let syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc>;
         if (syncMode == "sync") {
-            syncHandler = localDB.sync(db, { checkpoint: "target", ...syncOptionBase });
+            syncHandler = localDB.sync(db, { ...syncOptionBase });
         } else if (syncMode == "pullOnly") {
-            syncHandler = localDB.replicate.from(db, { checkpoint: "target", ...syncOptionBase, ...(setting.readChunksOnline ? { filter: "replicate/pull" } : {}) });
+            syncHandler = localDB.replicate.from(db, { ...syncOptionBase, ...(setting.readChunksOnline ? { filter: "replicate/pull" } : {}) });
         } else if (syncMode == "pushOnly") {
-            syncHandler = localDB.replicate.to(db, { checkpoint: "target", ...syncOptionBase, ...(setting.readChunksOnline ? { filter: "replicate/push" } : {}) });
+            syncHandler = localDB.replicate.to(db, { ...syncOptionBase, ...(setting.readChunksOnline ? { filter: "replicate/push" } : {}) });
         }
         const syncResult = await this.processSync(syncHandler, showResult, docSentOnStart, docArrivedOnStart, syncMode, retrying, false);
         if (syncResult == "DONE") {
@@ -517,13 +517,7 @@ export class LiveSyncDBReplicator {
             }
             this.terminateSync();
             const syncHandler = localDB.sync<EntryDoc>(db, {
-                ...syncOption,
-                pull: {
-                    checkpoint: "target",
-                },
-                push: {
-                    checkpoint: "source",
-                },
+                ...syncOption
             });
             const syncMode = "sync";
             const syncResult = await this.processSync(syncHandler, showResult, docSentOnStart, docArrivedOnStart, syncMode, retrying);

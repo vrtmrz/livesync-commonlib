@@ -122,6 +122,9 @@ interface ObsidianLiveSyncSettings_PluginSetting {
 
     pluginSyncExtendedSetting: Record<PluginSyncSettingEntry["key"], PluginSyncSettingEntry>;
 
+    settingVersion: number;
+    isConfigured: boolean;
+
 }
 
 export type RemoteDBSettings = CouchDBConnection & {
@@ -245,6 +248,8 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     settingSyncFile: "",
     writeCredentialsForSettingSync: false,
     notifyAllSettingSyncFile: false,
+    isConfigured: undefined,
+    settingVersion: 0,
 };
 
 
