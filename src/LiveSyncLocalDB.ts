@@ -461,6 +461,19 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         }
     }
 
+    async removeRevision(docId: DocumentID, revision: string): Promise<boolean> {
+        try {
+            const doc = await this.localDatabase.get(docId, { rev: revision });
+            doc._deleted = true;
+            await this.localDatabase.put(doc);
+            return true;
+        } catch (ex) {
+            if (isErrorOfMissingDoc(ex)) {
+                Logger(`Remove revision: Missing target revision, ${docId}-${revision}`, LOG_LEVEL_VERBOSE);
+                return false;
+            }
+        }
+    }
 
     getRaw<T extends EntryDoc>(docId: DocumentID, options?: PouchDB.Core.GetOptions): Promise<T & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta> {
         return this.localDatabase.get<T>(docId, options || {});
