@@ -605,6 +605,7 @@ export function _decodeToArrayBuffer(src: string): Uint8Array {
 }
 
 export function decodeBinary(src: string | string[]) {
+    if (src.length == 0) return "";
     if (typeof src === "string") {
         if (src[0] === "%") {
             return _decodeToArrayBuffer(src.substring(1));
