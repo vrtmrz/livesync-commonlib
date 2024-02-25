@@ -152,8 +152,10 @@ export class DirectFileManipulator {
      */
     async decryptDocumentPath<T extends ReadyEntry | MetaEntry>(entry: T): Promise<T> {
         let path = "";
-        if (this.options.passphrase) {
-            path = await decrypt(entry.path, this.options.passphrase, this.options.useDynamicIterationCount ?? false);
+        if (this.options.obfuscatePassphrase) {
+            if (entry.path.startsWith("%") || entry.path.startsWith("[")) {
+                path = await decrypt(entry.path, this.options.obfuscatePassphrase, this.options.useDynamicIterationCount ?? false);
+            }
         } else {
             path = entry.path ?? "";
         }
