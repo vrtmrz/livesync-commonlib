@@ -56,7 +56,6 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     xxhash32: (input: string, seed?: number) => number;
     xxhash64: ((input: string) => bigint) | false = false;
     hashCaches = new LRUCache<DocumentID, string>(10, 1000);
-    corruptedEntries: { [key: string]: EntryDoc } = {};
 
     changeHandler: PouchDB.Core.Changes<EntryDoc> | null = null;
 
@@ -244,8 +243,8 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         return deleteDBEntryPrefix(this, prefixSrc);
     }
     // eslint-disable-next-line require-await
-    async putDBEntry(note: SavingEntry, saveAsBigChunk?: boolean) {
-        return putDBEntry(this, note, saveAsBigChunk);
+    async putDBEntry(note: SavingEntry) {
+        return putDBEntry(this, note);
     }
 
 
@@ -262,33 +261,6 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         this.localDatabase = null;
         await this.initializeDatabase();
         Logger("Local Database Reset", LOG_LEVEL_NOTICE);
-    }
-
-    async sanCheck(entry: EntryDoc): Promise<boolean> {
-        if (entry.type == "plain" || entry.type == "newnote") {
-            const children = entry.children;
-            Logger(`sancheck:checking:${entry._id.substring(0, 8)} : ${children.length}`, LOG_LEVEL_VERBOSE);
-            try {
-                const dc = await this.localDatabase.allDocs({ keys: [...children] });
-                if (dc.rows.some((e) => "error" in e)) {
-                    this.corruptedEntries[entry._id] = entry;
-                    Logger(`sancheck:corrupted:${entry._id.substring(0, 8)} : ${children.length}`, LOG_LEVEL_VERBOSE);
-                    return false;
-                }
-                return true;
-            } catch (ex) {
-                Logger(ex);
-            }
-        }
-        return false;
-    }
-
-    isVersionUpgradable(ver: number) {
-        if (this.maxChunkVersion < 0) return false;
-        if (this.minChunkVersion < 0) return false;
-        if (this.maxChunkVersion > 0 && this.maxChunkVersion < ver) return false;
-        if (this.minChunkVersion > 0 && this.minChunkVersion > ver) return false;
-        return true;
     }
 
     isTargetFile(filenameSrc: string) {

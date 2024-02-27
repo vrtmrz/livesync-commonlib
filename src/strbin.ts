@@ -224,7 +224,7 @@ export function base64ToArrayBuffer(base64: string | string[]): ArrayBuffer {
         joinedArray.set(new Uint8Array(e), offset);
         offset += e.byteLength;
     });
-    return joinedArray;
+    return joinedArray.buffer;
 }
 
 const base64ToArrayBufferInternal = (window && window.atob) ? base64ToArrayBufferInternalBrowser : base64ToArrayBufferInternalNode;
@@ -235,7 +235,7 @@ function base64ToArrayBufferInternalNode(base64: string): ArrayBuffer {
     } catch (ex) {
         Logger("Base64 decode error (Node)", LOG_LEVEL_VERBOSE);
         Logger(ex, LOG_LEVEL_VERBOSE);
-        return new Uint8Array(0);
+        return new ArrayBuffer(0);
     }
 }
 
@@ -251,7 +251,7 @@ export function base64ToArrayBufferInternalBrowser(base64: string): ArrayBuffer 
     } catch (ex) {
         Logger("Base64 Decode error", LOG_LEVEL_VERBOSE);
         Logger(ex, LOG_LEVEL_VERBOSE);
-        return new Uint8Array(0);
+        return new ArrayBuffer(0);
     }
 }
 
@@ -586,10 +586,10 @@ export function decodeToArrayBuffer(src: string[]) {
         joinedArray.set(new Uint8Array(e), offset);
         offset += e.byteLength;
     });
-    return joinedArray;
+    return joinedArray.buffer;
 }
 
-export function _decodeToArrayBuffer(src: string): Uint8Array {
+export function _decodeToArrayBuffer(src: string): ArrayBuffer {
     const out = new Uint8Array(src.length);
     const len = src.length;
     for (let i = 0; i < len; i++) {
@@ -601,11 +601,11 @@ export function _decodeToArrayBuffer(src: string): Uint8Array {
             out[i] = revTable[char];
         }
     }
-    return out
+    return out.buffer
 }
 
 export function decodeBinary(src: string | string[]) {
-    if (src.length == 0) return "";
+    if (src.length == 0) return new Uint8Array().buffer;
     if (typeof src === "string") {
         if (src[0] === "%") {
             return _decodeToArrayBuffer(src.substring(1));
