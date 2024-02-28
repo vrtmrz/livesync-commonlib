@@ -2,7 +2,7 @@ import { Logger } from "./logger.ts";
 import type { ReactiveSource } from "./reactive.ts";
 import { cancelTask, scheduleTask } from "./task.ts";
 import { LOG_LEVEL_VERBOSE } from "./types.ts";
-import { sendSignal, waitForSignal } from "./utils.ts";
+import { runWithStartInterval, sendSignal, waitForSignal } from "./utils.ts";
 
 let processNo = 0;
 
@@ -26,6 +26,8 @@ type ProcessorParams<T> = {
      * Time(ms) to ignore yieldThreshold and run process
      */
     delay?: number;
+    interval?: number;
+    maintainDelay?: boolean;
     suspended: boolean;
     /**
      * ReactiveSource to notify the remaining count.
@@ -83,6 +85,8 @@ export class QueueProcessor<T, U> {
     // If set, wait for set milliseconds after enqueued
     // Note: If reached to the batchSize, run immediately
     delay = 0;
+    maintainDelay: boolean;
+    interval = 0;
 
     processingEntities = 0;
 
@@ -125,6 +129,8 @@ export class QueueProcessor<T, U> {
         this.yieldThreshold = params?.yieldThreshold ?? params?.batchSize ?? 0;
         this.concurrentLimit = params?.concurrentLimit ?? 1;
         this.delay = params?.delay ?? 0;
+        this.maintainDelay = params?.maintainDelay ?? false;
+        this.interval = params?.interval ?? 0;
         if (params?.keepResultUntilDownstreamConnected) this._keepResultUntilDownstreamConnected = params.keepResultUntilDownstreamConnected;
         if (params?.remainingReactiveSource) this._remainingReactiveSource = params?.remainingReactiveSource;
         if (params?.totalRemainingReactiveSource) this._totalRemainingReactiveSource = params?.totalRemainingReactiveSource;
@@ -349,7 +355,11 @@ export class QueueProcessor<T, U> {
             this._nextProcessNeedsImmediate // or, If have been ordered in advance
         ) ? 0 : this.delay; // run immediately, Otherwise schedule to run after delay (ms)
         this._nextProcessNeedsImmediate = false;
-        scheduleTask(`kickProcess-${this._instance}`, delay, () => this._process())
+        if (this.interval) {
+            runWithStartInterval(`kickProcess-interval-${this._instance}`, this.interval, async () => await scheduleTask(`kickProcess-${this._instance}`, delay, () => this._process(), this.maintainDelay))
+        } else {
+            scheduleTask(`kickProcess-${this._instance}`, delay, () => this._process(), this.maintainDelay);
+        }
     }
 }
 export type QueueItemWithKey<T> = { entity: T; key: string | symbol };

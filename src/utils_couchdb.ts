@@ -470,12 +470,21 @@ function transferChunks(key: string, label: string, dbFrom: PouchDB.Database, db
     let totalProcessed = 0;
     const total = items.length;
     return new QueueProcessor(async (batched) => {
-        const docs = await dbFrom.allDocs({ keys: batched.map(e => e.id), include_docs: true });
-        const filteredDocs = docs.rows.filter((e) => !("error" in e)).map((e: any) => e.doc as EntryLeaf);
-        return filteredDocs;
+        // Narrow down to only the chunks which are not in the local.
+        const requestItems = batched.map(e => e.id);
+        const local = await dbTo.allDocs({ keys: requestItems });
+        const batch = local.rows.filter(e => "error" in e && e.error == "not_found").map(e => e.key);
+        return batch;
     }, {
-        batchSize: 25, concurrentLimit: 1, suspended: true
+        batchSize: 50, concurrentLimit: 5, suspended: true, delay: 100
     }, items)
+        .pipeTo(new QueueProcessor(async (chunkIds) => {
+            const docs = await dbFrom.allDocs({ keys: chunkIds, include_docs: true });
+            const filteredDocs = docs.rows.filter((e) => !("error" in e)).map((e: any) => e.doc as EntryLeaf);
+            return filteredDocs;
+        }, {
+            batchSize: 25, concurrentLimit: 1, suspended: true, delay: 100,
+        }))
         .pipeTo(
             new QueueProcessor(
                 async (docs) => {

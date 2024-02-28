@@ -18,7 +18,7 @@ import {
     LOG_LEVEL_VERBOSE,
     RESULT_TIMED_OUT,
 } from "./types.ts";
-import { onlyNot, runWithInterval, sendValue, waitForValue } from "./utils.ts";
+import { onlyNot, sendValue, waitForValue } from "./utils.ts";
 import { Logger } from "./logger.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 import { LRUCache } from "./LRUCache.ts";
@@ -293,15 +293,16 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             requesting.forEach((id) => sendValue(`chunk-fetch-${id}`, []));
         }
         return;
-    }, { batchSize: 100, delay: 10, concurrentLimit: 1, suspended: false, totalRemainingReactiveSource: collectingChunks });
+    }, { batchSize: 100, interval: 100, concurrentLimit: 1, maintainDelay: true, suspended: false, totalRemainingReactiveSource: collectingChunks });
     async collectChunks(ids: string[], showResult = false, waitForReady?: boolean) {
-        this._chunkCollectProcessor.batchSize = this.settings.concurrencyOfReadChunksOnline;
         const localChunks = await this.collectChunksWithCache(ids as DocumentID[]);
         const missingChunks = localChunks.filter(e => !e.chunk).map(e => e.id);
         // If we have enough chunks, return them.
         if (missingChunks.length == 0) {
             return localChunks.map(e => e.chunk) as EntryLeaf[];
         }
+        this._chunkCollectProcessor.batchSize = this.settings.concurrencyOfReadChunksOnline;
+        this._chunkCollectProcessor.interval = this.settings.minimumIntervalOfReadChunksOnline;
         this._chunkCollectProcessor.enqueueAll(ids)
         const fetchChunkTasks = ids.map(id => waitForValue<EntryLeaf>(`chunk-fetch-${id}`));
         const res = (await Promise.all(fetchChunkTasks)).filter(onlyNot(RESULT_TIMED_OUT));
@@ -317,30 +318,20 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             return localChunks.map(e => e.chunk) as EntryLeaf[];
         }
         // Fetching remote chunks.
-        const remoteDocs = await runWithInterval("fetch-remote", this.settings.minimumIntervalOfReadChunksOnline, () => this.env.getReplicator().fetchRemoteChunks(missingChunks, showResult));
+        const remoteDocs = await this.env.getReplicator().fetchRemoteChunks(missingChunks, showResult);
         if (remoteDocs == false) {
-            // Logger(`Could not fetch chunks from the server. `, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
+            Logger(`Could not fetch chunks from the server. `, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_VERBOSE, "fetch");
             return false;
         }
-
-        const max = remoteDocs.length;
         remoteDocs.forEach(e => this.hashCaches.set(e._id, e.data));
         // Cache remote chunks to the local database.
         await this.localDatabase.bulkDocs(remoteDocs, { new_edits: false });
-        let last = 0;
         // Chunks should be ordered by as we requested.
-        function findChunk(key: string) {
-            if (!remoteDocs) throw Error("Chunk collecting error");
-            const offset = last;
-            for (let i = 0; i < max; i++) {
-                const idx = (offset + i) % max;
-                last = i;
-                if (remoteDocs[idx]._id == key) return remoteDocs[idx];
-            }
-            throw Error("Chunk collecting error");
-        }
-        // Merge them
-        return localChunks.map(e => !e.chunk ? (findChunk(e.id)) : e.chunk);
+        const chunks = [...localChunks.map(e => e.chunk).filter(e => e !== false) as EntryLeaf[], ...remoteDocs].reduce((p, c) => ({ ...p, [c._id]: c }), {} as Record<string, EntryLeaf>);
+        const ret = ids.map(e => chunks?.[e] ?? undefined)
+        if (ret.some(e => e === undefined)) return false;
+        return ret;
+
     }
 
 
