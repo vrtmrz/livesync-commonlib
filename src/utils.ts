@@ -72,10 +72,15 @@ export function createBinaryBlob(data: Uint8Array | ArrayBuffer) {
     return new Blob([data], { endings: "transparent", type: "application/octet-stream" });
 }
 
+const isIndexDBCmpExist = typeof window?.indexedDB?.cmp !== "undefined";
+
 export async function isDocContentSame(docA: string | string[] | Blob, docB: string | string[] | Blob) {
     const blob1 = docA instanceof Blob ? docA : createTextBlob(docA);
     const blob2 = docB instanceof Blob ? docB : createTextBlob(docB);
     if (blob1.size != blob2.size) return false;
+    if (isIndexDBCmpExist) {
+        return window.indexedDB.cmp(await blob1.arrayBuffer(), await blob2.arrayBuffer()) === 0;
+    }
     const checkQuantum = 10000;
     const length = blob1.size;
 
