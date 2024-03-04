@@ -200,8 +200,8 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     autoSweepPluginsPeriodic: false,
     notifyPluginOrSettingUpdated: false,
     checkIntegrityOnSave: false,
-    batch_size: 50,
-    batches_limit: 40,
+    batch_size: 25,
+    batches_limit: 25,
     useHistory: false,
     disableRequestURI: false,
     skipOlderFilesOnSync: true,
@@ -235,8 +235,8 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     doNotPaceReplication: false,
     hashCacheMaxCount: 300,
     hashCacheMaxAmount: 50,
-    concurrencyOfReadChunksOnline: 100,
-    minimumIntervalOfReadChunksOnline: 333,
+    concurrencyOfReadChunksOnline: 40,
+    minimumIntervalOfReadChunksOnline: 50,
     hashAlg: "xxhash64",
     suspendParseReplicationResult: false,
     doNotSuspendOnFetching: false,
@@ -256,23 +256,16 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
 export const PREFERRED_SETTING_CLOUDANT: Partial<ObsidianLiveSyncSettings> = {
     syncMaxSizeInMB: 50,
     customChunkSize: 0,
-    concurrencyOfReadChunksOnline: 50,
+    concurrencyOfReadChunksOnline: 100,
     minimumIntervalOfReadChunksOnline: 333,
-    settingSyncFile: "livesync/setting.md"
 }
 export const PREFERRED_SETTING_SELF_HOSTED: Partial<ObsidianLiveSyncSettings> = {
     ...PREFERRED_SETTING_CLOUDANT,
-    customChunkSize: 100,
-    concurrencyOfReadChunksOnline: 100,
-    minimumIntervalOfReadChunksOnline: 100,
-    settingSyncFile: "livesync/setting.md"
+    customChunkSize: 50,
+    concurrencyOfReadChunksOnline: 30,
+    minimumIntervalOfReadChunksOnline: 25
 }
-export const PREFERRED_SETTING_NOTES = {
-    syncMaxSizeInMB: "The maximum size of the file is not set. This setting may cause a hang-up on the mobile device while synchronising large files. The preferred size is {}.",
-    customChunkSize: "Enhancing chunk size could be configured for suitable performance",
-    concurrencyOfReadChunksOnline: 100,
-    minimumIntervalOfReadChunksOnline: 100,
-}
+
 
 
 export interface DatabaseEntry {
