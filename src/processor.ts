@@ -53,7 +53,7 @@ type Processor<T, U> = (entity: T[]) => ProcessorResult<U>
 export class QueueProcessor<T, U> {
     _queue: T[] = [];
     _processor: Processor<T, U>;
-    _enqueueProcessor?: (queue: T[], newEntity: T) => T[] = (queue, entity) => (queue.push(entity), queue);
+    _enqueueProcessor: (queue: T[], newEntity: T) => T[] = (queue, entity) => (queue.push(entity), queue);
     _isSuspended = true;
     _nextProcessNeedsImmediate = false;
     _processing: number | undefined = undefined;

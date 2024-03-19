@@ -1,7 +1,8 @@
 import { LRUCache } from "./LRUCache.ts";
+import { isPlainText } from "./path.ts";
 import { Semaphore } from "./semaphore.ts";
-import { arrayBufferToBase64Single, writeString } from "./strbin.ts";
-import { type AnyEntry, type DatabaseEntry, type EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED, SYNCINFO_ID, type SyncInfo, RESULT_TIMED_OUT, type WithTimeout } from "./types.ts";
+import { arrayBufferToBase64Single, decodeBinary, writeString } from "./strbin.ts";
+import { type AnyEntry, type DatabaseEntry, type EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED, SYNCINFO_ID, type SyncInfo, RESULT_TIMED_OUT, type WithTimeout, type LoadedEntry, type SavingEntry } from "./types.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
 export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T> {
@@ -71,12 +72,41 @@ export function createTextBlob(data: string | string[]) {
 export function createBinaryBlob(data: Uint8Array | ArrayBuffer) {
     return new Blob([data], { endings: "transparent", type: "application/octet-stream" });
 }
+export function createBlob(data: string | string[] | Uint8Array | ArrayBuffer | Blob) {
+    if (data instanceof Blob) return data;
+    if (data instanceof Uint8Array || data instanceof ArrayBuffer) return createBinaryBlob(data);
+    return createTextBlob(data);
+}
+
+export function isTextDocument(doc: LoadedEntry) {
+    if (doc.type == "plain") return true;
+    if (doc.datatype == "plain") return true;
+    if (isPlainText(doc.path)) return true;
+    return false;
+    // const ext = doc.path.split(".").splice(-1)[0].toLowerCase();
+    // isPlainText(doc.path) || ["md", "mdx", "txt", "json"].includes(ext);
+}
+
+export function readAsBlob(doc: LoadedEntry) {
+    if (isTextDocument(doc)) {
+        return createTextBlob(doc.data);
+    } else {
+        return createBinaryBlob(decodeBinary(doc.data));
+    }
+}
+export function readContent(doc: LoadedEntry) {
+    if (isTextDocument(doc)) {
+        return getDocData(doc.data);
+    } else {
+        return decodeBinary(doc.data);
+    }
+}
 
 const isIndexDBCmpExist = typeof window?.indexedDB?.cmp !== "undefined";
 
-export async function isDocContentSame(docA: string | string[] | Blob, docB: string | string[] | Blob) {
-    const blob1 = docA instanceof Blob ? docA : createTextBlob(docA);
-    const blob2 = docB instanceof Blob ? docB : createTextBlob(docB);
+export async function isDocContentSame(docA: string | string[] | Blob | ArrayBuffer, docB: string | string[] | Blob | ArrayBuffer) {
+    const blob1 = createBlob(docA);
+    const blob2 = createBlob(docB);
     if (blob1.size != blob2.size) return false;
     if (isIndexDBCmpExist) {
         return window.indexedDB.cmp(await blob1.arrayBuffer(), await blob2.arrayBuffer()) === 0;
@@ -169,19 +199,19 @@ export async function waitForSignal(id: string, timeout?: number): Promise<boole
     return await waitForValue(id, timeout) !== RESULT_TIMED_OUT;
 }
 export function waitForValue<T>(id: string, timeout?: number): Promise<WithTimeout<T>> {
-    let resolveTrap: (result: WithTimeout<T>) => void;
-    let trapJob: () => void;
+    let resolveTrap: ((result: WithTimeout<T>) => void) | undefined;
+    let trapJob: (() => void) | ((param: T) => void);
     const timer = timeout ? setTimeout(() => {
         if (id in traps) {
             traps[id] = traps[id].filter(e => e != trapJob);
         }
         if (resolveTrap) resolveTrap(RESULT_TIMED_OUT);
-        resolveTrap = null;
+        resolveTrap = undefined;
     }, timeout) : false
     return new Promise((res) => {
         if (!(id in traps)) traps[id] = [];
         resolveTrap = res;
-        trapJob = (result?: T) => {
+        trapJob = (result: T) => {
             if (timer) clearTimeout(timer);
             res(result);
         }
@@ -312,5 +342,16 @@ export function isObjectDifferent(a: any, b: any): boolean {
         return keys.map(key => isObjectDifferent(a?.[key], b?.[key])).some(e => e == true);
     } else {
         return a !== b;
+    }
+}
+
+export function createSavingEntryFromLoadedEntry(doc: LoadedEntry): SavingEntry {
+    const type = doc.type == "newnote" ? "newnote" : "plain"
+    return {
+        ...doc,
+        data: readAsBlob(doc),
+        datatype: type,
+        type,
+        children: [],
     }
 }

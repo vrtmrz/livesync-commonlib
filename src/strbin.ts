@@ -1,7 +1,10 @@
 import { Logger } from "./logger.ts";
 import { webcrypto } from "./mods.ts";
 import { LOG_LEVEL_VERBOSE } from "./types.ts";
-import { createTextBlob, isTextBlob } from "./utils.ts";
+import { isTextBlob } from "./utils.ts";
+import { default as xxhashOld, type Exports } from "xxhash-wasm";
+import { default as xxhashNew } from "../patched_xxhash_wasm/xxhash-wasm.js";
+import type { XXHashAPI } from "xxhash-wasm-102";
 
 // Map for converting hexString
 const revMap: { [key: string]: number } = {};
@@ -185,18 +188,6 @@ export async function arrayBufferToBase64(buffer: ArrayBuffer): Promise<string[]
     return pieces;
 }
 
-export async function arrayBufferToBase64_old(buffer: ArrayBuffer): Promise<string[]> {
-    const bufLen = buffer.byteLength;
-    const pieces = [];
-    let idx = 0;
-    do {
-        const offset = idx * encodeChunkSize;
-        const pBuf = new DataView(buffer, offset, Math.min(encodeChunkSize, buffer.byteLength - offset));
-        pieces.push(await arrayBufferToBase64internal(pBuf));
-        idx++;
-    } while (idx * encodeChunkSize < bufLen);
-    return pieces;
-}
 export function base64ToString(base64: string | string[]): string {
     try {
         if (typeof base64 != "string") return base64.map(e => base64ToString(e)).join("");
@@ -343,8 +334,7 @@ export function splitPiecesText(dataSrc: string | string[], pieceSize: number, p
         }
     };
 }
-export async function splitPieces2(dataSrcX: string | string[] | Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string) {
-    const dataSrc = (!(dataSrcX instanceof Blob)) ? createTextBlob(dataSrcX) : dataSrcX;
+export async function splitPieces2(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string) {
     if (plainSplit || isTextBlob(dataSrc)) {
         return splitPiecesText(await dataSrc.text(), pieceSize, plainSplit, minimumChunkSize);
     }
@@ -622,8 +612,34 @@ export async function encodeBinary(src: Uint8Array | ArrayBuffer): Promise<strin
     return await arrayBufferToBase64(src);
 }
 
+let hashFunc: (input: string, seed?: number) => string;
+
+async function initHashFunc() {
+    try {
+        const { h32ToString } = await (xxhashNew as unknown as () => Promise<XXHashAPI>)();
+        hashFunc = h32ToString;
+        Logger(`xxhash for plugin initialised`, LOG_LEVEL_VERBOSE);
+    } catch (ex) {
+        Logger(`Could not initialise xxhash. fallback...`, LOG_LEVEL_VERBOSE);
+        Logger(ex);
+        try {
+            const { h32 } = (await xxhashOld()) as unknown as Exports;
+            hashFunc = (str) => h32(str);
+        } catch (ex) {
+            Logger(`Could not initialise old xxhash for plugin: use sha1`, LOG_LEVEL_VERBOSE);
+            Logger(ex);
+            hashFunc = (str) => str;
+        }
+    }
+    return hashFunc;
+}
+initHashFunc();
 export async function sha1(src: string) {
     const bytes = writeString(src);
     const digest = await webcrypto.subtle.digest({ name: "SHA-1" }, bytes);
     return await arrayBufferToBase64Single(digest);
+}
+
+export function digestHash(src: string) {
+    return hashFunc(src);
 }

@@ -21,7 +21,8 @@ const currentVersionRange: ChunkVersionRange = {
 }
 type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<void> | void;
 
-type EventParamArray<T> =
+// eslint-disable-next-line @typescript-eslint/ban-types
+type EventParamArray<T extends {}> =
     ["change", PouchDB.Replication.SyncResult<T>] |
     ["change", PouchDB.Replication.ReplicationResult<T>] |
     ["active"] |
@@ -113,9 +114,9 @@ export class LiveSyncDBReplicator {
     maxPullSeq = 0;
     lastSyncPushSeq = 0;
     maxPushSeq = 0;
-    controller: AbortController;
+    controller?: AbortController;
     // localDatabase: PouchDB.Database<EntryDoc>;
-    originalSetting: RemoteDBSettings = null;
+    originalSetting!: RemoteDBSettings;
     nodeid = "";
     remoteLocked = false;
     remoteCleaned = false;
@@ -139,10 +140,11 @@ export class LiveSyncDBReplicator {
 
             this.nodeid = nodeinfo.nodeid;
             await putDesignDocuments(db);
+            return true;
         } catch (ex) {
             Logger(ex);
-            return false;
         }
+        return false;
     }
 
     constructor(env: LiveSyncReplicatorEnv) {
@@ -166,7 +168,7 @@ export class LiveSyncDBReplicator {
             return;
         }
         this.controller.abort();
-        this.controller = null;
+        this.controller = undefined;
     }
 
     async openReplication(setting: RemoteDBSettings, keepAlive: boolean, showResult: boolean, ignoreCleanLock = false) {
@@ -291,8 +293,8 @@ export class LiveSyncDBReplicator {
                         Logger("Replication stopped.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
                         if (this.env.getLastPostFailedBySize()) {
                             if (e && e?.status == 413) {
-                                Logger(`Self-hosted LiveSync has detected some remote-database-incompatible chunks that exist in the local database. It means synchronization with the server had been no longer possible.\n\nThe problem may be caused by chunks that were created with the faulty version or by switching platforms of the database.\nTo solve the circumstance, configure the remote database correctly or we have to rebuild both local and remote databases.`, LOG_LEVEL_NOTICE);
-                                return;
+                                Logger(`Something went wrong during synchronisation. Please check the log!`, LOG_LEVEL_NOTICE);
+                                return "FAILED";
                             }
                             return "NEED_RETRY";
                             // Duplicate settings for smaller batch.
@@ -317,10 +319,10 @@ export class LiveSyncDBReplicator {
         } catch (ex) {
             Logger(`Unexpected synchronization exception`);
             Logger(ex, LOG_LEVEL_VERBOSE)
-
+            return "FAILED";
         } finally {
             this.terminateSync();
-            this.controller = null;
+            this.controller = undefined;
         }
     }
     async openOneShotReplication(
@@ -330,7 +332,7 @@ export class LiveSyncDBReplicator {
         syncMode: "sync" | "pullOnly" | "pushOnly",
         ignoreCleanLock = false
     ): Promise<boolean> {
-        if (this.controller != null) {
+        if (this.controller) {
             Logger("Replication is already in progress.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
             return false;
         }
@@ -356,14 +358,17 @@ export class LiveSyncDBReplicator {
             this.originalSetting = setting;
         }
         this.terminateSync();
-        let syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc>;
-        if (syncMode == "sync") {
-            syncHandler = localDB.sync(db, { ...syncOptionBase });
-        } else if (syncMode == "pullOnly") {
-            syncHandler = localDB.replicate.from(db, { ...syncOptionBase, ...(setting.readChunksOnline ? { filter: "replicate/pull" } : {}) });
-        } else if (syncMode == "pushOnly") {
-            syncHandler = localDB.replicate.to(db, { ...syncOptionBase, ...(setting.readChunksOnline ? { filter: "replicate/push" } : {}) });
-        }
+        const syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc> =
+            syncMode == "sync" ? localDB.sync(db, { ...syncOptionBase }) :
+                (syncMode == "pullOnly" ? localDB.replicate.from(db, { ...syncOptionBase, ...(setting.readChunksOnline ? { filter: "replicate/pull" } : {}) }) :
+                    syncMode == "pushOnly" ? localDB.replicate.to(db, { ...syncOptionBase, ...(setting.readChunksOnline ? { filter: "replicate/push" } : {}) }) : undefined as never)
+        // if (syncMode == "sync") {
+        //     syncHandler = localDB.sync(db, { ...syncOptionBase });
+        // } else if (syncMode == "pullOnly") {
+        //     syncHandler = localDB.replicate.from(db, { ...syncOptionBase, ...(setting.readChunksOnline ? { filter: "replicate/pull" } : {}) });
+        // } else if (syncMode == "pushOnly") {
+        //     syncHandler = localDB.replicate.to(db, { ...syncOptionBase, ...(setting.readChunksOnline ? { filter: "replicate/push" } : {}) });
+        // }
         const syncResult = await this.processSync(syncHandler, showResult, docSentOnStart, docArrivedOnStart, syncMode, retrying, false);
         if (syncResult == "DONE") {
             return true;
@@ -414,7 +419,7 @@ export class LiveSyncDBReplicator {
     }
 
     replicateAllFromServer(setting: RemoteDBSettings, showingNotice?: boolean) {
-        return this.openOneShotReplication(setting, showingNotice, false, "pullOnly");
+        return this.openOneShotReplication(setting, showingNotice ?? false, false, "pullOnly");
     }
 
 
@@ -425,7 +430,7 @@ export class LiveSyncDBReplicator {
             return false;
         }
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        if (this.controller != null) {
+        if (this.controller) {
             Logger("Another replication running.");
             return false;
         }
@@ -483,9 +488,9 @@ export class LiveSyncDBReplicator {
 
 
     async openContinuousReplication(setting: RemoteDBSettings, showResult: boolean, retrying: boolean): Promise<boolean> {
-        if (this.controller != null) {
+        if (this.controller) {
             Logger("Replication is already in progress.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
-            return;
+            return false;
         }
         const localDB = this.env.getDatabase();
         Logger("Before LiveSync, start OneShot once...");
@@ -544,7 +549,9 @@ export class LiveSyncDBReplicator {
                     return await this.openContinuousReplication(tempSetting, showResult, true);
                 }
             }
+            // if (syncResult == "CANCELLED") 
         }
+        return false;
     }
 
     closeReplication() {
@@ -552,7 +559,7 @@ export class LiveSyncDBReplicator {
             return;
         }
         this.controller.abort();
-        this.controller = null;
+        this.controller = undefined;
         this.syncStatus = "CLOSED";
         Logger("Replication closed");
         this.updateInfo();
@@ -640,7 +647,7 @@ export class LiveSyncDBReplicator {
         await dbRet.db.put(remoteMilestone);
     }
 
-    connectRemoteCouchDBWithSetting(settings: RemoteDBSettings, isMobile: boolean, performSetup?: boolean, skipInfo?: boolean) {
+    connectRemoteCouchDBWithSetting(settings: RemoteDBSettings, isMobile: boolean, performSetup: boolean = false, skipInfo: boolean = false) {
         if (settings.encrypt && settings.passphrase == "" && !settings.permitEmptyPassphrase) {
             return "Empty passphrases cannot be used without explicit permission";
         }

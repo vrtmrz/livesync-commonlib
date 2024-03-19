@@ -110,7 +110,7 @@ PouchDB.prototype.purgeMulti = adapterFun('_purgeMulti', function (docs: PurgeMu
         const ret = await mapAllTasksWithConcurrencyLimit(1, tasks);
         const retAll = ret.map(e => unwrapTaskResult(e)) as [PurgeMultiParam, PurgeMultiResult | Error][];
         await appendPurgeSeqs(self, retAll.filter(e => "ok" in e[1]).map(e => e[0]));
-        const result = retAll.map(e => ({ [e[0][0]]: e[1] })).reduce((p, c) => ({ ...p, ...c }), {});
+        const result = Object.fromEntries(retAll.map(e => [e[0][0], e[1]]));
         return result
     })().then(result => callback(undefined, result)).catch(error => callback(error));
 

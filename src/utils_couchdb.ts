@@ -261,7 +261,7 @@ async function prepareChunkDesignDoc(db: PouchDB.Database) {
             updateDDoc = true;
         }
 
-    } catch (ex) {
+    } catch (ex: any) {
         if (ex.status == 404) {
             // NO OP
             updateDDoc = true;
@@ -395,7 +395,7 @@ export async function purgeChunksRemote(setting: CouchDBConnection, docs: { id: 
                 setting.couchDB_USER,
                 setting.couchDB_PASSWORD,
                 "_purge",
-                chunkedPayload.reduce((p, c) => ({ ...p, [c.id]: [c.rev] }), {}), "POST");
+                Object.fromEntries(chunkedPayload.map(e => [e.id, [e.rev]])), "POST");
             // const result = await rets();
             Logger(JSON.stringify(await rets.json()), LOG_LEVEL_VERBOSE);
         }

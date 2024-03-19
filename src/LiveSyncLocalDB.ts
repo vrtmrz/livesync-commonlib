@@ -46,14 +46,14 @@ export interface LiveSyncLocalDBEnv {
 export class LiveSyncLocalDB implements DBFunctionEnvironment {
     auth: Credential;
     dbname: string;
-    settings: RemoteDBSettings;
+    settings!: RemoteDBSettings;
     localDatabase!: PouchDB.Database<EntryDoc>;
 
     isReady = false;
 
     h32!: (input: string, seed?: number) => string;
     h32Raw!: (input: Uint8Array, seed?: number) => number;
-    xxhash32: (input: string, seed?: number) => number;
+    xxhash32!: (input: string, seed?: number) => number;
     xxhash64: ((input: string) => bigint) | false = false;
     hashCaches = new LRUCache<DocumentID, string>(10, 1000);
 
@@ -115,6 +115,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         if (this.localDatabase != null) await this.localDatabase.close();
         this.changeHandler?.cancel();
         this.changeHandler?.removeAllListeners();
+        //@ts-ignore
         this.localDatabase = null;
 
         this.localDatabase = this.env.createPouchDBInstance<EntryDoc>(this.dbname + "-livesync-v2", {
@@ -188,7 +189,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         if (leaf) {
             return leaf;
         }
-        let w: EntryDoc;
+        let w: EntryDoc | undefined;
         try {
             w = await this.localDatabase.get(id);
         } catch (ex) {
@@ -202,6 +203,9 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
                 throw new Error(`Timed out: ${id}`);
             }
             w = ret;
+        }
+        if (w === undefined) {
+            throw new Error(`Missing chunks of: ${id}`);
         }
         if (w.type != "leaf") {
             throw new Error(`Corrupted chunk has been detected: ${id}`);
@@ -258,6 +262,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         this.isReady = false;
         await this.localDatabase.destroy();
         //await this.kvDB.destroy();
+        //@ts-ignore
         this.localDatabase = null;
         await this.initializeDatabase();
         Logger("Local Database Reset", LOG_LEVEL_NOTICE);
@@ -327,7 +332,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         // Cache remote chunks to the local database.
         await this.localDatabase.bulkDocs(remoteDocs, { new_edits: false });
         // Chunks should be ordered by as we requested.
-        const chunks = [...localChunks.map(e => e.chunk).filter(e => e !== false) as EntryLeaf[], ...remoteDocs].reduce((p, c) => ({ ...p, [c._id]: c }), {} as Record<string, EntryLeaf>);
+        const chunks = Object.fromEntries([...localChunks.map(e => e.chunk).filter(e => e !== false) as EntryLeaf[], ...remoteDocs].map(e => [e._id, e]));
         const ret = ids.map(e => chunks?.[e] ?? undefined)
         if (ret.some(e => e === undefined)) return false;
         return ret;
@@ -348,6 +353,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             req = this.allDocsRaw({ limit: pageLimit, skip: 1, startkey: nextKey, endkey: endKey, include_docs: true, ...opt });
             for (const row of docs.rows) {
                 const doc = row.doc;
+                //@ts-ignore: non null by include_docs
                 if (!("type" in doc)) continue;
                 if (doc.type == "newnote" || doc.type == "plain") {
                     yield doc;
@@ -433,9 +439,9 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         } catch (ex) {
             if (isErrorOfMissingDoc(ex)) {
                 Logger(`Remove revision: Missing target revision, ${docId}-${revision}`, LOG_LEVEL_VERBOSE);
-                return false;
             }
         }
+        return false;
     }
 
     getRaw<T extends EntryDoc>(docId: DocumentID, options?: PouchDB.Core.GetOptions): Promise<T & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta> {
@@ -470,8 +476,9 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             const nonExistsLocal = chunks.rows.filter(e => ("error" in e)).map(e => e.key);
             const purgedChunks = await this.localDatabase.allDocs({ keys: nonExistsLocal.map(e => `_local/${e}`), include_docs: true });
             const existChunksPurged = purgedChunks.rows.filter(e => !("error" in e)).map((e: any) => ({ ...e.doc, _id: e.id.substring(7) }) as EntryLeaf);
-            const temp = [...existChunks, ...existChunksPurged].reduce((p, c) => ({ ...p, [c._id]: c.data }), {}) as { [key: DocumentID]: string };
+            const temp = Object.fromEntries(existChunksPurged.map(e => [e._id, e.data]));
             for (const chunk of existChunks) {
+                temp[chunk._id] = chunk.data;
                 this.hashCaches.set(chunk._id, chunk.data);
             }
             const ret = exists.map(e => ({ id: e.id, chunk: (e.chunk !== false ? e.chunk : (e.id in temp ? temp[e.id] : false)) }));

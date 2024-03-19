@@ -87,6 +87,7 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     usePluginSettings: boolean;
     showOwnPlugins: boolean;
     showStatusOnEditor: boolean;
+    showStatusOnStatusbar: boolean;
     showOnlyIconsOnEditor: boolean;
     usePluginSync: boolean;
     autoSweepPlugins: boolean;
@@ -123,7 +124,7 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     pluginSyncExtendedSetting: Record<PluginSyncSettingEntry["key"], PluginSyncSettingEntry>;
 
     settingVersion: number;
-    isConfigured: boolean;
+    isConfigured?: boolean;
 
 }
 
@@ -194,6 +195,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     usePluginSettings: false,
     showOwnPlugins: false,
     showStatusOnEditor: true,
+    showStatusOnStatusbar: true,
     showOnlyIconsOnEditor: false,
     usePluginSync: false,
     autoSweepPlugins: false,
