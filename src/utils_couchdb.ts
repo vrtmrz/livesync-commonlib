@@ -4,7 +4,7 @@ import { Logger } from "./logger.ts";
 import { getPath } from "./path.ts";
 import { QueueProcessor } from "./processor.ts";
 import { writeString } from "./strbin.ts";
-import { VER, VERSIONINFO_DOCID, type EntryVersionInfo, SYNCINFO_ID, type SyncInfo, type EntryDoc, type EntryLeaf, type AnyEntry, type FilePathWithPrefix, type CouchDBConnection, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types.ts";
+import { VER, VERSIONINFO_DOCID, type EntryVersionInfo, SYNCINFO_ID, type SyncInfo, type EntryDoc, type EntryLeaf, type AnyEntry, type FilePathWithPrefix, type CouchDBConnection, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types.ts";
 import { arrayToChunkedArray, isEncryptedChunkEntry, isObfuscatedEntry, isSyncInfoEntry, resolveWithIgnoreKnownError } from "./utils.ts";
 
 export const isValidRemoteCouchDBURI = (uri: string): boolean => {
@@ -89,58 +89,6 @@ export const checkSyncInfo = async (db: PouchDB.Database): Promise<boolean> => {
         }
     }
 };
-
-
-export async function putDesignDocuments(db: PouchDB.Database) {
-    type DesignDoc = {
-        _id: string;
-        _rev?: string;
-        ver: number;
-        filters: {
-            default: string,
-            push: string,
-            pull: string,
-        };
-    }
-    const design: DesignDoc = {
-        "_id": "_design/replicate",
-        "_rev": undefined as string | undefined,
-        "ver": 2,
-        "filters": {
-            "default": function (doc: any, req: any) {
-                return !("remote" in doc && doc.remote);
-            }.toString(),
-            "push": function (doc: any, req: any) {
-                return true;
-            }.toString(),
-            "pull": function (doc: any, req: any) {
-                return !(doc.type && doc.type == "leaf")
-            }.toString(),
-        }
-    }
-
-    // We can use the filter on replication :   filter: 'replicate/default',
-
-    try {
-        const w = await db.get<DesignDoc>(design._id);
-        if (w.ver < design.ver) {
-            design._rev = w._rev;
-            //@ts-ignore
-            await db.put(design);
-            return true;
-        }
-    } catch (ex: any) {
-        if (isErrorOfMissingDoc(ex)) {
-            delete design._rev;
-            //@ts-ignore
-            await db.put(design);
-            return true;
-        } else {
-            Logger("Could not make design documents", LOG_LEVEL_INFO);
-        }
-    }
-    return false;
-}
 
 // requires transform-pouch
 export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: string, useDynamicIterationCount: boolean, migrationDecrypt: boolean) => {

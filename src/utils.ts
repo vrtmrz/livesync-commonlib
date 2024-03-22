@@ -2,7 +2,7 @@ import { LRUCache } from "./LRUCache.ts";
 import { isPlainText } from "./path.ts";
 import { Semaphore } from "./semaphore.ts";
 import { arrayBufferToBase64Single, decodeBinary, writeString } from "./strbin.ts";
-import { type AnyEntry, type DatabaseEntry, type EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED, SYNCINFO_ID, type SyncInfo, RESULT_TIMED_OUT, type WithTimeout, type LoadedEntry, type SavingEntry } from "./types.ts";
+import { type AnyEntry, type DatabaseEntry, type EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED, SYNCINFO_ID, type SyncInfo, RESULT_TIMED_OUT, type WithTimeout, type LoadedEntry, type SavingEntry, NewEntry, PlainEntry } from "./types.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
 export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T> {
@@ -83,8 +83,6 @@ export function isTextDocument(doc: LoadedEntry) {
     if (doc.datatype == "plain") return true;
     if (isPlainText(doc.path)) return true;
     return false;
-    // const ext = doc.path.split(".").splice(-1)[0].toLowerCase();
-    // isPlainText(doc.path) || ["md", "mdx", "txt", "json"].includes(ext);
 }
 
 export function readAsBlob(doc: LoadedEntry) {
@@ -345,11 +343,30 @@ export function isObjectDifferent(a: any, b: any): boolean {
     }
 }
 
+
+export function determineTypeFromBlob(data: Blob): "newnote" | "plain" {
+    return isTextBlob(data) ? "plain" : "newnote";
+}
+export function determineType(path: string, data: string | string[] | Uint8Array | ArrayBuffer | Blob): "newnote" | "plain" {
+    if (data instanceof Blob) {
+        return determineTypeFromBlob(data);
+    }
+    if (isPlainText(path)) return "plain";
+    if (data instanceof Uint8Array) return "newnote";
+    if (data instanceof ArrayBuffer) return "newnote";
+    // string | string[]
+    return "plain";
+}
+
+export function isAnyNote(doc: DatabaseEntry): doc is NewEntry | PlainEntry {
+    return "type" in doc && (doc.type == "newnote" || doc.type == "plain");
+}
 export function createSavingEntryFromLoadedEntry(doc: LoadedEntry): SavingEntry {
-    const type = doc.type == "newnote" ? "newnote" : "plain"
+    const data = readAsBlob(doc);
+    const type = determineType(doc.path, data);
     return {
         ...doc,
-        data: readAsBlob(doc),
+        data: data,
         datatype: type,
         type,
         children: [],

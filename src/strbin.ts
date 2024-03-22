@@ -335,7 +335,7 @@ export function splitPiecesText(dataSrc: string | string[], pieceSize: number, p
     };
 }
 export async function splitPieces2(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string) {
-    if (plainSplit || isTextBlob(dataSrc)) {
+    if (isTextBlob(dataSrc)) {
         return splitPiecesText(await dataSrc.text(), pieceSize, plainSplit, minimumChunkSize);
     }
 

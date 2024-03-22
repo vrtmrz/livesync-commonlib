@@ -3,8 +3,8 @@ import { Logger } from "./logger.ts";
 import { LRUCache } from "./LRUCache.ts";
 import { shouldSplitAsPlainText, stripAllPrefixes } from "./path.ts";
 import { sha1, splitPieces2 } from "./strbin.ts";
-import { type Entry, type EntryDoc, type EntryDocResponse, type EntryLeaf, type EntryMilestoneInfo, type LoadedEntry, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, type NewEntry, type NoteEntry, type PlainEntry, type RemoteDBSettings, type ChunkVersionRange, type EntryHasPath, type DocumentID, type FilePathWithPrefix, type FilePath, type HashAlgorithm, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type SavingEntry, PREFIX_CHUNK } from "./types.ts";
-import { createBinaryBlob, createTextBlob, resolveWithIgnoreKnownError } from "./utils.ts";
+import { type Entry, type EntryDoc, type EntryDocResponse, type EntryLeaf, type EntryMilestoneInfo, type LoadedEntry, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, type NewEntry, type PlainEntry, type RemoteDBSettings, type ChunkVersionRange, type EntryHasPath, type DocumentID, type FilePathWithPrefix, type FilePath, type HashAlgorithm, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type SavingEntry, PREFIX_CHUNK, NoteEntry } from "./types.ts";
+import { createTextBlob, isTextBlob, resolveWithIgnoreKnownError } from "./utils.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
 
@@ -114,9 +114,9 @@ export async function putDBEntry(
     }
 
     // Set datatype again for modified datatype.
-    const data = (note.data instanceof Blob) ? note.data : (plainSplit ? createTextBlob(note.data) : createBinaryBlob(note.data))
-    note.datatype = plainSplit ? "plain" : "newnote";
-    note.type = note.datatype;
+    const data = (note.data instanceof Blob) ? note.data : createTextBlob(note.data);
+    note.type = isTextBlob(data) ? "plain" : "newnote";
+    note.datatype = note.type;
 
     const pieces = await splitPieces2(data, pieceSize, plainSplit, minimumChunkSize, filename);
     const chunkTasks = [];

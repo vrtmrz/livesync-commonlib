@@ -8,7 +8,7 @@ import {
 } from "./types.ts";
 import { resolveWithIgnoreKnownError, delay, globalConcurrencyController } from "./utils.ts";
 import { Logger } from "./logger.ts";
-import { checkRemoteVersion, putDesignDocuments } from "./utils_couchdb.ts";
+import { checkRemoteVersion } from "./utils_couchdb.ts";
 
 import { ensureDatabaseIsCompatible } from "./LiveSyncDBFunctions.ts";
 import type { ReactiveSource } from "./reactive.ts";
@@ -20,6 +20,9 @@ const currentVersionRange: ChunkVersionRange = {
     current: 2,
 }
 type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<void> | void;
+
+const selectorOnDemandPull = { "selector": { "type": { "$ne": "leaf" } } };
+const selectorOnDemandPush = {};
 
 // eslint-disable-next-line @typescript-eslint/ban-types
 type EventParamArray<T extends {}> =
@@ -139,7 +142,6 @@ export class LiveSyncDBReplicator {
             }
 
             this.nodeid = nodeinfo.nodeid;
-            await putDesignDocuments(db);
             return true;
         } catch (ex) {
             Logger(ex);
@@ -360,15 +362,8 @@ export class LiveSyncDBReplicator {
         this.terminateSync();
         const syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc> =
             syncMode == "sync" ? localDB.sync(db, { ...syncOptionBase }) :
-                (syncMode == "pullOnly" ? localDB.replicate.from(db, { ...syncOptionBase, ...(setting.readChunksOnline ? { filter: "replicate/pull" } : {}) }) :
-                    syncMode == "pushOnly" ? localDB.replicate.to(db, { ...syncOptionBase, ...(setting.readChunksOnline ? { filter: "replicate/push" } : {}) }) : undefined as never)
-        // if (syncMode == "sync") {
-        //     syncHandler = localDB.sync(db, { ...syncOptionBase });
-        // } else if (syncMode == "pullOnly") {
-        //     syncHandler = localDB.replicate.from(db, { ...syncOptionBase, ...(setting.readChunksOnline ? { filter: "replicate/pull" } : {}) });
-        // } else if (syncMode == "pushOnly") {
-        //     syncHandler = localDB.replicate.to(db, { ...syncOptionBase, ...(setting.readChunksOnline ? { filter: "replicate/push" } : {}) });
-        // }
+                (syncMode == "pullOnly" ? localDB.replicate.from(db, { ...syncOptionBase, ...(setting.readChunksOnline ? selectorOnDemandPull : {}) }) :
+                    syncMode == "pushOnly" ? localDB.replicate.to(db, { ...syncOptionBase, ...(setting.readChunksOnline ? selectorOnDemandPush : {}) }) : undefined as never)
         const syncResult = await this.processSync(syncHandler, showResult, docSentOnStart, docArrivedOnStart, syncMode, retrying, false);
         if (syncResult == "DONE") {
             return true;
@@ -442,7 +437,6 @@ export class LiveSyncDBReplicator {
         }
 
         if (!skipCheck) {
-            await putDesignDocuments(dbRet.db);
             if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
                 Logger("Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed", LOG_LEVEL_NOTICE);
                 return false;
@@ -478,8 +472,8 @@ export class LiveSyncDBReplicator {
             batch_size: setting.batch_size,
         };
         if (setting.readChunksOnline) {
-            syncOptionBase.push = { filter: 'replicate/push' };
-            syncOptionBase.pull = { filter: 'replicate/pull' };
+            syncOptionBase.push = { ...selectorOnDemandPush };
+            syncOptionBase.pull = { ...selectorOnDemandPull };
         }
         const syncOption: PouchDB.Replication.SyncOptions = keepAlive ? { live: true, retry: true, heartbeat: setting.useTimeouts ? false : 30000, ...syncOptionBase } : { ...syncOptionBase };
 
