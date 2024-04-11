@@ -290,7 +290,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             if (chunks) {
                 chunks.forEach(chunk => sendValue(`chunk-fetch-${chunk._id}`, chunk));
             } else {
-                throw Error("Failed: CollectChunksInternal");
+                throw new Error("Failed: CollectChunksInternal");
             }
         } catch (ex) {
             Logger(`Exception raised while retrieving chunks`, LOG_LEVEL_NOTICE);

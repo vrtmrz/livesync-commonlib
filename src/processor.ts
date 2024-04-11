@@ -1,10 +1,20 @@
 import { Logger } from "./logger.ts";
 import type { ReactiveSource } from "./reactive.ts";
-import { cancelTask, scheduleTask } from "./task.ts";
-import { LOG_LEVEL_VERBOSE } from "./types.ts";
-import { runWithStartInterval, sendSignal, waitForSignal } from "./utils.ts";
+import { LOG_LEVEL_VERBOSE, RESULT_TIMED_OUT } from "./types.ts";
+import { delay, fireAndForget, promiseWithResolver } from "./utils.ts";
 
+class Notifier {
+    p = promiseWithResolver<void>();
+    notify() {
+        this.p.resolve()
+        this.p = promiseWithResolver();
+    }
+    get nextNotify() {
+        return this.p.promise;
+    }
+}
 let processNo = 0;
+
 
 /**
  * QueueProcessor Parameters
@@ -56,7 +66,7 @@ export class QueueProcessor<T, U> {
     _enqueueProcessor: (queue: T[], newEntity: T) => T[] = (queue, entity) => (queue.push(entity), queue);
     _isSuspended = true;
     _nextProcessNeedsImmediate = false;
-    _processing: number | undefined = undefined;
+
     _pipeTo?: QueueProcessor<U, any>;
 
     _waitId: string = "";
@@ -68,7 +78,6 @@ export class QueueProcessor<T, U> {
     _keepResultUntilDownstreamConnected = false;
     _keptResult = [] as U[];
 
-    _onIdle: () => void = () => { };
     _runOnUpdateBatch: () => void = () => { };
 
     // Parameters
@@ -89,21 +98,35 @@ export class QueueProcessor<T, U> {
     interval = 0;
 
     processingEntities = 0;
+    waitingEntries = 0;
+
+    get nowProcessing(): number {
+        return this.processingEntities
+    }
+    get totalNowProcessing(): number {
+        return this.nowProcessing + (this._pipeTo?.totalNowProcessing || 0);
+    }
 
     get remaining(): number {
-        return this._queue.length + this.processingEntities;
+        return this._queue.length + this.processingEntities + this.waitingEntries;
     }
     get totalRemaining(): number {
         return this.remaining + (this._pipeTo?.totalRemaining || 0);
     }
+    updateStatus(setFunc: () => void) {
+        setFunc();
+        this._updateReactiveSource();
+    }
 
     suspend() {
         this._isSuspended = true;
+        this._notifier.notify();
         return this;
     }
 
     resume() {
         this._isSuspended = false;
+        this._notifier.notify();
         this.requestNextFlush();
         this._run();
         return this;
@@ -121,6 +144,7 @@ export class QueueProcessor<T, U> {
         return this._root;
     }
 
+    _notifier = new Notifier();
 
     constructor(processor: Processor<T, U>, params?: ProcessorParams<U>, items?: T[], enqueueProcessor?: (queue: T[], newEntity: T) => T[]) {
         this._root = this;
@@ -141,7 +165,7 @@ export class QueueProcessor<T, U> {
             this.pipeTo(params.pipeTo);
         }
         if (items) this.enqueueAll(items);
-
+        this._run();
     }
 
     /**
@@ -161,7 +185,7 @@ export class QueueProcessor<T, U> {
      */
     modifyQueue(processor: (queue: T[]) => T[]) {
         this._queue = processor(this._queue);
-        this._updateBatchProcessStatus();
+        this._notifier.notify();
     }
 
     /**
@@ -170,7 +194,7 @@ export class QueueProcessor<T, U> {
      */
     clearQueue() {
         this._queue = [];
-        this._updateBatchProcessStatus();
+        this._notifier.notify();
     }
 
     /**
@@ -201,21 +225,45 @@ export class QueueProcessor<T, U> {
     }
 
     isIdle(): boolean {
-        const stat = this._queue.length == 0 && this._processing === 0;
-        return stat && (!this._pipeTo ? true : this._pipeTo.isIdle());
+        return this._isIdle() && (!this._pipeTo ? true : this._pipeTo.isIdle());
+    }
+    _isIdle() {
+        return this.totalRemaining == 0;
+    }
+    async _idleDetector(): Promise<void> {
+        if (this._isSuspended) return Promise.resolve();
+        if (this._isIdle()) return Promise.resolve();
+        do {
+            await Promise.race([delay(3000), this._notifier.nextNotify]);
+        } while (!this._isIdle());
+        return Promise.resolve();
     }
 
-    onIdle(proc: () => void) {
-        this._onIdle = proc;
-        return this;
+    idleDetectors(): Promise<void>[] {
+        const thisPromise = this._idleDetector();
+        if (this._pipeTo) {
+            return [thisPromise, ...this._pipeTo.idleDetectors()];
+        }
+        return [thisPromise];
     }
+
+    get isSuspended(): boolean {
+        return this._isSuspended || this._pipeTo?.isSuspended || false;
+    }
+
 
     _updateReactiveSource() {
+        this._root.updateReactiveSource();
+    }
+    updateReactiveSource() {
+        if (this._pipeTo) {
+            this._pipeTo.updateReactiveSource();
+        }
         if (this._remainingReactiveSource) this._remainingReactiveSource.value = this.remaining;
         if (this._totalRemainingReactiveSource) this._totalRemainingReactiveSource.value = this.totalRemaining;
-        if (this._processingEntitiesReactiveSource) this._processingEntitiesReactiveSource.value = this.processingEntities;
-    }
+        if (this._processingEntitiesReactiveSource) this._processingEntitiesReactiveSource.value = this.nowProcessing;
 
+    }
     _updateBatchProcessStatus() {
         this._updateReactiveSource();
         this._runOnUpdateBatch();
@@ -224,23 +272,15 @@ export class QueueProcessor<T, U> {
     _collectBatch(): T[] {
         return this._queue.splice(0, this.batchSize);
     }
-    _finalizeBatch(items: T[]) {
-        this._updateBatchProcessStatus();
-        return;
+    _canCollectBatch(): boolean {
+        return this._queue.length !== 0;
     }
 
-    _spawnProcess() {
-        setTimeout(() => this._process(), 0);
-    }
-
-    isAnyEntityRemaining() {
-        return this._queue.length != 0;
-    }
 
     enqueue(entity: T) {
         this._queue = this._enqueueProcessor(this._queue, entity);
-        this._updateBatchProcessStatus();
-        this._run();
+        this._updateBatchProcessStatus()
+        this._notifier.notify();
         return this;
     }
     enqueueAll(entities: T[]) {
@@ -249,31 +289,37 @@ export class QueueProcessor<T, U> {
             queue = this._enqueueProcessor(queue, v);
         }
         this._queue = queue;
-        this._updateBatchProcessStatus();
-        this._run();
+        this._updateBatchProcessStatus()
+        this._notifier.notify();
         return this;
     }
 
     requestNextFlush() {
-        this._nextProcessNeedsImmediate = true;
+        if (this._canCollectBatch()) {
+            this._nextProcessNeedsImmediate = true;
+            this._notifier.notify();
+        }
     }
 
     flush() {
         if (this._isSuspended) return;
-        cancelTask(`kickProcess-${this._instance}`);
-        this._process();
+        this.requestNextFlush();
         return this.waitForAllDownstream();
     }
 
-    waitForAllDownstream(timeout?: number): Promise<boolean> {
-        if (this.isIdle()) {
-            return Promise.resolve(true);
+    async waitForAllDownstream(timeout?: number): Promise<boolean> {
+        // Prepare timeout detector
+        const baseTasks = [] as Promise<unknown>[];
+        if (timeout) {
+            baseTasks.push(delay(timeout, RESULT_TIMED_OUT))
         }
-        if (this._waitId == "") {
-            const d = Date.now() + "-" + Math.random();
-            this._waitId = d;
-        }
-        return waitForSignal(this._waitId, timeout);
+        do {
+            const idleTasks = this.idleDetectors();
+            const tasks = [...baseTasks, Promise.all(idleTasks)];
+            const ret = await Promise.race(tasks);
+            if (ret === RESULT_TIMED_OUT) return false;
+        } while (!this.isIdle());
+        return true;
     }
 
     waitForPipeline(timeout?: number): Promise<boolean> {
@@ -282,142 +328,135 @@ export class QueueProcessor<T, U> {
     }
 
     async _runProcessor(items: T[]) {
-        const ret = await this._processor(items);
-        if (!ret) return;
-        // If downstream is connected, the result sent to that.
-        if (this._pipeTo) {
-            this._pipeTo.enqueueAll(ret);
-        } else if (this._keepResultUntilDownstreamConnected) {
-            // Buffer the result if downstream is not connected.
-            this._keptResult.push(...ret);
+        // runProcessor does not modify queue. so updateStatus should only update about reactiveSource.
+        this.updateStatus(() => {
+            this.processingEntities += items.length;
+            this.waitingEntries -= items.length;
+        });
+        try {
+            const ret = await this._processor(items);
+            if (!ret) return;
+            // If downstream is connected, the result sent to that.
+            if (this._pipeTo) {
+                this._pipeTo.enqueueAll(ret);
+            } else if (this._keepResultUntilDownstreamConnected) {
+                // Buffer the result if downstream is not connected.
+                this._keptResult.push(...ret);
+            }
+        } finally {
+            this.updateStatus(() => {
+                this.processingEntities -= items.length;
+            });
         }
-        // Otherwise, discarded.
+    }
+    async * pump() {
+        let items: T[];
+        let queueRunOut = true;
+        do {
+            if (!this._canCollectBatch()) {
+                // If we cannot collect any items from the queue, sleep until a next notify
+                queueRunOut = true;
+                await Promise.race([this._notifier.nextNotify, delay(3000)]);
+                continue;
+            }
+            // Here, we have some items in the queue.
+            if (queueRunOut) {
+                // If the pump has been slept, wait for the chance to accumulate some more in the queue.
+                await this.delayUntilRequested(this.delay);
+            }
+            items = this._collectBatch();
+            // If the queue has been modified (by modifyQueue or something).
+            // We have to try from the begin again.
+            if (items.length == 0) {
+                continue;
+            }
+            this.updateStatus(() => {
+                this.waitingEntries += items.length;
+            })
+            yield items;
+            // For subsequent processes, check run out status
+            if (this._canCollectBatch()) {
+                queueRunOut = false;
+            }
+        } while (this._canCollectBatch() && !this._isSuspended)
+    }
+    _processingBatches = new Set<number>();
+    addProcessingBatch: (typeof this._processingBatches.add) = (value) => {
+        const r = this._processingBatches.add(value);
+        this._updateBatchProcessStatus();
+        return r;
+    }
+    deleteProcessingBatch: (typeof this._processingBatches.delete) = (value) => {
+        const r = this._processingBatches.delete(value);
+        this._updateBatchProcessStatus();
+        return r;
+    }
+    _processing: boolean = false;
+
+    async delayUntilRequested(delayMs: number) {
+        if (this._nextProcessNeedsImmediate) {
+            this._nextProcessNeedsImmediate = false;
+            return;
+        }
+        const delayTimer = delay(delayMs, RESULT_TIMED_OUT);
+        let ret;
+        do {
+            ret = await Promise.race([this._notifier.nextNotify, delayTimer]);
+        } while (
+            ret !== RESULT_TIMED_OUT &&
+            this._nextProcessNeedsImmediate === false &&
+            this.yieldThreshold >= this._queue.length
+        )
+        this._nextProcessNeedsImmediate = false;
+        return;
     }
 
     async _process() {
-        // If the first processing, initialize _processing
-        // This is used for detecting Idle or not started.
-        if (this._processing === undefined) this._processing = 0;
-        // If the runner too much running, exit.
-        if (this._processing >= this.concurrentLimit) return;
-        if (this._isSuspended) return this._root._notifyIfIdle();
-
+        if (this._processing && this._isSuspended) return;
+        let lastProcessBegin = 0;
         try {
-            this._processing++;
-            let items: T[];
-            // Collect items
+            this._processing = true;
             do {
-                items = this._collectBatch();
-                if (!items || items.length == 0) {
-                    break;
+                const batchPump = this.pump()
+                for await (const batch of batchPump) {
+                    while (this._processingBatches.size >= this.concurrentLimit) {
+                        await this._notifier.nextNotify;
+                    }
+                    // Add batch to the processing
+                    const key = Date.now() + Math.random();
+                    const batchTask = async () => {
+                        try {
+                            if (this.interval && lastProcessBegin) {
+                                const diff = Date.now() - lastProcessBegin;
+                                if (diff < this.interval) {
+                                    const delayMs = this.interval - diff;
+                                    await delay(delayMs);
+                                }
+                            }
+                            lastProcessBegin = Date.now();
+                            await this._runProcessor(batch);
+                        } catch (ex) {
+                            Logger(`Processor error!`);
+                            Logger(ex, LOG_LEVEL_VERBOSE);
+                        } finally {
+                            this.deleteProcessingBatch(key);
+                            this._notifier.notify();
+                        }
+                    }
+                    this.addProcessingBatch(key);
+                    this._notifier.notify();
+                    fireAndForget(batchTask);
                 }
-                const count = items.length;
-                this.processingEntities += count;
-                this._updateReactiveSource();
-                // If we are able to processes more, and there are, perform that.
-                if (this.isAnyEntityRemaining() && this._processing < this.concurrentLimit) this._spawnProcess()
-                try {
-                    await this._runProcessor(items);
-                } catch (ex) {
-                    Logger(`Processor error!`);
-                    Logger(ex, LOG_LEVEL_VERBOSE);
-                } finally {
-                    this.processingEntities -= count;
-                    this._updateReactiveSource();
-                    this._finalizeBatch(items);
-                }
-            } while (!this._isSuspended && (!items || items.length == 0));
+                await this._notifier.nextNotify;
+            } while (!this._isSuspended)
         } finally {
-            this._processing--;
+            this._processing = false;
         }
-        // If finished but anything was remaining, spawn a new process.
-        if (this.isAnyEntityRemaining()) this._spawnProcess();
-        this._root._notifyIfIdle();
-    }
-
-
-    _notifyIfIdle() {
-        const isIdle = this.isIdle();
-        if (!isIdle) return;
-        this._onIdle();
-        this._updateReactiveSource();
-        if (this._waitId == "") return;
-        const signalId = this._waitId;
-        this._waitId = "";
-        sendSignal(signalId);
     }
 
     _run() {
         if (this._isSuspended) return;
-        const delay = (
-            this.delay == 0 || // If do not configured delay
-            (this.yieldThreshold > 0 && this._queue.length > this.yieldThreshold) || // If enough queues have accumulated
-            this._nextProcessNeedsImmediate // or, If have been ordered in advance
-        ) ? 0 : this.delay; // run immediately, Otherwise schedule to run after delay (ms)
-        this._nextProcessNeedsImmediate = false;
-        if (this.interval) {
-            runWithStartInterval(`kickProcess-interval-${this._instance}`, this.interval, async () => await scheduleTask(`kickProcess-${this._instance}`, delay, () => this._process(), this.maintainDelay))
-        } else {
-            scheduleTask(`kickProcess-${this._instance}`, delay, () => this._process(), this.maintainDelay);
-        }
-    }
-}
-export type QueueItemWithKey<T> = { entity: T; key: string | symbol };
-export class KeyedQueueProcessor<T, U> extends QueueProcessor<QueueItemWithKey<T>, U> {
-    processingKeys = new Set<string | symbol>();
-    _collectBatch(): QueueItemWithKey<T>[] {
-        const items: QueueItemWithKey<T>[] = [];
-        let i = 0;
-        do {
-            if (i >= this._queue.length) break;
-            const key = this._queue[i].key;
-            // If already running or planned to be run, skip item
-            if (this.processingKeys.has(key)) {
-                i++;
-                continue;
-            }
-            this.processingKeys.add(key);
-            items.push(this._queue[i]);
-            this._queue.splice(i, 1);
-            if (items.length >= this.batchSize) break;
-        } while (i + 1 < this._queue.length);
-        return items;
-    }
-
-    constructor(processor: Processor<T, U>, params?: ProcessorParams<U>) {
-        const proc = (e: QueueItemWithKey<T>[]) => processor(e.map((e) => e.entity));
-        super(proc, params);
-    }
-    _finalizeBatch(items: QueueItemWithKey<T>[]): void {
-        for (const item of items) {
-            this.processingKeys.delete(item.key);
-        }
-        super._finalizeBatch(items);
-    }
-    isAnyEntityRemaining() {
-        return this._queue.filter((e) => !this.processingKeys.has(e.key)).length != 0;
-    }
-
-    enqueueWithKey(key: string | symbol, entity: T) {
-        this.enqueue({ entity, key });
-        return this;
-    }
-}
-
-export class BufferQueue<T> extends QueueProcessor<T, T> {
-    constructor(params?: ProcessorParams<T>) {
-        super((e) => e, { suspended: true, batchSize: 1, concurrentLimit: 1, delay: 0, yieldThreshold: 1, ...params, keepResultUntilDownstreamConnected: true });
-    }
-}
-
-export class Sink<T> extends QueueProcessor<T, void> {
-    constructor(params?: ProcessorParams<void>) {
-        super((e) => { }, { suspended: false, batchSize: 100, concurrentLimit: 1, delay: 0, yieldThreshold: 1, ...params });
-    }
-}
-
-export class KeyingQueue<T> extends QueueProcessor<T, QueueItemWithKey<T>> {
-    constructor(keyGenerator: (item: T) => string) {
-        super((e) => e.map(e => ({ entity: e, key: keyGenerator(e) })), { suspended: false, batchSize: 1, concurrentLimit: 1, delay: 0, yieldThreshold: 1 });
+        if (this._processing) return;
+        fireAndForget(() => this._process());
     }
 }

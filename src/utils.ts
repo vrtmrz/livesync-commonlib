@@ -2,8 +2,23 @@ import { LRUCache } from "./LRUCache.ts";
 import { isPlainText } from "./path.ts";
 import { Semaphore } from "./semaphore.ts";
 import { arrayBufferToBase64Single, decodeBinary, writeString } from "./strbin.ts";
-import { type AnyEntry, type DatabaseEntry, type EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED, SYNCINFO_ID, type SyncInfo, RESULT_TIMED_OUT, type WithTimeout, type LoadedEntry, type SavingEntry, NewEntry, PlainEntry } from "./types.ts";
+import { type AnyEntry, type DatabaseEntry, type EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED, SYNCINFO_ID, type SyncInfo, RESULT_TIMED_OUT, type WithTimeout, type LoadedEntry, type SavingEntry, type NewEntry, type PlainEntry } from "./types.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
+
+function polyfillPromiseWithResolvers<T>() {
+    let resolve!: Parameters<ConstructorParameters<typeof Promise<T>>[0]>[0];
+    let reject!: Parameters<ConstructorParameters<typeof Promise<T>>[0]>[1];
+    const promise = new Promise<T>((res, rej) => {
+        resolve = res;
+        reject = rej;
+    });
+    return { promise, resolve, reject }
+}
+
+// //@ts-ignore
+// export const promiseWithResolver: typeof polyfillPromiseWithResolvers = typeof Promise.withResolvers === "function" ? Promise.withResolvers : polyfillPromiseWithResolvers;
+
+export const promiseWithResolver = polyfillPromiseWithResolvers;
 
 export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T> {
     return new Promise((res, rej) => {
@@ -12,10 +27,10 @@ export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T
 }
 
 // time util
-export const delay = (ms: number): Promise<void> => {
+export const delay = <T>(ms: number, result?: T): Promise<T> => {
     return new Promise((res) => {
         setTimeout(() => {
-            res();
+            res(result!);
         }, ms);
     });
 };
@@ -122,30 +137,6 @@ export async function isDocContentSame(docA: string | string[] | Blob | ArrayBuf
         if (await arrayBufferToBase64Single(ab1) != await arrayBufferToBase64Single(ab2)) return false;
     }
     return true;
-}
-
-// Obsolete function
-export function isDocContentSame_old(docA: string | string[] | Blob, docB: string | string[] | Blob) {
-    const blob1 = docA instanceof Blob ? docA : createTextBlob(docA);
-    const blob2 = docB instanceof Blob ? docB : createTextBlob(docB);
-    if (blob1.size != blob2.size) return false;
-    // const checkQuantum = 1000;
-    const stream1 = blob1.stream().getReader();
-    const stream2 = blob2.stream().getReader();
-
-    // TODO: Optimise if not performant well.
-    let read1 = stream1.read();
-    let read2 = stream2.read();
-
-    while (read1 !== null && read2 !== null) {
-        if (read1 !== read2) {
-            return false;
-        }
-        read1 = stream1.read();
-        read2 = stream2.read();
-    }
-
-    return read1 === null && read2 === null;
 }
 
 export function isObfuscatedEntry(doc: DatabaseEntry): doc is AnyEntry {
@@ -372,3 +363,24 @@ export function createSavingEntryFromLoadedEntry(doc: LoadedEntry): SavingEntry 
         children: [],
     }
 }
+
+type ThrottledFunction<T extends (...args: any[]) => any> = (...args: Parameters<T>) => void;
+
+export const throttle = <T extends (...args: any[]) => any>(func: T, timeout: number): ThrottledFunction<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let lastTime: number = 0; // initialize lastTime to 0
+    return (...args: Parameters<T>) => {
+
+        if (!lastTime) {
+            func(...args);
+            lastTime = Date.now();
+        } else {
+            clearTimeout(timer);
+            const delayTime = timeout - (Date.now() - lastTime);
+            timer = setTimeout(() => {
+                func(...args);
+                lastTime = Date.now();
+            }, delayTime);
+        }
+    };
+};
