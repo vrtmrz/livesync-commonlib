@@ -162,6 +162,7 @@ export type RemoteDBSettings = CouchDBConnection & {
     hashAlg: HashAlgorithm;
     // This could not be configured from Obsidian.
     permitEmptyPassphrase: boolean;
+    enableCompression: boolean;
 }
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
@@ -252,6 +253,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     notifyAllSettingSyncFile: false,
     isConfigured: undefined,
     settingVersion: 0,
+    enableCompression: false,
 };
 
 

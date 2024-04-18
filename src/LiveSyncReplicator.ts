@@ -48,7 +48,8 @@ export interface LiveSyncReplicatorEnv {
         disableRequestURI: boolean, passphrase: string | boolean,
         useDynamicIterationCount: boolean,
         performSetup: boolean,
-        skipInfo: boolean
+        skipInfo: boolean,
+        enableCompression: boolean,
     ): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }>;
     replicationStat: ReactiveSource<{
         sent: number;
@@ -656,6 +657,7 @@ export class LiveSyncDBReplicator {
             settings.useDynamicIterationCount,
             performSetup,
             skipInfo,
+            settings.enableCompression
         );
     }
 

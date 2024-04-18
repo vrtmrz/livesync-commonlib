@@ -3,10 +3,10 @@ import { serialized } from "./lock.ts";
 import { Logger } from "./logger.ts";
 import { getPath } from "./path.ts";
 import { QueueProcessor } from "./processor.ts";
-import { writeString } from "./strbin.ts";
+import { arrayBufferToBase64Single, base64ToArrayBuffer, tryConvertBase64ToArrayBuffer, writeString } from "./strbin.ts";
 import { VER, VERSIONINFO_DOCID, type EntryVersionInfo, SYNCINFO_ID, type SyncInfo, type EntryDoc, type EntryLeaf, type AnyEntry, type FilePathWithPrefix, type CouchDBConnection, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types.ts";
 import { arrayToChunkedArray, isEncryptedChunkEntry, isObfuscatedEntry, isSyncInfoEntry, resolveWithIgnoreKnownError } from "./utils.ts";
-
+import * as fflate from 'fflate';
 export const isValidRemoteCouchDBURI = (uri: string): boolean => {
     if (uri.startsWith("https://")) return true;
     if (uri.startsWith("http://")) return true;
@@ -89,6 +89,76 @@ export const checkSyncInfo = async (db: PouchDB.Database): Promise<boolean> => {
         }
     }
 };
+
+const MARK_SHIFT = `\u{000E}L`;
+const MARK_SHIFT_COMPRESSED = `${MARK_SHIFT}Z\u{001D}`;
+
+function wrapFflateFunc<T, U>(func: (data: T, opts: U, cb: fflate.FlateCallback) => any): (data: T, opts: U) => Promise<Uint8Array> {
+    return (data: T, opts: U) => {
+        return new Promise<Uint8Array>((res, rej) => {
+            func(data, opts, (err, result) => {
+                if (err) rej(err);
+                else res(result);
+            });
+        })
+    }
+
+}
+
+const wrappedInflate = wrapFflateFunc<Uint8Array, fflate.AsyncInflateOptions>(fflate.inflate);
+const wrappedDeflate = wrapFflateFunc<Uint8Array, fflate.AsyncDeflateOptions>(fflate.deflate);
+async function _compressText(text: string) {
+    const converted = tryConvertBase64ToArrayBuffer(text);
+    const data = converted || text;
+    const blob = new Blob([data], { type: 'application/octet-stream' });
+    const ab = await blob.arrayBuffer();
+    const df = await wrappedDeflate(new Uint8Array(ab), { consume: true, level: 8 });
+    const deflateResult = (converted ? "~" : "") + await arrayBufferToBase64Single(df);
+    return deflateResult;
+}
+async function _decompressText(compressed: string) {
+    const converted = compressed[0] == "~";
+    const src = compressed.substring(converted ? 1 : 0);
+    const ab = base64ToArrayBuffer(src)
+
+    const response = new Blob([await wrappedInflate(new Uint8Array(ab), { consume: true })]);
+    if (!converted) {
+        const text = await response.text();
+        return text;
+    } else {
+        const bin = await response.arrayBuffer();
+        return await arrayBufferToBase64Single(bin);
+    }
+}
+
+export const enableCompression = (db: PouchDB.Database<EntryDoc>, compress: boolean) => {
+    db.transform({
+        //@ts-ignore
+        async incoming(doc) {
+            if (!compress) return doc;
+            if (!("data" in doc)) {
+                return doc;
+            }
+            if (typeof doc.data !== "string") return doc;
+            if (doc.data.startsWith(MARK_SHIFT_COMPRESSED)) return doc;
+            const newData = MARK_SHIFT_COMPRESSED + await _compressText(doc.data)
+            if (doc.data.length > newData.length) doc.data = newData
+            return doc;
+        },
+        async outgoing(doc) {
+            // We should decompress if compression is not configured.
+            if (!("data" in doc)) {
+                return doc;
+            }
+            if (typeof doc.data !== "string") return doc;
+
+            // Already decrypted
+            if (!doc.data.startsWith(MARK_SHIFT_COMPRESSED)) return doc;
+            doc.data = await _decompressText(doc.data.substring(MARK_SHIFT_COMPRESSED.length))
+            return doc;
+        },
+    })
+}
 
 // requires transform-pouch
 export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: string, useDynamicIterationCount: boolean, migrationDecrypt: boolean) => {
