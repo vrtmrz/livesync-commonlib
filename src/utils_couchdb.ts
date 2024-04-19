@@ -114,7 +114,9 @@ async function _compressText(text: string) {
         return "";
     }
     const df = await wrappedDeflate(new Uint8Array(data), { consume: true, level: 8 });
-    const deflateResult = (converted ? "~" : "") + "%" + fflate.strFromU8(df, true);
+    // Reverted: Even if chars in UTF-16 encoded were short, bytes in UTF-8 are longer than in base64 encoding.
+    // const deflateResult = (converted ? "~" : "") + "%" + fflate.strFromU8(df, true);
+    const deflateResult = (converted ? "~" : "") + await arrayBufferToBase64Single(df);
     return deflateResult;
 }
 async function _decompressText(compressed: string, useUTF16 = false) {
@@ -126,7 +128,8 @@ async function _decompressText(compressed: string, useUTF16 = false) {
     if (src.length == 0) {
         return "";
     }
-    const ab = src.startsWith("%") ? fflate.strToU8(src.substring(1), true) : new Uint8Array(base64ToArrayBuffer(src));
+    // const ab = src.startsWith("%") ? fflate.strToU8(src.substring(1), true) : new Uint8Array(base64ToArrayBuffer(src));
+    const ab = new Uint8Array(base64ToArrayBuffer(src));
     if (ab.length == 0) {
         return "";
     }
