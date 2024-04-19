@@ -246,9 +246,19 @@ export function base64ToArrayBufferInternalBrowser(base64: string): ArrayBuffer 
     }
 }
 
+const regexpBase64 = /^[A-Za-z0-9+/]+=*$/;
+
 export function tryConvertBase64ToArrayBuffer(base64: string): ArrayBuffer | false {
     try {
-        const binary_string = window.atob(base64);
+        const b64F = base64.replace(/\r|\n/g, "");
+        if (!regexpBase64.test(b64F)) {
+            return false;
+        }
+
+        const binary_string = window.atob(b64F);
+        if (window.btoa(binary_string) !== b64F) {
+            return false;
+        }
         const len = binary_string.length;
         const bytes = new Uint8Array(len);
         for (let i = 0; i < len; i++) {

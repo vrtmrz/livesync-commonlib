@@ -109,53 +109,70 @@ const wrappedInflate = wrapFflateFunc<Uint8Array, fflate.AsyncInflateOptions>(ff
 const wrappedDeflate = wrapFflateFunc<Uint8Array, fflate.AsyncDeflateOptions>(fflate.deflate);
 async function _compressText(text: string) {
     const converted = tryConvertBase64ToArrayBuffer(text);
-    const data = converted || text;
-    const blob = new Blob([data], { type: 'application/octet-stream' });
-    const ab = await blob.arrayBuffer();
-    const df = await wrappedDeflate(new Uint8Array(ab), { consume: true, level: 8 });
-    const deflateResult = (converted ? "~" : "") + await arrayBufferToBase64Single(df);
+    const data = new Uint8Array(converted || await (new Blob([text], { type: 'application/octet-stream' })).arrayBuffer());
+    if (data.buffer.byteLength == 0) {
+        return "";
+    }
+    const df = await wrappedDeflate(new Uint8Array(data), { consume: true, level: 8 });
+    const deflateResult = (converted ? "~" : "") + "%" + fflate.strFromU8(df, true);
     return deflateResult;
 }
-async function _decompressText(compressed: string) {
+async function _decompressText(compressed: string, useUTF16 = false) {
+    if (compressed.length == 0) {
+        return "";
+    }
     const converted = compressed[0] == "~";
     const src = compressed.substring(converted ? 1 : 0);
-    const ab = base64ToArrayBuffer(src)
-
-    const response = new Blob([await wrappedInflate(new Uint8Array(ab), { consume: true })]);
-    if (!converted) {
-        const text = await response.text();
-        return text;
-    } else {
-        const bin = await response.arrayBuffer();
-        return await arrayBufferToBase64Single(bin);
+    if (src.length == 0) {
+        return "";
     }
+    const ab = src.startsWith("%") ? fflate.strToU8(src.substring(1), true) : new Uint8Array(base64ToArrayBuffer(src));
+    if (ab.length == 0) {
+        return "";
+    }
+    const ret = await wrappedInflate(new Uint8Array(ab), { consume: true });
+    if (converted) {
+        return await arrayBufferToBase64Single(ret);
+    }
+    const response = new Blob([ret]);
+    const text = await response.text();
+    return text;
 }
 
+async function compressDoc(doc: EntryDoc) {
+    if (!("data" in doc)) {
+        return doc;
+    }
+    if (typeof doc.data !== "string") return doc;
+    if (doc.data.startsWith(MARK_SHIFT_COMPRESSED)) return doc;
+    const oldData = doc.data;
+    const compressed = await _compressText(oldData);
+    const newData = MARK_SHIFT_COMPRESSED + compressed;
+    if (doc.data.length > newData.length) doc.data = newData
+    return doc;
+}
+async function decompressDoc(doc: EntryDoc) {
+    if (!("data" in doc)) {
+        return doc;
+    }
+    if (typeof doc.data !== "string") return doc;
+
+    // Already decrypted
+    if (doc.data.startsWith(MARK_SHIFT_COMPRESSED)) {
+        doc.data = await _decompressText(doc.data.substring(MARK_SHIFT_COMPRESSED.length))
+    }
+    return doc;
+}
 export const enableCompression = (db: PouchDB.Database<EntryDoc>, compress: boolean) => {
     db.transform({
         //@ts-ignore
         async incoming(doc) {
             if (!compress) return doc;
-            if (!("data" in doc)) {
-                return doc;
-            }
-            if (typeof doc.data !== "string") return doc;
-            if (doc.data.startsWith(MARK_SHIFT_COMPRESSED)) return doc;
-            const newData = MARK_SHIFT_COMPRESSED + await _compressText(doc.data)
-            if (doc.data.length > newData.length) doc.data = newData
-            return doc;
+            return await compressDoc(doc);
         },
         async outgoing(doc) {
             // We should decompress if compression is not configured.
-            if (!("data" in doc)) {
-                return doc;
-            }
-            if (typeof doc.data !== "string") return doc;
-
-            // Already decrypted
-            if (!doc.data.startsWith(MARK_SHIFT_COMPRESSED)) return doc;
-            doc.data = await _decompressText(doc.data.substring(MARK_SHIFT_COMPRESSED.length))
-            return doc;
+            return await decompressDoc(doc);
         },
     })
 }
