@@ -293,7 +293,7 @@ export const PREFERRED_SETTING_SELF_HOSTED: Partial<ObsidianLiveSyncSettings> = 
 }
 export const PREFERRED_JOURNAL_SYNC: Partial<ObsidianLiveSyncSettings> = {
     ...PREFERRED_SETTING_CLOUDANT,
-    customChunkSize: 30,
+    customChunkSize: 10,
     concurrencyOfReadChunksOnline: 30,
     minimumIntervalOfReadChunksOnline: 25
 }
