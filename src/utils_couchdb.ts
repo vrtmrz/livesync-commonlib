@@ -105,8 +105,8 @@ function wrapFflateFunc<T, U>(func: (data: T, opts: U, cb: fflate.FlateCallback)
 
 }
 
-const wrappedInflate = wrapFflateFunc<Uint8Array, fflate.AsyncInflateOptions>(fflate.inflate);
-const wrappedDeflate = wrapFflateFunc<Uint8Array, fflate.AsyncDeflateOptions>(fflate.deflate);
+export const wrappedInflate = wrapFflateFunc<Uint8Array, fflate.AsyncInflateOptions>(fflate.inflate);
+export const wrappedDeflate = wrapFflateFunc<Uint8Array, fflate.AsyncDeflateOptions>(fflate.deflate);
 async function _compressText(text: string) {
     const converted = tryConvertBase64ToArrayBuffer(text);
     const data = new Uint8Array(converted || await (new Blob([text], { type: 'application/octet-stream' })).arrayBuffer());

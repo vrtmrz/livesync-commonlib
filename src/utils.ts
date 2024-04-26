@@ -384,3 +384,10 @@ export const throttle = <T extends (...args: any[]) => any>(func: T, timeout: nu
         }
     };
 };
+
+export function extractObject<T>(copyTo: T, obj: T): T {
+    for (const key in copyTo) {
+        copyTo[key] = obj[key];
+    }
+    return copyTo;
+}

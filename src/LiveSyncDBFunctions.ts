@@ -14,7 +14,6 @@ interface DBFunctionSettings {
     passphrase: string;
     deleteMetadataOfDeletedFiles: boolean;
     customChunkSize: number;
-    readChunksOnline: boolean;
     doNotPaceReplication: boolean;
     hashAlg: HashAlgorithm;
 }
@@ -32,6 +31,7 @@ export interface DBFunctionEnvironment {
     h32Raw(input: Uint8Array, seed?: number): number,
     xxhash32(input: string, seed?: number): number,
     xxhash64: ((input: string) => bigint) | false,
+    isOnDemandChunkEnabled: boolean;
 }
 type GeneratedChunk = {
     isNew: boolean,
@@ -306,7 +306,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
             // Acquire semaphore to pace replication.
             // const weight = Math.min(10, Math.ceil(obj.children.length / 10)) + 1;
             // const resourceSemaphore = env.settings.doNotPaceReplication ? (() => { }) : await globalConcurrencyController.acquire(weight);
-            if (env.settings.readChunksOnline) {
+            if (env.isOnDemandChunkEnabled) {
                 const items = await env.collectChunks(obj.children, false, waitForReady);
                 if (items === false || items.some(leaf => leaf.type != "leaf")) {
                     Logger(`Chunks of ${dispFilename} (${obj._id.substring(0, 8)}) are not valid.`, LOG_LEVEL_NOTICE);

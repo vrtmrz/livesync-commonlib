@@ -66,6 +66,11 @@ export type PluginSyncSettingEntry = {
     mode: SYNC_MODE,
     files: string[]
 }
+
+export const REMOTE_COUCHDB = "";
+export const REMOTE_MINIO = "MINIO";
+export type RemoteType = typeof REMOTE_COUCHDB | typeof REMOTE_MINIO;
+
 interface ObsidianLiveSyncSettings_PluginSetting {
     liveSync: boolean;
     syncOnSave: boolean;
@@ -127,8 +132,18 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     isConfigured?: boolean;
 
 }
-
-export type RemoteDBSettings = CouchDBConnection & {
+export type BucketSyncSetting = {
+    accessKey: string,
+    secretKey: string,
+    bucket: string,
+    region: string,
+    endpoint: string,
+    useCustomRequestHandler: boolean;
+}
+export type RemoteTypeSettings = {
+    remoteType: RemoteType;
+}
+export type RemoteDBSettings = CouchDBConnection & BucketSyncSetting & RemoteTypeSettings & {
     versionUpFlash: string;
     minimumChunkSize: number;
     longLineThreshold: number;
@@ -167,6 +182,8 @@ export type RemoteDBSettings = CouchDBConnection & {
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
 export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
+    remoteType: REMOTE_COUCHDB,
+    useCustomRequestHandler: false,
     couchDB_URI: "",
     couchDB_USER: "",
     couchDB_PASSWORD: "",
@@ -254,6 +271,11 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     isConfigured: undefined,
     settingVersion: 0,
     enableCompression: false,
+    accessKey: "",
+    bucket: "",
+    endpoint: "",
+    region: "ap-northeast-1",
+    secretKey: ""
 };
 
 
@@ -384,7 +406,7 @@ export type Credential = {
 
 export type EntryDocResponse = EntryDoc & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta;
 
-export type DatabaseConnectingStatus = "STARTED" | "NOT_CONNECTED" | "PAUSED" | "CONNECTED" | "COMPLETED" | "CLOSED" | "ERRORED";
+export type DatabaseConnectingStatus = "STARTED" | "NOT_CONNECTED" | "PAUSED" | "CONNECTED" | "COMPLETED" | "CLOSED" | "ERRORED" | "JOURNAL_SEND" | "JOURNAL_RECEIVE";
 
 export const PREFIXMD_LOGFILE = "LIVESYNC_LOG_";
 export const FLAGMD_REDFLAG = "redflag.md" as FilePath;

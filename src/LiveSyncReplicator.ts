@@ -1,6 +1,5 @@
 import {
-    type EntryDoc, type EntryNodeInfo, type EntryMilestoneInfo,
-    NODEINFO_DOCID,
+    type EntryDoc, type EntryMilestoneInfo,
     VER,
     MILSTONE_DOCID,
     type DatabaseConnectingStatus,
@@ -11,7 +10,7 @@ import { Logger } from "./logger.ts";
 import { checkRemoteVersion } from "./utils_couchdb.ts";
 
 import { ensureDatabaseIsCompatible } from "./LiveSyncDBFunctions.ts";
-import type { ReactiveSource } from "./reactive.ts";
+import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv } from "./LiveSyncAbstractReplicator.ts";
 
 
 const currentVersionRange: ChunkVersionRange = {
@@ -19,7 +18,6 @@ const currentVersionRange: ChunkVersionRange = {
     max: 2,
     current: 2,
 }
-type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<void> | void;
 
 const selectorOnDemandPull = { "selector": { "type": { "$ne": "leaf" } } };
 const selectorOnDemandPush = {};
@@ -37,30 +35,6 @@ type EventParamArray<T extends {}> =
     ["finally"]
     ;
 
-export interface LiveSyncReplicatorEnv {
-    getDatabase(): PouchDB.Database<EntryDoc>;
-    getSettings(): RemoteDBSettings;
-    getIsMobile(): boolean;
-    getLastPostFailedBySize(): boolean;
-    processReplication: ReplicationCallback;
-    connectRemoteCouchDB(uri: string,
-        auth: { username: string; password: string },
-        disableRequestURI: boolean, passphrase: string | boolean,
-        useDynamicIterationCount: boolean,
-        performSetup: boolean,
-        skipInfo: boolean,
-        enableCompression: boolean,
-    ): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }>;
-    replicationStat: ReactiveSource<{
-        sent: number;
-        arrived: number;
-        maxPullSeq: number;
-        maxPushSeq: number;
-        lastSyncPullSeq: number;
-        lastSyncPushSeq: number;
-        syncStatus: DatabaseConnectingStatus;
-    }>
-}
 async function* genReplication(s: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc>, signal: AbortSignal) {
 
     const p = [] as EventParamArray<EntryDoc>[];
@@ -108,7 +82,18 @@ async function* genReplication(s: PouchDB.Replication.Sync<EntryDoc> | PouchDB.R
     }
 }
 
-export class LiveSyncDBReplicator {
+export interface LiveSyncCouchDBReplicatorEnv extends LiveSyncReplicatorEnv {
+    connectRemoteCouchDB(uri: string,
+        auth: { username: string; password: string },
+        disableRequestURI: boolean, passphrase: string | boolean,
+        useDynamicIterationCount: boolean,
+        performSetup: boolean,
+        skipInfo: boolean,
+        enableCompression: boolean,
+    ): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }>;
+}
+
+export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
     syncStatus: DatabaseConnectingStatus = "NOT_CONNECTED";
     docArrived = 0;
@@ -126,31 +111,10 @@ export class LiveSyncDBReplicator {
     remoteCleaned = false;
     remoteLockedAndDeviceNotAccepted = false;
 
-    env: LiveSyncReplicatorEnv;
+    env: LiveSyncCouchDBReplicatorEnv;
 
-    async initializeDatabaseForReplication(): Promise<boolean> {
-        const db = this.env.getDatabase();
-        try {
-            const nodeinfo: EntryNodeInfo = await resolveWithIgnoreKnownError<EntryNodeInfo>(db.get(NODEINFO_DOCID), {
-                _id: NODEINFO_DOCID,
-                type: "nodeinfo",
-                nodeid: "",
-                v20220607: true,
-            });
-            if (nodeinfo.nodeid == "") {
-                nodeinfo.nodeid = Math.random().toString(36).slice(-10);
-                await db.put(nodeinfo);
-            }
-
-            this.nodeid = nodeinfo.nodeid;
-            return true;
-        } catch (ex) {
-            Logger(ex);
-        }
-        return false;
-    }
-
-    constructor(env: LiveSyncReplicatorEnv) {
+    constructor(env: LiveSyncCouchDBReplicatorEnv) {
+        super(env);
         this.env = env;
         // initialize local node information.
         this.initializeDatabaseForReplication();
@@ -174,7 +138,7 @@ export class LiveSyncDBReplicator {
         this.controller = undefined;
     }
 
-    async openReplication(setting: RemoteDBSettings, keepAlive: boolean, showResult: boolean, ignoreCleanLock = false) {
+    async openReplication(setting: RemoteDBSettings, keepAlive: boolean, showResult: boolean, ignoreCleanLock: boolean) {
         await this.initializeDatabaseForReplication();
         if (keepAlive) {
             this.openContinuousReplication(setting, showResult, false);
@@ -676,6 +640,16 @@ export class LiveSyncDBReplicator {
 
         const remoteChunkItems = remoteChunks.rows.map((e: any) => e.doc as EntryLeaf);
         return remoteChunkItems;
+    }
+
+    async tryConnectRemote(setting: RemoteDBSettings, showResult: boolean = true): Promise<boolean> {
+        const db = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        if (typeof db === "string") {
+            Logger(`ERROR!: could not connect to ${setting.couchDB_URI} : ${setting.couchDB_DBNAME} \n(${db})`, LOG_LEVEL_NOTICE);
+            return false;
+        }
+        Logger(`Connected to ${db.info.db_name} successfully`, LOG_LEVEL_NOTICE);
+        return true;
     }
 
 }

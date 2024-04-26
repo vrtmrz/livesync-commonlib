@@ -17,6 +17,7 @@ import {
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_VERBOSE,
     RESULT_TIMED_OUT,
+    REMOTE_COUCHDB,
 } from "./types.ts";
 import { onlyNot, sendValue, waitForValue } from "./utils.ts";
 import { Logger } from "./logger.ts";
@@ -24,7 +25,7 @@ import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 import { LRUCache } from "./LRUCache.ts";
 
 import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, type DBFunctionEnvironment, getDBEntryFromMeta } from "./LiveSyncDBFunctions.ts";
-import type { LiveSyncDBReplicator } from "./LiveSyncReplicator.ts";
+import type { LiveSyncAbstractReplicator } from "./LiveSyncAbstractReplicator.ts";
 import { writeString } from "./strbin.ts";
 import { QueueProcessor } from "./processor.ts";
 import { collectingChunks } from "./stores.ts";
@@ -38,7 +39,7 @@ export interface LiveSyncLocalDBEnv {
     onClose(db: LiveSyncLocalDB): void;
     onInitializeDatabase(db: LiveSyncLocalDB): Promise<void>;
     onResetDatabase(db: LiveSyncLocalDB): Promise<void>;
-    getReplicator: () => LiveSyncDBReplicator;
+    getReplicator: () => LiveSyncAbstractReplicator;
     getSettings(): RemoteDBSettings;
 
 }
@@ -66,6 +67,13 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     needScanning = false;
 
     env: LiveSyncLocalDBEnv;
+
+    get isOnDemandChunkEnabled() {
+        if (this.settings.remoteType !== REMOTE_COUCHDB) {
+            return false
+        }
+        return this.settings.readChunksOnline;
+    }
 
     onunload() {
         //this.kvDB.close();

@@ -263,16 +263,56 @@ export async function tryDecrypt(encryptedResult: string, passphrase: string | f
     }
 }
 export async function testCrypt() {
-    const src = "supercalifragilisticexpialidocious";
+    const src = "✨supercalifragilisticexpialidocious✨⛰️";
 
     const encoded = await encrypt(src, "passwordTest", false);
     const decrypted = await decrypt(encoded, "passwordTest", false);
-
     if (src != decrypted) {
         Logger("WARNING! Your device would not support encryption.", LOG_LEVEL_VERBOSE);
         return false;
     } else {
         Logger("CRYPT LOGIC OK", LOG_LEVEL_VERBOSE);
+        const w = new TextEncoder().encode(src);
+        const encodedBinary = await encryptBinary(w, "passwordTest", false);
+        const decryptedBinary = await decryptBinary(encodedBinary, "passwordTest", false);
+
+        if (w.join("-") !== decryptedBinary.join("-")) {
+            Logger("WARNING! Your device would not support encryption (Binary).", LOG_LEVEL_VERBOSE);
+            return false;
+        } else {
+            Logger("CRYPT LOGIC OK (Binary)", LOG_LEVEL_VERBOSE);
+        }
+
         return true;
+    }
+}
+
+export async function encryptBinary(input: Uint8Array, passphrase: string, autoCalculateIterations: boolean) {
+    const [key, salt] = await getKeyForEncrypt(passphrase, autoCalculateIterations);
+    // Create initial vector with semi-fixed part and incremental part
+    // I think it's not good against related-key attacks.
+    const fixedPart = getSemiStaticField();
+    const invocationPart = getNonce();
+    const iv = new Uint8Array([...fixedPart, ...new Uint8Array(invocationPart.buffer)]);
+    const dataBuf = input
+    const encryptedDataArrayBuffer = new Uint8Array(await webcrypto.subtle.encrypt({ name: "AES-GCM", iv }, key, dataBuf));
+    const ret = new Uint8Array(encryptedDataArrayBuffer.byteLength + iv.byteLength + salt.byteLength);
+    ret.set(iv, 0);
+    ret.set(salt, iv.byteLength);
+    ret.set(encryptedDataArrayBuffer, iv.byteLength + salt.byteLength);
+    return ret;
+}
+export async function decryptBinary(encryptedResult: Uint8Array, passphrase: string, autoCalculateIterations: boolean): Promise<Uint8Array> {
+    try {
+        const iv = encryptedResult.slice(0, 16);
+        const salt = encryptedResult.slice(16, 32);
+        const encryptedData = encryptedResult.slice(32);
+        const [key] = await getKeyForDecryption(passphrase, salt, autoCalculateIterations);
+        const dataBuffer = await webcrypto.subtle.decrypt({ name: "AES-GCM", iv }, key, encryptedData);
+        return new Uint8Array(dataBuffer)
+    } catch (ex) {
+        Logger("Couldn't decode! You should wrong the passphrases (V2 Bin)", LOG_LEVEL_VERBOSE);
+        Logger(ex, LOG_LEVEL_VERBOSE);
+        throw ex;
     }
 }
