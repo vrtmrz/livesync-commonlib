@@ -274,7 +274,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     accessKey: "",
     bucket: "",
     endpoint: "",
-    region: "ap-northeast-1",
+    region: "auto",
     secretKey: ""
 };
 
@@ -288,6 +288,12 @@ export const PREFERRED_SETTING_CLOUDANT: Partial<ObsidianLiveSyncSettings> = {
 export const PREFERRED_SETTING_SELF_HOSTED: Partial<ObsidianLiveSyncSettings> = {
     ...PREFERRED_SETTING_CLOUDANT,
     customChunkSize: 50,
+    concurrencyOfReadChunksOnline: 30,
+    minimumIntervalOfReadChunksOnline: 25
+}
+export const PREFERRED_JOURNAL_SYNC: Partial<ObsidianLiveSyncSettings> = {
+    ...PREFERRED_SETTING_CLOUDANT,
+    customChunkSize: 30,
     concurrencyOfReadChunksOnline: 30,
     minimumIntervalOfReadChunksOnline: 25
 }
