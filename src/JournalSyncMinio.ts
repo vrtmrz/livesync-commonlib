@@ -1,4 +1,6 @@
 import { DeleteObjectsCommand, GetObjectCommand, PutObjectCommand, S3 } from "@aws-sdk/client-s3";
+import { ConfiguredRetryStrategy } from "@smithy/util-retry";
+
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types";
 import { Logger } from "./logger";
 import { JournalSyncAbstract } from "./JournalSyncAbstract";
@@ -22,6 +24,11 @@ export class JournalSyncMinio extends JournalSyncAbstract {
                 accessKeyId: this.id,
                 secretAccessKey: this.key,
             },
+            maxAttempts: 4,
+            retryStrategy: new ConfiguredRetryStrategy(
+                4,
+                (attempt: number) => 100 + attempt * 1000
+            ),
             requestHandler: this.useCustomRequestHandler ? this.env.customFetchHandler() : undefined
         });
         return this._instance;

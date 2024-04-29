@@ -1,12 +1,14 @@
 export type CheckPointInfo = {
     lastLocalSeq: number | string;
     knownIDs: string[];
+    sentIDs: string[];
     receivedFiles: string[];
     sentFiles: string[];
 }
 export const CheckPointInfoDefault: CheckPointInfo = {
     lastLocalSeq: 0,
     knownIDs: [],
+    sentIDs: [],
     receivedFiles: [],
     sentFiles: [],
 }

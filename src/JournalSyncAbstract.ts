@@ -1,12 +1,12 @@
-import { type DocumentID, type EntryDoc, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types";
+import { type DocumentID, type EntryDoc, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, LOG_LEVEL_DEBUG } from "./types";
 import { Logger } from "./logger";
 import type { ReplicationCallback, ReplicationStat } from "./LiveSyncAbstractReplicator";
-import { unique } from "./utils";
-import { serialized } from "./lock";
+import { sendValue, unique } from "./utils";
+import { serialized, skipIfDuplicated } from "./lock";
 import { wrappedInflate, wrappedDeflate } from "./utils_couchdb"
 import { type SimpleStore, type CheckPointInfo, CheckPointInfoDefault } from "./JournalSyncTypes";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicator";
-
+type ProcessingEntry = PouchDB.Core.PutDocument<EntryDoc> & PouchDB.Core.GetMeta;
 export abstract class JournalSyncAbstract {
     id = "";
     key = "";
@@ -101,6 +101,7 @@ export abstract class JournalSyncAbstract {
         const checkPointInfo = await this.getCheckpointInfo();
         const from = override || checkPointInfo.lastLocalSeq;
         const knownIDs = new Set(checkPointInfo.knownIDs);
+        const sentIDs = new Set(checkPointInfo.sentIDs);
         Logger(`Creating journal pack with ${this.batchSize} rows from seq:${from}`, LOG_LEVEL_VERBOSE);
         let knownKeyCount = 0;
         let sendKeyCount = 0;
@@ -115,12 +116,12 @@ export abstract class JournalSyncAbstract {
             attachments: false,
             style: "all_docs",
             filter: (doc: EntryDoc) => {
-                // if (doc._id.startsWith("h:")) {
-                //     // Skip chunks
-                //     return false;
-                // }
                 const key = this.getDocKey(doc);
                 if (knownIDs.has(key)) {
+                    knownKeyCount++;
+                    return false;
+                }
+                if (sentIDs.has(key)) {
                     knownKeyCount++;
                     return false;
                 }
@@ -142,20 +143,6 @@ export abstract class JournalSyncAbstract {
         const hasNext = packLastSeq < dbInfo.update_seq
         const docs = bd.results.map(e => e.docs).flat();
         const docChanges = docs.filter(e => ("ok" in e)).map(e => (e as any).ok) as (EntryDoc & PouchDB.Core.GetMeta)[];
-        // // pick chunks actually using on this batch.
-        // const chunksAll = unique(docChanges.map(e => ("children" in e) ? e.children : []).flat())
-        // const chunks = chunksAll.filter(e => !knownIDs.has(e));
-        // let chunkChanges = [] as (EntryDoc & PouchDB.Core.GetMeta)[];
-        // if (chunks.length == 0) {
-        //     console.warn(`All chunks used in ${docChanges.length} docs -> ${chunksAll.length} , but needs to send ${chunks.length}`);
-        //     // Originally, chunks did not have to be sent in BulkDocs format, but it is more convenient to send them in this form, so that is what is done.
-        //     const usedChunksBDs = await this.db.bulkGet({
-        //         docs: chunks.map(e => ({ id: e })),
-        //         revs: true,
-        //     })
-        //     const chunkDocs = usedChunksBDs.results.map(e => e.docs).flat();
-        //     chunkChanges = chunkDocs.filter(e => ("ok" in e)).map(e => (e as any).ok) as (EntryDoc & PouchDB.Core.GetMeta)[];
-        // }
         return { changes: docChanges, hasNext, packLastSeq };
     }
 
@@ -171,15 +158,6 @@ export abstract class JournalSyncAbstract {
         return new TextEncoder().encode(JSON.stringify(doc) + "\n");
     }
 
-    // async queueUploadFile(name: string, blob: Blob) {
-    //     // const files = this.env.simpleStore.keys({ from:})
-    //     const key = `upload-${name}`;
-    //     const old = await this.env.simpleStore.keys(key, key, 1)
-    //     if (old.length != 0) {
-    //         Logger(`${name} already queued`, LOG_LEVEL_VERBOSE);
-    //     }
-    //     await this.env.simpleStore.set(key, blob);
-    // }
     async sendLocalJournal(showMessage = false) {
         const logLevel = showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
         this.requestedStop = false;
@@ -199,7 +177,11 @@ export abstract class JournalSyncAbstract {
                     // Logger(`Sending journal : Uploading ${key}`, logLevel, "sendjournal-file");
                     const mime = "application/jsonl";
                     try {
-                        await this.uploadFile(key, blob, mime);
+                        const ret = await this.uploadFile(key, blob, mime);
+                        if (!ret) {
+                            Logger("Could not send journalPack to the bucket", LOG_LEVEL_NOTICE);
+                            return false;
+                        }
                         await this.updateCheckPointInfo((info) => ({ ...info, sentFiles: [...info.sentFiles, key] }))
                         Logger(`Sending journal : Uploading ${key} done!`, LOG_LEVEL_INFO);
                     } catch (ex) {
@@ -237,7 +219,7 @@ export abstract class JournalSyncAbstract {
                 }
                 await this.updateCheckPointInfo((info) => ({
                     ...info, lastLocalSeq: nextLastSeq,
-                    knownIDs: [...info.knownIDs, ...changes.map(e => this.getDocKey(e))]
+                    sentIDs: [...info.sentIDs, ...changes.map(e => this.getDocKey(e))]
                 }));
                 return true;
             }
@@ -254,18 +236,6 @@ export abstract class JournalSyncAbstract {
                     const serialized = this.serializeDoc(row)
                     binarySize += serialized.length;
                     outBuf.push(serialized);
-                }
-                if (!hasNext) {
-                    // End of the queue
-                    if (outBuf.length > 0) {
-                        const sendBuf = [...outBuf];
-                        await sendAndUpdate(sendBuf, packLastSeq, changes);
-                    }
-                    latestPackedLastSeq = packLastSeq as number;
-                    isFinished = true;
-                    break;
-                } else {
-                    latestPackedLastSeq = packLastSeq as number;
                     if (outBuf.length > maxOutBufLength || binarySize > maxBinarySize) {
                         const sendBuf = [...outBuf]
                         outBuf.length = 0;
@@ -276,6 +246,21 @@ export abstract class JournalSyncAbstract {
                             break;
                         }
                     }
+                }
+                if (outBuf.length > 0) {
+                    const sendBuf = [...outBuf];
+                    await sendAndUpdate(sendBuf, packLastSeq, changes);
+                } else {
+                    await this.updateCheckPointInfo((info) => ({
+                        ...info, lastLocalSeq: packLastSeq
+                    }))
+                }
+                latestPackedLastSeq = packLastSeq as number;
+                if (!hasNext) {
+                    // End of the queue
+                    isFinished = true;
+                    break;
+                } else {
                     currentLastSeq = packLastSeq;
                 }
             } while (!isFinished);
@@ -297,18 +282,6 @@ export abstract class JournalSyncAbstract {
 
     processing = new Set<string>();
 
-    async lockAndProcess<T>(name: string, fn: () => Promise<T>) {
-        if (this.processing.has(name)) {
-            return;
-        }
-        this.processing.add(name);
-        try {
-            return await fn();
-        } finally {
-            this.processing.delete(name);
-        }
-    }
-
     async receiveRemoteJournal(showMessage = false) {
         this.updateInfo({ syncStatus: "STARTED" })
         const logLevel = showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
@@ -316,14 +289,45 @@ export abstract class JournalSyncAbstract {
         this.requestedStop = false
         return await serialized("JournalSync", async () => {
             Logger("Receiving Journal", logLevel, "receivejournal");
-            const processDocuments = async (docs: (PouchDB.Core.PutDocument<EntryDoc> & PouchDB.Core.GetMeta)[]) => {
+            const processDocuments = async (allDocs: (ProcessingEntry)[]) => {
                 let applyTotal = 0;
                 let wholeItems = 0;
                 try {
+                    // Sort transferred into chunks and docs.
+                    const chunks = [] as typeof allDocs;
+                    const docs = [] as typeof allDocs;
+                    allDocs.forEach(e => {
+                        if (e._id.startsWith("h:")) {
+                            chunks.push(e);
+                        } else {
+                            docs.push(e);
+                        }
+                    })
+                    // Chunk saving.
+                    // Chunks always have the same content, hence revision comparisons are unnecessary
+                    try {
+                        const e1 = (await this.db.allDocs({ include_docs: true, keys: [...chunks.map(e => e._id)] })).rows;
+                        const e2 = e1.map(e => e.id ?? undefined);
+                        const existChunks = new Set(e2.filter(e => e !== undefined));
+                        const saveChunks = chunks.filter(e => !existChunks.has(e._id)).map(e => ({ ...e, _rev: undefined }))
+                        const ret = await this.db.bulkDocs<EntryDoc>(saveChunks, { new_edits: true });
+                        const saveError = ret.filter(e => "error" in e).map(e => e.id);
+                        // Send arrived notification.
+                        saveChunks.filter(e => saveError.indexOf(e._id) === -1).forEach(doc => sendValue(`leaf-${doc._id}`, doc));
+                        await this.updateCheckPointInfo((info) => ({
+                            ...info, knownIDs: [...info.knownIDs, ...chunks.map(e => this.getDocKey(e))],
+                        }));
+                        Logger(`Saved ${ret.length} chunks in transferred ${chunks.length} chunks (Error:${saveError.length})`, LOG_LEVEL_VERBOSE);
+                    } catch (ex) {
+                        Logger(`Applying chunks failed`, logLevel);
+                        Logger(ex, LOG_LEVEL_VERBOSE);
+                    }
+                    // Docs saving.
+                    // Docs have different revisions, hence revision comparisons and merging are necessary.
                     const docsRevs = docs.map((e: EntryDoc & PouchDB.Core.GetMeta) => ({ [e._id]: e._revisions!.ids.map((rev, i) => `${e._revisions!.start - i}-${rev}`) })).reduce((a, b) => ({ ...a, ...b }), {});
                     const diffRevs = await this.db.revsDiff(docsRevs);
                     const saveDocs = docs.filter(e => (e._id in diffRevs && ("missing" in diffRevs[e._id]) && (diffRevs[e._id].missing?.length || 0) > 0));
-                    // Logger(`Applying ${saveDocs.length} of ${docs.length} docs`, LOG_LEVEL_VERBOSE);
+                    Logger(`Applying ${saveDocs.length} docs (Total transferred:${docs.length}, docs:${allDocs.length})`, LOG_LEVEL_VERBOSE);
                     await this.db.bulkDocs<EntryDoc>(saveDocs, { new_edits: false });
                     await this.processReplication(saveDocs as PouchDB.Core.ExistingDocument<EntryDoc>[]);
                     await this.updateCheckPointInfo((info) => ({
@@ -354,11 +358,11 @@ export abstract class JournalSyncAbstract {
                         }
                         const data = JSON.parse(d.decode(ab.slice(idxFrom, idxTo))) as (PouchDB.Core.PutDocument<EntryDoc> & PouchDB.Core.GetMeta);
                         applyBuf.push(data);
-                        if (applyBuf.length > 25) {
-                            const save = [...applyBuf]
-                            applyBuf.length = 0;
-                            await processDocuments(save);
-                        }
+                        // if (applyBuf.length > 25) {
+                        //     const save = [...applyBuf]
+                        //     applyBuf.length = 0;
+                        //     await processDocuments(save);
+                        // }
                         idxFrom = idxTo + 1
                     } while (idxTo > 0);
                     if (applyBuf.length > 0) {
@@ -398,7 +402,6 @@ export abstract class JournalSyncAbstract {
                         }
                         Logger(`Receiving Journal : ${i} / ${keys.length} `, logLevel, "receivejournal");
                         receivedFiles.add(key);
-                        Logger(`Receiving Journal : ${i} / ${keys.length} `, logLevel, "receivejournal");
                         await task;
                         const data = await this.downloadFile(key);
                         if (!data) throw new Error(`Cloud not download ${key}`);
@@ -425,15 +428,17 @@ export abstract class JournalSyncAbstract {
     }
 
     async sync(showResult = false) {
-        this.requestedStop = false;
-        const receiveResult = await this.receiveRemoteJournal(showResult);
-        if (this.requestedStop) return;
-        if (!receiveResult) {
-            const logLevel = showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
-            Logger(`Could not receive remote journal, so we prevent sending local journals to prevent unwanted mass transfers`, logLevel);
-            return;
-        }
-        await this.sendLocalJournal(showResult);
+        return await skipIfDuplicated("replicate", async () => {
+            this.requestedStop = false;
+            const receiveResult = await this.receiveRemoteJournal(showResult);
+            if (this.requestedStop) return;
+            if (!receiveResult) {
+                const logLevel = showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
+                Logger(`Could not receive remote journal, so we prevent sending local journals to prevent unwanted mass transfers`, logLevel);
+                return;
+            }
+            return await this.sendLocalJournal(showResult);
+        }) ?? false;
 
     }
 
