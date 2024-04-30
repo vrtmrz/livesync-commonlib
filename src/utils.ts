@@ -435,5 +435,5 @@ export function unescapeNewLineFromString(str: string) {
     if (!str.startsWith("\\f")) {
         return str;
     }
-    return replaceAll(replaceAll(str, "\\\\", "\\"), "\\n", "\n");
+    return replaceAll(replaceAll(str.substring(2), "\\\\", "\\"), "\\n", "\n");
 }
