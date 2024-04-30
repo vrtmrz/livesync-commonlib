@@ -391,3 +391,49 @@ export function extractObject<T>(copyTo: T, obj: T): T {
     }
     return copyTo;
 }
+
+export interface SimpleStore<T> {
+    get(key: string): Promise<T | undefined>;
+    set(key: string, value: T): Promise<void>;
+    delete(key: string): Promise<void>;
+    keys(from: string | undefined, to: string | undefined, count?: number): Promise<string[]>;
+}
+
+
+export function setAllItems<T>(set: Set<T>, items: T[]) {
+    items.forEach(e => set.add(e))
+    return set;
+}
+
+
+export function concatUInt8Array(arrays: Uint8Array[]) {
+    const length = arrays.reduce((acc, cur) => acc + cur.length, 0);
+    const result = new Uint8Array(length);
+    let pos = 0;
+    for (const array of arrays) {
+        result.set(array, pos);
+        pos += array.length;
+    }
+    return result;
+}
+
+export function replaceAll(str: string, search: string, replace: string) {
+    if ("replaceAll" in String.prototype) {
+        //@ts-ignore
+        return str.replaceAll(search, replace);
+    }
+    return str.split(search).join(replace);
+}
+
+export function escapeNewLineFromString(str: string) {
+    if (str.indexOf("\n") < 0) {
+        return str;
+    }
+    return "\\f" + replaceAll(replaceAll(str, "\\", "\\\\"), "\n", "\\n");
+}
+export function unescapeNewLineFromString(str: string) {
+    if (!str.startsWith("\\f")) {
+        return str;
+    }
+    return replaceAll(replaceAll(str, "\\\\", "\\"), "\\n", "\n");
+}

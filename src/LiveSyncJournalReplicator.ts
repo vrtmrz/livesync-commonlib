@@ -11,8 +11,9 @@ import { JournalSyncMinio } from "./JournalSyncMinio.ts";
 
 import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv } from "./LiveSyncAbstractReplicator.ts";
 import type { ENSURE_DB_RESULT } from "./LiveSyncDBFunctions.ts";
-import type { CheckPointInfo, SimpleStore } from "./JournalSyncTypes.ts";
+import type { CheckPointInfo } from "./JournalSyncTypes.ts";
 import { FetchHttpHandler } from "@smithy/fetch-http-handler";
+import type { SimpleStore } from "./utils.ts";
 
 const MILSTONE_DOCID = "_00000000-milestone.json"
 
@@ -82,13 +83,16 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             node_chunk_info: { [deviceNodeID]: currentVersionRange }
         };
 
-        const remoteMilestone: EntryMilestoneInfo = { ...defMilestonePoint, ...(await this.client.downloadJson(MILSTONE_DOCID) || {}) };
+        const downloadedMilestone = await this.client.downloadJson(MILSTONE_DOCID) as any;
+
+        const remoteMilestone: EntryMilestoneInfo = { ...defMilestonePoint, ...(downloadedMilestone || {}) };
         remoteMilestone.node_chunk_info = { ...defMilestonePoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
 
         const writeMilestone = (
             (
                 remoteMilestone.node_chunk_info[deviceNodeID].min != currentVersionRange.min
                 || remoteMilestone.node_chunk_info[deviceNodeID].max != currentVersionRange.max
+                || !downloadedMilestone
             ));
 
         if (writeMilestone) {

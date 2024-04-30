@@ -3,7 +3,7 @@ import type { ReactiveSource } from "./reactive.ts";
 import { LOG_LEVEL_VERBOSE, RESULT_TIMED_OUT } from "./types.ts";
 import { delay, fireAndForget, promiseWithResolver } from "./utils.ts";
 
-class Notifier {
+export class Notifier {
     p = promiseWithResolver<void>();
     notify() {
         this.p.resolve()

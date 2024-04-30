@@ -1,21 +1,15 @@
 export type CheckPointInfo = {
     lastLocalSeq: number | string;
-    knownIDs: string[];
-    sentIDs: string[];
-    receivedFiles: string[];
-    sentFiles: string[];
+    knownIDs: Set<string>;
+    sentIDs: Set<string>;
+    receivedFiles: Set<string>;
+    sentFiles: Set<string>;
 }
 export const CheckPointInfoDefault: CheckPointInfo = {
     lastLocalSeq: 0,
-    knownIDs: [],
-    sentIDs: [],
-    receivedFiles: [],
-    sentFiles: [],
+    knownIDs: new Set<string>(),
+    sentIDs: new Set<string>(),
+    receivedFiles: new Set<string>(),
+    sentFiles: new Set<string>(),
 }
 
-export interface SimpleStore<T> {
-    get(key: string): Promise<T | undefined>;
-    set(key: string, value: T): Promise<void>;
-    delete(key: string): Promise<void>;
-    keys(from: string | undefined, to: string | undefined, count?: number): Promise<string[]>;
-}
