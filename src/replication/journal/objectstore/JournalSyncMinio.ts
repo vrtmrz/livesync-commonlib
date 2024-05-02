@@ -1,10 +1,10 @@
 import { DeleteObjectsCommand, GetObjectCommand, PutObjectCommand, S3 } from "@aws-sdk/client-s3";
 import { ConfiguredRetryStrategy } from "@smithy/util-retry";
 
-import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types";
-import { Logger } from "./logger";
-import { JournalSyncAbstract } from "./JournalSyncAbstract";
-import { decryptBinary, encryptBinary } from "./e2ee_v2";
+import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../../../common/types.ts";
+import { Logger } from "../../../common/logger.ts";
+import { JournalSyncAbstract } from "../JournalSyncAbstract.ts";
+import { decryptBinary, encryptBinary } from "../../../encryption/e2ee_v2.ts";
 
 export class JournalSyncMinio extends JournalSyncAbstract {
 

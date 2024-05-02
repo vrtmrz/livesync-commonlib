@@ -1,6 +1,6 @@
 //
 import { default as xxhashOld, type Exports } from "xxhash-wasm";
-import { default as xxhashNew } from "../patched_xxhash_wasm/xxhash-wasm.js";
+import { default as xxhashNew } from "../../patched_xxhash_wasm/xxhash-wasm.js";
 import type { XXHashAPI } from "xxhash-wasm-102";
 import {
     type EntryDoc,
@@ -18,17 +18,17 @@ import {
     LOG_LEVEL_VERBOSE,
     RESULT_TIMED_OUT,
     REMOTE_COUCHDB,
-} from "./types.ts";
-import { onlyNot, sendValue, waitForValue } from "./utils.ts";
-import { Logger } from "./logger.ts";
+} from "../common/types.ts";
+import { onlyNot, sendValue, waitForValue } from "../common/utils.ts";
+import { Logger } from "../common/logger.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
-import { LRUCache } from "./LRUCache.ts";
+import { LRUCache } from "../memory/LRUCache.ts";
 
 import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, type DBFunctionEnvironment, getDBEntryFromMeta } from "./LiveSyncDBFunctions.ts";
-import type { LiveSyncAbstractReplicator } from "./LiveSyncAbstractReplicator.ts";
-import { writeString } from "./strbin.ts";
-import { QueueProcessor } from "./processor.ts";
-import { collectingChunks } from "./stores.ts";
+import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
+import { writeString } from "../string_and_binary/strbin.ts";
+import { QueueProcessor } from "../concurrency/processor.ts";
+import { collectingChunks } from "../mock_and_interop/stores.ts";
 
 export interface LiveSyncLocalDBEnv {
     id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;

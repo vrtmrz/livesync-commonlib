@@ -1,5 +1,5 @@
-import { Logger } from "./logger.ts";
-import { LOG_LEVEL_VERBOSE } from "./types.ts";
+import { Logger } from "../common/logger.ts";
+import { LOG_LEVEL_VERBOSE } from "../common/types.ts";
 
 export class LRUCache<K, V> {
     private cache = new Map<K, V>([]);

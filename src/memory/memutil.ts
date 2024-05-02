@@ -1,6 +1,6 @@
 // Due to strict constraints, they may have to be hidden once in order to save memory,
 
-import type { SimpleStore } from "./utils";
+import type { SimpleStore } from "../common/utils.ts";
 
 export const PREFIX_TRENCH = "trench"
 export const PREFIX_EPHEMERAL = "ephemeral"

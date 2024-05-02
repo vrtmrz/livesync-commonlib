@@ -1,7 +1,7 @@
 // Reactive and less-computing expression evaluator
 // Inspired from Vue
 
-import { isObjectDifferent } from "./utils";
+import { isObjectDifferent } from "../common/utils.ts";
 
 let context: ReactiveInstance<any> | undefined;
 export type ReactiveChangeHandler<T> = (instance: ReactiveInstance<T>) => unknown;

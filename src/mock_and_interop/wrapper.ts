@@ -1,7 +1,7 @@
 // Wrapping classes
 
-import { Logger } from "./logger.ts";
-import { LOG_LEVEL_NOTICE } from "./types.ts";
+import { Logger } from "../common/logger.ts";
+import { LOG_LEVEL_NOTICE } from "../common/types.ts";
 
 export class WrappedNotice {
     constructor(message: string | DocumentFragment, timeout?: number) {

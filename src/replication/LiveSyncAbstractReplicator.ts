@@ -7,11 +7,11 @@ import {
     type EntryLeaf,
     type EntryNodeInfo,
     NODEINFO_DOCID
-} from "./types.ts";
+} from "../common/types.ts";
 
-import type { ReactiveSource } from "./reactive.ts";
-import { Logger } from "./logger.ts";
-import { resolveWithIgnoreKnownError } from "./utils.ts";
+import type { ReactiveSource } from "../dataobject/reactive.ts";
+import { Logger } from "../common/logger.ts";
+import { resolveWithIgnoreKnownError } from "../common/utils.ts";
 
 
 export type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<void> | void;

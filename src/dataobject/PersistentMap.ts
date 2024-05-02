@@ -2,7 +2,7 @@
  * The Map, which can keep the data.
  */
 
-import { scheduleTask } from "./task";
+import { scheduleTask } from "../concurrency/task.ts";
 
 const YieldOperationNumbers = 100;
 

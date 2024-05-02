@@ -4,13 +4,13 @@ import {
     MILSTONE_DOCID,
     type DatabaseConnectingStatus,
     type ChunkVersionRange, type RemoteDBSettings, type EntryLeaf, REPLICATION_BUSY_TIMEOUT, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE
-} from "./types.ts";
-import { resolveWithIgnoreKnownError, delay, globalConcurrencyController } from "./utils.ts";
-import { Logger } from "./logger.ts";
-import { checkRemoteVersion } from "./utils_couchdb.ts";
+} from "../../common/types.ts";
+import { resolveWithIgnoreKnownError, delay, globalConcurrencyController } from "../../common/utils.ts";
+import { Logger } from "../../common/logger.ts";
+import { checkRemoteVersion } from "../../pouchdb/utils_couchdb.ts";
 
-import { ensureDatabaseIsCompatible } from "./LiveSyncDBFunctions.ts";
-import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv } from "./LiveSyncAbstractReplicator.ts";
+import { ensureDatabaseIsCompatible } from "../../pouchdb/LiveSyncDBFunctions.ts";
+import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv } from "../LiveSyncAbstractReplicator.ts";
 
 
 const currentVersionRange: ChunkVersionRange = {

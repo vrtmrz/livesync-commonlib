@@ -1,11 +1,11 @@
-import { decrypt, encrypt, obfuscatePath } from "./e2ee_v2.ts";
-import { serialized } from "./lock.ts";
-import { Logger } from "./logger.ts";
-import { getPath } from "./path.ts";
-import { QueueProcessor } from "./processor.ts";
-import { arrayBufferToBase64Single, base64ToArrayBuffer, tryConvertBase64ToArrayBuffer, writeString } from "./strbin.ts";
-import { VER, VERSIONINFO_DOCID, type EntryVersionInfo, SYNCINFO_ID, type SyncInfo, type EntryDoc, type EntryLeaf, type AnyEntry, type FilePathWithPrefix, type CouchDBConnection, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types.ts";
-import { arrayToChunkedArray, isEncryptedChunkEntry, isObfuscatedEntry, isSyncInfoEntry, resolveWithIgnoreKnownError } from "./utils.ts";
+import { decrypt, encrypt, obfuscatePath } from "../encryption/e2ee_v2.ts";
+import { serialized } from "../concurrency/lock.ts";
+import { Logger } from "../common/logger.ts";
+import { getPath } from "../string_and_binary/path.ts";
+import { QueueProcessor } from "../concurrency/processor.ts";
+import { arrayBufferToBase64Single, base64ToArrayBuffer, tryConvertBase64ToArrayBuffer, writeString } from "../string_and_binary/strbin.ts";
+import { VER, VERSIONINFO_DOCID, type EntryVersionInfo, SYNCINFO_ID, type SyncInfo, type EntryDoc, type EntryLeaf, type AnyEntry, type FilePathWithPrefix, type CouchDBConnection, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../common/types.ts";
+import { arrayToChunkedArray, isEncryptedChunkEntry, isObfuscatedEntry, isSyncInfoEntry, resolveWithIgnoreKnownError } from "../common/utils.ts";
 import * as fflate from 'fflate';
 export const isValidRemoteCouchDBURI = (uri: string): boolean => {
     if (uri.startsWith("https://")) return true;

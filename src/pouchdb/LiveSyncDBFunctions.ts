@@ -1,10 +1,10 @@
-import { serialized } from "./lock.ts";
-import { Logger } from "./logger.ts";
-import { LRUCache } from "./LRUCache.ts";
-import { shouldSplitAsPlainText, stripAllPrefixes } from "./path.ts";
-import { sha1, splitPieces2 } from "./strbin.ts";
-import { type Entry, type EntryDoc, type EntryDocResponse, type EntryLeaf, type EntryMilestoneInfo, type LoadedEntry, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, type NewEntry, type PlainEntry, type RemoteDBSettings, type ChunkVersionRange, type EntryHasPath, type DocumentID, type FilePathWithPrefix, type FilePath, type HashAlgorithm, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type SavingEntry, PREFIX_CHUNK, NoteEntry } from "./types.ts";
-import { createTextBlob, isTextBlob, resolveWithIgnoreKnownError } from "./utils.ts";
+import { serialized } from "../concurrency/lock.ts";
+import { Logger } from "../common/logger.ts";
+import { LRUCache } from "../memory/LRUCache.ts";
+import { shouldSplitAsPlainText, stripAllPrefixes } from "../string_and_binary/path.ts";
+import { sha1, splitPieces2 } from "../string_and_binary/strbin.ts";
+import { type Entry, type EntryDoc, type EntryDocResponse, type EntryLeaf, type EntryMilestoneInfo, type LoadedEntry, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, type NewEntry, type PlainEntry, type RemoteDBSettings, type ChunkVersionRange, type EntryHasPath, type DocumentID, type FilePathWithPrefix, type FilePath, type HashAlgorithm, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type SavingEntry, PREFIX_CHUNK, NoteEntry } from "../common/types.ts";
+import { createTextBlob, isTextBlob, resolveWithIgnoreKnownError } from "../common/utils.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
 

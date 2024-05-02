@@ -4,16 +4,16 @@ import {
     type RemoteDBSettings, type EntryLeaf, LOG_LEVEL_NOTICE,
     type ChunkVersionRange,
     type DocumentID
-} from "./types.ts";
-import { Logger } from "./logger.ts";
+} from "../../common/types.ts";
+import { Logger } from "../../common/logger.ts";
 
-import { JournalSyncMinio } from "./JournalSyncMinio.ts";
+import { JournalSyncMinio } from "./objectstore/JournalSyncMinio.ts";
 
-import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv } from "./LiveSyncAbstractReplicator.ts";
-import type { ENSURE_DB_RESULT } from "./LiveSyncDBFunctions.ts";
+import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv } from "../LiveSyncAbstractReplicator.ts";
+import type { ENSURE_DB_RESULT } from "../../pouchdb/LiveSyncDBFunctions.ts";
 import type { CheckPointInfo } from "./JournalSyncTypes.ts";
 import { FetchHttpHandler } from "@smithy/fetch-http-handler";
-import type { SimpleStore } from "./utils.ts";
+import type { SimpleStore } from "../../common/utils.ts";
 
 const MILSTONE_DOCID = "_00000000-milestone.json"
 

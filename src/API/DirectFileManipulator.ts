@@ -2,15 +2,15 @@
  * The API for manipulating files stored in the CouchDB by Self-hosted LiveSync or its families.
  */
 
-import { LRUCache } from "./LRUCache.ts";
-import { encrypt, decrypt, obfuscatePath } from "./e2ee_v2.ts";
-import { LEVEL_DEBUG, LEVEL_INFO, LEVEL_VERBOSE, Logger } from "./logger.ts";
-import { path2id_base, shouldSplitAsPlainText } from "./path.ts";
-import { decodeBinary, splitPieces2 } from "./strbin.ts";
-import { type Task, processAllTasksWithConcurrencyLimit } from "./task.ts";
-import { type DocumentID, type FilePathWithPrefix, MAX_DOC_SIZE_BIN, type NewEntry, type PlainEntry, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "./types.ts";
+import { LRUCache } from "../memory/LRUCache.ts";
+import { encrypt, decrypt, obfuscatePath } from "../encryption/e2ee_v2.ts";
+import { LEVEL_DEBUG, LEVEL_INFO, LEVEL_VERBOSE, Logger } from "../common/logger.ts";
+import { path2id_base, shouldSplitAsPlainText } from "../string_and_binary/path.ts";
+import { decodeBinary, splitPieces2 } from "../string_and_binary/strbin.ts";
+import { type Task, processAllTasksWithConcurrencyLimit } from "../concurrency/task.ts";
+import { type DocumentID, type FilePathWithPrefix, MAX_DOC_SIZE_BIN, type NewEntry, type PlainEntry, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../common/types.ts";
 import { default as xxhash, type XXHashAPI } from "xxhash-wasm-102";
-import { createBinaryBlob, createTextBlob } from "./utils.ts";
+import { createBinaryBlob, createTextBlob } from "../common/utils.ts";
 
 
 export type DirectFileManipulatorOptions = {

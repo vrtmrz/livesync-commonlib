@@ -1,7 +1,7 @@
-import { Logger } from "./logger.ts";
-import type { ReactiveSource } from "./reactive.ts";
-import { LOG_LEVEL_VERBOSE, RESULT_TIMED_OUT } from "./types.ts";
-import { delay, fireAndForget, promiseWithResolver } from "./utils.ts";
+import { Logger } from "../common/logger.ts";
+import type { ReactiveSource } from "../dataobject/reactive.ts";
+import { LOG_LEVEL_VERBOSE, RESULT_TIMED_OUT } from "../common/types.ts";
+import { delay, fireAndForget, promiseWithResolver } from "../common/utils.ts";
 
 export class Notifier {
     p = promiseWithResolver<void>();

@@ -1,9 +1,9 @@
-import { Logger } from "./logger.ts";
-import { webcrypto } from "./mods.ts";
-import { LOG_LEVEL_VERBOSE } from "./types.ts";
-import { isTextBlob } from "./utils.ts";
+import { Logger } from "../common/logger.ts";
+import { webcrypto } from "../mods.ts";
+import { LOG_LEVEL_VERBOSE } from "../common/types.ts";
+import { isTextBlob } from "../common/utils.ts";
 import { default as xxhashOld, type Exports } from "xxhash-wasm";
-import { default as xxhashNew } from "../patched_xxhash_wasm/xxhash-wasm.js";
+import { default as xxhashNew } from "../../patched_xxhash_wasm/xxhash-wasm.js";
 import type { XXHashAPI } from "xxhash-wasm-102";
 
 // Map for converting hexString
