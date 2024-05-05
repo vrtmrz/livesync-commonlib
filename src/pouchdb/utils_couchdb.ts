@@ -3,10 +3,35 @@ import { serialized } from "../concurrency/lock.ts";
 import { Logger } from "../common/logger.ts";
 import { getPath } from "../string_and_binary/path.ts";
 import { QueueProcessor } from "../concurrency/processor.ts";
-import { arrayBufferToBase64Single, base64ToArrayBuffer, tryConvertBase64ToArrayBuffer, writeString } from "../string_and_binary/strbin.ts";
-import { VER, VERSIONINFO_DOCID, type EntryVersionInfo, SYNCINFO_ID, type SyncInfo, type EntryDoc, type EntryLeaf, type AnyEntry, type FilePathWithPrefix, type CouchDBConnection, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../common/types.ts";
-import { arrayToChunkedArray, isEncryptedChunkEntry, isObfuscatedEntry, isSyncInfoEntry, resolveWithIgnoreKnownError } from "../common/utils.ts";
+import {
+    arrayBufferToBase64Single,
+    base64ToArrayBuffer,
+    tryConvertBase64ToArrayBuffer,
+    writeString
+} from "../string_and_binary/strbin.ts";
+import {
+    VER,
+    VERSIONINFO_DOCID,
+    type EntryVersionInfo,
+    SYNCINFO_ID,
+    type SyncInfo,
+    type EntryDoc,
+    type EntryLeaf,
+    type AnyEntry,
+    type FilePathWithPrefix,
+    type CouchDBConnection,
+    LOG_LEVEL_NOTICE,
+    LOG_LEVEL_VERBOSE, type DocumentID
+} from "../common/types.ts";
+import {
+    arrayToChunkedArray,
+    isEncryptedChunkEntry,
+    isObfuscatedEntry,
+    isSyncInfoEntry,
+    resolveWithIgnoreKnownError
+} from "../common/utils.ts";
 import * as fflate from 'fflate';
+
 export const isValidRemoteCouchDBURI = (uri: string): boolean => {
     if (uri.startsWith("https://")) return true;
     if (uri.startsWith("http://")) return true;
@@ -17,6 +42,7 @@ export function isCloudantURI(uri: string): boolean {
     if (uri.indexOf(".cloudantnosqldb.") !== -1 || uri.indexOf(".cloudant.com") !== -1) return true;
     return false;
 }
+
 // check the version of remote.
 // if remote is higher than current(or specified) version, return false.
 export const checkRemoteVersion = async (db: PouchDB.Database, migrate: (from: number, to: number) => Promise<boolean>, barrier: number = VER): Promise<boolean> => {
@@ -107,6 +133,7 @@ function wrapFflateFunc<T, U>(func: (data: T, opts: U, cb: fflate.FlateCallback)
 
 export const wrappedInflate = wrapFflateFunc<Uint8Array, fflate.AsyncInflateOptions>(fflate.inflate);
 export const wrappedDeflate = wrapFflateFunc<Uint8Array, fflate.AsyncDeflateOptions>(fflate.deflate);
+
 async function _compressText(text: string) {
     const converted = tryConvertBase64ToArrayBuffer(text);
     const data = new Uint8Array(converted || await (new Blob([text], { type: 'application/octet-stream' })).arrayBuffer());
@@ -119,6 +146,7 @@ async function _compressText(text: string) {
     const deflateResult = (converted ? "~" : "") + await arrayBufferToBase64Single(df);
     return deflateResult;
 }
+
 async function _decompressText(compressed: string, useUTF16 = false) {
     if (compressed.length == 0) {
         return "";
@@ -154,6 +182,7 @@ async function compressDoc(doc: EntryDoc) {
     if (doc.data.length > newData.length) doc.data = newData
     return doc;
 }
+
 async function decompressDoc(doc: EntryDoc) {
     if (!("data" in doc)) {
         return doc;
@@ -166,6 +195,7 @@ async function decompressDoc(doc: EntryDoc) {
     }
     return doc;
 }
+
 export const enableCompression = (db: PouchDB.Database<EntryDoc>, compress: boolean) => {
     db.transform({
         //@ts-ignore
@@ -179,6 +209,24 @@ export const enableCompression = (db: PouchDB.Database<EntryDoc>, compress: bool
         },
     })
 }
+
+
+const EDEN_ENCRYPTED_KEY = "h:++encrypted" as DocumentID;
+
+function hasEdenDocument(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
+    if ("eden" in doc && typeof doc.eden === "object" && !(EDEN_ENCRYPTED_KEY in doc.eden)) {
+        return true;
+    }
+    return false;
+}
+
+function hasEncryptedEden(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
+    if ("eden" in doc && typeof doc.eden === "object" && (EDEN_ENCRYPTED_KEY in doc.eden)) {
+        return true;
+    }
+    return false;
+}
+
 
 // requires transform-pouch
 export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: string, useDynamicIterationCount: boolean, migrationDecrypt: boolean) => {
@@ -197,6 +245,15 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                     Logger(ex);
                     throw ex;
                 }
+            }
+
+            if (hasEdenDocument(saveDoc)) {
+                saveDoc.eden = {
+                    [EDEN_ENCRYPTED_KEY]: {
+                        data: await encrypt(JSON.stringify(saveDoc.eden), passphrase, useDynamicIterationCount),
+                        epoch: 999999
+                    }
+                };
             }
             if (isObfuscatedEntry(saveDoc)) {
                 try {
@@ -226,6 +283,9 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                     if (_isObfuscatedEntry) {
                         loadDoc.path = await decrypt(getPath(loadDoc), passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
                     }
+                    if (hasEncryptedEden(loadDoc)) {
+                        loadDoc.eden = JSON.parse(await decrypt(loadDoc.eden[EDEN_ENCRYPTED_KEY].data, passphrase, useDynamicIterationCount));
+                    }
                     if (migrationDecrypt) {
                         decrypted.set(loadDoc._id, true);
                     }
@@ -236,7 +296,10 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                                 loadDoc.data = await decrypt(loadDoc.data, passphrase, false);
                             }
                             if (_isObfuscatedEntry) {
-                                loadDoc.path = await decrypt(getPath(loadDoc), passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
+                                loadDoc.path = await decrypt(getPath(loadDoc), passphrase, false) as unknown as FilePathWithPrefix;
+                            }
+                            if (hasEncryptedEden(loadDoc)) {
+                                loadDoc.eden = JSON.parse(await decrypt(loadDoc.eden[EDEN_ENCRYPTED_KEY].data, passphrase, false));
                             }
                             if (migrationDecrypt) {
                                 decrypted.set(loadDoc._id, true);
@@ -321,6 +384,7 @@ async function prepareChunkDesignDoc(db: PouchDB.Database) {
     }
     return true;
 }
+
 export async function collectChunksUsage(db: PouchDB.Database) {
     if (!await prepareChunkDesignDoc(db)) {
         Logger(`Could not prepare design document for operating chunks`);
@@ -330,9 +394,11 @@ export async function collectChunksUsage(db: PouchDB.Database) {
     const rows = q.rows as { value: number, key: string[] }[];
     return rows;
 }
+
 export function collectUnreferencedChunks(db: PouchDB.Database) {
     return collectChunks(db, "DANGLING");
 }
+
 export async function collectChunks(db: PouchDB.Database, type: "INUSE" | "DANGLING" | "ALL") {
     const rows = await collectChunksUsage(db);
 
@@ -416,9 +482,11 @@ const _requestToCouchDBFetch = async (baseUri: string, username: string, passwor
     };
     return await fetch(uri, requestParam);
 }
+
 export async function purgeChunksRemote(setting: CouchDBConnection, docs: { id: string, rev: string }[]) {
     await serialized("purge-remote", async () => {
         const CHUNK_SIZE = 100;
+
         function makeChunkedArrayFromArray<T>(items: T[]): T[][] {
             const chunked = [];
             for (let i = 0; i < items.length; i += CHUNK_SIZE) {
@@ -426,6 +494,7 @@ export async function purgeChunksRemote(setting: CouchDBConnection, docs: { id: 
             }
             return chunked;
         }
+
         const buffer = makeChunkedArrayFromArray(docs);
         for (const chunkedPayload of buffer) {
             const rets = await _requestToCouchDBFetch(
@@ -540,6 +609,7 @@ function transferChunks(key: string, label: string, dbFrom: PouchDB.Database, db
         )
         .startPipeline().waitForPipeline();
 }
+
 // Complement unbalanced chunks between databases which were separately cleaned up.
 export async function balanceChunkPurgedDBs(local: PouchDB.Database, remote: PouchDB.Database) {
     Logger(`Complement missing chunks between databases`, LOG_LEVEL_NOTICE);

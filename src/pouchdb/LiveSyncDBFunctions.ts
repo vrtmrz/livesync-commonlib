@@ -3,8 +3,30 @@ import { Logger } from "../common/logger.ts";
 import { LRUCache } from "../memory/LRUCache.ts";
 import { shouldSplitAsPlainText, stripAllPrefixes } from "../string_and_binary/path.ts";
 import { sha1, splitPieces2 } from "../string_and_binary/strbin.ts";
-import { type Entry, type EntryDoc, type EntryDocResponse, type EntryLeaf, type EntryMilestoneInfo, type LoadedEntry, MAX_DOC_SIZE_BIN, MILSTONE_DOCID as MILESTONE_DOC_ID, type NewEntry, type PlainEntry, type RemoteDBSettings, type ChunkVersionRange, type EntryHasPath, type DocumentID, type FilePathWithPrefix, type FilePath, type HashAlgorithm, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type SavingEntry, PREFIX_CHUNK, NoteEntry } from "../common/types.ts";
-import { createTextBlob, isTextBlob, resolveWithIgnoreKnownError } from "../common/utils.ts";
+import {
+    type EntryDoc,
+    type EntryDocResponse,
+    type EntryLeaf,
+    type EntryMilestoneInfo,
+    type LoadedEntry,
+    MAX_DOC_SIZE_BIN,
+    MILSTONE_DOCID as MILESTONE_DOC_ID,
+    type NewEntry,
+    type PlainEntry,
+    type RemoteDBSettings,
+    type ChunkVersionRange,
+    type EntryHasPath,
+    type DocumentID,
+    type FilePathWithPrefix,
+    type FilePath,
+    type HashAlgorithm,
+    LOG_LEVEL_NOTICE,
+    LOG_LEVEL_VERBOSE,
+    type SavingEntry,
+    PREFIX_CHUNK,
+    type NoteEntry, type EdenChunk, type AnyEntry, type EntryBase
+} from "../common/types.ts";
+import { createTextBlob, isTextBlob, resolveWithIgnoreKnownError, unique } from "../common/utils.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
 
@@ -16,7 +38,13 @@ interface DBFunctionSettings {
     customChunkSize: number;
     doNotPaceReplication: boolean;
     hashAlg: HashAlgorithm;
+    useEden: boolean;
+    maxChunksInEden: number;
+    maxTotalLengthInEden: number;
+    maxAgeInEden: number;
+
 }
+
 // This interface is expected to be unnecessary because of the change in dependency direction
 export interface DBFunctionEnvironment {
     localDatabase: PouchDB.Database<EntryDoc>,
@@ -33,17 +61,22 @@ export interface DBFunctionEnvironment {
     xxhash64: ((input: string) => bigint) | false,
     isOnDemandChunkEnabled: boolean;
 }
+
 type GeneratedChunk = {
     isNew: boolean,
     id: DocumentID,
     piece: string
 }
-async function getChunk(env: DBFunctionEnvironment, piece: string): Promise<GeneratedChunk | false> {
+
+async function getChunk(env: DBFunctionEnvironment, piece: string, doc: SavingEntry): Promise<GeneratedChunk | false> {
     const cachedChunkId = env.hashCaches.revGet(piece);
     if (cachedChunkId !== undefined) {
         return { isNew: false, id: cachedChunkId, piece: piece };
     }
     const chunkId = PREFIX_CHUNK + await generateHashedChunk(env, piece) as DocumentID;
+    if (chunkId in doc.eden) {
+        return { isNew: false, id: chunkId, piece: piece };
+    }
     const cachedPiece = env.hashCaches.get(chunkId);
     if (cachedPiece && cachedPiece != piece) {
         Logger(`Hash collided! If possible, please report the following string:${chunkId}=>\nA:--${cachedPiece}--\nB:--${piece}--`, LOG_LEVEL_NOTICE);
@@ -52,6 +85,7 @@ async function getChunk(env: DBFunctionEnvironment, piece: string): Promise<Gene
     env.hashCaches.set(chunkId, piece);
     return { isNew: true, id: chunkId, piece: piece };
 }
+
 async function generateHashedChunk(env: DBFunctionEnvironment, piece: string) {
     const userPassphrase = env.settings.passphrase;
     if (env.settings.hashAlg == "sha1") {
@@ -85,12 +119,20 @@ async function generateHashedChunk(env: DBFunctionEnvironment, piece: string) {
 
 }
 
+function getNoFromRev(rev: string) {
+    if (!rev) return 0;
+    return parseInt(rev.split("-")[0]);
+}
 export async function putDBEntry(
     env: DBFunctionEnvironment,
     note: SavingEntry): Promise<false | PouchDB.Core.Response> {
     //safety valve
     const filename = env.id2path(note._id, note);
     const dispFilename = stripAllPrefixes(filename);
+
+    //prepare eden
+    if (!note.eden) note.eden = {};
+
     if (!env.isTargetFile(filename)) {
         Logger(`File skipped:${dispFilename}`, LOG_LEVEL_VERBOSE);
         return false;
@@ -123,18 +165,136 @@ export async function putDBEntry(
 
     for await (const piece of pieces()) {
         processed++;
-        chunkTasks.push(getChunk(env, piece));
+        chunkTasks.push(getChunk(env, piece, note));
     }
     const chunks = await Promise.all(chunkTasks);
     if (chunks.some(e => e === false)) {
         Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
         return false;
     }
-    const newChunks = (chunks as GeneratedChunk[]).filter(e => e.isNew).map(e => ({
-        _id: e.id,
-        data: e.piece,
-        type: "leaf",
-    } as EntryLeaf));
+
+    let eden = {} as Record<DocumentID, EdenChunk>;
+    let currentRevAsNo = 0;
+
+    if ("eden" in note) {
+        eden = note.eden;
+    }
+    // Load old document meta
+    let newChunks = [] as EntryLeaf[];
+
+    if (env.settings.useEden) {
+        try {
+            const old = await env.localDatabase.get<AnyEntry>(note._id);
+            currentRevAsNo = getNoFromRev((old._rev));
+            const oldEden = "eden" in old ? old.eden : {}
+            eden = { ...oldEden, ...eden }
+        } catch (ex) {
+            if (isErrorOfMissingDoc((ex))) {
+                // NO OP.
+            } else {
+                throw ex;
+            }
+        }
+        const chunkOnEdenInitial = Object.keys(eden).length;
+        let removedChunkOnEden = 0;
+        // Remove unused chunk in eden
+        const oldEdenChunks = Object.keys(eden);
+        const removeEdenChunks = oldEdenChunks.filter(e => (chunks as GeneratedChunk[]).every(c => c.id !== e));
+        for (const removeId of removeEdenChunks) {
+            removedChunkOnEden++;
+            delete eden[removeId as DocumentID];
+        }
+
+
+
+        let newChunkOnEden = 0;
+        let existChunkOnEden = 0;
+        // Add chunks in Eden
+        for (const chunk of chunks as GeneratedChunk[]) {
+            if (chunk.id in eden) {
+                // NO OP
+                existChunkOnEden++;
+            } else {
+                newChunkOnEden++;
+                eden[chunk.id] = {
+                    epoch: currentRevAsNo + 1,
+                    data: chunk.piece
+                }
+            }
+        }
+
+        /*
+        [design_docs_of_keep_newborn_chunks.md]
+        1. Those that have already been confirmed to exist as independent chunks.
+             This confirmation of existence may ideally be determined by a fast first-order determination, e.g. by a Bloom filter.
+        2. Those whose length exceeds the configured maximum length.
+        3. Those have aged over the configured value, since epoch at the operating revision.
+        4. Those whose total length, when added up when they are arranged in reverse order of the revision in which they were generated, is after the point at which they exceed the max length in the configuration. Or, those after the configured maximum items.
+        */
+        // Find the chunks which should be graduated
+        const allEdenChunks = Object.entries(eden).sort((a, b) => b[1].epoch - a[1].epoch);
+        let totalLength = 0;
+        let count: number = 0;
+        const allEdenChunksKey = Object.keys(eden);
+        let alreadyIndependent = 0;
+        let independent = 0;
+        //No.1
+        const edenChunkExist = await env.localDatabase.allDocs({ keys: allEdenChunksKey });
+        const edenChunkOnDB = edenChunkExist.rows.reduce((p, c) => ({ ...p, [c.key]: c }), {} as Record<string, any>);
+        for (const [key, chunk] of allEdenChunks) {
+            count++;
+            let makeChunkIndependent = false;
+            // const head = `${count}:${key}->(${chunk.epoch}) `;
+            // No.1
+            if (key in edenChunkOnDB && !edenChunkOnDB[key].error) {
+                count--;
+                delete eden[key as DocumentID];
+                //Logger(`${head}: Already exists`, LOG_LEVEL_VERBOSE);
+                alreadyIndependent++;
+                continue;
+            }
+            if (chunk.data.length > 1024) {
+                // No.2
+                makeChunkIndependent = true;
+                // Logger(`${head}: Too big to be in Eden`, LOG_LEVEL_VERBOSE);
+            } else if (chunk.epoch + env.settings.maxAgeInEden < currentRevAsNo) {
+                // NO.3
+                makeChunkIndependent = true;
+                // Logger(`${head}: Graduation from Eden`, LOG_LEVEL_VERBOSE);
+            }
+            if (totalLength > env.settings.maxTotalLengthInEden) {
+                // No.4 - 1
+                makeChunkIndependent = true;
+                // Logger(`${head}: No more space in Eden`, LOG_LEVEL_VERBOSE);
+            }
+            if (count > env.settings.maxChunksInEden) {
+                // No.4-2
+                makeChunkIndependent = true;
+                // Logger(`${head}: Too many chunks in Eden`, LOG_LEVEL_VERBOSE);
+            }
+            if (makeChunkIndependent) {
+                count--;
+                independent++;
+                newChunks.push({
+                    _id: key as DocumentID,
+                    data: chunk.data,
+                    type: "leaf"
+                })
+                delete eden[key as DocumentID];
+            } else {
+                // Logger(`${head}: Kept in Eden.`, LOG_LEVEL_VERBOSE);
+                totalLength += chunk.data.length;
+            }
+        }
+        const chunkOnEdenAfter = Object.keys(eden).length;
+        Logger(`Progress on Eden: doc: ${dispFilename} : ${chunkOnEdenInitial}->${chunkOnEdenAfter} (removed: ${removedChunkOnEden}, new: ${newChunkOnEden}, exist: ${existChunkOnEden}, alreadyIndependent:${alreadyIndependent}, independent:${independent})`, LOG_LEVEL_VERBOSE);
+    } else {
+        newChunks = (chunks as GeneratedChunk[]).filter(e => e.isNew).map(e => ({
+            _id: e.id,
+            data: e.piece,
+            type: "leaf",
+        } as EntryLeaf));
+    }
     const cached = processed - newChunks.length;
     if (newChunks.length) {
         const result = await env.localDatabase.bulkDocs(newChunks);
@@ -159,16 +319,6 @@ export async function putDBEntry(
         }
         const made = mappedResults.ok.length;
         const skipped = mappedResults.skip.length;
-        // // Check verbosely
-        // const p = await env.localDatabase.allDocs({ keys: mappedResults.skip.map(e => e.id), include_docs: true });
-        // for (const doc of p.rows) {
-        //     if ("doc" in doc) {
-        //         const chunk = newChunks.find(e => e._id == doc.id);
-        //         if (doc.doc.data != chunk.data) {
-        //             debugger;
-        //         }
-        //     }
-        // }
         Logger(`Chunks saved: doc: ${dispFilename} ,chunks: ${processed} (new:${made}, recycled:${skipped}, cached:${cached})`);
     }
 
@@ -180,6 +330,7 @@ export async function putDBEntry(
         mtime: note.mtime,
         size: note.size,
         type: note.datatype,
+        eden: eden,
     };
 
     return await serialized("file:" + filename, async () => {
@@ -224,7 +375,7 @@ export async function getDBEntryMeta(env: DBFunctionEnvironment, path: FilePathW
 
         // retrieve metadata only
         if (!obj.type || (obj.type && obj.type == "notes") || obj.type == "newnote" || obj.type == "plain") {
-            const note = obj as Entry;
+            const note = obj as EntryBase;
             let children: string[] = [];
             let type: "plain" | "newnote" = "plain";
             if (obj.type == "newnote" || obj.type == "plain") {
@@ -233,7 +384,7 @@ export async function getDBEntryMeta(env: DBFunctionEnvironment, path: FilePathW
             }
             const doc: LoadedEntry & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta = {
                 data: "",
-                _id: note._id,
+                _id: (note as EntryDoc)._id,
                 path: path,
                 ctime: note.ctime,
                 mtime: note.mtime,
@@ -244,7 +395,8 @@ export async function getDBEntryMeta(env: DBFunctionEnvironment, path: FilePathW
                 children: children,
                 datatype: type,
                 deleted: deleted,
-                type: type
+                type: type,
+                eden: "eden" in obj ? obj.eden : {},
             };
             return doc;
         }
@@ -256,6 +408,7 @@ export async function getDBEntryMeta(env: DBFunctionEnvironment, path: FilePathW
     }
     return false;
 }
+
 export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: LoadedEntry, opt?: PouchDB.Core.GetOptions, dump = false, waitForReady = true, includeDeleted = false): Promise<false | LoadedEntry> {
     const filename = env.id2path(obj._id, obj);
     if (!env.isTargetFile(filename)) {
@@ -279,6 +432,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
             datatype: "newnote",
             deleted: deleted,
             type: "newnote",
+            eden: "eden" in obj ? obj.eden : {}
         };
         if (dump) {
             Logger(`--Old fashioned document--`);
@@ -302,12 +456,21 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                 Logger(`--Bare document--`);
                 Logger(obj);
             }
-            let children: string[] = [];
+
+            // let children: string[] = [];
             // Acquire semaphore to pace replication.
             // const weight = Math.min(10, Math.ceil(obj.children.length / 10)) + 1;
             // const resourceSemaphore = env.settings.doNotPaceReplication ? (() => { }) : await globalConcurrencyController.acquire(weight);
+            const childrenKeys = [...obj.children] as DocumentID[];
+            const loadedChildrenMap = new Map<DocumentID, string>;
+            if (obj.eden) {
+                const all = Object.entries((obj.eden));
+                all.forEach(([key, chunk]) => loadedChildrenMap.set(key as DocumentID, chunk.data));
+            }
+            const missingChunks = unique(childrenKeys).filter(e => !loadedChildrenMap.has(e));
+
             if (env.isOnDemandChunkEnabled) {
-                const items = await env.collectChunks(obj.children, false, waitForReady);
+                const items = await env.collectChunks(missingChunks, false, waitForReady);
                 if (items === false || items.some(leaf => leaf.type != "leaf")) {
                     Logger(`Chunks of ${dispFilename} (${obj._id.substring(0, 8)}) are not valid.`, LOG_LEVEL_NOTICE);
                     if (items) {
@@ -315,17 +478,15 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                     }
                     return false;
                 }
-                children = items.map(leaf => leaf.data);
+                items.forEach(chunk => loadedChildrenMap.set(chunk._id, chunk.data));
             } else {
                 try {
                     if (waitForReady) {
-                        children = await Promise.all(obj.children.map((e) => env.getDBLeaf(e, waitForReady)));
-                        if (dump) {
-                            Logger(`--Chunks--`);
-                            Logger(children);
-                        }
+                        const loadedItems = await Promise.all(missingChunks.map((e) => env.getDBLeaf(e, waitForReady)));
+
+                        loadedItems.forEach((value, idx) => loadedChildrenMap.set(missingChunks[idx], value));
                     } else {
-                        const chunkDocs = await env.localDatabase.allDocs({ keys: obj.children, include_docs: true });
+                        const chunkDocs = await env.localDatabase.allDocs({ keys: missingChunks, include_docs: true });
                         if (chunkDocs.rows.some(e => "error" in e)) {
                             const missingChunks = chunkDocs.rows.filter(e => "error" in e).map(e => e.key).join(", ");
                             Logger(`Chunks of ${dispFilename} (${obj._id.substring(0, 8)}) are not valid.`, LOG_LEVEL_NOTICE);
@@ -338,7 +499,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                             Logger(`Corrupted chunks: ${missingChunks}`, LOG_LEVEL_VERBOSE);
                             return false;
                         }
-                        children = chunkDocs.rows.map((e: any) => (e.doc as EntryLeaf).data);
+                        chunkDocs.rows.forEach((value, idx) => loadedChildrenMap.set((value.doc as EntryLeaf)._id, (value.doc as EntryLeaf).data));
                     }
                 } catch (ex) {
                     Logger(`Something went wrong on reading chunks of ${dispFilename}(${obj._id.substring(0, 8)}) from database, see verbose info for detail.`, LOG_LEVEL_NOTICE);
@@ -347,9 +508,14 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                 }
             }
 
-            const data = children;
+            const l = childrenKeys.map(e => loadedChildrenMap.get(e));
+            if (l.some(e => e === undefined)) {
+                // TODO EXACT MESSAGE
+                throw new Error("Load failed");
+            }
+
             const doc: LoadedEntry & PouchDB.Core.IdMeta = {
-                data: data,
+                data: l as string[],
                 path: obj.path,
                 _id: obj._id,
                 ctime: obj.ctime,
@@ -359,6 +525,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                 children: obj.children,
                 datatype: obj.type,
                 _conflicts: obj._conflicts,
+                eden: obj.eden,
                 deleted: deleted,
                 type: obj.type
             };
@@ -378,6 +545,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
     }
     return false;
 }
+
 export async function getDBEntry(env: DBFunctionEnvironment, path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions, dump = false, waitForReady = true, includeDeleted = false): Promise<false | LoadedEntry> {
     const meta = await getDBEntryMeta(env, path, opt, includeDeleted);
     if (meta) {
@@ -386,6 +554,7 @@ export async function getDBEntry(env: DBFunctionEnvironment, path: FilePathWithP
         return false;
     }
 }
+
 export async function deleteDBEntry(env: DBFunctionEnvironment, path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
     // safety valve
     if (!env.isTargetFile(path)) {
@@ -411,7 +580,6 @@ export async function deleteDBEntry(env: DBFunctionEnvironment, path: FilePathWi
             if (!obj.type || (obj.type && obj.type == "notes")) {
                 obj._deleted = true;
                 const r = await env.localDatabase.put(obj, { force: !revDeletion });
-
                 Logger(`Entry removed:${path} (${obj._id.substring(0, 8)}-${r.rev})`);
                 return true;
 
@@ -442,6 +610,7 @@ export async function deleteDBEntry(env: DBFunctionEnvironment, path: FilePathWi
         throw ex;
     }
 }
+
 export async function deleteDBEntryPrefix(env: DBFunctionEnvironment, prefix: FilePathWithPrefix | FilePath): Promise<boolean> {
     // delete database entries by prefix.
     // it called from folder deletion.
@@ -449,7 +618,12 @@ export async function deleteDBEntryPrefix(env: DBFunctionEnvironment, prefix: Fi
     let readCount = 0;
     const delDocs: DocumentID[] = [];
     do {
-        const result = await env.localDatabase.allDocs<EntryDoc>({ include_docs: false, skip: c, limit: 100, conflicts: true });
+        const result = await env.localDatabase.allDocs<EntryDoc>({
+            include_docs: false,
+            skip: c,
+            limit: 100,
+            conflicts: true
+        });
         readCount = result.rows.length;
         if (readCount > 0) {
             //there are some result
@@ -505,6 +679,7 @@ export async function deleteDBEntryPrefix(env: DBFunctionEnvironment, prefix: Fi
 /// Connectivity
 
 export type ENSURE_DB_RESULT = "OK" | "INCOMPATIBLE" | "LOCKED" | "NODE_LOCKED" | "NODE_CLEANED";
+
 export async function ensureDatabaseIsCompatible(db: PouchDB.Database<EntryDoc>, setting: RemoteDBSettings, deviceNodeID: string, currentVersionRange: ChunkVersionRange): Promise<ENSURE_DB_RESULT> {
     const defMilestonePoint: EntryMilestoneInfo = {
         _id: MILESTONE_DOC_ID,
@@ -532,7 +707,7 @@ export async function ensureDatabaseIsCompatible(db: PouchDB.Database<EntryDoc>,
     }
 
     // Check compatibility and make sure available version
-    // 
+    //
     // v min of A                  v max of A
     // |   v  min of B             |   v max of B
     // |   |                       |   |

@@ -131,7 +131,13 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     settingVersion: number;
     isConfigured?: boolean;
 
+    useEden: boolean;
+    maxChunksInEden: number;
+    maxTotalLengthInEden: number;
+    maxAgeInEden: number;
+
 }
+
 export type BucketSyncSetting = {
     accessKey: string,
     secretKey: string,
@@ -275,7 +281,11 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     bucket: "",
     endpoint: "",
     region: "auto",
-    secretKey: ""
+    secretKey: "",
+    useEden: false,
+    maxChunksInEden: 10,
+    maxTotalLengthInEden: 1024,
+    maxAgeInEden: 10,
 };
 
 
@@ -307,30 +317,40 @@ export interface DatabaseEntry {
     _conflicts?: string[];
 }
 
-export type Entry = DatabaseEntry & {
+export type EntryBase = {
     ctime: number;
     mtime: number;
     size: number;
     deleted?: boolean;
 }
-export type NoteEntry = Entry & {
+
+export type EdenChunk = {
+    data: string,
+    epoch: number,
+}
+
+export type EntryWithEden = {
+    eden: Record<DocumentID, EdenChunk>;
+}
+
+export type NoteEntry = DatabaseEntry & EntryBase & EntryWithEden & {
     path: FilePathWithPrefix;
     data: string | string[];
     type: "notes";
 }
 
-export type NewEntry = Entry & {
+export type NewEntry = DatabaseEntry & EntryBase & EntryWithEden & {
     path: FilePathWithPrefix;
     children: string[];
     type: "newnote";
 }
-export type PlainEntry = Entry & {
+export type PlainEntry = DatabaseEntry & EntryBase & EntryWithEden & {
     path: FilePathWithPrefix;
     children: string[];
     type: "plain";
 }
 
-export type InternalFileEntry = NewEntry & {
+export type InternalFileEntry = DatabaseEntry & NewEntry & EntryBase & {
     deleted?: boolean;
     // type: "newnote";
 }
