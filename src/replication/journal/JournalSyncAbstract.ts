@@ -123,6 +123,7 @@ export abstract class JournalSyncAbstract {
     abstract uploadFile(key: string, blob: Blob, mime: string): Promise<boolean>;
     abstract downloadFile(key: string): Promise<Uint8Array | false>;
     abstract listFiles(from: string, limit?: number): Promise<string[]>;
+    abstract isAvailable(): Promise<boolean>;
 
     async _createJournalPack(override?: number | string) {
         const checkPointInfo = await this.getCheckpointInfo();

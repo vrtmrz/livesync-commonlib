@@ -24,9 +24,13 @@ import {
     LOG_LEVEL_VERBOSE,
     type SavingEntry,
     PREFIX_CHUNK,
-    type NoteEntry, type EdenChunk, type AnyEntry, type EntryBase
+    type NoteEntry, type EdenChunk, type AnyEntry, type EntryBase,
+    TweakValuesRecommendedTemplate,
+    TweakValuesShouldMatchedTemplate,
+    TweakValuesTemplate,
+    type TweakValues
 } from "../common/types.ts";
-import { createTextBlob, isTextBlob, resolveWithIgnoreKnownError, unique } from "../common/utils.ts";
+import { createTextBlob, extractObject, isObjectDifferent, isTextBlob, resolveWithIgnoreKnownError, unique } from "../common/utils.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
 
@@ -678,32 +682,37 @@ export async function deleteDBEntryPrefix(env: DBFunctionEnvironment, prefix: Fi
 
 /// Connectivity
 
-export type ENSURE_DB_RESULT = "OK" | "INCOMPATIBLE" | "LOCKED" | "NODE_LOCKED" | "NODE_CLEANED";
+// Should we move ENSURE_DB_RESULT and ensureRemoteIsCompatible to the replication utility?
+export type ENSURE_DB_RESULT = "OK" | "INCOMPATIBLE" | "LOCKED" | "NODE_LOCKED" | "NODE_CLEANED" | ["MISMATCHED", TweakValues[]];
 
-export async function ensureDatabaseIsCompatible(db: PouchDB.Database<EntryDoc>, setting: RemoteDBSettings, deviceNodeID: string, currentVersionRange: ChunkVersionRange): Promise<ENSURE_DB_RESULT> {
-    const defMilestonePoint: EntryMilestoneInfo = {
+export async function ensureRemoteIsCompatible(infoSrc: EntryMilestoneInfo | false, setting: RemoteDBSettings, deviceNodeID: string, currentVersionRange: ChunkVersionRange, updateCallback: (info: EntryMilestoneInfo) => Promise<void>): Promise<ENSURE_DB_RESULT> {
+    const baseMilestone: EntryMilestoneInfo = {
         _id: MILESTONE_DOC_ID,
         type: "milestoneinfo",
         created: (new Date() as any) / 1,
         locked: false,
         accepted_nodes: [deviceNodeID],
-        node_chunk_info: { [deviceNodeID]: currentVersionRange }
+        node_chunk_info: { [deviceNodeID]: currentVersionRange },
+        tweak_values: {}
     };
+    let remoteMilestone = infoSrc;
+    if (!remoteMilestone) remoteMilestone = baseMilestone;
 
-    const remoteMilestone: EntryMilestoneInfo = { ...defMilestonePoint, ...(await resolveWithIgnoreKnownError(db.get(MILESTONE_DOC_ID), defMilestonePoint)) };
-    remoteMilestone.node_chunk_info = { ...defMilestonePoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
-
+    const currentTweakValues = extractObject(TweakValuesTemplate, setting);
+    remoteMilestone.node_chunk_info = { ...baseMilestone.node_chunk_info, ...remoteMilestone.node_chunk_info };
     const writeMilestone = (
         (
             remoteMilestone.node_chunk_info[deviceNodeID].min != currentVersionRange.min
             || remoteMilestone.node_chunk_info[deviceNodeID].max != currentVersionRange.max
+            || isObjectDifferent(remoteMilestone.tweak_values?.[deviceNodeID], currentTweakValues)
         )
         || typeof remoteMilestone._rev == "undefined");
 
     if (writeMilestone) {
         remoteMilestone.node_chunk_info[deviceNodeID].min = currentVersionRange.min;
         remoteMilestone.node_chunk_info[deviceNodeID].max = currentVersionRange.max;
-        await db.put(remoteMilestone);
+        remoteMilestone.tweak_values = { ...remoteMilestone.tweak_values ?? {}, [deviceNodeID]: currentTweakValues }
+        await updateCallback(remoteMilestone);
     }
 
     // Check compatibility and make sure available version
@@ -734,6 +743,24 @@ export async function ensureDatabaseIsCompatible(db: PouchDB.Database<EntryDoc>,
         }
     }
 
+    if (!setting.disableCheckingConfigMismatch) {
+        const tweakValueList = Object.entries(remoteMilestone.tweak_values)
+            .filter(([_, tweak]) => isObjectDifferent(currentTweakValues, tweak)).map(([key, tweak]) => ({
+                key,
+                all: tweak,
+                recommended: extractObject(TweakValuesRecommendedTemplate, tweak),
+                shouldBeMatched: extractObject(TweakValuesShouldMatchedTemplate, tweak),
+            }));
+
+        const othersTweakValues = tweakValueList.map(e => e.all);
+        const currentShouldMatchedTweakValues = extractObject(TweakValuesShouldMatchedTemplate, currentTweakValues);
+        for (const items of tweakValueList) {
+            if (isObjectDifferent(items.shouldBeMatched, currentShouldMatchedTweakValues)) {
+                return ["MISMATCHED", othersTweakValues];
+            }
+        }
+    }
+
     if (remoteMilestone.locked) {
         if (remoteMilestone.accepted_nodes.indexOf(deviceNodeID) == -1) {
             if (remoteMilestone.cleaned) {
@@ -743,6 +770,15 @@ export async function ensureDatabaseIsCompatible(db: PouchDB.Database<EntryDoc>,
         }
         return "LOCKED";
     }
+
     return "OK";
+}
+
+export async function ensureDatabaseIsCompatible(db: PouchDB.Database<EntryDoc>, setting: RemoteDBSettings, deviceNodeID: string, currentVersionRange: ChunkVersionRange): Promise<ENSURE_DB_RESULT> {
+    const remoteMilestone = await resolveWithIgnoreKnownError<EntryMilestoneInfo | false>(db.get(MILESTONE_DOC_ID), false);
+    return await ensureRemoteIsCompatible(remoteMilestone, setting, deviceNodeID, currentVersionRange, async (info) => {
+        await db.put(info);
+    });
+
 
 }

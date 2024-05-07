@@ -6,7 +6,8 @@ import {
     type ObsidianLiveSyncSettings,
     type EntryLeaf,
     type EntryNodeInfo,
-    NODEINFO_DOCID
+    NODEINFO_DOCID,
+    type TweakValues
 } from "../common/types.ts";
 
 import type { ReactiveSource } from "../dataobject/reactive.ts";
@@ -50,6 +51,8 @@ export abstract class LiveSyncAbstractReplicator {
     remoteLocked = false;
     remoteCleaned = false;
     remoteLockedAndDeviceNotAccepted = false;
+    tweakSettingsMismatched = false;
+    mismatchedTweakValues = [] as TweakValues[];
 
     env: LiveSyncReplicatorEnv;
 
@@ -106,7 +109,9 @@ export abstract class LiveSyncAbstractReplicator {
 
     abstract markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean): Promise<void>;
     abstract markRemoteResolved(setting: RemoteDBSettings): Promise<void>;
+    abstract resetRemoteTweakSettings(setting: RemoteDBSettings): Promise<void>;
 
     abstract fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]>;
+
 
 }

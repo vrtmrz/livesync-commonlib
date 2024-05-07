@@ -3,7 +3,8 @@ import {
     VER,
     MILSTONE_DOCID,
     type DatabaseConnectingStatus,
-    type ChunkVersionRange, type RemoteDBSettings, type EntryLeaf, REPLICATION_BUSY_TIMEOUT, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE
+    type ChunkVersionRange, type RemoteDBSettings, type EntryLeaf, REPLICATION_BUSY_TIMEOUT, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE,
+    type TweakValues
 } from "../../common/types.ts";
 import { resolveWithIgnoreKnownError, delay, globalConcurrencyController } from "../../common/utils.ts";
 import { Logger } from "../../common/logger.ts";
@@ -400,7 +401,6 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             Logger(`Could not connect to ${uri}: ${dbRet}`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
             return false;
         }
-
         if (!skipCheck) {
             if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
                 Logger("Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed", LOG_LEVEL_NOTICE);
@@ -409,6 +409,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             this.remoteCleaned = false;
             this.remoteLocked = false;
             this.remoteLockedAndDeviceNotAccepted = false;
+            this.tweakSettingsMismatched = false;
+            this.mismatchedTweakValues = [];
             const ensure = await ensureDatabaseIsCompatible(dbRet.db, setting, this.nodeid, currentVersionRange);
             if (ensure == "INCOMPATIBLE") {
                 Logger("The remote database has no compatibility with the running version. Please upgrade the plugin.", LOG_LEVEL_NOTICE);
@@ -430,6 +432,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     this.remoteCleaned = true;
                     return false;
                 }
+            } else if (ensure[0] == "MISMATCHED") {
+                Logger(`Configuration mismatching between the clients has been detected. This can be harmful or extra capacity consumption. We have to make these value unified.`, LOG_LEVEL_NOTICE);
+                this.tweakSettingsMismatched = true;
+                this.mismatchedTweakValues = ensure[1] as TweakValues[];
+                return false;
             }
         }
         const syncOptionBase: PouchDB.Replication.SyncOptions = {
@@ -563,7 +570,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             locked: locked,
             cleaned: lockByClean,
             accepted_nodes: [this.nodeid],
-            node_chunk_info: { [this.nodeid]: currentVersionRange }
+            node_chunk_info: { [this.nodeid]: currentVersionRange },
+            tweak_values: {}
         };
 
         const remoteMilestone: EntryMilestoneInfo = { ...defInitPoint, ...await resolveWithIgnoreKnownError(dbRet.db.get(MILSTONE_DOCID), defInitPoint) };
@@ -596,7 +604,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             created: (new Date() as any) / 1,
             locked: false,
             accepted_nodes: [this.nodeid],
-            node_chunk_info: { [this.nodeid]: currentVersionRange }
+            node_chunk_info: { [this.nodeid]: currentVersionRange },
+            tweak_values: {}
         };
         // check local database hash status and remote replicate hash status
         const remoteMilestone: EntryMilestoneInfo = { ...defInitPoint, ...await resolveWithIgnoreKnownError(dbRet.db.get(MILSTONE_DOCID), defInitPoint) };
@@ -650,6 +659,43 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
         Logger(`Connected to ${db.info.db_name} successfully`, LOG_LEVEL_NOTICE);
         return true;
+    }
+
+    async resetRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
+        const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        if (typeof dbRet === "string") {
+            Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
+            return;
+        }
+
+        if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
+            Logger("Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed", LOG_LEVEL_NOTICE);
+            return;
+        }
+        // check local database hash status and remote replicate hash status
+        try {
+            const remoteMilestone = await dbRet.db.get(MILSTONE_DOCID) as EntryMilestoneInfo;
+            remoteMilestone.tweak_values = {};
+            await dbRet.db.put(remoteMilestone);
+            Logger(`tweak values on the remote database have been cleared`, LOG_LEVEL_VERBOSE);
+        } catch (ex) {
+            // While trying unlocking and not exist on the remote, it is not normal.
+            Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
+            throw ex;
+        }
+    }
+
+    async compactRemote(setting: RemoteDBSettings): Promise<boolean> {
+        const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        if (typeof dbRet === "string") {
+            Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
+            return false;
+        }
+
+        const ret = await dbRet.db.compact({ interval: 1000 });
+        return ret.ok;
     }
 
 }

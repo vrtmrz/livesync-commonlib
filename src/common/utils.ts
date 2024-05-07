@@ -385,11 +385,18 @@ export const throttle = <T extends (...args: any[]) => any>(func: T, timeout: nu
     };
 };
 
-export function extractObject<T>(copyTo: T, obj: T): T {
-    for (const key in copyTo) {
-        copyTo[key] = obj[key];
+/**
+ * Extracting objects as like filling a template
+ * @param template 
+ * @param obj 
+ * @returns 
+ */
+export function extractObject<T>(template: T, obj: T): T {
+    const ret = { ...template };
+    for (const key in ret) {
+        ret[key] = obj[key];
     }
-    return copyTo;
+    return ret;
 }
 
 export interface SimpleStore<T> {
@@ -425,6 +432,14 @@ export function replaceAll(str: string, search: string, replace: string) {
     return str.split(search).join(replace);
 }
 
+export function replaceAllPairs(str: string, ...fromTo: [from: string, to: string][]) {
+    let r = `${str}`;
+    for (const [from, to] of fromTo) {
+        r = replaceAll(r, from, to);
+    }
+    return r;
+}
+
 export function escapeNewLineFromString(str: string) {
     if (str.indexOf("\n") < 0) {
         return str;
@@ -436,4 +451,12 @@ export function unescapeNewLineFromString(str: string) {
         return str;
     }
     return replaceAll(replaceAll(str.substring(2), "\\\\", "\\"), "\\n", "\n");
+}
+
+export function escapeMarkdownValue(value: any) {
+    if (typeof value === "string") {
+        return replaceAllPairs(value, ["|", "\\|"], ["`", "\\`"]);
+    } else {
+        return value;
+    }
 }

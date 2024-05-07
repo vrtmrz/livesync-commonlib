@@ -1,4 +1,4 @@
-import { DeleteObjectsCommand, GetObjectCommand, PutObjectCommand, S3 } from "@aws-sdk/client-s3";
+import { DeleteObjectsCommand, GetObjectCommand, HeadBucketCommand, PutObjectCommand, S3 } from "@aws-sdk/client-s3";
 import { ConfiguredRetryStrategy } from "@smithy/util-retry";
 
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../../../common/types.ts";
@@ -147,5 +147,18 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         const objects = await client.listObjectsV2({ Bucket: this.bucket, StartAfter: from, ...(limit ? { MaxKeys: limit } : {}) });
         if (!objects.Contents) return [];
         return objects.Contents.map(e => e.Key) as string[];
+    }
+
+    async isAvailable(): Promise<boolean> {
+        const client = this._getClient();
+        const cmd = new HeadBucketCommand({ Bucket: this.bucket });
+        try {
+            await client.send(cmd);
+            return true;
+        } catch (ex: any) {
+            Logger(`Could not connected to the remote bucket`, LOG_LEVEL_NOTICE);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            return false;
+        }
     }
 }

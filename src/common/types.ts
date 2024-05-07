@@ -184,6 +184,7 @@ export type RemoteDBSettings = CouchDBConnection & BucketSyncSetting & RemoteTyp
     // This could not be configured from Obsidian.
     permitEmptyPassphrase: boolean;
     enableCompression: boolean;
+    disableCheckingConfigMismatch: boolean;
 }
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
@@ -286,6 +287,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     maxChunksInEden: 10,
     maxTotalLengthInEden: 1024,
     maxAgeInEden: 10,
+    disableCheckingConfigMismatch: false,
 };
 
 
@@ -385,6 +387,85 @@ export interface ChunkVersionRange {
     current: number,//current chunk version.
 }
 
+export const TweakValuesShouldMatchedTemplate: Partial<ObsidianLiveSyncSettings> = {
+    minimumChunkSize: 20,
+    longLineThreshold: 250,
+    encrypt: false,
+    usePathObfuscation: false,
+    enableCompression: false,
+    useEden: false,
+    customChunkSize: 0,
+    useDynamicIterationCount: false,
+    hashAlg: "xxhash64",
+}
+export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> = {
+    maxChunksInEden: 10,
+    maxTotalLengthInEden: 1024,
+    maxAgeInEden: 10,
+    useIgnoreFiles: false,
+    useCustomRequestHandler: false,
+
+    batch_size: 25,
+    batches_limit: 25,
+    useIndexedDBAdapter: true,
+    useTimeouts: false,
+    readChunksOnline: true,
+    hashCacheMaxCount: 300,
+    hashCacheMaxAmount: 50,
+    concurrencyOfReadChunksOnline: 40,
+    minimumIntervalOfReadChunksOnline: 50,
+    ignoreFiles: ".gitignore",
+    syncMaxSizeInMB: 50,
+
+};
+
+type ConfigurationItem = {
+    name: string,
+    status?: "BETA" | "ALPHA" | "EXPERIMENTAL",
+}
+
+export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, ConfigurationItem>> = {
+    minimumChunkSize: { name: "Minimum Chunk Size (Not Configurable from the UI Now)." },
+    longLineThreshold: { name: "Longest chunk line threshold value (Not Configurable from the UI Now)." },
+    encrypt: { name: "End-to-End Encryption" },
+    usePathObfuscation: { name: "Path Obfuscation" },
+    enableCompression: { name: "Data Compression", status: "EXPERIMENTAL" },
+    useEden: { name: "Incubate Chunks in Document", status: "ALPHA" },
+    customChunkSize: { name: "Enhance chunk size" },
+    useDynamicIterationCount: { name: "Use dynamic iteration count", status: "EXPERIMENTAL" },
+    hashAlg: { name: "The Hash algorithm for chunk IDs", status: "EXPERIMENTAL" },
+}
+
+/**
+ * Get human readable Configuration stability
+ * @param status 
+ * @returns 
+ */
+function statusDisplay(status?: string): string {
+    if (!status) return "";
+    if (status == "EXPERIMENTAL") return ` (Experimental)`;
+    if (status == "ALPHA") return ` (Alpha)`;
+    if (status == "BETA") return ` (Beta)`;
+    return ` (${status})`;
+}
+
+/**
+ * Get human readable configuration name.
+ * @param key configuration key
+ * @param alt 
+ * @returns 
+ */
+export function confName(key: keyof ObsidianLiveSyncSettings, alt: string = "") {
+    if (key in configurationNames) {
+        return `${configurationNames[key]?.name}${statusDisplay(configurationNames[key]?.status)}`;
+    } else {
+        return `${alt || ""}`;
+    }
+}
+
+export const TweakValuesTemplate = { ...TweakValuesRecommendedTemplate, ...TweakValuesShouldMatchedTemplate };
+export type TweakValues = typeof TweakValuesTemplate;
+
 export interface EntryMilestoneInfo extends DatabaseEntry {
     _id: typeof MILSTONE_DOCID;
     type: "milestoneinfo";
@@ -393,6 +474,7 @@ export interface EntryMilestoneInfo extends DatabaseEntry {
     locked: boolean;
     cleaned?: boolean;
     node_chunk_info: { [key: string]: ChunkVersionRange }
+    tweak_values: { [key: string]: TweakValues }
 }
 
 export interface EntryNodeInfo extends DatabaseEntry {
@@ -423,7 +505,12 @@ export type diff_result = {
 };
 
 
-export type diff_check_result = typeof CANCELLED | typeof AUTO_MERGED | typeof NOT_CONFLICTED | typeof MISSING_OR_ERROR | diff_result;
+export type diff_check_result =
+    typeof CANCELLED
+    | typeof AUTO_MERGED
+    | typeof NOT_CONFLICTED
+    | typeof MISSING_OR_ERROR
+    | diff_result;
 
 export type Credential = {
     username: string;
@@ -432,7 +519,16 @@ export type Credential = {
 
 export type EntryDocResponse = EntryDoc & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta;
 
-export type DatabaseConnectingStatus = "STARTED" | "NOT_CONNECTED" | "PAUSED" | "CONNECTED" | "COMPLETED" | "CLOSED" | "ERRORED" | "JOURNAL_SEND" | "JOURNAL_RECEIVE";
+export type DatabaseConnectingStatus =
+    "STARTED"
+    | "NOT_CONNECTED"
+    | "PAUSED"
+    | "CONNECTED"
+    | "COMPLETED"
+    | "CLOSED"
+    | "ERRORED"
+    | "JOURNAL_SEND"
+    | "JOURNAL_RECEIVE";
 
 export const PREFIXMD_LOGFILE = "LIVESYNC_LOG_";
 export const FLAGMD_REDFLAG = "redflag.md" as FilePath;

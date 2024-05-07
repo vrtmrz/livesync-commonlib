@@ -3,17 +3,19 @@ import {
     type DatabaseConnectingStatus,
     type RemoteDBSettings, type EntryLeaf, LOG_LEVEL_NOTICE,
     type ChunkVersionRange,
-    type DocumentID
+    type DocumentID,
+    LOG_LEVEL_VERBOSE,
+    type TweakValues
 } from "../../common/types.ts";
 import { Logger } from "../../common/logger.ts";
 
 import { JournalSyncMinio } from "./objectstore/JournalSyncMinio.ts";
 
 import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv } from "../LiveSyncAbstractReplicator.ts";
-import type { ENSURE_DB_RESULT } from "../../pouchdb/LiveSyncDBFunctions.ts";
+import { ensureRemoteIsCompatible, type ENSURE_DB_RESULT } from "../../pouchdb/LiveSyncDBFunctions.ts";
 import type { CheckPointInfo } from "./JournalSyncTypes.ts";
 import { FetchHttpHandler } from "@smithy/fetch-http-handler";
-import type { SimpleStore } from "../../common/utils.ts";
+import { type SimpleStore } from "../../common/utils.ts";
 
 const MILSTONE_DOCID = "_00000000-milestone.json"
 
@@ -74,43 +76,10 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async ensureBucketIsCompatible(deviceNodeID: string, currentVersionRange: ChunkVersionRange): Promise<ENSURE_DB_RESULT> {
-        const defMilestonePoint: EntryMilestoneInfo = {
-            _id: MILSTONE_DOCID as DocumentID,
-            type: "milestoneinfo",
-            created: (new Date() as any) / 1,
-            locked: false,
-            accepted_nodes: [deviceNodeID],
-            node_chunk_info: { [deviceNodeID]: currentVersionRange }
-        };
-
-        const downloadedMilestone = await this.client.downloadJson(MILSTONE_DOCID) as any;
-
-        const remoteMilestone: EntryMilestoneInfo = { ...defMilestonePoint, ...(downloadedMilestone || {}) };
-        remoteMilestone.node_chunk_info = { ...defMilestonePoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
-
-        const writeMilestone = (
-            (
-                remoteMilestone.node_chunk_info[deviceNodeID].min != currentVersionRange.min
-                || remoteMilestone.node_chunk_info[deviceNodeID].max != currentVersionRange.max
-                || !downloadedMilestone
-            ));
-
-        if (writeMilestone) {
-            remoteMilestone.node_chunk_info[deviceNodeID].min = currentVersionRange.min;
-            remoteMilestone.node_chunk_info[deviceNodeID].max = currentVersionRange.max;
-            await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone);
-        }
-        if (remoteMilestone.locked) {
-            if (remoteMilestone.accepted_nodes.indexOf(deviceNodeID) == -1) {
-                if (remoteMilestone.cleaned) {
-                    return "NODE_CLEANED";
-                }
-                return "NODE_LOCKED";
-            }
-            return "LOCKED";
-        }
-        return "OK";
-
+        const downloadedMilestone = await this.client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
+        return await ensureRemoteIsCompatible(downloadedMilestone, this.env.getSettings(), deviceNodeID, currentVersionRange, async (info) => {
+            await this.client.uploadJson(MILSTONE_DOCID, info);
+        })
     }
 
     constructor(env: LiveSyncJournalReplicatorEnv) {
@@ -162,10 +131,14 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
 
 
     async checkReplicationConnectivity(skipCheck: boolean, ignoreCleanLock = false) {
+        if (!await this.client.isAvailable()) {
+            return false;
+        }
         if (!skipCheck) {
             this.remoteCleaned = false;
             this.remoteLocked = false;
             this.remoteLockedAndDeviceNotAccepted = false;
+            this.tweakSettingsMismatched = false;
             const ensure = await this.ensureBucketIsCompatible(this.nodeid, currentVersionRange);
             if (ensure == "INCOMPATIBLE") {
                 Logger("The remote database has no compatibility with the running version. Please upgrade the plugin.", LOG_LEVEL_NOTICE);
@@ -187,6 +160,11 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                     this.remoteCleaned = true;
                     return false;
                 }
+            } else if (ensure[0] == "MISMATCHED") {
+                Logger(`Configuration mismatching between the clients has been detected. This can be harmful or extra capacity consumption. We have to make these value unified.`, LOG_LEVEL_NOTICE);
+                this.tweakSettingsMismatched = true;
+                this.mismatchedTweakValues = ensure[1] as TweakValues[];
+                return false;
             }
         }
         return true
@@ -225,7 +203,8 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             locked: locked,
             cleaned: lockByClean,
             accepted_nodes: [this.nodeid],
-            node_chunk_info: { [this.nodeid]: currentVersionRange }
+            node_chunk_info: { [this.nodeid]: currentVersionRange },
+            tweak_values: {}
         };
 
         const remoteMilestone: EntryMilestoneInfo = { ...defInitPoint, ...(await this.client.downloadJson(MILSTONE_DOCID) || {}) };
@@ -247,7 +226,8 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             created: (new Date() as any) / 1,
             locked: false,
             accepted_nodes: [this.nodeid],
-            node_chunk_info: { [this.nodeid]: currentVersionRange }
+            node_chunk_info: { [this.nodeid]: currentVersionRange },
+            tweak_values: {}
         };
 
         const remoteMilestone: EntryMilestoneInfo = { ...defInitPoint, ...(await this.client.downloadJson(MILSTONE_DOCID) || {}) };
@@ -276,4 +256,18 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         }
     }
 
+    async resetRemoteTweakSettings(setting: RemoteDBSettings) {
+        try {
+            const remoteMilestone = await this.client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
+            if (!remoteMilestone) {
+                throw new Error("Missing remote milestone");
+            }
+            remoteMilestone.tweak_values = {};
+            Logger(`tweak values on the remote database have been cleared`, LOG_LEVEL_VERBOSE);
+            await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone);
+        } catch (ex) {
+            Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
+            throw ex;
+        }
+    }
 }
