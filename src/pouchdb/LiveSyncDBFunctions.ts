@@ -466,52 +466,51 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
             // const weight = Math.min(10, Math.ceil(obj.children.length / 10)) + 1;
             // const resourceSemaphore = env.settings.doNotPaceReplication ? (() => { }) : await globalConcurrencyController.acquire(weight);
             const childrenKeys = [...obj.children] as DocumentID[];
-            const loadedChildrenMap = new Map<DocumentID, string>;
+            const loadedChildrenMap = new Map<DocumentID, string>();
             if (obj.eden) {
                 const all = Object.entries((obj.eden));
                 all.forEach(([key, chunk]) => loadedChildrenMap.set(key as DocumentID, chunk.data));
             }
             const missingChunks = unique(childrenKeys).filter(e => !loadedChildrenMap.has(e));
-
-            if (env.isOnDemandChunkEnabled) {
-                const items = await env.collectChunks(missingChunks, false, waitForReady);
-                if (items === false || items.some(leaf => leaf.type != "leaf")) {
-                    Logger(`Chunks of ${dispFilename} (${obj._id.substring(0, 8)}) are not valid.`, LOG_LEVEL_NOTICE);
-                    if (items) {
-                        Logger(`Missing chunks: ${items.map(e => e._id).join(",")}`, LOG_LEVEL_VERBOSE);
-                    }
-                    return false;
-                }
-                items.forEach(chunk => loadedChildrenMap.set(chunk._id, chunk.data));
-            } else {
-                try {
-                    if (waitForReady) {
-                        const loadedItems = await Promise.all(missingChunks.map((e) => env.getDBLeaf(e, waitForReady)));
-
-                        loadedItems.forEach((value, idx) => loadedChildrenMap.set(missingChunks[idx], value));
-                    } else {
-                        const chunkDocs = await env.localDatabase.allDocs({ keys: missingChunks, include_docs: true });
-                        if (chunkDocs.rows.some(e => "error" in e)) {
-                            const missingChunks = chunkDocs.rows.filter(e => "error" in e).map(e => e.key).join(", ");
-                            Logger(`Chunks of ${dispFilename} (${obj._id.substring(0, 8)}) are not valid.`, LOG_LEVEL_NOTICE);
-                            Logger(`Missing chunks: ${missingChunks}`, LOG_LEVEL_VERBOSE);
-                            return false;
+            if (missingChunks.length != 0) {
+                if (env.isOnDemandChunkEnabled) {
+                    const items = await env.collectChunks(missingChunks, false, waitForReady);
+                    if (items === false || items.some(leaf => leaf.type != "leaf")) {
+                        Logger(`Chunks of ${dispFilename} (${obj._id.substring(0, 8)}) are not valid.`, LOG_LEVEL_NOTICE);
+                        if (items) {
+                            Logger(`Missing chunks: ${items.map(e => e._id).join(",")}`, LOG_LEVEL_VERBOSE);
                         }
-                        if (chunkDocs.rows.some((e: any) => e.doc && e.doc.type != "leaf")) {
-                            const missingChunks = chunkDocs.rows.filter((e: any) => e.doc && e.doc.type != "leaf").map((e: any) => e.id).join(", ");
-                            Logger(`Chunks of ${dispFilename} (${obj._id.substring(0, 8)}) are not valid.`, LOG_LEVEL_NOTICE);
-                            Logger(`Corrupted chunks: ${missingChunks}`, LOG_LEVEL_VERBOSE);
-                            return false;
-                        }
-                        chunkDocs.rows.forEach((value, idx) => loadedChildrenMap.set((value.doc as EntryLeaf)._id, (value.doc as EntryLeaf).data));
+                        return false;
                     }
-                } catch (ex) {
-                    Logger(`Something went wrong on reading chunks of ${dispFilename}(${obj._id.substring(0, 8)}) from database, see verbose info for detail.`, LOG_LEVEL_NOTICE);
-                    Logger(ex, LOG_LEVEL_VERBOSE);
-                    return false;
+                    items.forEach(chunk => loadedChildrenMap.set(chunk._id, chunk.data));
+                } else {
+                    try {
+                        if (waitForReady) {
+                            const loadedItems = await Promise.all(missingChunks.map((e) => env.getDBLeaf(e, waitForReady)));
+                            loadedItems.forEach((value, idx) => loadedChildrenMap.set(missingChunks[idx], value));
+                        } else {
+                            const chunkDocs = await env.localDatabase.allDocs({ keys: missingChunks, include_docs: true });
+                            if (chunkDocs.rows.some(e => "error" in e)) {
+                                const missingChunks = chunkDocs.rows.filter(e => "error" in e).map(e => e.key).join(", ");
+                                Logger(`Chunks of ${dispFilename} (${obj._id.substring(0, 8)}) are not valid.`, LOG_LEVEL_NOTICE);
+                                Logger(`Missing chunks: ${missingChunks}`, LOG_LEVEL_VERBOSE);
+                                return false;
+                            }
+                            if (chunkDocs.rows.some((e: any) => e.doc && e.doc.type != "leaf")) {
+                                const missingChunks = chunkDocs.rows.filter((e: any) => e.doc && e.doc.type != "leaf").map((e: any) => e.id).join(", ");
+                                Logger(`Chunks of ${dispFilename} (${obj._id.substring(0, 8)}) are not valid.`, LOG_LEVEL_NOTICE);
+                                Logger(`Corrupted chunks: ${missingChunks}`, LOG_LEVEL_VERBOSE);
+                                return false;
+                            }
+                            chunkDocs.rows.forEach((value, idx) => loadedChildrenMap.set((value.doc as EntryLeaf)._id, (value.doc as EntryLeaf).data));
+                        }
+                    } catch (ex) {
+                        Logger(`Something went wrong on reading chunks of ${dispFilename}(${obj._id.substring(0, 8)}) from database, see verbose info for detail.`, LOG_LEVEL_NOTICE);
+                        Logger(ex, LOG_LEVEL_VERBOSE);
+                        return false;
+                    }
                 }
             }
-
             const l = childrenKeys.map(e => loadedChildrenMap.get(e));
             if (l.some(e => e === undefined)) {
                 // TODO EXACT MESSAGE

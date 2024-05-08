@@ -213,15 +213,15 @@ export const enableCompression = (db: PouchDB.Database<EntryDoc>, compress: bool
 
 const EDEN_ENCRYPTED_KEY = "h:++encrypted" as DocumentID;
 
-function hasEdenDocument(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
-    if ("eden" in doc && typeof doc.eden === "object" && !(EDEN_ENCRYPTED_KEY in doc.eden)) {
+function shouldEncryptEden(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
+    if ("eden" in doc && !(EDEN_ENCRYPTED_KEY in doc.eden)) {
         return true;
     }
     return false;
 }
 
-function hasEncryptedEden(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
-    if ("eden" in doc && typeof doc.eden === "object" && (EDEN_ENCRYPTED_KEY in doc.eden)) {
+function shouldDecryptEden(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
+    if ("eden" in doc && (EDEN_ENCRYPTED_KEY in doc.eden)) {
         return true;
     }
     return false;
@@ -247,7 +247,7 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                 }
             }
 
-            if (hasEdenDocument(saveDoc)) {
+            if (shouldEncryptEden(saveDoc)) {
                 saveDoc.eden = {
                     [EDEN_ENCRYPTED_KEY]: {
                         data: await encrypt(JSON.stringify(saveDoc.eden), passphrase, useDynamicIterationCount),
@@ -272,7 +272,8 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
             } as AnyEntry | EntryLeaf;
             const _isChunkOrSyncInfo = isEncryptedChunkEntry(loadDoc) || isSyncInfoEntry(loadDoc);
             const _isObfuscatedEntry = isObfuscatedEntry(loadDoc);
-            if (_isChunkOrSyncInfo || _isObfuscatedEntry) {
+            const _shouldDecryptEden = shouldDecryptEden(loadDoc);
+            if (_isChunkOrSyncInfo || _isObfuscatedEntry || _shouldDecryptEden) {
                 if (migrationDecrypt && decrypted.has(loadDoc._id)) {
                     return loadDoc; // once decrypted.
                 }
@@ -283,7 +284,7 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                     if (_isObfuscatedEntry) {
                         loadDoc.path = await decrypt(getPath(loadDoc), passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
                     }
-                    if (hasEncryptedEden(loadDoc)) {
+                    if (_shouldDecryptEden) {
                         loadDoc.eden = JSON.parse(await decrypt(loadDoc.eden[EDEN_ENCRYPTED_KEY].data, passphrase, useDynamicIterationCount));
                     }
                     if (migrationDecrypt) {
@@ -298,7 +299,7 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                             if (_isObfuscatedEntry) {
                                 loadDoc.path = await decrypt(getPath(loadDoc), passphrase, false) as unknown as FilePathWithPrefix;
                             }
-                            if (hasEncryptedEden(loadDoc)) {
+                            if (_shouldDecryptEden) {
                                 loadDoc.eden = JSON.parse(await decrypt(loadDoc.eden[EDEN_ENCRYPTED_KEY].data, passphrase, false));
                             }
                             if (migrationDecrypt) {

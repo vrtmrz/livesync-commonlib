@@ -426,6 +426,7 @@ export class QueueProcessor<T, U> {
                     const key = Date.now() + Math.random();
                     const batchTask = async () => {
                         try {
+                            this.addProcessingBatch(key);
                             if (this.interval && lastProcessBegin) {
                                 const diff = Date.now() - lastProcessBegin;
                                 if (diff < this.interval) {
@@ -443,9 +444,9 @@ export class QueueProcessor<T, U> {
                             this._notifier.notify();
                         }
                     }
-                    this.addProcessingBatch(key);
+
                     this._notifier.notify();
-                    fireAndForget(batchTask);
+                    fireAndForget(() => batchTask());
                 }
                 await this._notifier.nextNotify;
             } while (!this._isSuspended)
