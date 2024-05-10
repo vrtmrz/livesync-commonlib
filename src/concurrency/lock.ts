@@ -1,27 +1,36 @@
+import { fireAndForget } from "../common/utils";
+
 type Task<T> = () => Promise<T> | T;
 type Queue<T> = {
     key: string | symbol,
     task: Task<T>,
     resolver: (result: T) => void,
     rejector: (reason?: any) => void
-    next?: Queue<T>
+    next?: Queue<T>,
+    isRunning?: boolean
+    isFinished?: boolean
 }
 
 
 const queueTails = new Map<string | symbol, Queue<any> | undefined>();
 
 async function performTask<T>(queue: Queue<T>) {
-    const key = queue.key
+    if (queue.isRunning) {
+        // The same queue has been started
+        return;
+    }
     try {
+        queue.isRunning = true;
         const ret = await queue.task();
         queue.resolver(ret);
     } catch (ex) {
         queue.rejector(ex);
     } finally {
         const next = queue.next;
-        queueTails.set(key, next);
+        queue.isFinished = true;
+        // This makes non-sense, we have make the latest queue while enqueuing. 
         if (next) {
-            performTask(next);
+            fireAndForget(() => performTask(next));
         }
     }
     return;
@@ -52,7 +61,6 @@ function _enqueue<T>(key: string | symbol, task: Task<T>, { swapIfExist, shareRe
     const prev = queueTails.get(key);
     if (prev === undefined) {
         queueTails.set(key, newQueue);
-        performTask(newQueue);
     } else {
         const current = prev as Queue<T>;
         queueTails.set(key, newQueue)
@@ -61,6 +69,9 @@ function _enqueue<T>(key: string | symbol, task: Task<T>, { swapIfExist, shareRe
             // Force cancel previous one
             current.rejector(new Error("Cancelled"));
         }
+    }
+    if (!prev || prev.isFinished) {
+        fireAndForget(() => performTask(newQueue));
     }
     return tempResult;
 }

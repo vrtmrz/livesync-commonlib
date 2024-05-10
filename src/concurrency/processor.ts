@@ -97,7 +97,10 @@ export class QueueProcessor<T, U> {
     maintainDelay: boolean;
     interval = 0;
 
+    // This means numbers of the entities which are now processing
     processingEntities = 0;
+
+    // This means numbers of the entries which dequeued from the queue but not processed yet.
     waitingEntries = 0;
 
     get nowProcessing(): number {
@@ -329,24 +332,14 @@ export class QueueProcessor<T, U> {
 
     async _runProcessor(items: T[]) {
         // runProcessor does not modify queue. so updateStatus should only update about reactiveSource.
-        this.updateStatus(() => {
-            this.processingEntities += items.length;
-            this.waitingEntries -= items.length;
-        });
-        try {
-            const ret = await this._processor(items);
-            if (!ret) return;
-            // If downstream is connected, the result sent to that.
-            if (this._pipeTo) {
-                this._pipeTo.enqueueAll(ret);
-            } else if (this._keepResultUntilDownstreamConnected) {
-                // Buffer the result if downstream is not connected.
-                this._keptResult.push(...ret);
-            }
-        } finally {
-            this.updateStatus(() => {
-                this.processingEntities -= items.length;
-            });
+        const ret = await this._processor(items);
+        if (!ret) return;
+        // If downstream is connected, the result sent to that.
+        if (this._pipeTo) {
+            this._pipeTo.enqueueAll(ret);
+        } else if (this._keepResultUntilDownstreamConnected) {
+            // Buffer the result if downstream is not connected.
+            this._keptResult.push(...ret);
         }
     }
     async * pump() {
@@ -370,9 +363,6 @@ export class QueueProcessor<T, U> {
             if (items.length == 0) {
                 continue;
             }
-            this.updateStatus(() => {
-                this.waitingEntries += items.length;
-            })
             yield items;
             // For subsequent processes, check run out status
             if (this._canCollectBatch()) {
@@ -419,14 +409,23 @@ export class QueueProcessor<T, U> {
             do {
                 const batchPump = this.pump()
                 for await (const batch of batchPump) {
+                    const batchLength = batch.length;
+                    this.updateStatus(() => {
+                        this.waitingEntries += batchLength;
+                    })
                     while (this._processingBatches.size >= this.concurrentLimit) {
                         await this._notifier.nextNotify;
                     }
                     // Add batch to the processing
                     const key = Date.now() + Math.random();
                     const batchTask = async () => {
+                        this.updateStatus(() => {
+                            // To avoid false positive of idle, add processingEntities before reducing waitingEntries
+                            this.processingEntities += batchLength;
+                            this.waitingEntries -= batchLength;
+                        });
+                        this.addProcessingBatch(key);
                         try {
-                            this.addProcessingBatch(key);
                             if (this.interval && lastProcessBegin) {
                                 const diff = Date.now() - lastProcessBegin;
                                 if (diff < this.interval) {
@@ -441,6 +440,9 @@ export class QueueProcessor<T, U> {
                             Logger(ex, LOG_LEVEL_VERBOSE);
                         } finally {
                             this.deleteProcessingBatch(key);
+                            this.updateStatus(() => {
+                                this.processingEntities -= batchLength;
+                            });
                             this._notifier.notify();
                         }
                     }
