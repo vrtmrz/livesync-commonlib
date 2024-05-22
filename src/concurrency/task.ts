@@ -11,7 +11,7 @@ export type ProcessingTaskResultWithKey<T, U extends Error> = Promise<TaskResult
 export function unwrapTaskResult<T, U extends Error>(result: TaskResult<T, U>): T | U {
     if ("ok" in result) return result.ok;
     if ("err" in result) return result.err;
-    return undefined;
+    throw new Error("Argument Exception: Could not unwrap");
 }
 function isTaskWaiting<T>(task: Task<T>): task is TaskWaiting<T> {
     if (task instanceof Promise) {
@@ -29,7 +29,7 @@ async function wrapEachProcess<T>(key: number, task: TaskProcessing<T>) {
         const r = await task;
         return { key, ok: r };
     } catch (ex) {
-        return { key, err: ex }
+        return { key, err: ex instanceof Error ? ex : new Error(`${ex}`) }
     }
 }
 

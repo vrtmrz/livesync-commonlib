@@ -608,7 +608,7 @@ function transferChunks(key: string, label: string, dbFrom: PouchDB.Database, db
                     return;
                 }, { batchSize: 100, delay: 100, concurrentLimit: 2, suspended: false })
         )
-        .startPipeline().waitForPipeline();
+        .startPipeline().waitForAllDoneAndTerminate();
 }
 
 // Complement unbalanced chunks between databases which were separately cleaned up.

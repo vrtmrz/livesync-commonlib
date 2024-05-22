@@ -60,12 +60,36 @@ export class Trench {
         }
     }
 
-    async conceal<T>(obj: T) {
+    concealing = new Map<string, any>();
+    conceal<T>(obj: T) {
+        // TODO: TEST, This is untested yet
         const key = generateId(PREFIX_EPHEMERAL);
-        await this._db.set(key, obj);
+        // Race conditions should only be addressed in advance.
+        this.concealing.set(key, obj);
+        this._db.set(key, obj).then(async e => {
+            if (this.concealing.has(key)) {
+                this.concealing.delete(key)
+            } else {
+                // If not in time
+                await this._db.delete(key);
+            }
+        });
         return key;
     }
+    async bury(key: string) {
+        // TODO: TEST, This is untested yet
+        if (this.concealing.has(key)) {
+            this.concealing.delete(key);
+        }
+        await this._db.delete(key);
+    }
     async expose<T>(key: string) {
+        // TODO: TEST, This is untested yet
+        if (this.concealing.has(key)) {
+            const value = this.concealing.get(key);
+            this.concealing.delete(key);
+            return value;
+        }
         const obj = await this._db.get(key) as T;
         await this._db.delete(key);
         return obj;
@@ -138,22 +162,22 @@ export class Trench {
         }
     }
 
-    async queue<T>(key: string, obj: T, index?: number) {
+    queue<T>(key: string, obj: T, index?: number) {
         return this._queue<T>(PREFIX_EPHEMERAL, key, obj, index);
     }
-    async dequeue<T>(key: string) {
+    dequeue<T>(key: string) {
         return this._dequeue<T>(PREFIX_EPHEMERAL, key);
     }
-    async dequeueWithCommit<T>(key: string) {
+    dequeueWithCommit<T>(key: string) {
         return this._dequeueWithCommit<T>(PREFIX_EPHEMERAL, key);
     }
-    async queuePermanent<T>(key: string, obj: T, index?: number) {
+    queuePermanent<T>(key: string, obj: T, index?: number) {
         return this._queue<T>(PREFIX_PERMANENT, key, obj, index);
     }
-    async dequeuePermanent<T>(key: string) {
+    dequeuePermanent<T>(key: string) {
         return this._dequeue<T>(PREFIX_PERMANENT, key);
     }
-    async dequeuePermanentWithCommit<T>(key: string) {
+    dequeuePermanentWithCommit<T>(key: string) {
         return this._dequeueWithCommit<T>(PREFIX_PERMANENT, key);
     }
 

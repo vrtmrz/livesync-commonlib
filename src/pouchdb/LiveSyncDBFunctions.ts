@@ -502,7 +502,7 @@ export async function getDBEntryFromMeta(env: DBFunctionEnvironment, obj: Loaded
                                 Logger(`Corrupted chunks: ${missingChunks}`, LOG_LEVEL_VERBOSE);
                                 return false;
                             }
-                            chunkDocs.rows.forEach((value, idx) => loadedChildrenMap.set((value.doc as EntryLeaf)._id, (value.doc as EntryLeaf).data));
+                            chunkDocs.rows.forEach((value, idx) => "doc" in value && loadedChildrenMap.set((value.doc as EntryLeaf)._id, (value.doc as EntryLeaf).data));
                         }
                     } catch (ex) {
                         Logger(`Something went wrong on reading chunks of ${dispFilename}(${obj._id.substring(0, 8)}) from database, see verbose info for detail.`, LOG_LEVEL_NOTICE);

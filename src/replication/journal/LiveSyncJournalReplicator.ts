@@ -169,6 +169,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         }
         return true
     }
+    // eslint-disable-next-line require-await
     async fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]> {
         return []
     }
@@ -191,6 +192,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             Logger(ex, LOG_LEVEL_NOTICE);
         }
     }
+    // eslint-disable-next-line require-await
     async tryCreateRemoteDatabase(setting: RemoteDBSettings) {
         this.closeReplication();
         Logger("Remote Database Created or Connected", LOG_LEVEL_NOTICE);

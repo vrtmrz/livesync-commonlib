@@ -97,7 +97,7 @@ function _reactive<T>({ expression, initialValue }: reactiveParams<T>): Reactive
         context = instance;
         const r = expression ? expression(initialValue) : initialValue;
         context = previousContext;
-        return r;
+        return r as T;
     }
 
     return instance;

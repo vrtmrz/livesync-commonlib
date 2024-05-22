@@ -1,20 +1,28 @@
 import { Logger } from "../common/logger.ts";
 import type { ReactiveSource } from "../dataobject/reactive.ts";
 import { LOG_LEVEL_VERBOSE, RESULT_TIMED_OUT } from "../common/types.ts";
-import { delay, fireAndForget, promiseWithResolver } from "../common/utils.ts";
+import { delay, fireAndForget, noop, promiseWithResolver } from "../common/utils.ts";
 
 export class Notifier {
     p = promiseWithResolver<void>();
+    isUsed = false;
     notify() {
+        if (!this.isUsed) {
+            return;
+        }
+        this.isUsed = false;
+        this.p.promise.finally(noop)
         this.p.resolve()
         this.p = promiseWithResolver();
     }
     get nextNotify() {
+        this.isUsed = true;
         return this.p.promise;
     }
 }
 let processNo = 0;
 
+const allRunningProcessors = new Set<QueueProcessor<any, any>>([]);
 
 /**
  * QueueProcessor Parameters
@@ -70,7 +78,7 @@ export class QueueProcessor<T, U> {
     _pipeTo?: QueueProcessor<U, any>;
 
     _waitId: string = "";
-    _root: QueueProcessor<any, any>;
+    _root?: QueueProcessor<any, any> = undefined;
     _instance = processNo++;
     _remainingReactiveSource?: ReactiveSource<number>;
     _totalRemainingReactiveSource?: ReactiveSource<number>;
@@ -140,10 +148,13 @@ export class QueueProcessor<T, U> {
         return this;
     }
     startPipeline() {
-        this._root.resumePipeLine();
+        this.root.resumePipeLine();
         return this;
     }
-    get root() {
+    get root(): QueueProcessor<any, any> {
+        if (this._root === undefined) {
+            return this;
+        }
         return this._root;
     }
 
@@ -168,6 +179,7 @@ export class QueueProcessor<T, U> {
             this.pipeTo(params.pipeTo);
         }
         if (items) this.enqueueAll(items);
+        allRunningProcessors.add(this);
         this._run();
     }
 
@@ -217,7 +229,7 @@ export class QueueProcessor<T, U> {
      */
     pipeTo<V>(pipeTo: QueueProcessor<U, V>) {
         this._pipeTo = pipeTo;
-        this._pipeTo._root = this._root;
+        this._pipeTo._root = this.root;
         // If something buffered, send to the downstream.
         if (this._keptResult.length > 0) {
             const temp = [...this._keptResult];
@@ -256,7 +268,7 @@ export class QueueProcessor<T, U> {
 
 
     _updateReactiveSource() {
-        this._root.updateReactiveSource();
+        this.root.updateReactiveSource();
     }
     updateReactiveSource() {
         if (this._pipeTo) {
@@ -325,11 +337,16 @@ export class QueueProcessor<T, U> {
         return true;
     }
 
-    waitForPipeline(timeout?: number): Promise<boolean> {
-        this._root.startPipeline();
-        return this._root.waitForAllDownstream(timeout);
+    waitForAllProcessed(timeout?: number): Promise<boolean> {
+        this.root.startPipeline();
+        return this.root.waitForAllDownstream(timeout);
     }
-
+    async waitForAllDoneAndTerminate(timeout?: number): Promise<boolean> {
+        this.root.startPipeline();
+        const r = await this.root.waitForAllDownstream(timeout);
+        this.terminateAll();
+        return r;
+    }
     async _runProcessor(items: T[]) {
         // runProcessor does not modify queue. so updateStatus should only update about reactiveSource.
         const ret = await this._processor(items);
@@ -461,5 +478,30 @@ export class QueueProcessor<T, U> {
         if (this._isSuspended) return;
         if (this._processing) return;
         fireAndForget(() => this._process());
+    }
+    terminateAll() {
+        this.root.terminate();
+    }
+    terminate() {
+        if (this._pipeTo) {
+            this._pipeTo.terminate();
+            this._pipeTo = undefined;
+        }
+        this._isSuspended = true;
+        this._enqueueProcessor = () => [];
+        this._processor = () => Promise.resolve([]);
+        this.clearQueue();
+        this._notifier.notify();
+        this._notifier.notify();
+        this._notifier.notify();
+        this._queue.length = 0;
+        allRunningProcessors.delete(this);
+    }
+}
+
+export function stopAllRunningProcessors() {
+    const processors = [...allRunningProcessors];
+    for (const processor of processors) {
+        processor.terminate();
     }
 }

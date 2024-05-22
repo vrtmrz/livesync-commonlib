@@ -38,7 +38,7 @@ export class LRUCache<K, V> {
     }
     revGet(value: V) {
         const key = this.revCache.get(value);
-        if (value) {
+        if (key) {
             // update the key to recently used.
             this.cache.delete(key);
             this.revCache.delete(value);

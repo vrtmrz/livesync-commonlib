@@ -1,4 +1,4 @@
-import { fireAndForget } from "../common/utils";
+import { fireAndForget, promiseWithResolver } from "../common/utils";
 
 type Task<T> = () => Promise<T> | T;
 type Queue<T> = {
@@ -31,6 +31,8 @@ async function performTask<T>(queue: Queue<T>) {
         // This makes non-sense, we have make the latest queue while enqueuing. 
         if (next) {
             fireAndForget(() => performTask(next));
+        } else {
+            queueTails.delete(queue.key);
         }
     }
     return;
@@ -45,11 +47,9 @@ type QueueOptions = {
 }
 
 function _enqueue<T>(key: string | symbol, task: Task<T>, { swapIfExist, shareResult }: QueueOptions = {}): Promise<T> {
-    let resolver: (result: T) => void = () => { };
-    let rejector: (reason?: any) => void = () => { };
-    const tempResult = new Promise<T>((res, rej) => {
-        resolver = res, rejector = rej;
-    })
+    const t = promiseWithResolver<T>();
+    const resolver = t.resolve;
+    const rejector = t.reject;
 
     const newQueue: Queue<T> = {
         task,
@@ -73,7 +73,7 @@ function _enqueue<T>(key: string | symbol, task: Task<T>, { swapIfExist, shareRe
     if (!prev || prev.isFinished) {
         fireAndForget(() => performTask(newQueue));
     }
-    return tempResult;
+    return t.promise;
 }
 
 /**
@@ -95,26 +95,25 @@ export function serialized<T>(key: string | symbol, proc: Task<T>): Promise<T> {
 export function shareRunningResult<T>(key: string | symbol, proc: Task<T>): Promise<T> {
     const current = queueTails.get(key);
     if (!current) return _enqueue(key, proc);
-    // Buffer old resolve wrapper
-    const oldResolver = current.resolver;
-    const oldRejector = current.rejector;
-    let resolver: (result: T) => void = () => { };
-    let rejector: (reason?: any) => void = () => { };
-    // Prepare Promise of shared result 
-    const tempResult = new Promise<T>((res, rej) => {
-        resolver = res, rejector = rej;
-    });
+    let oldResolver = current.resolver;
+    let oldRejector = current.rejector;
+
+    const resultP = promiseWithResolver<T>();
 
     // Inject hooked handler
     current.resolver = (result) => {
-        oldResolver(result);
-        resolver(result);
+        oldResolver?.(result);
+        resultP.resolve(result);
     }
     current.rejector = (result) => {
-        oldRejector(result);
-        rejector(result);
+        oldRejector?.(result);
+        resultP.reject(result);
     }
-    return tempResult;
+    resultP.promise.finally(() => {
+        oldResolver = undefined!;
+        oldRejector = undefined!;
+    })
+    return resultP.promise;
 }
 
 export function skipIfDuplicated<T>(key: string | symbol, proc: Task<T>): Promise<T | null> {

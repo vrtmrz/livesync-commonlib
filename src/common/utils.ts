@@ -313,10 +313,10 @@ export function* arrayToChunkedArray<T>(arr: T[], chunkLength: number) {
 export function unique<T>(arr: T[]) {
     return [...new Set<T>(arr)]
 }
-
+export const noop = () => {/* NO OP */ };
 export function fireAndForget(p: Promise<any> | (() => Promise<any>)) {
     if (typeof p == "function") return fireAndForget(p());
-    p.then(_ => {/* NO OP */ }).catch(_ => {/* NO OP */ });
+    p.then(noop).catch(noop);
 }
 
 export function isObjectDifferent(a: any, b: any): boolean {

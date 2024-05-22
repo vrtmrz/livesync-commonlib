@@ -1,9 +1,24 @@
-const symbolFilePath = Symbol();
-const symbolFilePathWithPrefix = Symbol();
-const symbolId = Symbol();
-export type FilePath = string & { [symbolFilePath]: never };
-export type FilePathWithPrefix = string & { [symbolFilePathWithPrefix]: never } | FilePath;
-export type DocumentID = string & { [symbolId]: never };
+import type { I18N_LANGS } from "./rosetta";
+
+// Utility types
+declare const __tag: unique symbol;
+type TaggedType<T, U extends string> = T & { [__tag]: U };
+
+
+type ExtractPropertiesByType<T, U> = {
+    [K in keyof T as T[K] extends U ? K : never]: T[K] extends U ? K : never
+}
+
+export type FilterStringKeys<T> = keyof ExtractPropertiesByType<T, string | (string | undefined)>;
+
+export type FilterBooleanKeys<T> = keyof ExtractPropertiesByType<T, boolean | (boolean | undefined)>;
+
+export type FilterNumberKeys<T> = keyof ExtractPropertiesByType<T, number | (number | undefined)>;
+
+
+export type FilePath = TaggedType<string, "FilePath">;
+export type FilePathWithPrefix = TaggedType<string, "FilePathWithPrefix"> | FilePath;
+export type DocumentID = TaggedType<string, "documentId">;
 
 
 // docs should be encoded as base64, so 1 char -> 1 bytes
@@ -131,10 +146,7 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     settingVersion: number;
     isConfigured?: boolean;
 
-    useEden: boolean;
-    maxChunksInEden: number;
-    maxTotalLengthInEden: number;
-    maxAgeInEden: number;
+    displayLanguage: I18N_LANGS;
 
 }
 
@@ -162,7 +174,7 @@ export type RemoteDBSettings = CouchDBConnection & BucketSyncSetting & RemoteTyp
     useHistory: boolean;
     disableRequestURI: boolean;
     checkConflictOnlyOnOpen: boolean;
-    additionalSuffixOfDatabaseName: string | null;
+    additionalSuffixOfDatabaseName: string | undefined;
     ignoreVersionCheck: boolean;
     deleteMetadataOfDeletedFiles: boolean;
     syncOnlyRegEx: string;
@@ -185,9 +197,16 @@ export type RemoteDBSettings = CouchDBConnection & BucketSyncSetting & RemoteTyp
     permitEmptyPassphrase: boolean;
     enableCompression: boolean;
     disableCheckingConfigMismatch: boolean;
+
+    useEden: boolean;
+    maxChunksInEden: number;
+    maxTotalLengthInEden: number;
+    maxAgeInEden: number;
 }
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
+
+
 export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     remoteType: REMOTE_COUCHDB,
     useCustomRequestHandler: false,
@@ -288,6 +307,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     maxTotalLengthInEden: 1024,
     maxAgeInEden: 10,
     disableCheckingConfigMismatch: false,
+    displayLanguage: "",
 };
 
 
@@ -419,29 +439,54 @@ export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> =
 
 };
 
-type ConfigurationItem = {
+
+export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, ConfigurationItem>> = {
+    minimumChunkSize: {
+        name: "Minimum Chunk Size (Not Configurable from the UI Now)."
+    },
+    longLineThreshold: {
+        name: "Longest chunk line threshold value (Not Configurable from the UI Now)."
+    },
+    encrypt: {
+        name: "End-to-End Encryption",
+        desc: "Encrypt contents on the remote database. If you use the plugin's synchronization feature, enabling this is recommend."
+    },
+    usePathObfuscation: {
+        name: "Path Obfuscation"
+    },
+    enableCompression: {
+        name: "Data Compression",
+        status: "EXPERIMENTAL"
+    },
+    useEden: {
+        name: "Incubate Chunks in Document",
+        desc: "If enabled, newly created chunks are temporarily kept within the document, and graduated to become independent chunks once stabilised.",
+        status: "ALPHA"
+    },
+    customChunkSize: {
+        name: "Enhance chunk size"
+    },
+    useDynamicIterationCount: {
+        name: "Use dynamic iteration count", status: "EXPERIMENTAL"
+    },
+    hashAlg: {
+        name: "The Hash algorithm for chunk IDs", status: "EXPERIMENTAL"
+    },
+}
+export type ConfigurationItem = {
     name: string,
+    desc?: string,
+    placeHolder?: string,
     status?: "BETA" | "ALPHA" | "EXPERIMENTAL",
 }
 
-export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, ConfigurationItem>> = {
-    minimumChunkSize: { name: "Minimum Chunk Size (Not Configurable from the UI Now)." },
-    longLineThreshold: { name: "Longest chunk line threshold value (Not Configurable from the UI Now)." },
-    encrypt: { name: "End-to-End Encryption" },
-    usePathObfuscation: { name: "Path Obfuscation" },
-    enableCompression: { name: "Data Compression", status: "EXPERIMENTAL" },
-    useEden: { name: "Incubate Chunks in Document", status: "ALPHA" },
-    customChunkSize: { name: "Enhance chunk size" },
-    useDynamicIterationCount: { name: "Use dynamic iteration count", status: "EXPERIMENTAL" },
-    hashAlg: { name: "The Hash algorithm for chunk IDs", status: "EXPERIMENTAL" },
-}
 
 /**
  * Get human readable Configuration stability
  * @param status 
  * @returns 
  */
-function statusDisplay(status?: string): string {
+export function statusDisplay(status?: string): string {
     if (!status) return "";
     if (status == "EXPERIMENTAL") return ` (Experimental)`;
     if (status == "ALPHA") return ` (Alpha)`;
@@ -463,6 +508,22 @@ export function confName(key: keyof ObsidianLiveSyncSettings, alt: string = "") 
     }
 }
 
+/**
+ * Get human readable configuration description.
+ * @param key configuration key
+ * @param alt 
+ * @returns 
+ */
+export function confDesc(key: keyof ObsidianLiveSyncSettings, alt?: string) {
+    if (key in configurationNames) {
+        if (configurationNames[key]?.desc) {
+            return `${configurationNames[key]?.name}${statusDisplay(configurationNames[key]?.status)}`;
+        }
+        return alt;
+    } else {
+        return alt;
+    }
+}
 export const TweakValuesTemplate = { ...TweakValuesRecommendedTemplate, ...TweakValuesShouldMatchedTemplate };
 export type TweakValues = typeof TweakValuesTemplate;
 

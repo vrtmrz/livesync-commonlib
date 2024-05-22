@@ -193,7 +193,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     }
 
     async readChunk(id: DocumentID, timeout: number): Promise<string> {
-        const leaf = this.hashCaches.revGet(id);
+        const leaf = this.hashCaches.get(id);
         if (leaf) {
             return leaf;
         }

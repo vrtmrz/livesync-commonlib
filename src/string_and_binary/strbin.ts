@@ -162,11 +162,15 @@ function arrayBufferToBase64internalBrowser(buffer: DataView | Uint8Array): Prom
         reader.readAsDataURL(blob);
     });
 }
-function arrayBufferToBase64internalNode(buffer: DataView | Uint8Array): string {
-    const ret = Buffer.from(buffer.buffer).toString("base64");
-    return ret;
+// function arrayBufferToBase64internalNode(buffer: DataView | Uint8Array): string {
+//     const ret = Buffer.from(buffer.buffer).toString("base64");
+//     return ret;
+// }
+// const _arrayBufferToBase64internal = !("Buffer" in globalThis) ? arrayBufferToBase64internalBrowser : arrayBufferToBase64internalNode;
+
+function arrayBufferToBase64internal(buffer: DataView | Uint8Array): Promise<string> | string {
+    return arrayBufferToBase64internalBrowser(buffer);
 }
-const arrayBufferToBase64internal = window && window.btoa ? arrayBufferToBase64internalBrowser : arrayBufferToBase64internalNode;
 
 export async function arrayBufferToBase64Single(buffer: ArrayBuffer): Promise<string> {
     const buf = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
@@ -218,17 +222,23 @@ export function base64ToArrayBuffer(base64: string | string[]): ArrayBuffer {
     return joinedArray.buffer;
 }
 
-const base64ToArrayBufferInternal = (window && window.atob) ? base64ToArrayBufferInternalBrowser : base64ToArrayBufferInternalNode;
+// const _base64ToArrayBufferInternal = !("Buffer" in globalThis) ? base64ToArrayBufferInternalBrowser : base64ToArrayBufferInternalNode;
 
-function base64ToArrayBufferInternalNode(base64: string): ArrayBuffer {
-    try {
-        return Buffer.from(base64, "base64").buffer;
-    } catch (ex) {
-        Logger("Base64 decode error (Node)", LOG_LEVEL_VERBOSE);
-        Logger(ex, LOG_LEVEL_VERBOSE);
-        return new ArrayBuffer(0);
-    }
+function base64ToArrayBufferInternal(base64: string): ArrayBuffer {
+    // return _base64ToArrayBufferInternal(base64);
+    return base64ToArrayBufferInternalBrowser(base64)
 }
+
+// function base64ToArrayBufferInternalNode(base64: string): ArrayBuffer {
+//     try {
+//         const b = Buffer.from(base64, "base64");
+//         return b.buffer.slice(b.byteOffset, b.byteOffset + b.byteLength);
+//     } catch (ex) {
+//         Logger("Base64 decode error (Node)", LOG_LEVEL_VERBOSE);
+//         Logger(ex, LOG_LEVEL_VERBOSE);
+//         return new ArrayBuffer(0);
+//     }
+// }
 
 export function base64ToArrayBufferInternalBrowser(base64: string): ArrayBuffer {
     try {
@@ -663,6 +673,13 @@ export async function sha1(src: string) {
     return await arrayBufferToBase64Single(digest);
 }
 
-export function digestHash(src: string) {
-    return hashFunc(src);
+export function digestHash(src: string[]) {
+    let hash = "";
+    for (const v of src) {
+        hash = hashFunc(hash + v);
+    }
+    if (hash == "") {
+        return hashFunc("**");
+    }
+    return hash;
 }

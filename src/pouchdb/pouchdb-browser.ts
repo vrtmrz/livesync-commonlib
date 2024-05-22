@@ -74,10 +74,13 @@ function appendPurgeSeqs(db: PouchDB.Database, docs: PurgeMultiParam[]) {
 PouchDB.prototype.purgeMulti = adapterFun('_purgeMulti', function (docs: PurgeMultiParam[], callback: (error: Error, result?: {
     [x: string]: PurgeMultiResult | Error;
 }) => void) {
+    //@ts-ignore
     if (typeof this._purge === 'undefined') {
+        //@ts-ignore
         return callback(createError(UNKNOWN_ERROR, 'Purge is not implemented in the ' + this.adapter + ' adapter.'));
     }
-    // eslint-disable-next-line @typescript-eslint/no-this-alias
+    //@ts-ignore
+    // eslint-disable-next-line @typescript-eslint/no-this-alias 
     const self = this;
     const tasks = docs.map((param) => () =>
 
@@ -94,6 +97,7 @@ PouchDB.prototype.purgeMulti = adapterFun('_purgeMulti', function (docs: PurgeMu
                 try {
                     path = findPathToLeaf(revs, rev$$1);
                 } catch (error) {
+                    //@ts-ignore
                     return res([param, error.message || error]);
                 }
                 self._purge(docId, path, (error: Error, result: PurgeMultiResult) => {
@@ -112,6 +116,7 @@ PouchDB.prototype.purgeMulti = adapterFun('_purgeMulti', function (docs: PurgeMu
         await appendPurgeSeqs(self, retAll.filter(e => "ok" in e[1]).map(e => e[0]));
         const result = Object.fromEntries(retAll.map(e => [e[0][0], e[1]]));
         return result
+        //@ts-ignore
     })().then(result => callback(undefined, result)).catch(error => callback(error));
 
 

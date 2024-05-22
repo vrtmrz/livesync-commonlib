@@ -10,7 +10,7 @@ abstract class ReadOnlyObservableStore<T> {
 }
 export class ObservableStore<T> extends ReadOnlyObservableStore<T> {
 
-    protected value?: T;
+    protected value: T;
     private observers: Observer<T>[] = [];
     private interceptors: Interceptor<T>[] = [];
     constructor(value: T) {
@@ -59,7 +59,7 @@ export class ObservableStore<T> extends ReadOnlyObservableStore<T> {
         this.observers = this.observers.filter(e => e != observer);
     }
 }
-export class StreamStore<T> extends ObservableStore<T[]>{
+export class StreamStore<T> extends ObservableStore<T[]> {
     private itemInterceptors: Interceptor<T>[] = [];
     private subscribers: StreamSubscriber<T>[] = [];
 
@@ -144,11 +144,11 @@ export function useGlobalStore<T>(name: string, onInit: (value: T) => T, init?: 
     if (!globalStore.has(name)) {
         globalStore.set(name, new ObservableStore(init));
     }
-    globalStore.get(name).apply(onInit);
+    globalStore.get(name)!.apply(onInit);
     return globalStore.get(name) as ObservableStore<T>;
 }
 export function observeStores<T, U>(storeA: ReadOnlyObservableStore<T>, storeB: ReadOnlyObservableStore<U>): ReadOnlyObservableStore<T & U> {
-    const value = { ...storeA.peek(), ...storeB.peek() };
+    const value = { ...storeA.peek(), ...storeB.peek() } as (T & U);
     const store = new ObservableStore(value);
     storeA.observe(value => store.apply(e => ({ ...e, ...value })));
     storeB.observe(value => store.apply(e => ({ ...e, ...value })));
