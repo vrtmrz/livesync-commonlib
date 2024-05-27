@@ -12,6 +12,7 @@ import { checkRemoteVersion } from "../../pouchdb/utils_couchdb.ts";
 
 import { ensureDatabaseIsCompatible } from "../../pouchdb/LiveSyncDBFunctions.ts";
 import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv } from "../LiveSyncAbstractReplicator.ts";
+import { shareRunningResult } from "../../concurrency/lock.ts";
 
 
 const currentVersionRange: ChunkVersionRange = {
@@ -300,63 +301,69 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         syncMode: "sync" | "pullOnly" | "pushOnly",
         ignoreCleanLock = false
     ): Promise<boolean> {
-        if (this.controller) {
-            Logger("Replication is already in progress.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
-            return false;
-        }
-        const localDB = this.env.getDatabase()
-        Logger(`OneShot Sync begin... (${syncMode})`);
-        const ret = await this.checkReplicationConnectivity(setting, false, retrying, showResult, ignoreCleanLock);
-        if (ret === false) {
-            Logger("Could not connect to server.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
-            return false;
-        }
-        this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
-        this.maxPushSeq = Number(`${(await localDB.info()).update_seq}`.split("-")[0]);
-        if (showResult) {
-            Logger("Looking for the point last synchronized point.", LOG_LEVEL_NOTICE, "sync");
-        }
-        const { db, syncOptionBase } = ret;
-        this.syncStatus = "STARTED";
-        this.updateInfo();
-        const docArrivedOnStart = this.docArrived;
-        const docSentOnStart = this.docSent;
-        if (!retrying) {
-            // If initial replication, save setting to rollback
-            this.originalSetting = setting;
-        }
-        this.terminateSync();
-        const syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc> =
-            syncMode == "sync" ? localDB.sync(db, { ...syncOptionBase }) :
-                (syncMode == "pullOnly" ? localDB.replicate.from(db, { ...syncOptionBase, ...(setting.readChunksOnline ? selectorOnDemandPull : {}) }) :
-                    syncMode == "pushOnly" ? localDB.replicate.to(db, { ...syncOptionBase, ...(setting.readChunksOnline ? selectorOnDemandPush : {}) }) : undefined as never)
-        const syncResult = await this.processSync(syncHandler, showResult, docSentOnStart, docArrivedOnStart, syncMode, retrying, false);
-        if (syncResult == "DONE") {
-            return true;
-        }
-        if (syncResult == "CANCELLED") {
-            return false;
-        }
-        if (syncResult == "FAILED") {
-            return false;
-        }
-        if (syncResult == "NEED_RESURRECT") {
-            this.terminateSync();
-            return await this.openOneShotReplication(this.originalSetting, showResult, false, syncMode, ignoreCleanLock);
-        }
-        if (syncResult == "NEED_RETRY") {
-            const tempSetting: RemoteDBSettings = JSON.parse(JSON.stringify(setting));
-            tempSetting.batch_size = Math.ceil(tempSetting.batch_size / 2) + 2;
-            tempSetting.batches_limit = Math.ceil(tempSetting.batches_limit / 2) + 2;
-            if (tempSetting.batch_size <= 5 && tempSetting.batches_limit <= 5) {
-                Logger("We can't replicate more lower value.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+        const next = await shareRunningResult("oneShotReplication", async () => {
+            if (this.controller) {
+                Logger("Replication is already in progress.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
                 return false;
-            } else {
-                Logger(`Retry with lower batch size:${tempSetting.batch_size}/${tempSetting.batches_limit}`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
-                return await this.openOneShotReplication(tempSetting, showResult, true, syncMode, ignoreCleanLock);
             }
+            const localDB = this.env.getDatabase()
+            Logger(`OneShot Sync begin... (${syncMode})`);
+            const ret = await this.checkReplicationConnectivity(setting, false, retrying, showResult, ignoreCleanLock);
+            if (ret === false) {
+                Logger("Could not connect to server.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
+                return false;
+            }
+            this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
+            this.maxPushSeq = Number(`${(await localDB.info()).update_seq}`.split("-")[0]);
+            if (showResult) {
+                Logger("Looking for the point last synchronized point.", LOG_LEVEL_NOTICE, "sync");
+            }
+            const { db, syncOptionBase } = ret;
+            this.syncStatus = "STARTED";
+            this.updateInfo();
+            const docArrivedOnStart = this.docArrived;
+            const docSentOnStart = this.docSent;
+            if (!retrying) {
+                // If initial replication, save setting to rollback
+                this.originalSetting = setting;
+            }
+            this.terminateSync();
+            const syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc> =
+                syncMode == "sync" ? localDB.sync(db, { ...syncOptionBase }) :
+                    (syncMode == "pullOnly" ? localDB.replicate.from(db, { ...syncOptionBase, ...(setting.readChunksOnline ? selectorOnDemandPull : {}) }) :
+                        syncMode == "pushOnly" ? localDB.replicate.to(db, { ...syncOptionBase, ...(setting.readChunksOnline ? selectorOnDemandPush : {}) }) : undefined as never)
+            const syncResult = await this.processSync(syncHandler, showResult, docSentOnStart, docArrivedOnStart, syncMode, retrying, false);
+            if (syncResult == "DONE") {
+                return true;
+            }
+            if (syncResult == "CANCELLED") {
+                return false;
+            }
+            if (syncResult == "FAILED") {
+                return false;
+            }
+            if (syncResult == "NEED_RESURRECT") {
+                this.terminateSync();
+                return async () => await this.openOneShotReplication(this.originalSetting, showResult, false, syncMode, ignoreCleanLock);
+            }
+            if (syncResult == "NEED_RETRY") {
+                const tempSetting: RemoteDBSettings = JSON.parse(JSON.stringify(setting));
+                tempSetting.batch_size = Math.ceil(tempSetting.batch_size / 2) + 2;
+                tempSetting.batches_limit = Math.ceil(tempSetting.batches_limit / 2) + 2;
+                if (tempSetting.batch_size <= 5 && tempSetting.batches_limit <= 5) {
+                    Logger("We can't replicate more lower value.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+                    return false;
+                } else {
+                    Logger(`Retry with lower batch size:${tempSetting.batch_size}/${tempSetting.batches_limit}`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+                    return async () => await this.openOneShotReplication(tempSetting, showResult, true, syncMode, ignoreCleanLock);
+                }
+            }
+            return false;
+        });
+        if (typeof next === "boolean") {
+            return next;
         }
-        return false;
+        return await next();
     }
 
     updateInfo: () => void = () => {
@@ -454,70 +461,75 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
 
     async openContinuousReplication(setting: RemoteDBSettings, showResult: boolean, retrying: boolean): Promise<boolean> {
-        if (this.controller) {
-            Logger("Replication is already in progress.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
-            return false;
-        }
-        const localDB = this.env.getDatabase();
-        Logger("Before LiveSync, start OneShot once...");
-        if (await this.openOneShotReplication(
-            setting,
-            showResult,
-            false,
-            "pullOnly"
-        )) {
-            Logger("LiveSync begin...");
-            const ret = await this.checkReplicationConnectivity(setting, true, true, showResult);
-            if (ret === false) {
-                Logger("Could not connect to server.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+        const next = await shareRunningResult("continuousReplication", async () => {
+            if (this.controller) {
+                Logger("Replication is already in progress.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
                 return false;
             }
-            if (showResult) {
-                Logger("Looking for the point last synchronized point.", LOG_LEVEL_NOTICE, "sync");
-            }
-            const { db, syncOption } = ret;
-            this.syncStatus = "STARTED";
-            this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
-            this.maxPushSeq = Number(`${(await localDB.info()).update_seq}`.split("-")[0]);
-            this.updateInfo();
-            const docArrivedOnStart = this.docArrived;
-            const docSentOnStart = this.docSent;
-            if (!retrying) {
-                //TODO if successfully saved, roll back org setting.
-                this.originalSetting = setting;
-            }
-            this.terminateSync();
-            const syncHandler = localDB.sync<EntryDoc>(db, {
-                ...syncOption
-            });
-            const syncMode = "sync";
-            const syncResult = await this.processSync(syncHandler, showResult, docSentOnStart, docArrivedOnStart, syncMode, retrying);
-
-            if (syncResult == "DONE") {
-                return true;
-            }
-            if (syncResult == "FAILED") {
-                return false;
-            }
-            if (syncResult == "NEED_RESURRECT") {
-                this.terminateSync();
-                return await this.openContinuousReplication(this.originalSetting, showResult, false);
-            }
-            if (syncResult == "NEED_RETRY") {
-                const tempSetting: RemoteDBSettings = JSON.parse(JSON.stringify(setting));
-                tempSetting.batch_size = Math.ceil(tempSetting.batch_size / 2) + 2;
-                tempSetting.batches_limit = Math.ceil(tempSetting.batches_limit / 2) + 2;
-                if (tempSetting.batch_size <= 5 && tempSetting.batches_limit <= 5) {
-                    Logger("We can't replicate more lower value.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+            const localDB = this.env.getDatabase();
+            Logger("Before LiveSync, start OneShot once...");
+            if (await this.openOneShotReplication(
+                setting,
+                showResult,
+                false,
+                "pullOnly"
+            )) {
+                Logger("LiveSync begin...");
+                const ret = await this.checkReplicationConnectivity(setting, true, true, showResult);
+                if (ret === false) {
+                    Logger("Could not connect to server.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
                     return false;
-                } else {
-                    Logger(`Retry with lower batch size:${tempSetting.batch_size}/${tempSetting.batches_limit}`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
-                    return await this.openContinuousReplication(tempSetting, showResult, true);
+                }
+                if (showResult) {
+                    Logger("Looking for the point last synchronized point.", LOG_LEVEL_NOTICE, "sync");
+                }
+                const { db, syncOption } = ret;
+                this.syncStatus = "STARTED";
+                this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
+                this.maxPushSeq = Number(`${(await localDB.info()).update_seq}`.split("-")[0]);
+                this.updateInfo();
+                const docArrivedOnStart = this.docArrived;
+                const docSentOnStart = this.docSent;
+                if (!retrying) {
+                    //TODO if successfully saved, roll back org setting.
+                    this.originalSetting = setting;
+                }
+                this.terminateSync();
+                const syncHandler = localDB.sync<EntryDoc>(db, {
+                    ...syncOption
+                });
+                const syncMode = "sync";
+                const syncResult = await this.processSync(syncHandler, showResult, docSentOnStart, docArrivedOnStart, syncMode, retrying);
+
+                if (syncResult == "DONE") {
+                    return true;
+                }
+                if (syncResult == "FAILED") {
+                    return false;
+                }
+                if (syncResult == "NEED_RESURRECT") {
+                    this.terminateSync();
+                    return async () => await this.openContinuousReplication(this.originalSetting, showResult, false);
+                }
+                if (syncResult == "NEED_RETRY") {
+                    const tempSetting: RemoteDBSettings = JSON.parse(JSON.stringify(setting));
+                    tempSetting.batch_size = Math.ceil(tempSetting.batch_size / 2) + 2;
+                    tempSetting.batches_limit = Math.ceil(tempSetting.batches_limit / 2) + 2;
+                    if (tempSetting.batch_size <= 5 && tempSetting.batches_limit <= 5) {
+                        Logger("We can't replicate more lower value.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+                        return false;
+                    } else {
+                        Logger(`Retry with lower batch size:${tempSetting.batch_size}/${tempSetting.batches_limit}`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+                        return async () => await this.openContinuousReplication(tempSetting, showResult, true);
+                    }
                 }
             }
-            // if (syncResult == "CANCELLED") 
+            return false;
+        });
+        if (typeof next === "boolean") {
+            return next;
         }
-        return false;
+        return await next();
     }
 
     closeReplication() {
