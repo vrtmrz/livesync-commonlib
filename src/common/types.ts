@@ -148,6 +148,10 @@ interface ObsidianLiveSyncSettings_PluginSetting {
 
     displayLanguage: I18N_LANGS;
 
+    enableChunkSplitterV2: boolean;
+    disableWorkerForGeneratingChunks: boolean;
+    processSmallFilesInUIThread: boolean;
+
 }
 
 export type BucketSyncSetting = {
@@ -202,6 +206,10 @@ export type RemoteDBSettings = CouchDBConnection & BucketSyncSetting & RemoteTyp
     maxChunksInEden: number;
     maxTotalLengthInEden: number;
     maxAgeInEden: number;
+
+    enableChunkSplitterV2: boolean;
+    disableWorkerForGeneratingChunks: boolean;
+    processSmallFilesInUIThread: boolean;
 }
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
@@ -308,6 +316,9 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     maxAgeInEden: 10,
     disableCheckingConfigMismatch: false,
     displayLanguage: "",
+    enableChunkSplitterV2: false,
+    disableWorkerForGeneratingChunks: false,
+    processSmallFilesInUIThread: false,
 };
 
 
@@ -417,6 +428,7 @@ export const TweakValuesShouldMatchedTemplate: Partial<ObsidianLiveSyncSettings>
     customChunkSize: 0,
     useDynamicIterationCount: false,
     hashAlg: "xxhash64",
+    enableChunkSplitterV2: true,
 }
 export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> = {
     maxChunksInEden: 10,
@@ -436,7 +448,7 @@ export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> =
     minimumIntervalOfReadChunksOnline: 50,
     ignoreFiles: ".gitignore",
     syncMaxSizeInMB: 50,
-
+    enableChunkSplitterV2: true,
 };
 
 
@@ -472,6 +484,10 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
     hashAlg: {
         name: "The Hash algorithm for chunk IDs", status: "EXPERIMENTAL"
     },
+    enableChunkSplitterV2: {
+        name: "Use splitting-limit-capped chunk splitter",
+        desc: "If enabled, chunks will be split into no more than 100 items. However, dedupe is slightly weaker."
+    }
 }
 export type ConfigurationItem = {
     name: string,

@@ -8,7 +8,7 @@ import {
     base64ToArrayBuffer,
     tryConvertBase64ToArrayBuffer,
     writeString
-} from "../string_and_binary/strbin.ts";
+} from "../string_and_binary/convert.ts";
 import {
     VER,
     VERSIONINFO_DOCID,

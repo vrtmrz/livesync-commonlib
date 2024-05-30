@@ -1,12 +1,13 @@
 /**
  * The API for manipulating files stored in the CouchDB by Self-hosted LiveSync or its families.
  */
-
+//TODO ADJUST TO Using LiveSyncDBFunction.ts
 import { LRUCache } from "../memory/LRUCache.ts";
 import { encrypt, decrypt, obfuscatePath } from "../encryption/e2ee_v2.ts";
 import { LEVEL_DEBUG, LEVEL_INFO, LEVEL_VERBOSE, Logger } from "../common/logger.ts";
 import { path2id_base, shouldSplitAsPlainText } from "../string_and_binary/path.ts";
-import { decodeBinary, splitPieces2 } from "../string_and_binary/strbin.ts";
+import { decodeBinary } from "../string_and_binary/convert.ts";
+import { splitPieces2 } from "../string_and_binary/chunks.ts";
 import { type Task, processAllTasksWithConcurrencyLimit } from "../concurrency/task.ts";
 import { type DocumentID, type FilePathWithPrefix, MAX_DOC_SIZE_BIN, type NewEntry, type PlainEntry, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../common/types.ts";
 import { default as xxhash, type XXHashAPI } from "xxhash-wasm-102";
@@ -309,7 +310,8 @@ export class DirectFileManipulator {
             ctime: info.ctime,
             mtime: info.mtime,
             size: info.size,
-            type: type
+            type: type,
+            eden: {}
         })
         // to update, retrieve the latest revision
         const oldData = await this.getById(id, true);
@@ -347,7 +349,8 @@ export class DirectFileManipulator {
             size: 0,
             type: oldData.type,
             deleted: true,
-            data: "data" in oldData ? oldData.data : []
+            data: "data" in oldData ? oldData.data : [],
+            eden: {}
         });
         const ret = await this._fetchJson([id], {}, "put", newData);
         if (ret?.ok) {
@@ -510,9 +513,9 @@ export class DirectFileManipulator {
                     try {
                         const lineData = JSON.parse(chunk);
                         await this.processJSONL("WATCH", lineData, callback, checkIsInterested);
-                    } catch (ex) {
+                    } catch (ex: any) {
                         // console.log(chunk);
-                        if (ex.name == "AbortError") {
+                        if (ex?.name == "AbortError") {
                             Logger(`WATCH: ABORTED`, LEVEL_VERBOSE, "watch");
                             this.watching = false;
                         } else {

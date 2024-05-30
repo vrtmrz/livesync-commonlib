@@ -1,7 +1,7 @@
 import { LRUCache } from "../memory/LRUCache.ts";
 import { isPlainText } from "../string_and_binary/path.ts";
 import { Semaphore } from "../concurrency/semaphore.ts";
-import { arrayBufferToBase64Single, decodeBinary, writeString } from "../string_and_binary/strbin.ts";
+import { arrayBufferToBase64Single, decodeBinary, writeString } from "../string_and_binary/convert.ts";
 import { type AnyEntry, type DatabaseEntry, type EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED, SYNCINFO_ID, type SyncInfo, RESULT_TIMED_OUT, type WithTimeout, type LoadedEntry, type SavingEntry, type NewEntry, type PlainEntry } from "./types.ts";
 import { isErrorOfMissingDoc } from "../pouchdb/utils_couchdb.ts";
 

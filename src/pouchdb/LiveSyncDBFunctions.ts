@@ -2,7 +2,11 @@ import { serialized } from "../concurrency/lock.ts";
 import { Logger } from "../common/logger.ts";
 import { LRUCache } from "../memory/LRUCache.ts";
 import { shouldSplitAsPlainText, stripAllPrefixes } from "../string_and_binary/path.ts";
-import { sha1, splitPieces2 } from "../string_and_binary/strbin.ts";
+
+import { splitPieces2Worker, splitPieces2WorkerV2 } from "../worker/splitWorker.ts";
+import { splitPieces2, splitPieces2V2 } from "../string_and_binary/chunks.ts";
+import { sha1 } from "../string_and_binary/hash.ts";
+
 import {
     type EntryDoc,
     type EntryDocResponse,
@@ -46,7 +50,9 @@ interface DBFunctionSettings {
     maxChunksInEden: number;
     maxTotalLengthInEden: number;
     maxAgeInEden: number;
-
+    enableChunkSplitterV2: boolean;
+    disableWorkerForGeneratingChunks: boolean;
+    processSmallFilesInUIThread: boolean;
 }
 
 // This interface is expected to be unnecessary because of the change in dependency direction
@@ -163,8 +169,15 @@ export async function putDBEntry(
     const data = (note.data instanceof Blob) ? note.data : createTextBlob(note.data);
     note.type = isTextBlob(data) ? "plain" : "newnote";
     note.datatype = note.type;
+    const maxSize = 1024;
 
-    const pieces = await splitPieces2(data, pieceSize, plainSplit, minimumChunkSize, filename);
+    const splitFuncInMainThread = (env.settings.enableChunkSplitterV2 ? splitPieces2V2 : splitPieces2);
+    const splitFuncInWorker = (env.settings.enableChunkSplitterV2 ? splitPieces2WorkerV2 : splitPieces2Worker);
+
+    const splitFunc = env.settings.disableWorkerForGeneratingChunks ? splitFuncInMainThread
+        : (env.settings.processSmallFilesInUIThread && note.data.size < maxSize) ? splitFuncInMainThread : splitFuncInWorker;
+
+    const pieces = await splitFunc(data, pieceSize, plainSplit, minimumChunkSize, filename);
     const chunkTasks = [];
 
     for await (const piece of pieces()) {

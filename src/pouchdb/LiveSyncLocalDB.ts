@@ -26,7 +26,7 @@ import { LRUCache } from "../memory/LRUCache.ts";
 
 import { putDBEntry, getDBEntry, getDBEntryMeta, deleteDBEntry, deleteDBEntryPrefix, type DBFunctionEnvironment, getDBEntryFromMeta } from "./LiveSyncDBFunctions.ts";
 import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
-import { writeString } from "../string_and_binary/strbin.ts";
+import { writeString } from "../string_and_binary/convert.ts";
 import { QueueProcessor } from "../concurrency/processor.ts";
 import { collectingChunks } from "../mock_and_interop/stores.ts";
 
@@ -347,6 +347,17 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
 
     }
 
+    async *findAllChunks(opt?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
+        const targets = [
+            () => this.findEntries("h:", `h:\u{10ffff}`, opt ?? {}),
+        ]
+        for (const targetFun of targets) {
+            const target = targetFun();
+            for await (const f of target) {
+                yield f;
+            }
+        }
+    }
 
     async *findEntries(startKey: string, endKey: string, opt: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
         const pageLimit = 100;

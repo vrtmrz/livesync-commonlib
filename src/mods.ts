@@ -2,8 +2,8 @@
 import { webcrypto as crypto_ } from "crypto";
 let webcrypto: Crypto;
 
-if (typeof window !== "undefined" && window.crypto) {
-    webcrypto = window.crypto;
+if (globalThis.crypto) {
+    webcrypto = globalThis.crypto;
 } else {
     const crypto = crypto_;
     //@ts-ignore
