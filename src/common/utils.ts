@@ -319,7 +319,7 @@ export function fireAndForget(p: Promise<any> | (() => Promise<any>)) {
     p.then(noop).catch(noop);
 }
 
-export function isObjectDifferent(a: any, b: any): boolean {
+export function isObjectDifferent(a: any, b: any, ignoreUndefined: boolean = false): boolean {
     if (typeof a !== typeof b) {
         return true;
     }
@@ -328,6 +328,9 @@ export function isObjectDifferent(a: any, b: any): boolean {
             return a !== b;
         }
         const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])];
+        if (ignoreUndefined) {
+            return keys.map(key => a?.[key] !== undefined && b?.[key] !== undefined && isObjectDifferent(a?.[key], b?.[key])).some(e => e == true);
+        }
         return keys.map(key => isObjectDifferent(a?.[key], b?.[key])).some(e => e == true);
     } else {
         return a !== b;

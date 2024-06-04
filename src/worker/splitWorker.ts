@@ -57,7 +57,7 @@ function _splitPieces2Worker(dataSrc: Blob, pieceSize: number, plainSplit: boole
             if (buf.length > 0) {
                 const item = buf.shift();
                 buffers.set(_key, buf);
-                if (!item) {
+                if (item === undefined) {
                     buffers.delete(_key);
                     return;
                 }

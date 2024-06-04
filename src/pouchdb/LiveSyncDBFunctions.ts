@@ -767,7 +767,7 @@ export async function ensureRemoteIsCompatible(infoSrc: EntryMilestoneInfo | fal
         const othersTweakValues = tweakValueList.map(e => e.all);
         const currentShouldMatchedTweakValues = extractObject(TweakValuesShouldMatchedTemplate, currentTweakValues);
         for (const items of tweakValueList) {
-            if (isObjectDifferent(items.shouldBeMatched, currentShouldMatchedTweakValues)) {
+            if (isObjectDifferent(items.shouldBeMatched, currentShouldMatchedTweakValues, true)) {
                 return ["MISMATCHED", othersTweakValues];
             }
         }
