@@ -1,3 +1,4 @@
+import { promiseWithResolver } from "../common/utils";
 export type TaskProcessing<T> = Promise<T>;
 export type TaskWaiting<T> = () => Promise<T>;
 export type Task<T> = TaskProcessing<T> | TaskWaiting<T>;
@@ -170,4 +171,52 @@ export function cancelAllPeriodicTask() {
         clearInterval(intervals[v]);
         delete intervals[v];
     }
+}
+
+
+type WaitingItem = {
+    waitFrom: number,
+    timeout: number,
+    timeoutPromise: ReturnType<typeof promiseWithResolver<boolean>>;
+    timer: ReturnType<typeof setTimeout>
+}
+const waitingItems = new Map<string, WaitingItem>();
+
+export function waitForTimeout(key: string, timeout: number) {
+    if (waitingItems.has(key)) {
+        return waitingItems.get(key)!.timeoutPromise.promise;
+    }
+    const timeoutPromise = promiseWithResolver<boolean>();
+    const timer = setTimeout(() => {
+        finishWaitingForTimeout(key, true);
+    }, timeout);
+    waitingItems.set(key, {
+        waitFrom: Date.now(),
+        timeout,
+        timeoutPromise: timeoutPromise,
+        timer
+    });
+    return timeoutPromise.promise
+}
+export function finishWaitingForTimeout(key: string, hasTimeout: boolean = false) {
+    const x = waitingItems.get(key);
+    if (x) {
+        if (x.timer) clearTimeout(x.timer);
+        x.timeoutPromise.resolve(hasTimeout);
+        waitingItems.delete(key);
+        return true;
+    }
+    return false;
+}
+export function finishAllWaitingForTimeout(prefix: string, hasTimeout: boolean) {
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    for (const [key, _] of waitingItems) {
+        if (key.startsWith(prefix)) {
+            finishWaitingForTimeout(key, hasTimeout);
+        }
+    }
+}
+
+export function isWaitingForTimeout(key: string) {
+    return waitingItems.has(key);
 }

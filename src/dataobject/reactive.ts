@@ -6,6 +6,8 @@ import { isObjectDifferent } from "../common/utils.ts";
 let context: ReactiveInstance<any> | undefined;
 export type ReactiveChangeHandler<T> = (instance: ReactiveInstance<T>) => unknown;
 
+export type ReactiveExpression<T> = (prev?: T) => T;
+
 export type ReactiveValue<T> = {
     readonly value: T;
     onChanged: (handler: ReactiveChangeHandler<T>) => void;
@@ -20,6 +22,7 @@ export type ReactiveSource<T> = {
 export type ReactiveInstance<T> = {
     readonly value: T;
     markDirty(): void;
+    rippleChanged(): void;
 }
 
 export function reactiveSource<T>(initialValue: T): ReactiveSource<T> {
@@ -40,26 +43,31 @@ function _reactive<T>({ expression, initialValue }: reactiveParams<T>): Reactive
     let value: T;
     let _isDirty = false;
 
-    const callbacks = new Set<((value: ReactiveInstance<T>) => unknown)>;
-    const instance = {
-        depends: new Set<ReactiveInstance<unknown>>(),
+    const changeHandlers = new Set<((value: ReactiveInstance<T>) => unknown)>;
 
-        evalCount: 0,
-        readCount: 0,
+    const instance = {
+        myContext: new Set<ReactiveInstance<unknown>>(),
         markDirty() {
             _isDirty = true;
             instance.markDependedDirty();
-            callbacks.forEach(e => e(instance));
+        },
+        rippleChanged() {
+            changeHandlers.forEach(e => e(instance));
+            instance.myContext.forEach(e => e.rippleChanged())
         },
         markClean() {
             _isDirty = false;
         },
         markDependedDirty() {
-            instance.depends.forEach(e => e.markDirty())
+            instance.myContext.forEach(e => e.markDirty())
+        },
+        get isDirty() {
+            return _isDirty;
         },
         get value(): T {
             if (context) {
-                instance.depends.add(context);
+                instance.myContext.add(context);
+                // instance.markDirty(true);
             }
             if (!expression) {
                 return value;
@@ -79,13 +87,15 @@ function _reactive<T>({ expression, initialValue }: reactiveParams<T>): Reactive
             if (isObjectDifferent(value, newValue)) {
                 value = newValue;
                 instance.markDirty();
+                instance.rippleChanged();
             }
         },
         onChanged(handler: ReactiveChangeHandler<T>) {
-            callbacks.add(handler);
+            changeHandlers.add(handler);
+            instance.markDirty();
         },
         offChanged(handler: ReactiveChangeHandler<T>) {
-            callbacks.delete(handler);
+            changeHandlers.delete(handler);
         }
     }
 
@@ -101,4 +111,9 @@ function _reactive<T>({ expression, initialValue }: reactiveParams<T>): Reactive
     }
 
     return instance;
+}
+
+export function computed<T>(expression: ReactiveExpression<T>) {
+    const v = reactive(expression);
+    return () => v.value;
 }

@@ -103,6 +103,8 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     doNotDeleteFolder: boolean;
     resolveConflictsByNewerFile: boolean;
     batchSave: boolean;
+    batchSaveMinimumDelay: number;
+    batchSaveMaximumDelay: number;
     deviceAndVaultName: string;
     usePluginSettings: boolean;
     showOwnPlugins: boolean;
@@ -243,6 +245,8 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     doNotDeleteFolder: false,
     resolveConflictsByNewerFile: false,
     batchSave: false,
+    batchSaveMinimumDelay: 5,
+    batchSaveMaximumDelay: 60,
     deviceAndVaultName: "",
     usePluginSettings: false,
     showOwnPlugins: false,
@@ -473,7 +477,7 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
     useEden: {
         name: "Incubate Chunks in Document",
         desc: "If enabled, newly created chunks are temporarily kept within the document, and graduated to become independent chunks once stabilised.",
-        status: "ALPHA"
+        status: "BETA"
     },
     customChunkSize: {
         name: "Enhance chunk size"
@@ -493,7 +497,7 @@ export type ConfigurationItem = {
     name: string,
     desc?: string,
     placeHolder?: string,
-    status?: "BETA" | "ALPHA" | "EXPERIMENTAL",
+    status?: "BETA" | "ALPHA" | "EXPERIMENTAL"
 }
 
 
