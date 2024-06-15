@@ -139,7 +139,7 @@ export const allMessages: Record<string, MESSAGE> = {
     "End-to-End Encryption": {
         zh: "端到端加密",
     },
-    "Encrypt contents on the remote database. If you use the plugin's synchronization feature, enabling this is recommend.": {
+    "Encrypt contents on the remote database. If you use the plugin's synchronization feature, enabling this is recommended.": {
         zh: "加密远程数据库中的内容。如果您使用插件的同步功能，则建议启用此功能。",
     },
     "Passphrase": {
