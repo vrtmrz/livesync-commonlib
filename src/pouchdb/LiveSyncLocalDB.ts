@@ -1,7 +1,5 @@
 //
-import { default as xxhashOld, type Exports } from "xxhash-wasm";
-import { default as xxhashNew } from "../../patched_xxhash_wasm/xxhash-wasm.js";
-import type { XXHashAPI } from "xxhash-wasm-102";
+import { xxhashOld, xxhashNew } from "octagonal-wheels/hash/xxhash";
 import {
     type EntryDoc,
     type EntryLeaf, type LoadedEntry,
@@ -168,7 +166,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             return;
         }
         try {
-            const { h32ToString, h32Raw, h32, h64 } = await (xxhashNew as unknown as () => Promise<XXHashAPI>)();
+            const { h32ToString, h32Raw, h32, h64 } = await xxhashNew();
             this.xxhash64 = h64;
             this.xxhash32 = h32;
             this.h32 = h32ToString;
@@ -179,8 +177,8 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             Logger(ex);
             try {
                 this.xxhash64 = false;
-                const { h32, h32Raw } = (await xxhashOld()) as unknown as Exports;
-                this.h32 = h32;
+                const { h32, h32Raw } = (await xxhashOld());
+                this.h32 = h32 as typeof xxhashNew.prototype.h32ToString;
                 this.h32Raw = h32Raw;
                 this.xxhash32 = (str) => h32Raw(writeString(str));
             } catch (ex) {

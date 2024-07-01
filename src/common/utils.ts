@@ -2,23 +2,30 @@ import { LRUCache } from "../memory/LRUCache.ts";
 import { isPlainText } from "../string_and_binary/path.ts";
 import { Semaphore } from "../concurrency/semaphore.ts";
 import { arrayBufferToBase64Single, decodeBinary, writeString } from "../string_and_binary/convert.ts";
-import { type AnyEntry, type DatabaseEntry, type EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED, SYNCINFO_ID, type SyncInfo, RESULT_TIMED_OUT, type WithTimeout, type LoadedEntry, type SavingEntry, type NewEntry, type PlainEntry } from "./types.ts";
+import { type AnyEntry, type DatabaseEntry, type EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED, SYNCINFO_ID, type SyncInfo, type LoadedEntry, type SavingEntry, type NewEntry, type PlainEntry } from "./types.ts";
 import { isErrorOfMissingDoc } from "../pouchdb/utils_couchdb.ts";
+import { replaceAll, replaceAllPairs } from "octagonal-wheels/string";
+export { replaceAll, replaceAllPairs }
+import { concatUInt8Array } from "octagonal-wheels/binary";
+export { concatUInt8Array };
 
-function polyfillPromiseWithResolvers<T>() {
-    let resolve!: Parameters<ConstructorParameters<typeof Promise<T>>[0]>[0];
-    let reject!: Parameters<ConstructorParameters<typeof Promise<T>>[0]>[1];
-    const promise = new Promise<T>((res, rej) => {
-        resolve = res;
-        reject = rej;
-    });
-    return { promise, resolve, reject }
-}
+import { delay, fireAndForget } from "octagonal-wheels/promises";
+export { delay, fireAndForget }
 
-// //@ts-ignore
-// export const promiseWithResolver: typeof polyfillPromiseWithResolvers = typeof Promise.withResolvers === "function" ? Promise.withResolvers : polyfillPromiseWithResolvers;
+import { arrayToChunkedArray, unique } from "octagonal-wheels/collection";
+export { arrayToChunkedArray, unique }
 
-export const promiseWithResolver = polyfillPromiseWithResolvers;
+import { extractObject, isObjectDifferent } from "octagonal-wheels/object";
+export { extractObject, isObjectDifferent }
+
+import { sendValue, sendSignal, waitForSignal, waitForValue } from "octagonal-wheels/messagepassing/signal";
+export { sendValue, sendSignal, waitForSignal, waitForValue }
+
+import { throttle } from "octagonal-wheels/function";
+export { throttle }
+
+import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
+export type { SimpleStore }
 
 export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T> {
     return new Promise((res, rej) => {
@@ -26,14 +33,6 @@ export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T
     });
 }
 
-// time util
-export const delay = <T>(ms: number, result?: T): Promise<T> => {
-    return new Promise((res) => {
-        setTimeout(() => {
-            res(result!);
-        }, ms);
-    });
-};
 
 // Referenced below
 // https://zenn.dev/sora_kumo/articles/539d7f6e7f3c63
@@ -59,21 +58,12 @@ export function getDocData(doc: string | string[]) {
 export function getDocDataAsArray(doc: string | string[]) {
     return typeof (doc) == "string" ? [doc] : doc
 }
-export function joinUInt8Array(arrays: Uint8Array[]) {
-    const len = arrays.reduce((p, c) => p + c.byteLength, 0);
-    const ret = new Uint8Array(len);
-    let i = 0;
-    for (const arr of arrays) {
-        ret.set(arr, i);
-        i += arr.length;
-    }
-    return ret;
-}
+
 export function getDocDataAsArrayBuffer(doc: string | string[] | ArrayBuffer) {
     if (doc instanceof ArrayBuffer) return new Uint8Array(doc);
     const docData = getDocDataAsArray(doc);
     const s = docData.map(e => writeString(e));
-    return joinUInt8Array(s);
+    return concatUInt8Array(s);
 }
 
 export function isTextBlob(blob: Blob) {
@@ -183,45 +173,6 @@ export function memorizeFuncWithLRUCacheMulti<T extends Array<any>, U>(func: (..
     };
 }
 
-const traps = {} as { [key: string]: ((param: any) => void)[]; }
-export async function waitForSignal(id: string, timeout?: number): Promise<boolean> {
-    return await waitForValue(id, timeout) !== RESULT_TIMED_OUT;
-}
-export function waitForValue<T>(id: string, timeout?: number): Promise<WithTimeout<T>> {
-    let resolveTrap: ((result: WithTimeout<T>) => void) | undefined;
-    let trapJob: (() => void) | ((param: T) => void);
-    const timer = timeout ? setTimeout(() => {
-        if (id in traps) {
-            traps[id] = traps[id].filter(e => e != trapJob);
-        }
-        if (resolveTrap) resolveTrap(RESULT_TIMED_OUT);
-        resolveTrap = undefined;
-    }, timeout) : false
-    return new Promise((res) => {
-        if (!(id in traps)) traps[id] = [];
-        resolveTrap = res;
-        trapJob = (result: T) => {
-            if (timer) clearTimeout(timer);
-            res(result);
-        }
-        traps[id].push(trapJob);
-    });
-}
-
-export function sendSignal(key: string) {
-    sendValue(key, true);
-}
-export function sendValue<T>(key: string, result: T) {
-    if (!(key in traps)) {
-        return;
-    }
-    const trap = traps[key];
-    delete traps[key];
-    for (const resolver of trap) {
-        resolver(result);
-    }
-}
-
 /**
  * 
  * @param exclusion return only not exclusion
@@ -302,42 +253,6 @@ export async function runWithStartInterval<T>(key: string, interval: number, tas
 
 export const globalConcurrencyController = Semaphore(50);
 
-export function* arrayToChunkedArray<T>(arr: T[], chunkLength: number) {
-    const source = [...arr];
-    while (source.length) {
-        const s = source.splice(0, chunkLength);
-        yield s;
-    }
-}
-
-export function unique<T>(arr: T[]) {
-    return [...new Set<T>(arr)]
-}
-export const noop = () => {/* NO OP */ };
-export function fireAndForget(p: Promise<any> | (() => Promise<any>)) {
-    if (typeof p == "function") return fireAndForget(p());
-    p.then(noop).catch(noop);
-}
-
-export function isObjectDifferent(a: any, b: any, ignoreUndefined: boolean = false): boolean {
-    if (typeof a !== typeof b) {
-        return true;
-    }
-    if (typeof a === "object") {
-        if (a === null || b === null) {
-            return a !== b;
-        }
-        const keys = [...new Set([...Object.keys(a), ...Object.keys(b)])];
-        if (ignoreUndefined) {
-            return keys.map(key => a?.[key] !== undefined && b?.[key] !== undefined && isObjectDifferent(a?.[key], b?.[key])).some(e => e == true);
-        }
-        return keys.map(key => isObjectDifferent(a?.[key], b?.[key])).some(e => e == true);
-    } else {
-        return a !== b;
-    }
-}
-
-
 export function determineTypeFromBlob(data: Blob): "newnote" | "plain" {
     return isTextBlob(data) ? "plain" : "newnote";
 }
@@ -367,47 +282,6 @@ export function createSavingEntryFromLoadedEntry(doc: LoadedEntry): SavingEntry 
     }
 }
 
-type ThrottledFunction<T extends (...args: any[]) => any> = (...args: Parameters<T>) => void;
-
-export const throttle = <T extends (...args: any[]) => any>(func: T, timeout: number): ThrottledFunction<T> => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    let lastTime: number = 0; // initialize lastTime to 0
-    return (...args: Parameters<T>) => {
-
-        if (!lastTime) {
-            func(...args);
-            lastTime = Date.now();
-        } else {
-            clearTimeout(timer);
-            const delayTime = timeout - (Date.now() - lastTime);
-            timer = setTimeout(() => {
-                func(...args);
-                lastTime = Date.now();
-            }, delayTime);
-        }
-    };
-};
-
-/**
- * Extracting objects as like filling a template
- * @param template 
- * @param obj 
- * @returns 
- */
-export function extractObject<T>(template: T, obj: T): T {
-    const ret = { ...template };
-    for (const key in ret) {
-        ret[key] = obj[key];
-    }
-    return ret;
-}
-
-export interface SimpleStore<T> {
-    get(key: string): Promise<T | undefined>;
-    set(key: string, value: T): Promise<void>;
-    delete(key: string): Promise<void>;
-    keys(from: string | undefined, to: string | undefined, count?: number): Promise<string[]>;
-}
 
 
 export function setAllItems<T>(set: Set<T>, items: T[]) {
@@ -415,33 +289,6 @@ export function setAllItems<T>(set: Set<T>, items: T[]) {
     return set;
 }
 
-
-export function concatUInt8Array(arrays: Uint8Array[]) {
-    const length = arrays.reduce((acc, cur) => acc + cur.length, 0);
-    const result = new Uint8Array(length);
-    let pos = 0;
-    for (const array of arrays) {
-        result.set(array, pos);
-        pos += array.length;
-    }
-    return result;
-}
-
-export function replaceAll(str: string, search: string, replace: string) {
-    if ("replaceAll" in String.prototype) {
-        //@ts-ignore
-        return str.replaceAll(search, replace);
-    }
-    return str.split(search).join(replace);
-}
-
-export function replaceAllPairs(str: string, ...fromTo: [from: string, to: string][]) {
-    let r = `${str}`;
-    for (const [from, to] of fromTo) {
-        r = replaceAll(r, from, to);
-    }
-    return r;
-}
 
 export function escapeNewLineFromString(str: string) {
     if (str.indexOf("\n") < 0) {

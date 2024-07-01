@@ -1,10 +1,11 @@
 import type { I18N_LANGS } from "./rosetta";
 
-// Utility types
-declare const __tag: unique symbol;
-type TaggedType<T, U extends string> = T & { [__tag]: U };
+import type { TaggedType } from "octagonal-wheels/common/types";
+export type { TaggedType };
 
-
+export { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_URGENT, LOG_LEVEL_VERBOSE, type LOG_LEVEL } from "octagonal-wheels/common/logger";
+import { RESULT_NOT_FOUND, RESULT_TIMED_OUT } from "octagonal-wheels/common/const";
+export { RESULT_NOT_FOUND, RESULT_TIMED_OUT };
 type ExtractPropertiesByType<T, U> = {
     [K in keyof T as T[K] extends U ? K : never]: T[K] extends U ? K : never
 }
@@ -32,11 +33,6 @@ export const RECENT_MOFIDIED_DOCS_QTY = 30;
 export const LEAF_WAIT_TIMEOUT = 90000; // in synchronization, waiting missing leaf time out.
 export const REPLICATION_BUSY_TIMEOUT = 3000000;
 
-export const LOG_LEVEL_DEBUG = -1;
-export const LOG_LEVEL_VERBOSE = 1;
-export const LOG_LEVEL_INFO = 10;
-export const LOG_LEVEL_NOTICE = 100;
-export const LOG_LEVEL_URGENT = 1000;
 
 
 // Magic Special value for arguments or results.
@@ -47,17 +43,6 @@ export const NOT_CONFLICTED = Symbol("not_conflicted");
 export const MISSING_OR_ERROR = Symbol("missing_or_error");
 export const LEAVE_TO_SUBSEQUENT = Symbol("leave_to_subsequent_proc");
 export const TIME_ARGUMENT_INFINITY = Symbol("infinity")
-export const RESULT_TIMED_OUT = Symbol("timed out")
-export const RESULT_NOT_FOUND = Symbol("NotFound")
-export type LOG_LEVEL = typeof LOG_LEVEL_DEBUG | typeof LOG_LEVEL_VERBOSE | typeof LOG_LEVEL_INFO | typeof LOG_LEVEL_NOTICE | typeof LOG_LEVEL_URGENT;
-
-export const LOG_LEVEL = {
-    DEBUG: LOG_LEVEL_DEBUG,
-    VERBOSE: LOG_LEVEL_VERBOSE,
-    INFO: LOG_LEVEL_INFO,
-    NOTICE: LOG_LEVEL_NOTICE,
-    URGENT: LOG_LEVEL_URGENT,
-} as const;
 
 export const VERSIONINFO_DOCID = "obsydian_livesync_version" as DocumentID;
 export const MILSTONE_DOCID = "_local/obsydian_livesync_milestone" as DocumentID;
@@ -630,5 +615,3 @@ export const SALT_OF_PASSPHRASE = "rHGMPtr6oWw7VSa3W3wpa8fT8U";
 export const PREFIX_OBFUSCATED = "f:";
 export const PREFIX_CHUNK = "h:";
 export const PREFIX_ENCRYPTED_CHUNK = "h:+";
-export type WithTimeout<T> = T | typeof RESULT_TIMED_OUT;
-export type WithNotFound<T> = T | typeof RESULT_NOT_FOUND;

@@ -1,6 +1,6 @@
 import { QueueProcessor } from "../concurrency/processor.ts";
 import { reactiveSource } from "../dataobject/reactive.ts";
-import { LOG_LEVEL } from "../common/types.ts";
+import type { LOG_LEVEL } from "../common/types.ts";
 
 export type LockStats = {
     pending: string[],
