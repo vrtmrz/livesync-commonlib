@@ -1,4 +1,4 @@
-import { decrypt, encrypt, obfuscatePath } from "../encryption/e2ee_v2.ts";
+import { decrypt, encrypt, isPathProbablyObfuscated, obfuscatePath } from "../encryption/e2ee_v2.ts";
 import { serialized } from "../concurrency/lock.ts";
 import { Logger } from "../common/logger.ts";
 import { getPath } from "../string_and_binary/path.ts";
@@ -257,7 +257,10 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
             }
             if (isObfuscatedEntry(saveDoc)) {
                 try {
-                    saveDoc.path = await obfuscatePath(getPath(saveDoc), passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
+                    const path = getPath(saveDoc);
+                    if (!isPathProbablyObfuscated(path)) {
+                        saveDoc.path = await obfuscatePath(path, passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
+                    }
                 } catch (ex) {
                     Logger("Encryption failed.", LOG_LEVEL_NOTICE);
                     Logger(ex);
@@ -282,7 +285,10 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                         loadDoc.data = await decrypt(loadDoc.data, passphrase, useDynamicIterationCount);
                     }
                     if (_isObfuscatedEntry) {
-                        loadDoc.path = await decrypt(getPath(loadDoc), passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
+                        const path = getPath(loadDoc);
+                        if (isPathProbablyObfuscated(path)) {
+                            loadDoc.path = await decrypt(path, passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
+                        }
                     }
                     if (_shouldDecryptEden) {
                         loadDoc.eden = JSON.parse(await decrypt(loadDoc.eden[EDEN_ENCRYPTED_KEY].data, passphrase, useDynamicIterationCount));
@@ -297,7 +303,10 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                                 loadDoc.data = await decrypt(loadDoc.data, passphrase, false);
                             }
                             if (_isObfuscatedEntry) {
-                                loadDoc.path = await decrypt(getPath(loadDoc), passphrase, false) as unknown as FilePathWithPrefix;
+                                const path = getPath(loadDoc);
+                                if (isPathProbablyObfuscated(path)) {
+                                    loadDoc.path = await decrypt(path, passphrase, false) as unknown as FilePathWithPrefix;
+                                }
                             }
                             if (_shouldDecryptEden) {
                                 loadDoc.eden = JSON.parse(await decrypt(loadDoc.eden[EDEN_ENCRYPTED_KEY].data, passphrase, false));

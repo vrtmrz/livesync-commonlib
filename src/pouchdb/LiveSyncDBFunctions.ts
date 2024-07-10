@@ -38,7 +38,7 @@ import { createTextBlob, extractObject, isObjectDifferent, isTextBlob, resolveWi
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
 
-interface DBFunctionSettings {
+export interface DBFunctionSettings {
     minimumChunkSize: number;
     encrypt: boolean;
     passphrase: string;
@@ -256,7 +256,7 @@ export async function putDBEntry(
         let alreadyIndependent = 0;
         let independent = 0;
         //No.1
-        const edenChunkExist = await env.localDatabase.allDocs({ keys: allEdenChunksKey });
+        const edenChunkExist = await env.localDatabase.allDocs({ keys: allEdenChunksKey as DocumentID[] });
         const edenChunkOnDB = edenChunkExist.rows.reduce((p, c) => ({ ...p, [c.key]: c }), {} as Record<string, any>);
         for (const [key, chunk] of allEdenChunks) {
             count++;
@@ -634,7 +634,7 @@ export async function deleteDBEntryPrefix(env: DBFunctionEnvironment, prefix: Fi
     let readCount = 0;
     const delDocs: DocumentID[] = [];
     do {
-        const result = await env.localDatabase.allDocs<EntryDoc>({
+        const result = await env.localDatabase.allDocs({
             include_docs: false,
             skip: c,
             limit: 100,
