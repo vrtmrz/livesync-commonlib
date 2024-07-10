@@ -9,13 +9,13 @@ import { type DocumentID, type FilePathWithPrefix, type EntryHasPath, type FileP
 
 import { PouchDB } from "../pouchdb/pouchdb-http.ts";
 import { deleteDBEntry, getDBEntryFromMeta, getDBEntryMeta, putDBEntry, type DBFunctionEnvironment, type DBFunctionSettings } from "../pouchdb/LiveSyncDBFunctions.ts";
-import { enableEncryption, isErrorOfMissingDoc } from "../pouchdb/utils_couchdb.ts";
-import { sendValue, waitForValue } from "octagonal-wheels/messagepassing/signal";
+import { enableCompression, enableEncryption, isErrorOfMissingDoc } from "../pouchdb/utils_couchdb.ts";
+import { sendValue, waitForValue } from "octagonal-wheels/messagepassing/signal.js";
 import { RESULT_TIMED_OUT } from "octagonal-wheels/common/const.js";
-import { LEVEL_INFO, LEVEL_VERBOSE, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
-import { QueueProcessor } from "octagonal-wheels/concurrency/processor";
+import { LEVEL_INFO, LEVEL_VERBOSE, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger.js";
+import { QueueProcessor } from "octagonal-wheels/concurrency/processor.js";
 import { createBlob, determineTypeFromBlob, onlyNot } from "../common/utils.ts";
-import { xxhashNew } from "octagonal-wheels/hash/xxhash";
+import { xxhashNew } from "octagonal-wheels/hash/xxhash.js";
 export type DirectFileManipulatorOptions = {
     url: string,
     username: string,
@@ -32,6 +32,7 @@ export type DirectFileManipulatorOptions = {
     maxTotalLengthInEden: number;
     maxAgeInEden: number;
     enableChunkSplitterV2: boolean;
+    enableCompression: boolean;
 }
 
 export type ReadyEntry = (NewEntry | PlainEntry) & { data: string[] };
@@ -72,6 +73,8 @@ export class DirectFileManipulator implements DBFunctionEnvironment {
         this.options = options;
         this.localDatabase = new PouchDB(this.options.url + "/" + this.options.database,
             { auth: { username: this.options.username, password: this.options.password } });
+
+        enableCompression(this.localDatabase, this.options.enableCompression);
         if (this.options.passphrase) {
             enableEncryption(this.localDatabase, this.options.passphrase, this.options.useDynamicIterationCount ?? false, false);
         }
@@ -288,6 +291,18 @@ export class DirectFileManipulator implements DBFunctionEnvironment {
         return docX;
     }
 
+    async rawGet<T>(id: DocumentID): Promise<false | T> {
+        try {
+            const doc = await this.localDatabase.get(id);
+            return doc as T;
+        } catch (ex) {
+            if (isErrorOfMissingDoc(ex)) {
+                return false;
+            }
+            throw ex
+        }
+    }
+
     /**
      * Put a note to the remote database
      * @param path 
@@ -416,10 +431,12 @@ export class DirectFileManipulator implements DBFunctionEnvironment {
             {
                 include_docs: true,
                 since: this.since,
-                filter: "replicate/pull",
+                selector: {
+                    "type": { "$ne": "leaf" }
+                },
                 live: true
             }
-        ).on("change", async (change) => {
+        ).on("change", async (change: any) => {
             const doc = change.doc;
             if (!doc) {
                 return;
@@ -429,7 +446,7 @@ export class DirectFileManipulator implements DBFunctionEnvironment {
             }
             if (checkIsInterested) {
                 if (!checkIsInterested(doc)) {
-                    Logger(`WATCH: SKIP ${doc._id}: OUT OF TARGET FOLDER`, LOG_LEVEL_VERBOSE, "watch");
+                    Logger(`WATCH: SKIP ${doc.path}: OUT OF TARGET FOLDER`, LOG_LEVEL_VERBOSE, "watch");
                     return;
                 }
             }
@@ -446,8 +463,9 @@ export class DirectFileManipulator implements DBFunctionEnvironment {
             Logger(`WATCH: FINISHED`, LEVEL_INFO, "watch");
             this.watching = false;
             this.changes = undefined;
-        }).on("error", err => {
-            Logger(`WATCH: ERROR: ${err}`, LEVEL_INFO, "watch");
+        }).on("error", (err: Error) => {
+            Logger(`WATCH: ERROR: `, LEVEL_INFO, "watch");
+            Logger(err, LEVEL_VERBOSE, "watch");
             if (this.watching) {
                 Logger(`WATCH: CONNECTION HAS BEEN CLOSED, RECONNECTING...`, LEVEL_INFO, "watch");
                 this.watching = false;

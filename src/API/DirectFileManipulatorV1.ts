@@ -1,3 +1,4 @@
+//@ts-nocheck : obsolete library
 /**
  * The API for manipulating files stored in the CouchDB by Self-hosted LiveSync or its families.
  */
@@ -14,6 +15,10 @@ import { default as xxhash, type XXHashAPI } from "xxhash-wasm-102";
 import { createBinaryBlob, createTextBlob } from "../common/utils.ts";
 
 
+/**
+ * Options for DirectFileManipulator (V1)
+ * @deprecated Use DirectFileManipulatorOptions (of V2) instead.
+ */
 export type DirectFileManipulatorOptions = {
     url: string,
     username: string,
@@ -55,6 +60,10 @@ export type EnumerateConditions = {
     startKey?: string, endKey?: string, ids?: string[], metaOnly: boolean
 };
 
+/**
+ * DirectFileManipulator (V1)
+ * @deprecated Use DirectFileManipulator (V2) instead.
+ */
 export class DirectFileManipulator {
     options: DirectFileManipulatorOptions;
     hashCaches = new LRUCache<DocumentID, string>(300, 50);
