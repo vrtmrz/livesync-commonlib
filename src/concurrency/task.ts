@@ -1,2 +1,2 @@
-export * from "octagonal-wheels/concurrency/task"
-export type * from "octagonal-wheels/concurrency/task"
+export * from "octagonal-wheels/concurrency/task.js"
+export type * from "octagonal-wheels/concurrency/task.js"

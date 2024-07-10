@@ -4,27 +4,27 @@ import { Semaphore } from "../concurrency/semaphore.ts";
 import { arrayBufferToBase64Single, decodeBinary, writeString } from "../string_and_binary/convert.ts";
 import { type AnyEntry, type DatabaseEntry, type EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED, SYNCINFO_ID, type SyncInfo, type LoadedEntry, type SavingEntry, type NewEntry, type PlainEntry } from "./types.ts";
 import { isErrorOfMissingDoc } from "../pouchdb/utils_couchdb.ts";
-import { replaceAll, replaceAllPairs } from "octagonal-wheels/string";
+import { replaceAll, replaceAllPairs } from "octagonal-wheels/string.js";
 export { replaceAll, replaceAllPairs }
-import { concatUInt8Array } from "octagonal-wheels/binary";
+import { concatUInt8Array } from "octagonal-wheels/binary/index.js";
 export { concatUInt8Array };
 
-import { delay, fireAndForget } from "octagonal-wheels/promises";
+import { delay, fireAndForget } from "octagonal-wheels/promises.js";
 export { delay, fireAndForget }
 
-import { arrayToChunkedArray, unique } from "octagonal-wheels/collection";
+import { arrayToChunkedArray, unique } from "octagonal-wheels/collection.js";
 export { arrayToChunkedArray, unique }
 
-import { extractObject, isObjectDifferent } from "octagonal-wheels/object";
+import { extractObject, isObjectDifferent } from "octagonal-wheels/object.js";
 export { extractObject, isObjectDifferent }
 
-import { sendValue, sendSignal, waitForSignal, waitForValue } from "octagonal-wheels/messagepassing/signal";
+import { sendValue, sendSignal, waitForSignal, waitForValue } from "octagonal-wheels/messagepassing/signal.js";
 export { sendValue, sendSignal, waitForSignal, waitForValue }
 
-import { throttle } from "octagonal-wheels/function";
+import { throttle } from "octagonal-wheels/function.js";
 export { throttle }
 
-import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
+import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase.js";
 export type { SimpleStore }
 
 export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T> {

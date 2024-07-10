@@ -3,7 +3,7 @@ import { webcrypto } from "../mods.ts";
 import { type AnyEntry, type DocumentID, type EntryHasPath, type FilePath, type FilePathWithPrefix, FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3, PREFIX_OBFUSCATED, PREFIXMD_LOGFILE, FLAGMD_REDFLAG2_HR, FLAGMD_REDFLAG3_HR } from "../common/types.ts";
 import { memorizeFuncWithLRUCache } from "../common/utils.ts";
 import { uint8ArrayToHexString, writeString } from "./convert.ts";
-import { unique } from "octagonal-wheels/collection";
+import { unique } from "octagonal-wheels/collection.js";
 // --- path utilities
 export function isValidFilenameInWidows(filename: string): boolean {
     // eslint-disable-next-line no-control-regex

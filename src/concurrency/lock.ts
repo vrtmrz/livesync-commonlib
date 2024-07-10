@@ -1,1 +1,1 @@
-export * from "octagonal-wheels/concurrency/lock"
+export * from "octagonal-wheels/concurrency/lock.js"

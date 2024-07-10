@@ -3,8 +3,9 @@ import type { I18N_LANGS } from "./rosetta";
 import type { TaggedType } from "octagonal-wheels/common/types";
 export type { TaggedType };
 
-export { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_URGENT, LOG_LEVEL_VERBOSE, type LOG_LEVEL } from "octagonal-wheels/common/logger";
-import { RESULT_NOT_FOUND, RESULT_TIMED_OUT } from "octagonal-wheels/common/const";
+export { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_URGENT, LOG_LEVEL_VERBOSE, } from "octagonal-wheels/common/logger.js";
+export type { LOG_LEVEL } from "octagonal-wheels/common/logger.js";
+import { RESULT_NOT_FOUND, RESULT_TIMED_OUT } from "octagonal-wheels/common/const.js";
 export { RESULT_NOT_FOUND, RESULT_TIMED_OUT };
 type ExtractPropertiesByType<T, U> = {
     [K in keyof T as T[K] extends U ? K : never]: T[K] extends U ? K : never
