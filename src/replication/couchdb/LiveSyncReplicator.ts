@@ -4,14 +4,15 @@ import {
     MILSTONE_DOCID,
     type DatabaseConnectingStatus,
     type ChunkVersionRange, type RemoteDBSettings, type EntryLeaf, REPLICATION_BUSY_TIMEOUT, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE,
-    type TweakValues
+    DEVICE_ID_PREFERRED,
+    TweakValuesTemplate
 } from "../../common/types.ts";
-import { resolveWithIgnoreKnownError, delay, globalConcurrencyController } from "../../common/utils.ts";
+import { resolveWithIgnoreKnownError, delay, globalConcurrencyController, extractObject } from "../../common/utils.ts";
 import { Logger } from "../../common/logger.ts";
 import { checkRemoteVersion } from "../../pouchdb/utils_couchdb.ts";
 
 import { ensureDatabaseIsCompatible } from "../../pouchdb/LiveSyncDBFunctions.ts";
-import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv } from "../LiveSyncAbstractReplicator.ts";
+import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv, type RemoteDBStatus } from "../LiveSyncAbstractReplicator.ts";
 import { shareRunningResult } from "../../concurrency/lock.ts";
 
 
@@ -417,7 +418,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             this.remoteLocked = false;
             this.remoteLockedAndDeviceNotAccepted = false;
             this.tweakSettingsMismatched = false;
-            this.mismatchedTweakValues = [];
+            this.preferredTweakValue = undefined;
             const ensure = await ensureDatabaseIsCompatible(dbRet.db, setting, this.nodeid, currentVersionRange);
             if (ensure == "INCOMPATIBLE") {
                 Logger("The remote database has no compatibility with the running version. Please upgrade the plugin.", LOG_LEVEL_NOTICE);
@@ -439,10 +440,12 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     this.remoteCleaned = true;
                     return false;
                 }
+            } else if (ensure == "OK") {
+                // NO OP: FOR NARROWING TYPE
             } else if (ensure[0] == "MISMATCHED") {
                 Logger(`Configuration mismatching between the clients has been detected. This can be harmful or extra capacity consumption. We have to make these value unified.`, LOG_LEVEL_NOTICE);
                 this.tweakSettingsMismatched = true;
-                this.mismatchedTweakValues = ensure[1] as TweakValues[];
+                this.preferredTweakValue = ensure[1];
                 return false;
             }
         }
@@ -698,6 +701,31 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
     }
 
+    async setPreferredRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
+        const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        if (typeof dbRet === "string") {
+            Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
+            return;
+        }
+
+        if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
+            Logger("Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed", LOG_LEVEL_NOTICE);
+            return;
+        }
+        // check local database hash status and remote replicate hash status
+        try {
+            const remoteMilestone = await dbRet.db.get(MILSTONE_DOCID) as EntryMilestoneInfo;
+            remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = extractObject(TweakValuesTemplate, { ...setting });
+            await dbRet.db.put(remoteMilestone);
+            Logger(`Preferred tweak values has been registered`, LOG_LEVEL_VERBOSE);
+        } catch (ex) {
+            // While trying unlocking and not exist on the remote, it is not normal.
+            Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
+            throw ex;
+        }
+    }
+
     async compactRemote(setting: RemoteDBSettings): Promise<boolean> {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
         const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
@@ -708,6 +736,20 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
         const ret = await dbRet.db.compact({ interval: 1000 });
         return ret.ok;
+    }
+
+    async getRemoteStatus(setting: RemoteDBSettings): Promise<RemoteDBStatus | false> {
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        if (typeof dbRet === "string") {
+            const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
+            Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
+            return false;
+        }
+        const info = await dbRet.db.info();
+        return {
+            ...info,
+            estimatedSize: (info as any)?.sizes?.file || 0,
+        }
     }
 
 }

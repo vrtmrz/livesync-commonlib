@@ -5,17 +5,20 @@ import {
     type ChunkVersionRange,
     type DocumentID,
     LOG_LEVEL_VERBOSE,
-    type TweakValues
+    DEVICE_ID_PREFERRED,
+    TweakValuesTemplate,
 } from "../../common/types.ts";
 import { Logger } from "../../common/logger.ts";
 
 import { JournalSyncMinio } from "./objectstore/JournalSyncMinio.ts";
 
-import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv } from "../LiveSyncAbstractReplicator.ts";
+import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv, type RemoteDBStatus } from "../LiveSyncAbstractReplicator.ts";
 import { ensureRemoteIsCompatible, type ENSURE_DB_RESULT } from "../../pouchdb/LiveSyncDBFunctions.ts";
 import type { CheckPointInfo } from "./JournalSyncTypes.ts";
 import { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import { type SimpleStore } from "../../common/utils.ts";
+
+import { extractObject } from "../../common/utils.ts";
 
 const MILSTONE_DOCID = "_00000000-milestone.json"
 
@@ -32,7 +35,6 @@ export interface LiveSyncJournalReplicatorEnv extends LiveSyncReplicatorEnv {
 
 
 export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
-
 
     syncStatus: DatabaseConnectingStatus = "NOT_CONNECTED";
     docArrived = 0;
@@ -160,14 +162,16 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                     this.remoteCleaned = true;
                     return false;
                 }
+            } else if (ensure == "OK") {
+                /* NO OP FOR NARROWING */
             } else if (ensure[0] == "MISMATCHED") {
                 Logger(`Configuration mismatching between the clients has been detected. This can be harmful or extra capacity consumption. We have to make these value unified.`, LOG_LEVEL_NOTICE);
                 this.tweakSettingsMismatched = true;
-                this.mismatchedTweakValues = ensure[1] as TweakValues[];
+                this.preferredTweakValue = ensure[1];
                 return false;
             }
         }
-        return true
+        return true;
     }
     // eslint-disable-next-line require-await
     async fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]> {
@@ -272,4 +276,31 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             throw ex;
         }
     }
+
+    async setPreferredRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
+        try {
+            const remoteMilestone = await this.client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
+            if (!remoteMilestone) {
+                throw new Error("Missing remote milestone");
+            }
+            remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = extractObject(TweakValuesTemplate, { ...setting });
+            Logger(`tweak values on the remote database have been cleared`, LOG_LEVEL_VERBOSE);
+            await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone);
+        } catch (ex) {
+            Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
+            throw ex;
+        }
+    }
+
+    async getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus> {
+        const id = setting.accessKey
+        const key = setting.secretKey
+        const bucket = setting.bucket
+        const region = setting.region
+        const endpoint = setting.endpoint
+        const useCustomRequestHandler = setting.useCustomRequestHandler;
+        const testClient = new JournalSyncMinio(id, key, endpoint, bucket, this.env.simpleStore, this.env, useCustomRequestHandler, region);
+        return await testClient.getUsage();
+    }
+
 }

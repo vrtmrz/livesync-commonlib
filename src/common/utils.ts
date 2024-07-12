@@ -27,6 +27,8 @@ export { throttle }
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase.js";
 export type { SimpleStore }
 
+export { sizeToHumanReadable } from "octagonal-wheels/number.js"
+
 export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T> {
     return new Promise((res, rej) => {
         p.then(res).catch((ex) => (isErrorOfMissingDoc(ex) ? res(def) : rej(ex)));

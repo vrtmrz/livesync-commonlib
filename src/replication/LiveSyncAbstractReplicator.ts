@@ -34,6 +34,11 @@ export interface LiveSyncReplicatorEnv {
     replicationStat: ReactiveSource<ReplicationStat>,
 }
 
+export type RemoteDBStatus = {
+    [key: string]: any,
+    estimatedSize?: number;
+};
+
 export abstract class LiveSyncAbstractReplicator {
 
     syncStatus: DatabaseConnectingStatus = "NOT_CONNECTED";
@@ -52,7 +57,7 @@ export abstract class LiveSyncAbstractReplicator {
     remoteCleaned = false;
     remoteLockedAndDeviceNotAccepted = false;
     tweakSettingsMismatched = false;
-    mismatchedTweakValues = [] as TweakValues[];
+    preferredTweakValue?: TweakValues;
 
     env: LiveSyncReplicatorEnv;
 
@@ -110,8 +115,9 @@ export abstract class LiveSyncAbstractReplicator {
     abstract markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean): Promise<void>;
     abstract markRemoteResolved(setting: RemoteDBSettings): Promise<void>;
     abstract resetRemoteTweakSettings(setting: RemoteDBSettings): Promise<void>;
+    abstract setPreferredRemoteTweakSettings(setting: RemoteDBSettings): Promise<void>;
 
     abstract fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]>;
 
-
+    abstract getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus>;
 }

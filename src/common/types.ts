@@ -140,6 +140,7 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     disableWorkerForGeneratingChunks: boolean;
     processSmallFilesInUIThread: boolean;
 
+    notifyThresholdOfRemoteStorageSize: number;
 }
 
 export type BucketSyncSetting = {
@@ -309,6 +310,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     enableChunkSplitterV2: false,
     disableWorkerForGeneratingChunks: false,
     processSmallFilesInUIThread: false,
+    notifyThresholdOfRemoteStorageSize: -1,
 };
 
 
@@ -419,11 +421,11 @@ export const TweakValuesShouldMatchedTemplate: Partial<ObsidianLiveSyncSettings>
     useDynamicIterationCount: false,
     hashAlg: "xxhash64",
     enableChunkSplitterV2: true,
-}
-export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> = {
     maxChunksInEden: 10,
     maxTotalLengthInEden: 1024,
     maxAgeInEden: 10,
+}
+export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> = {
     useIgnoreFiles: false,
     useCustomRequestHandler: false,
 
@@ -477,7 +479,19 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
     enableChunkSplitterV2: {
         name: "Use splitting-limit-capped chunk splitter",
         desc: "If enabled, chunks will be split into no more than 100 items. However, dedupe is slightly weaker."
-    }
+    },
+    "maxChunksInEden": {
+        "name": "Maximum Incubating Chunks",
+        "desc": "The maximum number of chunks that can be incubated within the document. Chunks exceeding this number will immediately graduate to independent chunks."
+    },
+    "maxTotalLengthInEden": {
+        "name": "Maximum Incubating Chunk Size",
+        "desc": "The maximum total size of chunks that can be incubated within the document. Chunks exceeding this size will immediately graduate to independent chunks."
+    },
+    "maxAgeInEden": {
+        "name": "Maximum Incubation Period",
+        "desc": "The maximum duration for which chunks can be incubated within the document. Chunks exceeding this period will graduate to independent chunks."
+    },
 }
 export type ConfigurationItem = {
     name: string,
@@ -532,6 +546,8 @@ export function confDesc(key: keyof ObsidianLiveSyncSettings, alt?: string) {
 }
 export const TweakValuesTemplate = { ...TweakValuesRecommendedTemplate, ...TweakValuesShouldMatchedTemplate };
 export type TweakValues = typeof TweakValuesTemplate;
+
+export const DEVICE_ID_PREFERRED = "PREFERRED";
 
 export interface EntryMilestoneInfo extends DatabaseEntry {
     _id: typeof MILSTONE_DOCID;

@@ -5,6 +5,7 @@ import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../../../common/types.ts";
 import { Logger } from "../../../common/logger.ts";
 import { JournalSyncAbstract } from "../JournalSyncAbstract.ts";
 import { decryptBinary, encryptBinary } from "../../../encryption/e2ee_v2.ts";
+import type { RemoteDBStatus } from "../../LiveSyncAbstractReplicator.ts";
 
 export class JournalSyncMinio extends JournalSyncAbstract {
 
@@ -161,4 +162,19 @@ export class JournalSyncMinio extends JournalSyncAbstract {
             return false;
         }
     }
+    async getUsage(): Promise<false | RemoteDBStatus> {
+        const client = this._getClient();
+        try {
+            const objects = await client.listObjectsV2({ Bucket: this.bucket });
+            if (!objects.Contents) return {};
+            return {
+                estimatedSize: objects.Contents.reduce((acc, e) => acc + (e.Size || 0), 0)
+            }
+        } catch (ex: any) {
+            Logger(`Could not get status of the remote bucket`, LOG_LEVEL_NOTICE);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            return false
+        }
+    }
+
 }

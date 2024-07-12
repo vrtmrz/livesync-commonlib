@@ -29,10 +29,10 @@ import {
     type SavingEntry,
     PREFIX_CHUNK,
     type NoteEntry, type EdenChunk, type AnyEntry, type EntryBase,
-    TweakValuesRecommendedTemplate,
     TweakValuesShouldMatchedTemplate,
     TweakValuesTemplate,
-    type TweakValues
+    type TweakValues,
+    DEVICE_ID_PREFERRED
 } from "../common/types.ts";
 import { createTextBlob, extractObject, isObjectDifferent, isTextBlob, resolveWithIgnoreKnownError, unique } from "../common/utils.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
@@ -695,8 +695,18 @@ export async function deleteDBEntryPrefix(env: DBFunctionEnvironment, prefix: Fi
 /// Connectivity
 
 // Should we move ENSURE_DB_RESULT and ensureRemoteIsCompatible to the replication utility?
-export type ENSURE_DB_RESULT = "OK" | "INCOMPATIBLE" | "LOCKED" | "NODE_LOCKED" | "NODE_CLEANED" | ["MISMATCHED", TweakValues[]];
+export type ENSURE_DB_RESULT = "OK" | "INCOMPATIBLE" | "LOCKED" | "NODE_LOCKED" | "NODE_CLEANED" | ["MISMATCHED", TweakValues];
 
+/**
+ * Ensures that the remote database is compatible with the current device.
+ * 
+ * @param infoSrc - The information about the remote database (which retrieved from the remote).
+ * @param setting - The current settings.
+ * @param deviceNodeID - The ID of the current device node.
+ * @param currentVersionRange - The current version range of the database.
+ * @param updateCallback - The callback function to update the remote milestone.
+ * @returns A promise that resolves to the result of ensuring compatibility.
+ */
 export async function ensureRemoteIsCompatible(infoSrc: EntryMilestoneInfo | false, setting: RemoteDBSettings, deviceNodeID: string, currentVersionRange: ChunkVersionRange, updateCallback: (info: EntryMilestoneInfo) => Promise<void>): Promise<ENSURE_DB_RESULT> {
     const baseMilestone: EntryMilestoneInfo = {
         _id: MILESTONE_DOC_ID,
@@ -705,12 +715,13 @@ export async function ensureRemoteIsCompatible(infoSrc: EntryMilestoneInfo | fal
         locked: false,
         accepted_nodes: [deviceNodeID],
         node_chunk_info: { [deviceNodeID]: currentVersionRange },
-        tweak_values: {}
+        tweak_values: {},
     };
     let remoteMilestone = infoSrc;
     if (!remoteMilestone) remoteMilestone = baseMilestone;
 
     const currentTweakValues = extractObject(TweakValuesTemplate, setting);
+
     remoteMilestone.node_chunk_info = { ...baseMilestone.node_chunk_info, ...remoteMilestone.node_chunk_info };
     const writeMilestone = (
         (
@@ -718,12 +729,15 @@ export async function ensureRemoteIsCompatible(infoSrc: EntryMilestoneInfo | fal
             || remoteMilestone.node_chunk_info[deviceNodeID].max != currentVersionRange.max
             || isObjectDifferent(remoteMilestone.tweak_values?.[deviceNodeID], currentTweakValues)
         )
-        || typeof remoteMilestone._rev == "undefined");
+        || typeof remoteMilestone._rev == "undefined" || !(DEVICE_ID_PREFERRED in remoteMilestone.tweak_values));
 
     if (writeMilestone) {
         remoteMilestone.node_chunk_info[deviceNodeID].min = currentVersionRange.min;
         remoteMilestone.node_chunk_info[deviceNodeID].max = currentVersionRange.max;
         remoteMilestone.tweak_values = { ...remoteMilestone.tweak_values ?? {}, [deviceNodeID]: currentTweakValues }
+        if (!(DEVICE_ID_PREFERRED in remoteMilestone.tweak_values)) {
+            remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = currentTweakValues;
+        }
         await updateCallback(remoteMilestone);
     }
 
@@ -756,20 +770,14 @@ export async function ensureRemoteIsCompatible(infoSrc: EntryMilestoneInfo | fal
     }
 
     if (!setting.disableCheckingConfigMismatch) {
-        const tweakValueList = Object.entries(remoteMilestone.tweak_values)
-            .filter(([_, tweak]) => isObjectDifferent(currentTweakValues, tweak)).map(([key, tweak]) => ({
-                key,
-                all: tweak,
-                recommended: extractObject(TweakValuesRecommendedTemplate, tweak),
-                shouldBeMatched: extractObject(TweakValuesShouldMatchedTemplate, tweak),
-            }));
+        // If there is no preferred tweak, set my own as preferred at first.
+        const preferred_tweak = (remoteMilestone.tweak_values?.[DEVICE_ID_PREFERRED] ?? currentTweakValues);
+        const current_tweak = currentTweakValues as TweakValues;
+        const preferred_should_matched = extractObject(TweakValuesShouldMatchedTemplate, preferred_tweak);
+        const current_should_matched = extractObject(TweakValuesShouldMatchedTemplate, current_tweak);
 
-        const othersTweakValues = tweakValueList.map(e => e.all);
-        const currentShouldMatchedTweakValues = extractObject(TweakValuesShouldMatchedTemplate, currentTweakValues);
-        for (const items of tweakValueList) {
-            if (isObjectDifferent(items.shouldBeMatched, currentShouldMatchedTweakValues, true)) {
-                return ["MISMATCHED", othersTweakValues];
-            }
+        if (isObjectDifferent(preferred_should_matched, current_should_matched, true)) {
+            return ["MISMATCHED", preferred_tweak];
         }
     }
 
