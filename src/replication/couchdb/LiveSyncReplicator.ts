@@ -1,7 +1,7 @@
 import {
     type EntryDoc, type EntryMilestoneInfo,
     VER,
-    MILSTONE_DOCID,
+    MILESTONE_DOCID,
     type DatabaseConnectingStatus,
     type ChunkVersionRange, type RemoteDBSettings, type EntryLeaf, REPLICATION_BUSY_TIMEOUT, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE,
     DEVICE_ID_PREFERRED,
@@ -579,7 +579,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return;
         }
         const defInitPoint: EntryMilestoneInfo = {
-            _id: MILSTONE_DOCID,
+            _id: MILESTONE_DOCID,
             type: "milestoneinfo",
             created: (new Date() as any) / 1,
             locked: locked,
@@ -589,7 +589,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             tweak_values: {}
         };
 
-        const remoteMilestone: EntryMilestoneInfo = { ...defInitPoint, ...await resolveWithIgnoreKnownError(dbRet.db.get(MILSTONE_DOCID), defInitPoint) };
+        const remoteMilestone: EntryMilestoneInfo = { ...defInitPoint, ...await resolveWithIgnoreKnownError(dbRet.db.get(MILESTONE_DOCID), defInitPoint) };
         remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
         remoteMilestone.accepted_nodes = [this.nodeid];
         remoteMilestone.locked = locked;
@@ -614,7 +614,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return;
         }
         const defInitPoint: EntryMilestoneInfo = {
-            _id: MILSTONE_DOCID,
+            _id: MILESTONE_DOCID,
             type: "milestoneinfo",
             created: (new Date() as any) / 1,
             locked: false,
@@ -623,7 +623,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             tweak_values: {}
         };
         // check local database hash status and remote replicate hash status
-        const remoteMilestone: EntryMilestoneInfo = { ...defInitPoint, ...await resolveWithIgnoreKnownError(dbRet.db.get(MILSTONE_DOCID), defInitPoint) };
+        const remoteMilestone: EntryMilestoneInfo = { ...defInitPoint, ...await resolveWithIgnoreKnownError(dbRet.db.get(MILESTONE_DOCID), defInitPoint) };
         remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
         remoteMilestone.accepted_nodes = Array.from(new Set([...remoteMilestone.accepted_nodes, this.nodeid]));
         Logger("Mark this device as 'resolved'.", LOG_LEVEL_NOTICE);
@@ -690,7 +690,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
         // check local database hash status and remote replicate hash status
         try {
-            const remoteMilestone = await dbRet.db.get(MILSTONE_DOCID) as EntryMilestoneInfo;
+            const remoteMilestone = await dbRet.db.get(MILESTONE_DOCID) as EntryMilestoneInfo;
             remoteMilestone.tweak_values = {};
             await dbRet.db.put(remoteMilestone);
             Logger(`tweak values on the remote database have been cleared`, LOG_LEVEL_VERBOSE);
@@ -715,7 +715,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
         // check local database hash status and remote replicate hash status
         try {
-            const remoteMilestone = await dbRet.db.get(MILSTONE_DOCID) as EntryMilestoneInfo;
+            const remoteMilestone = await dbRet.db.get(MILESTONE_DOCID) as EntryMilestoneInfo;
             remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = extractObject(TweakValuesTemplate, { ...setting });
             await dbRet.db.put(remoteMilestone);
             Logger(`Preferred tweak values has been registered`, LOG_LEVEL_VERBOSE);

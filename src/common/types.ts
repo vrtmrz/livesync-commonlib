@@ -30,7 +30,7 @@ export const MAX_DOC_SIZE = 1000; // for .md file, but if delimiters exists. use
 export const MAX_DOC_SIZE_BIN = 102400; // 100kb
 export const VER = 10;
 
-export const RECENT_MOFIDIED_DOCS_QTY = 30;
+export const RECENT_MODIFIED_DOCS_QTY = 30;
 export const LEAF_WAIT_TIMEOUT = 90000; // in synchronization, waiting missing leaf time out.
 export const REPLICATION_BUSY_TIMEOUT = 3000000;
 
@@ -45,8 +45,8 @@ export const MISSING_OR_ERROR = Symbol("missing_or_error");
 export const LEAVE_TO_SUBSEQUENT = Symbol("leave_to_subsequent_proc");
 export const TIME_ARGUMENT_INFINITY = Symbol("infinity")
 
-export const VERSIONINFO_DOCID = "obsydian_livesync_version" as DocumentID;
-export const MILSTONE_DOCID = "_local/obsydian_livesync_milestone" as DocumentID;
+export const VERSIONING_DOCID = "obsydian_livesync_version" as DocumentID;
+export const MILESTONE_DOCID = "_local/obsydian_livesync_milestone" as DocumentID;
 export const NODEINFO_DOCID = "_local/obsydian_livesync_nodeinfo" as DocumentID;
 
 export type HashAlgorithm = "" | "xxhash32" | "xxhash64" | "sha1";
@@ -61,7 +61,8 @@ export type CouchDBConnection = {
 export const MODE_SELECTIVE = 0;
 export const MODE_AUTOMATIC = 1;
 export const MODE_PAUSED = 2;
-export type SYNC_MODE = typeof MODE_SELECTIVE | typeof MODE_AUTOMATIC | typeof MODE_PAUSED;
+export const MODE_SHINY = 3;
+export type SYNC_MODE = typeof MODE_SELECTIVE | typeof MODE_AUTOMATIC | typeof MODE_PAUSED | typeof MODE_SHINY;
 export type PluginSyncSettingEntry = {
     key: string,
     mode: SYNC_MODE,
@@ -141,6 +142,10 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     processSmallFilesInUIThread: boolean;
 
     notifyThresholdOfRemoteStorageSize: number;
+
+    usePluginSyncV2: boolean;
+    usePluginEtc: boolean; // This still be hidden from the UI.
+
 }
 
 export type BucketSyncSetting = {
@@ -311,6 +316,9 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     disableWorkerForGeneratingChunks: false,
     processSmallFilesInUIThread: false,
     notifyThresholdOfRemoteStorageSize: -1,
+
+    usePluginSyncV2: false,
+    usePluginEtc: false,
 };
 
 
@@ -424,6 +432,7 @@ export const TweakValuesShouldMatchedTemplate: Partial<ObsidianLiveSyncSettings>
     maxChunksInEden: 10,
     maxTotalLengthInEden: 1024,
     maxAgeInEden: 10,
+    usePluginSyncV2: false,
 }
 export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> = {
     useIgnoreFiles: false,
@@ -441,7 +450,11 @@ export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> =
     ignoreFiles: ".gitignore",
     syncMaxSizeInMB: 50,
     enableChunkSplitterV2: true,
+    usePluginSyncV2: true,
 };
+export const TweakValuesDefault: Partial<ObsidianLiveSyncSettings> = {
+    usePluginSyncV2: false
+}
 
 
 export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, ConfigurationItem>> = {
@@ -492,6 +505,10 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         "name": "Maximum Incubation Period",
         "desc": "The maximum duration for which chunks can be incubated within the document. Chunks exceeding this period will graduate to independent chunks."
     },
+    "usePluginSyncV2": {
+        name: "Per-file-saved customization sync",
+        desc: "If enabled per-filed efficient customization sync will be used. We need a small migration when enabling this. And all devices should be updated to v0.23.18. Once we enabled this, we lost a compatibility with old versions."
+    }
 }
 export type ConfigurationItem = {
     name: string,
@@ -550,7 +567,7 @@ export type TweakValues = typeof TweakValuesTemplate;
 export const DEVICE_ID_PREFERRED = "PREFERRED";
 
 export interface EntryMilestoneInfo extends DatabaseEntry {
-    _id: typeof MILSTONE_DOCID;
+    _id: typeof MILESTONE_DOCID;
     type: "milestoneinfo";
     created: number;
     accepted_nodes: string[];

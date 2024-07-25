@@ -11,7 +11,7 @@ import {
 } from "../string_and_binary/convert.ts";
 import {
     VER,
-    VERSIONINFO_DOCID,
+    VERSIONING_DOCID,
     type EntryVersionInfo,
     SYNCINFO_ID,
     type SyncInfo,
@@ -47,7 +47,7 @@ export function isCloudantURI(uri: string): boolean {
 // if remote is higher than current(or specified) version, return false.
 export const checkRemoteVersion = async (db: PouchDB.Database, migrate: (from: number, to: number) => Promise<boolean>, barrier: number = VER): Promise<boolean> => {
     try {
-        const versionInfo = (await db.get(VERSIONINFO_DOCID)) as EntryVersionInfo;
+        const versionInfo = (await db.get(VERSIONING_DOCID)) as EntryVersionInfo;
         if (versionInfo.type != "versioninfo") {
             return false;
         }
@@ -74,11 +74,11 @@ export const checkRemoteVersion = async (db: PouchDB.Database, migrate: (from: n
 };
 export const bumpRemoteVersion = async (db: PouchDB.Database, barrier: number = VER): Promise<boolean> => {
     const vi: EntryVersionInfo = {
-        _id: VERSIONINFO_DOCID,
+        _id: VERSIONING_DOCID,
         version: barrier,
         type: "versioninfo",
     };
-    const versionInfo = (await resolveWithIgnoreKnownError<EntryVersionInfo>(db.get(VERSIONINFO_DOCID), vi));
+    const versionInfo = (await resolveWithIgnoreKnownError<EntryVersionInfo>(db.get(VERSIONING_DOCID), vi));
     if (versionInfo.type != "versioninfo") {
         return false;
     }
@@ -540,13 +540,13 @@ export async function purgeUnreferencedChunks(db: PouchDB.Database, dryRun: bool
             }, external-size:${sizeToHumanReadable(getSize(info, "external"))
             }, file-size: ${sizeToHumanReadable(getSize(info, "file"))}`, LOG_LEVEL_NOTICE);
     }
-    Logger(`Collecting unreferenced chunks on ${info.db_name}`, LOG_LEVEL_NOTICE, "gc-countchunk" + keySuffix);
+    Logger(`Collecting unreferenced chunks on ${info.db_name}`, LOG_LEVEL_NOTICE, "gc-count-chunk" + keySuffix);
     const chunks = await collectUnreferencedChunks(db);
     resultCount = chunks.length;
     if (chunks.length == 0) {
-        Logger(`No unreferenced chunks! ${info.db_name}`, LOG_LEVEL_NOTICE, "gc-countchunk" + keySuffix);
+        Logger(`No unreferenced chunks! ${info.db_name}`, LOG_LEVEL_NOTICE, "gc-count-chunk" + keySuffix);
     } else {
-        Logger(`Number of unreferenced chunks on ${info.db_name}: ${chunks.length}`, LOG_LEVEL_NOTICE, "gc-countchunk" + keySuffix);
+        Logger(`Number of unreferenced chunks on ${info.db_name}: ${chunks.length}`, LOG_LEVEL_NOTICE, "gc-count-chunk" + keySuffix);
         if (dryRun) {
             Logger(`DryRun of cleaning ${connSetting ? "remote" : "local"} database up: Done`, LOG_LEVEL_NOTICE);
             return resultCount;

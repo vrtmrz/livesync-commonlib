@@ -14,7 +14,7 @@ import {
     type EntryMilestoneInfo,
     type LoadedEntry,
     MAX_DOC_SIZE_BIN,
-    MILSTONE_DOCID as MILESTONE_DOC_ID,
+    MILESTONE_DOCID as MILESTONE_DOC_ID,
     type NewEntry,
     type PlainEntry,
     type RemoteDBSettings,
@@ -32,7 +32,8 @@ import {
     TweakValuesShouldMatchedTemplate,
     TweakValuesTemplate,
     type TweakValues,
-    DEVICE_ID_PREFERRED
+    DEVICE_ID_PREFERRED,
+    TweakValuesDefault
 } from "../common/types.ts";
 import { createTextBlob, extractObject, isObjectDifferent, isTextBlob, resolveWithIgnoreKnownError, unique } from "../common/utils.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
@@ -773,9 +774,8 @@ export async function ensureRemoteIsCompatible(infoSrc: EntryMilestoneInfo | fal
         // If there is no preferred tweak, set my own as preferred at first.
         const preferred_tweak = (remoteMilestone.tweak_values?.[DEVICE_ID_PREFERRED] ?? currentTweakValues);
         const current_tweak = currentTweakValues as TweakValues;
-        const preferred_should_matched = extractObject(TweakValuesShouldMatchedTemplate, preferred_tweak);
-        const current_should_matched = extractObject(TweakValuesShouldMatchedTemplate, current_tweak);
-
+        const preferred_should_matched = extractObject(TweakValuesShouldMatchedTemplate, { ...TweakValuesDefault, ...preferred_tweak });
+        const current_should_matched = extractObject(TweakValuesShouldMatchedTemplate, { ...TweakValuesDefault, ...current_tweak })
         if (isObjectDifferent(preferred_should_matched, current_should_matched, true)) {
             return ["MISMATCHED", preferred_tweak];
         }

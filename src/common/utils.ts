@@ -272,6 +272,9 @@ export function determineType(path: string, data: string | string[] | Uint8Array
 export function isAnyNote(doc: DatabaseEntry): doc is NewEntry | PlainEntry {
     return "type" in doc && (doc.type == "newnote" || doc.type == "plain");
 }
+export function isLoadedEntry(doc: DatabaseEntry): doc is LoadedEntry {
+    return "type" in doc && (doc.type == "newnote" || doc.type == "plain") && "data" in doc;
+}
 export function createSavingEntryFromLoadedEntry(doc: LoadedEntry): SavingEntry {
     const data = readAsBlob(doc);
     const type = determineType(doc.path, data);
@@ -311,4 +314,25 @@ export function escapeMarkdownValue(value: any) {
     } else {
         return value;
     }
+}
+
+export function timeDeltaToHumanReadable(delta: number) {
+    const sec = delta / 1000;
+    if (sec < 60) {
+        return `${sec.toFixed(2)}s`;
+    }
+    const min = sec / 60;
+    if (min < 60) {
+        return `${min.toFixed(2)}m`;
+    }
+    const hour = min / 60;
+    if (hour < 24) {
+        return `${hour.toFixed(2)}h`;
+    }
+    const day = hour / 24;
+    if (day < 365) {
+        return `${day.toFixed(2)}d`;
+    }
+    const year = day / 365;
+    return `${year.toFixed(2)}y`;
 }

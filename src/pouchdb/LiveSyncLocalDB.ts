@@ -4,7 +4,7 @@ import {
     type EntryDoc,
     type EntryLeaf, type LoadedEntry,
     type Credential,
-    LEAF_WAIT_TIMEOUT, VERSIONINFO_DOCID,
+    LEAF_WAIT_TIMEOUT, VERSIONING_DOCID,
     type RemoteDBSettings,
     type EntryHasPath,
     type DocumentID,
@@ -338,7 +338,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         // Cache remote chunks to the local database.
         await this.localDatabase.bulkDocs(remoteDocs, { new_edits: false });
         // Chunks should be ordered by as we requested.
-        const chunks = Object.fromEntries([...localChunks.map(e => e.chunk).filter(e => e !== false) as EntryLeaf[], ...remoteDocs].map(e => [e._id, e]));
+        const chunks = Object.fromEntries([...localChunks.map(e => e.chunk).filter(e => e !== false), ...remoteDocs].map(e => [e._id, e]));
         const ret = ids.map(e => chunks?.[e] ?? undefined)
         if (ret.some(e => e === undefined)) return false;
         return ret;
@@ -423,7 +423,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             const target = targetFun();
             for await (const f of target) {
                 if (f.startsWith("_")) continue;
-                if (f == VERSIONINFO_DOCID) continue;
+                if (f == VERSIONING_DOCID) continue;
                 yield f;
             }
         }
