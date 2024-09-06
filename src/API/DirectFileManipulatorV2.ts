@@ -9,7 +9,7 @@ import { type DocumentID, type FilePathWithPrefix, type EntryHasPath, type FileP
 
 import { PouchDB } from "../pouchdb/pouchdb-http.ts";
 import { deleteDBEntry, getDBEntryFromMeta, getDBEntryMeta, putDBEntry, type DBFunctionEnvironment, type DBFunctionSettings } from "../pouchdb/LiveSyncDBFunctions.ts";
-import { enableCompression, enableEncryption, isErrorOfMissingDoc } from "../pouchdb/utils_couchdb.ts";
+import { replicationFilter, enableEncryption, isErrorOfMissingDoc } from "../pouchdb/utils_couchdb.ts";
 import { sendValue, waitForValue } from "octagonal-wheels/messagepassing/signal.js";
 import { RESULT_TIMED_OUT } from "octagonal-wheels/common/const.js";
 import { LEVEL_INFO, LEVEL_VERBOSE, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger.js";
@@ -33,6 +33,8 @@ export type DirectFileManipulatorOptions = {
     maxAgeInEden: number;
     enableChunkSplitterV2: boolean;
     enableCompression: boolean;
+    handleFilenameCaseSensitive: boolean;
+    useFixedRevisionForChunks: boolean;
 }
 
 export type ReadyEntry = (NewEntry | PlainEntry) & { data: string[] };
@@ -74,7 +76,7 @@ export class DirectFileManipulator implements DBFunctionEnvironment {
         this.localDatabase = new PouchDB(this.options.url + "/" + this.options.database,
             { auth: { username: this.options.username, password: this.options.password } });
 
-        enableCompression(this.localDatabase, this.options.enableCompression);
+        replicationFilter(this.localDatabase, this.options.enableCompression);
         if (this.options.passphrase) {
             enableEncryption(this.localDatabase, this.options.passphrase, this.options.useDynamicIterationCount ?? false, false);
         }
@@ -89,7 +91,7 @@ export class DirectFileManipulator implements DBFunctionEnvironment {
     }
     async path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID> {
         const fileName = prefix ? addPrefix(filename, prefix) : filename;
-        const id = await path2id_base(fileName, this.options.obfuscatePassphrase ?? false);
+        const id = await path2id_base(fileName, this.options.obfuscatePassphrase ?? false, !this.options.handleFilenameCaseSensitive);
         return id;
     }
 
@@ -166,6 +168,7 @@ export class DirectFileManipulator implements DBFunctionEnvironment {
             enableChunkSplitterV2: this.options.enableChunkSplitterV2 ?? DEFAULT_SETTINGS.enableChunkSplitterV2,
             disableWorkerForGeneratingChunks: true,
             processSmallFilesInUIThread: true,
+            doNotUseFixedRevisionForChunks: this.options.useFixedRevisionForChunks,
         }
         return retObj;
     }

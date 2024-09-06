@@ -336,3 +336,47 @@ export function timeDeltaToHumanReadable(delta: number) {
     const year = day / 365;
     return `${year.toFixed(2)}y`;
 }
+
+
+export async function wrapException<T>(func: () => Promise<Awaited<T>>): Promise<Awaited<T> | Error> {
+    try {
+        return await func();
+    } catch (ex: any) {
+        if (ex instanceof Error) {
+            return ex;
+        }
+        return new Error(ex);
+    }
+}
+
+// numeric array to range
+// IN  : [1,2,3,5,6,10,11]
+// OUT : `1-3,5-6,10-11`
+
+export function toRanges(sorted: number[]) {
+    // const sorted = numbers.sort((a, b) => a - b);
+    if (sorted?.length == 0) return "";
+    const ranges = [];
+    let start = sorted[0];
+    let end = sorted[0];
+    for (let i = 1; i < sorted.length; i++) {
+        if (sorted[i] === end + 1) {
+            end = sorted[i];
+        } else {
+            ranges.push(start === end ? `${start.toString(32)}` : `${start.toString(32)}-${end.toString(32)}`);
+            start = sorted[i];
+            end = sorted[i];
+        }
+    }
+    ranges.push(start === end ? `${start.toString(32)}` : `${start.toString(32)}-${end.toString(32)}`);
+
+    return ranges.join(",");
+}
+
+const previousValues = new Map<string, any>();
+export function isDirty(key: string, value: any) {
+    const prev = previousValues.get(key);
+    if (prev === value) return false;
+    previousValues.set(key, value);
+    return true;
+}

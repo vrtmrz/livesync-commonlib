@@ -5,25 +5,28 @@ import {
     type DatabaseConnectingStatus,
     type ChunkVersionRange, type RemoteDBSettings, type EntryLeaf, REPLICATION_BUSY_TIMEOUT, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE,
     DEVICE_ID_PREFERRED,
-    TweakValuesTemplate
+    TweakValuesTemplate,
+    type DocumentID,
+    type TweakValues
 } from "../../common/types.ts";
-import { resolveWithIgnoreKnownError, delay, globalConcurrencyController, extractObject } from "../../common/utils.ts";
+import { resolveWithIgnoreKnownError, delay, globalConcurrencyController, extractObject, wrapException, sizeToHumanReadable } from "../../common/utils.ts";
 import { Logger } from "../../common/logger.ts";
-import { checkRemoteVersion } from "../../pouchdb/utils_couchdb.ts";
+import { checkRemoteVersion, preprocessOutgoing } from "../../pouchdb/utils_couchdb.ts";
 
 import { ensureDatabaseIsCompatible } from "../../pouchdb/LiveSyncDBFunctions.ts";
 import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv, type RemoteDBStatus } from "../LiveSyncAbstractReplicator.ts";
 import { shareRunningResult } from "../../concurrency/lock.ts";
+import { promiseWithResolver } from "octagonal-wheels/promises";
+import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 
 
 const currentVersionRange: ChunkVersionRange = {
     min: 0,
-    max: 2,
+    max: 2400,
     current: 2,
 }
 
 const selectorOnDemandPull = { "selector": { "type": { "$ne": "leaf" } } };
-const selectorOnDemandPush = {};
 
 // eslint-disable-next-line @typescript-eslint/ban-types
 type EventParamArray<T extends {}> =
@@ -295,6 +298,163 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             this.controller = undefined;
         }
     }
+
+    async getLastTransferredSeqOfChunks(localDB: PouchDB.Database, remoteID: number): Promise<number | string> {
+        const prevMax = {
+            _id: "_local/max_seq_on_chunk",
+            maxSeq: 0 as number | string,
+            remoteID: remoteID,
+            _rev: undefined as string | undefined
+        }
+        const previous_max_seq_on_chunk = await wrapException(() => localDB.get<typeof prevMax>(prevMax._id));
+        if (previous_max_seq_on_chunk instanceof Error) {
+            return prevMax.maxSeq;
+        }
+        if (remoteID != previous_max_seq_on_chunk.remoteID) {
+            return 0;
+        }
+        return previous_max_seq_on_chunk.maxSeq;
+    }
+    async updateMaxTransferredSeqOnChunks(localDB: PouchDB.Database, remoteID: number, maxSeq: number | string) {
+        const newMax = {
+            _id: "_local/max_seq_on_chunk",
+            maxSeq: maxSeq,
+            remoteID: remoteID,
+            _rev: undefined as string | undefined
+        }
+        const previous_max_seq_on_chunk = await wrapException(() => localDB.get(newMax._id));
+        if (previous_max_seq_on_chunk instanceof Error) {
+            delete newMax._rev;
+        } else {
+            newMax._rev = previous_max_seq_on_chunk._rev;
+        }
+        await wrapException(() => localDB.put(newMax));
+        return newMax.maxSeq;
+    }
+
+    async sendChunks(setting: RemoteDBSettings, remoteDB: PouchDB.Database<EntryDoc> | undefined, showResult: boolean, fromSeq?: number | string) {
+        if (!remoteDB) {
+            const d = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+            if (typeof d === "string") {
+                Logger(`Could not connect to remote database: ${d}`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
+                return false;
+            }
+            remoteDB = d.db;
+        }
+        Logger(`Bulk sending chunks to remote database...`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
+        const remoteMilestone = await remoteDB.get(MILESTONE_DOCID);
+        const remoteID = (remoteMilestone as any)?.created;
+        const localDB = this.env.getDatabase();
+        const te = new TextEncoder();
+        Logger(`Looking for the point last synchronized point.`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
+        this.syncStatus = "CONNECTED"
+        let allRead = false;
+        const sendAllDocs = [] as {
+            seq: string | number;
+            doc: PouchDB.Core.ExistingDocument<EntryDoc & PouchDB.Core.ChangesMeta> | undefined;
+            id: DocumentID;
+        }[];
+        let seq = fromSeq ?? await this.getLastTransferredSeqOfChunks(localDB, remoteID);
+        do {
+            const diffChunks = await localDB.changes({
+                since: seq as number,
+                live: false,
+                include_docs: true,
+                selector: { "type": "leaf" },
+                limit: 500,
+            })
+            if (diffChunks.results.length != 500) {
+                Logger(`All changeset has been scanned (Last seq = ${diffChunks.last_seq}).`, LOG_LEVEL_VERBOSE);
+                allRead = true;
+            }
+            Logger(`Found ${diffChunks.results.length} chunks to check (Since ${seq}).`, LOG_LEVEL_VERBOSE);
+            const IDs = diffChunks.results.map((e: any) => e.id);
+            const remoteDocs = await remoteDB.allDocs({ keys: IDs, include_docs: false });
+            const remoteDocMap = Object.fromEntries(remoteDocs.rows.map(e => [e.key, "error" in e ? e.error : e.value]));
+            const localNewChunks = diffChunks.results.filter(e => e.doc !== undefined).map(e => ({ seq: e.seq, doc: e.doc, id: e.doc!._id }))
+            const sendDocs = localNewChunks.filter(e => remoteDocMap[e.id] == "not_found").filter(e => sendAllDocs.every(e2 => e2.id != e.id));
+            // Logger(`Found ${sendDocs.length} chunks to send, queued. (Since ${seq}).`, LOG_LEVEL_VERBOSE);
+            if (sendDocs.length == 0) {
+                Logger(`No chunks to send. (Since ${seq}).`, LOG_LEVEL_VERBOSE);
+                const markSeq = allRead ? diffChunks.last_seq : seq;
+                await this.updateMaxTransferredSeqOnChunks(localDB, remoteID, markSeq);
+            } else {
+                Logger(`Queued ${sendAllDocs.length + sendDocs.length} chunks. (Since ${seq}).`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
+            }
+            sendAllDocs.push(...sendDocs);
+            seq = diffChunks.last_seq;
+        } while (!allRead);
+        // console.dir(sendAllDocs);
+        let bulkDocs: EntryLeaf[] = [];
+        let bulkDocsSizeBytes = 0;
+        let bulkDocsSizeCount = 0;
+        let maxSeq = 0 as number | string;
+        const maxBatchSizeBytes = setting.sendChunksBulkMaxSize * 1024 * 1024;
+        const maxBatchSizeCount = 200;
+        let prev: Promise<any> | undefined;
+
+        const semaphore = Semaphore(4);
+        let sendingDocs = 0;
+        let sentDocsCount = 0;
+
+        const sendChunks = async (bulkDocs: EntryLeaf[], bulkDocsSize: number, seq: number | string) => {
+            Logger(`Sending ${bulkDocs.length} (${bulkDocsSize} => ${sizeToHumanReadable(bulkDocsSize)} in plain) chunks to remote database...`, LOG_LEVEL_VERBOSE);
+            const releaser = await semaphore.acquire(1);
+            sendingDocs += bulkDocs.length;
+            Logger(`↑ Uploading chunks \n${sendingDocs}/${sendAllDocs.length} (${sentDocsCount})`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
+            try {
+                const _prev = prev;
+                const proc = promiseWithResolver<void>();
+                if (_prev) {
+                    prev = proc.promise
+                }
+                const uploadBulkDocTasks = bulkDocs.map(e => preprocessOutgoing(e));
+                const uploadBulkDocs = await Promise.all(uploadBulkDocTasks) as EntryLeaf[];
+                await remoteDB.bulkDocs(uploadBulkDocs, { new_edits: false });
+                if (_prev) {
+                    await _prev;
+                    await this.updateMaxTransferredSeqOnChunks(localDB, remoteID, seq);
+                    proc.resolve();
+                }
+                sentDocsCount += bulkDocs.length;
+                Logger(`↑ Uploading chunks \n${sendingDocs}/${sendAllDocs.length} (${sentDocsCount})`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
+
+            } catch (ex) {
+                Logger("Bulk sending failed.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
+                Logger(ex, LOG_LEVEL_VERBOSE);
+                return false;
+            } finally {
+                releaser();
+            }
+            return true;
+        }
+
+        const tasks = [] as Promise<any>[]
+        for (const chunk of sendAllDocs) {
+            const jsonLength = te.encode(JSON.stringify(chunk.doc)).byteLength + 32 // (Not sure but means overhead);
+            if ((bulkDocsSizeBytes + jsonLength > maxBatchSizeBytes || bulkDocsSizeCount + 1 > maxBatchSizeCount) && bulkDocs.length > 0) {
+
+                tasks.push(sendChunks([...bulkDocs], bulkDocsSizeBytes, maxSeq));
+                bulkDocs = [];
+                bulkDocsSizeBytes = 0;
+                bulkDocsSizeCount = 0;
+            }
+            bulkDocs.push(chunk.doc as EntryLeaf);
+            maxSeq = chunk.seq;
+            bulkDocsSizeBytes += jsonLength;
+            bulkDocsSizeCount += 1;
+        }
+        if (bulkDocs.length > 0) {
+            tasks.push(sendChunks([...bulkDocs], bulkDocsSizeBytes, maxSeq));
+        }
+        const results = await Promise.all(tasks);
+        if (results.some(e => e === false)) {
+            return false;
+        }
+        Logger(`${sendAllDocs.length} chunks Uploaded`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
+        return true;
+    }
+
     async openOneShotReplication(
         setting: RemoteDBSettings,
         showResult: boolean,
@@ -314,6 +474,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 Logger("Could not connect to server.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
                 return false;
             }
+            if (setting.sendChunksBulk) {
+                if (!await this.sendChunks(setting, ret.db, showResult)) {
+                    Logger("Could not send chunks to server.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
+                }
+            }
             this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
             this.maxPushSeq = Number(`${(await localDB.info()).update_seq}`.split("-")[0]);
             if (showResult) {
@@ -332,7 +497,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             const syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc> =
                 syncMode == "sync" ? localDB.sync(db, { ...syncOptionBase }) :
                     (syncMode == "pullOnly" ? localDB.replicate.from(db, { ...syncOptionBase, ...(setting.readChunksOnline ? selectorOnDemandPull : {}) }) :
-                        syncMode == "pushOnly" ? localDB.replicate.to(db, { ...syncOptionBase, ...(setting.readChunksOnline ? selectorOnDemandPush : {}) }) : undefined as never)
+                        syncMode == "pushOnly" ? localDB.replicate.to(db, { ...syncOptionBase, ...(setting.sendChunksBulk ? { selector: { type: { $ne: "leaf" } } } : {}), ...({ selector: { "type": { "$ne": "leaf" } } }) }) : undefined as never)
             const syncResult = await this.processSync(syncHandler, showResult, docSentOnStart, docArrivedOnStart, syncMode, retrying, false);
             if (syncResult == "DONE") {
                 return true;
@@ -419,6 +584,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             this.remoteLockedAndDeviceNotAccepted = false;
             this.tweakSettingsMismatched = false;
             this.preferredTweakValue = undefined;
+
             const ensure = await ensureDatabaseIsCompatible(dbRet.db, setting, this.nodeid, currentVersionRange);
             if (ensure == "INCOMPATIBLE") {
                 Logger("The remote database has no compatibility with the running version. Please upgrade the plugin.", LOG_LEVEL_NOTICE);
@@ -453,12 +619,15 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             batches_limit: setting.batches_limit,
             batch_size: setting.batch_size,
         };
+        syncOptionBase.push = {};
+
         if (setting.readChunksOnline) {
-            syncOptionBase.push = { ...selectorOnDemandPush };
             syncOptionBase.pull = { ...selectorOnDemandPull };
         }
+        if (setting.sendChunksBulk && !keepAlive) {
+            syncOptionBase.push = { selector: { "type": { "$ne": "leaf" } } };
+        }
         const syncOption: PouchDB.Replication.SyncOptions = keepAlive ? { live: true, retry: true, heartbeat: setting.useTimeouts ? false : 30000, ...syncOptionBase } : { ...syncOptionBase };
-
         return { db: dbRet.db, info: dbRet.info, syncOptionBase, syncOption };
     }
 
@@ -723,6 +892,28 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             // While trying unlocking and not exist on the remote, it is not normal.
             Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
             throw ex;
+        }
+    }
+
+    async getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<TweakValues | false> {
+        const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        if (typeof dbRet === "string") {
+            Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
+            return false;
+        }
+        if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
+            Logger("Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed", LOG_LEVEL_NOTICE);
+            return false;
+        }
+        // check local database hash status and remote replicate hash status
+        try {
+            const remoteMilestone = await dbRet.db.get(MILESTONE_DOCID) as EntryMilestoneInfo;
+            return remoteMilestone.tweak_values[DEVICE_ID_PREFERRED];
+        } catch (ex) {
+            // While trying unlocking and not exist on the remote, it is not normal.
+            Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
+            return false;
         }
     }
 

@@ -1,4 +1,6 @@
-import { decrypt, encrypt, isPathProbablyObfuscated, obfuscatePath } from "../encryption/e2ee_v2.ts";
+import { isPathProbablyObfuscated, obfuscatePath } from "../encryption/e2ee_v2.ts";
+import { decryptWorker, encryptWorker } from "../worker/bgWorker.ts";
+
 import { serialized } from "../concurrency/lock.ts";
 import { Logger } from "../common/logger.ts";
 import { getPath } from "../string_and_binary/path.ts";
@@ -31,6 +33,10 @@ import {
     resolveWithIgnoreKnownError
 } from "../common/utils.ts";
 import * as fflate from 'fflate';
+
+
+const encrypt = encryptWorker;
+const decrypt = decryptWorker;
 
 export const isValidRemoteCouchDBURI = (uri: string): boolean => {
     if (uri.startsWith("https://")) return true;
@@ -196,7 +202,7 @@ async function decompressDoc(doc: EntryDoc) {
     return doc;
 }
 
-export const enableCompression = (db: PouchDB.Database<EntryDoc>, compress: boolean) => {
+export const replicationFilter = (db: PouchDB.Database<EntryDoc>, compress: boolean) => {
     db.transform({
         //@ts-ignore
         async incoming(doc) {
@@ -227,112 +233,128 @@ function shouldDecryptEden(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
     return false;
 }
 
-
+export let preprocessOutgoing: (doc: AnyEntry | EntryLeaf) => Promise<AnyEntry | EntryLeaf> = async (doc) => { return Promise.resolve(doc) }
+export function disableEncryption() {
+    preprocessOutgoing = async (doc) => { return doc };
+}
 // requires transform-pouch
 export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: string, useDynamicIterationCount: boolean, migrationDecrypt: boolean) => {
     const decrypted = new Map();
-    //@ts-ignore
-    db.transform({
-        incoming: async (doc: AnyEntry | EntryLeaf) => {
-            const saveDoc = {
-                ...doc,
-            } as EntryLeaf | AnyEntry;
-            if (isEncryptedChunkEntry(saveDoc) || isSyncInfoEntry(saveDoc)) {
-                try {
-                    saveDoc.data = await encrypt(saveDoc.data, passphrase, useDynamicIterationCount);
-                } catch (ex) {
-                    Logger("Encryption failed.", LOG_LEVEL_NOTICE);
-                    Logger(ex);
-                    throw ex;
-                }
-            }
+    const incoming = async (doc: AnyEntry | EntryLeaf) => {
+        const saveDoc = {
+            ...doc,
+        } as EntryLeaf | AnyEntry;
 
-            if (shouldEncryptEden(saveDoc)) {
-                saveDoc.eden = {
-                    [EDEN_ENCRYPTED_KEY]: {
-                        data: await encrypt(JSON.stringify(saveDoc.eden), passphrase, useDynamicIterationCount),
-                        epoch: 999999
-                    }
-                };
-            }
-            if (isObfuscatedEntry(saveDoc)) {
-                try {
-                    const path = getPath(saveDoc);
-                    if (!isPathProbablyObfuscated(path)) {
-                        saveDoc.path = await obfuscatePath(path, passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
-                    }
-                } catch (ex) {
-                    Logger("Encryption failed.", LOG_LEVEL_NOTICE);
-                    Logger(ex);
-                    throw ex;
+        if (isEncryptedChunkEntry(saveDoc) || isSyncInfoEntry(saveDoc)) {
+            try {
+                if (!("e_" in saveDoc)) {
+                    saveDoc.data = await encrypt(saveDoc.data, passphrase, useDynamicIterationCount);
+                    (saveDoc as any).e_ = true;
                 }
+
+            } catch (ex) {
+                Logger("Encryption failed.", LOG_LEVEL_NOTICE);
+                Logger(ex);
+                throw ex;
             }
-            return saveDoc;
-        },
-        outgoing: async (doc: EntryDoc) => {
-            const loadDoc = {
-                ...doc,
-            } as AnyEntry | EntryLeaf;
-            const _isChunkOrSyncInfo = isEncryptedChunkEntry(loadDoc) || isSyncInfoEntry(loadDoc);
-            const _isObfuscatedEntry = isObfuscatedEntry(loadDoc);
-            const _shouldDecryptEden = shouldDecryptEden(loadDoc);
-            if (_isChunkOrSyncInfo || _isObfuscatedEntry || _shouldDecryptEden) {
-                if (migrationDecrypt && decrypted.has(loadDoc._id)) {
-                    return loadDoc; // once decrypted.
+        }
+
+        if (shouldEncryptEden(saveDoc)) {
+            saveDoc.eden = {
+                [EDEN_ENCRYPTED_KEY]: {
+                    data: await encrypt(JSON.stringify(saveDoc.eden), passphrase, useDynamicIterationCount),
+                    epoch: 999999
                 }
-                try {
-                    if (_isChunkOrSyncInfo) {
-                        loadDoc.data = await decrypt(loadDoc.data, passphrase, useDynamicIterationCount);
+            };
+        }
+        if (isObfuscatedEntry(saveDoc)) {
+            try {
+                const path = getPath(saveDoc);
+                if (!isPathProbablyObfuscated(path)) {
+                    saveDoc.path = await obfuscatePath(path, passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
+                }
+            } catch (ex) {
+                Logger("Encryption failed.", LOG_LEVEL_NOTICE);
+                Logger(ex);
+                throw ex;
+            }
+        }
+        return saveDoc;
+    }
+    const outgoing = async (doc: EntryDoc) => {
+        const loadDoc = {
+            ...doc,
+        } as AnyEntry | EntryLeaf;
+        const _isChunkOrSyncInfo = isEncryptedChunkEntry(loadDoc) || isSyncInfoEntry(loadDoc);
+
+        const _isObfuscatedEntry = isObfuscatedEntry(loadDoc);
+        const _shouldDecryptEden = shouldDecryptEden(loadDoc);
+        if (_isChunkOrSyncInfo || _isObfuscatedEntry || _shouldDecryptEden) {
+            if (migrationDecrypt && decrypted.has(loadDoc._id)) {
+                return loadDoc; // once decrypted.
+            }
+            try {
+                if (_isChunkOrSyncInfo) {
+                    loadDoc.data = await decrypt(loadDoc.data, passphrase, useDynamicIterationCount);
+                    delete (loadDoc as any).e_;
+                } else if ("e_" in loadDoc) {
+                    (loadDoc as any).data = await decrypt((loadDoc as any).data, passphrase, useDynamicIterationCount);
+                    delete (loadDoc as any).e_;
+                }
+                if (_isObfuscatedEntry) {
+                    const path = getPath(loadDoc);
+                    if (isPathProbablyObfuscated(path)) {
+                        loadDoc.path = await decrypt(path, passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
                     }
-                    if (_isObfuscatedEntry) {
-                        const path = getPath(loadDoc);
-                        if (isPathProbablyObfuscated(path)) {
-                            loadDoc.path = await decrypt(path, passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
+                }
+                if (_shouldDecryptEden) {
+                    loadDoc.eden = JSON.parse(await decrypt(loadDoc.eden[EDEN_ENCRYPTED_KEY].data, passphrase, useDynamicIterationCount));
+                }
+                if (migrationDecrypt) {
+                    decrypted.set(loadDoc._id, true);
+                }
+            } catch (ex) {
+                if (useDynamicIterationCount) {
+                    try {
+                        if (_isChunkOrSyncInfo) {
+                            loadDoc.data = await decrypt(loadDoc.data, passphrase, false);
                         }
-                    }
-                    if (_shouldDecryptEden) {
-                        loadDoc.eden = JSON.parse(await decrypt(loadDoc.eden[EDEN_ENCRYPTED_KEY].data, passphrase, useDynamicIterationCount));
-                    }
-                    if (migrationDecrypt) {
-                        decrypted.set(loadDoc._id, true);
-                    }
-                } catch (ex) {
-                    if (useDynamicIterationCount) {
-                        try {
-                            if (_isChunkOrSyncInfo) {
-                                loadDoc.data = await decrypt(loadDoc.data, passphrase, false);
+                        if (_isObfuscatedEntry) {
+                            const path = getPath(loadDoc);
+                            if (isPathProbablyObfuscated(path)) {
+                                loadDoc.path = await decrypt(path, passphrase, false) as unknown as FilePathWithPrefix;
                             }
-                            if (_isObfuscatedEntry) {
-                                const path = getPath(loadDoc);
-                                if (isPathProbablyObfuscated(path)) {
-                                    loadDoc.path = await decrypt(path, passphrase, false) as unknown as FilePathWithPrefix;
-                                }
-                            }
-                            if (_shouldDecryptEden) {
-                                loadDoc.eden = JSON.parse(await decrypt(loadDoc.eden[EDEN_ENCRYPTED_KEY].data, passphrase, false));
-                            }
-                            if (migrationDecrypt) {
-                                decrypted.set(loadDoc._id, true);
-                            }
-                        } catch (ex: any) {
-                            if (migrationDecrypt && ex.name == "SyntaxError") {
-                                return loadDoc; // This logic will be removed in a while.
-                            }
-                            Logger("Decryption failed.", LOG_LEVEL_NOTICE);
-                            Logger(ex, LOG_LEVEL_VERBOSE);
-                            Logger(`id:${loadDoc._id}-${loadDoc._rev?.substring(0, 10)}`, LOG_LEVEL_VERBOSE);
-                            throw ex;
                         }
-                    } else {
+                        if (_shouldDecryptEden) {
+                            loadDoc.eden = JSON.parse(await decrypt(loadDoc.eden[EDEN_ENCRYPTED_KEY].data, passphrase, false));
+                        }
+                        if (migrationDecrypt) {
+                            decrypted.set(loadDoc._id, true);
+                        }
+                    } catch (ex: any) {
+                        if (migrationDecrypt && ex.name == "SyntaxError") {
+                            return loadDoc; // This logic will be removed in a while.
+                        }
                         Logger("Decryption failed.", LOG_LEVEL_NOTICE);
                         Logger(ex, LOG_LEVEL_VERBOSE);
                         Logger(`id:${loadDoc._id}-${loadDoc._rev?.substring(0, 10)}`, LOG_LEVEL_VERBOSE);
                         throw ex;
                     }
+                } else {
+                    Logger("Decryption failed.", LOG_LEVEL_NOTICE);
+                    Logger(ex, LOG_LEVEL_VERBOSE);
+                    Logger(`id:${loadDoc._id}-${loadDoc._rev?.substring(0, 10)}`, LOG_LEVEL_VERBOSE);
+                    throw ex;
                 }
             }
-            return loadDoc;
-        },
+        }
+        return loadDoc;
+    };
+    preprocessOutgoing = incoming;
+    //@ts-ignore
+    db.transform({
+        incoming,
+        outgoing
     });
 };
 

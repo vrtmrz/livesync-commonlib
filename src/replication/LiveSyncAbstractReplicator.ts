@@ -13,6 +13,7 @@ import {
 import type { ReactiveSource } from "../dataobject/reactive.ts";
 import { Logger } from "../common/logger.ts";
 import { resolveWithIgnoreKnownError } from "../common/utils.ts";
+import type { KeyValueDatabase } from "src/common/KeyValueDB.ts";
 
 
 export type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<void> | void;
@@ -32,6 +33,7 @@ export interface LiveSyncReplicatorEnv {
     getLastPostFailedBySize(): boolean;
     processReplication: ReplicationCallback;
     replicationStat: ReactiveSource<ReplicationStat>,
+    kvDB: KeyValueDatabase;
 }
 
 export type RemoteDBStatus = {
@@ -120,4 +122,5 @@ export abstract class LiveSyncAbstractReplicator {
     abstract fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]>;
 
     abstract getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus>;
+    abstract getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<false | TweakValues>;
 }

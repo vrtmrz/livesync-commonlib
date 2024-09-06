@@ -253,8 +253,8 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         return deleteDBEntryPrefix(this, prefixSrc);
     }
     // eslint-disable-next-line require-await
-    async putDBEntry(note: SavingEntry) {
-        return putDBEntry(this, note);
+    async putDBEntry(note: SavingEntry, onlyMeta?: boolean) {
+        return putDBEntry(this, note, onlyMeta);
     }
 
 
@@ -278,13 +278,15 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         const file = filenameSrc.startsWith("i:") ? filenameSrc.substring(2) : filenameSrc;
         if (file.startsWith("ix:")) return true;
         if (file.startsWith("ps:")) return true;
-        if (file.includes(":")) return false;
+        if (file.includes(":")) {
+            return false;
+        }
         if (this.settings.syncOnlyRegEx) {
-            const syncOnly = new RegExp(this.settings.syncOnlyRegEx);
+            const syncOnly = new RegExp(this.settings.syncOnlyRegEx, this.settings.handleFilenameCaseSensitive ? "" : "i");
             if (!file.match(syncOnly)) return false;
         }
         if (this.settings.syncIgnoreRegEx) {
-            const syncIgnore = new RegExp(this.settings.syncIgnoreRegEx);
+            const syncIgnore = new RegExp(this.settings.syncIgnoreRegEx, this.settings.handleFilenameCaseSensitive ? "" : "i");
             if (file.match(syncIgnore)) return false;
         }
         return true;
@@ -360,6 +362,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     async *findEntries(startKey: string, endKey: string, opt: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
         const pageLimit = 100;
         let nextKey = startKey;
+        if (endKey == "") endKey = "\u{10ffff}";
         let req = this.allDocsRaw({ limit: pageLimit, startkey: nextKey, endkey: endKey, include_docs: true, ...opt });
         do {
             const docs = await req;
@@ -371,11 +374,12 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
             for (const row of docs.rows) {
                 const doc = row.doc;
                 //@ts-ignore: non null by include_docs
-                if (!("type" in doc)) continue;
+                if (!("type" in doc)) {
+                    continue;
+                }
                 if (doc.type == "newnote" || doc.type == "plain") {
                     yield doc;
                 }
-
             }
         } while (nextKey != "");
     }
@@ -395,6 +399,7 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
     async *findEntryNames(startKey: string, endKey: string, opt: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
         const pageLimit = 100;
         let nextKey = startKey;
+        if (endKey == "") endKey = "\u{10ffff}";
         let req = this.allDocsRaw({ limit: pageLimit, startkey: nextKey, endkey: endKey, ...opt });
         do {
             const docs = await req;

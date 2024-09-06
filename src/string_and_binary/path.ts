@@ -1,6 +1,6 @@
 import { minimatch, type MinimatchOptions } from "minimatch";
 import { webcrypto } from "../mods.ts";
-import { type AnyEntry, type DocumentID, type EntryHasPath, type FilePath, type FilePathWithPrefix, FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3, PREFIX_OBFUSCATED, PREFIXMD_LOGFILE, FLAGMD_REDFLAG2_HR, FLAGMD_REDFLAG3_HR } from "../common/types.ts";
+import { type AnyEntry, type DocumentID, type EntryHasPath, type FilePath, type FilePathWithPrefix, FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3, PREFIX_OBFUSCATED, PREFIXMD_LOGFILE, FLAGMD_REDFLAG2_HR, FLAGMD_REDFLAG3_HR, PREFIXMD_LOGFILE_UC } from "../common/types.ts";
 import { memorizeFuncWithLRUCache } from "../common/utils.ts";
 import { uint8ArrayToHexString, writeString } from "./convert.ts";
 import { unique } from "octagonal-wheels/collection.js";
@@ -66,7 +66,7 @@ export function expandDocumentIDPrefix(id: DocumentID): [string, FilePathWithPre
     return [prefix, body as FilePathWithPrefix];
 }
 
-const hashString = memorizeFuncWithLRUCache(async (key: string) => {
+const _hashString = memorizeFuncWithLRUCache(async (key: string) => {
     const buff = writeString(key);
     let digest = await webcrypto.subtle.digest('SHA-256', buff);
     const len = key.length;
@@ -75,24 +75,40 @@ const hashString = memorizeFuncWithLRUCache(async (key: string) => {
         digest = await webcrypto.subtle.digest('SHA-256', buff);
     }
     return uint8ArrayToHexString(new Uint8Array(digest));
-})
+});
+
+function hashString(key: string) {
+    return _hashString(key);
+}
+
 
 export async function path2id_base(
-    filename: FilePathWithPrefix | FilePath,
+    filenameSrc: FilePathWithPrefix | FilePath,
     obfuscatePassphrase: string | false,
+    caseInsensitive: boolean
 ): Promise<DocumentID> {
-    if (filename.startsWith(PREFIX_OBFUSCATED)) return filename as string as DocumentID;
+    if (filenameSrc.startsWith(PREFIX_OBFUSCATED)) return filenameSrc as string as DocumentID;
+    let filename = filenameSrc;
+    const newPrefix = obfuscatePassphrase ? PREFIX_OBFUSCATED : "";
+    if (caseInsensitive) {
+        filename = filename.toLowerCase() as FilePathWithPrefix;
+    }
+
     let x = filename;
     if (x.startsWith("_")) x = ("/" + x) as FilePathWithPrefix;
-    if (!obfuscatePassphrase) return x as string as DocumentID;
+
+    if (!obfuscatePassphrase) {
+        return newPrefix + (x as string) as DocumentID;
+    }
+
     // obfuscating...
     const [prefix, body] = expandFilePathPrefix(x);
     // Already Hashed
-    if (body.startsWith(PREFIX_OBFUSCATED)) return x as string as DocumentID;
+    if (body.startsWith(PREFIX_OBFUSCATED)) return newPrefix + (x as string) as DocumentID;
     const hashedPassphrase = await hashString(obfuscatePassphrase);
     // Hash it!
     const out = await hashString(`${hashedPassphrase}:${filename}`);
-    return (prefix + PREFIX_OBFUSCATED + out) as DocumentID;
+    return (prefix + newPrefix + out) as DocumentID;
 }
 
 export function id2path_base(id: DocumentID, entry?: EntryHasPath): FilePathWithPrefix {
@@ -141,6 +157,9 @@ export function shouldBeIgnored(filename: string): boolean {
         return true;
     }
     if (filename.startsWith(PREFIXMD_LOGFILE)) {
+        return true;
+    }
+    if (filename.startsWith(PREFIXMD_LOGFILE_UC)) {
         return true;
     }
     return false;

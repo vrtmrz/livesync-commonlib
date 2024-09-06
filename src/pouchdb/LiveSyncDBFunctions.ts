@@ -3,7 +3,7 @@ import { Logger } from "../common/logger.ts";
 import { LRUCache } from "../memory/LRUCache.ts";
 import { shouldSplitAsPlainText, stripAllPrefixes } from "../string_and_binary/path.ts";
 
-import { splitPieces2Worker, splitPieces2WorkerV2 } from "../worker/splitWorker.ts";
+import { splitPieces2Worker, splitPieces2WorkerV2 } from "../worker/bgWorker.ts";
 import { splitPieces2, splitPieces2V2 } from "../string_and_binary/chunks.ts";
 import { sha1 } from "../string_and_binary/hash.ts";
 
@@ -39,7 +39,7 @@ import { createTextBlob, extractObject, isObjectDifferent, isTextBlob, resolveWi
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
 
-export interface DBFunctionSettings {
+export interface DBFunctionSettings extends Partial<RemoteDBSettings> {
     minimumChunkSize: number;
     encrypt: boolean;
     passphrase: string;
@@ -54,6 +54,7 @@ export interface DBFunctionSettings {
     enableChunkSplitterV2: boolean;
     disableWorkerForGeneratingChunks: boolean;
     processSmallFilesInUIThread: boolean;
+    doNotUseFixedRevisionForChunks: boolean;
 }
 
 // This interface is expected to be unnecessary because of the change in dependency direction
@@ -134,9 +135,17 @@ function getNoFromRev(rev: string) {
     if (!rev) return 0;
     return parseInt(rev.split("-")[0]);
 }
+
+function createChunkRev(chunk: EntryLeaf) {
+
+    const lenC = Math.imul(chunk.data.length, 21 + (chunk._id.charCodeAt(5)));
+
+    return `1-${(lenC.toString(16) + ("0".repeat(32))).slice(0, 32)}`;
+}
 export async function putDBEntry(
     env: DBFunctionEnvironment,
-    note: SavingEntry): Promise<false | PouchDB.Core.Response> {
+    note: SavingEntry,
+    onlyMeta?: boolean): Promise<false | PouchDB.Core.Response> {
     //safety valve
     const filename = env.id2path(note._id, note);
     const dispFilename = stripAllPrefixes(filename);
@@ -155,11 +164,12 @@ export async function putDBEntry(
 
     const minimumChunkSize = env.settings.minimumChunkSize;
 
-    const now = Date.now();
-    const diff = now - note.mtime;
+    // const now = Date.now();
+    // const diff = now - note.mtime;
     // If enough old, store it as `stable` file.
     // A Stable file will not be split as text, but simply by pieceSize. Because it might not need to transfer differences
-    const isStable = (diff > 1000 * 3600 * 24 * 30);
+    // -- Disabled for now because it has a problem with storage consumption.
+    const isStable = false;//(diff > 1000 * 3600 * 24 * 30);
     if (isStable) {
         plainSplit = false;
     } else if (shouldSplitAsPlainText(filename)) {
@@ -200,7 +210,7 @@ export async function putDBEntry(
     // Load old document meta
     let newChunks = [] as EntryLeaf[];
 
-    if (env.settings.useEden) {
+    if (env.settings.useEden && !onlyMeta) {
         try {
             const old = await env.localDatabase.get<AnyEntry>(note._id);
             currentRevAsNo = getNoFromRev((old._rev));
@@ -315,29 +325,55 @@ export async function putDBEntry(
     }
     const cached = processed - newChunks.length;
     if (newChunks.length) {
-        const result = await env.localDatabase.bulkDocs(newChunks);
-        const mappedResults = result.reduce((p, item) => {
-            if ("ok" in item) {
-                p.ok.push(item)
-                return p;
-            }
-            if ("error" in item) {
-                if (item.status == 409) {
-                    p.skip.push(item);
+        if (!env.settings.doNotUseFixedRevisionForChunks) {
+            newChunks = newChunks.map(e => ({ ...e, _rev: createChunkRev(e) }));
+        }
+        const exists = await env.localDatabase.allDocs({ keys: newChunks.map(e => e._id), include_docs: false });
+        const existsMap = exists.rows.map(e => ([e.key, "error" in e ? e.error : e.value.rev])).reduce((p, c) => ({ ...p, [c[0]]: c[1] }), {} as Record<string, any>);
+        const result = await env.localDatabase.bulkDocs(newChunks, { new_edits: env.settings.doNotUseFixedRevisionForChunks });
+        if (env.settings.doNotUseFixedRevisionForChunks) {
+            const mappedResults = result.reduce((p, item) => {
+                if ("ok" in item) {
+                    p.ok.push(item)
                     return p;
                 }
+                if ("error" in item) {
+                    if (item.status == 409) {
+                        p.skip.push(item);
+                        return p;
+                    }
+                }
+                p.failed.push(item);
+                return p;
+            }, ({ ok: [] as PouchDB.Core.Response[], skip: [] as PouchDB.Core.Error[], failed: [] as any[] }))
+            if (mappedResults.failed.length) {
+                Logger(`Save failed.: ${dispFilename} :${mappedResults.failed.map(e => e?.id ?? e.toString()).join(",")}`, LOG_LEVEL_VERBOSE);
+                Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
+                return false;
             }
-            p.failed.push(item);
-            return p;
-        }, ({ ok: [] as PouchDB.Core.Response[], skip: [] as PouchDB.Core.Error[], failed: [] as any[] }))
-        if (mappedResults.failed.length) {
-            Logger(`Save failed.: ${dispFilename} :${mappedResults.failed.map(e => e?.id ?? e.toString()).join(",")}`, LOG_LEVEL_VERBOSE);
-            Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
-            return false;
+            const made = mappedResults.ok.length;
+            const skipped = mappedResults.skip.length;
+            Logger(`Chunks saved: doc: ${dispFilename} ,chunks: ${processed} (new:${made}, recycled:${skipped}, cached:${cached})`);
+        } else {
+            const erroredItems = newChunks.filter(e => e._id in existsMap && existsMap[e._id].startsWith("1-") && existsMap[e._id] != e._rev);
+            const actualNewChunks = newChunks.filter(e => !(e._id in existsMap) || !existsMap[e._id].startsWith("1-"));
+            // const skippedChunks = newChunks.filter(e => e._id in existsMap && existsMap[e._id] == e._rev);
+            if (erroredItems.length) {
+                Logger(`Save failed.: ${dispFilename} :${erroredItems.length} items mismatched`, LOG_LEVEL_VERBOSE);
+                Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
+                return false;
+            }
+            const made = actualNewChunks.length;
+            const skipped = newChunks.length - actualNewChunks.length;
+            Logger(`Chunks saved (with fixed): doc: ${dispFilename} ,chunks: ${processed} (new:${made}, recycled:${skipped}, cached:${cached})`);
         }
-        const made = mappedResults.ok.length;
-        const skipped = mappedResults.skip.length;
-        Logger(`Chunks saved: doc: ${dispFilename} ,chunks: ${processed} (new:${made}, recycled:${skipped}, cached:${cached})`);
+    }
+    if (onlyMeta) {
+        return ({
+            id: note._id,
+            ok: true,
+            rev: "dummy"
+        })
     }
 
     const newDoc: PlainEntry | NewEntry = {

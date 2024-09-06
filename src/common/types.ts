@@ -19,7 +19,8 @@ export type FilterNumberKeys<T> = keyof ExtractPropertiesByType<T, number | (num
 
 
 export type FilePath = TaggedType<string, "FilePath">;
-export type FilePathWithPrefix = TaggedType<string, "FilePathWithPrefix"> | FilePath;
+export type FilePathWithPrefixLC = TaggedType<string, "FilePathWithPrefixLC">;
+export type FilePathWithPrefix = TaggedType<string, "FilePathWithPrefix"> | FilePath | FilePathWithPrefixLC;
 export type DocumentID = TaggedType<string, "documentId">;
 
 
@@ -72,6 +73,10 @@ export type PluginSyncSettingEntry = {
 export const REMOTE_COUCHDB = "";
 export const REMOTE_MINIO = "MINIO";
 export type RemoteType = typeof REMOTE_COUCHDB | typeof REMOTE_MINIO;
+
+export const SETTING_VERSION_INITIAL = 0;
+export const SETTING_VERSION_SUPPORT_CASE_INSENSITIVE = 10;
+export const CURRENT_SETTING_VERSION = SETTING_VERSION_SUPPORT_CASE_INSENSITIVE;
 
 interface ObsidianLiveSyncSettings_PluginSetting {
     liveSync: boolean;
@@ -146,6 +151,8 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     usePluginSyncV2: boolean;
     usePluginEtc: boolean; // This still be hidden from the UI.
 
+    showLongerLogInsideEditor: boolean;
+
 }
 
 export type BucketSyncSetting = {
@@ -159,6 +166,7 @@ export type BucketSyncSetting = {
 export type RemoteTypeSettings = {
     remoteType: RemoteType;
 }
+
 export type RemoteDBSettings = CouchDBConnection & BucketSyncSetting & RemoteTypeSettings & {
     versionUpFlash: string;
     minimumChunkSize: number;
@@ -204,6 +212,11 @@ export type RemoteDBSettings = CouchDBConnection & BucketSyncSetting & RemoteTyp
     enableChunkSplitterV2: boolean;
     disableWorkerForGeneratingChunks: boolean;
     processSmallFilesInUIThread: boolean;
+
+    handleFilenameCaseSensitive: boolean;
+    doNotUseFixedRevisionForChunks: boolean;
+    sendChunksBulk: boolean;
+    sendChunksBulkMaxSize: number;
 }
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
@@ -299,7 +312,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     writeCredentialsForSettingSync: false,
     notifyAllSettingSyncFile: false,
     isConfigured: undefined,
-    settingVersion: 0,
+    settingVersion: CURRENT_SETTING_VERSION,
     enableCompression: false,
     accessKey: "",
     bucket: "",
@@ -319,18 +332,28 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
 
     usePluginSyncV2: false,
     usePluginEtc: false,
+    handleFilenameCaseSensitive: undefined!,
+    doNotUseFixedRevisionForChunks: undefined!,
+    showLongerLogInsideEditor: false,
+    sendChunksBulk: true,
+    sendChunksBulkMaxSize: 25,
 };
 
+export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
+    settings: T;
+}
 
 export const PREFERRED_SETTING_CLOUDANT: Partial<ObsidianLiveSyncSettings> = {
     syncMaxSizeInMB: 50,
     customChunkSize: 0,
+    sendChunksBulkMaxSize: 1,
     concurrencyOfReadChunksOnline: 100,
     minimumIntervalOfReadChunksOnline: 333,
 }
 export const PREFERRED_SETTING_SELF_HOSTED: Partial<ObsidianLiveSyncSettings> = {
     ...PREFERRED_SETTING_CLOUDANT,
     customChunkSize: 50,
+    sendChunksBulkMaxSize: 40,
     concurrencyOfReadChunksOnline: 30,
     minimumIntervalOfReadChunksOnline: 25
 }
@@ -399,10 +422,24 @@ export type SavingEntry = AnyEntry & {
     datatype: "plain" | "newnote";
 }
 
+export type MetaEntry = AnyEntry & {
+    children: string[];
+    // datatype: "plain" | "newnote";
+}
+export function isMetaEntry(entry: AnyEntry): entry is MetaEntry {
+    return "children" in entry
+}
+
 export type EntryLeaf = DatabaseEntry & {
     type: "leaf";
     data: string;
     isCorrupted?: boolean;
+    // received?: boolean;
+}
+
+export type EntryChunkPack = DatabaseEntry & {
+    type: "chunkpack";
+    data: string//Record<string, string>;
 }
 
 export interface EntryVersionInfo extends DatabaseEntry {
@@ -433,7 +470,13 @@ export const TweakValuesShouldMatchedTemplate: Partial<ObsidianLiveSyncSettings>
     maxTotalLengthInEden: 1024,
     maxAgeInEden: 10,
     usePluginSyncV2: false,
+    handleFilenameCaseSensitive: false,
+    doNotUseFixedRevisionForChunks: false,
 }
+
+export const CompatibilityBreakingTweakValues: (keyof TweakValues)[] = ["encrypt", "usePathObfuscation", "useDynamicIterationCount", "hashAlg", "handleFilenameCaseSensitive", "doNotUseFixedRevisionForChunks"];
+
+
 export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> = {
     useIgnoreFiles: false,
     useCustomRequestHandler: false,
@@ -451,6 +494,8 @@ export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> =
     syncMaxSizeInMB: 50,
     enableChunkSplitterV2: true,
     usePluginSyncV2: true,
+    handleFilenameCaseSensitive: false,
+    doNotUseFixedRevisionForChunks: false,
 };
 export const TweakValuesDefault: Partial<ObsidianLiveSyncSettings> = {
     usePluginSyncV2: false
@@ -508,6 +553,18 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
     "usePluginSyncV2": {
         name: "Per-file-saved customization sync",
         desc: "If enabled per-filed efficient customization sync will be used. We need a small migration when enabling this. And all devices should be updated to v0.23.18. Once we enabled this, we lost a compatibility with old versions."
+    },
+    "handleFilenameCaseSensitive": {
+        name: "Handle files as Case-Sensitive",
+        desc: "If this enabled, All files are handled as case-Sensitive (Previous behaviour)."
+    },
+    "doNotUseFixedRevisionForChunks": {
+        name: "Compute revisions for chunks (Previous behaviour)",
+        desc: "If this enabled, all chunks will be stored with the revision made from its content. (Previous behaviour)"
+    },
+    "sendChunksBulk": {
+        name: "Send chunks in bulk",
+        desc: "If this enabled, all chunks will be sent in bulk. This is useful for the environment that has a high latency."
     }
 }
 export type ConfigurationItem = {
@@ -586,7 +643,7 @@ export interface EntryNodeInfo extends DatabaseEntry {
 
 export type EntryBody = NoteEntry | NewEntry | PlainEntry | InternalFileEntry;
 
-export type EntryDoc = EntryBody | LoadedEntry | EntryLeaf | EntryVersionInfo | EntryMilestoneInfo | EntryNodeInfo;
+export type EntryDoc = EntryBody | LoadedEntry | EntryLeaf | EntryVersionInfo | EntryMilestoneInfo | EntryNodeInfo | EntryChunkPack;
 
 export type diff_result_leaf = {
     rev: string;
@@ -630,7 +687,9 @@ export type DatabaseConnectingStatus =
     | "JOURNAL_SEND"
     | "JOURNAL_RECEIVE";
 
-export const PREFIXMD_LOGFILE = "LIVESYNC_LOG_";
+export const PREFIXMD_LOGFILE = "livesync_log_";
+export const PREFIXMD_LOGFILE_UC = "LIVESYNC_LOG_";
+
 export const FLAGMD_REDFLAG = "redflag.md" as FilePath;
 export const FLAGMD_REDFLAG2 = "redflag2.md" as FilePath;
 export const FLAGMD_REDFLAG2_HR = "flag_rebuild.md" as FilePath;

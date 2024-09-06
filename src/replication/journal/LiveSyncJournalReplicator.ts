@@ -7,6 +7,7 @@ import {
     LOG_LEVEL_VERBOSE,
     DEVICE_ID_PREFERRED,
     TweakValuesTemplate,
+    type TweakValues,
 } from "../../common/types.ts";
 import { Logger } from "../../common/logger.ts";
 
@@ -286,6 +287,19 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = extractObject(TweakValuesTemplate, { ...setting });
             Logger(`tweak values on the remote database have been cleared`, LOG_LEVEL_VERBOSE);
             await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone);
+        } catch (ex) {
+            Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
+            throw ex;
+        }
+    }
+
+    async getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<false | TweakValues> {
+        try {
+            const remoteMilestone = await this.client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
+            if (!remoteMilestone) {
+                throw new Error("Missing remote milestone");
+            }
+            return remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] || false;
         } catch (ex) {
             Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
             throw ex;
