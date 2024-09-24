@@ -12,6 +12,7 @@ export type SplitArguments = {
     type: "split";
     dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string,
     useV2: boolean
+    useSegmenter: boolean
 }
 
 export type EncryptArguments = {
@@ -120,11 +121,11 @@ export function terminateWorker() {
 }
 
 
-export function splitPieces2Worker(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string) {
-    return _splitPieces2Worker(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, false);
+export function splitPieces2Worker(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string, useSegmenter?: boolean) {
+    return _splitPieces2Worker(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, false, useSegmenter ?? false);
 }
-export function splitPieces2WorkerV2(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string) {
-    return _splitPieces2Worker(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, true);
+export function splitPieces2WorkerV2(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string, useSegmenter?: boolean) {
+    return _splitPieces2Worker(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, true, useSegmenter ?? false);
 }
 export function encryptWorker(input: string, passphrase: string, autoCalculateIterations: boolean): Promise<string> {
     return encryptionOnWorker({ type: "encrypt", input, passphrase, autoCalculateIterations });
@@ -167,16 +168,10 @@ function nextWorker() {
 
 let key = 0;
 
-function _splitPieces2Worker(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename: string | undefined, useV2: boolean) {
+function _splitPieces2Worker(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename: string | undefined, useV2: boolean, useSegmenter: boolean) {
 
-    const process = startWorker({ type: "split", dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useV2 });
+    const process = startWorker({ type: "split", dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useV2, useSegmenter });
     const _key = process.key;
-    // const inst = nextWorker();
-    // const promise = promiseWithResolver<string>();
-    // const _key = key++;
-    // tasks.set(_key, { task:promise, type: "split" });
-    // inst.processing++;
-    // inst.worker.postMessage({ key: _key, dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useV2 });
     return async function* () {
         while (tasks.has(_key)) {
             const { task } = tasks.get(_key)!;
@@ -190,6 +185,6 @@ function _splitPieces2Worker(dataSrc: Blob, pieceSize: number, plainSplit: boole
     }
 }
 
-eventHub.on(EVENT_PLUGIN_UNLOADED, () => {
+eventHub.onEvent(EVENT_PLUGIN_UNLOADED, () => {
     terminateWorker();
 })

@@ -12,7 +12,7 @@ import {
 
 import type { ReactiveSource } from "../dataobject/reactive.ts";
 import { Logger } from "../common/logger.ts";
-import { resolveWithIgnoreKnownError } from "../common/utils.ts";
+import { resolveWithIgnoreKnownError, type SimpleStore } from "../common/utils.ts";
 import type { KeyValueDatabase } from "src/common/KeyValueDB.ts";
 
 
@@ -34,6 +34,7 @@ export interface LiveSyncReplicatorEnv {
     processReplication: ReplicationCallback;
     replicationStat: ReactiveSource<ReplicationStat>,
     kvDB: KeyValueDatabase;
+    simpleStore: SimpleStore<any>;
 }
 
 export type RemoteDBStatus = {

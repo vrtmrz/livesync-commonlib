@@ -56,8 +56,136 @@ function* pickPiece(leftData: string[], minimumChunkSize: number): Generator<str
 
 const charNewLine = "\n".charCodeAt(0);
 
+
+//@ts-ignore Segmenter is not available in all browsers yet.
+const segmenter = "Segmenter" in Intl ? new Intl.Segmenter(navigator.language, { granularity: "sentence" }) : undefined;
+
+
+function* splitStringWithinLength(text: string, pieceSize: number) {
+    let leftData = text;
+    do {
+        const splitSize = pieceSize;
+        const piece = leftData.substring(0, splitSize);
+        leftData = leftData.substring(splitSize);
+        yield piece;
+    } while (leftData != "");
+}
+
+function* splitTextInSegment(text: string, pieceSize: number, minimumChunkSize: number) {
+
+    const segments = segmenter!.segment(text) as [{ segment: string }];
+
+    let prev = "";
+    let buf = "";
+
+    for (const seg of segments) {
+        // Same segment, concat.
+        const buffer = seg.segment;
+        if (prev == buffer || buf.length < minimumChunkSize) {
+            buf += buffer;
+            prev = buffer;
+        } else {
+            prev = buffer;
+            if (buf.length > 0) {
+                yield* splitStringWithinLength(buf, pieceSize);
+            }
+            buf = buffer;
+        }
+    }
+    if (buf.length > 0) {
+        yield* splitStringWithinLength(buf, pieceSize);
+    }
+}
+
+function* splitInNewLine(texts: string[]) {
+    for (const text of texts) {
+        let start = -1;
+        let end = -1;
+        do {
+            end = text.indexOf("\n", start);
+            if (end == -1) {
+                yield text.substring(start);
+                break;
+            }
+            // Concat empty lines.
+            while (text[end] == "\n") {
+                end++;
+            }
+            yield text.substring(start, end);
+            start = end;
+        } while (end != -1);
+    }
+    return;
+}
+export function splitPiecesTextV2(dataSrc: string | string[], pieceSize: number, minimumChunkSize: number) {
+    const dataListAllArray = typeof (dataSrc) == "string" ? [dataSrc] : dataSrc;
+    const dataListAll = splitInNewLine(dataListAllArray);
+    let inCodeBlock = 0;
+    let flush = false;
+    let flushBefore = false;
+    return function* (): Generator<string> {
+
+        const buf = [] as string[];
+        for (const line of dataListAll) {
+            if (line.startsWith("````")) {
+                if (inCodeBlock == 0) {
+                    inCodeBlock = 4;
+                    flushBefore = true;
+                } else if (inCodeBlock == 4) {
+                    inCodeBlock = 0;
+                    flush = true;
+                }
+            } else if (line.startsWith("```")) {
+                if (inCodeBlock == 0) {
+                    inCodeBlock = 3;
+                    flushBefore = true;
+                } else if (inCodeBlock == 3) {
+                    inCodeBlock = 0;
+                    flush = true;
+                }
+            }
+            if (flushBefore) {
+                if (buf.length > 0) {
+                    yield* splitTextInSegment(buf.join(""), pieceSize, minimumChunkSize);
+                    buf.length = 0;
+                }
+                flushBefore = false;
+            }
+            buf.push(line);
+            if (flush) {
+                if (buf.length > 0) {
+                    yield* splitStringWithinLength(buf.join(""), pieceSize);
+                    buf.length = 0;
+                }
+                flush = false;
+            }
+        }
+        if (buf.length > 0) {
+            if (inCodeBlock == 0) {
+                yield* splitTextInSegment(buf.join(""), pieceSize, minimumChunkSize);
+            } else {
+                yield* splitStringWithinLength(buf.join(""), pieceSize);
+            }
+        }
+    }
+}
+export function binaryTextSplit(data: string, pieceSize: number, minimumChunkSize: number) {
+    return function* pieces(): Generator<string> {
+        yield* splitStringWithinLength(data, pieceSize);
+    }
+}
 // Split string into pieces within specific lengths (characters).
-export function splitPiecesText(dataSrc: string | string[], pieceSize: number, plainSplit: boolean, minimumChunkSize: number) {
+export function splitPiecesText(dataSrc: string | string[], pieceSize: number, plainSplit: boolean, minimumChunkSize: number, useSegmenter: boolean) {
+    if (!useSegmenter || !segmenter) {
+        return splitPiecesTextV1(dataSrc, pieceSize, plainSplit, minimumChunkSize);
+    }
+    if (!plainSplit) {
+        return binaryTextSplit(dataSrc as string, pieceSize, minimumChunkSize);
+    }
+    return splitPiecesTextV2(dataSrc, pieceSize, minimumChunkSize);
+}
+
+export function splitPiecesTextV1(dataSrc: string | string[], pieceSize: number, plainSplit: boolean, minimumChunkSize: number) {
 
     const dataList = typeof (dataSrc) == "string" ? [dataSrc] : dataSrc;
     return function* pieces(): Generator<string> {
@@ -174,7 +302,7 @@ export async function concatGeneratedAll(strGen: AsyncGenerator<string, any, unk
 }
 
 const MAX_ITEMS = 100;
-export async function splitPieces2V2(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string) {
+export async function splitPieces2V2(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string, useSegmenter?: boolean) {
     if (dataSrc.size == 0) {
         // eslint-disable-next-line require-yield
         return function* noItems(): Generator<string> {
@@ -257,9 +385,10 @@ export async function splitPieces2V2(dataSrc: Blob, pieceSize: number, plainSpli
 
     }
 }
-export async function splitPieces2(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string) {
+
+export async function splitPieces2(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string, useSegmenter?: boolean) {
     if (isTextBlob(dataSrc)) {
-        return splitPiecesText(await dataSrc.text(), pieceSize, plainSplit, minimumChunkSize);
+        return splitPiecesText(await dataSrc.text(), pieceSize, plainSplit, minimumChunkSize, useSegmenter ?? false);
     }
 
     let delimiter = 0; // Split null by default.
@@ -299,7 +428,8 @@ export async function splitPieces2(dataSrc: Blob, pieceSize: number, plainSplit:
             if (nextIdx == -1) nextIdx = currentData.indexOf(charNewLine, minimumChunkSize);
             const piece = currentData.slice(0, splitSize);
             i += piece.length;
-            yield await arrayBufferToBase64Single(piece);
+            const b64 = await arrayBufferToBase64Single(piece);
+            yield b64;
 
         } while (i < size);
     };

@@ -9,7 +9,7 @@ import {
     type DocumentID,
     type TweakValues
 } from "../../common/types.ts";
-import { resolveWithIgnoreKnownError, delay, globalConcurrencyController, extractObject, wrapException, sizeToHumanReadable } from "../../common/utils.ts";
+import { resolveWithIgnoreKnownError, delay, globalConcurrencyController, extractObject, wrapException, sizeToHumanReadable, type SimpleStore } from "../../common/utils.ts";
 import { Logger } from "../../common/logger.ts";
 import { checkRemoteVersion, preprocessOutgoing } from "../../pouchdb/utils_couchdb.ts";
 
@@ -18,6 +18,7 @@ import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv, type RemoteDBSt
 import { shareRunningResult } from "../../concurrency/lock.ts";
 import { promiseWithResolver } from "octagonal-wheels/promises";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
+import { Trench } from "octagonal-wheels/memory/memutil";
 
 
 const currentVersionRange: ChunkVersionRange = {
@@ -331,6 +332,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         await wrapException(() => localDB.put(newMax));
         return newMax.maxSeq;
     }
+    trench = new Trench(this.env.simpleStore as SimpleStore<{
+        seq: string | number;
+        doc: PouchDB.Core.ExistingDocument<EntryDoc & PouchDB.Core.ChangesMeta> | undefined;
+        id: DocumentID;
+    }>, true);
 
     async sendChunks(setting: RemoteDBSettings, remoteDB: PouchDB.Database<EntryDoc> | undefined, showResult: boolean, fromSeq?: number | string) {
         if (!remoteDB) {
@@ -349,11 +355,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         Logger(`Looking for the point last synchronized point.`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
         this.syncStatus = "CONNECTED"
         let allRead = false;
-        const sendAllDocs = [] as {
-            seq: string | number;
-            doc: PouchDB.Core.ExistingDocument<EntryDoc & PouchDB.Core.ChangesMeta> | undefined;
-            id: DocumentID;
-        }[];
+
+        const limitOneBatch = 250;
+        let totalSendChunks = 0;
         let seq = fromSeq ?? await this.getLastTransferredSeqOfChunks(localDB, remoteID);
         do {
             const diffChunks = await localDB.changes({
@@ -361,9 +365,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 live: false,
                 include_docs: true,
                 selector: { "type": "leaf" },
-                limit: 500,
+                limit: limitOneBatch,
             })
-            if (diffChunks.results.length != 500) {
+            if (diffChunks.results.length != limitOneBatch) {
                 Logger(`All changeset has been scanned (Last seq = ${diffChunks.last_seq}).`, LOG_LEVEL_VERBOSE);
                 allRead = true;
             }
@@ -372,16 +376,17 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             const remoteDocs = await remoteDB.allDocs({ keys: IDs, include_docs: false });
             const remoteDocMap = Object.fromEntries(remoteDocs.rows.map(e => [e.key, "error" in e ? e.error : e.value]));
             const localNewChunks = diffChunks.results.filter(e => e.doc !== undefined).map(e => ({ seq: e.seq, doc: e.doc, id: e.doc!._id }))
-            const sendDocs = localNewChunks.filter(e => remoteDocMap[e.id] == "not_found").filter(e => sendAllDocs.every(e2 => e2.id != e.id));
+            const sendDocs = localNewChunks.filter(e => remoteDocMap[e.id] == "not_found");
             // Logger(`Found ${sendDocs.length} chunks to send, queued. (Since ${seq}).`, LOG_LEVEL_VERBOSE);
             if (sendDocs.length == 0) {
                 Logger(`No chunks to send. (Since ${seq}).`, LOG_LEVEL_VERBOSE);
                 const markSeq = allRead ? diffChunks.last_seq : seq;
                 await this.updateMaxTransferredSeqOnChunks(localDB, remoteID, markSeq);
             } else {
-                Logger(`Queued ${sendAllDocs.length + sendDocs.length} chunks. (Since ${seq}).`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
+                totalSendChunks += sendDocs.length;
+                Logger(`Queued ${totalSendChunks} chunks. (Since ${seq}).`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
+                this.trench.queue("send-chunks", sendDocs);
             }
-            sendAllDocs.push(...sendDocs);
             seq = diffChunks.last_seq;
         } while (!allRead);
         // console.dir(sendAllDocs);
@@ -401,7 +406,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             Logger(`Sending ${bulkDocs.length} (${bulkDocsSize} => ${sizeToHumanReadable(bulkDocsSize)} in plain) chunks to remote database...`, LOG_LEVEL_VERBOSE);
             const releaser = await semaphore.acquire(1);
             sendingDocs += bulkDocs.length;
-            Logger(`↑ Uploading chunks \n${sendingDocs}/${sendAllDocs.length} (${sentDocsCount})`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
+            Logger(`↑ Uploading chunks \n${sendingDocs}/(${sentDocsCount} done)`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
             try {
                 const _prev = prev;
                 const proc = promiseWithResolver<void>();
@@ -417,7 +422,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     proc.resolve();
                 }
                 sentDocsCount += bulkDocs.length;
-                Logger(`↑ Uploading chunks \n${sendingDocs}/${sendAllDocs.length} (${sentDocsCount})`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
+                Logger(`↑ Uploading chunks \n${sendingDocs}/(${sentDocsCount} done)`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
 
             } catch (ex) {
                 Logger("Bulk sending failed.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
@@ -430,28 +435,38 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
 
         const tasks = [] as Promise<any>[]
-        for (const chunk of sendAllDocs) {
-            const jsonLength = te.encode(JSON.stringify(chunk.doc)).byteLength + 32 // (Not sure but means overhead);
-            if ((bulkDocsSizeBytes + jsonLength > maxBatchSizeBytes || bulkDocsSizeCount + 1 > maxBatchSizeCount) && bulkDocs.length > 0) {
-
-                tasks.push(sendChunks([...bulkDocs], bulkDocsSizeBytes, maxSeq));
-                bulkDocs = [];
-                bulkDocsSizeBytes = 0;
-                bulkDocsSizeCount = 0;
+        do {
+            const nowSendChunks = await this.trench.dequeue<{
+                seq: string | number;
+                doc: PouchDB.Core.ExistingDocument<EntryDoc & PouchDB.Core.ChangesMeta> | undefined;
+                id: DocumentID;
+            }[]>("send-chunks");
+            if (!nowSendChunks || nowSendChunks.length == 0) {
+                break;
             }
-            bulkDocs.push(chunk.doc as EntryLeaf);
-            maxSeq = chunk.seq;
-            bulkDocsSizeBytes += jsonLength;
-            bulkDocsSizeCount += 1;
-        }
-        if (bulkDocs.length > 0) {
-            tasks.push(sendChunks([...bulkDocs], bulkDocsSizeBytes, maxSeq));
-        }
-        const results = await Promise.all(tasks);
-        if (results.some(e => e === false)) {
-            return false;
-        }
-        Logger(`${sendAllDocs.length} chunks Uploaded`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
+            for (const chunk of nowSendChunks) {
+                const jsonLength = te.encode(JSON.stringify(chunk.doc)).byteLength + 32 // (Not sure but means overhead);
+                if ((bulkDocsSizeBytes + jsonLength > maxBatchSizeBytes || bulkDocsSizeCount + 1 > maxBatchSizeCount) && bulkDocs.length > 0) {
+
+                    tasks.push(sendChunks([...bulkDocs], bulkDocsSizeBytes, maxSeq));
+                    bulkDocs = [];
+                    bulkDocsSizeBytes = 0;
+                    bulkDocsSizeCount = 0;
+                }
+                bulkDocs.push(chunk.doc as EntryLeaf);
+                maxSeq = chunk.seq;
+                bulkDocsSizeBytes += jsonLength;
+                bulkDocsSizeCount += 1;
+            }
+            if (bulkDocs.length > 0) {
+                tasks.push(sendChunks([...bulkDocs], bulkDocsSizeBytes, maxSeq));
+            }
+            const results = await Promise.all(tasks);
+            if (results.some(e => e === false)) {
+                return false;
+            }
+        } while (true);
+        // Logger(`${sendAllDocs.length} chunks Uploaded`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
         return true;
     }
 

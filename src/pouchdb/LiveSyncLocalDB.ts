@@ -267,7 +267,6 @@ export class LiveSyncLocalDB implements DBFunctionEnvironment {
         Logger("Database closed for reset Database.");
         this.isReady = false;
         await this.localDatabase.destroy();
-        //await this.kvDB.destroy();
         //@ts-ignore
         this.localDatabase = null;
         await this.initializeDatabase();

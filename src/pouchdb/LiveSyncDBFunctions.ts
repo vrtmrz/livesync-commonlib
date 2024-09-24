@@ -188,7 +188,7 @@ export async function putDBEntry(
     const splitFunc = env.settings.disableWorkerForGeneratingChunks ? splitFuncInMainThread
         : (env.settings.processSmallFilesInUIThread && note.data.size < maxSize) ? splitFuncInMainThread : splitFuncInWorker;
 
-    const pieces = await splitFunc(data, pieceSize, plainSplit, minimumChunkSize, filename);
+    const pieces = await splitFunc(data, pieceSize, plainSplit, minimumChunkSize, filename, env.settings.useSegmenter);
     const chunkTasks = [];
 
     for await (const piece of pieces()) {

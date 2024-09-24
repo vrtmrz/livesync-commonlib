@@ -14,9 +14,10 @@ async function processSplit(data: SplitArguments) {
     const plainSplit = data.plainSplit;
     const minimumChunkSize = data.minimumChunkSize;
     const filename = data.filename;
+    const useSegmenter = data.useSegmenter;
     const func = data.useV2 ? splitPieces2V2 : splitPieces2;
     const gen = await func(dataSrc, pieceSize,
-        plainSplit, minimumChunkSize, filename
+        plainSplit, minimumChunkSize, filename, useSegmenter
     )
     let isSent = false;
     for await (const v of gen()) {

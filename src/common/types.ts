@@ -149,6 +149,11 @@ interface ObsidianLiveSyncSettings_PluginSetting {
     notifyThresholdOfRemoteStorageSize: number;
 
     usePluginSyncV2: boolean;
+
+    useAdvancedMode: boolean;
+    usePowerUserMode: boolean;
+    useEdgeCaseMode: boolean;
+
     usePluginEtc: boolean; // This still be hidden from the UI.
 
     showLongerLogInsideEditor: boolean;
@@ -217,6 +222,8 @@ export type RemoteDBSettings = CouchDBConnection & BucketSyncSetting & RemoteTyp
     doNotUseFixedRevisionForChunks: boolean;
     sendChunksBulk: boolean;
     sendChunksBulkMaxSize: number;
+
+    useSegmenter: boolean;
 }
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
@@ -337,6 +344,10 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     showLongerLogInsideEditor: false,
     sendChunksBulk: true,
     sendChunksBulkMaxSize: 25,
+    useSegmenter: false,
+    useAdvancedMode: false,
+    usePowerUserMode: false,
+    useEdgeCaseMode: false,
 };
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
@@ -364,6 +375,9 @@ export const PREFERRED_JOURNAL_SYNC: Partial<ObsidianLiveSyncSettings> = {
     minimumIntervalOfReadChunksOnline: 25
 }
 
+export const PREFERRED_SETTING_PERFORMANT: Partial<ObsidianLiveSyncSettings> = {
+    useSegmenter: true
+}
 
 
 export interface DatabaseEntry {
@@ -472,6 +486,7 @@ export const TweakValuesShouldMatchedTemplate: Partial<ObsidianLiveSyncSettings>
     usePluginSyncV2: false,
     handleFilenameCaseSensitive: false,
     doNotUseFixedRevisionForChunks: false,
+    useSegmenter: false,
 }
 
 export const CompatibilityBreakingTweakValues: (keyof TweakValues)[] = ["encrypt", "usePathObfuscation", "useDynamicIterationCount", "hashAlg", "handleFilenameCaseSensitive", "doNotUseFixedRevisionForChunks"];
@@ -565,13 +580,24 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
     "sendChunksBulk": {
         name: "Send chunks in bulk",
         desc: "If this enabled, all chunks will be sent in bulk. This is useful for the environment that has a high latency."
+    },
+    "useSegmenter": {
+        name: "Use Segmented-splitter",
+        desc: "If this enabled, chunks will be split into semantically meaningful segments. Not all platforms support this feature."
     }
 }
+
+export const LEVEL_ADVANCED = "ADVANCED";
+export const LEVEL_POWER_USER = "POWER_USER";
+export const LEVEL_EDGE_CASE = "EDGE_CASE";
+export type ConfigLevel = "" | "ADVANCED" | "POWER_USER" | "EDGE_CASE";
 export type ConfigurationItem = {
     name: string,
     desc?: string,
     placeHolder?: string,
-    status?: "BETA" | "ALPHA" | "EXPERIMENTAL"
+    status?: "BETA" | "ALPHA" | "EXPERIMENTAL",
+    obsolete?: boolean,
+    level?: ConfigLevel,
 }
 
 

@@ -236,7 +236,10 @@ function shouldDecryptEden(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
 export let preprocessOutgoing: (doc: AnyEntry | EntryLeaf) => Promise<AnyEntry | EntryLeaf> = async (doc) => { return Promise.resolve(doc) }
 export function disableEncryption() {
     preprocessOutgoing = async (doc) => { return doc };
+    preprocessIncoming = async (doc) => { return doc };
 }
+export let preprocessIncoming: (doc: EntryDoc) => Promise<EntryDoc> = async (doc) => { return doc }
+
 // requires transform-pouch
 export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: string, useDynamicIterationCount: boolean, migrationDecrypt: boolean) => {
     const decrypted = new Map();
@@ -351,6 +354,7 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
         return loadDoc;
     };
     preprocessOutgoing = incoming;
+    preprocessIncoming = outgoing;
     //@ts-ignore
     db.transform({
         incoming,
