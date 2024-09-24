@@ -342,7 +342,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     handleFilenameCaseSensitive: undefined!,
     doNotUseFixedRevisionForChunks: undefined!,
     showLongerLogInsideEditor: false,
-    sendChunksBulk: true,
+    sendChunksBulk: false,
     sendChunksBulkMaxSize: 25,
     useSegmenter: false,
     useAdvancedMode: false,
