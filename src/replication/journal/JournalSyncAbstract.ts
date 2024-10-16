@@ -51,7 +51,7 @@ export abstract class JournalSyncAbstract {
         this.db = env.getDatabase();
         this.env = env;
         this.useCustomRequestHandler = useCustomRequestHandler;
-        this.processReplication = async (docs) => await env.processReplication(docs);
+        this.processReplication = async (docs) => await env.$$parseReplicationResult(docs);
         this.store = store;
         this.hash = this.getHash(endpoint, bucket, region);
         this.trench = new Trench(store);
@@ -68,7 +68,7 @@ export abstract class JournalSyncAbstract {
         this.db = env.getDatabase();
         this.env = env;
         this.useCustomRequestHandler = useCustomRequestHandler;
-        this.processReplication = async (docs) => await env.processReplication(docs);
+        this.processReplication = async (docs) => await env.$$parseReplicationResult(docs);
         this.store = store;
         this.hash = this.getHash(endpoint, bucket, region)
         // }
@@ -281,7 +281,7 @@ export abstract class JournalSyncAbstract {
                                 const orgLen = sendBuf.byteLength;
                                 const bin = await wrappedDeflate(sendBuf, { consume: true, level: 8 });
                                 Logger(`Packing Journal: Compressed ${orgLen} bytes to ${bin.byteLength} bytes (${orgLen != 0 ? Math.ceil(bin.byteLength / orgLen * 100) : "--"}%)`, LOG_LEVEL_VERBOSE);
-                                this.trench.queuePermanent(`upload_queue`, bin);
+                                await this.trench.queuePermanent(`upload_queue`, bin);
                                 this.notifier.notify();
                                 outBuf.length = 0;
                                 binarySize = 0;
@@ -293,7 +293,7 @@ export abstract class JournalSyncAbstract {
                         const orgLen = sendBuf.byteLength;
                         const bin = await wrappedDeflate(sendBuf, { consume: true, level: 8 });
                         Logger(`Packing Journal: Compressed ${orgLen} bytes to ${bin.byteLength} bytes (${orgLen != 0 ? Math.ceil(bin.byteLength / orgLen * 100) : "--"}%)`, LOG_LEVEL_VERBOSE);
-                        this.trench.queuePermanent(`upload_queue`, bin);
+                        await this.trench.queuePermanent(`upload_queue`, bin);
                         this.notifier.notify();
                     }
                     await this.updateCheckPointInfo((info) => ({

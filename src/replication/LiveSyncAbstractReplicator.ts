@@ -31,7 +31,7 @@ export interface LiveSyncReplicatorEnv {
     getSettings(): RemoteDBSettings & BucketSyncSetting & Pick<ObsidianLiveSyncSettings, "remoteType">;
     getIsMobile(): boolean;
     getLastPostFailedBySize(): boolean;
-    processReplication: ReplicationCallback;
+    $$parseReplicationResult: ReplicationCallback;
     replicationStat: ReactiveSource<ReplicationStat>,
     kvDB: KeyValueDatabase;
     simpleStore: SimpleStore<any>;

@@ -158,6 +158,8 @@ interface ObsidianLiveSyncSettings_PluginSetting {
 
     showLongerLogInsideEditor: boolean;
 
+    enableDebugTools: boolean;
+
 }
 
 export type BucketSyncSetting = {
@@ -343,11 +345,12 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     doNotUseFixedRevisionForChunks: undefined!,
     showLongerLogInsideEditor: false,
     sendChunksBulk: false,
-    sendChunksBulkMaxSize: 25,
+    sendChunksBulkMaxSize: 1,
     useSegmenter: false,
     useAdvancedMode: false,
     usePowerUserMode: false,
     useEdgeCaseMode: false,
+    enableDebugTools: false,
 };
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
@@ -364,7 +367,7 @@ export const PREFERRED_SETTING_CLOUDANT: Partial<ObsidianLiveSyncSettings> = {
 export const PREFERRED_SETTING_SELF_HOSTED: Partial<ObsidianLiveSyncSettings> = {
     ...PREFERRED_SETTING_CLOUDANT,
     customChunkSize: 50,
-    sendChunksBulkMaxSize: 40,
+    sendChunksBulkMaxSize: 1,
     concurrencyOfReadChunksOnline: 30,
     minimumIntervalOfReadChunksOnline: 25
 }
@@ -577,10 +580,6 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         name: "Compute revisions for chunks (Previous behaviour)",
         desc: "If this enabled, all chunks will be stored with the revision made from its content. (Previous behaviour)"
     },
-    "sendChunksBulk": {
-        name: "Send chunks in bulk",
-        desc: "If this enabled, all chunks will be sent in bulk. This is useful for the environment that has a high latency."
-    },
     "useSegmenter": {
         name: "Use Segmented-splitter",
         desc: "If this enabled, chunks will be split into semantically meaningful segments. Not all platforms support this feature."
@@ -687,13 +686,10 @@ export type diff_result = {
     diff: dmp_result;
 };
 
+export type DIFF_CHECK_RESULT_AUTO = typeof CANCELLED | typeof AUTO_MERGED | typeof NOT_CONFLICTED | typeof MISSING_OR_ERROR;
 
 export type diff_check_result =
-    typeof CANCELLED
-    | typeof AUTO_MERGED
-    | typeof NOT_CONFLICTED
-    | typeof MISSING_OR_ERROR
-    | diff_result;
+    DIFF_CHECK_RESULT_AUTO | diff_result;
 
 export type Credential = {
     username: string;
@@ -734,3 +730,66 @@ export const SALT_OF_PASSPHRASE = "rHGMPtr6oWw7VSa3W3wpa8fT8U";
 export const PREFIX_OBFUSCATED = "f:";
 export const PREFIX_CHUNK = "h:";
 export const PREFIX_ENCRYPTED_CHUNK = "h:+";
+
+export type UXStat = {
+    size: number,
+    mtime: number,
+    ctime: number,
+    type: "file" | "folder",
+}
+
+export type UXFileInfo = UXFileInfoStub & {
+    body: Blob,
+}
+// export type UXFileInfoStub = UXFileFileInfoStub;
+export type UXAbstractInfoStub = UXFileInfoStub | UXFolderInfo;
+
+export type UXFileInfoStub = {
+    name: string,
+    path: FilePath | FilePathWithPrefix,
+    stat: UXStat,
+    deleted?: boolean;
+    isFolder?: false;
+    isInternal?: boolean;
+}
+export type UXInternalFileInfoStub = {
+    name: string,
+    path: FilePath | FilePathWithPrefix,
+    deleted?: boolean;
+    isFolder?: false;
+    isInternal: true;
+    stat: undefined;
+}
+
+
+
+export type UXFolderInfo = {
+    name: string,
+    path: FilePath | FilePathWithPrefix,
+    deleted?: boolean;
+    isFolder: true;
+    children: UXFileInfoStub[]
+    parent: FilePath | FilePathWithPrefix | undefined;
+}
+
+export type UXDataWriteOptions = {
+    /**
+     * Time of creation, represented as a unix timestamp, in milliseconds.
+     * Omit this if you want to keep the default behaviour.
+     * @public
+     * */
+    ctime?: number;
+    /**
+     * Time of last modification, represented as a unix timestamp, in milliseconds.
+     * Omit this if you want to keep the default behaviour.
+     * @public
+     */
+    mtime?: number;
+
+}
+
+
+export type Prettify<T> = {
+    [K in keyof T]: T[K];
+    // eslint-disable-next-line 
+} & {};

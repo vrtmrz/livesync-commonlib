@@ -24,7 +24,7 @@ export class EventHub extends EventTarget {
     }
     on<T>(event: string, callback: (item: T) => void | Promise<void>) {
         const handler: EventListener = (evt: Event) => {
-            callback((evt as CustomEvent<T>).detail);
+            void callback((evt as CustomEvent<T>).detail);
         }
         this._addEventListener(event, handler);
         return () => {
@@ -33,7 +33,7 @@ export class EventHub extends EventTarget {
     }
     once<T>(event: string, callback: (item: T) => void | Promise<void>) {
         const handler: EventListener = (evt: Event) => {
-            callback((evt as CustomEvent<T>).detail);
+            void callback((evt as CustomEvent<T>).detail);
             this._removeEventListener(event, handler);
         }
         this._addEventListener(event, handler, { once: true });

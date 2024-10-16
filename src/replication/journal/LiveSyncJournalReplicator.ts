@@ -17,7 +17,7 @@ import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv, type RemoteDBSt
 import { ensureRemoteIsCompatible, type ENSURE_DB_RESULT } from "../../pouchdb/LiveSyncDBFunctions.ts";
 import type { CheckPointInfo } from "./JournalSyncTypes.ts";
 import { FetchHttpHandler } from "@smithy/fetch-http-handler";
-import { type SimpleStore } from "../../common/utils.ts";
+import { fireAndForget, type SimpleStore } from "../../common/utils.ts";
 
 import { extractObject } from "../../common/utils.ts";
 
@@ -89,7 +89,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         super(env);
         this.env = env;
         // initialize local node information.
-        this.initializeDatabaseForReplication();
+        fireAndForget(() => this.initializeDatabaseForReplication());
         this.env.getDatabase().on("close", () => {
             this.closeReplication();
         })
@@ -99,7 +99,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     async migrate(from: number, to: number): Promise<boolean> {
         Logger(`Database updated from ${from} to ${to}`, LOG_LEVEL_NOTICE);
         // no op now,
-        return true;
+        return Promise.resolve(true);
     }
 
     terminateSync() {
@@ -176,7 +176,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
     // eslint-disable-next-line require-await
     async fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]> {
-        return []
+        return Promise.resolve([]);
     }
 
     closeReplication() {
@@ -201,6 +201,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     async tryCreateRemoteDatabase(setting: RemoteDBSettings) {
         this.closeReplication();
         Logger("Remote Database Created or Connected", LOG_LEVEL_NOTICE);
+        return await Promise.resolve();
     }
     async markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean) {
         const defInitPoint: EntryMilestoneInfo = {

@@ -9,14 +9,13 @@ import {
     type DocumentID,
     type TweakValues
 } from "../../common/types.ts";
-import { resolveWithIgnoreKnownError, delay, globalConcurrencyController, extractObject, wrapException, sizeToHumanReadable, type SimpleStore } from "../../common/utils.ts";
+import { resolveWithIgnoreKnownError, delay, globalConcurrencyController, extractObject, wrapException, sizeToHumanReadable, type SimpleStore, arrayToChunkedArray } from "../../common/utils.ts";
 import { Logger } from "../../common/logger.ts";
 import { checkRemoteVersion, preprocessOutgoing } from "../../pouchdb/utils_couchdb.ts";
 
 import { ensureDatabaseIsCompatible } from "../../pouchdb/LiveSyncDBFunctions.ts";
 import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv, type RemoteDBStatus } from "../LiveSyncAbstractReplicator.ts";
 import { shareRunningResult } from "../../concurrency/lock.ts";
-import { promiseWithResolver } from "octagonal-wheels/promises";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { Trench } from "octagonal-wheels/memory/memutil";
 
@@ -29,7 +28,7 @@ const currentVersionRange: ChunkVersionRange = {
 
 const selectorOnDemandPull = { "selector": { "type": { "$ne": "leaf" } } };
 
-// eslint-disable-next-line @typescript-eslint/ban-types
+// eslint-disable-next-line
 type EventParamArray<T extends {}> =
     ["change", PouchDB.Replication.SyncResult<T>] |
     ["change", PouchDB.Replication.ReplicationResult<T>] |
@@ -56,14 +55,14 @@ async function* genReplication(s: PouchDB.Replication.Sync<EntryDoc> | PouchDB.R
     }
 
     //@ts-ignore
-    s.on("complete", (result) => push(["complete", result]));
+    void s.on("complete", (result) => push(["complete", result]));
     //@ts-ignore
-    s.on("change", result => push(["change", result]));
-    s.on("active", () => push(["active"]));
-    s.on("denied", err => push(["denied", err]));
-    s.on("error", err => push(["error", err]));
-    s.on("paused", err => push(["paused", err]));
-    s.then(() => push(["finally"])).catch(() => push(["finally"]));
+    void s.on("change", result => push(["change", result]));
+    void s.on("active", () => push(["active"]));
+    void s.on("denied", err => push(["denied", err]));
+    void s.on("error", err => push(["error", err]));
+    void s.on("paused", err => push(["paused", err]));
+    void s.then(() => push(["finally"])).catch(() => push(["finally"]));
 
     try {
         L1:
@@ -90,7 +89,7 @@ async function* genReplication(s: PouchDB.Replication.Sync<EntryDoc> | PouchDB.R
 }
 
 export interface LiveSyncCouchDBReplicatorEnv extends LiveSyncReplicatorEnv {
-    connectRemoteCouchDB(uri: string,
+    $$connectRemoteCouchDB(uri: string,
         auth: { username: string; password: string },
         disableRequestURI: boolean, passphrase: string | boolean,
         useDynamicIterationCount: boolean,
@@ -98,6 +97,7 @@ export interface LiveSyncCouchDBReplicatorEnv extends LiveSyncReplicatorEnv {
         skipInfo: boolean,
         enableCompression: boolean,
     ): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }>;
+    $$getSimpleStore<T>(kind: string): SimpleStore<T>;
 }
 
 export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
@@ -124,7 +124,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         super(env);
         this.env = env;
         // initialize local node information.
-        this.initializeDatabaseForReplication();
+        void this.initializeDatabaseForReplication();
         this.env.getDatabase().on("close", () => {
             this.closeReplication();
         })
@@ -134,7 +134,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     async migrate(from: number, to: number): Promise<boolean> {
         Logger(`Database updated from ${from} to ${to}`, LOG_LEVEL_NOTICE);
         // no op now,
-        return true;
+        return Promise.resolve(true);
     }
 
     terminateSync() {
@@ -148,7 +148,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     async openReplication(setting: RemoteDBSettings, keepAlive: boolean, showResult: boolean, ignoreCleanLock: boolean) {
         await this.initializeDatabaseForReplication();
         if (keepAlive) {
-            this.openContinuousReplication(setting, showResult, false);
+            void this.openContinuousReplication(setting, showResult, false);
         } else {
             return this.openOneShotReplication(setting, showResult, false, "sync", ignoreCleanLock);
         }
@@ -161,7 +161,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     async replicationChangeDetected(e: PouchDB.Replication.SyncResult<EntryDoc>, showResult: boolean, docSentOnStart: number, docArrivedOnStart: number) {
         try {
             if (e.direction == "pull") {
-                await this.env.processReplication(e.change.docs);
+                await this.env.$$parseReplicationResult(e.change.docs);
                 this.docArrived += e.change.docs.length;
             } else {
                 this.docSent += e.change.docs.length;
@@ -300,45 +300,67 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
     }
 
-    async getLastTransferredSeqOfChunks(localDB: PouchDB.Database, remoteID: number): Promise<number | string> {
-        const prevMax = {
-            _id: "_local/max_seq_on_chunk",
+    getEmptyMaxEntry(remoteID: number) {
+        return {
+            _id: `_local/max_seq_on_chunk-${remoteID}`,
             maxSeq: 0 as number | string,
             remoteID: remoteID,
+            seqStatusMap: {} as Record<number, boolean>,
+            _rev: undefined as string | undefined
+        }
+    }
+
+    async getLastTransferredSeqOfChunks(localDB: PouchDB.Database, remoteID: number): Promise<ReturnType<typeof this.getEmptyMaxEntry>> {
+        const prevMax = {
+            _id: `_local/max_seq_on_chunk-${remoteID}`,
+            maxSeq: 0 as number | string,
+            remoteID: remoteID,
+            seqStatusMap: {} as Record<number, boolean>,
             _rev: undefined as string | undefined
         }
         const previous_max_seq_on_chunk = await wrapException(() => localDB.get<typeof prevMax>(prevMax._id));
         if (previous_max_seq_on_chunk instanceof Error) {
-            return prevMax.maxSeq;
+            return prevMax;
         }
-        if (remoteID != previous_max_seq_on_chunk.remoteID) {
-            return 0;
-        }
-        return previous_max_seq_on_chunk.maxSeq;
+        return previous_max_seq_on_chunk;
     }
-    async updateMaxTransferredSeqOnChunks(localDB: PouchDB.Database, remoteID: number, maxSeq: number | string) {
+    async updateMaxTransferredSeqOnChunks(localDB: PouchDB.Database, remoteID: number, seqStatusMap: Record<number, boolean>): Promise<ReturnType<typeof this.getEmptyMaxEntry>> {
         const newMax = {
             _id: "_local/max_seq_on_chunk",
-            maxSeq: maxSeq,
+            maxSeq: 0,
             remoteID: remoteID,
+            seqStatusMap: seqStatusMap,
             _rev: undefined as string | undefined
         }
-        const previous_max_seq_on_chunk = await wrapException(() => localDB.get(newMax._id));
+        const seqs = Object.keys(seqStatusMap).map(e => Number(e));
+        let maxSeq = 0;
+        for (const seq of seqs) {
+            if (!seqStatusMap[seq]) {
+                break;
+            }
+            maxSeq = seq;
+        }
+        Logger(`Updating max seq on chunk to ${maxSeq}`, LOG_LEVEL_VERBOSE);
+        newMax.maxSeq = maxSeq;
+        const previous_max_seq_on_chunk = await wrapException(() => localDB.get<typeof newMax>(newMax._id));
         if (previous_max_seq_on_chunk instanceof Error) {
             delete newMax._rev;
         } else {
             newMax._rev = previous_max_seq_on_chunk._rev;
+            newMax.seqStatusMap = { ...previous_max_seq_on_chunk.seqStatusMap, ...seqStatusMap };
         }
         await wrapException(() => localDB.put(newMax));
-        return newMax.maxSeq;
+        return newMax;
     }
-    trench = new Trench(this.env.simpleStore as SimpleStore<{
-        seq: string | number;
-        doc: PouchDB.Core.ExistingDocument<EntryDoc & PouchDB.Core.ChangesMeta> | undefined;
-        id: DocumentID;
-    }>, true);
 
+    // No longer used. Kept only for troubleshooting.
     async sendChunks(setting: RemoteDBSettings, remoteDB: PouchDB.Database<EntryDoc> | undefined, showResult: boolean, fromSeq?: number | string) {
+        const trench = new Trench(this.env.$$getSimpleStore<{
+            seq: string | number;
+            doc: PouchDB.Core.ExistingDocument<EntryDoc & PouchDB.Core.ChangesMeta> | undefined;
+            id: DocumentID;
+        }>("sc-"), false);
+        await trench.eraseAllEphemerals();
         if (!remoteDB) {
             const d = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
             if (typeof d === "string") {
@@ -354,41 +376,46 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const te = new TextEncoder();
         Logger(`Looking for the point last synchronized point.`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
         this.syncStatus = "CONNECTED"
-        let allRead = false;
-
         const limitOneBatch = 250;
-        let totalSendChunks = 0;
-        let seq = fromSeq ?? await this.getLastTransferredSeqOfChunks(localDB, remoteID);
-        do {
-            const diffChunks = await localDB.changes({
-                since: seq as number,
-                live: false,
-                include_docs: true,
-                selector: { "type": "leaf" },
-                limit: limitOneBatch,
-            })
-            if (diffChunks.results.length != limitOneBatch) {
-                Logger(`All changeset has been scanned (Last seq = ${diffChunks.last_seq}).`, LOG_LEVEL_VERBOSE);
-                allRead = true;
+
+        // 1. Collecting all chunks to send and store them into the trench with the sequence number.
+        const prev = await this.getLastTransferredSeqOfChunks(localDB, remoteID);
+        const seq = fromSeq ?? prev.maxSeq;
+        const localScannedDocs = [] as { id: DocumentID, seq: number }[];
+        // const docsToCheck = [] as typeof localScannedDocs;
+        const sentMap = {} as Record<number, boolean>;
+        const diffChunks = localDB.changes({
+            since: seq as number,
+            live: false,
+            include_docs: true,
+            return_docs: false,
+            selector: { "type": "leaf" },
+            // limit: limitOneBatch,
+        }).on("change", e => {
+            const numSeq = Number(e.seq);
+            if (prev.seqStatusMap[numSeq]) {
+                return;
             }
-            Logger(`Found ${diffChunks.results.length} chunks to check (Since ${seq}).`, LOG_LEVEL_VERBOSE);
-            const IDs = diffChunks.results.map((e: any) => e.id);
-            const remoteDocs = await remoteDB.allDocs({ keys: IDs, include_docs: false });
+            localScannedDocs.push({ id: e.id as DocumentID, seq: Number(e.seq) });
+        });
+        await diffChunks;
+
+        localScannedDocs.sort((a, b) => a.seq - b.seq);
+        const idSeqMap = Object.fromEntries(localScannedDocs.map(e => [e.id, e.seq]));
+        for (const checkDocs of arrayToChunkedArray(localScannedDocs, limitOneBatch)) {
+            const remoteDocs = await remoteDB.allDocs({ keys: checkDocs.map(e => e.id), include_docs: false });
             const remoteDocMap = Object.fromEntries(remoteDocs.rows.map(e => [e.key, "error" in e ? e.error : e.value]));
-            const localNewChunks = diffChunks.results.filter(e => e.doc !== undefined).map(e => ({ seq: e.seq, doc: e.doc, id: e.doc!._id }))
-            const sendDocs = localNewChunks.filter(e => remoteDocMap[e.id] == "not_found");
-            // Logger(`Found ${sendDocs.length} chunks to send, queued. (Since ${seq}).`, LOG_LEVEL_VERBOSE);
-            if (sendDocs.length == 0) {
-                Logger(`No chunks to send. (Since ${seq}).`, LOG_LEVEL_VERBOSE);
-                const markSeq = allRead ? diffChunks.last_seq : seq;
-                await this.updateMaxTransferredSeqOnChunks(localDB, remoteID, markSeq);
-            } else {
-                totalSendChunks += sendDocs.length;
-                Logger(`Queued ${totalSendChunks} chunks. (Since ${seq}).`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
-                this.trench.queue("send-chunks", sendDocs);
+            const sendDocs = checkDocs.filter(e => remoteDocMap[e.id] == "not_found");
+            const sentDocs = checkDocs.filter(e => remoteDocMap[e.id] != "not_found");
+            sendDocs.forEach(e => sentMap[e.seq] = false);
+            sentDocs.forEach(e => sentMap[e.seq] = true);
+            const sendDocsMap = Object.fromEntries(sendDocs.map(e => [e.id, e.seq]));
+            if (sendDocs.length > 0) {
+                const localDocs = await localDB.allDocs({ keys: sendDocs.map(e => e.id), include_docs: true });
+                await trench.queue("send-chunks", localDocs.rows.filter(e => "id" in e).map(e => ({ seq: sendDocsMap[e.id], doc: e.doc, id: e.id })));
             }
-            seq = diffChunks.last_seq;
-        } while (!allRead);
+        }
+
         // console.dir(sendAllDocs);
         let bulkDocs: EntryLeaf[] = [];
         let bulkDocsSizeBytes = 0;
@@ -396,7 +423,6 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         let maxSeq = 0 as number | string;
         const maxBatchSizeBytes = setting.sendChunksBulkMaxSize * 1024 * 1024;
         const maxBatchSizeCount = 200;
-        let prev: Promise<any> | undefined;
 
         const semaphore = Semaphore(4);
         let sendingDocs = 0;
@@ -408,22 +434,13 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             sendingDocs += bulkDocs.length;
             Logger(`↑ Uploading chunks \n${sendingDocs}/(${sentDocsCount} done)`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
             try {
-                const _prev = prev;
-                const proc = promiseWithResolver<void>();
-                if (_prev) {
-                    prev = proc.promise
-                }
                 const uploadBulkDocTasks = bulkDocs.map(e => preprocessOutgoing(e));
                 const uploadBulkDocs = await Promise.all(uploadBulkDocTasks) as EntryLeaf[];
                 await remoteDB.bulkDocs(uploadBulkDocs, { new_edits: false });
-                if (_prev) {
-                    await _prev;
-                    await this.updateMaxTransferredSeqOnChunks(localDB, remoteID, seq);
-                    proc.resolve();
-                }
+                uploadBulkDocs.forEach(e => sentMap[idSeqMap[e._id]] = true);
+                await this.updateMaxTransferredSeqOnChunks(localDB, remoteID, sentMap);
                 sentDocsCount += bulkDocs.length;
                 Logger(`↑ Uploading chunks \n${sendingDocs}/(${sentDocsCount} done)`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
-
             } catch (ex) {
                 Logger("Bulk sending failed.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
                 Logger(ex, LOG_LEVEL_VERBOSE);
@@ -436,7 +453,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
         const tasks = [] as Promise<any>[]
         do {
-            const nowSendChunks = await this.trench.dequeue<{
+            const nowSendChunks = await trench.dequeue<{
                 seq: string | number;
                 doc: PouchDB.Core.ExistingDocument<EntryDoc & PouchDB.Core.ChangesMeta> | undefined;
                 id: DocumentID;
@@ -461,7 +478,15 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             if (bulkDocs.length > 0) {
                 tasks.push(sendChunks([...bulkDocs], bulkDocsSizeBytes, maxSeq));
             }
-            const results = await Promise.all(tasks);
+            const results = await Promise.all(tasks.map(async e => {
+                try {
+                    await e;
+                } catch (ex) {
+                    Logger("Bulk sending failed.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
+                    Logger(ex, LOG_LEVEL_VERBOSE);
+                    return false;
+                }
+            }));
             if (results.some(e => e === false)) {
                 return false;
             }
@@ -489,11 +514,6 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 Logger("Could not connect to server.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
                 return false;
             }
-            if (setting.sendChunksBulk) {
-                if (!await this.sendChunks(setting, ret.db, showResult)) {
-                    Logger("Could not send chunks to server.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
-                }
-            }
             this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
             this.maxPushSeq = Number(`${(await localDB.info()).update_seq}`.split("-")[0]);
             if (showResult) {
@@ -512,7 +532,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             const syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc> =
                 syncMode == "sync" ? localDB.sync(db, { ...syncOptionBase }) :
                     (syncMode == "pullOnly" ? localDB.replicate.from(db, { ...syncOptionBase, ...(setting.readChunksOnline ? selectorOnDemandPull : {}) }) :
-                        syncMode == "pushOnly" ? localDB.replicate.to(db, { ...syncOptionBase, ...(setting.sendChunksBulk ? { selector: { type: { $ne: "leaf" } } } : {}), ...({ selector: { "type": { "$ne": "leaf" } } }) }) : undefined as never)
+                        syncMode == "pushOnly" ? localDB.replicate.to(db, { ...syncOptionBase }) : undefined as never);
             const syncResult = await this.processSync(syncHandler, showResult, docSentOnStart, docArrivedOnStart, syncMode, retrying, false);
             if (syncResult == "DONE") {
                 return true;
@@ -638,9 +658,6 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
         if (setting.readChunksOnline) {
             syncOptionBase.pull = { ...selectorOnDemandPull };
-        }
-        if (setting.sendChunksBulk && !keepAlive) {
-            syncOptionBase.push = { selector: { "type": { "$ne": "leaf" } } };
         }
         const syncOption: PouchDB.Replication.SyncOptions = keepAlive ? { live: true, retry: true, heartbeat: setting.useTimeouts ? false : 30000, ...syncOptionBase } : { ...syncOptionBase };
         return { db: dbRet.db, info: dbRet.info, syncOptionBase, syncOption };
@@ -811,14 +828,19 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
         remoteMilestone.accepted_nodes = Array.from(new Set([...remoteMilestone.accepted_nodes, this.nodeid]));
         Logger("Mark this device as 'resolved'.", LOG_LEVEL_NOTICE);
-        await dbRet.db.put(remoteMilestone);
+        const result = await dbRet.db.put(remoteMilestone);
+        if (result.ok) {
+            Logger(`Remote database has been marked resolved.`, LOG_LEVEL_VERBOSE);
+        } else {
+            Logger(`Could not mark resolve remote database.`, LOG_LEVEL_NOTICE);
+        }
     }
 
     connectRemoteCouchDBWithSetting(settings: RemoteDBSettings, isMobile: boolean, performSetup: boolean = false, skipInfo: boolean = false) {
         if (settings.encrypt && settings.passphrase == "" && !settings.permitEmptyPassphrase) {
             return "Empty passphrases cannot be used without explicit permission";
         }
-        return this.env.connectRemoteCouchDB(
+        return this.env.$$connectRemoteCouchDB(
             settings.couchDB_URI + (settings.couchDB_DBNAME == "" ? "" : "/" + settings.couchDB_DBNAME),
             {
                 username: settings.couchDB_USER,
@@ -843,6 +865,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const remoteChunks = await ret.db.allDocs({ keys: missingChunks, include_docs: true });
         if (remoteChunks.rows.some((e: any) => "error" in e)) {
             Logger(`Some chunks are not exists both on remote and local database.`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
+            Logger(`Missing chunks: ${missingChunks.join(",")}`, LOG_LEVEL_VERBOSE);
+            Logger(`Error chunks: ${remoteChunks.rows.filter((e: any) => "error" in e).map((e: any) => e.key).join(",")}`, LOG_LEVEL_VERBOSE);
             return false;
         }
 
@@ -928,6 +952,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         } catch (ex) {
             // While trying unlocking and not exist on the remote, it is not normal.
             Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
+            Logger(ex, LOG_LEVEL_VERBOSE);
             return false;
         }
     }

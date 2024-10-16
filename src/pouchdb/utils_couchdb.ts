@@ -233,11 +233,15 @@ function shouldDecryptEden(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
     return false;
 }
 
+// eslint-disable-next-line require-await
 export let preprocessOutgoing: (doc: AnyEntry | EntryLeaf) => Promise<AnyEntry | EntryLeaf> = async (doc) => { return Promise.resolve(doc) }
 export function disableEncryption() {
+    // eslint-disable-next-line require-await, @typescript-eslint/require-await
     preprocessOutgoing = async (doc) => { return doc };
+    // eslint-disable-next-line require-await, @typescript-eslint/require-await
     preprocessIncoming = async (doc) => { return doc };
 }
+// eslint-disable-next-line require-await, @typescript-eslint/require-await
 export let preprocessIncoming: (doc: EntryDoc) => Promise<EntryDoc> = async (doc) => { return doc }
 
 // requires transform-pouch
