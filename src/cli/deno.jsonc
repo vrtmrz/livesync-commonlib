@@ -1,0 +1,7 @@
+{
+    "imports": {
+        "../worker/bgWorker.ts": "../worker/bgWorker.mock.ts"
+    },
+
+    "unstable": ["sloppy-imports", "byonm"]
+}

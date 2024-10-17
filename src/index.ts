@@ -1,3 +1,1 @@
-// export { DirectFileManipulator, type DirectFileManipulatorOptions } from "./API/DirectFileManipulator.ts";
-export { }
-
+export { DirectFileManipulator, type DirectFileManipulatorOptions } from "./API/DirectFileManipulator.ts";
