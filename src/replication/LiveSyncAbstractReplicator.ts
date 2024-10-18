@@ -108,7 +108,7 @@ export abstract class LiveSyncAbstractReplicator {
     };
 
     abstract tryConnectRemote(setting: RemoteDBSettings, showResult?: boolean): Promise<boolean>;
-    abstract replicateAllToServer(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>
+    abstract replicateAllToServer(setting: RemoteDBSettings, showingNotice?: boolean, sendChunksInBulkDisabled?: boolean): Promise<boolean>
     abstract replicateAllFromServer(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>
     abstract closeReplication(): void;
 

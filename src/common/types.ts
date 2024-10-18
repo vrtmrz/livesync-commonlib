@@ -363,6 +363,10 @@ export const PREFERRED_SETTING_CLOUDANT: Partial<ObsidianLiveSyncSettings> = {
     sendChunksBulkMaxSize: 1,
     concurrencyOfReadChunksOnline: 100,
     minimumIntervalOfReadChunksOnline: 333,
+    doNotUseFixedRevisionForChunks: false,
+    useSegmenter: true,
+    usePluginSyncV2: true,
+    handleFilenameCaseSensitive: false,
 }
 export const PREFERRED_SETTING_SELF_HOSTED: Partial<ObsidianLiveSyncSettings> = {
     ...PREFERRED_SETTING_CLOUDANT,
