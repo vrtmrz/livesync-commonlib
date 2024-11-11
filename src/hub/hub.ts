@@ -1,90 +1,112 @@
-export type EventMessage<T extends string, U = any> = {
-    type: T;
-    data: U;
+
+declare global {
+    interface LSEvents {
+        "hello": string;
+        "world": undefined;
+    }
+
 }
 
-export type ExtendEventMessage<TBase extends EventMessage<any>, U> = TBase & { data: U }
+export class EventHub {
+    _emitter = new EventTarget();
 
 
-export class EventHub extends EventTarget {
+    emitEvent<ET extends LSEvents, K extends keyof ET>(
+        event: K extends keyof ET ? (ET[K] extends undefined ? K : never) : never
+    ): void;
+    emitEvent<ET extends LSEvents, K extends keyof ET>(
+        event: K extends keyof ET ? (ET[K] extends undefined ? never : K) : never,
+        data: ET[K]
+    ): void;
+    emitEvent<ET extends LSEvents, K extends keyof ET>(
+        event: K,
+        data?: ET[K] extends undefined ? undefined : ET[K]
+    ): void {
+        this._emitter.dispatchEvent(new CustomEvent(`${event.toString()}`, { detail: data ?? undefined }));
+    }
 
-    constructor() {
-        super();
+    on<ET extends LSEvents, K extends keyof ET>(
+        event: K extends keyof ET ? (ET[K] extends undefined ? K : never) : never,
+        callback: (e: Event) => void | Promise<void>
+    ): () => void;
+    on<ET extends LSEvents, K extends keyof ET>(
+        event: K extends keyof ET ? (ET[K] extends undefined ? never : K) : never,
+        callback: (e: Event, data: ET[K]) => void | Promise<void>
+    ): () => void;
+    on<ET extends LSEvents, K extends keyof ET>(
+        event: K,
+        callback: (e: Event, data?: ET[K]) => void | Promise<void>
+    ): () => void {
+        const onEvent = (e: Event) => void callback(e, e instanceof CustomEvent ? e.detail as ET[K] : undefined!);
+        const key = `${event.toString()}`;
+        this._emitter.addEventListener(key, onEvent);
+        return () => this._emitter.removeEventListener(key, onEvent);
     }
-    listeners = new Map<string, Set<EventListener>>();
 
-    _addEventListener(event: string, callback: EventListener, options?: boolean | AddEventListenerOptions) {
-        if (!this.listeners.has(event)) this.listeners.set(event, new Set());
-        this.listeners.get(event)!.add(callback);
-        return this.addEventListener(event, callback, options);
-    }
-    _removeEventListener(event: string, callback: EventListener) {
-        this.listeners.get(event)?.delete(callback);
-        return this.removeEventListener(event, callback);
-    }
-    on<T>(event: string, callback: (item: T) => void | Promise<void>) {
-        const handler: EventListener = (evt: Event) => {
-            void callback((evt as CustomEvent<T>).detail);
-        }
-        this._addEventListener(event, handler);
-        return () => {
-            this._removeEventListener(event, handler);
-        }
-    }
-    once<T>(event: string, callback: (item: T) => void | Promise<void>) {
-        const handler: EventListener = (evt: Event) => {
-            void callback((evt as CustomEvent<T>).detail);
-            this._removeEventListener(event, handler);
-        }
-        this._addEventListener(event, handler, { once: true });
-        return () => {
-            // Never cares about the off
-            this._removeEventListener(event, handler);
-        }
-    }
-    off(event: string) {
-        this.listeners.get(event)?.forEach((callback) => {
-            this._removeEventListener(event, callback);
+    onEvent<ET extends LSEvents, K extends keyof ET>(
+        event: K extends keyof ET ? (ET[K] extends undefined ? K : never) : never,
+        callback: () => any
+    ): () => void;
+    onEvent<ET extends LSEvents, K extends keyof ET>(
+        event: K extends keyof ET ? (ET[K] extends undefined ? never : K) : never,
+        callback: (data: ET[K]) => any
+    ): () => void;
+    onEvent<ET extends LSEvents, K extends keyof ET>(
+        event: K,
+        callback: (data?: ET[K]) => any
+    ): () => void {
+        return this.on(event as any, (_: any, data: any) => {
+            callback(data);
         });
     }
 
-    onEvent<T>(event: string, listener: (evt: CustomEvent<T>) => void, options?: boolean | AddEventListenerOptions) {
-        const func = (evt: Event) => listener(evt as CustomEvent<T>);
-        this._addEventListener(event, func, options);
-        return () => {
-            this.offEvent(event, func);
-        }
-    }
-
-    onceEvent<T>(event: string, listener: (evt: CustomEvent<T>) => void, options?: boolean | AddEventListenerOptions) {
-        const off = this.onEvent(event, (evt: CustomEvent<T>) => {
+    once<ET extends LSEvents, K extends keyof ET>(
+        event: K extends keyof ET ? (ET[K] extends undefined ? K : never) : never,
+        callback: (e: Event) => void
+    ): void;
+    once<ET extends LSEvents, K extends keyof ET>(
+        event: K extends keyof ET ? (ET[K] extends undefined ? never : K) : never,
+        callback: (e: Event, data: ET[K]) => void
+    ): void;
+    once<ET extends LSEvents, K extends keyof ET>(
+        event: K,
+        callback: (e: Event, data?: ET[K]) => void
+    ): void {
+        const off = this.on<ET, K>(event as any, (e: Event, data: any) => {
             off();
-            listener(evt);
-        }, options);
+            callback(e, data);
+        });
+    }
+    onceEvent<ET extends LSEvents, K extends keyof ET>(
+        event: K extends keyof ET ? (ET[K] extends undefined ? K : never) : never,
+        callback: () => void
+    ): void;
+    onceEvent<ET extends LSEvents, K extends keyof ET>(
+        event: K extends keyof ET ? (ET[K] extends undefined ? never : K) : never,
+        callback: (data: ET[K]) => void
+    ): void;
+    onceEvent<ET extends LSEvents, K extends keyof ET>(
+        event: K,
+        callback: (data?: ET[K]) => void
+    ): void {
+        this.once<ET, K>(event as any, callback as any);
     }
 
-    offEvent(event: string, listener: EventListener) {
-        this._removeEventListener(event, listener);
-    }
-
-    emitEvent<T extends any[]>(event: string, ...args: T) {
-        this.dispatchEvent(new CustomEvent(event, { detail: args.length > 1 ? args : args[0] }));
-    }
-    eventOf<TMsg extends EventMessage<T, U>, T extends string = TMsg["type"], U = TMsg["data"]>(type: T) {
-        return {
-            on: (callback: (item: TMsg) => void | Promise<void>) => {
-                this.on(type, callback);
-            },
-            once: (callback: (item: TMsg) => void | Promise<void>) => {
-                this.once(type, callback);
-            },
-            off: () => {
-                this.off(type);
-            },
-            emit: (data: TMsg["data"]) => {
-                this.emitEvent(type, data);
-            }
-        }
+    waitFor<ET extends LSEvents, K extends keyof ET>(
+        event: K extends keyof ET ? (ET[K] extends undefined ? K : never) : never
+    ): Promise<void>;
+    waitFor<ET extends LSEvents, K extends keyof ET>(
+        event: K extends keyof ET ? (ET[K] extends undefined ? never : K) : never
+    ): Promise<ET[K]>;
+    waitFor<ET extends LSEvents, K extends keyof ET>(
+        event: K
+    ): Promise<ET[K] extends undefined ? void : ET[K]> {
+        return new Promise<ET[K] extends undefined ? void : ET[K]>(resolve => {
+            const off = this.on<ET, K>(event as any, (e: Event, data?: any) => {
+                off();
+                resolve(data);
+            });
+        });
     }
 }
 
