@@ -58,7 +58,7 @@ export interface LiveSyncLocalDBEnv {
     $allOnDBClose(db: LiveSyncLocalDB): void;
     $everyOnInitializeDatabase(db: LiveSyncLocalDB): Promise<boolean>;
     $everyOnResetDatabase(db: LiveSyncLocalDB): Promise<boolean>;
-    getReplicator: () => LiveSyncAbstractReplicator;
+    $$getReplicator: () => LiveSyncAbstractReplicator;
     getSettings(): RemoteDBSettings;
 
 }
@@ -213,7 +213,7 @@ export class LiveSyncLocalDB {
             Logger("Database closed.");
             this.isReady = false;
             this.localDatabase.removeAllListeners();
-            this.env.getReplicator()?.closeReplication();
+            this.env.$$getReplicator()?.closeReplication();
         });
 
 
@@ -836,7 +836,7 @@ export class LiveSyncLocalDB {
             }
             const exists = await this.localDatabase.allDocs({ keys: newChunks.map(e => e._id), include_docs: false });
             const existsMap = exists.rows.map(e => ([e.key, "error" in e ? e.error : e.value.rev])).reduce((p, c) => ({ ...p, [c[0]]: c[1] }), {} as Record<string, any>);
-            const result = await this.localDatabase.bulkDocs(newChunks, { new_edits: this.settings.doNotUseFixedRevisionForChunks });
+            const result = await this.localDatabase.bulkDocs(newChunks, { new_edits: !!this.settings.doNotUseFixedRevisionForChunks });
             if (this.settings.doNotUseFixedRevisionForChunks) {
                 const mappedResults = result.reduce((p, item) => {
                     if ("ok" in item) {
@@ -919,7 +919,7 @@ export class LiveSyncLocalDB {
     async resetDatabase() {
         this.changeHandler?.cancel();
         await this.changeHandler?.removeAllListeners();
-        this.env.getReplicator().closeReplication();
+        this.env.$$getReplicator().closeReplication();
         if (!await this.env.$everyOnResetDatabase(this)) {
             Logger("Database reset has been prevented or failed on some modules.", LOG_LEVEL_NOTICE);
             return false;
@@ -990,7 +990,7 @@ export class LiveSyncLocalDB {
             return localChunks.map(e => e.chunk) as EntryLeaf[];
         }
         // Fetching remote chunks.
-        const remoteDocs = await this.env.getReplicator().fetchRemoteChunks(missingChunks, showResult);
+        const remoteDocs = await this.env.$$getReplicator().fetchRemoteChunks(missingChunks, showResult);
         if (remoteDocs == false) {
             Logger(`Could not fetch chunks from the server. `, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_VERBOSE, "fetch");
             return false;

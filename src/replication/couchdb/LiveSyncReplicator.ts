@@ -265,7 +265,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     case "error":
                         this.replicationErrored(e);
                         Logger("Replication stopped.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
-                        if (this.env.getLastPostFailedBySize()) {
+                        if (this.env.$$getLastPostFailedBySize()) {
                             if (e && e?.status == 413) {
                                 Logger(`Something went wrong during synchronisation. Please check the log!`, LOG_LEVEL_NOTICE);
                                 return "FAILED";
@@ -362,7 +362,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }>("sc-"), false);
         await trench.eraseAllEphemerals();
         if (!remoteDB) {
-            const d = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+            const d = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
             if (typeof d === "string") {
                 Logger(`Could not connect to remote database: ${d}`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
                 return false;
@@ -604,7 +604,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return false;
         }
 
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof dbRet === "string") {
             Logger(`Could not connect to ${uri}: ${dbRet}`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
             return false;
@@ -749,7 +749,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
     async tryResetRemoteDatabase(setting: RemoteDBSettings) {
         this.closeReplication();
-        const con = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        const con = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof con == "string") return;
         try {
             await con.db.destroy();
@@ -762,14 +762,14 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
     async tryCreateRemoteDatabase(setting: RemoteDBSettings) {
         this.closeReplication();
-        const con2 = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        const con2 = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
 
         if (typeof con2 === "string") return;
         Logger("Remote Database Created or Connected", LOG_LEVEL_NOTICE);
     }
     async markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean) {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof dbRet === "string") {
             Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
             return;
@@ -804,7 +804,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
     async markRemoteResolved(setting: RemoteDBSettings) {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof dbRet === "string") {
             Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
             return;
@@ -856,7 +856,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
 
     async fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]> {
-        const ret = await this.connectRemoteCouchDBWithSetting(this.env.getSettings(), this.env.getIsMobile(), false, true);
+        const ret = await this.connectRemoteCouchDBWithSetting(this.env.getSettings(), this.env.$$isMobile(), false, true);
         if (typeof (ret) === "string") {
 
             Logger(`Could not connect to server.${ret} `, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
@@ -875,7 +875,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
 
     async tryConnectRemote(setting: RemoteDBSettings, showResult: boolean = true): Promise<boolean> {
-        const db = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        const db = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof db === "string") {
             Logger(`ERROR!: could not connect to ${setting.couchDB_URI} : ${setting.couchDB_DBNAME} \n(${db})`, LOG_LEVEL_NOTICE);
             return false;
@@ -886,7 +886,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
     async resetRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof dbRet === "string") {
             Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
             return;
@@ -911,7 +911,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
     async setPreferredRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof dbRet === "string") {
             Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
             return;
@@ -936,7 +936,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
     async getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<TweakValues | false> {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof dbRet === "string") {
             Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
             return false;
@@ -959,7 +959,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
     async compactRemote(setting: RemoteDBSettings): Promise<boolean> {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof dbRet === "string") {
             Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
             return false;
@@ -970,7 +970,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getRemoteStatus(setting: RemoteDBSettings): Promise<RemoteDBStatus | false> {
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.getIsMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof dbRet === "string") {
             const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
             Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);

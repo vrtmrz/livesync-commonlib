@@ -29,8 +29,8 @@ export type ReplicationStat = {
 export interface LiveSyncReplicatorEnv {
     getDatabase(): PouchDB.Database<EntryDoc>;
     getSettings(): RemoteDBSettings & BucketSyncSetting & Pick<ObsidianLiveSyncSettings, "remoteType">;
-    getIsMobile(): boolean;
-    getLastPostFailedBySize(): boolean;
+    $$isMobile(): boolean;
+    $$getLastPostFailedBySize(): boolean;
     $$parseReplicationResult: ReplicationCallback;
     replicationStat: ReactiveSource<ReplicationStat>,
     kvDB: KeyValueDatabase;

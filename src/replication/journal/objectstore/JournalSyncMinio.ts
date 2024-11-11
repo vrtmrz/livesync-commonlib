@@ -30,7 +30,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
                 4,
                 (attempt: number) => 100 + attempt * 1000
             ),
-            requestHandler: this.useCustomRequestHandler ? this.env.customFetchHandler() : undefined
+            requestHandler: this.useCustomRequestHandler ? this.env.$$customFetchHandler() : undefined
         });
         return this._instance;
     }

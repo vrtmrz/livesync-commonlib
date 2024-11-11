@@ -31,7 +31,7 @@ const currentVersionRange: ChunkVersionRange = {
 
 export interface LiveSyncJournalReplicatorEnv extends LiveSyncReplicatorEnv {
     simpleStore: SimpleStore<CheckPointInfo | any>;
-    customFetchHandler: () => FetchHttpHandler | undefined;
+    $$customFetchHandler: () => FetchHttpHandler | undefined;
 }
 
 

@@ -113,7 +113,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     $everyOnResetDatabase(db: LiveSyncLocalDB): Promise<boolean> {
         throw new Error("Method not implemented.");
     }
-    getReplicator: () => LiveSyncAbstractReplicator = () => {
+    $$getReplicator: () => LiveSyncAbstractReplicator = () => {
         throw new Error("Method not implemented.");
     }
     getSettings(): RemoteDBSettings {
