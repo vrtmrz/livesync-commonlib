@@ -533,7 +533,7 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
     },
     encrypt: {
         name: "End-to-End Encryption",
-        desc: "Encrypt contents on the remote database. If you use the plugin's synchronization feature, enabling this is recommend."
+        desc: "Encrypt contents on the remote database. If you use the plugin's synchronization feature, enabling this is recommended."
     },
     usePathObfuscation: {
         name: "Path Obfuscation"
