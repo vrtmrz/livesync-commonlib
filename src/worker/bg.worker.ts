@@ -6,7 +6,6 @@ import { decrypt } from "octagonal-wheels/encryption";
 
 import type { EncryptArguments, SplitArguments } from "./bgWorker";
 
-
 async function processSplit(data: SplitArguments) {
     const key = data.key;
     const dataSrc = data.dataSrc;
@@ -16,15 +15,13 @@ async function processSplit(data: SplitArguments) {
     const filename = data.filename;
     const useSegmenter = data.useSegmenter;
     const func = data.useV2 ? splitPieces2V2 : splitPieces2;
-    const gen = await func(dataSrc, pieceSize,
-        plainSplit, minimumChunkSize, filename, useSegmenter
-    )
+    const gen = await func(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter);
     let isSent = false;
     for await (const v of gen()) {
         isSent = true;
-        self.postMessage({ key, result: v })
+        self.postMessage({ key, result: v });
     }
-    if (!isSent) self.postMessage({ key, result: "" })
+    if (!isSent) self.postMessage({ key, result: "" });
     self.postMessage({ key, result: null });
 }
 async function processEncryption(data: EncryptArguments) {
@@ -52,4 +49,4 @@ self.onmessage = (e: MessageEvent) => {
     } else {
         self.postMessage({ key: data.key, error: new Error("Invalid type") });
     }
-}
+};

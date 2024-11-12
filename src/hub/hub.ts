@@ -1,15 +1,12 @@
-
 declare global {
     interface LSEvents {
-        "hello": string;
-        "world": undefined;
+        hello: string;
+        world: undefined;
     }
-
 }
 
 export class EventHub {
     _emitter = new EventTarget();
-
 
     emitEvent<ET extends LSEvents, K extends keyof ET>(
         event: K extends keyof ET ? (ET[K] extends undefined ? K : never) : never
@@ -37,7 +34,7 @@ export class EventHub {
         event: K,
         callback: (e: Event, data?: ET[K]) => void | Promise<void>
     ): () => void {
-        const onEvent = (e: Event) => void callback(e, e instanceof CustomEvent ? e.detail as ET[K] : undefined!);
+        const onEvent = (e: Event) => void callback(e, e instanceof CustomEvent ? (e.detail as ET[K]) : undefined!);
         const key = `${event.toString()}`;
         this._emitter.addEventListener(key, onEvent);
         return () => this._emitter.removeEventListener(key, onEvent);
@@ -51,10 +48,7 @@ export class EventHub {
         event: K extends keyof ET ? (ET[K] extends undefined ? never : K) : never,
         callback: (data: ET[K]) => any
     ): () => void;
-    onEvent<ET extends LSEvents, K extends keyof ET>(
-        event: K,
-        callback: (data?: ET[K]) => any
-    ): () => void {
+    onEvent<ET extends LSEvents, K extends keyof ET>(event: K, callback: (data?: ET[K]) => any): () => void {
         return this.on(event as any, (_: any, data: any) => {
             callback(data);
         });
@@ -68,10 +62,7 @@ export class EventHub {
         event: K extends keyof ET ? (ET[K] extends undefined ? never : K) : never,
         callback: (e: Event, data: ET[K]) => void
     ): void;
-    once<ET extends LSEvents, K extends keyof ET>(
-        event: K,
-        callback: (e: Event, data?: ET[K]) => void
-    ): void {
+    once<ET extends LSEvents, K extends keyof ET>(event: K, callback: (e: Event, data?: ET[K]) => void): void {
         const off = this.on<ET, K>(event as any, (e: Event, data: any) => {
             off();
             callback(e, data);
@@ -85,10 +76,7 @@ export class EventHub {
         event: K extends keyof ET ? (ET[K] extends undefined ? never : K) : never,
         callback: (data: ET[K]) => void
     ): void;
-    onceEvent<ET extends LSEvents, K extends keyof ET>(
-        event: K,
-        callback: (data?: ET[K]) => void
-    ): void {
+    onceEvent<ET extends LSEvents, K extends keyof ET>(event: K, callback: (data?: ET[K]) => void): void {
         this.once<ET, K>(event as any, callback as any);
     }
 
@@ -98,10 +86,8 @@ export class EventHub {
     waitFor<ET extends LSEvents, K extends keyof ET>(
         event: K extends keyof ET ? (ET[K] extends undefined ? never : K) : never
     ): Promise<ET[K]>;
-    waitFor<ET extends LSEvents, K extends keyof ET>(
-        event: K
-    ): Promise<ET[K] extends undefined ? void : ET[K]> {
-        return new Promise<ET[K] extends undefined ? void : ET[K]>(resolve => {
+    waitFor<ET extends LSEvents, K extends keyof ET>(event: K): Promise<ET[K] extends undefined ? void : ET[K]> {
+        return new Promise<ET[K] extends undefined ? void : ET[K]>((resolve) => {
             const off = this.on<ET, K>(event as any, (e: Event, data?: any) => {
                 off();
                 resolve(data);

@@ -1,81 +1,106 @@
 import {
-    type EntryDoc, type EntryMilestoneInfo,
+    type EntryDoc,
+    type EntryMilestoneInfo,
     VER,
     MILESTONE_DOCID,
     type DatabaseConnectingStatus,
-    type ChunkVersionRange, type RemoteDBSettings, type EntryLeaf, REPLICATION_BUSY_TIMEOUT, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE,
+    type ChunkVersionRange,
+    type RemoteDBSettings,
+    type EntryLeaf,
+    REPLICATION_BUSY_TIMEOUT,
+    LOG_LEVEL_INFO,
+    LOG_LEVEL_NOTICE,
+    LOG_LEVEL_VERBOSE,
     DEVICE_ID_PREFERRED,
     TweakValuesTemplate,
     type DocumentID,
-    type TweakValues
+    type TweakValues,
 } from "../../common/types.ts";
-import { resolveWithIgnoreKnownError, delay, globalConcurrencyController, extractObject, wrapException, sizeToHumanReadable, type SimpleStore, arrayToChunkedArray } from "../../common/utils.ts";
+import {
+    resolveWithIgnoreKnownError,
+    delay,
+    globalConcurrencyController,
+    extractObject,
+    wrapException,
+    sizeToHumanReadable,
+    type SimpleStore,
+    arrayToChunkedArray,
+} from "../../common/utils.ts";
 import { Logger } from "../../common/logger.ts";
 import { checkRemoteVersion, preprocessOutgoing } from "../../pouchdb/utils_couchdb.ts";
 
 import { ensureDatabaseIsCompatible } from "../../pouchdb/LiveSyncDBFunctions.ts";
-import { LiveSyncAbstractReplicator, type LiveSyncReplicatorEnv, type RemoteDBStatus } from "../LiveSyncAbstractReplicator.ts";
+import {
+    LiveSyncAbstractReplicator,
+    type LiveSyncReplicatorEnv,
+    type RemoteDBStatus,
+} from "../LiveSyncAbstractReplicator.ts";
 import { shareRunningResult } from "../../concurrency/lock.ts";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { Trench } from "octagonal-wheels/memory/memutil";
-
 
 const currentVersionRange: ChunkVersionRange = {
     min: 0,
     max: 2400,
     current: 2,
-}
+};
 
-const selectorOnDemandPull = { "selector": { "type": { "$ne": "leaf" } } };
+const selectorOnDemandPull = { selector: { type: { $ne: "leaf" } } };
 
 // eslint-disable-next-line
 type EventParamArray<T extends {}> =
-    ["change", PouchDB.Replication.SyncResult<T>] |
-    ["change", PouchDB.Replication.ReplicationResult<T>] |
-    ["active"] |
-    ["complete", PouchDB.Replication.SyncResultComplete<T>] |
-    ["complete", PouchDB.Replication.ReplicationResultComplete<T>] |
-    ["error", any] |
-    ["denied", any] |
-    ["paused", any] |
-    ["finally"]
-    ;
+    | ["change", PouchDB.Replication.SyncResult<T>]
+    | ["change", PouchDB.Replication.ReplicationResult<T>]
+    | ["active"]
+    | ["complete", PouchDB.Replication.SyncResultComplete<T>]
+    | ["complete", PouchDB.Replication.ReplicationResultComplete<T>]
+    | ["error", any]
+    | ["denied", any]
+    | ["paused", any]
+    | ["finally"];
 
-async function* genReplication(s: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc>, signal: AbortSignal) {
-
+async function* genReplication(
+    s: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc>,
+    signal: AbortSignal
+) {
     const p = [] as EventParamArray<EntryDoc>[];
     let locker: () => Promise<void> = () => Promise.resolve();
     let unlock = () => {
-        locker = () => new Promise<void>((res) => unlock = res);
+        locker = () => new Promise<void>((res) => (unlock = res));
     };
     unlock();
     const push = function (e: EventParamArray<EntryDoc>) {
         p.push(e);
         unlock();
-    }
+    };
 
     //@ts-ignore
     void s.on("complete", (result) => push(["complete", result]));
     //@ts-ignore
-    void s.on("change", result => push(["change", result]));
+    void s.on("change", (result) => push(["change", result]));
     void s.on("active", () => push(["active"]));
-    void s.on("denied", err => push(["denied", err]));
-    void s.on("error", err => push(["error", err]));
-    void s.on("paused", err => push(["paused", err]));
+    void s.on("denied", (err) => push(["denied", err]));
+    void s.on("error", (err) => push(["error", err]));
+    void s.on("paused", (err) => push(["paused", err]));
     void s.then(() => push(["finally"])).catch(() => push(["finally"]));
 
     try {
-        L1:
-        do {
+        L1: do {
             const r = p.shift();
             if (r) {
                 yield r;
                 if (r[0] == "finally") break;
                 continue;
             } else {
-                const dx = async () => { await locker(); return true };
+                const dx = async () => {
+                    await locker();
+                    return true;
+                };
                 do {
-                    const timeout = async () => { await delay(100); return false };
+                    const timeout = async () => {
+                        await delay(100);
+                        return false;
+                    };
                     const raced = await Promise.race([dx(), timeout()]);
                     if (raced) continue L1;
                     if (signal.aborted) break L1;
@@ -89,19 +114,20 @@ async function* genReplication(s: PouchDB.Replication.Sync<EntryDoc> | PouchDB.R
 }
 
 export interface LiveSyncCouchDBReplicatorEnv extends LiveSyncReplicatorEnv {
-    $$connectRemoteCouchDB(uri: string,
+    $$connectRemoteCouchDB(
+        uri: string,
         auth: { username: string; password: string },
-        disableRequestURI: boolean, passphrase: string | boolean,
+        disableRequestURI: boolean,
+        passphrase: string | boolean,
         useDynamicIterationCount: boolean,
         performSetup: boolean,
         skipInfo: boolean,
-        enableCompression: boolean,
+        enableCompression: boolean
     ): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }>;
     $$getSimpleStore<T>(kind: string): SimpleStore<T>;
 }
 
 export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
-
     syncStatus: DatabaseConnectingStatus = "NOT_CONNECTED";
     docArrived = 0;
     docSent = 0;
@@ -127,7 +153,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         void this.initializeDatabaseForReplication();
         this.env.getDatabase().on("close", () => {
             this.closeReplication();
-        })
+        });
     }
 
     // eslint-disable-next-line require-await
@@ -145,7 +171,12 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         this.controller = undefined;
     }
 
-    async openReplication(setting: RemoteDBSettings, keepAlive: boolean, showResult: boolean, ignoreCleanLock: boolean) {
+    async openReplication(
+        setting: RemoteDBSettings,
+        keepAlive: boolean,
+        showResult: boolean,
+        ignoreCleanLock: boolean
+    ) {
         await this.initializeDatabaseForReplication();
         if (keepAlive) {
             void this.openContinuousReplication(setting, showResult, false);
@@ -158,7 +189,12 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         this.updateInfo();
         Logger("Replication activated", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
     }
-    async replicationChangeDetected(e: PouchDB.Replication.SyncResult<EntryDoc>, showResult: boolean, docSentOnStart: number, docArrivedOnStart: number) {
+    async replicationChangeDetected(
+        e: PouchDB.Replication.SyncResult<EntryDoc>,
+        showResult: boolean,
+        docSentOnStart: number,
+        docArrivedOnStart: number
+    ) {
         try {
             if (e.direction == "pull") {
                 await this.env.$$parseReplicationResult(e.change.docs);
@@ -171,9 +207,23 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 const maxPushSeq = this.maxPushSeq;
                 const lastSyncPullSeq = this.lastSyncPullSeq;
                 const lastSyncPushSeq = this.lastSyncPushSeq;
-                const pushLast = ((lastSyncPushSeq == 0) ? "" : (lastSyncPushSeq >= maxPushSeq ? " (LIVE)" : ` (${maxPushSeq - lastSyncPushSeq})`));
-                const pullLast = ((lastSyncPullSeq == 0) ? "" : (lastSyncPullSeq >= maxPullSeq ? " (LIVE)" : ` (${maxPullSeq - lastSyncPullSeq})`));
-                Logger(`↑${this.docSent - docSentOnStart}${pushLast} ↓${this.docArrived - docArrivedOnStart}${pullLast}`, LOG_LEVEL_NOTICE, "sync");
+                const pushLast =
+                    lastSyncPushSeq == 0
+                        ? ""
+                        : lastSyncPushSeq >= maxPushSeq
+                          ? " (LIVE)"
+                          : ` (${maxPushSeq - lastSyncPushSeq})`;
+                const pullLast =
+                    lastSyncPullSeq == 0
+                        ? ""
+                        : lastSyncPullSeq >= maxPullSeq
+                          ? " (LIVE)"
+                          : ` (${maxPullSeq - lastSyncPullSeq})`;
+                Logger(
+                    `↑${this.docSent - docSentOnStart}${pushLast} ↓${this.docArrived - docArrivedOnStart}${pullLast}`,
+                    LOG_LEVEL_NOTICE,
+                    "sync"
+                );
             }
             this.updateInfo();
         } catch (ex) {
@@ -208,10 +258,15 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         Logger("Replication paused", LOG_LEVEL_VERBOSE, "sync");
     }
 
-    async processSync(syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc>, showResult: boolean, docSentOnStart: number, docArrivedOnStart: number,
+    async processSync(
+        syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc>,
+        showResult: boolean,
+        docSentOnStart: number,
+        docArrivedOnStart: number,
         syncMode: "sync" | "pullOnly" | "pushOnly",
         retrying: boolean,
-        reportCancelledAsDone = true): Promise<"DONE" | "NEED_RETRY" | "NEED_RESURRECT" | "FAILED" | "CANCELLED"> {
+        reportCancelledAsDone = true
+    ): Promise<"DONE" | "NEED_RETRY" | "NEED_RESURRECT" | "FAILED" | "CANCELLED"> {
         const controller = new AbortController();
         if (this.controller) {
             this.controller.abort();
@@ -239,16 +294,28 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         } else {
                             if (syncMode == "pullOnly") {
                                 this.lastSyncPullSeq = Number(`${e.last_seq}`.split("-")[0]);
-                                await this.replicationChangeDetected({ direction: "pull", change: e }, showResult, docSentOnStart, docArrivedOnStart);
-
+                                await this.replicationChangeDetected(
+                                    { direction: "pull", change: e },
+                                    showResult,
+                                    docSentOnStart,
+                                    docArrivedOnStart
+                                );
                             } else if (syncMode == "pushOnly") {
                                 this.lastSyncPushSeq = Number(`${e.last_seq}`.split("-")[0]);
                                 this.updateInfo();
-                                await this.replicationChangeDetected({ direction: "push", change: e }, showResult, docSentOnStart, docArrivedOnStart);
+                                await this.replicationChangeDetected(
+                                    { direction: "push", change: e },
+                                    showResult,
+                                    docSentOnStart,
+                                    docArrivedOnStart
+                                );
                             }
                         }
                         if (retrying) {
-                            if (this.docSent - docSentOnStart + (this.docArrived - docArrivedOnStart) > this.originalSetting.batch_size * 2) {
+                            if (
+                                this.docSent - docSentOnStart + (this.docArrived - docArrivedOnStart) >
+                                this.originalSetting.batch_size * 2
+                            ) {
                                 return "NEED_RESURRECT";
                             }
                         }
@@ -267,7 +334,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         Logger("Replication stopped.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
                         if (this.env.$$getLastPostFailedBySize()) {
                             if (e && e?.status == 413) {
-                                Logger(`Something went wrong during synchronisation. Please check the log!`, LOG_LEVEL_NOTICE);
+                                Logger(
+                                    `Something went wrong during synchronisation. Please check the log!`,
+                                    LOG_LEVEL_NOTICE
+                                );
                                 return "FAILED";
                             }
                             return "NEED_RETRY";
@@ -276,9 +346,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                             Logger("Replication error", LOG_LEVEL_NOTICE, "sync");
                             Logger(e);
                         }
-                        return "FAILED"
+                        return "FAILED";
                     case "paused":
-                        this.replicationPaused()
+                        this.replicationPaused();
                         break;
                     case "finally":
                         break;
@@ -289,10 +359,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             if (reportCancelledAsDone) {
                 return "DONE";
             }
-            return "CANCELLED"
+            return "CANCELLED";
         } catch (ex) {
             Logger(`Unexpected synchronization exception`);
-            Logger(ex, LOG_LEVEL_VERBOSE)
+            Logger(ex, LOG_LEVEL_VERBOSE);
             return "FAILED";
         } finally {
             this.terminateSync();
@@ -306,33 +376,40 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             maxSeq: 0 as number | string,
             remoteID: remoteID,
             seqStatusMap: {} as Record<number, boolean>,
-            _rev: undefined as string | undefined
-        }
+            _rev: undefined as string | undefined,
+        };
     }
 
-    async getLastTransferredSeqOfChunks(localDB: PouchDB.Database, remoteID: number): Promise<ReturnType<typeof this.getEmptyMaxEntry>> {
+    async getLastTransferredSeqOfChunks(
+        localDB: PouchDB.Database,
+        remoteID: number
+    ): Promise<ReturnType<typeof this.getEmptyMaxEntry>> {
         const prevMax = {
             _id: `_local/max_seq_on_chunk-${remoteID}`,
             maxSeq: 0 as number | string,
             remoteID: remoteID,
             seqStatusMap: {} as Record<number, boolean>,
-            _rev: undefined as string | undefined
-        }
+            _rev: undefined as string | undefined,
+        };
         const previous_max_seq_on_chunk = await wrapException(() => localDB.get<typeof prevMax>(prevMax._id));
         if (previous_max_seq_on_chunk instanceof Error) {
             return prevMax;
         }
         return previous_max_seq_on_chunk;
     }
-    async updateMaxTransferredSeqOnChunks(localDB: PouchDB.Database, remoteID: number, seqStatusMap: Record<number, boolean>): Promise<ReturnType<typeof this.getEmptyMaxEntry>> {
+    async updateMaxTransferredSeqOnChunks(
+        localDB: PouchDB.Database,
+        remoteID: number,
+        seqStatusMap: Record<number, boolean>
+    ): Promise<ReturnType<typeof this.getEmptyMaxEntry>> {
         const newMax = {
             _id: "_local/max_seq_on_chunk",
             maxSeq: 0,
             remoteID: remoteID,
             seqStatusMap: seqStatusMap,
-            _rev: undefined as string | undefined
-        }
-        const seqs = Object.keys(seqStatusMap).map(e => Number(e));
+            _rev: undefined as string | undefined,
+        };
+        const seqs = Object.keys(seqStatusMap).map((e) => Number(e));
         let maxSeq = 0;
         for (const seq of seqs) {
             if (!seqStatusMap[seq]) {
@@ -354,17 +431,29 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
 
     // No longer used. Kept only for troubleshooting.
-    async sendChunks(setting: RemoteDBSettings, remoteDB: PouchDB.Database<EntryDoc> | undefined, showResult: boolean, fromSeq?: number | string) {
-        const trench = new Trench(this.env.$$getSimpleStore<{
-            seq: string | number;
-            doc: PouchDB.Core.ExistingDocument<EntryDoc & PouchDB.Core.ChangesMeta> | undefined;
-            id: DocumentID;
-        }>("sc-"), false);
+    async sendChunks(
+        setting: RemoteDBSettings,
+        remoteDB: PouchDB.Database<EntryDoc> | undefined,
+        showResult: boolean,
+        fromSeq?: number | string
+    ) {
+        const trench = new Trench(
+            this.env.$$getSimpleStore<{
+                seq: string | number;
+                doc: PouchDB.Core.ExistingDocument<EntryDoc & PouchDB.Core.ChangesMeta> | undefined;
+                id: DocumentID;
+            }>("sc-"),
+            false
+        );
         await trench.eraseAllEphemerals();
         if (!remoteDB) {
             const d = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
             if (typeof d === "string") {
-                Logger(`Could not connect to remote database: ${d}`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
+                Logger(
+                    `Could not connect to remote database: ${d}`,
+                    showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
+                    "fetch"
+                );
                 return false;
             }
             remoteDB = d.db;
@@ -374,45 +463,58 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const remoteID = (remoteMilestone as any)?.created;
         const localDB = this.env.getDatabase();
         const te = new TextEncoder();
-        Logger(`Looking for the point last synchronized point.`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
-        this.syncStatus = "CONNECTED"
+        Logger(
+            `Looking for the point last synchronized point.`,
+            showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
+            "fetch"
+        );
+        this.syncStatus = "CONNECTED";
         const limitOneBatch = 250;
 
         // 1. Collecting all chunks to send and store them into the trench with the sequence number.
         const prev = await this.getLastTransferredSeqOfChunks(localDB, remoteID);
         const seq = fromSeq ?? prev.maxSeq;
-        const localScannedDocs = [] as { id: DocumentID, seq: number }[];
+        const localScannedDocs = [] as { id: DocumentID; seq: number }[];
         // const docsToCheck = [] as typeof localScannedDocs;
         const sentMap = {} as Record<number, boolean>;
-        const diffChunks = localDB.changes({
-            since: seq as number,
-            live: false,
-            include_docs: true,
-            return_docs: false,
-            selector: { "type": "leaf" },
-            // limit: limitOneBatch,
-        }).on("change", e => {
-            const numSeq = Number(e.seq);
-            if (prev.seqStatusMap[numSeq]) {
-                return;
-            }
-            localScannedDocs.push({ id: e.id as DocumentID, seq: Number(e.seq) });
-        });
+        const diffChunks = localDB
+            .changes({
+                since: seq as number,
+                live: false,
+                include_docs: true,
+                return_docs: false,
+                selector: { type: "leaf" },
+                // limit: limitOneBatch,
+            })
+            .on("change", (e) => {
+                const numSeq = Number(e.seq);
+                if (prev.seqStatusMap[numSeq]) {
+                    return;
+                }
+                localScannedDocs.push({ id: e.id as DocumentID, seq: Number(e.seq) });
+            });
         await diffChunks;
 
         localScannedDocs.sort((a, b) => a.seq - b.seq);
-        const idSeqMap = Object.fromEntries(localScannedDocs.map(e => [e.id, e.seq]));
+        const idSeqMap = Object.fromEntries(localScannedDocs.map((e) => [e.id, e.seq]));
         for (const checkDocs of arrayToChunkedArray(localScannedDocs, limitOneBatch)) {
-            const remoteDocs = await remoteDB.allDocs({ keys: checkDocs.map(e => e.id), include_docs: false });
-            const remoteDocMap = Object.fromEntries(remoteDocs.rows.map(e => [e.key, "error" in e ? e.error : e.value]));
-            const sendDocs = checkDocs.filter(e => remoteDocMap[e.id] == "not_found");
-            const sentDocs = checkDocs.filter(e => remoteDocMap[e.id] != "not_found");
-            sendDocs.forEach(e => sentMap[e.seq] = false);
-            sentDocs.forEach(e => sentMap[e.seq] = true);
-            const sendDocsMap = Object.fromEntries(sendDocs.map(e => [e.id, e.seq]));
+            const remoteDocs = await remoteDB.allDocs({ keys: checkDocs.map((e) => e.id), include_docs: false });
+            const remoteDocMap = Object.fromEntries(
+                remoteDocs.rows.map((e) => [e.key, "error" in e ? e.error : e.value])
+            );
+            const sendDocs = checkDocs.filter((e) => remoteDocMap[e.id] == "not_found");
+            const sentDocs = checkDocs.filter((e) => remoteDocMap[e.id] != "not_found");
+            sendDocs.forEach((e) => (sentMap[e.seq] = false));
+            sentDocs.forEach((e) => (sentMap[e.seq] = true));
+            const sendDocsMap = Object.fromEntries(sendDocs.map((e) => [e.id, e.seq]));
             if (sendDocs.length > 0) {
-                const localDocs = await localDB.allDocs({ keys: sendDocs.map(e => e.id), include_docs: true });
-                await trench.queue("send-chunks", localDocs.rows.filter(e => "id" in e).map(e => ({ seq: sendDocsMap[e.id], doc: e.doc, id: e.id })));
+                const localDocs = await localDB.allDocs({ keys: sendDocs.map((e) => e.id), include_docs: true });
+                await trench.queue(
+                    "send-chunks",
+                    localDocs.rows
+                        .filter((e) => "id" in e)
+                        .map((e) => ({ seq: sendDocsMap[e.id], doc: e.doc, id: e.id }))
+                );
             }
         }
 
@@ -429,18 +531,29 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         let sentDocsCount = 0;
 
         const sendChunks = async (bulkDocs: EntryLeaf[], bulkDocsSize: number, seq: number | string) => {
-            Logger(`Sending ${bulkDocs.length} (${bulkDocsSize} => ${sizeToHumanReadable(bulkDocsSize)} in plain) chunks to remote database...`, LOG_LEVEL_VERBOSE);
+            Logger(
+                `Sending ${bulkDocs.length} (${bulkDocsSize} => ${sizeToHumanReadable(bulkDocsSize)} in plain) chunks to remote database...`,
+                LOG_LEVEL_VERBOSE
+            );
             const releaser = await semaphore.acquire(1);
             sendingDocs += bulkDocs.length;
-            Logger(`↑ Uploading chunks \n${sendingDocs}/(${sentDocsCount} done)`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
+            Logger(
+                `↑ Uploading chunks \n${sendingDocs}/(${sentDocsCount} done)`,
+                showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
+                "send"
+            );
             try {
-                const uploadBulkDocTasks = bulkDocs.map(e => preprocessOutgoing(e));
-                const uploadBulkDocs = await Promise.all(uploadBulkDocTasks) as EntryLeaf[];
+                const uploadBulkDocTasks = bulkDocs.map((e) => preprocessOutgoing(e));
+                const uploadBulkDocs = (await Promise.all(uploadBulkDocTasks)) as EntryLeaf[];
                 await remoteDB.bulkDocs(uploadBulkDocs, { new_edits: false });
-                uploadBulkDocs.forEach(e => sentMap[idSeqMap[e._id]] = true);
+                uploadBulkDocs.forEach((e) => (sentMap[idSeqMap[e._id]] = true));
                 await this.updateMaxTransferredSeqOnChunks(localDB, remoteID, sentMap);
                 sentDocsCount += bulkDocs.length;
-                Logger(`↑ Uploading chunks \n${sendingDocs}/(${sentDocsCount} done)`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
+                Logger(
+                    `↑ Uploading chunks \n${sendingDocs}/(${sentDocsCount} done)`,
+                    showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
+                    "send"
+                );
             } catch (ex) {
                 Logger("Bulk sending failed.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
                 Logger(ex, LOG_LEVEL_VERBOSE);
@@ -449,22 +562,26 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 releaser();
             }
             return true;
-        }
+        };
 
-        const tasks = [] as Promise<any>[]
+        const tasks = [] as Promise<any>[];
         do {
-            const nowSendChunks = await trench.dequeue<{
-                seq: string | number;
-                doc: PouchDB.Core.ExistingDocument<EntryDoc & PouchDB.Core.ChangesMeta> | undefined;
-                id: DocumentID;
-            }[]>("send-chunks");
+            const nowSendChunks = await trench.dequeue<
+                {
+                    seq: string | number;
+                    doc: PouchDB.Core.ExistingDocument<EntryDoc & PouchDB.Core.ChangesMeta> | undefined;
+                    id: DocumentID;
+                }[]
+            >("send-chunks");
             if (!nowSendChunks || nowSendChunks.length == 0) {
                 break;
             }
             for (const chunk of nowSendChunks) {
-                const jsonLength = te.encode(JSON.stringify(chunk.doc)).byteLength + 32 // (Not sure but means overhead);
-                if ((bulkDocsSizeBytes + jsonLength > maxBatchSizeBytes || bulkDocsSizeCount + 1 > maxBatchSizeCount) && bulkDocs.length > 0) {
-
+                const jsonLength = te.encode(JSON.stringify(chunk.doc)).byteLength + 32; // (Not sure but means overhead);
+                if (
+                    (bulkDocsSizeBytes + jsonLength > maxBatchSizeBytes || bulkDocsSizeCount + 1 > maxBatchSizeCount) &&
+                    bulkDocs.length > 0
+                ) {
                     tasks.push(sendChunks([...bulkDocs], bulkDocsSizeBytes, maxSeq));
                     bulkDocs = [];
                     bulkDocsSizeBytes = 0;
@@ -478,16 +595,18 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             if (bulkDocs.length > 0) {
                 tasks.push(sendChunks([...bulkDocs], bulkDocsSizeBytes, maxSeq));
             }
-            const results = await Promise.all(tasks.map(async e => {
-                try {
-                    await e;
-                } catch (ex) {
-                    Logger("Bulk sending failed.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
-                    Logger(ex, LOG_LEVEL_VERBOSE);
-                    return false;
-                }
-            }));
-            if (results.some(e => e === false)) {
+            const results = await Promise.all(
+                tasks.map(async (e) => {
+                    try {
+                        await e;
+                    } catch (ex) {
+                        Logger("Bulk sending failed.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "send");
+                        Logger(ex, LOG_LEVEL_VERBOSE);
+                        return false;
+                    }
+                })
+            );
+            if (results.some((e) => e === false)) {
                 return false;
             }
         } while (true);
@@ -507,7 +626,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 Logger("Replication is already in progress.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
                 return false;
             }
-            const localDB = this.env.getDatabase()
+            const localDB = this.env.getDatabase();
             Logger(`OneShot Sync begin... (${syncMode})`);
             const ret = await this.checkReplicationConnectivity(setting, false, retrying, showResult, ignoreCleanLock);
             if (ret === false) {
@@ -530,10 +649,25 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             }
             this.terminateSync();
             const syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc> =
-                syncMode == "sync" ? localDB.sync(db, { ...syncOptionBase }) :
-                    (syncMode == "pullOnly" ? localDB.replicate.from(db, { ...syncOptionBase, ...(setting.readChunksOnline ? selectorOnDemandPull : {}) }) :
-                        syncMode == "pushOnly" ? localDB.replicate.to(db, { ...syncOptionBase }) : undefined as never);
-            const syncResult = await this.processSync(syncHandler, showResult, docSentOnStart, docArrivedOnStart, syncMode, retrying, false);
+                syncMode == "sync"
+                    ? localDB.sync(db, { ...syncOptionBase })
+                    : syncMode == "pullOnly"
+                      ? localDB.replicate.from(db, {
+                            ...syncOptionBase,
+                            ...(setting.readChunksOnline ? selectorOnDemandPull : {}),
+                        })
+                      : syncMode == "pushOnly"
+                        ? localDB.replicate.to(db, { ...syncOptionBase })
+                        : (undefined as never);
+            const syncResult = await this.processSync(
+                syncHandler,
+                showResult,
+                docSentOnStart,
+                docArrivedOnStart,
+                syncMode,
+                retrying,
+                false
+            );
             if (syncResult == "DONE") {
                 return true;
             }
@@ -545,7 +679,14 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             }
             if (syncResult == "NEED_RESURRECT") {
                 this.terminateSync();
-                return async () => await this.openOneShotReplication(this.originalSetting, showResult, false, syncMode, ignoreCleanLock);
+                return async () =>
+                    await this.openOneShotReplication(
+                        this.originalSetting,
+                        showResult,
+                        false,
+                        syncMode,
+                        ignoreCleanLock
+                    );
             }
             if (syncResult == "NEED_RETRY") {
                 const tempSetting: RemoteDBSettings = JSON.parse(JSON.stringify(setting));
@@ -555,8 +696,12 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     Logger("We can't replicate more lower value.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
                     return false;
                 } else {
-                    Logger(`Retry with lower batch size:${tempSetting.batch_size}/${tempSetting.batches_limit}`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
-                    return async () => await this.openOneShotReplication(tempSetting, showResult, true, syncMode, ignoreCleanLock);
+                    Logger(
+                        `Retry with lower batch size:${tempSetting.batch_size}/${tempSetting.batches_limit}`,
+                        showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
+                    );
+                    return async () =>
+                        await this.openOneShotReplication(tempSetting, showResult, true, syncMode, ignoreCleanLock);
                 }
             }
             return false;
@@ -575,25 +720,24 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             maxPushSeq: this.maxPushSeq,
             lastSyncPullSeq: this.lastSyncPullSeq,
             lastSyncPushSeq: this.lastSyncPushSeq,
-            syncStatus: this.syncStatus
+            syncStatus: this.syncStatus,
         };
     };
     replicateAllToServer(setting: RemoteDBSettings, showingNotice?: boolean) {
-        return this.openOneShotReplication(
-            setting,
-            showingNotice ?? false,
-            false,
-            "pushOnly"
-        )
+        return this.openOneShotReplication(setting, showingNotice ?? false, false, "pushOnly");
     }
 
     replicateAllFromServer(setting: RemoteDBSettings, showingNotice?: boolean) {
         return this.openOneShotReplication(setting, showingNotice ?? false, false, "pullOnly");
     }
 
-
-    async checkReplicationConnectivity(setting: RemoteDBSettings, keepAlive: boolean, skipCheck: boolean, showResult: boolean, ignoreCleanLock = false) {
-
+    async checkReplicationConnectivity(
+        setting: RemoteDBSettings,
+        keepAlive: boolean,
+        skipCheck: boolean,
+        showResult: boolean,
+        ignoreCleanLock = false
+    ) {
         if (setting.versionUpFlash != "") {
             Logger("Open settings and check message, please.", LOG_LEVEL_NOTICE);
             return false;
@@ -611,7 +755,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
         if (!skipCheck) {
             if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
-                Logger("Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed", LOG_LEVEL_NOTICE);
+                Logger(
+                    "Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed",
+                    LOG_LEVEL_NOTICE
+                );
                 return false;
             }
             this.remoteCleaned = false;
@@ -622,10 +769,16 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
             const ensure = await ensureDatabaseIsCompatible(dbRet.db, setting, this.nodeid, currentVersionRange);
             if (ensure == "INCOMPATIBLE") {
-                Logger("The remote database has no compatibility with the running version. Please upgrade the plugin.", LOG_LEVEL_NOTICE);
+                Logger(
+                    "The remote database has no compatibility with the running version. Please upgrade the plugin.",
+                    LOG_LEVEL_NOTICE
+                );
                 return false;
             } else if (ensure == "NODE_LOCKED") {
-                Logger("The remote database has been rebuilt or corrupted since we have synchronized last time. Fetch rebuilt DB, explicit unlocking or chunk clean-up is required.", LOG_LEVEL_NOTICE);
+                Logger(
+                    "The remote database has been rebuilt or corrupted since we have synchronized last time. Fetch rebuilt DB, explicit unlocking or chunk clean-up is required.",
+                    LOG_LEVEL_NOTICE
+                );
                 this.remoteLockedAndDeviceNotAccepted = true;
                 this.remoteLocked = true;
                 return false;
@@ -635,7 +788,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 if (ignoreCleanLock) {
                     this.remoteLocked = true;
                 } else {
-                    Logger("The remote database has been cleaned up. Fetch rebuilt DB, explicit unlocking or chunk clean-up is required.", LOG_LEVEL_NOTICE);
+                    Logger(
+                        "The remote database has been cleaned up. Fetch rebuilt DB, explicit unlocking or chunk clean-up is required.",
+                        LOG_LEVEL_NOTICE
+                    );
                     this.remoteLockedAndDeviceNotAccepted = true;
                     this.remoteLocked = true;
                     this.remoteCleaned = true;
@@ -644,7 +800,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             } else if (ensure == "OK") {
                 // NO OP: FOR NARROWING TYPE
             } else if (ensure[0] == "MISMATCHED") {
-                Logger(`Configuration mismatching between the clients has been detected. This can be harmful or extra capacity consumption. We have to make these value unified.`, LOG_LEVEL_NOTICE);
+                Logger(
+                    `Configuration mismatching between the clients has been detected. This can be harmful or extra capacity consumption. We have to make these value unified.`,
+                    LOG_LEVEL_NOTICE
+                );
                 this.tweakSettingsMismatched = true;
                 this.preferredTweakValue = ensure[1];
                 return false;
@@ -659,12 +818,17 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         if (setting.readChunksOnline) {
             syncOptionBase.pull = { ...selectorOnDemandPull };
         }
-        const syncOption: PouchDB.Replication.SyncOptions = keepAlive ? { live: true, retry: true, heartbeat: setting.useTimeouts ? false : 30000, ...syncOptionBase } : { ...syncOptionBase };
+        const syncOption: PouchDB.Replication.SyncOptions = keepAlive
+            ? { live: true, retry: true, heartbeat: setting.useTimeouts ? false : 30000, ...syncOptionBase }
+            : { ...syncOptionBase };
         return { db: dbRet.db, info: dbRet.info, syncOptionBase, syncOption };
     }
 
-
-    async openContinuousReplication(setting: RemoteDBSettings, showResult: boolean, retrying: boolean): Promise<boolean> {
+    async openContinuousReplication(
+        setting: RemoteDBSettings,
+        showResult: boolean,
+        retrying: boolean
+    ): Promise<boolean> {
         const next = await shareRunningResult("continuousReplication", async () => {
             if (this.controller) {
                 Logger("Replication is already in progress.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
@@ -672,12 +836,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             }
             const localDB = this.env.getDatabase();
             Logger("Before LiveSync, start OneShot once...");
-            if (await this.openOneShotReplication(
-                setting,
-                showResult,
-                false,
-                "pullOnly"
-            )) {
+            if (await this.openOneShotReplication(setting, showResult, false, "pullOnly")) {
                 Logger("LiveSync begin...");
                 const ret = await this.checkReplicationConnectivity(setting, true, true, showResult);
                 if (ret === false) {
@@ -700,10 +859,17 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 }
                 this.terminateSync();
                 const syncHandler = localDB.sync<EntryDoc>(db, {
-                    ...syncOption
+                    ...syncOption,
                 });
                 const syncMode = "sync";
-                const syncResult = await this.processSync(syncHandler, showResult, docSentOnStart, docArrivedOnStart, syncMode, retrying);
+                const syncResult = await this.processSync(
+                    syncHandler,
+                    showResult,
+                    docSentOnStart,
+                    docArrivedOnStart,
+                    syncMode,
+                    retrying
+                );
 
                 if (syncResult == "DONE") {
                     return true;
@@ -723,7 +889,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         Logger("We can't replicate more lower value.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
                         return false;
                     } else {
-                        Logger(`Retry with lower batch size:${tempSetting.batch_size}/${tempSetting.batches_limit}`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+                        Logger(
+                            `Retry with lower batch size:${tempSetting.batch_size}/${tempSetting.batches_limit}`,
+                            showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
+                        );
                         return async () => await this.openContinuousReplication(tempSetting, showResult, true);
                     }
                 }
@@ -776,7 +945,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
 
         if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
-            Logger("Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed", LOG_LEVEL_NOTICE);
+            Logger(
+                "Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed",
+                LOG_LEVEL_NOTICE
+            );
             return;
         }
         const defInitPoint: EntryMilestoneInfo = {
@@ -787,10 +959,13 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             cleaned: lockByClean,
             accepted_nodes: [this.nodeid],
             node_chunk_info: { [this.nodeid]: currentVersionRange },
-            tweak_values: {}
+            tweak_values: {},
         };
 
-        const remoteMilestone: EntryMilestoneInfo = { ...defInitPoint, ...await resolveWithIgnoreKnownError(dbRet.db.get(MILESTONE_DOCID), defInitPoint) };
+        const remoteMilestone: EntryMilestoneInfo = {
+            ...defInitPoint,
+            ...(await resolveWithIgnoreKnownError(dbRet.db.get(MILESTONE_DOCID), defInitPoint)),
+        };
         remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
         remoteMilestone.accepted_nodes = [this.nodeid];
         remoteMilestone.locked = locked;
@@ -811,7 +986,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
 
         if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
-            Logger("Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed", LOG_LEVEL_NOTICE);
+            Logger(
+                "Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed",
+                LOG_LEVEL_NOTICE
+            );
             return;
         }
         const defInitPoint: EntryMilestoneInfo = {
@@ -821,10 +999,13 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             locked: false,
             accepted_nodes: [this.nodeid],
             node_chunk_info: { [this.nodeid]: currentVersionRange },
-            tweak_values: {}
+            tweak_values: {},
         };
         // check local database hash status and remote replicate hash status
-        const remoteMilestone: EntryMilestoneInfo = { ...defInitPoint, ...await resolveWithIgnoreKnownError(dbRet.db.get(MILESTONE_DOCID), defInitPoint) };
+        const remoteMilestone: EntryMilestoneInfo = {
+            ...defInitPoint,
+            ...(await resolveWithIgnoreKnownError(dbRet.db.get(MILESTONE_DOCID), defInitPoint)),
+        };
         remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
         remoteMilestone.accepted_nodes = Array.from(new Set([...remoteMilestone.accepted_nodes, this.nodeid]));
         Logger("Mark this device as 'resolved'.", LOG_LEVEL_NOTICE);
@@ -836,7 +1017,12 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
     }
 
-    connectRemoteCouchDBWithSetting(settings: RemoteDBSettings, isMobile: boolean, performSetup: boolean = false, skipInfo: boolean = false) {
+    connectRemoteCouchDBWithSetting(
+        settings: RemoteDBSettings,
+        isMobile: boolean,
+        performSetup: boolean = false,
+        skipInfo: boolean = false
+    ) {
         if (settings.encrypt && settings.passphrase == "" && !settings.permitEmptyPassphrase) {
             return "Empty passphrases cannot be used without explicit permission";
         }
@@ -856,17 +1042,31 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
 
     async fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]> {
-        const ret = await this.connectRemoteCouchDBWithSetting(this.env.getSettings(), this.env.$$isMobile(), false, true);
-        if (typeof (ret) === "string") {
-
+        const ret = await this.connectRemoteCouchDBWithSetting(
+            this.env.getSettings(),
+            this.env.$$isMobile(),
+            false,
+            true
+        );
+        if (typeof ret === "string") {
             Logger(`Could not connect to server.${ret} `, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
             return false;
         }
         const remoteChunks = await ret.db.allDocs({ keys: missingChunks, include_docs: true });
         if (remoteChunks.rows.some((e: any) => "error" in e)) {
-            Logger(`Some chunks are not exists both on remote and local database.`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
+            Logger(
+                `Some chunks are not exists both on remote and local database.`,
+                showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
+                "fetch"
+            );
             Logger(`Missing chunks: ${missingChunks.join(",")}`, LOG_LEVEL_VERBOSE);
-            Logger(`Error chunks: ${remoteChunks.rows.filter((e: any) => "error" in e).map((e: any) => e.key).join(",")}`, LOG_LEVEL_VERBOSE);
+            Logger(
+                `Error chunks: ${remoteChunks.rows
+                    .filter((e: any) => "error" in e)
+                    .map((e: any) => e.key)
+                    .join(",")}`,
+                LOG_LEVEL_VERBOSE
+            );
             return false;
         }
 
@@ -877,7 +1077,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     async tryConnectRemote(setting: RemoteDBSettings, showResult: boolean = true): Promise<boolean> {
         const db = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof db === "string") {
-            Logger(`ERROR!: could not connect to ${setting.couchDB_URI} : ${setting.couchDB_DBNAME} \n(${db})`, LOG_LEVEL_NOTICE);
+            Logger(
+                `ERROR!: could not connect to ${setting.couchDB_URI} : ${setting.couchDB_DBNAME} \n(${db})`,
+                LOG_LEVEL_NOTICE
+            );
             return false;
         }
         Logger(`Connected to ${db.info.db_name} successfully`, LOG_LEVEL_NOTICE);
@@ -893,12 +1096,15 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
 
         if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
-            Logger("Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed", LOG_LEVEL_NOTICE);
+            Logger(
+                "Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed",
+                LOG_LEVEL_NOTICE
+            );
             return;
         }
         // check local database hash status and remote replicate hash status
         try {
-            const remoteMilestone = await dbRet.db.get(MILESTONE_DOCID) as EntryMilestoneInfo;
+            const remoteMilestone = (await dbRet.db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
             remoteMilestone.tweak_values = {};
             await dbRet.db.put(remoteMilestone);
             Logger(`tweak values on the remote database have been cleared`, LOG_LEVEL_VERBOSE);
@@ -918,12 +1124,15 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
 
         if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
-            Logger("Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed", LOG_LEVEL_NOTICE);
+            Logger(
+                "Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed",
+                LOG_LEVEL_NOTICE
+            );
             return;
         }
         // check local database hash status and remote replicate hash status
         try {
-            const remoteMilestone = await dbRet.db.get(MILESTONE_DOCID) as EntryMilestoneInfo;
+            const remoteMilestone = (await dbRet.db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
             remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = extractObject(TweakValuesTemplate, { ...setting });
             await dbRet.db.put(remoteMilestone);
             Logger(`Preferred tweak values has been registered`, LOG_LEVEL_VERBOSE);
@@ -942,12 +1151,15 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return false;
         }
         if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
-            Logger("Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed", LOG_LEVEL_NOTICE);
+            Logger(
+                "Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed",
+                LOG_LEVEL_NOTICE
+            );
             return false;
         }
         // check local database hash status and remote replicate hash status
         try {
-            const remoteMilestone = await dbRet.db.get(MILESTONE_DOCID) as EntryMilestoneInfo;
+            const remoteMilestone = (await dbRet.db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
             return remoteMilestone.tweak_values[DEVICE_ID_PREFERRED];
         } catch (ex) {
             // While trying unlocking and not exist on the remote, it is not normal.
@@ -980,7 +1192,6 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         return {
             ...info,
             estimatedSize: (info as any)?.sizes?.file || 0,
-        }
+        };
     }
-
 }

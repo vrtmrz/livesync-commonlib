@@ -1,6 +1,20 @@
 import { minimatch, type MinimatchOptions } from "minimatch";
 import { webcrypto } from "../mods.ts";
-import { type AnyEntry, type DocumentID, type EntryHasPath, type FilePath, type FilePathWithPrefix, FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3, PREFIX_OBFUSCATED, PREFIXMD_LOGFILE, FLAGMD_REDFLAG2_HR, FLAGMD_REDFLAG3_HR, PREFIXMD_LOGFILE_UC } from "../common/types.ts";
+import {
+    type AnyEntry,
+    type DocumentID,
+    type EntryHasPath,
+    type FilePath,
+    type FilePathWithPrefix,
+    FLAGMD_REDFLAG,
+    FLAGMD_REDFLAG2,
+    FLAGMD_REDFLAG3,
+    PREFIX_OBFUSCATED,
+    PREFIXMD_LOGFILE,
+    FLAGMD_REDFLAG2_HR,
+    FLAGMD_REDFLAG3_HR,
+    PREFIXMD_LOGFILE_UC,
+} from "../common/types.ts";
 import { memorizeFuncWithLRUCache } from "../common/utils.ts";
 import { uint8ArrayToHexString, writeString } from "./convert.ts";
 import { unique } from "octagonal-wheels/collection.js";
@@ -30,7 +44,6 @@ export function isValidFilenameInAndroid(filename: string): boolean {
     const regex = /[\u0000-\u001f]|[\\":?<>|*#]/g;
     return !regex.test(filename);
 }
-
 
 export function isFilePath(path: FilePath | FilePathWithPrefix): path is FilePath {
     if (path.indexOf(":") === -1) return true;
@@ -68,11 +81,11 @@ export function expandDocumentIDPrefix(id: DocumentID): [string, FilePathWithPre
 
 const _hashString = memorizeFuncWithLRUCache(async (key: string) => {
     const buff = writeString(key);
-    let digest = await webcrypto.subtle.digest('SHA-256', buff);
+    let digest = await webcrypto.subtle.digest("SHA-256", buff);
     const len = key.length;
     for (let i = 0; i < len; i++) {
         // Stretching
-        digest = await webcrypto.subtle.digest('SHA-256', buff);
+        digest = await webcrypto.subtle.digest("SHA-256", buff);
     }
     return uint8ArrayToHexString(new Uint8Array(digest));
 });
@@ -80,7 +93,6 @@ const _hashString = memorizeFuncWithLRUCache(async (key: string) => {
 function hashString(key: string) {
     return _hashString(key);
 }
-
 
 export async function path2id_base(
     filenameSrc: FilePathWithPrefix | FilePath,
@@ -98,13 +110,13 @@ export async function path2id_base(
     if (x.startsWith("_")) x = ("/" + x) as FilePathWithPrefix;
 
     if (!obfuscatePassphrase) {
-        return newPrefix + x as DocumentID;
+        return (newPrefix + x) as DocumentID;
     }
 
     // obfuscating...
     const [prefix, body] = expandFilePathPrefix(x as FilePathWithPrefix);
     // Already Hashed
-    if (body.startsWith(PREFIX_OBFUSCATED)) return newPrefix + x as DocumentID;
+    if (body.startsWith(PREFIX_OBFUSCATED)) return (newPrefix + x) as DocumentID;
     const hashedPassphrase = await hashString(obfuscatePassphrase);
     // Hash it!
     const out = await hashString(`${hashedPassphrase}:${filename}`);
@@ -121,12 +133,11 @@ export function id2path_base(id: DocumentID, entry?: EntryHasPath): FilePathWith
     if (body.startsWith("/")) {
         return body.substring(1) as FilePathWithPrefix;
     }
-    return prefix + body as FilePathWithPrefix;
+    return (prefix + body) as FilePathWithPrefix;
 }
 
 export function getPath(entry: AnyEntry) {
     return id2path_base(entry._id, entry);
-
 }
 export function getPathWithoutPrefix(entry: AnyEntry) {
     const f = getPath(entry);
@@ -198,7 +209,7 @@ export function isAccepted(path: string, ignore: string[]): boolean | undefined 
         // We do not accept this for handle the cases which ends with `/` by wildcard
         return false;
     }
-    const patterns = ignore.map(e => e.trim()).filter(e => e.length > 0 && !e.startsWith("#"));
+    const patterns = ignore.map((e) => e.trim()).filter((e) => e.length > 0 && !e.startsWith("#"));
     let result = undefined;
     for (const pattern of patterns) {
         if (pattern.endsWith("/")) {
@@ -210,7 +221,7 @@ export function isAccepted(path: string, ignore: string[]): boolean | undefined 
         const newResult = pattern.startsWith("!");
         const matched =
             minimatch(path, pattern, matchOpts) ||
-            (!pattern.endsWith("/") && minimatch(path, pattern + "/**", matchOpts))
+            (!pattern.endsWith("/") && minimatch(path, pattern + "/**", matchOpts));
 
         if (matched) {
             result = newResult;
@@ -226,9 +237,18 @@ export function isAccepted(path: string, ignore: string[]): boolean | undefined 
  * @param getList function to retrieve the file.
  * @returns true when accepted. false when should be ignored.
  */
-export async function isAcceptedAll(path: string, ignoreFiles: string[], getList: (path: string) => Promise<string[] | false>) {
+export async function isAcceptedAll(
+    path: string,
+    ignoreFiles: string[],
+    getList: (path: string) => Promise<string[] | false>
+) {
     const pathBase = path.substring(0, path.lastIndexOf("/"));
-    const intermediatePaths = unique(pathBase.split("/").reduce((p, c) => [...p, p[p.length - 1] + "/" + c], [""]).map(e => e.substring(1))).reverse();
+    const intermediatePaths = unique(
+        pathBase
+            .split("/")
+            .reduce((p, c) => [...p, p[p.length - 1] + "/" + c], [""])
+            .map((e) => e.substring(1))
+    ).reverse();
 
     for (const intermediatePath of intermediatePaths) {
         for (const ignoreFile of ignoreFiles) {

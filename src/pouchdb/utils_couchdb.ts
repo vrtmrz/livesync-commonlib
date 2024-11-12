@@ -9,7 +9,7 @@ import {
     arrayBufferToBase64Single,
     base64ToArrayBuffer,
     tryConvertBase64ToArrayBuffer,
-    writeString
+    writeString,
 } from "../string_and_binary/convert.ts";
 import {
     VER,
@@ -23,17 +23,17 @@ import {
     type FilePathWithPrefix,
     type CouchDBConnection,
     LOG_LEVEL_NOTICE,
-    LOG_LEVEL_VERBOSE, type DocumentID
+    LOG_LEVEL_VERBOSE,
+    type DocumentID,
 } from "../common/types.ts";
 import {
     arrayToChunkedArray,
     isEncryptedChunkEntry,
     isObfuscatedEntry,
     isSyncInfoEntry,
-    resolveWithIgnoreKnownError
+    resolveWithIgnoreKnownError,
 } from "../common/utils.ts";
-import * as fflate from 'fflate';
-
+import * as fflate from "fflate";
 
 const encrypt = encryptWorker;
 const decrypt = decryptWorker;
@@ -51,7 +51,11 @@ export function isCloudantURI(uri: string): boolean {
 
 // check the version of remote.
 // if remote is higher than current(or specified) version, return false.
-export const checkRemoteVersion = async (db: PouchDB.Database, migrate: (from: number, to: number) => Promise<boolean>, barrier: number = VER): Promise<boolean> => {
+export const checkRemoteVersion = async (
+    db: PouchDB.Database,
+    migrate: (from: number, to: number) => Promise<boolean>,
+    barrier: number = VER
+): Promise<boolean> => {
     try {
         const versionInfo = (await db.get(VERSIONING_DOCID)) as EntryVersionInfo;
         if (versionInfo.type != "versioninfo") {
@@ -84,7 +88,7 @@ export const bumpRemoteVersion = async (db: PouchDB.Database, barrier: number = 
         version: barrier,
         type: "versioninfo",
     };
-    const versionInfo = (await resolveWithIgnoreKnownError<EntryVersionInfo>(db.get(VERSIONING_DOCID), vi));
+    const versionInfo = await resolveWithIgnoreKnownError<EntryVersionInfo>(db.get(VERSIONING_DOCID), vi);
     if (versionInfo.type != "versioninfo") {
         return false;
     }
@@ -125,16 +129,17 @@ export const checkSyncInfo = async (db: PouchDB.Database): Promise<boolean> => {
 const MARK_SHIFT = `\u{000E}L`;
 const MARK_SHIFT_COMPRESSED = `${MARK_SHIFT}Z\u{001D}`;
 
-function wrapFflateFunc<T, U>(func: (data: T, opts: U, cb: fflate.FlateCallback) => any): (data: T, opts: U) => Promise<Uint8Array> {
+function wrapFflateFunc<T, U>(
+    func: (data: T, opts: U, cb: fflate.FlateCallback) => any
+): (data: T, opts: U) => Promise<Uint8Array> {
     return (data: T, opts: U) => {
         return new Promise<Uint8Array>((res, rej) => {
             func(data, opts, (err, result) => {
                 if (err) rej(err);
                 else res(result);
             });
-        })
-    }
-
+        });
+    };
 }
 
 export const wrappedInflate = wrapFflateFunc<Uint8Array, fflate.AsyncInflateOptions>(fflate.inflate);
@@ -142,14 +147,16 @@ export const wrappedDeflate = wrapFflateFunc<Uint8Array, fflate.AsyncDeflateOpti
 
 async function _compressText(text: string) {
     const converted = tryConvertBase64ToArrayBuffer(text);
-    const data = new Uint8Array(converted || await (new Blob([text], { type: 'application/octet-stream' })).arrayBuffer());
+    const data = new Uint8Array(
+        converted || (await new Blob([text], { type: "application/octet-stream" }).arrayBuffer())
+    );
     if (data.buffer.byteLength == 0) {
         return "";
     }
     const df = await wrappedDeflate(new Uint8Array(data), { consume: true, level: 8 });
     // Reverted: Even if chars in UTF-16 encoded were short, bytes in UTF-8 are longer than in base64 encoding.
     // const deflateResult = (converted ? "~" : "") + "%" + fflate.strFromU8(df, true);
-    const deflateResult = (converted ? "~" : "") + await arrayBufferToBase64Single(df);
+    const deflateResult = (converted ? "~" : "") + (await arrayBufferToBase64Single(df));
     return deflateResult;
 }
 
@@ -185,7 +192,7 @@ async function compressDoc(doc: EntryDoc) {
     const oldData = doc.data;
     const compressed = await _compressText(oldData);
     const newData = MARK_SHIFT_COMPRESSED + compressed;
-    if (doc.data.length > newData.length) doc.data = newData
+    if (doc.data.length > newData.length) doc.data = newData;
     return doc;
 }
 
@@ -197,7 +204,7 @@ async function decompressDoc(doc: EntryDoc) {
 
     // Already decrypted
     if (doc.data.startsWith(MARK_SHIFT_COMPRESSED)) {
-        doc.data = await _decompressText(doc.data.substring(MARK_SHIFT_COMPRESSED.length))
+        doc.data = await _decompressText(doc.data.substring(MARK_SHIFT_COMPRESSED.length));
     }
     return doc;
 }
@@ -213,9 +220,8 @@ export const replicationFilter = (db: PouchDB.Database<EntryDoc>, compress: bool
             // We should decompress if compression is not configured.
             return await decompressDoc(doc);
         },
-    })
-}
-
+    });
+};
 
 const EDEN_ENCRYPTED_KEY = "h:++encrypted" as DocumentID;
 
@@ -227,25 +233,38 @@ function shouldEncryptEden(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
 }
 
 function shouldDecryptEden(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
-    if ("eden" in doc && (EDEN_ENCRYPTED_KEY in doc.eden)) {
+    if ("eden" in doc && EDEN_ENCRYPTED_KEY in doc.eden) {
         return true;
     }
     return false;
 }
 
 // eslint-disable-next-line require-await
-export let preprocessOutgoing: (doc: AnyEntry | EntryLeaf) => Promise<AnyEntry | EntryLeaf> = async (doc) => { return Promise.resolve(doc) }
+export let preprocessOutgoing: (doc: AnyEntry | EntryLeaf) => Promise<AnyEntry | EntryLeaf> = async (doc) => {
+    return Promise.resolve(doc);
+};
 export function disableEncryption() {
     // eslint-disable-next-line require-await, @typescript-eslint/require-await
-    preprocessOutgoing = async (doc) => { return doc };
+    preprocessOutgoing = async (doc) => {
+        return doc;
+    };
     // eslint-disable-next-line require-await, @typescript-eslint/require-await
-    preprocessIncoming = async (doc) => { return doc };
+    preprocessIncoming = async (doc) => {
+        return doc;
+    };
 }
 // eslint-disable-next-line require-await, @typescript-eslint/require-await
-export let preprocessIncoming: (doc: EntryDoc) => Promise<EntryDoc> = async (doc) => { return doc }
+export let preprocessIncoming: (doc: EntryDoc) => Promise<EntryDoc> = async (doc) => {
+    return doc;
+};
 
 // requires transform-pouch
-export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: string, useDynamicIterationCount: boolean, migrationDecrypt: boolean) => {
+export const enableEncryption = (
+    db: PouchDB.Database<EntryDoc>,
+    passphrase: string,
+    useDynamicIterationCount: boolean,
+    migrationDecrypt: boolean
+) => {
     const decrypted = new Map();
     const incoming = async (doc: AnyEntry | EntryLeaf) => {
         const saveDoc = {
@@ -258,7 +277,6 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                     saveDoc.data = await encrypt(saveDoc.data, passphrase, useDynamicIterationCount);
                     (saveDoc as any).e_ = true;
                 }
-
             } catch (ex) {
                 Logger("Encryption failed.", LOG_LEVEL_NOTICE);
                 Logger(ex);
@@ -270,15 +288,19 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
             saveDoc.eden = {
                 [EDEN_ENCRYPTED_KEY]: {
                     data: await encrypt(JSON.stringify(saveDoc.eden), passphrase, useDynamicIterationCount),
-                    epoch: 999999
-                }
+                    epoch: 999999,
+                },
             };
         }
         if (isObfuscatedEntry(saveDoc)) {
             try {
                 const path = getPath(saveDoc);
                 if (!isPathProbablyObfuscated(path)) {
-                    saveDoc.path = await obfuscatePath(path, passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
+                    saveDoc.path = (await obfuscatePath(
+                        path,
+                        passphrase,
+                        useDynamicIterationCount
+                    )) as unknown as FilePathWithPrefix;
                 }
             } catch (ex) {
                 Logger("Encryption failed.", LOG_LEVEL_NOTICE);
@@ -287,7 +309,7 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
             }
         }
         return saveDoc;
-    }
+    };
     const outgoing = async (doc: EntryDoc) => {
         const loadDoc = {
             ...doc,
@@ -311,11 +333,17 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                 if (_isObfuscatedEntry) {
                     const path = getPath(loadDoc);
                     if (isPathProbablyObfuscated(path)) {
-                        loadDoc.path = await decrypt(path, passphrase, useDynamicIterationCount) as unknown as FilePathWithPrefix;
+                        loadDoc.path = (await decrypt(
+                            path,
+                            passphrase,
+                            useDynamicIterationCount
+                        )) as unknown as FilePathWithPrefix;
                     }
                 }
                 if (_shouldDecryptEden) {
-                    loadDoc.eden = JSON.parse(await decrypt(loadDoc.eden[EDEN_ENCRYPTED_KEY].data, passphrase, useDynamicIterationCount));
+                    loadDoc.eden = JSON.parse(
+                        await decrypt(loadDoc.eden[EDEN_ENCRYPTED_KEY].data, passphrase, useDynamicIterationCount)
+                    );
                 }
                 if (migrationDecrypt) {
                     decrypted.set(loadDoc._id, true);
@@ -329,11 +357,17 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
                         if (_isObfuscatedEntry) {
                             const path = getPath(loadDoc);
                             if (isPathProbablyObfuscated(path)) {
-                                loadDoc.path = await decrypt(path, passphrase, false) as unknown as FilePathWithPrefix;
+                                loadDoc.path = (await decrypt(
+                                    path,
+                                    passphrase,
+                                    false
+                                )) as unknown as FilePathWithPrefix;
                             }
                         }
                         if (_shouldDecryptEden) {
-                            loadDoc.eden = JSON.parse(await decrypt(loadDoc.eden[EDEN_ENCRYPTED_KEY].data, passphrase, false));
+                            loadDoc.eden = JSON.parse(
+                                await decrypt(loadDoc.eden[EDEN_ENCRYPTED_KEY].data, passphrase, false)
+                            );
                         }
                         if (migrationDecrypt) {
                             decrypted.set(loadDoc._id, true);
@@ -362,7 +396,7 @@ export const enableEncryption = (db: PouchDB.Database<EntryDoc>, passphrase: str
     //@ts-ignore
     db.transform({
         incoming,
-        outgoing
+        outgoing,
     });
 };
 
@@ -372,7 +406,7 @@ export function isErrorOfMissingDoc(ex: any) {
 
 async function prepareChunkDesignDoc(db: PouchDB.Database) {
     const chunkDesignDoc = {
-        _id: '_design/chunks',
+        _id: "_design/chunks",
         _rev: undefined as any,
         ver: 2,
         views: {
@@ -384,14 +418,13 @@ async function prepareChunkDesignDoc(db: PouchDB.Database) {
                     } else {
                         if ("children" in doc) {
                             //@ts-ignore
-                            doc.children.forEach(e => emit([e], 1));
+                            doc.children.forEach((e) => emit([e], 1));
                         }
                     }
                 }.toString(),
-                reduce: '_sum'
-            }
-
-        }
+                reduce: "_sum",
+            },
+        },
     };
     // save it
     let updateDDoc = false;
@@ -401,7 +434,6 @@ async function prepareChunkDesignDoc(db: PouchDB.Database) {
             chunkDesignDoc._rev = old._rev;
             updateDDoc = true;
         }
-
     } catch (ex: any) {
         if (ex.status == 404) {
             // NO OP
@@ -426,12 +458,12 @@ async function prepareChunkDesignDoc(db: PouchDB.Database) {
 }
 
 export async function collectChunksUsage(db: PouchDB.Database) {
-    if (!await prepareChunkDesignDoc(db)) {
+    if (!(await prepareChunkDesignDoc(db))) {
         Logger(`Could not prepare design document for operating chunks`);
         return [];
     }
     const q = await db.query("chunks/collectDangling", { reduce: true, group: true });
-    const rows = q.rows as { value: number, key: string[] }[];
+    const rows = q.rows as { value: number; key: string[] }[];
     return rows;
 }
 
@@ -442,23 +474,22 @@ export function collectUnreferencedChunks(db: PouchDB.Database) {
 export async function collectChunks(db: PouchDB.Database, type: "INUSE" | "DANGLING" | "ALL") {
     const rows = await collectChunksUsage(db);
 
-    const rowF = type == "ALL" ? rows :
-        rows.filter(e => type == "DANGLING" ? (e.value == 0) : (e.value != 0));
-    const ids = rowF.flatMap(e => e.key);
+    const rowF = type == "ALL" ? rows : rows.filter((e) => (type == "DANGLING" ? e.value == 0 : e.value != 0));
+    const ids = rowF.flatMap((e) => e.key);
     const docs = (await db.allDocs({ keys: ids })).rows;
-    const items = docs.filter(e => !("error" in e)).map((e: any) => ({ id: e.id, rev: e.value.rev }));
+    const items = docs.filter((e) => !("error" in e)).map((e: any) => ({ id: e.id, rev: e.value.rev }));
     return items;
 }
 
 export async function collectUnbalancedChunkIDs(local: PouchDB.Database, remote: PouchDB.Database) {
     const chunksOnLocal = await collectChunks(local, "INUSE");
     const chunksOnRemote = await collectChunks(remote, "INUSE");
-    const onlyOnLocal = chunksOnLocal.filter(e => !chunksOnRemote.some(ee => ee.id == e.id))
-    const onlyOnRemote = chunksOnRemote.filter(e => !chunksOnLocal.some(ee => ee.id == e.id))
+    const onlyOnLocal = chunksOnLocal.filter((e) => !chunksOnRemote.some((ee) => ee.id == e.id));
+    const onlyOnRemote = chunksOnRemote.filter((e) => !chunksOnLocal.some((ee) => ee.id == e.id));
     return { onlyOnLocal, onlyOnRemote };
 }
 
-export async function purgeChunksLocal(db: PouchDB.Database, docs: { id: string, rev: string }[]) {
+export async function purgeChunksLocal(db: PouchDB.Database, docs: { id: string; rev: string }[]) {
     await serialized("purge-local", async () => {
         try {
             // Back chunks up to the _local of local database to see the history.
@@ -466,23 +497,29 @@ export async function purgeChunksLocal(db: PouchDB.Database, docs: { id: string,
             const batchDocsBackup = arrayToChunkedArray(docs, 100);
             let total = { ok: 0, exist: 0, error: 0 };
             for (const docsInBatch of batchDocsBackup) {
-                const backupDocsFrom = await db.allDocs({ keys: docsInBatch.map(e => e.id), include_docs: true });
-                const backupDocs = backupDocsFrom.rows.filter(e => "doc" in e).map(e => {
-                    const chunk = { ...(e as any).doc };
-                    delete chunk._rev;
-                    chunk._id = `_local/${chunk._id}`;
-                    return chunk;
-                })
+                const backupDocsFrom = await db.allDocs({ keys: docsInBatch.map((e) => e.id), include_docs: true });
+                const backupDocs = backupDocsFrom.rows
+                    .filter((e) => "doc" in e)
+                    .map((e) => {
+                        const chunk = { ...(e as any).doc };
+                        delete chunk._rev;
+                        chunk._id = `_local/${chunk._id}`;
+                        return chunk;
+                    });
                 const ret = await db.bulkDocs(backupDocs);
-                total = ret.map(e => (
-                    {
-                        ok: ("ok" in e) ? 1 : 0,
-                        exist: ("status" in e && e.status == 409) ? 1 : 0,
-                        error: ("status" in e && e.status != 409) ? 1 : 0
-                    }
-                )).reduce((p, c) => ({ ok: p.ok + c.ok, exist: p.exist + c.exist, error: p.error + c.error }), total);
-                Logger(`Local chunk backed up: new:${total.ok} ,exist:${total.exist}, error:${total.error}`, LOG_LEVEL_NOTICE, "purge-local-backup");
-                const erroredItems = ret.filter(e => "error" in e && e.status != 409);
+                total = ret
+                    .map((e) => ({
+                        ok: "ok" in e ? 1 : 0,
+                        exist: "status" in e && e.status == 409 ? 1 : 0,
+                        error: "status" in e && e.status != 409 ? 1 : 0,
+                    }))
+                    .reduce((p, c) => ({ ok: p.ok + c.ok, exist: p.exist + c.exist, error: p.error + c.error }), total);
+                Logger(
+                    `Local chunk backed up: new:${total.ok} ,exist:${total.exist}, error:${total.error}`,
+                    LOG_LEVEL_NOTICE,
+                    "purge-local-backup"
+                );
+                const erroredItems = ret.filter((e) => "error" in e && e.status != 409);
                 for (const item of erroredItems) {
                     Logger(`Failed to back up: ${item.id} / ${item.rev}`, LOG_LEVEL_VERBOSE);
                 }
@@ -497,21 +534,35 @@ export async function purgeChunksLocal(db: PouchDB.Database, docs: { id: string,
         let totalRemoved = 0;
         for (const docsInBatch of batchDocs) {
             //@ts-ignore: type def missing
-            const removed = await db.purgeMulti(docsInBatch.map(e => [e.id, e.rev]));
-            const removedCount = Object.values(removed).filter(e => "ok" in (e as object)).length;
+            const removed = await db.purgeMulti(docsInBatch.map((e) => [e.id, e.rev]));
+            const removedCount = Object.values(removed).filter((e) => "ok" in (e as object)).length;
             totalRemoved += removedCount;
             Logger(`Purging:  ${totalRemoved} / ${docs.length}`, LOG_LEVEL_NOTICE, "purge-local");
         }
 
-        Logger(`Purging unused chunks done!: ${totalRemoved} chunks has been deleted.`, LOG_LEVEL_NOTICE, "purge-local");
+        Logger(
+            `Purging unused chunks done!: ${totalRemoved} chunks has been deleted.`,
+            LOG_LEVEL_NOTICE,
+            "purge-local"
+        );
     });
 }
 
-const _requestToCouchDBFetch = async (baseUri: string, username: string, password: string, path?: string, body?: string | any, method?: string) => {
+const _requestToCouchDBFetch = async (
+    baseUri: string,
+    username: string,
+    password: string,
+    path?: string,
+    body?: string | any,
+    method?: string
+) => {
     const utf8str = String.fromCharCode.apply(null, [...writeString(`${username}:${password}`)]);
     const encoded = window.btoa(utf8str);
     const authHeader = "Basic " + encoded;
-    const transformedHeaders: Record<string, string> = { authorization: authHeader, "content-type": "application/json" };
+    const transformedHeaders: Record<string, string> = {
+        authorization: authHeader,
+        "content-type": "application/json",
+    };
     const uri = `${baseUri}/${path}`;
     const requestParam = {
         url: uri,
@@ -521,9 +572,9 @@ const _requestToCouchDBFetch = async (baseUri: string, username: string, passwor
         body: JSON.stringify(body),
     };
     return await fetch(uri, requestParam);
-}
+};
 
-export async function purgeChunksRemote(setting: CouchDBConnection, docs: { id: string, rev: string }[]) {
+export async function purgeChunksRemote(setting: CouchDBConnection, docs: { id: string; rev: string }[]) {
     await serialized("purge-remote", async () => {
         const CHUNK_SIZE = 100;
 
@@ -542,7 +593,9 @@ export async function purgeChunksRemote(setting: CouchDBConnection, docs: { id: 
                 setting.couchDB_USER,
                 setting.couchDB_PASSWORD,
                 "_purge",
-                Object.fromEntries(chunkedPayload.map(e => [e.id, [e.rev]])), "POST");
+                Object.fromEntries(chunkedPayload.map((e) => [e.id, [e.rev]])),
+                "POST"
+            );
             // const result = await rets();
             Logger(JSON.stringify(await rets.json()), LOG_LEVEL_VERBOSE);
         }
@@ -553,22 +606,30 @@ export async function purgeChunksRemote(setting: CouchDBConnection, docs: { id: 
 function sizeToHumanReadable(size: number | undefined) {
     if (!size) return "-";
     const i = Math.floor(Math.log(size) / Math.log(1024));
-    return Number.parseInt((size / Math.pow(1024, i)).toFixed(2)) + ' ' + ['B', 'kB', 'MB', 'GB', 'TB'][i];
+    return Number.parseInt((size / Math.pow(1024, i)).toFixed(2)) + " " + ["B", "kB", "MB", "GB", "TB"][i];
 }
 
-export async function purgeUnreferencedChunks(db: PouchDB.Database, dryRun: boolean, connSetting?: CouchDBConnection, performCompact = false) {
+export async function purgeUnreferencedChunks(
+    db: PouchDB.Database,
+    dryRun: boolean,
+    connSetting?: CouchDBConnection,
+    performCompact = false
+) {
     const info = await db.info();
     let resultCount = 0;
     const getSize = function (info: PouchDB.Core.DatabaseInfo, key: "active" | "external" | "file") {
         return Number.parseInt((info as any)?.sizes?.[key] ?? 0);
-    }
+    };
     const keySuffix = connSetting ? "-remote" : "-local";
     Logger(`${dryRun ? "Counting" : "Cleaning"} ${connSetting ? "remote" : "local"} database`, LOG_LEVEL_NOTICE);
 
     if (connSetting) {
-        Logger(`Database active-size: ${sizeToHumanReadable(getSize(info, "active"))
-            }, external-size:${sizeToHumanReadable(getSize(info, "external"))
-            }, file-size: ${sizeToHumanReadable(getSize(info, "file"))}`, LOG_LEVEL_NOTICE);
+        Logger(
+            `Database active-size: ${sizeToHumanReadable(getSize(info, "active"))}, external-size:${sizeToHumanReadable(
+                getSize(info, "external")
+            )}, file-size: ${sizeToHumanReadable(getSize(info, "file"))}`,
+            LOG_LEVEL_NOTICE
+        );
     }
     Logger(`Collecting unreferenced chunks on ${info.db_name}`, LOG_LEVEL_NOTICE, "gc-count-chunk" + keySuffix);
     const chunks = await collectUnreferencedChunks(db);
@@ -576,7 +637,11 @@ export async function purgeUnreferencedChunks(db: PouchDB.Database, dryRun: bool
     if (chunks.length == 0) {
         Logger(`No unreferenced chunks! ${info.db_name}`, LOG_LEVEL_NOTICE, "gc-count-chunk" + keySuffix);
     } else {
-        Logger(`Number of unreferenced chunks on ${info.db_name}: ${chunks.length}`, LOG_LEVEL_NOTICE, "gc-count-chunk" + keySuffix);
+        Logger(
+            `Number of unreferenced chunks on ${info.db_name}: ${chunks.length}`,
+            LOG_LEVEL_NOTICE,
+            "gc-count-chunk" + keySuffix
+        );
         if (dryRun) {
             Logger(`DryRun of cleaning ${connSetting ? "remote" : "local"} database up: Done`, LOG_LEVEL_NOTICE);
             return resultCount;
@@ -598,40 +663,70 @@ export async function purgeUnreferencedChunks(db: PouchDB.Database, dryRun: bool
     }
     if (connSetting) {
         const endInfo = await db.info();
-        Logger(`Processed database active-size: ${sizeToHumanReadable(getSize(endInfo, "active"))
-            }, external-size:${sizeToHumanReadable(getSize(endInfo, "external"))
-            }, file-size: ${sizeToHumanReadable(getSize(endInfo, "file"))}`, LOG_LEVEL_NOTICE);
-        Logger(`Reduced sizes: active-size: ${sizeToHumanReadable(getSize(info, "active") - getSize(endInfo, "active"))
-            }, external-size:${sizeToHumanReadable(getSize(info, "external") - getSize(endInfo, "external"))
-            }, file-size: ${sizeToHumanReadable(getSize(info, "file") - getSize(endInfo, "file"))
-            }`, LOG_LEVEL_NOTICE);
+        Logger(
+            `Processed database active-size: ${sizeToHumanReadable(
+                getSize(endInfo, "active")
+            )}, external-size:${sizeToHumanReadable(
+                getSize(endInfo, "external")
+            )}, file-size: ${sizeToHumanReadable(getSize(endInfo, "file"))}`,
+            LOG_LEVEL_NOTICE
+        );
+        Logger(
+            `Reduced sizes: active-size: ${sizeToHumanReadable(
+                getSize(info, "active") - getSize(endInfo, "active")
+            )}, external-size:${sizeToHumanReadable(
+                getSize(info, "external") - getSize(endInfo, "external")
+            )}, file-size: ${sizeToHumanReadable(getSize(info, "file") - getSize(endInfo, "file"))}`,
+            LOG_LEVEL_NOTICE
+        );
     }
     Logger(`Cleaning ${connSetting ? "remote" : "local"} database up: Done`, LOG_LEVEL_NOTICE);
     return resultCount;
 }
 
-function transferChunks(key: string, label: string, dbFrom: PouchDB.Database, dbTo: PouchDB.Database, items: {
-    id: string;
-    rev: string;
-}[]) {
+function transferChunks(
+    key: string,
+    label: string,
+    dbFrom: PouchDB.Database,
+    dbTo: PouchDB.Database,
+    items: {
+        id: string;
+        rev: string;
+    }[]
+) {
     let totalProcessed = 0;
     const total = items.length;
-    return new QueueProcessor(async (batched) => {
-        // Narrow down to only the chunks which are not in the local.
-        const requestItems = batched.map(e => e.id);
-        const local = await dbTo.allDocs({ keys: requestItems });
-        const batch = local.rows.filter(e => "error" in e && e.error == "not_found").map(e => e.key);
-        return batch;
-    }, {
-        batchSize: 50, concurrentLimit: 5, suspended: true, delay: 100
-    }, items)
-        .pipeTo(new QueueProcessor(async (chunkIds) => {
-            const docs = await dbFrom.allDocs({ keys: chunkIds, include_docs: true });
-            const filteredDocs = docs.rows.filter((e) => !("error" in e)).map((e: any) => e.doc as EntryLeaf);
-            return filteredDocs;
-        }, {
-            batchSize: 25, concurrentLimit: 1, suspended: true, delay: 100,
-        }))
+    return new QueueProcessor(
+        async (batched) => {
+            // Narrow down to only the chunks which are not in the local.
+            const requestItems = batched.map((e) => e.id);
+            const local = await dbTo.allDocs({ keys: requestItems });
+            const batch = local.rows.filter((e) => "error" in e && e.error == "not_found").map((e) => e.key);
+            return batch;
+        },
+        {
+            batchSize: 50,
+            concurrentLimit: 5,
+            suspended: true,
+            delay: 100,
+        },
+        items
+    )
+        .pipeTo(
+            new QueueProcessor(
+                async (chunkIds) => {
+                    const docs = await dbFrom.allDocs({ keys: chunkIds, include_docs: true });
+                    const filteredDocs = docs.rows.filter((e) => !("error" in e)).map((e: any) => e.doc as EntryLeaf);
+                    return filteredDocs;
+                },
+                {
+                    batchSize: 25,
+                    concurrentLimit: 1,
+                    suspended: true,
+                    delay: 100,
+                }
+            )
+        )
         .pipeTo(
             new QueueProcessor(
                 async (docs) => {
@@ -645,9 +740,12 @@ function transferChunks(key: string, label: string, dbFrom: PouchDB.Database, db
                         Logger(`${label}: ${totalProcessed} / ${total}`, LOG_LEVEL_NOTICE, "balance-" + key);
                     }
                     return;
-                }, { batchSize: 100, delay: 100, concurrentLimit: 2, suspended: false })
+                },
+                { batchSize: 100, delay: 100, concurrentLimit: 2, suspended: false }
+            )
         )
-        .startPipeline().waitForAllDoneAndTerminate();
+        .startPipeline()
+        .waitForAllDoneAndTerminate();
 }
 
 // Complement unbalanced chunks between databases which were separately cleaned up.

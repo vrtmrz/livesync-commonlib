@@ -1,6 +1,22 @@
 // Misc
-import { arrayBufferToBase64, base64ToArrayBuffer, base64ToArrayBufferInternalBrowser, arrayBufferToBase64Single, readString, writeString, tryConvertBase64ToArrayBuffer } from "octagonal-wheels/binary/index.js";
-export { arrayBufferToBase64, base64ToArrayBuffer, base64ToArrayBufferInternalBrowser, arrayBufferToBase64Single, readString, writeString, tryConvertBase64ToArrayBuffer }
+import {
+    arrayBufferToBase64,
+    base64ToArrayBuffer,
+    base64ToArrayBufferInternalBrowser,
+    arrayBufferToBase64Single,
+    readString,
+    writeString,
+    tryConvertBase64ToArrayBuffer,
+} from "octagonal-wheels/binary/index.js";
+export {
+    arrayBufferToBase64,
+    base64ToArrayBuffer,
+    base64ToArrayBufferInternalBrowser,
+    arrayBufferToBase64Single,
+    readString,
+    writeString,
+    tryConvertBase64ToArrayBuffer,
+};
 export { uint8ArrayToHexString, hexStringToUint8Array } from "octagonal-wheels/binary/hex.js";
 export { encodeBinaryEach, decodeToArrayBuffer } from "octagonal-wheels/binary/encodedUTF16.js";
 export { decodeBinary, encodeBinary } from "octagonal-wheels/binary/index.js";

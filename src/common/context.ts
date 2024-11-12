@@ -11,7 +11,7 @@ class Context<T extends Record<string | number | symbol, any> = object> {
     }
 
     set<V extends keyof T>(key: V, value: T[V]) {
-        // Normally, copy on write. 
+        // Normally, copy on write.
         this._data[key] = value;
     }
 
@@ -52,14 +52,13 @@ class Context<T extends Record<string | number | symbol, any> = object> {
         return child;
     }
     _disposeChild(child: Context<any>) {
-        this.children = this.children.filter(wr => wr.deref() === child);
+        this.children = this.children.filter((wr) => wr.deref() === child);
         // Clean up empty children
-        this.children = this.children.filter(wr => wr.deref() === undefined);
+        this.children = this.children.filter((wr) => wr.deref() === undefined);
     }
     dispose() {
         this.parent?._disposeChild(this);
     }
-
 }
 
 const rootContext = new Context<object>();

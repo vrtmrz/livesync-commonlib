@@ -25,7 +25,7 @@ export class WrappedNotice {
         return this;
     }
 
-    hide(): void { }
+    hide(): void {}
 }
 let _notice = WrappedNotice;
 

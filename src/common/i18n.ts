@@ -61,16 +61,15 @@ export function $t(message: string, lang?: I18N_LANGS) {
 }
 /**
  * TagFunction to Automatically translate.
- * @param strings 
- * @param values 
- * @returns 
+ * @param strings
+ * @param values
+ * @returns
  */
 export function $f(strings: TemplateStringsArray, ...values: string[]) {
-    let result = '';
+    let result = "";
     for (let i = 0; i < values.length; i++) {
         result += getMessage(strings[i]) + values[i];
     }
     result += getMessage(strings[strings.length - 1]);
     return result;
-
 }

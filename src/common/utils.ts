@@ -2,39 +2,50 @@ import { LRUCache } from "../memory/LRUCache.ts";
 import { isPlainText } from "../string_and_binary/path.ts";
 import { Semaphore } from "../concurrency/semaphore.ts";
 import { arrayBufferToBase64Single, decodeBinary, writeString } from "../string_and_binary/convert.ts";
-import { type AnyEntry, type DatabaseEntry, type EntryLeaf, PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED, SYNCINFO_ID, type SyncInfo, type LoadedEntry, type SavingEntry, type NewEntry, type PlainEntry } from "./types.ts";
+import {
+    type AnyEntry,
+    type DatabaseEntry,
+    type EntryLeaf,
+    PREFIX_ENCRYPTED_CHUNK,
+    PREFIX_OBFUSCATED,
+    SYNCINFO_ID,
+    type SyncInfo,
+    type LoadedEntry,
+    type SavingEntry,
+    type NewEntry,
+    type PlainEntry,
+} from "./types.ts";
 import { isErrorOfMissingDoc } from "../pouchdb/utils_couchdb.ts";
 import { replaceAll, replaceAllPairs } from "octagonal-wheels/string.js";
-export { replaceAll, replaceAllPairs }
+export { replaceAll, replaceAllPairs };
 import { concatUInt8Array } from "octagonal-wheels/binary/index.js";
 export { concatUInt8Array };
 
 import { delay, fireAndForget } from "octagonal-wheels/promises.js";
-export { delay, fireAndForget }
+export { delay, fireAndForget };
 
 import { arrayToChunkedArray, unique } from "octagonal-wheels/collection.js";
-export { arrayToChunkedArray, unique }
+export { arrayToChunkedArray, unique };
 
 import { extractObject, isObjectDifferent } from "octagonal-wheels/object.js";
-export { extractObject, isObjectDifferent }
+export { extractObject, isObjectDifferent };
 
 import { sendValue, sendSignal, waitForSignal, waitForValue } from "octagonal-wheels/messagepassing/signal.js";
-export { sendValue, sendSignal, waitForSignal, waitForValue }
+export { sendValue, sendSignal, waitForSignal, waitForValue };
 
 import { throttle } from "octagonal-wheels/function.js";
-export { throttle }
+export { throttle };
 
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase.js";
-export type { SimpleStore }
+export type { SimpleStore };
 
-export { sizeToHumanReadable } from "octagonal-wheels/number.js"
+export { sizeToHumanReadable } from "octagonal-wheels/number.js";
 
 export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T> {
     return new Promise((res, rej) => {
         p.then(res).catch((ex) => (isErrorOfMissingDoc(ex) ? res(def) : rej(ex)));
     });
 }
-
 
 // Referenced below
 // https://zenn.dev/sora_kumo/articles/539d7f6e7f3c63
@@ -50,22 +61,20 @@ export async function allSettledWithConcurrencyLimit<T>(processes: Promise<T>[],
         ps.add(proc);
         await ps.wait(limit);
     }
-    (await ps.all()).forEach(() => { });
+    (await ps.all()).forEach(() => {});
 }
-
-
 
 export function getDocData(doc: string | string[]) {
-    return typeof (doc) == "string" ? doc : doc.join("")
+    return typeof doc == "string" ? doc : doc.join("");
 }
 export function getDocDataAsArray(doc: string | string[]) {
-    return typeof (doc) == "string" ? [doc] : doc
+    return typeof doc == "string" ? [doc] : doc;
 }
 
 export function getDocDataAsArrayBuffer(doc: string | string[] | ArrayBuffer) {
     if (doc instanceof ArrayBuffer) return new Uint8Array(doc);
     const docData = getDocDataAsArray(doc);
-    const s = docData.map(e => writeString(e));
+    const s = docData.map((e) => writeString(e));
     return concatUInt8Array(s);
 }
 
@@ -73,9 +82,8 @@ export function isTextBlob(blob: Blob) {
     return blob.type === "text/plain";
 }
 export function createTextBlob(data: string | string[]) {
-    const d = (Array.isArray(data)) ? data : [data];
+    const d = Array.isArray(data) ? data : [data];
     return new Blob(d, { endings: "transparent", type: "text/plain" });
-
 }
 export function createBinaryBlob(data: Uint8Array | ArrayBuffer) {
     return new Blob([data], { endings: "transparent", type: "application/octet-stream" });
@@ -110,7 +118,10 @@ export function readContent(doc: LoadedEntry) {
 
 const isIndexDBCmpExist = typeof window?.indexedDB?.cmp !== "undefined";
 
-export async function isDocContentSame(docA: string | string[] | Blob | ArrayBuffer, docB: string | string[] | Blob | ArrayBuffer) {
+export async function isDocContentSame(
+    docA: string | string[] | Blob | ArrayBuffer,
+    docB: string | string[] | Blob | ArrayBuffer
+) {
     const blob1 = createBlob(docA);
     const blob2 = createBlob(docB);
     if (blob1.size != blob2.size) return false;
@@ -120,14 +131,13 @@ export async function isDocContentSame(docA: string | string[] | Blob | ArrayBuf
     const checkQuantum = 10000;
     const length = blob1.size;
 
-
     let i = 0;
 
     while (i < length) {
         const ab1 = await blob1.slice(i, i + checkQuantum).arrayBuffer();
         const ab2 = await blob2.slice(i, i + checkQuantum).arrayBuffer();
         i += checkQuantum;
-        if (await arrayBufferToBase64Single(ab1) != await arrayBufferToBase64Single(ab2)) return false;
+        if ((await arrayBufferToBase64Single(ab1)) != (await arrayBufferToBase64Single(ab2))) return false;
     }
     return true;
 }
@@ -167,7 +177,11 @@ export function memorizeFuncWithLRUCache<T, U>(func: (key: T) => U) {
 export function memorizeFuncWithLRUCacheMulti<T extends Array<any>, U>(func: (...keys: T) => U) {
     const cache = new LRUCache<string, U>(100, 100000, true);
     return (keys: T) => {
-        const theKey = (keys.map(e => (typeof e == "string" || typeof e == "number" || typeof e == "boolean") ? e.toString() : JSON.stringify(e))).join("-");
+        const theKey = keys
+            .map((e) =>
+                typeof e == "string" || typeof e == "number" || typeof e == "boolean" ? e.toString() : JSON.stringify(e)
+            )
+            .join("-");
         const isExists = cache.has(theKey);
         if (isExists) return cache.get(theKey);
         const value = func(...keys);
@@ -177,10 +191,10 @@ export function memorizeFuncWithLRUCacheMulti<T extends Array<any>, U>(func: (..
 }
 
 /**
- * 
+ *
  * @param exclusion return only not exclusion
- * @returns 
- * 
+ * @returns
+ *
  * ["something",false,"aaaaa"].filter(onlyNot(false)) => yields ["something","aaaaaa"]. but, as string[].
  */
 export function onlyNot<A, B>(exclusion: B) {
@@ -250,16 +264,17 @@ export async function runWithStartInterval<T>(key: string, interval: number, tas
     }
     markInterval(key);
     return await task();
-
 }
-
 
 export const globalConcurrencyController = Semaphore(50);
 
 export function determineTypeFromBlob(data: Blob): "newnote" | "plain" {
     return isTextBlob(data) ? "plain" : "newnote";
 }
-export function determineType(path: string, data: string | string[] | Uint8Array | ArrayBuffer | Blob): "newnote" | "plain" {
+export function determineType(
+    path: string,
+    data: string | string[] | Uint8Array | ArrayBuffer | Blob
+): "newnote" | "plain" {
     if (data instanceof Blob) {
         return determineTypeFromBlob(data);
     }
@@ -285,16 +300,13 @@ export function createSavingEntryFromLoadedEntry(doc: LoadedEntry): SavingEntry 
         datatype: type,
         type,
         children: [],
-    }
+    };
 }
-
-
 
 export function setAllItems<T>(set: Set<T>, items: T[]) {
-    items.forEach(e => set.add(e))
+    items.forEach((e) => set.add(e));
     return set;
 }
-
 
 export function escapeNewLineFromString(str: string) {
     if (str.indexOf("\n") < 0) {
@@ -337,7 +349,6 @@ export function timeDeltaToHumanReadable(delta: number) {
     const year = day / 365;
     return `${year.toFixed(2)}y`;
 }
-
 
 export async function wrapException<T>(func: () => Promise<Awaited<T>>): Promise<Awaited<T> | Error> {
     try {
@@ -382,7 +393,6 @@ export function isDirty(key: string, value: any) {
     return true;
 }
 
-
 export function isSensibleMargeApplicable(path: string) {
     if (path.endsWith(".md")) return true;
     return false;
@@ -392,7 +402,6 @@ export function isObjectMargeApplicable(path: string) {
     if (path.endsWith(".json")) return true;
     return false;
 }
-
 
 export function tryParseJSON(str: string, fallbackValue?: any) {
     try {
@@ -408,15 +417,15 @@ const MARK_ISARRAY = `${MARK_OPERATOR}__ARRAY`;
 const MARK_SWAPPED = `${MARK_OPERATOR}__SWAP`;
 
 function unorderedArrayToObject(obj: Array<any>) {
-    return obj.map(e => ({ [e.id as string]: e })).reduce((p, c) => ({ ...p, ...c }), {})
+    return obj.map((e) => ({ [e.id as string]: e })).reduce((p, c) => ({ ...p, ...c }), {});
 }
 function objectToUnorderedArray(obj: object) {
     const entries = Object.entries(obj);
-    if (entries.some(e => e[0] != e[1]?.id)) throw new Error("Item looks like not unordered array")
-    return entries.map(e => e[1]);
+    if (entries.some((e) => e[0] != e[1]?.id)) throw new Error("Item looks like not unordered array");
+    return entries.map((e) => e[1]);
 }
 function generatePatchUnorderedArray(from: Array<any>, to: Array<any>) {
-    if (from.every(e => typeof (e) == "object" && ("id" in e)) && to.every(e => typeof (e) == "object" && ("id" in e))) {
+    if (from.every((e) => typeof e == "object" && "id" in e) && to.every((e) => typeof e == "object" && "id" in e)) {
         const fObj = unorderedArrayToObject(from);
         const tObj = unorderedArrayToObject(to);
         const diff = generatePatchObj(fObj, tObj);
@@ -429,7 +438,10 @@ function generatePatchUnorderedArray(from: Array<any>, to: Array<any>) {
     return { [MARK_SWAPPED]: to };
 }
 
-export function generatePatchObj(from: Record<string | number | symbol, any>, to: Record<string | number | symbol, any>) {
+export function generatePatchObj(
+    from: Record<string | number | symbol, any>,
+    to: Record<string | number | symbol, any>
+) {
     const entries = Object.entries(from);
     const tempMap = new Map<string | number | symbol, any>(entries);
     const ret = {} as Record<string | number | symbol, any>;
@@ -442,7 +454,7 @@ export function generatePatchObj(from: Record<string | number | symbol, any>, to
         } else {
             //Exists
             const v = tempMap.get(key);
-            if (typeof (v) !== typeof (value) || (Array.isArray(v) !== Array.isArray(value))) {
+            if (typeof v !== typeof value || Array.isArray(v) !== Array.isArray(value)) {
                 //if type is not match, replace completely.
                 ret[key] = { [MARK_SWAPPED]: value };
             } else {
@@ -452,13 +464,23 @@ export function generatePatchObj(from: Record<string | number | symbol, any>, to
                     ret[key] = { [MARK_SWAPPED]: value };
                 } else if (v !== null && value === null) {
                     ret[key] = { [MARK_SWAPPED]: value };
-                } else if (typeof (v) == "object" && typeof (value) == "object" && !Array.isArray(v) && !Array.isArray(value)) {
+                } else if (
+                    typeof v == "object" &&
+                    typeof value == "object" &&
+                    !Array.isArray(v) &&
+                    !Array.isArray(value)
+                ) {
                     const wk = generatePatchObj(v, value);
                     if (Object.keys(wk).length > 0) ret[key] = wk;
-                } else if (typeof (v) == "object" && typeof (value) == "object" && Array.isArray(v) && Array.isArray(value)) {
+                } else if (
+                    typeof v == "object" &&
+                    typeof value == "object" &&
+                    Array.isArray(v) &&
+                    Array.isArray(value)
+                ) {
                     const wk = generatePatchUnorderedArray(v, value);
                     if (Object.keys(wk).length > 0) ret[key] = wk;
-                } else if (typeof (v) != "object" && typeof (value) != "object") {
+                } else if (typeof v != "object" && typeof value != "object") {
                     if (JSON.stringify(tempMap.get(key)) !== JSON.stringify(value)) {
                         ret[key] = value;
                     }
@@ -472,8 +494,8 @@ export function generatePatchObj(from: Record<string | number | symbol, any>, to
         }
     }
     //Not used item, means deleted one
-    for (const [key,] of tempMap) {
-        ret[key] = MARK_DELETED
+    for (const [key] of tempMap) {
+        ret[key] = MARK_DELETED;
     }
     return ret;
 }
@@ -490,7 +512,7 @@ export function applyPatch(from: Record<string | number | symbol, any>, patch: R
             ret[key] = null;
             continue;
         }
-        if (typeof (value) == "object") {
+        if (typeof value == "object") {
             if (MARK_SWAPPED in value) {
                 ret[key] = value[MARK_SWAPPED];
                 continue;
@@ -524,29 +546,18 @@ export function mergeObject(
 ) {
     const newEntries = Object.entries(objB);
     const ret: any = { ...objA };
-    if (
-        typeof objA !== typeof objB ||
-        Array.isArray(objA) !== Array.isArray(objB)
-    ) {
+    if (typeof objA !== typeof objB || Array.isArray(objA) !== Array.isArray(objB)) {
         return objB;
     }
 
     for (const [key, v] of newEntries) {
         if (key in ret) {
             const value = ret[key];
-            if (
-                typeof v !== typeof value ||
-                Array.isArray(v) !== Array.isArray(value)
-            ) {
+            if (typeof v !== typeof value || Array.isArray(v) !== Array.isArray(value)) {
                 //if type is not match, replace completely.
                 ret[key] = v;
             } else {
-                if (
-                    typeof v == "object" &&
-                    typeof value == "object" &&
-                    !Array.isArray(v) &&
-                    !Array.isArray(value)
-                ) {
+                if (typeof v == "object" && typeof value == "object" && !Array.isArray(v) && !Array.isArray(value)) {
                     ret[key] = mergeObject(v, value);
                 } else if (
                     typeof v == "object" &&
@@ -563,7 +574,7 @@ export function mergeObject(
             ret[key] = v;
         }
     }
-    const retSorted = Object.fromEntries(Object.entries(ret).sort((a, b) => a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0));
+    const retSorted = Object.fromEntries(Object.entries(ret).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)));
     if (Array.isArray(objA) && Array.isArray(objB)) {
         return Object.values(retSorted);
     }
@@ -571,11 +582,11 @@ export function mergeObject(
 }
 
 export function flattenObject(obj: Record<string | number | symbol, any>, path: string[] = []): [string, any][] {
-    if (typeof (obj) != "object") return [[path.join("."), obj]];
+    if (typeof obj != "object") return [[path.join("."), obj]];
     if (obj === null) return [[path.join("."), null]];
     if (Array.isArray(obj)) return [[path.join("."), JSON.stringify(obj)]];
     const e = Object.entries(obj);
-    const ret = []
+    const ret = [];
     for (const [key, value] of e) {
         const p = flattenObject(value, [...path, key]);
         ret.push(...p);

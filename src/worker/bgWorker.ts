@@ -6,53 +6,57 @@ import WorkerX from "./bg.worker.ts";
 import { EVENT_PLUGIN_UNLOADED } from "../../../common/events.ts";
 import { info, LOG_KIND_ERROR } from "octagonal-wheels/common/logger";
 
-
 export type SplitArguments = {
     key: number;
     type: "split";
-    dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string,
-    useV2: boolean
-    useSegmenter: boolean
-}
+    dataSrc: Blob;
+    pieceSize: number;
+    plainSplit: boolean;
+    minimumChunkSize: number;
+    filename?: string;
+    useV2: boolean;
+    useSegmenter: boolean;
+};
 
 export type EncryptArguments = {
-    key: number,
-    type: "encrypt" | "decrypt",
-    input: string,
-    passphrase: string,
-    autoCalculateIterations: boolean,
-}
+    key: number;
+    type: "encrypt" | "decrypt";
+    input: string;
+    passphrase: string;
+    autoCalculateIterations: boolean;
+};
 
 type SplitProcessItem = {
-    key: number,
-    task: PromiseWithResolvers<string | null>
-    type: SplitArguments["type"],
+    key: number;
+    task: PromiseWithResolvers<string | null>;
+    type: SplitArguments["type"];
     finalize: () => void;
-}
+};
 type EncryptProcessItem = {
-    key: number,
-    task: PromiseWithResolvers<string>,
-    type: EncryptArguments["type"],
+    key: number;
+    task: PromiseWithResolvers<string>;
+    type: EncryptArguments["type"];
     finalize: () => void;
-}
+};
 type ProcessItem = SplitProcessItem | EncryptProcessItem;
 
-
 const tasks = new Map<number, ProcessItem>();
-
 
 const maxConcurrency = ~~((navigator.hardwareConcurrency || 8) / 2);
 let roundRobinIdx = 0;
 type WorkerInstance = {
-    worker: Worker,
-    processing: number
-}
+    worker: Worker;
+    processing: number;
+};
 
-const workers = Array.from({ length: maxConcurrency }, () =>
-({
-    worker: WorkerX() as Worker,
-    processing: 0
-} as WorkerInstance));
+const workers = Array.from(
+    { length: maxConcurrency },
+    () =>
+        ({
+            worker: WorkerX() as Worker,
+            processing: 0,
+        }) as WorkerInstance
+);
 
 function handleTaskSplit(process: SplitProcessItem, data: any) {
     const key = data.key as number;
@@ -104,13 +108,11 @@ for (const inst of workers) {
         } else {
             info("Invalid response type" + process);
         }
-
     };
     inst.worker.onerror = () => {
         inst.worker.terminate();
         workers.remove(inst);
-    }
-
+    };
 }
 
 export function terminateWorker() {
@@ -120,11 +122,32 @@ export function terminateWorker() {
     // isTerminated = true;
 }
 
-
-export function splitPieces2Worker(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string, useSegmenter?: boolean) {
-    return _splitPieces2Worker(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, false, useSegmenter ?? false);
+export function splitPieces2Worker(
+    dataSrc: Blob,
+    pieceSize: number,
+    plainSplit: boolean,
+    minimumChunkSize: number,
+    filename?: string,
+    useSegmenter?: boolean
+) {
+    return _splitPieces2Worker(
+        dataSrc,
+        pieceSize,
+        plainSplit,
+        minimumChunkSize,
+        filename,
+        false,
+        useSegmenter ?? false
+    );
 }
-export function splitPieces2WorkerV2(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string, useSegmenter?: boolean) {
+export function splitPieces2WorkerV2(
+    dataSrc: Blob,
+    pieceSize: number,
+    plainSplit: boolean,
+    minimumChunkSize: number,
+    filename?: string,
+    useSegmenter?: boolean
+) {
     return _splitPieces2Worker(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, true, useSegmenter ?? false);
 }
 export function encryptWorker(input: string, passphrase: string, autoCalculateIterations: boolean): Promise<string> {
@@ -141,11 +164,18 @@ function startWorker(data: Omit<EncryptArguments | SplitArguments, "key">): Proc
     const _key = key++;
     const inst = nextWorker();
     const promise = promiseWithResolver<any>();
-    const item: ProcessItem = { key: _key, task: promise, type: data.type, finalize: () => { inst.processing-- } };
+    const item: ProcessItem = {
+        key: _key,
+        task: promise,
+        type: data.type,
+        finalize: () => {
+            inst.processing--;
+        },
+    };
     tasks.set(_key, item);
     inst.processing++;
     inst.worker.postMessage({
-        data: { ...data, key: _key }
+        data: { ...data, key: _key },
     });
     return item;
 }
@@ -159,7 +189,6 @@ export function encryptionOnWorker(data: Omit<EncryptArguments, "key">) {
     })();
 }
 
-
 function nextWorker() {
     const inst = workers[roundRobinIdx];
     roundRobinIdx = (roundRobinIdx + 1) % workers.length;
@@ -168,9 +197,25 @@ function nextWorker() {
 
 let key = 0;
 
-function _splitPieces2Worker(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename: string | undefined, useV2: boolean, useSegmenter: boolean) {
-
-    const process = startWorker({ type: "split", dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useV2, useSegmenter });
+function _splitPieces2Worker(
+    dataSrc: Blob,
+    pieceSize: number,
+    plainSplit: boolean,
+    minimumChunkSize: number,
+    filename: string | undefined,
+    useV2: boolean,
+    useSegmenter: boolean
+) {
+    const process = startWorker({
+        type: "split",
+        dataSrc,
+        pieceSize,
+        plainSplit,
+        minimumChunkSize,
+        filename,
+        useV2,
+        useSegmenter,
+    });
     const _key = process.key;
     return async function* () {
         while (tasks.has(_key)) {
@@ -182,9 +227,9 @@ function _splitPieces2Worker(dataSrc: Blob, pieceSize: number, plainSplit: boole
             }
             yield result;
         }
-    }
+    };
 }
 
 eventHub.onEvent(EVENT_PLUGIN_UNLOADED, () => {
     terminateWorker();
-})
+});

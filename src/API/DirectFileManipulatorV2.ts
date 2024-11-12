@@ -3,24 +3,47 @@
  */
 
 import { addPrefix, id2path_base, path2id_base, stripAllPrefixes } from "../string_and_binary/path.ts";
-import { type DocumentID, type FilePathWithPrefix, type EntryHasPath, type FilePath, type EntryDoc, type NewEntry, type PlainEntry, type LoadedEntry, DEFAULT_SETTINGS, type HashAlgorithm, type RemoteDBSettings } from "../common/types.ts";
-
+import {
+    type DocumentID,
+    type FilePathWithPrefix,
+    type EntryHasPath,
+    type FilePath,
+    type EntryDoc,
+    type NewEntry,
+    type PlainEntry,
+    type LoadedEntry,
+    DEFAULT_SETTINGS,
+    type HashAlgorithm,
+    type RemoteDBSettings,
+} from "../common/types.ts";
 
 import { PouchDB } from "../pouchdb/pouchdb-http.ts";
 import { LiveSyncLocalDB, type LiveSyncLocalDBEnv } from "../pouchdb/LiveSyncLocalDB.ts";
-import { disableEncryption, enableEncryption, isErrorOfMissingDoc, replicationFilter } from "../pouchdb/utils_couchdb.ts";
-import { LEVEL_INFO, LEVEL_VERBOSE, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger.js";
+import {
+    disableEncryption,
+    enableEncryption,
+    isErrorOfMissingDoc,
+    replicationFilter,
+} from "../pouchdb/utils_couchdb.ts";
+import {
+    LEVEL_INFO,
+    LEVEL_VERBOSE,
+    LOG_LEVEL_INFO,
+    LOG_LEVEL_NOTICE,
+    LOG_LEVEL_VERBOSE,
+    Logger,
+} from "octagonal-wheels/common/logger.js";
 import { createBlob, determineTypeFromBlob } from "../common/utils.ts";
 import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
 export type DirectFileManipulatorOptions = {
-    url: string,
-    username: string,
-    password: string,
-    passphrase: string | undefined,
-    database: string,
-    obfuscatePassphrase: string | undefined,
-    useDynamicIterationCount?: boolean,
-    customChunkSize?: number,
+    url: string;
+    username: string;
+    password: string;
+    passphrase: string | undefined;
+    database: string;
+    obfuscatePassphrase: string | undefined;
+    useDynamicIterationCount?: boolean;
+    customChunkSize?: number;
     minimumChunkSize?: number;
     hashAlg?: HashAlgorithm;
     useEden?: boolean;
@@ -31,10 +54,10 @@ export type DirectFileManipulatorOptions = {
     enableCompression?: boolean;
     handleFilenameCaseSensitive?: boolean;
     doNotUseFixedRevisionForChunks?: boolean;
-}
+};
 
 export type ReadyEntry = (NewEntry | PlainEntry) & { data: string[] };
-export type MetaEntry = (NewEntry | PlainEntry) & { children: string[] }
+export type MetaEntry = (NewEntry | PlainEntry) & { children: string[] };
 
 function isNoteEntry(doc: EntryDoc | false): doc is NewEntry | PlainEntry {
     if (!doc) return false;
@@ -49,18 +72,19 @@ function isReadyEntry(doc: EntryDoc | false): doc is ReadyEntry {
 //     return "children" in doc;
 // }
 
-
 export type FileInfo = {
-    ctime: number,
-    mtime: number,
-    size: number,
-}
+    ctime: number;
+    mtime: number;
+    size: number;
+};
 
 export type EnumerateConditions = {
-    startKey?: string, endKey?: string, ids?: string[], metaOnly: boolean
+    startKey?: string;
+    endKey?: string;
+    ids?: string[];
+    metaOnly: boolean;
 };
 export class DirectFileManipulator implements LiveSyncLocalDBEnv {
-
     liveSyncLocalDB: LiveSyncLocalDB;
 
     options: DirectFileManipulatorOptions;
@@ -77,7 +101,6 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         this.liveSyncLocalDB = new LiveSyncLocalDB(this.options.url, this);
         void this.liveSyncLocalDB.initializeDatabase();
         this.liveSyncLocalDB.refreshSettings();
-
     }
     $$id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix {
         const path = id2path_base(id, entry);
@@ -88,13 +111,20 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     }
     async $$path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID> {
         const fileName = prefix ? addPrefix(filename, prefix) : filename;
-        const id = await path2id_base(fileName, this.options.obfuscatePassphrase ?? false, !this.options.handleFilenameCaseSensitive);
+        const id = await path2id_base(
+            fileName,
+            this.options.obfuscatePassphrase ?? false,
+            !this.options.handleFilenameCaseSensitive
+        );
         return id;
     }
-    $$createPouchDBInstance<T extends object>(name?: string, options?: PouchDB.
-        Configuration.DatabaseConfiguration): PouchDB.Database<T> {
-        return new PouchDB(this.options.url + "/" + this.options.database,
-            { auth: { username: this.options.username, password: this.options.password } });
+    $$createPouchDBInstance<T extends object>(
+        name?: string,
+        options?: PouchDB.Configuration.DatabaseConfiguration
+    ): PouchDB.Database<T> {
+        return new PouchDB(this.options.url + "/" + this.options.database, {
+            auth: { username: this.options.username, password: this.options.password },
+        });
     }
     $allOnDBUnload(db: LiveSyncLocalDB): void {
         return;
@@ -106,7 +136,12 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         replicationFilter(db.localDatabase, this.options.enableCompression ?? false);
         disableEncryption();
         if (this.options.passphrase && typeof this.options.passphrase === "string") {
-            enableEncryption(db.localDatabase, this.options.passphrase, this.options.useDynamicIterationCount ?? false, false);
+            enableEncryption(
+                db.localDatabase,
+                this.options.passphrase,
+                this.options.useDynamicIterationCount ?? false,
+                false
+            );
         }
         return Promise.resolve(true);
     }
@@ -115,7 +150,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     }
     $$getReplicator: () => LiveSyncAbstractReplicator = () => {
         throw new Error("Method not implemented.");
-    }
+    };
     getSettings(): RemoteDBSettings {
         return this.settings;
     }
@@ -125,10 +160,13 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     }
     async path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID> {
         const fileName = prefix ? addPrefix(filename, prefix) : filename;
-        const id = await path2id_base(fileName, this.options.obfuscatePassphrase ?? false, !this.options.handleFilenameCaseSensitive);
+        const id = await path2id_base(
+            fileName,
+            this.options.obfuscatePassphrase ?? false,
+            !this.options.handleFilenameCaseSensitive
+        );
         return id;
     }
-
 
     get settings() {
         const retObj: RemoteDBSettings = {
@@ -148,7 +186,8 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 enableChunkSplitterV2: this.options.enableChunkSplitterV2 ?? DEFAULT_SETTINGS.enableChunkSplitterV2,
                 disableWorkerForGeneratingChunks: true,
                 processSmallFilesInUIThread: true,
-                doNotUseFixedRevisionForChunks: this.options.doNotUseFixedRevisionForChunks ?? DEFAULT_SETTINGS.doNotUseFixedRevisionForChunks,
+                doNotUseFixedRevisionForChunks:
+                    this.options.doNotUseFixedRevisionForChunks ?? DEFAULT_SETTINGS.doNotUseFixedRevisionForChunks,
                 couchDB_URI: this.options.url,
                 couchDB_DBNAME: this.options.database,
                 couchDB_USER: this.options.username,
@@ -158,17 +197,17 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 bucket: "",
                 region: "",
                 endpoint: "",
-            }
-        }
+            },
+        };
         return retObj;
     }
 
     /**
-    * Get specific document from the Remote Database by path.
-    * @param path 
-    * @param metaOnly if it has been enabled, the note does not contains the content.
-    * @returns 
-    */
+     * Get specific document from the Remote Database by path.
+     * @param path
+     * @param metaOnly if it has been enabled, the note does not contains the content.
+     * @returns
+     */
     async get(path: FilePathWithPrefix, metaOnly = false) {
         if (metaOnly) {
             return await this.liveSyncLocalDB.getDBEntryMeta(path);
@@ -179,9 +218,9 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
 
     /**
      * Get specific document from the Remote Database by ID.
-     * @param path 
+     * @param path
      * @param metaOnly if it has been enabled, the note does not contains the content.
-     * @returns 
+     * @returns
      */
     async getById(id: string, metaOnly = false): Promise<false | MetaEntry | ReadyEntry> {
         // TODO: TREAT FOR CONFLICTED FILES or OLD REVISIONS.
@@ -210,17 +249,17 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
             if (isErrorOfMissingDoc(ex)) {
                 return false;
             }
-            throw ex
+            throw ex;
         }
     }
 
     /**
      * Put a note to the remote database
-     * @param path 
-     * @param data 
-     * @param info 
-     * @param type 
-     * @returns 
+     * @param path
+     * @param data
+     * @param info
+     * @param type
+     * @returns
      */
     async put(path: string, data: string[] | Blob, info: FileInfo, type: "newnote" | "plain" = "plain") {
         const id = await this.path2id(path as FilePathWithPrefix);
@@ -236,8 +275,8 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
             type: datatype,
             eden: {},
             children: [] as string[],
-            datatype: datatype
-        }
+            datatype: datatype,
+        };
         Logger(`PUT: UPLOADING: ${path}`, LOG_LEVEL_VERBOSE);
         const ret = await this.liveSyncLocalDB.putDBEntry(putDoc);
         if (ret) {
@@ -267,7 +306,6 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         // if (cond.startKey) param.startkey = cond.startKey;
         // if (cond.endKey) param.endkey = cond.endKey;
         // if (cond.ids) param.keys = JSON.stringify(cond.ids);
-
         // let key = cond.startKey;
         // do {
         //     const result = await this._fetchJson(["_all_docs"], {}, "get", { ...param, include_docs: true, startkey: key, limit: 100 });
@@ -301,7 +339,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
             this._enumerate(`i:\u{10ffff}`, "ix:", opt),
             this._enumerate(`ix:\u{10ffff}`, "ps:", opt),
             this._enumerate(`ps:\u{10ffff}`, "\u{10ffff}", opt),
-        ]
+        ];
         for (const target of targets) {
             for await (const f of target) {
                 yield f;
@@ -309,87 +347,27 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         }
     }
 
-
     watching = false;
     // _abortController?: AbortController;
     changes: PouchDB.Core.Changes<EntryDoc> | undefined;
     since = "";
 
-    beginWatch(callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void, checkIsInterested?: (doc: MetaEntry) => boolean) {
+    beginWatch(
+        callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void,
+        checkIsInterested?: (doc: MetaEntry) => boolean
+    ) {
         if (this.watching) return false;
         this.watching = true;
-        this.changes = this.liveSyncLocalDB.localDatabase.changes(
-            {
+        this.changes = this.liveSyncLocalDB.localDatabase
+            .changes({
                 include_docs: true,
                 since: this.since,
                 selector: {
-                    "type": { "$ne": "leaf" }
+                    type: { $ne: "leaf" },
                 },
-                live: true
-            }
-        ).on("change", async (change: any) => {
-            const doc = change.doc;
-            if (!doc) {
-                return;
-            }
-            if (!isNoteEntry(doc)) {
-                return;
-            }
-            if (checkIsInterested) {
-                if (!checkIsInterested(doc)) {
-                    Logger(`WATCH: SKIP ${doc.path}: OUT OF TARGET FOLDER`, LOG_LEVEL_VERBOSE, "watch");
-                    return;
-                }
-            }
-            Logger(`WATCH: PROCESSING: ${doc.path}`, LEVEL_VERBOSE, "watch");
-            const docX = await this.getByMeta(doc);
-            try {
-                await callback(docX, change.seq);
-                Logger(`WATCH: PROCESS DONE: ${doc.path}`, LEVEL_INFO, "watch");
-            } catch (ex) {
-                Logger(`WATCH: PROCESS FAILED`, LEVEL_INFO, "watch");
-                Logger(ex, LEVEL_VERBOSE, "watch");
-            }
-        }).on("complete", () => {
-            Logger(`WATCH: FINISHED`, LEVEL_INFO, "watch");
-            this.watching = false;
-            this.changes = undefined;
-        }).on("error", (err: Error) => {
-            Logger(`WATCH: ERROR: `, LEVEL_INFO, "watch");
-            Logger(err, LEVEL_VERBOSE, "watch");
-            if (this.watching) {
-                Logger(`WATCH: CONNECTION HAS BEEN CLOSED, RECONNECTING...`, LEVEL_INFO, "watch");
-                this.watching = false;
-                this.changes = undefined;
-                setTimeout(() => {
-                    this.beginWatch(callback, checkIsInterested);
-                }, 10000)
-            } else {
-                Logger(`WATCH: CONNECTION HAS BEEN CLOSED.`, LEVEL_INFO, "watch");
-            }
-        });
-    }
-    endWatch() {
-        if (this.changes) {
-            Logger(`WATCH: CANCELLING PROCESS.`, LEVEL_INFO, "watch");
-            this.changes.cancel();
-            Logger(`WATCH: CANCELLING SIGNAL HAS BEEN SENT.`, LEVEL_INFO, "watch");
-        }
-    }
-    async followUpdates(callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void, checkIsInterested?: (doc: MetaEntry) => boolean) {
-        try {
-            if (this.since == "") {
-                this.since = "0";
-            }
-            Logger(`FOLLOW: START: (since:${this.since})`, LEVEL_INFO, "followUpdates");
-            const last = await this.liveSyncLocalDB.localDatabase.changes(
-                {
-                    include_docs: true,
-                    since: this.since,
-                    filter: "replicate/pull",
-                    live: false
-                }
-            ).on("change", async (change) => {
+                live: true,
+            })
+            .on("change", async (change: any) => {
                 const doc = change.doc;
                 if (!doc) {
                     return;
@@ -399,26 +377,95 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 }
                 if (checkIsInterested) {
                     if (!checkIsInterested(doc)) {
-                        Logger(`FOLLOW: SKIP ${doc._id}: OUT OF TARGET FOLDER`, LOG_LEVEL_VERBOSE, "watch");
+                        Logger(`WATCH: SKIP ${doc.path}: OUT OF TARGET FOLDER`, LOG_LEVEL_VERBOSE, "watch");
                         return;
                     }
                 }
-                Logger(`FOLLOW: PROCESSING: ${doc.path}`, LEVEL_VERBOSE, "watch");
+                Logger(`WATCH: PROCESSING: ${doc.path}`, LEVEL_VERBOSE, "watch");
                 const docX = await this.getByMeta(doc);
                 try {
                     await callback(docX, change.seq);
-                    Logger(`FOLLOW: PROCESS DONE: ${doc.path}`, LEVEL_INFO, "watch");
+                    Logger(`WATCH: PROCESS DONE: ${doc.path}`, LEVEL_INFO, "watch");
                 } catch (ex) {
-                    Logger(`FOLLOW: PROCESS FAILED`, LEVEL_INFO, "watch");
+                    Logger(`WATCH: PROCESS FAILED`, LEVEL_INFO, "watch");
                     Logger(ex, LEVEL_VERBOSE, "watch");
                 }
-            }).on("complete", () => {
-                Logger(`FOLLOW: FINISHED AT ${this.since}`, LEVEL_INFO, "watch");
+            })
+            .on("complete", () => {
+                Logger(`WATCH: FINISHED`, LEVEL_INFO, "watch");
                 this.watching = false;
                 this.changes = undefined;
-            }).on("error", err => {
-                Logger(`FOLLOW: ERROR at ${this.since}: ${err}`, LEVEL_INFO, "watch");
+            })
+            .on("error", (err: Error) => {
+                Logger(`WATCH: ERROR: `, LEVEL_INFO, "watch");
+                Logger(err, LEVEL_VERBOSE, "watch");
+                if (this.watching) {
+                    Logger(`WATCH: CONNECTION HAS BEEN CLOSED, RECONNECTING...`, LEVEL_INFO, "watch");
+                    this.watching = false;
+                    this.changes = undefined;
+                    setTimeout(() => {
+                        this.beginWatch(callback, checkIsInterested);
+                    }, 10000);
+                } else {
+                    Logger(`WATCH: CONNECTION HAS BEEN CLOSED.`, LEVEL_INFO, "watch");
+                }
             });
+    }
+    endWatch() {
+        if (this.changes) {
+            Logger(`WATCH: CANCELLING PROCESS.`, LEVEL_INFO, "watch");
+            this.changes.cancel();
+            Logger(`WATCH: CANCELLING SIGNAL HAS BEEN SENT.`, LEVEL_INFO, "watch");
+        }
+    }
+    async followUpdates(
+        callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void,
+        checkIsInterested?: (doc: MetaEntry) => boolean
+    ) {
+        try {
+            if (this.since == "") {
+                this.since = "0";
+            }
+            Logger(`FOLLOW: START: (since:${this.since})`, LEVEL_INFO, "followUpdates");
+            const last = await this.liveSyncLocalDB.localDatabase
+                .changes({
+                    include_docs: true,
+                    since: this.since,
+                    filter: "replicate/pull",
+                    live: false,
+                })
+                .on("change", async (change) => {
+                    const doc = change.doc;
+                    if (!doc) {
+                        return;
+                    }
+                    if (!isNoteEntry(doc)) {
+                        return;
+                    }
+                    if (checkIsInterested) {
+                        if (!checkIsInterested(doc)) {
+                            Logger(`FOLLOW: SKIP ${doc._id}: OUT OF TARGET FOLDER`, LOG_LEVEL_VERBOSE, "watch");
+                            return;
+                        }
+                    }
+                    Logger(`FOLLOW: PROCESSING: ${doc.path}`, LEVEL_VERBOSE, "watch");
+                    const docX = await this.getByMeta(doc);
+                    try {
+                        await callback(docX, change.seq);
+                        Logger(`FOLLOW: PROCESS DONE: ${doc.path}`, LEVEL_INFO, "watch");
+                    } catch (ex) {
+                        Logger(`FOLLOW: PROCESS FAILED`, LEVEL_INFO, "watch");
+                        Logger(ex, LEVEL_VERBOSE, "watch");
+                    }
+                })
+                .on("complete", () => {
+                    Logger(`FOLLOW: FINISHED AT ${this.since}`, LEVEL_INFO, "watch");
+                    this.watching = false;
+                    this.changes = undefined;
+                })
+                .on("error", (err) => {
+                    Logger(`FOLLOW: ERROR at ${this.since}: ${err}`, LEVEL_INFO, "watch");
+                });
             return last.last_seq;
         } catch (e) {
             Logger(`FOLLOW: ERROR: ${e}`, LEVEL_INFO, "watch");

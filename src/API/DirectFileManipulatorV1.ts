@@ -10,37 +10,44 @@ import { path2id_base, shouldSplitAsPlainText } from "../string_and_binary/path.
 import { decodeBinary } from "../string_and_binary/convert.ts";
 import { splitPieces2 } from "../string_and_binary/chunks.ts";
 import { type Task, processAllTasksWithConcurrencyLimit } from "../concurrency/task.ts";
-import { type DocumentID, type FilePathWithPrefix, MAX_DOC_SIZE_BIN, type NewEntry, type PlainEntry, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../common/types.ts";
+import {
+    type DocumentID,
+    type FilePathWithPrefix,
+    MAX_DOC_SIZE_BIN,
+    type NewEntry,
+    type PlainEntry,
+    LOG_LEVEL_INFO,
+    LOG_LEVEL_NOTICE,
+    LOG_LEVEL_VERBOSE,
+} from "../common/types.ts";
 import { default as xxhash, type XXHashAPI } from "xxhash-wasm-102";
 import { createBinaryBlob, createTextBlob } from "../common/utils.ts";
-
 
 /**
  * Options for DirectFileManipulator (V1)
  * @deprecated Use DirectFileManipulatorOptions (of V2) instead.
  */
 export type DirectFileManipulatorOptions = {
-    url: string,
-    username: string,
-    password: string,
-    passphrase: string | undefined,
-    database: string,
-    obfuscatePassphrase: string | undefined,
-    useDynamicIterationCount?: boolean,
-    customChunkSize?: number,
+    url: string;
+    username: string;
+    password: string;
+    passphrase: string | undefined;
+    database: string;
+    obfuscatePassphrase: string | undefined;
+    useDynamicIterationCount?: boolean;
+    customChunkSize?: number;
     minimumChunkSize?: number;
-}
-
+};
 
 function base64encode(src: string) {
-    if (typeof (window) != "undefined" && window.btoa) return window.btoa(src);
+    if (typeof window != "undefined" && window.btoa) return window.btoa(src);
     return Buffer.from(src).toString("base64");
 }
 function unique<T>(obj: T[]): T[] {
-    return [...new Set([...obj])] as T[]
+    return [...new Set([...obj])] as T[];
 }
 export type ReadyEntry = (NewEntry | PlainEntry) & { data: string[] };
-export type MetaEntry = (NewEntry | PlainEntry) & { children: string[] }
+export type MetaEntry = (NewEntry | PlainEntry) & { children: string[] };
 
 let _xxhash64: (input: string) => bigint;
 
@@ -48,16 +55,18 @@ async function prepareHashFunctions() {
     if (_xxhash64 != null) return;
     const { h64 } = await (xxhash as unknown as () => Promise<XXHashAPI>)();
     _xxhash64 = h64;
-
 }
 export type FileInfo = {
-    ctime: number,
-    mtime: number,
-    size: number,
-}
+    ctime: number;
+    mtime: number;
+    size: number;
+};
 
 export type EnumerateConditions = {
-    startKey?: string, endKey?: string, ids?: string[], metaOnly: boolean
+    startKey?: string;
+    endKey?: string;
+    ids?: string[];
+    metaOnly: boolean;
 };
 
 /**
@@ -74,35 +83,42 @@ export class DirectFileManipulator {
 
     //#region internal methods
 
-    async _fetch(path: string[], querySrc: Record<string, any>, method: "get" | "post" | "put", body?: any, controller?: AbortController) {
+    async _fetch(
+        path: string[],
+        querySrc: Record<string, any>,
+        method: "get" | "post" | "put",
+        body?: any,
+        controller?: AbortController
+    ) {
         const headers = {
-            "authorization": 'Basic ' + base64encode(this.options.username + ":" + this.options.password),
-            "content-type": "application/json"
-        }
-        const query = Object.entries(querySrc).map(e => `${encodeURIComponent(e[0])}=${encodeURIComponent(e[1])}`).join("&");
-        const requestURI = `${this.options.url}/${this.options.database}/${path.map(e => encodeURIComponent(e)).join("/")}${query != "" ? `?${query}` : ""}`;
+            authorization: "Basic " + base64encode(this.options.username + ":" + this.options.password),
+            "content-type": "application/json",
+        };
+        const query = Object.entries(querySrc)
+            .map((e) => `${encodeURIComponent(e[0])}=${encodeURIComponent(e[1])}`)
+            .join("&");
+        const requestURI = `${this.options.url}/${this.options.database}/${path.map((e) => encodeURIComponent(e)).join("/")}${query != "" ? `?${query}` : ""}`;
         Logger(`Requesting ... ${method} ${requestURI}`, LEVEL_DEBUG);
         const opt = {
             headers,
             method,
-            body: (method == "get" || body == undefined) ? undefined : JSON.stringify(body),
-            signal: controller?.signal
+            body: method == "get" || body == undefined ? undefined : JSON.stringify(body),
+            signal: controller?.signal,
         };
         return await fetch(requestURI, opt);
-
     }
     async _fetchJson(path: string[], querySrc: Record<string, any>, method: "get" | "post" | "put", body?: any) {
         return await (await this._fetch(path, querySrc, method, body)).json();
     }
 
     async _collectChunks(ids: string[], onlyCheckExistence = false): Promise<Record<string, string | boolean>> {
-        const params = !onlyCheckExistence ? { include_docs: "true" } : {}
+        const params = !onlyCheckExistence ? { include_docs: "true" } : {};
         const ret = {} as Record<string, string | boolean>;
         const reqIds = [];
         Logger(`Collecting chunks: ${ids.length}`, LEVEL_DEBUG);
         for (const id of ids) {
             const cachedChunk = this.hashCaches.get(id as DocumentID);
-            if (typeof (cachedChunk) === "string") {
+            if (typeof cachedChunk === "string") {
                 ret[id] = cachedChunk;
             } else {
                 reqIds.push(id);
@@ -113,7 +129,7 @@ export class DirectFileManipulator {
             Logger(`All chunks has been found on cache.`, LEVEL_DEBUG);
             return ret;
         }
-        const apiRet = await this._fetchJson([`_all_docs`], params, "post", { keys: unique([...reqIds]) })
+        const apiRet = await this._fetchJson([`_all_docs`], params, "post", { keys: unique([...reqIds]) });
         if (!("rows" in apiRet)) throw new Error("API Error (_all_docs)");
         for (const v of apiRet.rows) {
             const k = v.key;
@@ -128,14 +144,16 @@ export class DirectFileManipulator {
                     throw new Error(`Corrupted chunk found (${k})`);
                 }
                 const doc = v.doc;
-                if ((!("type" in doc)) || doc.type != "leaf") {
+                if (!("type" in doc) || doc.type != "leaf") {
                     throw new Error(`Corrupted chunk found (Pointed non-chunk object) (${k})`);
                 }
                 if (!("data" in doc)) {
                     throw new Error(`Corrupted chunk found (No data contained) (${k})`);
                 }
                 const dataSrc = `${doc.data}`;
-                const data = this.options.passphrase ? await decrypt(dataSrc, this.options.passphrase, this.options.useDynamicIterationCount ?? false) : dataSrc;
+                const data = this.options.passphrase
+                    ? await decrypt(dataSrc, this.options.passphrase, this.options.useDynamicIterationCount ?? false)
+                    : dataSrc;
                 ret[k] = data;
                 this.hashCaches.set(v.key, data);
             }
@@ -152,19 +170,29 @@ export class DirectFileManipulator {
     async encryptDocumentPath<T extends ReadyEntry | MetaEntry>(entry: T): Promise<T> {
         return {
             ...entry,
-            path: this.options.obfuscatePassphrase ? await obfuscatePath(entry.path, this.options.obfuscatePassphrase, this.options.useDynamicIterationCount ?? false) : entry.path,
-        }
+            path: this.options.obfuscatePassphrase
+                ? await obfuscatePath(
+                      entry.path,
+                      this.options.obfuscatePassphrase,
+                      this.options.useDynamicIterationCount ?? false
+                  )
+                : entry.path,
+        };
     }
     /**
      * Decrypt path of the Entry
-     * @param entry 
-     * @returns 
+     * @param entry
+     * @returns
      */
     async decryptDocumentPath<T extends ReadyEntry | MetaEntry>(entry: T): Promise<T> {
         let path = "";
         if (this.options.obfuscatePassphrase) {
             if (entry.path.startsWith("%") || entry.path.startsWith("[")) {
-                path = await decrypt(entry.path, this.options.obfuscatePassphrase, this.options.useDynamicIterationCount ?? false);
+                path = await decrypt(
+                    entry.path,
+                    this.options.obfuscatePassphrase,
+                    this.options.useDynamicIterationCount ?? false
+                );
             }
         } else {
             path = entry.path ?? "";
@@ -187,12 +215,12 @@ export class DirectFileManipulator {
 
     /**
      * Get specific document from the Remote Database by path.
-     * @param path 
+     * @param path
      * @param metaOnly if it has been enabled, the note does not contains the content.
-     * @returns 
+     * @returns
      */
     async get(path: FilePathWithPrefix, metaOnly = false) {
-        Logger(`GET: START: ${path}`, LOG_LEVEL_VERBOSE)
+        Logger(`GET: START: ${path}`, LOG_LEVEL_VERBOSE);
         const id = await this.path2id(path);
         const ret = await this.getById(id, metaOnly);
         Logger(`GET: DONE: ${path}`, LEVEL_INFO);
@@ -201,9 +229,9 @@ export class DirectFileManipulator {
 
     /**
      * Get specific document from the Remote Database by ID.
-     * @param path 
+     * @param path
      * @param metaOnly if it has been enabled, the note does not contains the content.
-     * @returns 
+     * @returns
      */
     async getById(id: string, metaOnly = false): Promise<false | MetaEntry | ReadyEntry> {
         // TODO: TREAT FOR CONFLICTED FILES or OLD REVISIONS.
@@ -221,25 +249,25 @@ export class DirectFileManipulator {
     }
     async getByMeta(doc: MetaEntry): Promise<ReadyEntry> {
         const chunks = await this._collectChunks(doc.children);
-        const data = doc.children.map(e => e in chunks && chunks[e] !== false ? chunks[e] : false);
-        if (data.some(e => e === false)) {
+        const data = doc.children.map((e) => (e in chunks && chunks[e] !== false ? chunks[e] : false));
+        if (data.some((e) => e === false)) {
             throw new Error(`Missing chunks: ${doc.path}!`);
         }
-        Logger(`GET: DONE (META): ${doc.path}`, LOG_LEVEL_INFO)
-        return { ...doc, data: data as unknown as string[] }
+        Logger(`GET: DONE (META): ${doc.path}`, LOG_LEVEL_INFO);
+        return { ...doc, data: data as unknown as string[] };
     }
 
     /**
      * Put a note to the remote database
-     * @param path 
-     * @param data 
-     * @param info 
-     * @param type 
-     * @returns 
+     * @param path
+     * @param data
+     * @param info
+     * @param type
+     * @returns
      */
     async put(path: string, data: string[] | Blob, info: FileInfo, type: "newnote" | "plain" = "plain") {
         await prepareHashFunctions();
-        Logger(`PUT: START: ${path}`, LOG_LEVEL_VERBOSE)
+        Logger(`PUT: START: ${path}`, LOG_LEVEL_VERBOSE);
         const id = await this.path2id(path);
 
         const maxChunkSize = Math.floor(MAX_DOC_SIZE_BIN * ((this.options.customChunkSize || 0) * 1 + 1));
@@ -261,7 +289,7 @@ export class DirectFileManipulator {
                 }
                 break;
             case "plain":
-                xData = (data instanceof Blob) ? data : createTextBlob(data);
+                xData = data instanceof Blob ? data : createTextBlob(data);
                 break;
             default:
                 throw new Error("Could not prepare document data");
@@ -281,7 +309,7 @@ export class DirectFileManipulator {
                 continue;
             }
             if (this.options.passphrase) {
-                hashedPiece = "+" + ((_xxhash64(`${piece}-${userPassphrase}-${piece.length}`)).toString(36));
+                hashedPiece = "+" + _xxhash64(`${piece}-${userPassphrase}-${piece.length}`).toString(36);
             } else {
                 hashedPiece = _xxhash64(`${piece}-${piece.length}`).toString(36);
             }
@@ -292,16 +320,18 @@ export class DirectFileManipulator {
         }
         const existedIds = await this._collectChunks(Object.keys(chunks), true);
         const chunksToBeUploaded = [] as any[];
-        const entries = Object.entries(chunks).filter(e => !existedIds[e[0]]);
+        const entries = Object.entries(chunks).filter((e) => !existedIds[e[0]]);
         for (const e of entries) {
             chunksToBeUploaded.push({
                 _id: e[0],
-                data: this.options.passphrase ? await encrypt(e[1], this.options.passphrase, this.options.useDynamicIterationCount ?? false) : e[1],
+                data: this.options.passphrase
+                    ? await encrypt(e[1], this.options.passphrase, this.options.useDynamicIterationCount ?? false)
+                    : e[1],
                 type: "leaf",
             });
         }
         Logger(`PUT: All chunks:${Object.entries(chunks).length}, Upload chunk: ${chunksToBeUploaded.length}`);
-        const apiRet = await this._fetchJson([`_bulk_docs`], {}, "post", { docs: chunksToBeUploaded }) as any[];
+        const apiRet = (await this._fetchJson([`_bulk_docs`], {}, "post", { docs: chunksToBeUploaded })) as any[];
         for (const ret of apiRet) {
             if (ret?.ok) {
                 this.hashCaches.set(ret.key, chunks[ret.key]);
@@ -320,8 +350,8 @@ export class DirectFileManipulator {
             mtime: info.mtime,
             size: info.size,
             type: type,
-            eden: {}
-        })
+            eden: {},
+        });
         // to update, retrieve the latest revision
         const oldData = await this.getById(id, true);
         if (oldData) {
@@ -359,7 +389,7 @@ export class DirectFileManipulator {
             type: oldData.type,
             deleted: true,
             data: "data" in oldData ? oldData.data : [],
-            eden: {}
+            eden: {},
         });
         const ret = await this._fetchJson([id], {}, "put", newData);
         if (ret?.ok) {
@@ -379,7 +409,12 @@ export class DirectFileManipulator {
 
         let key = cond.startKey;
         do {
-            const result = await this._fetchJson(["_all_docs"], {}, "get", { ...param, include_docs: true, startkey: key, limit: 100 });
+            const result = await this._fetchJson(["_all_docs"], {}, "get", {
+                ...param,
+                include_docs: true,
+                startkey: key,
+                limit: 100,
+            });
             if (!result.rows || result.rows.length == 0) {
                 break;
             }
@@ -391,7 +426,7 @@ export class DirectFileManipulator {
                 } else {
                     yield await this.getByMeta(doc);
                 }
-                key = doc._id + "\u{10ffff}"
+                key = doc._id + "\u{10ffff}";
             }
         } while (true);
         return;
@@ -399,9 +434,14 @@ export class DirectFileManipulator {
     async *_enumerate(startKey: string, endKey: string, opt: { metaOnly: boolean }) {
         let key = startKey;
         const req = (key: string) => {
-            const param = { include_docs: true, startkey: JSON.stringify(key), limit: 100, endkey: JSON.stringify(endKey) };
+            const param = {
+                include_docs: true,
+                startkey: JSON.stringify(key),
+                limit: 100,
+                endkey: JSON.stringify(endKey),
+            };
             return this._fetchJson(["_all_docs"], param, "get");
-        }
+        };
         let request = req(key);
         do {
             // Awaiting pre-started request.
@@ -414,24 +454,24 @@ export class DirectFileManipulator {
             // Perform next request while processing results;
             request = req(key);
 
-            const entries = result.rows.
-                filter((e: any) => "doc" in e).map((e: any) => e.doc as MetaEntry) as MetaEntry[];
-            const rowsForProc =
-                entries.filter((docEntry) => ("type" in docEntry && (docEntry.type == "plain" || docEntry.type == "newnote")))
-                    .map((e: MetaEntry) => (async () => {
-                        try {
-                            const w = await this.decryptDocumentPath<MetaEntry>(e)
-                            if (opt.metaOnly) {
-                                return w;
-                            }
-                            return await this.getByMeta(w);
-                        } catch (ex) {
-                            Logger(ex, LOG_LEVEL_VERBOSE);
-                            throw new Error(`Something happened at ${e.path}`);
+            const entries = result.rows
+                .filter((e: any) => "doc" in e)
+                .map((e: any) => e.doc as MetaEntry) as MetaEntry[];
+            const rowsForProc = entries
+                .filter((docEntry) => "type" in docEntry && (docEntry.type == "plain" || docEntry.type == "newnote"))
+                .map((e: MetaEntry) => async () => {
+                    try {
+                        const w = await this.decryptDocumentPath<MetaEntry>(e);
+                        if (opt.metaOnly) {
+                            return w;
                         }
-                    })) as Task<MetaEntry>[];
+                        return await this.getByMeta(w);
+                    } catch (ex) {
+                        Logger(ex, LOG_LEVEL_VERBOSE);
+                        throw new Error(`Something happened at ${e.path}`);
+                    }
+                }) as Task<MetaEntry>[];
             const newDocs = processAllTasksWithConcurrencyLimit(5, rowsForProc);
-
 
             for await (const v of newDocs) {
                 if ("err" in v) {
@@ -451,7 +491,7 @@ export class DirectFileManipulator {
             this._enumerate(`i:\u{10ffff}`, "ix:", opt),
             this._enumerate(`ix:\u{10ffff}`, "ps:", opt),
             this._enumerate(`ps:\u{10ffff}`, "\u{10ffff}", opt),
-        ]
+        ];
         for (const target of targets) {
             for await (const f of target) {
                 yield f;
@@ -459,13 +499,16 @@ export class DirectFileManipulator {
         }
     }
 
-
     watching = false;
     _abortController?: AbortController;
     since = "";
 
-    async processJSONL(mode: string, lineData: any, callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void, checkIsInterested?: (doc: MetaEntry) => boolean) {
-
+    async processJSONL(
+        mode: string,
+        lineData: any,
+        callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void,
+        checkIsInterested?: (doc: MetaEntry) => boolean
+    ) {
         if ("seq" in lineData) {
             this.since = lineData.seq; // update seq to prevent infinite loop.
         }
@@ -478,7 +521,10 @@ export class DirectFileManipulator {
             const docDecrypted = await this.decryptDocumentPath(docEntry);
             if (checkIsInterested) {
                 if (!checkIsInterested(docDecrypted)) {
-                    Logger(`${mode}: SKIP ${(docDecrypted as any)?.path ?? docEntry._id}: OUT OF TARGET FOLDER`, LOG_LEVEL_VERBOSE);
+                    Logger(
+                        `${mode}: SKIP ${(docDecrypted as any)?.path ?? docEntry._id}: OUT OF TARGET FOLDER`,
+                        LOG_LEVEL_VERBOSE
+                    );
                     return;
                 }
             }
@@ -494,7 +540,10 @@ export class DirectFileManipulator {
         }
     }
 
-    async beginWatch(callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void, checkIsInterested?: (doc: MetaEntry) => boolean) {
+    async beginWatch(
+        callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void,
+        checkIsInterested?: (doc: MetaEntry) => boolean
+    ) {
         if (this.watching) return false;
         this.watching = true;
         try {
@@ -507,15 +556,21 @@ export class DirectFileManipulator {
             }
             Logger(`WATCH: START: (since:${this.since})`, LEVEL_INFO, "watch");
             this._abortController = new AbortController();
-            const response = await this._fetch(["_changes"], {
-                style: "all_docs",
-                filter: "replicate/pull",
-                include_docs: true,
-                since: this.since,
-                feed: "continuous",
-                timeout: 100000,
-                heartbeat: 5000
-            }, "get", {}, this._abortController);
+            const response = await this._fetch(
+                ["_changes"],
+                {
+                    style: "all_docs",
+                    filter: "replicate/pull",
+                    include_docs: true,
+                    since: this.since,
+                    feed: "continuous",
+                    timeout: 100000,
+                    heartbeat: 5000,
+                },
+                "get",
+                {},
+                this._abortController
+            );
             const reader = response.body?.getReader();
             if (!reader) throw new Error("Could not get reader from response body");
             for await (const chunk of readLines(reader)) {
@@ -545,7 +600,7 @@ export class DirectFileManipulator {
                 this.watching = false;
                 setTimeout(() => {
                     void this.beginWatch(callback, checkIsInterested);
-                }, 10000)
+                }, 10000);
             } else {
                 Logger(`WATCH: CONNECTION HAS BEEN CLOSED.`, LEVEL_INFO, "watch");
             }
@@ -559,9 +614,11 @@ export class DirectFileManipulator {
             Logger(`WATCH: ABORT SIGNAL HAS BEEN SENT.`, LEVEL_INFO, "watch");
         }
         this._abortController = undefined;
-
     }
-    async followUpdates(callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void, checkIsInterested?: (doc: MetaEntry) => boolean) {
+    async followUpdates(
+        callback: (doc: ReadyEntry, seq?: string | number) => Promise<any> | void,
+        checkIsInterested?: (doc: MetaEntry) => boolean
+    ) {
         try {
             if (this.since == "") {
                 this.since = "0";
@@ -569,15 +626,19 @@ export class DirectFileManipulator {
             let pending = 0;
             Logger(`FOLLOW: START: (since:${this.since})`, LEVEL_INFO, "followUpdates");
             do {
-                const response = await this._fetch(["_changes"], {
-                    style: "all_docs",
-                    filter: "replicate/pull",
-                    include_docs: true,
-                    since: this.since,
-                    feed: "normal",
-                    limit: 25,
-                }, "get");
-                const ret = (await response.json());
+                const response = await this._fetch(
+                    ["_changes"],
+                    {
+                        style: "all_docs",
+                        filter: "replicate/pull",
+                        include_docs: true,
+                        since: this.since,
+                        feed: "normal",
+                        limit: 25,
+                    },
+                    "get"
+                );
+                const ret = await response.json();
                 pending = ret?.pending ?? 0;
                 const results = ret.results;
                 Logger(`FOLLOW: incoming ${results?.length ?? 0} entries, ${pending} pending.`);
@@ -600,14 +661,12 @@ export class DirectFileManipulator {
     }
 }
 
-
-
 async function* readLines(reader: ReadableStreamDefaultReader<Uint8Array>) {
     const textDecoder = new TextDecoder();
-    let partOfLine = '';
+    let partOfLine = "";
     for await (const chunk of readChunks(reader)) {
         const chunkText = textDecoder.decode(chunk);
-        const chunkLines = chunkText.split('\n');
+        const chunkLines = chunkText.split("\n");
         if (chunkLines.length === 1) {
             partOfLine += chunkLines[0];
         } else if (chunkLines.length > 1) {
@@ -622,7 +681,7 @@ async function* readLines(reader: ReadableStreamDefaultReader<Uint8Array>) {
 
 function readChunks(reader: ReadableStreamDefaultReader<Uint8Array>) {
     return {
-        async*[Symbol.asyncIterator]() {
+        async *[Symbol.asyncIterator]() {
             let readResult = await reader.read();
             while (!readResult.done) {
                 yield readResult.value;

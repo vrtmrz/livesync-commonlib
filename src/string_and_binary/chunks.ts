@@ -6,37 +6,48 @@ import { arrayBufferToBase64Single } from "./convert.ts";
 /// Chunk utilities
 function* pickPiece(leftData: string[], minimumChunkSize: number): Generator<string> {
     let buffer = "";
-    L1:
-    do {
+    L1: do {
         const curLine = leftData.shift();
-        if (typeof (curLine) === "undefined") {
+        if (typeof curLine === "undefined") {
             yield buffer;
             break L1;
         }
 
         // Do not use regexp for performance.
-        if (curLine.startsWith("```") || curLine.startsWith(" ```") || curLine.startsWith("  ```") || curLine.startsWith("   ```")) {
+        if (
+            curLine.startsWith("```") ||
+            curLine.startsWith(" ```") ||
+            curLine.startsWith("  ```") ||
+            curLine.startsWith("   ```")
+        ) {
             yield buffer;
             buffer = curLine + (leftData.length != 0 ? "\n" : "");
-            L2:
-            do {
+            L2: do {
                 const curPx = leftData.shift();
-                if (typeof (curPx) === "undefined") {
+                if (typeof curPx === "undefined") {
                     break L2;
                 }
                 buffer += curPx + (leftData.length != 0 ? "\n" : "");
-            } while (leftData.length > 0 && !(leftData[0].startsWith("```") || leftData[0].startsWith(" ```") || leftData[0].startsWith("  ```") || leftData[0].startsWith("   ```")));
+            } while (
+                leftData.length > 0 &&
+                !(
+                    leftData[0].startsWith("```") ||
+                    leftData[0].startsWith(" ```") ||
+                    leftData[0].startsWith("  ```") ||
+                    leftData[0].startsWith("   ```")
+                )
+            );
             const isLooksLikeBASE64 = buffer.endsWith("=");
             const maybeUneditable = buffer.length > 2048;
             // concat code block end mark
             const endOfCodeBlock = leftData.shift();
-            if (typeof (endOfCodeBlock) !== "undefined") {
+            if (typeof endOfCodeBlock !== "undefined") {
                 buffer += endOfCodeBlock;
-                buffer += (leftData.length != 0 ? "\n" : "");
+                buffer += leftData.length != 0 ? "\n" : "";
             }
             if (!isLooksLikeBASE64 && !maybeUneditable) {
                 const splitExpr = /(.*?[;,:<])/g;
-                const sx = buffer.split(splitExpr).filter(e => e != '');
+                const sx = buffer.split(splitExpr).filter((e) => e != "");
                 for (const v of sx) {
                     yield v;
                 }
@@ -56,10 +67,8 @@ function* pickPiece(leftData: string[], minimumChunkSize: number): Generator<str
 
 const charNewLine = "\n".charCodeAt(0);
 
-
 //@ts-ignore Segmenter is not available in all browsers yet.
 const segmenter = "Segmenter" in Intl ? new Intl.Segmenter(navigator.language, { granularity: "sentence" }) : undefined;
-
 
 function* splitStringWithinLength(text: string, pieceSize: number) {
     let leftData = text;
@@ -72,7 +81,6 @@ function* splitStringWithinLength(text: string, pieceSize: number) {
 }
 
 function* splitTextInSegment(text: string, pieceSize: number, minimumChunkSize: number) {
-
     const segments = segmenter!.segment(text) as [{ segment: string }];
 
     let prev = "";
@@ -118,13 +126,12 @@ function* splitInNewLine(texts: string[]) {
     return;
 }
 export function splitPiecesTextV2(dataSrc: string | string[], pieceSize: number, minimumChunkSize: number) {
-    const dataListAllArray = typeof (dataSrc) == "string" ? [dataSrc] : dataSrc;
+    const dataListAllArray = typeof dataSrc == "string" ? [dataSrc] : dataSrc;
     const dataListAll = splitInNewLine(dataListAllArray);
     let inCodeBlock = 0;
     let flush = false;
     let flushBefore = false;
     return function* (): Generator<string> {
-
         const buf = [] as string[];
         for (const line of dataListAll) {
             if (line.startsWith("````")) {
@@ -167,15 +174,21 @@ export function splitPiecesTextV2(dataSrc: string | string[], pieceSize: number,
                 yield* splitStringWithinLength(buf.join(""), pieceSize);
             }
         }
-    }
+    };
 }
 export function binaryTextSplit(data: string, pieceSize: number, minimumChunkSize: number) {
     return function* pieces(): Generator<string> {
         yield* splitStringWithinLength(data, pieceSize);
-    }
+    };
 }
 // Split string into pieces within specific lengths (characters).
-export function splitPiecesText(dataSrc: string | string[], pieceSize: number, plainSplit: boolean, minimumChunkSize: number, useSegmenter: boolean) {
+export function splitPiecesText(
+    dataSrc: string | string[],
+    pieceSize: number,
+    plainSplit: boolean,
+    minimumChunkSize: number,
+    useSegmenter: boolean
+) {
     if (!useSegmenter || !segmenter) {
         return splitPiecesTextV1(dataSrc, pieceSize, plainSplit, minimumChunkSize);
     }
@@ -185,11 +198,14 @@ export function splitPiecesText(dataSrc: string | string[], pieceSize: number, p
     return splitPiecesTextV2(dataSrc, pieceSize, minimumChunkSize);
 }
 
-export function splitPiecesTextV1(dataSrc: string | string[], pieceSize: number, plainSplit: boolean, minimumChunkSize: number) {
-
-    const dataList = typeof (dataSrc) == "string" ? [dataSrc] : dataSrc;
+export function splitPiecesTextV1(
+    dataSrc: string | string[],
+    pieceSize: number,
+    plainSplit: boolean,
+    minimumChunkSize: number
+) {
+    const dataList = typeof dataSrc == "string" ? [dataSrc] : dataSrc;
     return function* pieces(): Generator<string> {
-
         for (const data of dataList) {
             if (plainSplit) {
                 const leftData = data.split("\n"); //use memory
@@ -220,8 +236,12 @@ export function splitPiecesTextV1(dataSrc: string | string[], pieceSize: number,
     };
 }
 
-
-function* splitByDelimiterWithMinLength(sources: Generator<string, void, unknown>, delimiter: string, minimumChunkLength = 25, splitThreshold?: number) {
+function* splitByDelimiterWithMinLength(
+    sources: Generator<string, void, unknown>,
+    delimiter: string,
+    minimumChunkLength = 25,
+    splitThreshold?: number
+) {
     let buf = "";
     let last = false;
     const dl = delimiter.length;
@@ -302,12 +322,19 @@ export async function concatGeneratedAll(strGen: AsyncGenerator<string, any, unk
 }
 
 const MAX_ITEMS = 100;
-export async function splitPieces2V2(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string, useSegmenter?: boolean) {
+export async function splitPieces2V2(
+    dataSrc: Blob,
+    pieceSize: number,
+    plainSplit: boolean,
+    minimumChunkSize: number,
+    filename?: string,
+    useSegmenter?: boolean
+) {
     if (dataSrc.size == 0) {
         // eslint-disable-next-line require-yield
         return function* noItems(): Generator<string> {
             return;
-        }
+        };
     }
     if (isTextBlob(dataSrc)) {
         const text = await dataSrc.text();
@@ -318,11 +345,11 @@ export async function splitPieces2V2(dataSrc: Blob, pieceSize: number, plainSpli
             const gen = chunkStringGenerator(text, pieceSize);
             return function* pieces(): Generator<string> {
                 yield* gen;
-            }
+            };
         }
         const textLen = text.length;
         let xMinimumChunkSize = minimumChunkSize;
-        while ((textLen / xMinimumChunkSize) > MAX_ITEMS) {
+        while (textLen / xMinimumChunkSize > MAX_ITEMS) {
             xMinimumChunkSize += minimumChunkSize;
         }
         const org = stringGenerator([text]);
@@ -334,7 +361,7 @@ export async function splitPieces2V2(dataSrc: Blob, pieceSize: number, plainSpli
         const gen = chunkStringGeneratorFromGenerator(gen1, pieceSize);
         return function* pieces(): Generator<string> {
             yield* gen;
-        }
+        };
     }
     let delimiter = 0; // Split null by default.
     if (filename && filename.endsWith(".pdf")) {
@@ -377,16 +404,22 @@ export async function splitPieces2V2(dataSrc: Blob, pieceSize: number, plainSpli
             if (i1 == -1) {
                 splitEnd = defaultSplitEnd;
             } else {
-                splitEnd = i1 < defaultSplitEnd ? i1 : defaultSplitEnd
+                splitEnd = i1 < defaultSplitEnd ? i1 : defaultSplitEnd;
             }
             yield await arrayBufferToBase64Single(buf.slice(i, splitEnd));
             i = splitEnd;
         } while (i < size);
-
-    }
+    };
 }
 
-export async function splitPieces2(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string, useSegmenter?: boolean) {
+export async function splitPieces2(
+    dataSrc: Blob,
+    pieceSize: number,
+    plainSplit: boolean,
+    minimumChunkSize: number,
+    filename?: string,
+    useSegmenter?: boolean
+) {
     if (isTextBlob(dataSrc)) {
         return splitPiecesText(await dataSrc.text(), pieceSize, plainSplit, minimumChunkSize, useSegmenter ?? false);
     }
@@ -424,13 +457,12 @@ export async function splitPieces2(dataSrc: Blob, pieceSize: number, plainSplit:
             // minimum   -- |                  |{--------------}   |
             // pieceSize == |                  |[============][...]|
             let nextIdx = currentData.indexOf(delimiter, minimumChunkSize);
-            splitSize = nextIdx == -1 ? pieceSize : (Math.min(pieceSize, nextIdx));
+            splitSize = nextIdx == -1 ? pieceSize : Math.min(pieceSize, nextIdx);
             if (nextIdx == -1) nextIdx = currentData.indexOf(charNewLine, minimumChunkSize);
             const piece = currentData.slice(0, splitSize);
             i += piece.length;
             const b64 = await arrayBufferToBase64Single(piece);
             yield b64;
-
         } while (i < size);
     };
 }

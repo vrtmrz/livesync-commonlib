@@ -1,11 +1,13 @@
-// 
+//
 
 import { xxhashOld, xxhashNew, sha1 } from "octagonal-wheels/hash/xxhash";
 import {
     type EntryDoc,
-    type EntryLeaf, type LoadedEntry,
+    type EntryLeaf,
+    type LoadedEntry,
     type Credential,
-    LEAF_WAIT_TIMEOUT, VERSIONING_DOCID,
+    LEAF_WAIT_TIMEOUT,
+    VERSIONING_DOCID,
     type RemoteDBSettings,
     type EntryHasPath,
     type DocumentID,
@@ -33,7 +35,22 @@ import {
     LOG_LEVEL_INFO,
     type DIFF_CHECK_RESULT_AUTO,
 } from "../common/types.ts";
-import { applyPatch, createTextBlob, determineTypeFromBlob, flattenObject, generatePatchObj, getDocData, isObjectMargeApplicable, isSensibleMargeApplicable, isTextBlob, onlyNot, sendValue, tryParseJSON, unique, waitForValue } from "../common/utils.ts";
+import {
+    applyPatch,
+    createTextBlob,
+    determineTypeFromBlob,
+    flattenObject,
+    generatePatchObj,
+    getDocData,
+    isObjectMargeApplicable,
+    isSensibleMargeApplicable,
+    isTextBlob,
+    onlyNot,
+    sendValue,
+    tryParseJSON,
+    unique,
+    waitForValue,
+} from "../common/utils.ts";
 import { Logger } from "../common/logger.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 import { LRUCache } from "../memory/LRUCache.ts";
@@ -48,11 +65,13 @@ import { splitPieces2, splitPieces2V2 } from "../string_and_binary/chunks.ts";
 import { splitPieces2Worker, splitPieces2WorkerV2 } from "../worker/bgWorker.ts";
 import { DIFF_DELETE, DIFF_EQUAL, DIFF_INSERT, diff_match_patch, type Diff } from "diff-match-patch";
 
-
 export interface LiveSyncLocalDBEnv {
     $$id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
     $$path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID>;
-    $$createPouchDBInstance<T extends object>(name?: string, options?: PouchDB.Configuration.DatabaseConfiguration): PouchDB.Database<T>
+    $$createPouchDBInstance<T extends object>(
+        name?: string,
+        options?: PouchDB.Configuration.DatabaseConfiguration
+    ): PouchDB.Database<T>;
 
     $allOnDBUnload(db: LiveSyncLocalDB): void;
     $allOnDBClose(db: LiveSyncLocalDB): void;
@@ -60,9 +79,7 @@ export interface LiveSyncLocalDBEnv {
     $everyOnResetDatabase(db: LiveSyncLocalDB): Promise<boolean>;
     $$getReplicator: () => LiveSyncAbstractReplicator;
     getSettings(): RemoteDBSettings;
-
 }
-
 
 function getNoFromRev(rev: string) {
     if (!rev) return 0;
@@ -70,18 +87,16 @@ function getNoFromRev(rev: string) {
 }
 
 function createChunkRev(chunk: EntryLeaf) {
+    const lenC = Math.imul(chunk.data.length, 21 + chunk._id.charCodeAt(5));
 
-    const lenC = Math.imul(chunk.data.length, 21 + (chunk._id.charCodeAt(5)));
-
-    return `1-${(lenC.toString(16) + ("0".repeat(32))).slice(0, 32)}`;
+    return `1-${(lenC.toString(16) + "0".repeat(32)).slice(0, 32)}`;
 }
 
 type GeneratedChunk = {
-    isNew: boolean,
-    id: DocumentID,
-    piece: string
-}
-
+    isNew: boolean;
+    id: DocumentID;
+    piece: string;
+};
 
 export class LiveSyncLocalDB {
     auth: Credential;
@@ -98,7 +113,6 @@ export class LiveSyncLocalDB {
     hashCaches = new LRUCache<DocumentID, string>(10, 1000);
 
     changeHandler: PouchDB.Core.Changes<EntryDoc> | null = null;
-
 
     chunkVersion = -1;
     maxChunkVersion = -1;
@@ -125,7 +139,7 @@ export class LiveSyncLocalDB {
             Logger(ex);
             try {
                 this.xxhash64 = false;
-                const { h32, h32Raw } = (await xxhashOld());
+                const { h32, h32Raw } = await xxhashOld();
                 this.h32 = h32 as typeof xxhashNew.prototype.h32ToString;
                 this.h32Raw = h32Raw;
                 this.xxhash32 = (str) => h32Raw(writeString(str));
@@ -134,13 +148,12 @@ export class LiveSyncLocalDB {
                 Logger(ex);
                 this.settings.hashAlg = "sha1";
             }
-
         }
     }
 
     get isOnDemandChunkEnabled() {
         if (this.settings.remoteType !== REMOTE_COUCHDB) {
-            return false
+            return false;
         }
         return this.settings.readChunksOnline;
     }
@@ -167,7 +180,6 @@ export class LiveSyncLocalDB {
         this.dbname = dbname;
         this.env = env;
         this.refreshSettings();
-
     }
     id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix {
         return this.env.$$id2path(id, entry, stripPrefix);
@@ -187,7 +199,6 @@ export class LiveSyncLocalDB {
         this.env.$allOnDBClose(this);
     }
 
-
     async initializeDatabase(): Promise<boolean> {
         await this._prepareHashFunctions();
         if (this.localDatabase != null) await this.localDatabase.close();
@@ -201,7 +212,7 @@ export class LiveSyncLocalDB {
             revs_limit: 100,
             deterministic_revs: true,
         });
-        if (!await this.env.$everyOnInitializeDatabase(this)) {
+        if (!(await this.env.$everyOnInitializeDatabase(this))) {
             Logger("Initializing Database has been failed on some module", LOG_LEVEL_NOTICE);
             // TODO ask for continue or disable all.
             // return false;
@@ -215,7 +226,6 @@ export class LiveSyncLocalDB {
             this.localDatabase.removeAllListeners();
             this.env.$$getReplicator()?.closeReplication();
         });
-
 
         // Tracings the leaf id
         const changes = this.localDatabase
@@ -232,9 +242,7 @@ export class LiveSyncLocalDB {
         this.isReady = true;
         Logger("Database is now ready.");
         return true;
-
     }
-
 
     async readChunk(id: DocumentID, timeout: number): Promise<string> {
         const leaf = this.hashCaches.get(id);
@@ -266,19 +274,21 @@ export class LiveSyncLocalDB {
         return w.data;
     }
 
-
     async getChunk(piece: string, doc: SavingEntry): Promise<GeneratedChunk | false> {
         const cachedChunkId = this.hashCaches.revGet(piece);
         if (cachedChunkId !== undefined) {
             return { isNew: false, id: cachedChunkId, piece: piece };
         }
-        const chunkId = PREFIX_CHUNK + await this.generateHashedChunk(piece) as DocumentID;
+        const chunkId = (PREFIX_CHUNK + (await this.generateHashedChunk(piece))) as DocumentID;
         if (chunkId in doc.eden) {
             return { isNew: false, id: chunkId, piece: piece };
         }
         const cachedPiece = this.hashCaches.get(chunkId);
         if (cachedPiece && cachedPiece != piece) {
-            Logger(`Hash collided! If possible, please report the following string:${chunkId}=>\nA:--${cachedPiece}--\nB:--${piece}--`, LOG_LEVEL_NOTICE);
+            Logger(
+                `Hash collided! If possible, please report the following string:${chunkId}=>\nA:--${cachedPiece}--\nB:--${piece}--`,
+                LOG_LEVEL_NOTICE
+            );
             return false;
         }
         this.hashCaches.set(chunkId, piece);
@@ -289,20 +299,22 @@ export class LiveSyncLocalDB {
         const userPassphrase = this.settings.passphrase;
         if (this.settings.hashAlg == "sha1") {
             if (this.settings.encrypt) {
-                return "+" + await sha1(`${piece}-${userPassphrase}-${piece.length}`);
+                return "+" + (await sha1(`${piece}-${userPassphrase}-${piece.length}`));
             } else {
                 return await sha1(`${piece}-${piece.length}`);
             }
         } else if (this.settings.hashAlg === "") {
             if (this.settings.encrypt) {
                 const userPasswordHash = this.h32Raw(new TextEncoder().encode(userPassphrase));
-                return "+" + (this.h32Raw(new TextEncoder().encode(piece)) ^ userPasswordHash ^ piece.length).toString(36);
+                return (
+                    "+" + (this.h32Raw(new TextEncoder().encode(piece)) ^ userPasswordHash ^ piece.length).toString(36)
+                );
             } else {
                 return (this.h32Raw(new TextEncoder().encode(piece)) ^ piece.length).toString(36);
             }
         } else if (this.settings.hashAlg == "xxhash64" && this.xxhash64) {
             if (this.settings.encrypt) {
-                return "+" + ((this.xxhash64(`${piece}-${userPassphrase}-${piece.length}`)).toString(36));
+                return "+" + this.xxhash64(`${piece}-${userPassphrase}-${piece.length}`).toString(36);
             } else {
                 return this.xxhash64(`${piece}-${piece.length}`).toString(36);
             }
@@ -315,7 +327,6 @@ export class LiveSyncLocalDB {
                 return this.xxhash32(`${piece}-${piece.length}`).toString(36);
             }
         }
-
     }
 
     async getDBLeafWithTimeout(id: DocumentID, timeout: number): Promise<string> {
@@ -328,10 +339,14 @@ export class LiveSyncLocalDB {
         }
     }
     getDBLeaf(id: DocumentID, waitForReady: boolean): Promise<string> {
-        return this.getDBLeafWithTimeout(id, waitForReady ? LEAF_WAIT_TIMEOUT : 0)
+        return this.getDBLeafWithTimeout(id, waitForReady ? LEAF_WAIT_TIMEOUT : 0);
     }
 
-    async getDBEntryMeta(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions, includeDeleted = false): Promise<false | LoadedEntry> {
+    async getDBEntryMeta(
+        path: FilePathWithPrefix | FilePath,
+        opt?: PouchDB.Core.GetOptions,
+        includeDeleted = false
+    ): Promise<false | LoadedEntry> {
         // safety valve
         if (!this.isTargetFile(path)) {
             return false;
@@ -387,7 +402,13 @@ export class LiveSyncLocalDB {
         return false;
     }
 
-    async getDBEntry(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions, dump = false, waitForReady = true, includeDeleted = false): Promise<false | LoadedEntry> {
+    async getDBEntry(
+        path: FilePathWithPrefix | FilePath,
+        opt?: PouchDB.Core.GetOptions,
+        dump = false,
+        waitForReady = true,
+        includeDeleted = false
+    ): Promise<false | LoadedEntry> {
         const meta = await this.getDBEntryMeta(path, opt, includeDeleted);
         if (meta) {
             return await this.getDBEntryFromMeta(meta, opt, dump, waitForReady, includeDeleted);
@@ -395,12 +416,18 @@ export class LiveSyncLocalDB {
             return false;
         }
     }
-    async getDBEntryFromMeta(meta: LoadedEntry, opt?: PouchDB.Core.GetOptions, dump = false, waitForReady = true, includeDeleted = false): Promise<false | LoadedEntry> {
+    async getDBEntryFromMeta(
+        meta: LoadedEntry,
+        opt?: PouchDB.Core.GetOptions,
+        dump = false,
+        waitForReady = true,
+        includeDeleted = false
+    ): Promise<false | LoadedEntry> {
         const filename = this.id2path(meta._id, meta);
         if (!this.isTargetFile(filename)) {
             return false;
         }
-        const dispFilename = stripAllPrefixes(filename)
+        const dispFilename = stripAllPrefixes(filename);
         const deleted = meta.deleted ?? meta._deleted ?? undefined;
         if (!meta.type || (meta.type && meta.type == "notes")) {
             const note = meta as NoteEntry;
@@ -418,7 +445,7 @@ export class LiveSyncLocalDB {
                 datatype: "newnote",
                 deleted: deleted,
                 type: "newnote",
-                eden: "eden" in meta ? meta.eden : {}
+                eden: "eden" in meta ? meta.eden : {},
             };
             if (dump) {
                 Logger(`--Old fashioned document--`);
@@ -450,51 +477,81 @@ export class LiveSyncLocalDB {
                 const childrenKeys = [...meta.children] as DocumentID[];
                 const loadedChildrenMap = new Map<DocumentID, string>();
                 if (meta.eden) {
-                    const all = Object.entries((meta.eden));
+                    const all = Object.entries(meta.eden);
                     all.forEach(([key, chunk]) => loadedChildrenMap.set(key as DocumentID, chunk.data));
                 }
-                const missingChunks = unique(childrenKeys).filter(e => !loadedChildrenMap.has(e));
+                const missingChunks = unique(childrenKeys).filter((e) => !loadedChildrenMap.has(e));
                 if (missingChunks.length != 0) {
                     if (this.isOnDemandChunkEnabled) {
                         const items = await this.collectChunks(missingChunks, false, waitForReady);
-                        if (!items || items.some(leaf => leaf.type != "leaf")) {
-                            Logger(`Chunks of ${dispFilename} (${meta._id.substring(0, 8)}) are not valid. (p1)`, LOG_LEVEL_NOTICE);
+                        if (!items || items.some((leaf) => leaf.type != "leaf")) {
+                            Logger(
+                                `Chunks of ${dispFilename} (${meta._id.substring(0, 8)}) are not valid. (p1)`,
+                                LOG_LEVEL_NOTICE
+                            );
                             if (items) {
-                                Logger(`Missing chunks: ${items.map(e => e._id).join(",")}`, LOG_LEVEL_VERBOSE);
+                                Logger(`Missing chunks: ${items.map((e) => e._id).join(",")}`, LOG_LEVEL_VERBOSE);
                             }
                             return false;
                         }
-                        items.forEach(chunk => loadedChildrenMap.set(chunk._id, chunk.data));
+                        items.forEach((chunk) => loadedChildrenMap.set(chunk._id, chunk.data));
                     } else {
                         try {
                             if (waitForReady) {
-                                const loadedItems = await Promise.all(missingChunks.map((e) => this.getDBLeaf(e, waitForReady)));
+                                const loadedItems = await Promise.all(
+                                    missingChunks.map((e) => this.getDBLeaf(e, waitForReady))
+                                );
                                 loadedItems.forEach((value, idx) => loadedChildrenMap.set(missingChunks[idx], value));
                             } else {
-                                const chunkDocs = await this.localDatabase.allDocs({ keys: missingChunks, include_docs: true });
-                                if (chunkDocs.rows.some(e => "error" in e)) {
-                                    const missingChunks = chunkDocs.rows.filter(e => "error" in e).map(e => e.key).join(", ");
-                                    Logger(`Chunks of ${dispFilename} (${meta._id.substring(0, 8)}) are not valid. (p2)`, LOG_LEVEL_NOTICE);
+                                const chunkDocs = await this.localDatabase.allDocs({
+                                    keys: missingChunks,
+                                    include_docs: true,
+                                });
+                                if (chunkDocs.rows.some((e) => "error" in e)) {
+                                    const missingChunks = chunkDocs.rows
+                                        .filter((e) => "error" in e)
+                                        .map((e) => e.key)
+                                        .join(", ");
+                                    Logger(
+                                        `Chunks of ${dispFilename} (${meta._id.substring(0, 8)}) are not valid. (p2)`,
+                                        LOG_LEVEL_NOTICE
+                                    );
                                     Logger(`Missing chunks: ${missingChunks}`, LOG_LEVEL_VERBOSE);
                                     return false;
                                 }
                                 if (chunkDocs.rows.some((e: any) => e.doc && e.doc.type != "leaf")) {
-                                    const missingChunks = chunkDocs.rows.filter((e: any) => e.doc && e.doc.type != "leaf").map((e: any) => e.id).join(", ");
-                                    Logger(`Chunks of ${dispFilename} (${meta._id.substring(0, 8)}) are not valid. (p3)`, LOG_LEVEL_NOTICE);
+                                    const missingChunks = chunkDocs.rows
+                                        .filter((e: any) => e.doc && e.doc.type != "leaf")
+                                        .map((e: any) => e.id)
+                                        .join(", ");
+                                    Logger(
+                                        `Chunks of ${dispFilename} (${meta._id.substring(0, 8)}) are not valid. (p3)`,
+                                        LOG_LEVEL_NOTICE
+                                    );
                                     Logger(`Corrupted chunks: ${missingChunks}`, LOG_LEVEL_VERBOSE);
                                     return false;
                                 }
-                                chunkDocs.rows.forEach((value, idx) => "doc" in value && loadedChildrenMap.set((value.doc as EntryLeaf)._id, (value.doc as EntryLeaf).data));
+                                chunkDocs.rows.forEach(
+                                    (value, idx) =>
+                                        "doc" in value &&
+                                        loadedChildrenMap.set(
+                                            (value.doc as EntryLeaf)._id,
+                                            (value.doc as EntryLeaf).data
+                                        )
+                                );
                             }
                         } catch (ex) {
-                            Logger(`Something went wrong on reading chunks of ${dispFilename}(${meta._id.substring(0, 8)}) from database, see verbose info for detail.`, LOG_LEVEL_NOTICE);
+                            Logger(
+                                `Something went wrong on reading chunks of ${dispFilename}(${meta._id.substring(0, 8)}) from database, see verbose info for detail.`,
+                                LOG_LEVEL_NOTICE
+                            );
                             Logger(ex, LOG_LEVEL_VERBOSE);
                             return false;
                         }
                     }
                 }
-                const l = childrenKeys.map(e => loadedChildrenMap.get(e));
-                if (l.some(e => e === undefined)) {
+                const l = childrenKeys.map((e) => loadedChildrenMap.get(e));
+                if (l.some((e) => e === undefined)) {
                     // TODO EXACT MESSAGE
                     throw new Error("Load failed");
                 }
@@ -512,7 +569,7 @@ export class LiveSyncLocalDB {
                     _conflicts: meta._conflicts,
                     eden: meta.eden,
                     deleted: deleted,
-                    type: meta.type
+                    type: meta.type,
                 };
                 if (dump) {
                     Logger(`--Loaded Document--`);
@@ -521,10 +578,16 @@ export class LiveSyncLocalDB {
                 return doc;
             } catch (ex: any) {
                 if (isErrorOfMissingDoc(ex)) {
-                    Logger(`Missing document content!, could not read ${dispFilename}(${meta._id.substring(0, 8)}) from database.`, LOG_LEVEL_NOTICE);
+                    Logger(
+                        `Missing document content!, could not read ${dispFilename}(${meta._id.substring(0, 8)}) from database.`,
+                        LOG_LEVEL_NOTICE
+                    );
                     return false;
                 }
-                Logger(`Something went wrong on reading ${dispFilename}(${meta._id.substring(0, 8)}) from database:`, LOG_LEVEL_NOTICE);
+                Logger(
+                    `Something went wrong on reading ${dispFilename}(${meta._id.substring(0, 8)}) from database:`,
+                    LOG_LEVEL_NOTICE
+                );
                 Logger(ex);
             }
         }
@@ -538,46 +601,48 @@ export class LiveSyncLocalDB {
         }
         const id = await this.path2id(path);
         try {
-            return await serialized("file:" + path, async () => {
-                let obj: EntryDocResponse | null = null;
-                if (opt) {
-                    obj = await this.localDatabase.get(id, opt);
-                } else {
-                    obj = await this.localDatabase.get(id);
-                }
-                const revDeletion = opt && (("rev" in opt ? opt.rev : "") != "");
-
-                if (obj.type && obj.type == "leaf") {
-                    //do nothing for leaf;
-                    return false;
-                }
-                //Check it out and fix docs to regular case
-                if (!obj.type || (obj.type && obj.type == "notes")) {
-                    obj._deleted = true;
-                    const r = await this.localDatabase.put(obj, { force: !revDeletion });
-                    Logger(`Entry removed:${path} (${obj._id.substring(0, 8)}-${r.rev})`);
-                    return true;
-
-                    // simple note
-                }
-                if (obj.type == "newnote" || obj.type == "plain") {
-                    if (revDeletion) {
-                        obj._deleted = true;
+            return (
+                (await serialized("file:" + path, async () => {
+                    let obj: EntryDocResponse | null = null;
+                    if (opt) {
+                        obj = await this.localDatabase.get(id, opt);
                     } else {
-                        obj.deleted = true;
-                        obj.mtime = Date.now();
-                        if (this.settings.deleteMetadataOfDeletedFiles) {
-                            obj._deleted = true;
-                        }
+                        obj = await this.localDatabase.get(id);
                     }
-                    const r = await this.localDatabase.put(obj, { force: !revDeletion });
+                    const revDeletion = opt && ("rev" in opt ? opt.rev : "") != "";
 
-                    Logger(`Entry removed:${path} (${obj._id.substring(0, 8)}-${r.rev})`);
-                    return true;
-                } else {
-                    return false;
-                }
-            }) ?? false;
+                    if (obj.type && obj.type == "leaf") {
+                        //do nothing for leaf;
+                        return false;
+                    }
+                    //Check it out and fix docs to regular case
+                    if (!obj.type || (obj.type && obj.type == "notes")) {
+                        obj._deleted = true;
+                        const r = await this.localDatabase.put(obj, { force: !revDeletion });
+                        Logger(`Entry removed:${path} (${obj._id.substring(0, 8)}-${r.rev})`);
+                        return true;
+
+                        // simple note
+                    }
+                    if (obj.type == "newnote" || obj.type == "plain") {
+                        if (revDeletion) {
+                            obj._deleted = true;
+                        } else {
+                            obj.deleted = true;
+                            obj.mtime = Date.now();
+                            if (this.settings.deleteMetadataOfDeletedFiles) {
+                                obj._deleted = true;
+                            }
+                        }
+                        const r = await this.localDatabase.put(obj, { force: !revDeletion });
+
+                        Logger(`Entry removed:${path} (${obj._id.substring(0, 8)}-${r.rev})`);
+                        return true;
+                    } else {
+                        return false;
+                    }
+                })) ?? false
+            );
         } catch (ex: any) {
             if (isErrorOfMissingDoc(ex)) {
                 return false;
@@ -597,7 +662,7 @@ export class LiveSyncLocalDB {
                 include_docs: false,
                 skip: c,
                 limit: 100,
-                conflicts: true
+                conflicts: true,
             });
             readCount = result.rows.length;
             if (readCount > 0) {
@@ -675,7 +740,7 @@ export class LiveSyncLocalDB {
         // If enough old, store it as `stable` file.
         // A Stable file will not be split as text, but simply by pieceSize. Because it might not need to transfer differences
         // -- Disabled for now because it has a problem with storage consumption.
-        const isStable = false;//(diff > 1000 * 3600 * 24 * 30);
+        const isStable = false; //(diff > 1000 * 3600 * 24 * 30);
         if (isStable) {
             plainSplit = false;
         } else if (shouldSplitAsPlainText(filename)) {
@@ -683,18 +748,28 @@ export class LiveSyncLocalDB {
         }
 
         // Set datatype again for modified datatype.
-        const data = (note.data instanceof Blob) ? note.data : createTextBlob(note.data);
+        const data = note.data instanceof Blob ? note.data : createTextBlob(note.data);
         note.type = isTextBlob(data) ? "plain" : "newnote";
         note.datatype = note.type;
         const maxSize = 1024;
 
-        const splitFuncInMainThread = (this.settings.enableChunkSplitterV2 ? splitPieces2V2 : splitPieces2);
-        const splitFuncInWorker = (this.settings.enableChunkSplitterV2 ? splitPieces2WorkerV2 : splitPieces2Worker);
+        const splitFuncInMainThread = this.settings.enableChunkSplitterV2 ? splitPieces2V2 : splitPieces2;
+        const splitFuncInWorker = this.settings.enableChunkSplitterV2 ? splitPieces2WorkerV2 : splitPieces2Worker;
 
-        const splitFunc = this.settings.disableWorkerForGeneratingChunks ? splitFuncInMainThread
-            : (this.settings.processSmallFilesInUIThread && note.data.size < maxSize) ? splitFuncInMainThread : splitFuncInWorker;
+        const splitFunc = this.settings.disableWorkerForGeneratingChunks
+            ? splitFuncInMainThread
+            : this.settings.processSmallFilesInUIThread && note.data.size < maxSize
+              ? splitFuncInMainThread
+              : splitFuncInWorker;
 
-        const pieces = await splitFunc(data, pieceSize, plainSplit, minimumChunkSize, filename, this.settings.useSegmenter);
+        const pieces = await splitFunc(
+            data,
+            pieceSize,
+            plainSplit,
+            minimumChunkSize,
+            filename,
+            this.settings.useSegmenter
+        );
         const chunkTasks = [];
 
         for await (const piece of pieces()) {
@@ -702,7 +777,7 @@ export class LiveSyncLocalDB {
             chunkTasks.push(this.getChunk(piece, note));
         }
         const chunks = await Promise.all(chunkTasks);
-        if (chunks.some(e => e === false)) {
+        if (chunks.some((e) => e === false)) {
             Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
             return false;
         }
@@ -719,11 +794,11 @@ export class LiveSyncLocalDB {
         if (this.settings.useEden && !onlyChunks) {
             try {
                 const old = await this.localDatabase.get<AnyEntry>(note._id);
-                currentRevAsNo = getNoFromRev((old._rev));
-                const oldEden = "eden" in old ? old.eden : {}
-                eden = { ...oldEden, ...eden }
+                currentRevAsNo = getNoFromRev(old._rev);
+                const oldEden = "eden" in old ? old.eden : {};
+                eden = { ...oldEden, ...eden };
             } catch (ex) {
-                if (isErrorOfMissingDoc((ex))) {
+                if (isErrorOfMissingDoc(ex)) {
                     // NO OP.
                 } else {
                     throw ex;
@@ -733,13 +808,11 @@ export class LiveSyncLocalDB {
             let removedChunkOnEden = 0;
             // Remove unused chunk in eden
             const oldEdenChunks = Object.keys(eden);
-            const removeEdenChunks = oldEdenChunks.filter(e => (chunks as GeneratedChunk[]).every(c => c.id !== e));
+            const removeEdenChunks = oldEdenChunks.filter((e) => (chunks as GeneratedChunk[]).every((c) => c.id !== e));
             for (const removeId of removeEdenChunks) {
                 removedChunkOnEden++;
                 delete eden[removeId as DocumentID];
             }
-
-
 
             let newChunkOnEden = 0;
             let existChunkOnEden = 0;
@@ -752,8 +825,8 @@ export class LiveSyncLocalDB {
                     newChunkOnEden++;
                     eden[chunk.id] = {
                         epoch: currentRevAsNo + 1,
-                        data: chunk.piece
-                    }
+                        data: chunk.piece,
+                    };
                 }
             }
 
@@ -774,7 +847,10 @@ export class LiveSyncLocalDB {
             let independent = 0;
             //No.1
             const edenChunkExist = await this.localDatabase.allDocs({ keys: allEdenChunksKey as DocumentID[] });
-            const edenChunkOnDB = edenChunkExist.rows.reduce((p, c) => ({ ...p, [c.key]: c }), {} as Record<string, any>);
+            const edenChunkOnDB = edenChunkExist.rows.reduce(
+                (p, c) => ({ ...p, [c.key]: c }),
+                {} as Record<string, any>
+            );
             for (const [key, chunk] of allEdenChunks) {
                 count++;
                 let makeChunkIndependent = false;
@@ -812,8 +888,8 @@ export class LiveSyncLocalDB {
                     newChunks.push({
                         _id: key as DocumentID,
                         data: chunk.data,
-                        type: "leaf"
-                    })
+                        type: "leaf",
+                    });
                     delete eden[key as DocumentID];
                 } else {
                     // Logger(`${head}: Kept in Eden.`, LOG_LEVEL_VERBOSE);
@@ -821,72 +897,101 @@ export class LiveSyncLocalDB {
                 }
             }
             const chunkOnEdenAfter = Object.keys(eden).length;
-            Logger(`Progress on Eden: doc: ${dispFilename} : ${chunkOnEdenInitial}->${chunkOnEdenAfter} (removed: ${removedChunkOnEden}, new: ${newChunkOnEden}, exist: ${existChunkOnEden}, alreadyIndependent:${alreadyIndependent}, independent:${independent})`, LOG_LEVEL_VERBOSE);
+            Logger(
+                `Progress on Eden: doc: ${dispFilename} : ${chunkOnEdenInitial}->${chunkOnEdenAfter} (removed: ${removedChunkOnEden}, new: ${newChunkOnEden}, exist: ${existChunkOnEden}, alreadyIndependent:${alreadyIndependent}, independent:${independent})`,
+                LOG_LEVEL_VERBOSE
+            );
         } else {
-            newChunks = (chunks as GeneratedChunk[]).filter(e => e.isNew).map(e => ({
-                _id: e.id,
-                data: e.piece,
-                type: "leaf",
-            } as EntryLeaf));
+            newChunks = (chunks as GeneratedChunk[])
+                .filter((e) => e.isNew)
+                .map(
+                    (e) =>
+                        ({
+                            _id: e.id,
+                            data: e.piece,
+                            type: "leaf",
+                        }) as EntryLeaf
+                );
         }
         const cached = processed - newChunks.length;
         if (newChunks.length) {
             if (!this.settings.doNotUseFixedRevisionForChunks) {
-                newChunks = newChunks.map(e => ({ ...e, _rev: createChunkRev(e) }));
+                newChunks = newChunks.map((e) => ({ ...e, _rev: createChunkRev(e) }));
             }
-            const exists = await this.localDatabase.allDocs({ keys: newChunks.map(e => e._id), include_docs: false });
-            const existsMap = exists.rows.map(e => ([e.key, "error" in e ? e.error : e.value.rev])).reduce((p, c) => ({ ...p, [c[0]]: c[1] }), {} as Record<string, any>);
-            const result = await this.localDatabase.bulkDocs(newChunks, { new_edits: !!this.settings.doNotUseFixedRevisionForChunks });
+            const exists = await this.localDatabase.allDocs({ keys: newChunks.map((e) => e._id), include_docs: false });
+            const existsMap = exists.rows
+                .map((e) => [e.key, "error" in e ? e.error : e.value.rev])
+                .reduce((p, c) => ({ ...p, [c[0]]: c[1] }), {} as Record<string, any>);
+            const result = await this.localDatabase.bulkDocs(newChunks, {
+                new_edits: !!this.settings.doNotUseFixedRevisionForChunks,
+            });
             if (this.settings.doNotUseFixedRevisionForChunks) {
-                const mappedResults = result.reduce((p, item) => {
-                    if ("ok" in item) {
-                        p.ok.push(item)
-                        return p;
-                    }
-                    if ("error" in item) {
-                        if (item.status == 409) {
-                            p.skip.push(item);
+                const mappedResults = result.reduce(
+                    (p, item) => {
+                        if ("ok" in item) {
+                            p.ok.push(item);
                             return p;
                         }
-                    }
-                    p.failed.push(item);
-                    return p;
-                }, ({ ok: [] as PouchDB.Core.Response[], skip: [] as PouchDB.Core.Error[], failed: [] as any[] }))
+                        if ("error" in item) {
+                            if (item.status == 409) {
+                                p.skip.push(item);
+                                return p;
+                            }
+                        }
+                        p.failed.push(item);
+                        return p;
+                    },
+                    { ok: [] as PouchDB.Core.Response[], skip: [] as PouchDB.Core.Error[], failed: [] as any[] }
+                );
                 if (mappedResults.failed.length) {
-                    Logger(`Save failed.: ${dispFilename} :${mappedResults.failed.map(e => e?.id ?? e.toString()).join(",")}`, LOG_LEVEL_VERBOSE);
+                    Logger(
+                        `Save failed.: ${dispFilename} :${mappedResults.failed.map((e) => e?.id ?? e.toString()).join(",")}`,
+                        LOG_LEVEL_VERBOSE
+                    );
                     Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
                     return false;
                 }
                 const made = mappedResults.ok.length;
                 const skipped = mappedResults.skip.length;
-                Logger(`Chunks saved: doc: ${dispFilename} ,chunks: ${processed} (new:${made}, recycled:${skipped}, cached:${cached})`);
+                Logger(
+                    `Chunks saved: doc: ${dispFilename} ,chunks: ${processed} (new:${made}, recycled:${skipped}, cached:${cached})`
+                );
             } else {
-                const erroredItems = newChunks.filter(e => e._id in existsMap && existsMap[e._id].startsWith("1-") && existsMap[e._id] != e._rev);
-                const actualNewChunks = newChunks.filter(e => !(e._id in existsMap) || !existsMap[e._id].startsWith("1-"));
+                const erroredItems = newChunks.filter(
+                    (e) => e._id in existsMap && existsMap[e._id].startsWith("1-") && existsMap[e._id] != e._rev
+                );
+                const actualNewChunks = newChunks.filter(
+                    (e) => !(e._id in existsMap) || !existsMap[e._id].startsWith("1-")
+                );
                 // const skippedChunks = newChunks.filter(e => e._id in existsMap && existsMap[e._id] == e._rev);
                 if (erroredItems.length) {
                     Logger(`Save failed.: ${dispFilename} :${erroredItems.length} items mismatched`, LOG_LEVEL_VERBOSE);
                     Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
-                    Logger(`Mismatched items: ${erroredItems.map(e => e._id).join(",")}`, LOG_LEVEL_VERBOSE);
-                    Logger(`Revision mismatch: ${erroredItems.map(e => `${e._rev}, ${existsMap[e._id]}`).join(",")}`, LOG_LEVEL_VERBOSE);
+                    Logger(`Mismatched items: ${erroredItems.map((e) => e._id).join(",")}`, LOG_LEVEL_VERBOSE);
+                    Logger(
+                        `Revision mismatch: ${erroredItems.map((e) => `${e._rev}, ${existsMap[e._id]}`).join(",")}`,
+                        LOG_LEVEL_VERBOSE
+                    );
                     // console.warn(erroredItems)
                     return false;
                 }
                 const made = actualNewChunks.length;
                 const skipped = newChunks.length - actualNewChunks.length;
-                Logger(`Chunks saved (with fixed): doc: ${dispFilename} ,chunks: ${processed} (new:${made}, recycled:${skipped}, cached:${cached})`);
+                Logger(
+                    `Chunks saved (with fixed): doc: ${dispFilename} ,chunks: ${processed} (new:${made}, recycled:${skipped}, cached:${cached})`
+                );
             }
         }
         if (onlyChunks) {
-            return ({
+            return {
                 id: note._id,
                 ok: true,
-                rev: "dummy"
-            })
+                rev: "dummy",
+            };
         }
 
         const newDoc: PlainEntry | NewEntry = {
-            children: (chunks as GeneratedChunk[]).map(e => e.id),
+            children: (chunks as GeneratedChunk[]).map((e) => e.id),
             _id: note._id,
             path: note.path,
             ctime: note.ctime,
@@ -896,31 +1001,33 @@ export class LiveSyncLocalDB {
             eden: eden,
         };
 
-        return await serialized("file:" + filename, async () => {
-            try {
-                const old = await this.localDatabase.get(newDoc._id);
-                newDoc._rev = old._rev;
-            } catch (ex: any) {
-                if (isErrorOfMissingDoc(ex)) {
-                    // NO OP/
-                } else {
-                    throw ex;
+        return (
+            (await serialized("file:" + filename, async () => {
+                try {
+                    const old = await this.localDatabase.get(newDoc._id);
+                    newDoc._rev = old._rev;
+                } catch (ex: any) {
+                    if (isErrorOfMissingDoc(ex)) {
+                        // NO OP/
+                    } else {
+                        throw ex;
+                    }
                 }
-            }
-            const r = await this.localDatabase.put<PlainEntry | NewEntry>(newDoc, { force: true });
-            if (r.ok) {
-                return r;
-            } else {
-                return false;
-            }
-        }) ?? false;
+                const r = await this.localDatabase.put<PlainEntry | NewEntry>(newDoc, { force: true });
+                if (r.ok) {
+                    return r;
+                } else {
+                    return false;
+                }
+            })) ?? false
+        );
     }
 
     async resetDatabase() {
         this.changeHandler?.cancel();
         await this.changeHandler?.removeAllListeners();
         this.env.$$getReplicator().closeReplication();
-        if (!await this.env.$everyOnResetDatabase(this)) {
+        if (!(await this.env.$everyOnResetDatabase(this))) {
             Logger("Database reset has been prevented or failed on some modules.", LOG_LEVEL_NOTICE);
             return false;
         }
@@ -941,42 +1048,58 @@ export class LiveSyncLocalDB {
             return false;
         }
         if (this.settings.syncOnlyRegEx) {
-            const syncOnly = new RegExp(this.settings.syncOnlyRegEx, this.settings.handleFilenameCaseSensitive ? "" : "i");
+            const syncOnly = new RegExp(
+                this.settings.syncOnlyRegEx,
+                this.settings.handleFilenameCaseSensitive ? "" : "i"
+            );
             if (!file.match(syncOnly)) return false;
         }
         if (this.settings.syncIgnoreRegEx) {
-            const syncIgnore = new RegExp(this.settings.syncIgnoreRegEx, this.settings.handleFilenameCaseSensitive ? "" : "i");
+            const syncIgnore = new RegExp(
+                this.settings.syncIgnoreRegEx,
+                this.settings.handleFilenameCaseSensitive ? "" : "i"
+            );
             if (file.match(syncIgnore)) return false;
         }
         return true;
     }
 
-    _chunkCollectProcessor = new QueueProcessor(async (requesting: string[]) => {
-        try {
-            const chunks = await this._collectChunks(requesting, false);
-            if (chunks) {
-                chunks.forEach(chunk => sendValue(`chunk-fetch-${chunk._id}`, chunk));
-            } else {
-                throw new Error("Failed: CollectChunksInternal");
+    _chunkCollectProcessor = new QueueProcessor(
+        async (requesting: string[]) => {
+            try {
+                const chunks = await this._collectChunks(requesting, false);
+                if (chunks) {
+                    chunks.forEach((chunk) => sendValue(`chunk-fetch-${chunk._id}`, chunk));
+                } else {
+                    throw new Error("Failed: CollectChunksInternal");
+                }
+            } catch (ex) {
+                Logger(`Exception raised while retrieving chunks`, LOG_LEVEL_NOTICE);
+                Logger(ex, LOG_LEVEL_VERBOSE);
+                requesting.forEach((id) => sendValue(`chunk-fetch-${id}`, []));
             }
-        } catch (ex) {
-            Logger(`Exception raised while retrieving chunks`, LOG_LEVEL_NOTICE);
-            Logger(ex, LOG_LEVEL_VERBOSE);
-            requesting.forEach((id) => sendValue(`chunk-fetch-${id}`, []));
+            return;
+        },
+        {
+            batchSize: 100,
+            interval: 100,
+            concurrentLimit: 1,
+            maintainDelay: true,
+            suspended: false,
+            totalRemainingReactiveSource: collectingChunks,
         }
-        return;
-    }, { batchSize: 100, interval: 100, concurrentLimit: 1, maintainDelay: true, suspended: false, totalRemainingReactiveSource: collectingChunks });
+    );
     async collectChunks(ids: string[], showResult = false, waitForReady?: boolean) {
         const localChunks = await this.collectChunksWithCache(ids as DocumentID[]);
-        const missingChunks = localChunks.filter(e => e.chunk === false).map(e => e.id);
+        const missingChunks = localChunks.filter((e) => e.chunk === false).map((e) => e.id);
         // If we have enough chunks, return them.
         if (missingChunks.length == 0) {
-            return localChunks.map(e => e.chunk) as EntryLeaf[];
+            return localChunks.map((e) => e.chunk) as EntryLeaf[];
         }
         this._chunkCollectProcessor.batchSize = this.settings.concurrencyOfReadChunksOnline;
         this._chunkCollectProcessor.interval = this.settings.minimumIntervalOfReadChunksOnline;
-        this._chunkCollectProcessor.enqueueAll(ids)
-        const fetchChunkTasks = ids.map(id => waitForValue<EntryLeaf>(`chunk-fetch-${id}`));
+        this._chunkCollectProcessor.enqueueAll(ids);
+        const fetchChunkTasks = ids.map((id) => waitForValue<EntryLeaf>(`chunk-fetch-${id}`));
         const res = (await Promise.all(fetchChunkTasks)).filter(onlyNot(RESULT_TIMED_OUT));
         return res;
     }
@@ -984,32 +1107,41 @@ export class LiveSyncLocalDB {
     async _collectChunks(ids: string[], showResult = false): Promise<false | EntryLeaf[]> {
         // Collect chunks from the local database and the cache.
         const localChunks = await this.collectChunksWithCache(ids as DocumentID[]);
-        const missingChunks = localChunks.filter(e => e.chunk === false).map(e => e.id);
+        const missingChunks = localChunks.filter((e) => e.chunk === false).map((e) => e.id);
         // If we have enough chunks, return them.
         if (missingChunks.length == 0) {
-            return localChunks.map(e => e.chunk) as EntryLeaf[];
+            return localChunks.map((e) => e.chunk) as EntryLeaf[];
         }
         // Fetching remote chunks.
         const remoteDocs = await this.env.$$getReplicator().fetchRemoteChunks(missingChunks, showResult);
         if (remoteDocs == false) {
-            Logger(`Could not fetch chunks from the server. `, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_VERBOSE, "fetch");
+            Logger(
+                `Could not fetch chunks from the server. `,
+                showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_VERBOSE,
+                "fetch"
+            );
             return false;
         }
-        remoteDocs.forEach(e => this.hashCaches.set(e._id, e.data));
+        remoteDocs.forEach((e) => this.hashCaches.set(e._id, e.data));
         // Cache remote chunks to the local database.
         await this.localDatabase.bulkDocs(remoteDocs, { new_edits: false });
         // Chunks should be ordered by as we requested.
-        const chunks = Object.fromEntries([...localChunks.map(e => e.chunk).filter(e => e !== false), ...remoteDocs].map(e => [e._id, e]));
-        const ret = ids.map(e => chunks?.[e] ?? undefined)
-        if (ret.some(e => e === undefined)) return false;
+        const chunks = Object.fromEntries(
+            [...localChunks.map((e) => e.chunk).filter((e) => e !== false), ...remoteDocs].map((e) => [e._id, e])
+        );
+        const ret = ids.map((e) => chunks?.[e] ?? undefined);
+        if (ret.some((e) => e === undefined)) return false;
         return ret;
-
     }
 
-    async *findAllChunks(opt?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
-        const targets = [
-            () => this.findEntries("h:", `h:\u{10ffff}`, opt ?? {}),
-        ]
+    async *findAllChunks(
+        opt?:
+            | PouchDB.Core.AllDocsWithKeyOptions
+            | PouchDB.Core.AllDocsOptions
+            | PouchDB.Core.AllDocsWithKeysOptions
+            | PouchDB.Core.AllDocsWithinRangeOptions
+    ) {
+        const targets = [() => this.findEntries("h:", `h:\u{10ffff}`, opt ?? {})];
         for (const targetFun of targets) {
             const target = targetFun();
             for await (const f of target) {
@@ -1018,7 +1150,15 @@ export class LiveSyncLocalDB {
         }
     }
 
-    async *findEntries(startKey: string, endKey: string, opt: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
+    async *findEntries(
+        startKey: string,
+        endKey: string,
+        opt:
+            | PouchDB.Core.AllDocsWithKeyOptions
+            | PouchDB.Core.AllDocsOptions
+            | PouchDB.Core.AllDocsWithKeysOptions
+            | PouchDB.Core.AllDocsWithinRangeOptions
+    ) {
         const pageLimit = 100;
         let nextKey = startKey;
         if (endKey == "") endKey = "\u{10ffff}";
@@ -1029,7 +1169,14 @@ export class LiveSyncLocalDB {
                 break;
             }
             nextKey = `${docs.rows[docs.rows.length - 1].id}`;
-            req = this.allDocsRaw({ limit: pageLimit, skip: 1, startkey: nextKey, endkey: endKey, include_docs: true, ...opt });
+            req = this.allDocsRaw({
+                limit: pageLimit,
+                skip: 1,
+                startkey: nextKey,
+                endkey: endKey,
+                include_docs: true,
+                ...opt,
+            });
             for (const row of docs.rows) {
                 const doc = row.doc;
                 //@ts-ignore: non null by include_docs
@@ -1042,12 +1189,18 @@ export class LiveSyncLocalDB {
             }
         } while (nextKey != "");
     }
-    async *findAllDocs(opt?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
+    async *findAllDocs(
+        opt?:
+            | PouchDB.Core.AllDocsWithKeyOptions
+            | PouchDB.Core.AllDocsOptions
+            | PouchDB.Core.AllDocsWithKeysOptions
+            | PouchDB.Core.AllDocsWithinRangeOptions
+    ) {
         const targets = [
             () => this.findEntries("", "_", opt ?? {}),
             () => this.findEntries("_\u{10ffff}", "h:", opt ?? {}),
             () => this.findEntries(`h:\u{10ffff}`, "", opt ?? {}),
-        ]
+        ];
         for (const targetFun of targets) {
             const target = targetFun();
             for await (const f of target) {
@@ -1055,7 +1208,15 @@ export class LiveSyncLocalDB {
             }
         }
     }
-    async *findEntryNames(startKey: string, endKey: string, opt: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
+    async *findEntryNames(
+        startKey: string,
+        endKey: string,
+        opt:
+            | PouchDB.Core.AllDocsWithKeyOptions
+            | PouchDB.Core.AllDocsOptions
+            | PouchDB.Core.AllDocsWithKeysOptions
+            | PouchDB.Core.AllDocsWithinRangeOptions
+    ) {
         const pageLimit = 100;
         let nextKey = startKey;
         if (endKey == "") endKey = "\u{10ffff}";
@@ -1073,7 +1234,13 @@ export class LiveSyncLocalDB {
             }
         } while (nextKey != "");
     }
-    async *findAllDocNames(opt?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
+    async *findAllDocNames(
+        opt?:
+            | PouchDB.Core.AllDocsWithKeyOptions
+            | PouchDB.Core.AllDocsOptions
+            | PouchDB.Core.AllDocsWithKeysOptions
+            | PouchDB.Core.AllDocsWithinRangeOptions
+    ) {
         const targets = [
             () => this.findEntryNames("", "_", opt ?? {}),
             () => this.findEntryNames("_\u{10ffff}", "h:", opt ?? {}),
@@ -1081,8 +1248,7 @@ export class LiveSyncLocalDB {
             () => this.findEntryNames(`i:\u{10ffff}`, "ix:", opt ?? {}),
             () => this.findEntryNames(`ix:\u{10ffff}`, "ps:", opt ?? {}),
             () => this.findEntryNames(`ps:\u{10ffff}`, "", opt ?? {}),
-
-        ]
+        ];
         for (const targetFun of targets) {
             const target = targetFun();
             for await (const f of target) {
@@ -1092,7 +1258,13 @@ export class LiveSyncLocalDB {
             }
         }
     }
-    async *findAllNormalDocs(opt?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions) {
+    async *findAllNormalDocs(
+        opt?:
+            | PouchDB.Core.AllDocsWithKeyOptions
+            | PouchDB.Core.AllDocsOptions
+            | PouchDB.Core.AllDocsWithKeysOptions
+            | PouchDB.Core.AllDocsWithinRangeOptions
+    ) {
         const targets = [
             () => this.findEntries("", "_", opt ?? {}),
             () => this.findEntries("_\u{10ffff}", "h:", opt ?? {}),
@@ -1100,7 +1272,7 @@ export class LiveSyncLocalDB {
             () => this.findEntries(`i:\u{10ffff}`, "ix:", opt ?? {}),
             () => this.findEntries(`ix:\u{10ffff}`, "ps:", opt ?? {}),
             () => this.findEntries(`ps:\u{10ffff}`, "", opt ?? {}),
-        ]
+        ];
         for (const targetFun of targets) {
             const target = targetFun();
             for await (const f of target) {
@@ -1125,7 +1297,10 @@ export class LiveSyncLocalDB {
         return false;
     }
 
-    getRaw<T extends EntryDoc>(docId: DocumentID, options?: PouchDB.Core.GetOptions): Promise<T & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta> {
+    getRaw<T extends EntryDoc>(
+        docId: DocumentID,
+        options?: PouchDB.Core.GetOptions
+    ): Promise<T & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta> {
         return this.localDatabase.get<T>(docId, options || {});
     }
 
@@ -1134,38 +1309,59 @@ export class LiveSyncLocalDB {
     }
 
     putRaw<T extends EntryDoc>(doc: T, options?: PouchDB.Core.PutOptions): Promise<PouchDB.Core.Response> {
-        return this.localDatabase.put(doc, options || {})
+        return this.localDatabase.put(doc, options || {});
     }
 
-    allDocsRaw<T extends EntryDoc | DatabaseEntry>(options?: PouchDB.Core.AllDocsWithKeyOptions | PouchDB.Core.AllDocsWithKeysOptions | PouchDB.Core.AllDocsWithinRangeOptions | PouchDB.Core.AllDocsOptions):
-        Promise<PouchDB.Core.AllDocsResponse<T>> {
+    allDocsRaw<T extends EntryDoc | DatabaseEntry>(
+        options?:
+            | PouchDB.Core.AllDocsWithKeyOptions
+            | PouchDB.Core.AllDocsWithKeysOptions
+            | PouchDB.Core.AllDocsWithinRangeOptions
+            | PouchDB.Core.AllDocsOptions
+    ): Promise<PouchDB.Core.AllDocsResponse<T>> {
         return this.localDatabase.allDocs<T>(options);
     }
 
-    bulkDocsRaw<T extends EntryDoc>(docs: Array<PouchDB.Core.PutDocument<T>>, options?: PouchDB.Core.BulkDocsOptions): Promise<Array<PouchDB.Core.Response | PouchDB.Core.Error>> {
+    bulkDocsRaw<T extends EntryDoc>(
+        docs: Array<PouchDB.Core.PutDocument<T>>,
+        options?: PouchDB.Core.BulkDocsOptions
+    ): Promise<Array<PouchDB.Core.Response | PouchDB.Core.Error>> {
         return this.localDatabase.bulkDocs(docs, options || {});
     }
 
     /* Read chunks from local database with cached chunks */
-    async collectChunksWithCache(keys: DocumentID[]): Promise<{ id: DocumentID, chunk: EntryLeaf | false }[]> {
-        const exists = keys.map(e => this.hashCaches.has(e) ? ({ id: e, chunk: this.hashCaches.get(e) }) : { id: e, chunk: false });
-        const notExists = exists.filter(e => e.chunk === false);
+    async collectChunksWithCache(keys: DocumentID[]): Promise<{ id: DocumentID; chunk: EntryLeaf | false }[]> {
+        const exists = keys.map((e) =>
+            this.hashCaches.has(e) ? { id: e, chunk: this.hashCaches.get(e) } : { id: e, chunk: false }
+        );
+        const notExists = exists.filter((e) => e.chunk === false);
         if (notExists.length > 0) {
-            const chunks = await this.localDatabase.allDocs({ keys: notExists.map(e => e.id), include_docs: true });
-            const existChunks = chunks.rows.filter(e => !("error" in e)).map((e: any) => e.doc as EntryLeaf);
+            const chunks = await this.localDatabase.allDocs({ keys: notExists.map((e) => e.id), include_docs: true });
+            const existChunks = chunks.rows.filter((e) => !("error" in e)).map((e: any) => e.doc as EntryLeaf);
             // If the chunks are missing, possibly backed up while cleaning up.
-            const nonExistsLocal = chunks.rows.filter(e => ("error" in e)).map(e => e.key);
-            const purgedChunks = await this.localDatabase.allDocs({ keys: nonExistsLocal.map(e => `_local/${e}`), include_docs: true });
-            const existChunksPurged = purgedChunks.rows.filter(e => !("error" in e)).map((e: any) => ({ ...e.doc, _id: e.id.substring(7) }) as EntryLeaf);
-            const temp = Object.fromEntries(existChunksPurged.map(e => [e._id, e.data]));
+            const nonExistsLocal = chunks.rows.filter((e) => "error" in e).map((e) => e.key);
+            const purgedChunks = await this.localDatabase.allDocs({
+                keys: nonExistsLocal.map((e) => `_local/${e}`),
+                include_docs: true,
+            });
+            const existChunksPurged = purgedChunks.rows
+                .filter((e) => !("error" in e))
+                .map((e: any) => ({ ...e.doc, _id: e.id.substring(7) }) as EntryLeaf);
+            const temp = Object.fromEntries(existChunksPurged.map((e) => [e._id, e.data]));
             for (const chunk of existChunks) {
                 temp[chunk._id] = chunk.data;
                 this.hashCaches.set(chunk._id, chunk.data);
             }
-            const ret = exists.map(e => ({ id: e.id, chunk: (e.chunk !== false ? e.chunk : (e.id in temp ? temp[e.id] : false)) }));
-            return ret.map(e => ({ id: e.id, chunk: e.chunk !== false ? ({ _id: e.id, data: e.chunk, type: "leaf" } as EntryLeaf) : false }));
+            const ret = exists.map((e) => ({
+                id: e.id,
+                chunk: e.chunk !== false ? e.chunk : e.id in temp ? temp[e.id] : false,
+            }));
+            return ret.map((e) => ({
+                id: e.id,
+                chunk: e.chunk !== false ? ({ _id: e.id, data: e.chunk, type: "leaf" } as EntryLeaf) : false,
+            }));
         } else {
-            return exists.map(e => ({ id: e.id, chunk: { _id: e.id, data: e.chunk, type: "leaf" } as EntryLeaf }))
+            return exists.map((e) => ({ id: e.id, chunk: { _id: e.id, data: e.chunk, type: "leaf" } as EntryLeaf }));
         }
     }
 
@@ -1194,7 +1390,7 @@ export class LiveSyncLocalDB {
         try {
             const doc = await this.getDBEntry(path, { rev: rev }, false, false, true);
             if (doc === false) return false;
-            let data = getDocData(doc.data)
+            let data = getDocData(doc.data);
             if (doc.datatype == "newnote") {
                 data = readString(new Uint8Array(decodeBinary(doc.data)));
             } else if (doc.datatype == "plain") {
@@ -1205,7 +1401,7 @@ export class LiveSyncLocalDB {
                 ctime: doc.ctime,
                 mtime: doc.mtime,
                 rev: rev,
-                data: data
+                data: data,
             };
         } catch (ex) {
             if (isErrorOfMissingDoc(ex)) {
@@ -1214,7 +1410,12 @@ export class LiveSyncLocalDB {
         }
         return false;
     }
-    async mergeSensibly(path: FilePathWithPrefix, baseRev: string, currentRev: string, conflictedRev: string): Promise<Diff[] | false> {
+    async mergeSensibly(
+        path: FilePathWithPrefix,
+        baseRev: string,
+        currentRev: string,
+        conflictedRev: string
+    ): Promise<Diff[] | false> {
         const baseLeaf = await this.getConflictedDoc(path, baseRev);
         const leftLeaf = await this.getConflictedDoc(path, currentRev);
         const rightLeaf = await this.getConflictedDoc(path, conflictedRev);
@@ -1241,33 +1442,32 @@ export class LiveSyncLocalDB {
                 if (d === undefined) {
                     return ret;
                 }
-                const pieces = d[1].split(/([^\n]*\n)/).filter(f => f != "");
-                if (typeof (d) == "undefined") {
+                const pieces = d[1].split(/([^\n]*\n)/).filter((f) => f != "");
+                if (typeof d == "undefined") {
                     break;
                 }
                 if (d[0] != DIFF_DELETE) {
-                    ret.push(...(pieces.map(e => [d[0], e] as Diff)));
+                    ret.push(...pieces.map((e) => [d[0], e] as Diff));
                 }
                 if (d[0] == DIFF_DELETE) {
                     const nd = src.shift();
 
-                    if (typeof (nd) != "undefined") {
-                        const piecesPair = nd[1].split(/([^\n]*\n)/).filter(f => f != "");
+                    if (typeof nd != "undefined") {
+                        const piecesPair = nd[1].split(/([^\n]*\n)/).filter((f) => f != "");
                         if (nd[0] == DIFF_INSERT) {
                             // it might be pair
                             for (const pt of pieces) {
                                 ret.push([d[0], pt]);
                                 const pairP = piecesPair.shift();
-                                if (typeof (pairP) != "undefined") ret.push([DIFF_INSERT, pairP]);
+                                if (typeof pairP != "undefined") ret.push([DIFF_INSERT, pairP]);
                             }
-                            ret.push(...(piecesPair.map(e => [nd[0], e] as Diff)));
+                            ret.push(...piecesPair.map((e) => [nd[0], e] as Diff));
                         } else {
-                            ret.push(...(pieces.map(e => [d[0], e] as Diff)));
-                            ret.push(...(piecesPair.map(e => [nd[0], e] as Diff)));
-
+                            ret.push(...pieces.map((e) => [d[0], e] as Diff));
+                            ret.push(...piecesPair.map((e) => [nd[0], e] as Diff));
                         }
                     } else {
-                        ret.push(...(pieces.map(e => [0, e] as Diff)));
+                        ret.push(...pieces.map((e) => [0, e] as Diff));
                     }
                 }
             } while (src.length > 0);
@@ -1281,8 +1481,7 @@ export class LiveSyncLocalDB {
         let leftIdx = 0;
         const merged = [] as Diff[];
         autoMerge = true;
-        LOOP_MERGE:
-        do {
+        LOOP_MERGE: do {
             if (leftIdx >= diffLeft.length && rightIdx >= diffRight.length) {
                 break LOOP_MERGE;
             }
@@ -1299,8 +1498,15 @@ export class LiveSyncLocalDB {
                 // when deleted evenly,
                 const nextLeftIdx = leftIdx;
                 const nextRightIdx = rightIdx;
-                const [nextLeftItem, nextRightItem] = [diffLeft[nextLeftIdx] ?? [0, ""], diffRight[nextRightIdx] ?? [0, ""]];
-                if ((nextLeftItem[0] == DIFF_INSERT && nextRightItem[0] == DIFF_INSERT) && nextLeftItem[1] != nextRightItem[1]) {
+                const [nextLeftItem, nextRightItem] = [
+                    diffLeft[nextLeftIdx] ?? [0, ""],
+                    diffRight[nextRightIdx] ?? [0, ""],
+                ];
+                if (
+                    nextLeftItem[0] == DIFF_INSERT &&
+                    nextRightItem[0] == DIFF_INSERT &&
+                    nextLeftItem[1] != nextRightItem[1]
+                ) {
                     //but next line looks like different
                     autoMerge = false;
                     break;
@@ -1326,7 +1532,6 @@ export class LiveSyncLocalDB {
                         continue;
                     }
                 }
-
             }
             // when on inserting, index should be fixed again.
             if (leftItem[0] == DIFF_INSERT) {
@@ -1342,7 +1547,10 @@ export class LiveSyncLocalDB {
             // except insertion, the line should not be different.
             if (rightItem[1] != leftItem[1]) {
                 //TODO: SHOULD BE PANIC.
-                Logger(`MERGING PANIC:${leftItem[0]},${leftItem[1]} == ${rightItem[0]},${rightItem[1]}`, LOG_LEVEL_VERBOSE);
+                Logger(
+                    `MERGING PANIC:${leftItem[0]},${leftItem[1]} == ${rightItem[0]},${rightItem[1]}`,
+                    LOG_LEVEL_VERBOSE
+                );
                 autoMerge = false;
                 break LOOP_MERGE;
             }
@@ -1366,7 +1574,10 @@ export class LiveSyncLocalDB {
                     break LOOP_MERGE;
                 }
             }
-            Logger(`Weird condition:${leftItem[0]},${leftItem[1]} == ${rightItem[0]},${rightItem[1]}`, LOG_LEVEL_VERBOSE);
+            Logger(
+                `Weird condition:${leftItem[0]},${leftItem[1]} == ${rightItem[0]},${rightItem[1]}`,
+                LOG_LEVEL_VERBOSE
+            );
             // here is the exception
             break LOOP_MERGE;
         } while (leftIdx < diffLeft.length || rightIdx < diffRight.length);
@@ -1378,8 +1589,12 @@ export class LiveSyncLocalDB {
         }
     }
 
-
-    async mergeObject(path: FilePathWithPrefix, baseRev: string, currentRev: string, conflictedRev: string): Promise<string | false> {
+    async mergeObject(
+        path: FilePathWithPrefix,
+        baseRev: string,
+        currentRev: string,
+        conflictedRev: string
+    ): Promise<string | false> {
         try {
             const baseLeaf = await this.getConflictedDoc(path, baseRev);
             const leftLeaf = await this.getConflictedDoc(path, currentRev);
@@ -1418,7 +1633,7 @@ export class LiveSyncLocalDB {
 
             const patches = [
                 { mtime: leftLeaf.mtime, patch: diffLeft },
-                { mtime: rightLeaf.mtime, patch: diffRight }
+                { mtime: rightLeaf.mtime, patch: diffRight },
             ].sort((a, b) => a.mtime - b.mtime);
             let newObj = { ...baseObj };
             for (const patch of patches) {
@@ -1427,21 +1642,29 @@ export class LiveSyncLocalDB {
             return JSON.stringify(newObj.data);
         } catch (ex) {
             Logger("Could not merge object");
-            Logger(ex, LOG_LEVEL_VERBOSE)
+            Logger(ex, LOG_LEVEL_VERBOSE);
             return false;
         }
     }
 
-    async tryAutoMerge(path: FilePathWithPrefix, enableMarkdownAutoMerge: boolean): Promise<{
-        ok: DIFF_CHECK_RESULT_AUTO
-    } | {
-        result: string, conflictedRev: string
-    } | {
-        leftRev: string,
-        rightRev: string,
-        leftLeaf: diff_result_leaf | false,
-        rightLeaf: diff_result_leaf | false,
-    }> {
+    async tryAutoMerge(
+        path: FilePathWithPrefix,
+        enableMarkdownAutoMerge: boolean
+    ): Promise<
+        | {
+              ok: DIFF_CHECK_RESULT_AUTO;
+          }
+        | {
+              result: string;
+              conflictedRev: string;
+          }
+        | {
+              leftRev: string;
+              rightRev: string;
+              leftLeaf: diff_result_leaf | false;
+              rightLeaf: diff_result_leaf | false;
+          }
+    > {
         const test = await this.getDBEntry(path, { conflicts: true, revs_info: true }, false, false, true);
         if (test === false) return { ok: MISSING_OR_ERROR };
         if (test == null) return { ok: MISSING_OR_ERROR };
@@ -1451,15 +1674,21 @@ export class LiveSyncLocalDB {
         if ((isSensibleMargeApplicable(path) || isObjectMargeApplicable(path)) && enableMarkdownAutoMerge) {
             const conflictedRev = conflicts[0];
             const conflictedRevNo = Number(conflictedRev.split("-")[0]);
-            //Search 
-            const revFrom = (await this.getRaw<EntryDoc>(await this.path2id(path), { revs_info: true }));
-            const commonBase = (revFrom._revs_info || []).filter(e => e.status == "available" && Number(e.rev.split("-")[0]) < conflictedRevNo).first()?.rev ?? "";
+            //Search
+            const revFrom = await this.getRaw<EntryDoc>(await this.path2id(path), { revs_info: true });
+            const commonBase =
+                (revFrom._revs_info || [])
+                    .filter((e) => e.status == "available" && Number(e.rev.split("-")[0]) < conflictedRevNo)
+                    .first()?.rev ?? "";
             let p = undefined;
             if (commonBase) {
                 if (isSensibleMargeApplicable(path)) {
                     const result = await this.mergeSensibly(path, commonBase, test._rev!, conflictedRev);
                     if (result) {
-                        p = result.filter(e => e[0] != DIFF_DELETE).map((e) => e[1]).join("");
+                        p = result
+                            .filter((e) => e[0] != DIFF_DELETE)
+                            .map((e) => e[1])
+                            .join("");
                         // can be merged.
                         Logger(`Sensible merge:${path}`, LOG_LEVEL_INFO);
                     } else {
@@ -1483,6 +1712,6 @@ export class LiveSyncLocalDB {
         // should be one or more conflicts;
         const leftLeaf = await this.getConflictedDoc(path, test._rev!);
         const rightLeaf = await this.getConflictedDoc(path, conflicts[0]);
-        return { leftRev: test._rev!, rightRev: conflicts[0], leftLeaf, rightLeaf }
+        return { leftRev: test._rev!, rightRev: conflicts[0], leftLeaf, rightLeaf };
     }
 }

@@ -8,15 +8,16 @@ import { decryptBinary, encryptBinary } from "../../../encryption/e2ee_v2.ts";
 import type { RemoteDBStatus } from "../../LiveSyncAbstractReplicator.ts";
 
 export class JournalSyncMinio extends JournalSyncAbstract {
-
     _instance?: S3;
 
     _getClient(): S3 {
         if (this._instance) return this._instance;
-        const ep = (this.endpoint) ? {
-            endpoint: this.endpoint,
-            forcePathStyle: true,
-        } : {};
+        const ep = this.endpoint
+            ? {
+                  endpoint: this.endpoint,
+                  forcePathStyle: true,
+              }
+            : {};
 
         this._instance = new S3({
             region: this.region,
@@ -26,15 +27,11 @@ export class JournalSyncMinio extends JournalSyncAbstract {
                 secretAccessKey: this.key,
             },
             maxAttempts: 4,
-            retryStrategy: new ConfiguredRetryStrategy(
-                4,
-                (attempt: number) => 100 + attempt * 1000
-            ),
-            requestHandler: this.useCustomRequestHandler ? this.env.$$customFetchHandler() : undefined
+            retryStrategy: new ConfiguredRetryStrategy(4, (attempt: number) => 100 + attempt * 1000),
+            requestHandler: this.useCustomRequestHandler ? this.env.$$customFetchHandler() : undefined,
         });
         return this._instance;
     }
-
 
     async resetBucket() {
         const client = this._getClient();
@@ -50,58 +47,62 @@ export class JournalSyncMinio extends JournalSyncAbstract {
                 const cmd = new DeleteObjectsCommand({
                     Bucket: this.bucket,
                     Delete: {
-                        Objects: files.map(e => ({ Key: e }))
-                    }
-                })
+                        Objects: files.map((e) => ({ Key: e })),
+                    },
+                });
                 const r = await client.send(cmd);
                 const { Deleted, Errors } = r;
                 deleteCount += Deleted?.length || 0;
                 errorCount += Errors?.length || 0;
-                Logger(`${deleteCount} items has been deleted!${errorCount != 0 ? ` (${errorCount} items failed to delete)` : ""}`, LOG_LEVEL_NOTICE, "reset-bucket");
-            } while (files.length == 0)
+                Logger(
+                    `${deleteCount} items has been deleted!${errorCount != 0 ? ` (${errorCount} items failed to delete)` : ""}`,
+                    LOG_LEVEL_NOTICE,
+                    "reset-bucket"
+                );
+            } while (files.length == 0);
         } catch (ex) {
-            Logger(`WARNING! Could not delete files. you should try it once or remake the bucket manually`, LOG_LEVEL_NOTICE, "reset-bucket");
-            Logger(ex, LOG_LEVEL_VERBOSE)
+            Logger(
+                `WARNING! Could not delete files. you should try it once or remake the bucket manually`,
+                LOG_LEVEL_NOTICE,
+                "reset-bucket"
+            );
+            Logger(ex, LOG_LEVEL_VERBOSE);
         }
-
-
-
 
         const journals = await this._getRemoteJournals();
         if (journals.length == 0) {
-            Logger("Nothing to delete!", LOG_LEVEL_NOTICE)
+            Logger("Nothing to delete!", LOG_LEVEL_NOTICE);
             return true;
         }
         const cmd = new DeleteObjectsCommand({
             Bucket: this.bucket,
             Delete: {
-                Objects: journals.map(e => ({ Key: e }))
-            }
-        })
+                Objects: journals.map((e) => ({ Key: e })),
+            },
+        });
         const r = await client.send(cmd);
-        Logger(`${r?.Deleted?.length || 0} items has been deleted!`, LOG_LEVEL_NOTICE)
+        Logger(`${r?.Deleted?.length || 0} items has been deleted!`, LOG_LEVEL_NOTICE);
         await this.resetCheckpointInfo();
         return true;
-
     }
 
     async uploadJson(key: string, body: any) {
         try {
             return await this.uploadFile(key, new Blob([JSON.stringify(body)]), "application/json");
         } catch (ex) {
-            Logger(`Could not upload json ${key}`)
-            Logger(ex, LOG_LEVEL_VERBOSE)
+            Logger(`Could not upload json ${key}`);
+            Logger(ex, LOG_LEVEL_VERBOSE);
             return false;
         }
     }
     async downloadJson<T>(key: string): Promise<T | false> {
         try {
             const ret = await this.downloadFile(key, true);
-            if (!ret) return false
+            if (!ret) return false;
             return JSON.parse(new TextDecoder().decode(ret)) as T;
         } catch (ex) {
-            Logger(`Could not download json ${key}`)
-            Logger(ex, LOG_LEVEL_VERBOSE)
+            Logger(`Could not download json ${key}`);
+            Logger(ex, LOG_LEVEL_VERBOSE);
             return false;
         }
     }
@@ -119,14 +120,18 @@ export class JournalSyncMinio extends JournalSyncAbstract {
                 return true;
             }
         } catch (ex) {
-            Logger(`Could not upload ${key}`)
-            Logger(ex, LOG_LEVEL_VERBOSE)
+            Logger(`Could not upload ${key}`);
+            Logger(ex, LOG_LEVEL_VERBOSE);
         }
         return false;
     }
     async downloadFile(key: string, ignoreCache = false): Promise<Uint8Array | false> {
         const client = this._getClient();
-        const cmd = new GetObjectCommand({ Bucket: this.bucket, Key: key, ...(ignoreCache ? { ResponseCacheControl: "no-cache" } : {}) });
+        const cmd = new GetObjectCommand({
+            Bucket: this.bucket,
+            Key: key,
+            ...(ignoreCache ? { ResponseCacheControl: "no-cache" } : {}),
+        });
         const r = await client.send(cmd);
         const set = this.env.getSettings();
         try {
@@ -138,16 +143,20 @@ export class JournalSyncMinio extends JournalSyncAbstract {
                 return u;
             }
         } catch (ex) {
-            Logger(`Could not download ${key}`)
-            Logger(ex, LOG_LEVEL_VERBOSE)
+            Logger(`Could not download ${key}`);
+            Logger(ex, LOG_LEVEL_VERBOSE);
         }
         return false;
     }
     async listFiles(from: string, limit?: number) {
         const client = this._getClient();
-        const objects = await client.listObjectsV2({ Bucket: this.bucket, StartAfter: from, ...(limit ? { MaxKeys: limit } : {}) });
+        const objects = await client.listObjectsV2({
+            Bucket: this.bucket,
+            StartAfter: from,
+            ...(limit ? { MaxKeys: limit } : {}),
+        });
         if (!objects.Contents) return [];
-        return objects.Contents.map(e => e.Key) as string[];
+        return objects.Contents.map((e) => e.Key) as string[];
     }
 
     async isAvailable(): Promise<boolean> {
@@ -168,13 +177,12 @@ export class JournalSyncMinio extends JournalSyncAbstract {
             const objects = await client.listObjectsV2({ Bucket: this.bucket });
             if (!objects.Contents) return {};
             return {
-                estimatedSize: objects.Contents.reduce((acc, e) => acc + (e.Size || 0), 0)
-            }
+                estimatedSize: objects.Contents.reduce((acc, e) => acc + (e.Size || 0), 0),
+            };
         } catch (ex: any) {
             Logger(`Could not get status of the remote bucket`, LOG_LEVEL_NOTICE);
             Logger(ex, LOG_LEVEL_VERBOSE);
-            return false
+            return false;
         }
     }
-
 }

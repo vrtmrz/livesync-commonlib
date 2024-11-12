@@ -7,14 +7,13 @@ import {
     type EntryLeaf,
     type EntryNodeInfo,
     NODEINFO_DOCID,
-    type TweakValues
+    type TweakValues,
 } from "../common/types.ts";
 
 import type { ReactiveSource } from "../dataobject/reactive.ts";
 import { Logger } from "../common/logger.ts";
 import { resolveWithIgnoreKnownError, type SimpleStore } from "../common/utils.ts";
 import type { KeyValueDatabase } from "src/common/KeyValueDB.ts";
-
 
 export type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<void> | void;
 export type ReplicationStat = {
@@ -25,25 +24,24 @@ export type ReplicationStat = {
     lastSyncPullSeq: number;
     lastSyncPushSeq: number;
     syncStatus: DatabaseConnectingStatus;
-}
+};
 export interface LiveSyncReplicatorEnv {
     getDatabase(): PouchDB.Database<EntryDoc>;
     getSettings(): RemoteDBSettings & BucketSyncSetting & Pick<ObsidianLiveSyncSettings, "remoteType">;
     $$isMobile(): boolean;
     $$getLastPostFailedBySize(): boolean;
     $$parseReplicationResult: ReplicationCallback;
-    replicationStat: ReactiveSource<ReplicationStat>,
+    replicationStat: ReactiveSource<ReplicationStat>;
     kvDB: KeyValueDatabase;
     simpleStore: SimpleStore<any>;
 }
 
 export type RemoteDBStatus = {
-    [key: string]: any,
+    [key: string]: any;
     estimatedSize?: number;
 };
 
 export abstract class LiveSyncAbstractReplicator {
-
     syncStatus: DatabaseConnectingStatus = "NOT_CONNECTED";
     docArrived = 0;
     docSent = 0;
@@ -91,9 +89,14 @@ export abstract class LiveSyncAbstractReplicator {
         // initialize local node information.
     }
 
-    abstract terminateSync(): void
+    abstract terminateSync(): void;
 
-    abstract openReplication(setting: RemoteDBSettings, keepAlive: boolean, showResult: boolean, ignoreCleanLock: boolean): Promise<void | boolean>
+    abstract openReplication(
+        setting: RemoteDBSettings,
+        keepAlive: boolean,
+        showResult: boolean,
+        ignoreCleanLock: boolean
+    ): Promise<void | boolean>;
 
     updateInfo: () => void = () => {
         this.env.replicationStat.value = {
@@ -103,17 +106,21 @@ export abstract class LiveSyncAbstractReplicator {
             maxPushSeq: this.maxPushSeq,
             lastSyncPullSeq: this.lastSyncPullSeq,
             lastSyncPushSeq: this.lastSyncPushSeq,
-            syncStatus: this.syncStatus
+            syncStatus: this.syncStatus,
         };
     };
 
     abstract tryConnectRemote(setting: RemoteDBSettings, showResult?: boolean): Promise<boolean>;
-    abstract replicateAllToServer(setting: RemoteDBSettings, showingNotice?: boolean, sendChunksInBulkDisabled?: boolean): Promise<boolean>
-    abstract replicateAllFromServer(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>
+    abstract replicateAllToServer(
+        setting: RemoteDBSettings,
+        showingNotice?: boolean,
+        sendChunksInBulkDisabled?: boolean
+    ): Promise<boolean>;
+    abstract replicateAllFromServer(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>;
     abstract closeReplication(): void;
 
-    abstract tryResetRemoteDatabase(setting: RemoteDBSettings): Promise<void>
-    abstract tryCreateRemoteDatabase(setting: RemoteDBSettings): Promise<void>
+    abstract tryResetRemoteDatabase(setting: RemoteDBSettings): Promise<void>;
+    abstract tryCreateRemoteDatabase(setting: RemoteDBSettings): Promise<void>;
 
     abstract markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean): Promise<void>;
     abstract markRemoteResolved(setting: RemoteDBSettings): Promise<void>;

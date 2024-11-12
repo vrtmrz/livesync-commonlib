@@ -5,10 +5,24 @@ export function terminateWorker() {
     return;
 }
 
-export function splitPieces2Worker(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string, useSegmenter?: boolean) {
+export function splitPieces2Worker(
+    dataSrc: Blob,
+    pieceSize: number,
+    plainSplit: boolean,
+    minimumChunkSize: number,
+    filename?: string,
+    useSegmenter?: boolean
+) {
     return splitPieces2(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter ?? false);
 }
-export function splitPieces2WorkerV2(dataSrc: Blob, pieceSize: number, plainSplit: boolean, minimumChunkSize: number, filename?: string, useSegmenter?: boolean) {
+export function splitPieces2WorkerV2(
+    dataSrc: Blob,
+    pieceSize: number,
+    plainSplit: boolean,
+    minimumChunkSize: number,
+    filename?: string,
+    useSegmenter?: boolean
+) {
     return splitPieces2V2(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter ?? false);
 }
 

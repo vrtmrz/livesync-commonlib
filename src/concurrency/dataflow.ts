@@ -1,4 +1,3 @@
-
 export class DelayBatchTransformer<T> {
     delay: number;
     batchSize: number;
@@ -39,17 +38,20 @@ export class DelayBatchTransformer<T> {
 type RunningTask = {
     promise: Promise<void>;
     isRunning: boolean;
-}
+};
 // Concurrent limit transformer
 
 export class ConcurrentLimitTransformer<T, U> {
     processer: RunningTask[];
     queue: T[] = [];
 
-    constructor(public concurrentLimit: number, public processor: (item: T) => Promise<U>) {
+    constructor(
+        public concurrentLimit: number,
+        public processor: (item: T) => Promise<U>
+    ) {
         this.processer = new Array(concurrentLimit).fill(undefined).map(() => ({
             promise: Promise.resolve(),
-            isRunning: false
+            isRunning: false,
         }));
     }
 
@@ -61,7 +63,7 @@ export class ConcurrentLimitTransformer<T, U> {
     processQueuedItems(controller: TransformStreamDefaultController<U>) {
         let idx = -1;
         do {
-            idx = this.processer.findIndex(p => !p.isRunning);
+            idx = this.processer.findIndex((p) => !p.isRunning);
             if (idx == -1) {
                 // NO OP. All processer are running
                 break;
@@ -78,17 +80,20 @@ export class ConcurrentLimitTransformer<T, U> {
 
     processItem(idx: number, nextItem: T, controller: TransformStreamDefaultController<U>) {
         queueMicrotask(() => {
-            this.processer[idx].promise = this.processer[idx].promise.then(async () => {
-                const result = await this.processor(nextItem);
-                controller.enqueue(result);
-            }).catch(e => {
-                controller.error(e);
-            }).finally(() => {
-                this.processer[idx].isRunning = false;
-                if (this.queue.length > 0) {
-                    this.processQueuedItems(controller);
-                }
-            });
+            this.processer[idx].promise = this.processer[idx].promise
+                .then(async () => {
+                    const result = await this.processor(nextItem);
+                    controller.enqueue(result);
+                })
+                .catch((e) => {
+                    controller.error(e);
+                })
+                .finally(() => {
+                    this.processer[idx].isRunning = false;
+                    if (this.queue.length > 0) {
+                        this.processQueuedItems(controller);
+                    }
+                });
         });
     }
 }
@@ -96,13 +101,13 @@ export class ConcurrentLimitTransformer<T, U> {
 type OrderedItem<T> = {
     order: number;
     item: T;
-}
+};
 
 type OrderedResult<T> = {
     order: number;
     item?: T;
     processed: boolean;
-}
+};
 export class OrderedConcurrentLimitTransformer<T, U> {
     processer: RunningTask[];
     queue: OrderedItem<T>[] = [];
@@ -110,11 +115,13 @@ export class OrderedConcurrentLimitTransformer<T, U> {
 
     order = 0;
 
-
-    constructor(public concurrentLimit: number, public processor: (item: T) => Promise<U>) {
+    constructor(
+        public concurrentLimit: number,
+        public processor: (item: T) => Promise<U>
+    ) {
         this.processer = new Array(concurrentLimit).fill(undefined).map(() => ({
             promise: Promise.resolve(),
-            isRunning: false
+            isRunning: false,
         }));
     }
 
@@ -128,7 +135,7 @@ export class OrderedConcurrentLimitTransformer<T, U> {
     processQueuedItems(controller: TransformStreamDefaultController<U>) {
         let idx = -1;
         do {
-            idx = this.processer.findIndex(p => !p.isRunning);
+            idx = this.processer.findIndex((p) => !p.isRunning);
             if (idx == -1) {
                 // NO OP. All processer are running
                 break;
@@ -145,33 +152,34 @@ export class OrderedConcurrentLimitTransformer<T, U> {
 
     processItem(idx: number, nextItem: OrderedItem<T>, controller: TransformStreamDefaultController<U>) {
         queueMicrotask(() => {
-            this.processer[idx].promise = this.processer[idx].promise.then(async () => {
-                const result = await this.processor(nextItem.item);
-                const order = nextItem.order;
-                const resultItem = this.results.find(r => r.order == order);
-                if (!resultItem) {
-                    throw new Error("Result is not exist on the waiting list");
-                }
-                resultItem.item = result;
-                resultItem.processed = true;
-                // Send and remove processed items until reach the first unprocessed item
-                while (this.results.length > 0 && this.results[0].processed) {
-                    const r = this.results.shift()!;
-                    controller.enqueue(r.item);
-                }
-            }).catch(e => {
-                controller.error(e);
-            }).finally(() => {
-                this.processer[idx].isRunning = false;
-                if (this.queue.length > 0) {
-                    this.processQueuedItems(controller);
-                }
-            });
+            this.processer[idx].promise = this.processer[idx].promise
+                .then(async () => {
+                    const result = await this.processor(nextItem.item);
+                    const order = nextItem.order;
+                    const resultItem = this.results.find((r) => r.order == order);
+                    if (!resultItem) {
+                        throw new Error("Result is not exist on the waiting list");
+                    }
+                    resultItem.item = result;
+                    resultItem.processed = true;
+                    // Send and remove processed items until reach the first unprocessed item
+                    while (this.results.length > 0 && this.results[0].processed) {
+                        const r = this.results.shift()!;
+                        controller.enqueue(r.item);
+                    }
+                })
+                .catch((e) => {
+                    controller.error(e);
+                })
+                .finally(() => {
+                    this.processer[idx].isRunning = false;
+                    if (this.queue.length > 0) {
+                        this.processQueuedItems(controller);
+                    }
+                });
         });
     }
 }
-
-
 
 // Interval transformer
 export class IntervalTransformer<T> {
@@ -185,7 +193,7 @@ export class IntervalTransformer<T> {
         const now = Date.now();
         const timeSinceLastProcess = now - this.lastProcessTime;
         if (timeSinceLastProcess < this.interval) {
-            await new Promise(resolve => setTimeout(resolve, this.interval - timeSinceLastProcess));
+            await new Promise((resolve) => setTimeout(resolve, this.interval - timeSinceLastProcess));
         }
         this.lastProcessTime = Date.now();
         controller.enqueue(chunk);
@@ -199,7 +207,7 @@ export function sink<T>(onData: (chunk: T) => void, onEnd?: () => void) {
         },
         close() {
             onEnd?.();
-        }
+        },
     });
 }
 
@@ -207,13 +215,13 @@ export function source<T>(onStart: (controller: ReadableStreamDefaultController<
     return new ReadableStream<T>({
         start(controller) {
             onStart(controller);
-        }
+        },
     });
 }
 export function emitter<T>() {
-    let emit: (item: T) => void = () => { };
-    const _source = source<T>(controller => {
-        emit = item => controller.enqueue(item);
+    let emit: (item: T) => void = () => {};
+    const _source = source<T>((controller) => {
+        emit = (item) => controller.enqueue(item);
     });
     return { source: _source, emit };
 }
@@ -222,6 +230,6 @@ export function adapter<T>(transform: (chunk: T, controller: TransformStreamDefa
     return new TransformStream<T, T>({
         transform(chunk, controller) {
             transform(chunk, controller);
-        }
+        },
     });
 }
