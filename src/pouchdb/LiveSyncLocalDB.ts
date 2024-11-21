@@ -34,6 +34,7 @@ import {
     NOT_CONFLICTED,
     LOG_LEVEL_INFO,
     type DIFF_CHECK_RESULT_AUTO,
+    type MetaEntry,
 } from "../common/types.ts";
 import {
     applyPatch,
@@ -417,7 +418,7 @@ export class LiveSyncLocalDB {
         }
     }
     async getDBEntryFromMeta(
-        meta: LoadedEntry,
+        meta: LoadedEntry | MetaEntry,
         opt?: PouchDB.Core.GetOptions,
         dump = false,
         waitForReady = true,

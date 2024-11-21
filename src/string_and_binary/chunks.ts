@@ -81,7 +81,7 @@ function* splitStringWithinLength(text: string, pieceSize: number) {
 }
 
 function* splitTextInSegment(text: string, pieceSize: number, minimumChunkSize: number) {
-    const segments = segmenter!.segment(text) as [{ segment: string }];
+    const segments = segmenter!.segment(text) as [{ segment: string; }];
 
     let prev = "";
     let buf = "";
@@ -363,13 +363,17 @@ export async function splitPieces2V2(
             yield* gen;
         };
     }
+    let canBeSmall = false;
     let delimiter = 0; // Split null by default.
     if (filename && filename.endsWith(".pdf")) {
         delimiter = "/".charCodeAt(0);
+    } else if (filename && filename.endsWith(".json")) {
+        canBeSmall = true;
+        delimiter = ",".charCodeAt(0);
     }
 
     // Optimise chunk size to efficient dedupe.
-    const clampMin = 100000; //100kb
+    const clampMin = canBeSmall ? 100 : 100000; //100kb
     const clampMax = 100000000; //100mb
     const clampedSize = Math.max(clampMin, Math.min(clampMax, dataSrc.size));
     let step = 1;
@@ -425,12 +429,16 @@ export async function splitPieces2(
     }
 
     let delimiter = 0; // Split null by default.
+    let canBeSmall = false;
     if (filename && filename.endsWith(".pdf")) {
         delimiter = "/".charCodeAt(0);
+    } else if (filename && filename.endsWith(".json")) {
+        canBeSmall = true;
+        delimiter = ",".charCodeAt(0);
     }
 
     // Optimise chunk size to efficient dedupe.
-    const clampMin = 100000; //100kb
+    const clampMin = canBeSmall ? 100 : 100000; //100kb
     const clampMax = 100000000; //100mb
     const clampedSize = Math.max(clampMin, Math.min(clampMax, dataSrc.size));
     let step = 1;
