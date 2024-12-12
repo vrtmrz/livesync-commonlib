@@ -17,7 +17,6 @@ import {
     type DatabaseEntry,
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_VERBOSE,
-    RESULT_TIMED_OUT,
     REMOTE_COUCHDB,
     type EntryDocResponse,
     type EntryBase,
@@ -46,11 +45,8 @@ import {
     isObjectMargeApplicable,
     isSensibleMargeApplicable,
     isTextBlob,
-    onlyNot,
-    sendValue,
     tryParseJSON,
     unique,
-    waitForValue,
 } from "../common/utils.ts";
 import { Logger } from "../common/logger.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
@@ -58,14 +54,17 @@ import { LRUCache } from "../memory/LRUCache.ts";
 
 import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
 import { decodeBinary, readString, writeString } from "../string_and_binary/convert.ts";
-import { QueueProcessor } from "../concurrency/processor.ts";
-import { collectingChunks } from "../mock_and_interop/stores.ts";
 import { shouldSplitAsPlainText, stripAllPrefixes } from "../string_and_binary/path.ts";
 import { serialized } from "../concurrency/lock.ts";
 import { splitPieces2, splitPieces2V2 } from "../string_and_binary/chunks.ts";
 import { splitPieces2Worker, splitPieces2WorkerV2 } from "../worker/bgWorker.ts";
 import { DIFF_DELETE, DIFF_EQUAL, DIFF_INSERT, diff_match_patch, type Diff } from "diff-match-patch";
+import { globalSlipBoard } from "../bureau/bureau.ts";
+import { BatchReader, ChunkCollector } from "./ChunkCollector.ts";
 
+export type ChunkRetrievalResultSuccess = { _id: DocumentID; data: string; type: "leaf" };
+export type ChunkRetrievalResultError = { _id: DocumentID; error: string };
+export type ChunkRetrievalResult = ChunkRetrievalResultSuccess | ChunkRetrievalResultError;
 export interface LiveSyncLocalDBEnv {
     $$id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
     $$path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID>;
@@ -104,7 +103,8 @@ export class LiveSyncLocalDB {
     dbname: string;
     settings!: RemoteDBSettings;
     localDatabase!: PouchDB.Database<EntryDoc>;
-
+    chunkCollector = new ChunkCollector(this);
+    batchReader = new BatchReader(this);
     isReady = false;
 
     h32!: (input: string, seed?: number) => string;
@@ -233,11 +233,13 @@ export class LiveSyncLocalDB {
             .changes({
                 since: "now",
                 live: true,
+                include_docs: true,
                 filter: (doc) => doc.type == "leaf",
             })
             .on("change", (e) => {
                 if (e.deleted) return;
-                sendValue(`leaf-${e.id}`, e.doc);
+                // sendValue(`leaf-${e.id}`, e.doc);
+                globalSlipBoard.submit("read-chunk", e.id, e.doc as EntryLeaf);
             });
         this.changeHandler = changes;
         this.isReady = true;
@@ -246,33 +248,11 @@ export class LiveSyncLocalDB {
     }
 
     async readChunk(id: DocumentID, timeout: number): Promise<string> {
-        const leaf = this.hashCaches.get(id);
-        if (leaf) {
-            return leaf;
+        const ret = await this.batchReader.readChunk(id, timeout);
+        if ("error" in ret) {
+            throw new Error(`Could not read chunk ${id}: (${ret.error})`);
         }
-        let w: EntryDoc | undefined;
-        try {
-            w = await this.localDatabase.get(id);
-        } catch (ex) {
-            if (!isErrorOfMissingDoc(ex)) {
-                throw ex;
-            }
-        }
-        if (w === undefined && timeout != 0) {
-            const ret = await waitForValue<EntryDoc>(`leaf-${id}`, timeout);
-            if (ret === RESULT_TIMED_OUT) {
-                throw new Error(`Timed out: ${id}`);
-            }
-            w = ret;
-        }
-        if (w === undefined) {
-            throw new Error(`Missing chunks of: ${id}`);
-        }
-        if (w.type != "leaf") {
-            throw new Error(`Corrupted chunk has been detected: ${id}`);
-        }
-        this.hashCaches.set(id, w.data);
-        return w.data;
+        return ret.data;
     }
 
     async getChunk(piece: string, doc: SavingEntry): Promise<GeneratedChunk | false> {
@@ -485,7 +465,7 @@ export class LiveSyncLocalDB {
                 if (missingChunks.length != 0) {
                     if (this.isOnDemandChunkEnabled) {
                         const items = await this.collectChunks(missingChunks, false, waitForReady);
-                        if (!items || items.some((leaf) => leaf.type != "leaf")) {
+                        if (!items || items.some((leaf) => "error" in leaf || leaf.type != "leaf")) {
                             Logger(
                                 `Chunks of ${dispFilename} (${meta._id.substring(0, 8)}) are not valid. (p1)`,
                                 LOG_LEVEL_NOTICE
@@ -495,7 +475,9 @@ export class LiveSyncLocalDB {
                             }
                             return false;
                         }
-                        items.forEach((chunk) => loadedChildrenMap.set(chunk._id, chunk.data));
+                        items
+                            .filter((e) => "data" in e)
+                            .forEach((chunk) => loadedChildrenMap.set(chunk._id, chunk.data));
                     } else {
                         try {
                             if (waitForReady) {
@@ -1065,74 +1047,8 @@ export class LiveSyncLocalDB {
         return true;
     }
 
-    _chunkCollectProcessor = new QueueProcessor(
-        async (requesting: string[]) => {
-            try {
-                const chunks = await this._collectChunks(requesting, false);
-                if (chunks) {
-                    chunks.forEach((chunk) => sendValue(`chunk-fetch-${chunk._id}`, chunk));
-                } else {
-                    throw new Error("Failed: CollectChunksInternal");
-                }
-            } catch (ex) {
-                Logger(`Exception raised while retrieving chunks`, LOG_LEVEL_NOTICE);
-                Logger(ex, LOG_LEVEL_VERBOSE);
-                requesting.forEach((id) => sendValue(`chunk-fetch-${id}`, []));
-            }
-            return;
-        },
-        {
-            batchSize: 100,
-            interval: 100,
-            concurrentLimit: 1,
-            maintainDelay: true,
-            suspended: false,
-            totalRemainingReactiveSource: collectingChunks,
-        }
-    );
-    async collectChunks(ids: string[], showResult = false, waitForReady?: boolean) {
-        const localChunks = await this.collectChunksWithCache(ids as DocumentID[]);
-        const missingChunks = localChunks.filter((e) => e.chunk === false).map((e) => e.id);
-        // If we have enough chunks, return them.
-        if (missingChunks.length == 0) {
-            return localChunks.map((e) => e.chunk) as EntryLeaf[];
-        }
-        this._chunkCollectProcessor.batchSize = this.settings.concurrencyOfReadChunksOnline;
-        this._chunkCollectProcessor.interval = this.settings.minimumIntervalOfReadChunksOnline;
-        this._chunkCollectProcessor.enqueueAll(ids);
-        const fetchChunkTasks = ids.map((id) => waitForValue<EntryLeaf>(`chunk-fetch-${id}`));
-        const res = (await Promise.all(fetchChunkTasks)).filter(onlyNot(RESULT_TIMED_OUT));
-        return res;
-    }
-
-    async _collectChunks(ids: string[], showResult = false): Promise<false | EntryLeaf[]> {
-        // Collect chunks from the local database and the cache.
-        const localChunks = await this.collectChunksWithCache(ids as DocumentID[]);
-        const missingChunks = localChunks.filter((e) => e.chunk === false).map((e) => e.id);
-        // If we have enough chunks, return them.
-        if (missingChunks.length == 0) {
-            return localChunks.map((e) => e.chunk) as EntryLeaf[];
-        }
-        // Fetching remote chunks.
-        const remoteDocs = await this.env.$$getReplicator().fetchRemoteChunks(missingChunks, showResult);
-        if (remoteDocs == false) {
-            Logger(
-                `Could not fetch chunks from the server. `,
-                showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_VERBOSE,
-                "fetch"
-            );
-            return false;
-        }
-        remoteDocs.forEach((e) => this.hashCaches.set(e._id, e.data));
-        // Cache remote chunks to the local database.
-        await this.localDatabase.bulkDocs(remoteDocs, { new_edits: false });
-        // Chunks should be ordered by as we requested.
-        const chunks = Object.fromEntries(
-            [...localChunks.map((e) => e.chunk).filter((e) => e !== false), ...remoteDocs].map((e) => [e._id, e])
-        );
-        const ret = ids.map((e) => chunks?.[e] ?? undefined);
-        if (ret.some((e) => e === undefined)) return false;
-        return ret;
+    collectChunks(ids: string[], showResult = false, waitForReady?: boolean): Promise<ChunkRetrievalResult[]> {
+        return this.chunkCollector.collectChunks(ids, showResult, waitForReady);
     }
 
     async *findAllChunks(
@@ -1145,9 +1061,7 @@ export class LiveSyncLocalDB {
         const targets = [() => this.findEntries("h:", `h:\u{10ffff}`, opt ?? {})];
         for (const targetFun of targets) {
             const target = targetFun();
-            for await (const f of target) {
-                yield f;
-            }
+            yield* target;
         }
     }
 
@@ -1203,10 +1117,7 @@ export class LiveSyncLocalDB {
             () => this.findEntries(`h:\u{10ffff}`, "", opt ?? {}),
         ];
         for (const targetFun of targets) {
-            const target = targetFun();
-            for await (const f of target) {
-                yield f;
-            }
+            yield* targetFun();
         }
     }
     async *findEntryNames(
@@ -1328,42 +1239,6 @@ export class LiveSyncLocalDB {
         options?: PouchDB.Core.BulkDocsOptions
     ): Promise<Array<PouchDB.Core.Response | PouchDB.Core.Error>> {
         return this.localDatabase.bulkDocs(docs, options || {});
-    }
-
-    /* Read chunks from local database with cached chunks */
-    async collectChunksWithCache(keys: DocumentID[]): Promise<{ id: DocumentID; chunk: EntryLeaf | false }[]> {
-        const exists = keys.map((e) =>
-            this.hashCaches.has(e) ? { id: e, chunk: this.hashCaches.get(e) } : { id: e, chunk: false }
-        );
-        const notExists = exists.filter((e) => e.chunk === false);
-        if (notExists.length > 0) {
-            const chunks = await this.localDatabase.allDocs({ keys: notExists.map((e) => e.id), include_docs: true });
-            const existChunks = chunks.rows.filter((e) => !("error" in e)).map((e: any) => e.doc as EntryLeaf);
-            // If the chunks are missing, possibly backed up while cleaning up.
-            const nonExistsLocal = chunks.rows.filter((e) => "error" in e).map((e) => e.key);
-            const purgedChunks = await this.localDatabase.allDocs({
-                keys: nonExistsLocal.map((e) => `_local/${e}`),
-                include_docs: true,
-            });
-            const existChunksPurged = purgedChunks.rows
-                .filter((e) => !("error" in e))
-                .map((e: any) => ({ ...e.doc, _id: e.id.substring(7) }) as EntryLeaf);
-            const temp = Object.fromEntries(existChunksPurged.map((e) => [e._id, e.data]));
-            for (const chunk of existChunks) {
-                temp[chunk._id] = chunk.data;
-                this.hashCaches.set(chunk._id, chunk.data);
-            }
-            const ret = exists.map((e) => ({
-                id: e.id,
-                chunk: e.chunk !== false ? e.chunk : e.id in temp ? temp[e.id] : false,
-            }));
-            return ret.map((e) => ({
-                id: e.id,
-                chunk: e.chunk !== false ? ({ _id: e.id, data: e.chunk, type: "leaf" } as EntryLeaf) : false,
-            }));
-        } else {
-            return exists.map((e) => ({ id: e.id, chunk: { _id: e.id, data: e.chunk, type: "leaf" } as EntryLeaf }));
-        }
     }
 
     // --- File operations!

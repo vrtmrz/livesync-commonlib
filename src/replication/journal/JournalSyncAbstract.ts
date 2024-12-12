@@ -14,7 +14,6 @@ import {
     concatUInt8Array,
     delay,
     escapeNewLineFromString,
-    sendValue,
     setAllItems,
     unescapeNewLineFromString,
 } from "../../common/utils.ts";
@@ -24,6 +23,7 @@ import { type CheckPointInfo, CheckPointInfoDefault } from "./JournalSyncTypes.t
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicator.ts";
 import { Trench } from "../../memory/memutil.ts";
 import { Notifier } from "../../concurrency/processor.ts";
+import { globalSlipBoard } from "../../bureau/bureau.ts";
 const RECORD_SPLIT = `\n`;
 const UNIT_SPLIT = `\u001f`;
 type ProcessingEntry = PouchDB.Core.PutDocument<EntryDoc> & PouchDB.Core.GetMeta;
@@ -429,7 +429,7 @@ export abstract class JournalSyncAbstract {
                 // Send arrived notification.
                 saveChunks
                     .filter((e) => saveError.indexOf(e._id) === -1)
-                    .forEach((doc) => sendValue(`leaf-${doc._id}`, doc));
+                    .forEach((doc) => globalSlipBoard.submit("read-chunk", doc._id, doc as EntryLeaf));
                 await this.updateCheckPointInfo((info) => ({
                     ...info,
                     knownIDs: setAllItems(
