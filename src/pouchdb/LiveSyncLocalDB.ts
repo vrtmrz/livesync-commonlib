@@ -1,6 +1,7 @@
 //
 
-import { xxhashOld, xxhashNew, sha1 } from "octagonal-wheels/hash/xxhash";
+import { xxhashNew } from "octagonal-wheels/hash/xxhash";
+import { sha1, fallbackMixedHashEach, mixedHash } from "octagonal-wheels/hash/purejs";
 import {
     type EntryDoc,
     type EntryLeaf,
@@ -34,6 +35,8 @@ import {
     LOG_LEVEL_INFO,
     type DIFF_CHECK_RESULT_AUTO,
     type MetaEntry,
+    SALT_OF_ID,
+    SEED_MURMURHASH,
 } from "../common/types.ts";
 import {
     applyPatch,
@@ -53,7 +56,7 @@ import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 import { LRUCache } from "../memory/LRUCache.ts";
 
 import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
-import { decodeBinary, readString, writeString } from "../string_and_binary/convert.ts";
+import { decodeBinary, readString } from "../string_and_binary/convert.ts";
 import { shouldSplitAsPlainText, stripAllPrefixes } from "../string_and_binary/path.ts";
 import { serialized } from "../concurrency/lock.ts";
 import { splitPieces2, splitPieces2V2 } from "../string_and_binary/chunks.ts";
@@ -119,13 +122,19 @@ export class LiveSyncLocalDB {
     maxChunkVersion = -1;
     minChunkVersion = -1;
     needScanning = false;
+    hashedPassphrase = "";
+    hashedPassphrase32 = 0;
 
     env: LiveSyncLocalDBEnv;
 
     async _prepareHashFunctions() {
         if (this.h32 != null) return;
         if (this.settings.hashAlg == "sha1") {
-            Logger(`Fallback(SHA1) is used for hashing`, LOG_LEVEL_VERBOSE);
+            Logger(`[Hash function]: Fallback (SHA1)`, LOG_LEVEL_VERBOSE);
+            return;
+        }
+        if (this.settings.hashAlg == "mixed-purejs") {
+            Logger(`[Hash function]: Fallback (Mixed PureJS)`, LOG_LEVEL_VERBOSE);
             return;
         }
         try {
@@ -134,21 +143,11 @@ export class LiveSyncLocalDB {
             this.xxhash32 = h32;
             this.h32 = h32ToString;
             this.h32Raw = h32Raw;
-            Logger(`Newer xxhash has been initialised`, LOG_LEVEL_VERBOSE);
+            Logger(`[Hash function]: WASM (xxhash)`, LOG_LEVEL_VERBOSE);
         } catch (ex) {
-            Logger(`Could not initialise xxhash: use v1`, LOG_LEVEL_VERBOSE);
-            Logger(ex);
-            try {
-                this.xxhash64 = false;
-                const { h32, h32Raw } = await xxhashOld();
-                this.h32 = h32 as typeof xxhashNew.prototype.h32ToString;
-                this.h32Raw = h32Raw;
-                this.xxhash32 = (str) => h32Raw(writeString(str));
-            } catch (ex) {
-                Logger(`Could not initialise xxhash: use sha1F`, LOG_LEVEL_VERBOSE);
-                Logger(ex);
-                this.settings.hashAlg = "sha1";
-            }
+            Logger(`[Hash function]: Failed to initialise WASM xxhash. Fallback (PureJS) has been activated`);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            this.settings.hashAlg = "mixed-purejs";
         }
     }
 
@@ -171,6 +170,13 @@ export class LiveSyncLocalDB {
         const settings = this.env.getSettings();
         this.settings = settings;
         this.hashCaches = new LRUCache(settings.hashCacheMaxCount, settings.hashCacheMaxAmount);
+        const passphrase = this.settings.passphrase;
+        // Do not use all of the passphrase. If the contents of the chunk are inferable, the passphrase could be compromised for brute force attacks.
+        // Use only 3/4 of the passphrase. if no letter available, all of ID computed from SALT_OF_ID.
+        const usingLetters = ~~((passphrase.length / 4) * 3);
+        const passphraseForHash = SALT_OF_ID + passphrase.substring(0, usingLetters);
+        this.hashedPassphrase = fallbackMixedHashEach(passphraseForHash);
+        this.hashedPassphrase32 = mixedHash(passphraseForHash, SEED_MURMURHASH)[0];
     }
 
     constructor(dbname: string, env: LiveSyncLocalDBEnv) {
@@ -277,16 +283,25 @@ export class LiveSyncLocalDB {
     }
 
     async generateHashedChunk(piece: string) {
-        const userPassphrase = this.settings.passphrase;
+        // const userPassphrase = this.settings.passphrase;
+        const hashedUserPassphrase = this.hashedPassphrase;
         if (this.settings.hashAlg == "sha1") {
             if (this.settings.encrypt) {
-                return "+" + (await sha1(`${piece}-${userPassphrase}-${piece.length}`));
+                return "+" + (await sha1(`${piece}-${hashedUserPassphrase}-${piece.length}`));
             } else {
                 return await sha1(`${piece}-${piece.length}`);
             }
+        } else if (this.settings.hashAlg == "mixed-purejs") {
+            if (this.settings.encrypt) {
+                return "+" + fallbackMixedHashEach(`${piece}${hashedUserPassphrase}${piece.length}`);
+            } else {
+                return fallbackMixedHashEach(`${piece}-${piece.length}`);
+            }
         } else if (this.settings.hashAlg === "") {
             if (this.settings.encrypt) {
-                const userPasswordHash = this.h32Raw(new TextEncoder().encode(userPassphrase));
+                // const userPassphrase = this.settings.passphrase;
+                // const userPasswordHash = this.h32Raw(new TextEncoder().encode(userPassphrase));
+                const userPasswordHash = this.hashedPassphrase32;
                 return (
                     "+" + (this.h32Raw(new TextEncoder().encode(piece)) ^ userPasswordHash ^ piece.length).toString(36)
                 );
@@ -295,7 +310,7 @@ export class LiveSyncLocalDB {
             }
         } else if (this.settings.hashAlg == "xxhash64" && this.xxhash64) {
             if (this.settings.encrypt) {
-                return "+" + this.xxhash64(`${piece}-${userPassphrase}-${piece.length}`).toString(36);
+                return "+" + this.xxhash64(`${piece}-${hashedUserPassphrase}-${piece.length}`).toString(36);
             } else {
                 return this.xxhash64(`${piece}-${piece.length}`).toString(36);
             }
@@ -303,7 +318,7 @@ export class LiveSyncLocalDB {
             // If we could not use xxhash64, fall back to the 32bit impl.
             // It may happen on iOS before 14.
             if (this.settings.encrypt) {
-                return "+" + this.xxhash32(`${piece}-${userPassphrase}-${piece.length}`).toString(36);
+                return "+" + this.xxhash32(`${piece}-${hashedUserPassphrase}-${piece.length}`).toString(36);
             } else {
                 return this.xxhash32(`${piece}-${piece.length}`).toString(36);
             }
@@ -756,6 +771,7 @@ export class LiveSyncLocalDB {
         const chunkTasks = [];
 
         for await (const piece of pieces()) {
+            if (piece.length === 0) continue;
             processed++;
             chunkTasks.push(this.getChunk(piece, note));
         }
