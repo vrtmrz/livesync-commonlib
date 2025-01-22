@@ -106,24 +106,24 @@ type MESSAGE = { [key in I18N_LANGS]?: string };
         es: "Habilitar ambos"
     },
     "moduleMigration.optionEnableFilenameCaseInsensitive": {
-      def: "Enable only #1",
-      es: "Habilitar solo #1"
+        def: "Enable only #1",
+        es: "Habilitar solo #1"
     },
     "moduleMigration.optionEnableFixedRevisionForChunks": {
-      def: "Enable only #2",
-      es: "Habilitar solo #2"
+        def: "Enable only #2",
+        es: "Habilitar solo #2"
     },
     "moduleMigration.optionAdjustRemote": {
-      def: "Adjust to remote",
-      es: "Ajustar al remoto"
+        def: "Adjust to remote",
+        es: "Ajustar al remoto"
     },
     "moduleMigration.optionKeepPreviousBehaviour": {
-      def: "Keep previous behaviour",
-      es: "Mantener comportamiento anterior"
+        def: "Keep previous behaviour",
+        es: "Mantener comportamiento anterior"
     },
     "moduleMigration.optionDecideLater": {
-      def: "Decide it later",
-      es: "Decidirlo más tarde"
+        def: "Decide it later",
+        es: "Decidirlo más tarde"
     },
     // Initial setup
     "moduleMigration.titleWelcome": {
@@ -357,54 +357,8 @@ type MESSAGE = { [key in I18N_LANGS]?: string };
         es: "Reconstrucción necesaria"
     },
     "obsidianLiveSyncSettingTab.msgRebuildRequired": {
-        def: `Rebuilding Databases are required to apply the changes.. Please select the method to apply the changes.
-
-<details>
-<summary>Legends</summary>
-
-| Symbol | Meaning |
-|: ------ :| ------- |
-| ⇔ | Up to Date |
-| ⇄ | Synchronise to balance |
-| ⇐,⇒ | Transfer to overwrite |
-| ⇠,⇢ | Transfer to overwrite from other side |
-
-</details>
-
-## \${OPTION_REBUILD_BOTH}
-At a glance:  📄 ⇒¹ 💻 ⇒² 🛰️ ⇢ⁿ 💻 ⇄ⁿ⁺¹ 📄
-Reconstruct both the local and remote databases using existing files from this device.
-This causes a lockout other devices, and they need to perform fetching. 
-## \${OPTION_FETCH}
-At a glance: 📄 ⇄² 💻 ⇐¹ 🛰️ ⇔ 💻 ⇔ 📄
-Initialise the local database and reconstruct it using data fetched from the remote database.
-This case includes the case which you have rebuilt the remote database.
-## \${OPTION_ONLY_SETTING}
-Store only the settings. **Caution: This may lead to data corruption**; database reconstruction is generally necessary.`,
-        es: `Es necesario reconstruir las bases de datos para aplicar los cambios. Por favor selecciona el método para aplicar los cambios.
-
-<details>
-<summary>Legendas</summary>
-
-| Símbolo | Significado |
-|: ------ :| ------- |
-| ⇔ | Actualizado |
-| ⇄ | Sincronizar para equilibrar |
-| ⇐,⇒ | Transferir para sobrescribir |
-| ⇠,⇢ | Transferir para sobrescribir desde otro lado |
-
-</details>
-
-## \${OPTION_REBUILD_BOTH}
-A simple vista:  📄 ⇒¹ 💻 ⇒² 🛰️ ⇢ⁿ 💻 ⇄ⁿ⁺¹ 📄
-Reconstruir tanto la base de datos local como la remota utilizando los archivos existentes de este dispositivo.
-Esto bloquea a otros dispositivos, y necesitan realizar la obtención.
-## \${OPTION_FETCH}
-A simple vista: 📄 ⇄² 💻 ⇐¹ 🛰️ ⇔ 💻 ⇔ 📄
-Inicializa la base de datos local y la reconstruye utilizando los datos obtenidos de la base de datos remota.
-Este caso incluye el caso en el que has reconstruido la base de datos remota.
-## \${OPTION_ONLY_SETTING}
-Almacena solo la configuración. **Precaución: esto puede provocar corrupción de datos**; generalmente es necesario reconstruir la base de datos.`
+        def: "Rebuilding Databases are required to apply the changes.. Please select the method to apply the changes.\n\n<details>\n<summary>Legends</summary>\n\n| Symbol | Meaning |\n|: ------ :| ------- |\n| ⇔ | Up to Date |\n| ⇄ | Synchronise to balance |\n| ⇐,⇒ | Transfer to overwrite |\n| ⇠,⇢ | Transfer to overwrite from other side |\n\n</details>\n\n## ${OPTION_REBUILD_BOTH}\nAt a glance:  📄 ⇒¹ 💻 ⇒² 🛰️ ⇢ⁿ 💻 ⇄ⁿ⁺¹ 📄\nReconstruct both the local and remote databases using existing files from this device.\nThis causes a lockout other devices, and they need to perform fetching.\n## ${OPTION_FETCH}\nAt a glance: 📄 ⇄² 💻 ⇐¹ 🛰️ ⇔ 💻 ⇔ 📄\nInitialise the local database and reconstruct it using data fetched from the remote database.\nThis case includes the case which you have rebuilt the remote database.\n## ${OPTION_ONLY_SETTING}\nStore only the settings. **Caution: This may lead to data corruption**; database reconstruction is generally necessary.",
+        es: "Es necesario reconstruir las bases de datos para aplicar los cambios. Por favor selecciona el método para aplicar los cambios.\n\n<details>\n<summary>Legendas</summary>\n\n| Símbolo | Significado |\n|: ------ :| ------- |\n| ⇔ | Actualizado |\n| ⇄ | Sincronizar para equilibrar |\n| ⇐,⇒ | Transferir para sobrescribir |\n| ⇠,⇢ | Transferir para sobrescribir desde otro lado |\n\n</details>\n\n## ${OPTION_REBUILD_BOTH}\nA simple vista:  📄 ⇒¹ 💻 ⇒² 🛰️ ⇢ⁿ 💻 ⇄ⁿ⁺¹ 📄\nReconstruir tanto la base de datos local como la remota utilizando los archivos existentes de este dispositivo.\nEsto bloquea a otros dispositivos, y necesitan realizar la obtención.\n## ${OPTION_FETCH}\nA simple vista: 📄 ⇄² 💻 ⇐¹ 🛰️ ⇔ 💻 ⇔ 📄\nInicializa la base de datos local y la reconstruye utilizando los datos obtenidos de la base de datos remota.\nEste caso incluye el caso en el que has reconstruido la base de datos remota.\n## ${OPTION_ONLY_SETTING}\nAlmacena solo la configuración. **Precaución: esto puede provocar corrupción de datos**; generalmente es necesario reconstruir la base de datos."
     },
     "obsidianLiveSyncSettingTab.msgAreYouSureProceed": {
         def: "Are you sure to proceed?",
@@ -779,250 +733,250 @@ Almacena solo la configuración. **Precaución: esto puede provocar corrupción 
     },
     // Panel: Remote Configuration
     "obsidianLiveSyncSettingTab.panelRemoteConfiguration": {
-        "def": "Remote Configuration",
+        def: "Remote Configuration",
         es: "Configuración remota"
     },
     "obsidianLiveSyncSettingTab.titleRemoteServer": {
-        "def": "Remote Server",
+        def: "Remote Server",
         es: "Servidor remoto"
     },
     "obsidianLiveSyncSettingTab.optionCouchDB": {
-        "def": "CouchDB",
+        def: "CouchDB",
         es: "CouchDB"
     },
     "obsidianLiveSyncSettingTab.optionMinioS3R2": {
-        "def": "Minio,S3,R2",
+        def: "Minio,S3,R2",
         es: "Minio,S3,R2"
     },
     "obsidianLiveSyncSettingTab.titleMinioS3R2": {
-        "def": "Minio,S3,R2",
+        def: "Minio,S3,R2",
         es: "Minio,S3,R2"
     },
     "obsidianLiveSyncSettingTab.msgObjectStorageWarning": {
-        "def": "WARNING: This feature is a Work In Progress, so please keep in mind the following:\n- Append only architecture. A rebuild is required to shrink the storage.\n- A bit fragile.\n- When first syncing, all history will be transferred from the remote. Be mindful of data caps and slow speeds.\n- Only differences are synced live.\n\nIf you run into any issues, or have ideas about this feature, please create a issue on GitHub.\nI appreciate you for your great dedication.",
+        def: "WARNING: This feature is a Work In Progress, so please keep in mind the following:\n- Append only architecture. A rebuild is required to shrink the storage.\n- A bit fragile.\n- When first syncing, all history will be transferred from the remote. Be mindful of data caps and slow speeds.\n- Only differences are synced live.\n\nIf you run into any issues, or have ideas about this feature, please create a issue on GitHub.\nI appreciate you for your great dedication.",
         es: "ADVERTENCIA: Esta característica está en desarrollo, así que por favor ten en cuenta lo siguiente:\n- Arquitectura de solo anexado. Se requiere una reconstrucción para reducir el almacenamiento.\n- Un poco frágil.\n- Al sincronizar por primera vez, todo el historial será transferido desde el remoto. Ten en cuenta los límites de datos y las velocidades lentas.\n- Solo las diferencias se sincronizan en vivo.\n\nSi encuentras algún problema o tienes ideas sobre esta característica, por favor crea un issue en GitHub.\nAprecio mucho tu gran dedicación."
     },
     "obsidianLiveSyncSettingTab.nameTestConnection": {
-        "def": "Test Connection",
+        def: "Test Connection",
         es: "Probar conexión"
     },
     "obsidianLiveSyncSettingTab.btnTest": {
-        "def": "Test",
+        def: "Test",
         es: "Probar"
     },
     "obsidianLiveSyncSettingTab.nameApplySettings": {
-        "def": "Apply Settings",
+        def: "Apply Settings",
         es: "Aplicar configuraciones"
     },
     "obsidianLiveSyncSettingTab.titleCouchDB": {
-        "def": "CouchDB",
+        def: "CouchDB",
         es: "CouchDB"
     },
     "obsidianLiveSyncSettingTab.msgNonHTTPSWarning": {
-        "def": "Cannot connect to non-HTTPS URI. Please update your config and try again.",
+        def: "Cannot connect to non-HTTPS URI. Please update your config and try again.",
         es: "No se puede conectar a URI que no sean HTTPS. Por favor, actualiza tu configuración y vuelve a intentarlo."
     },
     "obsidianLiveSyncSettingTab.msgNonHTTPSInfo": {
-        "def": "Configured as non-HTTPS URI. Be warned that this may not work on mobile devices.",
+        def: "Configured as non-HTTPS URI. Be warned that this may not work on mobile devices.",
         es: "Configurado como URI que no es HTTPS. Ten en cuenta que esto puede no funcionar en dispositivos móviles."
     },
     "obsidianLiveSyncSettingTab.msgSettingsUnchangeableDuringSync": {
-        "def": "These settings are unable to be changed during synchronization. Please disable all syncing in the \"Sync Settings\" to unlock.",
+        def: "These settings are unable to be changed during synchronization. Please disable all syncing in the \"Sync Settings\" to unlock.",
         es: "Estas configuraciones no se pueden cambiar durante la sincronización. Por favor, deshabilita toda la sincronización en las \"Configuraciones de Sincronización\" para desbloquear."
     },
     "obsidianLiveSyncSettingTab.nameTestDatabaseConnection": {
-        "def": "Test Database Connection",
+        def: "Test Database Connection",
         es: "Probar Conexión de Base de Datos"
     },
     "obsidianLiveSyncSettingTab.descTestDatabaseConnection": {
-        "def": "Open database connection. If the remote database is not found and you have permission to create a database, the database will be created.",
+        def: "Open database connection. If the remote database is not found and you have permission to create a database, the database will be created.",
         es: "Abrir conexión a la base de datos. Si no se encuentra la base de datos remota y tienes permiso para crear una base de datos, se creará la base de datos."
     },
     "obsidianLiveSyncSettingTab.nameValidateDatabaseConfig": {
-        "def": "Validate Database Configuration",
+        def: "Validate Database Configuration",
         es: "Validar Configuración de la Base de Datos"
     },
     "obsidianLiveSyncSettingTab.descValidateDatabaseConfig": {
-        "def": "Checks and fixes any potential issues with the database config.",
+        def: "Checks and fixes any potential issues with the database config.",
         es: "Verifica y soluciona cualquier problema potencial con la configuración de la base de datos."
     },
     "obsidianLiveSyncSettingTab.btnCheck": {
-        "def": "Check",
+        def: "Check",
         es: "Verificar"
     },
     // Mensaje Notification
     "obsidianLiveSyncSettingTab.titleNotification": {
-        "def": "Notification",
+        def: "Notification",
         es: "Notificación"
     },
     // Panel: Privacy & Encryption
     "obsidianLiveSyncSettingTab.panelPrivacyEncryption": {
-        "def": "Privacy & Encryption",
+        def: "Privacy & Encryption",
         es: "Privacidad y Cifrado"
     },
     "obsidianLiveSyncSettingTab.titleFetchSettings": {
-        "def": "Fetch Settings",
+        def: "Fetch Settings",
         es: "Obtener configuraciones"
     },
     "obsidianLiveSyncSettingTab.titleFetchConfigFromRemote": {
-        "def": "Fetch config from remote server",
+        def: "Fetch config from remote server",
         es: "Obtener configuración del servidor remoto"
     },
     "obsidianLiveSyncSettingTab.descFetchConfigFromRemote": {
-        "def": "Fetch necessary settings from already configured remote server.",
+        def: "Fetch necessary settings from already configured remote server.",
         es: "Obtener las configuraciones necesarias del servidor remoto ya configurado."
     },
     "obsidianLiveSyncSettingTab.buttonFetch": {
-        "def": "Fetch",
+        def: "Fetch",
         es: "Obtener"
     },
     "obsidianLiveSyncSettingTab.buttonNext": {
-        "def": "Next",
+        def: "Next",
         es: "Siguiente"
     },
     "obsidianLiveSyncSettingTab.msgConfigCheckFailed": {
-        "def": "The configuration check has failed. Do you want to continue anyway?",
+        def: "The configuration check has failed. Do you want to continue anyway?",
         es: "La verificación de configuración ha fallado. ¿Quieres continuar de todos modos?"
     },
     "obsidianLiveSyncSettingTab.titleRemoteConfigCheckFailed": {
-        "def": "Remote Configuration Check Failed",
+        def: "Remote Configuration Check Failed",
         es: "La verificación de configuración remota falló"
     },
     "obsidianLiveSyncSettingTab.msgEnableEncryptionRecommendation": {
-        "def": "We recommend enabling End-To-End Encryption, and Path Obfuscation. Are you sure you want to continue without encryption?",
+        def: "We recommend enabling End-To-End Encryption, and Path Obfuscation. Are you sure you want to continue without encryption?",
         es: "Recomendamos habilitar el cifrado de extremo a extremo y la obfuscación de ruta. ¿Estás seguro de querer continuar sin cifrado?"
     },
     "obsidianLiveSyncSettingTab.titleEncryptionNotEnabled": {
-        "def": "Encryption is not enabled",
+        def: "Encryption is not enabled",
         es: "El cifrado no está habilitado"
     },
     "obsidianLiveSyncSettingTab.msgInvalidPassphrase": {
-        "def": "Your encryption passphrase might be invalid. Are you sure you want to continue?",
+        def: "Your encryption passphrase might be invalid. Are you sure you want to continue?",
         es: "Tu frase de contraseña de cifrado podría ser inválida. ¿Estás seguro de querer continuar?"
     },
     "obsidianLiveSyncSettingTab.titleEncryptionPassphraseInvalid": {
-        "def": "Encryption Passphrase Invalid",
+        def: "Encryption Passphrase Invalid",
         es: "La frase de contraseña de cifrado es inválida"
     },
     "obsidianLiveSyncSettingTab.msgFetchConfigFromRemote": {
-        "def": "Do you want to fetch the config from the remote server?",
+        def: "Do you want to fetch the config from the remote server?",
         es: "¿Quieres obtener la configuración del servidor remoto?"
     },
     "obsidianLiveSyncSettingTab.titleFetchConfig": {
-        "def": "Fetch Config",
+        def: "Fetch Config",
         es: "Obtener configuración"
     },
     // Panel: Sync Settings
     "obsidianLiveSyncSettingTab.titleSyncSettings": {
-        "def": "Sync Settings",
+        def: "Sync Settings",
         es: "Configuraciones de Sincronización"
     },
     "obsidianLiveSyncSettingTab.btnGotItAndUpdated": {
-        "def": "I got it and updated.",
+        def: "I got it and updated.",
         es: "Lo entendí y actualicé."
     },
     "obsidianLiveSyncSettingTab.msgSelectAndApplyPreset": {
-        "def": "Please select and apply any preset item to complete the wizard.",
+        def: "Please select and apply any preset item to complete the wizard.",
         es: "Por favor, selecciona y aplica cualquier elemento preestablecido para completar el asistente."
     },
     "obsidianLiveSyncSettingTab.titleSynchronizationPreset": {
-        "def": "Synchronization Preset",
+        def: "Synchronization Preset",
         es: "Preestablecimiento de sincronización"
     },
     "obsidianLiveSyncSettingTab.optionLiveSync": {
-        "def": "LiveSync",
+        def: "LiveSync",
         es: "LiveSync"
     },
     "obsidianLiveSyncSettingTab.optionPeriodicWithBatch": {
-        "def": "Periodic w/ batch",
+        def: "Periodic w/ batch",
         es: "Periódico con lote"
     },
     "obsidianLiveSyncSettingTab.optionDisableAllAutomatic": {
-        "def": "Disable all automatic",
+        def: "Disable all automatic",
         es: "Desactivar lo automático"
     },
     "obsidianLiveSyncSettingTab.btnApply": {
-        "def": "Apply",
+        def: "Apply",
         es: "Aplicar"
     },
     "obsidianLiveSyncSettingTab.logSelectAnyPreset": {
-        "def": "Select any preset.",
+        def: "Select any preset.",
         es: "Selecciona cualquier preestablecido."
     },
     "obsidianLiveSyncSettingTab.logConfiguredLiveSync": {
-        "def": "Configured synchronization mode: LiveSync",
+        def: "Configured synchronization mode: LiveSync",
         es: "Modo de sincronización configurado: Sincronización en Vivo"
     },
     "obsidianLiveSyncSettingTab.logConfiguredPeriodic": {
-        "def": "Configured synchronization mode: Periodic",
+        def: "Configured synchronization mode: Periodic",
         es: "Modo de sincronización configurado: Periódico"
     },
     "obsidianLiveSyncSettingTab.logConfiguredDisabled": {
-        "def": "Configured synchronization mode: DISABLED",
+        def: "Configured synchronization mode: DISABLED",
         es: "Modo de sincronización configurado: DESACTIVADO"
     },
     "obsidianLiveSyncSettingTab.msgGenerateSetupURI": {
-        "def": "All done! Do you want to generate a setup URI to set up other devices?",
+        def: "All done! Do you want to generate a setup URI to set up other devices?",
         es: "¡Todo listo! ¿Quieres generar un URI de configuración para configurar otros dispositivos?"
     },
     "obsidianLiveSyncSettingTab.titleCongratulations": {
-        "def": "Congratulations!",
+        def: "Congratulations!",
         es: "¡Felicidades!"
     },
     "obsidianLiveSyncSettingTab.titleSynchronizationMethod": {
-        "def": "Synchronization Method",
+        def: "Synchronization Method",
         es: "Método de sincronización"
     },
     "obsidianLiveSyncSettingTab.optionOnEvents": {
-        "def": "On events",
+        def: "On events",
         es: "En eventos"
     },
     "obsidianLiveSyncSettingTab.optionPeriodicAndEvents": {
-        "def": "Periodic and on events",
+        def: "Periodic and on events",
         es: "Periódico y en eventos"
     },
     "obsidianLiveSyncSettingTab.titleUpdateThinning": {
-        "def": "Update Thinning",
+        def: "Update Thinning",
         es: "Actualización de adelgazamiento"
     },
     "obsidianLiveSyncSettingTab.titleDeletionPropagation": {
-        "def": "Deletion Propagation",
+        def: "Deletion Propagation",
         es: "Propagación de eliminación"
     },
     "obsidianLiveSyncSettingTab.titleConflictResolution": {
-        "def": "Conflict resolution",
+        def: "Conflict resolution",
         es: "Resolución de conflictos"
     },
     "obsidianLiveSyncSettingTab.titleSyncSettingsViaMarkdown": {
-        "def": "Sync Settings via Markdown",
+        def: "Sync Settings via Markdown",
         es: "Configuración de sincronización a través de Markdown"
     },
     "obsidianLiveSyncSettingTab.titleHiddenFiles": {
-        "def": "Hidden Files",
+        def: "Hidden Files",
         es: "Archivos ocultos"
     },
     "obsidianLiveSyncSettingTab.labelEnabled": {
-        "def": "🔁 : Enabled",
+        def: "🔁 : Enabled",
         es: "🔁 : Activado"
     },
     "obsidianLiveSyncSettingTab.labelDisabled": {
-        "def": "⏹️ : Disabled",
+        def: "⏹️ : Disabled",
         es: "⏹️ : Desactivado"
     },
     "obsidianLiveSyncSettingTab.nameHiddenFileSynchronization": {
-        "def": "Hidden file synchronization",
+        def: "Hidden file synchronization",
         es: "Sincronización de archivos ocultos"
     },
     "obsidianLiveSyncSettingTab.nameDisableHiddenFileSync": {
-        "def": "Disable Hidden files sync",
+        def: "Disable Hidden files sync",
         es: "Desactivar sincronización de archivos ocultos"
     },
     "obsidianLiveSyncSettingTab.btnDisable": {
-        "def": "Disable",
+        def: "Disable",
         es: "Desactivar"
     },
     "obsidianLiveSyncSettingTab.nameEnableHiddenFileSync": {
-        "def": "Enable Hidden files sync",
+        def: "Enable Hidden files sync",
         es: "Activar sincronización de archivos ocultos"
     },
     // Panel: Selector
@@ -1043,74 +997,82 @@ Almacena solo la configuración. **Precaución: esto puede provocar corrupción 
         es: "Habilitar manejo de casos límite"
     },
     "lang-de": {
-        "def": "Deutsche",
+        def: "Deutsche",
         es: "Alemán"
     },
     "lang-es": {
-        "def": "Español",
+        def: "Español",
         es: "Español"
     },
     "lang-ja": {
-        "def": "日本語",
+        def: "日本語",
         es: "Japonés"
     },
     "lang-ru": {
-        "def": "Русский",
+        def: "Русский",
         es: "Ruso"
     },
     "lang-zh": {
-        "def": "简体中文",
+        def: "简体中文",
         es: "Chino simplificado"
     },
     "lang-zh-tw": {
-        "def": "繁體中文",
+        def: "繁體中文",
         es: "Chino tradicional"
     },
     "Display Language": {
-        zh: "显示语言",
-        es: "Idioma de visualización"
+        es: "Idioma de visualización",
+        ja: "インターフェースの表示言語",
+        zh: "显示语言"
     },
     "Not all messages have been translated. And, please revert to \"Default\" when reporting errors.": {
-        "ja": "すべてのメッセージが翻訳されているわけではありません。また、Issue報告の際にはいったん\"Default\"に戻してください",
-        zh: "并非所有消息都已翻译。请在报告错误时恢复为\"Default\"",
-        es: "No todos los mensajes están traducidos. Por favor, vuelva a \"Predeterminado\" al reportar errores."
+        es: "No todos los mensajes están traducidos. Por favor, vuelva a \"Predeterminado\" al reportar errores.",
+        ja: "すべてのメッセージが翻訳されているわけではありません。また、Issue報告の際にはいったん\"Default\"に戻してください",
+        zh: "并非所有消息都已翻译。请在报告错误时恢复为\"Default\""
     },
     "Show status inside the editor": {
-        zh: "在编辑器内显示状态",
-        es: "Mostrar estado dentro del editor"
+        es: "Mostrar estado dentro del editor",
+        ja: "ステータスをエディタ内に表示",
+        zh: "在编辑器内显示状态"
     },
     "Requires restart of Obsidian.": {
         es: "Requiere reiniciar Obsidian"
     },
     "Show status as icons only": {
-        zh: "仅以图标显示状态",
-        es: "Mostrar estado solo con íconos"
+        es: "Mostrar estado solo con íconos",
+        ja: "ステータス表示をアイコンのみにする",
+        zh: "仅以图标显示状态"
     },
     "Show status on the status bar": {
-        zh: "在状态栏上显示状态",
-        es: "Mostrar estado en la barra de estado"
+        es: "Mostrar estado en la barra de estado",
+        ja: "ステータスバーに、ステータスを表示",
+        zh: "在状态栏上显示状态"
     },
     "Show only notifications": {
-        zh: "仅显示通知",
-        es: "Mostrar solo notificaciones"
+        es: "Mostrar solo notificaciones",
+        ja: "通知のみ表示",
+        zh: "仅显示通知"
     },
     "Disables logging, only shows notifications. Please disable if you report an issue.": {
         es: "Desactiva registros, solo muestra notificaciones. Desactívelo si reporta un problema."
     },
     "Verbose Log": {
-        zh: "详细日志",
-        es: "Registro detallado"
+        es: "Registro detallado",
+        ja: "エラー以外のログ項目",
+        zh: "详细日志"
     },
     "Show verbose log. Please enable if you report an issue.": {
         es: "Mostrar registro detallado. Actívelo si reporta un problema."
     },
     "Remote Type": {
-        zh: "远程类型",
-        es: "Tipo de remoto"
+        es: "Tipo de remoto",
+        ja: "同期方式",
+        zh: "远程类型"
     },
     "Remote server type": {
-        zh: "远程服务器类型",
-        es: "Tipo de servidor remoto"
+        es: "Tipo de servidor remoto",
+        ja: "リモートの種別",
+        zh: "远程服务器类型"
     },
     "Notify when the estimated remote storage size exceeds on start up": {
         es: "Notificar cuando el tamaño estimado del almacenamiento remoto exceda al iniciar"
@@ -1119,162 +1081,186 @@ Almacena solo la configuración. **Precaución: esto puede provocar corrupción 
         es: "MB (0 para desactivar)"
     },
     "End-to-End Encryption": {
-        zh: "端到端加密",
-        es: "Cifrado de extremo a extremo"
+        es: "Cifrado de extremo a extremo",
+        ja: "E2E暗号化",
+        zh: "端到端加密"
     },
     "Encrypt contents on the remote database. If you use the plugin's synchronization feature, enabling this is recommended.": {
-        zh: "加密远程数据库中的内容。如果您使用插件的同步功能，则建议启用此功能。",
-        es: "Cifrar contenido en la base de datos remota. Se recomienda habilitar si usa la sincronización del plugin."
+        es: "Cifrar contenido en la base de datos remota. Se recomienda habilitar si usa la sincronización del plugin.",
+        ja: "リモートデータベースの暗号化（オンにすることをお勧めします）",
+        zh: "加密远程数据库中的内容。如果您使用插件的同步功能，则建议启用此功能。"
     },
     "Passphrase": {
-        zh: "口令",
-        es: "Frase de contraseña"
+        es: "Frase de contraseña",
+        ja: "パスフレーズ",
+        zh: "口令"
     },
     "Encryption phassphrase. If changed, you should overwrite the server's database with the new (encrypted) files.": {
         es: "Frase de cifrado. Si la cambia, sobrescriba la base del servidor con los nuevos archivos cifrados."
     },
     "Path Obfuscation": {
-        zh: "路径混淆",
-        es: "Ofuscación de rutas"
+        es: "Ofuscación de rutas",
+        ja: "パスの難読化",
+        zh: "路径混淆"
     },
     "Use dynamic iteration count": {
-        zh: "使用动态迭代次数",
-        es: "Usar conteo de iteraciones dinámico"
+        es: "Usar conteo de iteraciones dinámico",
+        ja: "動的な繰り返し回数",
+        zh: "使用动态迭代次数"
     },
     "Presets": {
-        zh: "预设",
-        es: "Preconfiguraciones"
+        es: "Preconfiguraciones",
+        ja: "プリセット",
+        zh: "预设"
     },
     "Apply preset configuration": {
-        zh: "应用预设配置",
-        es: "Aplicar configuración predefinida"
+        es: "Aplicar configuración predefinida",
+        ja: "初期設定値に戻す",
+        zh: "应用预设配置"
     },
     "Sync Mode": {
-        zh: "同步模式",
-        es: "Modo de sincronización"
+        es: "Modo de sincronización",
+        ja: "同期モード",
+        zh: "同步模式"
     },
     "Periodic Sync interval": {
-        zh: "定期同步间隔",
-        es: "Intervalo de sincronización periódica"
+        es: "Intervalo de sincronización periódica",
+        ja: "定時同期の感覚",
+        zh: "定期同步间隔"
     },
     "Interval (sec)": {
-        zh: "间隔（秒）",
-        es: "Intervalo (segundos)"
+        es: "Intervalo (segundos)",
+        ja: "秒",
+        zh: "间隔（秒）"
     },
     "Sync on Save": {
-        zh: "保存时同步",
-        es: "Sincronizar al guardar"
+        es: "Sincronizar al guardar",
+        ja: "保存時に同期",
+        zh: "保存时同步"
     },
     "Starts synchronisation when a file is saved.": {
         es: "Inicia sincronización al guardar un archivo"
     },
     "Sync on Editor Save": {
-        zh: "编辑器保存时同步",
-        es: "Sincronizar al guardar en editor"
+        es: "Sincronizar al guardar en editor",
+        ja: "エディタでの保存時に、同期されます",
+        zh: "编辑器保存时同步"
     },
     "When you save a file in the editor, start a sync automatically": {
         es: "Iniciar sincronización automática al guardar en editor"
     },
     "Sync on File Open": {
-        zh: "打开文件时同步",
-        es: "Sincronizar al abrir archivo"
+        es: "Sincronizar al abrir archivo",
+        ja: "ファイルを開いた時に同期",
+        zh: "打开文件时同步"
     },
     "Forces the file to be synced when opened.": {
         es: "Forzar sincronización al abrir archivo"
     },
     "Sync on Startup": {
+        es: "Sincronizar al iniciar",
+        ja: "起動時同期",
         zh: "启动时同步",
-        es: "Sincronizar al iniciar"
     },
     "Automatically Sync all files when opening Obsidian.": {
         es: "Sincronizar automáticamente todos los archivos al abrir Obsidian"
     },
     "Sync after merging file": {
-        zh: "合并文件后同步",
-        es: "Sincronizar tras fusionar archivo"
+        es: "Sincronizar tras fusionar archivo",
+        ja: "ファイルがマージ(統合)された時に同期",
+        zh: "合并文件后同步"
     },
     "Sync automatically after merging files": {
         es: "Sincronizar automáticamente tras fusionar archivos"
     },
     "Batch database update": {
-        zh: "批量数据库更新",
-        es: "Actualización por lotes de BD"
+        es: "Actualización por lotes de BD",
+        ja: "データベースのバッチ更新",
+        zh: "批量数据库更新"
     },
     "Reducing the frequency with which on-disk changes are reflected into the DB": {
-        zh: "降低将磁盘上的更改反映到数据库中的频率",
-        es: "Reducir frecuencia de actualizaciones de disco a BD"
+        es: "Reducir frecuencia de actualizaciones de disco a BD",
+        zh: "降低将磁盘上的更改反映到数据库中的频率"
     },
     "Minimum delay for batch database updating": {
-        zh: "批量数据库更新的最小延迟",
-        es: "Retraso mínimo para actualización por lotes"
+        es: "Retraso mínimo para actualización por lotes",
+        zh: "批量数据库更新的最小延迟"
     },
     "Seconds. Saving to the local database will be delayed until this value after we stop typing or saving.": {
-        zh: "秒。在停止输入或保存后，保存到本地数据库将延迟此值。",
-        es: "Segundos. Guardado en BD local se retrasará hasta este valor tras dejar de escribir/guardar"
+        es: "Segundos. Guardado en BD local se retrasará hasta este valor tras dejar de escribir/guardar",
+        zh: "秒。在停止输入或保存后，保存到本地数据库将延迟此值。"
     },
     "Maximum delay for batch database updating": {
-        zh: "批量数据库更新的最大延迟",
-        es: "Retraso máximo para actualización por lotes"
+        es: "Retraso máximo para actualización por lotes",
+        zh: "批量数据库更新的最大延迟"
     },
     "Saving will be performed forcefully after this number of seconds.": {
-        zh: "在此秒数后将强制执行保存。",
-        es: "Guardado forzado tras esta cantidad de segundos"
+        es: "Guardado forzado tras esta cantidad de segundos",
+        zh: "在此秒数后将强制执行保存。"
     },
     "Use the trash bin": {
+        es: "Usar papelera",
+        ja: "ゴミ箱を使用",
         zh: "使用回收站",
-        es: "Usar papelera"
     },
     "Move remotely deleted files to the trash, instead of deleting.": {
         es: "Mover archivos borrados remotos a papelera en lugar de eliminarlos"
     },
     "Keep empty folder": {
-        zh: "保留空文件夹",
-        es: "Mantener carpetas vacías"
+        es: "Mantener carpetas vacías",
+        ja: "空フォルダの維持",
+        zh: "保留空文件夹"
     },
     "Should we keep folders that don't have any files inside?": {
         es: "¿Mantener carpetas vacías?"
     },
     "(BETA) Always overwrite with a newer file": {
-        zh: "始终使用更新的文件覆盖（测试版）",
-        es: "(BETA) Sobrescribir siempre con archivo más nuevo"
+        es: "(BETA) Sobrescribir siempre con archivo más nuevo",
+        ja: "(ベータ機能) 常に新しいファイルで上書きする",
+        zh: "始终使用更新的文件覆盖（测试版）"
     },
     "Testing only - Resolve file conflicts by syncing newer copies of the file, this can overwrite modified files. Be Warned.": {
         es: "Solo pruebas - Resolver conflictos sincronizando copias nuevas (puede sobrescribir modificaciones)"
     },
     "Delay conflict resolution of inactive files": {
-        zh: "推迟解决不活动文件",
-        es: "Retrasar resolución de conflictos en archivos inactivos"
+        es: "Retrasar resolución de conflictos en archivos inactivos",
+        ja: "無効なファイルは、競合解決を先送りする",
+        zh: "推迟解决不活动文件"
     },
     "Should we only check for conflicts when a file is opened?":{
         es: "¿Solo comprobar conflictos al abrir archivo?"
     },
     "Delay merge conflict prompt for inactive files.": {
-        zh: "推迟手动解决不活动文件",
-        es: "Retrasar aviso de fusión para archivos inactivos"
+        es: "Retrasar aviso de fusión para archivos inactivos",
+        ja: "手動で無効なファイルの競合を解決する",
+        zh: "推迟手动解决不活动文件"
     },
     "Should we prompt you about conflicting files when a file is opened?": {
+        es: "¿Notificar sobre conflictos al abrir archivo?",
         zh: "当文件打开时，是否提示冲突文件？",
-        es: "¿Notificar sobre conflictos al abrir archivo?"
     },
     "Filename": {
-        zh: "文件名",
-        es: "Nombre de archivo"
+        es: "Nombre de archivo",
+        ja: "ファイル名",
+        zh: "文件名"
     },
     "Save settings to a markdown file. You will be notified when new settings arrive. You can set different files by the platform.": {
-        zh: "如果设置了此项，所有设置都将保存在一个Markdown文件中。当新设置到达时，您将收到通知。您可以根据平台设置不同的文件。",
-        es: "Guardar configuración en archivo markdown. Se notificarán nuevos ajustes. Puede definir diferentes archivos por plataforma"
+        es: "Guardar configuración en archivo markdown. Se notificarán nuevos ajustes. Puede definir diferentes archivos por plataforma",
+        zh: "如果设置了此项，所有设置都将保存在一个Markdown文件中。当新设置到达时，您将收到通知。您可以根据平台设置不同的文件。"
     },
     "Write credentials in the file": {
-        zh: "将凭据写入文件",
-        es: "Escribir credenciales en archivo"
+        es: "Escribir credenciales en archivo",
+        ja: "クレデンシャルのファイル内保存",
+        zh: "将凭据写入文件"
     },
     "(Not recommended) If set, credentials will be stored in the file.": {
-        zh: "（不建议）如果设置，凭据将存储在文件中。",
-        es: "(No recomendado) Almacena credenciales en el archivo"
+        es: "(No recomendado) Almacena credenciales en el archivo",
+        zh: "（不建议）如果设置，凭据将存储在文件中。"
     },
     "Notify all setting files": {
-        zh: "通知所有设置文件",
-        es: "Notificar todos los archivos de configuración"
+        es: "Notificar todos los archivos de configuración",
+        ja: "すべての設定を通知",
+        zh: "通知所有设置文件"
     },
     "Suppress notification of hidden files change": {
         es: "Suprimir notificaciones de cambios en archivos ocultos"
@@ -1283,121 +1269,138 @@ Almacena solo la configuración. **Precaución: esto puede provocar corrupción 
         es: "Si se habilita, se suprimirá la notificación de cambios en archivos ocultos."
     },
     "Scan for hidden files before replication": {
-        zh: "复制前扫描隐藏文件",
-        es: "Escanear archivos ocultos antes de replicar"
+        es: "Escanear archivos ocultos antes de replicar",
+        ja: "レプリケーション開始前に、隠しファイルのスキャンを行う",
+        zh: "复制前扫描隐藏文件"
     },
     "Scan hidden files periodically": {
-        zh: "定期扫描隐藏文件",
-        es: "Escanear archivos ocultos periódicamente"
+        es: "Escanear archivos ocultos periódicamente",
+        ja: "定期的に隠しファイルのスキャンを行う",
+        zh: "定期扫描隐藏文件"
     },
     "Seconds, 0 to disable": {
-        zh: "秒，0为禁用",
-        es: "Segundos, 0 para desactivar"
+        es: "Segundos, 0 para desactivar",
+        zh: "秒，0为禁用"
     },
     "Maximum file size": {
-        zh: "最大文件大小",
-        es: "Tamaño máximo de archivo"
+        es: "Tamaño máximo de archivo",
+        ja: "最大ファイル容量",
+        zh: "最大文件大小"
     },
     "(MB) If this is set, changes to local and remote files that are larger than this will be skipped. If the file becomes smaller again, a newer one will be used.": {
-        zh: "（MB）如果设置了此项，大于此大小的本地和远程文件的更改将被跳过。如果文件再次变小，将使用更新的文件",
-        es: "(MB) Saltar cambios en archivos locales/remotos mayores a este tamaño. Si se reduce, se usará versión nueva"
+        es: "(MB) Saltar cambios en archivos locales/remotos mayores a este tamaño. Si se reduce, se usará versión nueva",
+        zh: "（MB）如果设置了此项，大于此大小的本地和远程文件的更改将被跳过。如果文件再次变小，将使用更新的文件"
     },
     "(Beta) Use ignore files": {
-        zh: "（测试版）使用忽略文件",
-        es: "(Beta) Usar archivos de ignorar"
+        es: "(Beta) Usar archivos de ignorar",
+        ja: "(ベータ機能) 無視ファイル(ignore)の使用",
+        zh: "（测试版）使用忽略文件"
     },
     "If this is set, changes to local files which are matched by the ignore files will be skipped. Remote changes are determined using local ignore files.": {
-        zh: "如果设置了此项，与忽略文件匹配的本地文件的更改将被跳过。远程更改使用本地忽略文件确定",
-        es: "Saltar cambios en archivos locales que coincidan con ignore files. Cambios remotos usan ignore files locales"
+        es: "Saltar cambios en archivos locales que coincidan con ignore files. Cambios remotos usan ignore files locales",
+        zh: "如果设置了此项，与忽略文件匹配的本地文件的更改将被跳过。远程更改使用本地忽略文件确定"
     },
     "Ignore files": {
-        zh: "忽略文件",
-        es: "Archivos a ignorar"
+        es: "Archivos a ignorar",
+        ja: "無視ファイル",
+        zh: "忽略文件"
     },
     "Comma separated `.gitignore, .dockerignore`": {
-        zh: "我们可以使用多个忽略文件，例如`.gitignore, .dockerignore`",
-        es: "Separados por comas: `.gitignore, .dockerignore`"
+        es: "Separados por comas: `.gitignore, .dockerignore`",
+        zh: "我们可以使用多个忽略文件，例如`.gitignore, .dockerignore`"
     },
     "Device name": {
-        zh: "设备名称",
-        es: "Nombre del dispositivo"
+        es: "Nombre del dispositivo",
+        ja: "デバイスネーム",
+        zh: "设备名称"
     },
     "Unique name between all synchronized devices. To edit this setting, please disable customization sync once.": {
-        zh: "所有同步设备之间的唯一名称。要编辑此设置，请首先禁用自定义同步",
-        es: "Nombre único entre dispositivos sincronizados. Para editarlo, desactive sincronización de personalización"
+        es: "Nombre único entre dispositivos sincronizados. Para editarlo, desactive sincronización de personalización",
+        zh: "所有同步设备之间的唯一名称。要编辑此设置，请首先禁用自定义同步"
     },
     "Per-file-saved customization sync": {
-        zh: "按文件保存的自定义同步",
-        es: "Sincronización de personalización por archivo"
+        es: "Sincronización de personalización por archivo",
+        zh: "按文件保存的自定义同步"
     },
     "If enabled per-filed efficient customization sync will be used. We need a small migration when enabling this. And all devices should be updated to v0.23.18. Once we enabled this, we lost a compatibility with old versions.": {
         es: "Habilita sincronización eficiente por archivo. Requiere migración y actualizar todos dispositivos a v0.23.18. Pierde compatibilidad con versiones antiguas"
     },
     "Enable customization sync": {
-        zh: "启用自定义同步",
-        es: "Habilitar sincronización de personalización"
+        es: "Habilitar sincronización de personalización",
+        ja: "カスタマイズ同期を有効",
+        zh: "启用自定义同步"
     },
     "Scan customization automatically": {
-        zh: "自动扫描自定义设置",
-        es: "Escanear personalización automáticamente"
+        es: "Escanear personalización automáticamente",
+        ja: "自動的にカスタマイズをスキャン",
+        zh: "自动扫描自定义设置"
     },
     "Scan customization before replicating.": {
-        zh: "在复制前扫描自定义设置",
-        es: "Escanear personalización antes de replicar"
+        es: "Escanear personalización antes de replicar",
+        ja: "レプリケーション前に、カスタマイズをスキャン",
+        zh: "在复制前扫描自定义设置"
     },
     "Scan customization periodically": {
-        zh: "定期扫描自定义设置",
-        es: "Escanear personalización periódicamente"
+        es: "Escanear personalización periódicamente",
+        ja: "定期的にカスタマイズをスキャン",
+        zh: "定期扫描自定义设置"
     },
     "Scan customization every 1 minute.": {
-        zh: "每1分钟扫描自定义设置",
-        es: "Escanear personalización cada 1 minuto"
+        es: "Escanear personalización cada 1 minuto",
+        zh: "每1分钟扫描自定义设置"
     },
     "Notify customized": {
-        zh: "通知自定义设置",
-        es: "Notificar personalizaciones"
+        es: "Notificar personalizaciones",
+        ja: "カスタマイズが行われたら通知する",
+        zh: "通知自定义设置"
     },
     "Notify when other device has newly customized.": {
-        zh: "当其他设备有新的自定义设置时通知",
-        es: "Notificar cuando otro dispositivo personalice"
+        es: "Notificar cuando otro dispositivo personalice",
+        zh: "当其他设备有新的自定义设置时通知"
     },
     "Write logs into the file": {
-        zh: "将日志写入文件",
-        es: "Escribir logs en archivo"
+        es: "Escribir logs en archivo",
+        ja: "ファイルにログを記録",
+        zh: "将日志写入文件"
     },
     "Warning! This will have a serious impact on performance. And the logs will not be synchronised under the default name. Please be careful with logs; they often contain your confidential information.": {
-        zh: "警告！这将严重影响性能。并且日志不会以默认名称同步。请小心处理日志；它们通常包含您的敏感信息",
-        es: "¡Advertencia! Impacta rendimiento. Los logs no se sincronizan con nombre predeterminado. Contienen información confidencial"
+        es: "¡Advertencia! Impacta rendimiento. Los logs no se sincronizan con nombre predeterminado. Contienen información confidencial",
+        zh: "警告！这将严重影响性能。并且日志不会以默认名称同步。请小心处理日志；它们通常包含您的敏感信息"
     },
     "Suspend file watching": {
-        zh: "暂停文件监视",
-        es: "Suspender monitorización de archivos"
+        es: "Suspender monitorización de archivos",
+        ja: "監視の一時停止",
+        zh: "暂停文件监视"
     },
     "Stop watching for file changes.": {
         es: "Dejar de monitorear cambios en archivos"
     },
     "Suspend database reflecting": {
-        zh: "暂停数据库反映",
-        es: "Suspender reflejo de base de datos"
+        es: "Suspender reflejo de base de datos",
+        ja: "データベース反映の一時停止",
+        zh: "暂停数据库反映"
     },
     "Stop reflecting database changes to storage files.": {
         es: "Dejar de reflejar cambios de BD en archivos"
     },
     "Memory cache size (by total items)": {
-        zh: "内存缓存大小（按总项目数）",
-        es: "Tamaño caché memoria (por ítems)"
+        es: "Tamaño caché memoria (por ítems)",
+        ja: "全体のキャッシュサイズ",
+        zh: "内存缓存大小（按总项目数）"
     },
     "Memory cache size (by total characters)": {
-        zh: "内存缓存大小（按总字符数）",
-        es: "Tamaño caché memoria (por caracteres)"
+        es: "Tamaño caché memoria (por caracteres)",
+        ja: "全体でキャッシュする文字数",
+        zh: "内存缓存大小（按总字符数）"
     },
     "(Mega chars)": {
-        zh: "（百万字符）",
-        es: "(Millones de caracteres)"
+        es: "(Millones de caracteres)",
+        zh: "（百万字符）"
     },
     "Enhance chunk size": {
-        zh: "增强块大小",
-        es: "Mejorar tamaño de chunks"
+        es: "Mejorar tamaño de chunks",
+        ja: "チャンクサイズを最新にする",
+        zh: "增强块大小"
     },
     "Use splitting-limit-capped chunk splitter": {
         es: "Usar divisor de chunks con límite"
@@ -1412,92 +1415,103 @@ Almacena solo la configuración. **Precaución: esto puede provocar corrupción 
         es: "Divide chunks en segmentos semánticos. No todos los sistemas lo soportan"
     },
     "Fetch chunks on demand": {
-        zh: "按需获取块",
-        es: "Obtener chunks bajo demanda"
+        es: "Obtener chunks bajo demanda",
+        ja: "ユーザーのタイミングでチャンクの更新を確認する",
+        zh: "按需获取块"
     },
     "(ex. Read chunks online) If this option is enabled, LiveSync reads chunks online directly instead of replicating them locally. Increasing Custom chunk size is recommended.": {
-        zh: "（例如，在线读取块）如果启用此选项，LiveSync将直接在线读取块，而不是在本地复制块。建议增加自定义块大小",
-        es: "(Ej: Leer chunks online) Lee chunks directamente en línea. Aumente tamaño de chunks personalizados"
+        es: "(Ej: Leer chunks online) Lee chunks directamente en línea. Aumente tamaño de chunks personalizados",
+        zh: "（例如，在线读取块）如果启用此选项，LiveSync将直接在线读取块，而不是在本地复制块。建议增加自定义块大小"
     },
     "Batch size of on-demand fetching": {
-        zh: "按需获取的批量大小",
-        es: "Tamaño de lote para obtención bajo demanda"
+        es: "Tamaño de lote para obtención bajo demanda",
+        zh: "按需获取的批量大小"
     },
     "The delay for consecutive on-demand fetches": {
-        zh: "连续按需获取的延迟",
-        es: "Retraso entre obtenciones consecutivas"
+        es: "Retraso entre obtenciones consecutivas",
+        zh: "连续按需获取的延迟"
     },
     "Incubate Chunks in Document": {
-        zh: "在文档中孵化块",
-        es: "Incubar chunks en documento"
+        es: "Incubar chunks en documento",
+        ja: "ドキュメント内でハッチングを行う",
+        zh: "在文档中孵化块"
     },
     "If enabled, newly created chunks are temporarily kept within the document, and graduated to become independent chunks once stabilised.": {
-        zh: "如果启用，新创建的数据块将暂时保留在文档中，并在稳定后成为独立数据块。",
-        es: "Chunks nuevos se mantienen temporalmente en el documento hasta estabilizarse"
+        es: "Chunks nuevos se mantienen temporalmente en el documento hasta estabilizarse",
+        zh: "如果启用，新创建的数据块将暂时保留在文档中，并在稳定后成为独立数据块。"
     },
     "Maximum Incubating Chunks": {
-        zh: "最大孵化块数",
-        es: "Máximo de chunks incubados"
+        es: "Máximo de chunks incubados",
+        ja: "最大ハッチング数",
+        zh: "最大孵化块数"
     },
     "The maximum number of chunks that can be incubated within the document. Chunks exceeding this number will immediately graduate to independent chunks.": {
-        zh: "文档中可以孵化的数据块的最大数量。超过此数量的数据块将立即成为独立数据块。",
-        es: "Número máximo de chunks que pueden incubarse en el documento. Excedentes se independizan"
+        es: "Número máximo de chunks que pueden incubarse en el documento. Excedentes se independizan",
+        zh: "文档中可以孵化的数据块的最大数量。超过此数量的数据块将立即成为独立数据块。"
     },
     "Maximum Incubating Chunk Size": {
-        zh: "最大孵化块大小",
-        es: "Tamaño máximo de chunks incubados"
+        es: "Tamaño máximo de chunks incubados",
+        ja: "保持するチャンクの最大サイズ",
+        zh: "最大孵化块大小"
     },
     "The maximum total size of chunks that can be incubated within the document. Chunks exceeding this size will immediately graduate to independent chunks.": {
-        zh: "文档中可以孵化的数据块的最大尺寸。超过此大小的数据块将立即成为独立数据块。",
-        es: "Tamaño total máximo de chunks incubados. Excedentes se independizan"
+        es: "Tamaño total máximo de chunks incubados. Excedentes se independizan",
+        zh: "文档中可以孵化的数据块的最大尺寸。超过此大小的数据块将立即成为独立数据块。"
     },
     "Maximum Incubation Period": {
-        zh: "最大孵化期限",
-        es: "Periodo máximo de incubación"
+        es: "Periodo máximo de incubación",
+        ja: "最大保持期限",
+        zh: "最大孵化期限"
     },
     "The maximum duration for which chunks can be incubated within the document. Chunks exceeding this period will graduate to independent chunks.": {
-        zh: "文档中可以孵化的数据块的最大持续时间。超过此时间的数据块将成为独立数据块。",
-        es: "Duración máxima para incubar chunks. Excedentes se independizan"
+        es: "Duración máxima para incubar chunks. Excedentes se independizan",
+        zh: "文档中可以孵化的数据块的最大持续时间。超过此时间的数据块将成为独立数据块。"
     },
     "Data Compression": {
-        zh: "数据压缩",
-        es: "Compresión de datos"
+        es: "Compresión de datos",
+        ja: "データ圧縮",
+        zh: "数据压缩"
     },
     "Batch size": {
-        zh: "批量大小",
-        es: "Tamaño de lote"
+        es: "Tamaño de lote",
+        ja: "バッチ容量",
+        zh: "批量大小"
     },
     "Number of changes to sync at a time. Defaults to 50. Minimum is 2.": {
-        zh: "一次处理的更改源项目数。默认为50。最小为2",
-        es: "Número de cambios a sincronizar simultáneamente. Default 50, mínimo 2"
+        es: "Número de cambios a sincronizar simultáneamente. Default 50, mínimo 2",
+        zh: "一次处理的更改源项目数。默认为50。最小为2"
     },
     "Batch limit": {
-        zh: "批量限制",
-        es: "Límite de lotes"
+        es: "Límite de lotes",
+        ja: "バッチの上限",
+        zh: "批量限制"
     },
     "Number of batches to process at a time. Defaults to 40. Minimum is 2. This along with batch size controls how many docs are kept in memory at a time.": {
-        zh: "一次处理的批量数。默认为40。最小为2。这与批量大小一起控制一次在内存中保留多少文档",
-        es: "Número de lotes a procesar. Default 40, mínimo 2. Controla documentos en memoria"
+        es: "Número de lotes a procesar. Default 40, mínimo 2. Controla documentos en memoria",
+        zh: "一次处理的批量数。默认为40。最小为2。这与批量大小一起控制一次在内存中保留多少文档"
     },
     "Use timeouts instead of heartbeats": {
-        zh: "使用超时而不是心跳",
-        es: "Usar timeouts en lugar de latidos"
+        es: "Usar timeouts en lugar de latidos",
+        ja: "ハートビートの代わりにタイムアウトを使用",
+        zh: "使用超时而不是心跳"
     },
     "If this option is enabled, PouchDB will hold the connection open for 60 seconds, and if no change arrives in that time, close and reopen the socket, instead of holding it open indefinitely. Useful when a proxy limits request duration but can increase resource usage.": {
-        zh: "如果启用此选项，PouchDB将保持连接打开60秒，如果在此时间内没有更改到达，则关闭并重新打开套接字，而不是无限期保持打开。当代理限制请求持续时间时有用，但可能会增加资源使用",
-        es: "Mantiene conexión 60s. Si no hay cambios, reinicia socket. Útil con proxies limitantes"
+        es: "Mantiene conexión 60s. Si no hay cambios, reinicia socket. Útil con proxies limitantes",
+        zh: "如果启用此选项，PouchDB将保持连接打开60秒，如果在此时间内没有更改到达，则关闭并重新打开套接字，而不是无限期保持打开。当代理限制请求持续时间时有用，但可能会增加资源使用"
     },
     "Encrypting sensitive configuration items": {
-        zh: "加密敏感配置项",
-        es: "Cifrando elementos sensibles"
+        es: "Cifrando elementos sensibles",
+        ja: "機微設定項目の暗号化",
+        zh: "加密敏感配置项"
     },
     "Passphrase of sensitive configuration items": {
-        zh: "敏感配置项的口令",
-        es: "Frase para elementos sensibles"
+        es: "Frase para elementos sensibles",
+        ja: "機微設定項目にパスフレーズを使用",
+        zh: "敏感配置项的口令"
     },
     "This passphrase will not be copied to another device. It will be set to `Default` until you configure it again.": {
-        zh: "此口令不会复制到另一台设备。在您再次配置之前，它将设置为`Default`。",
-        es: "Esta frase no se copia a otros dispositivos. Usará `Default` hasta reconfigurar"
+        es: "Esta frase no se copia a otros dispositivos. Usará `Default` hasta reconfigurar",
+        zh: "此口令不会复制到另一台设备。在您再次配置之前，它将设置为`Default`。"
     },
     "Enable Developers' Debug Tools.": {
         es: "Habilitar herramientas de depuración"
@@ -1506,40 +1520,45 @@ Almacena solo la configuración. **Precaución: esto puede provocar corrupción 
         es: "Requiere reiniciar Obsidian"
     },
     "Do not keep metadata of deleted files.": {
-        zh: "不保留已删除文件的元数据",
-        es: "No conservar metadatos de archivos borrados"
+        es: "No conservar metadatos de archivos borrados",
+        ja: "削除済みファイルのメタデータを保持しない",
+        zh: "不保留已删除文件的元数据"
     },
     "Delete old metadata of deleted files on start-up": {
-        zh: "启动时删除已删除文件的旧元数据",
-        es: "Borrar metadatos viejos al iniciar"
+        es: "Borrar metadatos viejos al iniciar",
+        ja: "削除済みデータのメタデータをクリーンナップする",
+        zh: "启动时删除已删除文件的旧元数据"
     },
     "(Days passed, 0 to disable automatic-deletion)": {
-        zh: "（天数，0为禁用自动删除）",
-        es: "(Días transcurridos, 0 para desactivar)"
+        es: "(Días transcurridos, 0 para desactivar)",
+        zh: "（天数，0为禁用自动删除）"
     },
     "Always prompt merge conflicts": {
-        zh: "始终手动解决冲突",
-        es: "Siempre preguntar en conflictos"
+        es: "Siempre preguntar en conflictos",
+        ja: "常に競合は手動で解決する",
+        zh: "始终手动解决冲突"
     },
     "Should we prompt you for every single merge, even if we can safely merge automatcially?": {
-        zh: "如果打开此开关，即使可以自动进行合并，也会显示合并对话框。（打开可恢复到以前的行为）",
-        es: "¿Preguntar en cada fusión aunque sea automática?"
+        es: "¿Preguntar en cada fusión aunque sea automática?",
+        zh: "如果打开此开关，即使可以自动进行合并，也会显示合并对话框。（打开可恢复到以前的行为）"
     },
     "Apply Latest Change if Conflicting": {
-        zh: "即使笔记存在冲突，也始终反映同步的更改",
-        es: "Aplicar último cambio en conflictos"
+        es: "Aplicar último cambio en conflictos",
+        ja: "書類内に競合が発生しても、常に同期内容を反映する",
+        zh: "即使笔记存在冲突，也始终反映同步的更改"
     },
     "Enable this option to automatically apply the most recent change to documents even when it conflicts": {
-        zh: "打开可恢复到以前的行为",
-        es: "Aplicar cambios recientes automáticamente aunque generen conflictos"
+        es: "Aplicar cambios recientes automáticamente aunque generen conflictos",
+        zh: "打开可恢复到以前的行为"
     },
     "(Obsolete) Use an old adapter for compatibility": {
-        zh: "为了兼容性使用旧适配器",
-        es: "(Obsoleto) Usar adaptador antiguo"
+        es: "(Obsoleto) Usar adaptador antiguo",
+        ja: "古いアダプターを利用（互換性重視）",
+        zh: "为了兼容性使用旧适配器"
     },
     "Before v0.17.16, we used an old adapter for the local database. Now the new adapter is preferred. However, it needs local database rebuilding. Please disable this toggle when you have enough time. If leave it enabled, also while fetching from the remote database, you will be asked to disable this.": {
-        zh: "在v0.17.16之前，我们使用了旧适配器作为本地数据库。现在更倾向于使用新适配器。但是，它需要重建本地数据库。请在有足够时间时禁用此切换。如果保留启用状态，且在从远程数据库获取时，将要求您禁用此切换",
-        es: "Antes de v0.17.16 usábamos adaptador antiguo. Nuevo adaptador requiere reconstruir BD local. Desactive cuando pueda"
+        es: "Antes de v0.17.16 usábamos adaptador antiguo. Nuevo adaptador requiere reconstruir BD local. Desactive cuando pueda",
+        zh: "在v0.17.16之前，我们使用了旧适配器作为本地数据库。现在更倾向于使用新适配器。但是，它需要重建本地数据库。请在有足够时间时禁用此切换。如果保留启用状态，且在从远程数据库获取时，将要求您禁用此切换"
     },
     "Compute revisions for chunks (Previous behaviour)": {
         es: "Calcular revisiones para chunks (comportamiento anterior)"
@@ -1554,28 +1573,33 @@ Almacena solo la configuración. **Precaución: esto puede provocar corrupción 
         es: "Si se habilita, todos los archivos se manejan como sensibles a mayúsculas (comportamiento anterior)"
     },
     "Scan changes on customization sync": {
-        zh: "在自定义同步时扫描更改",
-        es: "Escanear cambios en sincronización de personalización"
+        es: "Escanear cambios en sincronización de personalización",
+        ja: "カスタマイズされた同期時に、変更をスキャンする",
+        zh: "在自定义同步时扫描更改"
     },
     "Do not use internal API": {
-        zh: "不使用内部API",
-        es: "No usar API interna"
+        es: "No usar API interna",
+        ja: "内部APIを使用しない",
+        zh: "不使用内部API"
     },
     "Database suffix": {
-        zh: "数据库后缀",
-        es: "Sufijo de base de datos"
+        es: "Sufijo de base de datos",
+        ja: "データベースの接尾詞(サフィックス)",
+        zh: "数据库后缀"
     },
     "LiveSync could not handle multiple vaults which have same name without different prefix, This should be automatically configured.": {
-        zh: "LiveSync无法处理具有相同名称但没有不同前缀的多个仓库。这应该自动配置",
-        es: "LiveSync no puede manejar múltiples bóvedas con mismo nombre sin prefijo. Se configura automáticamente"
+        es: "LiveSync no puede manejar múltiples bóvedas con mismo nombre sin prefijo. Se configura automáticamente",
+        zh: "LiveSync无法处理具有相同名称但没有不同前缀的多个仓库。这应该自动配置"
     },
     "The Hash algorithm for chunk IDs": {
-        zh: "块ID的哈希算法",
-        es: "Algoritmo hash para IDs de chunks"
+        es: "Algoritmo hash para IDs de chunks",
+        ja: "チャンクIDのハッシュアルゴリズム",
+        zh: "块ID的哈希算法"
     },
     "Fetch database with previous behaviour": {
-        zh: "用以前的行为获取数据库",
-        es: "Obtener BD con comportamiento anterior"
+        es: "Obtener BD con comportamiento anterior",
+        ja: "以前の手法でデータベースを取得",
+        zh: "用以前的行为获取数据库"
     },
     "Do not split chunks in the background": {
         es: "No dividir chunks en segundo plano"
@@ -1584,67 +1608,79 @@ Almacena solo la configuración. **Precaución: esto puede provocar corrupción 
         es: "Si se desactiva, chunks se dividen en hilo UI (comportamiento anterior)"
     },
     "Process small files in the foreground": {
-        zh: "处理小文件于前台",
-        es: "Procesar archivos pequeños en primer plano"
+        es: "Procesar archivos pequeños en primer plano",
+        zh: "处理小文件于前台"
     },
     "If enabled, the file under 1kb will be processed in the UI thread.": {
         es: "Archivos <1kb se procesan en hilo UI"
     },
     "Do not check configuration mismatch before replication": {
-        zh: "在复制前不检查配置不匹配",
-        es: "No verificar incompatibilidades antes de replicar"
+        es: "No verificar incompatibilidades antes de replicar",
+        zh: "在复制前不检查配置不匹配"
     },
     "Endpoint URL": {
-        zh: "终端节点网址",
-        es: "URL del endpoint"
+        es: "URL del endpoint",
+        ja: "エンドポイントURL",
+        zh: "终端节点网址"
     },
     "Access Key": {
-        zh: "访问密钥ID",
-        es: "Clave de acceso"
+        es: "Clave de acceso",
+        ja: "アクセスキー",
+        zh: "访问密钥ID"
     },
     "Secret Key": {
-        zh: "访问密钥密码",
-        es: "Clave secreta"
+        es: "Clave secreta",
+        ja: "シークレットキー",
+        zh: "访问密钥密码"
     },
     "Region": {
-        zh: "地域",
-        es: "Región"
+        es: "Región",
+        ja: "リージョン",
+        zh: "地域"
     },
     "Bucket Name": {
-        zh: "存储桶名称",
-        es: "Nombre del bucket"
+        es: "Nombre del bucket",
+        ja: "バケット名",
+        zh: "存储桶名称"
     },
     "Use Custom HTTP Handler": {
-        zh: "使用自定义HTTP处理程序",
-        es: "Usar manejador HTTP personalizado"
+        es: "Usar manejador HTTP personalizado",
+        ja: "カスタムHTTPハンドラーの利用",
+        zh: "使用自定义HTTP处理程序"
     },
     "Enable this if your Object Storage doesn't support CORS": {
-        zh: "如果您的对象存储无法配置接受CORS，请启用此功能。",
-        es: "Habilitar si su almacenamiento no soporta CORS"
+        es: "Habilitar si su almacenamiento no soporta CORS",
+        zh: "如果您的对象存储无法配置接受CORS，请启用此功能。"
     },
     "Server URI": {
-        zh: "URI",
-        es: "URI del servidor"
+        es: "URI del servidor",
+        ja: "URI",
+        zh: "URI"
     },
     "Username": {
-        zh: "用户名",
-        es: "Usuario"
+        es: "Usuario",
+        ja: "ユーザー名",
+        zh: "用户名"
     },
     "username": {
+        es: "nombre de usuario",
+        ja: "ユーザー名",
         zh: "用户名",
-        es: "nombre de usuario"
     },
     "Password": {
-        zh: "密码",
-        es: "Contraseña"
+        es: "Contraseña",
+        ja: "パスワード",
+        zh: "密码"
     },
     "password": {
-        zh: "密码",
-        es: "contraseña"
+        es: "contraseña",
+        ja: "パスワード",
+        zh: "密码"
     },
     "Database Name": {
-        zh: "数据库名称",
-        es: "Nombre de la base de datos"
+        es: "Nombre de la base de datos",
+        ja: "データベース名",
+        zh: "数据库名称"
     },
     // LogPane.svelte
     "logPane.title": {
