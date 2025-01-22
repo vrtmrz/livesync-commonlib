@@ -546,7 +546,7 @@ Almacena solo la configuración. **Precaución: esto puede provocar corrupción 
     },
     "obsidianLiveSyncSettingTab.linkTroubleshooting": {
         def: "/docs/troubleshooting.md",
-        es: "/docs/troubleshooting_es.md"
+        es: "/docs/es/troubleshooting.md"
     },
     "obsidianLiveSyncSettingTab.linkOpenInBrowser": {
         def: "Open in browser",
