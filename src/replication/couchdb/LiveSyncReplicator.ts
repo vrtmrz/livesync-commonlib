@@ -39,6 +39,7 @@ import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { Trench } from "octagonal-wheels/memory/memutil";
 import { promiseWithResolver } from "octagonal-wheels/promises";
 import { Inbox, NOT_AVAILABLE } from "octagonal-wheels/bureau/Inbox";
+import { $tf } from "../../common/i18n.ts";
 
 const currentVersionRange: ChunkVersionRange = {
     min: 0,
