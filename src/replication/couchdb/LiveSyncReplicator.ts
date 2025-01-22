@@ -18,7 +18,6 @@ import {
 } from "../../common/types.ts";
 import {
     resolveWithIgnoreKnownError,
-    delay,
     globalConcurrencyController,
     extractObject,
     wrapException,
@@ -35,9 +34,11 @@ import {
     type LiveSyncReplicatorEnv,
     type RemoteDBStatus,
 } from "../LiveSyncAbstractReplicator.ts";
-import { shareRunningResult } from "../../concurrency/lock.ts";
+import { serialized, shareRunningResult } from "../../concurrency/lock.ts";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { Trench } from "octagonal-wheels/memory/memutil";
+import { promiseWithResolver } from "octagonal-wheels/promises";
+import { Inbox, NOT_AVAILABLE } from "octagonal-wheels/bureau/Inbox";
 import { $tf } from "../../common/i18n.ts";
 
 const currentVersionRange: ChunkVersionRange = {
@@ -64,15 +65,13 @@ async function* genReplication(
     s: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc>,
     signal: AbortSignal
 ) {
-    const p = [] as EventParamArray<EntryDoc>[];
-    let locker: () => Promise<void> = () => Promise.resolve();
-    let unlock = () => {
-        locker = () => new Promise<void>((res) => (unlock = res));
-    };
-    unlock();
+    const inbox = new Inbox<EventParamArray<EntryDoc>>(10000);
+
+    // let next = promiseWithResolver<EventParamArray<EntryDoc>>();
     const push = function (e: EventParamArray<EntryDoc>) {
-        p.push(e);
-        unlock();
+        void serialized("replicationResult", async () => {
+            await inbox.post(e);
+        });
     };
 
     //@ts-ignore
@@ -84,33 +83,24 @@ async function* genReplication(
     void s.on("error", (err) => push(["error", err]));
     void s.on("paused", (err) => push(["paused", err]));
     void s.then(() => push(["finally"])).catch(() => push(["finally"]));
+    const abortSymbol = Symbol("abort");
+    const abortPromise = promiseWithResolver<typeof abortSymbol>();
+
+    signal.addEventListener("abort", () => {
+        abortPromise.resolve(abortSymbol);
+    });
 
     try {
-        L1: do {
-            const r = p.shift();
-            if (r) {
-                yield r;
-                if (r[0] == "finally") break;
-                continue;
-            } else {
-                const dx = async () => {
-                    await locker();
-                    return true;
-                };
-                do {
-                    const timeout = async () => {
-                        await delay(100);
-                        return false;
-                    };
-                    const raced = await Promise.race([dx(), timeout()]);
-                    if (raced) continue L1;
-                    if (signal.aborted) break L1;
-                    // eslint-disable-next-line no-constant-condition
-                } while (true);
+        while (!inbox.isDisposed && !signal.aborted) {
+            const r = await inbox.pick(undefined, [abortPromise.promise] as Promise<typeof abortSymbol>[]);
+            if (r === NOT_AVAILABLE) {
+                break;
             }
-        } while (true);
+            yield r;
+        }
     } finally {
         s.cancel();
+        inbox.dispose();
     }
 }
 
@@ -212,14 +202,14 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     lastSyncPushSeq == 0
                         ? ""
                         : lastSyncPushSeq >= maxPushSeq
-                          ? " (LIVE)"
-                          : ` (${maxPushSeq - lastSyncPushSeq})`;
+                            ? " (LIVE)"
+                            : ` (${maxPushSeq - lastSyncPushSeq})`;
                 const pullLast =
                     lastSyncPullSeq == 0
                         ? ""
                         : lastSyncPullSeq >= maxPullSeq
-                          ? " (LIVE)"
-                          : ` (${maxPullSeq - lastSyncPullSeq})`;
+                            ? " (LIVE)"
+                            : ` (${maxPullSeq - lastSyncPullSeq})`;
                 Logger(
                     `↑${this.docSent - docSentOnStart}${pushLast} ↓${this.docArrived - docArrivedOnStart}${pullLast}`,
                     LOG_LEVEL_NOTICE,
@@ -653,13 +643,13 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 syncMode == "sync"
                     ? localDB.sync(db, { ...syncOptionBase })
                     : syncMode == "pullOnly"
-                      ? localDB.replicate.from(db, {
+                        ? localDB.replicate.from(db, {
                             ...syncOptionBase,
                             ...(setting.readChunksOnline ? selectorOnDemandPull : {}),
                         })
-                      : syncMode == "pushOnly"
-                        ? localDB.replicate.to(db, { ...syncOptionBase })
-                        : (undefined as never);
+                        : syncMode == "pushOnly"
+                            ? localDB.replicate.to(db, { ...syncOptionBase })
+                            : (undefined as never);
             const syncResult = await this.processSync(
                 syncHandler,
                 showResult,
