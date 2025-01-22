@@ -170,6 +170,7 @@ type MESSAGE = { [key in I18N_LANGS]?: string };
     // ModuleLocalDatabase.ts
     "moduleLocalDatabase.logWaitingForReady": {
         def: "Waiting for ready...",
+        ja: "しばらくお待ちください...",
         es: "Esperando a que la base de datos esté lista..."
     },
     // ModuleCheckRemoteSize.ts
@@ -1062,7 +1063,8 @@ type MESSAGE = { [key in I18N_LANGS]?: string };
         zh: "详细日志"
     },
     "Show verbose log. Please enable if you report an issue.": {
-        es: "Mostrar registro detallado. Actívelo si reporta un problema."
+        es: "Mostrar registro detallado. Actívelo si reporta un problema.",
+        ja: "エラー以外の詳細ログ項目も表示する。問題が発生した場合は有効にしてください。"
     },
     "Remote Type": {
         es: "Tipo de remoto",
@@ -1147,7 +1149,8 @@ type MESSAGE = { [key in I18N_LANGS]?: string };
         zh: "编辑器保存时同步"
     },
     "When you save a file in the editor, start a sync automatically": {
-        es: "Iniciar sincronización automática al guardar en editor"
+        es: "Iniciar sincronización automática al guardar en editor",
+        ja: "エディタでファイルを保存すると、自動的に同期を開始します",
     },
     "Sync on File Open": {
         es: "Sincronizar al abrir archivo",
@@ -1316,6 +1319,7 @@ type MESSAGE = { [key in I18N_LANGS]?: string };
     },
     "Unique name between all synchronized devices. To edit this setting, please disable customization sync once.": {
         es: "Nombre único entre dispositivos sincronizados. Para editarlo, desactive sincronización de personalización",
+        ja: "一意の名称を、すべての端末に設定します。この設定を変更した場合、カスタマイズ同期機能を無効にしてください。",
         zh: "所有同步设备之间的唯一名称。要编辑此设置，请首先禁用自定义同步"
     },
     "Per-file-saved customization sync": {
@@ -1347,6 +1351,7 @@ type MESSAGE = { [key in I18N_LANGS]?: string };
     },
     "Scan customization every 1 minute.": {
         es: "Escanear personalización cada 1 minuto",
+        ja: "カスタマイズのスキャンを1分ごとに行う",
         zh: "每1分钟扫描自定义设置"
     },
     "Notify customized": {
@@ -1356,6 +1361,7 @@ type MESSAGE = { [key in I18N_LANGS]?: string };
     },
     "Notify when other device has newly customized.": {
         es: "Notificar cuando otro dispositivo personalice",
+        ja: "別の端末がカスタマイズを行なったら通知する",
         zh: "当其他设备有新的自定义设置时通知"
     },
     "Write logs into the file": {
@@ -1373,7 +1379,8 @@ type MESSAGE = { [key in I18N_LANGS]?: string };
         zh: "暂停文件监视"
     },
     "Stop watching for file changes.": {
-        es: "Dejar de monitorear cambios en archivos"
+        es: "Dejar de monitorear cambios en archivos",
+        ja: "監視の停止"
     },
     "Suspend database reflecting": {
         es: "Suspender reflejo de base de datos",
@@ -1381,7 +1388,8 @@ type MESSAGE = { [key in I18N_LANGS]?: string };
         zh: "暂停数据库反映"
     },
     "Stop reflecting database changes to storage files.": {
-        es: "Dejar de reflejar cambios de BD en archivos"
+        es: "Dejar de reflejar cambios de BD en archivos",
+        ja: "データベースの変更をストレージファイルに反映させない"
     },
     "Memory cache size (by total items)": {
         es: "Tamaño caché memoria (por ítems)",
@@ -1488,6 +1496,7 @@ type MESSAGE = { [key in I18N_LANGS]?: string };
     },
     "Number of batches to process at a time. Defaults to 40. Minimum is 2. This along with batch size controls how many docs are kept in memory at a time.": {
         es: "Número de lotes a procesar. Default 40, mínimo 2. Controla documentos en memoria",
+        ja: "1度に処理するバッチの数。デフォルトは40、最小は2。この数値は、どれだけの容量の書類がメモリに保存されるかも定義します。",
         zh: "一次处理的批量数。默认为40。最小为2。这与批量大小一起控制一次在内存中保留多少文档"
     },
     "Use timeouts instead of heartbeats": {
@@ -1497,6 +1506,7 @@ type MESSAGE = { [key in I18N_LANGS]?: string };
     },
     "If this option is enabled, PouchDB will hold the connection open for 60 seconds, and if no change arrives in that time, close and reopen the socket, instead of holding it open indefinitely. Useful when a proxy limits request duration but can increase resource usage.": {
         es: "Mantiene conexión 60s. Si no hay cambios, reinicia socket. Útil con proxies limitantes",
+        ja: "PouchDBの接続を60秒間維持し、その間に変更がない場合、接続を切断してソケットを再び開きます。プロキシによるリクエスト時間制限があり、なおかつリソースの使用量が増える可能性がある場合に便利です。",
         zh: "如果启用此选项，PouchDB将保持连接打开60秒，如果在此时间内没有更改到达，则关闭并重新打开套接字，而不是无限期保持打开。当代理限制请求持续时间时有用，但可能会增加资源使用"
     },
     "Encrypting sensitive configuration items": {
@@ -1558,6 +1568,7 @@ type MESSAGE = { [key in I18N_LANGS]?: string };
     },
     "Before v0.17.16, we used an old adapter for the local database. Now the new adapter is preferred. However, it needs local database rebuilding. Please disable this toggle when you have enough time. If leave it enabled, also while fetching from the remote database, you will be asked to disable this.": {
         es: "Antes de v0.17.16 usábamos adaptador antiguo. Nuevo adaptador requiere reconstruir BD local. Desactive cuando pueda",
+        ja: "v0.17.6までは、古いアダプターをローカル用のデータベースに使用していました。現在は新しいアダプターを推奨しています。しかし、古いデータベースを再構築するためには必要です。有効のままにしておくと、リモートデータベースからフェッチする場合に、この設定を無効にするか質問があります。",
         zh: "在v0.17.16之前，我们使用了旧适配器作为本地数据库。现在更倾向于使用新适配器。但是，它需要重建本地数据库。请在有足够时间时禁用此切换。如果保留启用状态，且在从远程数据库获取时，将要求您禁用此切换"
     },
     "Compute revisions for chunks (Previous behaviour)": {
@@ -1589,6 +1600,7 @@ type MESSAGE = { [key in I18N_LANGS]?: string };
     },
     "LiveSync could not handle multiple vaults which have same name without different prefix, This should be automatically configured.": {
         es: "LiveSync no puede manejar múltiples bóvedas con mismo nombre sin prefijo. Se configura automáticamente",
+        ja: "LiveSyncは、接頭詞のない同名の保管庫を扱うことができません。この設定は、自動的に設定されます。",
         zh: "LiveSync无法处理具有相同名称但没有不同前缀的多个仓库。这应该自动配置"
     },
     "The Hash algorithm for chunk IDs": {
