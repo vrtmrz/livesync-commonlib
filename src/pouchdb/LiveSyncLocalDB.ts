@@ -84,7 +84,7 @@ export interface LiveSyncLocalDBEnv {
     getSettings(): RemoteDBSettings;
 }
 
-function getNoFromRev(rev: string) {
+export function getNoFromRev(rev: string) {
     if (!rev) return 0;
     return parseInt(rev.split("-")[0]);
 }
@@ -396,6 +396,101 @@ export class LiveSyncLocalDB {
             throw ex;
         }
         return false;
+    }
+
+    /**
+     * Retrieve all used and existing chunks in the database.
+     * @param includeDeleted  include deleted chunks in the result.
+     * @returns {used: Set<string>, existing: Map<string, EntryLeaf>} used: Set of chunk ids that are used in the database. existing: Map of chunk id and EntryLeaf that are existing in the database.
+     */
+    async allChunks(includeDeleted = false): Promise<{
+        used: Set<string>;
+        existing: Map<string, EntryLeaf>;
+    }> {
+        const used = new Set<string>();
+        const existing = new Map<string, EntryLeaf>();
+        let since = 0 as string | number;
+        do {
+            const changes = await this.localDatabase.changes({
+                since: since,
+                limit: 100,
+                include_docs: true,
+                conflicts: true,
+                style: includeDeleted ? "all_docs" : "main_only",
+            });
+            if (changes.results.length == 0) {
+                break;
+            }
+            for (const change of changes.results) {
+                // console.log(`${change.seq}: ${change.id} ${change.deleted ? "deleted" : ""}`);
+                const doc = change.doc as EntryDoc | EntryLeaf;
+                if (doc.type == "leaf") {
+                    if (doc._deleted) {
+                        if (!includeDeleted) {
+                            continue;
+                        }
+                    }
+                    existing.set(doc._id, doc);
+                }
+                if ("children" in doc) {
+                    if (change.deleted) {
+                        if (!doc._conflicts || doc._conflicts.length == 0) {
+                            continue;
+                        }
+                    }
+                    doc.children.forEach((e: string) => used.add(e));
+                    if (doc._conflicts) {
+                        const revs = await this.localDatabase.get(doc._id, { revs: true, revs_info: true });
+                        const mineRevInfo = revs._revs_info || [];
+                        // Collect all revs that should be kept.
+                        // (All revs that are conflicted and its history before the maximum not conflicted rev).
+                        const keepRevs = new Set<string>();
+                        for (const conflict of doc._conflicts) {
+                            const conflictedRevs = await this.localDatabase.get(doc._id, {
+                                rev: conflict,
+                                revs: true,
+                                revs_info: true,
+                            });
+                            const conflictedRevInfo = conflictedRevs._revs_info || [];
+                            const diffRevs = mineRevInfo.filter(
+                                (e) => !conflictedRevInfo.some((f) => f.rev == e.rev && f.status == e.status)
+                            );
+                            const diffRevs2 = conflictedRevInfo.filter(
+                                (e) => !mineRevInfo.some((f) => f.rev == e.rev && f.status == e.status)
+                            );
+                            const diffRevs3 = diffRevs.concat(diffRevs2);
+                            const sameRevs = mineRevInfo
+                                .filter((e) => conflictedRevInfo.some((f) => f.rev == e.rev && f.status == e.status))
+                                .filter((e) => e.status == "available")
+                                .sort((a, b) => getNoFromRev(b.rev) - getNoFromRev(a.rev));
+                            const sameRevsTop = sameRevs.length > 0 ? [sameRevs[0].rev] : [];
+                            const keepRevList = [
+                                ...diffRevs3.filter((e) => e.status == "available").map((e) => e.rev),
+                                ...sameRevsTop,
+                            ];
+                            keepRevList.forEach((e) => keepRevs.add(e));
+                        }
+                        const detail = await this.localDatabase.bulkGet<EntryDoc>({
+                            docs: [...keepRevs.values()].map((e) => ({ id: doc._id, rev: e })),
+                        });
+                        for (const e of detail.results) {
+                            if ("docs" in e) {
+                                const docs = e.docs;
+                                for (const doc of docs) {
+                                    if ("ok" in doc) {
+                                        if ("children" in doc.ok) {
+                                            doc.ok.children.forEach((e: string) => used.add(e));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            since = changes.results[changes.results.length - 1].seq;
+        } while (true);
+        return { used, existing };
     }
 
     async getDBEntry(
@@ -914,48 +1009,39 @@ export class LiveSyncLocalDB {
         }
         const cached = processed - newChunks.length;
         if (newChunks.length) {
-            if (!this.settings.doNotUseFixedRevisionForChunks) {
-                newChunks = newChunks.map((e) => ({ ...e, _rev: createChunkRev(e) }));
-            }
-            const exists = await this.localDatabase.allDocs({ keys: newChunks.map((e) => e._id), include_docs: false });
-            const existsMap = exists.rows
-                .map((e) => [e.key, "error" in e ? e.error : e.value.rev])
-                .reduce((p, c) => ({ ...p, [c[0]]: c[1] }), {} as Record<string, any>);
-            const result = await this.localDatabase.bulkDocs(newChunks, {
-                new_edits: !!this.settings.doNotUseFixedRevisionForChunks,
-            });
             if (this.settings.doNotUseFixedRevisionForChunks) {
-                const mappedResults = result.reduce(
-                    (p, item) => {
-                        if ("ok" in item) {
-                            p.ok.push(item);
-                            return p;
-                        }
-                        if ("error" in item) {
-                            if (item.status == 409) {
-                                p.skip.push(item);
-                                return p;
-                            }
-                        }
-                        p.failed.push(item);
-                        return p;
-                    },
-                    { ok: [] as PouchDB.Core.Response[], skip: [] as PouchDB.Core.Error[], failed: [] as any[] }
-                );
-                if (mappedResults.failed.length) {
+                const previousChunks = await this.localDatabase.allDocs({ keys: newChunks.map((e) => e._id) });
+                const missingChunks = previousChunks.rows
+                    .filter((e) => "error" in e || e.value.deleted)
+                    .map((e) => e.key);
+                const newChunksFiltered = newChunks.filter((e) => missingChunks.includes(e._id));
+                const result = await this.localDatabase.bulkDocs(newChunksFiltered, {
+                    // new_edits: true,
+                });
+                if (result.some((e) => "error" in e)) {
                     Logger(
-                        `Save failed.: ${dispFilename} :${mappedResults.failed.map((e) => e?.id ?? e.toString()).join(",")}`,
+                        `Save failed.: ${dispFilename} :${result.map((e) => e?.id ?? e.toString()).join(",")}`,
                         LOG_LEVEL_VERBOSE
                     );
                     Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
                     return false;
                 }
-                const made = mappedResults.ok.length;
-                const skipped = mappedResults.skip.length;
                 Logger(
-                    `Chunks saved: doc: ${dispFilename} ,chunks: ${processed} (new:${made}, recycled:${skipped}, cached:${cached})`
+                    `Chunks saved: doc: ${dispFilename} ,chunks: ${processed} (new:${newChunksFiltered.length}, recycled:${previousChunks.rows.length - newChunksFiltered.length}, cached:${cached})`
                 );
             } else {
+                newChunks = newChunks.map((e) => ({ ...e, _rev: createChunkRev(e) }));
+                const exists = await this.localDatabase.allDocs({
+                    keys: newChunks.map((e) => e._id),
+                    include_docs: false,
+                });
+                const existsMap = exists.rows
+                    .map((e) => [e.key, "error" in e ? e.error : e.value.rev])
+                    .reduce((p, c) => ({ ...p, [c[0]]: c[1] }), {} as Record<string, any>);
+                await this.localDatabase.bulkDocs(newChunks, {
+                    new_edits: false,
+                });
+
                 const erroredItems = newChunks.filter(
                     (e) => e._id in existsMap && existsMap[e._id].startsWith("1-") && existsMap[e._id] != e._rev
                 );

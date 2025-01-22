@@ -45,7 +45,8 @@ export class BatchReader {
         job: async (item) => {
             const chunk = await this.localDatabase.allDocs({ keys: item, include_docs: true });
             for (const row of chunk.rows) {
-                if ("error" in row) {
+                const isError = "error" in row || row.value.deleted;
+                if (isError) {
                     globalSlipBoard.submit("read-chunk", row.key as unknown as DocumentID, {
                         _id: row.key as unknown as DocumentID,
                         error: "NOT_FOUND",
