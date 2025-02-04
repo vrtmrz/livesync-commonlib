@@ -1,4 +1,4 @@
-import type { I18N_LANGS } from "./rosetta";
+import type { AllMessageKeys, I18N_LANGS } from "./rosetta";
 import { allMessages } from "./rosetta";
 export let currentLang: I18N_LANGS = "";
 const missingTranslations = [] as string[];
@@ -82,7 +82,7 @@ export function $f(strings: TemplateStringsArray, ...values: string[]) {
  * @param lang {I18N_LANGS} (Optional) Language.
  * @returns Translated and formatted message.
  */
-export function $tf(key: string, params: Record<string, string> = {}, lang?: I18N_LANGS): string {
+export function $msg<T extends AllMessageKeys>(key: T, params: Record<string, string> = {}, lang?: I18N_LANGS): string {
   let msg = $t(key, lang);
   for (const [placeholder, value] of Object.entries(params)) {
       const regex = new RegExp(`\\\${${placeholder}}`, 'g');

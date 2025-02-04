@@ -45,7 +45,8 @@ export type I18N_LANGS =
     | "";
 
 type MESSAGE = { [key in I18N_LANGS]?: string };
-  export const allMessages: Record<string, MESSAGE> = {
+
+const _allMessages = {
     // Logs messages of ModuleMigration.ts
     "moduleMigration.logBulkSendCorrupted": {
         def: "Send chunks in bulk has been enabled, however, this feature had been corrupted. Sorry for your inconvenience. Automatically disabled.",
@@ -1833,3 +1834,6 @@ type MESSAGE = { [key in I18N_LANGS]?: string };
         es: "Original: ${value}"
     },
 };
+
+export const allMessages = _allMessages as { [key: string]: MESSAGE };
+export type AllMessageKeys = keyof typeof _allMessages;
