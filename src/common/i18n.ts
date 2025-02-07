@@ -15,9 +15,9 @@ export function __onMissingTranslation(callback: (key: string) => void) {
 const msgCache = new Map<string, string>();
 
 export function setLang(lang: I18N_LANGS) {
-  if (lang === currentLang) return;
-  currentLang = lang;
-  msgCache.clear();
+    if (lang === currentLang) return;
+    currentLang = lang;
+    msgCache.clear();
 }
 
 function _getMessage(key: string, lang: I18N_LANGS) {
@@ -83,10 +83,10 @@ export function $f(strings: TemplateStringsArray, ...values: string[]) {
  * @returns Translated and formatted message.
  */
 export function $msg<T extends AllMessageKeys>(key: T, params: Record<string, string> = {}, lang?: I18N_LANGS): string {
-  let msg = $t(key, lang);
-  for (const [placeholder, value] of Object.entries(params)) {
-      const regex = new RegExp(`\\\${${placeholder}}`, 'g');
-      msg = msg.replace(regex, value);
-  }
-  return msg;
+    let msg = $t(key, lang);
+    for (const [placeholder, value] of Object.entries(params)) {
+        const regex = new RegExp(`\\\${${placeholder}}`, "g");
+        msg = msg.replace(regex, value);
+    }
+    return msg;
 }
