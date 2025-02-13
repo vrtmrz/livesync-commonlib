@@ -3,7 +3,7 @@ import { promiseWithResolver, type PromiseWithResolvers } from "octagonal-wheels
 import { eventHub } from "../hub/hub.ts";
 //@ts-ignore
 import WorkerX from "./bg.worker.ts";
-import { EVENT_PLUGIN_UNLOADED } from "../../../common/events.ts";
+import { EVENT_PLATFORM_UNLOADED } from "../PlatformAPIs/APIBase.ts";
 import { info, LOG_KIND_ERROR } from "octagonal-wheels/common/logger";
 
 export type SplitArguments = {
@@ -230,6 +230,6 @@ function _splitPieces2Worker(
     };
 }
 
-eventHub.onEvent(EVENT_PLUGIN_UNLOADED, () => {
+eventHub.on(EVENT_PLATFORM_UNLOADED, () => {
     terminateWorker();
 });

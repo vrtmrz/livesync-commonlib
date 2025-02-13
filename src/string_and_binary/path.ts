@@ -1,5 +1,5 @@
 import { minimatch, type MinimatchOptions } from "minimatch";
-import { webcrypto } from "../mods.ts";
+import { getWebCrypto } from "../mods.ts";
 import {
     type AnyEntry,
     type DocumentID,
@@ -81,6 +81,7 @@ export function expandDocumentIDPrefix(id: DocumentID): [string, FilePathWithPre
 
 const _hashString = memorizeFuncWithLRUCache(async (key: string) => {
     const buff = writeString(key);
+    const webcrypto = await getWebCrypto();
     let digest = await webcrypto.subtle.digest("SHA-256", buff);
     const len = key.length;
     for (let i = 0; i < len; i++) {
