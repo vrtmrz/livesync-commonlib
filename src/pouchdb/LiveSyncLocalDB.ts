@@ -612,6 +612,18 @@ export class LiveSyncLocalDB {
                                     Logger(`Missing chunks: ${missingChunks}`, LOG_LEVEL_VERBOSE);
                                     return false;
                                 }
+                                if (chunkDocs.rows.some((e) => "value" in e && e.value.deleted)) {
+                                    const missingChunks = chunkDocs.rows
+                                        .filter((e) => "value" in e && e.value.deleted)
+                                        .map((e) => e.key)
+                                        .join(", ");
+                                    Logger(
+                                        `Chunks of ${dispFilename} (${meta._id.substring(0, 8)}) are deleted. Please try "Resurrect deleted chunks" once.`,
+                                        LOG_LEVEL_NOTICE
+                                    );
+                                    Logger(`Corrupted chunks: ${missingChunks}`, LOG_LEVEL_VERBOSE);
+                                    return false;
+                                }
                                 if (chunkDocs.rows.some((e: any) => e.doc && e.doc.type != "leaf")) {
                                     const missingChunks = chunkDocs.rows
                                         .filter((e: any) => e.doc && e.doc.type != "leaf")
