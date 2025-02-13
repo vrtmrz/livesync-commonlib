@@ -504,7 +504,44 @@ export interface BucketSyncSetting {
 // Remote Type
 export const REMOTE_COUCHDB = "";
 export const REMOTE_MINIO = "MINIO";
-export type RemoteType = typeof REMOTE_COUCHDB | typeof REMOTE_MINIO;
+
+//
+export const REMOTE_P2P = "ONLY_P2P";
+
+export type RemoteType = typeof REMOTE_COUCHDB | typeof REMOTE_MINIO | typeof REMOTE_P2P;
+
+export enum AutoAccepting {
+    NONE = 0,
+    ALL = 1,
+}
+
+export interface P2PSyncSetting {
+    P2P_Enabled: boolean;
+    /**
+     * Nostr relay server URL. (Comma separated list)
+     * This is only for the channelling server to establish for the P2P connection.
+     * No data is transferred through this server.
+     */
+    P2P_relays: string;
+    /**
+     * The room ID for `your devices`. This should be unique among the users.
+     * (Or, lines will be got mixed up).
+     */
+    P2P_roomID: string;
+    /**
+     * The passphrase for your devices.
+     * It can be empty, but it will help you if you have a duplicate Room ID.
+     */
+    P2P_passphrase: string;
+    P2P_AutoAccepting: AutoAccepting;
+    P2P_AutoStart: boolean;
+    P2P_AutoBroadcast: boolean;
+    P2P_AutoSyncPeers: string;
+    P2P_AutoWatchPeers: string;
+    P2P_SyncOnReplication: string;
+    P2P_AppID: string;
+    P2P_RebuildFrom: string;
+}
 
 /**
  * Interface representing the settings for a remote type.
@@ -891,7 +928,8 @@ export type RemoteDBSettings = CouchDBConnection &
     CrossPlatformInteroperabilitySettings &
     ConflictHandlingSettings &
     EdgeCaseHandlingSettings &
-    DeletedFileMetadataSettings;
+    DeletedFileMetadataSettings &
+    P2PSyncSetting;
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
 
@@ -1016,6 +1054,18 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     useEdgeCaseMode: false,
     enableDebugTools: false,
     suppressNotifyHiddenFilesChange: false,
+    P2P_Enabled: false,
+    P2P_AutoAccepting: AutoAccepting.NONE,
+    P2P_AppID: "self-hosted-livesync",
+    P2P_roomID: "",
+    P2P_passphrase: "",
+    P2P_relays: "wss://exp-relay.vrtmrz.net/",
+    P2P_AutoBroadcast: false,
+    P2P_AutoStart: false,
+    P2P_AutoSyncPeers: "",
+    P2P_AutoWatchPeers: "",
+    P2P_SyncOnReplication: "",
+    P2P_RebuildFrom: "",
 };
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
