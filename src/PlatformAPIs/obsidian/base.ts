@@ -1,5 +1,5 @@
 import { App } from "obsidian";
-import { APIBase, type IInitOptions } from "../APIBase";
+import { APIBase, type IInitOptions } from "../base/APIBase";
 export const EVENT_APP_SUPPLIED = "app-supplied";
 
 declare global {

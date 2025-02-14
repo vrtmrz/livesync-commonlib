@@ -1,4 +1,4 @@
-import { eventHub } from "src/common/events";
+import { eventHub } from "../../hub/hub";
 import { Logger } from "../../common/logger";
 import {
     type RemoteDBSettings,
@@ -160,11 +160,6 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
                 Logger($msg("P2P.NotEnabled"), logLevel);
             }
             setting.P2P_Enabled = true;
-            // const instance = getReplicatorInstance();
-            // if (!instance) {
-            //     return false;
-            // }
-            // instance.settings.P2P_Enabled = true;
             this.env.settings.P2P_Enabled = true;
             await this.env.$$saveSettingData();
             await delay(100);

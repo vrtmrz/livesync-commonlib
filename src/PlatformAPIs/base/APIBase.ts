@@ -8,7 +8,6 @@ declare global {
     }
 }
 
-
 export type IInitOptions<T extends object = object> = {} & T;
 
 export abstract class APIBase<T extends object> {

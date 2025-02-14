@@ -1,19 +1,20 @@
 // Isomorphic Utilities
 
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
-import type { APIBase } from "./APIBase";
+import type { APIBase } from "./base/APIBase";
 
 export const MISSING = Symbol("MISSING");
 export type MISSING = typeof MISSING;
 
-export interface IPlatformAPIs<T extends object> extends APIBase<T> {
+export interface IEnvironment<T extends object = object> extends APIBase<T> {
     crypto: Crypto;
     getPlatformName(): string;
     getPackageVersion(): string;
     getManifestVersion(): string;
+    getVaultName(): string;
 }
 
-export interface ISimpleStore<T extends object> extends APIBase<T> {
+export interface ISimpleStoreAPI<T extends object = object> extends APIBase<T> {
     getSimpleStore<T>(key: string): SimpleStore<T>;
     dropSimpleStore(key: string): Promise<void>;
 }

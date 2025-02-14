@@ -543,6 +543,21 @@ export interface P2PSyncSetting {
     P2P_RebuildFrom: string;
 }
 
+export const P2P_DEFAULT_SETTINGS: P2PSyncSetting = {
+    P2P_Enabled: false,
+    P2P_AutoAccepting: AutoAccepting.NONE,
+    P2P_AppID: "self-hosted-livesync",
+    P2P_roomID: "",
+    P2P_passphrase: "",
+    P2P_relays: "wss://exp-relay.vrtmrz.net/",
+    P2P_AutoBroadcast: false,
+    P2P_AutoStart: false,
+    P2P_AutoSyncPeers: "",
+    P2P_AutoWatchPeers: "",
+    P2P_SyncOnReplication: "",
+    P2P_RebuildFrom: "",
+} as const;
+
 /**
  * Interface representing the settings for a remote type.
  */
@@ -1054,18 +1069,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     useEdgeCaseMode: false,
     enableDebugTools: false,
     suppressNotifyHiddenFilesChange: false,
-    P2P_Enabled: false,
-    P2P_AutoAccepting: AutoAccepting.NONE,
-    P2P_AppID: "self-hosted-livesync",
-    P2P_roomID: "",
-    P2P_passphrase: "",
-    P2P_relays: "wss://exp-relay.vrtmrz.net/",
-    P2P_AutoBroadcast: false,
-    P2P_AutoStart: false,
-    P2P_AutoSyncPeers: "",
-    P2P_AutoWatchPeers: "",
-    P2P_SyncOnReplication: "",
-    P2P_RebuildFrom: "",
+    ...P2P_DEFAULT_SETTINGS,
 };
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {

@@ -2,8 +2,8 @@
 import { promiseWithResolver, type PromiseWithResolvers } from "octagonal-wheels/promises";
 import { eventHub } from "../hub/hub.ts";
 //@ts-ignore
-import WorkerX from "./bg.worker.ts";
-import { EVENT_PLATFORM_UNLOADED } from "../PlatformAPIs/APIBase.ts";
+import WorkerX from "./bg.worker.ts?worker";
+import { EVENT_PLATFORM_UNLOADED } from "../PlatformAPIs/base/APIBase.ts";
 import { info, LOG_KIND_ERROR } from "octagonal-wheels/common/logger";
 
 export type SplitArguments = {
@@ -53,6 +53,7 @@ const workers = Array.from(
     { length: maxConcurrency },
     () =>
         ({
+            // @ts-ignore
             worker: WorkerX() as Worker,
             processing: 0,
         }) as WorkerInstance

@@ -1,8 +1,8 @@
 import { EVENT_APP_SUPPLIED, ObsidianAPIBase, type ObsidianInitOptions } from "./base";
-import type { IPlatformAPIs } from "../interfaces";
+import type { IEnvironment as IEnvironment } from "../interfaces";
 import { Platform, type App } from "obsidian";
 import { eventHub } from "../../hub/hub";
-import { promiseWithResolver } from "octagonal-wheels/promises";
+import { setEnvironmentInstance } from "../Environment";
 
 let webcrypto: Crypto;
 export async function getWebCrypto() {
@@ -13,7 +13,7 @@ export async function getWebCrypto() {
         webcrypto = globalThis.crypto;
         return webcrypto;
     } else {
-        const module = await import("crypto");
+        const module = await import("node:crypto");
         webcrypto = module.webcrypto as Crypto;
         return webcrypto;
     }
@@ -43,8 +43,8 @@ export function getPlatformName() {
 export declare const PACKAGE_VERSION: string;
 export declare const MANIFEST_VERSION: string;
 
-export class PlatformAPIs extends ObsidianAPIBase implements IPlatformAPIs<ObsidianInitOptions> {
-    async onInit(): Promise<void> {
+export class Environment extends ObsidianAPIBase implements IEnvironment<ObsidianInitOptions> {
+    override async onInit(): Promise<void> {
         this.crypto = await getWebCrypto();
     }
     crypto!: Crypto;
@@ -64,12 +64,7 @@ export class PlatformAPIs extends ObsidianAPIBase implements IPlatformAPIs<Obsid
     }
 }
 
-const p = promiseWithResolver<PlatformAPIs>();
 eventHub.onceEvent(EVENT_APP_SUPPLIED, (app: App) => {
-    const platformAPI = new PlatformAPIs({ app });
-    void platformAPI.onInit().then(() => p.resolve(platformAPI));
+    const platformAPI = new Environment({ app });
+    void platformAPI.onInit().then(() => setEnvironmentInstance(platformAPI));
 });
-
-export function getPlatformAPI() {
-    return p.promise;
-}

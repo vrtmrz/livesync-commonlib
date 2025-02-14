@@ -18,7 +18,7 @@ import { TrysteroReplicatorP2PClient } from "./TrysteroReplicatorP2PClient";
 import { eventHub } from "../../hub/hub";
 import { createHostingDB } from "./ProxiedDB";
 import { mixedHash } from "octagonal-wheels/hash/purejs";
-import { EVENT_PLATFORM_UNLOADED } from "../../PlatformAPIs/APIBase";
+import { EVENT_PLATFORM_UNLOADED } from "../../PlatformAPIs/base/APIBase";
 import { $msg } from "../../common/i18n";
 
 export type PeerInfo = Advertisement & {
@@ -365,7 +365,7 @@ You can chose as follows:
             //@ts-ignore
             (error: any) => {
                 Logger(`Some error has been occurred while connecting the signalling server.`, LOG_LEVEL_INFO);
-                Logger(`Error: ${error.toString()}`, LOG_LEVEL_INFO);
+                Logger(`Error: ${JSON.stringify(error)}`, LOG_LEVEL_INFO);
                 void this.ensureLeaved();
             }
         );
