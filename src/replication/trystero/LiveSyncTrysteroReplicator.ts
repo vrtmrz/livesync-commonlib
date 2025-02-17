@@ -171,28 +171,38 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         // const somePeerAdArrived = eventHub.waitFor(EVENT_ADVERTISEMENT_RECEIVED);
 
         const peerFrom = setting.P2P_RebuildFrom;
-        const r = await this.tryUntilSuccess(() => this.openP2P(logLevel), 10, logLevel);
-        if (r === false) {
-            Logger(`Failed to open P2P connection.`, logLevel);
+        const instance = getReplicatorInstance();
+        if (!instance) {
+            Logger(`Failed to get replicator instance.`, logLevel);
             return false;
         }
-        // await Promise.race([somePeerAdArrived, delay(10000)]);
-        const peerId = await this.selectPeer(peerFrom, r, logLevel);
-        if (peerId === false) {
-            Logger(`Failed to connect peer.`, logLevel);
-            return false;
-        }
-        this.env.settings.P2P_RebuildFrom = "";
-        Logger(`Fetching from peer ${peerId}.`, logLevel);
+        instance.setOnSetup();
+        try {
+            const r = await this.tryUntilSuccess(() => this.openP2P(logLevel), 10, logLevel);
+            if (r === false) {
+                Logger(`Failed to open P2P connection.`, logLevel);
+                return false;
+            }
+            // await Promise.race([somePeerAdArrived, delay(10000)]);
+            const peerId = await this.selectPeer(peerFrom, r, logLevel);
+            if (peerId === false) {
+                Logger(`Failed to connect peer.`, logLevel);
+                return false;
+            }
+            this.env.settings.P2P_RebuildFrom = "";
+            Logger(`Fetching from peer ${peerId}.`, logLevel);
 
-        const rep = await r.replicateFrom(peerId, showingNotice);
-        if (rep.ok) {
-            Logger(`P2P Fetching has been succeed from ${peerId}.`, logLevel);
-            return true;
-        } else {
-            Logger(`Failed to fetch from peer ${peerId}.`, logLevel);
-            Logger(rep.error, LOG_LEVEL_VERBOSE);
-            return false;
+            const rep = await r.replicateFrom(peerId, showingNotice);
+            if (rep.ok) {
+                Logger(`P2P Fetching has been succeed from ${peerId}.`, logLevel);
+                return true;
+            } else {
+                Logger(`Failed to fetch from peer ${peerId}.`, logLevel);
+                Logger(rep.error, LOG_LEVEL_VERBOSE);
+                return false;
+            }
+        } finally {
+            instance.clearOnSetup();
         }
     }
     closeReplication(): void {

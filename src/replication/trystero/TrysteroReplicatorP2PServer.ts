@@ -20,6 +20,7 @@ import { createHostingDB } from "./ProxiedDB";
 import { mixedHash } from "octagonal-wheels/hash/purejs";
 import { EVENT_PLATFORM_UNLOADED } from "../../PlatformAPIs/base/APIBase";
 import { $msg } from "../../common/i18n";
+import { shareRunningResult } from "octagonal-wheels/concurrency/lock_v2";
 
 export type PeerInfo = Advertisement & {
     isAccepted: boolean | undefined;
@@ -83,8 +84,16 @@ export class TrysteroReplicatorP2PServer {
 
     async ensureLeaved() {
         if (this._room) {
-            await this._room.leave();
-            await this._room.leave();
+            try {
+                await this._room?.leave();
+                await this._room?.leave();
+            } catch (ex) {
+                Logger(
+                    `Some error has been occurred while leaving the room, but possibly can be ignored`,
+                    LOG_LEVEL_VERBOSE
+                );
+                Logger(ex, LOG_LEVEL_VERBOSE);
+            }
             this._room = undefined;
             eventHub.emitEvent(EVENT_P2P_DISCONNECTED);
         }
@@ -168,6 +177,10 @@ export class TrysteroReplicatorP2PServer {
         return this._env.settings;
     }
 
+    get isEnabled() {
+        return this.settings.P2P_Enabled;
+    }
+
     get deviceInfo(): FullFilledDeviceInfo {
         return {
             currentPeerId: this._serverPeerId,
@@ -179,6 +192,7 @@ export class TrysteroReplicatorP2PServer {
 
     _sendAdvertisement?: ActionSender<Advertisement>;
     sendAdvertisement(peerId?: string) {
+        if (!this.isEnabled) return;
         const devInfo = this.deviceInfo;
         const data = {
             peerId: devInfo.currentPeerId,
@@ -186,7 +200,7 @@ export class TrysteroReplicatorP2PServer {
             platform: devInfo.platform,
         };
         if (this._sendAdvertisement) {
-            Logger(`Sending Advertisement`, LOG_LEVEL_VERBOSE);
+            Logger(`Sending Advertisement to ${peerId ?? "All"}`, LOG_LEVEL_VERBOSE);
             void this._sendAdvertisement(data, peerId);
         }
     }
@@ -197,6 +211,7 @@ export class TrysteroReplicatorP2PServer {
     }
 
     onAdvertisement(data: Advertisement, peerId: string) {
+        if (!this.isEnabled) return;
         Logger(`Advertisement from ${peerId}`, LOG_LEVEL_VERBOSE);
         if (peerId === this.serverPeerId) return;
         if (data.peerId === this.serverPeerId) return;
@@ -212,6 +227,9 @@ export class TrysteroReplicatorP2PServer {
     temporaryAcceptedPeers = new Map<string, boolean>();
 
     confirmUserToAccept(peerId: string) {
+        return shareRunningResult(`confirmUserToAccept-${peerId}`, () => this._confirmUserToAccept(peerId));
+    }
+    _confirmUserToAccept(peerId: string) {
         const peerInfo = this._knownAdvertisements.get(peerId);
         if (!peerInfo) throw new Error("Unknown Peer");
         const peerName = peerInfo.name;
@@ -261,6 +279,7 @@ You can chose as follows:
     }
 
     async isAcceptablePeer(peerId: string) {
+        if (!this.isEnabled) return undefined;
         const peerInfo = this._knownAdvertisements.get(peerId);
         if (!peerInfo) return false;
         const peerName = peerInfo.name;
@@ -271,6 +290,7 @@ You can chose as follows:
     }
 
     async __send(data: Payload, peerId: string) {
+        if (!this.isEnabled) return;
         if (!(await this.isAcceptablePeer(peerId))) {
             Logger(`Invalid Message to ${peerId}`, LOG_LEVEL_VERBOSE);
             Logger(data, LOG_LEVEL_VERBOSE);
@@ -284,6 +304,7 @@ You can chose as follows:
     }
 
     async processArrivedRPC(data: Payload, peerId: string) {
+        if (!this.isEnabled) return;
         if (!data.type.startsWith("!")) {
             const isAcceptable = await this.isAcceptablePeer(peerId);
             if (!isAcceptable) {
@@ -334,7 +355,7 @@ You can chose as follows:
     }
 
     async startService(bindings: BindableObject<any>[] = []) {
-        if (!this.settings.P2P_Enabled) {
+        if (!this.isEnabled) {
             Logger($msg("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
             return;
         }
@@ -366,6 +387,7 @@ You can chose as follows:
             (error: any) => {
                 Logger(`Some error has been occurred while connecting the signalling server.`, LOG_LEVEL_INFO);
                 Logger(`Error: ${JSON.stringify(error)}`, LOG_LEVEL_INFO);
+
                 void this.ensureLeaved();
             }
         );
@@ -400,12 +422,10 @@ You can chose as follows:
 
     async __onRequest(data: Request, peerId: string) {
         try {
-            // Logger(`Serving function: [ START] ${data.type}`, LOG_LEVEL_VERBOSE);
             const func = this.assignedFunctions.get(data.type);
             if (typeof func !== "function")
                 throw new Error(`Cannot serve function ${data.type}, no function provided or I am only a client`);
             const r = await Promise.resolve(func.apply(this, data.args));
-            // Logger(`Serving function: [ DONE ] ${data.type}`, LOG_LEVEL_VERBOSE);
             await this.__send({ type: data.type, seq: data.seq, direction: DIRECTION_RESPONSE, data: r }, peerId);
         } catch (e) {
             Logger(`Serving function: [FAILED] ${data.type}`, LOG_LEVEL_VERBOSE);
@@ -422,6 +442,8 @@ You can chose as follows:
     }
     async close() {
         this.assignedFunctions.clear();
+        this._knownAdvertisements.clear();
+        await this.ensureLeaved();
         const peers = this.room?.getPeers() ?? {};
         this.clients.forEach((client) => client.close());
         this.clients.clear();
@@ -429,8 +451,6 @@ You can chose as follows:
             peer.close();
         }
 
-        this._knownAdvertisements.clear();
-        await this.ensureLeaved();
         await this.dispatchConnectionStatus();
     }
 

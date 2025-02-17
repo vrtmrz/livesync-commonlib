@@ -66,11 +66,16 @@ async function* genReplication(
     signal: AbortSignal
 ) {
     const inbox = new Inbox<EventParamArray<EntryDoc>>(10000);
-
-    // let next = promiseWithResolver<EventParamArray<EntryDoc>>();
     const push = function (e: EventParamArray<EntryDoc>) {
         void serialized("replicationResult", async () => {
-            await inbox.post(e);
+            if (signal.aborted) {
+                return;
+            }
+            if (!inbox.isDisposed) {
+                await inbox.post(e);
+            } else {
+                Logger("Inbox is disposed", LOG_LEVEL_VERBOSE);
+            }
         });
     };
 
@@ -97,6 +102,12 @@ async function* genReplication(
                 break;
             }
             yield r;
+        }
+    } catch (ex) {
+        if (ex instanceof Error && ex.name == "AbortError") {
+            Logger(`Replication aborted`, LOG_LEVEL_VERBOSE);
+        } else {
+            throw ex;
         }
     } finally {
         s.cancel();

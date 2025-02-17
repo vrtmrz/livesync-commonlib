@@ -14,7 +14,6 @@ import {
 import { eventHub } from "../../hub/hub";
 import { decrypt, encrypt } from "octagonal-wheels/encryption";
 import { $msg } from "../../common/i18n";
-// import type { ReplicationStat } from "../LiveSyncAbstractReplicator";
 
 export type P2PReplicatorStatus = {
     isBroadcasting: boolean;
@@ -166,10 +165,20 @@ export class TrysteroReplicator {
     onPeerLeaved(peerId: string) {
         void this.unwatchPeer(peerId);
     }
+    _onSetup = false;
+    setOnSetup() {
+        this._onSetup = true;
+    }
+    clearOnSetup() {
+        this._onSetup = false;
+    }
 
     getCommands() {
         return {
             reqSync: async (fromPeerId: string) => {
+                if (this._onSetup) {
+                    return { error: new Error("The setup is in progress") };
+                }
                 return await this.replicateFrom(fromPeerId);
             },
             "!reqAuth": async (fromPeerId: string) => {
@@ -185,15 +194,23 @@ export class TrysteroReplicator {
                 return await Promise.resolve(this.settings);
             },
             onProgress: async (fromPeerId: string) => {
+                if (this._onSetup) {
+                    return { error: new Error("The setup is in progress") };
+                }
                 await this.onUpdateDatabase(fromPeerId);
             },
             getAllConfig: async (fromPeerId: string) => {
-                const passphrase = await this.confirm.askString(
-                    "Passphrase required",
-                    $msg("P2P.AskPassphraseForShare"),
-                    "something you only know",
-                    true
-                );
+                if (this._onSetup) {
+                    return { error: new Error("The setup is in progress") };
+                }
+                const passphrase = await skipIfDuplicated(`getAllConfig-${fromPeerId}`, async () => {
+                    return await this.confirm.askString(
+                        "Passphrase required",
+                        $msg("P2P.AskPassphraseForShare"),
+                        "something you only know",
+                        true
+                    );
+                });
                 const setting = {
                     ...this.settings,
                     configPassphraseStore: "",
@@ -226,13 +243,20 @@ export class TrysteroReplicator {
                 return Promise.resolve(this._isBroadcasting);
             },
             requestBroadcasting: async (peerId: string) => {
+                if (this._onSetup) {
+                    return { error: new Error("The setup is in progress") };
+                }
                 if (this._isBroadcasting) {
                     return true;
                 }
                 if (
-                    (await this.confirm.askYesNoDialog(
-                        "The remote peer requested to broadcast the changes. Do you want to allow it?",
-                        { defaultOption: "No" }
+                    (await skipIfDuplicated(
+                        `requested-${peerId}`,
+                        async () =>
+                            await this.confirm.askYesNoDialog(
+                                "The remote peer requested to broadcast the changes. Do you want to allow it?",
+                                { defaultOption: "No" }
+                            )
                     )) === "yes"
                 ) {
                     this.enableBroadcastChanges();
@@ -315,6 +339,7 @@ export class TrysteroReplicator {
         if (this._isBroadcasting) return;
         this._isBroadcasting = true;
         this.dispatchStatus();
+        if (this.changes) this.changes.cancel();
         this.changes = this.db.changes({
             since: "now",
             live: true,
@@ -329,7 +354,7 @@ export class TrysteroReplicator {
             this.lastSeq = change.seq;
             await this.notifyProgress();
         });
-        fireAndForget(() => this.notifyProgress());
+        fireAndForget(async () => await this.notifyProgress());
     }
 
     get knownAdvertisements() {
@@ -434,7 +459,7 @@ export class TrysteroReplicator {
     acknowledgeProgress(remotePeerId: string, info?: ProgressInfo) {
         if (!this.server) return;
         const connection = this.server.getConnection(remotePeerId);
-        void connection.invokeRemoteFunction("onProgressAcknowledged", [this.server.serverPeerId, info], 5);
+        void connection.invokeRemoteFunction("onProgressAcknowledged", [this.server.serverPeerId, info], 500);
     }
     async replicateFrom(remotePeer: string, showNotice: boolean = false, fromStart = false) {
         const logLevel = showNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
@@ -464,6 +489,7 @@ export class TrysteroReplicator {
                     await this._env.processReplicatedDocs(docs as Array<PouchDB.Core.ExistingDocument<EntryDoc>>);
                     void this.dispatchReplicationProgress(remotePeer, info);
                     void this.acknowledgeProgress(remotePeer, info);
+                    void this.notifyProgress(remotePeer);
                     Logger(
                         `P2P Replication from ${remotePeer}\n${info.lastSeq} / ${info.maxSeqInBatch})`,
                         logLevel,
@@ -484,20 +510,27 @@ export class TrysteroReplicator {
         }
         return { ok: true };
     }
-    async notifyProgress() {
+    notifyProgress(excludePeerId?: string) {
         if (!this._isBroadcasting) return;
         if (!this.server) return;
         for (const peer of this.server.knownAdvertisements) {
             const peerId = peer.peerId;
-            const isAcceptable = await this.server.isAcceptablePeer(peerId);
-            Logger(`Checking peer ${peerId} for progress notification`, LOG_LEVEL_VERBOSE);
-            if (isAcceptable) {
-                Logger(`Notifying progress to ${peerId}`, LOG_LEVEL_VERBOSE);
-                void this.server
-                    .getConnection(peerId)
-                    .invokeRemoteFunction("onProgress", [this.server.serverPeerId], 0);
-            }
+            if (peerId === excludePeerId) continue;
+            void serialized(`notifyProgress-${peerId}`, async () => {
+                const isAcceptable = await this.server?.isAcceptablePeer(peerId);
+                // Logger(`Checking peer ${peerId} for progress notification`, LOG_LEVEL_VERBOSE);
+                if (isAcceptable) {
+                    // Logger(`Notifying progress to ${peerId}`, LOG_LEVEL_VERBOSE);
+                    const ret = await this.server
+                        ?.getConnection(peerId)
+                        .invokeRemoteFunction("onProgress", [this.server?.serverPeerId], 0);
+                    return ret;
+                } else {
+                    Logger(`Peer ${peerId} is not acceptable to notify progress`, LOG_LEVEL_VERBOSE);
+                }
+            });
         }
+        return Promise.resolve();
     }
     async requestBroadcastChanges(peerId: string) {
         return await this.server
@@ -522,10 +555,11 @@ export class TrysteroReplicator {
     async onUpdateDatabase(fromPeerId: string) {
         if (this._watchingPeers.has(fromPeerId)) {
             Logger(`Progress notification from ${fromPeerId}`, LOG_LEVEL_VERBOSE);
-            await serialized(`onProgress-${fromPeerId}`, async () => {
+            return await serialized(`onProgress-${fromPeerId}`, async () => {
                 return await this.replicateFrom(fromPeerId);
             });
         }
+        return false;
     }
     async getRemoteConfig(peerId: string) {
         if (!this.server) {

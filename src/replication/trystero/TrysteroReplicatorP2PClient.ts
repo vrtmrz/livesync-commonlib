@@ -44,9 +44,11 @@ export class TrysteroReplicatorP2PClient {
         return this._server?.__send.bind(this._server);
     }
 
+    _prevSeq = 0;
     generateNewSeq(): number {
-        const seq = Math.floor(Math.random() * 1000000);
+        const seq = Math.floor(Math.random() * 115) + 1 + this._prevSeq;
         if (!this.waitingInvocations.has(seq)) {
+            this._prevSeq = seq % ~~(Number.MAX_SAFE_INTEGER / 2);
             return seq;
         }
         return this.generateNewSeq();
@@ -68,19 +70,19 @@ export class TrysteroReplicatorP2PClient {
             seq: seq,
             args,
         };
-        await this.__send(request, this._connectedPeerId);
         if (timeout && timeout > 0) {
             this.invocationTimeouts.set(
                 seq,
                 setTimeout(() => {
                     if (this.waitingInvocations.has(seq)) {
                         this.waitingInvocations.delete(seq);
-                        p.reject(new Error("Timeout"));
+                        p.reject(new Error(`Invocation Timed out: ${type} (${seq}) (Timeout: ${timeout}ms)`));
                     }
                     this.invocationTimeouts.delete(seq);
                 }, timeout)
             );
         }
+        await this.__send(request, this._connectedPeerId);
         return p.promise;
     }
 
