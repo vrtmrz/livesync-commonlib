@@ -339,7 +339,10 @@ export class TrysteroReplicator {
         if (this._isBroadcasting) return;
         this._isBroadcasting = true;
         this.dispatchStatus();
-        if (this.changes) this.changes.cancel();
+        if (this.changes) {
+            void this.changes.cancel();
+            void this.changes.removeAllListeners();
+        }
         this.changes = this.db.changes({
             since: "now",
             live: true,
@@ -354,6 +357,24 @@ export class TrysteroReplicator {
             this.lastSeq = change.seq;
             await this.notifyProgress();
         });
+        const closeChanges = (reason: any) => {
+            if (reason) {
+                if (reason instanceof Error) {
+                    Logger(`Error while broadcasting the changes`, LOG_LEVEL_INFO);
+                    Logger(reason, LOG_LEVEL_VERBOSE);
+                } else {
+                    Logger(`Broadcasting the changes has been finished`, LOG_LEVEL_INFO);
+                    Logger(reason, LOG_LEVEL_VERBOSE);
+                }
+            }
+            void this.changes?.cancel();
+            void this.changes?.removeAllListeners();
+            this.changes = undefined;
+            this._isBroadcasting = false;
+            this.dispatchStatus();
+        };
+        void this.changes.on("error", closeChanges);
+        void this.changes.on("complete", closeChanges);
         fireAndForget(async () => await this.notifyProgress());
     }
 

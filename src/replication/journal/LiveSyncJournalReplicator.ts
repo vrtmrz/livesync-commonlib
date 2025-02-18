@@ -239,7 +239,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             Logger(ex, LOG_LEVEL_NOTICE);
         }
     }
-    // eslint-disable-next-line require-await
+
     async tryCreateRemoteDatabase(setting: RemoteDBSettings) {
         this.closeReplication();
         Logger("Remote Database Created or Connected", LOG_LEVEL_NOTICE);

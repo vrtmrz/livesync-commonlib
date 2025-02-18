@@ -247,6 +247,24 @@ export class LiveSyncLocalDB {
                 // sendValue(`leaf-${e.id}`, e.doc);
                 globalSlipBoard.submit("read-chunk", e.id, e.doc as EntryLeaf);
             });
+
+        const closeChanges = (reason: any) => {
+            if (reason) {
+                if (reason instanceof Error) {
+                    Logger(`Error while tracking changes`, LOG_LEVEL_INFO);
+                    Logger(reason, LOG_LEVEL_VERBOSE);
+                } else {
+                    Logger(`Tracking changes has been finished`, LOG_LEVEL_INFO);
+                    Logger(reason, LOG_LEVEL_VERBOSE);
+                }
+            }
+            void changes.cancel();
+            void changes.removeAllListeners();
+            this.changeHandler = null;
+        };
+        void changes.on("error", closeChanges);
+        void changes.on("complete", closeChanges);
+
         this.changeHandler = changes;
         this.isReady = true;
         Logger("Database is now ready.");
@@ -755,7 +773,7 @@ export class LiveSyncLocalDB {
             throw ex;
         }
     }
-    // eslint-disable-next-line require-await
+
     async deleteDBEntryPrefix(prefix: FilePathWithPrefix | FilePath): Promise<boolean> {
         // delete database entries by prefix.
         // it called from folder deletion.
@@ -1378,7 +1396,7 @@ export class LiveSyncLocalDB {
 
     async getConflictedDoc(path: FilePathWithPrefix, rev: string): Promise<false | diff_result_leaf> {
         try {
-            const doc = await this.getDBEntry(path, { rev: rev }, false, false, true);
+            const doc = await this.getDBEntry(path, { rev: rev }, false, true, true);
             if (doc === false) return false;
             let data = getDocData(doc.data);
             if (doc.datatype == "newnote") {
@@ -1590,9 +1608,15 @@ export class LiveSyncLocalDB {
             const leftLeaf = await this.getConflictedDoc(path, currentRev);
             const rightLeaf = await this.getConflictedDoc(path, conflictedRev);
             if (baseLeaf == false || leftLeaf == false || rightLeaf == false) {
+                Logger(`Could not load leafs for merge`, LOG_LEVEL_VERBOSE);
+                Logger(
+                    `${baseLeaf ? "base" : "missing base"}, ${leftLeaf ? "left" : "missing left"}, ${rightLeaf ? "right" : "missing right"} }`,
+                    LOG_LEVEL_VERBOSE
+                );
                 return false;
             }
             if (leftLeaf.deleted && rightLeaf.deleted) {
+                Logger(`Both are deleted`, LOG_LEVEL_VERBOSE);
                 return false;
             }
             const baseObj = { data: tryParseJSON(baseLeaf.data, {}) } as Record<string | number | symbol, any>;
@@ -1617,6 +1641,7 @@ export class LiveSyncLocalDB {
             for (const [key, value] of diffSetRight) {
                 if (diffSetLeft.has(key) && diffSetLeft.get(key) != value) {
                     // Some changes are conflicted
+                    Logger(`Conflicted key:${key}`, LOG_LEVEL_VERBOSE);
                     return false;
                 }
             }
@@ -1629,6 +1654,7 @@ export class LiveSyncLocalDB {
             for (const patch of patches) {
                 newObj = applyPatch(newObj, patch.patch);
             }
+            Logger(`Object merge is applicable!`, LOG_LEVEL_VERBOSE);
             return JSON.stringify(newObj.data);
         } catch (ex) {
             Logger("Could not merge object");
@@ -1691,7 +1717,7 @@ export class LiveSyncLocalDB {
                         Logger(`Object merge:${path}`, LOG_LEVEL_INFO);
                         p = result;
                     } else {
-                        Logger(`Object merge is not applicable.`, LOG_LEVEL_VERBOSE);
+                        Logger(`Object merge is not applicable..`, LOG_LEVEL_VERBOSE);
                     }
                 }
                 if (p !== undefined) {
