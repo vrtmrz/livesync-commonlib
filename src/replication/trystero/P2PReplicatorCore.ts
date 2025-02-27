@@ -186,6 +186,10 @@ export function P2PReplicatorMixIn<TBase extends Constructor<P2PReplicatorBase>>
             return;
         }
 
+        getPlatform(): string {
+            return "unknown";
+        }
+
         constructor(...args: any[]) {
             super(...args);
             setReplicatorFunc(() => this._replicatorInstance);
@@ -238,6 +242,7 @@ export function P2PReplicatorMixIn<TBase extends Constructor<P2PReplicatorBase>>
                 const getDB = () => this.getDB();
 
                 const getConfirm = () => this.confirm;
+                const getPlatform = () => this.getPlatform();
                 const env = {
                     get db() {
                         return getDB();
@@ -248,7 +253,9 @@ export function P2PReplicatorMixIn<TBase extends Constructor<P2PReplicatorBase>>
                     get deviceName() {
                         return getInitialDeviceName();
                     },
-                    platform: "wip",
+                    get platform() {
+                        return getPlatform();
+                    },
                     get settings() {
                         return getSettings();
                     },

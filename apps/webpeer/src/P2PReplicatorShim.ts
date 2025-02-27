@@ -132,6 +132,9 @@ export class P2PReplicatorShim extends P2PReplicatorMixIn(P2PReplicatorShimBase)
     override getDeviceName(): string {
         return this.getConfig("p2p_device_name") ?? this.plugin.$$getVaultName();
     }
+    override getPlatform(): string {
+        return "pseudo-replicator";
+    }
     m?: Menu;
     override afterConstructor(): void {
         eventHub.onEvent(EVENT_P2P_PEER_SHOW_EXTRA_MENU, ({ peer, event }) => {

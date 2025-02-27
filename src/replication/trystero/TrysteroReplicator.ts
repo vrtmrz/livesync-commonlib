@@ -14,6 +14,8 @@ import {
 import { eventHub } from "../../hub/hub";
 import { decrypt, encrypt } from "octagonal-wheels/encryption";
 import { $msg } from "../../common/i18n";
+import { sha1 } from "octagonal-wheels/hash/purejs";
+import { isObjectDifferent } from "octagonal-wheels/object";
 
 export type P2PReplicatorStatus = {
     isBroadcasting: boolean;
@@ -70,6 +72,12 @@ export type AllReplicationClientStatus = {
         stats: P2PReplicationProgress;
     };
 };
+
+async function getHashedStringWithCurrentTime(source: string) {
+    const salt = (~~(new Date().getTime() / 1000 / 180)).toString(36);
+    const salt2 = await sha1(salt);
+    return await sha1(salt2 + source);
+}
 
 export class TrysteroReplicator {
     _env: ReplicatorHostEnv;
@@ -173,6 +181,24 @@ export class TrysteroReplicator {
         this._onSetup = false;
     }
 
+    async getTweakSettings(fromPeerId: string) {
+        const allSettings = JSON.parse(JSON.stringify(this.settings)) as Partial<ObsidianLiveSyncSettings>;
+        for (const key in allSettings) {
+            if (key == "encrypt") {
+                continue;
+            }
+            if (key == "passphrase") {
+                // If the passphrase is not matched, id of chunks will be different among the peers.
+                allSettings[key] = await getHashedStringWithCurrentTime(allSettings[key] ?? "");
+                continue;
+            }
+            if (!(key in TweakValuesShouldMatchedTemplate)) {
+                delete allSettings[key as keyof ObsidianLiveSyncSettings];
+            }
+        }
+        return allSettings;
+    }
+
     getCommands() {
         return {
             reqSync: async (fromPeerId: string) => {
@@ -184,14 +210,8 @@ export class TrysteroReplicator {
             "!reqAuth": async (fromPeerId: string) => {
                 return await this.server?.isAcceptablePeer(fromPeerId);
             },
-            getTweakSettings: async () => {
-                const allSettings = JSON.parse(JSON.stringify(this.settings)) as Partial<ObsidianLiveSyncSettings>;
-                for (const key in allSettings) {
-                    if (!(key in TweakValuesShouldMatchedTemplate)) {
-                        delete allSettings[key as keyof ObsidianLiveSyncSettings];
-                    }
-                }
-                return await Promise.resolve(this.settings);
+            getTweakSettings: async (fromPeerId: string) => {
+                return await this.getTweakSettings(fromPeerId);
             },
             onProgress: async (fromPeerId: string) => {
                 if (this._onSetup) {
@@ -489,6 +509,12 @@ export class TrysteroReplicator {
             Logger("Peer rejected the connection", LOG_LEVEL_NOTICE, "p2p-replicator");
             return { error: new Error("Peer rejected the connection") };
         }
+
+        if ((await this.checkTweakValues(remotePeer)) !== true) {
+            Logger("Tweak values are not matched", LOG_LEVEL_NOTICE, "p2p-replicator");
+            return { error: new Error("Tweak values are not matched") };
+        }
+
         Logger(`P2P Replicating from ${remotePeer}`, logLevel, "p2p-replicator");
         if (this._replicateFromPeers.has(remotePeer)) {
             Logger(`Replication from ${remotePeer} is already in progress`, LOG_LEVEL_NOTICE, "p2p-replicator");
@@ -561,7 +587,6 @@ export class TrysteroReplicator {
     async getRemoteIsBroadcasting(peerId: string) {
         return await this.server?.getConnection(peerId).invokeRemoteFunction("getIsBroadcasting", [], 0);
     }
-    async checkPeerConfigurations() {}
     _watchingPeers = new Set<string>();
 
     watchPeer(peerId: string) {
@@ -612,6 +637,44 @@ export class TrysteroReplicator {
             Logger(e, LOG_LEVEL_VERBOSE);
             return false;
         }
+    }
+    async checkTweakValues(peerId: string) {
+        if (!this.server) {
+            Logger("Server is not available", LOG_LEVEL_NOTICE);
+            return false;
+        }
+        const peerPlatform = this.server.knownAdvertisements.find((e) => e.peerId == peerId)?.platform;
+        if (peerPlatform == null) {
+            Logger("Peer is not found", LOG_LEVEL_NOTICE);
+            return false;
+        }
+        if (peerPlatform === "pseudo-replicator") {
+            return true;
+        }
+        const connection = this.server.getConnection(peerId);
+        const tweakValues = await connection.invokeRemoteObjectFunction<
+            ReturnType<typeof this.getCommands>,
+            "getTweakSettings"
+        >("getTweakSettings", [this.server.serverPeerId], 5000);
+        const thisTweakValues = await this.getTweakSettings("");
+        if (!isObjectDifferent(thisTweakValues, tweakValues)) {
+            return true;
+        }
+
+        if (thisTweakValues.passphrase !== tweakValues.passphrase) {
+            Logger(
+                "Replication cancelled: Passphrase is not matched\nCannot replicate to a remote database until the problem is resolved.",
+                LOG_LEVEL_NOTICE
+            );
+            return false;
+        }
+
+        Logger(
+            "Some mismatched configuration have been detected... Please check settings for efficient replication.",
+            LOG_LEVEL_NOTICE
+        );
+
+        return true;
     }
 
     async replicateFromCommand(showResult: boolean = false) {

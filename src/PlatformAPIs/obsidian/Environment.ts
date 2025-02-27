@@ -5,17 +5,15 @@ import { eventHub } from "../../hub/hub";
 import { setEnvironmentInstance } from "../Environment";
 
 let webcrypto: Crypto;
-export async function getWebCrypto() {
+export function getWebCrypto() {
     if (webcrypto) {
-        return webcrypto;
+        return Promise.resolve(webcrypto);
     }
     if (globalThis.crypto) {
         webcrypto = globalThis.crypto;
-        return webcrypto;
+        return Promise.resolve(webcrypto);
     } else {
-        const module = await import("node:crypto");
-        webcrypto = module.webcrypto as Crypto;
-        return webcrypto;
+        throw new Error("WebCrypto not available");
     }
 }
 export function getPlatformName() {

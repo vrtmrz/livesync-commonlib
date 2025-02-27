@@ -137,6 +137,12 @@ interface SyncMethodSettings {
      * Different from syncOnSave, this is only reacts to the editor save event.
      */
     syncOnEditorSave: boolean;
+
+    /**
+     * The minimum delay between synchronisation operations (in milliseconds).
+     * If the operation is triggered before this delay, the operation will be delayed until the delay is over, and executed as a single operation.
+     */
+    syncMinimumInterval: number;
 }
 
 /**
@@ -448,6 +454,11 @@ interface DataOnSettings {
      * The user-last-read version number.
      */
     lastReadUpdates: number;
+
+    /**
+     * The last checked version by the doctor.
+     */
+    doctorProcessedVersion: string;
 }
 
 /**
@@ -1059,7 +1070,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     usePluginSyncV2: false,
     usePluginEtc: false,
     handleFilenameCaseSensitive: undefined!,
-    doNotUseFixedRevisionForChunks: undefined!,
+    doNotUseFixedRevisionForChunks: true,
     showLongerLogInsideEditor: false,
     sendChunksBulk: false,
     sendChunksBulkMaxSize: 1,
@@ -1069,7 +1080,9 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     useEdgeCaseMode: false,
     enableDebugTools: false,
     suppressNotifyHiddenFilesChange: false,
+    syncMinimumInterval: 2000,
     ...P2P_DEFAULT_SETTINGS,
+    doctorProcessedVersion: "",
 };
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
@@ -1082,7 +1095,7 @@ export const PREFERRED_SETTING_CLOUDANT: Partial<ObsidianLiveSyncSettings> = {
     sendChunksBulkMaxSize: 1,
     concurrencyOfReadChunksOnline: 100,
     minimumIntervalOfReadChunksOnline: 333,
-    doNotUseFixedRevisionForChunks: false,
+    doNotUseFixedRevisionForChunks: true,
     useSegmenter: true,
     usePluginSyncV2: true,
     handleFilenameCaseSensitive: false,
@@ -1278,7 +1291,7 @@ export const TweakValuesShouldMatchedTemplate: Partial<ObsidianLiveSyncSettings>
     maxAgeInEden: 10,
     usePluginSyncV2: false,
     handleFilenameCaseSensitive: false,
-    doNotUseFixedRevisionForChunks: false,
+    doNotUseFixedRevisionForChunks: true,
     useSegmenter: false,
 };
 

@@ -534,7 +534,7 @@ I appreciate you for your great dedication.",
         "(Obsolete) Use an old adapter for compatibility": "(Obsolete) Use an old adapter for compatibility",
         "Before v0.17.16, we used an old adapter for the local database. Now the new adapter is preferred. However, it needs local database rebuilding. Please disable this toggle when you have enough time. If leave it enabled, also while fetching from the remote database, you will be asked to disable this.":
             "Before v0.17.16, we used an old adapter for the local database. Now the new adapter is preferred. However, it needs local database rebuilding. Please disable this toggle when you have enough time. If leave it enabled, also while fetching from the remote database, you will be asked to disable this.",
-        "Compute revisions for chunks (Previous behaviour)": "Compute revisions for chunks (Previous behaviour)",
+        "Compute revisions for chunks": "Compute revisions for chunks",
         "If this enabled, all chunks will be stored with the revision made from its content. (Previous behaviour)":
             "If this enabled, all chunks will be stored with the revision made from its content. (Previous behaviour)",
         "Handle files as Case-Sensitive": "Handle files as Case-Sensitive",
@@ -642,5 +642,44 @@ By the way, even if the signaling server does not store our data, it can see the
             "The remote peer shared the configuration. Please input the passphrase to decrypt the configuration.",
         "P2P.AskPassphraseForShare":
             "The remote peer requested this device configuration. Please input the passphrase to share the configuration. You can ignore the request by cancelling this dialogue.",
+        "Doctor.Dialogue.Title": "Self-hosted LiveSync Config Doctor",
+        "Doctor.Dialogue.Main": `Hi! Config Doctor has been activated because of \${activateReason}!
+And, unfortunately some configurations were detected as potential problems.
+Please be assured. Let's solve them one by one.
+
+To let you know ahead of time, we will ask you about the following items.
+
+\${issues}
+
+Shall we get started?`,
+        "Doctor.Dialogue.TitleFix": "Fix issue ${current}/${total}",
+        "Doctor.Dialogue.MainFix": `**Configuration name:** \`\${name}\`
+**Current value:** \`\${current}\`, **Ideal value:** \`\${ideal}\`
+**Recommendation Level:** \${level}
+**Why this has been detected?**
+\${reason}
+
+
+\${note}
+
+Fix this to the ideal value?`,
+        "Doctor.Message.RebuildRequired": "Attention! A rebuild is required to apply this!",
+        "Doctor.Message.RebuildLocalRequired": "Attention! A local database rebuild is required to apply this!",
+        "Doctor.Message.SomeSkipped": "We left some issues as is. Shall I ask you again on next startup?",
+        "Doctor.Dialogue.TitleAlmostDone": "Almost done!",
+        "Doctor.Level.Necessary": "Necessary",
+        "Doctor.Level.Recommended": "Recommended",
+        "Doctor.Level.Optional": "Optional",
+        "Doctor.Level.Must": "Must",
+        "Doctor.Button.Fix": "Fix it",
+        "Doctor.Button.FixButNoRebuild": "Fix it but no rebuild",
+        "Doctor.Button.Skip": "Leave it as is",
+        "Doctor.Button.Yes": "Yes",
+        "Doctor.Button.No": "No",
+        "Doctor.Button.DismissThisVersion": "No, and do not ask again until the next release",
+        "Doctor.Message.NoIssues": "No issues detected!",
+        "Setting.TroubleShooting": "TroubleShooting",
+        "Setting.TroubleShooting.Doctor": "Setting Doctor",
+        "Setting.TroubleShooting.Doctor.Desc": "Detects non optimal settings. (Same as during migration)",
     },
 } as const;

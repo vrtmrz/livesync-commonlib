@@ -1645,9 +1645,8 @@ export const _allMessages = {
             ja: "v0.17.6までは、古いアダプターをローカル用のデータベースに使用していました。現在は新しいアダプターを推奨しています。しかし、古いデータベースを再構築するためには必要です。有効のままにしておくと、リモートデータベースからフェッチする場合に、この設定を無効にするか質問があります。",
             zh: "在v0.17.16之前，我们使用了旧适配器作为本地数据库。现在更倾向于使用新适配器。但是，它需要重建本地数据库。请在有足够时间时禁用此切换。如果保留启用状态，且在从远程数据库获取时，将要求您禁用此切换",
         },
-    "Compute revisions for chunks (Previous behaviour)": {
-        def: "Compute revisions for chunks (Previous behaviour)",
-        es: "Calcular revisiones para chunks (comportamiento anterior)",
+    "Compute revisions for chunks": {
+        def: "Compute revisions for chunks",
     },
     "If this enabled, all chunks will be stored with the revision made from its content. (Previous behaviour)": {
         def: "If this enabled, all chunks will be stored with the revision made from its content. (Previous behaviour)",
@@ -2000,5 +1999,74 @@ export const _allMessages = {
     },
     "P2P.AskPassphraseForShare": {
         def: "The remote peer requested this device configuration. Please input the passphrase to share the configuration. You can ignore the request by cancelling this dialogue.",
+    },
+    "Doctor.Dialogue.Title": {
+        def: "Self-hosted LiveSync Config Doctor",
+    },
+    "Doctor.Dialogue.Main": {
+        def: "Hi! Config Doctor has been activated because of ${activateReason}!\nAnd, unfortunately some configurations were detected as potential problems.\nPlease be assured. Let's solve them one by one.\n\nTo let you know ahead of time, we will ask you about the following items.\n\n${issues}\n\nShall we get started?",
+    },
+    "Doctor.Dialogue.TitleFix": {
+        def: "Fix issue ${current}/${total}",
+    },
+    "Doctor.Dialogue.MainFix": {
+        def: "**Configuration name:** `${name}`\n**Current value:** `${current}`, **Ideal value:** `${ideal}`\n**Recommendation Level:** ${level}\n**Why this has been detected?**\n${reason}\n\n\n${note}\n\nFix this to the ideal value?",
+    },
+    "Doctor.Message.RebuildRequired": {
+        def: "Attention! A rebuild is required to apply this!",
+    },
+    "Doctor.Message.RebuildLocalRequired": {
+        def: "Attention! A local database rebuild is required to apply this!",
+    },
+    "Doctor.Message.SomeSkipped": {
+        def: "We left some issues as is. Shall I ask you again on next startup?",
+    },
+    "Doctor.Dialogue.TitleAlmostDone": {
+        def: "Almost done!",
+    },
+    "Doctor.Level.Necessary": {
+        def: "Necessary",
+    },
+    "Doctor.Level.Recommended": {
+        def: "Recommended",
+    },
+    "Doctor.Level.Optional": {
+        def: "Optional",
+    },
+    "Doctor.Level.Must": {
+        def: "Must",
+    },
+    "Doctor.Button.Fix": {
+        def: "Fix it",
+    },
+    "Doctor.Button.FixButNoRebuild": {
+        def: "Fix it but no rebuild",
+    },
+    "Doctor.Button.Skip": {
+        def: "Leave it as is",
+    },
+    "Doctor.Button.Yes": {
+        def: "Yes",
+    },
+    "Doctor.Button.No": {
+        def: "No",
+    },
+    "Doctor.Button.DismissThisVersion": {
+        def: "No, and do not ask again until the next release",
+    },
+    "Doctor.Message.NoIssues": {
+        def: "No issues detected!",
+    },
+    "Setting.TroubleShooting": {
+        def: "TroubleShooting",
+    },
+    "Setting.TroubleShooting.Doctor": {
+        def: "Setting Doctor",
+    },
+    "Setting.TroubleShooting.Doctor.Desc": {
+        def: "Detects non optimal settings. (Same as during migration)",
+    },
+    "Compute revisions for chunks (Previous behaviour)": {
+        es: "Calcular revisiones para chunks (comportamiento anterior)",
     },
 } as const;
