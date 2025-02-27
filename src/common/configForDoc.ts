@@ -82,7 +82,7 @@ export const DoctorRegulationV0_24_16: DoctorRegulation = {
             level: RuleLevel.Must,
         },
         doNotUseFixedRevisionForChunks: {
-            value: false,
+            value: true,
             reason: "This value has been reverted at v0.24.16 for garbage collection of chunks.",
             level: RuleLevel.Recommended,
         },
