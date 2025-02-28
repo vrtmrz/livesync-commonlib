@@ -681,5 +681,86 @@ Fix this to the ideal value?`,
         "Setting.TroubleShooting": "TroubleShooting",
         "Setting.TroubleShooting.Doctor": "Setting Doctor",
         "Setting.TroubleShooting.Doctor.Desc": "Detects non optimal settings. (Same as during migration)",
+        "TweakMismatchResolve.Table": `| Value name | This device | On Remote |
+|: --- |: ---- :|: ---- :|
+\${rows}
+
+`,
+        "TweakMismatchResolve.Table.Row": `| \${name} | \${self} | \${remote} |`,
+        "TweakMismatchResolve.Message.UseRemote.WarningRebuildRequired": `
+>[!WARNING]
+> Some remote configurations are not compatible with the local database of this device. Rebuilding the local database will be required.
+> ***Please ensure that you have time and are connected to a stable network to apply!***`,
+        "TweakMismatchResolve.Message.UseRemote.WarningRebuildRecommended": `
+>[!NOTICE]
+> Some changes are compatible but may consume extra storage and transfer volumes. A rebuild is recommended. However, a rebuild may not be performed at present, but may be implemented in future maintenance.
+> ***Please ensure that you have time and are connected to a stable network to apply!***`,
+        "TweakMismatchResolve.Message.Main": `
+The settings in the remote database are as follows. These values are configured by other devices, which are synchronised with this device at least once.
+
+If you want to use these settings, please select %{TweakMismatchResolve.Action.UseConfigured}.
+If you want to keep the settings of this device, please select %{TweakMismatchResolve.Action.Dismiss}.
+
+\${table}
+
+>[!TIP]
+> If you want to synchronise all settings, please use \`Sync settings via markdown\` after applying minimal configuration with this feature.
+
+\${additionalMessage}`,
+        "TweakMismatchResolve.Action.UseRemote": `Apply settings to this device`,
+        "TweakMismatchResolve.Action.UseRemoteWithRebuild": `Apply settings to this device, and fetch again`,
+        "TweakMismatchResolve.Action.UseRemoteAcceptIncompatible": `Apply settings to this device, but and ignore incompatibility`,
+        "TweakMismatchResolve.Action.UseMine": `Update remote database settings`,
+        "TweakMismatchResolve.Action.UseMineWithRebuild": `Update remote database settings and rebuild again`,
+        "TweakMismatchResolve.Action.UseMineAcceptIncompatible": `Update remote database settings but keep as is`,
+        "TweakMismatchResolve.Action.UseConfigured": `Use configured settings`,
+        "TweakMismatchResolve.Action.Dismiss": `Dismiss`,
+        "TweakMismatchResolve.Message.WarningIncompatibleRebuildRequired": `
+>[!WARNING]
+> We have detected that some of the values are different to make incompatible the local database with the remote database.
+> Either local or remote rebuilds are required. Both of them takes a few minutes or more. **Make sure it is safe to perform it now.**`,
+        "TweakMismatchResolve.Message.WarningIncompatibleRebuildRecommended": `
+>[!NOTICE]
+> We have detected that some of the values are different to make incompatible the local database with the remote database.
+> Some changes are compatible but may consume extra storage and transfer volumes. A rebuild is recommended. However, a rebuild may not be performed at present, but may be implemented in future maintenance.
+> If you want to rebuild, it takes a few minutes or more. **Make sure it is safe to perform it now.**`,
+        "TweakMismatchResolve.Message.MainTweakResolving": `Your configuration has not been matched with the one on the remote server.
+
+Following configuration should be matched:
+
+\${table}
+
+Let us know your decision.
+
+\${additionalMessage}`,
+        "TweakMismatchResolve.Title": "Configuration Mismatch Detected",
+        "TweakMismatchResolve.Title.TweakResolving": "Configuration Mismatch Detected",
+        "TweakMismatchResolve.Title.UseRemoteConfig": "Use Remote Configuration",
+        "Replicator.Dialogue.Locked.Title": "Locked",
+        "Replicator.Dialogue.Locked.Message": `Remote database is locked. This is due to a rebuild on one of the terminals.
+The device is therefore asked to withhold the connection to avoid database corruption.
+
+There are three options that we can do:
+
+- %{Replicator.Dialogue.Locked.Action.Fetch}
+  The most preferred and reliable way. This will dispose the local database once, and fetch all from the remote database again, In most case, we can perform this safely. However, it takes some time and should be done in stable network.
+- %{Replicator.Dialogue.Locked.Action.Unlock}
+  This method can only be used if we are already reliably synchronised by other replication methods. This does not simply mean that we have the same files. If you are not sure, you should avoid it.
+- %{Replicator.Dialogue.Locked.Action.Dismiss}
+    This will cancel the operation. And we will asked again on next request.
+`,
+        "Replicator.Dialogue.Locked.Action.Fetch": "Fetch all from the remote database again",
+        "Replicator.Dialogue.Locked.Action.Unlock": "Unlock the remote database",
+        "Replicator.Dialogue.Locked.Action.Dismiss": "Cancel for reconfirmation",
+        "Replicator.Dialogue.Locked.Message.Fetch":
+            "Fetch all has been scheduled. Plug-in will be restarted to perform it.",
+        "Replicator.Dialogue.Locked.Message.Unlocked":
+            "The remote database has been unlocked. Please retry the operation.",
+        "Replicator.Message.Cleaned": "Database cleaning up is in process. replication has been cancelled",
+        "Replicator.Message.VersionUpFlash": "Open settings and check message, please. replication has been cancelled.",
+        "Replicator.Message.Pending": "Some file events are pending. Replication has been cancelled.",
+        "Replicator.Message.SomeModuleFailed": `Replication has been cancelled by some module failure`,
+        "Replicator.Message.InitialiseFatalError": "No replicator is available, this is the fatal error.",
+        "SettingTab.Message.AskRebuild": `Your changes require fetching from the remote database. Do you want to proceed?`,
     },
 } as const;

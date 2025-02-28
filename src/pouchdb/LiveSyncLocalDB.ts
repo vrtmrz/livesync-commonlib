@@ -1063,37 +1063,43 @@ export class LiveSyncLocalDB {
                 newChunks = newChunks.map((e) => ({ ...e, _rev: createChunkRev(e) }));
                 const exists = await this.localDatabase.allDocs({
                     keys: newChunks.map((e) => e._id),
-                    include_docs: false,
-                });
-                const existsMap = exists.rows
-                    .map((e) => [e.key, "error" in e ? e.error : e.value.rev])
-                    .reduce((p, c) => ({ ...p, [c[0]]: c[1] }), {} as Record<string, any>);
-                await this.localDatabase.bulkDocs(newChunks, {
-                    new_edits: false,
+                    include_docs: true,
                 });
 
-                const erroredItems = newChunks.filter(
-                    (e) => e._id in existsMap && existsMap[e._id].startsWith("1-") && existsMap[e._id] != e._rev
+                // Find the chunks which should be recycled
+                const existDocMap = exists.rows
+                    .map((e) => ("doc" in e ? (e.doc as EntryLeaf) : undefined))
+                    .filter((e) => e !== undefined && e !== null)
+                    .reduce((p, c) => ({ ...p, [c._id]: c }), {} as Record<string, EntryLeaf | undefined>);
+                // Find the chunks which has different revision
+                const suspiciousChunks = newChunks.filter(
+                    (e) => e._id in existDocMap && existDocMap[e._id]?._rev != e._rev
                 );
-                const actualNewChunks = newChunks.filter(
-                    (e) => !(e._id in existsMap) || !existsMap[e._id].startsWith("1-")
-                );
-                // const skippedChunks = newChunks.filter(e => e._id in existsMap && existsMap[e._id] == e._rev);
-                if (erroredItems.length) {
-                    Logger(`Save failed.: ${dispFilename} :${erroredItems.length} items mismatched`, LOG_LEVEL_VERBOSE);
-                    Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
-                    Logger(`Mismatched items: ${erroredItems.map((e) => e._id).join(",")}`, LOG_LEVEL_VERBOSE);
+                // Check content
+                const erroredChunks = suspiciousChunks.filter((e) => e.data != existDocMap[e._id]?.data);
+
+                if (erroredChunks.length) {
                     Logger(
-                        `Revision mismatch: ${erroredItems.map((e) => `${e._rev}, ${existsMap[e._id]}`).join(",")}`,
+                        `Save failed.: ${dispFilename} :${erroredChunks.length} items mismatched`,
                         LOG_LEVEL_VERBOSE
                     );
-                    // console.warn(erroredItems)
+                    Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
+                    Logger(`Mismatched items: ${erroredChunks.map((e) => e._id).join(",")}`, LOG_LEVEL_VERBOSE);
+                    Logger(
+                        `Revision and content mismatch: ${erroredChunks.map((e) => `${e._rev}, ${existDocMap?.[e._id]?._rev}`).join(",")}`,
+                        LOG_LEVEL_VERBOSE
+                    );
                     return false;
                 }
-                const made = actualNewChunks.length;
-                const skipped = newChunks.length - actualNewChunks.length;
+                // Now our chunks are safe to save.
+                const saveChunks = newChunks.filter((e) => !(e._id in existDocMap));
+                await this.localDatabase.bulkDocs(saveChunks, {
+                    new_edits: false,
+                });
+                const made = saveChunks.length;
+                const skipped = newChunks.length - saveChunks.length;
                 Logger(
-                    `Chunks saved (with fixed): doc: ${dispFilename} ,chunks: ${processed} (new:${made}, recycled:${skipped}, cached:${cached})`
+                    `Chunks saved (with fixed): doc: ${dispFilename} ,chunks: ${processed} (new:${made}, recycled:${skipped}, cached:${cached}, revision unmatched:${suspiciousChunks.length})`
                 );
             }
         }

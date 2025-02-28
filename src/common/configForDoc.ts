@@ -1,5 +1,5 @@
 import { Logger } from "./logger";
-import type { ObsidianLiveSyncSettings } from "./types";
+import { type ObsidianLiveSyncSettings } from "./types";
 
 enum ConditionType {
     PLATFORM_CASE_INSENSITIVE = "platform-case-insensitive",

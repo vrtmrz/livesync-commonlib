@@ -1295,14 +1295,37 @@ export const TweakValuesShouldMatchedTemplate: Partial<ObsidianLiveSyncSettings>
     useSegmenter: false,
 };
 
-export const CompatibilityBreakingTweakValues: (keyof TweakValues)[] = [
+type TweakKeys = keyof TweakValues;
+
+export const IncompatibleChanges: TweakKeys[] = [
     "encrypt",
     "usePathObfuscation",
     "useDynamicIterationCount",
-    "hashAlg",
     "handleFilenameCaseSensitive",
-    "doNotUseFixedRevisionForChunks",
-];
+] as const;
+
+export const CompatibleButLossyChanges: TweakKeys[] = ["hashAlg"];
+
+type IncompatibleRecommendationPatterns<T extends TweakKeys> = {
+    key: T;
+    isRecommendation?: boolean;
+} & (
+    | {
+          from: TweakValues[T];
+          to: TweakValues[T];
+      }
+    | {
+          from: TweakValues[T];
+      }
+    | {
+          to: TweakValues[T];
+      }
+);
+
+export const IncompatibleChangesInSpecificPattern: IncompatibleRecommendationPatterns<TweakKeys>[] = [
+    { key: "doNotUseFixedRevisionForChunks", from: true, to: false, isRecommendation: true },
+    { key: "doNotUseFixedRevisionForChunks", to: true, isRecommendation: false },
+] as const;
 
 export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> = {
     useIgnoreFiles: false,

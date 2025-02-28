@@ -2066,6 +2066,102 @@ export const _allMessages = {
     "Setting.TroubleShooting.Doctor.Desc": {
         def: "Detects non optimal settings. (Same as during migration)",
     },
+    "TweakMismatchResolve.Table": {
+        def: "| Value name | This device | On Remote |\n|: --- |: ---- :|: ---- :|\n${rows}\n\n",
+    },
+    "TweakMismatchResolve.Table.Row": {
+        def: "| ${name} | ${self} | ${remote} |",
+    },
+    "TweakMismatchResolve.Message.UseRemote.WarningRebuildRequired": {
+        def: "\n>[!WARNING]\n> Some remote configurations are not compatible with the local database of this device. Rebuilding the local database will be required.\n> ***Please ensure that you have time and are connected to a stable network to apply!***",
+    },
+    "TweakMismatchResolve.Message.UseRemote.WarningRebuildRecommended": {
+        def: "\n>[!NOTICE]\n> Some changes are compatible but may consume extra storage and transfer volumes. A rebuild is recommended. However, a rebuild may not be performed at present, but may be implemented in future maintenance.\n> ***Please ensure that you have time and are connected to a stable network to apply!***",
+    },
+    "TweakMismatchResolve.Message.Main": {
+        def: "\nThe settings in the remote database are as follows. These values are configured by other devices, which are synchronised with this device at least once.\n\nIf you want to use these settings, please select %{TweakMismatchResolve.Action.UseConfigured}.\nIf you want to keep the settings of this device, please select %{TweakMismatchResolve.Action.Dismiss}.\n\n${table}\n\n>[!TIP]\n> If you want to synchronise all settings, please use `Sync settings via markdown` after applying minimal configuration with this feature.\n\n${additionalMessage}",
+    },
+    "TweakMismatchResolve.Action.UseRemote": {
+        def: "Apply settings to this device",
+    },
+    "TweakMismatchResolve.Action.UseRemoteWithRebuild": {
+        def: "Apply settings to this device, and fetch again",
+    },
+    "TweakMismatchResolve.Action.UseRemoteAcceptIncompatible": {
+        def: "Apply settings to this device, but and ignore incompatibility",
+    },
+    "TweakMismatchResolve.Action.UseMine": {
+        def: "Update remote database settings",
+    },
+    "TweakMismatchResolve.Action.UseMineWithRebuild": {
+        def: "Update remote database settings and rebuild again",
+    },
+    "TweakMismatchResolve.Action.UseMineAcceptIncompatible": {
+        def: "Update remote database settings but keep as is",
+    },
+    "TweakMismatchResolve.Action.UseConfigured": {
+        def: "Use configured settings",
+    },
+    "TweakMismatchResolve.Action.Dismiss": {
+        def: "Dismiss",
+    },
+    "TweakMismatchResolve.Message.WarningIncompatibleRebuildRequired": {
+        def: "\n>[!WARNING]\n> We have detected that some of the values are different to make incompatible the local database with the remote database.\n> Either local or remote rebuilds are required. Both of them takes a few minutes or more. **Make sure it is safe to perform it now.**",
+    },
+    "TweakMismatchResolve.Message.WarningIncompatibleRebuildRecommended": {
+        def: "\n>[!NOTICE]\n> We have detected that some of the values are different to make incompatible the local database with the remote database.\n> Some changes are compatible but may consume extra storage and transfer volumes. A rebuild is recommended. However, a rebuild may not be performed at present, but may be implemented in future maintenance.\n> If you want to rebuild, it takes a few minutes or more. **Make sure it is safe to perform it now.**",
+    },
+    "TweakMismatchResolve.Message.MainTweakResolving": {
+        def: "Your configuration has not been matched with the one on the remote server.\n\nFollowing configuration should be matched:\n\n${table}\n\nLet us know your decision.\n\n${additionalMessage}",
+    },
+    "TweakMismatchResolve.Title": {
+        def: "Configuration Mismatch Detected",
+    },
+    "TweakMismatchResolve.Title.TweakResolving": {
+        def: "Configuration Mismatch Detected",
+    },
+    "TweakMismatchResolve.Title.UseRemoteConfig": {
+        def: "Use Remote Configuration",
+    },
+    "Replicator.Dialogue.Locked.Title": {
+        def: "Locked",
+    },
+    "Replicator.Dialogue.Locked.Message": {
+        def: "Remote database is locked. This is due to a rebuild on one of the terminals.\nThe device is therefore asked to withhold the connection to avoid database corruption.\n\nThere are three options that we can do:\n\n- %{Replicator.Dialogue.Locked.Action.Fetch}\n  The most preferred and reliable way. This will dispose the local database once, and fetch all from the remote database again, In most case, we can perform this safely. However, it takes some time and should be done in stable network.\n- %{Replicator.Dialogue.Locked.Action.Unlock}\n  This method can only be used if we are already reliably synchronised by other replication methods. This does not simply mean that we have the same files. If you are not sure, you should avoid it.\n- %{Replicator.Dialogue.Locked.Action.Dismiss}\n    This will cancel the operation. And we will asked again on next request.\n",
+    },
+    "Replicator.Dialogue.Locked.Action.Fetch": {
+        def: "Fetch all from the remote database again",
+    },
+    "Replicator.Dialogue.Locked.Action.Unlock": {
+        def: "Unlock the remote database",
+    },
+    "Replicator.Dialogue.Locked.Action.Dismiss": {
+        def: "Cancel for reconfirmation",
+    },
+    "Replicator.Dialogue.Locked.Message.Fetch": {
+        def: "Fetch all has been scheduled. Plug-in will be restarted to perform it.",
+    },
+    "Replicator.Dialogue.Locked.Message.Unlocked": {
+        def: "The remote database has been unlocked. Please retry the operation.",
+    },
+    "Replicator.Message.Cleaned": {
+        def: "Database cleaning up is in process. replication has been cancelled",
+    },
+    "Replicator.Message.VersionUpFlash": {
+        def: "Open settings and check message, please. replication has been cancelled.",
+    },
+    "Replicator.Message.Pending": {
+        def: "Some file events are pending. Replication has been cancelled.",
+    },
+    "Replicator.Message.SomeModuleFailed": {
+        def: "Replication has been cancelled by some module failure",
+    },
+    "Replicator.Message.InitialiseFatalError": {
+        def: "No replicator is available, this is the fatal error.",
+    },
+    "SettingTab.Message.AskRebuild": {
+        def: "Your changes require fetching from the remote database. Do you want to proceed?",
+    },
     "Compute revisions for chunks (Previous behaviour)": {
         es: "Calcular revisiones para chunks (comportamiento anterior)",
     },
