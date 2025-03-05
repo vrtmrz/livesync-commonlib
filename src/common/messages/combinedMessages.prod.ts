@@ -2162,6 +2162,9 @@ export const _allMessages = {
     "SettingTab.Message.AskRebuild": {
         def: "Your changes require fetching from the remote database. Do you want to proceed?",
     },
+    "Setup.QRCode": {
+        def: 'We have generated a QR code to transfer the settings. Please scan the QR code with your phone or other device.\nNote: The QR code is not encrypted, so be careful to open this.\n\n>[!FOR YOUR EYES ONLY]-\n> <div class="sls-qr">${qr_image}</div>',
+    },
     "Compute revisions for chunks (Previous behaviour)": {
         es: "Calcular revisiones para chunks (comportamiento anterior)",
     },

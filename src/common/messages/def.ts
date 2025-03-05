@@ -762,5 +762,10 @@ There are three options that we can do:
         "Replicator.Message.SomeModuleFailed": `Replication has been cancelled by some module failure`,
         "Replicator.Message.InitialiseFatalError": "No replicator is available, this is the fatal error.",
         "SettingTab.Message.AskRebuild": `Your changes require fetching from the remote database. Do you want to proceed?`,
+        "Setup.QRCode": `We have generated a QR code to transfer the settings. Please scan the QR code with your phone or other device.
+Note: The QR code is not encrypted, so be careful to open this.
+
+>[!FOR YOUR EYES ONLY]-
+> <div class="sls-qr">\${qr_image}</div>`,
     },
 } as const;
