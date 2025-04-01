@@ -2165,6 +2165,21 @@ export const _allMessages = {
     "Setup.QRCode": {
         def: 'We have generated a QR code to transfer the settings. Please scan the QR code with your phone or other device.\nNote: The QR code is not encrypted, so be careful to open this.\n\n>[!FOR YOUR EYES ONLY]-\n> <div class="sls-qr">${qr_image}</div>',
     },
+    "RedFlag.Fetch.Method.FetchSafer": {
+        def: "Create a local database once before fetching",
+    },
+    "RedFlag.Fetch.Method.FetchSmoother": {
+        def: "Create local file chunks before fetching",
+    },
+    "RedFlag.Fetch.Method.FetchTraditional": {
+        def: "Fetch everything from the remote",
+    },
+    "RedFlag.Fetch.Method.Title": {
+        def: "How do you want to fetch?",
+    },
+    "RedFlag.Fetch.Method.Desc": {
+        def: "How do you want to fetch?\n- %{RedFlag.Fetch.Method.FetchSafer}. (Recommended)\n  **Low Traffic**, **High CPU**, **Low Risk**\n- %{RedFlag.Fetch.Method.FetchSmoother}.\n  **Low Traffic**, **Moderate CPU**, **Low to Moderate Risk**\n- %{RedFlag.Fetch.Method.FetchTraditional}.\n  **High Traffic**, **Low CPU**, **Low to Moderate Risk**\n\n>[!INFO]- Details\n> ## %{RedFlag.Fetch.Method.FetchSafer}. (Recommended)\n> **Low Traffic**, **High CPU**, **Low Risk**\n> This option first creates a local database using existing local files before fetching data from the remote source.\n> If matching files exist both locally and remotely, only the differences between them will be transferred.\n> However, files present in both locations will initially be handled as conflicted files. They will be resolved automatically if they are not actually conflicted, but this process may take time.\n> This is generally the safest method, minimizing data loss risk.\n> ## %{RedFlag.Fetch.Method.FetchSmoother}.\n> **Low Traffic**, **Moderate CPU**, **Low to Moderate Risk** (depending operation)\n> This option first creates chunks from local files for the database, then fetches data. Consequently, only chunks missing locally are transferred. However, all metadata is taken from the remote source.\n> Local files are then compared against this metadata at launch. The content considered newer will overwrite the older one (by modified time). This outcome is then synchronised back to the remote database.\n> This is generally safe if local files are genuinely the latest timestamp. However, it can cause problems if a file has a newer timestamp but older content (like the initial `welcome.md`).\n> This uses less CPU and faster than \"%{RedFlag.Fetch.Method.FetchSafer}\", but it may lead to data loss if not used carefully.\n> ## %{RedFlag.Fetch.Method.FetchTraditional}.\n> **High Traffic**, **Low CPU**, **Low to Moderate Risk** (depending operation)\n> All things will be fetched from the remote.\n> Similar to the %{RedFlag.Fetch.Method.FetchSmoother}, but all chunks are fetched from the remote source.\n> This is the most traditional way to fetch, typically consuming the most network traffic and time. It also carries a similar risk of overwriting remote files to the '%{RedFlag.Fetch.Method.FetchSmoother}' option.\n> However, it is often considered the most stable method because it is the longest-established and most straightforward approach.",
+    },
     "Compute revisions for chunks (Previous behaviour)": {
         es: "Calcular revisiones para chunks (comportamiento anterior)",
     },

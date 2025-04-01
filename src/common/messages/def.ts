@@ -767,5 +767,36 @@ Note: The QR code is not encrypted, so be careful to open this.
 
 >[!FOR YOUR EYES ONLY]-
 > <div class="sls-qr">\${qr_image}</div>`,
+        "RedFlag.Fetch.Method.FetchSafer": `Create a local database once before fetching`,
+        "RedFlag.Fetch.Method.FetchSmoother": `Create local file chunks before fetching`,
+        "RedFlag.Fetch.Method.FetchTraditional": `Fetch everything from the remote`,
+        "RedFlag.Fetch.Method.Title": `How do you want to fetch?`,
+        "RedFlag.Fetch.Method.Desc": `How do you want to fetch?
+- %{RedFlag.Fetch.Method.FetchSafer}. (Recommended)
+  **Low Traffic**, **High CPU**, **Low Risk**
+- %{RedFlag.Fetch.Method.FetchSmoother}.
+  **Low Traffic**, **Moderate CPU**, **Low to Moderate Risk**
+- %{RedFlag.Fetch.Method.FetchTraditional}.
+  **High Traffic**, **Low CPU**, **Low to Moderate Risk**
+
+>[!INFO]- Details
+> ## %{RedFlag.Fetch.Method.FetchSafer}. (Recommended)
+> **Low Traffic**, **High CPU**, **Low Risk**
+> This option first creates a local database using existing local files before fetching data from the remote source.
+> If matching files exist both locally and remotely, only the differences between them will be transferred.
+> However, files present in both locations will initially be handled as conflicted files. They will be resolved automatically if they are not actually conflicted, but this process may take time.
+> This is generally the safest method, minimizing data loss risk.
+> ## %{RedFlag.Fetch.Method.FetchSmoother}.
+> **Low Traffic**, **Moderate CPU**, **Low to Moderate Risk** (depending operation)
+> This option first creates chunks from local files for the database, then fetches data. Consequently, only chunks missing locally are transferred. However, all metadata is taken from the remote source.
+> Local files are then compared against this metadata at launch. The content considered newer will overwrite the older one (by modified time). This outcome is then synchronised back to the remote database.
+> This is generally safe if local files are genuinely the latest timestamp. However, it can cause problems if a file has a newer timestamp but older content (like the initial \`welcome.md\`).
+> This uses less CPU and faster than "%{RedFlag.Fetch.Method.FetchSafer}", but it may lead to data loss if not used carefully.
+> ## %{RedFlag.Fetch.Method.FetchTraditional}.
+> **High Traffic**, **Low CPU**, **Low to Moderate Risk** (depending operation)
+> All things will be fetched from the remote.
+> Similar to the %{RedFlag.Fetch.Method.FetchSmoother}, but all chunks are fetched from the remote source.
+> This is the most traditional way to fetch, typically consuming the most network traffic and time. It also carries a similar risk of overwriting remote files to the '%{RedFlag.Fetch.Method.FetchSmoother}' option.
+> However, it is often considered the most stable method because it is the longest-established and most straightforward approach.`,
     },
 } as const;

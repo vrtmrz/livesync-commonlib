@@ -101,6 +101,24 @@ type GeneratedChunk = {
     piece: string;
 };
 
+type AutoMergeOutcomeOK = {
+    ok: DIFF_CHECK_RESULT_AUTO;
+};
+
+type AutoMergeCanBeDoneByDeletingRev = {
+    result: string;
+    conflictedRev: string;
+};
+
+type UserActionRequired = {
+    leftRev: string;
+    rightRev: string;
+    leftLeaf: diff_result_leaf | false;
+    rightLeaf: diff_result_leaf | false;
+};
+
+type AutoMergeResult = Promise<AutoMergeOutcomeOK | AutoMergeCanBeDoneByDeletingRev | UserActionRequired>;
+
 export class LiveSyncLocalDB {
     auth: Credential;
     dbname: string;
@@ -520,17 +538,15 @@ export class LiveSyncLocalDB {
     ): Promise<false | LoadedEntry> {
         const meta = await this.getDBEntryMeta(path, opt, includeDeleted);
         if (meta) {
-            return await this.getDBEntryFromMeta(meta, opt, dump, waitForReady, includeDeleted);
+            return await this.getDBEntryFromMeta(meta, dump, waitForReady);
         } else {
             return false;
         }
     }
     async getDBEntryFromMeta(
         meta: LoadedEntry | MetaEntry,
-        opt?: PouchDB.Core.GetOptions,
         dump = false,
-        waitForReady = true,
-        includeDeleted = false
+        waitForReady = true
     ): Promise<false | LoadedEntry> {
         const filename = this.id2path(meta._id, meta);
         if (!this.isTargetFile(filename)) {
@@ -566,7 +582,11 @@ export class LiveSyncLocalDB {
         }
         if (meta.type == "newnote" || meta.type == "plain") {
             if (dump) {
-                const conflicts = await this.localDatabase.get(meta._id, { conflicts: true, revs_info: true });
+                const conflicts = await this.localDatabase.get(meta._id, {
+                    rev: meta._rev,
+                    conflicts: true,
+                    revs_info: true,
+                });
                 Logger("-- Conflicts --");
                 Logger(conflicts._conflicts ?? "No conflicts");
                 Logger("-- Revs info -- ");
@@ -1668,25 +1688,46 @@ export class LiveSyncLocalDB {
             return false;
         }
     }
-
-    async tryAutoMerge(
-        path: FilePathWithPrefix,
-        enableMarkdownAutoMerge: boolean
-    ): Promise<
-        | {
-              ok: DIFF_CHECK_RESULT_AUTO;
-          }
-        | {
-              result: string;
-              conflictedRev: string;
-          }
-        | {
-              leftRev: string;
-              rightRev: string;
-              leftLeaf: diff_result_leaf | false;
-              rightLeaf: diff_result_leaf | false;
-          }
-    > {
+    async tryAutoMergeSensibly(path: FilePathWithPrefix, test: LoadedEntry, conflicts: string[]) {
+        const conflictedRev = conflicts[0];
+        const conflictedRevNo = Number(conflictedRev.split("-")[0]);
+        //Search
+        const revFrom = await this.getRaw<EntryDoc>(await this.path2id(path), { revs_info: true });
+        const commonBase =
+            (revFrom._revs_info || [])
+                .filter((e) => e.status == "available" && Number(e.rev.split("-")[0]) < conflictedRevNo)
+                .first()?.rev ?? "";
+        let p = undefined;
+        if (commonBase) {
+            if (isSensibleMargeApplicable(path)) {
+                const result = await this.mergeSensibly(path, commonBase, test._rev!, conflictedRev);
+                if (result) {
+                    p = result
+                        .filter((e) => e[0] != DIFF_DELETE)
+                        .map((e) => e[1])
+                        .join("");
+                    // can be merged.
+                    Logger(`Sensible merge:${path}`, LOG_LEVEL_INFO);
+                } else {
+                    Logger(`Sensible merge is not applicable.`, LOG_LEVEL_VERBOSE);
+                }
+            } else if (isObjectMargeApplicable(path)) {
+                // can be merged.
+                const result = await this.mergeObject(path, commonBase, test._rev!, conflictedRev);
+                if (result) {
+                    Logger(`Object merge:${path}`, LOG_LEVEL_INFO);
+                    p = result;
+                } else {
+                    Logger(`Object merge is not applicable..`, LOG_LEVEL_VERBOSE);
+                }
+            }
+            if (p !== undefined) {
+                return { result: p, conflictedRev };
+            }
+        }
+        return false;
+    }
+    async tryAutoMerge(path: FilePathWithPrefix, enableMarkdownAutoMerge: boolean): AutoMergeResult {
         const test = await this.getDBEntry(path, { conflicts: true, revs_info: true }, false, false, true);
         if (test === false) return { ok: MISSING_OR_ERROR };
         if (test == null) return { ok: MISSING_OR_ERROR };
@@ -1694,41 +1735,9 @@ export class LiveSyncLocalDB {
         if (test._conflicts.length == 0) return { ok: NOT_CONFLICTED };
         const conflicts = test._conflicts.sort((a, b) => Number(a.split("-")[0]) - Number(b.split("-")[0]));
         if ((isSensibleMargeApplicable(path) || isObjectMargeApplicable(path)) && enableMarkdownAutoMerge) {
-            const conflictedRev = conflicts[0];
-            const conflictedRevNo = Number(conflictedRev.split("-")[0]);
-            //Search
-            const revFrom = await this.getRaw<EntryDoc>(await this.path2id(path), { revs_info: true });
-            const commonBase =
-                (revFrom._revs_info || [])
-                    .filter((e) => e.status == "available" && Number(e.rev.split("-")[0]) < conflictedRevNo)
-                    .first()?.rev ?? "";
-            let p = undefined;
-            if (commonBase) {
-                if (isSensibleMargeApplicable(path)) {
-                    const result = await this.mergeSensibly(path, commonBase, test._rev!, conflictedRev);
-                    if (result) {
-                        p = result
-                            .filter((e) => e[0] != DIFF_DELETE)
-                            .map((e) => e[1])
-                            .join("");
-                        // can be merged.
-                        Logger(`Sensible merge:${path}`, LOG_LEVEL_INFO);
-                    } else {
-                        Logger(`Sensible merge is not applicable.`, LOG_LEVEL_VERBOSE);
-                    }
-                } else if (isObjectMargeApplicable(path)) {
-                    // can be merged.
-                    const result = await this.mergeObject(path, commonBase, test._rev!, conflictedRev);
-                    if (result) {
-                        Logger(`Object merge:${path}`, LOG_LEVEL_INFO);
-                        p = result;
-                    } else {
-                        Logger(`Object merge is not applicable..`, LOG_LEVEL_VERBOSE);
-                    }
-                }
-                if (p !== undefined) {
-                    return { result: p, conflictedRev };
-                }
+            const autoMergeResult = await this.tryAutoMergeSensibly(path, test, conflicts);
+            if (autoMergeResult !== false) {
+                return autoMergeResult;
             }
         }
         // should be one or more conflicts;
