@@ -51,6 +51,7 @@ export abstract class JournalSyncAbstract {
     env: LiveSyncJournalReplicatorEnv;
     store: SimpleStore<CheckPointInfo>;
     useCustomRequestHandler: boolean;
+    customHeaders: [string, string][] = [];
     requestedStop = false;
     trench: Trench;
     notifier = new Notifier();
@@ -66,7 +67,8 @@ export abstract class JournalSyncAbstract {
         store: SimpleStore<CheckPointInfo>,
         env: LiveSyncJournalReplicatorEnv,
         useCustomRequestHandler: boolean,
-        region: string = ""
+        region: string = "",
+        customHeaders: string
     ) {
         this.id = id;
         this.key = key;
@@ -80,6 +82,11 @@ export abstract class JournalSyncAbstract {
         this.store = store;
         this.hash = this.getHash(endpoint, bucket, region);
         this.trench = new Trench(store);
+        const headers = customHeaders.split("\n").map((e) => e.split(":", 2).map((e) => e.trim())) as [
+            string,
+            string,
+        ][];
+        this.customHeaders = headers;
     }
     applyNewConfig(
         id: string,
@@ -89,7 +96,8 @@ export abstract class JournalSyncAbstract {
         store: SimpleStore<CheckPointInfo>,
         env: LiveSyncJournalReplicatorEnv,
         useCustomRequestHandler: boolean,
-        region: string = ""
+        region: string = "",
+        customHeaders: string
     ) {
         // const hash = this.getHash(endpoint, bucket, region)
         // if (hash != this.hash || useCustomRequestHandler != this.useCustomRequestHandler) {
@@ -105,6 +113,11 @@ export abstract class JournalSyncAbstract {
         this.processReplication = async (docs) => await env.$$parseReplicationResult(docs);
         this.store = store;
         this.hash = this.getHash(endpoint, bucket, region);
+        const headers = customHeaders.split("\n").map((e) => e.split(":", 2).map((e) => e.trim())) as [
+            string,
+            string,
+        ][];
+        this.customHeaders = headers;
         // }
     }
 

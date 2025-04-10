@@ -762,6 +762,8 @@ There are three options that we can do:
         "Replicator.Message.SomeModuleFailed": `Replication has been cancelled by some module failure`,
         "Replicator.Message.InitialiseFatalError": "No replicator is available, this is the fatal error.",
         "SettingTab.Message.AskRebuild": `Your changes require fetching from the remote database. Do you want to proceed?`,
+        "Setup.ShowQRCode": `Show QR code`,
+        "Setup.ShowQRCode.Desc": `Show QR code to transfer the settings.`,
         "Setup.QRCode": `We have generated a QR code to transfer the settings. Please scan the QR code with your phone or other device.
 Note: The QR code is not encrypted, so be careful to open this.
 
@@ -798,5 +800,40 @@ Note: The QR code is not encrypted, so be careful to open this.
 > Similar to the %{RedFlag.Fetch.Method.FetchSmoother}, but all chunks are fetched from the remote source.
 > This is the most traditional way to fetch, typically consuming the most network traffic and time. It also carries a similar risk of overwriting remote files to the '%{RedFlag.Fetch.Method.FetchSmoother}' option.
 > However, it is often considered the most stable method because it is the longest-established and most straightforward approach.`,
+        "Setting.GenerateKeyPair.Title": "New key pair has been generated!",
+        "Setting.GenerateKeyPair.Desc": `We have generated a key pair!
+
+Note: This key pair will never be shown again. Please save it in a safe place. If you have lost it, you need to generate a new key pair.
+Note 2: The public key is in spki format, and the Private key is in pkcs8 format. For the sake of convenience, newlines are converted to \`\\n\` in public key.
+Note 3: The public key should be configured in the remote database, and the private key should be configured in local devices.
+
+>[!FOR YOUR EYES ONLY]-
+> <div class="sls-keypair">
+>
+> ### Public Key
+> \`\`\`
+\${public_key}
+> \`\`\`
+>
+> ### Private Key
+> \`\`\`
+\${private_key}
+> \`\`\`
+>
+> </div>
+
+>[!Both for copying]-
+>
+> <div class="sls-keypair">
+>
+> \`\`\`
+\${public_key}
+\${private_key}
+> \`\`\`
+>
+> </div>
+
+
+`,
     },
 } as const;

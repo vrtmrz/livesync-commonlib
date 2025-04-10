@@ -72,6 +72,22 @@ export interface CouchDBConnection {
      * The name of the database to use.
      */
     couchDB_DBNAME: string;
+
+    /**
+     * e.g. `x-some-header: some-value\n x-some-header2: some-value2`
+     */
+    couchDB_CustomHeaders: string;
+
+    useJWT: boolean;
+
+    jwtAlgorithm: "HS256" | "HS512" | "ES256" | "ES512" | "";
+
+    // JWT key (psk on HS, public key on ES)
+    jwtKey: string;
+    jwtKid: string;
+    jwtSub: string;
+    // JWT Expiration duration (in minutes)
+    jwtExpDuration: number;
 }
 
 /**
@@ -510,6 +526,10 @@ export interface BucketSyncSetting {
      * (This is for CORS issue).
      */
     useCustomRequestHandler: boolean;
+
+    // Custom request headers
+    // e.g. `x-some-header: some-value\n x-some-header2: some-value2`
+    bucketCustomHeaders: string;
 }
 
 // Remote Type
@@ -1083,6 +1103,15 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     syncMinimumInterval: 2000,
     ...P2P_DEFAULT_SETTINGS,
     doctorProcessedVersion: "",
+
+    bucketCustomHeaders: "",
+    couchDB_CustomHeaders: "",
+    useJWT: false,
+    jwtAlgorithm: "",
+    jwtKey: "",
+    jwtKid: "",
+    jwtSub: "",
+    jwtExpDuration: 5,
 };
 
 export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> = {
@@ -1219,6 +1248,14 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     P2P_SyncOnReplication: 129,
     P2P_AppID: 130,
     P2P_RebuildFrom: 131,
+    bucketCustomHeaders: 132,
+    couchDB_CustomHeaders: 133,
+    useJWT: 134,
+    jwtAlgorithm: 135,
+    jwtKey: 136,
+    jwtKid: 137,
+    jwtSub: 138,
+    jwtExpDuration: 139,
 } as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
@@ -1553,6 +1590,41 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         name: "Use Segmented-splitter",
         desc: "If this enabled, chunks will be split into semantically meaningful segments. Not all platforms support this feature.",
     },
+    useJWT: {
+        name: "Use JWT instead of Basic Authentication",
+        desc: "If this enabled, JWT will be used for authentication.",
+    },
+    jwtAlgorithm: {
+        name: "Algorithm",
+        desc: "The algorithm used for JWT authentication.",
+    },
+    jwtKey: {
+        name: "Keypair or pre-shared key",
+        desc: "The key (PSK in HSxxx in base64, or private key in ESxxx in PEM) used for JWT authentication.",
+        // placeHolder:""
+    },
+    jwtKid: {
+        name: "Key ID",
+        desc: "The key ID. this should be matched with CouchDB->jwt_keys->ALG:_`kid`.",
+    },
+    jwtExpDuration: {
+        name: "Rotation Duration",
+        desc: "The Rotation duration of token in minutes. Each generated tokens will be valid only within this duration.",
+    },
+    jwtSub: {
+        name: "Subject (whoami)",
+        desc: "The subject for JWT authentication. Mostly username.",
+    },
+    bucketCustomHeaders: {
+        name: "Custom Headers",
+        desc: "Custom headers for requesting the bucket. e.g. `x-custom-header1: value1\n x-custom-header2: value2`",
+        placeHolder: "x-custom-header1: value1\n x-custom-header2: value2",
+    },
+    couchDB_CustomHeaders: {
+        name: "Custom Headers",
+        desc: "Custom headers for requesting the CouchDB. e.g. `x-custom-header1: value1\n x-custom-header2: value2`",
+        placeHolder: "x-custom-header1: value1\n x-custom-header2: value2",
+    },
 };
 
 export const LEVEL_ADVANCED = "ADVANCED";
@@ -1767,3 +1839,43 @@ export type UXDataWriteOptions = {
 export type Prettify<T> = {
     [K in keyof T]: T[K];
 } & {};
+
+export type CouchDBCredentials = BasicCredentials | JWTCredentials;
+
+export type BasicCredentials = {
+    username: string;
+    password: string;
+    type: "basic";
+};
+
+export type JWTCredentials = {
+    jwtAlgorithm: CouchDBConnection["jwtAlgorithm"];
+    jwtKey: string;
+    jwtKid: string;
+    jwtSub: string;
+    jwtExpDuration: number;
+    type: "jwt";
+};
+
+export interface JWTHeader {
+    alg: string;
+    typ: string;
+    kid?: string;
+}
+export interface JWTPayload {
+    sub: string;
+    exp: number;
+    iss?: string;
+    iat: number;
+    [key: string]: any;
+}
+export interface JWTParams {
+    header: JWTHeader;
+    payload: JWTPayload;
+    credentials: JWTCredentials;
+}
+export interface PreparedJWT {
+    header: JWTHeader;
+    payload: JWTPayload;
+    token: string;
+}

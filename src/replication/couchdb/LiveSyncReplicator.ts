@@ -15,6 +15,7 @@ import {
     TweakValuesTemplate,
     type DocumentID,
     type TweakValues,
+    type CouchDBCredentials,
 } from "../../common/types.ts";
 import {
     resolveWithIgnoreKnownError,
@@ -118,13 +119,14 @@ async function* genReplication(
 export interface LiveSyncCouchDBReplicatorEnv extends LiveSyncReplicatorEnv {
     $$connectRemoteCouchDB(
         uri: string,
-        auth: { username: string; password: string },
+        auth: CouchDBCredentials,
         disableRequestURI: boolean,
         passphrase: string | boolean,
         useDynamicIterationCount: boolean,
         performSetup: boolean,
         skipInfo: boolean,
-        enableCompression: boolean
+        enableCompression: boolean,
+        customHeaders: Record<string, string>
     ): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }>;
     $$getSimpleStore<T>(kind: string): SimpleStore<T>;
 }
@@ -1048,18 +1050,42 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         if (settings.encrypt && settings.passphrase == "" && !settings.permitEmptyPassphrase) {
             return "Empty passphrases cannot be used without explicit permission";
         }
+        const customHeaders = settings.couchDB_CustomHeaders.split("\n").reduce(
+            (acc, line) => {
+                const [key, value] = line.split(":").map((s) => s.trim());
+                if (key && value) {
+                    acc[key] = value;
+                }
+                return acc;
+            },
+            {} as Record<string, string>
+        );
+        const auth = (
+            settings.useJWT
+                ? {
+                      jwtAlgorithm: settings.jwtAlgorithm,
+                      jwtKey: settings.jwtKey,
+                      jwtExpDuration: settings.jwtExpDuration,
+                      jwtKid: settings.jwtKid,
+                      jwtSub: settings.jwtSub,
+                      type: "jwt",
+                  }
+                : {
+                      username: settings.couchDB_USER,
+                      password: settings.couchDB_PASSWORD,
+                      type: "basic",
+                  }
+        ) satisfies CouchDBCredentials;
         return this.env.$$connectRemoteCouchDB(
             settings.couchDB_URI + (settings.couchDB_DBNAME == "" ? "" : "/" + settings.couchDB_DBNAME),
-            {
-                username: settings.couchDB_USER,
-                password: settings.couchDB_PASSWORD,
-            },
+            auth,
             settings.disableRequestURI || isMobile,
             settings.encrypt ? settings.passphrase : settings.encrypt,
             settings.useDynamicIterationCount,
             performSetup,
             skipInfo,
-            settings.enableCompression
+            settings.enableCompression,
+            customHeaders
         );
     }
 

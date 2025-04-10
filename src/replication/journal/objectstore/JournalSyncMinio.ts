@@ -30,6 +30,20 @@ export class JournalSyncMinio extends JournalSyncAbstract {
             retryStrategy: new ConfiguredRetryStrategy(4, (attempt: number) => 100 + attempt * 1000),
             requestHandler: this.useCustomRequestHandler ? this.env.$$customFetchHandler() : undefined,
         });
+        const bucketCustomHeaders = this.customHeaders;
+        this._instance.middlewareStack.add(
+            (next, context) => (args: any) => {
+                bucketCustomHeaders.forEach(([key, value]) => {
+                    if (key && value) {
+                        args.request.headers[key] = value;
+                    }
+                });
+                return next(args);
+            },
+            {
+                step: "build",
+            }
+        );
         return this._instance;
     }
 
