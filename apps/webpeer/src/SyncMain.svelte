@@ -49,14 +49,33 @@
         max-height: 100vh;
         box-sizing: border-box;
     }
+    @media (max-width: 900px) {
+        main {
+            flex-direction: column;
+        }
+    }
+    @media (device-orientation: portrait) {
+        main {
+            flex-direction: column;
+        }
+    }
     .log {
         display: flex;
         flex-direction: column;
         justify-content: flex-start;
         align-items: flex-start;
         padding: 1em;
-        width: 50%;
         min-width: 50%;
+    }
+    @media (max-width: 900px) {
+        .log {
+            max-height: 50vh;
+        }
+    }
+    @media (device-orientation: portrait) {
+        .log {
+            max-height: 50vh;
+        }
     }
     .control {
         padding: 1em 1em;

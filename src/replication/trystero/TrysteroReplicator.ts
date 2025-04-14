@@ -648,9 +648,13 @@ export class TrysteroReplicator {
             Logger("Peer is not found", LOG_LEVEL_NOTICE);
             return false;
         }
+        if (this.platform === "pseudo-replicator") {
+            return true;
+        }
         if (peerPlatform === "pseudo-replicator") {
             return true;
         }
+
         const connection = this.server.getConnection(peerId);
         const tweakValues = await connection.invokeRemoteObjectFunction<
             ReturnType<typeof this.getCommands>,
