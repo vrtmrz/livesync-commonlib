@@ -14,6 +14,7 @@ import {
     concatUInt8Array,
     delay,
     escapeNewLineFromString,
+    parseHeaderValues,
     setAllItems,
     unescapeNewLineFromString,
 } from "../../common/utils.ts";
@@ -82,10 +83,7 @@ export abstract class JournalSyncAbstract {
         this.store = store;
         this.hash = this.getHash(endpoint, bucket, region);
         this.trench = new Trench(store);
-        const headers = customHeaders.split("\n").map((e) => e.split(":", 2).map((e) => e.trim())) as [
-            string,
-            string,
-        ][];
+        const headers = Object.entries(parseHeaderValues(customHeaders));
         this.customHeaders = headers;
     }
     applyNewConfig(
@@ -113,10 +111,7 @@ export abstract class JournalSyncAbstract {
         this.processReplication = async (docs) => await env.$$parseReplicationResult(docs);
         this.store = store;
         this.hash = this.getHash(endpoint, bucket, region);
-        const headers = customHeaders.split("\n").map((e) => e.split(":", 2).map((e) => e.trim())) as [
-            string,
-            string,
-        ][];
+        const headers = Object.entries(parseHeaderValues(customHeaders));
         this.customHeaders = headers;
         // }
     }
@@ -218,8 +213,22 @@ export abstract class JournalSyncAbstract {
         const dbInfo = await this.db.info();
         const hasNext = packLastSeq < dbInfo.update_seq;
         const docs = bd.results.map((e) => e.docs).flat();
-        const docChanges = docs.filter((e) => "ok" in e).map((e) => (e as any).ok) as (EntryDoc &
-            PouchDB.Core.GetMeta)[];
+        // Thinning out the docs.
+        const docChanges = docs
+            .filter((e) => "ok" in e)
+            .map((e) => (e as any).ok)
+            .filter((doc: EntryDoc) => {
+                const key = this.getDocKey(doc);
+                if (this._currentCheckPointInfo.knownIDs.has(key)) {
+                    knownKeyCount++;
+                    return false;
+                }
+                if (this._currentCheckPointInfo.sentIDs.has(key)) {
+                    knownKeyCount++;
+                    return false;
+                }
+                return true;
+            }) as (EntryDoc & PouchDB.Core.GetMeta)[];
         return { changes: docChanges, hasNext, packLastSeq };
     }
 
@@ -460,14 +469,22 @@ export abstract class JournalSyncAbstract {
             }
             // Docs saving.
             // Docs have different revisions, hence revision comparisons and merging are necessary.
-            const docsRevs = docs
-                .map((e: EntryDoc & PouchDB.Core.GetMeta) => ({
-                    [e._id]: e._revisions!.ids.map((rev, i) => `${e._revisions!.start - i}-${rev}`),
-                }))
-                .reduce((a, b) => ({ ...a, ...b }), {});
+            const params = docs.map((e) => [e._id, [e._rev]] as const);
+            const docsRevs = params.reduce(
+                (acc, [id, revs]) => {
+                    return {
+                        ...acc,
+                        [id]: [...(acc[id] ?? []), ...revs],
+                    };
+                },
+                {} as { [key: string]: string[] }
+            );
             const diffRevs = await this.db.revsDiff(docsRevs);
             const saveDocs = docs.filter(
-                (e) => e._id in diffRevs && "missing" in diffRevs[e._id] && (diffRevs[e._id].missing?.length || 0) > 0
+                (e) =>
+                    e._id in diffRevs &&
+                    "missing" in diffRevs[e._id] &&
+                    (diffRevs[e._id].missing?.indexOf(e._rev) ?? 0) !== -1
             );
             Logger(
                 `Applying ${saveDocs.length} docs (Total transferred:${docs.length}, docs:${allDocs.length})`,

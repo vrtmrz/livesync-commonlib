@@ -25,6 +25,7 @@ import {
     sizeToHumanReadable,
     type SimpleStore,
     arrayToChunkedArray,
+    parseHeaderValues,
 } from "../../common/utils.ts";
 import { Logger } from "../../common/logger.ts";
 import { checkRemoteVersion, preprocessOutgoing } from "../../pouchdb/utils_couchdb.ts";
@@ -1050,16 +1051,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         if (settings.encrypt && settings.passphrase == "" && !settings.permitEmptyPassphrase) {
             return "Empty passphrases cannot be used without explicit permission";
         }
-        const customHeaders = settings.couchDB_CustomHeaders.split("\n").reduce(
-            (acc, line) => {
-                const [key, value] = line.split(":").map((s) => s.trim());
-                if (key && value) {
-                    acc[key] = value;
-                }
-                return acc;
-            },
-            {} as Record<string, string>
-        );
+        const customHeaders = parseHeaderValues(settings.couchDB_CustomHeaders);
         const auth = (
             settings.useJWT
                 ? {

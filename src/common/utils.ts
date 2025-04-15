@@ -314,11 +314,15 @@ export function escapeNewLineFromString(str: string) {
     }
     return "\\f" + replaceAll(replaceAll(str, "\\", "\\\\"), "\n", "\\n");
 }
+
 export function unescapeNewLineFromString(str: string) {
     if (!str.startsWith("\\f")) {
         return str;
     }
-    return replaceAll(replaceAll(str.substring(2), "\\\\", "\\"), "\\n", "\n");
+    const escapedStr = str.substring(2);
+    const tooMuchUnescaped = replaceAll(escapedStr, "\\n", "\n");
+    const escapedStr2 = replaceAll(tooMuchUnescaped, "\\\n", "\\n");
+    return replaceAll(escapedStr2, "\\\\", "\\");
 }
 
 export function escapeMarkdownValue(value: any) {
@@ -592,4 +596,16 @@ export function flattenObject(obj: Record<string | number | symbol, any>, path: 
         ret.push(...p);
     }
     return ret;
+}
+
+export function parseHeaderValues(strHeader: string): Record<string, string> {
+    const headers: Record<string, string> = {};
+    const lines = strHeader.split("\n");
+    for (const line of lines) {
+        const [key, value] = line.split(":", 2).map((e) => e.trim());
+        if (key && value) {
+            headers[key] = value;
+        }
+    }
+    return headers;
 }
