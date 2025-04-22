@@ -1,7 +1,7 @@
-import { promiseWithResolver } from "octagonal-wheels/promises";
-import { eventHub } from "../hub/hub";
-import { EVENT_PLATFORM_UNLOADED } from "./base/APIBase";
-import type { IEnvironment } from "./interfaces";
+import { promiseWithResolver } from "octagonal-wheels/promises.js";
+import { eventHub } from "../hub/hub.ts";
+import { EVENT_PLATFORM_UNLOADED } from "./base/APIBase.ts";
+import type { IEnvironment } from "./interfaces.ts";
 
 eventHub.onceEvent(EVENT_PLATFORM_UNLOADED, () => {
     instance = undefined;

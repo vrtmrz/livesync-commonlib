@@ -572,6 +572,10 @@ export interface P2PSyncSetting {
     P2P_SyncOnReplication: string;
     P2P_AppID: string;
     P2P_RebuildFrom: string;
+    P2P_AutoAcceptingPeers: string;
+    P2P_AutoDenyingPeers: string;
+
+    P2P_IsHeadless?: boolean;
 }
 
 export const P2P_DEFAULT_SETTINGS: P2PSyncSetting = {
@@ -587,6 +591,9 @@ export const P2P_DEFAULT_SETTINGS: P2PSyncSetting = {
     P2P_AutoWatchPeers: "",
     P2P_SyncOnReplication: "",
     P2P_RebuildFrom: "",
+    P2P_AutoAcceptingPeers: "",
+    P2P_AutoDenyingPeers: "",
+    P2P_IsHeadless: false,
 } as const;
 
 /**
@@ -1256,6 +1263,9 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     jwtKid: 137,
     jwtSub: 138,
     jwtExpDuration: 139,
+    P2P_AutoAcceptingPeers: 140,
+    P2P_AutoDenyingPeers: 141,
+    P2P_IsHeadless: -1,
 } as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {

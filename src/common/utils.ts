@@ -116,7 +116,7 @@ export function readContent(doc: LoadedEntry) {
     }
 }
 
-const isIndexDBCmpExist = typeof window?.indexedDB?.cmp !== "undefined";
+const isIndexDBCmpExist = typeof globalThis?.indexedDB?.cmp !== "undefined";
 
 export async function isDocContentSame(
     docA: string | string[] | Blob | ArrayBuffer,
@@ -126,7 +126,7 @@ export async function isDocContentSame(
     const blob2 = createBlob(docB);
     if (blob1.size != blob2.size) return false;
     if (isIndexDBCmpExist) {
-        return window.indexedDB.cmp(await blob1.arrayBuffer(), await blob2.arrayBuffer()) === 0;
+        return globalThis.indexedDB.cmp(await blob1.arrayBuffer(), await blob2.arrayBuffer()) === 0;
     }
     const checkQuantum = 10000;
     const length = blob1.size;
