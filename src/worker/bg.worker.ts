@@ -1,10 +1,10 @@
 /// <reference lib="webworker" />
 
-import { splitPieces2V2, splitPieces2 } from "../string_and_binary/chunks";
-import { encrypt } from "octagonal-wheels/encryption";
-import { decrypt } from "octagonal-wheels/encryption";
+import { splitPieces2V2, splitPieces2 } from "../string_and_binary/chunks.ts";
+import { encrypt } from "octagonal-wheels/encryption/index.js";
+import { decrypt } from "octagonal-wheels/encryption/index.js";
 
-import type { EncryptArguments, SplitArguments } from "./bgWorker";
+import type { EncryptArguments, SplitArguments } from "./bgWorker.ts";
 
 async function processSplit(data: SplitArguments) {
     const key = data.key;

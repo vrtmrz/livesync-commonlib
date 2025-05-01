@@ -107,7 +107,7 @@ export const checkSyncInfo = async (db: PouchDB.Database): Promise<boolean> => {
         if (isErrorOfMissingDoc(ex)) {
             const randomStrSrc = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
             const temp = [...Array(30)]
-                .map((e) => Math.floor(Math.random() * randomStrSrc.length))
+                .map((_e) => Math.floor(Math.random() * randomStrSrc.length))
                 .map((e) => randomStrSrc[e])
                 .join("");
             const newSyncInfo: SyncInfo = {
@@ -156,11 +156,12 @@ async function _compressText(text: string) {
     const df = await wrappedDeflate(new Uint8Array(data), { consume: true, level: 8 });
     // Reverted: Even if chars in UTF-16 encoded were short, bytes in UTF-8 are longer than in base64 encoding.
     // const deflateResult = (converted ? "~" : "") + "%" + fflate.strFromU8(df, true);
+    // @ts-ignore Wrong type at octagonal-wheels v0.1.25
     const deflateResult = (converted ? "~" : "") + (await arrayBufferToBase64Single(df));
     return deflateResult;
 }
 
-async function _decompressText(compressed: string, useUTF16 = false) {
+async function _decompressText(compressed: string, _useUTF16 = false) {
     if (compressed.length == 0) {
         return "";
     }
@@ -176,6 +177,7 @@ async function _decompressText(compressed: string, useUTF16 = false) {
     }
     const ret = await wrappedInflate(new Uint8Array(ab), { consume: true });
     if (converted) {
+        //@ts-ignore Wrong type at octagonal-wheels v0.1.25
         return await arrayBufferToBase64Single(ret);
     }
     const response = new Blob([ret]);
@@ -210,12 +212,14 @@ async function decompressDoc(doc: EntryDoc) {
 }
 
 export const replicationFilter = (db: PouchDB.Database<EntryDoc>, compress: boolean) => {
+    //@ts-ignore
     db.transform({
         //@ts-ignore
         async incoming(doc) {
             if (!compress) return doc;
             return await compressDoc(doc);
         },
+        //@ts-ignore
         async outgoing(doc) {
             // We should decompress if compression is not configured.
             return await decompressDoc(doc);
@@ -239,21 +243,25 @@ function shouldDecryptEden(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
     return false;
 }
 
-// eslint-disable-next-line require-await
+// eslint-disable-next-line require-await 
+// deno-lint-ignore require-await
 export let preprocessOutgoing: (doc: AnyEntry | EntryLeaf) => Promise<AnyEntry | EntryLeaf> = async (doc) => {
     return Promise.resolve(doc);
 };
 export function disableEncryption() {
     // eslint-disable-next-line require-await, @typescript-eslint/require-await
+    // deno-lint-ignore require-await
     preprocessOutgoing = async (doc) => {
         return doc;
     };
     // eslint-disable-next-line require-await, @typescript-eslint/require-await
+    // deno-lint-ignore require-await
     preprocessIncoming = async (doc) => {
         return doc;
     };
 }
 // eslint-disable-next-line require-await, @typescript-eslint/require-await
+// deno-lint-ignore require-await
 export let preprocessIncoming: (doc: EntryDoc) => Promise<EntryDoc> = async (doc) => {
     return doc;
 };
@@ -557,7 +565,7 @@ const _requestToCouchDBFetch = async (
     method?: string
 ) => {
     const utf8str = String.fromCharCode.apply(null, [...writeString(`${username}:${password}`)]);
-    const encoded = window.btoa(utf8str);
+    const encoded = globalThis.btoa(utf8str);
     const authHeader = "Basic " + encoded;
     const transformedHeaders: Record<string, string> = {
         authorization: authHeader,

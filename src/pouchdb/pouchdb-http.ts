@@ -1,5 +1,5 @@
+// @ts-types="npm:@types/pouchdb"
 import PouchDB from "pouchdb-core";
-
 import HttpPouch from "pouchdb-adapter-http";
 import mapreduce from "pouchdb-mapreduce";
 import replication from "pouchdb-replication";
@@ -94,6 +94,7 @@ PouchDB.prototype.purgeMulti = adapterFun(
                             return res([param, error]);
                         }
                         if (!revs) {
+                            //@ts-ignore
                             return res([param, createError(MISSING_DOC)]);
                         }
                         let path;

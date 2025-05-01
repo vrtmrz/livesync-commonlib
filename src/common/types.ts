@@ -1,4 +1,4 @@
-import type { I18N_LANGS } from "./rosetta";
+import type { I18N_LANGS } from "./rosetta.ts";
 
 import type { TaggedType } from "octagonal-wheels/common/types";
 export type { TaggedType };
@@ -1848,6 +1848,7 @@ export type UXDataWriteOptions = {
 
 export type Prettify<T> = {
     [K in keyof T]: T[K];
+// deno-lint-ignore ban-types
 } & {};
 
 export type CouchDBCredentials = BasicCredentials | JWTCredentials;

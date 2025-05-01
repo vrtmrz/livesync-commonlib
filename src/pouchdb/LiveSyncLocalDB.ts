@@ -1,7 +1,7 @@
 //
 
-import { xxhashNew } from "octagonal-wheels/hash/xxhash";
-import { sha1, fallbackMixedHashEach, mixedHash } from "octagonal-wheels/hash/purejs";
+import { xxhashNew } from "octagonal-wheels/hash/xxhash.js";
+import { sha1, fallbackMixedHashEach, mixedHash } from "octagonal-wheels/hash/purejs.js";
 import {
     type EntryDoc,
     type EntryLeaf,
@@ -675,7 +675,7 @@ export class LiveSyncLocalDB {
                                     return false;
                                 }
                                 chunkDocs.rows.forEach(
-                                    (value, idx) =>
+                                    (value, _idx) =>
                                         "doc" in value &&
                                         loadedChildrenMap.set(
                                             (value.doc as EntryLeaf)._id,
@@ -1696,7 +1696,7 @@ export class LiveSyncLocalDB {
         const commonBase =
             (revFrom._revs_info || [])
                 .filter((e) => e.status == "available" && Number(e.rev.split("-")[0]) < conflictedRevNo)
-                .first()?.rev ?? "";
+                ?.[0]?.rev ?? "";
         let p = undefined;
         if (commonBase) {
             if (isSensibleMargeApplicable(path)) {

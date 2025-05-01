@@ -46,8 +46,9 @@ export type I18N_LANGS =
 
 type MESSAGE = { [key in I18N_LANGS]?: string };
 
-import { Logger } from "./logger";
-import { _allMessages, type MessageKeys } from "./messages/combinedMessages.dev";
+import { Logger } from "./logger.ts";
+// deno-lint-ignore no-sloppy-imports
+import { _allMessages, type MessageKeys } from "./messages/combinedMessages.dev"; // This sloppy-imports are used to replace the messages with the combined messages.
 const expandedMessage = {
     ...expandKeywords(_allMessages, "def"),
     ...expandKeywords(_allMessages, "es"),
