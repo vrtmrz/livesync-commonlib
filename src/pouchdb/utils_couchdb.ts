@@ -243,7 +243,7 @@ function shouldDecryptEden(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
     return false;
 }
 
-// eslint-disable-next-line require-await 
+// eslint-disable-next-line require-await
 // deno-lint-ignore require-await
 export let preprocessOutgoing: (doc: AnyEntry | EntryLeaf) => Promise<AnyEntry | EntryLeaf> = async (doc) => {
     return Promise.resolve(doc);

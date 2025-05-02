@@ -1694,9 +1694,9 @@ export class LiveSyncLocalDB {
         //Search
         const revFrom = await this.getRaw<EntryDoc>(await this.path2id(path), { revs_info: true });
         const commonBase =
-            (revFrom._revs_info || [])
-                .filter((e) => e.status == "available" && Number(e.rev.split("-")[0]) < conflictedRevNo)
-                ?.[0]?.rev ?? "";
+            (revFrom._revs_info || []).filter(
+                (e) => e.status == "available" && Number(e.rev.split("-")[0]) < conflictedRevNo
+            )?.[0]?.rev ?? "";
         let p = undefined;
         if (commonBase) {
             if (isSensibleMargeApplicable(path)) {

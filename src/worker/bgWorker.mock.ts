@@ -21,7 +21,6 @@ export type EncryptArguments = {
     autoCalculateIterations: boolean;
 };
 
-
 export function terminateWorker() {
     return;
 }
