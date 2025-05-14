@@ -927,6 +927,12 @@ export const _allMessages = {
         def: "Enable edge case treatment features",
         es: "Habilitar manejo de casos límite",
     },
+    lang_def: {
+        def: "Default",
+    },
+    "lang-def": {
+        def: "%{lang_def}",
+    },
     "lang-de": {
         def: "Deutsche",
         es: "Alemán",
@@ -2191,6 +2197,16 @@ export const _allMessages = {
     },
     "Setting.GenerateKeyPair.Desc": {
         def: 'We have generated a key pair!\n\nNote: This key pair will never be shown again. Please save it in a safe place. If you have lost it, you need to generate a new key pair.\nNote 2: The public key is in spki format, and the Private key is in pkcs8 format. For the sake of convenience, newlines are converted to `\\n` in public key.\nNote 3: The public key should be configured in the remote database, and the private key should be configured in local devices.\n\n>[!FOR YOUR EYES ONLY]-\n> <div class="sls-keypair">\n>\n> ### Public Key\n> ```\n${public_key}\n> ```\n>\n> ### Private Key\n> ```\n${private_key}\n> ```\n>\n> </div>\n\n>[!Both for copying]-\n>\n> <div class="sls-keypair">\n>\n> ```\n${public_key}\n${private_key}\n> ```\n>\n> </div>\n\n\n',
+    },
+    "dialog.yourLanguageAvailable.Title": {
+        def: " Translation is available!",
+    },
+    "dialog.yourLanguageAvailable": {
+        def: "Self-hosted LiveSync had translations for your language, so the %{Display language} setting was enabled.\n\nNote: Not all messages are translated. We are waiting for your contributions!\nNote 2: If you create an Issue, **please revert to %{lang-def}** and then take screenshots, messages and logs. This can be done in the setting dialogue.\nMay you find it easy to use!",
+        ja: "Self-hosted LiveSync にご利用の言語の翻訳がありましたので、%{Display Language}が適用されました。\n\nご注意： すべてのメッセージは翻訳されていません。あなたのコントリビューションをお待ちしています！\nその２： Issueを作成する際には、 %{Display Language} を一旦 %{lang-def} に戻してから、キャプチャやメッセージ、ログを収集してください。これは設定ダイアログから変更できます。\n\nこれで便利に使用できれば幸いです。",
+    },
+    "dialog.yourLanguageAvailable.btnRevertToDefault": {
+        def: "Keep %{lang-def}",
     },
     "Compute revisions for chunks (Previous behaviour)": {
         es: "Calcular revisiones para chunks (comportamiento anterior)",

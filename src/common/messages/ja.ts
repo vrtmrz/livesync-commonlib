@@ -532,5 +532,11 @@ export const PartialMessages = {
         // "liveSyncSetting.valueShouldBeInRange": "The value should ${min} < value < ${max}",
         // "liveSyncSettings.btnApply": "Apply",
         // "liveSyncSetting.originalValue": "Original: ${value}",
+        "dialog.yourLanguageAvailable": `Self-hosted LiveSync にご利用の言語の翻訳がありましたので、%{Display Language}が適用されました。
+
+ご注意： すべてのメッセージは翻訳されていません。あなたのコントリビューションをお待ちしています！
+その２： Issueを作成する際には、 %{Display Language} を一旦 %{lang-def} に戻してから、キャプチャやメッセージ、ログを収集してください。これは設定ダイアログから変更できます。
+
+これで便利に使用できれば幸いです。`,
     },
 } as const;

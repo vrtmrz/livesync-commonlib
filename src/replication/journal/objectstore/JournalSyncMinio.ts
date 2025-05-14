@@ -1,4 +1,7 @@
 import { DeleteObjectsCommand, GetObjectCommand, HeadBucketCommand, PutObjectCommand, S3 } from "@aws-sdk/client-s3";
+import { applyMd5BodyChecksumMiddleware } from "@smithy/middleware-apply-body-checksum";
+import { Md5 } from "@smithy/md5-js";
+
 import { ConfiguredRetryStrategy } from "@smithy/util-retry";
 
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../../../common/types.ts";
@@ -6,6 +9,8 @@ import { Logger } from "../../../common/logger.ts";
 import { JournalSyncAbstract } from "../JournalSyncAbstract.ts";
 import { decryptBinary, encryptBinary } from "../../../encryption/e2ee_v2.ts";
 import type { RemoteDBStatus } from "../../LiveSyncAbstractReplicator.ts";
+import { promiseWithResolver } from "octagonal-wheels/promises";
+import type { SourceData } from "@smithy/types";
 
 export class JournalSyncMinio extends JournalSyncAbstract {
     _instance?: S3;
@@ -41,7 +46,33 @@ export class JournalSyncMinio extends JournalSyncAbstract {
                 return next(args);
             },
             {
+                name: "addBucketCustomHeadersMiddleware",
                 step: "build",
+            }
+        );
+        const arrayBufferToBase64Sync = (buffer: ArrayBuffer) => {
+            return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+        };
+
+        this._instance.middlewareStack.add(
+            applyMd5BodyChecksumMiddleware({
+                md5: Md5,
+                base64Encoder: (data: Uint8Array) => arrayBufferToBase64Sync(data.buffer),
+                streamHasher: (hashConstructor, stream: any) => {
+                    const result = promiseWithResolver<Uint8Array>();
+                    const hash = new hashConstructor();
+                    stream.on("data", (chunk: SourceData) => {
+                        hash.update(chunk);
+                    });
+                    stream.on("end", () => {
+                        result.resolve(hash.digest());
+                    });
+                    return result.promise;
+                },
+            }),
+            {
+                step: "build",
+                name: "applyMd5BodyChecksumMiddlewareForDeleteObjects",
             }
         );
         return this._instance;
@@ -54,7 +85,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         let errorCount = 0;
         try {
             do {
-                files = await this.listFiles("");
+                files = await this.listFiles("", 100);
                 if (files.length == 0) {
                     break;
                 }

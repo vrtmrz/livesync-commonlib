@@ -19,6 +19,10 @@
     logs.subscribe((log) => {
         tick().then(() => elP?.scrollTo({ top: elP.scrollHeight }));
     });
+    let statusLine = $state("");
+    storeP2PStatusLine.subscribe((status) => {
+        statusLine = status;
+    });
 </script>
 
 <main>
@@ -31,7 +35,7 @@
     </div>
     <div class="log">
         <div class="status">
-            {$storeP2PStatusLine}
+            {statusLine}
         </div>
         <div class="logslist" bind:this={elP}>
             {#each $logs as log}

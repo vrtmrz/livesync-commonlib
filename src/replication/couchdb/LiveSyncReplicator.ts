@@ -127,7 +127,8 @@ export interface LiveSyncCouchDBReplicatorEnv extends LiveSyncReplicatorEnv {
         performSetup: boolean,
         skipInfo: boolean,
         enableCompression: boolean,
-        customHeaders: Record<string, string>
+        customHeaders: Record<string, string>,
+        useRequestAPI: boolean
     ): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }>;
     $$getSimpleStore<T>(kind: string): SimpleStore<T>;
 }
@@ -1077,7 +1078,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             performSetup,
             skipInfo,
             settings.enableCompression,
-            customHeaders
+            customHeaders,
+            settings.useRequestAPI
         );
     }
 

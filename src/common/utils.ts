@@ -14,6 +14,11 @@ import {
     type SavingEntry,
     type NewEntry,
     type PlainEntry,
+    type CustomRegExpSource,
+    type ParsedCustomRegExp,
+    type CustomRegExpSourceList,
+    type ObsidianLiveSyncSettings,
+    type RemoteDBSettings,
 } from "./types.ts";
 import { isErrorOfMissingDoc } from "../pouchdb/utils_couchdb.ts";
 import { replaceAll, replaceAllPairs } from "octagonal-wheels/string.js";
@@ -308,21 +313,30 @@ export function setAllItems<T>(set: Set<T>, items: T[]) {
     return set;
 }
 
+const map = {
+    "\n": "\\n",
+    "\r": "\\r",
+    "\\": "\\\\",
+} as Record<string, string>;
+const revMap = {
+    "\\n": "\n",
+    "\\r": "\r",
+    "\\\\": "\\",
+} as Record<string, string>;
 export function escapeNewLineFromString(str: string) {
-    if (str.indexOf("\n") < 0) {
+    if (str.indexOf("\n") === -1 && str.indexOf("\r") === -1) {
         return str;
     }
-    return "\\f" + replaceAll(replaceAll(str, "\\", "\\\\"), "\n", "\\n");
+    const p = str.replace(/(\n|\r|\\)/g, (m) => `${map[m]}`);
+    return "\\f" + p;
 }
 
 export function unescapeNewLineFromString(str: string) {
     if (!str.startsWith("\\f")) {
         return str;
     }
-    const escapedStr = str.substring(2);
-    const tooMuchUnescaped = replaceAll(escapedStr, "\\n", "\n");
-    const escapedStr2 = replaceAll(tooMuchUnescaped, "\\\n", "\\n");
-    return replaceAll(escapedStr2, "\\\\", "\\");
+    const p = str.substring(2).replace(/(\\n|\\r|\\\\)/g, (m) => `${revMap[m]}`);
+    return p;
 }
 
 export function escapeMarkdownValue(value: any) {
@@ -608,4 +622,87 @@ export function parseHeaderValues(strHeader: string): Record<string, string> {
         }
     }
     return headers;
+}
+
+/***
+ * Parse custom regular expression
+ * @param regexp
+ * @returns [negate: boolean, regexp: string]
+ * @example `!!foo` => [true, "foo"]
+ * @example `foo` => [false, "foo"]
+ */
+export function parseCustomRegExp(regexp: CustomRegExpSource): ParsedCustomRegExp {
+    if (regexp.startsWith("!!")) {
+        return [true, regexp.slice(2)];
+    }
+    return [false, regexp];
+}
+export function matchRegExp(regexp: CustomRegExpSource, target: string) {
+    const [negate, regexpWithoutNegate] = parseCustomRegExp(regexp);
+    if (regexpWithoutNegate.length == 0) return false;
+    const re = new RegExp(regexpWithoutNegate);
+    return negate ? !re.test(target) : re.test(target);
+}
+export function isValidRegExp(regexp: CustomRegExpSource) {
+    try {
+        const [, exp] = parseCustomRegExp(regexp);
+        new RegExp(exp);
+        return true;
+    } catch {
+        return false;
+    }
+}
+export function isInvertedRegExp(regexp: CustomRegExpSource) {
+    const [negate] = parseCustomRegExp(regexp);
+    return negate;
+}
+
+function parseCustomRegExpList<D extends string>(list: CustomRegExpSourceList<D>, flags?: string, delimiter?: D) {
+    const d = delimiter ?? ",";
+    const items = list
+        .replace(/\n| /g, "")
+        .split(d)
+        .filter((e) => e);
+    return items.map((e) => new CustomRegExp(e as unknown as CustomRegExpSource, flags));
+}
+
+export function constructCustomRegExpList<D extends string>(
+    items: CustomRegExpSource[],
+    delimiter: D
+): CustomRegExpSourceList<D> {
+    return items.map((e) => `${e}`).join(`${delimiter}`) as CustomRegExpSourceList<D>;
+}
+export function splitCustomRegExpList<D extends string>(list: CustomRegExpSourceList<D>, delimiter: D) {
+    const d = delimiter;
+    return list.split(d).filter((e) => e as CustomRegExpSource) as CustomRegExpSource[];
+}
+
+export class CustomRegExp {
+    regexp: RegExp;
+    negate: boolean;
+    pattern: string;
+    constructor(regexp: CustomRegExpSource, flags?: string) {
+        const [negate, exp] = parseCustomRegExp(regexp);
+        this.pattern = exp;
+        this.regexp = new RegExp(exp, flags);
+        this.negate = negate;
+    }
+    test(str: string) {
+        return this.negate ? !this.regexp.test(str) : this.regexp.test(str);
+    }
+}
+
+type RegExpSettingKey =
+    | "syncOnlyRegEx"
+    | "syncIgnoreRegEx"
+    | "syncInternalFilesIgnorePatterns"
+    | "syncInternalFilesTargetPatterns";
+export function getFileRegExp(settings: ObsidianLiveSyncSettings | RemoteDBSettings, key: RegExpSettingKey) {
+    const flagCase = settings.handleFilenameCaseSensitive ? "" : "i";
+    if (key === "syncInternalFilesIgnorePatterns" || key === "syncInternalFilesTargetPatterns") {
+        const regExp = (settings as ObsidianLiveSyncSettings)[key];
+        return parseCustomRegExpList(regExp, flagCase, ",");
+    }
+    const regExp = settings[key];
+    return parseCustomRegExpList(regExp, flagCase, "|[]|");
 }

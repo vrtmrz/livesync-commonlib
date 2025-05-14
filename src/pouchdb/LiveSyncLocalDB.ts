@@ -45,6 +45,7 @@ import {
     flattenObject,
     generatePatchObj,
     getDocData,
+    getFileRegExp,
     isObjectMargeApplicable,
     isSensibleMargeApplicable,
     isTextBlob,
@@ -1189,18 +1190,12 @@ export class LiveSyncLocalDB {
             return false;
         }
         if (this.settings.syncOnlyRegEx) {
-            const syncOnly = new RegExp(
-                this.settings.syncOnlyRegEx,
-                this.settings.handleFilenameCaseSensitive ? "" : "i"
-            );
-            if (!file.match(syncOnly)) return false;
+            const syncOnly = getFileRegExp(this.settings, "syncOnlyRegEx");
+            if (syncOnly.length > 0 && !syncOnly.some((e) => e.test(file))) return false;
         }
         if (this.settings.syncIgnoreRegEx) {
-            const syncIgnore = new RegExp(
-                this.settings.syncIgnoreRegEx,
-                this.settings.handleFilenameCaseSensitive ? "" : "i"
-            );
-            if (file.match(syncIgnore)) return false;
+            const syncIgnore = getFileRegExp(this.settings, "syncIgnoreRegEx");
+            if (syncIgnore.some((e) => e.test(file))) return false;
         }
         return true;
     }

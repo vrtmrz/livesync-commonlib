@@ -365,6 +365,8 @@ I appreciate you for your great dedication.",
         "Enable advanced features": "Enable advanced features",
         "Enable poweruser features": "Enable poweruser features",
         "Enable edge case treatment features": "Enable edge case treatment features",
+        lang_def: "Default",
+        "lang-def": "%{lang_def}",
         "lang-de": "Deutsche",
         "lang-es": "Español",
         "lang-ja": "日本語",
@@ -835,5 +837,12 @@ Note 3: The public key should be configured in the remote database, and the priv
 
 
 `,
+        "dialog.yourLanguageAvailable.Title": " Translation is available!",
+        "dialog.yourLanguageAvailable": `Self-hosted LiveSync had translations for your language, so the %{Display language} setting was enabled.
+
+Note: Not all messages are translated. We are waiting for your contributions!
+Note 2: If you create an Issue, **please revert to %{lang-def}** and then take screenshots, messages and logs. This can be done in the setting dialogue.
+May you find it easy to use!`,
+        "dialog.yourLanguageAvailable.btnRevertToDefault": "Keep %{lang-def}",
     },
 } as const;

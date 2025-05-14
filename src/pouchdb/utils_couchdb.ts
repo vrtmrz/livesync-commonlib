@@ -243,27 +243,20 @@ function shouldDecryptEden(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
     return false;
 }
 
-// eslint-disable-next-line require-await
-// deno-lint-ignore require-await
 export let preprocessOutgoing: (doc: AnyEntry | EntryLeaf) => Promise<AnyEntry | EntryLeaf> = async (doc) => {
-    return Promise.resolve(doc);
+    return await Promise.resolve(doc);
 };
+
 export function disableEncryption() {
-    // eslint-disable-next-line require-await, @typescript-eslint/require-await
-    // deno-lint-ignore require-await
     preprocessOutgoing = async (doc) => {
-        return doc;
+        return await Promise.resolve(doc);
     };
-    // eslint-disable-next-line require-await, @typescript-eslint/require-await
-    // deno-lint-ignore require-await
     preprocessIncoming = async (doc) => {
-        return doc;
+        return await Promise.resolve(doc);
     };
 }
-// eslint-disable-next-line require-await, @typescript-eslint/require-await
-// deno-lint-ignore require-await
 export let preprocessIncoming: (doc: EntryDoc) => Promise<EntryDoc> = async (doc) => {
-    return doc;
+    return await Promise.resolve(doc);
 };
 
 // requires transform-pouch

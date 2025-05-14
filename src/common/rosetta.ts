@@ -28,14 +28,15 @@ const LANG_JA = "ja";
 const LANG_RU = "ru";
 const LANG_ZH = "zh";
 const LANG_ZH_TW = "zh-tw";
+const LANG_DEF = "def"; // Default language: English
 
-// Also please order in alphabetic order.
+// Also please order in alphabetic order except for the default language.
 
-export const SUPPORTED_I18N_LANGS = [LANG_DE, LANG_ES, LANG_JA, LANG_RU, LANG_ZH, LANG_ZH_TW];
+export const SUPPORTED_I18N_LANGS = [LANG_DEF, LANG_DE, LANG_ES, LANG_JA, LANG_RU, LANG_ZH, LANG_ZH_TW];
 
 // Also this.
 export type I18N_LANGS =
-    | "def" // Default language: English
+    | typeof LANG_DEF // Default language: English
     | typeof LANG_DE
     | typeof LANG_ES
     | typeof LANG_JA

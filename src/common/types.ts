@@ -215,7 +215,11 @@ interface InternalFileSettings {
      * Ignore patterns for internal files.
      * (Comma separated list of regular expressions)
      */
-    syncInternalFilesIgnorePatterns: string;
+    syncInternalFilesIgnorePatterns: CustomRegExpSourceList<",">;
+    /**
+     * Limit patterns for internal files.
+     */
+    syncInternalFilesTargetPatterns: CustomRegExpSourceList<",">;
     /**
      * Enable watch internal file changes (This option uses the unexposed API)
      */
@@ -332,6 +336,11 @@ interface UISettings {
      * Indicates whether only icons instead of status line should be shown on the editor.
      */
     showOnlyIconsOnEditor: boolean;
+
+    /**
+     * Hide File warning notice bar.
+     */
+    hideFileWarningNotice: boolean;
 
     /**
      * The language to be used for display.
@@ -809,11 +818,11 @@ interface FileHandlingSettings {
     /**
      * The regular expression for files to be synchronised.
      */
-    syncOnlyRegEx: string;
+    syncOnlyRegEx: CustomRegExpSourceList<"|[]|">; // I really regret this delimiter.
     /**
      * The regular expression for files to be ignored during synchronisation.
      */
-    syncIgnoreRegEx: string;
+    syncIgnoreRegEx: CustomRegExpSourceList<"|[]|">;
 }
 
 /**
@@ -843,6 +852,13 @@ interface RemoteDBTweakSettings {
      * (Note: Mismatched settings can lead to inappropriate de-duplication, leading to storage wastage and increased traffic).
      */
     disableCheckingConfigMismatch: boolean;
+
+    /**
+     * Use Request API to avoid `inevitable` CORS problem.
+     * Separated from `disableRequestURI` because this must be a very optional.
+     * Should not be used as an easy solution.
+     */
+    useRequestAPI: boolean;
 }
 
 /**
@@ -1022,6 +1038,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     showStatusOnEditor: true,
     showStatusOnStatusbar: true,
     showOnlyIconsOnEditor: false,
+    hideFileWarningNotice: false,
     usePluginSync: false,
     autoSweepPlugins: false,
     autoSweepPluginsPeriodic: false,
@@ -1036,14 +1053,16 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     showMergeDialogOnlyOnActive: false,
     syncInternalFiles: false,
     syncInternalFilesBeforeReplication: false,
-    syncInternalFilesIgnorePatterns: "\\/node_modules\\/, \\/\\.git\\/, \\/obsidian-livesync\\/",
+    syncInternalFilesIgnorePatterns:
+        "\\/node_modules\\/, \\/\\.git\\/, \\/obsidian-livesync\\/" as CustomRegExpSourceList<",">,
+    syncInternalFilesTargetPatterns: "" as CustomRegExpSourceList<",">,
     syncInternalFilesInterval: 60,
     additionalSuffixOfDatabaseName: "",
     ignoreVersionCheck: false,
     lastReadUpdates: 0,
     deleteMetadataOfDeletedFiles: false,
-    syncIgnoreRegEx: "",
-    syncOnlyRegEx: "",
+    syncIgnoreRegEx: "" as CustomRegExpSourceList<"|[]|">,
+    syncOnlyRegEx: "" as CustomRegExpSourceList<"|[]|">,
     customChunkSize: 0,
     readChunksOnline: true,
     watchInternalFileChanges: true,
@@ -1119,6 +1138,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     jwtKid: "",
     jwtSub: "",
     jwtExpDuration: 5,
+    useRequestAPI: false,
 };
 
 export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> = {
@@ -1266,6 +1286,9 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     P2P_AutoAcceptingPeers: 140,
     P2P_AutoDenyingPeers: 141,
     P2P_IsHeadless: -1,
+    syncInternalFilesTargetPatterns: 142,
+    useRequestAPI: 143,
+    hideFileWarningNotice: 144,
 } as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
@@ -1890,3 +1913,8 @@ export interface PreparedJWT {
     payload: JWTPayload;
     token: string;
 }
+
+export type CustomRegExpSource = TaggedType<string, "CustomRegExp">;
+export type CustomRegExpSourceList<D extends string = ","> = TaggedType<string, `CustomRegExpList${D}`>;
+
+export type ParsedCustomRegExp = [isInverted: boolean, pattern: string];
