@@ -1,4 +1,4 @@
-import def from "../messagesJson/def.json";
+import def from "../messagesJson/en.json";
 export const PartialMessages = {
     def,
 } as const;
