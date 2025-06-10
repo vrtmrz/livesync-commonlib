@@ -44,6 +44,7 @@ export abstract class JournalSyncAbstract {
     key = "";
     bucket = "";
     endpoint = "";
+    prefix: string = "";
     region: string = "auto";
     db: PouchDB.Database<EntryDoc>;
     hash = "";
@@ -57,14 +58,15 @@ export abstract class JournalSyncAbstract {
     trench: Trench;
     notifier = new Notifier();
 
-    getHash(endpoint: string, bucket: string, region: string) {
-        return btoa(encodeURI([endpoint, bucket, region].join()));
+    getHash(endpoint: string, bucket: string, region: string, prefix: string) {
+        return btoa(encodeURI([endpoint, `${bucket}${prefix}`, region].join()));
     }
     constructor(
         id: string,
         key: string,
         endpoint: string,
         bucket: string,
+        prefix: string,
         store: SimpleStore<CheckPointInfo>,
         env: LiveSyncJournalReplicatorEnv,
         useCustomRequestHandler: boolean,
@@ -74,6 +76,7 @@ export abstract class JournalSyncAbstract {
         this.id = id;
         this.key = key;
         this.bucket = bucket;
+        this.prefix = prefix;
         this.endpoint = endpoint;
         this.region = region;
         this.db = env.getDatabase();
@@ -81,7 +84,7 @@ export abstract class JournalSyncAbstract {
         this.useCustomRequestHandler = useCustomRequestHandler;
         this.processReplication = async (docs) => await env.$$parseReplicationResult(docs);
         this.store = store;
-        this.hash = this.getHash(endpoint, bucket, region);
+        this.hash = this.getHash(endpoint, bucket, region, prefix);
         this.trench = new Trench(store);
         const headers = Object.entries(parseHeaderValues(customHeaders));
         this.customHeaders = headers;
@@ -91,6 +94,7 @@ export abstract class JournalSyncAbstract {
         key: string,
         endpoint: string,
         bucket: string,
+        prefix: string,
         store: SimpleStore<CheckPointInfo>,
         env: LiveSyncJournalReplicatorEnv,
         useCustomRequestHandler: boolean,
@@ -103,6 +107,7 @@ export abstract class JournalSyncAbstract {
         this.id = id;
         this.key = key;
         this.bucket = bucket;
+        this.prefix = prefix;
         this.endpoint = endpoint;
         this.region = region;
         this.db = env.getDatabase();
@@ -110,7 +115,7 @@ export abstract class JournalSyncAbstract {
         this.useCustomRequestHandler = useCustomRequestHandler;
         this.processReplication = async (docs) => await env.$$parseReplicationResult(docs);
         this.store = store;
-        this.hash = this.getHash(endpoint, bucket, region);
+        this.hash = this.getHash(endpoint, bucket, region, prefix);
         const headers = Object.entries(parseHeaderValues(customHeaders));
         this.customHeaders = headers;
         // }

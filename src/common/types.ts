@@ -88,6 +88,12 @@ export interface CouchDBConnection {
     jwtSub: string;
     // JWT Expiration duration (in minutes)
     jwtExpDuration: number;
+
+    /**
+     * Use Request API to avoid `inevitable` CORS problem.
+     * Seems stable, so promoted to the normal setting.
+     */
+    useRequestAPI: boolean;
 }
 
 /**
@@ -539,6 +545,11 @@ export interface BucketSyncSetting {
     // Custom request headers
     // e.g. `x-some-header: some-value\n x-some-header2: some-value2`
     bucketCustomHeaders: string;
+
+    /**
+     * The prefix to use for the bucket (e.g., "my-bucket/", means mostly like a folder).
+     */
+    bucketPrefix: string;
 }
 
 // Remote Type
@@ -852,13 +863,6 @@ interface RemoteDBTweakSettings {
      * (Note: Mismatched settings can lead to inappropriate de-duplication, leading to storage wastage and increased traffic).
      */
     disableCheckingConfigMismatch: boolean;
-
-    /**
-     * Use Request API to avoid `inevitable` CORS problem.
-     * Separated from `disableRequestURI` because this must be a very optional.
-     * Should not be used as an easy solution.
-     */
-    useRequestAPI: boolean;
 }
 
 /**
@@ -1139,6 +1143,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     jwtSub: "",
     jwtExpDuration: 5,
     useRequestAPI: false,
+    bucketPrefix: "",
 };
 
 export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> = {
@@ -1289,6 +1294,7 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     syncInternalFilesTargetPatterns: 142,
     useRequestAPI: 143,
     hideFileWarningNotice: 144,
+    bucketPrefix: 145,
 } as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {

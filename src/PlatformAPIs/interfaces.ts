@@ -1,7 +1,7 @@
 // Isomorphic Utilities
 /// <reference lib="dom" />
 
-import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase.ts";
+import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase.js";
 import type { APIBase } from "./base/APIBase.ts";
 
 export const MISSING = Symbol("MISSING");

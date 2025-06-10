@@ -92,7 +92,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
                 const cmd = new DeleteObjectsCommand({
                     Bucket: this.bucket,
                     Delete: {
-                        Objects: files.map((e) => ({ Key: e })),
+                        Objects: files.map((e) => ({ Key: `${this.prefix}${e}` })),
                     },
                 });
                 const r = await client.send(cmd);
@@ -160,7 +160,12 @@ export class JournalSyncMinio extends JournalSyncAbstract {
                 u = await encryptBinary(u, set.passphrase, set.useDynamicIterationCount);
             }
             const client = this._getClient();
-            const cmd = new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: u, ContentType: mime });
+            const cmd = new PutObjectCommand({
+                Bucket: this.bucket,
+                Key: `${this.prefix}${key}`,
+                Body: u,
+                ContentType: mime,
+            });
             if (await client.send(cmd)) {
                 return true;
             }
@@ -174,7 +179,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         const client = this._getClient();
         const cmd = new GetObjectCommand({
             Bucket: this.bucket,
-            Key: key,
+            Key: `${this.prefix}${key}`,
             ...(ignoreCache ? { ResponseCacheControl: "no-cache" } : {}),
         });
         const r = await client.send(cmd);
@@ -197,11 +202,14 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         const client = this._getClient();
         const objects = await client.listObjectsV2({
             Bucket: this.bucket,
-            StartAfter: from,
+            Prefix: this.prefix,
+            StartAfter: `${this.prefix}${from}`,
             ...(limit ? { MaxKeys: limit } : {}),
         });
         if (!objects.Contents) return [];
-        return objects.Contents.map((e) => e.Key) as string[];
+        return objects.Contents.filter((e) => e.Key?.startsWith(this.prefix)).map((e) =>
+            e.Key?.substring(this.prefix.length)
+        ) as string[];
     }
 
     async isAvailable(): Promise<boolean> {

@@ -69,6 +69,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         const id = settings.accessKey;
         const key = settings.secretKey;
         const bucket = settings.bucket;
+        const prefix = settings.bucketPrefix;
         const region = settings.region;
         const endpoint = settings.endpoint;
         const useCustomRequestHandler = settings.useCustomRequestHandler;
@@ -79,6 +80,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                 key,
                 endpoint,
                 bucket,
+                prefix,
                 this.env.simpleStore,
                 this.env,
                 useCustomRequestHandler,
@@ -93,6 +95,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                 key,
                 endpoint,
                 bucket,
+                prefix,
                 this.env.simpleStore,
                 this.env,
                 useCustomRequestHandler,
@@ -300,6 +303,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         const id = setting.accessKey;
         const key = setting.secretKey;
         const bucket = setting.bucket;
+        const bucketPrefix = setting.bucketPrefix;
         const region = setting.region;
         const endpoint = setting.endpoint;
         const useCustomRequestHandler = setting.useCustomRequestHandler;
@@ -309,6 +313,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             key,
             endpoint,
             bucket,
+            bucketPrefix,
             this.env.simpleStore,
             this.env,
             useCustomRequestHandler,
@@ -373,6 +378,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         const id = setting.accessKey;
         const key = setting.secretKey;
         const bucket = setting.bucket;
+        const bucketPrefix = setting.bucketPrefix;
         const region = setting.region;
         const endpoint = setting.endpoint;
         const useCustomRequestHandler = setting.useCustomRequestHandler;
@@ -382,6 +388,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             key,
             endpoint,
             bucket,
+            bucketPrefix,
             this.env.simpleStore,
             this.env,
             useCustomRequestHandler,
