@@ -34,6 +34,8 @@ export class JournalSyncMinio extends JournalSyncAbstract {
             maxAttempts: 4,
             retryStrategy: new ConfiguredRetryStrategy(4, (attempt: number) => 100 + attempt * 1000),
             requestHandler: this.useCustomRequestHandler ? this.env.$$customFetchHandler() : undefined,
+            requestChecksumCalculation: "WHEN_REQUIRED",
+            responseChecksumValidation: "WHEN_REQUIRED",
         });
         const bucketCustomHeaders = this.customHeaders;
         this._instance.middlewareStack.add(
