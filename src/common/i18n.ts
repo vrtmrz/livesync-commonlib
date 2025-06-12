@@ -1,6 +1,7 @@
-import type { I18N_LANGS } from "./rosetta";
+import type { AllMessageKeys, I18N_LANGS } from "./rosetta";
 import { allMessages } from "./rosetta";
-let currentLang: I18N_LANGS = "";
+import type { TaggedType } from "./types";
+export let currentLang: I18N_LANGS = "";
 const missingTranslations = [] as string[];
 
 export function __getMissingTranslations() {
@@ -15,10 +16,9 @@ export function __onMissingTranslation(callback: (key: string) => void) {
 const msgCache = new Map<string, string>();
 
 export function setLang(lang: I18N_LANGS) {
-    if (lang != currentLang) {
-        currentLang = lang;
-        msgCache.clear();
-    }
+    if (lang === currentLang) return;
+    currentLang = lang;
+    msgCache.clear();
 }
 
 function _getMessage(key: string, lang: I18N_LANGS) {
@@ -29,24 +29,25 @@ function _getMessage(key: string, lang: I18N_LANGS) {
     if (lang == "") {
         lang = "def";
     }
-    let msg = msgs?.[lang] ?? undefined;
-    if (!msg) msg = msgs?.def ?? undefined;
+    let msg = msgs?.[lang];
 
     if (!msg) {
         if (!missingTranslations.contains(key)) {
             __onMissingTranslations(key);
             missingTranslations.push(key);
         }
-        return key;
+        msg = msgs?.def;
     }
-    return msg;
+    return msg ?? key;
 }
+
 function getMessage(key: string) {
     if (msgCache.has(key)) return msgCache.get(key) as string;
     const msg = _getMessage(key, currentLang);
     msgCache.set(key, msg);
     return msg;
 }
+
 /**
  * Translate message to each locale
  * @param message {string} Message to translate
@@ -59,6 +60,7 @@ export function $t(message: string, lang?: I18N_LANGS) {
     }
     return getMessage(message);
 }
+
 /**
  * TagFunction to Automatically translate.
  * @param strings
@@ -72,4 +74,24 @@ export function $f(strings: TemplateStringsArray, ...values: string[]) {
     }
     result += getMessage(strings[strings.length - 1]);
     return result;
+}
+
+/**
+ * Translate message to each locale and replace placeholders.
+ * @param key {string} Message identifier.
+ * @param params {Record<string, string>} Parameters to replace placeholders.
+ * @param lang {I18N_LANGS} (Optional) Language.
+ * @returns Translated and formatted message.
+ */
+export function $msg<T extends AllMessageKeys>(
+    key: T,
+    params: Record<string, string> = {},
+    lang?: I18N_LANGS
+): TaggedType<string, T> {
+    let msg = $t(key, lang);
+    for (const [placeholder, value] of Object.entries(params)) {
+        const regex = new RegExp(`\\\${${placeholder}}`, "g");
+        msg = msg.replace(regex, value);
+    }
+    return msg as TaggedType<string, T>;
 }

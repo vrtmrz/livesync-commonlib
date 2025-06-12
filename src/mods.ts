@@ -1,13 +1,14 @@
-//@ts-ignore
-import { webcrypto as crypto_ } from "crypto";
 let webcrypto: Crypto;
-
-if (globalThis.crypto) {
-    webcrypto = globalThis.crypto;
-} else {
-    const crypto = crypto_;
-    //@ts-ignore
-    webcrypto = crypto;
+export async function getWebCrypto() {
+    if (webcrypto) {
+        return webcrypto;
+    }
+    if (globalThis.crypto) {
+        webcrypto = globalThis.crypto;
+        return webcrypto;
+    } else {
+        const module = await import("crypto");
+        webcrypto = module.webcrypto as Crypto;
+        return webcrypto;
+    }
 }
-
-export { webcrypto };

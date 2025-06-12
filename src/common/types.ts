@@ -1,4 +1,4 @@
-import type { I18N_LANGS } from "./rosetta";
+import type { I18N_LANGS } from "./rosetta.ts";
 
 import type { TaggedType } from "octagonal-wheels/common/types";
 export type { TaggedType };
@@ -52,184 +52,957 @@ export const VERSIONING_DOCID = "obsydian_livesync_version" as DocumentID;
 export const MILESTONE_DOCID = "_local/obsydian_livesync_milestone" as DocumentID;
 export const NODEINFO_DOCID = "_local/obsydian_livesync_nodeinfo" as DocumentID;
 
-export type HashAlgorithm = "" | "xxhash32" | "xxhash64" | "sha1";
+/**
+ * Represents the connection details required to connect to a CouchDB instance.
+ */
+export interface CouchDBConnection {
+    /**
+     * The URI of the CouchDB instance.
+     */
+    couchDB_URI: string;
+    /**
+     * The username to use when connecting to the CouchDB instance.
+     */
+    couchDB_USER: string;
+    /**
+     * The password to use when connecting to the CouchDB instance.
+     */
+    couchDB_PASSWORD: string;
+    /**
+     * The name of the database to use.
+     */
+    couchDB_DBNAME: string;
+
+    /**
+     * e.g. `x-some-header: some-value\n x-some-header2: some-value2`
+     */
+    couchDB_CustomHeaders: string;
+
+    useJWT: boolean;
+
+    jwtAlgorithm: "HS256" | "HS512" | "ES256" | "ES512" | "";
+
+    // JWT key (psk on HS, public key on ES)
+    jwtKey: string;
+    jwtKid: string;
+    jwtSub: string;
+    // JWT Expiration duration (in minutes)
+    jwtExpDuration: number;
+
+    /**
+     * Use Request API to avoid `inevitable` CORS problem.
+     * Seems stable, so promoted to the normal setting.
+     */
+    useRequestAPI: boolean;
+}
+
+/**
+ * Interface representing the settings for periodic replication.
+ */
+interface PeriodicReplicationSettings {
+    /**
+     * Indicates whether periodic replication is enabled.
+     */
+    periodicReplication: boolean;
+
+    /**
+     * The interval, in milliseconds, at which periodic replication occurs.
+     */
+    periodicReplicationInterval: number;
+}
 
 export type ConfigPassphraseStore = "" /* default */ | "LOCALSTORAGE" | "ASK_AT_LAUNCH";
-export type CouchDBConnection = {
-    couchDB_URI: string;
-    couchDB_USER: string;
-    couchDB_PASSWORD: string;
-    couchDB_DBNAME: string;
-};
+
+/**
+ * Represents the user settings that are encrypted.
+ */
+interface EncryptedUserSettings {
+    /**
+     * The store for the configuration passphrase.
+     */
+    configPassphraseStore: ConfigPassphraseStore;
+
+    /**
+     * The encrypted passphrase used for E2EE.
+     */
+    encryptedPassphrase: string;
+
+    /**
+     * The encrypted connection details for CouchDB.
+     */
+    encryptedCouchDBConnection: string;
+}
+
+/**
+ * Interface representing the settings for different sync invocation methods.
+ */
+interface SyncMethodSettings {
+    /**
+     * Synchronise in Live. This is an exclusive setting against other sync methods.
+     */
+    liveSync: boolean;
+    /**
+     * automatically run sync on save.
+     * File modification will trigger the sync, even if the file is not changed on the editor.
+     */
+    syncOnSave: boolean;
+    /**
+     * automatically run sync on starting the plug-in.
+     */
+    syncOnStart: boolean;
+    /**
+     * automatically run sync on opening a file.
+     */
+    syncOnFileOpen: boolean;
+    /**
+     * automatically run sync on editor save.
+     * Different from syncOnSave, this is only reacts to the editor save event.
+     */
+    syncOnEditorSave: boolean;
+
+    /**
+     * The minimum delay between synchronisation operations (in milliseconds).
+     * If the operation is triggered before this delay, the operation will be delayed until the delay is over, and executed as a single operation.
+     */
+    syncMinimumInterval: number;
+}
+
+/**
+ * Interface representing the settings for file handling.
+ */
+interface FileHandlingSettings {
+    /**
+     * Use trash instead of actually delete.
+     */
+    trashInsteadDelete: boolean;
+    /**
+     * Do not delete the folder even if it has got empty.
+     */
+    doNotDeleteFolder: boolean;
+    /**
+     * Thinning out the changes and make a single change for the same file.
+     */
+    batchSave: boolean;
+    batchSaveMinimumDelay: number;
+    batchSaveMaximumDelay: number;
+
+    /**
+     * Maximum size of the file to be synchronized (in MB).
+     */
+    syncMaxSizeInMB: number;
+    /**
+     * Use ignore files.
+     */
+    useIgnoreFiles: boolean;
+    /**
+     * Ignore files pattern, i,e, `.gitignore, .obsidianignore` (This should be separated by comma)
+     */
+    ignoreFiles: string;
+}
+
+/**
+ * Interface representing the settings for Hidden File Sync.
+ */
+interface InternalFileSettings {
+    /**
+     * Synchronise internal files.
+     */
+    syncInternalFiles: boolean;
+
+    /**
+     * Scan internal files before replication.
+     */
+    syncInternalFilesBeforeReplication: boolean;
+    /**
+     * Interval for scanning internal files (in seconds).
+     */
+    syncInternalFilesInterval: number;
+    /**
+     * Ignore patterns for internal files.
+     * (Comma separated list of regular expressions)
+     */
+    syncInternalFilesIgnorePatterns: CustomRegExpSourceList<",">;
+    /**
+     * Limit patterns for internal files.
+     */
+    syncInternalFilesTargetPatterns: CustomRegExpSourceList<",">;
+    /**
+     * Enable watch internal file changes (This option uses the unexposed API)
+     */
+    watchInternalFileChanges: boolean;
+
+    /**
+     * Suppress notification of hidden files change.
+     */
+    suppressNotifyHiddenFilesChange: boolean;
+}
+
+// Plugin Sync Settings
+
 export const MODE_SELECTIVE = 0;
 export const MODE_AUTOMATIC = 1;
 export const MODE_PAUSED = 2;
 export const MODE_SHINY = 3;
 export type SYNC_MODE = typeof MODE_SELECTIVE | typeof MODE_AUTOMATIC | typeof MODE_PAUSED | typeof MODE_SHINY;
-export type PluginSyncSettingEntry = {
+
+export interface PluginSyncSettingEntry {
     key: string;
     mode: SYNC_MODE;
     files: string[];
-};
+}
 
-export const REMOTE_COUCHDB = "";
-export const REMOTE_MINIO = "MINIO";
-export type RemoteType = typeof REMOTE_COUCHDB | typeof REMOTE_MINIO;
+/**
+ * Interface representing the settings for plugin synchronisation.
+ */
+interface PluginSyncSettings {
+    /**
+     * Indicates whether plugin synchronisation is enabled.
+     */
+    usePluginSync: boolean;
+
+    /**
+     * Indicates whether plugin settings synchronisation is enabled.
+     */
+    usePluginSettings: boolean;
+
+    /**
+     * Indicates whether to show the device's own plugins.
+     */
+    showOwnPlugins: boolean;
+
+    /**
+     * Indicates whether to automatically scan plugins.
+     */
+    autoSweepPlugins: boolean;
+
+    /**
+     * Indicates whether to periodically scan plugins automatically.
+     */
+    autoSweepPluginsPeriodic: boolean;
+
+    /**
+     * Indicates whether to notify when a plugin or setting is updated.
+     */
+    notifyPluginOrSettingUpdated: boolean;
+
+    /**
+     * The name of the device and vault.
+     * This is used to identify the device and vault among synchronised devices and vaults.
+     * Hence, this should be unique among devices and vaults.
+     */
+    deviceAndVaultName: string;
+
+    /**
+     * Indicates whether the v2 of plugin synchronisation is enabled.
+     */
+    usePluginSyncV2: boolean;
+
+    /**
+     * Indicates whether additional plugin synchronisation settings are enabled.
+     * This setting is hidden from the UI.
+     */
+    usePluginEtc: boolean;
+
+    /**
+     * Extended settings for plugin synchronisation.
+     */
+    pluginSyncExtendedSetting: Record<PluginSyncSettingEntry["key"], PluginSyncSettingEntry>;
+}
+
+/**
+ * Interface representing the user interface settings.
+ */
+interface UISettings {
+    /**
+     * Indicates whether verbose logging has been enabled.
+     */
+    showVerboseLog: boolean;
+
+    /**
+     * Indicates whether less information should be shown in the log.
+     */
+    lessInformationInLog: boolean;
+
+    /**
+     * Indicates whether longer status line should be shown inside the editor.
+     */
+    showLongerLogInsideEditor: boolean;
+
+    /**
+     * Indicates whether the status line should be shown on the editor.
+     */
+    showStatusOnEditor: boolean;
+
+    /**
+     * Indicates whether the status line should be shown on the status bar.
+     */
+    showStatusOnStatusbar: boolean;
+
+    /**
+     * Indicates whether only icons instead of status line should be shown on the editor.
+     */
+    showOnlyIconsOnEditor: boolean;
+
+    /**
+     * Hide File warning notice bar.
+     */
+    hideFileWarningNotice: boolean;
+
+    /**
+     * The language to be used for display.
+     */
+    displayLanguage: I18N_LANGS;
+}
+
+/**
+ * Interface representing the settings for mode of exposing advanced things.
+ */
+interface ModeSettings {
+    /**
+     * Indicates whether the advanced mode is enabled.
+     */
+    useAdvancedMode: boolean;
+
+    /**
+     * Indicates whether the power user mode is enabled.
+     */
+    usePowerUserMode: boolean;
+
+    /**
+     * Indicates whether the edge case mode is enabled.
+     */
+    useEdgeCaseMode: boolean;
+}
+
+/**
+ * Interface representing the settings for debug mode.
+ */
+interface DebugModeSettings {
+    /**
+     * Indicates whether the debug tools of Self-hosted LiveSync are enabled.
+     */
+    enableDebugTools: boolean;
+    /**
+     * Indicates whether to write log to the file.
+     */
+    writeLogToTheFile: boolean;
+}
+
+/**
+ * Interface representing additional tweak settings.
+ */
+interface ExtraTweakSettings {
+    /**
+     * The threshold value for notifying about the size of remote storage.
+     * When the size of the remote storage exceeds this threshold, a notification will be triggered.
+     */
+    notifyThresholdOfRemoteStorageSize: number;
+}
+
+/**
+ * Interface representing the settings for beta tweaks.
+ */
+interface BetaTweakSettings {
+    /**
+     * Indicates whether to disable the WebWorker for generating chunks.
+     */
+    disableWorkerForGeneratingChunks: boolean;
+
+    /**
+     * Indicates whether to process small files in the UI thread.
+     */
+    processSmallFilesInUIThread: boolean;
+
+    /**
+     * Indicates whether to enable the version 2 of the chunk splitter.
+     */
+    enableChunkSplitterV2: boolean;
+}
+
+/**
+ * Interface representing the settings for synchronising settings via file.
+ */
+interface SettingSyncSettings {
+    /**
+     * The file path where the settings is stored.
+     */
+    settingSyncFile: string;
+
+    /**
+     * Indicates whether to write credentials for settings synchronising.
+     */
+    writeCredentialsForSettingSync: boolean;
+
+    /**
+     * Indicates whether to notify all settings synchronising files events.
+     */
+    notifyAllSettingSyncFile: boolean;
+}
+
+/**
+ * Represents settings that are considered obsolete and are not configurable from the UI.
+ */
+interface ObsoleteSettings {
+    /**
+     * Saving delay (in milliseconds).
+     */
+    savingDelay: number; // Not Configurable from the UI Now.
+    /**
+     * Garbage collection delay (in milliseconds). Now, no longer GC is implemented.
+     */
+    gcDelay: number;
+    /**
+     * Skip older files on sync. No effect now.
+     */
+    skipOlderFilesOnSync: boolean;
+    /**
+     * Use the IndexedDB adapter. Now always true. Should be.
+     */
+    useIndexedDBAdapter: boolean;
+}
 
 export const SETTING_VERSION_INITIAL = 0;
 export const SETTING_VERSION_SUPPORT_CASE_INSENSITIVE = 10;
 export const CURRENT_SETTING_VERSION = SETTING_VERSION_SUPPORT_CASE_INSENSITIVE;
 
-interface ObsidianLiveSyncSettings_PluginSetting {
-    liveSync: boolean;
-    syncOnSave: boolean;
-    syncOnStart: boolean;
-    syncOnFileOpen: boolean;
-    savingDelay: number;
-    lessInformationInLog: boolean;
-    gcDelay: number;
+/**
+ * Interface representing some data stored in the settings for the plugin.
+ */
+interface DataOnSettings {
+    /**
+     * VersionUp flash message which is shown when some incompatible changes are made during the update.
+     */
     versionUpFlash: string;
-    showVerboseLog: boolean;
-    suspendFileWatching: boolean;
-    trashInsteadDelete: boolean;
-    periodicReplication: boolean;
-    periodicReplicationInterval: number;
-    doNotDeleteFolder: boolean;
-    resolveConflictsByNewerFile: boolean;
-    batchSave: boolean;
-    batchSaveMinimumDelay: number;
-    batchSaveMaximumDelay: number;
-    deviceAndVaultName: string;
-    usePluginSettings: boolean;
-    showOwnPlugins: boolean;
-    showStatusOnEditor: boolean;
-    showStatusOnStatusbar: boolean;
-    showOnlyIconsOnEditor: boolean;
-    usePluginSync: boolean;
-    autoSweepPlugins: boolean;
-    autoSweepPluginsPeriodic: boolean;
-    notifyPluginOrSettingUpdated: boolean;
-    skipOlderFilesOnSync: boolean;
-    syncInternalFiles: boolean;
-    syncInternalFilesBeforeReplication: boolean;
-    syncInternalFilesInterval: number;
-    syncInternalFilesIgnorePatterns: string;
-    lastReadUpdates: number;
-    watchInternalFileChanges: boolean;
-    disableMarkdownAutoMerge: boolean;
-    writeDocumentsIfConflicted: boolean;
-    syncAfterMerge: boolean;
-    configPassphraseStore: ConfigPassphraseStore;
-    encryptedPassphrase: string;
-    encryptedCouchDBConnection: string;
-
-    useIndexedDBAdapter: boolean;
-    writeLogToTheFile: boolean;
-    suspendParseReplicationResult: boolean;
-    doNotSuspendOnFetching: boolean;
-
-    useIgnoreFiles: boolean;
-    ignoreFiles: string;
-    syncOnEditorSave: boolean;
-
-    syncMaxSizeInMB: number;
-    settingSyncFile: string;
-    writeCredentialsForSettingSync: boolean;
-    notifyAllSettingSyncFile: boolean;
-
-    pluginSyncExtendedSetting: Record<PluginSyncSettingEntry["key"], PluginSyncSettingEntry>;
-
+    /**
+     * Setting file version, to migrate the settings.
+     */
     settingVersion: number;
+    /**
+     * Indicates whether the setting of the plug-in is configured once.
+     */
     isConfigured?: boolean;
+    /**
+     * The user-last-read version number.
+     */
+    lastReadUpdates: number;
 
-    displayLanguage: I18N_LANGS;
-
-    enableChunkSplitterV2: boolean;
-    disableWorkerForGeneratingChunks: boolean;
-    processSmallFilesInUIThread: boolean;
-
-    notifyThresholdOfRemoteStorageSize: number;
-
-    usePluginSyncV2: boolean;
-
-    useAdvancedMode: boolean;
-    usePowerUserMode: boolean;
-    useEdgeCaseMode: boolean;
-
-    usePluginEtc: boolean; // This still be hidden from the UI.
-
-    showLongerLogInsideEditor: boolean;
-
-    enableDebugTools: boolean;
+    /**
+     * The last checked version by the doctor.
+     */
+    doctorProcessedVersion: string;
 }
 
-export type BucketSyncSetting = {
+/**
+ * Interface representing the settings for a safety valve mechanism.
+ */
+interface SafetyValveSettings {
+    /**
+     * Indicates whether file watching should be suspended.
+     */
+    suspendFileWatching: boolean;
+
+    /**
+     * Indicates whether parsing and reflecting of replication results should be suspended.
+     */
+    suspendParseReplicationResult: boolean;
+
+    /**
+     * Indicates whether suspension should be avoided during fetching operations.
+     */
+    doNotSuspendOnFetching: boolean;
+}
+
+/**
+ * Represents the settings required to synchronise with a bucket.
+ */
+export interface BucketSyncSetting {
+    /**
+     * The access key to use when connecting to the bucket.
+     */
     accessKey: string;
+    /**
+     * The secret to use when connecting to the bucket.
+     */
     secretKey: string;
+    /**
+     * The name of bucket to use.
+     */
     bucket: string;
+    /**
+     * The region of the bucket.
+     */
     region: string;
+    /**
+     * The endpoint of the bucket.
+     */
     endpoint: string;
+    /**
+     * Indicates whether to use a custom request handler.
+     * (This is for CORS issue).
+     */
     useCustomRequestHandler: boolean;
-};
-export type RemoteTypeSettings = {
+
+    // Custom request headers
+    // e.g. `x-some-header: some-value\n x-some-header2: some-value2`
+    bucketCustomHeaders: string;
+
+    /**
+     * The prefix to use for the bucket (e.g., "my-bucket/", means mostly like a folder).
+     */
+    bucketPrefix: string;
+}
+
+// Remote Type
+export const REMOTE_COUCHDB = "";
+export const REMOTE_MINIO = "MINIO";
+
+//
+export const REMOTE_P2P = "ONLY_P2P";
+
+export type RemoteType = typeof REMOTE_COUCHDB | typeof REMOTE_MINIO | typeof REMOTE_P2P;
+
+export enum AutoAccepting {
+    NONE = 0,
+    ALL = 1,
+}
+
+export interface P2PSyncSetting {
+    P2P_Enabled: boolean;
+    /**
+     * Nostr relay server URL. (Comma separated list)
+     * This is only for the channelling server to establish for the P2P connection.
+     * No data is transferred through this server.
+     */
+    P2P_relays: string;
+    /**
+     * The room ID for `your devices`. This should be unique among the users.
+     * (Or, lines will be got mixed up).
+     */
+    P2P_roomID: string;
+    /**
+     * The passphrase for your devices.
+     * It can be empty, but it will help you if you have a duplicate Room ID.
+     */
+    P2P_passphrase: string;
+    P2P_AutoAccepting: AutoAccepting;
+    P2P_AutoStart: boolean;
+    P2P_AutoBroadcast: boolean;
+    P2P_AutoSyncPeers: string;
+    P2P_AutoWatchPeers: string;
+    P2P_SyncOnReplication: string;
+    P2P_AppID: string;
+    P2P_RebuildFrom: string;
+    P2P_AutoAcceptingPeers: string;
+    P2P_AutoDenyingPeers: string;
+
+    P2P_IsHeadless?: boolean;
+}
+
+export const P2P_DEFAULT_SETTINGS: P2PSyncSetting = {
+    P2P_Enabled: false,
+    P2P_AutoAccepting: AutoAccepting.NONE,
+    P2P_AppID: "self-hosted-livesync",
+    P2P_roomID: "",
+    P2P_passphrase: "",
+    P2P_relays: "wss://exp-relay.vrtmrz.net/",
+    P2P_AutoBroadcast: false,
+    P2P_AutoStart: false,
+    P2P_AutoSyncPeers: "",
+    P2P_AutoWatchPeers: "",
+    P2P_SyncOnReplication: "",
+    P2P_RebuildFrom: "",
+    P2P_AutoAcceptingPeers: "",
+    P2P_AutoDenyingPeers: "",
+    P2P_IsHeadless: false,
+} as const;
+
+/**
+ * Interface representing the settings for a remote type.
+ */
+export interface RemoteTypeSettings {
+    /**
+     * The type of the remote.
+     */
     remoteType: RemoteType;
-};
+}
+
+/**
+ * Represents the settings used for End-to-End encryption.
+ */
+interface EncryptionSettings {
+    /**
+     * Indicates whether E2EE is enabled.
+     */
+    encrypt: boolean;
+
+    /**
+     * The passphrase used for E2EE.
+     */
+    passphrase: string;
+
+    /**
+     * Indicates whether path obfuscation is used.
+     * If not, the path will be stored as it is, as the document ID.
+     */
+    usePathObfuscation: boolean;
+}
+
+// Note: xxhash32 is obsolete and not preferred since v0.24.7.
+export type HashAlgorithm = "" | "xxhash32" | "xxhash64" | "mixed-purejs" | "sha1";
+
+/**
+ * Interface representing the settings for chunk processing.
+ */
+interface ChunkSettings {
+    /**
+     * The algorithm used for hashing chunks.
+     */
+    hashAlg: HashAlgorithm;
+
+    /**
+     * The minimum size of a chunk in chars.
+     */
+    minimumChunkSize: number;
+
+    /**
+     * The custom size of a chunk.
+     * Note: This value used as a coefficient for the normal chunk size.
+     */
+    customChunkSize: number;
+
+    /**
+     * The threshold for considering a line as long.
+     * (Not respected in v0.24.x).
+     */
+    longLineThreshold: number;
+
+    /**
+     * Flag indicating whether to use a segmenter for chunking.
+     */
+    useSegmenter: boolean;
+
+    /**
+     * Flag indicating whether to enable version 2 of the chunk splitter.
+     */
+    enableChunkSplitterV2: boolean;
+
+    /**
+     * Flag indicating whether to avoid using a fixed revision for chunks.
+     */
+    doNotUseFixedRevisionForChunks: boolean;
+}
+
+/**
+ * Settings for on-demand chunk fetching.
+ */
+interface OnDemandChunkSettings {
+    /**
+     * Indicates whether chunks should be fetch online.
+     */
+    readChunksOnline: boolean;
+
+    /**
+     * The number of concurrent chunk reads allowed when fetching online.
+     */
+    concurrencyOfReadChunksOnline: number;
+
+    /**
+     * The minimum interval (in milliseconds) between consecutive online chunk fetching.
+     */
+    minimumIntervalOfReadChunksOnline: number;
+
+    // Note: If concurrency is 3, the fetching will be like:
+    // 1: |---> |---->   |----> ---->
+    // 2:     |----> |---->    |----> |--- ->
+    // 3:         |------> |--->    |----> |---->
+    // ============================================
+    //    |   | | |  |   | |   |    | |    |  <- Request starts
+    // All intervals between requests should be more than minimumIntervalOfReadChunksOnline.
+    // This is mainly for avoiding the 429 error on Cloudant or some other rate limiting gateways. CouchDB could accept more connections.
+}
+
+/**
+ * Configuration settings for Eden.
+ */
+interface EdenSettings {
+    /**
+     * Indicates whether Eden is enabled.
+     */
+    useEden: boolean;
+
+    /**
+     * The maximum number of chunks allowed in Eden.
+     */
+    maxChunksInEden: number;
+
+    /**
+     * The maximum total length allowed in Eden.
+     */
+    maxTotalLengthInEden: number;
+
+    /**
+     * The maximum age allowed in Eden.
+     */
+    maxAgeInEden: number;
+}
+
+/**
+ * Interface representing obsolete settings for an remote database.
+ */
+interface ObsoleteRemoteDBSettings {
+    /**
+     * Indicates whether to check the integrity of the data on save.
+     */
+    checkIntegrityOnSave: boolean;
+
+    /**
+     * Indicates whether to use history tracking.
+     * (Now always true)
+     */
+    useHistory: boolean;
+
+    /**
+     * Indicates whether to disable using API of Obsidian.
+     * (Now always true: Note: Obsidian cannot handle multiple requests at the same time).
+     */
+    disableRequestURI: boolean;
+
+    /**
+     * Indicates whether to send data in bulk chunks.
+     */
+    sendChunksBulk: boolean;
+
+    /**
+     * The maximum size of the bulk chunks to be sent.
+     */
+    sendChunksBulkMaxSize: number;
+
+    /**
+     * Indicates whether to use a dynamic iteration count.
+     */
+    useDynamicIterationCount: boolean;
+
+    /**
+     * Indicates weather to pace the replication processing interval.
+     * Now (v0.24.x) not be respected.
+     */
+    doNotPaceReplication: boolean;
+}
+
+/**
+ * Interface representing the settings for beta tweaks for the remote database.
+ */
+interface BetaRemoteDBSettings {
+    /**
+     * Indicates whether compression is enabled for the remote database.
+     */
+    enableCompression: boolean;
+}
+/**
+ * Interface representing the some data stored on the settings.
+ */
+interface DataOnRemoteDBSettings {
+    /**
+     * VersionUp flash message which is shown when some incompatible changes are made during the update.
+     */
+    versionUpFlash: string;
+}
+
+/**
+ * Interface representing the settings for replication.
+ */
+interface ReplicationSetting {
+    /**
+     * The maximum number of documents to be processed in a batch.
+     */
+    batch_size: number;
+    /**
+     * The maximum number of batches to be processed.
+     */
+    batches_limit: number;
+}
+
+/**
+ * Interface representing the settings for targetting files.
+ */
+interface FileHandlingSettings {
+    /**
+     * The regular expression for files to be synchronised.
+     */
+    syncOnlyRegEx: CustomRegExpSourceList<"|[]|">; // I really regret this delimiter.
+    /**
+     * The regular expression for files to be ignored during synchronisation.
+     */
+    syncIgnoreRegEx: CustomRegExpSourceList<"|[]|">;
+}
+
+/**
+ * Interface representing the settings for processing behaviour.
+ */
+interface ProcessingBehaviourSettings {
+    /**
+     * Hash cache maximum count.
+     */
+    hashCacheMaxCount: number;
+    /**
+     * Hash cache maximum amount.
+     */
+    hashCacheMaxAmount: number;
+}
+
+/**
+ * Interface representing the settings for remote database tweaks.
+ */
+interface RemoteDBTweakSettings {
+    /**
+     * Indicates whether to ignore the version check.
+     */
+    ignoreVersionCheck: boolean;
+    /**
+     * Indicates whether to ignore and continue syncing even if the configuration-mismatch is detected.
+     * (Note: Mismatched settings can lead to inappropriate de-duplication, leading to storage wastage and increased traffic).
+     */
+    disableCheckingConfigMismatch: boolean;
+}
+
+/**
+ * Interface representing the settings for optional and not exposed remote database settings.
+ */
+interface OptionalAndNotExposedRemoteDBSettings {
+    /**
+     * Indicates whether to accept empty passphrase.
+     * This not meant to `Not be encrypted`, but `Be encrypted with empty passphrase`.
+     */
+    permitEmptyPassphrase: boolean;
+}
+
+/**
+ * Interface representing the settings for cross-platform interoperability.
+ */
+interface CrossPlatformInteroperabilitySettings {
+    /**
+     * Indicates whether to handle filename case sensitively.
+     */
+    handleFilenameCaseSensitive: boolean;
+}
+
+/**
+ * Interface representing the settings for conflict handling.
+ */
+interface ConflictHandlingSettings {
+    /**
+     * Indicates whether to check conflicts only on file open.
+     */
+    checkConflictOnlyOnOpen: boolean;
+
+    /**
+     * Indicates whether to show the merge dialog only on active file.
+     */
+    showMergeDialogOnlyOnActive: boolean;
+}
+
+/**
+ * Settings that define the behavior of the merge process.
+ */
+interface MergeBehaviourSettings {
+    /**
+     * Indicates whether to synchronise after merging.
+     */
+    syncAfterMerge: boolean;
+
+    /**
+     * Determines if conflicts should be resolved by choosing the newer file.
+     */
+    resolveConflictsByNewerFile: boolean;
+
+    /**
+     * Specifies whether to write documents even if there are conflicts.
+     */
+    writeDocumentsIfConflicted: boolean;
+
+    /**
+     * Disables automatic merging of markdown files.
+     */
+    disableMarkdownAutoMerge: boolean;
+}
+
+/**
+ * Configuration settings for handling edge cases in the application.
+ */
+interface EdgeCaseHandlingSettings {
+    /**
+     * An optional suffix to append to the database name after the vault name.
+     */
+    additionalSuffixOfDatabaseName: string | undefined;
+
+    /**
+     * Flag to disable the worker thread for generating chunks.
+     */
+    disableWorkerForGeneratingChunks: boolean;
+
+    /**
+     * Flag to process small files in the UI thread instead of a worker thread.
+     */
+    processSmallFilesInUIThread: boolean;
+
+    /**
+     * Indicates whether to use timeout for PouchDB replication.
+     */
+    useTimeouts: boolean;
+}
+
+/**
+ * Configuration settings for handling deleted files.
+ */
+interface DeletedFileMetadataSettings {
+    /**
+     * Indicates whether to delete metadata of deleted files.
+     */
+    deleteMetadataOfDeletedFiles: boolean;
+    /**
+     * The number of days to wait before automatically deleting metadata of deleted files.
+     */
+    automaticallyDeleteMetadataOfDeletedFiles: number;
+}
+
+interface ObsidianLiveSyncSettings_PluginSetting
+    extends SyncMethodSettings,
+        UISettings,
+        FileHandlingSettings,
+        MergeBehaviourSettings,
+        EncryptedUserSettings,
+        PeriodicReplicationSettings,
+        InternalFileSettings,
+        PluginSyncSettings,
+        ModeSettings,
+        ExtraTweakSettings,
+        BetaTweakSettings,
+        ObsoleteSettings,
+        DebugModeSettings,
+        SettingSyncSettings,
+        SafetyValveSettings,
+        DataOnSettings {}
 
 export type RemoteDBSettings = CouchDBConnection &
     BucketSyncSetting &
-    RemoteTypeSettings & {
-        versionUpFlash: string;
-        minimumChunkSize: number;
-        longLineThreshold: number;
-        encrypt: boolean;
-        passphrase: string;
-        usePathObfuscation: boolean;
-        checkIntegrityOnSave: boolean;
-        batch_size: number;
-        batches_limit: number;
-        useHistory: boolean;
-        disableRequestURI: boolean;
-        checkConflictOnlyOnOpen: boolean;
-        additionalSuffixOfDatabaseName: string | undefined;
-        ignoreVersionCheck: boolean;
-        deleteMetadataOfDeletedFiles: boolean;
-        syncOnlyRegEx: string;
-        syncIgnoreRegEx: string;
-        customChunkSize: number;
-        readChunksOnline: boolean;
-        automaticallyDeleteMetadataOfDeletedFiles: number;
-        useDynamicIterationCount: boolean;
-        useTimeouts: boolean;
-        showMergeDialogOnlyOnActive: boolean;
-        hashCacheMaxCount: number;
-        hashCacheMaxAmount: number;
-        concurrencyOfReadChunksOnline: number;
-        minimumIntervalOfReadChunksOnline: number;
-
-        doNotPaceReplication: boolean;
-
-        hashAlg: HashAlgorithm;
-        // This could not be configured from Obsidian.
-        permitEmptyPassphrase: boolean;
-        enableCompression: boolean;
-        disableCheckingConfigMismatch: boolean;
-
-        useEden: boolean;
-        maxChunksInEden: number;
-        maxTotalLengthInEden: number;
-        maxAgeInEden: number;
-
-        enableChunkSplitterV2: boolean;
-        disableWorkerForGeneratingChunks: boolean;
-        processSmallFilesInUIThread: boolean;
-
-        handleFilenameCaseSensitive: boolean;
-        doNotUseFixedRevisionForChunks: boolean;
-        sendChunksBulk: boolean;
-        sendChunksBulkMaxSize: number;
-
-        useSegmenter: boolean;
-    };
+    RemoteTypeSettings &
+    EncryptionSettings &
+    ChunkSettings &
+    EdenSettings &
+    DataOnRemoteDBSettings &
+    ObsoleteRemoteDBSettings &
+    OnDemandChunkSettings &
+    BetaRemoteDBSettings &
+    ReplicationSetting &
+    RemoteDBTweakSettings &
+    FileHandlingSettings &
+    ProcessingBehaviourSettings &
+    OptionalAndNotExposedRemoteDBSettings &
+    CrossPlatformInteroperabilitySettings &
+    ConflictHandlingSettings &
+    EdgeCaseHandlingSettings &
+    DeletedFileMetadataSettings &
+    P2PSyncSetting;
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
 
@@ -269,6 +1042,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     showStatusOnEditor: true,
     showStatusOnStatusbar: true,
     showOnlyIconsOnEditor: false,
+    hideFileWarningNotice: false,
     usePluginSync: false,
     autoSweepPlugins: false,
     autoSweepPluginsPeriodic: false,
@@ -283,14 +1057,16 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     showMergeDialogOnlyOnActive: false,
     syncInternalFiles: false,
     syncInternalFilesBeforeReplication: false,
-    syncInternalFilesIgnorePatterns: "\\/node_modules\\/, \\/\\.git\\/, \\/obsidian-livesync\\/",
+    syncInternalFilesIgnorePatterns:
+        "\\/node_modules\\/, \\/\\.git\\/, \\/obsidian-livesync\\/" as CustomRegExpSourceList<",">,
+    syncInternalFilesTargetPatterns: "" as CustomRegExpSourceList<",">,
     syncInternalFilesInterval: 60,
     additionalSuffixOfDatabaseName: "",
     ignoreVersionCheck: false,
     lastReadUpdates: 0,
     deleteMetadataOfDeletedFiles: false,
-    syncIgnoreRegEx: "",
-    syncOnlyRegEx: "",
+    syncIgnoreRegEx: "" as CustomRegExpSourceList<"|[]|">,
+    syncOnlyRegEx: "" as CustomRegExpSourceList<"|[]|">,
     customChunkSize: 0,
     readChunksOnline: true,
     watchInternalFileChanges: true,
@@ -344,7 +1120,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     usePluginSyncV2: false,
     usePluginEtc: false,
     handleFilenameCaseSensitive: undefined!,
-    doNotUseFixedRevisionForChunks: undefined!,
+    doNotUseFixedRevisionForChunks: true,
     showLongerLogInsideEditor: false,
     sendChunksBulk: false,
     sendChunksBulkMaxSize: 1,
@@ -353,7 +1129,173 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     usePowerUserMode: false,
     useEdgeCaseMode: false,
     enableDebugTools: false,
+    suppressNotifyHiddenFilesChange: false,
+    syncMinimumInterval: 2000,
+    ...P2P_DEFAULT_SETTINGS,
+    doctorProcessedVersion: "",
+
+    bucketCustomHeaders: "",
+    couchDB_CustomHeaders: "",
+    useJWT: false,
+    jwtAlgorithm: "",
+    jwtKey: "",
+    jwtKid: "",
+    jwtSub: "",
+    jwtExpDuration: 5,
+    useRequestAPI: false,
+    bucketPrefix: "",
 };
+
+export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> = {
+    remoteType: 0,
+    useCustomRequestHandler: 1,
+    couchDB_URI: 2,
+    couchDB_USER: 3,
+    couchDB_PASSWORD: 4,
+    couchDB_DBNAME: 5,
+    minimumChunkSize: 6,
+    longLineThreshold: 7,
+    encrypt: 8,
+    passphrase: 9,
+    usePathObfuscation: 10,
+    checkIntegrityOnSave: 11,
+    batch_size: 12,
+    batches_limit: 13,
+    useHistory: 14,
+    disableRequestURI: 15,
+    checkConflictOnlyOnOpen: 16,
+    showMergeDialogOnlyOnActive: 17,
+    additionalSuffixOfDatabaseName: 18,
+    ignoreVersionCheck: 19,
+    deleteMetadataOfDeletedFiles: 20,
+    customChunkSize: 21,
+    readChunksOnline: 22,
+    automaticallyDeleteMetadataOfDeletedFiles: 23,
+    useDynamicIterationCount: 24,
+    permitEmptyPassphrase: 25,
+    useTimeouts: 26,
+    doNotPaceReplication: 27,
+    hashCacheMaxCount: 28,
+    hashCacheMaxAmount: 29,
+    concurrencyOfReadChunksOnline: 30,
+    minimumIntervalOfReadChunksOnline: 31,
+    hashAlg: 32,
+    enableCompression: 33,
+    accessKey: 34,
+    bucket: 35,
+    endpoint: 36,
+    region: 37,
+    secretKey: 38,
+    useEden: 39,
+    maxChunksInEden: 40,
+    maxTotalLengthInEden: 41,
+    maxAgeInEden: 42,
+    disableCheckingConfigMismatch: 43,
+    handleFilenameCaseSensitive: 44,
+    doNotUseFixedRevisionForChunks: 45,
+    sendChunksBulk: 46,
+    sendChunksBulkMaxSize: 47,
+    useSegmenter: 48,
+    liveSync: 49,
+    syncOnSave: 50,
+    syncOnStart: 51,
+    syncOnFileOpen: 52,
+    syncOnEditorSave: 53,
+    syncMinimumInterval: 54,
+    showVerboseLog: 55,
+    lessInformationInLog: 56,
+    showLongerLogInsideEditor: 57,
+    showStatusOnEditor: 58,
+    showStatusOnStatusbar: 59,
+    showOnlyIconsOnEditor: 60,
+    displayLanguage: 61,
+    trashInsteadDelete: 62,
+    doNotDeleteFolder: 63,
+    batchSave: 64,
+    batchSaveMinimumDelay: 64,
+    batchSaveMaximumDelay: 65,
+    syncMaxSizeInMB: 66,
+    useIgnoreFiles: 67,
+    ignoreFiles: 68,
+    syncOnlyRegEx: 69,
+    syncIgnoreRegEx: 70,
+    syncAfterMerge: 71,
+    resolveConflictsByNewerFile: 72,
+    writeDocumentsIfConflicted: 73,
+    disableMarkdownAutoMerge: 74,
+    configPassphraseStore: 75,
+    encryptedPassphrase: 76,
+    encryptedCouchDBConnection: 77,
+    periodicReplication: 78,
+    periodicReplicationInterval: 79,
+    syncInternalFiles: 80,
+    syncInternalFilesBeforeReplication: 81,
+    syncInternalFilesInterval: 82,
+    syncInternalFilesIgnorePatterns: 83,
+    watchInternalFileChanges: 84,
+    suppressNotifyHiddenFilesChange: 85,
+    usePluginSync: 86,
+    usePluginSettings: 87,
+    showOwnPlugins: 88,
+    autoSweepPlugins: 89,
+    autoSweepPluginsPeriodic: 90,
+    notifyPluginOrSettingUpdated: 91,
+    deviceAndVaultName: 92,
+    usePluginSyncV2: 93,
+    usePluginEtc: 94,
+    pluginSyncExtendedSetting: 95,
+    useAdvancedMode: 96,
+    usePowerUserMode: 97,
+    useEdgeCaseMode: 98,
+    notifyThresholdOfRemoteStorageSize: 99,
+    disableWorkerForGeneratingChunks: 100,
+    processSmallFilesInUIThread: 101,
+    enableChunkSplitterV2: 102,
+    savingDelay: 103,
+    gcDelay: 104,
+    skipOlderFilesOnSync: 105,
+    useIndexedDBAdapter: 106,
+    enableDebugTools: 107,
+    writeLogToTheFile: 108,
+    settingSyncFile: 109,
+    writeCredentialsForSettingSync: 110,
+    notifyAllSettingSyncFile: 111,
+    suspendFileWatching: 112,
+    suspendParseReplicationResult: 113,
+    doNotSuspendOnFetching: 114,
+    versionUpFlash: 115,
+    settingVersion: 116,
+    isConfigured: 117,
+    lastReadUpdates: 118,
+    doctorProcessedVersion: 119,
+    P2P_Enabled: 120,
+    P2P_relays: 121,
+    P2P_roomID: 122,
+    P2P_passphrase: 123,
+    P2P_AutoAccepting: 124,
+    P2P_AutoStart: 125,
+    P2P_AutoBroadcast: 126,
+    P2P_AutoSyncPeers: 127,
+    P2P_AutoWatchPeers: 128,
+    P2P_SyncOnReplication: 129,
+    P2P_AppID: 130,
+    P2P_RebuildFrom: 131,
+    bucketCustomHeaders: 132,
+    couchDB_CustomHeaders: 133,
+    useJWT: 134,
+    jwtAlgorithm: 135,
+    jwtKey: 136,
+    jwtKid: 137,
+    jwtSub: 138,
+    jwtExpDuration: 139,
+    P2P_AutoAcceptingPeers: 140,
+    P2P_AutoDenyingPeers: 141,
+    P2P_IsHeadless: -1,
+    syncInternalFilesTargetPatterns: 142,
+    useRequestAPI: 143,
+    hideFileWarningNotice: 144,
+    bucketPrefix: 145,
+} as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
     settings: T;
@@ -365,7 +1307,7 @@ export const PREFERRED_SETTING_CLOUDANT: Partial<ObsidianLiveSyncSettings> = {
     sendChunksBulkMaxSize: 1,
     concurrencyOfReadChunksOnline: 100,
     minimumIntervalOfReadChunksOnline: 333,
-    doNotUseFixedRevisionForChunks: false,
+    doNotUseFixedRevisionForChunks: true,
     useSegmenter: true,
     usePluginSyncV2: true,
     handleFilenameCaseSensitive: false,
@@ -388,17 +1330,50 @@ export const PREFERRED_SETTING_PERFORMANT: Partial<ObsidianLiveSyncSettings> = {
     useSegmenter: true,
 };
 
+/**
+ * Represents an entry in the database.
+ */
 export interface DatabaseEntry {
+    /**
+     * The ID of the document.
+     */
     _id: DocumentID;
+
+    /**
+     * The revision of the document.
+     */
     _rev?: string;
+
+    /**
+     * Deleted flag.
+     */
     _deleted?: boolean;
+
+    /**
+     * Conflicts (if exists).
+     */
     _conflicts?: string[];
 }
 
+/**
+ * Represents the base structure for an entry that represents a file.
+ */
 export type EntryBase = {
+    /**
+     * The creation time of the file.
+     */
     ctime: number;
+    /**
+     * The modification time of the file.
+     */
     mtime: number;
+    /**
+     * The size of the file.
+     */
     size: number;
+    /**
+     * Deleted flag.
+     */
     deleted?: boolean;
 };
 
@@ -414,23 +1389,50 @@ export type EntryWithEden = {
 export type NoteEntry = DatabaseEntry &
     EntryBase &
     EntryWithEden & {
+        /**
+         * The path of the file.
+         */
         path: FilePathWithPrefix;
+        /**
+         * Contents of the file.
+         */
         data: string | string[];
+        /**
+         * The type of the entry.
+         */
         type: "notes";
     };
 
 export type NewEntry = DatabaseEntry &
     EntryBase &
     EntryWithEden & {
+        /**
+         * The path of the file.
+         */
         path: FilePathWithPrefix;
+        /**
+         * Chunk IDs indicating the contents of the file.
+         */
         children: string[];
+        /**
+         * The type of the entry.
+         */
         type: "newnote";
     };
 export type PlainEntry = DatabaseEntry &
     EntryBase &
     EntryWithEden & {
+        /**
+         * The path of the file.
+         */
         path: FilePathWithPrefix;
+        /**
+         * Chunk IDs indicating the contents of the file.
+         */
         children: string[];
+        /**
+         * The type of the entry.
+         */
         type: "plain";
     };
 
@@ -501,18 +1503,41 @@ export const TweakValuesShouldMatchedTemplate: Partial<ObsidianLiveSyncSettings>
     maxAgeInEden: 10,
     usePluginSyncV2: false,
     handleFilenameCaseSensitive: false,
-    doNotUseFixedRevisionForChunks: false,
+    doNotUseFixedRevisionForChunks: true,
     useSegmenter: false,
 };
 
-export const CompatibilityBreakingTweakValues: (keyof TweakValues)[] = [
+type TweakKeys = keyof TweakValues;
+
+export const IncompatibleChanges: TweakKeys[] = [
     "encrypt",
     "usePathObfuscation",
     "useDynamicIterationCount",
-    "hashAlg",
     "handleFilenameCaseSensitive",
-    "doNotUseFixedRevisionForChunks",
-];
+] as const;
+
+export const CompatibleButLossyChanges: TweakKeys[] = ["hashAlg"];
+
+type IncompatibleRecommendationPatterns<T extends TweakKeys> = {
+    key: T;
+    isRecommendation?: boolean;
+} & (
+    | {
+          from: TweakValues[T];
+          to: TweakValues[T];
+      }
+    | {
+          from: TweakValues[T];
+      }
+    | {
+          to: TweakValues[T];
+      }
+);
+
+export const IncompatibleChangesInSpecificPattern: IncompatibleRecommendationPatterns<TweakKeys>[] = [
+    { key: "doNotUseFixedRevisionForChunks", from: true, to: false, isRecommendation: true },
+    { key: "doNotUseFixedRevisionForChunks", to: true, isRecommendation: false },
+] as const;
 
 export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> = {
     useIgnoreFiles: false,
@@ -603,6 +1628,41 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
     useSegmenter: {
         name: "Use Segmented-splitter",
         desc: "If this enabled, chunks will be split into semantically meaningful segments. Not all platforms support this feature.",
+    },
+    useJWT: {
+        name: "Use JWT instead of Basic Authentication",
+        desc: "If this enabled, JWT will be used for authentication.",
+    },
+    jwtAlgorithm: {
+        name: "Algorithm",
+        desc: "The algorithm used for JWT authentication.",
+    },
+    jwtKey: {
+        name: "Keypair or pre-shared key",
+        desc: "The key (PSK in HSxxx in base64, or private key in ESxxx in PEM) used for JWT authentication.",
+        // placeHolder:""
+    },
+    jwtKid: {
+        name: "Key ID",
+        desc: "The key ID. this should be matched with CouchDB->jwt_keys->ALG:_`kid`.",
+    },
+    jwtExpDuration: {
+        name: "Rotation Duration",
+        desc: "The Rotation duration of token in minutes. Each generated tokens will be valid only within this duration.",
+    },
+    jwtSub: {
+        name: "Subject (whoami)",
+        desc: "The subject for JWT authentication. Mostly username.",
+    },
+    bucketCustomHeaders: {
+        name: "Custom Headers",
+        desc: "Custom headers for requesting the bucket. e.g. `x-custom-header1: value1\n x-custom-header2: value2`",
+        placeHolder: "x-custom-header1: value1\n x-custom-header2: value2",
+    },
+    couchDB_CustomHeaders: {
+        name: "Custom Headers",
+        desc: "Custom headers for requesting the CouchDB. e.g. `x-custom-header1: value1\n x-custom-header2: value2`",
+        placeHolder: "x-custom-header1: value1\n x-custom-header2: value2",
     },
 };
 
@@ -754,6 +1814,8 @@ export interface SyncInfo extends DatabaseEntry {
 }
 
 export const SALT_OF_PASSPHRASE = "rHGMPtr6oWw7VSa3W3wpa8fT8U";
+export const SALT_OF_ID = "a83hrf7f\u0003y7sa8g31";
+export const SEED_MURMURHASH = 0x12345678;
 
 export const PREFIX_OBFUSCATED = "f:";
 export const PREFIX_CHUNK = "h:";
@@ -815,5 +1877,50 @@ export type UXDataWriteOptions = {
 
 export type Prettify<T> = {
     [K in keyof T]: T[K];
-    // eslint-disable-next-line
+    // deno-lint-ignore ban-types
 } & {};
+
+export type CouchDBCredentials = BasicCredentials | JWTCredentials;
+
+export type BasicCredentials = {
+    username: string;
+    password: string;
+    type: "basic";
+};
+
+export type JWTCredentials = {
+    jwtAlgorithm: CouchDBConnection["jwtAlgorithm"];
+    jwtKey: string;
+    jwtKid: string;
+    jwtSub: string;
+    jwtExpDuration: number;
+    type: "jwt";
+};
+
+export interface JWTHeader {
+    alg: string;
+    typ: string;
+    kid?: string;
+}
+export interface JWTPayload {
+    sub: string;
+    exp: number;
+    iss?: string;
+    iat: number;
+    [key: string]: any;
+}
+export interface JWTParams {
+    header: JWTHeader;
+    payload: JWTPayload;
+    credentials: JWTCredentials;
+}
+export interface PreparedJWT {
+    header: JWTHeader;
+    payload: JWTPayload;
+    token: string;
+}
+
+export type CustomRegExpSource = TaggedType<string, "CustomRegExp">;
+export type CustomRegExpSourceList<D extends string = ","> = TaggedType<string, `CustomRegExpList${D}`>;
+
+export type ParsedCustomRegExp = [isInverted: boolean, pattern: string];

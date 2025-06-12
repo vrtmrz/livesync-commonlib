@@ -14,7 +14,7 @@ import {
     concatUInt8Array,
     delay,
     escapeNewLineFromString,
-    sendValue,
+    parseHeaderValues,
     setAllItems,
     unescapeNewLineFromString,
 } from "../../common/utils.ts";
@@ -24,6 +24,7 @@ import { type CheckPointInfo, CheckPointInfoDefault } from "./JournalSyncTypes.t
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicator.ts";
 import { Trench } from "../../memory/memutil.ts";
 import { Notifier } from "../../concurrency/processor.ts";
+import { globalSlipBoard } from "../../bureau/bureau.ts";
 const RECORD_SPLIT = `\n`;
 const UNIT_SPLIT = `\u001f`;
 type ProcessingEntry = PouchDB.Core.PutDocument<EntryDoc> & PouchDB.Core.GetMeta;
@@ -43,6 +44,7 @@ export abstract class JournalSyncAbstract {
     key = "";
     bucket = "";
     endpoint = "";
+    prefix: string = "";
     region: string = "auto";
     db: PouchDB.Database<EntryDoc>;
     hash = "";
@@ -51,26 +53,30 @@ export abstract class JournalSyncAbstract {
     env: LiveSyncJournalReplicatorEnv;
     store: SimpleStore<CheckPointInfo>;
     useCustomRequestHandler: boolean;
+    customHeaders: [string, string][] = [];
     requestedStop = false;
     trench: Trench;
     notifier = new Notifier();
 
-    getHash(endpoint: string, bucket: string, region: string) {
-        return btoa(encodeURI([endpoint, bucket, region].join()));
+    getHash(endpoint: string, bucket: string, region: string, prefix: string) {
+        return btoa(encodeURI([endpoint, `${bucket}${prefix}`, region].join()));
     }
     constructor(
         id: string,
         key: string,
         endpoint: string,
         bucket: string,
+        prefix: string,
         store: SimpleStore<CheckPointInfo>,
         env: LiveSyncJournalReplicatorEnv,
         useCustomRequestHandler: boolean,
-        region: string = ""
+        region: string = "",
+        customHeaders: string
     ) {
         this.id = id;
         this.key = key;
         this.bucket = bucket;
+        this.prefix = prefix;
         this.endpoint = endpoint;
         this.region = region;
         this.db = env.getDatabase();
@@ -78,18 +84,22 @@ export abstract class JournalSyncAbstract {
         this.useCustomRequestHandler = useCustomRequestHandler;
         this.processReplication = async (docs) => await env.$$parseReplicationResult(docs);
         this.store = store;
-        this.hash = this.getHash(endpoint, bucket, region);
+        this.hash = this.getHash(endpoint, bucket, region, prefix);
         this.trench = new Trench(store);
+        const headers = Object.entries(parseHeaderValues(customHeaders));
+        this.customHeaders = headers;
     }
     applyNewConfig(
         id: string,
         key: string,
         endpoint: string,
         bucket: string,
+        prefix: string,
         store: SimpleStore<CheckPointInfo>,
         env: LiveSyncJournalReplicatorEnv,
         useCustomRequestHandler: boolean,
-        region: string = ""
+        region: string = "",
+        customHeaders: string
     ) {
         // const hash = this.getHash(endpoint, bucket, region)
         // if (hash != this.hash || useCustomRequestHandler != this.useCustomRequestHandler) {
@@ -97,6 +107,7 @@ export abstract class JournalSyncAbstract {
         this.id = id;
         this.key = key;
         this.bucket = bucket;
+        this.prefix = prefix;
         this.endpoint = endpoint;
         this.region = region;
         this.db = env.getDatabase();
@@ -104,7 +115,9 @@ export abstract class JournalSyncAbstract {
         this.useCustomRequestHandler = useCustomRequestHandler;
         this.processReplication = async (docs) => await env.$$parseReplicationResult(docs);
         this.store = store;
-        this.hash = this.getHash(endpoint, bucket, region);
+        this.hash = this.getHash(endpoint, bucket, region, prefix);
+        const headers = Object.entries(parseHeaderValues(customHeaders));
+        this.customHeaders = headers;
         // }
     }
 
@@ -205,8 +218,22 @@ export abstract class JournalSyncAbstract {
         const dbInfo = await this.db.info();
         const hasNext = packLastSeq < dbInfo.update_seq;
         const docs = bd.results.map((e) => e.docs).flat();
-        const docChanges = docs.filter((e) => "ok" in e).map((e) => (e as any).ok) as (EntryDoc &
-            PouchDB.Core.GetMeta)[];
+        // Thinning out the docs.
+        const docChanges = docs
+            .filter((e) => "ok" in e)
+            .map((e) => (e as any).ok)
+            .filter((doc: EntryDoc) => {
+                const key = this.getDocKey(doc);
+                if (this._currentCheckPointInfo.knownIDs.has(key)) {
+                    knownKeyCount++;
+                    return false;
+                }
+                if (this._currentCheckPointInfo.sentIDs.has(key)) {
+                    knownKeyCount++;
+                    return false;
+                }
+                return true;
+            }) as (EntryDoc & PouchDB.Core.GetMeta)[];
         return { changes: docChanges, hasNext, packLastSeq };
     }
 
@@ -429,7 +456,7 @@ export abstract class JournalSyncAbstract {
                 // Send arrived notification.
                 saveChunks
                     .filter((e) => saveError.indexOf(e._id) === -1)
-                    .forEach((doc) => sendValue(`leaf-${doc._id}`, doc));
+                    .forEach((doc) => globalSlipBoard.submit("read-chunk", doc._id, doc as EntryLeaf));
                 await this.updateCheckPointInfo((info) => ({
                     ...info,
                     knownIDs: setAllItems(
@@ -447,14 +474,22 @@ export abstract class JournalSyncAbstract {
             }
             // Docs saving.
             // Docs have different revisions, hence revision comparisons and merging are necessary.
-            const docsRevs = docs
-                .map((e: EntryDoc & PouchDB.Core.GetMeta) => ({
-                    [e._id]: e._revisions!.ids.map((rev, i) => `${e._revisions!.start - i}-${rev}`),
-                }))
-                .reduce((a, b) => ({ ...a, ...b }), {});
+            const params = docs.map((e) => [e._id, [e._rev]] as const);
+            const docsRevs = params.reduce(
+                (acc, [id, revs]) => {
+                    return {
+                        ...acc,
+                        [id]: [...(acc[id] ?? []), ...revs],
+                    };
+                },
+                {} as { [key: string]: string[] }
+            );
             const diffRevs = await this.db.revsDiff(docsRevs);
             const saveDocs = docs.filter(
-                (e) => e._id in diffRevs && "missing" in diffRevs[e._id] && (diffRevs[e._id].missing?.length || 0) > 0
+                (e) =>
+                    e._id in diffRevs &&
+                    "missing" in diffRevs[e._id] &&
+                    (diffRevs[e._id].missing?.indexOf(e._rev) ?? 0) !== -1
             );
             Logger(
                 `Applying ${saveDocs.length} docs (Total transferred:${docs.length}, docs:${allDocs.length})`,

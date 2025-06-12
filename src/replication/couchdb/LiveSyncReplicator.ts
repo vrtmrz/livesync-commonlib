@@ -15,16 +15,17 @@ import {
     TweakValuesTemplate,
     type DocumentID,
     type TweakValues,
+    type CouchDBCredentials,
 } from "../../common/types.ts";
 import {
     resolveWithIgnoreKnownError,
-    delay,
     globalConcurrencyController,
     extractObject,
     wrapException,
     sizeToHumanReadable,
     type SimpleStore,
     arrayToChunkedArray,
+    parseHeaderValues,
 } from "../../common/utils.ts";
 import { Logger } from "../../common/logger.ts";
 import { checkRemoteVersion, preprocessOutgoing } from "../../pouchdb/utils_couchdb.ts";
@@ -35,9 +36,12 @@ import {
     type LiveSyncReplicatorEnv,
     type RemoteDBStatus,
 } from "../LiveSyncAbstractReplicator.ts";
-import { shareRunningResult } from "../../concurrency/lock.ts";
+import { serialized, shareRunningResult } from "../../concurrency/lock.ts";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { Trench } from "octagonal-wheels/memory/memutil";
+import { promiseWithResolver } from "octagonal-wheels/promises";
+import { Inbox, NOT_AVAILABLE } from "octagonal-wheels/bureau/Inbox";
+import { $msg } from "../../common/i18n.ts";
 
 const currentVersionRange: ChunkVersionRange = {
     min: 0,
@@ -63,15 +67,18 @@ async function* genReplication(
     s: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc>,
     signal: AbortSignal
 ) {
-    const p = [] as EventParamArray<EntryDoc>[];
-    let locker: () => Promise<void> = () => Promise.resolve();
-    let unlock = () => {
-        locker = () => new Promise<void>((res) => (unlock = res));
-    };
-    unlock();
+    const inbox = new Inbox<EventParamArray<EntryDoc>>(10000);
     const push = function (e: EventParamArray<EntryDoc>) {
-        p.push(e);
-        unlock();
+        void serialized("replicationResult", async () => {
+            if (signal.aborted) {
+                return;
+            }
+            if (!inbox.isDisposed) {
+                await inbox.post(e);
+            } else {
+                Logger("Inbox is disposed", LOG_LEVEL_VERBOSE);
+            }
+        });
     };
 
     //@ts-ignore
@@ -83,46 +90,45 @@ async function* genReplication(
     void s.on("error", (err) => push(["error", err]));
     void s.on("paused", (err) => push(["paused", err]));
     void s.then(() => push(["finally"])).catch(() => push(["finally"]));
+    const abortSymbol = Symbol("abort");
+    const abortPromise = promiseWithResolver<typeof abortSymbol>();
+
+    signal.addEventListener("abort", () => {
+        abortPromise.resolve(abortSymbol);
+    });
 
     try {
-        L1: do {
-            const r = p.shift();
-            if (r) {
-                yield r;
-                if (r[0] == "finally") break;
-                continue;
-            } else {
-                const dx = async () => {
-                    await locker();
-                    return true;
-                };
-                do {
-                    const timeout = async () => {
-                        await delay(100);
-                        return false;
-                    };
-                    const raced = await Promise.race([dx(), timeout()]);
-                    if (raced) continue L1;
-                    if (signal.aborted) break L1;
-                    // eslint-disable-next-line no-constant-condition
-                } while (true);
+        while (!inbox.isDisposed && !signal.aborted) {
+            const r = await inbox.pick(undefined, [abortPromise.promise] as Promise<typeof abortSymbol>[]);
+            if (r === NOT_AVAILABLE) {
+                break;
             }
-        } while (true);
+            yield r;
+        }
+    } catch (ex) {
+        if (ex instanceof Error && ex.name == "AbortError") {
+            Logger(`Replication aborted`, LOG_LEVEL_VERBOSE);
+        } else {
+            throw ex;
+        }
     } finally {
         s.cancel();
+        inbox.dispose();
     }
 }
 
 export interface LiveSyncCouchDBReplicatorEnv extends LiveSyncReplicatorEnv {
     $$connectRemoteCouchDB(
         uri: string,
-        auth: { username: string; password: string },
+        auth: CouchDBCredentials,
         disableRequestURI: boolean,
         passphrase: string | boolean,
         useDynamicIterationCount: boolean,
         performSetup: boolean,
         skipInfo: boolean,
-        enableCompression: boolean
+        enableCompression: boolean,
+        customHeaders: Record<string, string>,
+        useRequestAPI: boolean
     ): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }>;
     $$getSimpleStore<T>(kind: string): SimpleStore<T>;
 }
@@ -450,7 +456,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             const d = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
             if (typeof d === "string") {
                 Logger(
-                    `Could not connect to remote database: ${d}`,
+                    $msg("liveSyncReplicator.couldNotConnectToRemoteDb", { d }),
                     showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
                     "fetch"
                 );
@@ -464,7 +470,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const localDB = this.env.getDatabase();
         const te = new TextEncoder();
         Logger(
-            `Looking for the point last synchronized point.`,
+            $msg("liveSyncReplicator.checkingLastSyncPoint"),
             showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
             "fetch"
         );
@@ -623,20 +629,28 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     ): Promise<boolean> {
         const next = await shareRunningResult("oneShotReplication", async () => {
             if (this.controller) {
-                Logger("Replication is already in progress.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
+                Logger(
+                    $msg("liveSyncReplicator.replicationInProgress"),
+                    showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
+                    "sync"
+                );
                 return false;
             }
             const localDB = this.env.getDatabase();
-            Logger(`OneShot Sync begin... (${syncMode})`);
+            Logger($msg("liveSyncReplicator.oneShotSyncBegin", { syncMode }));
             const ret = await this.checkReplicationConnectivity(setting, false, retrying, showResult, ignoreCleanLock);
             if (ret === false) {
-                Logger("Could not connect to server.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
+                Logger(
+                    $msg("liveSyncReplicator.couldNotConnectToServer"),
+                    showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
+                    "sync"
+                );
                 return false;
             }
             this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
             this.maxPushSeq = Number(`${(await localDB.info()).update_seq}`.split("-")[0]);
             if (showResult) {
-                Logger("Looking for the point last synchronized point.", LOG_LEVEL_NOTICE, "sync");
+                Logger($msg("liveSyncReplicator.checkingLastSyncPoint"), LOG_LEVEL_NOTICE, "sync");
             }
             const { db, syncOptionBase } = ret;
             this.syncStatus = "STARTED";
@@ -693,11 +707,17 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 tempSetting.batch_size = Math.ceil(tempSetting.batch_size / 2) + 2;
                 tempSetting.batches_limit = Math.ceil(tempSetting.batches_limit / 2) + 2;
                 if (tempSetting.batch_size <= 5 && tempSetting.batches_limit <= 5) {
-                    Logger("We can't replicate more lower value.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+                    Logger(
+                        $msg("liveSyncReplicator.cantReplicateLowerValue"),
+                        showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
+                    );
                     return false;
                 } else {
                     Logger(
-                        `Retry with lower batch size:${tempSetting.batch_size}/${tempSetting.batches_limit}`,
+                        $msg("liveSyncReplicator.retryLowerBatchSize", {
+                            batch_size: tempSetting.batch_size.toString(),
+                            batches_limit: tempSetting.batches_limit.toString(),
+                        }),
                         showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
                     );
                     return async () =>
@@ -750,15 +770,15 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
         const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof dbRet === "string") {
-            Logger(`Could not connect to ${uri}: ${dbRet}`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+            Logger(
+                $msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }),
+                showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
+            );
             return false;
         }
         if (!skipCheck) {
             if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
-                Logger(
-                    "Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed",
-                    LOG_LEVEL_NOTICE
-                );
+                Logger($msg("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
                 return false;
             }
             this.remoteCleaned = false;
@@ -831,20 +851,26 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     ): Promise<boolean> {
         const next = await shareRunningResult("continuousReplication", async () => {
             if (this.controller) {
-                Logger("Replication is already in progress.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+                Logger(
+                    $msg("liveSyncReplicator.replicationInProgress"),
+                    showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
+                );
                 return false;
             }
             const localDB = this.env.getDatabase();
-            Logger("Before LiveSync, start OneShot once...");
+            Logger($msg("liveSyncReplicator.beforeLiveSync"));
             if (await this.openOneShotReplication(setting, showResult, false, "pullOnly")) {
-                Logger("LiveSync begin...");
+                Logger($msg("liveSyncReplicator.liveSyncBegin"));
                 const ret = await this.checkReplicationConnectivity(setting, true, true, showResult);
                 if (ret === false) {
-                    Logger("Could not connect to server.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+                    Logger(
+                        $msg("liveSyncReplicator.couldNotConnectToServer"),
+                        showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
+                    );
                     return false;
                 }
                 if (showResult) {
-                    Logger("Looking for the point last synchronized point.", LOG_LEVEL_NOTICE, "sync");
+                    Logger($msg("liveSyncReplicator.checkingLastSyncPoint"), LOG_LEVEL_NOTICE, "sync");
                 }
                 const { db, syncOption } = ret;
                 this.syncStatus = "STARTED";
@@ -886,11 +912,17 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     tempSetting.batch_size = Math.ceil(tempSetting.batch_size / 2) + 2;
                     tempSetting.batches_limit = Math.ceil(tempSetting.batches_limit / 2) + 2;
                     if (tempSetting.batch_size <= 5 && tempSetting.batches_limit <= 5) {
-                        Logger("We can't replicate more lower value.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+                        Logger(
+                            $msg("liveSyncReplicator.cantReplicateLowerValue"),
+                            showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
+                        );
                         return false;
                     } else {
                         Logger(
-                            `Retry with lower batch size:${tempSetting.batch_size}/${tempSetting.batches_limit}`,
+                            $msg("liveSyncReplicator.retryLowerBatchSize", {
+                                batch_size: tempSetting.batch_size.toString(),
+                                batches_limit: tempSetting.batches_limit.toString(),
+                            }),
                             showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
                         );
                         return async () => await this.openContinuousReplication(tempSetting, showResult, true);
@@ -912,7 +944,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         this.controller.abort();
         this.controller = undefined;
         this.syncStatus = "CLOSED";
-        Logger("Replication closed");
+        Logger($msg("liveSyncReplicator.replicationClosed"));
         this.updateInfo();
     }
 
@@ -922,10 +954,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         if (typeof con == "string") return;
         try {
             await con.db.destroy();
-            Logger("Remote Database Destroyed", LOG_LEVEL_NOTICE);
+            Logger($msg("liveSyncReplicator.remoteDbDestroyed"), LOG_LEVEL_NOTICE);
             await this.tryCreateRemoteDatabase(setting);
         } catch (ex) {
-            Logger("Something happened on Remote Database Destroy:", LOG_LEVEL_NOTICE);
+            Logger($msg("liveSyncReplicator.remoteDbDestroyError"), LOG_LEVEL_NOTICE);
             Logger(ex, LOG_LEVEL_NOTICE);
         }
     }
@@ -934,21 +966,18 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const con2 = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
 
         if (typeof con2 === "string") return;
-        Logger("Remote Database Created or Connected", LOG_LEVEL_NOTICE);
+        Logger($msg("liveSyncReplicator.remoteDbCreatedOrConnected"), LOG_LEVEL_NOTICE);
     }
     async markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean) {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
         const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof dbRet === "string") {
-            Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
+            Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return;
         }
 
         if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
-            Logger(
-                "Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed",
-                LOG_LEVEL_NOTICE
-            );
+            Logger($msg("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
             return;
         }
         const defInitPoint: EntryMilestoneInfo = {
@@ -971,9 +1000,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         remoteMilestone.locked = locked;
         remoteMilestone.cleaned = remoteMilestone.cleaned || lockByClean;
         if (locked) {
-            Logger("Lock remote database to prevent data corruption", LOG_LEVEL_NOTICE);
+            Logger($msg("liveSyncReplicator.lockRemoteDb"), LOG_LEVEL_NOTICE);
         } else {
-            Logger("Unlock remote database to prevent data corruption", LOG_LEVEL_NOTICE);
+            Logger($msg("liveSyncReplicator.unlockRemoteDb"), LOG_LEVEL_NOTICE);
         }
         await dbRet.db.put(remoteMilestone);
     }
@@ -981,15 +1010,12 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
         const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof dbRet === "string") {
-            Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
+            Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return;
         }
 
         if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
-            Logger(
-                "Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed",
-                LOG_LEVEL_NOTICE
-            );
+            Logger($msg("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
             return;
         }
         const defInitPoint: EntryMilestoneInfo = {
@@ -1008,12 +1034,12 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         };
         remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
         remoteMilestone.accepted_nodes = Array.from(new Set([...remoteMilestone.accepted_nodes, this.nodeid]));
-        Logger("Mark this device as 'resolved'.", LOG_LEVEL_NOTICE);
+        Logger($msg("liveSyncReplicator.markDeviceResolved"), LOG_LEVEL_NOTICE);
         const result = await dbRet.db.put(remoteMilestone);
         if (result.ok) {
-            Logger(`Remote database has been marked resolved.`, LOG_LEVEL_VERBOSE);
+            Logger($msg("liveSyncReplicator.remoteDbMarkedResolved"), LOG_LEVEL_VERBOSE);
         } else {
-            Logger(`Could not mark resolve remote database.`, LOG_LEVEL_NOTICE);
+            Logger($msg("liveSyncReplicator.couldNotMarkResolveRemoteDb"), LOG_LEVEL_NOTICE);
         }
     }
 
@@ -1026,18 +1052,34 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         if (settings.encrypt && settings.passphrase == "" && !settings.permitEmptyPassphrase) {
             return "Empty passphrases cannot be used without explicit permission";
         }
+        const customHeaders = parseHeaderValues(settings.couchDB_CustomHeaders);
+        const auth = (
+            settings.useJWT
+                ? {
+                      jwtAlgorithm: settings.jwtAlgorithm,
+                      jwtKey: settings.jwtKey,
+                      jwtExpDuration: settings.jwtExpDuration,
+                      jwtKid: settings.jwtKid,
+                      jwtSub: settings.jwtSub,
+                      type: "jwt",
+                  }
+                : {
+                      username: settings.couchDB_USER,
+                      password: settings.couchDB_PASSWORD,
+                      type: "basic",
+                  }
+        ) satisfies CouchDBCredentials;
         return this.env.$$connectRemoteCouchDB(
             settings.couchDB_URI + (settings.couchDB_DBNAME == "" ? "" : "/" + settings.couchDB_DBNAME),
-            {
-                username: settings.couchDB_USER,
-                password: settings.couchDB_PASSWORD,
-            },
+            auth,
             settings.disableRequestURI || isMobile,
             settings.encrypt ? settings.passphrase : settings.encrypt,
             settings.useDynamicIterationCount,
             performSetup,
             skipInfo,
-            settings.enableCompression
+            settings.enableCompression,
+            customHeaders,
+            settings.useRequestAPI
         );
     }
 
@@ -1049,7 +1091,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             true
         );
         if (typeof ret === "string") {
-            Logger(`Could not connect to server.${ret} `, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
+            Logger(
+                `${$msg("liveSyncReplicator.couldNotConnectToServer")} ${ret} `,
+                showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
+                "fetch"
+            );
             return false;
         }
         const remoteChunks = await ret.db.allDocs({ keys: missingChunks, include_docs: true });
@@ -1078,7 +1124,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const db = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof db === "string") {
             Logger(
-                `ERROR!: could not connect to ${setting.couchDB_URI} : ${setting.couchDB_DBNAME} \n(${db})`,
+                $msg("liveSyncReplicator.couldNotConnectTo", {
+                    uri: setting.couchDB_URI,
+                    name: setting.couchDB_DBNAME,
+                    db,
+                }),
                 LOG_LEVEL_NOTICE
             );
             return false;
@@ -1091,15 +1141,12 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
         const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof dbRet === "string") {
-            Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
+            Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return;
         }
 
         if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
-            Logger(
-                "Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed",
-                LOG_LEVEL_NOTICE
-            );
+            Logger($msg("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
             return;
         }
         // check local database hash status and remote replicate hash status
@@ -1119,15 +1166,12 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
         const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof dbRet === "string") {
-            Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
+            Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return;
         }
 
         if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
-            Logger(
-                "Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed",
-                LOG_LEVEL_NOTICE
-            );
+            Logger($msg("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
             return;
         }
         // check local database hash status and remote replicate hash status
@@ -1147,14 +1191,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
         const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof dbRet === "string") {
-            Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
+            Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return false;
         }
         if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
-            Logger(
-                "Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed",
-                LOG_LEVEL_NOTICE
-            );
+            Logger($msg("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
             return false;
         }
         // check local database hash status and remote replicate hash status
@@ -1173,7 +1214,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
         const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof dbRet === "string") {
-            Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
+            Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return false;
         }
 
@@ -1185,7 +1226,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
         if (typeof dbRet === "string") {
             const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-            Logger(`could not connect to ${uri}:${dbRet}`, LOG_LEVEL_NOTICE);
+            Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return false;
         }
         const info = await dbRet.db.info();

@@ -86,7 +86,6 @@ PouchDB.prototype.purgeMulti = adapterFun(
     ) {
         //@ts-ignore
         if (typeof this._purge === "undefined") {
-            //@ts-ignore
             return callback(
                 //@ts-ignore: this ts-ignore might be hiding a `this` bug where we don't have "this" conext.
                 createError(UNKNOWN_ERROR, "Purge is not implemented in the " + this.adapter + " adapter.")
@@ -132,8 +131,8 @@ PouchDB.prototype.purgeMulti = adapterFun(
             );
             const result = Object.fromEntries(retAll.map((e) => [e[0][0], e[1]]));
             return result;
-            //@ts-ignore
         })()
+            //@ts-ignore
             .then((result) => callback(undefined, result))
             .catch((error) => callback(error));
     }

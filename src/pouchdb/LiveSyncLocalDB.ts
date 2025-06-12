@@ -1,6 +1,7 @@
 //
 
-import { xxhashOld, xxhashNew, sha1 } from "octagonal-wheels/hash/xxhash";
+import { xxhashNew } from "octagonal-wheels/hash/xxhash.js";
+import { sha1, fallbackMixedHashEach, mixedHash } from "octagonal-wheels/hash/purejs.js";
 import {
     type EntryDoc,
     type EntryLeaf,
@@ -17,7 +18,6 @@ import {
     type DatabaseEntry,
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_VERBOSE,
-    RESULT_TIMED_OUT,
     REMOTE_COUCHDB,
     type EntryDocResponse,
     type EntryBase,
@@ -34,6 +34,9 @@ import {
     NOT_CONFLICTED,
     LOG_LEVEL_INFO,
     type DIFF_CHECK_RESULT_AUTO,
+    type MetaEntry,
+    SALT_OF_ID,
+    SEED_MURMURHASH,
 } from "../common/types.ts";
 import {
     applyPatch,
@@ -42,29 +45,30 @@ import {
     flattenObject,
     generatePatchObj,
     getDocData,
+    getFileRegExp,
     isObjectMargeApplicable,
     isSensibleMargeApplicable,
     isTextBlob,
-    onlyNot,
-    sendValue,
     tryParseJSON,
     unique,
-    waitForValue,
 } from "../common/utils.ts";
 import { Logger } from "../common/logger.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 import { LRUCache } from "../memory/LRUCache.ts";
 
 import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
-import { decodeBinary, readString, writeString } from "../string_and_binary/convert.ts";
-import { QueueProcessor } from "../concurrency/processor.ts";
-import { collectingChunks } from "../mock_and_interop/stores.ts";
+import { decodeBinary, readString } from "../string_and_binary/convert.ts";
 import { shouldSplitAsPlainText, stripAllPrefixes } from "../string_and_binary/path.ts";
 import { serialized } from "../concurrency/lock.ts";
 import { splitPieces2, splitPieces2V2 } from "../string_and_binary/chunks.ts";
 import { splitPieces2Worker, splitPieces2WorkerV2 } from "../worker/bgWorker.ts";
 import { DIFF_DELETE, DIFF_EQUAL, DIFF_INSERT, diff_match_patch, type Diff } from "diff-match-patch";
+import { globalSlipBoard } from "../bureau/bureau.ts";
+import { BatchReader, ChunkCollector } from "./ChunkCollector.ts";
 
+export type ChunkRetrievalResultSuccess = { _id: DocumentID; data: string; type: "leaf" };
+export type ChunkRetrievalResultError = { _id: DocumentID; error: string };
+export type ChunkRetrievalResult = ChunkRetrievalResultSuccess | ChunkRetrievalResultError;
 export interface LiveSyncLocalDBEnv {
     $$id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
     $$path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID>;
@@ -81,7 +85,7 @@ export interface LiveSyncLocalDBEnv {
     getSettings(): RemoteDBSettings;
 }
 
-function getNoFromRev(rev: string) {
+export function getNoFromRev(rev: string) {
     if (!rev) return 0;
     return parseInt(rev.split("-")[0]);
 }
@@ -98,12 +102,31 @@ type GeneratedChunk = {
     piece: string;
 };
 
+type AutoMergeOutcomeOK = {
+    ok: DIFF_CHECK_RESULT_AUTO;
+};
+
+type AutoMergeCanBeDoneByDeletingRev = {
+    result: string;
+    conflictedRev: string;
+};
+
+type UserActionRequired = {
+    leftRev: string;
+    rightRev: string;
+    leftLeaf: diff_result_leaf | false;
+    rightLeaf: diff_result_leaf | false;
+};
+
+type AutoMergeResult = Promise<AutoMergeOutcomeOK | AutoMergeCanBeDoneByDeletingRev | UserActionRequired>;
+
 export class LiveSyncLocalDB {
     auth: Credential;
     dbname: string;
     settings!: RemoteDBSettings;
     localDatabase!: PouchDB.Database<EntryDoc>;
-
+    chunkCollector = new ChunkCollector(this);
+    batchReader = new BatchReader(this);
     isReady = false;
 
     h32!: (input: string, seed?: number) => string;
@@ -118,13 +141,19 @@ export class LiveSyncLocalDB {
     maxChunkVersion = -1;
     minChunkVersion = -1;
     needScanning = false;
+    hashedPassphrase = "";
+    hashedPassphrase32 = 0;
 
     env: LiveSyncLocalDBEnv;
 
     async _prepareHashFunctions() {
         if (this.h32 != null) return;
         if (this.settings.hashAlg == "sha1") {
-            Logger(`Fallback(SHA1) is used for hashing`, LOG_LEVEL_VERBOSE);
+            Logger(`[Hash function]: Fallback (SHA1)`, LOG_LEVEL_VERBOSE);
+            return;
+        }
+        if (this.settings.hashAlg == "mixed-purejs") {
+            Logger(`[Hash function]: Fallback (Mixed PureJS)`, LOG_LEVEL_VERBOSE);
             return;
         }
         try {
@@ -133,21 +162,11 @@ export class LiveSyncLocalDB {
             this.xxhash32 = h32;
             this.h32 = h32ToString;
             this.h32Raw = h32Raw;
-            Logger(`Newer xxhash has been initialised`, LOG_LEVEL_VERBOSE);
+            Logger(`[Hash function]: WASM (xxhash)`, LOG_LEVEL_VERBOSE);
         } catch (ex) {
-            Logger(`Could not initialise xxhash: use v1`, LOG_LEVEL_VERBOSE);
-            Logger(ex);
-            try {
-                this.xxhash64 = false;
-                const { h32, h32Raw } = await xxhashOld();
-                this.h32 = h32 as typeof xxhashNew.prototype.h32ToString;
-                this.h32Raw = h32Raw;
-                this.xxhash32 = (str) => h32Raw(writeString(str));
-            } catch (ex) {
-                Logger(`Could not initialise xxhash: use sha1F`, LOG_LEVEL_VERBOSE);
-                Logger(ex);
-                this.settings.hashAlg = "sha1";
-            }
+            Logger(`[Hash function]: Failed to initialise WASM xxhash. Fallback (PureJS) has been activated`);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            this.settings.hashAlg = "mixed-purejs";
         }
     }
 
@@ -170,6 +189,13 @@ export class LiveSyncLocalDB {
         const settings = this.env.getSettings();
         this.settings = settings;
         this.hashCaches = new LRUCache(settings.hashCacheMaxCount, settings.hashCacheMaxAmount);
+        const passphrase = this.settings.passphrase;
+        // Do not use all of the passphrase. If the contents of the chunk are inferable, the passphrase could be compromised for brute force attacks.
+        // Use only 3/4 of the passphrase. if no letter available, all of ID computed from SALT_OF_ID.
+        const usingLetters = ~~((passphrase.length / 4) * 3);
+        const passphraseForHash = SALT_OF_ID + passphrase.substring(0, usingLetters);
+        this.hashedPassphrase = fallbackMixedHashEach(passphraseForHash);
+        this.hashedPassphrase32 = mixedHash(passphraseForHash, SEED_MURMURHASH)[0];
     }
 
     constructor(dbname: string, env: LiveSyncLocalDBEnv) {
@@ -232,12 +258,32 @@ export class LiveSyncLocalDB {
             .changes({
                 since: "now",
                 live: true,
+                include_docs: true,
                 filter: (doc) => doc.type == "leaf",
             })
             .on("change", (e) => {
                 if (e.deleted) return;
-                sendValue(`leaf-${e.id}`, e.doc);
+                // sendValue(`leaf-${e.id}`, e.doc);
+                globalSlipBoard.submit("read-chunk", e.id, e.doc as EntryLeaf);
             });
+
+        const closeChanges = (reason: any) => {
+            if (reason) {
+                if (reason instanceof Error) {
+                    Logger(`Error while tracking changes`, LOG_LEVEL_INFO);
+                    Logger(reason, LOG_LEVEL_VERBOSE);
+                } else {
+                    Logger(`Tracking changes has been finished`, LOG_LEVEL_INFO);
+                    Logger(reason, LOG_LEVEL_VERBOSE);
+                }
+            }
+            void changes.cancel();
+            void changes.removeAllListeners();
+            this.changeHandler = null;
+        };
+        void changes.on("error", closeChanges);
+        void changes.on("complete", closeChanges);
+
         this.changeHandler = changes;
         this.isReady = true;
         Logger("Database is now ready.");
@@ -245,33 +291,11 @@ export class LiveSyncLocalDB {
     }
 
     async readChunk(id: DocumentID, timeout: number): Promise<string> {
-        const leaf = this.hashCaches.get(id);
-        if (leaf) {
-            return leaf;
+        const ret = await this.batchReader.readChunk(id, timeout);
+        if ("error" in ret) {
+            throw new Error(`Could not read chunk ${id}: (${ret.error})`);
         }
-        let w: EntryDoc | undefined;
-        try {
-            w = await this.localDatabase.get(id);
-        } catch (ex) {
-            if (!isErrorOfMissingDoc(ex)) {
-                throw ex;
-            }
-        }
-        if (w === undefined && timeout != 0) {
-            const ret = await waitForValue<EntryDoc>(`leaf-${id}`, timeout);
-            if (ret === RESULT_TIMED_OUT) {
-                throw new Error(`Timed out: ${id}`);
-            }
-            w = ret;
-        }
-        if (w === undefined) {
-            throw new Error(`Missing chunks of: ${id}`);
-        }
-        if (w.type != "leaf") {
-            throw new Error(`Corrupted chunk has been detected: ${id}`);
-        }
-        this.hashCaches.set(id, w.data);
-        return w.data;
+        return ret.data;
     }
 
     async getChunk(piece: string, doc: SavingEntry): Promise<GeneratedChunk | false> {
@@ -296,16 +320,25 @@ export class LiveSyncLocalDB {
     }
 
     async generateHashedChunk(piece: string) {
-        const userPassphrase = this.settings.passphrase;
+        // const userPassphrase = this.settings.passphrase;
+        const hashedUserPassphrase = this.hashedPassphrase;
         if (this.settings.hashAlg == "sha1") {
             if (this.settings.encrypt) {
-                return "+" + (await sha1(`${piece}-${userPassphrase}-${piece.length}`));
+                return "+" + (await sha1(`${piece}-${hashedUserPassphrase}-${piece.length}`));
             } else {
                 return await sha1(`${piece}-${piece.length}`);
             }
+        } else if (this.settings.hashAlg == "mixed-purejs") {
+            if (this.settings.encrypt) {
+                return "+" + fallbackMixedHashEach(`${piece}${hashedUserPassphrase}${piece.length}`);
+            } else {
+                return fallbackMixedHashEach(`${piece}-${piece.length}`);
+            }
         } else if (this.settings.hashAlg === "") {
             if (this.settings.encrypt) {
-                const userPasswordHash = this.h32Raw(new TextEncoder().encode(userPassphrase));
+                // const userPassphrase = this.settings.passphrase;
+                // const userPasswordHash = this.h32Raw(new TextEncoder().encode(userPassphrase));
+                const userPasswordHash = this.hashedPassphrase32;
                 return (
                     "+" + (this.h32Raw(new TextEncoder().encode(piece)) ^ userPasswordHash ^ piece.length).toString(36)
                 );
@@ -314,7 +347,7 @@ export class LiveSyncLocalDB {
             }
         } else if (this.settings.hashAlg == "xxhash64" && this.xxhash64) {
             if (this.settings.encrypt) {
-                return "+" + this.xxhash64(`${piece}-${userPassphrase}-${piece.length}`).toString(36);
+                return "+" + this.xxhash64(`${piece}-${hashedUserPassphrase}-${piece.length}`).toString(36);
             } else {
                 return this.xxhash64(`${piece}-${piece.length}`).toString(36);
             }
@@ -322,7 +355,7 @@ export class LiveSyncLocalDB {
             // If we could not use xxhash64, fall back to the 32bit impl.
             // It may happen on iOS before 14.
             if (this.settings.encrypt) {
-                return "+" + this.xxhash32(`${piece}-${userPassphrase}-${piece.length}`).toString(36);
+                return "+" + this.xxhash32(`${piece}-${hashedUserPassphrase}-${piece.length}`).toString(36);
             } else {
                 return this.xxhash32(`${piece}-${piece.length}`).toString(36);
             }
@@ -402,6 +435,101 @@ export class LiveSyncLocalDB {
         return false;
     }
 
+    /**
+     * Retrieve all used and existing chunks in the database.
+     * @param includeDeleted  include deleted chunks in the result.
+     * @returns {used: Set<string>, existing: Map<string, EntryLeaf>} used: Set of chunk ids that are used in the database. existing: Map of chunk id and EntryLeaf that are existing in the database.
+     */
+    async allChunks(includeDeleted = false): Promise<{
+        used: Set<string>;
+        existing: Map<string, EntryLeaf>;
+    }> {
+        const used = new Set<string>();
+        const existing = new Map<string, EntryLeaf>();
+        let since = 0 as string | number;
+        do {
+            const changes = await this.localDatabase.changes({
+                since: since,
+                limit: 100,
+                include_docs: true,
+                conflicts: true,
+                style: includeDeleted ? "all_docs" : "main_only",
+            });
+            if (changes.results.length == 0) {
+                break;
+            }
+            for (const change of changes.results) {
+                // console.log(`${change.seq}: ${change.id} ${change.deleted ? "deleted" : ""}`);
+                const doc = change.doc as EntryDoc | EntryLeaf;
+                if (doc.type == "leaf") {
+                    if (doc._deleted) {
+                        if (!includeDeleted) {
+                            continue;
+                        }
+                    }
+                    existing.set(doc._id, doc);
+                }
+                if ("children" in doc) {
+                    if (change.deleted) {
+                        if (!doc._conflicts || doc._conflicts.length == 0) {
+                            continue;
+                        }
+                    }
+                    doc.children.forEach((e: string) => used.add(e));
+                    if (doc._conflicts) {
+                        const revs = await this.localDatabase.get(doc._id, { revs: true, revs_info: true });
+                        const mineRevInfo = revs._revs_info || [];
+                        // Collect all revs that should be kept.
+                        // (All revs that are conflicted and its history before the maximum not conflicted rev).
+                        const keepRevs = new Set<string>();
+                        for (const conflict of doc._conflicts) {
+                            const conflictedRevs = await this.localDatabase.get(doc._id, {
+                                rev: conflict,
+                                revs: true,
+                                revs_info: true,
+                            });
+                            const conflictedRevInfo = conflictedRevs._revs_info || [];
+                            const diffRevs = mineRevInfo.filter(
+                                (e) => !conflictedRevInfo.some((f) => f.rev == e.rev && f.status == e.status)
+                            );
+                            const diffRevs2 = conflictedRevInfo.filter(
+                                (e) => !mineRevInfo.some((f) => f.rev == e.rev && f.status == e.status)
+                            );
+                            const diffRevs3 = diffRevs.concat(diffRevs2);
+                            const sameRevs = mineRevInfo
+                                .filter((e) => conflictedRevInfo.some((f) => f.rev == e.rev && f.status == e.status))
+                                .filter((e) => e.status == "available")
+                                .sort((a, b) => getNoFromRev(b.rev) - getNoFromRev(a.rev));
+                            const sameRevsTop = sameRevs.length > 0 ? [sameRevs[0].rev] : [];
+                            const keepRevList = [
+                                ...diffRevs3.filter((e) => e.status == "available").map((e) => e.rev),
+                                ...sameRevsTop,
+                            ];
+                            keepRevList.forEach((e) => keepRevs.add(e));
+                        }
+                        const detail = await this.localDatabase.bulkGet<EntryDoc>({
+                            docs: [...keepRevs.values()].map((e) => ({ id: doc._id, rev: e })),
+                        });
+                        for (const e of detail.results) {
+                            if ("docs" in e) {
+                                const docs = e.docs;
+                                for (const doc of docs) {
+                                    if ("ok" in doc) {
+                                        if ("children" in doc.ok) {
+                                            doc.ok.children.forEach((e: string) => used.add(e));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            since = changes.results[changes.results.length - 1].seq;
+        } while (true);
+        return { used, existing };
+    }
+
     async getDBEntry(
         path: FilePathWithPrefix | FilePath,
         opt?: PouchDB.Core.GetOptions,
@@ -411,17 +539,15 @@ export class LiveSyncLocalDB {
     ): Promise<false | LoadedEntry> {
         const meta = await this.getDBEntryMeta(path, opt, includeDeleted);
         if (meta) {
-            return await this.getDBEntryFromMeta(meta, opt, dump, waitForReady, includeDeleted);
+            return await this.getDBEntryFromMeta(meta, dump, waitForReady);
         } else {
             return false;
         }
     }
     async getDBEntryFromMeta(
-        meta: LoadedEntry,
-        opt?: PouchDB.Core.GetOptions,
+        meta: LoadedEntry | MetaEntry,
         dump = false,
-        waitForReady = true,
-        includeDeleted = false
+        waitForReady = true
     ): Promise<false | LoadedEntry> {
         const filename = this.id2path(meta._id, meta);
         if (!this.isTargetFile(filename)) {
@@ -457,7 +583,11 @@ export class LiveSyncLocalDB {
         }
         if (meta.type == "newnote" || meta.type == "plain") {
             if (dump) {
-                const conflicts = await this.localDatabase.get(meta._id, { conflicts: true, revs_info: true });
+                const conflicts = await this.localDatabase.get(meta._id, {
+                    rev: meta._rev,
+                    conflicts: true,
+                    revs_info: true,
+                });
                 Logger("-- Conflicts --");
                 Logger(conflicts._conflicts ?? "No conflicts");
                 Logger("-- Revs info -- ");
@@ -484,7 +614,7 @@ export class LiveSyncLocalDB {
                 if (missingChunks.length != 0) {
                     if (this.isOnDemandChunkEnabled) {
                         const items = await this.collectChunks(missingChunks, false, waitForReady);
-                        if (!items || items.some((leaf) => leaf.type != "leaf")) {
+                        if (!items || items.some((leaf) => "error" in leaf || leaf.type != "leaf")) {
                             Logger(
                                 `Chunks of ${dispFilename} (${meta._id.substring(0, 8)}) are not valid. (p1)`,
                                 LOG_LEVEL_NOTICE
@@ -494,7 +624,9 @@ export class LiveSyncLocalDB {
                             }
                             return false;
                         }
-                        items.forEach((chunk) => loadedChildrenMap.set(chunk._id, chunk.data));
+                        items
+                            .filter((e) => "data" in e)
+                            .forEach((chunk) => loadedChildrenMap.set(chunk._id, chunk.data));
                     } else {
                         try {
                             if (waitForReady) {
@@ -519,6 +651,18 @@ export class LiveSyncLocalDB {
                                     Logger(`Missing chunks: ${missingChunks}`, LOG_LEVEL_VERBOSE);
                                     return false;
                                 }
+                                if (chunkDocs.rows.some((e) => "value" in e && e.value.deleted)) {
+                                    const missingChunks = chunkDocs.rows
+                                        .filter((e) => "value" in e && e.value.deleted)
+                                        .map((e) => e.key)
+                                        .join(", ");
+                                    Logger(
+                                        `Chunks of ${dispFilename} (${meta._id.substring(0, 8)}) are deleted. Please try "Resurrect deleted chunks" once.`,
+                                        LOG_LEVEL_NOTICE
+                                    );
+                                    Logger(`Corrupted chunks: ${missingChunks}`, LOG_LEVEL_VERBOSE);
+                                    return false;
+                                }
                                 if (chunkDocs.rows.some((e: any) => e.doc && e.doc.type != "leaf")) {
                                     const missingChunks = chunkDocs.rows
                                         .filter((e: any) => e.doc && e.doc.type != "leaf")
@@ -532,7 +676,7 @@ export class LiveSyncLocalDB {
                                     return false;
                                 }
                                 chunkDocs.rows.forEach(
-                                    (value, idx) =>
+                                    (value, _idx) =>
                                         "doc" in value &&
                                         loadedChildrenMap.set(
                                             (value.doc as EntryLeaf)._id,
@@ -650,7 +794,7 @@ export class LiveSyncLocalDB {
             throw ex;
         }
     }
-    // eslint-disable-next-line require-await
+
     async deleteDBEntryPrefix(prefix: FilePathWithPrefix | FilePath): Promise<boolean> {
         // delete database entries by prefix.
         // it called from folder deletion.
@@ -773,6 +917,7 @@ export class LiveSyncLocalDB {
         const chunkTasks = [];
 
         for await (const piece of pieces()) {
+            if (piece.length === 0) continue;
             processed++;
             chunkTasks.push(this.getChunk(piece, note));
         }
@@ -915,70 +1060,67 @@ export class LiveSyncLocalDB {
         }
         const cached = processed - newChunks.length;
         if (newChunks.length) {
-            if (!this.settings.doNotUseFixedRevisionForChunks) {
-                newChunks = newChunks.map((e) => ({ ...e, _rev: createChunkRev(e) }));
-            }
-            const exists = await this.localDatabase.allDocs({ keys: newChunks.map((e) => e._id), include_docs: false });
-            const existsMap = exists.rows
-                .map((e) => [e.key, "error" in e ? e.error : e.value.rev])
-                .reduce((p, c) => ({ ...p, [c[0]]: c[1] }), {} as Record<string, any>);
-            const result = await this.localDatabase.bulkDocs(newChunks, {
-                new_edits: !!this.settings.doNotUseFixedRevisionForChunks,
-            });
             if (this.settings.doNotUseFixedRevisionForChunks) {
-                const mappedResults = result.reduce(
-                    (p, item) => {
-                        if ("ok" in item) {
-                            p.ok.push(item);
-                            return p;
-                        }
-                        if ("error" in item) {
-                            if (item.status == 409) {
-                                p.skip.push(item);
-                                return p;
-                            }
-                        }
-                        p.failed.push(item);
-                        return p;
-                    },
-                    { ok: [] as PouchDB.Core.Response[], skip: [] as PouchDB.Core.Error[], failed: [] as any[] }
-                );
-                if (mappedResults.failed.length) {
+                const previousChunks = await this.localDatabase.allDocs({ keys: newChunks.map((e) => e._id) });
+                const missingChunks = previousChunks.rows
+                    .filter((e) => "error" in e || e.value.deleted)
+                    .map((e) => e.key);
+                const newChunksFiltered = newChunks.filter((e) => missingChunks.includes(e._id));
+                const result = await this.localDatabase.bulkDocs(newChunksFiltered, {
+                    // new_edits: true,
+                });
+                if (result.some((e) => "error" in e)) {
                     Logger(
-                        `Save failed.: ${dispFilename} :${mappedResults.failed.map((e) => e?.id ?? e.toString()).join(",")}`,
+                        `Save failed.: ${dispFilename} :${result.map((e) => e?.id ?? e.toString()).join(",")}`,
                         LOG_LEVEL_VERBOSE
                     );
                     Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
                     return false;
                 }
-                const made = mappedResults.ok.length;
-                const skipped = mappedResults.skip.length;
                 Logger(
-                    `Chunks saved: doc: ${dispFilename} ,chunks: ${processed} (new:${made}, recycled:${skipped}, cached:${cached})`
+                    `Chunks saved: doc: ${dispFilename} ,chunks: ${processed} (new:${newChunksFiltered.length}, recycled:${previousChunks.rows.length - newChunksFiltered.length}, cached:${cached})`
                 );
             } else {
-                const erroredItems = newChunks.filter(
-                    (e) => e._id in existsMap && existsMap[e._id].startsWith("1-") && existsMap[e._id] != e._rev
+                newChunks = newChunks.map((e) => ({ ...e, _rev: createChunkRev(e) }));
+                const exists = await this.localDatabase.allDocs({
+                    keys: newChunks.map((e) => e._id),
+                    include_docs: true,
+                });
+
+                // Find the chunks which should be recycled
+                const existDocMap = exists.rows
+                    .map((e) => ("doc" in e ? (e.doc as EntryLeaf) : undefined))
+                    .filter((e) => e !== undefined && e !== null)
+                    .reduce((p, c) => ({ ...p, [c._id]: c }), {} as Record<string, EntryLeaf | undefined>);
+                // Find the chunks which has different revision
+                const suspiciousChunks = newChunks.filter(
+                    (e) => e._id in existDocMap && existDocMap[e._id]?._rev != e._rev
                 );
-                const actualNewChunks = newChunks.filter(
-                    (e) => !(e._id in existsMap) || !existsMap[e._id].startsWith("1-")
-                );
-                // const skippedChunks = newChunks.filter(e => e._id in existsMap && existsMap[e._id] == e._rev);
-                if (erroredItems.length) {
-                    Logger(`Save failed.: ${dispFilename} :${erroredItems.length} items mismatched`, LOG_LEVEL_VERBOSE);
-                    Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
-                    Logger(`Mismatched items: ${erroredItems.map((e) => e._id).join(",")}`, LOG_LEVEL_VERBOSE);
+                // Check content
+                const erroredChunks = suspiciousChunks.filter((e) => e.data != existDocMap[e._id]?.data);
+
+                if (erroredChunks.length) {
                     Logger(
-                        `Revision mismatch: ${erroredItems.map((e) => `${e._rev}, ${existsMap[e._id]}`).join(",")}`,
+                        `Save failed.: ${dispFilename} :${erroredChunks.length} items mismatched`,
                         LOG_LEVEL_VERBOSE
                     );
-                    // console.warn(erroredItems)
+                    Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
+                    Logger(`Mismatched items: ${erroredChunks.map((e) => e._id).join(",")}`, LOG_LEVEL_VERBOSE);
+                    Logger(
+                        `Revision and content mismatch: ${erroredChunks.map((e) => `${e._rev}, ${existDocMap?.[e._id]?._rev}`).join(",")}`,
+                        LOG_LEVEL_VERBOSE
+                    );
                     return false;
                 }
-                const made = actualNewChunks.length;
-                const skipped = newChunks.length - actualNewChunks.length;
+                // Now our chunks are safe to save.
+                const saveChunks = newChunks.filter((e) => !(e._id in existDocMap));
+                await this.localDatabase.bulkDocs(saveChunks, {
+                    new_edits: false,
+                });
+                const made = saveChunks.length;
+                const skipped = newChunks.length - saveChunks.length;
                 Logger(
-                    `Chunks saved (with fixed): doc: ${dispFilename} ,chunks: ${processed} (new:${made}, recycled:${skipped}, cached:${cached})`
+                    `Chunks saved (with fixed): doc: ${dispFilename} ,chunks: ${processed} (new:${made}, recycled:${skipped}, cached:${cached}, revision unmatched:${suspiciousChunks.length})`
                 );
             }
         }
@@ -1048,90 +1190,18 @@ export class LiveSyncLocalDB {
             return false;
         }
         if (this.settings.syncOnlyRegEx) {
-            const syncOnly = new RegExp(
-                this.settings.syncOnlyRegEx,
-                this.settings.handleFilenameCaseSensitive ? "" : "i"
-            );
-            if (!file.match(syncOnly)) return false;
+            const syncOnly = getFileRegExp(this.settings, "syncOnlyRegEx");
+            if (syncOnly.length > 0 && !syncOnly.some((e) => e.test(file))) return false;
         }
         if (this.settings.syncIgnoreRegEx) {
-            const syncIgnore = new RegExp(
-                this.settings.syncIgnoreRegEx,
-                this.settings.handleFilenameCaseSensitive ? "" : "i"
-            );
-            if (file.match(syncIgnore)) return false;
+            const syncIgnore = getFileRegExp(this.settings, "syncIgnoreRegEx");
+            if (syncIgnore.some((e) => e.test(file))) return false;
         }
         return true;
     }
 
-    _chunkCollectProcessor = new QueueProcessor(
-        async (requesting: string[]) => {
-            try {
-                const chunks = await this._collectChunks(requesting, false);
-                if (chunks) {
-                    chunks.forEach((chunk) => sendValue(`chunk-fetch-${chunk._id}`, chunk));
-                } else {
-                    throw new Error("Failed: CollectChunksInternal");
-                }
-            } catch (ex) {
-                Logger(`Exception raised while retrieving chunks`, LOG_LEVEL_NOTICE);
-                Logger(ex, LOG_LEVEL_VERBOSE);
-                requesting.forEach((id) => sendValue(`chunk-fetch-${id}`, []));
-            }
-            return;
-        },
-        {
-            batchSize: 100,
-            interval: 100,
-            concurrentLimit: 1,
-            maintainDelay: true,
-            suspended: false,
-            totalRemainingReactiveSource: collectingChunks,
-        }
-    );
-    async collectChunks(ids: string[], showResult = false, waitForReady?: boolean) {
-        const localChunks = await this.collectChunksWithCache(ids as DocumentID[]);
-        const missingChunks = localChunks.filter((e) => e.chunk === false).map((e) => e.id);
-        // If we have enough chunks, return them.
-        if (missingChunks.length == 0) {
-            return localChunks.map((e) => e.chunk) as EntryLeaf[];
-        }
-        this._chunkCollectProcessor.batchSize = this.settings.concurrencyOfReadChunksOnline;
-        this._chunkCollectProcessor.interval = this.settings.minimumIntervalOfReadChunksOnline;
-        this._chunkCollectProcessor.enqueueAll(ids);
-        const fetchChunkTasks = ids.map((id) => waitForValue<EntryLeaf>(`chunk-fetch-${id}`));
-        const res = (await Promise.all(fetchChunkTasks)).filter(onlyNot(RESULT_TIMED_OUT));
-        return res;
-    }
-
-    async _collectChunks(ids: string[], showResult = false): Promise<false | EntryLeaf[]> {
-        // Collect chunks from the local database and the cache.
-        const localChunks = await this.collectChunksWithCache(ids as DocumentID[]);
-        const missingChunks = localChunks.filter((e) => e.chunk === false).map((e) => e.id);
-        // If we have enough chunks, return them.
-        if (missingChunks.length == 0) {
-            return localChunks.map((e) => e.chunk) as EntryLeaf[];
-        }
-        // Fetching remote chunks.
-        const remoteDocs = await this.env.$$getReplicator().fetchRemoteChunks(missingChunks, showResult);
-        if (remoteDocs == false) {
-            Logger(
-                `Could not fetch chunks from the server. `,
-                showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_VERBOSE,
-                "fetch"
-            );
-            return false;
-        }
-        remoteDocs.forEach((e) => this.hashCaches.set(e._id, e.data));
-        // Cache remote chunks to the local database.
-        await this.localDatabase.bulkDocs(remoteDocs, { new_edits: false });
-        // Chunks should be ordered by as we requested.
-        const chunks = Object.fromEntries(
-            [...localChunks.map((e) => e.chunk).filter((e) => e !== false), ...remoteDocs].map((e) => [e._id, e])
-        );
-        const ret = ids.map((e) => chunks?.[e] ?? undefined);
-        if (ret.some((e) => e === undefined)) return false;
-        return ret;
+    collectChunks(ids: string[], showResult = false, waitForReady?: boolean): Promise<ChunkRetrievalResult[]> {
+        return this.chunkCollector.collectChunks(ids, showResult, waitForReady);
     }
 
     async *findAllChunks(
@@ -1144,9 +1214,7 @@ export class LiveSyncLocalDB {
         const targets = [() => this.findEntries("h:", `h:\u{10ffff}`, opt ?? {})];
         for (const targetFun of targets) {
             const target = targetFun();
-            for await (const f of target) {
-                yield f;
-            }
+            yield* target;
         }
     }
 
@@ -1202,10 +1270,7 @@ export class LiveSyncLocalDB {
             () => this.findEntries(`h:\u{10ffff}`, "", opt ?? {}),
         ];
         for (const targetFun of targets) {
-            const target = targetFun();
-            for await (const f of target) {
-                yield f;
-            }
+            yield* targetFun();
         }
     }
     async *findEntryNames(
@@ -1329,42 +1394,6 @@ export class LiveSyncLocalDB {
         return this.localDatabase.bulkDocs(docs, options || {});
     }
 
-    /* Read chunks from local database with cached chunks */
-    async collectChunksWithCache(keys: DocumentID[]): Promise<{ id: DocumentID; chunk: EntryLeaf | false }[]> {
-        const exists = keys.map((e) =>
-            this.hashCaches.has(e) ? { id: e, chunk: this.hashCaches.get(e) } : { id: e, chunk: false }
-        );
-        const notExists = exists.filter((e) => e.chunk === false);
-        if (notExists.length > 0) {
-            const chunks = await this.localDatabase.allDocs({ keys: notExists.map((e) => e.id), include_docs: true });
-            const existChunks = chunks.rows.filter((e) => !("error" in e)).map((e: any) => e.doc as EntryLeaf);
-            // If the chunks are missing, possibly backed up while cleaning up.
-            const nonExistsLocal = chunks.rows.filter((e) => "error" in e).map((e) => e.key);
-            const purgedChunks = await this.localDatabase.allDocs({
-                keys: nonExistsLocal.map((e) => `_local/${e}`),
-                include_docs: true,
-            });
-            const existChunksPurged = purgedChunks.rows
-                .filter((e) => !("error" in e))
-                .map((e: any) => ({ ...e.doc, _id: e.id.substring(7) }) as EntryLeaf);
-            const temp = Object.fromEntries(existChunksPurged.map((e) => [e._id, e.data]));
-            for (const chunk of existChunks) {
-                temp[chunk._id] = chunk.data;
-                this.hashCaches.set(chunk._id, chunk.data);
-            }
-            const ret = exists.map((e) => ({
-                id: e.id,
-                chunk: e.chunk !== false ? e.chunk : e.id in temp ? temp[e.id] : false,
-            }));
-            return ret.map((e) => ({
-                id: e.id,
-                chunk: e.chunk !== false ? ({ _id: e.id, data: e.chunk, type: "leaf" } as EntryLeaf) : false,
-            }));
-        } else {
-            return exists.map((e) => ({ id: e.id, chunk: { _id: e.id, data: e.chunk, type: "leaf" } as EntryLeaf }));
-        }
-    }
-
     // --- File operations!
 
     async UXFileInfoToSavingEntry(file: UXFileInfo): Promise<SavingEntry | false> {
@@ -1388,7 +1417,7 @@ export class LiveSyncLocalDB {
 
     async getConflictedDoc(path: FilePathWithPrefix, rev: string): Promise<false | diff_result_leaf> {
         try {
-            const doc = await this.getDBEntry(path, { rev: rev }, false, false, true);
+            const doc = await this.getDBEntry(path, { rev: rev }, false, true, true);
             if (doc === false) return false;
             let data = getDocData(doc.data);
             if (doc.datatype == "newnote") {
@@ -1600,9 +1629,15 @@ export class LiveSyncLocalDB {
             const leftLeaf = await this.getConflictedDoc(path, currentRev);
             const rightLeaf = await this.getConflictedDoc(path, conflictedRev);
             if (baseLeaf == false || leftLeaf == false || rightLeaf == false) {
+                Logger(`Could not load leafs for merge`, LOG_LEVEL_VERBOSE);
+                Logger(
+                    `${baseLeaf ? "base" : "missing base"}, ${leftLeaf ? "left" : "missing left"}, ${rightLeaf ? "right" : "missing right"} }`,
+                    LOG_LEVEL_VERBOSE
+                );
                 return false;
             }
             if (leftLeaf.deleted && rightLeaf.deleted) {
+                Logger(`Both are deleted`, LOG_LEVEL_VERBOSE);
                 return false;
             }
             const baseObj = { data: tryParseJSON(baseLeaf.data, {}) } as Record<string | number | symbol, any>;
@@ -1627,6 +1662,7 @@ export class LiveSyncLocalDB {
             for (const [key, value] of diffSetRight) {
                 if (diffSetLeft.has(key) && diffSetLeft.get(key) != value) {
                     // Some changes are conflicted
+                    Logger(`Conflicted key:${key}`, LOG_LEVEL_VERBOSE);
                     return false;
                 }
             }
@@ -1639,6 +1675,7 @@ export class LiveSyncLocalDB {
             for (const patch of patches) {
                 newObj = applyPatch(newObj, patch.patch);
             }
+            Logger(`Object merge is applicable!`, LOG_LEVEL_VERBOSE);
             return JSON.stringify(newObj.data);
         } catch (ex) {
             Logger("Could not merge object");
@@ -1646,25 +1683,46 @@ export class LiveSyncLocalDB {
             return false;
         }
     }
-
-    async tryAutoMerge(
-        path: FilePathWithPrefix,
-        enableMarkdownAutoMerge: boolean
-    ): Promise<
-        | {
-              ok: DIFF_CHECK_RESULT_AUTO;
-          }
-        | {
-              result: string;
-              conflictedRev: string;
-          }
-        | {
-              leftRev: string;
-              rightRev: string;
-              leftLeaf: diff_result_leaf | false;
-              rightLeaf: diff_result_leaf | false;
-          }
-    > {
+    async tryAutoMergeSensibly(path: FilePathWithPrefix, test: LoadedEntry, conflicts: string[]) {
+        const conflictedRev = conflicts[0];
+        const conflictedRevNo = Number(conflictedRev.split("-")[0]);
+        //Search
+        const revFrom = await this.getRaw<EntryDoc>(await this.path2id(path), { revs_info: true });
+        const commonBase =
+            (revFrom._revs_info || []).filter(
+                (e) => e.status == "available" && Number(e.rev.split("-")[0]) < conflictedRevNo
+            )?.[0]?.rev ?? "";
+        let p = undefined;
+        if (commonBase) {
+            if (isSensibleMargeApplicable(path)) {
+                const result = await this.mergeSensibly(path, commonBase, test._rev!, conflictedRev);
+                if (result) {
+                    p = result
+                        .filter((e) => e[0] != DIFF_DELETE)
+                        .map((e) => e[1])
+                        .join("");
+                    // can be merged.
+                    Logger(`Sensible merge:${path}`, LOG_LEVEL_INFO);
+                } else {
+                    Logger(`Sensible merge is not applicable.`, LOG_LEVEL_VERBOSE);
+                }
+            } else if (isObjectMargeApplicable(path)) {
+                // can be merged.
+                const result = await this.mergeObject(path, commonBase, test._rev!, conflictedRev);
+                if (result) {
+                    Logger(`Object merge:${path}`, LOG_LEVEL_INFO);
+                    p = result;
+                } else {
+                    Logger(`Object merge is not applicable..`, LOG_LEVEL_VERBOSE);
+                }
+            }
+            if (p !== undefined) {
+                return { result: p, conflictedRev };
+            }
+        }
+        return false;
+    }
+    async tryAutoMerge(path: FilePathWithPrefix, enableMarkdownAutoMerge: boolean): AutoMergeResult {
         const test = await this.getDBEntry(path, { conflicts: true, revs_info: true }, false, false, true);
         if (test === false) return { ok: MISSING_OR_ERROR };
         if (test == null) return { ok: MISSING_OR_ERROR };
@@ -1672,41 +1730,9 @@ export class LiveSyncLocalDB {
         if (test._conflicts.length == 0) return { ok: NOT_CONFLICTED };
         const conflicts = test._conflicts.sort((a, b) => Number(a.split("-")[0]) - Number(b.split("-")[0]));
         if ((isSensibleMargeApplicable(path) || isObjectMargeApplicable(path)) && enableMarkdownAutoMerge) {
-            const conflictedRev = conflicts[0];
-            const conflictedRevNo = Number(conflictedRev.split("-")[0]);
-            //Search
-            const revFrom = await this.getRaw<EntryDoc>(await this.path2id(path), { revs_info: true });
-            const commonBase =
-                (revFrom._revs_info || [])
-                    .filter((e) => e.status == "available" && Number(e.rev.split("-")[0]) < conflictedRevNo)
-                    .first()?.rev ?? "";
-            let p = undefined;
-            if (commonBase) {
-                if (isSensibleMargeApplicable(path)) {
-                    const result = await this.mergeSensibly(path, commonBase, test._rev!, conflictedRev);
-                    if (result) {
-                        p = result
-                            .filter((e) => e[0] != DIFF_DELETE)
-                            .map((e) => e[1])
-                            .join("");
-                        // can be merged.
-                        Logger(`Sensible merge:${path}`, LOG_LEVEL_INFO);
-                    } else {
-                        Logger(`Sensible merge is not applicable.`, LOG_LEVEL_VERBOSE);
-                    }
-                } else if (isObjectMargeApplicable(path)) {
-                    // can be merged.
-                    const result = await this.mergeObject(path, commonBase, test._rev!, conflictedRev);
-                    if (result) {
-                        Logger(`Object merge:${path}`, LOG_LEVEL_INFO);
-                        p = result;
-                    } else {
-                        Logger(`Object merge is not applicable.`, LOG_LEVEL_VERBOSE);
-                    }
-                }
-                if (p !== undefined) {
-                    return { result: p, conflictedRev };
-                }
+            const autoMergeResult = await this.tryAutoMergeSensibly(path, test, conflicts);
+            if (autoMergeResult !== false) {
+                return autoMergeResult;
             }
         }
         // should be one or more conflicts;

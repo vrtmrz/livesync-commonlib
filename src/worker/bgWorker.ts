@@ -1,10 +1,10 @@
 // Notice!! This module is for browsers
-import { promiseWithResolver, type PromiseWithResolvers } from "octagonal-wheels/promises";
+import { promiseWithResolver, type PromiseWithResolvers } from "octagonal-wheels/promises.js";
 import { eventHub } from "../hub/hub.ts";
 //@ts-ignore
-import WorkerX from "./bg.worker.ts";
-import { EVENT_PLUGIN_UNLOADED } from "../../../common/events.ts";
-import { info, LOG_KIND_ERROR } from "octagonal-wheels/common/logger";
+import WorkerX from "./bg.worker.ts?worker";
+import { EVENT_PLATFORM_UNLOADED } from "../PlatformAPIs/base/APIBase.ts";
+import { info, LOG_KIND_ERROR } from "octagonal-wheels/common/logger.js";
 
 export type SplitArguments = {
     key: number;
@@ -53,6 +53,7 @@ const workers = Array.from(
     { length: maxConcurrency },
     () =>
         ({
+            // @ts-ignore
             worker: WorkerX() as Worker,
             processing: 0,
         }) as WorkerInstance
@@ -111,7 +112,7 @@ for (const inst of workers) {
     };
     inst.worker.onerror = () => {
         inst.worker.terminate();
-        workers.remove(inst);
+        workers.splice(workers.indexOf(inst), 1);
     };
 }
 
@@ -230,6 +231,6 @@ function _splitPieces2Worker(
     };
 }
 
-eventHub.onEvent(EVENT_PLUGIN_UNLOADED, () => {
+eventHub.on(EVENT_PLATFORM_UNLOADED, () => {
     terminateWorker();
 });
