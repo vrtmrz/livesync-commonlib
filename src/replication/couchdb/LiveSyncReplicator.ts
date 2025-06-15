@@ -350,7 +350,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                             // Duplicate settings for smaller batch.
                         } else {
                             Logger("Replication error", LOG_LEVEL_NOTICE, "sync");
-                            Logger(e);
+                            Logger(e, LOG_LEVEL_VERBOSE);
                         }
                         return "FAILED";
                     case "paused":
