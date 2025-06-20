@@ -1,4 +1,4 @@
-import { promiseWithResolver } from "octagonal-wheels/promises.js";
+import { promiseWithResolver } from "octagonal-wheels/promises";
 import { eventHub } from "../hub/hub.ts";
 import { EVENT_PLATFORM_UNLOADED } from "./base/APIBase.ts";
 import type { IEnvironment } from "./interfaces.ts";

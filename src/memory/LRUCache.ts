@@ -1,1 +1,1 @@
-export * from "octagonal-wheels/memory/LRUCache.js";
+export * from "octagonal-wheels/memory/LRUCache";

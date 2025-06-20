@@ -205,7 +205,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         const objects = await client.listObjectsV2({
             Bucket: this.bucket,
             Prefix: this.prefix,
-            StartAfter: `${this.prefix}${from}`,
+            StartAfter: `${this.prefix || ""}${from || ""}`,
             ...(limit ? { MaxKeys: limit } : {}),
         });
         if (!objects.Contents) return [];

@@ -1,11 +1,11 @@
-import { Porter, ClerkGroup, Clerk } from "octagonal-wheels/bureau/Clerk.js";
-import { Inbox, InboxWithEvent } from "octagonal-wheels/bureau/Inbox.js";
-import { PaceMaker } from "octagonal-wheels/bureau/PaceMaker.js";
+import { Porter, ClerkGroup, Clerk } from "octagonal-wheels/bureau/Clerk";
+import { Inbox, InboxWithEvent } from "octagonal-wheels/bureau/Inbox";
+import { PaceMaker } from "octagonal-wheels/bureau/PaceMaker";
 import { globalSlipBoard } from "../bureau/bureau.ts";
-import { TIMED_OUT_SIGNAL } from "octagonal-wheels/promises.js";
+import { TIMED_OUT_SIGNAL } from "octagonal-wheels/promises";
 import { LOG_LEVEL_NOTICE, type DocumentID, type EntryLeaf } from "../common/types.ts";
 import type { ChunkRetrievalResult, LiveSyncLocalDB } from "./LiveSyncLocalDB.ts";
-import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger.js";
+import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
 
 declare global {
     interface Slips extends LSSlips {

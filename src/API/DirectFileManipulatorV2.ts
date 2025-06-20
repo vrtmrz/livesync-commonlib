@@ -32,10 +32,10 @@ import {
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_VERBOSE,
     Logger,
-} from "octagonal-wheels/common/logger.js";
+} from "octagonal-wheels/common/logger";
 import { createBlob, determineTypeFromBlob } from "../common/utils.ts";
 import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
-import { promiseWithResolver } from "octagonal-wheels/promises.js";
+import { promiseWithResolver } from "octagonal-wheels/promises";
 export type DirectFileManipulatorOptions = {
     url: string;
     username: string;

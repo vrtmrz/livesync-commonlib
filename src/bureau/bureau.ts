@@ -1,4 +1,4 @@
-import { globalSlipBoard as globalSlipBoard_, type SlipBoard } from "octagonal-wheels/bureau/SlipBoard.js";
+import { globalSlipBoard as globalSlipBoard_, type SlipBoard } from "octagonal-wheels/bureau/SlipBoard";
 
 declare global {
     interface Slips extends LSSlips {

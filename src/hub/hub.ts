@@ -1,4 +1,4 @@
-import { EventHub } from "octagonal-wheels/events.js";
+import { EventHub } from "octagonal-wheels/events";
 
 declare global {
     interface LSEvents {

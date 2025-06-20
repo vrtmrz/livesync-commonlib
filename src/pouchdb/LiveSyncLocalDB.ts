@@ -1,7 +1,7 @@
 //
 
-import { xxhashNew } from "octagonal-wheels/hash/xxhash.js";
-import { sha1, fallbackMixedHashEach, mixedHash } from "octagonal-wheels/hash/purejs.js";
+import { xxhashNew } from "octagonal-wheels/hash/xxhash";
+import { sha1, fallbackMixedHashEach, mixedHash } from "octagonal-wheels/hash/purejs";
 import {
     type EntryDoc,
     type EntryLeaf,

@@ -21,30 +21,30 @@ import {
     type RemoteDBSettings,
 } from "./types.ts";
 import { isErrorOfMissingDoc } from "../pouchdb/utils_couchdb.ts";
-import { replaceAll, replaceAllPairs } from "octagonal-wheels/string.js";
+import { replaceAll, replaceAllPairs } from "octagonal-wheels/string";
 export { replaceAll, replaceAllPairs };
-import { concatUInt8Array } from "octagonal-wheels/binary/index.js";
+import { concatUInt8Array } from "octagonal-wheels/binary";
 export { concatUInt8Array };
 
-import { delay, fireAndForget } from "octagonal-wheels/promises.js";
+import { delay, fireAndForget } from "octagonal-wheels/promises";
 export { delay, fireAndForget };
 
-import { arrayToChunkedArray, unique } from "octagonal-wheels/collection.js";
+import { arrayToChunkedArray, unique } from "octagonal-wheels/collection";
 export { arrayToChunkedArray, unique };
 
-import { extractObject, isObjectDifferent } from "octagonal-wheels/object.js";
+import { extractObject, isObjectDifferent } from "octagonal-wheels/object";
 export { extractObject, isObjectDifferent };
 
-import { sendValue, sendSignal, waitForSignal, waitForValue } from "octagonal-wheels/messagepassing/signal.js";
+import { sendValue, sendSignal, waitForSignal, waitForValue } from "octagonal-wheels/messagepassing/signal";
 export { sendValue, sendSignal, waitForSignal, waitForValue };
 
-import { throttle } from "octagonal-wheels/function.js";
+import { throttle } from "octagonal-wheels/function";
 export { throttle };
 
-import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase.js";
+import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
 export type { SimpleStore };
 
-export { sizeToHumanReadable } from "octagonal-wheels/number.js";
+export { sizeToHumanReadable } from "octagonal-wheels/number";
 
 export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T> {
     return new Promise((res, rej) => {

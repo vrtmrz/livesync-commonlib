@@ -1,7 +1,7 @@
-import { isObjectDifferent } from "octagonal-wheels/object.js";
+import { isObjectDifferent } from "octagonal-wheels/object";
 import type { IGlobalVariables } from "../interfaces.ts";
 import { APIBase } from "./APIBase.ts";
-import { promiseWithResolver } from "octagonal-wheels/promises.js";
+import { promiseWithResolver } from "octagonal-wheels/promises";
 // import type { Globals } from "../Synchromesh.ts";
 
 export abstract class GlobalVariablesBase<T extends object, U extends Globals>
