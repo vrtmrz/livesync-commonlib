@@ -1,2 +1,2 @@
-export * from "octagonal-wheels/common/logger.js";
-export type * from "octagonal-wheels/common/logger.js";
+export * from "octagonal-wheels/common/logger";
+export type * from "octagonal-wheels/common/logger";

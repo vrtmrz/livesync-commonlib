@@ -28,14 +28,15 @@ const LANG_JA = "ja";
 const LANG_RU = "ru";
 const LANG_ZH = "zh";
 const LANG_ZH_TW = "zh-tw";
+const LANG_DEF = "def"; // Default language: English
 
-// Also please order in alphabetic order.
+// Also please order in alphabetic order except for the default language.
 
-export const SUPPORTED_I18N_LANGS = [LANG_DE, LANG_ES, LANG_JA, LANG_RU, LANG_ZH, LANG_ZH_TW];
+export const SUPPORTED_I18N_LANGS = [LANG_DEF, LANG_DE, LANG_ES, LANG_JA, LANG_RU, LANG_ZH, LANG_ZH_TW];
 
 // Also this.
 export type I18N_LANGS =
-    | "def" // Default language: English
+    | typeof LANG_DEF // Default language: English
     | typeof LANG_DE
     | typeof LANG_ES
     | typeof LANG_JA
@@ -46,8 +47,9 @@ export type I18N_LANGS =
 
 type MESSAGE = { [key in I18N_LANGS]?: string };
 
-import { Logger } from "./logger";
-import { _allMessages, type MessageKeys } from "./messages/combinedMessages.dev";
+import { Logger } from "./logger.ts";
+// deno-lint-ignore no-sloppy-imports
+import { _allMessages, type MessageKeys } from "./messages/combinedMessages.dev"; // This sloppy-imports are used to replace the messages with the combined messages.
 const expandedMessage = {
     ...expandKeywords(_allMessages, "def"),
     ...expandKeywords(_allMessages, "es"),

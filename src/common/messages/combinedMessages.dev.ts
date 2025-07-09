@@ -1,9 +1,9 @@
-import { PartialMessages as def } from "./def";
-import { PartialMessages as es } from "./es";
-import { PartialMessages as ja } from "./ja";
-import { PartialMessages as ru } from "./ru";
-import { PartialMessages as zh } from "./zh";
-import { PartialMessages as zhTw } from "./zh-tw";
+import { PartialMessages as def } from "./def.ts";
+import { PartialMessages as es } from "./es.ts";
+import { PartialMessages as ja } from "./ja.ts";
+import { PartialMessages as ru } from "./ru.ts";
+import { PartialMessages as zh } from "./zh.ts";
+import { PartialMessages as zhTw } from "./zh-tw.ts";
 
 type MessageKeys = keyof typeof def.def;
 

@@ -32,9 +32,10 @@ import {
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_VERBOSE,
     Logger,
-} from "octagonal-wheels/common/logger.js";
+} from "octagonal-wheels/common/logger";
 import { createBlob, determineTypeFromBlob } from "../common/utils.ts";
 import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
+import { promiseWithResolver } from "octagonal-wheels/promises";
 export type DirectFileManipulatorOptions = {
     url: string;
     username: string;
@@ -88,19 +89,15 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     liveSyncLocalDB: LiveSyncLocalDB;
 
     options: DirectFileManipulatorOptions;
+    ready = promiseWithResolver<void>();
 
     constructor(options: DirectFileManipulatorOptions) {
         this.options = options;
-        // this.localDatabase = new PouchDB(this.options.url + "/" + this.options.database,
-        //     { auth: { username: this.options.username, password: this.options.password } });
-
-        // replicationFilter(this.localDatabase, this.options.enableCompression);
-        // if (this.options.passphrase) {
-        //     enableEncryption(this.localDatabase, this.options.passphrase, this.options.useDynamicIterationCount ?? false, false);
-        // }
         this.liveSyncLocalDB = new LiveSyncLocalDB(this.options.url, this);
-        void this.liveSyncLocalDB.initializeDatabase();
-        this.liveSyncLocalDB.refreshSettings();
+        void this.liveSyncLocalDB.initializeDatabase().then(() => {
+            this.ready.resolve();
+            this.liveSyncLocalDB.refreshSettings();
+        });
     }
     $$id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix {
         const path = id2path_base(id, entry);
@@ -119,17 +116,17 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         return id;
     }
     $$createPouchDBInstance<T extends object>(
-        name?: string,
-        options?: PouchDB.Configuration.DatabaseConfiguration
+        _name?: string,
+        _options?: PouchDB.Configuration.DatabaseConfiguration
     ): PouchDB.Database<T> {
         return new PouchDB(this.options.url + "/" + this.options.database, {
             auth: { username: this.options.username, password: this.options.password },
         });
     }
-    $allOnDBUnload(db: LiveSyncLocalDB): void {
+    $allOnDBUnload(_db: LiveSyncLocalDB): void {
         return;
     }
-    $allOnDBClose(db: LiveSyncLocalDB): void {
+    $allOnDBClose(_db: LiveSyncLocalDB): void {
         return;
     }
     $everyOnInitializeDatabase(db: LiveSyncLocalDB): Promise<boolean> {
@@ -145,7 +142,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         }
         return Promise.resolve(true);
     }
-    $everyOnResetDatabase(db: LiveSyncLocalDB): Promise<boolean> {
+    $everyOnResetDatabase(_db: LiveSyncLocalDB): Promise<boolean> {
         throw new Error("Method not implemented.");
     }
     $$getReplicator: () => LiveSyncAbstractReplicator = () => {
@@ -261,7 +258,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
      * @param type
      * @returns
      */
-    async put(path: string, data: string[] | Blob, info: FileInfo, type: "newnote" | "plain" = "plain") {
+    async put(path: string, data: string[] | Blob, info: FileInfo, _type: "newnote" | "plain" = "plain") {
         const id = await this.path2id(path as FilePathWithPrefix);
         const saveData = data instanceof Blob ? data : createBlob(data);
         const datatype = determineTypeFromBlob(saveData);
@@ -300,7 +297,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         }
     }
     // Untested
-    async *enumerate(cond: EnumerateConditions) {
+    async *enumerate(_cond: EnumerateConditions) {
         //TODO
         // const param = {} as Record<string, string>;
         // if (cond.startKey) param.startkey = cond.startKey;

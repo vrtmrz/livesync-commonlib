@@ -1,5 +1,5 @@
 import { type ActionSender, type Room, selfId, joinRoom } from "trystero/nostr";
-import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE } from "../../common/types";
+import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } from "../../common/types";
 import { LOG_LEVEL_VERBOSE, Logger } from "../../common/logger";
 import {
     DIRECTION_RESPONSE,
@@ -21,6 +21,7 @@ import { mixedHash } from "octagonal-wheels/hash/purejs";
 import { EVENT_PLATFORM_UNLOADED } from "../../PlatformAPIs/base/APIBase";
 import { $msg } from "../../common/i18n";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock_v2";
+import { Refiner } from "octagonal-wheels/dataobject/Refiner.js";
 
 export type PeerInfo = Advertisement & {
     isAccepted: boolean | undefined;
@@ -86,7 +87,6 @@ export class TrysteroReplicatorP2PServer {
         if (this._room) {
             try {
                 await this._room?.leave();
-                await this._room?.leave();
             } catch (ex) {
                 Logger(
                     `Some error has been occurred while leaving the room, but possibly can be ignored`,
@@ -98,7 +98,8 @@ export class TrysteroReplicatorP2PServer {
             eventHub.emitEvent(EVENT_P2P_DISCONNECTED);
         }
     }
-    setRoom(room: Room) {
+    async setRoom(room: Room) {
+        await this._room?.leave();
         this._room = room;
     }
 
@@ -200,7 +201,7 @@ export class TrysteroReplicatorP2PServer {
             platform: devInfo.platform,
         };
         if (this._sendAdvertisement) {
-            Logger(`Sending Advertisement to ${peerId ?? "All"}`, LOG_LEVEL_VERBOSE);
+            Logger(`peerId: ${this.serverPeerId} Sending Advertisement to ${peerId ?? "All"}`, LOG_LEVEL_VERBOSE);
             void this._sendAdvertisement(data, peerId);
         }
     }
@@ -277,6 +278,24 @@ You can chose as follows:
                 }
             });
     }
+    _acceptablePeers = new Refiner({
+        evaluation: (settings: P2PSyncSetting) => {
+            return `${settings?.P2P_AutoAcceptingPeers ?? ""}`
+                .split(",")
+                .map((e) => e.trim())
+                .filter((e) => !!e)
+                .map((e) => (e.startsWith("~") ? new RegExp(e.substring(1), "i") : new RegExp(`^${e}$`, "i")));
+        },
+    });
+    _shouldDenyPeers = new Refiner({
+        evaluation: (settings: P2PSyncSetting) => {
+            return `${settings?.P2P_AutoDenyingPeers ?? ""}`
+                .split(",")
+                .map((e) => e.trim())
+                .filter((e) => !!e)
+                .map((e) => (e.startsWith("~") ? new RegExp(e.substring(1), "i") : new RegExp(`^${e}$`, "i")));
+        },
+    });
 
     async isAcceptablePeer(peerId: string) {
         if (!this.isEnabled) return undefined;
@@ -285,7 +304,19 @@ You can chose as follows:
         const peerName = peerInfo.name;
         if (this.temporaryAcceptedPeers.has(peerId)) return this.temporaryAcceptedPeers.get(peerId);
         const accepted = await this.acceptedPeers.get(peerName);
-        if (accepted !== undefined) return accepted;
+        if (accepted !== undefined && accepted !== null) return accepted;
+        const isAcceptable = (await this._acceptablePeers.update(this.settings).value).some((e) => e.test(peerName));
+        const isDeny = (await this._shouldDenyPeers.update(this.settings).value).some((e) => e.test(peerName));
+
+        if (isAcceptable) {
+            if (isDeny) return false;
+            this.temporaryAcceptedPeers.set(peerId, true);
+            void this.dispatchConnectionStatus();
+            return true;
+        }
+        if (this.settings.P2P_IsHeadless) {
+            return false;
+        }
         return await this.confirmUserToAccept(peerId);
     }
 
@@ -323,6 +354,7 @@ You can chose as follows:
         }
     }
 
+    activePeer = new Map<string, RTCPeerConnection>();
     onAfterJoinRoom() {
         Logger(`Initializing...`, LOG_LEVEL_VERBOSE);
         const room = this.room;
@@ -339,15 +371,23 @@ You can chose as follows:
 
         this._sendAdvertisement = adSend;
         adArrived((data, peerId) => {
-            this.onAdvertisement(data, peerId);
+            void this.onAdvertisement(data, peerId);
+        });
+        room.onPeerJoin((peerId) => {
+            const peers = room.getPeers();
+            const peer = peers[peerId];
+            this.activePeer.set(peerId, peer);
+            this.sendAdvertisement(peerId);
         });
         room.onPeerLeave((peerId) => {
             this._knownAdvertisements.delete(peerId);
+            const peerConn = this.activePeer.get(peerId);
+            if (peerConn) {
+                peerConn.close();
+                this.activePeer.delete(peerId);
+            }
             void eventHub.emitEvent(EVENT_DEVICE_LEAVED, peerId);
             void this.dispatchConnectionStatus();
-        });
-        room.onPeerJoin((peerId) => {
-            this.sendAdvertisement(peerId);
         });
 
         eventHub.emitEvent(EVENT_P2P_CONNECTED);
@@ -391,9 +431,9 @@ You can chose as follows:
                 void this.ensureLeaved();
             }
         );
-        this.setRoom(room);
-        void this.dispatchConnectionStatus();
+        await this.setRoom(room);
         this.onAfterJoinRoom();
+        void this.dispatchConnectionStatus();
         await this.startService(bindings);
     }
 
@@ -428,12 +468,13 @@ You can chose as follows:
             const r = await Promise.resolve(func.apply(this, data.args));
             await this.__send({ type: data.type, seq: data.seq, direction: DIRECTION_RESPONSE, data: r }, peerId);
         } catch (e) {
-            Logger(`Serving function: [FAILED] ${data.type}`, LOG_LEVEL_VERBOSE);
-            Logger(e, LOG_LEVEL_VERBOSE);
             if (e instanceof ResponsePreventedError) {
-                Logger(`Response prevented for ${data.type}`, LOG_LEVEL_VERBOSE);
+                Logger(`Serving function: [FAILED] ${data.type}: Response prevented.`, LOG_LEVEL_VERBOSE);
                 return;
             }
+            Logger(`Serving function: [FAILED] ${data.type} sending back the failure information`, LOG_LEVEL_VERBOSE);
+            Logger(e instanceof Error ? e.message : e, LOG_LEVEL_VERBOSE);
+
             await this.__send(
                 { type: data.type, seq: data.seq, direction: DIRECTION_RESPONSE, data: undefined, error: e },
                 peerId
@@ -442,15 +483,14 @@ You can chose as follows:
     }
     async close() {
         this.assignedFunctions.clear();
-        this._knownAdvertisements.clear();
-        await this.ensureLeaved();
         const peers = this.room?.getPeers() ?? {};
         this.clients.forEach((client) => client.close());
         this.clients.clear();
         for (const [, peer] of Object.entries(peers)) {
             peer.close();
         }
-
+        await this.ensureLeaved();
+        this._knownAdvertisements.clear();
         await this.dispatchConnectionStatus();
     }
 

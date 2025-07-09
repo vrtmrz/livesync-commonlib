@@ -14,7 +14,7 @@ const maxLines = 10000;
 setGlobalLogFunction((msg, level) => {
     console.log(msg);
     const msgstr = typeof msg === "string" ? msg : JSON.stringify(msg);
-    const strLog = `${new Date().toISOString()}\t${msgstr}`;
+    const strLog = `${new Date().toISOString()}\u2001${msgstr}`;
     _logs.push(strLog);
     if (_logs.length > maxLines) {
         _logs = _logs.slice(_logs.length - maxLines);

@@ -1,13 +1,19 @@
+// Deno-specific implementation of SimpleStore using Deno.Kv
 import type { SimpleStoreBase } from "octagonal-wheels/databases/SimpleStoreBase";
 import { PlatformSimpleStore, setSimpleStoreInstance } from "../base/SimpleStore.ts";
-
 class SimpleStoreDeno<T> implements SimpleStoreBase<T> {
     //@ts-ignore
     _kv!: Deno.Kv;
     _name: string;
     async init() {
+        //@ts-ignore deno
+        let dir = Deno.env.get("FILE_DIR") || "./dat";
+        if (dir && !dir.endsWith("/")) {
+            dir += "/";
+        }
+        const path = `${dir}store-kv-${this._name}`;
         //@ts-ignore
-        this._kv = await Deno.openKv(this._name);
+        this._kv = await Deno.openKv(path);
     }
     async _ensureInit() {
         if (!this._kv) {

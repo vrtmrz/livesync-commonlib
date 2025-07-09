@@ -19,6 +19,10 @@
     logs.subscribe((log) => {
         tick().then(() => elP?.scrollTo({ top: elP.scrollHeight }));
     });
+    let statusLine = $state("");
+    storeP2PStatusLine.subscribe((status) => {
+        statusLine = status;
+    });
 </script>
 
 <main>
@@ -31,7 +35,7 @@
     </div>
     <div class="log">
         <div class="status">
-            {$storeP2PStatusLine}
+            {statusLine}
         </div>
         <div class="logslist" bind:this={elP}>
             {#each $logs as log}
@@ -49,14 +53,33 @@
         max-height: 100vh;
         box-sizing: border-box;
     }
+    @media (max-width: 900px) {
+        main {
+            flex-direction: column;
+        }
+    }
+    @media (device-orientation: portrait) {
+        main {
+            flex-direction: column;
+        }
+    }
     .log {
         display: flex;
         flex-direction: column;
         justify-content: flex-start;
         align-items: flex-start;
         padding: 1em;
-        width: 50%;
         min-width: 50%;
+    }
+    @media (max-width: 900px) {
+        .log {
+            max-height: 50vh;
+        }
+    }
+    @media (device-orientation: portrait) {
+        .log {
+            max-height: 50vh;
+        }
     }
     .control {
         padding: 1em 1em;

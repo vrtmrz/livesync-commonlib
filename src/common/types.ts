@@ -1,4 +1,4 @@
-import type { I18N_LANGS } from "./rosetta";
+import type { I18N_LANGS } from "./rosetta.ts";
 
 import type { TaggedType } from "octagonal-wheels/common/types";
 export type { TaggedType };
@@ -9,9 +9,9 @@ export {
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_URGENT,
     LOG_LEVEL_VERBOSE,
-} from "octagonal-wheels/common/logger.js";
-export type { LOG_LEVEL } from "octagonal-wheels/common/logger.js";
-import { RESULT_NOT_FOUND, RESULT_TIMED_OUT } from "octagonal-wheels/common/const.js";
+} from "octagonal-wheels/common/logger";
+export type { LOG_LEVEL } from "octagonal-wheels/common/logger";
+import { RESULT_NOT_FOUND, RESULT_TIMED_OUT } from "octagonal-wheels/common/const";
 export { RESULT_NOT_FOUND, RESULT_TIMED_OUT };
 type ExtractPropertiesByType<T, U> = {
     [K in keyof T as T[K] extends U ? K : never]: T[K] extends U ? K : never;
@@ -72,6 +72,28 @@ export interface CouchDBConnection {
      * The name of the database to use.
      */
     couchDB_DBNAME: string;
+
+    /**
+     * e.g. `x-some-header: some-value\n x-some-header2: some-value2`
+     */
+    couchDB_CustomHeaders: string;
+
+    useJWT: boolean;
+
+    jwtAlgorithm: "HS256" | "HS512" | "ES256" | "ES512" | "";
+
+    // JWT key (psk on HS, public key on ES)
+    jwtKey: string;
+    jwtKid: string;
+    jwtSub: string;
+    // JWT Expiration duration (in minutes)
+    jwtExpDuration: number;
+
+    /**
+     * Use Request API to avoid `inevitable` CORS problem.
+     * Seems stable, so promoted to the normal setting.
+     */
+    useRequestAPI: boolean;
 }
 
 /**
@@ -199,7 +221,11 @@ interface InternalFileSettings {
      * Ignore patterns for internal files.
      * (Comma separated list of regular expressions)
      */
-    syncInternalFilesIgnorePatterns: string;
+    syncInternalFilesIgnorePatterns: CustomRegExpSourceList<",">;
+    /**
+     * Limit patterns for internal files.
+     */
+    syncInternalFilesTargetPatterns: CustomRegExpSourceList<",">;
     /**
      * Enable watch internal file changes (This option uses the unexposed API)
      */
@@ -316,6 +342,11 @@ interface UISettings {
      * Indicates whether only icons instead of status line should be shown on the editor.
      */
     showOnlyIconsOnEditor: boolean;
+
+    /**
+     * Hide File warning notice bar.
+     */
+    hideFileWarningNotice: boolean;
 
     /**
      * The language to be used for display.
@@ -510,6 +541,15 @@ export interface BucketSyncSetting {
      * (This is for CORS issue).
      */
     useCustomRequestHandler: boolean;
+
+    // Custom request headers
+    // e.g. `x-some-header: some-value\n x-some-header2: some-value2`
+    bucketCustomHeaders: string;
+
+    /**
+     * The prefix to use for the bucket (e.g., "my-bucket/", means mostly like a folder).
+     */
+    bucketPrefix: string;
 }
 
 // Remote Type
@@ -552,6 +592,10 @@ export interface P2PSyncSetting {
     P2P_SyncOnReplication: string;
     P2P_AppID: string;
     P2P_RebuildFrom: string;
+    P2P_AutoAcceptingPeers: string;
+    P2P_AutoDenyingPeers: string;
+
+    P2P_IsHeadless?: boolean;
 }
 
 export const P2P_DEFAULT_SETTINGS: P2PSyncSetting = {
@@ -567,6 +611,9 @@ export const P2P_DEFAULT_SETTINGS: P2PSyncSetting = {
     P2P_AutoWatchPeers: "",
     P2P_SyncOnReplication: "",
     P2P_RebuildFrom: "",
+    P2P_AutoAcceptingPeers: "",
+    P2P_AutoDenyingPeers: "",
+    P2P_IsHeadless: false,
 } as const;
 
 /**
@@ -782,11 +829,11 @@ interface FileHandlingSettings {
     /**
      * The regular expression for files to be synchronised.
      */
-    syncOnlyRegEx: string;
+    syncOnlyRegEx: CustomRegExpSourceList<"|[]|">; // I really regret this delimiter.
     /**
      * The regular expression for files to be ignored during synchronisation.
      */
-    syncIgnoreRegEx: string;
+    syncIgnoreRegEx: CustomRegExpSourceList<"|[]|">;
 }
 
 /**
@@ -995,6 +1042,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     showStatusOnEditor: true,
     showStatusOnStatusbar: true,
     showOnlyIconsOnEditor: false,
+    hideFileWarningNotice: false,
     usePluginSync: false,
     autoSweepPlugins: false,
     autoSweepPluginsPeriodic: false,
@@ -1009,14 +1057,16 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     showMergeDialogOnlyOnActive: false,
     syncInternalFiles: false,
     syncInternalFilesBeforeReplication: false,
-    syncInternalFilesIgnorePatterns: "\\/node_modules\\/, \\/\\.git\\/, \\/obsidian-livesync\\/",
+    syncInternalFilesIgnorePatterns:
+        "\\/node_modules\\/, \\/\\.git\\/, \\/obsidian-livesync\\/" as CustomRegExpSourceList<",">,
+    syncInternalFilesTargetPatterns: "" as CustomRegExpSourceList<",">,
     syncInternalFilesInterval: 60,
     additionalSuffixOfDatabaseName: "",
     ignoreVersionCheck: false,
     lastReadUpdates: 0,
     deleteMetadataOfDeletedFiles: false,
-    syncIgnoreRegEx: "",
-    syncOnlyRegEx: "",
+    syncIgnoreRegEx: "" as CustomRegExpSourceList<"|[]|">,
+    syncOnlyRegEx: "" as CustomRegExpSourceList<"|[]|">,
     customChunkSize: 0,
     readChunksOnline: true,
     watchInternalFileChanges: true,
@@ -1083,6 +1133,17 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     syncMinimumInterval: 2000,
     ...P2P_DEFAULT_SETTINGS,
     doctorProcessedVersion: "",
+
+    bucketCustomHeaders: "",
+    couchDB_CustomHeaders: "",
+    useJWT: false,
+    jwtAlgorithm: "",
+    jwtKey: "",
+    jwtKid: "",
+    jwtSub: "",
+    jwtExpDuration: 5,
+    useRequestAPI: false,
+    bucketPrefix: "",
 };
 
 export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> = {
@@ -1219,6 +1280,21 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     P2P_SyncOnReplication: 129,
     P2P_AppID: 130,
     P2P_RebuildFrom: 131,
+    bucketCustomHeaders: 132,
+    couchDB_CustomHeaders: 133,
+    useJWT: 134,
+    jwtAlgorithm: 135,
+    jwtKey: 136,
+    jwtKid: 137,
+    jwtSub: 138,
+    jwtExpDuration: 139,
+    P2P_AutoAcceptingPeers: 140,
+    P2P_AutoDenyingPeers: 141,
+    P2P_IsHeadless: -1,
+    syncInternalFilesTargetPatterns: 142,
+    useRequestAPI: 143,
+    hideFileWarningNotice: 144,
+    bucketPrefix: 145,
 } as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
@@ -1553,6 +1629,41 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         name: "Use Segmented-splitter",
         desc: "If this enabled, chunks will be split into semantically meaningful segments. Not all platforms support this feature.",
     },
+    useJWT: {
+        name: "Use JWT instead of Basic Authentication",
+        desc: "If this enabled, JWT will be used for authentication.",
+    },
+    jwtAlgorithm: {
+        name: "Algorithm",
+        desc: "The algorithm used for JWT authentication.",
+    },
+    jwtKey: {
+        name: "Keypair or pre-shared key",
+        desc: "The key (PSK in HSxxx in base64, or private key in ESxxx in PEM) used for JWT authentication.",
+        // placeHolder:""
+    },
+    jwtKid: {
+        name: "Key ID",
+        desc: "The key ID. this should be matched with CouchDB->jwt_keys->ALG:_`kid`.",
+    },
+    jwtExpDuration: {
+        name: "Rotation Duration",
+        desc: "The Rotation duration of token in minutes. Each generated tokens will be valid only within this duration.",
+    },
+    jwtSub: {
+        name: "Subject (whoami)",
+        desc: "The subject for JWT authentication. Mostly username.",
+    },
+    bucketCustomHeaders: {
+        name: "Custom Headers",
+        desc: "Custom headers for requesting the bucket. e.g. `x-custom-header1: value1\n x-custom-header2: value2`",
+        placeHolder: "x-custom-header1: value1\n x-custom-header2: value2",
+    },
+    couchDB_CustomHeaders: {
+        name: "Custom Headers",
+        desc: "Custom headers for requesting the CouchDB. e.g. `x-custom-header1: value1\n x-custom-header2: value2`",
+        placeHolder: "x-custom-header1: value1\n x-custom-header2: value2",
+    },
 };
 
 export const LEVEL_ADVANCED = "ADVANCED";
@@ -1766,4 +1877,50 @@ export type UXDataWriteOptions = {
 
 export type Prettify<T> = {
     [K in keyof T]: T[K];
+    // deno-lint-ignore ban-types
 } & {};
+
+export type CouchDBCredentials = BasicCredentials | JWTCredentials;
+
+export type BasicCredentials = {
+    username: string;
+    password: string;
+    type: "basic";
+};
+
+export type JWTCredentials = {
+    jwtAlgorithm: CouchDBConnection["jwtAlgorithm"];
+    jwtKey: string;
+    jwtKid: string;
+    jwtSub: string;
+    jwtExpDuration: number;
+    type: "jwt";
+};
+
+export interface JWTHeader {
+    alg: string;
+    typ: string;
+    kid?: string;
+}
+export interface JWTPayload {
+    sub: string;
+    exp: number;
+    iss?: string;
+    iat: number;
+    [key: string]: any;
+}
+export interface JWTParams {
+    header: JWTHeader;
+    payload: JWTPayload;
+    credentials: JWTCredentials;
+}
+export interface PreparedJWT {
+    header: JWTHeader;
+    payload: JWTPayload;
+    token: string;
+}
+
+export type CustomRegExpSource = TaggedType<string, "CustomRegExp">;
+export type CustomRegExpSourceList<D extends string = ","> = TaggedType<string, `CustomRegExpList${D}`>;
+
+export type ParsedCustomRegExp = [isInverted: boolean, pattern: string];

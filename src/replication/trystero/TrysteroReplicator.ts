@@ -152,21 +152,23 @@ export class TrysteroReplicator {
     get autoSyncPeers() {
         const peers = this.settings.P2P_AutoSyncPeers.split(",")
             .map((e) => e.trim())
-            .filter((e) => e.length > 0);
+            .filter((e) => e.length > 0)
+            .map((e) => (e.startsWith("~") ? new RegExp(e.substring(1), "i") : new RegExp(`^${e}$`, "i")));
         return peers;
     }
     get autoWatchPeers() {
         const peers = this.settings.P2P_AutoWatchPeers.split(",")
             .map((e) => e.trim())
-            .filter((e) => e.length > 0);
+            .filter((e) => e.length > 0)
+            .map((e) => (e.startsWith("~") ? new RegExp(e.substring(1), "i") : new RegExp(`^${e}$`, "i")));
         return peers;
     }
     async onNewPeer(peer: Advertisement) {
         const peerName = peer.name;
-        if (this.autoSyncPeers.includes(peerName)) {
+        if (this.autoSyncPeers.some((e) => e.test(peerName))) {
             await this.sync(peer.peerId);
         }
-        if (this.autoWatchPeers.includes(peerName)) {
+        if (this.autoWatchPeers.some((e) => e.test(peerName))) {
             this.watchPeer(peer.peerId);
         }
     }
@@ -257,7 +259,12 @@ export class TrysteroReplicator {
                 return encrypt(JSON.stringify(setting), passphrase.trim(), false);
             },
             onProgressAcknowledged: async (fromPeerId: string, info: ProgressInfo) => {
-                await this.onProgressAcknowledged(fromPeerId, info);
+                try {
+                    await this.onProgressAcknowledged(fromPeerId, info);
+                } catch (e) {
+                    Logger("Error while acknowledging the progress", LOG_LEVEL_VERBOSE);
+                    Logger(e, LOG_LEVEL_VERBOSE);
+                }
             },
             getIsBroadcasting: () => {
                 return Promise.resolve(this._isBroadcasting);
@@ -287,14 +294,20 @@ export class TrysteroReplicator {
 
     async requestAuthenticate(peerId: string) {
         if (!this.server) return false;
-        const connection = this.server.getConnection(peerId);
-        const selfPeerId = this.server.serverPeerId;
-        const r = await connection.invokeRemoteObjectFunction<ReturnType<typeof this.getCommands>, "!reqAuth">(
-            "!reqAuth",
-            [selfPeerId],
-            20000
-        );
-        return r;
+        try {
+            const connection = this.server.getConnection(peerId);
+            const selfPeerId = this.server.serverPeerId;
+            const r = await connection.invokeRemoteObjectFunction<ReturnType<typeof this.getCommands>, "!reqAuth">(
+                "!reqAuth",
+                [selfPeerId],
+                20000
+            );
+            return r;
+        } catch (e) {
+            Logger("Error while requesting authentication", LOG_LEVEL_VERBOSE);
+            Logger(e, LOG_LEVEL_VERBOSE);
+            return false;
+        }
     }
 
     async selectPeer() {
@@ -500,7 +513,12 @@ export class TrysteroReplicator {
     acknowledgeProgress(remotePeerId: string, info?: ProgressInfo) {
         if (!this.server) return;
         const connection = this.server.getConnection(remotePeerId);
-        void connection.invokeRemoteFunction("onProgressAcknowledged", [this.server.serverPeerId, info], 500);
+        try {
+            void connection.invokeRemoteFunction("onProgressAcknowledged", [this.server.serverPeerId, info], 500);
+        } catch (ex) {
+            Logger("Error while acknowledging the progress", LOG_LEVEL_VERBOSE);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+        }
     }
     async replicateFrom(remotePeer: string, showNotice: boolean = false, fromStart = false) {
         const logLevel = showNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
@@ -567,11 +585,15 @@ export class TrysteroReplicator {
                 const isAcceptable = await this.server?.isAcceptablePeer(peerId);
                 // Logger(`Checking peer ${peerId} for progress notification`, LOG_LEVEL_VERBOSE);
                 if (isAcceptable) {
-                    // Logger(`Notifying progress to ${peerId}`, LOG_LEVEL_VERBOSE);
-                    const ret = await this.server
-                        ?.getConnection(peerId)
-                        .invokeRemoteFunction("onProgress", [this.server?.serverPeerId], 0);
-                    return ret;
+                    try {
+                        const ret = await this.server
+                            ?.getConnection(peerId)
+                            .invokeRemoteFunction("onProgress", [this.server?.serverPeerId], 0);
+                        return ret;
+                    } catch (e) {
+                        Logger(`Error while notifying progress to ${peerId}`, LOG_LEVEL_VERBOSE);
+                        Logger(e, LOG_LEVEL_VERBOSE);
+                    }
                 } else {
                     Logger(`Peer ${peerId} is not acceptable to notify progress`, LOG_LEVEL_VERBOSE);
                 }
@@ -585,7 +607,12 @@ export class TrysteroReplicator {
             .invokeRemoteFunction("requestBroadcasting", [this.server.serverPeerId], 0);
     }
     async getRemoteIsBroadcasting(peerId: string) {
-        return await this.server?.getConnection(peerId).invokeRemoteFunction("getIsBroadcasting", [], 0);
+        try {
+            return await this.server?.getConnection(peerId).invokeRemoteFunction("getIsBroadcasting", [], 0);
+        } catch (e) {
+            Logger("Error while getting remote is broadcasting", LOG_LEVEL_VERBOSE);
+            Logger(e, LOG_LEVEL_VERBOSE);
+        }
     }
     _watchingPeers = new Set<string>();
 
@@ -648,9 +675,13 @@ export class TrysteroReplicator {
             Logger("Peer is not found", LOG_LEVEL_NOTICE);
             return false;
         }
+        if (this.platform === "pseudo-replicator") {
+            return true;
+        }
         if (peerPlatform === "pseudo-replicator") {
             return true;
         }
+
         const connection = this.server.getConnection(peerId);
         const tweakValues = await connection.invokeRemoteObjectFunction<
             ReturnType<typeof this.getCommands>,

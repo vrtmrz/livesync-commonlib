@@ -1,4 +1,7 @@
 import { DeleteObjectsCommand, GetObjectCommand, HeadBucketCommand, PutObjectCommand, S3 } from "@aws-sdk/client-s3";
+import { applyMd5BodyChecksumMiddleware } from "@smithy/middleware-apply-body-checksum";
+import { Md5 } from "@smithy/md5-js";
+
 import { ConfiguredRetryStrategy } from "@smithy/util-retry";
 
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../../../common/types.ts";
@@ -6,6 +9,8 @@ import { Logger } from "../../../common/logger.ts";
 import { JournalSyncAbstract } from "../JournalSyncAbstract.ts";
 import { decryptBinary, encryptBinary } from "../../../encryption/e2ee_v2.ts";
 import type { RemoteDBStatus } from "../../LiveSyncAbstractReplicator.ts";
+import { promiseWithResolver } from "octagonal-wheels/promises";
+import type { SourceData } from "@smithy/types";
 
 export class JournalSyncMinio extends JournalSyncAbstract {
     _instance?: S3;
@@ -29,7 +34,49 @@ export class JournalSyncMinio extends JournalSyncAbstract {
             maxAttempts: 4,
             retryStrategy: new ConfiguredRetryStrategy(4, (attempt: number) => 100 + attempt * 1000),
             requestHandler: this.useCustomRequestHandler ? this.env.$$customFetchHandler() : undefined,
+            requestChecksumCalculation: "WHEN_REQUIRED",
+            responseChecksumValidation: "WHEN_REQUIRED",
         });
+        const bucketCustomHeaders = this.customHeaders;
+        this._instance.middlewareStack.add(
+            (next, context) => (args: any) => {
+                bucketCustomHeaders.forEach(([key, value]) => {
+                    if (key && value) {
+                        args.request.headers[key] = value;
+                    }
+                });
+                return next(args);
+            },
+            {
+                name: "addBucketCustomHeadersMiddleware",
+                step: "build",
+            }
+        );
+        const arrayBufferToBase64Sync = (buffer: ArrayBuffer) => {
+            return btoa(String.fromCharCode(...new Uint8Array(buffer)));
+        };
+
+        this._instance.middlewareStack.add(
+            applyMd5BodyChecksumMiddleware({
+                md5: Md5,
+                base64Encoder: (data: Uint8Array) => arrayBufferToBase64Sync(data.buffer),
+                streamHasher: (hashConstructor, stream: any) => {
+                    const result = promiseWithResolver<Uint8Array>();
+                    const hash = new hashConstructor();
+                    stream.on("data", (chunk: SourceData) => {
+                        hash.update(chunk);
+                    });
+                    stream.on("end", () => {
+                        result.resolve(hash.digest());
+                    });
+                    return result.promise;
+                },
+            }),
+            {
+                step: "build",
+                name: "applyMd5BodyChecksumMiddlewareForDeleteObjects",
+            }
+        );
         return this._instance;
     }
 
@@ -40,14 +87,14 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         let errorCount = 0;
         try {
             do {
-                files = await this.listFiles("");
+                files = await this.listFiles("", 100);
                 if (files.length == 0) {
                     break;
                 }
                 const cmd = new DeleteObjectsCommand({
                     Bucket: this.bucket,
                     Delete: {
-                        Objects: files.map((e) => ({ Key: e })),
+                        Objects: files.map((e) => ({ Key: `${this.prefix}${e}` })),
                     },
                 });
                 const r = await client.send(cmd);
@@ -115,7 +162,12 @@ export class JournalSyncMinio extends JournalSyncAbstract {
                 u = await encryptBinary(u, set.passphrase, set.useDynamicIterationCount);
             }
             const client = this._getClient();
-            const cmd = new PutObjectCommand({ Bucket: this.bucket, Key: key, Body: u, ContentType: mime });
+            const cmd = new PutObjectCommand({
+                Bucket: this.bucket,
+                Key: `${this.prefix}${key}`,
+                Body: u,
+                ContentType: mime,
+            });
             if (await client.send(cmd)) {
                 return true;
             }
@@ -129,7 +181,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         const client = this._getClient();
         const cmd = new GetObjectCommand({
             Bucket: this.bucket,
-            Key: key,
+            Key: `${this.prefix}${key}`,
             ...(ignoreCache ? { ResponseCacheControl: "no-cache" } : {}),
         });
         const r = await client.send(cmd);
@@ -152,11 +204,14 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         const client = this._getClient();
         const objects = await client.listObjectsV2({
             Bucket: this.bucket,
-            StartAfter: from,
+            Prefix: this.prefix,
+            StartAfter: `${this.prefix || ""}${from || ""}`,
             ...(limit ? { MaxKeys: limit } : {}),
         });
         if (!objects.Contents) return [];
-        return objects.Contents.map((e) => e.Key) as string[];
+        return objects.Contents.filter((e) => e.Key?.startsWith(this.prefix)).map((e) =>
+            e.Key?.substring(this.prefix.length)
+        ) as string[];
     }
 
     async isAvailable(): Promise<boolean> {

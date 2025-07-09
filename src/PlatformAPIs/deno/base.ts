@@ -1,9 +1,9 @@
 import { APIBase, type IInitOptions } from "../base/APIBase";
-export const EVENT_SERVER_INFO_SUPPLIED = "server-info-supplied";
+export const EVENT_DENO_INFO_SUPPLIED = "server-deno-info-supplied";
 
 declare global {
     interface LSEvents {
-        [EVENT_SERVER_INFO_SUPPLIED]: ServerInitOption;
+        [EVENT_DENO_INFO_SUPPLIED]: ServerInitOption;
     }
 }
 

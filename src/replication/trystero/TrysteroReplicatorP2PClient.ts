@@ -57,7 +57,7 @@ export class TrysteroReplicatorP2PClient {
     waitingInvocations = new Map<number, PromiseWithResolvers<any>>();
     invocationTimeouts = new Map<number, ReturnType<typeof setTimeout>>();
 
-    async _sendRPC(type: string, args: any[], timeout = DEFAULT_RPC_TIMEOUT) {
+    _sendRPC(type: string, args: any[], timeout = DEFAULT_RPC_TIMEOUT) {
         if (!this.__send) {
             throw new Error("Not connected to any room");
         }
@@ -82,7 +82,7 @@ export class TrysteroReplicatorP2PClient {
                 }, timeout)
             );
         }
-        await this.__send(request, this._connectedPeerId);
+        void this.__send(request, this._connectedPeerId);
         return p.promise;
     }
 

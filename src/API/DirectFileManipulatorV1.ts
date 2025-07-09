@@ -1,3 +1,4 @@
+// deno-lint-ignore-file
 //@ts-nocheck : obsolete library
 /**
  * The API for manipulating files stored in the CouchDB by Self-hosted LiveSync or its families.

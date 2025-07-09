@@ -1,5 +1,5 @@
+// @ts-types="npm:@types/pouchdb"
 import PouchDB from "pouchdb-core";
-
 import HttpPouch from "pouchdb-adapter-http";
 import mapreduce from "pouchdb-mapreduce";
 import replication from "pouchdb-replication";
@@ -69,7 +69,7 @@ PouchDB.prototype.purgeMulti = adapterFun(
     function (
         docs: PurgeMultiParam[],
         callback: (
-            error: Error,
+            error?: Error,
             result?: {
                 [x: string]: PurgeMultiResult | Error;
             }
@@ -78,7 +78,7 @@ PouchDB.prototype.purgeMulti = adapterFun(
         //@ts-ignore
         if (typeof this._purge === "undefined") {
             return callback(
-                //@ts-ignore
+                //@ts-ignore: this ts-ignore might be hiding a `this` bug where we don't have "this" conext.
                 createError(UNKNOWN_ERROR, "Purge is not implemented in the " + this.adapter + " adapter.")
             );
         }
@@ -94,6 +94,7 @@ PouchDB.prototype.purgeMulti = adapterFun(
                             return res([param, error]);
                         }
                         if (!revs) {
+                            //@ts-ignore
                             return res([param, createError(MISSING_DOC)]);
                         }
                         let path;

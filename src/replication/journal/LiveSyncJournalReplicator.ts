@@ -69,19 +69,23 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         const id = settings.accessKey;
         const key = settings.secretKey;
         const bucket = settings.bucket;
+        const prefix = settings.bucketPrefix;
         const region = settings.region;
         const endpoint = settings.endpoint;
         const useCustomRequestHandler = settings.useCustomRequestHandler;
+        const customHeaders = settings.bucketCustomHeaders;
         if (this._client) {
             this._client.applyNewConfig(
                 id,
                 key,
                 endpoint,
                 bucket,
+                prefix,
                 this.env.simpleStore,
                 this.env,
                 useCustomRequestHandler,
-                region
+                region,
+                customHeaders
             );
             // NO OP.
             // this._client.requestStop();
@@ -91,10 +95,12 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                 key,
                 endpoint,
                 bucket,
+                prefix,
                 this.env.simpleStore,
                 this.env,
                 useCustomRequestHandler,
-                region
+                region,
+                customHeaders
             );
         }
         return this._client;
@@ -297,18 +303,22 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         const id = setting.accessKey;
         const key = setting.secretKey;
         const bucket = setting.bucket;
+        const bucketPrefix = setting.bucketPrefix;
         const region = setting.region;
         const endpoint = setting.endpoint;
         const useCustomRequestHandler = setting.useCustomRequestHandler;
+        const customHeaders = setting.bucketCustomHeaders;
         const testClient = new JournalSyncMinio(
             id,
             key,
             endpoint,
             bucket,
+            bucketPrefix,
             this.env.simpleStore,
             this.env,
             useCustomRequestHandler,
-            region
+            region,
+            customHeaders
         );
         try {
             await testClient.listFiles("", 1);
@@ -368,18 +378,22 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         const id = setting.accessKey;
         const key = setting.secretKey;
         const bucket = setting.bucket;
+        const bucketPrefix = setting.bucketPrefix;
         const region = setting.region;
         const endpoint = setting.endpoint;
         const useCustomRequestHandler = setting.useCustomRequestHandler;
+        const customHeaders = setting.bucketCustomHeaders;
         const testClient = new JournalSyncMinio(
             id,
             key,
             endpoint,
             bucket,
+            bucketPrefix,
             this.env.simpleStore,
             this.env,
             useCustomRequestHandler,
-            region
+            region,
+            customHeaders
         );
         return await testClient.getUsage();
     }

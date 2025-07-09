@@ -1,6 +1,6 @@
 import type { IEnvironment as IEnvironment } from "../interfaces";
 import { setEnvironmentInstance } from "../Environment.ts";
-import { EVENT_SERVER_INFO_SUPPLIED, ServerAPIBase } from "./base.ts";
+import { EVENT_DENO_INFO_SUPPLIED, ServerAPIBase } from "./base.ts";
 import type { ServerInitOption } from "./base.ts";
 import { eventHub } from "../../hub/hub.ts";
 
@@ -13,7 +13,7 @@ export async function getWebCrypto() {
         webcrypto = globalThis.crypto;
         return webcrypto;
     } else {
-        const module = await import("crypto");
+        const module = await import("node:crypto");
         webcrypto = module.webcrypto as Crypto;
         return webcrypto;
     }
@@ -49,7 +49,7 @@ export class Environment extends ServerAPIBase implements IEnvironment<ServerIni
     }
 }
 
-eventHub.onceEvent(EVENT_SERVER_INFO_SUPPLIED, (opt: ServerInitOption) => {
+eventHub.onceEvent(EVENT_DENO_INFO_SUPPLIED, (opt: ServerInitOption) => {
     const platformAPI = new Environment(opt);
     void platformAPI.onInit().then(() => setEnvironmentInstance(platformAPI));
 });

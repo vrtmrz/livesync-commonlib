@@ -1,5 +1,25 @@
-import { decrypt, encrypt } from "octagonal-wheels/encryption";
-import { splitPieces2, splitPieces2V2 } from "../string_and_binary/chunks";
+import { decrypt, encrypt } from "octagonal-wheels/encryption/index.js";
+import { splitPieces2, splitPieces2V2 } from "../string_and_binary/chunks.ts";
+
+export type SplitArguments = {
+    key: number;
+    type: "split";
+    dataSrc: Blob;
+    pieceSize: number;
+    plainSplit: boolean;
+    minimumChunkSize: number;
+    filename?: string;
+    useV2: boolean;
+    useSegmenter: boolean;
+};
+
+export type EncryptArguments = {
+    key: number;
+    type: "encrypt" | "decrypt";
+    input: string;
+    passphrase: string;
+    autoCalculateIterations: boolean;
+};
 
 export function terminateWorker() {
     return;

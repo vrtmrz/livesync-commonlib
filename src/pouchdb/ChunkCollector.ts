@@ -1,10 +1,10 @@
 import { Porter, ClerkGroup, Clerk } from "octagonal-wheels/bureau/Clerk";
 import { Inbox, InboxWithEvent } from "octagonal-wheels/bureau/Inbox";
 import { PaceMaker } from "octagonal-wheels/bureau/PaceMaker";
-import { globalSlipBoard } from "../bureau/bureau";
+import { globalSlipBoard } from "../bureau/bureau.ts";
 import { TIMED_OUT_SIGNAL } from "octagonal-wheels/promises";
-import { LOG_LEVEL_NOTICE, type DocumentID, type EntryLeaf } from "../common/types";
-import type { ChunkRetrievalResult, LiveSyncLocalDB } from "./LiveSyncLocalDB";
+import { LOG_LEVEL_NOTICE, type DocumentID, type EntryLeaf } from "../common/types.ts";
+import type { ChunkRetrievalResult, LiveSyncLocalDB } from "./LiveSyncLocalDB.ts";
 import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
 
 declare global {
@@ -124,7 +124,7 @@ export class ChunkCollector {
         return p;
     }
 
-    async collectChunks(ids: string[], showResult = false, waitForReady?: boolean): Promise<ChunkRetrievalResult[]> {
+    async collectChunks(ids: string[], showResult = false, _waitForReady?: boolean): Promise<ChunkRetrievalResult[]> {
         if (this._paceMaker._interval !== this.settings.minimumIntervalOfReadChunksOnline) {
             this._paceMaker.changeInterval(this.settings.minimumIntervalOfReadChunksOnline);
         }

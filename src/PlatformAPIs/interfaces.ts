@@ -1,7 +1,8 @@
 // Isomorphic Utilities
+/// <reference lib="dom" />
 
-import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
-import type { APIBase } from "./base/APIBase";
+import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase.js";
+import type { APIBase } from "./base/APIBase.ts";
 
 export const MISSING = Symbol("MISSING");
 export type MISSING = typeof MISSING;
@@ -63,4 +64,18 @@ export interface Events {
     emitEvent(event: string, ...args: any[]): void;
     onEvent(event: string, callback: (...args: any[]) => void): void;
     offEvent(event: string, callback: (...args: any[]) => void): void;
+}
+
+export interface IGlobalVariables<T extends object> {
+    set<K extends keyof T>(key: K, value: T[K]): void;
+    get<K extends keyof T>(key: K): T[K] | undefined;
+    delete<K extends keyof T>(key: K): void;
+    has<K extends keyof T>(key: K): boolean;
+    update<K extends keyof T>(key: K, value: Partial<T[K]>): void;
+    watch<K extends keyof T>(key: K, callback: (value: T[K]) => void): void;
+    unwatch<K extends keyof T>(key: K, callback: (value: T[K]) => void): void;
+    waitForCondition<K extends keyof T>(
+        key: K,
+        condition: (value: T[K] | undefined) => boolean
+    ): Promise<T[K] | undefined>;
 }
