@@ -1,8 +1,8 @@
 /// <reference lib="webworker" />
 
-import { splitPieces2V2, splitPieces2 } from "../string_and_binary/chunks.ts";
-import { encrypt } from "octagonal-wheels/encryption/index.js";
-import { decrypt } from "octagonal-wheels/encryption/index.js";
+import { splitPieces2V2, splitPieces2, splitPiecesRabinKarp } from "../string_and_binary/chunks.ts";
+import { encrypt } from "octagonal-wheels/encryption";
+import { decrypt } from "octagonal-wheels/encryption";
 
 import type { EncryptArguments, SplitArguments } from "./bgWorker.ts";
 
@@ -14,7 +14,8 @@ async function processSplit(data: SplitArguments) {
     const minimumChunkSize = data.minimumChunkSize;
     const filename = data.filename;
     const useSegmenter = data.useSegmenter;
-    const func = data.useV2 ? splitPieces2V2 : splitPieces2;
+
+    const func = data.splitVersion == 3 ? splitPiecesRabinKarp : data.splitVersion == 2 ? splitPieces2V2 : splitPieces2;
     const gen = await func(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter);
     let isSent = false;
     for await (const v of gen()) {

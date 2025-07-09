@@ -412,11 +412,6 @@ interface BetaTweakSettings {
      * Indicates whether to process small files in the UI thread.
      */
     processSmallFilesInUIThread: boolean;
-
-    /**
-     * Indicates whether to enable the version 2 of the chunk splitter.
-     */
-    enableChunkSplitterV2: boolean;
 }
 
 /**
@@ -649,6 +644,19 @@ interface EncryptionSettings {
 
 // Note: xxhash32 is obsolete and not preferred since v0.24.7.
 export type HashAlgorithm = "" | "xxhash32" | "xxhash64" | "mixed-purejs" | "sha1";
+export const ChunkAlgorithmNames = {
+    v1: "V1: Legacy",
+    v2: "V2: Simple (Default)",
+    "v2-segmenter": "V2.5: Lexical chunks",
+    "v3-rabin-karp": "V3: Fine deduplication",
+} as const;
+export const ChunkAlgorithms = {
+    V1: "v1",
+    V2: "v2",
+    V2Segmenter: "v2-segmenter",
+    RabinKarp: "v3-rabin-karp",
+} as const;
+export type ChunkSplitterVersion = (typeof ChunkAlgorithms)[keyof typeof ChunkAlgorithms] | "";
 
 /**
  * Interface representing the settings for chunk processing.
@@ -678,11 +686,13 @@ interface ChunkSettings {
 
     /**
      * Flag indicating whether to use a segmenter for chunking.
+     * @deprecated use chunkSplitterVersion instead.
      */
     useSegmenter: boolean;
 
     /**
      * Flag indicating whether to enable version 2 of the chunk splitter.
+     * @deprecated use chunkSplitterVersion instead.
      */
     enableChunkSplitterV2: boolean;
 
@@ -690,6 +700,11 @@ interface ChunkSettings {
      * Flag indicating whether to avoid using a fixed revision for chunks.
      */
     doNotUseFixedRevisionForChunks: boolean;
+
+    /**
+     * The version of the chunk splitter to use.
+     */
+    chunkSplitterVersion: ChunkSplitterVersion;
 }
 
 /**
@@ -1112,6 +1127,9 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     maxAgeInEden: 10,
     disableCheckingConfigMismatch: false,
     displayLanguage: "",
+    /**
+     * @deprecated
+     */
     enableChunkSplitterV2: false,
     disableWorkerForGeneratingChunks: false,
     processSmallFilesInUIThread: false,
@@ -1124,6 +1142,10 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     showLongerLogInsideEditor: false,
     sendChunksBulk: false,
     sendChunksBulkMaxSize: 1,
+    /**
+     * @deprecated
+     * This setting is no longer used and will be removed in the future.
+     */
     useSegmenter: false,
     useAdvancedMode: false,
     usePowerUserMode: false,
@@ -1144,6 +1166,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     jwtExpDuration: 5,
     useRequestAPI: false,
     bucketPrefix: "",
+    chunkSplitterVersion: "",
 };
 
 export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> = {
@@ -1295,39 +1318,40 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     useRequestAPI: 143,
     hideFileWarningNotice: 144,
     bucketPrefix: 145,
+    chunkSplitterVersion: 146,
 } as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
     settings: T;
 }
 
-export const PREFERRED_SETTING_CLOUDANT: Partial<ObsidianLiveSyncSettings> = {
+export const PREFERRED_BASE: Partial<ObsidianLiveSyncSettings> = {
     syncMaxSizeInMB: 50,
+    chunkSplitterVersion: "v3-rabin-karp",
+    doNotUseFixedRevisionForChunks: false,
+    usePluginSyncV2: true,
+    handleFilenameCaseSensitive: false,
+};
+
+export const PREFERRED_SETTING_CLOUDANT: Partial<ObsidianLiveSyncSettings> = {
+    ...PREFERRED_BASE,
     customChunkSize: 0,
     sendChunksBulkMaxSize: 1,
     concurrencyOfReadChunksOnline: 100,
     minimumIntervalOfReadChunksOnline: 333,
-    doNotUseFixedRevisionForChunks: true,
-    useSegmenter: true,
-    usePluginSyncV2: true,
-    handleFilenameCaseSensitive: false,
 };
 export const PREFERRED_SETTING_SELF_HOSTED: Partial<ObsidianLiveSyncSettings> = {
-    ...PREFERRED_SETTING_CLOUDANT,
+    ...PREFERRED_BASE,
     customChunkSize: 50,
     sendChunksBulkMaxSize: 1,
     concurrencyOfReadChunksOnline: 30,
     minimumIntervalOfReadChunksOnline: 25,
 };
 export const PREFERRED_JOURNAL_SYNC: Partial<ObsidianLiveSyncSettings> = {
-    ...PREFERRED_SETTING_CLOUDANT,
+    ...PREFERRED_BASE,
     customChunkSize: 10,
     concurrencyOfReadChunksOnline: 30,
     minimumIntervalOfReadChunksOnline: 25,
-};
-
-export const PREFERRED_SETTING_PERFORMANT: Partial<ObsidianLiveSyncSettings> = {
-    useSegmenter: true,
 };
 
 /**

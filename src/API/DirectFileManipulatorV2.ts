@@ -15,6 +15,7 @@ import {
     DEFAULT_SETTINGS,
     type HashAlgorithm,
     type RemoteDBSettings,
+    type ChunkSplitterVersion,
 } from "../common/types.ts";
 
 import { PouchDB } from "../pouchdb/pouchdb-http.ts";
@@ -51,10 +52,14 @@ export type DirectFileManipulatorOptions = {
     maxChunksInEden?: number;
     maxTotalLengthInEden?: number;
     maxAgeInEden?: number;
+    /**
+     * @deprecated use chunkSplitterVersion instead.
+     */
     enableChunkSplitterV2?: boolean;
     enableCompression?: boolean;
     handleFilenameCaseSensitive?: boolean;
     doNotUseFixedRevisionForChunks?: boolean;
+    chunkSplitterVersion?: ChunkSplitterVersion;
 };
 
 export type ReadyEntry = (NewEntry | PlainEntry) & { data: string[] };
@@ -181,6 +186,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 maxTotalLengthInEden: this.options.maxTotalLengthInEden ?? DEFAULT_SETTINGS.maxTotalLengthInEden,
                 maxAgeInEden: this.options.maxAgeInEden ?? DEFAULT_SETTINGS.maxAgeInEden,
                 enableChunkSplitterV2: this.options.enableChunkSplitterV2 ?? DEFAULT_SETTINGS.enableChunkSplitterV2,
+                chunkSplitterVersion: this.options.chunkSplitterVersion ?? DEFAULT_SETTINGS.chunkSplitterVersion,
                 disableWorkerForGeneratingChunks: true,
                 processSmallFilesInUIThread: true,
                 doNotUseFixedRevisionForChunks:

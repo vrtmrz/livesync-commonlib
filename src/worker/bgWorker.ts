@@ -14,8 +14,10 @@ export type SplitArguments = {
     plainSplit: boolean;
     minimumChunkSize: number;
     filename?: string;
-    useV2: boolean;
+    // useV2: boolean;
     useSegmenter: boolean;
+    // useV3: boolean;
+    splitVersion: 1 | 2 | 3;
 };
 
 export type EncryptArguments = {
@@ -131,15 +133,7 @@ export function splitPieces2Worker(
     filename?: string,
     useSegmenter?: boolean
 ) {
-    return _splitPieces2Worker(
-        dataSrc,
-        pieceSize,
-        plainSplit,
-        minimumChunkSize,
-        filename,
-        false,
-        useSegmenter ?? false
-    );
+    return _splitPieces2Worker(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, 1, useSegmenter ?? false);
 }
 export function splitPieces2WorkerV2(
     dataSrc: Blob,
@@ -149,8 +143,19 @@ export function splitPieces2WorkerV2(
     filename?: string,
     useSegmenter?: boolean
 ) {
-    return _splitPieces2Worker(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, true, useSegmenter ?? false);
+    return _splitPieces2Worker(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, 2, useSegmenter ?? false);
 }
+export function splitPieces2WorkerRabinKarp(
+    dataSrc: Blob,
+    pieceSize: number,
+    plainSplit: boolean,
+    minimumChunkSize: number,
+    filename?: string,
+    useSegmenter?: boolean
+) {
+    return _splitPieces2Worker(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, 3, useSegmenter ?? false);
+}
+
 export function encryptWorker(input: string, passphrase: string, autoCalculateIterations: boolean): Promise<string> {
     return encryptionOnWorker({ type: "encrypt", input, passphrase, autoCalculateIterations });
 }
@@ -204,8 +209,10 @@ function _splitPieces2Worker(
     plainSplit: boolean,
     minimumChunkSize: number,
     filename: string | undefined,
-    useV2: boolean,
+    // useV2: boolean,
+    splitVersion: 1 | 2 | 3,
     useSegmenter: boolean
+    // useV3: boolean,
 ) {
     const process = startWorker({
         type: "split",
@@ -214,8 +221,8 @@ function _splitPieces2Worker(
         plainSplit,
         minimumChunkSize,
         filename,
-        useV2,
         useSegmenter,
+        splitVersion,
     });
     const _key = process.key;
     return async function* () {

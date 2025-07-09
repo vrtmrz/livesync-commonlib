@@ -1,5 +1,6 @@
+import { isCloudantURI } from "../pouchdb/utils_couchdb";
 import { Logger } from "./logger";
-import { type ObsidianLiveSyncSettings } from "./types";
+import { ChunkAlgorithmNames, type ObsidianLiveSyncSettings } from "./types";
 
 enum ConditionType {
     PLATFORM_CASE_INSENSITIVE = "platform-case-insensitive",
@@ -21,7 +22,9 @@ type BaseRule<TType extends string, TValue> = {
     recommendRebuild?: boolean;
     reason?: string;
     condition?: ConditionType[];
-    value: TValue;
+    detectionFunc?: (settings: Partial<ObsidianLiveSyncSettings>) => boolean;
+    value?: TValue;
+    valueDisplay?: string;
     obsoleteValues?: TValue[];
 };
 
@@ -122,7 +125,35 @@ export const DoctorRegulationV0_24_16: DoctorRegulation = {
         },
     },
 } as const;
-export const DoctorRegulation = DoctorRegulationV0_24_16;
+
+export const DoctorRegulationV0_24_30: DoctorRegulation = {
+    version: "0.24.30",
+    rules: {
+        ...DoctorRegulationV0_24_16.rules,
+        usePluginSyncV2: {
+            value: true,
+            level: RuleLevel.Recommended,
+            reason: "This option is now enabled by default. If you have problems with the new plugin, please report them.",
+        },
+        chunkSplitterVersion: {
+            value: "v3-rabin-karp",
+            valueDisplay: ChunkAlgorithmNames["v3-rabin-karp"],
+            level: RuleLevel.Recommended,
+            reason: "Chunk splitting has been optimised for more effective de-duplication. This is the new default value.",
+        },
+        customChunkSize: {
+            min: 55,
+            // max: 1000,
+            value: 60,
+            valueDisplay: "60 (detected on if less than 55)",
+            level: RuleLevel.Recommended,
+            detectionFunc: (settings: Partial<ObsidianLiveSyncSettings>) =>
+                settings?.chunkSplitterVersion === "v3-rabin-karp" && !isCloudantURI(settings?.couchDB_URI || ""),
+            reason: "With the V3 Rabin-Karp chunk splitter and Self-hosted CouchDB, the chunk size is set to 60 (means around 6MB) by default. This is in effect the maximum chunk size, which in practice is divided more finely.",
+        },
+    },
+};
+export const DoctorRegulation = DoctorRegulationV0_24_30;
 
 export function checkUnsuitableValues(
     setting: Partial<ObsidianLiveSyncSettings>,
@@ -149,6 +180,10 @@ export function checkUnsuitableValues(
                 Logger(`Rule satisfied: ${key} is ${value} between ${min} and ${max}`);
                 continue;
             }
+        }
+        if (rule.detectionFunc && !rule.detectionFunc(setting)) {
+            Logger(`Rule condition satisfied: ${key} is ${value}, and detection function returned false`);
+            continue;
         }
         //@ts-ignore
         result.rules[key as keyof OriginalSettings] = rule;

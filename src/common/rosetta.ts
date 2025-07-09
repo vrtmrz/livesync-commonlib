@@ -27,12 +27,13 @@ const LANG_ES = "es";
 const LANG_JA = "ja";
 const LANG_RU = "ru";
 const LANG_ZH = "zh";
+const LANG_KO = "ko";
 const LANG_ZH_TW = "zh-tw";
 const LANG_DEF = "def"; // Default language: English
 
 // Also please order in alphabetic order except for the default language.
 
-export const SUPPORTED_I18N_LANGS = [LANG_DEF, LANG_DE, LANG_ES, LANG_JA, LANG_RU, LANG_ZH, LANG_ZH_TW];
+export const SUPPORTED_I18N_LANGS = [LANG_DEF, LANG_DE, LANG_ES, LANG_JA, LANG_KO, LANG_RU, LANG_ZH, LANG_ZH_TW];
 
 // Also this.
 export type I18N_LANGS =
@@ -40,6 +41,7 @@ export type I18N_LANGS =
     | typeof LANG_DE
     | typeof LANG_ES
     | typeof LANG_JA
+    | typeof LANG_KO
     | typeof LANG_RU
     | typeof LANG_ZH
     | typeof LANG_ZH_TW
@@ -54,6 +56,7 @@ const expandedMessage = {
     ...expandKeywords(_allMessages, "def"),
     ...expandKeywords(_allMessages, "es"),
     ...expandKeywords(_allMessages, "ja"),
+    ...expandKeywords(_allMessages, "ko"),
     ...expandKeywords(_allMessages, "ru"),
     ...expandKeywords(_allMessages, "zh"),
     ...expandKeywords(_allMessages, "zh-tw"),

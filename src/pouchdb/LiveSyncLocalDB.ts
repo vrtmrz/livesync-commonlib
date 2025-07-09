@@ -37,6 +37,7 @@ import {
     type MetaEntry,
     SALT_OF_ID,
     SEED_MURMURHASH,
+    ChunkAlgorithms,
 } from "../common/types.ts";
 import {
     applyPatch,
@@ -46,6 +47,7 @@ import {
     generatePatchObj,
     getDocData,
     getFileRegExp,
+    isDocContentSame,
     isObjectMargeApplicable,
     isSensibleMargeApplicable,
     isTextBlob,
@@ -60,8 +62,8 @@ import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstract
 import { decodeBinary, readString } from "../string_and_binary/convert.ts";
 import { shouldSplitAsPlainText, stripAllPrefixes } from "../string_and_binary/path.ts";
 import { serialized } from "../concurrency/lock.ts";
-import { splitPieces2, splitPieces2V2 } from "../string_and_binary/chunks.ts";
-import { splitPieces2Worker, splitPieces2WorkerV2 } from "../worker/bgWorker.ts";
+import { splitPieces2, splitPieces2V2, splitPiecesRabinKarp } from "../string_and_binary/chunks.ts";
+import { splitPieces2Worker, splitPieces2WorkerV2, splitPieces2WorkerRabinKarp } from "../worker/bgWorker.ts";
 import { DIFF_DELETE, DIFF_EQUAL, DIFF_INSERT, diff_match_patch, type Diff } from "diff-match-patch";
 import { globalSlipBoard } from "../bureau/bureau.ts";
 import { BatchReader, ChunkCollector } from "./ChunkCollector.ts";
@@ -119,6 +121,21 @@ type UserActionRequired = {
 };
 
 type AutoMergeResult = Promise<AutoMergeOutcomeOK | AutoMergeCanBeDoneByDeletingRev | UserActionRequired>;
+
+const chunkSplittersMainThread = {
+    [ChunkAlgorithms.V1]: splitPieces2,
+    [ChunkAlgorithms.V2]: splitPieces2V2,
+    [ChunkAlgorithms.V2Segmenter]: splitPieces2V2,
+    [ChunkAlgorithms.RabinKarp]: splitPiecesRabinKarp,
+    "": splitPieces2,
+} as const;
+const chunkSplittersWorker = {
+    [ChunkAlgorithms.V1]: splitPieces2Worker,
+    [ChunkAlgorithms.V2]: splitPieces2WorkerV2,
+    [ChunkAlgorithms.V2Segmenter]: splitPieces2WorkerV2,
+    [ChunkAlgorithms.RabinKarp]: splitPieces2WorkerRabinKarp,
+    "": splitPieces2Worker,
+} as const;
 
 export class LiveSyncLocalDB {
     auth: Credential;
@@ -897,8 +914,16 @@ export class LiveSyncLocalDB {
         note.datatype = note.type;
         const maxSize = 1024;
 
-        const splitFuncInMainThread = this.settings.enableChunkSplitterV2 ? splitPieces2V2 : splitPieces2;
-        const splitFuncInWorker = this.settings.enableChunkSplitterV2 ? splitPieces2WorkerV2 : splitPieces2Worker;
+        // const splitFuncInMainThread = this.settings.enableChunkSplitterV2 ? splitPieces2V2 : splitPieces2;
+        // const splitFuncInWorker = this.settings.enableChunkSplitterV2 ? splitPieces2WorkerV2 : splitPieces2Worker;
+
+        const splitFuncInMainThread =
+            chunkSplittersMainThread?.[this.settings.chunkSplitterVersion] ??
+            chunkSplittersMainThread[ChunkAlgorithms.V1];
+        const splitFuncInWorker =
+            chunkSplittersWorker?.[this.settings.chunkSplitterVersion] ?? chunkSplittersWorker[ChunkAlgorithms.V1];
+
+        const useSegmenter = this.settings.chunkSplitterVersion === ChunkAlgorithms.V2Segmenter;
 
         const splitFunc = this.settings.disableWorkerForGeneratingChunks
             ? splitFuncInMainThread
@@ -906,20 +931,67 @@ export class LiveSyncLocalDB {
               ? splitFuncInMainThread
               : splitFuncInWorker;
 
-        const pieces = await splitFunc(
-            data,
-            pieceSize,
-            plainSplit,
-            minimumChunkSize,
-            filename,
-            this.settings.useSegmenter
-        );
+        const pieces = await splitFunc(data, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter);
         const chunkTasks = [];
+
+        // Benchmark
+
+        // eslint-disable-next-line no-constant-condition
+        if (false) {
+            // If pass through this debug, blob is consumed, and we cannot use it again, hence the saving will be failed.
+            const a1 = performance.now();
+            const px = await splitPieces2V2(data, pieceSize, plainSplit, minimumChunkSize, filename, false);
+            const buf1 = [];
+            for await (const _piece of px()) {
+                buf1.push(_piece);
+            }
+            const a2 = performance.now();
+            const buf2 = [];
+            // console.warn(`splitPieces2V2 took ${a2 - a1}ms`);
+            const a3 = performance.now();
+            const px2 = await splitPiecesRabinKarp(data, pieceSize, plainSplit, minimumChunkSize, filename, false);
+            for await (const _piece of px2()) {
+                // NO OP. Just to run the generator.
+                buf2.push(_piece);
+            }
+            const a4 = performance.now();
+            // console.warn(`splitPiecesRabinKarp took ${a4 - a3}ms`);
+            const buf1_x = note.type === "plain" ? buf1 : await decodeBinary(buf1);
+            const buf2_x = note.type === "plain" ? buf2 : await decodeBinary(buf2);
+            const isMatched = await isDocContentSame(buf1_x, buf2_x);
+            const result = {
+                name: note.path,
+                size: note.size,
+                pieces_old: buf1.length,
+                pieces_new: buf2.length,
+                time_old: a2 - a1,
+                time_new: a4 - a3,
+                isMatched,
+            };
+            const buf1_hash = buf1.map((e) => this.xxhash32(e));
+            const buf2_hash = buf2.map((e) => this.xxhash32(e));
+            //@ts-ignore
+            app.vault.adapter.append(
+                "debug-list-files.csv",
+                `${result.name},${result.size},${result.pieces_old},${result.pieces_new},${result.time_old},${result.time_new},${result.isMatched}\n`
+            );
+            const buf1_hash_X = buf1_hash.map((e) => `v1-${e}\t${note.path}`).join("\n");
+            const buf2_hash_X = buf2_hash.map((e) => `v2-${e}\t${note.path}`).join("\n");
+            //@ts-ignore
+            app.vault.adapter.append("debug-list-chunks.csv", `${buf1_hash_X}\n${buf2_hash_X}\n`);
+            // console.table([result]);
+        }
 
         for await (const piece of pieces()) {
             if (piece.length === 0) continue;
             processed++;
             chunkTasks.push(this.getChunk(piece, note));
+        }
+        if (data.size > 0 && processed === 0) {
+            Logger(
+                `No data to save in ${dispFilename}!! This document may be corrupted in the local database! Please back it up immediately, and report an issue!`,
+                LOG_LEVEL_NOTICE
+            );
         }
         const chunks = await Promise.all(chunkTasks);
         if (chunks.some((e) => e === false)) {

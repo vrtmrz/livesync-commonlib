@@ -1,6 +1,7 @@
 import { PartialMessages as def } from "./def.ts";
 import { PartialMessages as es } from "./es.ts";
 import { PartialMessages as ja } from "./ja.ts";
+import { PartialMessages as ko } from "./ko.ts";
 import { PartialMessages as ru } from "./ru.ts";
 import { PartialMessages as zh } from "./zh.ts";
 import { PartialMessages as zhTw } from "./zh-tw.ts";
@@ -11,6 +12,7 @@ const messages = {
     ...def,
     ...es,
     ...ja,
+    ...ko,
     ...ru,
     ...zh,
     ...zhTw,

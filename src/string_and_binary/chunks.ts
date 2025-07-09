@@ -1,7 +1,8 @@
 function isTextBlob(blob: Blob) {
     return blob.type === "text/plain";
 }
-import { arrayBufferToBase64Single } from "./convert.ts";
+
+import { arrayBufferToBase64Single, readString } from "./convert.ts";
 
 /// Chunk utilities
 function* pickPiece(leftData: string[], minimumChunkSize: number): Generator<string> {
@@ -472,5 +473,139 @@ export async function splitPieces2(
             const b64 = await arrayBufferToBase64Single(piece);
             yield b64;
         } while (i < size);
+    };
+}
+
+export async function splitPiecesRabinKarp(
+    dataSrc: Blob,
+    absoluteMaxPieceSize: number,
+    doPlainSplit: boolean,
+    minimumChunkSize: number,
+    _filename?: string,
+    _useSegmenter?: boolean
+) {
+    const plainSplit = doPlainSplit || isTextBlob(dataSrc);
+    // Minimum piece size is 128 bytes for text, 4KB for binary.
+    const minPieceSize = plainSplit ? 128 : 1024 * 4;
+    // For text, split into 20 pieces (5%) on average; for binary, split into 12 pieces on average.
+    // 128 bytes or 5% of the file size, whichever is larger.
+    // Therefore, for a 10KB text file, the average chunk size is 500B; for 1MB, 50KB; for 10MB, 500KB.
+    // If the file is smaller than 128 bytes, the chunk size is 128 bytes. This means that for files smaller than 1KB, the chunk size is 128 bytes.
+    const splitPieceCount = plainSplit ? 20 : 12;
+    const avgChunkSize = Math.max(minPieceSize, Math.floor(dataSrc.size / splitPieceCount));
+    const maxChunkSize = Math.min(absoluteMaxPieceSize, avgChunkSize * 5);
+    const minChunkSize = Math.min(Math.max(Math.floor(avgChunkSize / 4), minimumChunkSize), maxChunkSize);
+    const windowSize = 48;
+
+    // Rabin-Karp chunking illustration:
+
+    // 1. The data is processed in a rolling hash manner, where each byte contributes to the hash.
+    // Yielding candidate is keep glowing until the hash matches the boundary pattern.
+    // Data:        |---------------------------------------------------------------|
+    // Buffer:      |---------------...===>|
+    // Hash window: |           |<---48--->|
+
+    // 2. The hash computed over the sliding window of 48 bytes got a modulus === 1, indicating a potential chunk boundary.
+    // Data:        |---------------------------------------------------------------|
+    // Buffer:      |{----  CANDIDATE ----}|
+    // Hash window: |           |<---48--->|  ==> hashModulus % 1 == 0
+
+    // 3. But, if the current chunk size is shorter than the minimum chunk size, we continue to grow the candidate.
+    //              |<=========MINIMUM=========>|========MAXIMUM=======>|           |
+    // Data:        |---------------------------------------------------------------|
+    // Buffer:      |{----  CANDIDATE ----}|
+    // Hash window: |           |<---48--->|  ==> hashModulus % 1 == 0
+
+    // 4. If the current chunk size is longer than the minimum chunk size, we want to yield the buffer. However, we must check.
+    //              |<=========MINIMUM=========>|========MAXIMUM=======>|           |
+    // Data:        |---------------------------------------------------------------|
+    // Buffer:      |{----  CANDIDATE -------------}|
+    // Hash window: |                    |<---48--->| ==> hashModulus % 1 == 0
+
+    // Check the last byte of the hash window to ensure it does not split in the middle of a surrogate pair (for text).
+    // (if `*` is the surrogate pair, progress the position to the next byte and extends the candidate), and find the next candidate.
+    //              |<=========MINIMUM=========>|========MAXIMUM=======>|           |
+    // Data:        |---------------------------------------------------------------|
+    // Buffer:      |{----  CANDIDATE ------------*-}|
+
+    // 5. Yield the candidate as a chunk, and reset the buffer, and continue processing the data.
+
+    // Probability of the hash modulus matching the boundary pattern is inversely proportional to the average chunk size. This is a notable very property so I very impressed.
+    // (This means that, when aiming for 100 bytes, there is a 1 in 100 chance of matching the boundary pattern).
+    const hashModulus = avgChunkSize;
+    const boundaryPattern = 1;
+
+    const PRIME = 31;
+    let P_pow_w = 1;
+    for (let i = 0; i < windowSize - 1; i++) {
+        P_pow_w = Math.imul(P_pow_w, PRIME);
+    }
+
+    const buffer = new Uint8Array(await dataSrc.arrayBuffer());
+    let pos = 0;
+
+    let hash = 0;
+    let start = 0;
+    const isText = isTextBlob(dataSrc);
+
+    const length = buffer.length;
+    return async function* piecesBlob() {
+        while (pos < length) {
+            // Process the internal buffer byte by byte.
+            const byte = buffer[pos];
+
+            // Update the rolling hash.
+            if (pos >= start + windowSize) {
+                const oldByte = buffer[pos - windowSize];
+                const oldByteTerm = Math.imul(oldByte, P_pow_w);
+                hash = (hash - oldByteTerm) | 0;
+                hash = Math.imul(hash, PRIME);
+                hash = (hash + byte) | 0;
+            } else {
+                hash = Math.imul(hash, PRIME);
+                hash = (hash + byte) | 0;
+            }
+
+            const currentChunkSize = pos - start + 1;
+            let isBoundaryCandidate = false;
+
+            // Boundary judgement.
+            if (currentChunkSize >= minChunkSize) {
+                if ((hash >>> 0) % hashModulus === boundaryPattern) {
+                    isBoundaryCandidate = true;
+                }
+            }
+            if (currentChunkSize >= maxChunkSize) {
+                isBoundaryCandidate = true;
+            }
+
+            // Extract the chunk.
+            if (isBoundaryCandidate) {
+                let isSafeBoundary = true;
+                // For text, ensure we do not split in the middle of a multi-byte character.
+                if (isText) {
+                    if (pos + 1 < length && (buffer[pos + 1] & 0xc0) === 0x80) {
+                        isSafeBoundary = false;
+                    }
+                }
+                if (isSafeBoundary) {
+                    if (isText) {
+                        yield Promise.resolve(readString(buffer.subarray(start, pos + 1)));
+                    } else {
+                        yield await arrayBufferToBase64Single(buffer.subarray(start, pos + 1));
+                    }
+                    start = pos + 1;
+                }
+            }
+            pos++;
+        }
+        // After the stream ends, yield the remaining data in the buffer as the last chunk.
+        if (start < length) {
+            if (isText) {
+                yield Promise.resolve(readString(buffer.subarray(start, length)));
+            } else {
+                yield await arrayBufferToBase64Single(buffer.subarray(start, length));
+            }
+        }
     };
 }
