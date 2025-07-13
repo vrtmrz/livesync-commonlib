@@ -142,7 +142,14 @@ export async function ensureDatabaseIsCompatible(
         db.get(MILESTONE_DOC_ID),
         false
     );
-    return await ensureRemoteIsCompatible(remoteMilestone, setting, deviceNodeID, currentVersionRange, async (info) => {
-        await db.put(info);
-    });
+    const ret = await ensureRemoteIsCompatible(
+        remoteMilestone,
+        setting,
+        deviceNodeID,
+        currentVersionRange,
+        async (info) => {
+            await db.put(info);
+        }
+    );
+    return ret;
 }

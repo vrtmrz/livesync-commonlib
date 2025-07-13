@@ -28,6 +28,14 @@ export type EncryptArguments = {
     autoCalculateIterations: boolean;
 };
 
+export type EncryptHKDFArguments = {
+    key: number;
+    type: "encryptHKDF" | "decryptHKDF";
+    input: string;
+    passphrase: string;
+    pbkdf2Salt: Uint8Array;
+};
+
 type SplitProcessItem = {
     key: number;
     task: PromiseWithResolvers<string | null>;
@@ -40,7 +48,13 @@ type EncryptProcessItem = {
     type: EncryptArguments["type"];
     finalize: () => void;
 };
-type ProcessItem = SplitProcessItem | EncryptProcessItem;
+type EncryptHKDFProcessItem = {
+    key: number;
+    task: PromiseWithResolvers<string>;
+    type: EncryptHKDFArguments["type"];
+    finalize: () => void;
+};
+type ProcessItem = SplitProcessItem | EncryptProcessItem | EncryptHKDFProcessItem;
 
 const tasks = new Map<number, ProcessItem>();
 
@@ -81,7 +95,7 @@ function handleTaskSplit(process: SplitProcessItem, data: any) {
         tasks.delete(key);
     }
 }
-function handleTaskEncrypt(process: EncryptProcessItem, data: any) {
+function handleTaskEncrypt(process: EncryptProcessItem | EncryptHKDFProcessItem, data: any) {
     const key = data.key as number;
     const task = process.task;
     if ("result" in data) {
@@ -107,6 +121,8 @@ for (const inst of workers) {
         if (process.type === "split") {
             handleTaskSplit(process, data);
         } else if (process.type === "encrypt" || process.type === "decrypt") {
+            handleTaskEncrypt(process, data);
+        } else if (process.type === "encryptHKDF" || process.type === "decryptHKDF") {
             handleTaskEncrypt(process, data);
         } else {
             info("Invalid response type" + process);
@@ -164,9 +180,18 @@ export function decryptWorker(input: string, passphrase: string, autoCalculateIt
     return encryptionOnWorker({ type: "decrypt", input, passphrase, autoCalculateIterations });
 }
 
+export function encryptHKDFWorker(input: string, passphrase: string, pbkdf2Salt: Uint8Array): Promise<string> {
+    return encryptionHKDFOnWorker({ type: "encryptHKDF", input, passphrase, pbkdf2Salt });
+}
+
+export function decryptHKDFWorker(input: string, passphrase: string, pbkdf2Salt: Uint8Array): Promise<string> {
+    return encryptionHKDFOnWorker({ type: "decryptHKDF", input, passphrase, pbkdf2Salt });
+}
+
+function startWorker(data: Omit<EncryptHKDFArguments, "key">): EncryptHKDFProcessItem;
 function startWorker(data: Omit<EncryptArguments, "key">): EncryptProcessItem;
 function startWorker(data: Omit<SplitArguments, "key">): SplitProcessItem;
-function startWorker(data: Omit<EncryptArguments | SplitArguments, "key">): ProcessItem {
+function startWorker(data: Omit<EncryptArguments | SplitArguments | EncryptHKDFArguments, "key">): ProcessItem {
     const _key = key++;
     const inst = nextWorker();
     const promise = promiseWithResolver<any>();
@@ -187,6 +212,14 @@ function startWorker(data: Omit<EncryptArguments | SplitArguments, "key">): Proc
 }
 
 export function encryptionOnWorker(data: Omit<EncryptArguments, "key">) {
+    const process = startWorker(data);
+    return (async () => {
+        const ret = await process.task.promise;
+        process.finalize();
+        return ret;
+    })();
+}
+export function encryptionHKDFOnWorker(data: Omit<EncryptHKDFArguments, "key">) {
     const process = startWorker(data);
     return (async () => {
         const ret = await process.task.promise;

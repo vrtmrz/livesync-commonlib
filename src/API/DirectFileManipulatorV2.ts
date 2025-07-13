@@ -16,16 +16,20 @@ import {
     type HashAlgorithm,
     type RemoteDBSettings,
     type ChunkSplitterVersion,
+    type SyncParameters,
+    DEFAULT_SYNC_PARAMETERS,
+    ProtocolVersions,
+    DOCID_SYNC_PARAMETERS,
+    type E2EEAlgorithm,
+    E2EEAlgorithms,
 } from "../common/types.ts";
 
 import { PouchDB } from "../pouchdb/pouchdb-http.ts";
 import { LiveSyncLocalDB, type LiveSyncLocalDBEnv } from "../pouchdb/LiveSyncLocalDB.ts";
-import {
-    disableEncryption,
-    enableEncryption,
-    isErrorOfMissingDoc,
-    replicationFilter,
-} from "../pouchdb/utils_couchdb.ts";
+import { isErrorOfMissingDoc } from "../pouchdb/utils_couchdb.ts";
+import { replicationFilter } from "../pouchdb/compress.ts";
+import { disableEncryption } from "../pouchdb/encryption.ts";
+import { enableEncryption } from "../pouchdb/encryption.ts";
 import {
     LEVEL_INFO,
     LEVEL_VERBOSE,
@@ -37,6 +41,7 @@ import {
 import { createBlob, determineTypeFromBlob } from "../common/utils.ts";
 import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
 import { promiseWithResolver } from "octagonal-wheels/promises";
+import { createSyncParamsHanderForServer } from "../replication/SyncParamsHandler.ts";
 export type DirectFileManipulatorOptions = {
     url: string;
     username: string;
@@ -60,6 +65,7 @@ export type DirectFileManipulatorOptions = {
     handleFilenameCaseSensitive?: boolean;
     doNotUseFixedRevisionForChunks?: boolean;
     chunkSplitterVersion?: ChunkSplitterVersion;
+    E2EEAlgorithm?: E2EEAlgorithm;
 };
 
 export type ReadyEntry = (NewEntry | PlainEntry) & { data: string[] };
@@ -134,6 +140,43 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     $allOnDBClose(_db: LiveSyncLocalDB): void {
         return;
     }
+    getInitialSyncParameters(setting: RemoteDBSettings): Promise<SyncParameters> {
+        // TODO: Switch to select protocolVersion based on the setting.
+        return Promise.resolve({
+            ...DEFAULT_SYNC_PARAMETERS,
+            protocolVersion: ProtocolVersions.ADVANCED_E2EE,
+        } satisfies SyncParameters);
+    }
+    async getSyncParameters(setting: RemoteDBSettings): Promise<SyncParameters> {
+        try {
+            const downloadedSyncParams = await this.rawGet<SyncParameters>(DOCID_SYNC_PARAMETERS);
+            if (!downloadedSyncParams) {
+                throw new Error("Missing sync parameters");
+            }
+            return downloadedSyncParams;
+        } catch (ex) {
+            Logger(`Could not retrieve remote sync parameters`, LOG_LEVEL_INFO);
+            throw ex;
+        }
+    }
+    async putSyncParameters(setting: RemoteDBSettings, params: SyncParameters): Promise<boolean> {
+        try {
+            const ret = await this.liveSyncLocalDB.putRaw(params as unknown as EntryDoc);
+            return ret.ok;
+        } catch (ex) {
+            Logger(`Could not store remote sync parameters`, LOG_LEVEL_INFO);
+            throw ex;
+        }
+    }
+    async getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array> {
+        const server = `${setting.couchDB_URI}/${setting.couchDB_DBNAME}`;
+        const manager = createSyncParamsHanderForServer(server, {
+            put: (params: SyncParameters) => this.putSyncParameters(setting, params),
+            get: () => this.getSyncParameters(setting),
+            create: () => this.getInitialSyncParameters(setting),
+        });
+        return await manager.getPBKDF2Salt(refresh);
+    }
     $everyOnInitializeDatabase(db: LiveSyncLocalDB): Promise<boolean> {
         replicationFilter(db.localDatabase, this.options.enableCompression ?? false);
         disableEncryption();
@@ -142,7 +185,9 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 db.localDatabase,
                 this.options.passphrase,
                 this.options.useDynamicIterationCount ?? false,
-                false
+                false,
+                async () => await this.getReplicationPBKDF2Salt(this.getSettings()),
+                this.options.E2EEAlgorithm ?? E2EEAlgorithms.V2
             );
         }
         return Promise.resolve(true);

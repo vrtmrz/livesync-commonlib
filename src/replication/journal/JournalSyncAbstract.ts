@@ -6,6 +6,10 @@ import {
     LOG_LEVEL_VERBOSE,
     LOG_LEVEL_DEBUG,
     type EntryLeaf,
+    type SyncParameters,
+    DEFAULT_SYNC_PARAMETERS,
+    ProtocolVersions,
+    DOCID_JOURNAL_SYNC_PARAMETERS,
 } from "../../common/types.ts";
 import { Logger } from "../../common/logger.ts";
 import type { ReplicationCallback, ReplicationStat } from "../LiveSyncAbstractReplicator.ts";
@@ -19,12 +23,16 @@ import {
     unescapeNewLineFromString,
 } from "../../common/utils.ts";
 import { shareRunningResult } from "../../concurrency/lock.ts";
-import { wrappedInflate, wrappedDeflate } from "../../pouchdb/utils_couchdb.ts";
+import { wrappedDeflate } from "../../pouchdb/compress.ts";
+import { wrappedInflate } from "../../pouchdb/compress.ts";
 import { type CheckPointInfo, CheckPointInfoDefault } from "./JournalSyncTypes.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicator.ts";
 import { Trench } from "../../memory/memutil.ts";
 import { Notifier } from "../../concurrency/processor.ts";
 import { globalSlipBoard } from "../../bureau/bureau.ts";
+import { createPBKDF2Salt } from "octagonal-wheels/encryption/hkdf";
+import { arrayBufferToBase64Single } from "../../string_and_binary/convert.ts";
+import { clearHandlers } from "../SyncParamsHandler.ts";
 const RECORD_SPLIT = `\n`;
 const UNIT_SPLIT = `\u001f`;
 type ProcessingEntry = PouchDB.Core.PutDocument<EntryDoc> & PouchDB.Core.GetMeta;
@@ -58,6 +66,39 @@ export abstract class JournalSyncAbstract {
     trench: Trench;
     notifier = new Notifier();
 
+    async getInitialSyncParameters(): Promise<SyncParameters> {
+        const newSaltBin = createPBKDF2Salt();
+        const salt = await arrayBufferToBase64Single(newSaltBin);
+        return {
+            ...DEFAULT_SYNC_PARAMETERS,
+            protocolVersion: ProtocolVersions.ADVANCED_E2EE,
+            pbkdf2salt: salt,
+        } satisfies SyncParameters;
+    }
+
+    async getSyncParameters(): Promise<SyncParameters> {
+        try {
+            const downloadedSyncParams = await this.downloadJson<SyncParameters>(DOCID_JOURNAL_SYNC_PARAMETERS);
+            if (!downloadedSyncParams) {
+                throw new Error("Missing sync parameters");
+            }
+            return downloadedSyncParams;
+        } catch (ex) {
+            Logger(`Could not retrieve remote sync parameters`, LOG_LEVEL_INFO);
+            throw ex;
+        }
+    }
+    async putSyncParameters(params: SyncParameters): Promise<boolean> {
+        try {
+            await this.uploadJson(DOCID_JOURNAL_SYNC_PARAMETERS, params);
+            return true;
+        } catch (ex) {
+            Logger(`Could not upload sync parameters`, LOG_LEVEL_INFO);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+    }
+
     getHash(endpoint: string, bucket: string, region: string, prefix: string) {
         return btoa(encodeURI([endpoint, `${bucket}${prefix}`, region].join()));
     }
@@ -88,6 +129,7 @@ export abstract class JournalSyncAbstract {
         this.trench = new Trench(store);
         const headers = Object.entries(parseHeaderValues(customHeaders));
         this.customHeaders = headers;
+        clearHandlers();
     }
     applyNewConfig(
         id: string,
@@ -118,7 +160,7 @@ export abstract class JournalSyncAbstract {
         this.hash = this.getHash(endpoint, bucket, region, prefix);
         const headers = Object.entries(parseHeaderValues(customHeaders));
         this.customHeaders = headers;
-        // }
+        clearHandlers();
     }
 
     updateInfo(info: Partial<ReplicationStat>) {
@@ -157,9 +199,11 @@ export abstract class JournalSyncAbstract {
     }
     async resetAllCaches() {
         await this.trench.eraseAllPermanences();
+        clearHandlers();
     }
     async resetCheckpointInfo() {
         await this.updateCheckPointInfo((info) => ({ ...CheckPointInfoDefault }));
+        clearHandlers();
     }
 
     abstract resetBucket(): Promise<boolean>;

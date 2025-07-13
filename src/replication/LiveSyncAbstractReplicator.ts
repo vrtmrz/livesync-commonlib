@@ -11,9 +11,10 @@ import {
 } from "../common/types.ts";
 
 import type { ReactiveSource } from "../dataobject/reactive.ts";
-import { Logger } from "../common/logger.ts";
+import { LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
 import { resolveWithIgnoreKnownError, type SimpleStore } from "../common/utils.ts";
 import type { KeyValueDatabase } from "src/common/KeyValueDB.ts";
+import { arrayBufferToBase64Single } from "../string_and_binary/convert.ts";
 
 export type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<void> | void;
 export type ReplicationStat = {
@@ -60,8 +61,22 @@ export abstract class LiveSyncAbstractReplicator {
     tweakSettingsMismatched = false;
     preferredTweakValue?: TweakValues;
 
+    abstract getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array>;
+    async ensurePBKDF2Salt(
+        setting: RemoteDBSettings,
+        showMessage: boolean = false,
+        useCache: boolean = false
+    ): Promise<boolean> {
+        // Checking salt
+        const hash = await this.getReplicationPBKDF2Salt(setting, !useCache);
+        if (hash.length == 0) {
+            Logger("Failed to get PBKDF2 salt for replication.");
+            return false;
+        }
+        Logger(`PBKDF2 salt for replication: ${await arrayBufferToBase64Single(hash)}`, LOG_LEVEL_VERBOSE);
+        return true;
+    }
     env: LiveSyncReplicatorEnv;
-
     async initializeDatabaseForReplication(): Promise<boolean> {
         const db = this.env.getDatabase();
         try {

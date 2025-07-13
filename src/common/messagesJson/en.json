@@ -56,6 +56,7 @@
     "Doctor.Message.RebuildLocalRequired": "Attention! A local database rebuild is required to apply this!",
     "Doctor.Message.RebuildRequired": "Attention! A rebuild is required to apply this!",
     "Doctor.Message.SomeSkipped": "We left some issues as is. Shall I ask you again on next startup?",
+    "Doctor.RULES.E2EE_V02500.REASON": "The End-to-End Encryption has got now more robust and faster. Also because, the previous E2EE was found to be compromised in a re-conducted code review. It should be applied as soon as possible. Really apologises for your inconvenience. And, this setting is not forward compatible. All synchronised devices must be updated to v0.25.0 or higher. Rebuilds are not required and will be converted from the new transfer to the new format, However, it is recommended to rebuild whenever possible.",
     "Enable advanced features": "Enable advanced features",
     "Enable customization sync": "Enable customization sync",
     "Enable Developers' Debug Tools.": "Enable Developers' Debug Tools.",

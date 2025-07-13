@@ -33,7 +33,7 @@ export type DocumentID = TaggedType<string, "documentId">;
 
 export const MAX_DOC_SIZE = 1000; // for .md file, but if delimiters exists. use that before.
 export const MAX_DOC_SIZE_BIN = 102400; // 100kb
-export const VER = 10;
+export const VER = 12; // 12 Since 0.25.0, HKDF is used for encryption, so the version is changed to 12.
 
 export const RECENT_MODIFIED_DOCS_QTY = 30;
 export const LEAF_WAIT_TIMEOUT = 90000; // in synchronization, waiting missing leaf time out.
@@ -621,6 +621,17 @@ export interface RemoteTypeSettings {
     remoteType: RemoteType;
 }
 
+export const E2EEAlgorithmNames = {
+    "": "V1: Legacy",
+    v2: "V2: AES-256-GCM With HKDF",
+    forceV1: "Force-V1: Force Legacy (Not recommended)",
+} as const;
+export const E2EEAlgorithms = {
+    V1: "",
+    V2: "v2",
+    ForceV1: "forceV1",
+} as const;
+export type E2EEAlgorithm = (typeof E2EEAlgorithms)[keyof typeof E2EEAlgorithms] | "";
 /**
  * Represents the settings used for End-to-End encryption.
  */
@@ -640,6 +651,12 @@ interface EncryptionSettings {
      * If not, the path will be stored as it is, as the document ID.
      */
     usePathObfuscation: boolean;
+
+    /**
+     * The algorithm used for hashing the passphrase.
+     * This is used for E2EE.
+     */
+    E2EEAlgorithm: E2EEAlgorithm;
 }
 
 // Note: xxhash32 is obsolete and not preferred since v0.24.7.
@@ -1167,6 +1184,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     useRequestAPI: false,
     bucketPrefix: "",
     chunkSplitterVersion: "",
+    E2EEAlgorithm: E2EEAlgorithms.V1,
 };
 
 export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> = {
@@ -1319,6 +1337,7 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     hideFileWarningNotice: 144,
     bucketPrefix: 145,
     chunkSplitterVersion: 146,
+    E2EEAlgorithm: 147,
 } as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
@@ -1331,6 +1350,7 @@ export const PREFERRED_BASE: Partial<ObsidianLiveSyncSettings> = {
     doNotUseFixedRevisionForChunks: false,
     usePluginSyncV2: true,
     handleFilenameCaseSensitive: false,
+    E2EEAlgorithm: E2EEAlgorithms.V2,
 };
 
 export const PREFERRED_SETTING_CLOUDANT: Partial<ObsidianLiveSyncSettings> = {
@@ -1529,6 +1549,8 @@ export const TweakValuesShouldMatchedTemplate: Partial<ObsidianLiveSyncSettings>
     handleFilenameCaseSensitive: false,
     doNotUseFixedRevisionForChunks: true,
     useSegmenter: false,
+    E2EEAlgorithm: E2EEAlgorithms.V2,
+    chunkSplitterVersion: ChunkAlgorithms.RabinKarp,
 };
 
 type TweakKeys = keyof TweakValues;
@@ -1582,9 +1604,13 @@ export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> =
     usePluginSyncV2: true,
     handleFilenameCaseSensitive: false,
     doNotUseFixedRevisionForChunks: false,
+    E2EEAlgorithm: E2EEAlgorithms.V2,
+    chunkSplitterVersion: ChunkAlgorithms.RabinKarp,
 };
 export const TweakValuesDefault: Partial<ObsidianLiveSyncSettings> = {
     usePluginSyncV2: false,
+    E2EEAlgorithm: DEFAULT_SETTINGS.E2EEAlgorithm,
+    chunkSplitterVersion: DEFAULT_SETTINGS.chunkSplitterVersion,
 };
 
 export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, ConfigurationItem>> = {
@@ -1599,7 +1625,8 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         desc: "Encrypt contents on the remote database. If you use the plugin's synchronization feature, enabling this is recommended.",
     },
     usePathObfuscation: {
-        name: "Path Obfuscation",
+        name: "Property Encryption",
+        desc: "If enabled, the file properties will be encrypted in the remote database. This is useful for protecting sensitive information in file paths, sizes, and IDs of its chunks. If you are using V1 E2EE, this only obfuscates the file path.",
     },
     enableCompression: {
         name: "Data Compression",
@@ -1687,6 +1714,14 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         name: "Custom Headers",
         desc: "Custom headers for requesting the CouchDB. e.g. `x-custom-header1: value1\n x-custom-header2: value2`",
         placeHolder: "x-custom-header1: value1\n x-custom-header2: value2",
+    },
+    chunkSplitterVersion: {
+        name: "Chunk Splitter",
+        desc: "Now we can choose how to split the chunks; V3 is the most efficient. If you have troubled, please make this Default or Legacy.",
+    },
+    E2EEAlgorithm: {
+        name: "End-to-End Encryption Algorithm",
+        desc: "Please use V2, V1 is deprecated and will be removed in the future, It was not a very appropriate algorithm. Only for compatibility V1 is kept.",
     },
 };
 
@@ -1948,3 +1983,27 @@ export type CustomRegExpSource = TaggedType<string, "CustomRegExp">;
 export type CustomRegExpSourceList<D extends string = ","> = TaggedType<string, `CustomRegExpList${D}`>;
 
 export type ParsedCustomRegExp = [isInverted: boolean, pattern: string];
+
+export const ProtocolVersions = {
+    UNSET: undefined,
+    LEGACY: 1,
+    ADVANCED_E2EE: 2,
+} as const;
+
+export type ProtocolVersion = (typeof ProtocolVersions)[keyof typeof ProtocolVersions];
+export const DOCID_SYNC_PARAMETERS = "_local/obsidian_livesync_sync_parameters" as DocumentID;
+export const DOCID_JOURNAL_SYNC_PARAMETERS = "_obsidian_livesync_journal_sync_parameters.json" as DocumentID;
+
+export interface SyncParameters extends DatabaseEntry {
+    _id: typeof DOCID_SYNC_PARAMETERS;
+    _rev?: string;
+    type: "sync-parameters";
+    protocolVersion: ProtocolVersion;
+    pbkdf2salt: string;
+}
+export const DEFAULT_SYNC_PARAMETERS: SyncParameters = {
+    _id: DOCID_SYNC_PARAMETERS,
+    type: "sync-parameters",
+    protocolVersion: ProtocolVersions.ADVANCED_E2EE,
+    pbkdf2salt: "",
+};

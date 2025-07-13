@@ -320,6 +320,9 @@ export const _allMessages = {
         def: "We left some issues as is. Shall I ask you again on next startup?",
         ko: "일부 문제를 그대로 두었습니다. 다음 시작 시 다시 질문할까요?",
     },
+    "Doctor.RULES.E2EE_V02500.REASON": {
+        def: "The End-to-End Encryption has got now more robust and faster. Also because, the previous E2EE was found to be compromised in a re-conducted code review. It should be applied as soon as possible. Really apologises for your inconvenience. And, this setting is not forward compatible. All synchronised devices must be updated to v0.25.0 or higher. Rebuilds are not required and will be converted from the new transfer to the new format, However, it is recommended to rebuild whenever possible.",
+    },
     "Enable advanced features": {
         def: "Enable advanced features",
         es: "Habilitar características avanzadas",

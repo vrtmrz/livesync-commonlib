@@ -43,6 +43,10 @@ export interface LiveSyncTrysteroReplicatorEnv extends LiveSyncReplicatorEnv {
 export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     // env: LiveSyncTrysteroReplicatorEnv;
 
+    // NOTE: This is not used for P2P synchronisation. just for the sake of interface compatibility.
+    getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array> {
+        return Promise.resolve(new Uint8Array(32));
+    }
     terminateSync(): void {
         // return Promise.resolve();
         // throw new Error("Method not implemented.");

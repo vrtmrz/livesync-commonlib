@@ -16,6 +16,11 @@ import {
     type DocumentID,
     type TweakValues,
     type CouchDBCredentials,
+    type SyncParameters,
+    type DatabaseEntry,
+    DOCID_SYNC_PARAMETERS,
+    DEFAULT_SYNC_PARAMETERS,
+    ProtocolVersions,
 } from "../../common/types.ts";
 import {
     resolveWithIgnoreKnownError,
@@ -28,7 +33,8 @@ import {
     parseHeaderValues,
 } from "../../common/utils.ts";
 import { Logger } from "../../common/logger.ts";
-import { checkRemoteVersion, preprocessOutgoing } from "../../pouchdb/utils_couchdb.ts";
+import { checkRemoteVersion } from "../../pouchdb/negotiation.ts";
+import { preprocessOutgoing } from "../../pouchdb/encryption.ts";
 
 import { ensureDatabaseIsCompatible } from "../../pouchdb/LiveSyncDBFunctions.ts";
 import {
@@ -42,7 +48,7 @@ import { Trench } from "octagonal-wheels/memory/memutil";
 import { promiseWithResolver } from "octagonal-wheels/promises";
 import { Inbox, NOT_AVAILABLE } from "octagonal-wheels/bureau/Inbox";
 import { $msg } from "../../common/i18n.ts";
-
+import { clearHandlers, createSyncParamsHanderForServer } from "../SyncParamsHandler.ts";
 const currentVersionRange: ChunkVersionRange = {
     min: 0,
     max: 2400,
@@ -128,7 +134,8 @@ export interface LiveSyncCouchDBReplicatorEnv extends LiveSyncReplicatorEnv {
         skipInfo: boolean,
         enableCompression: boolean,
         customHeaders: Record<string, string>,
-        useRequestAPI: boolean
+        useRequestAPI: boolean,
+        getPBKDF2Salt: () => Promise<Uint8Array>
     ): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }>;
     $$getSimpleStore<T>(kind: string): SimpleStore<T>;
 }
@@ -160,6 +167,45 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         this.env.getDatabase().on("close", () => {
             this.closeReplication();
         });
+    }
+
+    getInitialSyncParameters(setting: RemoteDBSettings): Promise<SyncParameters> {
+        // TODO: Switch to select protocolVersion based on the setting.
+        return Promise.resolve({
+            ...DEFAULT_SYNC_PARAMETERS,
+            protocolVersion: ProtocolVersions.ADVANCED_E2EE,
+        } satisfies SyncParameters);
+    }
+    async getSyncParameters(setting: RemoteDBSettings): Promise<SyncParameters> {
+        try {
+            const downloadedSyncParams = await this.fetchRemoteDocument<SyncParameters>(setting, DOCID_SYNC_PARAMETERS);
+            if (!downloadedSyncParams) {
+                throw new Error("Missing sync parameters");
+            }
+            return downloadedSyncParams;
+        } catch (ex) {
+            Logger(`Could not retrieve remote sync parameters`, LOG_LEVEL_INFO);
+            throw ex;
+        }
+    }
+    async putSyncParameters(setting: RemoteDBSettings, params: SyncParameters): Promise<boolean> {
+        try {
+            const ret = await this.putRemoteDocument<SyncParameters>(setting, params);
+            return ret !== false;
+        } catch (ex) {
+            Logger(`Could not store remote sync parameters`, LOG_LEVEL_INFO);
+            throw ex;
+        }
+    }
+
+    override async getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array> {
+        const server = `${setting.couchDB_URI}/${setting.couchDB_DBNAME}`;
+        const manager = createSyncParamsHanderForServer(server, {
+            put: (params: SyncParameters) => this.putSyncParameters(setting, params),
+            get: () => this.getSyncParameters(setting),
+            create: () => this.getInitialSyncParameters(setting),
+        });
+        return await manager.getPBKDF2Salt(refresh);
     }
 
     // eslint-disable-next-line require-await
@@ -464,6 +510,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             }
             remoteDB = d.db;
         }
+        // To create salt
+        await this.checkReplicationConnectivity(setting, false, false, false, false);
         Logger(`Bulk sending chunks to remote database...`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
         const remoteMilestone = await remoteDB.get(MILESTONE_DOCID);
         const remoteID = (remoteMilestone as any)?.created;
@@ -627,6 +675,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         syncMode: "sync" | "pullOnly" | "pushOnly",
         ignoreCleanLock = false
     ): Promise<boolean> {
+        if ((await this.ensurePBKDF2Salt(setting, showResult, retrying)) === false) {
+            return false;
+        }
         const next = await shareRunningResult("oneShotReplication", async () => {
             if (this.controller) {
                 Logger(
@@ -960,12 +1011,18 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             Logger($msg("liveSyncReplicator.remoteDbDestroyError"), LOG_LEVEL_NOTICE);
             Logger(ex, LOG_LEVEL_NOTICE);
         }
+        // Recreate salt
+        clearHandlers();
+        await this.ensurePBKDF2Salt(setting, true);
     }
     async tryCreateRemoteDatabase(setting: RemoteDBSettings) {
         this.closeReplication();
         const con2 = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
 
         if (typeof con2 === "string") return;
+        // Recreate salt
+        clearHandlers();
+        await this.ensurePBKDF2Salt(setting, true);
         Logger($msg("liveSyncReplicator.remoteDbCreatedOrConnected"), LOG_LEVEL_NOTICE);
     }
     async markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean) {
@@ -1079,8 +1136,44 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             skipInfo,
             settings.enableCompression,
             customHeaders,
-            settings.useRequestAPI
+            settings.useRequestAPI,
+            async () => await this.getReplicationPBKDF2Salt(settings, !skipInfo)
         );
+    }
+    async _ensureConnection<T extends DatabaseEntry>(settings: RemoteDBSettings) {
+        const ret = await this.connectRemoteCouchDBWithSetting(settings, this.env.$$isMobile(), false, true);
+        if (typeof ret === "string") {
+            throw new Error(`${$msg("liveSyncReplicator.couldNotConnectToServer")}:${ret}`);
+        }
+        return ret.db as unknown as PouchDB.Database<T>;
+    }
+    async fetchRemoteDocument<T extends DatabaseEntry>(
+        settings: RemoteDBSettings,
+        id: string,
+        db?: PouchDB.Database<T>
+    ): Promise<false | T> {
+        try {
+            const connDB = db ?? (await this._ensureConnection(settings));
+            return await connDB.get(id);
+        } catch (ex) {
+            Logger(`Could not retrieve remote document ${id}`, LOG_LEVEL_INFO);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+    }
+    async putRemoteDocument<T extends DatabaseEntry>(
+        settings: RemoteDBSettings,
+        doc: T,
+        db?: PouchDB.Database<T>
+    ): Promise<false | PouchDB.Core.Response> {
+        try {
+            const connDB = db ?? (await this._ensureConnection(settings));
+            return await connDB.put(doc);
+        } catch (ex) {
+            Logger(`Could not put remote document ${doc._id}`, LOG_LEVEL_INFO);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            return false;
+        }
     }
 
     async fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]> {

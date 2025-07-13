@@ -1,6 +1,7 @@
 import { isCloudantURI } from "../pouchdb/utils_couchdb";
+import { $msg } from "./i18n";
 import { Logger } from "./logger";
-import { ChunkAlgorithmNames, type ObsidianLiveSyncSettings } from "./types";
+import { ChunkAlgorithmNames, E2EEAlgorithmNames, E2EEAlgorithms, type ObsidianLiveSyncSettings } from "./types";
 
 enum ConditionType {
     PLATFORM_CASE_INSENSITIVE = "platform-case-insensitive",
@@ -21,10 +22,12 @@ type BaseRule<TType extends string, TValue> = {
     requireRebuildLocal?: boolean;
     recommendRebuild?: boolean;
     reason?: string;
+    reasonFunc?: (settings: Partial<ObsidianLiveSyncSettings>) => string;
     condition?: ConditionType[];
     detectionFunc?: (settings: Partial<ObsidianLiveSyncSettings>) => boolean;
     value?: TValue;
     valueDisplay?: string;
+    valueDisplayFunc?: (settings: Partial<ObsidianLiveSyncSettings>) => string;
     obsoleteValues?: TValue[];
 };
 
@@ -153,7 +156,21 @@ export const DoctorRegulationV0_24_30: DoctorRegulation = {
         },
     },
 };
-export const DoctorRegulation = DoctorRegulationV0_24_30;
+
+export const DoctorRegulationV0_25_0: DoctorRegulation = {
+    version: "0.25.0",
+    rules: {
+        ...DoctorRegulationV0_24_30.rules,
+        E2EEAlgorithm: {
+            value: E2EEAlgorithms.V2,
+            valueDisplay: E2EEAlgorithmNames[E2EEAlgorithms.V2],
+            level: RuleLevel.Recommended,
+            reasonFunc: (_) => $msg("Doctor.RULES.E2EE_V02500.REASON"),
+        },
+    },
+} as const;
+
+export const DoctorRegulation = DoctorRegulationV0_25_0;
 
 export function checkUnsuitableValues(
     setting: Partial<ObsidianLiveSyncSettings>,

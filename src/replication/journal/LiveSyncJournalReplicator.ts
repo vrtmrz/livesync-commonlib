@@ -64,6 +64,10 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
 
     _client!: JournalSyncMinio;
 
+    override async getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array> {
+        return await this._client.getReplicationPBKDF2Salt(refresh);
+    }
+
     setupJournalSyncClient() {
         const settings = this.env.getSettings();
         const id = settings.accessKey;
@@ -249,6 +253,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     async tryCreateRemoteDatabase(setting: RemoteDBSettings) {
         this.closeReplication();
         Logger("Remote Database Created or Connected", LOG_LEVEL_NOTICE);
+        await this.ensurePBKDF2Salt(setting, true);
         return await Promise.resolve();
     }
     async markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean) {
