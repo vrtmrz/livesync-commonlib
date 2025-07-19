@@ -2429,6 +2429,18 @@ export const _allMessages = {
         def: "How do you want to fetch?",
         ko: "어떻게 가져오시겠습니까?",
     },
+    "RedFlag.FetchRemoteConfig.Buttons.Cancel": {
+        def: "No, use local settings",
+    },
+    "RedFlag.FetchRemoteConfig.Buttons.Fetch": {
+        def: "Yes, fetch and apply remote settings",
+    },
+    "RedFlag.FetchRemoteConfig.Message": {
+        def: "Do you want to fetch and apply remotely stored preference settings to the device?",
+    },
+    "RedFlag.FetchRemoteConfig.Title": {
+        def: "Fetch Remote Configuration",
+    },
     "Reducing the frequency with which on-disk changes are reflected into the DB": {
         def: "Reducing the frequency with which on-disk changes are reflected into the DB",
         es: "Reducir frecuencia de actualizaciones de disco a BD",
@@ -2627,6 +2639,54 @@ export const _allMessages = {
     "SettingTab.Message.AskRebuild": {
         def: "Your changes require fetching from the remote database. Do you want to proceed?",
         ko: "변경 사항을 적용하려면 원격 데이터베이스에서 가져와야 합니다. 계속 진행하시겠습니까?",
+    },
+    "Setup.Apply.Buttons.ApplyAndFetch": {
+        def: "Apply and Fetch",
+    },
+    "Setup.Apply.Buttons.ApplyAndMerge": {
+        def: "Apply and Merge",
+    },
+    "Setup.Apply.Buttons.ApplyAndRebuild": {
+        def: "Apply and Rebuild",
+    },
+    "Setup.Apply.Buttons.Cancel": {
+        def: "Discard and Cancel",
+    },
+    "Setup.Apply.Buttons.OnlyApply": {
+        def: "Only Apply",
+    },
+    "Setup.Apply.Message": {
+        def: "The new configuration is ready. Let us proceed to apply it.\nThere are several ways to apply this:\n\n- Apply and Fetch\n  Configure this device as a new client. After applying, synchronise from the remote server.\n- Apply and Merge\n  Configure on a device that already has the file. It processes the local files and transfers the differences. Conflicts may arise.\n- Apply and Rebuild\n  Rebuild the remote using local files. This is typically done if the server becomes corrupted or we wish to start from scratch.\n  Other devices will be locked and required to re-fetch.\n- Only Apply\n  Apply only. Conflicts may arise if a rebuild is required.",
+    },
+    "Setup.Apply.Title": {
+        def: "Apply new configuration from the ${method}",
+    },
+    "Setup.Apply.WarningRebuildRecommended": {
+        def: "NOTE: after adjusting the settings, it has been determined that a rebuild is required; Just Import is not recommended.",
+    },
+    "Setup.Doctor.Buttons.No": {
+        def: "No, please use the settings in the URI as is",
+    },
+    "Setup.Doctor.Buttons.Yes": {
+        def: "Yes, please consult the doctor",
+    },
+    "Setup.Doctor.Message": {
+        def: "Self-hosted LiveSync has gradually become longer in history and some recommended settings have changed.\n\nNow, setup is a very good time to do this.\n\nDo you want to run Doctor to check if the imported settings are optimal compared to the latest state?",
+    },
+    "Setup.Doctor.Title": {
+        def: "Do you want to consult the doctor?",
+    },
+    "Setup.FetchRemoteConf.Buttons.Fetch": {
+        def: "Yes, please fetch the configuration",
+    },
+    "Setup.FetchRemoteConf.Buttons.Skip": {
+        def: "No, please use the settings in the URI",
+    },
+    "Setup.FetchRemoteConf.Message": {
+        def: "If we have already synchronised once with another device, the remote database stores the suitable configuration values between the synchronised devices. The plug-in would like to retrieve them for robust configuration.\n\nHowever, we have to make sure the one thing. Are we currently in a situation where we can access the network safely and retrieve the settings?\n\nNote: Mostly, you are safe to do this, that your remote database is hosted with a SSL certificate, and your network is not compromised.",
+    },
+    "Setup.FetchRemoteConf.Title": {
+        def: "Fetch configuration from remote database?",
     },
     "Setup.QRCode": {
         def: 'We have generated a QR code to transfer the settings. Please scan the QR code with your phone or other device.\nNote: The QR code is not encrypted, so be careful to open this.\n\n>[!FOR YOUR EYES ONLY]-\n> <div class="sls-qr">${qr_image}</div>',

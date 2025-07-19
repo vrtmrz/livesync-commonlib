@@ -1,6 +1,8 @@
+import type { Confirm } from "../interfaces/Confirm";
 import { isCloudantURI } from "../pouchdb/utils_couchdb";
 import { $msg } from "./i18n";
-import { Logger } from "./logger";
+import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "./logger";
+import { getConfName, type AllSettingItemKey } from "./settingConstants";
 import { ChunkAlgorithmNames, E2EEAlgorithmNames, E2EEAlgorithms, type ObsidianLiveSyncSettings } from "./types";
 
 enum ConditionType {
@@ -207,4 +209,190 @@ export function checkUnsuitableValues(
         Logger(`Rule violation: ${key} is ${value} but should be ${rule.value}`);
     }
     return result;
+}
+
+export const RebuildOptions = {
+    AutomaticAcceptable: 0,
+    ConfirmIfRequired: 1,
+    SkipEvenIfRequired: 2,
+} as const;
+export type RebuildOptionsType = (typeof RebuildOptions)[keyof typeof RebuildOptions];
+export type DoctorOptions = {
+    localRebuild: RebuildOptionsType;
+    remoteRebuild: RebuildOptionsType;
+    activateReason?: string;
+    forceRescan?: boolean;
+};
+
+export type DoctorResult = {
+    settings: ObsidianLiveSyncSettings;
+    shouldRebuild: boolean;
+    shouldRebuildLocal: boolean;
+    isModified: boolean;
+};
+export type HasConfirm = {
+    confirm: Confirm;
+};
+
+export async function performDoctorConsultation(
+    env: HasConfirm,
+    settings: ObsidianLiveSyncSettings,
+    {
+        localRebuild = RebuildOptions.ConfirmIfRequired,
+        remoteRebuild = RebuildOptions.ConfirmIfRequired,
+        activateReason = "updated",
+        forceRescan = false,
+    }: DoctorOptions
+): Promise<DoctorResult> {
+    let shouldRebuild = false;
+    let shouldRebuildLocal = false;
+    let isModified = false;
+    function getResult(): DoctorResult {
+        return {
+            settings,
+            shouldRebuild,
+            shouldRebuildLocal,
+            isModified,
+        };
+    }
+
+    const r = checkUnsuitableValues(settings);
+    if (!forceRescan && r.version == settings.doctorProcessedVersion) {
+        const isIssueFound = Object.keys(r.rules).length > 0;
+        const msg = isIssueFound ? "Issues found" : "No issues found";
+        Logger(`${msg} but marked as to be silent`, LOG_LEVEL_VERBOSE);
+        return getResult();
+    }
+    const issues = Object.entries(r.rules);
+    if (issues.length == 0) {
+        Logger($msg("Doctor.Message.NoIssues"), activateReason !== "updated" ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+        return getResult();
+    } else {
+        const OPT_YES = `${$msg("Doctor.Button.Yes")}` as const;
+        const OPT_NO = `${$msg("Doctor.Button.No")}` as const;
+        const OPT_DISMISS = `${$msg("Doctor.Button.DismissThisVersion")}` as const;
+        // this._log(`Issues found in ${key}`, LOG_LEVEL_VERBOSE);
+        const issues = Object.keys(r.rules)
+            .map((key) => `- ${getConfName(key as AllSettingItemKey)}`)
+            .join("\n");
+        const msg = await env.confirm.askSelectStringDialogue(
+            $msg("Doctor.Dialogue.Main", { activateReason, issues }),
+            [OPT_YES, OPT_NO, OPT_DISMISS],
+            {
+                title: $msg("Doctor.Dialogue.Title"),
+                defaultAction: OPT_YES,
+            }
+        );
+        if (msg == OPT_DISMISS) {
+            settings.doctorProcessedVersion = r.version;
+            // await this.core.saveSettings();
+            isModified = true;
+            Logger("Marked as to be silent", LOG_LEVEL_VERBOSE);
+            return {
+                settings,
+                shouldRebuild,
+                shouldRebuildLocal,
+                isModified,
+            };
+        }
+        if (msg != OPT_YES) return getResult();
+        const issueItems = Object.entries(r.rules) as [keyof ObsidianLiveSyncSettings, RuleForType<any>][];
+        Logger(`${issueItems.length} Issue(s) found `, LOG_LEVEL_VERBOSE);
+        let idx = 0;
+        const applySettings = {} as Partial<ObsidianLiveSyncSettings>;
+        const OPT_FIX = `${$msg("Doctor.Button.Fix")}` as const;
+        const OPT_SKIP = `${$msg("Doctor.Button.Skip")}` as const;
+        const OPTION_FIX_WITHOUT_REBUILD = `${$msg("Doctor.Button.FixButNoRebuild")}` as const;
+        let skipped = 0;
+        for (const [key, value] of issueItems) {
+            const levelMap = {
+                [RuleLevel.Necessary]: $msg("Doctor.Level.Necessary"),
+                [RuleLevel.Recommended]: $msg("Doctor.Level.Recommended"),
+                [RuleLevel.Optional]: $msg("Doctor.Level.Optional"),
+                [RuleLevel.Must]: $msg("Doctor.Level.Must"),
+            };
+            const level = value.level ? levelMap[value.level] : "Unknown";
+            const options = [OPT_FIX] as [typeof OPT_FIX | typeof OPT_SKIP | typeof OPTION_FIX_WITHOUT_REBUILD];
+            let askRebuild = false;
+            let askRebuildLocal = false;
+            if (value.requireRebuild) {
+                if (remoteRebuild == RebuildOptions.AutomaticAcceptable) {
+                    askRebuild = false;
+                    shouldRebuild = true;
+                } else if (remoteRebuild == RebuildOptions.ConfirmIfRequired) {
+                    askRebuild = true;
+                } else if (remoteRebuild == RebuildOptions.SkipEvenIfRequired) {
+                    askRebuild = false;
+                    shouldRebuild = false;
+                }
+            }
+            if (value.requireRebuildLocal) {
+                if (localRebuild == RebuildOptions.AutomaticAcceptable) {
+                    askRebuildLocal = false;
+                    shouldRebuildLocal = true;
+                } else if (localRebuild == RebuildOptions.ConfirmIfRequired) {
+                    askRebuildLocal = true;
+                } else if (localRebuild == RebuildOptions.SkipEvenIfRequired) {
+                    askRebuildLocal = false;
+                    shouldRebuildLocal = false;
+                }
+            }
+            if (askRebuild || askRebuildLocal) {
+                options.push(OPTION_FIX_WITHOUT_REBUILD);
+            }
+            options.push(OPT_SKIP);
+            const note = `${askRebuild ? $msg("Doctor.Message.RebuildRequired") : ""}${askRebuildLocal ? $msg("Doctor.Message.RebuildLocalRequired") : ""}`;
+
+            const ret = await env.confirm.askSelectStringDialogue(
+                $msg("Doctor.Dialogue.MainFix", {
+                    name: getConfName(key as AllSettingItemKey),
+                    current: `${settings[key]}`,
+                    reason: value.reasonFunc?.(settings) ?? value.reason ?? " N/A ",
+                    ideal: `${value.valueDisplayFunc ? value.valueDisplayFunc(settings) : value.value}`,
+                    //@ts-ignore
+                    level: `${level}`,
+                    note: note,
+                }),
+                options,
+                {
+                    title: $msg("Doctor.Dialogue.TitleFix", { current: `${++idx}`, total: `${issueItems.length}` }),
+                    defaultAction: OPT_FIX,
+                }
+            );
+
+            if (ret == OPT_FIX || ret == OPTION_FIX_WITHOUT_REBUILD) {
+                //@ts-ignore
+                applySettings[key] = value.value;
+                if (ret == OPT_FIX) {
+                    shouldRebuild = shouldRebuild || askRebuild || false;
+                    shouldRebuildLocal = shouldRebuildLocal || askRebuildLocal || false;
+                }
+                isModified = true;
+            } else {
+                skipped++;
+            }
+        }
+        if (Object.keys(applySettings).length > 0) {
+            settings = {
+                ...settings,
+                ...applySettings,
+            };
+        }
+        if (skipped == 0) {
+            settings.doctorProcessedVersion = r.version;
+            isModified = true;
+        } else {
+            if (
+                (await env.confirm.askYesNoDialog($msg("Doctor.Message.SomeSkipped"), {
+                    title: $msg("Doctor.Dialogue.TitleAlmostDone"),
+                    defaultOption: "No",
+                })) == "no"
+            ) {
+                // Some skipped, and user wants
+                settings.doctorProcessedVersion = r.version;
+                isModified = true;
+            }
+        }
+    }
+    return getResult();
 }

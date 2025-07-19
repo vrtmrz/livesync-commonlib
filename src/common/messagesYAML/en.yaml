@@ -845,6 +845,13 @@ RedFlag:
       FetchSmoother: Create local file chunks before fetching
       FetchTraditional: Fetch everything from the remote
       Title: How do you want to fetch?
+  FetchRemoteConfig:
+    Message: |-
+      Do you want to fetch and apply remotely stored preference settings to the device?
+    Title: Fetch Remote Configuration
+    Buttons:
+      Fetch: Yes, fetch and apply remote settings
+      Cancel: No, use local settings
 Reducing the frequency with which on-disk changes are reflected into the DB: Reducing the frequency with which on-disk changes are reflected into the DB
 Region: Region
 Remote server type: Remote server type
@@ -992,6 +999,51 @@ Setup:
   ShowQRCode:
     _value: Show QR code
     Desc: Show QR code to transfer the settings.
+  Apply:
+    Title: Apply new configuration from the ${method}
+    Message: |-
+      The new configuration is ready. Let us proceed to apply it.
+      There are several ways to apply this:
+
+      - Apply and Fetch
+        Configure this device as a new client. After applying, synchronise from the remote server.
+      - Apply and Merge
+        Configure on a device that already has the file. It processes the local files and transfers the differences. Conflicts may arise.
+      - Apply and Rebuild
+        Rebuild the remote using local files. This is typically done if the server becomes corrupted or we wish to start from scratch.
+        Other devices will be locked and required to re-fetch.
+      - Only Apply
+        Apply only. Conflicts may arise if a rebuild is required.
+    WarningRebuildRecommended: >-
+      NOTE: after adjusting the settings, it has been determined that a rebuild is required; Just Import is not recommended.
+    Buttons:
+      ApplyAndFetch: Apply and Fetch
+      ApplyAndMerge: Apply and Merge
+      ApplyAndRebuild: Apply and Rebuild
+      OnlyApply: Only Apply
+      Cancel: Discard and Cancel
+  FetchRemoteConf:
+    Message: |-
+      If we have already synchronised once with another device, the remote database stores the suitable configuration values between the synchronised devices. The plug-in would like to retrieve them for robust configuration.
+
+      However, we have to make sure the one thing. Are we currently in a situation where we can access the network safely and retrieve the settings?
+
+      Note: Mostly, you are safe to do this, that your remote database is hosted with a SSL certificate, and your network is not compromised.
+    Buttons:
+      Fetch: Yes, please fetch the configuration
+      Skip: No, please use the settings in the URI
+    Title: Fetch configuration from remote database?
+  Doctor:
+    Buttons:
+      Yes: Yes, please consult the doctor
+      No: No, please use the settings in the URI as is
+    Title: Do you want to consult the doctor?
+    Message: |-
+      Self-hosted LiveSync has gradually become longer in history and some recommended settings have changed.
+
+      Now, setup is a very good time to do this.
+
+      Do you want to run Doctor to check if the imported settings are optimal compared to the latest state?
 Should we keep folders that don't have any files inside?: Should we keep folders that don't have any files inside?
 Should we only check for conflicts when a file is opened?: Should we only check for conflicts when a file is opened?
 Should we prompt you about conflicting files when a file is opened?: Should we prompt you about conflicting files when a file is opened?
