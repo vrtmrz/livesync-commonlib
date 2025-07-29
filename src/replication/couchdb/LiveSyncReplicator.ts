@@ -48,7 +48,13 @@ import { Trench } from "octagonal-wheels/memory/memutil";
 import { promiseWithResolver } from "octagonal-wheels/promises";
 import { Inbox, NOT_AVAILABLE } from "octagonal-wheels/bureau/Inbox";
 import { $msg } from "../../common/i18n.ts";
-import { clearHandlers, createSyncParamsHanderForServer } from "../SyncParamsHandler.ts";
+import {
+    clearHandlers,
+    createSyncParamsHanderForServer,
+    SyncParamsFetchError,
+    SyncParamsNotFoundError,
+    SyncParamsUpdateError,
+} from "../SyncParamsHandler.ts";
 const currentVersionRange: ChunkVersionRange = {
     min: 0,
     max: 2400,
@@ -176,25 +182,30 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             protocolVersion: ProtocolVersions.ADVANCED_E2EE,
         } satisfies SyncParameters);
     }
+
     async getSyncParameters(setting: RemoteDBSettings): Promise<SyncParameters> {
         try {
             const downloadedSyncParams = await this.fetchRemoteDocument<SyncParameters>(setting, DOCID_SYNC_PARAMETERS);
             if (!downloadedSyncParams) {
-                throw new Error("Missing sync parameters");
+                throw new SyncParamsNotFoundError(`Sync parameters not found on remote server`);
             }
             return downloadedSyncParams;
         } catch (ex) {
             Logger(`Could not retrieve remote sync parameters`, LOG_LEVEL_INFO);
-            throw ex;
+            throw SyncParamsFetchError.fromError(ex);
         }
     }
     async putSyncParameters(setting: RemoteDBSettings, params: SyncParameters): Promise<boolean> {
         try {
             const ret = await this.putRemoteDocument<SyncParameters>(setting, params);
-            return ret !== false;
+            if (ret.ok) {
+                return true;
+            } else {
+                throw new SyncParamsUpdateError(`Could not store remote sync parameters: ${JSON.stringify(ret)}`);
+            }
         } catch (ex) {
             Logger(`Could not store remote sync parameters`, LOG_LEVEL_INFO);
-            throw ex;
+            throw SyncParamsUpdateError.fromError(ex);
         }
     }
 
@@ -675,7 +686,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         syncMode: "sync" | "pullOnly" | "pushOnly",
         ignoreCleanLock = false
     ): Promise<boolean> {
-        if ((await this.ensurePBKDF2Salt(setting, showResult, retrying)) === false) {
+        if ((await this.ensurePBKDF2Salt(setting, showResult, !retrying)) === false) {
             return false;
         }
         const next = await shareRunningResult("oneShotReplication", async () => {
@@ -1013,7 +1024,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
         // Recreate salt
         clearHandlers();
-        await this.ensurePBKDF2Salt(setting, true);
+        await this.ensurePBKDF2Salt(setting, true, false);
     }
     async tryCreateRemoteDatabase(setting: RemoteDBSettings) {
         this.closeReplication();
@@ -1022,7 +1033,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         if (typeof con2 === "string") return;
         // Recreate salt
         clearHandlers();
-        await this.ensurePBKDF2Salt(setting, true);
+        await this.ensurePBKDF2Salt(setting, true, false);
         Logger($msg("liveSyncReplicator.remoteDbCreatedOrConnected"), LOG_LEVEL_NOTICE);
     }
     async markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean) {
@@ -1137,7 +1148,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             settings.enableCompression,
             customHeaders,
             settings.useRequestAPI,
-            async () => await this.getReplicationPBKDF2Salt(settings, !skipInfo)
+            async () => await this.getReplicationPBKDF2Salt(settings)
         );
     }
     async _ensureConnection<T extends DatabaseEntry>(settings: RemoteDBSettings) {
@@ -1147,33 +1158,45 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
         return ret.db as unknown as PouchDB.Database<T>;
     }
+
+    /**
+     * Fetch a document from the remote database directly.
+     * @param settings RemoteDBSettings for the connection.
+     * @param id Document ID to fetch.
+     * @param db Optional PouchDB instance to use. If provided, it will use this instance instead of creating a new connection (then settings will be ignored).
+     * @returns The fetched document or false if the document does not exist.
+     * @throws {Error} Other errors that may occur during the fetch operation.
+     */
     async fetchRemoteDocument<T extends DatabaseEntry>(
         settings: RemoteDBSettings,
         id: string,
         db?: PouchDB.Database<T>
-    ): Promise<false | T> {
+    ): Promise<T | false> {
         try {
             const connDB = db ?? (await this._ensureConnection(settings));
             return await connDB.get(id);
-        } catch (ex) {
-            Logger(`Could not retrieve remote document ${id}`, LOG_LEVEL_INFO);
-            Logger(ex, LOG_LEVEL_VERBOSE);
-            return false;
+        } catch (ex: any) {
+            if ("status" in ex && ex.status == 404) {
+                return false;
+            }
+            throw ex;
         }
     }
+    /**
+     * Puts a document to the remote database directly
+     * @param settings RemoteDBSettings for the connection.
+     * @param doc Document to put.
+     * @param db Optional PouchDB instance to use. If provided, it will use this instance instead of creating a new connection (then settings will be ignored).
+     * @returns Response from the remote database or false if an error occurred.
+     * @throws {Error} If the document could not be put.
+     */
     async putRemoteDocument<T extends DatabaseEntry>(
         settings: RemoteDBSettings,
         doc: T,
         db?: PouchDB.Database<T>
-    ): Promise<false | PouchDB.Core.Response> {
-        try {
-            const connDB = db ?? (await this._ensureConnection(settings));
-            return await connDB.put(doc);
-        } catch (ex) {
-            Logger(`Could not put remote document ${doc._id}`, LOG_LEVEL_INFO);
-            Logger(ex, LOG_LEVEL_VERBOSE);
-            return false;
-        }
+    ): Promise<PouchDB.Core.Response> {
+        const connDB = db ?? (await this._ensureConnection(settings));
+        return await connDB.put(doc);
     }
 
     async fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]> {

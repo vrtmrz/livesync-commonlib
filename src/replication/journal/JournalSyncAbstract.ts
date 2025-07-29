@@ -30,9 +30,12 @@ import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicator.t
 import { Trench } from "../../memory/memutil.ts";
 import { Notifier } from "../../concurrency/processor.ts";
 import { globalSlipBoard } from "../../bureau/bureau.ts";
-import { createPBKDF2Salt } from "octagonal-wheels/encryption/hkdf";
-import { arrayBufferToBase64Single } from "../../string_and_binary/convert.ts";
-import { clearHandlers } from "../SyncParamsHandler.ts";
+import {
+    clearHandlers,
+    SyncParamsFetchError,
+    SyncParamsNotFoundError,
+    SyncParamsUpdateError,
+} from "../SyncParamsHandler.ts";
 const RECORD_SPLIT = `\n`;
 const UNIT_SPLIT = `\u001f`;
 type ProcessingEntry = PouchDB.Core.PutDocument<EntryDoc> & PouchDB.Core.GetMeta;
@@ -66,36 +69,36 @@ export abstract class JournalSyncAbstract {
     trench: Trench;
     notifier = new Notifier();
 
-    async getInitialSyncParameters(): Promise<SyncParameters> {
-        const newSaltBin = createPBKDF2Salt();
-        const salt = await arrayBufferToBase64Single(newSaltBin);
-        return {
+    getInitialSyncParameters(): Promise<SyncParameters> {
+        return Promise.resolve({
             ...DEFAULT_SYNC_PARAMETERS,
             protocolVersion: ProtocolVersions.ADVANCED_E2EE,
-            pbkdf2salt: salt,
-        } satisfies SyncParameters;
+            pbkdf2salt: "",
+        } satisfies SyncParameters);
     }
 
     async getSyncParameters(): Promise<SyncParameters> {
         try {
             const downloadedSyncParams = await this.downloadJson<SyncParameters>(DOCID_JOURNAL_SYNC_PARAMETERS);
             if (!downloadedSyncParams) {
-                throw new Error("Missing sync parameters");
+                throw new SyncParamsNotFoundError(`Missing sync parameters`);
             }
             return downloadedSyncParams;
         } catch (ex) {
             Logger(`Could not retrieve remote sync parameters`, LOG_LEVEL_INFO);
-            throw ex;
+            throw SyncParamsFetchError.fromError(ex);
         }
     }
     async putSyncParameters(params: SyncParameters): Promise<boolean> {
         try {
-            await this.uploadJson(DOCID_JOURNAL_SYNC_PARAMETERS, params);
-            return true;
+            if (await this.uploadJson(DOCID_JOURNAL_SYNC_PARAMETERS, params)) {
+                return true;
+            }
+            throw new SyncParamsUpdateError(`Could not store remote sync parameters`);
         } catch (ex) {
             Logger(`Could not upload sync parameters`, LOG_LEVEL_INFO);
             Logger(ex, LOG_LEVEL_VERBOSE);
-            return false;
+            throw SyncParamsUpdateError.fromError(ex);
         }
     }
 

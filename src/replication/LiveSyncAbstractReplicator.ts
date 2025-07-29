@@ -11,7 +11,7 @@ import {
 } from "../common/types.ts";
 
 import type { ReactiveSource } from "../dataobject/reactive.ts";
-import { LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
+import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
 import { resolveWithIgnoreKnownError, type SimpleStore } from "../common/utils.ts";
 import type { KeyValueDatabase } from "src/common/KeyValueDB.ts";
 import { arrayBufferToBase64Single } from "../string_and_binary/convert.ts";
@@ -65,16 +65,22 @@ export abstract class LiveSyncAbstractReplicator {
     async ensurePBKDF2Salt(
         setting: RemoteDBSettings,
         showMessage: boolean = false,
-        useCache: boolean = false
+        useCache: boolean = true
     ): Promise<boolean> {
         // Checking salt
-        const hash = await this.getReplicationPBKDF2Salt(setting, !useCache);
-        if (hash.length == 0) {
-            Logger("Failed to get PBKDF2 salt for replication.");
+        try {
+            const hash = await this.getReplicationPBKDF2Salt(setting, !useCache);
+            if (hash.length == 0) {
+                throw new Error("PBKDF2 salt (Security Seed) is empty");
+            }
+            Logger(`PBKDF2 salt (Security Seed): ${await arrayBufferToBase64Single(hash)}`, LOG_LEVEL_VERBOSE);
+            return true;
+        } catch (ex) {
+            const level = showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
+            Logger(`Failed to obtain PBKDF2 salt (Security Seed) for replication`, level);
+            Logger(ex, LOG_LEVEL_VERBOSE);
             return false;
         }
-        Logger(`PBKDF2 salt for replication: ${await arrayBufferToBase64Single(hash)}`, LOG_LEVEL_VERBOSE);
-        return true;
     }
     env: LiveSyncReplicatorEnv;
     async initializeDatabaseForReplication(): Promise<boolean> {

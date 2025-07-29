@@ -41,7 +41,12 @@ import {
 import { createBlob, determineTypeFromBlob } from "../common/utils.ts";
 import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
 import { promiseWithResolver } from "octagonal-wheels/promises";
-import { createSyncParamsHanderForServer } from "../replication/SyncParamsHandler.ts";
+import {
+    createSyncParamsHanderForServer,
+    SyncParamsFetchError,
+    SyncParamsNotFoundError,
+    SyncParamsUpdateError,
+} from "../replication/SyncParamsHandler.ts";
 export type DirectFileManipulatorOptions = {
     url: string;
     username: string;
@@ -151,21 +156,24 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         try {
             const downloadedSyncParams = await this.rawGet<SyncParameters>(DOCID_SYNC_PARAMETERS);
             if (!downloadedSyncParams) {
-                throw new Error("Missing sync parameters");
+                throw new SyncParamsNotFoundError(`Sync parameters have not been found in the database.`);
             }
             return downloadedSyncParams;
         } catch (ex) {
             Logger(`Could not retrieve remote sync parameters`, LOG_LEVEL_INFO);
-            throw ex;
+            throw SyncParamsFetchError.fromError(ex);
         }
     }
     async putSyncParameters(setting: RemoteDBSettings, params: SyncParameters): Promise<boolean> {
         try {
             const ret = await this.liveSyncLocalDB.putRaw(params as unknown as EntryDoc);
-            return ret.ok;
+            if (ret.ok) {
+                return true;
+            }
+            throw new SyncParamsUpdateError(`Could not store remote sync parameters`);
         } catch (ex) {
             Logger(`Could not store remote sync parameters`, LOG_LEVEL_INFO);
-            throw ex;
+            throw SyncParamsUpdateError.fromError(ex);
         }
     }
     async getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array> {

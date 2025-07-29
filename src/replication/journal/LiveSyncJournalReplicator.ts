@@ -26,6 +26,7 @@ import { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import { fireAndForget, type SimpleStore } from "../../common/utils.ts";
 
 import { extractObject } from "../../common/utils.ts";
+import { clearHandlers } from "../SyncParamsHandler.ts";
 
 const MILSTONE_DOCID = "_00000000-milestone.json";
 
@@ -242,6 +243,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         this.closeReplication();
         try {
             await this.client.resetBucket();
+            clearHandlers();
             Logger("Remote Bucket Cleared", LOG_LEVEL_NOTICE);
             await this.tryCreateRemoteDatabase(setting);
         } catch (ex) {
@@ -253,7 +255,8 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     async tryCreateRemoteDatabase(setting: RemoteDBSettings) {
         this.closeReplication();
         Logger("Remote Database Created or Connected", LOG_LEVEL_NOTICE);
-        await this.ensurePBKDF2Salt(setting, true);
+        clearHandlers();
+        await this.ensurePBKDF2Salt(setting, true, false);
         return await Promise.resolve();
     }
     async markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean) {
