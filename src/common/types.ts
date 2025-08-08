@@ -36,7 +36,7 @@ export const MAX_DOC_SIZE_BIN = 102400; // 100kb
 export const VER = 12; // 12 Since 0.25.0, HKDF is used for encryption, so the version is changed to 12.
 
 export const RECENT_MODIFIED_DOCS_QTY = 30;
-export const LEAF_WAIT_TIMEOUT = 90000; // in synchronization, waiting missing leaf time out.
+export const LEAF_WAIT_TIMEOUT = 30000; // in synchronization, waiting missing leaf time out.
 export const REPLICATION_BUSY_TIMEOUT = 3000000;
 
 // Magic Special value for arguments or results.
@@ -547,14 +547,27 @@ export interface BucketSyncSetting {
     bucketPrefix: string;
 }
 
+export interface LocalDBSettings {
+    /**
+     * Indicates whether to use the IndexedDB adapter for the local database.
+     * @deprecated
+     */
+    useIndexedDBAdapter: boolean;
+}
+
 // Remote Type
-export const REMOTE_COUCHDB = "";
-export const REMOTE_MINIO = "MINIO";
+export const RemoteTypes = {
+    REMOTE_COUCHDB: "",
+    REMOTE_MINIO: "MINIO",
+    REMOTE_P2P: "ONLY_P2P",
+} as const;
+export const REMOTE_COUCHDB = RemoteTypes.REMOTE_COUCHDB;
+export const REMOTE_MINIO = RemoteTypes.REMOTE_MINIO;
 
 //
-export const REMOTE_P2P = "ONLY_P2P";
+export const REMOTE_P2P = RemoteTypes.REMOTE_P2P;
 
-export type RemoteType = typeof REMOTE_COUCHDB | typeof REMOTE_MINIO | typeof REMOTE_P2P;
+export type RemoteType = (typeof RemoteTypes)[keyof typeof RemoteTypes];
 
 export enum AutoAccepting {
     NONE = 0,
@@ -658,9 +671,16 @@ interface EncryptionSettings {
      */
     E2EEAlgorithm: E2EEAlgorithm;
 }
-
+export const HashAlgorithms = {
+    XXHASH32: "xxhash32",
+    XXHASH64: "xxhash64",
+    MIXED_PUREJS: "mixed-purejs",
+    SHA1: "sha1",
+    LEGACY: "",
+} as const;
+export type HashAlgorithm = (typeof HashAlgorithms)[keyof typeof HashAlgorithms];
 // Note: xxhash32 is obsolete and not preferred since v0.24.7.
-export type HashAlgorithm = "" | "xxhash32" | "xxhash64" | "mixed-purejs" | "sha1";
+// export type HashAlgorithm = "" | "xxhash32" | "xxhash64" | "mixed-purejs" | "sha1";
 export const ChunkAlgorithmNames = {
     v1: "V1: Legacy",
     v2: "V2: Simple (Default)",
@@ -1036,7 +1056,7 @@ export type RemoteDBSettings = CouchDBConnection &
     DeletedFileMetadataSettings &
     P2PSyncSetting;
 
-export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings;
+export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings & LocalDBSettings;
 
 export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     remoteType: REMOTE_COUCHDB,
@@ -1374,6 +1394,26 @@ export const PREFERRED_JOURNAL_SYNC: Partial<ObsidianLiveSyncSettings> = {
     minimumIntervalOfReadChunksOnline: 25,
 };
 
+export const EntryTypes = {
+    NOTE_LEGACY: "notes",
+    NOTE_BINARY: "newnote",
+    NOTE_PLAIN: "plain",
+    INTERNAL_FILE: "internalfile",
+    CHUNK: "leaf",
+    CHUNK_PACK: "chunkpack",
+    VERSION_INFO: "versioninfo",
+    SYNC_INFO: "syncinfo",
+    SYNC_PARAMETERS: "sync-parameters",
+    MILESTONE_INFO: "milestoneinfo",
+    NODE_INFO: "nodeinfo",
+} as const;
+export const NoteTypes = [EntryTypes.NOTE_LEGACY, EntryTypes.NOTE_BINARY, EntryTypes.NOTE_PLAIN];
+export const ChunkTypes = [EntryTypes.CHUNK, EntryTypes.CHUNK_PACK];
+export type EntryType = (typeof EntryTypes)[keyof typeof EntryTypes];
+export type EntryTypes = typeof EntryTypes;
+export type EntryTypeNotes = EntryTypes["NOTE_BINARY"] | EntryTypes["NOTE_PLAIN"];
+export type EntryTypeNotesWithLegacy = EntryTypeNotes | EntryTypes["NOTE_LEGACY"];
+
 /**
  * Represents an entry in the database.
  */
@@ -1444,7 +1484,7 @@ export type NoteEntry = DatabaseEntry &
         /**
          * The type of the entry.
          */
-        type: "notes";
+        type: EntryTypes["NOTE_LEGACY"];
     };
 
 export type NewEntry = DatabaseEntry &
@@ -1461,7 +1501,7 @@ export type NewEntry = DatabaseEntry &
         /**
          * The type of the entry.
          */
-        type: "newnote";
+        type: EntryTypes["NOTE_BINARY"];
     };
 export type PlainEntry = DatabaseEntry &
     EntryBase &
@@ -1477,7 +1517,7 @@ export type PlainEntry = DatabaseEntry &
         /**
          * The type of the entry.
          */
-        type: "plain";
+        type: EntryTypes["NOTE_PLAIN"];
     };
 
 export type InternalFileEntry = DatabaseEntry &
@@ -1491,11 +1531,11 @@ export type AnyEntry = NoteEntry | NewEntry | PlainEntry | InternalFileEntry;
 
 export type LoadedEntry = AnyEntry & {
     data: string | string[];
-    datatype: "plain" | "newnote";
+    datatype: EntryTypeNotes;
 };
 export type SavingEntry = AnyEntry & {
     data: Blob;
-    datatype: "plain" | "newnote";
+    datatype: EntryTypeNotes;
 };
 
 export type MetaEntry = AnyEntry & {
@@ -1507,19 +1547,19 @@ export function isMetaEntry(entry: AnyEntry): entry is MetaEntry {
 }
 
 export type EntryLeaf = DatabaseEntry & {
-    type: "leaf";
+    type: EntryTypes["CHUNK"];
     data: string;
     isCorrupted?: boolean;
     // received?: boolean;
 };
 
 export type EntryChunkPack = DatabaseEntry & {
-    type: "chunkpack";
+    type: EntryTypes["CHUNK_PACK"];
     data: string; //Record<string, string>;
 };
 
 export interface EntryVersionInfo extends DatabaseEntry {
-    type: "versioninfo";
+    type: EntryTypes["VERSION_INFO"];
     version: number;
 }
 export interface EntryHasPath {
@@ -1788,7 +1828,7 @@ export const DEVICE_ID_PREFERRED = "PREFERRED";
 
 export interface EntryMilestoneInfo extends DatabaseEntry {
     _id: typeof MILESTONE_DOCID;
-    type: "milestoneinfo";
+    type: EntryTypes["MILESTONE_INFO"];
     created: number;
     accepted_nodes: string[];
     locked: boolean;
@@ -1799,7 +1839,7 @@ export interface EntryMilestoneInfo extends DatabaseEntry {
 
 export interface EntryNodeInfo extends DatabaseEntry {
     _id: typeof NODEINFO_DOCID;
-    type: "nodeinfo";
+    type: EntryTypes["NODE_INFO"];
     nodeid: string;
     v20220607?: boolean;
 }
@@ -1845,30 +1885,70 @@ export type Credential = {
 
 export type EntryDocResponse = EntryDoc & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta;
 
-export type DatabaseConnectingStatus =
-    | "STARTED"
-    | "NOT_CONNECTED"
-    | "PAUSED"
-    | "CONNECTED"
-    | "COMPLETED"
-    | "CLOSED"
-    | "ERRORED"
-    | "JOURNAL_SEND"
-    | "JOURNAL_RECEIVE";
+export const DatabaseConnectingStatuses = {
+    STARTED: "STARTED",
+    NOT_CONNECTED: "NOT_CONNECTED",
+    PAUSED: "PAUSED",
+    CONNECTED: "CONNECTED",
+    COMPLETED: "COMPLETED",
+    CLOSED: "CLOSED",
+    ERRORED: "ERRORED",
+    JOURNAL_SEND: "JOURNAL_SEND",
+    JOURNAL_RECEIVE: "JOURNAL_RECEIVE",
+} as const;
+export type DatabaseConnectingStatus = (typeof DatabaseConnectingStatuses)[keyof typeof DatabaseConnectingStatuses];
+
+// export type DatabaseConnectingStatus =
+//     | "STARTED"
+//     | "NOT_CONNECTED"
+//     | "PAUSED"
+//     | "CONNECTED"
+//     | "COMPLETED"
+//     | "CLOSED"
+//     | "ERRORED"
+//     | "JOURNAL_SEND"
+//     | "JOURNAL_RECEIVE";
 
 export const PREFIXMD_LOGFILE = "livesync_log_";
 export const PREFIXMD_LOGFILE_UC = "LIVESYNC_LOG_";
 
-export const FLAGMD_REDFLAG = "redflag.md" as FilePath;
-export const FLAGMD_REDFLAG2 = "redflag2.md" as FilePath;
-export const FLAGMD_REDFLAG2_HR = "flag_rebuild.md" as FilePath;
-export const FLAGMD_REDFLAG3 = "redflag3.md" as FilePath;
-export const FLAGMD_REDFLAG3_HR = "flag_fetch.md" as FilePath;
+export const FlagFilesOriginal = {
+    SUSPEND_ALL: "redflag.md" as FilePath,
+    REBUILD_ALL: "redflag2.md" as FilePath,
+    FETCH_ALL: "redflag3.md" as FilePath,
+} as const;
+
+export const FlagFilesHumanReadable = {
+    REBUILD_ALL: "flag_rebuild.md" as FilePath,
+    FETCH_ALL: "flag_fetch.md" as FilePath,
+} as const;
+
+/**
+ * @deprecated Use `FlagFilesOriginal.SUSPEND_ALL` instead.
+ */
+export const FLAGMD_REDFLAG = FlagFilesOriginal.SUSPEND_ALL;
+/**
+ * @deprecated Use `FlagFilesHumanReadable.REBUILD_ALL` instead.
+ */
+export const FLAGMD_REDFLAG2 = FlagFilesOriginal.REBUILD_ALL;
+/**
+ * @deprecated Use `FlagFilesHumanReadable.FETCH_ALL` instead.
+ */
+export const FLAGMD_REDFLAG2_HR = FlagFilesHumanReadable.REBUILD_ALL;
+/**
+ * @deprecated Use `FlagFilesOriginal.FETCH_ALL` instead.
+ */
+export const FLAGMD_REDFLAG3 = FlagFilesOriginal.FETCH_ALL;
+/**
+ * @deprecated Use `FlagFilesHumanReadable.FETCH_ALL` instead.
+ */
+export const FLAGMD_REDFLAG3_HR = FlagFilesHumanReadable.FETCH_ALL;
+
 export const SYNCINFO_ID = "syncinfo" as DocumentID;
 
 export interface SyncInfo extends DatabaseEntry {
     _id: typeof SYNCINFO_ID;
-    type: "syncinfo";
+    type: EntryTypes["SYNC_INFO"];
     data: string;
 }
 
@@ -1876,8 +1956,22 @@ export const SALT_OF_PASSPHRASE = "rHGMPtr6oWw7VSa3W3wpa8fT8U";
 export const SALT_OF_ID = "a83hrf7f\u0003y7sa8g31";
 export const SEED_MURMURHASH = 0x12345678;
 
+export const IDPrefixes = {
+    Obfuscated: "f:",
+    Chunk: "h:",
+    EncryptedChunk: "h:+",
+};
+/**
+ * @deprecated Use `IDPrefixes.Obfuscated` instead.
+ */
 export const PREFIX_OBFUSCATED = "f:";
+/**
+ * @deprecated Use `IDPrefixes.Chunk` instead.
+ */
 export const PREFIX_CHUNK = "h:";
+/**
+ * @deprecated Use `IDPrefixes.EncryptedChunk` instead.
+ */
 export const PREFIX_ENCRYPTED_CHUNK = "h:+";
 
 export type UXStat = {
@@ -1997,13 +2091,13 @@ export const DOCID_JOURNAL_SYNC_PARAMETERS = "_obsidian_livesync_journal_sync_pa
 export interface SyncParameters extends DatabaseEntry {
     _id: typeof DOCID_SYNC_PARAMETERS;
     _rev?: string;
-    type: "sync-parameters";
+    type: EntryTypes["SYNC_PARAMETERS"];
     protocolVersion: ProtocolVersion;
     pbkdf2salt: string;
 }
 export const DEFAULT_SYNC_PARAMETERS: SyncParameters = {
     _id: DOCID_SYNC_PARAMETERS,
-    type: "sync-parameters",
+    type: EntryTypes["SYNC_PARAMETERS"],
     protocolVersion: ProtocolVersions.ADVANCED_E2EE,
     pbkdf2salt: "",
 };

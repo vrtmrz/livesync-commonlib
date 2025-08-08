@@ -1,7 +1,3 @@
-//
-
-import { xxhashNew } from "octagonal-wheels/hash/xxhash";
-import { sha1, fallbackMixedHashEach, mixedHash } from "octagonal-wheels/hash/purejs";
 import {
     type EntryDoc,
     type EntryLeaf,
@@ -22,10 +18,6 @@ import {
     type EntryDocResponse,
     type EntryBase,
     type NoteEntry,
-    type EdenChunk,
-    type AnyEntry,
-    MAX_DOC_SIZE_BIN,
-    PREFIX_CHUNK,
     type PlainEntry,
     type NewEntry,
     type UXFileInfo,
@@ -35,9 +27,6 @@ import {
     LOG_LEVEL_INFO,
     type DIFF_CHECK_RESULT_AUTO,
     type MetaEntry,
-    SALT_OF_ID,
-    SEED_MURMURHASH,
-    ChunkAlgorithms,
 } from "../common/types.ts";
 import {
     applyPatch,
@@ -47,26 +36,34 @@ import {
     generatePatchObj,
     getDocData,
     getFileRegExp,
-    isDocContentSame,
     isObjectMargeApplicable,
     isSensibleMargeApplicable,
     isTextBlob,
     tryParseJSON,
-    unique,
 } from "../common/utils.ts";
 import { Logger } from "../common/logger.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
-import { LRUCache } from "../memory/LRUCache.ts";
 
 import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
 import { decodeBinary, readString } from "../string_and_binary/convert.ts";
-import { shouldSplitAsPlainText, stripAllPrefixes } from "../string_and_binary/path.ts";
+import { stripAllPrefixes } from "../string_and_binary/path.ts";
 import { serialized } from "../concurrency/lock.ts";
-import { splitPieces2, splitPieces2V2, splitPiecesRabinKarp } from "../string_and_binary/chunks.ts";
-import { splitPieces2Worker, splitPieces2WorkerV2, splitPieces2WorkerRabinKarp } from "../worker/bgWorker.ts";
 import { DIFF_DELETE, DIFF_EQUAL, DIFF_INSERT, diff_match_patch, type Diff } from "diff-match-patch";
-import { globalSlipBoard } from "../bureau/bureau.ts";
-import { BatchReader, ChunkCollector } from "./ChunkCollector.ts";
+import { ChangeManager } from "./managers/ChangeManager.ts";
+import { HashManager } from "./managers/HashManager/HashManager.ts";
+import { ChunkManager, EVENT_CHUNK_FETCHED, type ChunkWriteOptions } from "./managers/ChunkManager.ts";
+import { ChunkFetcher } from "./managers/ChunkFetcher.ts";
+import { ContentSplitter } from "./ContentSplitter/ContentSplitters.ts";
+import { eventHub } from "../hub/hub.ts";
+import { FallbackWeakRef } from "octagonal-wheels/common/polyfill";
+
+export const REMOTE_CHUNK_FETCHED = "remote-chunk-fetched";
+export type REMOTE_CHUNK_FETCHED = typeof REMOTE_CHUNK_FETCHED;
+declare global {
+    interface LSEvents {
+        [REMOTE_CHUNK_FETCHED]: EntryLeaf;
+    }
+}
 
 export type ChunkRetrievalResultSuccess = { _id: DocumentID; data: string; type: "leaf" };
 export type ChunkRetrievalResultError = { _id: DocumentID; error: string };
@@ -90,12 +87,6 @@ export interface LiveSyncLocalDBEnv {
 export function getNoFromRev(rev: string) {
     if (!rev) return 0;
     return parseInt(rev.split("-")[0]);
-}
-
-function createChunkRev(chunk: EntryLeaf) {
-    const lenC = Math.imul(chunk.data.length, 21 + chunk._id.charCodeAt(5));
-
-    return `1-${(lenC.toString(16) + "0".repeat(32)).slice(0, 32)}`;
 }
 
 type GeneratedChunk = {
@@ -122,69 +113,36 @@ type UserActionRequired = {
 
 type AutoMergeResult = Promise<AutoMergeOutcomeOK | AutoMergeCanBeDoneByDeletingRev | UserActionRequired>;
 
-const chunkSplittersMainThread = {
-    [ChunkAlgorithms.V1]: splitPieces2,
-    [ChunkAlgorithms.V2]: splitPieces2V2,
-    [ChunkAlgorithms.V2Segmenter]: splitPieces2V2,
-    [ChunkAlgorithms.RabinKarp]: splitPiecesRabinKarp,
-    "": splitPieces2,
-} as const;
-const chunkSplittersWorker = {
-    [ChunkAlgorithms.V1]: splitPieces2Worker,
-    [ChunkAlgorithms.V2]: splitPieces2WorkerV2,
-    [ChunkAlgorithms.V2Segmenter]: splitPieces2WorkerV2,
-    [ChunkAlgorithms.RabinKarp]: splitPieces2WorkerRabinKarp,
-    "": splitPieces2Worker,
-} as const;
-
 export class LiveSyncLocalDB {
     auth: Credential;
     dbname: string;
     settings!: RemoteDBSettings;
     localDatabase!: PouchDB.Database<EntryDoc>;
-    chunkCollector = new ChunkCollector(this);
-    batchReader = new BatchReader(this);
+
     isReady = false;
 
-    h32!: (input: string, seed?: number) => string;
-    h32Raw!: (input: Uint8Array, seed?: number) => number;
-    xxhash32!: (input: string, seed?: number) => number;
-    xxhash64: ((input: string) => bigint) | false = false;
-    hashCaches = new LRUCache<DocumentID, string>(10, 1000);
-
-    changeHandler: PouchDB.Core.Changes<EntryDoc> | null = null;
-
-    chunkVersion = -1;
-    maxChunkVersion = -1;
-    minChunkVersion = -1;
     needScanning = false;
-    hashedPassphrase = "";
-    hashedPassphrase32 = 0;
+
+    hashManager!: HashManager;
+    chunkFetcher!: ChunkFetcher;
+    changeManager!: ChangeManager<EntryDoc>;
+    chunkManager!: ChunkManager;
+    splitter!: ContentSplitter;
 
     env: LiveSyncLocalDBEnv;
 
+    clearCaches() {
+        this.chunkManager?.clearCaches();
+    }
+
     async _prepareHashFunctions() {
-        if (this.h32 != null) return;
-        if (this.settings.hashAlg == "sha1") {
-            Logger(`[Hash function]: Fallback (SHA1)`, LOG_LEVEL_VERBOSE);
-            return;
-        }
-        if (this.settings.hashAlg == "mixed-purejs") {
-            Logger(`[Hash function]: Fallback (Mixed PureJS)`, LOG_LEVEL_VERBOSE);
-            return;
-        }
-        try {
-            const { h32ToString, h32Raw, h32, h64 } = await xxhashNew();
-            this.xxhash64 = h64;
-            this.xxhash32 = h32;
-            this.h32 = h32ToString;
-            this.h32Raw = h32Raw;
-            Logger(`[Hash function]: WASM (xxhash)`, LOG_LEVEL_VERBOSE);
-        } catch (ex) {
-            Logger(`[Hash function]: Failed to initialise WASM xxhash. Fallback (PureJS) has been activated`);
-            Logger(ex, LOG_LEVEL_VERBOSE);
-            this.settings.hashAlg = "mixed-purejs";
-        }
+        const getSettingFunc = () => this.settings;
+        this.hashManager = new HashManager({
+            get settings() {
+                return getSettingFunc();
+            },
+        });
+        await this.hashManager.initialise();
     }
 
     get isOnDemandChunkEnabled() {
@@ -197,24 +155,17 @@ export class LiveSyncLocalDB {
     onunload() {
         //this.kvDB.close();
         this.env.$allOnDBUnload(this);
-        this.changeHandler?.cancel();
-        void this.changeHandler?.removeAllListeners();
         this.localDatabase.removeAllListeners();
     }
 
     refreshSettings() {
         const settings = this.env.getSettings();
         this.settings = settings;
-        this.hashCaches = new LRUCache(settings.hashCacheMaxCount, settings.hashCacheMaxAmount);
-        const passphrase = this.settings.passphrase;
-        // Do not use all of the passphrase. If the contents of the chunk are inferable, the passphrase could be compromised for brute force attacks.
-        // Use only 3/4 of the passphrase. if no letter available, all of ID computed from SALT_OF_ID.
-        const usingLetters = ~~((passphrase.length / 4) * 3);
-        const passphraseForHash = SALT_OF_ID + passphrase.substring(0, usingLetters);
-        this.hashedPassphrase = fallbackMixedHashEach(passphraseForHash);
-        this.hashedPassphrase32 = mixedHash(passphraseForHash, SEED_MURMURHASH)[0];
+        this.splitter = new ContentSplitter({ settings: this.settings });
+        void this._prepareHashFunctions();
     }
 
+    offRemoteChunkFetchedHandler?: ReturnType<typeof eventHub.onEvent>;
     constructor(dbname: string, env: LiveSyncLocalDBEnv) {
         this.auth = {
             username: "",
@@ -234,19 +185,68 @@ export class LiveSyncLocalDB {
     async close() {
         Logger("Database closed (by close)");
         this.isReady = false;
-        this.changeHandler?.cancel();
-        void this.changeHandler?.removeAllListeners();
+        this.offRemoteChunkFetchedHandler?.();
         if (this.localDatabase != null) {
             await this.localDatabase.close();
         }
         this.env.$allOnDBClose(this);
     }
 
+    async teardownManagers() {
+        if (this.changeManager) {
+            this.changeManager.teardown();
+            this.changeManager = undefined!;
+        }
+        if (this.chunkFetcher) {
+            this.chunkFetcher.destroy();
+            this.chunkFetcher = undefined!;
+        }
+        if (this.chunkManager) {
+            this.chunkManager.destroy();
+            this.chunkManager = undefined!;
+        }
+        return await Promise.resolve();
+    }
+    async initManagers() {
+        await this.teardownManagers();
+        const getDB = () => this.localDatabase;
+        const getChangeManager = () => this.changeManager;
+        const getChunkManager = () => this.chunkManager;
+        const getReplicator = () => this.env.$$getReplicator();
+        const getSettings = () => this.env.getSettings();
+        const proxy = {
+            get database() {
+                return getDB();
+            },
+            get changeManager() {
+                return getChangeManager();
+            },
+            get chunkManager() {
+                return getChunkManager();
+            },
+            getActiveReplicator() {
+                return getReplicator();
+            },
+            get settings() {
+                return getSettings();
+            },
+        };
+        this.changeManager = new ChangeManager(proxy);
+
+        this.chunkManager = new ChunkManager({
+            ...proxy,
+            maxCacheSize: this.settings.hashCacheMaxCount * 10,
+        });
+        this.chunkFetcher = new ChunkFetcher(proxy);
+    }
+
+    onNewLeaf(chunk: EntryLeaf) {
+        this.chunkManager?.emitEvent(EVENT_CHUNK_FETCHED, chunk);
+    }
+
     async initializeDatabase(): Promise<boolean> {
         await this._prepareHashFunctions();
         if (this.localDatabase != null) await this.localDatabase.close();
-        this.changeHandler?.cancel();
-        await this.changeHandler?.removeAllListeners();
         //@ts-ignore
         this.localDatabase = null;
 
@@ -263,133 +263,36 @@ export class LiveSyncLocalDB {
         Logger("Opening Database...");
         Logger("Database info", LOG_LEVEL_VERBOSE);
         Logger(await this.localDatabase.info(), LOG_LEVEL_VERBOSE);
+        await this.initManagers();
         this.localDatabase.on("close", () => {
             Logger("Database closed.");
             this.isReady = false;
             this.localDatabase.removeAllListeners();
             this.env.$$getReplicator()?.closeReplication();
+            void this.teardownManagers();
         });
-
-        // Tracings the leaf id
-        const changes = this.localDatabase
-            .changes({
-                since: "now",
-                live: true,
-                include_docs: true,
-                filter: (doc) => doc.type == "leaf",
-            })
-            .on("change", (e) => {
-                if (e.deleted) return;
-                // sendValue(`leaf-${e.id}`, e.doc);
-                globalSlipBoard.submit("read-chunk", e.id, e.doc as EntryLeaf);
-            });
-
-        const closeChanges = (reason: any) => {
-            if (reason) {
-                if (reason instanceof Error) {
-                    Logger(`Error while tracking changes`, LOG_LEVEL_INFO);
-                    Logger(reason, LOG_LEVEL_VERBOSE);
-                } else {
-                    Logger(`Tracking changes has been finished`, LOG_LEVEL_INFO);
-                    Logger(reason, LOG_LEVEL_VERBOSE);
-                }
+        const _instance = new FallbackWeakRef(this);
+        const unload = eventHub.onEvent(REMOTE_CHUNK_FETCHED, (chunk: EntryLeaf) => {
+            if (_instance.deref() == null) {
+                unload();
             }
-            void changes.cancel();
-            void changes.removeAllListeners();
-            this.changeHandler = null;
-        };
-        void changes.on("error", closeChanges);
-        void changes.on("complete", closeChanges);
-
-        this.changeHandler = changes;
+            _instance.deref()?.onNewLeaf(chunk);
+        });
+        this.offRemoteChunkFetchedHandler = unload;
         this.isReady = true;
         Logger("Database is now ready.");
         return true;
     }
 
-    async readChunk(id: DocumentID, timeout: number): Promise<string> {
-        const ret = await this.batchReader.readChunk(id, timeout);
-        if ("error" in ret) {
-            throw new Error(`Could not read chunk ${id}: (${ret.error})`);
-        }
-        return ret.data;
-    }
-
-    async getChunk(piece: string, doc: SavingEntry): Promise<GeneratedChunk | false> {
-        const cachedChunkId = this.hashCaches.revGet(piece);
-        if (cachedChunkId !== undefined) {
+    async prepareChunk(piece: string): Promise<GeneratedChunk> {
+        const cachedChunkId = this.chunkManager.getChunkIDFromCache(piece);
+        if (cachedChunkId !== false) {
             return { isNew: false, id: cachedChunkId, piece: piece };
         }
-        const chunkId = (PREFIX_CHUNK + (await this.generateHashedChunk(piece))) as DocumentID;
-        if (chunkId in doc.eden) {
-            return { isNew: false, id: chunkId, piece: piece };
-        }
-        const cachedPiece = this.hashCaches.get(chunkId);
-        if (cachedPiece && cachedPiece != piece) {
-            Logger(
-                `Hash collided! If possible, please report the following string:${chunkId}=>\nA:--${cachedPiece}--\nB:--${piece}--`,
-                LOG_LEVEL_NOTICE
-            );
-            return false;
-        }
-        this.hashCaches.set(chunkId, piece);
+
+        // Generate a new chunk ID based on the piece and the hashed passphrase.
+        const chunkId = (await this.hashManager.computeHash(piece)) as DocumentID;
         return { isNew: true, id: chunkId, piece: piece };
-    }
-
-    async generateHashedChunk(piece: string) {
-        // const userPassphrase = this.settings.passphrase;
-        const hashedUserPassphrase = this.hashedPassphrase;
-        if (this.settings.hashAlg == "sha1") {
-            if (this.settings.encrypt) {
-                return "+" + (await sha1(`${piece}-${hashedUserPassphrase}-${piece.length}`));
-            } else {
-                return await sha1(`${piece}-${piece.length}`);
-            }
-        } else if (this.settings.hashAlg == "mixed-purejs") {
-            if (this.settings.encrypt) {
-                return "+" + fallbackMixedHashEach(`${piece}${hashedUserPassphrase}${piece.length}`);
-            } else {
-                return fallbackMixedHashEach(`${piece}-${piece.length}`);
-            }
-        } else if (this.settings.hashAlg === "") {
-            if (this.settings.encrypt) {
-                // const userPassphrase = this.settings.passphrase;
-                // const userPasswordHash = this.h32Raw(new TextEncoder().encode(userPassphrase));
-                const userPasswordHash = this.hashedPassphrase32;
-                return (
-                    "+" + (this.h32Raw(new TextEncoder().encode(piece)) ^ userPasswordHash ^ piece.length).toString(36)
-                );
-            } else {
-                return (this.h32Raw(new TextEncoder().encode(piece)) ^ piece.length).toString(36);
-            }
-        } else if (this.settings.hashAlg == "xxhash64" && this.xxhash64) {
-            if (this.settings.encrypt) {
-                return "+" + this.xxhash64(`${piece}-${hashedUserPassphrase}-${piece.length}`).toString(36);
-            } else {
-                return this.xxhash64(`${piece}-${piece.length}`).toString(36);
-            }
-        } else {
-            // If we could not use xxhash64, fall back to the 32bit impl.
-            // It may happen on iOS before 14.
-            if (this.settings.encrypt) {
-                return "+" + this.xxhash32(`${piece}-${hashedUserPassphrase}-${piece.length}`).toString(36);
-            } else {
-                return this.xxhash32(`${piece}-${piece.length}`).toString(36);
-            }
-        }
-    }
-
-    async getDBLeafWithTimeout(id: DocumentID, timeout: number): Promise<string> {
-        try {
-            return await this.readChunk(id, timeout);
-        } catch (ex) {
-            Logger(`Something went wrong while retrieving chunks`);
-            Logger(ex, LOG_LEVEL_VERBOSE);
-            throw ex;
-        }
-    }
-    getDBLeaf(id: DocumentID, waitForReady: boolean): Promise<string> {
-        return this.getDBLeafWithTimeout(id, waitForReady ? LEAF_WAIT_TIMEOUT : 0);
     }
 
     async getDBEntryMeta(
@@ -617,108 +520,39 @@ export class LiveSyncLocalDB {
                     Logger(meta);
                 }
 
-                // let children: string[] = [];
-                // Acquire semaphore to pace replication.
-                // const weight = Math.min(10, Math.ceil(obj.children.length / 10)) + 1;
-                // const resourceSemaphore = this.settings.doNotPaceReplication ? (() => { }) : await globalConcurrencyController.acquire(weight);
+                // Reading `Eden` for legacy support.
+                // It will be removed in the future.
+                let edenChunks: Record<string, EntryLeaf> = {};
+                if (meta.eden && Object.keys(meta.eden).length > 0) {
+                    const chunks = Object.entries(meta.eden).map(([id, data]) => ({
+                        _id: id as DocumentID,
+                        data: data.data,
+                        type: "leaf",
+                    })) as EntryLeaf[];
+                    edenChunks = Object.fromEntries(chunks.map((e) => [e._id, e]));
+                }
+
+                const isNetworkEnabled = this.isOnDemandChunkEnabled && waitForReady;
+                const useTimeout = waitForReady || this.isOnDemandChunkEnabled;
+
                 const childrenKeys = [...meta.children] as DocumentID[];
-                const loadedChildrenMap = new Map<DocumentID, string>();
-                if (meta.eden) {
-                    const all = Object.entries(meta.eden);
-                    all.forEach(([key, chunk]) => loadedChildrenMap.set(key as DocumentID, chunk.data));
-                }
-                const missingChunks = unique(childrenKeys).filter((e) => !loadedChildrenMap.has(e));
-                if (missingChunks.length != 0) {
-                    if (this.isOnDemandChunkEnabled) {
-                        const items = await this.collectChunks(missingChunks, false, waitForReady);
-                        if (!items || items.some((leaf) => "error" in leaf || leaf.type != "leaf")) {
-                            Logger(
-                                `Chunks of ${dispFilename} (${meta._id.substring(0, 8)}) are not valid. (p1)`,
-                                LOG_LEVEL_NOTICE
-                            );
-                            if (items) {
-                                Logger(`Missing chunks: ${items.map((e) => e._id).join(",")}`, LOG_LEVEL_VERBOSE);
-                            }
-                            return false;
-                        }
-                        items
-                            .filter((e) => "data" in e)
-                            .forEach((chunk) => loadedChildrenMap.set(chunk._id, chunk.data));
-                    } else {
-                        try {
-                            if (waitForReady) {
-                                const loadedItems = await Promise.all(
-                                    missingChunks.map((e) => this.getDBLeaf(e, waitForReady))
-                                );
-                                loadedItems.forEach((value, idx) => loadedChildrenMap.set(missingChunks[idx], value));
-                            } else {
-                                const chunkDocs = await this.localDatabase.allDocs({
-                                    keys: missingChunks,
-                                    include_docs: true,
-                                });
-                                if (chunkDocs.rows.some((e) => "error" in e)) {
-                                    const missingChunks = chunkDocs.rows
-                                        .filter((e) => "error" in e)
-                                        .map((e) => e.key)
-                                        .join(", ");
-                                    Logger(
-                                        `Chunks of ${dispFilename} (${meta._id.substring(0, 8)}) are not valid. (p2)`,
-                                        LOG_LEVEL_NOTICE
-                                    );
-                                    Logger(`Missing chunks: ${missingChunks}`, LOG_LEVEL_VERBOSE);
-                                    return false;
-                                }
-                                if (chunkDocs.rows.some((e) => "value" in e && e.value.deleted)) {
-                                    const missingChunks = chunkDocs.rows
-                                        .filter((e) => "value" in e && e.value.deleted)
-                                        .map((e) => e.key)
-                                        .join(", ");
-                                    Logger(
-                                        `Chunks of ${dispFilename} (${meta._id.substring(0, 8)}) are deleted. Please try "Resurrect deleted chunks" once.`,
-                                        LOG_LEVEL_NOTICE
-                                    );
-                                    Logger(`Corrupted chunks: ${missingChunks}`, LOG_LEVEL_VERBOSE);
-                                    return false;
-                                }
-                                if (chunkDocs.rows.some((e: any) => e.doc && e.doc.type != "leaf")) {
-                                    const missingChunks = chunkDocs.rows
-                                        .filter((e: any) => e.doc && e.doc.type != "leaf")
-                                        .map((e: any) => e.id)
-                                        .join(", ");
-                                    Logger(
-                                        `Chunks of ${dispFilename} (${meta._id.substring(0, 8)}) are not valid. (p3)`,
-                                        LOG_LEVEL_NOTICE
-                                    );
-                                    Logger(`Corrupted chunks: ${missingChunks}`, LOG_LEVEL_VERBOSE);
-                                    return false;
-                                }
-                                chunkDocs.rows.forEach(
-                                    (value, _idx) =>
-                                        "doc" in value &&
-                                        loadedChildrenMap.set(
-                                            (value.doc as EntryLeaf)._id,
-                                            (value.doc as EntryLeaf).data
-                                        )
-                                );
-                            }
-                        } catch (ex) {
-                            Logger(
-                                `Something went wrong on reading chunks of ${dispFilename}(${meta._id.substring(0, 8)}) from database, see verbose info for detail.`,
-                                LOG_LEVEL_NOTICE
-                            );
-                            Logger(ex, LOG_LEVEL_VERBOSE);
-                            return false;
-                        }
-                    }
-                }
-                const l = childrenKeys.map((e) => loadedChildrenMap.get(e));
-                if (l.some((e) => e === undefined)) {
+                const chunks = await this.chunkManager.read(
+                    childrenKeys,
+                    {
+                        skipCache: false,
+                        timeout: useTimeout ? LEAF_WAIT_TIMEOUT : 0,
+                        preventRemoteRequest: !isNetworkEnabled,
+                    },
+                    edenChunks
+                );
+
+                if (chunks.some((e) => e === false)) {
                     // TODO EXACT MESSAGE
                     throw new Error("Load failed");
                 }
 
                 const doc: LoadedEntry & PouchDB.Core.IdMeta = {
-                    data: l as string[],
+                    data: (chunks as EntryLeaf[]).map((e) => e.data),
                     path: meta.path,
                     _id: meta._id,
                     ctime: meta.ctime,
@@ -812,71 +646,6 @@ export class LiveSyncLocalDB {
         }
     }
 
-    async deleteDBEntryPrefix(prefix: FilePathWithPrefix | FilePath): Promise<boolean> {
-        // delete database entries by prefix.
-        // it called from folder deletion.
-        let c = 0;
-        let readCount = 0;
-        const delDocs: DocumentID[] = [];
-        do {
-            const result = await this.localDatabase.allDocs({
-                include_docs: false,
-                skip: c,
-                limit: 100,
-                conflicts: true,
-            });
-            readCount = result.rows.length;
-            if (readCount > 0) {
-                //there are some result
-                for (const v of result.rows) {
-                    const decodedPath = this.id2path(v.id as DocumentID, v.doc as LoadedEntry);
-                    // let doc = v.doc;
-                    if (decodedPath.startsWith(prefix)) {
-                        if (this.isTargetFile(decodedPath)) delDocs.push(v.id as DocumentID);
-                        // console.log("!" + v.id);
-                    } else {
-                        if (!v.id.startsWith("h:")) {
-                            // console.log("?" + v.id);
-                        }
-                    }
-                }
-            }
-            c += readCount;
-        } while (readCount != 0);
-        // items collected.
-        //bulk docs to delete?
-        let deleteCount = 0;
-        let notfound = 0;
-        for (const v of delDocs) {
-            try {
-                await serialized("file:" + v, async () => {
-                    const item = await this.localDatabase.get(v);
-                    if (item.type == "newnote" || item.type == "plain") {
-                        item.deleted = true;
-                        if (this.settings.deleteMetadataOfDeletedFiles) {
-                            item._deleted = true;
-                        }
-                        item.mtime = Date.now();
-                    } else {
-                        item._deleted = true;
-                    }
-                    await this.localDatabase.put(item, { force: true });
-                });
-
-                deleteCount++;
-            } catch (ex: any) {
-                if (isErrorOfMissingDoc(ex)) {
-                    notfound++;
-                    // NO OP. It should be timing problem.
-                } else {
-                    throw ex;
-                }
-            }
-        }
-        Logger(`deleteDBEntryPrefix:deleted ${deleteCount} items, skipped ${notfound}`);
-        return true;
-    }
-
     async putDBEntry(note: SavingEntry, onlyChunks?: boolean) {
         //safety valve
         const filename = this.id2path(note._id, note);
@@ -889,357 +658,148 @@ export class LiveSyncLocalDB {
             Logger(`File skipped:${dispFilename}`, LOG_LEVEL_VERBOSE);
             return false;
         }
-        let processed = 0;
-        const maxChunkSize = Math.floor(MAX_DOC_SIZE_BIN * ((this.settings.customChunkSize || 0) * 1 + 1));
-        const pieceSize = maxChunkSize;
-        let plainSplit = false;
-
-        const minimumChunkSize = this.settings.minimumChunkSize;
-
-        // const now = Date.now();
-        // const diff = now - note.mtime;
-        // If enough old, store it as `stable` file.
-        // A Stable file will not be split as text, but simply by pieceSize. Because it might not need to transfer differences
-        // -- Disabled for now because it has a problem with storage consumption.
-        const isStable = false; //(diff > 1000 * 3600 * 24 * 30);
-        if (isStable) {
-            plainSplit = false;
-        } else if (shouldSplitAsPlainText(filename)) {
-            plainSplit = true;
-        }
 
         // Set datatype again for modified datatype.
         const data = note.data instanceof Blob ? note.data : createTextBlob(note.data);
+        note.data = data;
         note.type = isTextBlob(data) ? "plain" : "newnote";
         note.datatype = note.type;
-        const maxSize = 1024;
 
-        // const splitFuncInMainThread = this.settings.enableChunkSplitterV2 ? splitPieces2V2 : splitPieces2;
-        // const splitFuncInWorker = this.settings.enableChunkSplitterV2 ? splitPieces2WorkerV2 : splitPieces2Worker;
+        await this.splitter.initialised;
 
-        const splitFuncInMainThread =
-            chunkSplittersMainThread?.[this.settings.chunkSplitterVersion] ??
-            chunkSplittersMainThread[ChunkAlgorithms.V1];
-        const splitFuncInWorker =
-            chunkSplittersWorker?.[this.settings.chunkSplitterVersion] ?? chunkSplittersWorker[ChunkAlgorithms.V1];
+        let bufferedChunk = [] as EntryLeaf[];
+        let bufferedSize = 0;
 
-        const useSegmenter = this.settings.chunkSplitterVersion === ChunkAlgorithms.V2Segmenter;
+        let writeCount = 0;
+        let newCount = 0;
+        let cachedCount = 0;
+        let resultCachedCount = 0;
+        let duplicatedCount = 0;
+        let totalWritingCount = 0;
+        let createChunkCount = 0;
+        // If total size of current buffered chunks exceeds this, they will be flushed to the database to avoid memory extravagance.
+        const MAX_WRITE_SIZE = 1000 * 1024 * 2; // 2MB
+        // TODO: Pack chunks in a single file for performance.
+        const result = await this.chunkManager.transaction(async () => {
+            const chunks: DocumentID[] = [];
+            const flushBufferedChunks = async () => {
+                if (bufferedChunk.length === 0) return true;
+                const writeBuf = [...bufferedChunk];
+                bufferedSize = 0;
+                bufferedChunk = [];
+                const result = await this.chunkManager.write(
+                    writeBuf,
+                    {
+                        skipCache: false,
+                        timeout: 0,
+                    } as ChunkWriteOptions,
+                    note._id
+                );
+                if (result.result === false) {
+                    Logger(`Failed to write buffered chunks for ${dispFilename}`, LOG_LEVEL_NOTICE);
+                    return false;
+                }
+                totalWritingCount++;
+                writeCount += result.processed.written;
+                resultCachedCount += result.processed.cached;
+                duplicatedCount += result.processed.duplicated;
+                chunks.push(...writeBuf.map((e) => e._id));
 
-        const splitFunc = this.settings.disableWorkerForGeneratingChunks
-            ? splitFuncInMainThread
-            : this.settings.processSmallFilesInUIThread && note.data.size < maxSize
-              ? splitFuncInMainThread
-              : splitFuncInWorker;
-
-        const pieces = await splitFunc(data, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter);
-        const chunkTasks = [];
-
-        // Benchmark
-
-        // eslint-disable-next-line no-constant-condition
-        if (false) {
-            // If pass through this debug, blob is consumed, and we cannot use it again, hence the saving will be failed.
-            const a1 = performance.now();
-            const px = await splitPieces2V2(data, pieceSize, plainSplit, minimumChunkSize, filename, false);
-            const buf1 = [];
-            for await (const _piece of px()) {
-                buf1.push(_piece);
-            }
-            const a2 = performance.now();
-            const buf2 = [];
-            // console.warn(`splitPieces2V2 took ${a2 - a1}ms`);
-            const a3 = performance.now();
-            const px2 = await splitPiecesRabinKarp(data, pieceSize, plainSplit, minimumChunkSize, filename, false);
-            for await (const _piece of px2()) {
-                // NO OP. Just to run the generator.
-                buf2.push(_piece);
-            }
-            const a4 = performance.now();
-            // console.warn(`splitPiecesRabinKarp took ${a4 - a3}ms`);
-            const buf1_x = note.type === "plain" ? buf1 : await decodeBinary(buf1);
-            const buf2_x = note.type === "plain" ? buf2 : await decodeBinary(buf2);
-            const isMatched = await isDocContentSame(buf1_x, buf2_x);
-            const result = {
-                name: note.path,
-                size: note.size,
-                pieces_old: buf1.length,
-                pieces_new: buf2.length,
-                time_old: a2 - a1,
-                time_new: a4 - a3,
-                isMatched,
+                return true;
             };
-            const buf1_hash = buf1.map((e) => this.xxhash32(e));
-            const buf2_hash = buf2.map((e) => this.xxhash32(e));
-            //@ts-ignore
-            app.vault.adapter.append(
-                "debug-list-files.csv",
-                `${result.name},${result.size},${result.pieces_old},${result.pieces_new},${result.time_old},${result.time_new},${result.isMatched}\n`
-            );
-            const buf1_hash_X = buf1_hash.map((e) => `v1-${e}\t${note.path}`).join("\n");
-            const buf2_hash_X = buf2_hash.map((e) => `v2-${e}\t${note.path}`).join("\n");
-            //@ts-ignore
-            app.vault.adapter.append("debug-list-chunks.csv", `${buf1_hash_X}\n${buf2_hash_X}\n`);
-            // console.table([result]);
-        }
-
-        for await (const piece of pieces()) {
-            if (piece.length === 0) continue;
-            processed++;
-            chunkTasks.push(this.getChunk(piece, note));
-        }
-        if (data.size > 0 && processed === 0) {
-            Logger(
-                `No data to save in ${dispFilename}!! This document may be corrupted in the local database! Please back it up immediately, and report an issue!`,
-                LOG_LEVEL_NOTICE
-            );
-        }
-        const chunks = await Promise.all(chunkTasks);
-        if (chunks.some((e) => e === false)) {
-            Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
-            return false;
-        }
-
-        let eden = {} as Record<DocumentID, EdenChunk>;
-        let currentRevAsNo = 0;
-
-        if ("eden" in note) {
-            eden = note.eden;
-        }
-        // Load old document meta
-        let newChunks = [] as EntryLeaf[];
-
-        if (this.settings.useEden && !onlyChunks) {
-            try {
-                const old = await this.localDatabase.get<AnyEntry>(note._id);
-                currentRevAsNo = getNoFromRev(old._rev);
-                const oldEden = "eden" in old ? old.eden : {};
-                eden = { ...oldEden, ...eden };
-            } catch (ex) {
-                if (isErrorOfMissingDoc(ex)) {
-                    // NO OP.
-                } else {
-                    throw ex;
-                }
-            }
-            const chunkOnEdenInitial = Object.keys(eden).length;
-            let removedChunkOnEden = 0;
-            // Remove unused chunk in eden
-            const oldEdenChunks = Object.keys(eden);
-            const removeEdenChunks = oldEdenChunks.filter((e) => (chunks as GeneratedChunk[]).every((c) => c.id !== e));
-            for (const removeId of removeEdenChunks) {
-                removedChunkOnEden++;
-                delete eden[removeId as DocumentID];
-            }
-
-            let newChunkOnEden = 0;
-            let existChunkOnEden = 0;
-            // Add chunks in Eden
-            for (const chunk of chunks as GeneratedChunk[]) {
-                if (chunk.id in eden) {
-                    // NO OP
-                    existChunkOnEden++;
-                } else {
-                    newChunkOnEden++;
-                    eden[chunk.id] = {
-                        epoch: currentRevAsNo + 1,
-                        data: chunk.piece,
-                    };
-                }
-            }
-
-            /*
-            [design_docs_of_keep_newborn_chunks.md]
-            1. Those that have already been confirmed to exist as independent chunks.
-                 This confirmation of existence may ideally be determined by a fast first-order determination, e.g. by a Bloom filter.
-            2. Those whose length exceeds the configured maximum length.
-            3. Those have aged over the configured value, since epoch at the operating revision.
-            4. Those whose total length, when added up when they are arranged in reverse order of the revision in which they were generated, is after the point at which they exceed the max length in the configuration. Or, those after the configured maximum items.
-            */
-            // Find the chunks which should be graduated
-            const allEdenChunks = Object.entries(eden).sort((a, b) => b[1].epoch - a[1].epoch);
-            let totalLength = 0;
-            let count: number = 0;
-            const allEdenChunksKey = Object.keys(eden);
-            let alreadyIndependent = 0;
-            let independent = 0;
-            //No.1
-            const edenChunkExist = await this.localDatabase.allDocs({ keys: allEdenChunksKey as DocumentID[] });
-            const edenChunkOnDB = edenChunkExist.rows.reduce(
-                (p, c) => ({ ...p, [c.key]: c }),
-                {} as Record<string, any>
-            );
-            for (const [key, chunk] of allEdenChunks) {
-                count++;
-                let makeChunkIndependent = false;
-                // const head = `${count}:${key}->(${chunk.epoch}) `;
-                // No.1
-                if (key in edenChunkOnDB && !edenChunkOnDB[key].error) {
-                    count--;
-                    delete eden[key as DocumentID];
-                    //Logger(`${head}: Already exists`, LOG_LEVEL_VERBOSE);
-                    alreadyIndependent++;
+            const pieces = await this.splitter.splitContent(note);
+            let totalChunkCount = 0;
+            for await (const piece of pieces) {
+                totalChunkCount++;
+                if (piece.length === 0) {
                     continue;
                 }
-                if (chunk.data.length > 1024) {
-                    // No.2
-                    makeChunkIndependent = true;
-                    // Logger(`${head}: Too big to be in Eden`, LOG_LEVEL_VERBOSE);
-                } else if (chunk.epoch + this.settings.maxAgeInEden < currentRevAsNo) {
-                    // NO.3
-                    makeChunkIndependent = true;
-                    // Logger(`${head}: Graduation from Eden`, LOG_LEVEL_VERBOSE);
-                }
-                if (totalLength > this.settings.maxTotalLengthInEden) {
-                    // No.4 - 1
-                    makeChunkIndependent = true;
-                    // Logger(`${head}: No more space in Eden`, LOG_LEVEL_VERBOSE);
-                }
-                if (count > this.settings.maxChunksInEden) {
-                    // No.4-2
-                    makeChunkIndependent = true;
-                    // Logger(`${head}: Too many chunks in Eden`, LOG_LEVEL_VERBOSE);
-                }
-                if (makeChunkIndependent) {
-                    count--;
-                    independent++;
-                    newChunks.push({
-                        _id: key as DocumentID,
-                        data: chunk.data,
-                        type: "leaf",
-                    });
-                    delete eden[key as DocumentID];
-                } else {
-                    // Logger(`${head}: Kept in Eden.`, LOG_LEVEL_VERBOSE);
-                    totalLength += chunk.data.length;
-                }
-            }
-            const chunkOnEdenAfter = Object.keys(eden).length;
-            Logger(
-                `Progress on Eden: doc: ${dispFilename} : ${chunkOnEdenInitial}->${chunkOnEdenAfter} (removed: ${removedChunkOnEden}, new: ${newChunkOnEden}, exist: ${existChunkOnEden}, alreadyIndependent:${alreadyIndependent}, independent:${independent})`,
-                LOG_LEVEL_VERBOSE
-            );
-        } else {
-            newChunks = (chunks as GeneratedChunk[])
-                .filter((e) => e.isNew)
-                .map(
-                    (e) =>
-                        ({
-                            _id: e.id,
-                            data: e.piece,
-                            type: "leaf",
-                        }) as EntryLeaf
-                );
-        }
-        const cached = processed - newChunks.length;
-        if (newChunks.length) {
-            if (this.settings.doNotUseFixedRevisionForChunks) {
-                const previousChunks = await this.localDatabase.allDocs({ keys: newChunks.map((e) => e._id) });
-                const missingChunks = previousChunks.rows
-                    .filter((e) => "error" in e || e.value.deleted)
-                    .map((e) => e.key);
-                const newChunksFiltered = newChunks.filter((e) => missingChunks.includes(e._id));
-                const result = await this.localDatabase.bulkDocs(newChunksFiltered, {
-                    // new_edits: true,
+                createChunkCount++;
+                const chunk = await this.prepareChunk(piece);
+                cachedCount += chunk.isNew ? 0 : 1;
+                newCount += chunk.isNew ? 1 : 0;
+                bufferedChunk.push({
+                    _id: chunk.id,
+                    data: chunk.piece,
+                    type: "leaf",
                 });
-                if (result.some((e) => "error" in e)) {
-                    Logger(
-                        `Save failed.: ${dispFilename} :${result.map((e) => e?.id ?? e.toString()).join(",")}`,
-                        LOG_LEVEL_VERBOSE
-                    );
-                    Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
-                    return false;
-                }
-                Logger(
-                    `Chunks saved: doc: ${dispFilename} ,chunks: ${processed} (new:${newChunksFiltered.length}, recycled:${previousChunks.rows.length - newChunksFiltered.length}, cached:${cached})`
-                );
-            } else {
-                newChunks = newChunks.map((e) => ({ ...e, _rev: createChunkRev(e) }));
-                const exists = await this.localDatabase.allDocs({
-                    keys: newChunks.map((e) => e._id),
-                    include_docs: true,
-                });
-
-                // Find the chunks which should be recycled
-                const existDocMap = exists.rows
-                    .map((e) => ("doc" in e ? (e.doc as EntryLeaf) : undefined))
-                    .filter((e) => e !== undefined && e !== null)
-                    .reduce((p, c) => ({ ...p, [c._id]: c }), {} as Record<string, EntryLeaf | undefined>);
-                // Find the chunks which has different revision
-                const suspiciousChunks = newChunks.filter(
-                    (e) => e._id in existDocMap && existDocMap[e._id]?._rev != e._rev
-                );
-                // Check content
-                const erroredChunks = suspiciousChunks.filter((e) => e.data != existDocMap[e._id]?.data);
-
-                if (erroredChunks.length) {
-                    Logger(
-                        `Save failed.: ${dispFilename} :${erroredChunks.length} items mismatched`,
-                        LOG_LEVEL_VERBOSE
-                    );
-                    Logger(`This document could not be saved:${dispFilename}`, LOG_LEVEL_NOTICE);
-                    Logger(`Mismatched items: ${erroredChunks.map((e) => e._id).join(",")}`, LOG_LEVEL_VERBOSE);
-                    Logger(
-                        `Revision and content mismatch: ${erroredChunks.map((e) => `${e._rev}, ${existDocMap?.[e._id]?._rev}`).join(",")}`,
-                        LOG_LEVEL_VERBOSE
-                    );
-                    return false;
-                }
-                // Now our chunks are safe to save.
-                const saveChunks = newChunks.filter((e) => !(e._id in existDocMap));
-                await this.localDatabase.bulkDocs(saveChunks, {
-                    new_edits: false,
-                });
-                const made = saveChunks.length;
-                const skipped = newChunks.length - saveChunks.length;
-                Logger(
-                    `Chunks saved (with fixed): doc: ${dispFilename} ,chunks: ${processed} (new:${made}, recycled:${skipped}, cached:${cached}, revision unmatched:${suspiciousChunks.length})`
-                );
-            }
-        }
-        if (onlyChunks) {
-            return {
-                id: note._id,
-                ok: true,
-                rev: "dummy",
-            };
-        }
-
-        const newDoc: PlainEntry | NewEntry = {
-            children: (chunks as GeneratedChunk[]).map((e) => e.id),
-            _id: note._id,
-            path: note.path,
-            ctime: note.ctime,
-            mtime: note.mtime,
-            size: note.size,
-            type: note.datatype,
-            eden: eden,
-        };
-
-        return (
-            (await serialized("file:" + filename, async () => {
-                try {
-                    const old = await this.localDatabase.get(newDoc._id);
-                    newDoc._rev = old._rev;
-                } catch (ex: any) {
-                    if (isErrorOfMissingDoc(ex)) {
-                        // NO OP/
-                    } else {
-                        throw ex;
+                bufferedSize += chunk.piece.length;
+                if (bufferedSize > MAX_WRITE_SIZE) {
+                    if (!(await flushBufferedChunks())) {
+                        Logger(`Failed to flush buffered chunks for ${dispFilename}`, LOG_LEVEL_NOTICE);
+                        return false;
                     }
                 }
-                const r = await this.localDatabase.put<PlainEntry | NewEntry>(newDoc, { force: true });
-                if (r.ok) {
-                    return r;
-                } else {
-                    return false;
-                }
-            })) ?? false
-        );
+            }
+            if (!(await flushBufferedChunks())) {
+                Logger(`Failed to flush final buffered chunks for ${dispFilename}`, LOG_LEVEL_NOTICE);
+                return false;
+            }
+
+            const dataSize = note.data.size;
+            const stats = `(✨: ${newCount}, 🗃️: ${cachedCount} (${resultCachedCount}) / 🗄️: ${writeCount}, ♻:${duplicatedCount})`;
+            Logger(
+                `Chunks processed for ${dispFilename} (${dataSize}): 📚:${totalChunkCount} (${createChunkCount}) , 📥:${totalWritingCount} ${stats}`,
+                LOG_LEVEL_VERBOSE
+            );
+
+            if (dataSize > 0 && totalWritingCount === 0) {
+                Logger(
+                    `No data to save in ${dispFilename}!! This document may be corrupted in the local database! Please back it up immediately, and report an issue!`,
+                    LOG_LEVEL_NOTICE
+                );
+            }
+
+            if (onlyChunks) {
+                return {
+                    id: note._id,
+                    ok: true,
+                    rev: "dummy",
+                };
+            }
+
+            const newDoc: PlainEntry | NewEntry = {
+                children: chunks,
+                _id: note._id,
+                path: note.path,
+                ctime: note.ctime,
+                mtime: note.mtime,
+                size: note.size,
+                type: note.datatype,
+                eden: {},
+            };
+
+            return (
+                (await serialized("file:" + filename, async () => {
+                    try {
+                        const old = await this.localDatabase.get(newDoc._id);
+                        newDoc._rev = old._rev;
+                    } catch (ex: any) {
+                        if (isErrorOfMissingDoc(ex)) {
+                            // NO OP/
+                        } else {
+                            throw ex;
+                        }
+                    }
+                    const r = await this.localDatabase.put<PlainEntry | NewEntry>(newDoc, { force: true });
+                    if (r.ok) {
+                        return r;
+                    } else {
+                        return false;
+                    }
+                })) ?? false
+            );
+        });
+        if (result === false) {
+            Logger(`Failed to write document ${dispFilename}`, LOG_LEVEL_NOTICE);
+            return false;
+        }
+        Logger(`Document saved: ${dispFilename} (${result.id.substring(0, 8)}-${result.rev})`, LOG_LEVEL_VERBOSE);
+        return result;
     }
 
     async resetDatabase() {
-        this.changeHandler?.cancel();
-        await this.changeHandler?.removeAllListeners();
+        await this.teardownManagers();
         this.env.$$getReplicator().closeReplication();
         if (!(await this.env.$everyOnResetDatabase(this))) {
             Logger("Database reset has been prevented or failed on some modules.", LOG_LEVEL_NOTICE);
@@ -1270,24 +830,6 @@ export class LiveSyncLocalDB {
             if (syncIgnore.some((e) => e.test(file))) return false;
         }
         return true;
-    }
-
-    collectChunks(ids: string[], showResult = false, waitForReady?: boolean): Promise<ChunkRetrievalResult[]> {
-        return this.chunkCollector.collectChunks(ids, showResult, waitForReady);
-    }
-
-    async *findAllChunks(
-        opt?:
-            | PouchDB.Core.AllDocsWithKeyOptions
-            | PouchDB.Core.AllDocsOptions
-            | PouchDB.Core.AllDocsWithKeysOptions
-            | PouchDB.Core.AllDocsWithinRangeOptions
-    ) {
-        const targets = [() => this.findEntries("h:", `h:\u{10ffff}`, opt ?? {})];
-        for (const targetFun of targets) {
-            const target = targetFun();
-            yield* target;
-        }
     }
 
     async *findEntries(

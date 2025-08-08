@@ -12,12 +12,16 @@ interface ErrorWithCause extends Error {
 export class LiveSyncError extends Error implements ErrorWithCause {
     name = this.constructor.name;
     cause?: Error;
+    overrideStatus?: number;
     /**
      * Returns the HTTP status code associated with the error, if available.
      * If the error has a status property, it returns that; otherwise, it defaults to 500 (Internal Server Error).
      * @returns {number} The HTTP status code.
      */
     get status(): number {
+        if (this.overrideStatus !== undefined) {
+            return this.overrideStatus;
+        }
         if (this.cause && "status" in this.cause) {
             return this.cause.status as number;
         }
@@ -27,10 +31,13 @@ export class LiveSyncError extends Error implements ErrorWithCause {
      * Constructs a new LiveSyncError instance.
      * @param message The error message to be displayed.
      */
-    constructor(message: string, options?: { cause?: unknown }) {
+    constructor(message: string, options?: { cause?: unknown; status?: number }) {
         super(message);
         if (options?.cause) {
             this.cause = options.cause instanceof Error ? options.cause : new Error(`${options.cause}`);
+        }
+        if (options?.status !== undefined) {
+            this.overrideStatus = options.status;
         }
     }
 
@@ -72,3 +79,5 @@ export class LiveSyncError extends Error implements ErrorWithCause {
         return instance;
     }
 }
+
+export class LiveSyncFatalError extends LiveSyncError {}

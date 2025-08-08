@@ -13,7 +13,7 @@ import {
 import type { ReactiveSource } from "../dataobject/reactive.ts";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
 import { resolveWithIgnoreKnownError, type SimpleStore } from "../common/utils.ts";
-import type { KeyValueDatabase } from "src/common/KeyValueDB.ts";
+import type { KeyValueDatabase } from "../interfaces/KeyValueDatabase.ts";
 import { arrayBufferToBase64Single } from "../string_and_binary/convert.ts";
 
 export type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<void> | void;
@@ -28,6 +28,7 @@ export type ReplicationStat = {
 };
 export interface LiveSyncReplicatorEnv {
     getDatabase(): PouchDB.Database<EntryDoc>;
+
     getSettings(): RemoteDBSettings & BucketSyncSetting & Pick<ObsidianLiveSyncSettings, "remoteType">;
     $$isMobile(): boolean;
     $$getLastPostFailedBySize(): boolean;
