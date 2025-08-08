@@ -27,6 +27,7 @@ import {
     LOG_LEVEL_INFO,
     type DIFF_CHECK_RESULT_AUTO,
     type MetaEntry,
+    LEAF_WAIT_ONLY_REMOTE,
 } from "../common/types.ts";
 import {
     applyPatch,
@@ -532,15 +533,15 @@ export class LiveSyncLocalDB {
                     edenChunks = Object.fromEntries(chunks.map((e) => [e._id, e]));
                 }
 
-                const isNetworkEnabled = this.isOnDemandChunkEnabled && waitForReady;
-                const useTimeout = waitForReady || this.isOnDemandChunkEnabled;
+                const isNetworkEnabled = this.isOnDemandChunkEnabled;
+                const timeout = waitForReady ? LEAF_WAIT_TIMEOUT : isNetworkEnabled ? LEAF_WAIT_ONLY_REMOTE : 0;
 
                 const childrenKeys = [...meta.children] as DocumentID[];
                 const chunks = await this.chunkManager.read(
                     childrenKeys,
                     {
                         skipCache: false,
-                        timeout: useTimeout ? LEAF_WAIT_TIMEOUT : 0,
+                        timeout: timeout,
                         preventRemoteRequest: !isNetworkEnabled,
                     },
                     edenChunks

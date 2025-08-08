@@ -37,6 +37,7 @@ export const VER = 12; // 12 Since 0.25.0, HKDF is used for encryption, so the v
 
 export const RECENT_MODIFIED_DOCS_QTY = 30;
 export const LEAF_WAIT_TIMEOUT = 30000; // in synchronization, waiting missing leaf time out.
+export const LEAF_WAIT_ONLY_REMOTE = 3000;
 export const REPLICATION_BUSY_TIMEOUT = 3000000;
 
 // Magic Special value for arguments or results.
