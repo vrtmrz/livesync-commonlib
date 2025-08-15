@@ -296,6 +296,10 @@ export function isAnyNote(doc: DatabaseEntry): doc is NewEntry | PlainEntry {
 export function isLoadedEntry(doc: DatabaseEntry): doc is LoadedEntry {
     return "type" in doc && (doc.type == "newnote" || doc.type == "plain") && "data" in doc;
 }
+
+export function isDeletedEntry(doc: LoadedEntry): boolean {
+    return doc._deleted || doc.deleted || false;
+}
 export function createSavingEntryFromLoadedEntry(doc: LoadedEntry): SavingEntry {
     const data = readAsBlob(doc);
     const type = determineType(doc.path, data);

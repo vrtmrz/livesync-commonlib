@@ -199,6 +199,10 @@ interface FileHandlingSettings {
      * Ignore files pattern, i,e, `.gitignore, .obsidianignore` (This should be separated by comma)
      */
     ignoreFiles: string;
+    /**
+     * Do not prevent write if the size is mismatched.
+     */
+    processSizeMismatchedFiles: boolean;
 }
 
 /**
@@ -1206,6 +1210,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     bucketPrefix: "",
     chunkSplitterVersion: "",
     E2EEAlgorithm: E2EEAlgorithms.V1,
+    processSizeMismatchedFiles: false,
 };
 
 export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> = {
@@ -1359,6 +1364,7 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     bucketPrefix: 145,
     chunkSplitterVersion: 146,
     E2EEAlgorithm: 147,
+    processSizeMismatchedFiles: 148,
 } as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {

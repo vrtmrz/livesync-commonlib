@@ -537,11 +537,11 @@ export class ChunkManager {
         } finally {
             this.concurrentTransactions--;
             if (this.concurrentTransactions === 0) {
-                Logger(`All transactions completed. Performing stabilisation.`);
+                Logger(`All transactions completed. Performing stabilisation.`, LOG_LEVEL_VERBOSE);
                 // If no transactions are in progress, stabilise the managed cache
                 await this._stabilise(); // Stabilise cache
             } else {
-                Logger(`Transaction completed. Remaining: ${this.concurrentTransactions}`);
+                Logger(`Transaction completed. Remaining: ${this.concurrentTransactions}`, LOG_LEVEL_VERBOSE);
             }
         }
     }

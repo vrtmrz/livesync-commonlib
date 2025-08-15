@@ -400,6 +400,10 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         name: "Chunk Splitter",
         desc: "Now we can choose how to split the chunks; V3 is the most efficient. If you have troubled, please make this Default or Legacy.",
     },
+    processSizeMismatchedFiles: {
+        name: "Process files even if seems to be corrupted",
+        desc: "You can enable this setting to process the files with size mismatches, these files can be created by some APIs or integrations.",
+    },
 };
 function translateInfo(infoSrc: ConfigurationItem | undefined | false) {
     if (!infoSrc) return false;

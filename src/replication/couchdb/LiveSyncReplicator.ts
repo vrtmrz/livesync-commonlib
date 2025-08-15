@@ -821,7 +821,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         ignoreCleanLock = false
     ) {
         if (setting.versionUpFlash != "") {
-            Logger("Open settings and check message, please.", LOG_LEVEL_NOTICE);
+            Logger($msg("Replicator.Message.VersionUpFlash"), LOG_LEVEL_NOTICE);
             return false;
         }
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);

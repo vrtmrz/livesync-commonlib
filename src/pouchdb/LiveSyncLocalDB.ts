@@ -27,6 +27,7 @@ import {
     LOG_LEVEL_INFO,
     type DIFF_CHECK_RESULT_AUTO,
     type MetaEntry,
+    IDPrefixes,
     LEAF_WAIT_ONLY_REMOTE,
 } from "../common/types.ts";
 import {
@@ -293,7 +294,7 @@ export class LiveSyncLocalDB {
 
         // Generate a new chunk ID based on the piece and the hashed passphrase.
         const chunkId = (await this.hashManager.computeHash(piece)) as DocumentID;
-        return { isNew: true, id: chunkId, piece: piece };
+        return { isNew: true, id: `${IDPrefixes.Chunk}${chunkId}` as DocumentID, piece: piece };
     }
 
     async getDBEntryMeta(
@@ -668,23 +669,28 @@ export class LiveSyncLocalDB {
 
         await this.splitter.initialised;
 
-        let bufferedChunk = [] as EntryLeaf[];
-        let bufferedSize = 0;
-
-        let writeCount = 0;
-        let newCount = 0;
-        let cachedCount = 0;
-        let resultCachedCount = 0;
-        let duplicatedCount = 0;
-        let totalWritingCount = 0;
-        let createChunkCount = 0;
-        // If total size of current buffered chunks exceeds this, they will be flushed to the database to avoid memory extravagance.
-        const MAX_WRITE_SIZE = 1000 * 1024 * 2; // 2MB
         // TODO: Pack chunks in a single file for performance.
         const result = await this.chunkManager.transaction(async () => {
+            let bufferedChunk = [] as EntryLeaf[];
+            let bufferedSize = 0;
+
+            let writeCount = 0;
+            let newCount = 0;
+            let cachedCount = 0;
+            let resultCachedCount = 0;
+            let duplicatedCount = 0;
+            let totalWritingCount = 0;
+            let createChunkCount = 0;
+            // If total size of current buffered chunks exceeds this, they will be flushed to the database to avoid memory extravagance.
+            const MAX_WRITE_SIZE = 1000 * 1024 * 2; // 2MB
             const chunks: DocumentID[] = [];
+
+            let writeChars = 0;
             const flushBufferedChunks = async () => {
-                if (bufferedChunk.length === 0) return true;
+                if (bufferedChunk.length === 0) {
+                    Logger(`No chunks to flush for ${dispFilename}`, LOG_LEVEL_VERBOSE);
+                    return true;
+                }
                 const writeBuf = [...bufferedChunk];
                 bufferedSize = 0;
                 bufferedChunk = [];
@@ -704,36 +710,53 @@ export class LiveSyncLocalDB {
                 writeCount += result.processed.written;
                 resultCachedCount += result.processed.cached;
                 duplicatedCount += result.processed.duplicated;
-                chunks.push(...writeBuf.map((e) => e._id));
-
+                writeChars += writeBuf.map((e) => e.data.length).reduce((a, b) => a + b, 0);
+                // chunks.push(...writeBuf.map((e) => e._id));
+                Logger(`Flushed ${writeBuf.length} (${writeChars}) chunks for ${dispFilename}`, LOG_LEVEL_VERBOSE);
                 return true;
             };
-            const pieces = await this.splitter.splitContent(note);
-            let totalChunkCount = 0;
-            for await (const piece of pieces) {
-                totalChunkCount++;
-                if (piece.length === 0) {
-                    continue;
-                }
-                createChunkCount++;
-                const chunk = await this.prepareChunk(piece);
-                cachedCount += chunk.isNew ? 0 : 1;
-                newCount += chunk.isNew ? 1 : 0;
-                bufferedChunk.push({
-                    _id: chunk.id,
-                    data: chunk.piece,
-                    type: "leaf",
-                });
-                bufferedSize += chunk.piece.length;
+            const flushIfNeeded = async () => {
                 if (bufferedSize > MAX_WRITE_SIZE) {
                     if (!(await flushBufferedChunks())) {
                         Logger(`Failed to flush buffered chunks for ${dispFilename}`, LOG_LEVEL_NOTICE);
                         return false;
                     }
                 }
+                return true;
+            };
+            const addBuffer = async (id: DocumentID, data: string) => {
+                const chunk = {
+                    _id: id,
+                    data: data,
+                    type: "leaf",
+                } as const;
+                bufferedChunk.push(chunk);
+                chunks.push(chunk._id);
+                bufferedSize += chunk.data.length;
+                return await flushIfNeeded();
+            };
+            const pieces = await this.splitter.splitContent(note);
+            let totalChunkCount = 0;
+            try {
+                for await (const piece of pieces) {
+                    totalChunkCount++;
+                    if (piece.length === 0) {
+                        continue;
+                    }
+                    createChunkCount++;
+                    const chunk = await this.prepareChunk(piece);
+                    cachedCount += chunk.isNew ? 0 : 1;
+                    newCount += chunk.isNew ? 1 : 0;
+                    if (!(await addBuffer(chunk.id, chunk.piece))) {
+                        return false;
+                    }
+                }
+            } catch (ex) {
+                Logger(`Error processing pieces for ${dispFilename}`);
+                Logger(ex, LOG_LEVEL_VERBOSE);
+                return false;
             }
             if (!(await flushBufferedChunks())) {
-                Logger(`Failed to flush final buffered chunks for ${dispFilename}`, LOG_LEVEL_NOTICE);
                 return false;
             }
 

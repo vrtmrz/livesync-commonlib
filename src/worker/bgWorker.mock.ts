@@ -1,3 +1,4 @@
+// A mock for bgWorker (For environments where Worker cannot be used).
 import { decrypt, encrypt } from "octagonal-wheels/encryption/index.js";
 import { encrypt as encryptHKDF, decrypt as decryptHKDF } from "octagonal-wheels/encryption/hkdf";
 

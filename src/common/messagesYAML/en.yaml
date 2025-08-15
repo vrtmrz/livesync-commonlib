@@ -455,6 +455,43 @@ moduleMigration:
   titleCaseSensitivity: Case Sensitivity
   titleRecommendSetupUri: Recommendation to use Setup URI
   titleWelcome: Welcome to Self-hosted LiveSync
+  fix0256:
+    title: Broken files has been detected
+    message: |
+      Due to a recent bug (in v0.25.6), some files may not have been saved correctly in the sync database.
+      We have scanned our files and found some that need to be fixed.
+
+      **Files ready to be fixed:**
+
+      ${files}
+
+      These files have size-matched original file on the storage, and are likely to be recoverable.
+      We can use them to fix the database, please click the "Fix" button below to fix them.
+
+      ${messageUnrecoverable}
+
+      If you want to run it again, you can do so from Hatch.
+    messageUnrecoverable: |
+      **Files cannot be fixed on this device:**
+
+      ${filesNotRecoverable}
+
+      These files have inconsistent metadata, and cannot be fixed on this device (mostly we cannot determine which is correct).
+      To restore them, please check your other devices (also by this feature) or restore them manually from a backup.
+    buttons:
+      fix: Fix
+      checkItLater: Check it later
+      DismissForever: I have fixed it, and do not ask again
+  insecureChunkExist:
+    title: Insecure chunks found!
+    message: |
+      Some chunks are not securely stored and are not encrypted in the remote database.
+      **Please rebuild the database to fix this issue**.
+    buttons:
+      rebuild: Rebuild Everything
+      fetch: I already rebuilt the remote. Fetch from the remote.
+      later: I will do it later.
+
 moduleObsidianMenu:
   replicate: Replicate
 Move remotely deleted files to the trash, instead of deleting.: Move remotely deleted files to the trash, instead of deleting.
@@ -889,7 +926,7 @@ Replicator:
     InitialiseFatalError: No replicator is available, this is the fatal error.
     Pending: Some file events are pending. Replication has been cancelled.
     SomeModuleFailed: Replication has been cancelled by some module failure
-    VersionUpFlash: Open settings and check message, please. replication has been cancelled.
+    VersionUpFlash: An update has been detected. Please open the Settings dialogue and check the Change Log. Replication has been cancelled.
 Requires restart of Obsidian: Requires restart of Obsidian
 Requires restart of Obsidian.: Requires restart of Obsidian.
 Save settings to a markdown file. You will be notified when new settings arrive. You can set different files by the platform.:
@@ -981,6 +1018,9 @@ Setting:
     Doctor:
       _value: Setting Doctor
       Desc: Detects non optimal settings. (Same as during migration)
+    ScanBrokenFiles:
+      _value: Scan for broken files
+      Desc: Scans for files that are not stored correctly in the database.
 SettingTab:
   Message:
     AskRebuild: Your changes require fetching from the remote database. Do you want

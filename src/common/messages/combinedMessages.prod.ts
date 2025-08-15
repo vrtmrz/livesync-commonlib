@@ -1055,6 +1055,39 @@ export const _allMessages = {
         ko: "https://github.com/vrtmrz/obsidian-livesync/blob/main/README.md#how-to-use",
         zh: "https://github.com/vrtmrz/obsidian-livesync/blob/main/docs/zh/README_zh.md#%E5%A6%82%E4%BD%95%E4%BD%BF%E7%94%A8",
     },
+    "moduleMigration.fix0256.buttons.checkItLater": {
+        def: "Check it later",
+    },
+    "moduleMigration.fix0256.buttons.DismissForever": {
+        def: "I have fixed it, and do not ask again",
+    },
+    "moduleMigration.fix0256.buttons.fix": {
+        def: "Fix",
+    },
+    "moduleMigration.fix0256.message": {
+        def: 'Due to a recent bug (in v0.25.6), some files may not have been saved correctly in the sync database.\nWe have scanned our files and found some that need to be fixed.\n\n**Files ready to be fixed:**\n\n${files}\n\nThese files have size-matched original file on the storage, and are likely to be recoverable.\nWe can use them to fix the database, please click the "Fix" button below to fix them.\n\n${messageUnrecoverable}\n\nIf you want to run it again, you can do so from Hatch.\n',
+    },
+    "moduleMigration.fix0256.messageUnrecoverable": {
+        def: "**Files cannot be fixed on this device:**\n\n${filesNotRecoverable}\n\nThese files have inconsistent metadata, and cannot be fixed on this device (mostly we cannot determine which is correct).\nTo restore them, please check your other devices (also by this feature) or restore them manually from a backup.\n",
+    },
+    "moduleMigration.fix0256.title": {
+        def: "Broken files has been detected",
+    },
+    "moduleMigration.insecureChunkExist.buttons.fetch": {
+        def: "I already rebuilt the remote. Fetch from the remote.",
+    },
+    "moduleMigration.insecureChunkExist.buttons.later": {
+        def: "I will do it later.",
+    },
+    "moduleMigration.insecureChunkExist.buttons.rebuild": {
+        def: "Rebuild Everything",
+    },
+    "moduleMigration.insecureChunkExist.message": {
+        def: "Some chunks are not securely stored and are not encrypted in the remote database.\n**Please rebuild the database to fix this issue**.\n",
+    },
+    "moduleMigration.insecureChunkExist.title": {
+        def: "Insecure chunks found!",
+    },
     "moduleMigration.logBulkSendCorrupted": {
         def: "Send chunks in bulk has been enabled, however, this feature had been corrupted. Sorry for your inconvenience. Automatically disabled.",
         es: "El envío de fragmentos en bloque se ha habilitado, sin embargo, esta función se ha corrompido. Disculpe las molestias. Deshabilitado automáticamente.",
@@ -2513,7 +2546,7 @@ export const _allMessages = {
         ko: "일부 모듈 실패로 복제가 취소되었습니다",
     },
     "Replicator.Message.VersionUpFlash": {
-        def: "Open settings and check message, please. replication has been cancelled.",
+        def: "An update has been detected. Please open the Settings dialogue and check the Change Log. Replication has been cancelled.",
         ko: "설정을 열고 메시지를 확인해 주세요. 복제가 취소되었습니다.",
     },
     "Requires restart of Obsidian": {
@@ -2635,6 +2668,12 @@ export const _allMessages = {
     "Setting.TroubleShooting.Doctor.Desc": {
         def: "Detects non optimal settings. (Same as during migration)",
         ko: "최적화되지 않은 설정을 감지합니다. (데이터 구조 전환 시와 동일)",
+    },
+    "Setting.TroubleShooting.ScanBrokenFiles": {
+        def: "Scan for broken files",
+    },
+    "Setting.TroubleShooting.ScanBrokenFiles.Desc": {
+        def: "Scans for files that are not stored correctly in the database.",
     },
     "SettingTab.Message.AskRebuild": {
         def: "Your changes require fetching from the remote database. Do you want to proceed?",
