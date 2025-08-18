@@ -29,6 +29,8 @@ import {
     type MetaEntry,
     IDPrefixes,
     LEAF_WAIT_ONLY_REMOTE,
+    RemoteTypes,
+    LEAF_WAIT_TIMEOUT_SEQUENTIAL_REPLICATOR,
 } from "../common/types.ts";
 import {
     applyPatch,
@@ -534,8 +536,16 @@ export class LiveSyncLocalDB {
                     edenChunks = Object.fromEntries(chunks.map((e) => [e._id, e]));
                 }
 
-                const isNetworkEnabled = this.isOnDemandChunkEnabled;
-                const timeout = waitForReady ? LEAF_WAIT_TIMEOUT : isNetworkEnabled ? LEAF_WAIT_ONLY_REMOTE : 0;
+                const isChunksCorrectedIncrementally = this.settings.remoteType !== RemoteTypes.REMOTE_MINIO;
+                const isNetworkEnabled =
+                    this.isOnDemandChunkEnabled && this.settings.remoteType !== RemoteTypes.REMOTE_MINIO;
+                const timeout = waitForReady
+                    ? isChunksCorrectedIncrementally
+                        ? LEAF_WAIT_TIMEOUT
+                        : LEAF_WAIT_TIMEOUT_SEQUENTIAL_REPLICATOR
+                    : isNetworkEnabled
+                      ? LEAF_WAIT_ONLY_REMOTE
+                      : 0;
 
                 const childrenKeys = [...meta.children] as DocumentID[];
                 const chunks = await this.chunkManager.read(

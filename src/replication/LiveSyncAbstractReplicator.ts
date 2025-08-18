@@ -153,4 +153,6 @@ export abstract class LiveSyncAbstractReplicator {
 
     abstract getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus>;
     abstract getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<false | TweakValues>;
+
+    abstract countCompromisedChunks(setting?: RemoteDBSettings): Promise<number | boolean>;
 }

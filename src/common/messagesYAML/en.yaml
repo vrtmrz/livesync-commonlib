@@ -485,12 +485,18 @@ moduleMigration:
   insecureChunkExist:
     title: Insecure chunks found!
     message: |
-      Some chunks are not securely stored and are not encrypted in the remote database.
+      Some chunks are not securely stored and are not encrypted in databases.
       **Please rebuild the database to fix this issue**.
+
+      If your Remote Database is not configured with SSL, or using less-secure credentials, **you are at risk of exposing sensitive data**.
+
+      Note: Please upgrade your Self-hosted LiveSync v0.25.6 or higher on all your devices, and back your vault up surely.
+      Note2: Rebuild Everything and Fetch consumes a bit of time and traffic, please do it in off-peak hours and ensure a stable network connection.
     buttons:
       rebuild: Rebuild Everything
-      fetch: I already rebuilt the remote. Fetch from the remote.
-      later: I will do it later.
+      fetch: I already rebuilt the remote. Fetch from the remote
+      later: I will do it later
+    laterMessage: We strongly recommend to treat this as soon as possible!
 
 moduleObsidianMenu:
   replicate: Replicate
@@ -815,16 +821,22 @@ RedFlag:
       Desc: >-
         How do you want to fetch?
 
-        - %{RedFlag.Fetch.Method.FetchSafer}. (Recommended)
+        - %{RedFlag.Fetch.Method.FetchSafer}.
           **Low Traffic**, **High CPU**, **Low Risk**
+          Recommended if ...
+          - Files possibly inconsistent
+          - Files were not so much
         - %{RedFlag.Fetch.Method.FetchSmoother}.
           **Low Traffic**, **Moderate CPU**, **Low to Moderate Risk**
+          Recommended if ...
+          - Files probably consistent
+          - You have a lot of files.
         - %{RedFlag.Fetch.Method.FetchTraditional}.
           **High Traffic**, **Low CPU**, **Low to Moderate Risk**
 
         >[!INFO]- Details
 
-        > ## %{RedFlag.Fetch.Method.FetchSafer}. (Recommended)
+        > ## %{RedFlag.Fetch.Method.FetchSafer}.
 
         > **Low Traffic**, **High CPU**, **Low Risk**
 

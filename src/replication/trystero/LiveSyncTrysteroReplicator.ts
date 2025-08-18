@@ -259,6 +259,15 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         return Promise.resolve(false);
     }
 
+    /**
+     * Count the number of compromised chunks in the remote database. (Not supported)
+     * @returns The number of compromised chunks.
+     */
+    countCompromisedChunks(): Promise<number> {
+        Logger(`P2P Replicator cannot count compromised chunks`, LOG_LEVEL_VERBOSE);
+        return Promise.resolve(0);
+    }
+
     env: LiveSyncTrysteroReplicatorEnv;
     constructor(env: LiveSyncTrysteroReplicatorEnv) {
         super(env);

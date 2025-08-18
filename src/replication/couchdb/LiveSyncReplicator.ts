@@ -33,7 +33,7 @@ import {
     parseHeaderValues,
 } from "../../common/utils.ts";
 import { Logger } from "../../common/logger.ts";
-import { checkRemoteVersion } from "../../pouchdb/negotiation.ts";
+import { checkRemoteVersion, countCompromisedChunks } from "../../pouchdb/negotiation.ts";
 import { preprocessOutgoing } from "../../pouchdb/encryption.ts";
 
 import { ensureDatabaseIsCompatible } from "../../pouchdb/LiveSyncDBFunctions.ts";
@@ -1350,5 +1350,16 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             ...info,
             estimatedSize: (info as any)?.sizes?.file || 0,
         };
+    }
+
+    async countCompromisedChunks(setting: RemoteDBSettings = this.env.getSettings()): Promise<number | boolean> {
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
+        if (typeof dbRet === "string") {
+            const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
+            Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
+            return false;
+        }
+        const compromised = await countCompromisedChunks(dbRet.db);
+        return compromised;
     }
 }

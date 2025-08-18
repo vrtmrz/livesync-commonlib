@@ -66,7 +66,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     _client!: JournalSyncMinio;
 
     override async getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array> {
-        return await this._client.getReplicationPBKDF2Salt(refresh);
+        return await this.client.getReplicationPBKDF2Salt(refresh);
     }
 
     setupJournalSyncClient() {
@@ -404,5 +404,10 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             customHeaders
         );
         return await testClient.getUsage();
+    }
+
+    countCompromisedChunks(): Promise<number> {
+        Logger(`Bucket Sync Replicator cannot count compromised chunks`, LOG_LEVEL_VERBOSE);
+        return Promise.resolve(0);
     }
 }

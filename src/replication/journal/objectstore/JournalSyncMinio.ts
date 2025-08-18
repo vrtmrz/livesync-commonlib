@@ -83,7 +83,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
                 step: "build",
             }
         );
-        const arrayBufferToBase64Sync = (buffer: ArrayBuffer) => {
+        const arrayBufferToBase64Sync = (buffer: ArrayBufferLike) => {
             return btoa(String.fromCharCode(...new Uint8Array(buffer)));
         };
 

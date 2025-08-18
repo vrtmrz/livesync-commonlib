@@ -1,4 +1,12 @@
-import { SYNCINFO_ID, VER, VERSIONING_DOCID, type EntryVersionInfo, type SyncInfo } from "../common/types";
+import { LOG_LEVEL_INFO, Logger } from "../common/logger";
+import {
+    LOG_LEVEL_VERBOSE,
+    SYNCINFO_ID,
+    VER,
+    VERSIONING_DOCID,
+    type EntryVersionInfo,
+    type SyncInfo,
+} from "../common/types";
 import { resolveWithIgnoreKnownError } from "../common/utils";
 import { isErrorOfMissingDoc } from "./utils_couchdb";
 
@@ -45,15 +53,7 @@ export const bumpRemoteVersion = async (db: PouchDB.Database, barrier: number = 
     if (versionInfo.type != "versioninfo") {
         return false;
     }
-    // if (!versionInfo?.pbkdf2salt) {
-    //     // PBKDF2 salt for replication e2ee
-    //     const salt = createPBKDF2Salt();
-    //     const saltBase64 = await arrayBufferToBase64Single(salt);
-    //     versionInfo.pbkdf2salt = saltBase64;
-    // }
     vi._rev = versionInfo._rev;
-    // vi.pbkdf2salt = versionInfo.pbkdf2salt;
-    // setPBKDF2Salt(vi.pbkdf2salt);
 
     await db.put(vi);
     return true;
@@ -87,3 +87,42 @@ export const checkSyncInfo = async (db: PouchDB.Database): Promise<boolean> => {
         }
     }
 };
+
+// Selectors to already transferred compromised chunks (before h:, i.e., "0123456")
+const SELECTOR_COMPROMISED_CHUNK_1 = {
+    selector: {
+        _id: {
+            $lt: "h:",
+        },
+        type: "leaf",
+    },
+} as const;
+
+// Selectors to already transferred compromised chunks (after h:, i.e., "ijklmnop")
+const SELECTOR_COMPROMISED_CHUNK_2 = {
+    selector: {
+        _id: {
+            $gt: "h;",
+        },
+        type: "leaf",
+    },
+} as const;
+
+/**
+ * Counts the number of remote (potentially) compromised chunks in the database.
+ * @param db The PouchDB database instance.
+ * @returns The number of compromised chunks or false if an error occurs.
+ */
+export async function countCompromisedChunks(db: PouchDB.Database): Promise<number | false> {
+    try {
+        Logger(`Checking for compromised chunks...`, LOG_LEVEL_VERBOSE);
+        const task1 = db.find(SELECTOR_COMPROMISED_CHUNK_1);
+        const task2 = db.find(SELECTOR_COMPROMISED_CHUNK_2);
+        const [result1, result2] = await Promise.all([task1, task2]);
+        return result1.docs.length + result2.docs.length;
+    } catch (ex: any) {
+        Logger(`Error counting compromised chunks!`, LOG_LEVEL_INFO);
+        Logger(ex, LOG_LEVEL_VERBOSE);
+        return false;
+    }
+}

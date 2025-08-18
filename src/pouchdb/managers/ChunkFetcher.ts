@@ -77,6 +77,7 @@ export class ChunkFetcher {
             return; // Do not proceed if the concurrency limit is reached or the queue is empty.
         }
         try {
+            // Logger(`Requesting missing chunks: ${this.queue.join(", ")}`);
             this.currentProcessing++;
             const requestIDs = this.queue.splice(0, BATCH_SIZE);
             const now = Date.now();
@@ -99,7 +100,15 @@ export class ChunkFetcher {
                 return;
             }
             try {
-                const result = await this.chunkManager.write(chunks, {}, "ChunkFetcher" as DocumentID);
+                Logger(`Writing fetched chunks (${chunks.length}) to the database...`);
+                const result = await this.chunkManager.write(
+                    chunks,
+                    {
+                        skipCache: true,
+                        force: true, // Force writing to ensure the chunks with existing _rev.
+                    },
+                    "ChunkFetcher" as DocumentID
+                );
                 if (result.result === true) {
                     for (const chunk of chunks) {
                         this.chunkManager.emitEvent(EVENT_CHUNK_FETCHED, chunk);

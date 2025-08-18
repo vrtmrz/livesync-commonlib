@@ -19,6 +19,7 @@ export type ChunkReadOptions = {
 };
 export type ChunkWriteOptions = {
     skipCache?: boolean; // Skip cache when writing
+    force?: boolean;
 };
 
 export const HotPackProcessResults = {
@@ -479,9 +480,8 @@ export class ChunkManager {
         if (storeChunks.length === 0) {
             return writeResult; // Success if there is nothing to save
         }
-
         // -- Save to the database
-        const result = await this.database.bulkDocs(storeChunks);
+        const result = await this.database.bulkDocs(storeChunks, { new_edits: !options?.force });
         const failed = result.filter((res) => "error" in res) as PouchDB.Core.Error[];
         if (failed.some((res) => res.status !== 409)) {
             // Throw if there is any error other than 409
