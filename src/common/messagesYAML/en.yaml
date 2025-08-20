@@ -589,7 +589,7 @@ obsidianLiveSyncSettingTab:
   msgConnectionCheck: --Connection check--
   msgConnectionProxyNote: If you're having trouble with the Connection-check (even
     after checking config), please check your reverse proxy configuration.
-  msgCurrentOrigin: "Current origin: {origin}"
+  msgCurrentOrigin: "Current origin: ${origin}"
   msgDiscardConfirmation: Do you really want to discard existing settings and databases?
   msgDone: --Done--
   msgEnableCors: Set httpd.enable_cors
@@ -627,7 +627,7 @@ obsidianLiveSyncSettingTab:
     a issue on GitHub.
 
     I appreciate you for your great dedication.
-  msgOriginCheck: "Origin check: {org}"
+  msgOriginCheck: "Origin check: ${org}"
   msgRebuildRequired: >-
     Rebuilding Databases are required to apply the changes.. Please select the
     method to apply the changes.
@@ -758,7 +758,7 @@ obsidianLiveSyncSettingTab:
   titleSyncSettings: Sync Settings
   titleSyncSettingsViaMarkdown: Sync Settings via Markdown
   titleUpdateThinning: Update Thinning
-  warnCorsOriginUnmatched: ⚠ CORS Origin is unmatched {from}->{to}
+  warnCorsOriginUnmatched: ⚠ CORS Origin is unmatched ${from}->${to}
   warnNoAdmin: ⚠ You do not have administrator privileges.
 P2P:
   AskPassphraseForDecrypt: The remote peer shared the configuration. Please input

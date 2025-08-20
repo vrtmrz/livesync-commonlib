@@ -1731,7 +1731,7 @@ export const _allMessages = {
         zh: "如果您在连接检查时遇到问题（即使检查了配置后），请检查您的反向代理配置。",
     },
     "obsidianLiveSyncSettingTab.msgCurrentOrigin": {
-        def: "Current origin: {origin}",
+        def: "Current origin: ${origin}",
         es: "Origen actual: {origin}",
         ko: "현재 원점: {origin}",
         zh: "当前源: {origin}",
@@ -1815,7 +1815,7 @@ export const _allMessages = {
         zh: "警告：此功能仍在开发中，请注意以下几点：\n- 仅追加架构。需要重建才能缩小存储空间。\n- 有点脆弱。\n- 首次同步时，所有历史记录将从远程传输。注意数据上限和慢速。\n- 只有差异会实时同步。\n\n如果您遇到任何问题，或对此功能有任何想法，请在 GitHub 上创建 issue。\n感谢您的巨大贡献。",
     },
     "obsidianLiveSyncSettingTab.msgOriginCheck": {
-        def: "Origin check: {org}",
+        def: "Origin check: ${org}",
         es: "Verificación de origen: {org}",
         ko: "원점 확인: {org}",
         zh: "源检查: {org}",
@@ -2301,7 +2301,7 @@ export const _allMessages = {
         zh: "更新频率限制",
     },
     "obsidianLiveSyncSettingTab.warnCorsOriginUnmatched": {
-        def: "⚠ CORS Origin is unmatched {from}->{to}",
+        def: "⚠ CORS Origin is unmatched ${from}->${to}",
         es: "⚠ El origen de CORS no coincide: {from}->{to}",
         ko: "⚠ CORS 원점이 일치하지 않습니다 {from}->{to}",
         zh: "⚠ CORS 源不匹配 {from}->{to}",
