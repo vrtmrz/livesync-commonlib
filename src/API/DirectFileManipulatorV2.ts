@@ -47,6 +47,7 @@ import {
     SyncParamsNotFoundError,
     SyncParamsUpdateError,
 } from "../replication/SyncParamsHandler.ts";
+import { LiveSyncManagers } from "../managers/LiveSyncManagers.ts";
 export type DirectFileManipulatorOptions = {
     url: string;
     username: string;
@@ -103,12 +104,26 @@ export type EnumerateConditions = {
 };
 export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     liveSyncLocalDB: LiveSyncLocalDB;
+    managers: LiveSyncManagers;
 
     options: DirectFileManipulatorOptions;
     ready = promiseWithResolver<void>();
 
     constructor(options: DirectFileManipulatorOptions) {
         this.options = options;
+        const getDB = () => this.liveSyncLocalDB.localDatabase;
+        const getSettings = () => this.settings;
+        this.managers = new LiveSyncManagers({
+            get database() {
+                return getDB();
+            },
+            getActiveReplicator: () => this.$$getReplicator(),
+            id2path: this.$$id2path.bind(this),
+            path2id: this.$$path2id.bind(this),
+            get settings() {
+                return getSettings();
+            },
+        });
         this.liveSyncLocalDB = new LiveSyncLocalDB(this.options.url, this);
         void this.liveSyncLocalDB.initializeDatabase().then(() => {
             this.ready.resolve();
