@@ -1,65 +1,30 @@
 import {
     type EntryDoc,
     type EntryLeaf,
-    type LoadedEntry,
     type Credential,
-    LEAF_WAIT_TIMEOUT,
     VERSIONING_DOCID,
     type RemoteDBSettings,
     type EntryHasPath,
     type DocumentID,
     type FilePathWithPrefix,
     type FilePath,
-    type SavingEntry,
     type DatabaseEntry,
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_VERBOSE,
-    REMOTE_COUCHDB,
-    type EntryDocResponse,
-    type EntryBase,
-    type NoteEntry,
-    type PlainEntry,
-    type NewEntry,
-    type UXFileInfo,
-    type diff_result_leaf,
-    MISSING_OR_ERROR,
-    NOT_CONFLICTED,
-    LOG_LEVEL_INFO,
-    type DIFF_CHECK_RESULT_AUTO,
+    type LoadedEntry,
     type MetaEntry,
-    IDPrefixes,
-    LEAF_WAIT_ONLY_REMOTE,
-    RemoteTypes,
-    LEAF_WAIT_TIMEOUT_SEQUENTIAL_REPLICATOR,
+    type SavingEntry,
+    type diff_result_leaf,
 } from "../common/types.ts";
-import {
-    applyPatch,
-    createTextBlob,
-    determineTypeFromBlob,
-    flattenObject,
-    generatePatchObj,
-    getDocData,
-    getFileRegExp,
-    isObjectMargeApplicable,
-    isSensibleMargeApplicable,
-    isTextBlob,
-    tryParseJSON,
-} from "../common/utils.ts";
 import { Logger } from "../common/logger.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
 import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
-import { decodeBinary, readString } from "../string_and_binary/convert.ts";
-import { stripAllPrefixes } from "../string_and_binary/path.ts";
-import { serialized } from "../concurrency/lock.ts";
-import { DIFF_DELETE, DIFF_EQUAL, DIFF_INSERT, diff_match_patch, type Diff } from "diff-match-patch";
-import { ChangeManager } from "./managers/ChangeManager.ts";
-import { HashManager } from "./managers/HashManager/HashManager.ts";
-import { ChunkManager, EVENT_CHUNK_FETCHED, type ChunkWriteOptions } from "./managers/ChunkManager.ts";
-import { ChunkFetcher } from "./managers/ChunkFetcher.ts";
-import { ContentSplitter } from "./ContentSplitter/ContentSplitters.ts";
+import { EVENT_CHUNK_FETCHED } from "../managers/ChunkManager.ts";
 import { eventHub } from "../hub/hub.ts";
 import { FallbackWeakRef } from "octagonal-wheels/common/polyfill";
+import type { LiveSyncManagers } from "../managers/LiveSyncManagers.ts";
+import type { AutoMergeResult } from "../managers/ConflictManager.ts";
 
 export const REMOTE_CHUNK_FETCHED = "remote-chunk-fetched";
 export type REMOTE_CHUNK_FETCHED = typeof REMOTE_CHUNK_FETCHED;
@@ -86,6 +51,7 @@ export interface LiveSyncLocalDBEnv {
     $everyOnResetDatabase(db: LiveSyncLocalDB): Promise<boolean>;
     $$getReplicator: () => LiveSyncAbstractReplicator;
     getSettings(): RemoteDBSettings;
+    managers: LiveSyncManagers;
 }
 
 export function getNoFromRev(rev: string) {
@@ -93,67 +59,33 @@ export function getNoFromRev(rev: string) {
     return parseInt(rev.split("-")[0]);
 }
 
-type GeneratedChunk = {
+export type GeneratedChunk = {
     isNew: boolean;
     id: DocumentID;
     piece: string;
 };
-
-type AutoMergeOutcomeOK = {
-    ok: DIFF_CHECK_RESULT_AUTO;
-};
-
-type AutoMergeCanBeDoneByDeletingRev = {
-    result: string;
-    conflictedRev: string;
-};
-
-type UserActionRequired = {
-    leftRev: string;
-    rightRev: string;
-    leftLeaf: diff_result_leaf | false;
-    rightLeaf: diff_result_leaf | false;
-};
-
-type AutoMergeResult = Promise<AutoMergeOutcomeOK | AutoMergeCanBeDoneByDeletingRev | UserActionRequired>;
 
 export class LiveSyncLocalDB {
     auth: Credential;
     dbname: string;
     settings!: RemoteDBSettings;
     localDatabase!: PouchDB.Database<EntryDoc>;
+    get managers() {
+        return this.env.managers;
+    }
 
     isReady = false;
 
     needScanning = false;
 
-    hashManager!: HashManager;
-    chunkFetcher!: ChunkFetcher;
-    changeManager!: ChangeManager<EntryDoc>;
-    chunkManager!: ChunkManager;
-    splitter!: ContentSplitter;
-
     env: LiveSyncLocalDBEnv;
 
     clearCaches() {
-        this.chunkManager?.clearCaches();
+        this.managers.clearCaches();
     }
 
     async _prepareHashFunctions() {
-        const getSettingFunc = () => this.settings;
-        this.hashManager = new HashManager({
-            get settings() {
-                return getSettingFunc();
-            },
-        });
-        await this.hashManager.initialise();
-    }
-
-    get isOnDemandChunkEnabled() {
-        if (this.settings.remoteType !== REMOTE_COUCHDB) {
-            return false;
-        }
-        return this.settings.readChunksOnline;
+        await this.managers?.prepareHashFunction();
     }
 
     onunload() {
@@ -165,7 +97,6 @@ export class LiveSyncLocalDB {
     refreshSettings() {
         const settings = this.env.getSettings();
         this.settings = settings;
-        this.splitter = new ContentSplitter({ settings: this.settings });
         void this._prepareHashFunctions();
     }
 
@@ -179,12 +110,6 @@ export class LiveSyncLocalDB {
         this.env = env;
         this.refreshSettings();
     }
-    id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix {
-        return this.env.$$id2path(id, entry, stripPrefix);
-    }
-    async path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID> {
-        return await this.env.$$path2id(filename, prefix);
-    }
 
     async close() {
         Logger("Database closed (by close)");
@@ -196,56 +121,8 @@ export class LiveSyncLocalDB {
         this.env.$allOnDBClose(this);
     }
 
-    async teardownManagers() {
-        if (this.changeManager) {
-            this.changeManager.teardown();
-            this.changeManager = undefined!;
-        }
-        if (this.chunkFetcher) {
-            this.chunkFetcher.destroy();
-            this.chunkFetcher = undefined!;
-        }
-        if (this.chunkManager) {
-            this.chunkManager.destroy();
-            this.chunkManager = undefined!;
-        }
-        return await Promise.resolve();
-    }
-    async initManagers() {
-        await this.teardownManagers();
-        const getDB = () => this.localDatabase;
-        const getChangeManager = () => this.changeManager;
-        const getChunkManager = () => this.chunkManager;
-        const getReplicator = () => this.env.$$getReplicator();
-        const getSettings = () => this.env.getSettings();
-        const proxy = {
-            get database() {
-                return getDB();
-            },
-            get changeManager() {
-                return getChangeManager();
-            },
-            get chunkManager() {
-                return getChunkManager();
-            },
-            getActiveReplicator() {
-                return getReplicator();
-            },
-            get settings() {
-                return getSettings();
-            },
-        };
-        this.changeManager = new ChangeManager(proxy);
-
-        this.chunkManager = new ChunkManager({
-            ...proxy,
-            maxCacheSize: this.settings.hashCacheMaxCount * 10,
-        });
-        this.chunkFetcher = new ChunkFetcher(proxy);
-    }
-
     onNewLeaf(chunk: EntryLeaf) {
-        this.chunkManager?.emitEvent(EVENT_CHUNK_FETCHED, chunk);
+        this.managers.chunkManager?.emitEvent(EVENT_CHUNK_FETCHED, chunk);
     }
 
     async initializeDatabase(): Promise<boolean> {
@@ -267,13 +144,13 @@ export class LiveSyncLocalDB {
         Logger("Opening Database...");
         Logger("Database info", LOG_LEVEL_VERBOSE);
         Logger(await this.localDatabase.info(), LOG_LEVEL_VERBOSE);
-        await this.initManagers();
+        await this.managers.initManagers();
         this.localDatabase.on("close", () => {
             Logger("Database closed.");
             this.isReady = false;
             this.localDatabase.removeAllListeners();
             this.env.$$getReplicator()?.closeReplication();
-            void this.teardownManagers();
+            void this.managers.teardownManagers();
         });
         const _instance = new FallbackWeakRef(this);
         const unload = eventHub.onEvent(REMOTE_CHUNK_FETCHED, (chunk: EntryLeaf) => {
@@ -286,77 +163,6 @@ export class LiveSyncLocalDB {
         this.isReady = true;
         Logger("Database is now ready.");
         return true;
-    }
-
-    async prepareChunk(piece: string): Promise<GeneratedChunk> {
-        const cachedChunkId = this.chunkManager.getChunkIDFromCache(piece);
-        if (cachedChunkId !== false) {
-            return { isNew: false, id: cachedChunkId, piece: piece };
-        }
-
-        // Generate a new chunk ID based on the piece and the hashed passphrase.
-        const chunkId = (await this.hashManager.computeHash(piece)) as DocumentID;
-        return { isNew: true, id: `${IDPrefixes.Chunk}${chunkId}` as DocumentID, piece: piece };
-    }
-
-    async getDBEntryMeta(
-        path: FilePathWithPrefix | FilePath,
-        opt?: PouchDB.Core.GetOptions,
-        includeDeleted = false
-    ): Promise<false | LoadedEntry> {
-        // safety valve
-        if (!this.isTargetFile(path)) {
-            return false;
-        }
-        const id = await this.path2id(path);
-        try {
-            let obj: EntryDocResponse | null = null;
-            if (opt) {
-                obj = await this.localDatabase.get(id, opt);
-            } else {
-                obj = await this.localDatabase.get(id);
-            }
-            const deleted = (obj as any)?.deleted ?? obj._deleted ?? undefined;
-            if (!includeDeleted && deleted) return false;
-            if (obj.type && obj.type == "leaf") {
-                //do nothing for leaf;
-                return false;
-            }
-
-            // retrieve metadata only
-            if (!obj.type || (obj.type && obj.type == "notes") || obj.type == "newnote" || obj.type == "plain") {
-                const note = obj as EntryBase;
-                let children: string[] = [];
-                let type: "plain" | "newnote" = "plain";
-                if (obj.type == "newnote" || obj.type == "plain") {
-                    children = obj.children;
-                    type = obj.type;
-                }
-                const doc: LoadedEntry & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta = {
-                    data: "",
-                    _id: (note as EntryDoc)._id,
-                    path: path,
-                    ctime: note.ctime,
-                    mtime: note.mtime,
-                    size: note.size,
-                    // _deleted: obj._deleted,
-                    _rev: obj._rev,
-                    _conflicts: obj._conflicts,
-                    children: children,
-                    datatype: type,
-                    deleted: deleted,
-                    type: type,
-                    eden: "eden" in obj ? obj.eden : {},
-                };
-                return doc;
-            }
-        } catch (ex: any) {
-            if (isErrorOfMissingDoc(ex)) {
-                return false;
-            }
-            throw ex;
-        }
-        return false;
     }
 
     /**
@@ -454,386 +260,8 @@ export class LiveSyncLocalDB {
         return { used, existing };
     }
 
-    async getDBEntry(
-        path: FilePathWithPrefix | FilePath,
-        opt?: PouchDB.Core.GetOptions,
-        dump = false,
-        waitForReady = true,
-        includeDeleted = false
-    ): Promise<false | LoadedEntry> {
-        const meta = await this.getDBEntryMeta(path, opt, includeDeleted);
-        if (meta) {
-            return await this.getDBEntryFromMeta(meta, dump, waitForReady);
-        } else {
-            return false;
-        }
-    }
-    async getDBEntryFromMeta(
-        meta: LoadedEntry | MetaEntry,
-        dump = false,
-        waitForReady = true
-    ): Promise<false | LoadedEntry> {
-        const filename = this.id2path(meta._id, meta);
-        if (!this.isTargetFile(filename)) {
-            return false;
-        }
-        const dispFilename = stripAllPrefixes(filename);
-        const deleted = meta.deleted ?? meta._deleted ?? undefined;
-        if (!meta.type || (meta.type && meta.type == "notes")) {
-            const note = meta as NoteEntry;
-            const doc: LoadedEntry & PouchDB.Core.IdMeta = {
-                data: note.data,
-                path: note.path,
-                _id: note._id,
-                ctime: note.ctime,
-                mtime: note.mtime,
-                size: note.size,
-                // _deleted: obj._deleted,
-                _rev: meta._rev,
-                _conflicts: meta._conflicts,
-                children: [],
-                datatype: "newnote",
-                deleted: deleted,
-                type: "newnote",
-                eden: "eden" in meta ? meta.eden : {},
-            };
-            if (dump) {
-                Logger(`--Old fashioned document--`);
-                Logger(doc);
-            }
-
-            return doc;
-            // simple note
-        }
-        if (meta.type == "newnote" || meta.type == "plain") {
-            if (dump) {
-                const conflicts = await this.localDatabase.get(meta._id, {
-                    rev: meta._rev,
-                    conflicts: true,
-                    revs_info: true,
-                });
-                Logger("-- Conflicts --");
-                Logger(conflicts._conflicts ?? "No conflicts");
-                Logger("-- Revs info -- ");
-                Logger(conflicts._revs_info);
-            }
-            // search children
-            try {
-                if (dump) {
-                    Logger(`--Bare document--`);
-                    Logger(meta);
-                }
-
-                // Reading `Eden` for legacy support.
-                // It will be removed in the future.
-                let edenChunks: Record<string, EntryLeaf> = {};
-                if (meta.eden && Object.keys(meta.eden).length > 0) {
-                    const chunks = Object.entries(meta.eden).map(([id, data]) => ({
-                        _id: id as DocumentID,
-                        data: data.data,
-                        type: "leaf",
-                    })) as EntryLeaf[];
-                    edenChunks = Object.fromEntries(chunks.map((e) => [e._id, e]));
-                }
-
-                const isChunksCorrectedIncrementally = this.settings.remoteType !== RemoteTypes.REMOTE_MINIO;
-                const isNetworkEnabled =
-                    this.isOnDemandChunkEnabled && this.settings.remoteType !== RemoteTypes.REMOTE_MINIO;
-                const timeout = waitForReady
-                    ? isChunksCorrectedIncrementally
-                        ? LEAF_WAIT_TIMEOUT
-                        : LEAF_WAIT_TIMEOUT_SEQUENTIAL_REPLICATOR
-                    : isNetworkEnabled
-                      ? LEAF_WAIT_ONLY_REMOTE
-                      : 0;
-
-                const childrenKeys = [...meta.children] as DocumentID[];
-                const chunks = await this.chunkManager.read(
-                    childrenKeys,
-                    {
-                        skipCache: false,
-                        timeout: timeout,
-                        preventRemoteRequest: !isNetworkEnabled,
-                    },
-                    edenChunks
-                );
-
-                if (chunks.some((e) => e === false)) {
-                    // TODO EXACT MESSAGE
-                    throw new Error("Load failed");
-                }
-
-                const doc: LoadedEntry & PouchDB.Core.IdMeta = {
-                    data: (chunks as EntryLeaf[]).map((e) => e.data),
-                    path: meta.path,
-                    _id: meta._id,
-                    ctime: meta.ctime,
-                    mtime: meta.mtime,
-                    size: meta.size,
-                    _rev: meta._rev,
-                    children: meta.children,
-                    datatype: meta.type,
-                    _conflicts: meta._conflicts,
-                    eden: meta.eden,
-                    deleted: deleted,
-                    type: meta.type,
-                };
-                if (dump) {
-                    Logger(`--Loaded Document--`);
-                    Logger(doc);
-                }
-                return doc;
-            } catch (ex: any) {
-                if (isErrorOfMissingDoc(ex)) {
-                    Logger(
-                        `Missing document content!, could not read ${dispFilename}(${meta._id.substring(0, 8)}) from database.`,
-                        LOG_LEVEL_NOTICE
-                    );
-                    return false;
-                }
-                Logger(
-                    `Something went wrong on reading ${dispFilename}(${meta._id.substring(0, 8)}) from database:`,
-                    LOG_LEVEL_NOTICE
-                );
-                Logger(ex);
-            }
-        }
-        return false;
-    }
-
-    async deleteDBEntry(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
-        // safety valve
-        if (!this.isTargetFile(path)) {
-            return false;
-        }
-        const id = await this.path2id(path);
-        try {
-            return (
-                (await serialized("file:" + path, async () => {
-                    let obj: EntryDocResponse | null = null;
-                    if (opt) {
-                        obj = await this.localDatabase.get(id, opt);
-                    } else {
-                        obj = await this.localDatabase.get(id);
-                    }
-                    const revDeletion = opt && ("rev" in opt ? opt.rev : "") != "";
-
-                    if (obj.type && obj.type == "leaf") {
-                        //do nothing for leaf;
-                        return false;
-                    }
-                    //Check it out and fix docs to regular case
-                    if (!obj.type || (obj.type && obj.type == "notes")) {
-                        obj._deleted = true;
-                        const r = await this.localDatabase.put(obj, { force: !revDeletion });
-                        Logger(`Entry removed:${path} (${obj._id.substring(0, 8)}-${r.rev})`);
-                        return true;
-
-                        // simple note
-                    }
-                    if (obj.type == "newnote" || obj.type == "plain") {
-                        if (revDeletion) {
-                            obj._deleted = true;
-                        } else {
-                            obj.deleted = true;
-                            obj.mtime = Date.now();
-                            if (this.settings.deleteMetadataOfDeletedFiles) {
-                                obj._deleted = true;
-                            }
-                        }
-                        const r = await this.localDatabase.put(obj, { force: !revDeletion });
-
-                        Logger(`Entry removed:${path} (${obj._id.substring(0, 8)}-${r.rev})`);
-                        return true;
-                    } else {
-                        return false;
-                    }
-                })) ?? false
-            );
-        } catch (ex: any) {
-            if (isErrorOfMissingDoc(ex)) {
-                return false;
-            }
-            throw ex;
-        }
-    }
-
-    async putDBEntry(note: SavingEntry, onlyChunks?: boolean) {
-        //safety valve
-        const filename = this.id2path(note._id, note);
-        const dispFilename = stripAllPrefixes(filename);
-
-        //prepare eden
-        if (!note.eden) note.eden = {};
-
-        if (!this.isTargetFile(filename)) {
-            Logger(`File skipped:${dispFilename}`, LOG_LEVEL_VERBOSE);
-            return false;
-        }
-
-        // Set datatype again for modified datatype.
-        const data = note.data instanceof Blob ? note.data : createTextBlob(note.data);
-        note.data = data;
-        note.type = isTextBlob(data) ? "plain" : "newnote";
-        note.datatype = note.type;
-
-        await this.splitter.initialised;
-
-        // TODO: Pack chunks in a single file for performance.
-        const result = await this.chunkManager.transaction(async () => {
-            let bufferedChunk = [] as EntryLeaf[];
-            let bufferedSize = 0;
-
-            let writeCount = 0;
-            let newCount = 0;
-            let cachedCount = 0;
-            let resultCachedCount = 0;
-            let duplicatedCount = 0;
-            let totalWritingCount = 0;
-            let createChunkCount = 0;
-            // If total size of current buffered chunks exceeds this, they will be flushed to the database to avoid memory extravagance.
-            const MAX_WRITE_SIZE = 1000 * 1024 * 2; // 2MB
-            const chunks: DocumentID[] = [];
-
-            let writeChars = 0;
-            const flushBufferedChunks = async () => {
-                if (bufferedChunk.length === 0) {
-                    Logger(`No chunks to flush for ${dispFilename}`, LOG_LEVEL_VERBOSE);
-                    return true;
-                }
-                const writeBuf = [...bufferedChunk];
-                bufferedSize = 0;
-                bufferedChunk = [];
-                const result = await this.chunkManager.write(
-                    writeBuf,
-                    {
-                        skipCache: false,
-                        timeout: 0,
-                    } as ChunkWriteOptions,
-                    note._id
-                );
-                if (result.result === false) {
-                    Logger(`Failed to write buffered chunks for ${dispFilename}`, LOG_LEVEL_NOTICE);
-                    return false;
-                }
-                totalWritingCount++;
-                writeCount += result.processed.written;
-                resultCachedCount += result.processed.cached;
-                duplicatedCount += result.processed.duplicated;
-                writeChars += writeBuf.map((e) => e.data.length).reduce((a, b) => a + b, 0);
-                // chunks.push(...writeBuf.map((e) => e._id));
-                Logger(`Flushed ${writeBuf.length} (${writeChars}) chunks for ${dispFilename}`, LOG_LEVEL_VERBOSE);
-                return true;
-            };
-            const flushIfNeeded = async () => {
-                if (bufferedSize > MAX_WRITE_SIZE) {
-                    if (!(await flushBufferedChunks())) {
-                        Logger(`Failed to flush buffered chunks for ${dispFilename}`, LOG_LEVEL_NOTICE);
-                        return false;
-                    }
-                }
-                return true;
-            };
-            const addBuffer = async (id: DocumentID, data: string) => {
-                const chunk = {
-                    _id: id,
-                    data: data,
-                    type: "leaf",
-                } as const;
-                bufferedChunk.push(chunk);
-                chunks.push(chunk._id);
-                bufferedSize += chunk.data.length;
-                return await flushIfNeeded();
-            };
-            const pieces = await this.splitter.splitContent(note);
-            let totalChunkCount = 0;
-            try {
-                for await (const piece of pieces) {
-                    totalChunkCount++;
-                    if (piece.length === 0) {
-                        continue;
-                    }
-                    createChunkCount++;
-                    const chunk = await this.prepareChunk(piece);
-                    cachedCount += chunk.isNew ? 0 : 1;
-                    newCount += chunk.isNew ? 1 : 0;
-                    if (!(await addBuffer(chunk.id, chunk.piece))) {
-                        return false;
-                    }
-                }
-            } catch (ex) {
-                Logger(`Error processing pieces for ${dispFilename}`);
-                Logger(ex, LOG_LEVEL_VERBOSE);
-                return false;
-            }
-            if (!(await flushBufferedChunks())) {
-                return false;
-            }
-
-            const dataSize = note.data.size;
-            const stats = `(✨: ${newCount}, 🗃️: ${cachedCount} (${resultCachedCount}) / 🗄️: ${writeCount}, ♻:${duplicatedCount})`;
-            Logger(
-                `Chunks processed for ${dispFilename} (${dataSize}): 📚:${totalChunkCount} (${createChunkCount}) , 📥:${totalWritingCount} ${stats}`,
-                LOG_LEVEL_VERBOSE
-            );
-
-            if (dataSize > 0 && totalWritingCount === 0) {
-                Logger(
-                    `No data to save in ${dispFilename}!! This document may be corrupted in the local database! Please back it up immediately, and report an issue!`,
-                    LOG_LEVEL_NOTICE
-                );
-            }
-
-            if (onlyChunks) {
-                return {
-                    id: note._id,
-                    ok: true,
-                    rev: "dummy",
-                };
-            }
-
-            const newDoc: PlainEntry | NewEntry = {
-                children: chunks,
-                _id: note._id,
-                path: note.path,
-                ctime: note.ctime,
-                mtime: note.mtime,
-                size: note.size,
-                type: note.datatype,
-                eden: {},
-            };
-
-            return (
-                (await serialized("file:" + filename, async () => {
-                    try {
-                        const old = await this.localDatabase.get(newDoc._id);
-                        newDoc._rev = old._rev;
-                    } catch (ex: any) {
-                        if (isErrorOfMissingDoc(ex)) {
-                            // NO OP/
-                        } else {
-                            throw ex;
-                        }
-                    }
-                    const r = await this.localDatabase.put<PlainEntry | NewEntry>(newDoc, { force: true });
-                    if (r.ok) {
-                        return r;
-                    } else {
-                        return false;
-                    }
-                })) ?? false
-            );
-        });
-        if (result === false) {
-            Logger(`Failed to write document ${dispFilename}`, LOG_LEVEL_NOTICE);
-            return false;
-        }
-        Logger(`Document saved: ${dispFilename} (${result.id.substring(0, 8)}-${result.rev})`, LOG_LEVEL_VERBOSE);
-        return result;
-    }
-
     async resetDatabase() {
-        await this.teardownManagers();
+        await this.managers.teardownManagers();
         this.env.$$getReplicator().closeReplication();
         if (!(await this.env.$everyOnResetDatabase(this))) {
             Logger("Database reset has been prevented or failed on some modules.", LOG_LEVEL_NOTICE);
@@ -846,24 +274,6 @@ export class LiveSyncLocalDB {
         this.localDatabase = null;
         await this.initializeDatabase();
         Logger("Local Database Reset", LOG_LEVEL_NOTICE);
-    }
-
-    isTargetFile(filenameSrc: string) {
-        const file = filenameSrc.startsWith("i:") ? filenameSrc.substring(2) : filenameSrc;
-        if (file.startsWith("ix:")) return true;
-        if (file.startsWith("ps:")) return true;
-        if (file.includes(":")) {
-            return false;
-        }
-        if (this.settings.syncOnlyRegEx) {
-            const syncOnly = getFileRegExp(this.settings, "syncOnlyRegEx");
-            if (syncOnly.length > 0 && !syncOnly.some((e) => e.test(file))) return false;
-        }
-        if (this.settings.syncIgnoreRegEx) {
-            const syncIgnore = getFileRegExp(this.settings, "syncIgnoreRegEx");
-            if (syncIgnore.some((e) => e.test(file))) return false;
-        }
-        return true;
     }
 
     async *findEntries(
@@ -1042,350 +452,45 @@ export class LiveSyncLocalDB {
         return this.localDatabase.bulkDocs(docs, options || {});
     }
 
-    // --- File operations!
+    // For compatibility
+    isTargetFile(filenameSrc: string) {
+        return this.managers.entryManager.isTargetFile(filenameSrc);
+    }
+    async getDBEntryMeta(
+        path: FilePathWithPrefix | FilePath,
+        opt?: PouchDB.Core.GetOptions,
+        includeDeleted = false
+    ): Promise<false | LoadedEntry> {
+        return await this.managers.entryManager.getDBEntryMeta(path, opt, includeDeleted);
+    }
 
-    async UXFileInfoToSavingEntry(file: UXFileInfo): Promise<SavingEntry | false> {
-        const datatype = determineTypeFromBlob(file.body);
-        const fullPath = file.path;
-        const id = await this.path2id(fullPath);
-        const d: SavingEntry = {
-            _id: id,
-            path: fullPath,
-            data: file.body,
-            mtime: file.stat.mtime,
-            ctime: file.stat.ctime,
-            size: file.stat.size,
-            children: [],
-            datatype: datatype,
-            type: datatype,
-            eden: {},
-        };
-        return d;
+    async getDBEntry(
+        path: FilePathWithPrefix | FilePath,
+        opt?: PouchDB.Core.GetOptions,
+        dump = false,
+        waitForReady = true,
+        includeDeleted = false
+    ): Promise<false | LoadedEntry> {
+        return await this.managers.entryManager.getDBEntry(path, opt, dump, waitForReady, includeDeleted);
+    }
+    async getDBEntryFromMeta(
+        meta: LoadedEntry | MetaEntry,
+        dump = false,
+        waitForReady = true
+    ): Promise<false | LoadedEntry> {
+        return await this.managers.entryManager.getDBEntryFromMeta(meta, dump, waitForReady);
+    }
+    async deleteDBEntry(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
+        return await this.managers.entryManager.deleteDBEntry(path, opt);
+    }
+    async putDBEntry(note: SavingEntry, onlyChunks?: boolean) {
+        return await this.managers.entryManager.putDBEntry(note, onlyChunks);
     }
 
     async getConflictedDoc(path: FilePathWithPrefix, rev: string): Promise<false | diff_result_leaf> {
-        try {
-            const doc = await this.getDBEntry(path, { rev: rev }, false, true, true);
-            if (doc === false) return false;
-            let data = getDocData(doc.data);
-            if (doc.datatype == "newnote") {
-                data = readString(new Uint8Array(decodeBinary(doc.data)));
-            } else if (doc.datatype == "plain") {
-                // NO OP.
-            }
-            return {
-                deleted: doc.deleted || doc._deleted,
-                ctime: doc.ctime,
-                mtime: doc.mtime,
-                rev: rev,
-                data: data,
-            };
-        } catch (ex) {
-            if (isErrorOfMissingDoc(ex)) {
-                return false;
-            }
-        }
-        return false;
-    }
-    async mergeSensibly(
-        path: FilePathWithPrefix,
-        baseRev: string,
-        currentRev: string,
-        conflictedRev: string
-    ): Promise<Diff[] | false> {
-        const baseLeaf = await this.getConflictedDoc(path, baseRev);
-        const leftLeaf = await this.getConflictedDoc(path, currentRev);
-        const rightLeaf = await this.getConflictedDoc(path, conflictedRev);
-        let autoMerge = false;
-        if (baseLeaf == false || leftLeaf == false || rightLeaf == false) {
-            return false;
-        }
-        if (leftLeaf.deleted && rightLeaf.deleted) {
-            // Both are deleted
-            return false;
-        }
-        // diff between base and each revision
-        const dmp = new diff_match_patch();
-        const mapLeft = dmp.diff_linesToChars_(baseLeaf.data, leftLeaf.data);
-        const diffLeftSrc = dmp.diff_main(mapLeft.chars1, mapLeft.chars2, false);
-        dmp.diff_charsToLines_(diffLeftSrc, mapLeft.lineArray);
-        const mapRight = dmp.diff_linesToChars_(baseLeaf.data, rightLeaf.data);
-        const diffRightSrc = dmp.diff_main(mapRight.chars1, mapRight.chars2, false);
-        dmp.diff_charsToLines_(diffRightSrc, mapRight.lineArray);
-        function splitDiffPiece(src: Diff[]): Diff[] {
-            const ret = [] as Diff[];
-            do {
-                const d = src.shift();
-                if (d === undefined) {
-                    return ret;
-                }
-                const pieces = d[1].split(/([^\n]*\n)/).filter((f) => f != "");
-                if (typeof d == "undefined") {
-                    break;
-                }
-                if (d[0] != DIFF_DELETE) {
-                    ret.push(...pieces.map((e) => [d[0], e] as Diff));
-                }
-                if (d[0] == DIFF_DELETE) {
-                    const nd = src.shift();
-
-                    if (typeof nd != "undefined") {
-                        const piecesPair = nd[1].split(/([^\n]*\n)/).filter((f) => f != "");
-                        if (nd[0] == DIFF_INSERT) {
-                            // it might be pair
-                            for (const pt of pieces) {
-                                ret.push([d[0], pt]);
-                                const pairP = piecesPair.shift();
-                                if (typeof pairP != "undefined") ret.push([DIFF_INSERT, pairP]);
-                            }
-                            ret.push(...piecesPair.map((e) => [nd[0], e] as Diff));
-                        } else {
-                            ret.push(...pieces.map((e) => [d[0], e] as Diff));
-                            ret.push(...piecesPair.map((e) => [nd[0], e] as Diff));
-                        }
-                    } else {
-                        ret.push(...pieces.map((e) => [0, e] as Diff));
-                    }
-                }
-            } while (src.length > 0);
-            return ret;
-        }
-
-        const diffLeft = splitDiffPiece(diffLeftSrc);
-        const diffRight = splitDiffPiece(diffRightSrc);
-
-        let rightIdx = 0;
-        let leftIdx = 0;
-        const merged = [] as Diff[];
-        autoMerge = true;
-        LOOP_MERGE: do {
-            if (leftIdx >= diffLeft.length && rightIdx >= diffRight.length) {
-                break LOOP_MERGE;
-            }
-            const leftItem = diffLeft[leftIdx] ?? [0, ""];
-            const rightItem = diffRight[rightIdx] ?? [0, ""];
-            leftIdx++;
-            rightIdx++;
-            // when completely same, leave it .
-            if (leftItem[0] == DIFF_EQUAL && rightItem[0] == DIFF_EQUAL && leftItem[1] == rightItem[1]) {
-                merged.push(leftItem);
-                continue;
-            }
-            if (leftItem[0] == DIFF_DELETE && rightItem[0] == DIFF_DELETE && leftItem[1] == rightItem[1]) {
-                // when deleted evenly,
-                const nextLeftIdx = leftIdx;
-                const nextRightIdx = rightIdx;
-                const [nextLeftItem, nextRightItem] = [
-                    diffLeft[nextLeftIdx] ?? [0, ""],
-                    diffRight[nextRightIdx] ?? [0, ""],
-                ];
-                if (
-                    nextLeftItem[0] == DIFF_INSERT &&
-                    nextRightItem[0] == DIFF_INSERT &&
-                    nextLeftItem[1] != nextRightItem[1]
-                ) {
-                    //but next line looks like different
-                    autoMerge = false;
-                    break;
-                } else {
-                    merged.push(leftItem);
-                    continue;
-                }
-            }
-            // when inserted evenly
-            if (leftItem[0] == DIFF_INSERT && rightItem[0] == DIFF_INSERT) {
-                if (leftItem[1] == rightItem[1]) {
-                    merged.push(leftItem);
-                    continue;
-                } else {
-                    // sort by file date.
-                    if (leftLeaf.mtime <= rightLeaf.mtime) {
-                        merged.push(leftItem);
-                        merged.push(rightItem);
-                        continue;
-                    } else {
-                        merged.push(rightItem);
-                        merged.push(leftItem);
-                        continue;
-                    }
-                }
-            }
-            // when on inserting, index should be fixed again.
-            if (leftItem[0] == DIFF_INSERT) {
-                rightIdx--;
-                merged.push(leftItem);
-                continue;
-            }
-            if (rightItem[0] == DIFF_INSERT) {
-                leftIdx--;
-                merged.push(rightItem);
-                continue;
-            }
-            // except insertion, the line should not be different.
-            if (rightItem[1] != leftItem[1]) {
-                //TODO: SHOULD BE PANIC.
-                Logger(
-                    `MERGING PANIC:${leftItem[0]},${leftItem[1]} == ${rightItem[0]},${rightItem[1]}`,
-                    LOG_LEVEL_VERBOSE
-                );
-                autoMerge = false;
-                break LOOP_MERGE;
-            }
-            if (leftItem[0] == DIFF_DELETE) {
-                if (rightItem[0] == DIFF_EQUAL) {
-                    merged.push(leftItem);
-                    continue;
-                } else {
-                    //we cannot perform auto merge.
-                    autoMerge = false;
-                    break LOOP_MERGE;
-                }
-            }
-            if (rightItem[0] == DIFF_DELETE) {
-                if (leftItem[0] == DIFF_EQUAL) {
-                    merged.push(rightItem);
-                    continue;
-                } else {
-                    //we cannot perform auto merge.
-                    autoMerge = false;
-                    break LOOP_MERGE;
-                }
-            }
-            Logger(
-                `Weird condition:${leftItem[0]},${leftItem[1]} == ${rightItem[0]},${rightItem[1]}`,
-                LOG_LEVEL_VERBOSE
-            );
-            // here is the exception
-            break LOOP_MERGE;
-        } while (leftIdx < diffLeft.length || rightIdx < diffRight.length);
-        if (autoMerge) {
-            Logger(`Sensibly merge available`, LOG_LEVEL_VERBOSE);
-            return merged;
-        } else {
-            return false;
-        }
-    }
-
-    async mergeObject(
-        path: FilePathWithPrefix,
-        baseRev: string,
-        currentRev: string,
-        conflictedRev: string
-    ): Promise<string | false> {
-        try {
-            const baseLeaf = await this.getConflictedDoc(path, baseRev);
-            const leftLeaf = await this.getConflictedDoc(path, currentRev);
-            const rightLeaf = await this.getConflictedDoc(path, conflictedRev);
-            if (baseLeaf == false || leftLeaf == false || rightLeaf == false) {
-                Logger(`Could not load leafs for merge`, LOG_LEVEL_VERBOSE);
-                Logger(
-                    `${baseLeaf ? "base" : "missing base"}, ${leftLeaf ? "left" : "missing left"}, ${rightLeaf ? "right" : "missing right"} }`,
-                    LOG_LEVEL_VERBOSE
-                );
-                return false;
-            }
-            if (leftLeaf.deleted && rightLeaf.deleted) {
-                Logger(`Both are deleted`, LOG_LEVEL_VERBOSE);
-                return false;
-            }
-            const baseObj = { data: tryParseJSON(baseLeaf.data, {}) } as Record<string | number | symbol, any>;
-            const leftObj = { data: tryParseJSON(leftLeaf.data, {}) } as Record<string | number | symbol, any>;
-            const rightObj = { data: tryParseJSON(rightLeaf.data, {}) } as Record<string | number | symbol, any>;
-
-            const diffLeft = generatePatchObj(baseObj, leftObj);
-            const diffRight = generatePatchObj(baseObj, rightObj);
-
-            // If each value of the same key has been modified, the automatic merge should be prevented.
-            //TODO Does it have to be a configurable item?
-            const diffSetLeft = new Map(flattenObject(diffLeft));
-            const diffSetRight = new Map(flattenObject(diffRight));
-            for (const [key, value] of diffSetLeft) {
-                if (diffSetRight.has(key)) {
-                    if (diffSetRight.get(key) == value) {
-                        // No matter, if changed to the same value.
-                        diffSetRight.delete(key);
-                    }
-                }
-            }
-            for (const [key, value] of diffSetRight) {
-                if (diffSetLeft.has(key) && diffSetLeft.get(key) != value) {
-                    // Some changes are conflicted
-                    Logger(`Conflicted key:${key}`, LOG_LEVEL_VERBOSE);
-                    return false;
-                }
-            }
-
-            const patches = [
-                { mtime: leftLeaf.mtime, patch: diffLeft },
-                { mtime: rightLeaf.mtime, patch: diffRight },
-            ].sort((a, b) => a.mtime - b.mtime);
-            let newObj = { ...baseObj };
-            for (const patch of patches) {
-                newObj = applyPatch(newObj, patch.patch);
-            }
-            Logger(`Object merge is applicable!`, LOG_LEVEL_VERBOSE);
-            return JSON.stringify(newObj.data);
-        } catch (ex) {
-            Logger("Could not merge object");
-            Logger(ex, LOG_LEVEL_VERBOSE);
-            return false;
-        }
-    }
-    async tryAutoMergeSensibly(path: FilePathWithPrefix, test: LoadedEntry, conflicts: string[]) {
-        const conflictedRev = conflicts[0];
-        const conflictedRevNo = Number(conflictedRev.split("-")[0]);
-        //Search
-        const revFrom = await this.getRaw<EntryDoc>(await this.path2id(path), { revs_info: true });
-        const commonBase =
-            (revFrom._revs_info || []).filter(
-                (e) => e.status == "available" && Number(e.rev.split("-")[0]) < conflictedRevNo
-            )?.[0]?.rev ?? "";
-        let p = undefined;
-        if (commonBase) {
-            if (isSensibleMargeApplicable(path)) {
-                const result = await this.mergeSensibly(path, commonBase, test._rev!, conflictedRev);
-                if (result) {
-                    p = result
-                        .filter((e) => e[0] != DIFF_DELETE)
-                        .map((e) => e[1])
-                        .join("");
-                    // can be merged.
-                    Logger(`Sensible merge:${path}`, LOG_LEVEL_INFO);
-                } else {
-                    Logger(`Sensible merge is not applicable.`, LOG_LEVEL_VERBOSE);
-                }
-            } else if (isObjectMargeApplicable(path)) {
-                // can be merged.
-                const result = await this.mergeObject(path, commonBase, test._rev!, conflictedRev);
-                if (result) {
-                    Logger(`Object merge:${path}`, LOG_LEVEL_INFO);
-                    p = result;
-                } else {
-                    Logger(`Object merge is not applicable..`, LOG_LEVEL_VERBOSE);
-                }
-            }
-            if (p !== undefined) {
-                return { result: p, conflictedRev };
-            }
-        }
-        return false;
+        return await this.managers.conflictManager.getConflictedDoc(path, rev);
     }
     async tryAutoMerge(path: FilePathWithPrefix, enableMarkdownAutoMerge: boolean): AutoMergeResult {
-        const test = await this.getDBEntry(path, { conflicts: true, revs_info: true }, false, false, true);
-        if (test === false) return { ok: MISSING_OR_ERROR };
-        if (test == null) return { ok: MISSING_OR_ERROR };
-        if (!test._conflicts) return { ok: NOT_CONFLICTED };
-        if (test._conflicts.length == 0) return { ok: NOT_CONFLICTED };
-        const conflicts = test._conflicts.sort((a, b) => Number(a.split("-")[0]) - Number(b.split("-")[0]));
-        if ((isSensibleMargeApplicable(path) || isObjectMargeApplicable(path)) && enableMarkdownAutoMerge) {
-            const autoMergeResult = await this.tryAutoMergeSensibly(path, test, conflicts);
-            if (autoMergeResult !== false) {
-                return autoMergeResult;
-            }
-        }
-        // should be one or more conflicts;
-        const leftLeaf = await this.getConflictedDoc(path, test._rev!);
-        const rightLeaf = await this.getConflictedDoc(path, conflicts[0]);
-        return { leftRev: test._rev!, rightRev: conflicts[0], leftLeaf, rightLeaf };
+        return await this.managers.conflictManager.tryAutoMerge(path, enableMarkdownAutoMerge);
     }
 }
