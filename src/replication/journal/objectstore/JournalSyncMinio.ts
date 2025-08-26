@@ -138,7 +138,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
                     LOG_LEVEL_NOTICE,
                     "reset-bucket"
                 );
-            } while (files.length == 0);
+            } while (files.length != 0);
             clearHandlers();
         } catch (ex) {
             Logger(
