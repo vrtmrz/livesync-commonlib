@@ -1,8 +1,8 @@
-import { ChunkAlgorithms } from "../../common/types";
-import { splitPieces2V2 } from "../../string_and_binary/chunks";
-import { splitPieces2WorkerV2 } from "../../worker/bgWorker";
-import type { ContentSplitterOptions, SplitOptions } from "./ContentSplitter";
-import { ContentSplitterBase } from "./ContentSplitterBase";
+import { ChunkAlgorithms } from "../common/types.ts";
+import { splitPieces2V2 } from "../string_and_binary/chunks.ts";
+import { splitPieces2WorkerV2 } from "../worker/bgWorker.ts";
+import type { ContentSplitterOptions, SplitOptions } from "./ContentSplitter.ts";
+import { ContentSplitterBase } from "./ContentSplitterBase.ts";
 
 /**
  * Content splitter for version 2, which supports segmenter-based splitting.

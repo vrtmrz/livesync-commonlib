@@ -1,4 +1,4 @@
-import { LOG_LEVEL_VERBOSE, Logger } from "../../common/logger.ts";
+import { LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
 import { FallbackWeakRef } from "octagonal-wheels/common/polyfill";
 
 /**

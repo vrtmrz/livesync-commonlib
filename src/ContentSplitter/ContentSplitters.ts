@@ -1,4 +1,4 @@
-import type { SavingEntry } from "../../common/types";
+import type { SavingEntry } from "../common/types";
 import type { ContentSplitterOptions } from "./ContentSplitter";
 import { ContentSplitterCore, type ContentSplitterBase } from "./ContentSplitterBase";
 import { ContentSplitterRabinKarp } from "./ContentSplitterRabinKarp";

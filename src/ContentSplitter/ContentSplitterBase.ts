@@ -1,6 +1,6 @@
-import { MAX_DOC_SIZE_BIN, ChunkAlgorithms, type SavingEntry } from "../../common/types.ts";
-import { createTextBlob } from "../../common/utils.ts";
-import { shouldSplitAsPlainText } from "../../string_and_binary/path.ts";
+import { MAX_DOC_SIZE_BIN, ChunkAlgorithms, type SavingEntry } from "../common/types.ts";
+import { createTextBlob } from "../common/utils.ts";
+import { shouldSplitAsPlainText } from "../string_and_binary/path.ts";
 import { type ContentSplitterOptions, type SplitOptions, MAX_CHUNKS_SIZE_ON_UI } from "./ContentSplitter.ts";
 
 export abstract class ContentSplitterCore {

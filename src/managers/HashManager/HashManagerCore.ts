@@ -1,5 +1,5 @@
 import { fallbackMixedHashEach, mixedHash } from "octagonal-wheels/hash/purejs";
-import { type RemoteDBSettings, SEED_MURMURHASH, type HashAlgorithm, SALT_OF_ID } from "../../../common/types.ts";
+import { type RemoteDBSettings, SEED_MURMURHASH, type HashAlgorithm, SALT_OF_ID } from "../../common/types.ts";
 
 /**
  * Prefix for encrypted hashes.

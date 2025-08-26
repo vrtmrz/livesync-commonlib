@@ -1,5 +1,5 @@
 import { HashManager } from "./HashManager.ts";
-import { DEFAULT_SETTINGS, HashAlgorithms, type HashAlgorithm, type RemoteDBSettings } from "../../../common/types.ts";
+import { DEFAULT_SETTINGS, HashAlgorithms, type HashAlgorithm, type RemoteDBSettings } from "../../common/types.ts";
 import { HashEncryptedPrefix } from "./HashManagerCore.ts";
 const generateSettings = (hashAlg: HashAlgorithm, passphrase?: string) =>
     ({

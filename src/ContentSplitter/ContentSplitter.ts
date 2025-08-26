@@ -2,7 +2,7 @@
  * Content-Splitter for Self-hosted LiveSync.
  * Splits content into manageable chunks for efficient storage and synchronisation.
  */
-import { type FilePathWithPrefix, type RemoteDBSettings } from "../../common/types.ts";
+import { type FilePathWithPrefix, type RemoteDBSettings } from "../common/types.ts";
 
 /**
  * ContentSplitter interface for splitting content into chunks.

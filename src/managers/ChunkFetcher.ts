@@ -1,9 +1,9 @@
 import { delay } from "octagonal-wheels/promises";
 import { unique } from "octagonal-wheels/collection";
-import { LOG_LEVEL_VERBOSE, Logger } from "../../common/logger.ts";
-import { DEFAULT_SETTINGS, type DocumentID, type RemoteDBSettings } from "../../common/types.ts";
+import { LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
+import { DEFAULT_SETTINGS, type DocumentID, type RemoteDBSettings } from "../common/types.ts";
 
-import type { LiveSyncAbstractReplicator } from "../../replication/LiveSyncAbstractReplicator.ts";
+import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
 
 import { EVENT_CHUNK_FETCHED, type ChunkManager } from "./ChunkManager.ts";
 

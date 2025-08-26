@@ -1,7 +1,7 @@
 import { HashManagerCore, type HashManagerCoreOptions } from "./HashManagerCore.ts";
-import { xxhashNew } from "../../../string_and_binary/hash.ts";
+import { xxhashNew } from "../../string_and_binary/hash.ts";
 import type { XXHashAPI } from "xxhash-wasm-102";
-import { HashAlgorithms, type HashAlgorithm } from "../../../common/types.ts";
+import { HashAlgorithms, type HashAlgorithm } from "../../common/types.ts";
 
 /**
  * Abstract base class for hash managers using XXHash algorithms.

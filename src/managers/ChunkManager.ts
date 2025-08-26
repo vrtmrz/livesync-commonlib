@@ -1,8 +1,8 @@
 import { FallbackWeakRef } from "octagonal-wheels/common/polyfill";
-import { LOG_LEVEL_VERBOSE, Logger } from "../../common/logger.ts";
+import { LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
 import { promiseWithResolver, type PromiseWithResolvers } from "octagonal-wheels/promises";
-import { LiveSyncError, LiveSyncFatalError } from "../../common/LSError.ts";
-import type { DocumentID, EntryDoc, EntryLeaf } from "../../common/types.ts";
+import { LiveSyncError, LiveSyncFatalError } from "../common/LSError.ts";
+import type { DocumentID, EntryDoc, EntryLeaf } from "../common/types.ts";
 import type { ChangeManager } from "./ChangeManager.ts";
 import { EVENT_MISSING_CHUNK_REMOTE, EVENT_MISSING_CHUNKS } from "./ChunkFetcher.ts";
 
