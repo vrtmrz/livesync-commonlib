@@ -90,10 +90,10 @@ export function createTextBlob(data: string | string[]) {
     const d = Array.isArray(data) ? data : [data];
     return new Blob(d, { endings: "transparent", type: "text/plain" });
 }
-export function createBinaryBlob(data: Uint8Array | ArrayBuffer) {
+export function createBinaryBlob(data: Uint8Array<ArrayBuffer> | ArrayBuffer) {
     return new Blob([data], { endings: "transparent", type: "application/octet-stream" });
 }
-export function createBlob(data: string | string[] | Uint8Array | ArrayBuffer | Blob) {
+export function createBlob(data: string | string[] | Uint8Array<ArrayBuffer> | ArrayBuffer | Blob) {
     if (data instanceof Blob) return data;
     if (data instanceof Uint8Array || data instanceof ArrayBuffer) return createBinaryBlob(data);
     return createTextBlob(data);

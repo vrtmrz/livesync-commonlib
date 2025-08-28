@@ -1,3 +1,4 @@
+import { LiveSyncError } from "../common/LSError.ts";
 import type {
     EntryDoc,
     DocumentID,
@@ -6,14 +7,15 @@ import type {
     FilePath,
     RemoteDBSettings,
 } from "../common/types";
-import { ContentSplitter } from "../ContentSplitter/ContentSplitters";
-import { ChangeManager } from "../managers/ChangeManager";
-import { ChunkFetcher } from "../managers/ChunkFetcher";
-import { ChunkManager } from "../managers/ChunkManager";
-import { ConflictManager } from "../managers/ConflictManager";
-import { EntryManager } from "../managers/EntryManager/EntryManager";
-import { HashManager } from "../managers/HashManager/HashManager";
-import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator";
+import { ContentSplitter } from "../ContentSplitter/ContentSplitters.ts";
+import { ChangeManager } from "../managers/ChangeManager.ts";
+import { ChunkFetcher } from "../managers/ChunkFetcher.ts";
+import { ChunkManager } from "../managers/ChunkManager.ts";
+import { ConflictManager } from "../managers/ConflictManager.ts";
+import { EntryManager } from "../managers/EntryManager/EntryManager.ts";
+import { HashManager } from "../managers/HashManager/HashManager.ts";
+import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
+import { NetworkManagerBrowser, type NetworkManager } from "./NetworkManager.ts";
 
 export interface LiveSyncManagersOptions {
     database: PouchDB.Database<EntryDoc>;
@@ -21,6 +23,8 @@ export interface LiveSyncManagersOptions {
     id2path: (id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean) => FilePathWithPrefix;
     path2id: (filename: FilePathWithPrefix | FilePath, prefix?: string) => Promise<DocumentID>;
     settings: RemoteDBSettings;
+
+    networkManager?: NetworkManager;
 }
 export class LiveSyncManagers {
     hashManager!: HashManager;
@@ -30,10 +34,20 @@ export class LiveSyncManagers {
     splitter!: ContentSplitter;
     entryManager!: EntryManager;
     conflictManager!: ConflictManager;
+    networkManager!: NetworkManager;
 
     options: LiveSyncManagersOptions;
     constructor(options: LiveSyncManagersOptions) {
         this.options = options;
+        if (options.networkManager) {
+            this.networkManager = options.networkManager;
+        } else {
+            if ("navigator" in globalThis) {
+                this.networkManager = new NetworkManagerBrowser();
+            } else {
+                throw new LiveSyncError("No NetworkManager available");
+            }
+        }
     }
     get settings() {
         return this.options.settings;
