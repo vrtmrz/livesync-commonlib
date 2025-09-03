@@ -25,9 +25,9 @@ import { clearHandlers, createSyncParamsHanderForServer } from "../../SyncParams
 
 export class JournalSyncMinio extends JournalSyncAbstract {
     getRemoteKey(): string {
-        return this.getHash(this.endpoint, this.bucket, this.region, this.prefix);
+        return this.getHash(this._settings);
     }
-    async getReplicationPBKDF2Salt(refresh?: boolean): Promise<Uint8Array> {
+    async getReplicationPBKDF2Salt(refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
         const server = this.getRemoteKey();
         const manager = createSyncParamsHanderForServer(server, {
             put: (params: SyncParameters) => this.putSyncParameters(params),
@@ -51,7 +51,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         const ep = this.endpoint
             ? {
                   endpoint: this.endpoint,
-                  forcePathStyle: true,
+                  forcePathStyle: this.forcePathStyle,
               }
             : {};
 
@@ -226,7 +226,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         const set = this.env.getSettings();
         try {
             if (r.Body) {
-                let u = await r.Body.transformToByteArray();
+                let u = new Uint8Array(await r.Body.transformToByteArray());
                 if (set.encrypt && set.passphrase != "" && !this.isEncryptionPrevented(key)) {
                     if (set.E2EEAlgorithm === E2EEAlgorithms.V2) {
                         const salt = await this.getReplicationPBKDF2Salt();
@@ -239,10 +239,10 @@ export class JournalSyncMinio extends JournalSyncAbstract {
                             // If throws here, completely failed to decrypt
                             Logger(`Could not decrypt ${key} in v2`, LOG_LEVEL_VERBOSE);
                             Logger(ex, LOG_LEVEL_VERBOSE);
-                            u = await decryptBinary(u, set.passphrase, set.useDynamicIterationCount);
+                            u = new Uint8Array(await decryptBinary(u, set.passphrase, set.useDynamicIterationCount));
                         }
                     } else if (set.E2EEAlgorithm === E2EEAlgorithms.ForceV1) {
-                        u = await decryptBinary(u, set.passphrase, set.useDynamicIterationCount);
+                        u = new Uint8Array(await decryptBinary(u, set.passphrase, set.useDynamicIterationCount));
                     }
                 }
                 return u;

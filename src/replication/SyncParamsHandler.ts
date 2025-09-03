@@ -30,7 +30,7 @@ type CreateSyncParamsHanderOptions = {
 
 export type SyncParamsHandler = {
     fetch: (refresh?: boolean) => Promise<SyncParameters | false>;
-    getPBKDF2Salt: (refresh?: boolean) => Promise<Uint8Array>;
+    getPBKDF2Salt: (refresh?: boolean) => Promise<Uint8Array<ArrayBuffer>>;
 };
 const _handlers = new Map<string, SyncParamsHandler>();
 
@@ -58,7 +58,7 @@ export class SyncParamsUpdateError extends SyncParamsHandlerError {}
  * This is for performance reasons, to avoid decoding it every time.
  */
 type SyncParametersWithDecoded = SyncParameters & {
-    pbkdf2saltDecoded?: Uint8Array;
+    pbkdf2saltDecoded?: Uint8Array<ArrayBuffer>;
 };
 
 function createSyncParamsHandler({ put, get, create }: CreateSyncParamsHanderOptions): SyncParamsHandler {

@@ -551,6 +551,10 @@ export interface BucketSyncSetting {
      * The prefix to use for the bucket (e.g., "my-bucket/", means mostly like a folder).
      */
     bucketPrefix: string;
+    /**
+     * Indicates whether to force path style access.
+     */
+    forcePathStyle: boolean;
 }
 
 export interface LocalDBSettings {
@@ -1212,6 +1216,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     chunkSplitterVersion: "",
     E2EEAlgorithm: E2EEAlgorithms.V1,
     processSizeMismatchedFiles: false,
+    forcePathStyle: true,
 };
 
 export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> = {
@@ -1366,6 +1371,7 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     chunkSplitterVersion: 146,
     E2EEAlgorithm: 147,
     processSizeMismatchedFiles: 148,
+    forcePathStyle: 149,
 } as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {

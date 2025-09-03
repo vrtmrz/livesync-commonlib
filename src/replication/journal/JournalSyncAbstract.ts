@@ -10,6 +10,7 @@ import {
     DEFAULT_SYNC_PARAMETERS,
     ProtocolVersions,
     DOCID_JOURNAL_SYNC_PARAMETERS,
+    type BucketSyncSetting,
 } from "../../common/types.ts";
 import { Logger } from "../../common/logger.ts";
 import type { ReplicationCallback, ReplicationStat } from "../LiveSyncAbstractReplicator.ts";
@@ -53,20 +54,42 @@ function serializeDoc(doc: EntryDoc): Uint8Array {
 }
 
 export abstract class JournalSyncAbstract {
-    id = "";
-    key = "";
-    bucket = "";
-    endpoint = "";
-    prefix: string = "";
-    region: string = "auto";
+    _settings: BucketSyncSetting;
+    get id() {
+        return this._settings.accessKey;
+    }
+    get key() {
+        return this._settings.secretKey;
+    }
+    get bucket() {
+        return this._settings.bucket;
+    }
+    get endpoint() {
+        return this._settings.endpoint;
+    }
+    get prefix() {
+        return this._settings.bucketPrefix;
+    }
+    get region() {
+        return this._settings.region;
+    }
+    get forcePathStyle() {
+        return this._settings.forcePathStyle;
+    }
     db: PouchDB.Database<EntryDoc>;
     hash = "";
     processReplication: ReplicationCallback;
     batchSize = 100;
     env: LiveSyncJournalReplicatorEnv;
     store: SimpleStore<CheckPointInfo>;
-    useCustomRequestHandler: boolean;
-    customHeaders: [string, string][] = [];
+    get useCustomRequestHandler() {
+        return this._settings.useCustomRequestHandler;
+    }
+    get customHeaders(): [string, string][] {
+        return this._settings.bucketCustomHeaders.length == 0
+            ? []
+            : Object.entries(parseHeaderValues(this._settings.bucketCustomHeaders));
+    }
     requestedStop = false;
     trench: Trench;
     notifier = new Notifier();
@@ -104,67 +127,29 @@ export abstract class JournalSyncAbstract {
         }
     }
 
-    getHash(endpoint: string, bucket: string, region: string, prefix: string) {
-        return btoa(encodeURI([endpoint, `${bucket}${prefix}`, region].join()));
+    getHash(settings: BucketSyncSetting) {
+        return btoa(
+            encodeURI([settings.endpoint, `${settings.bucket}${settings.bucketPrefix}`, settings.region].join())
+        );
     }
-    constructor(
-        id: string,
-        key: string,
-        endpoint: string,
-        bucket: string,
-        prefix: string,
-        store: SimpleStore<CheckPointInfo>,
-        env: LiveSyncJournalReplicatorEnv,
-        useCustomRequestHandler: boolean,
-        region: string = "",
-        customHeaders: string
-    ) {
-        this.id = id;
-        this.key = key;
-        this.bucket = bucket;
-        this.prefix = prefix;
-        this.endpoint = endpoint;
-        this.region = region;
+    constructor(settings: BucketSyncSetting, store: SimpleStore<CheckPointInfo>, env: LiveSyncJournalReplicatorEnv) {
+        this._settings = settings;
+
         this.db = env.getDatabase();
         this.env = env;
-        this.useCustomRequestHandler = useCustomRequestHandler;
         this.processReplication = async (docs) => await env.$$parseReplicationResult(docs);
         this.store = store;
-        this.hash = this.getHash(endpoint, bucket, region, prefix);
+        this.hash = this.getHash(settings);
         this.trench = new Trench(store);
-        const headers = Object.entries(parseHeaderValues(customHeaders));
-        this.customHeaders = headers;
         clearHandlers();
     }
-    applyNewConfig(
-        id: string,
-        key: string,
-        endpoint: string,
-        bucket: string,
-        prefix: string,
-        store: SimpleStore<CheckPointInfo>,
-        env: LiveSyncJournalReplicatorEnv,
-        useCustomRequestHandler: boolean,
-        region: string = "",
-        customHeaders: string
-    ) {
-        // const hash = this.getHash(endpoint, bucket, region)
-        // if (hash != this.hash || useCustomRequestHandler != this.useCustomRequestHandler) {
-        // //TODO What should we check? completely forgot.
-        this.id = id;
-        this.key = key;
-        this.bucket = bucket;
-        this.prefix = prefix;
-        this.endpoint = endpoint;
-        this.region = region;
+    applyNewConfig(settings: BucketSyncSetting, store: SimpleStore<CheckPointInfo>, env: LiveSyncJournalReplicatorEnv) {
+        this._settings = settings;
         this.db = env.getDatabase();
         this.env = env;
-        this.useCustomRequestHandler = useCustomRequestHandler;
         this.processReplication = async (docs) => await env.$$parseReplicationResult(docs);
         this.store = store;
-        this.hash = this.getHash(endpoint, bucket, region, prefix);
-        const headers = Object.entries(parseHeaderValues(customHeaders));
-        this.customHeaders = headers;
+        this.hash = this.getHash(settings);
         clearHandlers();
     }
 
@@ -301,7 +286,7 @@ export abstract class JournalSyncAbstract {
 
             let uploaded = 0;
             do {
-                const queued = await this.trench.dequeuePermanentWithCommit<Uint8Array>(`upload_queue`);
+                const queued = await this.trench.dequeuePermanentWithCommit<Uint8Array<ArrayBuffer>>(`upload_queue`);
 
                 if (!queued) {
                     if (this.isPacking) {

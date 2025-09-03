@@ -71,42 +71,12 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
 
     setupJournalSyncClient() {
         const settings = this.env.getSettings();
-        const id = settings.accessKey;
-        const key = settings.secretKey;
-        const bucket = settings.bucket;
-        const prefix = settings.bucketPrefix;
-        const region = settings.region;
-        const endpoint = settings.endpoint;
-        const useCustomRequestHandler = settings.useCustomRequestHandler;
-        const customHeaders = settings.bucketCustomHeaders;
         if (this._client) {
-            this._client.applyNewConfig(
-                id,
-                key,
-                endpoint,
-                bucket,
-                prefix,
-                this.env.simpleStore,
-                this.env,
-                useCustomRequestHandler,
-                region,
-                customHeaders
-            );
+            this._client.applyNewConfig(settings, this.env.simpleStore, this.env);
             // NO OP.
             // this._client.requestStop();
         } else {
-            this._client = new JournalSyncMinio(
-                id,
-                key,
-                endpoint,
-                bucket,
-                prefix,
-                this.env.simpleStore,
-                this.env,
-                useCustomRequestHandler,
-                region,
-                customHeaders
-            );
+            this._client = new JournalSyncMinio(settings, this.env.simpleStore, this.env);
         }
         return this._client;
     }
@@ -308,26 +278,8 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async tryConnectRemote(setting: RemoteDBSettings, showResult: boolean = true): Promise<boolean> {
-        const id = setting.accessKey;
-        const key = setting.secretKey;
-        const bucket = setting.bucket;
-        const bucketPrefix = setting.bucketPrefix;
-        const region = setting.region;
         const endpoint = setting.endpoint;
-        const useCustomRequestHandler = setting.useCustomRequestHandler;
-        const customHeaders = setting.bucketCustomHeaders;
-        const testClient = new JournalSyncMinio(
-            id,
-            key,
-            endpoint,
-            bucket,
-            bucketPrefix,
-            this.env.simpleStore,
-            this.env,
-            useCustomRequestHandler,
-            region,
-            customHeaders
-        );
+        const testClient = new JournalSyncMinio(setting, this.env.simpleStore, this.env);
         try {
             await testClient.listFiles("", 1);
             Logger(`Connected to ${endpoint} successfully!`, LOG_LEVEL_NOTICE);
@@ -383,26 +335,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus> {
-        const id = setting.accessKey;
-        const key = setting.secretKey;
-        const bucket = setting.bucket;
-        const bucketPrefix = setting.bucketPrefix;
-        const region = setting.region;
-        const endpoint = setting.endpoint;
-        const useCustomRequestHandler = setting.useCustomRequestHandler;
-        const customHeaders = setting.bucketCustomHeaders;
-        const testClient = new JournalSyncMinio(
-            id,
-            key,
-            endpoint,
-            bucket,
-            bucketPrefix,
-            this.env.simpleStore,
-            this.env,
-            useCustomRequestHandler,
-            region,
-            customHeaders
-        );
+        const testClient = new JournalSyncMinio(setting, this.env.simpleStore, this.env);
         return await testClient.getUsage();
     }
 

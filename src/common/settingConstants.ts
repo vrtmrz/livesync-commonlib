@@ -404,6 +404,10 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         name: "Process files even if seems to be corrupted",
         desc: "You can enable this setting to process the files with size mismatches, these files can be created by some APIs or integrations.",
     },
+    forcePathStyle: {
+        name: "enable forcePathStyle",
+        desc: "If enabled, the forcePathStyle option will be used for bucket operations.",
+    },
 };
 function translateInfo(infoSrc: ConfigurationItem | undefined | false) {
     if (!infoSrc) return false;
