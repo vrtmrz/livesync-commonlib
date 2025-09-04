@@ -16,6 +16,7 @@ import { decrypt, encrypt } from "octagonal-wheels/encryption";
 import { $msg } from "../../common/i18n";
 import { sha1 } from "octagonal-wheels/hash/purejs";
 import { isObjectDifferent } from "octagonal-wheels/object";
+import { getRelaySockets, pauseReconnection, resumeReconnection } from "trystero/nostr";
 
 export type P2PReplicatorStatus = {
     isBroadcasting: boolean;
@@ -135,9 +136,11 @@ export class TrysteroReplicator {
         this._replicateToPeers.clear();
         this._watchingPeers.clear();
         this.requestStatus();
+        this.disconnectFromServer();
     }
 
     async open() {
+        this.allowReconnection();
         await this.server?.start([this.getCommands()]);
         this.dispatchStatus();
         if (this.settings.P2P_AutoBroadcast) {
@@ -739,5 +742,17 @@ export class TrysteroReplicator {
         if (r === null) {
             Logger($msg("P2P.SyncAlreadyRunning"), LOG_LEVEL_NOTICE);
         }
+    }
+
+    disconnectFromServer() {
+        const connections = getRelaySockets();
+        const sockets = Object.entries(connections);
+        pauseReconnection();
+        sockets.forEach(([, s]) => {
+            s.close();
+        });
+    }
+    allowReconnection() {
+        resumeReconnection();
     }
 }

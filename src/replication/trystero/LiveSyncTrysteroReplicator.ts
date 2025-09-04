@@ -211,6 +211,8 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     }
     closeReplication(): void {
         // throw new Error("Method not implemented.");
+        const r = getReplicatorInstance();
+        r?.disconnectFromServer();
         return;
     }
     tryResetRemoteDatabase(setting: RemoteDBSettings): Promise<void> {
