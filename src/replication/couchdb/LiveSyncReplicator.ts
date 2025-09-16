@@ -42,7 +42,7 @@ import {
     type LiveSyncReplicatorEnv,
     type RemoteDBStatus,
 } from "../LiveSyncAbstractReplicator.ts";
-import { serialized, shareRunningResult } from "../../concurrency/lock.ts";
+import { serialized, shareRunningResult } from "octagonal-wheels/concurrency/lock";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { Trench } from "octagonal-wheels/memory/memutil";
 import { promiseWithResolver } from "octagonal-wheels/promises";

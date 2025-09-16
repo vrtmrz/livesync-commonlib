@@ -1,8 +1,8 @@
 import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../common/logger";
 import type { CouchDBConnection, EntryLeaf } from "../common/types";
-import { QueueProcessor } from "../concurrency/processor";
+import { QueueProcessor } from "octagonal-wheels/concurrency/processor";
 import { arrayToChunkedArray, sizeToHumanReadable } from "../common/utils";
-import { serialized } from "../concurrency/lock";
+import { serialized } from "octagonal-wheels/concurrency/lock";
 import { _requestToCouchDBFetch } from "./utils_couchdb";
 
 export async function purgeUnreferencedChunks(

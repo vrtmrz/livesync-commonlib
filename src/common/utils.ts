@@ -1,6 +1,6 @@
 import { LRUCache } from "../memory/LRUCache.ts";
 import { isPlainText } from "../string_and_binary/path.ts";
-import { Semaphore } from "../concurrency/semaphore.ts";
+import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { arrayBufferToBase64Single, decodeBinary, writeString } from "../string_and_binary/convert.ts";
 import {
     type AnyEntry,

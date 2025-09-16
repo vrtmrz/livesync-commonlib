@@ -23,13 +23,13 @@ import {
     setAllItems,
     unescapeNewLineFromString,
 } from "../../common/utils.ts";
-import { shareRunningResult } from "../../concurrency/lock.ts";
+import { shareRunningResult } from "octagonal-wheels/concurrency/lock";
 import { wrappedDeflate } from "../../pouchdb/compress.ts";
 import { wrappedInflate } from "../../pouchdb/compress.ts";
 import { type CheckPointInfo, CheckPointInfoDefault } from "./JournalSyncTypes.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicator.ts";
 import { Trench } from "../../memory/memutil.ts";
-import { Notifier } from "../../concurrency/processor.ts";
+import { Notifier } from "octagonal-wheels/concurrency/processor";
 
 import {
     clearHandlers,

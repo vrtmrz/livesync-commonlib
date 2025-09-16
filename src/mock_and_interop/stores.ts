@@ -1,4 +1,4 @@
-import { QueueProcessor } from "../concurrency/processor.ts";
+import { QueueProcessor } from "octagonal-wheels/concurrency/processor";
 import { reactiveSource } from "../dataobject/reactive.ts";
 import type { LOG_LEVEL } from "../common/types.ts";
 

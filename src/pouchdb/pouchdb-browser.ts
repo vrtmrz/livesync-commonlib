@@ -15,7 +15,7 @@ import { findPathToLeaf } from "pouchdb-merge";
 import { adapterFun } from "pouchdb-utils";
 //@ts-ignore
 import { createError, MISSING_DOC, UNKNOWN_ERROR } from "pouchdb-errors";
-import { mapAllTasksWithConcurrencyLimit, unwrapTaskResult } from "../concurrency/task.ts";
+import { mapAllTasksWithConcurrencyLimit, unwrapTaskResult } from "octagonal-wheels/concurrency/task";
 
 PouchDB.plugin(IDBPouch)
     .plugin(INDEXEDDBPouch)
