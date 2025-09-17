@@ -10,7 +10,7 @@ import {
     type TweakValues,
 } from "../common/types.ts";
 
-import type { ReactiveSource } from "../dataobject/reactive.ts";
+import type { ReactiveSource } from "octagonal-wheels/dataobject/reactive";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
 import { resolveWithIgnoreKnownError, type SimpleStore } from "../common/utils.ts";
 import type { KeyValueDatabase } from "../interfaces/KeyValueDatabase.ts";

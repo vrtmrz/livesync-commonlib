@@ -11,7 +11,7 @@ import {
     isMetaEntry,
 } from "../common/types";
 import { isEncryptedChunkEntry, isSyncInfoEntry, isObfuscatedEntry } from "../common/utils";
-import { isPathProbablyObfuscated, obfuscatePath } from "../encryption/e2ee_v2";
+import { isPathProbablyObfuscated, obfuscatePath } from "octagonal-wheels/encryption/encryption";
 // import { encryptHKDF, decryptHKDF } from "../encryption/encryptHKDF.ts";
 import { getPath } from "../string_and_binary/path.ts";
 import { encryptWorker, decryptWorker, encryptHKDFWorker, decryptHKDFWorker } from "../worker/bgWorker.ts";

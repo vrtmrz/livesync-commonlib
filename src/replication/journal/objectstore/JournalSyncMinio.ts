@@ -13,7 +13,7 @@ import {
 } from "../../../common/types.ts";
 import { Logger } from "../../../common/logger.ts";
 import { JournalSyncAbstract } from "../JournalSyncAbstract.ts";
-import { decryptBinary, encryptBinary } from "../../../encryption/e2ee_v2.ts";
+import { decryptBinary, encryptBinary } from "octagonal-wheels/encryption/encryption";
 import {
     encryptBinary as encryptBinaryHKDF,
     decryptBinary as decryptBinaryHKDF,

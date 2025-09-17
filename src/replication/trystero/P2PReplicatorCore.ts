@@ -9,7 +9,7 @@ import {
     type LOG_LEVEL,
     type P2PSyncSetting,
 } from "../../common/types";
-import { reactiveSource, type ReactiveSource } from "../../dataobject/reactive";
+import { reactiveSource, type ReactiveSource } from "octagonal-wheels/dataobject/reactive";
 import { EVENT_DATABASE_REBUILT, EVENT_SETTING_SAVED } from "../../events/coreEvents";
 import { eventHub } from "../../hub/hub";
 import type { Confirm } from "../../interfaces/Confirm";

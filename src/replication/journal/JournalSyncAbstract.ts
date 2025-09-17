@@ -28,7 +28,7 @@ import { wrappedDeflate } from "../../pouchdb/compress.ts";
 import { wrappedInflate } from "../../pouchdb/compress.ts";
 import { type CheckPointInfo, CheckPointInfoDefault } from "./JournalSyncTypes.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicator.ts";
-import { Trench } from "../../memory/memutil.ts";
+import { Trench } from "octagonal-wheels/memory/memutil";
 import { Notifier } from "octagonal-wheels/concurrency/processor";
 
 import {

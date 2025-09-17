@@ -1,4 +1,4 @@
-import { LRUCache } from "../memory/LRUCache.ts";
+import { LRUCache } from "octagonal-wheels/memory/LRUCache";
 import { isPlainText } from "../string_and_binary/path.ts";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { arrayBufferToBase64Single, decodeBinary, writeString } from "../string_and_binary/convert.ts";

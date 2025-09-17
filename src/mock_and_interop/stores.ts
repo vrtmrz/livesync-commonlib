@@ -1,5 +1,5 @@
 import { QueueProcessor } from "octagonal-wheels/concurrency/processor";
-import { reactiveSource } from "../dataobject/reactive.ts";
+import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import type { LOG_LEVEL } from "../common/types.ts";
 
 export type LockStats = {
