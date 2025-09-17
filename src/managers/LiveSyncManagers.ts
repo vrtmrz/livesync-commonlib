@@ -124,6 +124,9 @@ export class LiveSyncManagers {
         this.splitter = new ContentSplitter({
             ...proxy,
         });
+        await this.splitter.initialise(
+            proxy
+        );
         await this.hashManager.initialise();
 
         this.changeManager = new ChangeManager(proxy);

@@ -73,7 +73,7 @@ type EncryptedDocument<T> = T & {
 
 const ENCRYPTED_META_PREFIX = "/\\:";
 function isEncryptedMeta<T extends AnyEntry>(doc: T) {
-    return "meta" in doc && doc.path.startsWith(ENCRYPTED_META_PREFIX);
+    return "path" in doc && doc.path.startsWith(ENCRYPTED_META_PREFIX);
 }
 type EncryptProps = {
     path: string;
@@ -239,15 +239,8 @@ async function outgoingDecryptHKDF(
         }
     }
     if (isObfuscatedEntry(loadDoc)) {
-        if (isEncryptedMeta(loadDoc)) {
-            const pbkdf2salt = await getPBKDF2Salt();
-            const props = await decryptMetaWithHKDF(loadDoc.path, passphrase, pbkdf2salt);
-            for (const key in props) {
-                (loadDoc as any)[key] = props[key as keyof EncryptProps];
-            }
-        }
         const path = getPath(loadDoc);
-        if (path.startsWith(ENCRYPTED_META_PREFIX)) {
+        if (isEncryptedMeta(loadDoc)) {
             const pbkdf2salt = await getPBKDF2Salt();
             try {
                 const metadata = await decryptMetaWithHKDF(path, passphrase, pbkdf2salt);
