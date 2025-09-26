@@ -269,8 +269,9 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 region: "",
                 endpoint: "",
                 enableCompression: this.options.enableCompression ?? DEFAULT_SETTINGS.enableCompression,
-                handleFilenameCaseSensitive: this.options.handleFilenameCaseSensitive ?? DEFAULT_SETTINGS.handleFilenameCaseSensitive,
-                E2EEAlgorithm: this.options.E2EEAlgorithm ?? E2EEAlgorithms.V2
+                handleFilenameCaseSensitive:
+                    this.options.handleFilenameCaseSensitive ?? DEFAULT_SETTINGS.handleFilenameCaseSensitive,
+                E2EEAlgorithm: this.options.E2EEAlgorithm ?? E2EEAlgorithms.V2,
             },
         };
         return retObj;

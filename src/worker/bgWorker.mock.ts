@@ -75,10 +75,18 @@ export function decryptWorker(input: string, passphrase: string, autoCalculateIt
     return decrypt(input, passphrase, autoCalculateIterations);
 }
 
-export function encryptHKDFWorker(input: string, passphrase: string, pbkdf2Salt: Uint8Array<ArrayBuffer>): Promise<string> {
+export function encryptHKDFWorker(
+    input: string,
+    passphrase: string,
+    pbkdf2Salt: Uint8Array<ArrayBuffer>
+): Promise<string> {
     return encryptHKDF(input, passphrase, pbkdf2Salt);
 }
 
-export function decryptHKDFWorker(input: string, passphrase: string, pbkdf2Salt: Uint8Array<ArrayBuffer>): Promise<string> {
+export function decryptHKDFWorker(
+    input: string,
+    passphrase: string,
+    pbkdf2Salt: Uint8Array<ArrayBuffer>
+): Promise<string> {
     return decryptHKDF(input, passphrase, pbkdf2Salt);
 }

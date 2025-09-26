@@ -1,7 +1,7 @@
 import { delay } from "octagonal-wheels/promises";
 import { unique } from "octagonal-wheels/collection";
 import { LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
-import { DEFAULT_SETTINGS, type DocumentID, type RemoteDBSettings } from "../common/types.ts";
+import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf, type RemoteDBSettings } from "../common/types.ts";
 
 import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
 
@@ -91,15 +91,38 @@ export class ChunkFetcher {
                 return;
             }
             // Request the replicator to fetch the missing chunks.
-            const chunks = await replicator.fetchRemoteChunks(requestIDs, false);
-            if (!chunks) {
+            const fetched = await replicator.fetchRemoteChunks(requestIDs, false);
+            if (!fetched) {
                 Logger(`No chunks were found for the following IDs: ${requestIDs.join(", ")}`);
                 for (const chunkID of requestIDs) {
                     this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
                 }
                 return;
             }
+            // Validate fetched chunks (Now I am wondering why it happened...)
+            function isValidChunk(chunk: Partial<EntryLeaf>): chunk is EntryLeaf {
+                return chunk && typeof chunk?._id === "string" && typeof chunk?.data === "string";
+            }
+            const chunks = fetched.filter((chunk) => isValidChunk(chunk));
+            if (chunks.length !== fetched.length) {
+                Logger(
+                    `Some fetched chunks are invalid and will be ignored: (${fetched.length - chunks.length} / ${fetched.length}).`,
+                    LOG_LEVEL_VERBOSE
+                );
+                for (const chunk of fetched) {
+                    if (!isValidChunk(chunk)) {
+                        Logger(`Invalid chunk: ${JSON.stringify(chunk)}`, LOG_LEVEL_VERBOSE);
+                    }
+                }
+            }
+            if (chunks.length === 0) {
+                Logger(`No valid chunks were found for the following IDs: ${requestIDs.join(", ")}`);
+            }
+            const missingIDs = requestIDs.filter((id) => !chunks.some((chunk) => chunk._id === id));
             try {
+                if (chunks.length === 0) {
+                    return;
+                }
                 Logger(`Writing fetched chunks (${chunks.length}) to the database...`);
                 const result = await this.chunkManager.write(
                     chunks,
@@ -110,22 +133,22 @@ export class ChunkFetcher {
                     "ChunkFetcher" as DocumentID
                 );
                 if (result.result === true) {
-                    for (const chunk of chunks) {
-                        this.chunkManager.emitEvent(EVENT_CHUNK_FETCHED, chunk);
-                    }
-                    // Logger(`The fetched chunks were stored successfully: ${chunks.map(chunk => chunk._id).join(", ")}`, LOG_LEVEL_VERBOSE);
+                    // Successfully written to the database
+                    Logger(`Fetched chunks were stored successfully: ${chunks.length}`, LOG_LEVEL_VERBOSE);
                 } else {
                     Logger(
-                        `The fetched chunks could not be stored: ${chunks.map((chunk) => chunk._id).join(", ")}`,
+                        `Fetched chunks could not be stored: ${chunks.map((chunk) => chunk._id).join(", ")}`,
                         LOG_LEVEL_VERBOSE
                     );
-                    for (const chunkID of requestIDs) {
-                        this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
-                    }
                 }
             } catch (error) {
                 Logger(`An error occurred while storing fetched chunks: ${error}`, LOG_LEVEL_VERBOSE);
-                for (const chunkID of requestIDs) {
+            } finally {
+                // Emitting fetched chunks and missing IDs regardless of write success (just only refetch will be triggered).
+                for (const chunk of chunks) {
+                    this.chunkManager.emitEvent(EVENT_CHUNK_FETCHED, chunk);
+                }
+                for (const chunkID of missingIDs) {
                     this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
                 }
             }

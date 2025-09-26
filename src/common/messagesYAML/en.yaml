@@ -545,6 +545,7 @@ obsidianLiveSyncSettingTab:
   errCorsNotAllowingCredentials: ❗ CORS is not allowing credentials
   errCorsOrigins: ❗ cors.origins is wrong
   errEnableCors: ❗ httpd.enable_cors is wrong
+  errEnableCorsChttpd: ❗ chttpd.enable_cors is wrong
   errMaxDocumentSize: ❗ couchdb.max_document_size is low)
   errMaxRequestSize: ❗ chttpd.max_http_request_size is low)
   errMissingWwwAuth: ❗ httpd.WWW-Authenticate is missing
@@ -593,6 +594,7 @@ obsidianLiveSyncSettingTab:
   msgDiscardConfirmation: Do you really want to discard existing settings and databases?
   msgDone: --Done--
   msgEnableCors: Set httpd.enable_cors
+  msgEnableCorsChttpd: Set chttpd.enable_cors
   msgEnableEncryptionRecommendation: We recommend enabling End-To-End Encryption,
     and Path Obfuscation. Are you sure you want to continue without encryption?
   msgFetchConfigFromRemote: Do you want to fetch the config from the remote server?
@@ -701,12 +703,14 @@ obsidianLiveSyncSettingTab:
   nameTestConnection: Test Connection
   nameTestDatabaseConnection: Test Database Connection
   nameValidateDatabaseConfig: Validate Database Configuration
+  serverVersion: 'Server info: ${info}'
   okAdminPrivileges: ✔ You have administrator privileges.
   okCorsCredentials: ✔ cors.credentials is ok.
   okCorsCredentialsForOrigin: CORS credentials OK
   okCorsOriginMatched: ✔ CORS origin OK
   okCorsOrigins: ✔ cors.origins is ok.
   okEnableCors: ✔ httpd.enable_cors is ok.
+  okEnableCorsChttpd: ✔ chttpd.enable_cors is ok.
   okMaxDocumentSize: ✔ couchdb.max_document_size is ok.
   okMaxRequestSize: ✔ chttpd.max_http_request_size is ok.
   okRequireValidUser: ✔ chttpd.require_valid_user is ok.

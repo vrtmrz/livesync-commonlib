@@ -1490,6 +1490,9 @@ export const _allMessages = {
         ko: "❗ httpd.enable_cors가 잘못되었습니다",
         zh: "❗ httpd.enable_cors 设置错误",
     },
+    "obsidianLiveSyncSettingTab.errEnableCorsChttpd": {
+        def: "❗ chttpd.enable_cors is wrong",
+    },
     "obsidianLiveSyncSettingTab.errMaxDocumentSize": {
         def: "❗ couchdb.max_document_size is low)",
         es: "❗ couchdb.max_document_size es bajo)",
@@ -1754,6 +1757,9 @@ export const _allMessages = {
         ko: "httpd.enable_cors 설정",
         zh: "设置 httpd.enable_cors",
     },
+    "obsidianLiveSyncSettingTab.msgEnableCorsChttpd": {
+        def: "Set chttpd.enable_cors",
+    },
     "obsidianLiveSyncSettingTab.msgEnableEncryptionRecommendation": {
         def: "We recommend enabling End-To-End Encryption, and Path Obfuscation. Are you sure you want to continue without encryption?",
         es: "Recomendamos habilitar el cifrado de extremo a extremo y la obfuscación de ruta. ¿Estás seguro de querer continuar sin cifrado?",
@@ -1994,6 +2000,9 @@ export const _allMessages = {
         ko: "✔ httpd.enable_cors가 정상입니다.",
         zh: "✔ httpd.enable_cors 设置正确。",
     },
+    "obsidianLiveSyncSettingTab.okEnableCorsChttpd": {
+        def: "✔ chttpd.enable_cors is ok.",
+    },
     "obsidianLiveSyncSettingTab.okMaxDocumentSize": {
         def: "✔ couchdb.max_document_size is ok.",
         es: "✔ couchdb.max_document_size está correcto.",
@@ -2137,6 +2146,9 @@ export const _allMessages = {
         es: "Configuración",
         ko: "설정",
         zh: "设置",
+    },
+    "obsidianLiveSyncSettingTab.serverVersion": {
+        def: "Server info: ${info}",
     },
     "obsidianLiveSyncSettingTab.titleAppearance": {
         def: "Appearance",
