@@ -6,30 +6,38 @@ import { PartialMessages as ru } from "./ru.ts";
 import { PartialMessages as zh } from "./zh.ts";
 import { PartialMessages as zhTw } from "./zh-tw.ts";
 
-type MessageKeys = keyof typeof def.def;
+// Flatten a PartialMessages object (merge all page JSONs into one)
+function flattenPartialMessages(partial: Record<string, Record<string, string>>) {
+    const flat: Record<string, string> = {};
+    for (const pageKey in partial) {
+        Object.assign(flat, partial[pageKey]);
+    }
+    return flat;
+}
 
-const messages = {
-    ...def,
-    ...es,
-    ...ja,
-    ...ko,
-    ...ru,
-    ...zh,
-    ...zhTw,
-};
-const w = Object.entries(messages)
-    .map(([lang, messageDefs]) =>
-        Object.entries(messageDefs).map(([key, value]) => [key, [lang, value] as [string, string]] as const)
-    )
-    .flat();
+// Flatten each locale
+const defFlat = flattenPartialMessages(def);
+const esFlat = flattenPartialMessages(es);
+const jaFlat = flattenPartialMessages(ja);
+const koFlat = flattenPartialMessages(ko);
+const ruFlat = flattenPartialMessages(ru);
+const zhFlat = flattenPartialMessages(zh);
+const zhTwFlat = flattenPartialMessages(zhTw);
 
-const _allMessages = w.reduce(
-    (acc, [key, value]) => {
-        if (!acc[key]) acc[key] = {};
-        acc[key][value[0]] = value[1];
-        return acc;
-    },
-    {} as Record<string, Record<string, string>>
-) as Record<MessageKeys, { [key: string]: string }>;
+// Union of all keys from the English (def) locale
+export type MessageKeys = keyof typeof defFlat;
 
-export { _allMessages, type MessageKeys };
+// Merge all locales into _allMessages
+export const _allMessages: Record<MessageKeys, Record<string, string>> = {} as any;
+
+for (const key of Object.keys(defFlat)) {
+    _allMessages[key] = {
+        def: defFlat[key],
+        es: esFlat[key],
+        ja: jaFlat[key],
+        ko: koFlat[key],
+        ru: ruFlat[key],
+        zh: zhFlat[key],
+        zhTw: zhTwFlat[key],
+    };
+}

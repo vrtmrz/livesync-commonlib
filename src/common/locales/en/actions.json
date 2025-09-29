@@ -32,5 +32,5 @@
     "action.button.retry": "Retry",
 
     "action.dropdown.server.couchdb": "CouchDB",
-    "action.dropdown.server.p2p": "P2P (Beta)",
+    "action.dropdown.server.p2p": "P2P (Beta)"
 }

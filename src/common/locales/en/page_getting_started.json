@@ -13,7 +13,7 @@
     "gettingStarted.setupOther.copyConfigToURI.title": "Copy Settings to URI",
     "gettingStarted.setupOther.copyConfigToURI.desc": "Generate a Setup URI for another device.",
     "gettingStarted.setupOther.copyConfigToQR.title": "Show QR Code",
-    "gettingStarted.setupOther.copyConfigToQR.desc": "Scan to transfer your current settings.",
+    "gettingStarted.setupOther.copyConfigToQR.desc": "Scan to transfer your current settings."
 
 
 }
