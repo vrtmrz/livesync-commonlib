@@ -1,0 +1,19 @@
+{
+    "gettingStarted.title": "Getting Started",
+
+    "gettingStarted.quickSetup.title": "Quick Setup",
+    "gettingStarted.quickSetup.connectSetupURI.title": "Connect via Setup URI",
+    "gettingStarted.quickSetup.connectSetupURI.desc": "Recommended method to configure Self-hosted LiveSync.",
+    "gettingStarted.quickSetup.connectManual.title": "Manual Setup",
+    "gettingStarted.quickSetup.connectManual.desc": "Use only if you don't have Setup URI.",
+    "gettingStarted.quickSetup.enableLiveSync.title": "Enable LiveSync",
+    "gettingStarted.quickSetup.enableLiveSync.desc": "Only continue once you have fully completed one of the setup options above.",
+
+    "gettingStarted.setupOther.title": "Setup on Other Devices",
+    "gettingStarted.setupOther.copyConfigToURI.title": "Copy Settings to URI",
+    "gettingStarted.setupOther.copyConfigToURI.desc": "Generate a Setup URI for another device.",
+    "gettingStarted.setupOther.copyConfigToQR.title": "Show QR Code",
+    "gettingStarted.setupOther.copyConfigToQR.desc": "Scan to transfer your current settings.",
+
+
+}
