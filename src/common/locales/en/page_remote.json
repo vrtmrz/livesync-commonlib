@@ -1,0 +1,23 @@
+{
+    "remote.title": "Remote",
+
+    "remote.serverConfiguration.title": "Server Configuration",
+    "remove.serverConfiguration.remoteType.title": "Remote Type",
+    "remote.serverConfiguration.remoteType.desc": "Choose the type of remote server.",
+
+    "remote.privacyAndEncryption.title": "Privacy & Encryption",
+    "remote.privacyAndEncryption.endToEndEncryption.title": "End-to-End Encryption",
+    "remote.privacyAndEncryption.endToEndEncryption.desc": "Encrypts data on the remote server. Recommended if using synchronization features.",
+    "remote.privacyAndEncryption.passphrase.title": "Passphrase",
+    "remote.privacyAndEncryption.passphrase.desc": "The passphrase used to encrypt data.\nNote: If changed, you'll need to overwrite the remote database with the newly encrypted data.",
+    "remote.privacyAndEncryption.propertyEncryption.title": "Encrypt File Properties",
+    "remote.privacyAndEncryption.propertyEncryption.desc": "Encrypts file properties on the remote database (ex. Paths, Size, Chunk IDs, etc).\nNote: If using the V1 E2EE encryption method, only file paths will be encrypted.",
+
+    "remote.fetchSettingsFromRemote.title": "Fetch Settings from Remote",
+    "remote.fetchSettingsFromRemote.fetchConfiguration.title": "Fetch Configuration",
+    "remote.fetchSettingsFromRemote.fetchConfiguration.desc": "Retrieve settings from an already configured.",
+
+    "remote.notifications.title": "Notifications",
+    "remote.notifications.notifyStorageExceeds.title": "Notify if Remote Storage Exceeds",
+    "remote.notifications.notifyStorageExceeds.desc": "If the remote server exceeds this threshold, you'll be notified.\nConfigured in MB (0 to disable)"
+}
