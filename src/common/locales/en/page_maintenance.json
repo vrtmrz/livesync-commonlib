@@ -1,3 +1,29 @@
 {
-    
+    "maintenanceAndRecovery.title": "Maintenance & Recovery",
+
+    "maintenanceAndRecovery.troubleshooting.title": "Troubleshooting",
+    "maintenanceAndRecovery.troubleshooting.settingsDoctor.title": "Settings Doctor",
+    "maintenanceAndRecovery.troubleshooting.settingsDoctor.desc": "Finds unoptimized settings and recommends better options, similar to the migration process.",
+    "maintenanceAndRecovery.troubleshooting.scanBrokenFiles.title": "Scan for Broken Files",
+    "maintenanceAndRecovery.troubleshooting.scanBrokenFiles.desc": "Detects files that aren't properly stored in the database and attempts to repair them.",
+    "maintenanceAndRecovery.troubleshooting.prepareReport.title": "Prepare Report",
+    "maintenanceAndRecovery.troubleshooting.prepareReport.desc": "Generates a detailed report with relevant information for developers to troubleshoot and patch issues, then copies it to your clipboard.",
+    "maintenanceAndRecovery.troubleshooting.writeLogToFile.title": "Write Logs to File",
+    "maintenanceAndRecovery.troubleshooting.writeLogToFile.desc": "Warning! Enabling this can seriously impact performance. Logs will be written to a seperate file and may contain confidential information, so handle with care.",
+
+    "maintenanceAndRecovery.recoveryAndRepair.title": "Recovery & Repair",
+    "maintenanceAndRecovery.recoveryAndRepair.resolveConflictsByNewest.title": "Resolve Conflicts: Keep Newer",
+    "maintenanceAndRecovery.recoveryAndRepair.resolveConflictsByNewest.desc": "Overwrites all conflicted files with the newest version. This action is irreversible; older versions cannot be restored.",
+    "maintenanceAndRecovery.recoveryAndRepair.verifyAndRepairFiles.title": "Verify and Repair Files",
+    "maintenanceAndRecovery.recoveryAndRepair.verifyAndRepairFiles.desc": "Compares file contents between the local and remote databases. If differences are found, you'll be prompted to choose which version to keep.",
+    "maintenanceAndRecovery.recoveryAndRepair.fixPathObfuscation.title": "Fix Path Obfuscation",
+    "maintenanceAndRecovery.recoveryAndRepair.fixPathObfuscation.desc": "Detects files whose paths weren't obfuscated correctly and applies the proper path obfuscation.",
+    "maintenanceAndRecovery.recoveryAndRepair.recreateMissingChunks.title": "Recreate Missing Chunks",
+    "maintenanceAndRecovery.recoveryAndRepair.recreateMissingChunks.desc": "Recreates chunks for all files. This can resolve issues cause by missing or incomplete chunks.",
+
+    "maintenanceAndRecovery.resetAndRebuild.title": "Reset / Rebuild",
+    "maintenanceAndRecovery.resetAndRebuild.resetToDefaults.title": "",
+    "maintenanceAndRecovery.resetAndRebuild.resetToDefaults.desc": "",
+    "maintenanceAndRecovery.resetAndRebuild.1": "",
+    "maintenanceAndRecovery.resetAndRebuild.2": ""
 }
