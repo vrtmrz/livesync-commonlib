@@ -1,6 +1,6 @@
 {
     "sync.title": "Synchronization",
-    
+
     "sync.basicSync.title": "Basic Sync",
     "sync.basicSync.syncPresets.title": "Sync Presets",
     "sync.basicSync.syncPresets.desc": "Applies the ideal settings for the synchronization method you prefer.",
@@ -20,12 +20,6 @@
     "sync.basicSync.syncOnStartup.desc": "Syncs automatically when Obsidian launches.",
     "sync.basicSync.syncAfterMerge.title": "Sync after File Merge",
     "sync.basicSync.syncAfterMerge.desc": "Syncs the merged version after differences between client and server files are resolved.",
-
-    "sync.deletionBehaviour.title": "Deletion Behaviour",
-    "sync.deletionBehaviour.moveToTrash.title": "Move to Trash",
-    "sync.deletionBehaviour.moveToTrash.desc": "Removed files by sending them to the trash bin instead of deleting them permanently.\n(Locally)",
-    "sync.deletionBehaviour.keepEmptyFolders.title": "Preserve Empty Folders",
-    "sync.deletionBehaviour.keepEmptyFolders.desc": "Keeps folders even if they no longer contain files.\n(Locally)",
 
     "sync.conflictResolution.title": "Conflict Resolution",
     "sync.conflictResolution.alwaysUserNewVersion.title": "(Beta) Always Use Newer Version",
@@ -50,6 +44,18 @@
     "sync.customSync.notifyChanges.desc": "Recieve a notification when another device has added or updated a customization.",
     "sync.customSync.openCustomizationManager.title": "Open Customization Manager",
     "sync.customSync.openCustomizationManager.desc": "Open the customization settings dialog to view or edit items.",
+    "sync.customSync.deleteAllCustomizationSync.title": "Delete Customization Sync Data",
+    "sync.customSync.deleteAllCustomizationSync.desc": "Clears all custom sync data from the local and remote database.",
+
+    "sync.deletionBehaviour.title": "Deletion Behaviour",
+    "sync.deletionBehaviour.moveToTrash.title": "Move to Trash",
+    "sync.deletionBehaviour.moveToTrash.desc": "Removed files by sending them to the trash bin instead of deleting them permanently.\n(Locally)",
+    "sync.deletionBehaviour.keepEmptyFolders.title": "Preserve Empty Folders",
+    "sync.deletionBehaviour.keepEmptyFolders.desc": "Keeps folders even if they no longer contain files.\n(Locally)",
+
+
+
+
 
     "sync.hiddenFiles.title": "Hidden Files",
     "sync.hiddenFiles.": ""

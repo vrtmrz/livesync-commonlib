@@ -14,5 +14,9 @@
     "general.logging.onlyNotifications.title": "Notifications Only",
     "general.logging.onlyNotifications.desc": "Disables logging; only shows notifications. Turn off if reporting issues.",
     "general.logging.verboseLogging.title": "Verbose Logging",
-    "general.logging.verboseLogging.desc": "Provides more detailed logs. Turn on if reporting issues."
+    "general.logging.verboseLogging.desc": "Provides more detailed logs. Turn on if reporting issues.",
+
+    "general.reset.title": "Reset",
+    "general.reset.resetClient.title": "Reset Client",
+    "general.reset.resetClient.desc": "Clears the client's configuration and disconnects it from the server, returning it to its initial state. The server configuration and data is not affected."
 }
