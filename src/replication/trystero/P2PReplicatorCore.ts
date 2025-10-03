@@ -26,6 +26,7 @@ import {
     EVENT_P2P_REQUEST_FORCE_OPEN,
     EVENT_REQUEST_STATUS,
 } from "./TrysteroReplicatorP2PServer";
+import type { ServiceHub } from "../../services/ServiceHub";
 
 export function setP2PReplicatorInstance(instance: CommandShim) {
     setReplicatorFunc(() => instance._replicatorInstance);
@@ -175,6 +176,8 @@ export interface P2PReplicatorBase {
     simpleStore(): SimpleStore<any>;
     handleReplicatedDocuments(docs: EntryDoc[]): Promise<void>;
     init(): Promise<this>;
+
+    services: ServiceHub;
 }
 
 export function P2PReplicatorMixIn<TBase extends Constructor<P2PReplicatorBase>>(base: TBase) {
@@ -204,12 +207,12 @@ export function P2PReplicatorMixIn<TBase extends Constructor<P2PReplicatorBase>>
         }
 
         getConfig(key: string) {
-            const vaultName = this.plugin.$$getVaultName();
+            const vaultName = this.services.vault.getVaultName();
             const dbKey = `${vaultName}-${key}`;
             return localStorage.getItem(dbKey);
         }
         setConfig(key: string, value: string) {
-            const vaultName = this.plugin.$$getVaultName();
+            const vaultName = this.services.vault.getVaultName();
             const dbKey = `${vaultName}-${key}`;
             localStorage.setItem(dbKey, value);
         }
@@ -235,7 +238,8 @@ export function P2PReplicatorMixIn<TBase extends Constructor<P2PReplicatorBase>>
                 if (!this.settings.P2P_AppID) {
                     this.settings.P2P_AppID = P2P_DEFAULT_SETTINGS.P2P_AppID;
                 }
-                const getInitialDeviceName = () => this.getConfig("p2p_device_name") || this.plugin.$$getVaultName();
+                const getInitialDeviceName = () =>
+                    this.getConfig("p2p_device_name") || this.services.vault.getVaultName();
 
                 const getSettings = () => this.settings;
                 const store = () => this.simpleStore();

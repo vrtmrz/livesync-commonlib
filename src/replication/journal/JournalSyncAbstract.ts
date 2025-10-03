@@ -137,7 +137,7 @@ export abstract class JournalSyncAbstract {
 
         this.db = env.getDatabase();
         this.env = env;
-        this.processReplication = async (docs) => await env.$$parseReplicationResult(docs);
+        this.processReplication = async (docs) => await env.services.replication.parseSynchroniseResult(docs);
         this.store = store;
         this.hash = this.getHash(settings);
         this.trench = new Trench(store);
@@ -147,7 +147,7 @@ export abstract class JournalSyncAbstract {
         this._settings = settings;
         this.db = env.getDatabase();
         this.env = env;
-        this.processReplication = async (docs) => await env.$$parseReplicationResult(docs);
+        this.processReplication = async (docs) => await env.services.replication.parseSynchroniseResult(docs);
         this.store = store;
         this.hash = this.getHash(settings);
         clearHandlers();

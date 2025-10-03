@@ -1,4 +1,6 @@
 import type { P2PSyncSetting } from "../../common/types.ts";
+import type { InjectableServiceHub } from "../../services/InjectableServices.ts";
+
 import type { TrysteroReplicator } from "./TrysteroReplicator.ts";
 
 export const EVENT_P2P_PEER_SHOW_EXTRA_MENU = "p2p-peer-show-extra-menu";
@@ -45,8 +47,9 @@ export interface PluginShim {
     saveSettings: () => Promise<void>;
     settings: P2PSyncSetting;
     rebuilder: any;
-    $$scheduleAppReload: () => void;
-    $$getVaultName: () => string;
+    // $$scheduleAppReload: () => void;
+    // $$getVaultName: () => string;
+    services: InjectableServiceHub;
     // confirm: any;
 }
 export interface CommandShim {

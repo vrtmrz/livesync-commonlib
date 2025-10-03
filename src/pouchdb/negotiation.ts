@@ -115,7 +115,7 @@ const SELECTOR_COMPROMISED_CHUNK_2 = {
  */
 export async function countCompromisedChunks(db: PouchDB.Database): Promise<number | false> {
     try {
-        Logger(`Checking for compromised chunks...`, LOG_LEVEL_VERBOSE);
+        Logger(`Counting compromised chunks...`, LOG_LEVEL_VERBOSE);
         const task1 = db.find(SELECTOR_COMPROMISED_CHUNK_1);
         const task2 = db.find(SELECTOR_COMPROMISED_CHUNK_2);
         const [result1, result2] = await Promise.all([task1, task2]);

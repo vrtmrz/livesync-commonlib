@@ -2042,6 +2042,23 @@ export type UXDataWriteOptions = {
     mtime?: number;
 };
 
+export type CacheData = string | ArrayBuffer;
+export type FileEventType = "CREATE" | "DELETE" | "CHANGED" | "INTERNAL";
+export type FileEventArgs = {
+    file: UXFileInfoStub | UXInternalFileInfoStub;
+    cache?: CacheData;
+    oldPath?: string;
+    ctx?: any;
+};
+export type FileEventItem = {
+    type: FileEventType;
+    args: FileEventArgs;
+    key: string;
+    skipBatchWait?: boolean;
+    cancelled?: boolean;
+    batched?: boolean;
+};
+
 export type Prettify<T> = {
     [K in keyof T]: T[K];
     // deno-lint-ignore ban-types

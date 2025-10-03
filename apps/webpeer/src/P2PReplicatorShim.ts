@@ -27,7 +27,8 @@ import { reactiveSource } from "octagonal-wheels/dataobject/reactive_v2";
 import { EVENT_SETTING_SAVED } from "../../../src/events/coreEvents";
 import { unique } from "octagonal-wheels/collection";
 import { Menu } from "../../../src/PlatformAPIs/browser/Menu";
-
+import { InjectableServiceHub } from "../../../src/services/InjectableServices";
+//TODO: Check the behaviour.
 export class P2PReplicatorShimBase implements P2PReplicatorBase {
     storeP2PStatusLine = reactiveSource("");
     plugin!: PluginShim;
@@ -35,6 +36,7 @@ export class P2PReplicatorShimBase implements P2PReplicatorBase {
     confirm!: Confirm;
     simpleStoreAPI!: ISimpleStoreAPI;
     db?: PouchDB.Database<EntryDoc>;
+    services: InjectableServiceHub = new InjectableServiceHub();
 
     getDB() {
         if (!this.db) {
@@ -49,9 +51,9 @@ export class P2PReplicatorShimBase implements P2PReplicatorBase {
             this.db = undefined;
         }
     }
-    getDeviceName() {
-        return this.plugin.$$getVaultName();
-    }
+    // getDeviceName() {
+    //     return this.plugin.services.vault.getVaultName();
+    // }
     async init() {
         const { confirm, environment, simpleStoreAPI } = await getWrappedSynchromesh();
         this.confirm = confirm;
@@ -69,6 +71,8 @@ export class P2PReplicatorShimBase implements P2PReplicatorBase {
         const repStore = this.simpleStoreAPI.getSimpleStore<any>("p2p-livesync-web-peer");
         this._simpleStore = repStore;
         let _settings = (await repStore.get("settings")) || ({ ...P2P_DEFAULT_SETTINGS } as P2PSyncSetting);
+        this.services = new InjectableServiceHub();
+        this.services.vault.handleGetVaultName(() => "p2p-livesync-web-peer");
         this.plugin = {
             saveSettings: async () => {
                 await repStore.set("settings", _settings);
@@ -81,11 +85,13 @@ export class P2PReplicatorShimBase implements P2PReplicatorBase {
                 _settings = { ..._settings, ...newSettings };
             },
             rebuilder: null,
-            $$scheduleAppReload: () => {},
-            $$getVaultName: () => "p2p-livesync-web-peer",
+            services: this.services,
+            // $$scheduleAppReload: () => {},
+            // $$getVaultName: () => "p2p-livesync-web-peer",
+
         };
-        const deviceName = this.getDeviceName();
-        const database_name = this.settings.P2P_AppID + "-" + this.settings.P2P_roomID + deviceName;
+        // const deviceName = this.getDeviceName();
+        const database_name = this.settings.P2P_AppID + "-" + this.settings.P2P_roomID + "p2p-livesync-web-peer";
         this.db = new PouchDB<EntryDoc>(database_name);
         return this;
     }
@@ -129,14 +135,14 @@ function removeFromList(item: string, list: string) {
 }
 
 export class P2PReplicatorShim extends P2PReplicatorMixIn(P2PReplicatorShimBase) implements CommandShim {
-    override getDeviceName(): string {
-        return this.getConfig("p2p_device_name") ?? this.plugin.$$getVaultName();
+    getDeviceName(): string {
+        return this.getConfig("p2p_device_name") ?? this.plugin.services.vault.getVaultName();
     }
-    override getPlatform(): string {
+    getPlatform(): string {
         return "pseudo-replicator";
     }
     m?: Menu;
-    override afterConstructor(): void {
+    afterConstructor(): void {
         eventHub.onEvent(EVENT_P2P_PEER_SHOW_EXTRA_MENU, ({ peer, event }) => {
             if (this.m) {
                 this.m.hide();
@@ -240,7 +246,7 @@ export class P2PReplicatorShim extends P2PReplicatorMixIn(P2PReplicatorShimBase)
                 if (yn === DROP) {
                     await this.plugin.rebuilder.scheduleFetch();
                 } else {
-                    await this.plugin.$$scheduleAppReload();
+                    await this.plugin.services.appLifecycle.scheduleRestart();
                 }
             } else {
                 Logger(`Cancelled\nRemote config for ${peer.name} is not applied`, LOG_LEVEL_NOTICE);

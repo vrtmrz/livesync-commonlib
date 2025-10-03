@@ -23,6 +23,7 @@ import {
 import { getConfirmInstance } from "../../PlatformAPIs/obsidian/Confirm";
 import { $msg } from "../../common/i18n";
 import { delay } from "octagonal-wheels/promises";
+import type { ServiceHub } from "../../services/ServiceHub";
 
 // This is under so weird structure. We need to place this in the right place in the near future.
 
@@ -36,7 +37,8 @@ export function setReplicatorFunc(func: () => TrysteroReplicator | undefined) {
 }
 
 export interface LiveSyncTrysteroReplicatorEnv extends LiveSyncReplicatorEnv {
-    $$saveSettingData(): void | Promise<void>;
+    // $$saveSettingData(): void | Promise<void>;
+    services: ServiceHub;
     settings: RemoteDBSettings;
 }
 
@@ -44,7 +46,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     // env: LiveSyncTrysteroReplicatorEnv;
 
     // NOTE: This is not used for P2P synchronisation. just for the sake of interface compatibility.
-    getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array> {
+    getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
         return Promise.resolve(new Uint8Array(32));
     }
     terminateSync(): void {
@@ -165,7 +167,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             }
             setting.P2P_Enabled = true;
             this.env.settings.P2P_Enabled = true;
-            await this.env.$$saveSettingData();
+            await this.env.services.setting.saveSettingData();
             await delay(100);
             return this.replicateAllFromServer(setting, showingNotice);
         }
