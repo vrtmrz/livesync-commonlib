@@ -88,7 +88,6 @@ export class P2PReplicatorShimBase implements P2PReplicatorBase {
             services: this.services,
             // $$scheduleAppReload: () => {},
             // $$getVaultName: () => "p2p-livesync-web-peer",
-
         };
         // const deviceName = this.getDeviceName();
         const database_name = this.settings.P2P_AppID + "-" + this.settings.P2P_roomID + "p2p-livesync-web-peer";
