@@ -49,5 +49,11 @@
     "maintenanceAndRecovery.resetAndRebuild.overwriteRemote.title": "Overwrite Remote Database",
     "maintenanceAndRecovery.resetAndRebuild.overwriteRemote.desc": "Replace the remote database with the local database. Use this after changing the encryption passphrase.",
     "maintenanceAndRecovery.resetAndRebuild.deleteLocal.title": "Delete Local Database",
-    "maintenanceAndRecovery.resetAndRebuild.deleteLocal.desc": "Remove the local database entirely. Use this to reset or before uninstalling LiveSync."
+    "maintenanceAndRecovery.resetAndRebuild.deleteLocal.desc": "Remove the local database entirely. Use this to reset or before uninstalling LiveSync.",
+
+    "maintenanceAndRecovery.emergencyActions.title": "Emergency Actions",
+    "maintenanceAndRecovery.emergencyActions.lockServer.title": "Lock Server",
+    "maintenanceAndRecovery.emergencyActions.lockServer.desc": "Lock the remote server to prevent synchronization with other devices.",
+    "maintenanceAndRecovery.emergencyActions.restart.title": "Restart with Sync Disabled",
+    "maintenanceAndRecovery.emergencyActions.restart.desc": "Stops all local synchronization and restarts Obsidian. Sync will remain disabled until you manually re-enable it."
 }
