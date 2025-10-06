@@ -13,7 +13,7 @@ import { eventHub } from "../../../src/hub/hub";
 
 import type { Confirm } from "../../../src/interfaces/Confirm";
 import type { IEnvironment, ISimpleStoreAPI } from "../../../src/PlatformAPIs/interfaces";
-import { Logger } from "../../../src/common/logger";
+import { LOG_LEVEL_INFO, Logger } from "../../../src/common/logger";
 import { getWrappedSynchromesh, storeP2PStatusLine } from "./CommandsShim";
 import {
     EVENT_P2P_PEER_SHOW_EXTRA_MENU,
@@ -21,15 +21,39 @@ import {
     type PeerStatus,
     type PluginShim,
 } from "../../../src/replication/trystero/P2PReplicatorPaneCommon";
-import { P2PReplicatorMixIn, type P2PReplicatorBase } from "../../../src/replication/trystero/P2PReplicatorCore";
+import {
+    closeP2PReplicator,
+    openP2PReplicator,
+    P2PLogCollector,
+    type P2PReplicatorBase,
+} from "../../../src/replication/trystero/P2PReplicatorCore";
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive_v2";
 import { EVENT_SETTING_SAVED } from "../../../src/events/coreEvents";
 import { unique } from "octagonal-wheels/collection";
 import { Menu } from "../../../src/PlatformAPIs/browser/Menu";
 import { InjectableServiceHub } from "../../../src/services/InjectableServices";
-//TODO: Check the behaviour.
-export class P2PReplicatorShimBase implements P2PReplicatorBase {
+import { TrysteroReplicator } from "../../../src/replication/trystero/TrysteroReplicator";
+
+function addToList(item: string, list: string) {
+    return unique(
+        list
+            .split(",")
+            .map((e) => e.trim())
+            .concat(item)
+            .filter((p) => p)
+    ).join(",");
+}
+function removeFromList(item: string, list: string) {
+    return list
+        .split(",")
+        .map((e) => e.trim())
+        .filter((p) => p !== item)
+        .filter((p) => p)
+        .join(",");
+}
+
+export class P2PReplicatorShim implements P2PReplicatorBase, CommandShim {
     storeP2PStatusLine = reactiveSource("");
     plugin!: PluginShim;
     environment!: IEnvironment;
@@ -51,9 +75,6 @@ export class P2PReplicatorShimBase implements P2PReplicatorBase {
             this.db = undefined;
         }
     }
-    // getDeviceName() {
-    //     return this.plugin.services.vault.getVaultName();
-    // }
     async init() {
         const { confirm, environment, simpleStoreAPI } = await getWrappedSynchromesh();
         this.confirm = confirm;
@@ -92,12 +113,17 @@ export class P2PReplicatorShimBase implements P2PReplicatorBase {
         // const deviceName = this.getDeviceName();
         const database_name = this.settings.P2P_AppID + "-" + this.settings.P2P_roomID + "p2p-livesync-web-peer";
         this.db = new PouchDB<EntryDoc>(database_name);
+        setTimeout(() => {
+            if (this.settings.P2P_AutoStart && this.settings.P2P_Enabled) {
+                void this.open();
+            }
+        }, 1000);
         return this;
     }
     get settings() {
         return this.plugin.settings;
     }
-    _log(msg: string, level?: LOG_LEVEL): void {
+    _log(msg: any, level?: LOG_LEVEL): void {
         Logger(msg, level);
     }
     _notice(msg: string, key?: string): void {
@@ -113,27 +139,21 @@ export class P2PReplicatorShimBase implements P2PReplicatorBase {
         // No op. This is a client and does not need to process the docs
         return Promise.resolve();
     }
-}
 
-function addToList(item: string, list: string) {
-    return unique(
-        list
-            .split(",")
-            .map((e) => e.trim())
-            .concat(item)
-            .filter((p) => p)
-    ).join(",");
-}
-function removeFromList(item: string, list: string) {
-    return list
-        .split(",")
-        .map((e) => e.trim())
-        .filter((p) => p !== item)
-        .filter((p) => p)
-        .join(",");
-}
+    getPluginShim() {
+        return {};
+    }
+    getConfig(key: string) {
+        const vaultName = this.services.vault.getVaultName();
+        const dbKey = `${vaultName}-${key}`;
+        return localStorage.getItem(dbKey);
+    }
+    setConfig(key: string, value: string) {
+        const vaultName = this.services.vault.getVaultName();
+        const dbKey = `${vaultName}-${key}`;
+        localStorage.setItem(dbKey, value);
+    }
 
-export class P2PReplicatorShim extends P2PReplicatorMixIn(P2PReplicatorShimBase) implements CommandShim {
     getDeviceName(): string {
         return this.getConfig("p2p_device_name") ?? this.plugin.services.vault.getVaultName();
     }
@@ -186,14 +206,75 @@ export class P2PReplicatorShim extends P2PReplicatorMixIn(P2PReplicatorShimBase)
             storeP2PStatusLine.set(line.value);
         });
     }
-    override async init() {
-        const r = await super.init();
-        setTimeout(() => {
-            if (this.settings.P2P_AutoStart && this.settings.P2P_Enabled) {
-                void this.open();
+
+    _replicatorInstance?: TrysteroReplicator;
+    p2pLogCollector = new P2PLogCollector();
+    async open() {
+        await openP2PReplicator(this);
+    }
+    async close() {
+        await closeP2PReplicator(this);
+    }
+    enableBroadcastCastings() {
+        return this?._replicatorInstance?.enableBroadcastChanges();
+    }
+    disableBroadcastCastings() {
+        return this?._replicatorInstance?.disableBroadcastChanges();
+    }
+
+    async initialiseP2PReplicator(): Promise<TrysteroReplicator> {
+        await this.init();
+        try {
+            if (this._replicatorInstance) {
+                await this._replicatorInstance.close();
+                this._replicatorInstance = undefined;
             }
-        }, 1000);
-        return r;
+
+            if (!this.settings.P2P_AppID) {
+                this.settings.P2P_AppID = P2P_DEFAULT_SETTINGS.P2P_AppID;
+            }
+            const getInitialDeviceName = () => this.getConfig("p2p_device_name") || this.services.vault.getVaultName();
+
+            const getSettings = () => this.settings;
+            const store = () => this.simpleStore();
+            const getDB = () => this.getDB();
+
+            const getConfirm = () => this.confirm;
+            const getPlatform = () => this.getPlatform();
+            const env = {
+                get db() {
+                    return getDB();
+                },
+                get confirm() {
+                    return getConfirm();
+                },
+                get deviceName() {
+                    return getInitialDeviceName();
+                },
+                get platform() {
+                    return getPlatform();
+                },
+                get settings() {
+                    return getSettings();
+                },
+                processReplicatedDocs: async (docs: EntryDoc[]): Promise<void> => {
+                    await this.handleReplicatedDocuments(docs);
+                    // No op. This is a client and does not need to process the docs
+                },
+                get simpleStore() {
+                    return store();
+                },
+            };
+            this._replicatorInstance = new TrysteroReplicator(env);
+            return this._replicatorInstance;
+        } catch (e) {
+            this._log(
+                e instanceof Error ? e.message : "Something occurred on Initialising P2P Replicator",
+                LOG_LEVEL_INFO
+            );
+            this._log(e, LOG_LEVEL_VERBOSE);
+            throw e;
+        }
     }
 
     get replicator() {

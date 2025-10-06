@@ -1,4 +1,4 @@
-import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
+import { LOG_LEVEL_DEBUG, Logger } from "octagonal-wheels/common/logger";
 import { ServiceHub } from "./ServiceHub.ts";
 import {
     APIService,
@@ -30,7 +30,7 @@ function _getBindFunction<T extends keyof ServiceHub, M extends Extract<keyof Se
     key: `${T}.${M}`
 ) {
     return (func: ServiceHub[T][M] extends (...args: infer P) => infer R ? (...args: P) => R : never) => {
-        Logger(`Binding function ${key}`, LOG_LEVEL_VERBOSE);
+        Logger(`Binding function ${key}`, LOG_LEVEL_DEBUG);
         throughHole.bindFunction(key, func);
     };
 }
