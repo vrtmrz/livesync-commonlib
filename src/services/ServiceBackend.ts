@@ -249,7 +249,7 @@ export class ServiceBackend {
         return [invoke, registerFunc] as const;
     }
 
-    everySucceeds<T extends any[]>(name: string) {
+    firstFailure<T extends any[]>(name: string) {
         const survey = this.getSurvey<T, boolean>(name);
         const invoke = async (...args: T) => {
             const resultTasks = survey.invoke(...args);
@@ -262,7 +262,7 @@ export class ServiceBackend {
                 }
                 return !someFailed;
             } catch (e: any) {
-                Logger("Error in everySucceeds for survey " + name);
+                Logger("Error in firstFailure handler for survey " + name);
                 Logger(e, LOG_LEVEL_VERBOSE);
                 return false;
             }
@@ -275,7 +275,7 @@ export class ServiceBackend {
                         return false;
                     }
                 } catch (e) {
-                    Logger("Error in everySucceeds handler for survey " + name);
+                    Logger("Error in firstFailure handler for survey " + name);
                     Logger(e, LOG_LEVEL_VERBOSE);
                     // Exception is considered as not a failure, this only handles explicit false.
                 }

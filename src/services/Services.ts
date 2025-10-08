@@ -36,18 +36,51 @@ type HandlerFuncWithoutUndefined<F extends (...args: any[]) => any> = (
 
 export abstract class ServiceBase {
     protected readonly _backend: ServiceBackend;
+
+    /**
+     * Register a handler that returns all results from the listeners.
+     * Means ex-`all`
+     * @param key The event key to listen to.
+     */
     protected _all<U extends (...args: any[]) => any>(key: string) {
         return this._backend.all<Parameters<U>>(key);
     }
+
+    /**
+     * Register a handler that returns the first success (true) from the listeners.
+     * Means ex-`any`
+     * @param key The event key to listen to.
+     * @returns
+     */
     protected _first<T extends (...args: any[]) => any, U = ReturnType<T>>(key: string) {
         return this._backend.first<Parameters<T>, Awaited<U>>(key);
     }
+
+    /**
+     * Register a handler that returns the first success (true) from the listeners.
+     * Means ex-`any` of some sort.
+     * @param key The event key to listen to.
+     * @returns
+     */
     protected _firstOrUndefined<T extends (...args: any[]) => any, U = ReturnType<T>>(key: string) {
         return this._backend.firstOrUndefined<Parameters<T>, Awaited<U>>(key);
     }
-    protected _everySucceeds<T extends (...args: any[]) => any>(key: string) {
-        return this._backend.everySucceeds<Parameters<T>>(key);
+    /**
+     * Register a handler that returns the first failure (false) from the listeners.
+     * Means ex-`every`
+     * @param key The event key to listen to.
+     * @returns
+     */
+    protected _firstFailure<T extends (...args: any[]) => any>(key: string) {
+        return this._backend.firstFailure<Parameters<T>>(key);
     }
+
+    /**
+     *  Register a handler that broadcasts to all listeners without caring about the result.
+     *  Means ex-`all` of some sort.
+     * @param key The event key to listen to.
+     * @returns
+     */
     protected _broadcast<T extends (...args: any[]) => any>(key: string) {
         return this._backend.broadcast<Parameters<T>>(key);
     }
@@ -162,10 +195,11 @@ export abstract class DatabaseEventService extends ServiceBase {
         [this.onUnloadDatabase, this.handleOnUnloadDatabase] = this._all<typeof this.onUnloadDatabase>("dbUnload");
         [this.onCloseDatabase, this.handleOnCloseDatabase] = this._all<typeof this.onCloseDatabase>("dbClose");
         [this.onDatabaseInitialisation, this.handleOnDatabaseInitialisation] =
-            this._all<typeof this.onDatabaseInitialisation>("databaseInitialisation");
+            this._firstFailure<typeof this.onDatabaseInitialisation>("databaseInitialisation");
         [this.onDatabaseInitialised, this.handleDatabaseInitialised] =
-            this._all<typeof this.onDatabaseInitialised>("databaseInitialised");
-        [this.onResetDatabase, this.handleOnResetDatabase] = this._all<typeof this.onResetDatabase>("resetDatabase");
+            this._firstFailure<typeof this.onDatabaseInitialised>("databaseInitialised");
+        [this.onResetDatabase, this.handleOnResetDatabase] =
+            this._firstFailure<typeof this.onResetDatabase>("resetDatabase");
     }
 
     /**
@@ -239,7 +273,7 @@ export class FileProcessingService extends ServiceBase {
         [this.processOptionalFileEvent, this.handleOptionalFileEvent] =
             this._first<typeof this.processOptionalFileEvent>("processOptionalFileEvent");
         [this.commitPendingFileEvents, this.handleCommitPendingFileEvents] =
-            this._first<typeof this.commitPendingFileEvents>("commitPendingFileEvents");
+            this._firstFailure<typeof this.commitPendingFileEvents>("commitPendingFileEvents");
     }
 
     /**
@@ -326,7 +360,7 @@ export abstract class ReplicationService extends ServiceBase {
         [this.processVirtualDocument, this.handleProcessVirtualDocuments] =
             this._first<typeof this.processVirtualDocument>("processVirtualDocuments");
         [this.onBeforeReplicate, this.handleBeforeReplicate] =
-            this._first<typeof this.onBeforeReplicate>("beforeReplicate");
+            this._firstFailure<typeof this.onBeforeReplicate>("beforeReplicate");
         [this.checkConnectionFailure, this.handleCheckConnectionFailure] =
             this._first<typeof this.checkConnectionFailure>("connectionHasFailure");
     }
@@ -576,21 +610,21 @@ export abstract class ConflictService extends ServiceBase {
 export abstract class AppLifecycleService extends ServiceBase {
     constructor(hub: ServiceBackend) {
         super(hub);
-        [this.onLayoutReady, this.handleLayoutReady] = this._everySucceeds("layoutReady");
-        [this.onFirstInitialise, this.handleFirstInitialise] = this._everySucceeds("firstInitialise");
-        [this.onReady, this.handleOnReady] = this._everySucceeds("appReady");
-        [this.onWireUpEvents, this.handleOnWireUpEvents] = this._everySucceeds("wireUpEvents");
-        [this.onLoad, this.handleOnLoad] = this._everySucceeds("appLoad");
+        [this.onLayoutReady, this.handleLayoutReady] = this._firstFailure("layoutReady");
+        [this.onFirstInitialise, this.handleFirstInitialise] = this._firstFailure("firstInitialise");
+        [this.onReady, this.handleOnReady] = this._firstFailure("appReady");
+        [this.onWireUpEvents, this.handleOnWireUpEvents] = this._firstFailure("wireUpEvents");
+        [this.onLoad, this.handleOnLoad] = this._firstFailure("appLoad");
         [this.onAppUnload, this.handleOnAppUnload] = this._broadcast("appUnload");
-        [this.onScanningStartupIssues, this.handleOnScanningStartupIssues] = this._everySucceeds("scanStartupIssues");
-        [this.onInitialise, this.handleOnInitialise] = this._everySucceeds("appInitialise");
-        [this.onLoaded, this.handleOnLoaded] = this._everySucceeds("appLoaded");
-        [this.onSettingLoaded, this.handleOnSettingLoaded] = this._everySucceeds("applyStartupLoaded");
-        [this.onBeforeUnload, this.handleOnBeforeUnload] = this._everySucceeds("beforeUnload");
-        [this.onUnload, this.handleOnUnload] = this._everySucceeds("unload");
-        [this.onSuspending, this.handleOnSuspending] = this._everySucceeds("beforeSuspendProcess");
-        [this.onResuming, this.handleOnResuming] = this._everySucceeds("onResumeProcess");
-        [this.onResumed, this.handleOnResumed] = this._everySucceeds("afterResumeProcess");
+        [this.onScanningStartupIssues, this.handleOnScanningStartupIssues] = this._all("scanStartupIssues");
+        [this.onInitialise, this.handleOnInitialise] = this._firstFailure("appInitialise");
+        [this.onLoaded, this.handleOnLoaded] = this._firstFailure("appLoaded");
+        [this.onSettingLoaded, this.handleOnSettingLoaded] = this._firstFailure("applyStartupLoaded");
+        [this.onBeforeUnload, this.handleOnBeforeUnload] = this._all("beforeUnload");
+        [this.onUnload, this.handleOnUnload] = this._all("unload");
+        [this.onSuspending, this.handleOnSuspending] = this._firstFailure("beforeSuspendProcess");
+        [this.onResuming, this.handleOnResuming] = this._firstFailure("onResumeProcess");
+        [this.onResumed, this.handleOnResumed] = this._firstFailure("afterResumeProcess");
     }
 
     /**
@@ -802,15 +836,15 @@ export abstract class AppLifecycleService extends ServiceBase {
 export abstract class SettingService extends ServiceBase {
     constructor(hub: ServiceBackend) {
         super(hub);
-        [this.onBeforeRealiseSetting, this.handleBeforeRealiseSetting] = this._everySucceeds("beforeRealiseSetting");
-        [this.onSettingRealised, this.handleSettingRealised] = this._everySucceeds("afterRealiseSetting");
-        [this.onRealiseSetting, this.handleOnRealiseSetting] = this._everySucceeds("realiseSetting");
-        [this.suspendAllSync, this.handleSuspendAllSync] = this._everySucceeds("suspendAllSync");
-        [this.suspendExtraSync, this.handleSuspendExtraSync] = this._everySucceeds("suspendExtraSync");
+        [this.onBeforeRealiseSetting, this.handleBeforeRealiseSetting] = this._firstFailure("beforeRealiseSetting");
+        [this.onSettingRealised, this.handleSettingRealised] = this._firstFailure("afterRealiseSetting");
+        [this.onRealiseSetting, this.handleOnRealiseSetting] = this._firstFailure("realiseSetting");
+        [this.suspendAllSync, this.handleSuspendAllSync] = this._all("suspendAllSync");
+        [this.suspendExtraSync, this.handleSuspendExtraSync] = this._all("suspendExtraSync");
         [this.suggestOptionalFeatures, this.handleSuggestOptionalFeatures] =
             this._all<typeof this.suggestOptionalFeatures>("suggestOptionalFeatures");
         [this.enableOptionalFeature, this.handleEnableOptionalFeature] =
-            this._all<typeof this.enableOptionalFeature>("enableOptionalFeature");
+            this._first<typeof this.enableOptionalFeature>("enableOptionalFeature");
     }
     /**
      * Clear any used passphrase from memory.
@@ -1050,9 +1084,9 @@ export abstract class VaultService extends ServiceBase {
 export abstract class TestService extends ServiceBase {
     constructor(hub: ServiceBackend) {
         super(hub);
-        [this.test, this.handleTest] = this._first<typeof this.test>("test");
+        [this.test, this.handleTest] = this._firstFailure<typeof this.test>("test");
         [this.testMultiDevice, this.handleTestMultiDevice] =
-            this._first<typeof this.testMultiDevice>("testMultiDevice");
+            this._firstFailure<typeof this.testMultiDevice>("testMultiDevice");
     }
     /**
      * Run the test suite to verify the plug-in's functionality.
