@@ -39,8 +39,7 @@ import {
     Logger,
 } from "octagonal-wheels/common/logger";
 import { createBlob, determineTypeFromBlob } from "../common/utils.ts";
-import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
-import { promiseWithResolver } from "octagonal-wheels/promises";
+import { promiseWithResolvers } from "octagonal-wheels/promises";
 import {
     createSyncParamsHanderForServer,
     SyncParamsFetchError,
@@ -48,6 +47,7 @@ import {
     SyncParamsUpdateError,
 } from "../replication/SyncParamsHandler.ts";
 import { LiveSyncManagers } from "../managers/LiveSyncManagers.ts";
+import { InjectableServiceHub } from "../services/InjectableServices.ts";
 export type DirectFileManipulatorOptions = {
     url: string;
     username: string;
@@ -107,8 +107,8 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     managers: LiveSyncManagers;
 
     options: DirectFileManipulatorOptions;
-    ready = promiseWithResolver<void>();
-
+    ready = promiseWithResolvers<void>();
+    services = new InjectableServiceHub();
     constructor(options: DirectFileManipulatorOptions) {
         this.options = options;
         const getDB = () => this.liveSyncLocalDB.localDatabase;
@@ -117,20 +117,27 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
             get database() {
                 return getDB();
             },
-            getActiveReplicator: () => this.$$getReplicator(),
+            getActiveReplicator: () =>
+                // Note: this function will throw an error due to lacking that in this implementation.
+                this.services.replicator.getActiveReplicator()!,
             id2path: this.$$id2path.bind(this),
             path2id: this.$$path2id.bind(this),
             get settings() {
                 return getSettings();
             },
         });
+        this.services.path.handleId2Path(this.$$id2path.bind(this));
+        this.services.path.handlePath2Id(this.$$path2id.bind(this));
+        this.services.database.handleCreatePouchDBInstance(this.$$createPouchDBInstance.bind(this));
+        this.services.databaseEvents.handleOnDatabaseInitialisation(this.$everyOnInitializeDatabase.bind(this));
         this.liveSyncLocalDB = new LiveSyncLocalDB(this.options.url, this);
         void this.liveSyncLocalDB.initializeDatabase().then(() => {
             this.ready.resolve();
             this.liveSyncLocalDB.refreshSettings();
         });
     }
-    $$id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix {
+
+    $$id2path(id: DocumentID, entry?: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix {
         const path = id2path_base(id, entry);
         if (stripPrefix) {
             return stripAllPrefixes(path);
@@ -154,12 +161,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
             auth: { username: this.options.username, password: this.options.password },
         });
     }
-    $allOnDBUnload(_db: LiveSyncLocalDB): void {
-        return;
-    }
-    $allOnDBClose(_db: LiveSyncLocalDB): void {
-        return;
-    }
+
     getInitialSyncParameters(setting: RemoteDBSettings): Promise<SyncParameters> {
         // TODO: Switch to select protocolVersion based on the setting.
         return Promise.resolve({
@@ -215,12 +217,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         }
         return Promise.resolve(true);
     }
-    $everyOnResetDatabase(_db: LiveSyncLocalDB): Promise<boolean> {
-        throw new Error("Method not implemented.");
-    }
-    $$getReplicator: () => LiveSyncAbstractReplicator = () => {
-        throw new Error("Method not implemented.");
-    };
+
     getSettings(): RemoteDBSettings {
         return this.settings;
     }

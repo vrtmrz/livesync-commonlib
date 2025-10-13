@@ -22,11 +22,11 @@ import {
 } from "../LiveSyncAbstractReplicator.ts";
 import { ensureRemoteIsCompatible, type ENSURE_DB_RESULT } from "../../pouchdb/LiveSyncDBFunctions.ts";
 import type { CheckPointInfo } from "./JournalSyncTypes.ts";
-import { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import { fireAndForget, type SimpleStore } from "../../common/utils.ts";
 
 import { extractObject } from "../../common/utils.ts";
 import { clearHandlers } from "../SyncParamsHandler.ts";
+import type { ServiceHub } from "../../services/ServiceHub.ts";
 
 const MILSTONE_DOCID = "_00000000-milestone.json";
 
@@ -38,7 +38,8 @@ const currentVersionRange: ChunkVersionRange = {
 
 export interface LiveSyncJournalReplicatorEnv extends LiveSyncReplicatorEnv {
     simpleStore: SimpleStore<CheckPointInfo | any>;
-    $$customFetchHandler: () => FetchHttpHandler | undefined;
+    // $$customFetchHandler: () => FetchHttpHandler | undefined;
+    services: ServiceHub;
 }
 
 export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
@@ -65,7 +66,10 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
 
     _client!: JournalSyncMinio;
 
-    override async getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array> {
+    override async getReplicationPBKDF2Salt(
+        setting: RemoteDBSettings,
+        refresh?: boolean
+    ): Promise<Uint8Array<ArrayBuffer>> {
         return await this.client.getReplicationPBKDF2Salt(refresh);
     }
 

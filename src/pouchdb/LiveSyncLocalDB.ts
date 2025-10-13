@@ -4,7 +4,6 @@ import {
     type Credential,
     VERSIONING_DOCID,
     type RemoteDBSettings,
-    type EntryHasPath,
     type DocumentID,
     type FilePathWithPrefix,
     type FilePath,
@@ -19,12 +18,12 @@ import {
 import { Logger } from "../common/logger.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
-import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
 import { EVENT_CHUNK_FETCHED } from "../managers/ChunkManager.ts";
 import { eventHub } from "../hub/hub.ts";
 import { FallbackWeakRef } from "octagonal-wheels/common/polyfill";
 import type { LiveSyncManagers } from "../managers/LiveSyncManagers.ts";
 import type { AutoMergeResult } from "../managers/ConflictManager.ts";
+import type { ServiceHub } from "../services/ServiceHub.ts";
 
 export const REMOTE_CHUNK_FETCHED = "remote-chunk-fetched";
 export type REMOTE_CHUNK_FETCHED = typeof REMOTE_CHUNK_FETCHED;
@@ -38,20 +37,21 @@ export type ChunkRetrievalResultSuccess = { _id: DocumentID; data: string; type:
 export type ChunkRetrievalResultError = { _id: DocumentID; error: string };
 export type ChunkRetrievalResult = ChunkRetrievalResultSuccess | ChunkRetrievalResultError;
 export interface LiveSyncLocalDBEnv {
-    $$id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
-    $$path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID>;
-    $$createPouchDBInstance<T extends object>(
-        name?: string,
-        options?: PouchDB.Configuration.DatabaseConfiguration
-    ): PouchDB.Database<T>;
+    // $$id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
+    // $$path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID>;
+    // $$createPouchDBInstance<T extends object>(
+    //     name?: string,
+    //     options?: PouchDB.Configuration.DatabaseConfiguration
+    // ): PouchDB.Database<T>;
 
-    $allOnDBUnload(db: LiveSyncLocalDB): void;
-    $allOnDBClose(db: LiveSyncLocalDB): void;
-    $everyOnInitializeDatabase(db: LiveSyncLocalDB): Promise<boolean>;
-    $everyOnResetDatabase(db: LiveSyncLocalDB): Promise<boolean>;
-    $$getReplicator: () => LiveSyncAbstractReplicator;
+    // $allOnDBUnload(db: LiveSyncLocalDB): void;
+    // $allOnDBClose(db: LiveSyncLocalDB): void;
+    // $everyOnInitializeDatabase(db: LiveSyncLocalDB): Promise<boolean>;
+    // $everyOnResetDatabase(db: LiveSyncLocalDB): Promise<boolean>;
+    // $$getReplicator: () => LiveSyncAbstractReplicator;
     getSettings(): RemoteDBSettings;
     managers: LiveSyncManagers;
+    services: ServiceHub;
 }
 
 export function getNoFromRev(rev: string) {
@@ -90,7 +90,7 @@ export class LiveSyncLocalDB {
 
     onunload() {
         //this.kvDB.close();
-        this.env.$allOnDBUnload(this);
+        void this.env.services.databaseEvents.onUnloadDatabase(this);
         this.localDatabase.removeAllListeners();
     }
 
@@ -118,7 +118,7 @@ export class LiveSyncLocalDB {
         if (this.localDatabase != null) {
             await this.localDatabase.close();
         }
-        this.env.$allOnDBClose(this);
+        await this.env.services.databaseEvents.onUnloadDatabase(this);
     }
 
     onNewLeaf(chunk: EntryLeaf) {
@@ -131,12 +131,12 @@ export class LiveSyncLocalDB {
         //@ts-ignore
         this.localDatabase = null;
 
-        this.localDatabase = this.env.$$createPouchDBInstance<EntryDoc>(this.dbname + "-livesync-v2", {
+        this.localDatabase = this.env.services.database.createPouchDBInstance<EntryDoc>(this.dbname + "-livesync-v2", {
             auto_compaction: false,
             revs_limit: 100,
             deterministic_revs: true,
         });
-        if (!(await this.env.$everyOnInitializeDatabase(this))) {
+        if (!(await this.env.services.databaseEvents.onDatabaseInitialisation(this))) {
             Logger("Initializing Database has been failed on some module", LOG_LEVEL_NOTICE);
             // TODO ask for continue or disable all.
             // return false;
@@ -149,7 +149,7 @@ export class LiveSyncLocalDB {
             Logger("Database closed.");
             this.isReady = false;
             this.localDatabase.removeAllListeners();
-            this.env.$$getReplicator()?.closeReplication();
+            this.env.services.replicator.getActiveReplicator()?.closeReplication();
             void this.managers.teardownManagers();
         });
         const _instance = new FallbackWeakRef(this);
@@ -262,8 +262,8 @@ export class LiveSyncLocalDB {
 
     async resetDatabase() {
         await this.managers.teardownManagers();
-        this.env.$$getReplicator().closeReplication();
-        if (!(await this.env.$everyOnResetDatabase(this))) {
+        this.env.services.replicator.getActiveReplicator()?.closeReplication();
+        if (!(await this.env.services.databaseEvents.onResetDatabase(this))) {
             Logger("Database reset has been prevented or failed on some modules.", LOG_LEVEL_NOTICE);
             return false;
         }
@@ -274,6 +274,7 @@ export class LiveSyncLocalDB {
         this.localDatabase = null;
         await this.initializeDatabase();
         Logger("Local Database Reset", LOG_LEVEL_NOTICE);
+        return true;
     }
 
     async *findEntries(

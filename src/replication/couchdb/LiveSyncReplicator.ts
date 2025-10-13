@@ -28,7 +28,6 @@ import {
     extractObject,
     wrapException,
     sizeToHumanReadable,
-    type SimpleStore,
     arrayToChunkedArray,
     parseHeaderValues,
 } from "../../common/utils.ts";
@@ -55,6 +54,8 @@ import {
     SyncParamsNotFoundError,
     SyncParamsUpdateError,
 } from "../SyncParamsHandler.ts";
+import type { ServiceHub } from "../../services/ServiceHub.ts";
+
 const currentVersionRange: ChunkVersionRange = {
     min: 0,
     max: 2400,
@@ -130,20 +131,8 @@ async function* genReplication(
 }
 
 export interface LiveSyncCouchDBReplicatorEnv extends LiveSyncReplicatorEnv {
-    $$connectRemoteCouchDB(
-        uri: string,
-        auth: CouchDBCredentials,
-        disableRequestURI: boolean,
-        passphrase: string | boolean,
-        useDynamicIterationCount: boolean,
-        performSetup: boolean,
-        skipInfo: boolean,
-        enableCompression: boolean,
-        customHeaders: Record<string, string>,
-        useRequestAPI: boolean,
-        getPBKDF2Salt: () => Promise<Uint8Array>
-    ): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }>;
-    $$getSimpleStore<T>(kind: string): SimpleStore<T>;
+    services: ServiceHub;
+    // $$getSimpleStore<T>(kind: string): SimpleStore<T>;
 }
 
 export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
@@ -164,6 +153,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     remoteLockedAndDeviceNotAccepted = false;
 
     env: LiveSyncCouchDBReplicatorEnv;
+    isMobile() {
+        return this.env.services.API.isMobile();
+    }
 
     constructor(env: LiveSyncCouchDBReplicatorEnv) {
         super(env);
@@ -209,7 +201,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
     }
 
-    override async getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array> {
+    override async getReplicationPBKDF2Salt(
+        setting: RemoteDBSettings,
+        refresh?: boolean
+    ): Promise<Uint8Array<ArrayBuffer>> {
         const server = `${setting.couchDB_URI}/${setting.couchDB_DBNAME}`;
         const manager = createSyncParamsHanderForServer(server, {
             put: (params: SyncParameters) => this.putSyncParameters(setting, params),
@@ -260,7 +255,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     ) {
         try {
             if (e.direction == "pull") {
-                await this.env.$$parseReplicationResult(e.change.docs);
+                await this.env.services.replication.parseSynchroniseResult(e.change.docs);
                 this.docArrived += e.change.docs.length;
             } else {
                 this.docSent += e.change.docs.length;
@@ -395,7 +390,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     case "error":
                         this.replicationErrored(e);
                         Logger("Replication stopped.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
-                        if (this.env.$$getLastPostFailedBySize()) {
+                        if (this.env.services.API.isLastPostFailedDueToPayloadSize()) {
                             if (e && e?.status == 413) {
                                 Logger(
                                     `Something went wrong during synchronisation. Please check the log!`,
@@ -501,7 +496,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         fromSeq?: number | string
     ) {
         const trench = new Trench(
-            this.env.$$getSimpleStore<{
+            this.env.services.database.openSimpleStore<{
                 seq: string | number;
                 doc: PouchDB.Core.ExistingDocument<EntryDoc & PouchDB.Core.ChangesMeta> | undefined;
                 id: DocumentID;
@@ -510,7 +505,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         );
         await trench.eraseAllEphemerals();
         if (!remoteDB) {
-            const d = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
+            const d = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
             if (typeof d === "string") {
                 Logger(
                     $msg("liveSyncReplicator.couldNotConnectToRemoteDb", { d }),
@@ -830,7 +825,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return false;
         }
 
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
         if (typeof dbRet === "string") {
             Logger(
                 $msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }),
@@ -1012,7 +1007,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
     async tryResetRemoteDatabase(setting: RemoteDBSettings) {
         this.closeReplication();
-        const con = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
+        const con = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
         if (typeof con == "string") return;
         try {
             await con.db.destroy();
@@ -1028,7 +1023,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
     async tryCreateRemoteDatabase(setting: RemoteDBSettings) {
         this.closeReplication();
-        const con2 = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
+        const con2 = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
 
         if (typeof con2 === "string") return;
         // Recreate salt
@@ -1038,7 +1033,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
     async markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean) {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
         if (typeof dbRet === "string") {
             Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return;
@@ -1076,7 +1071,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
     async markRemoteResolved(setting: RemoteDBSettings) {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
         if (typeof dbRet === "string") {
             Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return;
@@ -1137,7 +1132,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                       type: "basic",
                   }
         ) satisfies CouchDBCredentials;
-        return this.env.$$connectRemoteCouchDB(
+        return this.env.services.remote.connect(
             settings.couchDB_URI + (settings.couchDB_DBNAME == "" ? "" : "/" + settings.couchDB_DBNAME),
             auth,
             settings.disableRequestURI || isMobile,
@@ -1152,7 +1147,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         );
     }
     async _ensureConnection<T extends DatabaseEntry>(settings: RemoteDBSettings) {
-        const ret = await this.connectRemoteCouchDBWithSetting(settings, this.env.$$isMobile(), false, true);
+        const ret = await this.connectRemoteCouchDBWithSetting(settings, this.isMobile(), false, true);
         if (typeof ret === "string") {
             throw new Error(`${$msg("liveSyncReplicator.couldNotConnectToServer")}:${ret}`);
         }
@@ -1200,12 +1195,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
 
     async fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]> {
-        const ret = await this.connectRemoteCouchDBWithSetting(
-            this.env.getSettings(),
-            this.env.$$isMobile(),
-            false,
-            true
-        );
+        const ret = await this.connectRemoteCouchDBWithSetting(this.env.getSettings(), this.isMobile(), false, true);
         if (typeof ret === "string") {
             Logger(
                 `${$msg("liveSyncReplicator.couldNotConnectToServer")} ${ret} `,
@@ -1237,7 +1227,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
 
     async tryConnectRemote(setting: RemoteDBSettings, showResult: boolean = true): Promise<boolean> {
-        const db = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
+        const db = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
         if (typeof db === "string") {
             Logger(
                 $msg("liveSyncReplicator.couldNotConnectTo", {
@@ -1255,7 +1245,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
     async resetRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
         if (typeof dbRet === "string") {
             Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return;
@@ -1280,7 +1270,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
     async setPreferredRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
         if (typeof dbRet === "string") {
             Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return;
@@ -1305,7 +1295,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
     async getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<TweakValues | false> {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
         if (typeof dbRet === "string") {
             Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return false;
@@ -1328,7 +1318,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
     async compactRemote(setting: RemoteDBSettings): Promise<boolean> {
         const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
         if (typeof dbRet === "string") {
             Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return false;
@@ -1339,7 +1329,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getRemoteStatus(setting: RemoteDBSettings): Promise<RemoteDBStatus | false> {
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
         if (typeof dbRet === "string") {
             const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
             Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
@@ -1353,7 +1343,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
 
     async countCompromisedChunks(setting: RemoteDBSettings = this.env.getSettings()): Promise<number | boolean> {
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.env.$$isMobile(), true);
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
         if (typeof dbRet === "string") {
             const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
             Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);

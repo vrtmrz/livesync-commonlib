@@ -15,6 +15,7 @@ import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "../
 import { resolveWithIgnoreKnownError, type SimpleStore } from "../common/utils.ts";
 import type { KeyValueDatabase } from "../interfaces/KeyValueDatabase.ts";
 import { arrayBufferToBase64Single } from "../string_and_binary/convert.ts";
+import type { ServiceHub } from "../services/ServiceHub.ts";
 
 export type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<void> | void;
 export type ReplicationStat = {
@@ -27,12 +28,12 @@ export type ReplicationStat = {
     syncStatus: DatabaseConnectingStatus;
 };
 export interface LiveSyncReplicatorEnv {
+    services: ServiceHub;
     getDatabase(): PouchDB.Database<EntryDoc>;
 
     getSettings(): RemoteDBSettings & BucketSyncSetting & Pick<ObsidianLiveSyncSettings, "remoteType">;
-    $$isMobile(): boolean;
-    $$getLastPostFailedBySize(): boolean;
-    $$parseReplicationResult: ReplicationCallback;
+    // $$isMobile(): boolean;
+    // $$parseReplicationResult: ReplicationCallback;
     replicationStat: ReactiveSource<ReplicationStat>;
     kvDB: KeyValueDatabase;
     simpleStore: SimpleStore<any>;
@@ -62,7 +63,7 @@ export abstract class LiveSyncAbstractReplicator {
     tweakSettingsMismatched = false;
     preferredTweakValue?: TweakValues;
 
-    abstract getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array>;
+    abstract getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array<ArrayBuffer>>;
     async ensurePBKDF2Salt(
         setting: RemoteDBSettings,
         showMessage: boolean = false,
