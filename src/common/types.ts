@@ -583,9 +583,7 @@ export enum AutoAccepting {
     NONE = 0,
     ALL = 1,
 }
-
-export interface P2PSyncSetting {
-    P2P_Enabled: boolean;
+export interface P2PConnectionInfo {
     /**
      * Nostr relay server URL. (Comma separated list)
      * This is only for the channelling server to establish for the P2P connection.
@@ -602,13 +600,22 @@ export interface P2PSyncSetting {
      * It can be empty, but it will help you if you have a duplicate Room ID.
      */
     P2P_passphrase: string;
+
+    /**
+     * The Application ID for the P2P connection.
+     * This is used to identify the application using the P2P network.
+     * In Self-hosted LiveSync, fixed to "self-hosted-livesync".
+     */
+    P2P_AppID: string;
+}
+export interface P2PSyncSetting extends P2PConnectionInfo {
+    P2P_Enabled: boolean;
     P2P_AutoAccepting: AutoAccepting;
     P2P_AutoStart: boolean;
     P2P_AutoBroadcast: boolean;
     P2P_AutoSyncPeers: string;
     P2P_AutoWatchPeers: string;
     P2P_SyncOnReplication: string;
-    P2P_AppID: string;
     P2P_RebuildFrom: string;
     P2P_AutoAcceptingPeers: string;
     P2P_AutoDenyingPeers: string;
@@ -658,7 +665,7 @@ export type E2EEAlgorithm = (typeof E2EEAlgorithms)[keyof typeof E2EEAlgorithms]
 /**
  * Represents the settings used for End-to-End encryption.
  */
-interface EncryptionSettings {
+export interface EncryptionSettings {
     /**
      * Indicates whether E2EE is enabled.
      */
@@ -1214,7 +1221,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     useRequestAPI: false,
     bucketPrefix: "",
     chunkSplitterVersion: "",
-    E2EEAlgorithm: E2EEAlgorithms.V1,
+    E2EEAlgorithm: E2EEAlgorithms.V2,
     processSizeMismatchedFiles: false,
     forcePathStyle: true,
 };
@@ -1737,27 +1744,33 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
     useJWT: {
         name: "Use JWT instead of Basic Authentication",
         desc: "If this enabled, JWT will be used for authentication.",
+        isAdvanced: true,
     },
     jwtAlgorithm: {
-        name: "Algorithm",
+        name: "JWT Algorithm",
         desc: "The algorithm used for JWT authentication.",
+        isAdvanced: true,
     },
     jwtKey: {
         name: "Keypair or pre-shared key",
         desc: "The key (PSK in HSxxx in base64, or private key in ESxxx in PEM) used for JWT authentication.",
+        isAdvanced: true,
         // placeHolder:""
     },
     jwtKid: {
         name: "Key ID",
         desc: "The key ID. this should be matched with CouchDB->jwt_keys->ALG:_`kid`.",
+        isAdvanced: true,
     },
     jwtExpDuration: {
         name: "Rotation Duration",
         desc: "The Rotation duration of token in minutes. Each generated tokens will be valid only within this duration.",
+        isAdvanced: true,
     },
     jwtSub: {
         name: "Subject (whoami)",
         desc: "The subject for JWT authentication. Mostly username.",
+        isAdvanced: true,
     },
     bucketCustomHeaders: {
         name: "Custom Headers",
@@ -1776,6 +1789,26 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
     E2EEAlgorithm: {
         name: "End-to-End Encryption Algorithm",
         desc: "Please use V2, V1 is deprecated and will be removed in the future, It was not a very appropriate algorithm. Only for compatibility V1 is kept.",
+        isAdvanced: true,
+    },
+    P2P_AppID: {
+        name: "P2P Application ID",
+        desc: "The Application ID for P2P connection. This should be same among your devices. Default is 'self-hosted-livesync' and could not be modified from the UI.",
+        isAdvanced: true,
+    },
+    P2P_relays: {
+        name: "P2P Signalling Relays",
+        desc: "The Nostr relay servers to establish connections for P2P connections. Multiple servers can be separated by commas.",
+        placeHolder: "wss://relay1.example.com,wss://relay2.example.com",
+    },
+    P2P_roomID: {
+        name: "P2P Room ID",
+        desc: "The Room ID for P2P connection. This should be same among your devices.",
+    },
+    P2P_passphrase: {
+        name: "P2P Passphrase",
+        desc: "The Passphrase for P2P connection. This should be same among your devices.",
+        isHidden: true,
     },
 };
 
@@ -1790,6 +1823,8 @@ export type ConfigurationItem = {
     status?: "BETA" | "ALPHA" | "EXPERIMENTAL";
     obsolete?: boolean;
     level?: ConfigLevel;
+    isHidden?: boolean;
+    isAdvanced?: boolean;
 };
 
 /**
@@ -2132,3 +2167,5 @@ export const DEFAULT_SYNC_PARAMETERS: SyncParameters = {
     protocolVersion: ProtocolVersions.ADVANCED_E2EE,
     pbkdf2salt: "",
 };
+
+export const SETTING_KEY_P2P_DEVICE_NAME = "p2p_device_name";

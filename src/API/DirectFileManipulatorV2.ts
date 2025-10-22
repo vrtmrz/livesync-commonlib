@@ -48,6 +48,7 @@ import {
 } from "../replication/SyncParamsHandler.ts";
 import { LiveSyncManagers } from "../managers/LiveSyncManagers.ts";
 import { InjectableServiceHub } from "../services/InjectableServices.ts";
+import { ConfigServiceBrowserCompat, UIServiceStub } from "../services/Services.ts";
 export type DirectFileManipulatorOptions = {
     url: string;
     username: string;
@@ -108,7 +109,10 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
 
     options: DirectFileManipulatorOptions;
     ready = promiseWithResolvers<void>();
-    services = new InjectableServiceHub();
+    services = new InjectableServiceHub({
+        ui: new UIServiceStub(),
+        config: new ConfigServiceBrowserCompat(),
+    });
     constructor(options: DirectFileManipulatorOptions) {
         this.options = options;
         const getDB = () => this.liveSyncLocalDB.localDatabase;
@@ -193,7 +197,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
             throw SyncParamsUpdateError.fromError(ex);
         }
     }
-    async getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array> {
+    async getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
         const server = `${setting.couchDB_URI}/${setting.couchDB_DBNAME}`;
         const manager = createSyncParamsHanderForServer(server, {
             put: (params: SyncParameters) => this.putSyncParameters(setting, params),

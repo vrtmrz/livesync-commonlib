@@ -34,6 +34,8 @@ import { unique } from "octagonal-wheels/collection";
 import { Menu } from "../../../src/PlatformAPIs/browser/Menu";
 import { InjectableServiceHub } from "../../../src/services/InjectableServices";
 import { TrysteroReplicator } from "../../../src/replication/trystero/TrysteroReplicator";
+import { SETTING_KEY_P2P_DEVICE_NAME } from "../../../src/common/types";
+import { ConfigServiceBrowserCompat, UIServiceStub } from "../../../src/services/Services";
 
 function addToList(item: string, list: string) {
     return unique(
@@ -60,7 +62,10 @@ export class P2PReplicatorShim implements P2PReplicatorBase, CommandShim {
     confirm!: Confirm;
     simpleStoreAPI!: ISimpleStoreAPI;
     db?: PouchDB.Database<EntryDoc>;
-    services: InjectableServiceHub = new InjectableServiceHub();
+    services: InjectableServiceHub = new InjectableServiceHub({
+        ui: new UIServiceStub(),
+        config: new ConfigServiceBrowserCompat(),
+    });
 
     getDB() {
         if (!this.db) {
@@ -92,7 +97,11 @@ export class P2PReplicatorShim implements P2PReplicatorBase, CommandShim {
         const repStore = this.simpleStoreAPI.getSimpleStore<any>("p2p-livesync-web-peer");
         this._simpleStore = repStore;
         let _settings = (await repStore.get("settings")) || ({ ...P2P_DEFAULT_SETTINGS } as P2PSyncSetting);
-        this.services = new InjectableServiceHub();
+        this.services = new InjectableServiceHub({
+            ui: new UIServiceStub(),
+            config: new ConfigServiceBrowserCompat(),
+        });
+
         this.services.vault.handleGetVaultName(() => "p2p-livesync-web-peer");
         this.plugin = {
             saveSettings: async () => {
@@ -155,7 +164,7 @@ export class P2PReplicatorShim implements P2PReplicatorBase, CommandShim {
     }
 
     getDeviceName(): string {
-        return this.getConfig("p2p_device_name") ?? this.plugin.services.vault.getVaultName();
+        return this.getConfig(SETTING_KEY_P2P_DEVICE_NAME) ?? this.plugin.services.vault.getVaultName();
     }
     getPlatform(): string {
         return "pseudo-replicator";
@@ -233,7 +242,8 @@ export class P2PReplicatorShim implements P2PReplicatorBase, CommandShim {
             if (!this.settings.P2P_AppID) {
                 this.settings.P2P_AppID = P2P_DEFAULT_SETTINGS.P2P_AppID;
             }
-            const getInitialDeviceName = () => this.getConfig("p2p_device_name") || this.services.vault.getVaultName();
+            const getInitialDeviceName = () =>
+                this.getConfig(SETTING_KEY_P2P_DEVICE_NAME) || this.services.vault.getVaultName();
 
             const getSettings = () => this.settings;
             const store = () => this.simpleStore();

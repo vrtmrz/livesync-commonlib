@@ -62,13 +62,15 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
     couchDB_PASSWORD: {
         name: "Password",
         desc: "password",
+        isHidden: true,
     },
     couchDB_DBNAME: {
         name: "Database Name",
     },
     passphrase: {
         name: "Passphrase",
-        desc: "Encryption phassphrase. If changed, you should overwrite the server's database with the new (encrypted) files.",
+        desc: "Encryption passphrase. If changed, you should overwrite the server's database with the new (encrypted) files.",
+        isHidden: true,
     },
     showStatusOnEditor: {
         name: "Show status inside the editor",
@@ -246,7 +248,7 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         desc: "Notify when other device has newly customized.",
     },
     remoteType: {
-        name: "Remote Type",
+        name: "Active Remote Type",
         desc: "Remote server type",
     },
     endpoint: {
@@ -258,6 +260,7 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
     },
     secretKey: {
         name: "Secret Key",
+        isHidden: true,
     },
     region: {
         name: "Region",

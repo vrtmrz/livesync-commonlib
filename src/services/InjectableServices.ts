@@ -1,5 +1,5 @@
 import { LOG_LEVEL_DEBUG, Logger } from "octagonal-wheels/common/logger";
-import { ServiceHub } from "./ServiceHub.ts";
+import { ServiceHub, type ServiceInstances } from "./ServiceHub.ts";
 import {
     APIService,
     AppLifecycleService,
@@ -16,6 +16,8 @@ import {
     ThroughHole,
     TweakValueService,
     VaultService,
+    type ConfigService,
+    type UIService,
 } from "./Services.ts";
 import { ServiceBackend } from "./ServiceBackend.ts";
 
@@ -317,6 +319,7 @@ export class InjectableSettingService extends SettingService {
     loadSettings: typeof SettingService.prototype.loadSettings;
     currentSettings: typeof SettingService.prototype.currentSettings;
     shouldCheckCaseInsensitively: typeof SettingService.prototype.shouldCheckCaseInsensitively;
+    importSettings: typeof SettingService.prototype.importSettings;
 
     handleClearUsedPassphrase: HandlerFunc<typeof SettingService.prototype.clearUsedPassphrase>;
     handleRealiseSetting: HandlerFunc<typeof SettingService.prototype.realiseSetting>;
@@ -329,6 +332,8 @@ export class InjectableSettingService extends SettingService {
     handleLoadSettings: HandlerFunc<typeof SettingService.prototype.loadSettings>;
     handleCurrentSettings: HandlerFunc<typeof SettingService.prototype.currentSettings>;
     handleShouldCheckCaseInsensitively: HandlerFunc<typeof SettingService.prototype.shouldCheckCaseInsensitively>;
+
+    handleImportSettings: HandlerFunc<typeof SettingService.prototype.importSettings>;
 
     constructor(backend: ServiceBackend, throughHole: ThroughHole) {
         super(backend);
@@ -359,6 +364,7 @@ export class InjectableSettingService extends SettingService {
             this._throughHole,
             "setting.shouldCheckCaseInsensitively"
         );
+        [this.importSettings, this.handleImportSettings] = bindMethod(this._throughHole, "setting.importSettings");
     }
 }
 export class InjectableTweakValueService extends TweakValueService {
@@ -527,6 +533,8 @@ export class InjectableServiceHub extends ServiceHub {
         this._serviceBackend,
         this._throughHole
     );
+    protected readonly _ui: UIService;
+    protected readonly _config: ConfigService;
 
     get API(): InjectableAPIService {
         return this._api;
@@ -571,7 +579,16 @@ export class InjectableServiceHub extends ServiceHub {
         return this._test;
     }
 
-    constructor() {
-        super();
+    get UI(): UIService {
+        return this._ui;
+    }
+    get config(): ConfigService {
+        return this._config;
+    }
+
+    constructor(services: ServiceInstances & { ui: UIService; config: ConfigService }) {
+        super(services);
+        this._ui = services.ui;
+        this._config = services.config;
     }
 }

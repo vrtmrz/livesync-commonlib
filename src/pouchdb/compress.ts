@@ -21,8 +21,8 @@ export async function _compressText(text: string) {
     const deflateResult = (converted ? "~" : "") + (await arrayBufferToBase64Single(df));
     return deflateResult;
 }
-export const wrappedInflate = wrapFflateFunc<Uint8Array, fflate.AsyncInflateOptions>(fflate.inflate);
-export const wrappedDeflate = wrapFflateFunc<Uint8Array, fflate.AsyncDeflateOptions>(fflate.deflate);
+export const wrappedInflate = wrapFflateFunc<Uint8Array<ArrayBuffer>, fflate.AsyncInflateOptions>(fflate.inflate);
+export const wrappedDeflate = wrapFflateFunc<Uint8Array<ArrayBuffer>, fflate.AsyncDeflateOptions>(fflate.deflate);
 export async function _decompressText(compressed: string, _useUTF16 = false) {
     if (compressed.length == 0) {
         return "";
@@ -72,12 +72,12 @@ export async function decompressDoc(doc: EntryDoc) {
 }
 export function wrapFflateFunc<T, U>(
     func: (data: T, opts: U, cb: fflate.FlateCallback) => any
-): (data: T, opts: U) => Promise<Uint8Array> {
+): (data: T, opts: U) => Promise<Uint8Array<ArrayBuffer>> {
     return (data: T, opts: U) => {
-        return new Promise<Uint8Array>((res, rej) => {
+        return new Promise<Uint8Array<ArrayBuffer>>((res, rej) => {
             func(data, opts, (err, result) => {
                 if (err) rej(err);
-                else res(result);
+                else res(new Uint8Array(result));
             });
         });
     };

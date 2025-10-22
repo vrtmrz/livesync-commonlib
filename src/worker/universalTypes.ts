@@ -12,7 +12,7 @@ export type EncryptHKDFArguments = {
     type: "encryptHKDF" | "decryptHKDF";
     input: string;
     passphrase: string;
-    pbkdf2Salt: Uint8Array;
+    pbkdf2Salt: Uint8Array<ArrayBuffer>;
 };
 export type SplitArguments = {
     key: number;
