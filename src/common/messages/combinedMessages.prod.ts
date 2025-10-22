@@ -1413,13 +1413,13 @@ export const _allMessages = {
         zh: "默认",
     },
     "obsidianLiveSyncSettingTab.descConnectSetupURI": {
-        def: "This is the recommended method to set up Self-hosted LiveSync with a Setup URI.",
+        def: "Recommended method to configure Self-hosted LiveSync.",
         es: "Este es el método recomendado para configurar Self-hosted LiveSync con una URI de configuración.",
         ko: "이것은 Setup URI로 Self-hosted LiveSync를 설정하는 권장 방법입니다.",
         zh: "这是使用设置 URI 设置 Self-hosted LiveSync 的推荐方法。",
     },
     "obsidianLiveSyncSettingTab.descCopySetupURI": {
-        def: "Perfect for setting up a new device!",
+        def: "Generate a Setup URI for another device.",
         es: "¡Perfecto para configurar un nuevo dispositivo!",
         ko: "새 기기 설정에 완벽합니다!",
         zh: "非常适合设置新设备！",
@@ -1437,7 +1437,7 @@ export const _allMessages = {
         zh: "从已配置的远程服务器获取必要的设置。",
     },
     "obsidianLiveSyncSettingTab.descManualSetup": {
-        def: "Not recommended, but useful if you don't have a Setup URI",
+        def: "Use only if you don't have a Setup URI.",
         es: "No recomendado, pero útil si no tienes una URI de configuración",
         ko: "권장하지 않지만 Setup URI가 없는 경우에 유용합니다",
         zh: "不推荐，但如果您没有设置 URI 则很有用",
@@ -1899,13 +1899,13 @@ export const _allMessages = {
         zh: "应用设置",
     },
     "obsidianLiveSyncSettingTab.nameConnectSetupURI": {
-        def: "Connect with Setup URI",
+        def: "Connect via Setup URI",
         es: "Conectar con URI de configuración",
         ko: "Setup URI로 연결",
         zh: "使用设置 URI 连接",
     },
     "obsidianLiveSyncSettingTab.nameCopySetupURI": {
-        def: "Copy the current settings to a Setup URI",
+        def: "Copy Settings to URI",
         es: "Copiar la configuración actual a una URI de configuración",
         ko: "현재 설정을 Setup URI로 복사",
         zh: "将当前设置复制为设置 URI",
@@ -2124,7 +2124,7 @@ export const _allMessages = {
         zh: "更新日志",
     },
     "obsidianLiveSyncSettingTab.panelGeneralSettings": {
-        def: "General Settings",
+        def: "General",
         es: "Configuraciones Generales",
         ko: "일반 설정",
         zh: "常规设置",
@@ -2136,13 +2136,13 @@ export const _allMessages = {
         zh: "隐私与加密",
     },
     "obsidianLiveSyncSettingTab.panelRemoteConfiguration": {
-        def: "Remote Configuration",
+        def: "Remote",
         es: "Configuración remota",
         ko: "원격 구성",
         zh: "远程配置",
     },
     "obsidianLiveSyncSettingTab.panelSetup": {
-        def: "Setup",
+        def: "Getting Started",
         es: "Configuración",
         ko: "설정",
         zh: "设置",
@@ -2277,7 +2277,7 @@ export const _allMessages = {
         zh: "重置",
     },
     "obsidianLiveSyncSettingTab.titleSetupOtherDevices": {
-        def: "To setup other devices",
+        def: "Setup on Other Devices",
         es: "Para configurar otros dispositivos",
         ko: "다른 기기 설정",
         zh: "设置其他设备",
@@ -2295,7 +2295,7 @@ export const _allMessages = {
         zh: "同步预设",
     },
     "obsidianLiveSyncSettingTab.titleSyncSettings": {
-        def: "Sync Settings",
+        def: "Synchronization",
         es: "Configuraciones de Sincronización",
         ko: "동기화 설정",
         zh: "同步设置",
@@ -2751,7 +2751,7 @@ export const _allMessages = {
         ko: "QR 코드 표시",
     },
     "Setup.ShowQRCode.Desc": {
-        def: "Show QR code to transfer the settings.",
+        def: "Scan on another device to transfer your current settings.",
         ko: "설정을 전송하기 위한 QR 코드를 표시합니다.",
     },
     "Should we keep folders that don't have any files inside?": {
@@ -3120,8 +3120,332 @@ export const _allMessages = {
         ko: "파일에 로그 기록",
         zh: "将日志写入文件",
     },
-    "Compute revisions for chunks (Previous behaviour)": {
-        es: "Calcular revisiones para chunks (comportamiento anterior)",
-        zh: "为 chunks 计算修订版本（以前的行为）",
+    "gettingStarted.title": {
+        def: "Getting Started",
+    },
+    "gettingStarted.quickSetup.title": {
+        def: "Quick Setup",
+    },
+    "gettingStarted.quickSetup.connectSetupURI.title": {
+        def: "Connect via Setup URI",
+    },
+    "gettingStarted.quickSetup.connectSetupURI.desc": {
+        def: "Recommended method to configure Self-hosted LiveSync.",
+    },
+    "gettingStarted.quickSetup.connectManual.title": {
+        def: "Manual Setup",
+    },
+    "gettingStarted.quickSetup.connectManual.desc": {
+        def: "Use only if you don't have Setup URI.",
+    },
+    "gettingStarted.quickSetup.enableLiveSync.title": {
+        def: "Enable LiveSync",
+    },
+    "gettingStarted.quickSetup.enableLiveSync.desc": {
+        def: "Only continue once you have fully completed one of the setup options above.",
+    },
+    "gettingStarted.setupOther.title": {
+        def: "Setup on Other Devices",
+    },
+    "gettingStarted.setupOther.copyConfigToURI.title": {
+        def: "Copy Settings to URI",
+    },
+    "gettingStarted.setupOther.copyConfigToURI.desc": {
+        def: "Generate a Setup URI for another device.",
+    },
+    "gettingStarted.setupOther.copyConfigToQR.title": {
+        def: "Show QR Code",
+    },
+    "gettingStarted.setupOther.copyConfigToQR.desc": {
+        def: "Scan to transfer your current settings.",
+    },
+    "general.title": {
+        def: "General",
+    },
+    "general.appearance.title": {
+        def: "Appearance",
+    },
+    "general.appearance.displayLanguage.title": {
+        def: "Display Language",
+    },
+    "general.appearance.displayLanguage.desc": {
+        def: 'Not all messages are translated; revert to "Default" when reporting issues.',
+    },
+    "general.appearance.showStatusInEditor.title": {
+        def: "Show Status in Editor",
+    },
+    "general.appearance.showStatusInEditor.desc": {
+        def: "Display sync status in editor. Requires restart.",
+    },
+    "general.appearance.showStatusInStatusBar.title": {
+        def: "Show Status on Status Bard",
+    },
+    "general.appearance.showStatusInStatusBar.desc": {
+        def: "Display sync status in the status bar. Requires restart.",
+    },
+    "general.appearance.useStatusIconInstead.title": {
+        def: "Use Status Icon Instead on Banner",
+    },
+    "general.appearance.useStatusIconInstead.desc": {
+        def: "Display an icon instead of a warning banner. This will not provide details.",
+    },
+    "general.logging.onlyNotifications.title": {
+        def: "Notifications Only",
+    },
+    "general.logging.onlyNotifications.desc": {
+        def: "Disables logging; only shows notifications. Turn off if reporting issues.",
+    },
+    "general.logging.verboseLogging.title": {
+        def: "Verbose Logging",
+    },
+    "general.logging.verboseLogging.desc": {
+        def: "Provides more detailed logs. Turn on if reporting issues.",
+    },
+    "remote.title": {
+        def: "Remote",
+    },
+    "remote.serverConfiguration.title": {
+        def: "Server Configuration",
+    },
+    "remove.serverConfiguration.remoteType.title": {
+        def: "Remote Type",
+    },
+    "remote.serverConfiguration.remoteType.desc": {
+        def: "Choose the type of remote server.",
+    },
+    "remote.privacyAndEncryption.title": {
+        def: "Privacy & Encryption",
+    },
+    "remote.privacyAndEncryption.endToEndEncryption.title": {
+        def: "End-to-End Encryption",
+    },
+    "remote.privacyAndEncryption.endToEndEncryption.desc": {
+        def: "Encrypts data on the remote server. Recommended if using synchronization features.",
+    },
+    "remote.privacyAndEncryption.passphrase.title": {
+        def: "Passphrase",
+    },
+    "remote.privacyAndEncryption.passphrase.desc": {
+        def: "The passphrase used to encrypt data.\nNote: If changed, you'll need to overwrite the remote database with the newly encrypted data.",
+    },
+    "remote.privacyAndEncryption.propertyEncryption.title": {
+        def: "Encrypt File Properties",
+    },
+    "remote.privacyAndEncryption.propertyEncryption.desc": {
+        def: "Encrypts file properties on the remote database (ex. Paths, Size, Chunk IDs, etc).\nNote: If using the V1 E2EE encryption method, only file paths will be encrypted.",
+    },
+    "remote.fetchSettingsFromRemote.title": {
+        def: "Fetch Settings from Remote",
+    },
+    "remote.fetchSettingsFromRemote.fetchConfiguration.title": {
+        def: "Fetch Configuration",
+    },
+    "remote.fetchSettingsFromRemote.fetchConfiguration.desc": {
+        def: "Retrieve settings from an already configured.",
+    },
+    "remote.notifications.title": {
+        def: "Notifications",
+    },
+    "remote.notifications.notifyStorageExceeds.title": {
+        def: "Notify if Remote Storage Exceeds",
+    },
+    "remote.notifications.notifyStorageExceeds.desc": {
+        def: "If the remote server exceeds this threshold, you'll be notified.\nConfigured in MB (0 to disable)",
+    },
+    "sync.title": {
+        def: "Synchronization",
+        es: "Synchronization",
+    },
+    "sync.basicSync.title": {
+        def: "Basic Sync",
+        es: "Basic Sync",
+    },
+    "sync.basicSync.syncPresets.title": {
+        def: "Sync Presets",
+        es: "Sync Presets",
+    },
+    "sync.basicSync.syncPresets.desc": {
+        def: "Applies the ideal settings for the synchronization method you prefer.",
+        es: "Applies the ideal settings for the synchronization method you prefer.",
+    },
+    "sync.basicSync.syncMode.title": {
+        def: "Sync Mode",
+        es: "Sync Mode",
+    },
+    "sync.basicSync.syncMode.desc": {
+        def: "",
+        es: "",
+    },
+    "sync.basicSync.periodicSyncInterval.title": {
+        def: "Regular Sync Interval",
+        es: "Regular Sync Interval",
+    },
+    "sync.basicSync.periodicSyncInterval.desc": {
+        def: "How often a sync will automatically run, even if no events occur.\n(seconds)",
+        es: "How often a sync will automatically run, even if no events occur.\n(seconds)",
+    },
+    "sync.basicSync.syncCooldown.title": {
+        def: "Sync Cooldown",
+        es: "Sync Cooldown",
+    },
+    "sync.basicSync.syncCooldown.desc": {
+        def: "The waiting period after a sync during which new events won't trigger another sync. A new sync can only occur once this time has passed.\n(seconds)",
+        es: "The waiting period after a sync during which new events won't trigger another sync. A new sync can only occur once this time has passed.\n(seconds)",
+    },
+    "sync.basicSync.syncOnGlobalSave.title": {
+        def: "Sync on Save (All)",
+        es: "Sync on Save (All)",
+    },
+    "sync.basicSync.syncOnGlobalSave.desc": {
+        def: "Syncs whenever the file is saved, whether inside Obsidian or by another application.",
+        es: "Syncs whenever the file is saved, whether inside Obsidian or by another application.",
+    },
+    "sync.basicSync.syncOnSave.title": {
+        def: "Sync on Save (In-App)",
+        es: "Sync on Save (In-App)",
+    },
+    "sync.basicSync.syncOnSave.desc": {
+        def: "Syncs only when the file is saved within Obsidian. External saves won't trigger a sync.",
+        es: "Syncs only when the file is saved within Obsidian. External saves won't trigger a sync.",
+    },
+    "sync.basicSync.syncOnOpen.title": {
+        def: "Sync on File Open",
+        es: "Sync on File Open",
+    },
+    "sync.basicSync.syncOnOpen.desc": {
+        def: "Syncs the file when it's opened in Obsidian.",
+        es: "Syncs the file when it's opened in Obsidian.",
+    },
+    "sync.basicSync.syncOnStartup.title": {
+        def: "Sync on Startup",
+        es: "Sync on Startup",
+    },
+    "sync.basicSync.syncOnStartup.desc": {
+        def: "Syncs automatically when Obsidian launches.",
+        es: "Syncs automatically when Obsidian launches.",
+    },
+    "sync.basicSync.syncAfterMerge.title": {
+        def: "Sync after File Merge",
+        es: "Sync after File Merge",
+    },
+    "sync.basicSync.syncAfterMerge.desc": {
+        def: "Syncs the merged version after differences between client and server files are resolved.",
+        es: "Syncs the merged version after differences between client and server files are resolved.",
+    },
+    "sync.deletionBehaviour.title": {
+        def: "Deletion Behaviour",
+        es: "Deletion Behaviour",
+    },
+    "sync.deletionBehaviour.moveToTrash.title": {
+        def: "Move to Trash",
+        es: "Move to Trash",
+    },
+    "sync.deletionBehaviour.moveToTrash.desc": {
+        def: "Removed files by sending them to the trash bin instead of deleting them permanently.\n(Locally)",
+        es: "Removed files by sending them to the trash bin instead of deleting them permanently.\n(Locally)",
+    },
+    "sync.deletionBehaviour.keepEmptyFolders.title": {
+        def: "Preserve Empty Folders",
+        es: "Preserve Empty Folders",
+    },
+    "sync.deletionBehaviour.keepEmptyFolders.desc": {
+        def: "Keeps folders even if they no longer contain files.\n(Locally)",
+        es: "Keeps folders even if they no longer contain files.\n(Locally)",
+    },
+    "sync.conflictResolution.title": {
+        def: "Conflict Resolution",
+        es: "Conflict Resolution",
+    },
+    "sync.conflictResolution.alwaysUserNewVersion.title": {
+        def: "(Beta) Always Use Newer Version",
+        es: "(Beta) Always Use Newer Version",
+    },
+    "sync.conflictResolution.alwaysUserNewVersion.desc": {
+        def: "Automatically overwrite the local or server file with the newest version of a file.",
+        es: "Automatically overwrite the local or server file with the newest version of a file.",
+    },
+    "sync.conflictResolution.delayResolution.title": {
+        def: "Delay Resolution",
+        es: "Delay Resolution",
+    },
+    "sync.conflictResolution.delayResolution.desc": {
+        def: "Delay resolving conflicts for files you're not currently working on.",
+        es: "Delay resolving conflicts for files you're not currently working on.",
+    },
+    "sync.conflictResolution.delayPrompt.title": {
+        def: "Delay Merge Prompts",
+        es: "Delay Merge Prompts",
+    },
+    "sync.conflictResolution.delayPrompt.desc": {
+        def: "Don't receive merge prompts for files you're not currently working on.",
+        es: "Don't receive merge prompts for files you're not currently working on.",
+    },
+    "sync.customSync.title": {
+        def: "Custom Sync",
+        es: "Custom Sync",
+    },
+    "sync.customSync.deviceName.title": {
+        def: "Device Name",
+        es: "Device Name",
+    },
+    "sync.customSync.deviceName.desc": {
+        def: "Must be unique across all synced devices.",
+        es: "Must be unique across all synced devices.",
+    },
+    "sync.customSync.perFileSync.title": {
+        def: "Per-file Custom Sync (v0.23.18+)",
+        es: "Per-file Custom Sync (v0.23.18+)",
+    },
+    "sync.customSync.perFileSync.desc": {
+        def: "Use the newer per-file sync method for improved efficiency and flexibility. Enabling this requires a one-time migration and all devices must be using LiveSync v0.23.18 or higher. This option is not compatible with older versions.",
+        es: "Use the newer per-file sync method for improved efficiency and flexibility. Enabling this requires a one-time migration and all devices must be using LiveSync v0.23.18 or higher. This option is not compatible with older versions.",
+    },
+    "sync.customSync.enableCustomSync.title": {
+        def: "Enable Custom Sync",
+        es: "Enable Custom Sync",
+    },
+    "sync.customSync.enableCustomSync.desc": {
+        def: "TODO [Ask vrtmrz for details]",
+        es: "TODO [Ask vrtmrz for details]",
+    },
+    "sync.customSync.scanAutomatically.title": {
+        def: "Scan Automatically",
+        es: "Scan Automatically",
+    },
+    "sync.customSync.scanAutomatically.desc": {
+        def: "Check for new or changed customizations before syncing.",
+        es: "Check for new or changed customizations before syncing.",
+    },
+    "sync.customSync.scanPeriodically.title": {
+        def: "Scan Periodically",
+        es: "Scan Periodically",
+    },
+    "sync.customSync.scanPeriodically.desc": {
+        def: "Check for new or changed customizations every minutes.",
+        es: "Check for new or changed customizations every minutes.",
+    },
+    "sync.customSync.notifyChanges.title": {
+        def: "Notify on Changes",
+        es: "Notify on Changes",
+    },
+    "sync.customSync.notifyChanges.desc": {
+        def: "Recieve a notification when another device has added or updated a customization.",
+        es: "Recieve a notification when another device has added or updated a customization.",
+    },
+    "sync.customSync.openCustomizationManager.title": {
+        def: "Open Customization Manager",
+        es: "Open Customization Manager",
+    },
+    "sync.customSync.openCustomizationManager.desc": {
+        def: "Open the customization settings dialog to view or edit items.",
+        es: "Open the customization settings dialog to view or edit items.",
+    },
+    "sync.hiddenFiles.title": {
+        def: "Hidden Files",
+        es: "Hidden Files",
+    },
+    "sync.hiddenFiles.": {
+        def: "",
+        es: "",
     },
 } as const;
