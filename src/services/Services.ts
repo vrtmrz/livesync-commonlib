@@ -844,7 +844,7 @@ export abstract class SettingService extends ServiceBase {
         [this.suggestOptionalFeatures, this.handleSuggestOptionalFeatures] =
             this._all<typeof this.suggestOptionalFeatures>("suggestOptionalFeatures");
         [this.enableOptionalFeature, this.handleEnableOptionalFeature] =
-            this._first<typeof this.enableOptionalFeature>("enableOptionalFeature");
+            this._all<typeof this.enableOptionalFeature>("enableOptionalFeature");
     }
     /**
      * Clear any used passphrase from memory.
