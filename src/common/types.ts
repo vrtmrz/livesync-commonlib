@@ -585,6 +585,10 @@ export enum AutoAccepting {
 }
 export interface P2PConnectionInfo {
     /**
+     * Indicates whether P2P connection is enabled.
+     */
+    P2P_Enabled: boolean;
+    /**
      * Nostr relay server URL. (Comma separated list)
      * This is only for the channelling server to establish for the P2P connection.
      * No data is transferred through this server.
@@ -607,12 +611,24 @@ export interface P2PConnectionInfo {
      * In Self-hosted LiveSync, fixed to "self-hosted-livesync".
      */
     P2P_AppID: string;
+
+    /**
+     * Indicates whether to auto-start the P2P connection on launch.
+     */
+    P2P_AutoStart: boolean;
+
+    /**
+     * Indicates whether to automatically broadcast changes to connected peers.
+     */
+    P2P_AutoBroadcast: boolean;
+
+    /**
+     * The name of the device peer (This only for editing-setting purpose, not saved in the actual setting file, due to avoid setting-sync issues).
+     */
+    P2P_DevicePeerName?: string;
 }
 export interface P2PSyncSetting extends P2PConnectionInfo {
-    P2P_Enabled: boolean;
     P2P_AutoAccepting: AutoAccepting;
-    P2P_AutoStart: boolean;
-    P2P_AutoBroadcast: boolean;
     P2P_AutoSyncPeers: string;
     P2P_AutoWatchPeers: string;
     P2P_SyncOnReplication: string;
@@ -639,6 +655,7 @@ export const P2P_DEFAULT_SETTINGS: P2PSyncSetting = {
     P2P_AutoAcceptingPeers: "",
     P2P_AutoDenyingPeers: "",
     P2P_IsHeadless: false,
+    P2P_DevicePeerName: "",
 } as const;
 
 /**
@@ -1379,6 +1396,7 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     E2EEAlgorithm: 147,
     processSizeMismatchedFiles: 148,
     forcePathStyle: 149,
+    P2P_DevicePeerName: -1,
 } as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {

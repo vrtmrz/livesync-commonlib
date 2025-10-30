@@ -411,6 +411,17 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         name: "Enable forcePathStyle",
         desc: "If enabled, the forcePathStyle option will be used for bucket operations.",
     },
+    P2P_AutoBroadcast: {
+        name: "Automatically broadcast changes to connected peers",
+        desc: "If enabled, changes will be automatically broadcasted to all connected peers. Notified peers will start fetching the changes.",
+    },
+    P2P_AutoStart: {
+        name: "Automatically start P2P connection on launch",
+        desc: "If enabled, the P2P connection will be automatically started when the application launches.",
+    },
+    P2P_Enabled: {
+        name: "Enable P2P Synchronization",
+    },
 };
 function translateInfo(infoSrc: ConfigurationItem | undefined | false) {
     if (!infoSrc) return false;

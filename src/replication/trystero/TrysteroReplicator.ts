@@ -12,11 +12,18 @@ import {
     type TrysteroReplicatorP2PServer,
 } from "./TrysteroReplicatorP2PServer";
 import { eventHub } from "../../hub/hub";
-import { decrypt, encrypt } from "octagonal-wheels/encryption";
+import { encryptWithEphemeralSalt, decryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
 import { $msg } from "../../common/i18n";
 import { sha1 } from "octagonal-wheels/hash/purejs";
 import { isObjectDifferent } from "octagonal-wheels/object";
-import { getRelaySockets, pauseReconnection, resumeReconnection } from "trystero/nostr";
+import { getRelaySockets, pauseRelayReconnection, resumeRelayReconnection } from "trystero/nostr";
+
+async function encrypt(data: string, passphrase: string) {
+    return await encryptWithEphemeralSalt(data, passphrase, true);
+}
+async function decrypt(encryptedData: string, passphrase: string) {
+    return await decryptWithEphemeralSalt(encryptedData, passphrase);
+}
 
 export type P2PReplicatorStatus = {
     isBroadcasting: boolean;
@@ -257,9 +264,9 @@ export class TrysteroReplicator {
                     );
                     const randomString = Math.random().toString(36).substring(7);
                     // Harassment and stalling for intruders
-                    return encrypt(r, randomString, false);
+                    return encrypt(r, randomString);
                 }
-                return encrypt(JSON.stringify(setting), passphrase.trim(), false);
+                return encrypt(JSON.stringify(setting), passphrase.trim());
             },
             onProgressAcknowledged: async (fromPeerId: string, info: ProgressInfo) => {
                 try {
@@ -659,7 +666,7 @@ export class TrysteroReplicator {
         }
         try {
             const decryptedConfig = JSON.parse(
-                await decrypt(encryptedConfig as string, passphrase, false)
+                await decrypt(encryptedConfig as string, passphrase)
             ) as ObsidianLiveSyncSettings;
             return decryptedConfig;
         } catch (e) {
@@ -747,12 +754,20 @@ export class TrysteroReplicator {
     disconnectFromServer() {
         const connections = getRelaySockets();
         const sockets = Object.entries(connections);
-        pauseReconnection();
+        pauseRelayReconnection();
         sockets.forEach(([, s]) => {
             s.close();
+            s.onclose = () => {
+                void this.server?.dispatchConnectionStatus();
+            }; // Prevent reconnection
         });
+        void this.pauseServe();
+    }
+    async pauseServe() {
+        await this.server?.close();
+        await this.server?.dispatchConnectionStatus();
     }
     allowReconnection() {
-        resumeReconnection();
+        resumeRelayReconnection();
     }
 }

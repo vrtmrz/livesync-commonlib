@@ -423,13 +423,7 @@ You can chose as follows:
                 password: passphrase,
             },
             this.settings.P2P_roomID,
-            //@ts-ignore
-            (error: any) => {
-                Logger(`Some error has been occurred while connecting the signalling server.`, LOG_LEVEL_INFO);
-                Logger(`Error: ${JSON.stringify(error)}`, LOG_LEVEL_INFO);
-
-                void this.ensureLeaved();
-            }
+            true
         );
         await this.setRoom(room);
         this.onAfterJoinRoom();

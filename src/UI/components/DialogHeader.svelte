@@ -21,3 +21,16 @@
         document.querySelector(".modal")?.scrollTo(0, 0);
     });
 </script>
+
+<div class="dialog-header">
+    <h2>{title}</h2>
+    {#if subtitle}
+        <h4>{subtitle}</h4>
+    {/if}
+</div>
+
+<style>
+    .dialog-header {
+        display: none;
+    }
+</style>

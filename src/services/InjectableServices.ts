@@ -61,6 +61,9 @@ export class InjectableAPIService extends APIService {
     handleShowWindow: HandlerFunc<typeof APIService.prototype.showWindow>;
     handleGetAppID: HandlerFunc<typeof APIService.prototype.getAppID>;
     handleIsLastPostFailedDueToPayloadSize: HandlerFunc<typeof APIService.prototype.isLastPostFailedDueToPayloadSize>;
+    override getPlatform(): string {
+        return "unknown";
+    }
 
     constructor(backend: ServiceBackend, throughHole: ThroughHole) {
         super(backend);

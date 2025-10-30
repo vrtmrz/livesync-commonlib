@@ -139,6 +139,7 @@ export abstract class APIService extends ServiceBase {
      * Check if the last POST request failed due to payload size.
      */
     abstract isLastPostFailedDueToPayloadSize(): boolean;
+    abstract getPlatform(): string;
 }
 
 /**

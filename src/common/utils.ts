@@ -771,11 +771,15 @@ export function pickEncryptionSettings(setting: ObsidianLiveSyncSettings | Encry
         usePathObfuscation: setting.usePathObfuscation,
     };
 }
-export function pickP2PSyncSettings(setting: ObsidianLiveSyncSettings): P2PConnectionInfo {
+export function pickP2PSyncSettings(setting: Partial<ObsidianLiveSyncSettings> & P2PConnectionInfo): P2PConnectionInfo {
     return {
+        P2P_Enabled: setting.P2P_Enabled,
         P2P_AppID: setting.P2P_AppID,
         P2P_roomID: setting.P2P_roomID,
         P2P_passphrase: setting.P2P_passphrase,
         P2P_relays: setting.P2P_relays,
+        P2P_AutoStart: setting.P2P_AutoStart,
+        P2P_AutoBroadcast: setting.P2P_AutoBroadcast,
+        P2P_DevicePeerName: setting.P2P_DevicePeerName || "",
     };
 }
