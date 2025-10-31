@@ -781,5 +781,8 @@ export function pickP2PSyncSettings(setting: Partial<ObsidianLiveSyncSettings> &
         P2P_AutoStart: setting.P2P_AutoStart,
         P2P_AutoBroadcast: setting.P2P_AutoBroadcast,
         P2P_DevicePeerName: setting.P2P_DevicePeerName || "",
+        P2P_turnServers: setting.P2P_turnServers,
+        P2P_turnUsername: setting.P2P_turnUsername,
+        P2P_turnCredential: setting.P2P_turnCredential,
     };
 }

@@ -1,4 +1,12 @@
-import { type ActionSender, type Room, selfId, joinRoom } from "trystero/nostr";
+import {
+    type ActionSender,
+    type Room,
+    selfId,
+    joinRoom,
+    type BaseRoomConfig,
+    type RelayConfig,
+    type TurnConfig,
+} from "trystero/nostr";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } from "../../common/types";
 import { LOG_LEVEL_VERBOSE, Logger } from "../../common/logger";
 import {
@@ -416,15 +424,26 @@ You can chose as follows:
             return;
         }
         const relays = this.settings.P2P_relays.split(",").filter((e) => e.trim().length > 0);
-        const room = joinRoom(
-            {
-                relayUrls: relays,
-                appId: this.settings.P2P_AppID,
-                password: passphrase,
-            },
-            this.settings.P2P_roomID,
-            true
-        );
+        const turnServers = this.settings.P2P_turnServers.split(",")
+            .map((e) => e.trim())
+            .filter((e) => e.length > 0);
+
+        const options = {
+            relayUrls: relays,
+            appId: this.settings.P2P_AppID,
+            password: passphrase,
+            turnConfig:
+                turnServers.length > 0
+                    ? [
+                          {
+                              urls: turnServers,
+                              username: this.settings.P2P_turnUsername,
+                              credential: this.settings.P2P_turnCredential,
+                          },
+                      ]
+                    : [],
+        } satisfies BaseRoomConfig & RelayConfig & TurnConfig;
+        const room = joinRoom(options, this.settings.P2P_roomID, true);
         await this.setRoom(room);
         this.onAfterJoinRoom();
         void this.dispatchConnectionStatus();

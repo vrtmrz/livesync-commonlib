@@ -45,6 +45,7 @@
         gap: 0.5em;
         display: flex;
         flex-direction: column;
+        padding-bottom: var(--keyboard-height, 0px);
     }
 
     .dialog-host :global(button) {

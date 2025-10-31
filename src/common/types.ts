@@ -626,6 +626,20 @@ export interface P2PConnectionInfo {
      * The name of the device peer (This only for editing-setting purpose, not saved in the actual setting file, due to avoid setting-sync issues).
      */
     P2P_DevicePeerName?: string;
+
+    /**
+     * The TURN server URLs for the P2P connection. (Comma separated list)
+     */
+    P2P_turnServers: string;
+    /**
+     * The TURN username for the P2P connection.
+     */
+    P2P_turnUsername: string;
+
+    /**
+     * The TURN credential (password, secret, etc...) for the P2P connection.
+     */
+    P2P_turnCredential: string;
 }
 export interface P2PSyncSetting extends P2PConnectionInfo {
     P2P_AutoAccepting: AutoAccepting;
@@ -656,6 +670,9 @@ export const P2P_DEFAULT_SETTINGS: P2PSyncSetting = {
     P2P_AutoDenyingPeers: "",
     P2P_IsHeadless: false,
     P2P_DevicePeerName: "",
+    P2P_turnServers: "",
+    P2P_turnUsername: "",
+    P2P_turnCredential: "",
 } as const;
 
 /**
@@ -1397,6 +1414,9 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     processSizeMismatchedFiles: 148,
     forcePathStyle: 149,
     P2P_DevicePeerName: -1,
+    P2P_turnServers: 150,
+    P2P_turnUsername: 151,
+    P2P_turnCredential: 152,
 } as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
@@ -1810,22 +1830,36 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         isAdvanced: true,
     },
     P2P_AppID: {
-        name: "P2P Application ID",
+        name: "Application ID",
         desc: "The Application ID for P2P connection. This should be same among your devices. Default is 'self-hosted-livesync' and could not be modified from the UI.",
         isAdvanced: true,
     },
     P2P_relays: {
-        name: "P2P Signalling Relays",
+        name: "Signalling Relays",
         desc: "The Nostr relay servers to establish connections for P2P connections. Multiple servers can be separated by commas.",
         placeHolder: "wss://relay1.example.com,wss://relay2.example.com",
     },
     P2P_roomID: {
-        name: "P2P Room ID",
+        name: "Room ID",
         desc: "The Room ID for P2P connection. This should be same among your devices.",
     },
     P2P_passphrase: {
-        name: "P2P Passphrase",
+        name: "Passphrase",
         desc: "The Passphrase for P2P connection. This should be same among your devices.",
+        isHidden: true,
+    },
+    P2P_turnServers: {
+        name: "TURN Servers",
+        desc: "The TURN servers to use for P2P connections. Multiple servers can be separated by commas.",
+        placeHolder: "turn:turn1.example.com,turn:turn2.example.com",
+    },
+    P2P_turnUsername: {
+        name: "TURN Username",
+        desc: "The username for the TURN servers.",
+    },
+    P2P_turnCredential: {
+        name: "TURN Credential",
+        desc: "The credential/password for the TURN servers.",
         isHidden: true,
     },
 };
