@@ -85,7 +85,7 @@ type EncryptProps = {
 async function encryptMetaWithHKDF<T extends AnyEntry>(
     doc: T,
     passphrase: string,
-    pbkdf2Salt: Uint8Array
+    pbkdf2Salt: Uint8Array<ArrayBuffer>
 ): Promise<string> {
     if (isEncryptedMeta(doc)) {
         // already encrypted with HKDF, no need to re-encrypt
@@ -102,7 +102,11 @@ async function encryptMetaWithHKDF<T extends AnyEntry>(
     const encryptedMeta = await encryptHKDFWorker(propStr, passphrase, pbkdf2Salt);
     return ENCRYPTED_META_PREFIX + encryptedMeta;
 }
-async function decryptMetaWithHKDF(meta: string, passphrase: string, pbkdf2Salt: Uint8Array): Promise<EncryptProps> {
+async function decryptMetaWithHKDF(
+    meta: string,
+    passphrase: string,
+    pbkdf2Salt: Uint8Array<ArrayBuffer>
+): Promise<EncryptProps> {
     if (!meta.startsWith(ENCRYPTED_META_PREFIX)) {
         throw new Error("Meta is not encrypted with HKDF.");
     }
@@ -122,7 +126,7 @@ async function incomingEncryptHKDF(
     doc: AnyEntry | EntryLeaf,
     passphrase: string,
     useDynamicIterationCount: boolean,
-    getPBKDF2Salt: () => Promise<Uint8Array>
+    getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>
 ): Promise<EntryLeaf | AnyEntry> {
     const saveDoc = {
         ...doc,
@@ -204,7 +208,7 @@ async function outgoingDecryptHKDF(
     decrypted: Map<DocumentID, boolean>,
     passphrase: string,
     useDynamicIterationCount: boolean,
-    getPBKDF2Salt: () => Promise<Uint8Array>
+    getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>
 ): Promise<AnyEntry | EntryLeaf> {
     const loadDoc = {
         ...doc,
@@ -456,7 +460,7 @@ export const enableEncryption = (
     passphrase: string,
     useDynamicIterationCount: boolean,
     migrationDecrypt: boolean,
-    getPBKDF2Salt: () => Promise<Uint8Array>,
+    getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>,
     algorithm: E2EEAlgorithm
 ) => {
     const decrypted = new Map();

@@ -754,7 +754,9 @@ obsidianLiveSyncSettingTab:
   titleQuickSetup: Quick Setup
   titleRebuildRequired: Rebuild Required
   titleRemoteConfigCheckFailed: Remote Configuration Check Failed
+  # titleRemoteServer is obsoleted
   titleRemoteServer: Remote Server
+  titleActiveRemoteServer: Active Remote Server
   titleReset: Reset
   titleSetupOtherDevices: To setup other devices
   titleSynchronizationMethod: Synchronization Method
@@ -914,7 +916,7 @@ Replicator:
     Locked:
       Action:
         Dismiss: Cancel for reconfirmation
-        Fetch: Fetch all from the remote database again
+        Fetch: Reset Synchronisation on This Device
         Unlock: Unlock the remote database
       Message:
         _value: >
@@ -929,7 +931,7 @@ Replicator:
 
 
           - %{Replicator.Dialogue.Locked.Action.Fetch}
-            The most preferred and reliable way. This will dispose the local database once, and fetch all from the remote database again, In most case, we can perform this safely. However, it takes some time and should be done in stable network.
+            The most preferred and reliable way. This will dispose the local database once, and reset all synchronisation information from the remote database again, In most case, we can perform this safely. However, it takes some time and should be done in stable network.
           - %{Replicator.Dialogue.Locked.Action.Unlock}
             This method can only be used if we are already reliably synchronised by other replication methods. This does not simply mean that we have the same files. If you are not sure, you should avoid it.
           - %{Replicator.Dialogue.Locked.Action.Dismiss}

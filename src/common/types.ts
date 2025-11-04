@@ -583,8 +583,10 @@ export enum AutoAccepting {
     NONE = 0,
     ALL = 1,
 }
-
-export interface P2PSyncSetting {
+export interface P2PConnectionInfo {
+    /**
+     * Indicates whether P2P connection is enabled.
+     */
     P2P_Enabled: boolean;
     /**
      * Nostr relay server URL. (Comma separated list)
@@ -602,13 +604,48 @@ export interface P2PSyncSetting {
      * It can be empty, but it will help you if you have a duplicate Room ID.
      */
     P2P_passphrase: string;
-    P2P_AutoAccepting: AutoAccepting;
+
+    /**
+     * The Application ID for the P2P connection.
+     * This is used to identify the application using the P2P network.
+     * In Self-hosted LiveSync, fixed to "self-hosted-livesync".
+     */
+    P2P_AppID: string;
+
+    /**
+     * Indicates whether to auto-start the P2P connection on launch.
+     */
     P2P_AutoStart: boolean;
+
+    /**
+     * Indicates whether to automatically broadcast changes to connected peers.
+     */
     P2P_AutoBroadcast: boolean;
+
+    /**
+     * The name of the device peer (This only for editing-setting purpose, not saved in the actual setting file, due to avoid setting-sync issues).
+     */
+    P2P_DevicePeerName?: string;
+
+    /**
+     * The TURN server URLs for the P2P connection. (Comma separated list)
+     */
+    P2P_turnServers: string;
+    /**
+     * The TURN username for the P2P connection.
+     */
+    P2P_turnUsername: string;
+
+    /**
+     * The TURN credential (password, secret, etc...) for the P2P connection.
+     */
+    P2P_turnCredential: string;
+}
+export interface P2PSyncSetting extends P2PConnectionInfo {
+    P2P_AutoAccepting: AutoAccepting;
     P2P_AutoSyncPeers: string;
     P2P_AutoWatchPeers: string;
     P2P_SyncOnReplication: string;
-    P2P_AppID: string;
     P2P_RebuildFrom: string;
     P2P_AutoAcceptingPeers: string;
     P2P_AutoDenyingPeers: string;
@@ -632,6 +669,10 @@ export const P2P_DEFAULT_SETTINGS: P2PSyncSetting = {
     P2P_AutoAcceptingPeers: "",
     P2P_AutoDenyingPeers: "",
     P2P_IsHeadless: false,
+    P2P_DevicePeerName: "",
+    P2P_turnServers: "",
+    P2P_turnUsername: "",
+    P2P_turnCredential: "",
 } as const;
 
 /**
@@ -658,7 +699,7 @@ export type E2EEAlgorithm = (typeof E2EEAlgorithms)[keyof typeof E2EEAlgorithms]
 /**
  * Represents the settings used for End-to-End encryption.
  */
-interface EncryptionSettings {
+export interface EncryptionSettings {
     /**
      * Indicates whether E2EE is enabled.
      */
@@ -1214,7 +1255,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     useRequestAPI: false,
     bucketPrefix: "",
     chunkSplitterVersion: "",
-    E2EEAlgorithm: E2EEAlgorithms.V1,
+    E2EEAlgorithm: E2EEAlgorithms.V2,
     processSizeMismatchedFiles: false,
     forcePathStyle: true,
 };
@@ -1372,6 +1413,10 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     E2EEAlgorithm: 147,
     processSizeMismatchedFiles: 148,
     forcePathStyle: 149,
+    P2P_DevicePeerName: -1,
+    P2P_turnServers: 150,
+    P2P_turnUsername: 151,
+    P2P_turnCredential: 152,
 } as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
@@ -1737,27 +1782,33 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
     useJWT: {
         name: "Use JWT instead of Basic Authentication",
         desc: "If this enabled, JWT will be used for authentication.",
+        isAdvanced: true,
     },
     jwtAlgorithm: {
-        name: "Algorithm",
+        name: "JWT Algorithm",
         desc: "The algorithm used for JWT authentication.",
+        isAdvanced: true,
     },
     jwtKey: {
         name: "Keypair or pre-shared key",
         desc: "The key (PSK in HSxxx in base64, or private key in ESxxx in PEM) used for JWT authentication.",
+        isAdvanced: true,
         // placeHolder:""
     },
     jwtKid: {
         name: "Key ID",
         desc: "The key ID. this should be matched with CouchDB->jwt_keys->ALG:_`kid`.",
+        isAdvanced: true,
     },
     jwtExpDuration: {
         name: "Rotation Duration",
         desc: "The Rotation duration of token in minutes. Each generated tokens will be valid only within this duration.",
+        isAdvanced: true,
     },
     jwtSub: {
         name: "Subject (whoami)",
         desc: "The subject for JWT authentication. Mostly username.",
+        isAdvanced: true,
     },
     bucketCustomHeaders: {
         name: "Custom Headers",
@@ -1776,6 +1827,40 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
     E2EEAlgorithm: {
         name: "End-to-End Encryption Algorithm",
         desc: "Please use V2, V1 is deprecated and will be removed in the future, It was not a very appropriate algorithm. Only for compatibility V1 is kept.",
+        isAdvanced: true,
+    },
+    P2P_AppID: {
+        name: "Application ID",
+        desc: "The Application ID for P2P connection. This should be same among your devices. Default is 'self-hosted-livesync' and could not be modified from the UI.",
+        isAdvanced: true,
+    },
+    P2P_relays: {
+        name: "Signalling Relays",
+        desc: "The Nostr relay servers to establish connections for P2P connections. Multiple servers can be separated by commas.",
+        placeHolder: "wss://relay1.example.com,wss://relay2.example.com",
+    },
+    P2P_roomID: {
+        name: "Room ID",
+        desc: "The Room ID for P2P connection. This should be same among your devices.",
+    },
+    P2P_passphrase: {
+        name: "Passphrase",
+        desc: "The Passphrase for P2P connection. This should be same among your devices.",
+        isHidden: true,
+    },
+    P2P_turnServers: {
+        name: "TURN Servers",
+        desc: "The TURN servers to use for P2P connections. Multiple servers can be separated by commas.",
+        placeHolder: "turn:turn1.example.com,turn:turn2.example.com",
+    },
+    P2P_turnUsername: {
+        name: "TURN Username",
+        desc: "The username for the TURN servers.",
+    },
+    P2P_turnCredential: {
+        name: "TURN Credential",
+        desc: "The credential/password for the TURN servers.",
+        isHidden: true,
     },
 };
 
@@ -1790,6 +1875,8 @@ export type ConfigurationItem = {
     status?: "BETA" | "ALPHA" | "EXPERIMENTAL";
     obsolete?: boolean;
     level?: ConfigLevel;
+    isHidden?: boolean;
+    isAdvanced?: boolean;
 };
 
 /**
@@ -2132,3 +2219,5 @@ export const DEFAULT_SYNC_PARAMETERS: SyncParameters = {
     protocolVersion: ProtocolVersions.ADVANCED_E2EE,
     pbkdf2salt: "",
 };
+
+export const SETTING_KEY_P2P_DEVICE_NAME = "p2p_device_name";
