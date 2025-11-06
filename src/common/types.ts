@@ -1793,6 +1793,7 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         name: "Keypair or pre-shared key",
         desc: "The key (PSK in HSxxx in base64, or private key in ESxxx in PEM) used for JWT authentication.",
         isAdvanced: true,
+        isHidden: true,
         // placeHolder:""
     },
     jwtKid: {

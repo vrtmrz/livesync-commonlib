@@ -96,6 +96,23 @@ export abstract class ServiceBase extends HubService {
         return this._backend.broadcast<Parameters<T>>(key);
     }
 
+    /**
+     * Register a collector that collects results from all listeners.
+     * @param key The event key to listen to.
+     * @returns A collector for the specified event key.
+     */
+    protected _collect<T extends (...args: any[]) => U, U = ReturnType<T>>(key: string) {
+        return this._backend.collect<Parameters<T>, U>(key);
+    }
+
+    /**
+     * Register a batch collector that collects results from all listeners in batches.
+     * @param key The event key to listen to.
+     * @returns A batch collector for the specified event key.
+     */
+    protected _collectBatch<T extends (...args: any[]) => U, U = ReturnType<T>>(key: string) {
+        return this._backend.collectBatch<Parameters<T>, U>(key);
+    }
     constructor(hub: ServiceBackend) {
         super();
         this._backend = hub;
@@ -638,6 +655,7 @@ export abstract class AppLifecycleService extends ServiceBase {
         [this.onSuspending, this.handleOnSuspending] = this._firstFailure("beforeSuspendProcess");
         [this.onResuming, this.handleOnResuming] = this._firstFailure("onResumeProcess");
         [this.onResumed, this.handleOnResumed] = this._firstFailure("afterResumeProcess");
+        [this.getUnresolvedMessages, this.reportUnresolvedMessages] = this._collectBatch("unresolvedMessages");
     }
 
     /**
@@ -844,6 +862,15 @@ export abstract class AppLifecycleService extends ServiceBase {
      * Check if a restart has been scheduled.
      */
     abstract isReloadingScheduled(): boolean;
+
+    /**
+     * Get unresolved error messages.
+     */
+    readonly getUnresolvedMessages: () => Promise<string[][]>;
+    /**
+     * Report unresolved error messages.
+     */
+    readonly reportUnresolvedMessages: HandlerFunc<() => Promise<string[]>>;
 }
 
 export abstract class SettingService extends ServiceBase {

@@ -103,6 +103,7 @@ class Switch<T extends any[], U> extends ChannelBase {
         return undefined;
     }
 }
+const AN_ERROR_OCCURRED = Symbol("AN_ERROR_OCCURRED");
 /**
  * A survey where all handlers are invoked and their results collected.
  * If any handler throws an error, it is caught and logged, and undefined is returned for that handler.
@@ -115,19 +116,21 @@ class Survey<T extends any[], U> extends ChannelBase {
     override register(handler: (...args: T) => Promise<U> | U, name: string): void {
         super.register(handler, name);
     }
-    invoke(...args: T): Array<Promise<U | undefined>> {
+    invoke(...args: T): Array<Promise<U>> {
         if (!this.isSomeHandlerRegistered()) {
             return [];
         }
-        return this.handlers.map(async (handler) => {
-            try {
-                return await handler(...args);
-            } catch (e) {
-                Logger("Error in Survey handler for " + this.name);
-                Logger(e, LOG_LEVEL_VERBOSE);
-                return undefined;
-            }
-        });
+        return this.handlers
+            .map(async (handler) => {
+                try {
+                    return await handler(...args);
+                } catch (e) {
+                    Logger("Error in Survey handler for " + this.name);
+                    Logger(e, LOG_LEVEL_VERBOSE);
+                    return AN_ERROR_OCCURRED as unknown as U;
+                }
+            })
+            .filter((result) => result !== (AN_ERROR_OCCURRED as unknown as Promise<U>));
     }
 }
 /**
@@ -290,6 +293,24 @@ export class ServiceBackend {
         return [
             (...args: T) => broadcaster.invoke(...args),
             (func: (...args: T) => Promise<any> | any) => broadcaster.register(func, `${name} for ${func.name}`),
+        ] as const;
+    }
+
+    collect<T extends any[], U>(name: string) {
+        const survey = this.getSurvey<T, U>(name);
+        return [
+            (...args: T) => survey.invoke(...args),
+            (func: (...args: T) => U) => survey.register(func, `${name} for ${func.name}`),
+        ] as const;
+    }
+    collectBatch<T extends any[], U>(name: string) {
+        const survey = this.getSurvey<T, U>(name);
+        return [
+            (...args: T) => {
+                const tasks = survey.invoke(...args);
+                return Promise.all(tasks);
+            },
+            (func: (...args: T) => U) => survey.register(func, `${name} for ${func.name}`),
         ] as const;
     }
 }
