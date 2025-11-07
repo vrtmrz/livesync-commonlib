@@ -29,7 +29,7 @@ import { mixedHash } from "octagonal-wheels/hash/purejs";
 import { EVENT_PLATFORM_UNLOADED } from "../../PlatformAPIs/base/APIBase";
 import { $msg } from "../../common/i18n";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock_v2";
-import { Computed } from "../../util/Computed";
+import { Computed } from "octagonal-wheels/dataobject/Computed";
 
 export type PeerInfo = Advertisement & {
     isAccepted: boolean | undefined;

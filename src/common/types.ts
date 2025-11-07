@@ -2222,3 +2222,6 @@ export const DEFAULT_SYNC_PARAMETERS: SyncParameters = {
 };
 
 export const SETTING_KEY_P2P_DEVICE_NAME = "p2p_device_name";
+
+export const configURIBase = "obsidian://setuplivesync?settings=";
+export const configURIBaseQR = "obsidian://setuplivesync?settingsQR=";

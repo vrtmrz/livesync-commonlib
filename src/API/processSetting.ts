@@ -1,6 +1,6 @@
 import qrcode from "qrcode-generator";
-import { configURIBase, configURIBaseQR } from "../../../common/types";
-import { decodeAnyArray, encodeAnyArray } from "../../../common/utils";
+import { configURIBase, configURIBaseQR } from "../common/types";
+import { decodeAnyArray, encodeAnyArray } from "octagonal-wheels/object";
 import { DEFAULT_SETTINGS, KeyIndexOfSettings, LOG_LEVEL_NOTICE, type ObsidianLiveSyncSettings } from "../common/types";
 import { decryptString, encryptString } from "../encryption/stringEncryption";
 import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
@@ -62,8 +62,15 @@ export const enum OutputFormat {
 export function encodeQR(settingString: string, format: OutputFormat) {
     const qr = qrcode(0, "L");
     const uri = `${configURIBaseQR}${encodeURIComponent(settingString)}`;
-    qr.addData(uri);
-    qr.make();
+    try {
+        qr.addData(uri);
+        qr.make();
+    } catch (ex) {
+        Logger(`Failed to encode QR Code (${(ex as any)?.message || String(ex)})`, LOG_LEVEL_NOTICE);
+        Logger(ex, LOG_LEVEL_VERBOSE);
+        return "";
+    }
+
     if (format === OutputFormat.SVG) {
         return qr.createSvgTag(3);
     } else if (format === OutputFormat.ASCII) {

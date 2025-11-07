@@ -8,7 +8,7 @@ import type {
     RemoteDBSettings,
 } from "../common/types";
 import { arrayBufferToBase64Single, writeString } from "../string_and_binary/convert";
-import { Computed } from "../util/Computed";
+import { Computed } from "octagonal-wheels/dataobject/Computed";
 
 /**
  * Generates a credential object based on the provided settings.
@@ -176,9 +176,9 @@ export class JWTTokenGenerator {
                 credentials: source,
             };
         },
-        shouldUpdate(args, previousArgs, previous) {
+        requiresUpdate(args, previousArgs, previous) {
             // if previous is not present.
-            if (!previous) {
+            if (!previous || previous instanceof Error) {
                 return true;
             }
             // Check if the expiration time is near.
