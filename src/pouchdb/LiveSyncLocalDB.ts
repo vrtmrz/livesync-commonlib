@@ -14,6 +14,7 @@ import {
     type MetaEntry,
     type SavingEntry,
     type diff_result_leaf,
+    SuffixDatabaseName,
 } from "../common/types.ts";
 import { Logger } from "../common/logger.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
@@ -131,11 +132,14 @@ export class LiveSyncLocalDB {
         //@ts-ignore
         this.localDatabase = null;
 
-        this.localDatabase = this.env.services.database.createPouchDBInstance<EntryDoc>(this.dbname + "-livesync-v2", {
-            auto_compaction: false,
-            revs_limit: 100,
-            deterministic_revs: true,
-        });
+        this.localDatabase = this.env.services.database.createPouchDBInstance<EntryDoc>(
+            this.dbname + SuffixDatabaseName,
+            {
+                auto_compaction: false,
+                revs_limit: 100,
+                deterministic_revs: true,
+            }
+        );
         if (!(await this.env.services.databaseEvents.onDatabaseInitialisation(this))) {
             Logger("Initializing Database has been failed on some module", LOG_LEVEL_NOTICE);
             // TODO ask for continue or disable all.

@@ -1182,7 +1182,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     encryptedPassphrase: "",
     encryptedCouchDBConnection: "",
     permitEmptyPassphrase: false,
-    useIndexedDBAdapter: true,
+    useIndexedDBAdapter: false,
     useTimeouts: false,
     writeLogToTheFile: false,
     doNotPaceReplication: false,
@@ -1640,7 +1640,7 @@ export const TweakValuesShouldMatchedTemplate: Partial<ObsidianLiveSyncSettings>
     customChunkSize: 0,
     useDynamicIterationCount: false,
     hashAlg: "xxhash64",
-    enableChunkSplitterV2: true,
+    enableChunkSplitterV2: false,
     maxChunksInEden: 10,
     maxTotalLengthInEden: 1024,
     maxAgeInEden: 10,
@@ -1690,7 +1690,7 @@ export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> =
 
     batch_size: 25,
     batches_limit: 25,
-    useIndexedDBAdapter: true,
+    // useIndexedDBAdapter: false,
     useTimeouts: false,
     readChunksOnline: true,
     hashCacheMaxCount: 300,
@@ -1699,7 +1699,7 @@ export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> =
     minimumIntervalOfReadChunksOnline: 50,
     ignoreFiles: ".gitignore",
     syncMaxSizeInMB: 50,
-    enableChunkSplitterV2: true,
+    enableChunkSplitterV2: false,
     usePluginSyncV2: true,
     handleFilenameCaseSensitive: false,
     doNotUseFixedRevisionForChunks: false,
@@ -2225,3 +2225,6 @@ export const SETTING_KEY_P2P_DEVICE_NAME = "p2p_device_name";
 
 export const configURIBase = "obsidian://setuplivesync?settings=";
 export const configURIBaseQR = "obsidian://setuplivesync?settingsQR=";
+
+export const SuffixDatabaseName = "-livesync-v2";
+export const ExtraSuffixIndexedDB = "-indexeddb";

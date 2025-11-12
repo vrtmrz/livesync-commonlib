@@ -171,8 +171,15 @@ export const DoctorRegulationV0_25_0: DoctorRegulation = {
         },
     },
 } as const;
+export const DoctorRegulationV0_25_27: DoctorRegulation = {
+    version: "0.25.27",
+    rules: {
+        ...DoctorRegulationV0_25_0.rules,
+        useIndexedDBAdapter: undefined,
+    },
+};
 
-export const DoctorRegulation = DoctorRegulationV0_25_0;
+export const DoctorRegulation = DoctorRegulationV0_25_27;
 
 export function checkUnsuitableValues(
     setting: Partial<ObsidianLiveSyncSettings>,
