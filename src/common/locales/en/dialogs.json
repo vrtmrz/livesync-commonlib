@@ -1,0 +1,13 @@
+{
+    "dialog.setup.welcome.title": "Welcome to Self-Hosted LiveSync",
+    "dialog.setup.welcome.desc": "Your device isn't configured yet. Let's begin the setup process.\n\nDo you have a [**Setup URI**](${URI_DOC}) created by an already configured device?",
+    "dialog.setup.welcome.action.primary": "Yes, I have one",
+    "dialog.setup.welcome.action.secondary": "No, I don't have one",
+
+    "dialog.setup.method.title": "Select Setup Method",
+    "dialog.setup.method.desc": "If you already have another device configured, it's best to use a **Setup URI**. This will automatically import your existing settings, and help avoid configuration issues. *Learn how to create a Setup URI by reading the [documentation](${URI_DOC}).*\n\nOtherwise, please choose how you'd like to set up this device:",
+    "dialog.setup.method.action.wizard": "Setup Wizard",
+    "dialog.setup.method.action.manually": "Manually",
+    "dialog.setup.method.action.p2p": "P2P Sync (Experimental)"
+
+}
