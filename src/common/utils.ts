@@ -704,10 +704,15 @@ type RegExpSettingKey =
     | "syncOnlyRegEx"
     | "syncIgnoreRegEx"
     | "syncInternalFilesIgnorePatterns"
-    | "syncInternalFilesTargetPatterns";
+    | "syncInternalFilesTargetPatterns"
+    | "syncInternalFileOverwritePatterns";
 export function getFileRegExp(settings: ObsidianLiveSyncSettings | RemoteDBSettings, key: RegExpSettingKey) {
     const flagCase = settings.handleFilenameCaseSensitive ? "" : "i";
-    if (key === "syncInternalFilesIgnorePatterns" || key === "syncInternalFilesTargetPatterns") {
+    if (
+        key === "syncInternalFilesIgnorePatterns" ||
+        key === "syncInternalFilesTargetPatterns" ||
+        key === "syncInternalFileOverwritePatterns"
+    ) {
         const regExp = (settings as ObsidianLiveSyncSettings)[key];
         return parseCustomRegExpList(regExp, flagCase, ",");
     }

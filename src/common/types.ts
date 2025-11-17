@@ -241,6 +241,11 @@ interface InternalFileSettings {
      * Suppress notification of hidden files change.
      */
     suppressNotifyHiddenFilesChange: boolean;
+
+    /**
+     * Overwrite instead of merging patterns for internal files.
+     */
+    syncInternalFileOverwritePatterns: CustomRegExpSourceList<",">;
 }
 
 // Plugin Sync Settings
@@ -1258,6 +1263,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     E2EEAlgorithm: E2EEAlgorithms.V2,
     processSizeMismatchedFiles: false,
     forcePathStyle: true,
+    syncInternalFileOverwritePatterns: "" as CustomRegExpSourceList<",">,
 };
 
 export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> = {
@@ -1417,6 +1423,7 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     P2P_turnServers: 150,
     P2P_turnUsername: 151,
     P2P_turnCredential: 152,
+    syncInternalFileOverwritePatterns: 153,
 } as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
