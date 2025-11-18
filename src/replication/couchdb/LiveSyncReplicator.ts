@@ -1307,7 +1307,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         // check local database hash status and remote replicate hash status
         try {
             const remoteMilestone = (await dbRet.db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
-            return remoteMilestone.tweak_values[DEVICE_ID_PREFERRED];
+            if (!remoteMilestone) throw new Error("Remote milestone not found");
+            return remoteMilestone?.tweak_values?.[DEVICE_ID_PREFERRED] || false;
         } catch (ex) {
             // While trying unlocking and not exist on the remote, it is not normal.
             Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);

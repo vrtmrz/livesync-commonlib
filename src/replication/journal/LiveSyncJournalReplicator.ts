@@ -331,10 +331,11 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             if (!remoteMilestone) {
                 throw new Error("Missing remote milestone");
             }
-            return remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] || false;
+            return remoteMilestone?.tweak_values?.[DEVICE_ID_PREFERRED] || false;
         } catch (ex) {
             Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
-            throw ex;
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            return false;
         }
     }
 
