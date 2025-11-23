@@ -22,6 +22,8 @@ export const EVENT_REQUEST_OPEN_PLUGIN_SYNC_DIALOG = "request-open-plugin-sync-d
 export const EVENT_FILE_CHANGED = "event-file-changed";
 export const EVENT_DOCUMENT_STUB_CREATED = "document-stub-created";
 
+export const EVENT_REQUEST_OPEN_P2P_SETTINGS = "request-open-p2p-settings";
+
 // export const EVENT_FILE_CHANGED = "file-changed";
 
 declare global {
@@ -37,5 +39,6 @@ declare global {
         [EVENT_FILE_RENAMED]: { newPath: FilePathWithPrefix; old: FilePathWithPrefix };
 
         [EVENT_DATABASE_REBUILT]: undefined;
+        [EVENT_REQUEST_OPEN_P2P_SETTINGS]: undefined;
     }
 }

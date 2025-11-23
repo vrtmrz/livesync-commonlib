@@ -559,7 +559,7 @@ export abstract class JournalSyncAbstract {
             const TASK_TITLE = `Processing journal:`;
             let downloaded = 0;
             do {
-                const queued = await this.trench.dequeuePermanentWithCommit<Uint8Array>(`parse_file`);
+                const queued = await this.trench.dequeuePermanentWithCommit<Uint8Array<ArrayBuffer>>(`parse_file`);
                 if (!queued) {
                     if (this.isDownloading) {
                         Logger(

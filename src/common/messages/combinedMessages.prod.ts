@@ -2150,6 +2150,9 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.serverVersion": {
         def: "Server info: ${info}",
     },
+    "obsidianLiveSyncSettingTab.titleActiveRemoteServer": {
+        def: "Active Remote Server",
+    },
     "obsidianLiveSyncSettingTab.titleAppearance": {
         def: "Appearance",
         es: "Apariencia",
@@ -2521,7 +2524,7 @@ export const _allMessages = {
         ko: "재확인을 위해 취소",
     },
     "Replicator.Dialogue.Locked.Action.Fetch": {
-        def: "Fetch all from the remote database again",
+        def: "Reset Synchronisation on This Device",
         ko: "원격 데이터베이스에서 모든 것을 다시 가져오기",
     },
     "Replicator.Dialogue.Locked.Action.Unlock": {
@@ -2529,7 +2532,7 @@ export const _allMessages = {
         ko: "원격 데이터베이스 잠금 해제",
     },
     "Replicator.Dialogue.Locked.Message": {
-        def: "Remote database is locked. This is due to a rebuild on one of the terminals.\nThe device is therefore asked to withhold the connection to avoid database corruption.\n\nThere are three options that we can do:\n\n- %{Replicator.Dialogue.Locked.Action.Fetch}\n  The most preferred and reliable way. This will dispose the local database once, and fetch all from the remote database again, In most case, we can perform this safely. However, it takes some time and should be done in stable network.\n- %{Replicator.Dialogue.Locked.Action.Unlock}\n  This method can only be used if we are already reliably synchronised by other replication methods. This does not simply mean that we have the same files. If you are not sure, you should avoid it.\n- %{Replicator.Dialogue.Locked.Action.Dismiss}\n    This will cancel the operation. And we will asked again on next request.\n",
+        def: "Remote database is locked. This is due to a rebuild on one of the terminals.\nThe device is therefore asked to withhold the connection to avoid database corruption.\n\nThere are three options that we can do:\n\n- %{Replicator.Dialogue.Locked.Action.Fetch}\n  The most preferred and reliable way. This will dispose the local database once, and reset all synchronisation information from the remote database again, In most case, we can perform this safely. However, it takes some time and should be done in stable network.\n- %{Replicator.Dialogue.Locked.Action.Unlock}\n  This method can only be used if we are already reliably synchronised by other replication methods. This does not simply mean that we have the same files. If you are not sure, you should avoid it.\n- %{Replicator.Dialogue.Locked.Action.Dismiss}\n    This will cancel the operation. And we will asked again on next request.\n",
         ko: "원격 데이터베이스가 잠겨 있습니다. 이는 일부 터미널에서 데이터베이스를 재구축했기 때문입니다.\n따라서 현재 기기는 데이터베이스 손상을 방지하기 위해 연결을 일시적으로 보류해야 합니다.\n\n선택할 수 있는 세 가지 방법이 있습니다:\n\n- %{Replicator.Dialogue.Locked.Action.Fetch}\n  가장 권장되고 신뢰할 수 있는 방법입니다. 로컬 데이터베이스를 초기화한 뒤, 원격 데이터베이스의 전체 데이터를 다시 가져옵니다. 대부분의 경우 안전하게 수행할 수 있으나, 시간이 다소 걸리며 안정적인 네트워크 환경에서 진행해야 합니다.\n- %{Replicator.Dialogue.Locked.Action.Unlock}\n  이 방법은 다른 동기화 방식으로 이미 완전하고 안정적으로 동기화된 경우에만 사용할 수 있습니다. 단순히 파일이 같다는 의미가 아니므로, 확신이 없다면 사용을 피하는 것이 좋습니다.\n- %{Replicator.Dialogue.Locked.Action.Dismiss}\n  이번 작업을 취소하고, 다음 요청 시 다시 안내받습니다.\n",
     },
     "Replicator.Dialogue.Locked.Message.Fetch": {

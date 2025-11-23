@@ -23,6 +23,8 @@ import type { ServiceBackend } from "./ServiceBackend.ts";
 import type { LiveSyncLocalDB } from "../pouchdb/LiveSyncLocalDB";
 import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator";
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
+import type { SvelteDialogManagerBase } from "../UI/svelteDialog.ts";
+import type { ServiceHub } from "./ServiceHub.ts";
 
 declare global {
     interface OPTIONAL_SYNC_FEATURES {
@@ -33,8 +35,17 @@ type HandlerFunc<F extends (...args: any[]) => any> = (handler: (...args: Parame
 type HandlerFuncWithoutUndefined<F extends (...args: any[]) => any> = (
     handler: (...args: Parameters<F>) => Promise<Exclude<Awaited<ReturnType<F>>, undefined>>
 ) => void;
-
-export abstract class ServiceBase {
+export abstract class HubService {
+    // TODO: Possibly we need weak reference here.
+    protected _services!: ServiceHub;
+    get services() {
+        return this._services;
+    }
+    setServices(services: ServiceHub) {
+        this._services = services;
+    }
+}
+export abstract class ServiceBase extends HubService {
     protected readonly _backend: ServiceBackend;
 
     /**
@@ -85,7 +96,25 @@ export abstract class ServiceBase {
         return this._backend.broadcast<Parameters<T>>(key);
     }
 
+    /**
+     * Register a collector that collects results from all listeners.
+     * @param key The event key to listen to.
+     * @returns A collector for the specified event key.
+     */
+    protected _collect<T extends (...args: any[]) => U, U = ReturnType<T>>(key: string) {
+        return this._backend.collect<Parameters<T>, U>(key);
+    }
+
+    /**
+     * Register a batch collector that collects results from all listeners in batches.
+     * @param key The event key to listen to.
+     * @returns A batch collector for the specified event key.
+     */
+    protected _collectBatch<T extends (...args: any[]) => U, U = ReturnType<T>>(key: string) {
+        return this._backend.collectBatch<Parameters<T>, U>(key);
+    }
     constructor(hub: ServiceBackend) {
+        super();
         this._backend = hub;
     }
 }
@@ -127,6 +156,7 @@ export abstract class APIService extends ServiceBase {
      * Check if the last POST request failed due to payload size.
      */
     abstract isLastPostFailedDueToPayloadSize(): boolean;
+    abstract getPlatform(): string;
 }
 
 /**
@@ -468,7 +498,7 @@ export abstract class RemoteService extends ServiceBase {
         compression: boolean,
         customHeaders: Record<string, string>,
         useRequestAPI: boolean,
-        getPBKDF2Salt: () => Promise<Uint8Array>
+        getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>
     ): Promise<
         | string
         | {
@@ -625,6 +655,7 @@ export abstract class AppLifecycleService extends ServiceBase {
         [this.onSuspending, this.handleOnSuspending] = this._firstFailure("beforeSuspendProcess");
         [this.onResuming, this.handleOnResuming] = this._firstFailure("onResumeProcess");
         [this.onResumed, this.handleOnResumed] = this._firstFailure("afterResumeProcess");
+        [this.getUnresolvedMessages, this.reportUnresolvedMessages] = this._collectBatch("unresolvedMessages");
     }
 
     /**
@@ -831,6 +862,15 @@ export abstract class AppLifecycleService extends ServiceBase {
      * Check if a restart has been scheduled.
      */
     abstract isReloadingScheduled(): boolean;
+
+    /**
+     * Get unresolved error messages.
+     */
+    readonly getUnresolvedMessages: () => Promise<string[][]>;
+    /**
+     * Report unresolved error messages.
+     */
+    readonly reportUnresolvedMessages: HandlerFunc<() => Promise<string[]>>;
 }
 
 export abstract class SettingService extends ServiceBase {
@@ -844,7 +884,7 @@ export abstract class SettingService extends ServiceBase {
         [this.suggestOptionalFeatures, this.handleSuggestOptionalFeatures] =
             this._all<typeof this.suggestOptionalFeatures>("suggestOptionalFeatures");
         [this.enableOptionalFeature, this.handleEnableOptionalFeature] =
-            this._first<typeof this.enableOptionalFeature>("enableOptionalFeature");
+            this._all<typeof this.enableOptionalFeature>("enableOptionalFeature");
     }
     /**
      * Clear any used passphrase from memory.
@@ -976,6 +1016,8 @@ export abstract class SettingService extends ServiceBase {
      * This is important for certain operating systems like Windows and macOS.
      */
     abstract shouldCheckCaseInsensitively(): boolean;
+
+    abstract importSettings(imported: Partial<ObsidianLiveSyncSettings>): Promise<boolean>;
 }
 
 /**
@@ -1122,6 +1164,56 @@ export abstract class TestService extends ServiceBase {
      */
     abstract addTestResult(name: string, key: string, result: boolean, summary?: string, message?: string): void;
 }
+
+export abstract class UIService extends HubService {
+    abstract get dialogManager(): SvelteDialogManagerBase;
+    abstract promptCopyToClipboard(title: string, value: string): Promise<boolean>;
+    abstract showMarkdownDialog<T extends string[]>(
+        title: string,
+        contentMD: string,
+        buttons: T
+    ): Promise<(typeof buttons)[number] | false>;
+}
+export class UIServiceStub extends UIService {
+    get dialogManager(): SvelteDialogManagerBase {
+        throw new Error("UIService.dialogManager not implemented (stub)");
+    }
+    promptCopyToClipboard(title: string, value: string): Promise<boolean> {
+        throw new Error("UIService.promptCopyToClipboard not implemented (stub)");
+    }
+    showMarkdownDialog<T extends string[]>(
+        title: string,
+        contentMD: string,
+        buttons: T
+    ): Promise<(typeof buttons)[number] | false> {
+        throw new Error("UIService.showMarkdownDialog not implemented (stub)");
+    }
+}
+
+export abstract class ConfigService extends HubService {
+    abstract getSmallConfig(key: string): string | null;
+    abstract setSmallConfig(key: string, value: string): void;
+    abstract deleteSmallConfig(key: string): void;
+}
+
+export class ConfigServiceBrowserCompat extends ConfigService {
+    getSmallConfig(key: string) {
+        const vaultName = this.services.vault.getVaultName();
+        const dbKey = `${vaultName}-${key}`;
+        return localStorage.getItem(dbKey);
+    }
+    setSmallConfig(key: string, value: string): void {
+        const vaultName = this.services.vault.getVaultName();
+        const dbKey = `${vaultName}-${key}`;
+        localStorage.setItem(dbKey, value);
+    }
+    deleteSmallConfig(key: string): void {
+        const vaultName = this.services.vault.getVaultName();
+        const dbKey = `${vaultName}-${key}`;
+        localStorage.removeItem(dbKey);
+    }
+}
+
 /**
  * ThroughHole is a utility class that allows lazy binding for older implementations.
  * For easy migration for future refactoring and adding tests.

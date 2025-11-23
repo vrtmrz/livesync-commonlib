@@ -19,6 +19,10 @@ import {
     type CustomRegExpSourceList,
     type ObsidianLiveSyncSettings,
     type RemoteDBSettings,
+    type P2PConnectionInfo,
+    type BucketSyncSetting,
+    type CouchDBConnection,
+    type EncryptionSettings,
 } from "./types.ts";
 import { isErrorOfMissingDoc } from "../pouchdb/utils_couchdb.ts";
 import { replaceAll, replaceAllPairs } from "octagonal-wheels/string";
@@ -700,13 +704,90 @@ type RegExpSettingKey =
     | "syncOnlyRegEx"
     | "syncIgnoreRegEx"
     | "syncInternalFilesIgnorePatterns"
-    | "syncInternalFilesTargetPatterns";
+    | "syncInternalFilesTargetPatterns"
+    | "syncInternalFileOverwritePatterns";
 export function getFileRegExp(settings: ObsidianLiveSyncSettings | RemoteDBSettings, key: RegExpSettingKey) {
     const flagCase = settings.handleFilenameCaseSensitive ? "" : "i";
-    if (key === "syncInternalFilesIgnorePatterns" || key === "syncInternalFilesTargetPatterns") {
+    if (
+        key === "syncInternalFilesIgnorePatterns" ||
+        key === "syncInternalFilesTargetPatterns" ||
+        key === "syncInternalFileOverwritePatterns"
+    ) {
         const regExp = (settings as ObsidianLiveSyncSettings)[key];
         return parseCustomRegExpList(regExp, flagCase, ",");
     }
     const regExp = settings[key];
     return parseCustomRegExpList(regExp, flagCase, "|[]|");
+}
+
+/**
+ * Copies properties from the source object to the target object only if they exist in the target.
+ * @param source The object to copy properties from.
+ * @param target The object to copy properties to.
+ */
+export function copyTo<T extends object, U extends T>(source: U, target: T): void {
+    for (const key of Object.keys(target) as (keyof T)[]) {
+        target[key] = source[key];
+    }
+}
+
+// export function getConnectionSummaryP2P(settings: P2PConnectionInfo) { }
+// export function getConnectionSummaryBucket(settings: BucketSyncSetting) { }
+// export function getConnectionSummaryCouchDB(settings: CouchDBConnection) { }
+// export function getConnectionSummaryE2EE(settings: EncryptionSettings) { }
+
+export function pickBucketSyncSettings(setting: ObsidianLiveSyncSettings): BucketSyncSetting {
+    return {
+        bucket: setting.bucket,
+        region: setting.region,
+        endpoint: setting.endpoint,
+        accessKey: setting.accessKey,
+        secretKey: setting.secretKey,
+        bucketPrefix: setting.bucketPrefix,
+        forcePathStyle: setting.forcePathStyle,
+        useCustomRequestHandler: setting.useCustomRequestHandler,
+        bucketCustomHeaders: setting.bucketCustomHeaders,
+    };
+}
+
+export function pickCouchDBSyncSettings(setting: ObsidianLiveSyncSettings): CouchDBConnection {
+    return {
+        couchDB_URI: setting.couchDB_URI,
+        couchDB_USER: setting.couchDB_USER,
+        couchDB_PASSWORD: setting.couchDB_PASSWORD,
+        couchDB_DBNAME: setting.couchDB_DBNAME,
+        useRequestAPI: setting.useRequestAPI,
+        // Advanced settings
+        couchDB_CustomHeaders: setting.couchDB_CustomHeaders,
+        jwtAlgorithm: setting.jwtAlgorithm,
+        jwtExpDuration: setting.jwtExpDuration,
+        jwtKey: setting.jwtKey,
+        jwtKid: setting.jwtKid,
+        jwtSub: setting.jwtSub,
+        useJWT: setting.useJWT,
+    };
+}
+
+export function pickEncryptionSettings(setting: ObsidianLiveSyncSettings | EncryptionSettings): EncryptionSettings {
+    return {
+        E2EEAlgorithm: setting.E2EEAlgorithm,
+        encrypt: setting.encrypt,
+        passphrase: setting.passphrase,
+        usePathObfuscation: setting.usePathObfuscation,
+    };
+}
+export function pickP2PSyncSettings(setting: Partial<ObsidianLiveSyncSettings> & P2PConnectionInfo): P2PConnectionInfo {
+    return {
+        P2P_Enabled: setting.P2P_Enabled,
+        P2P_AppID: setting.P2P_AppID,
+        P2P_roomID: setting.P2P_roomID,
+        P2P_passphrase: setting.P2P_passphrase,
+        P2P_relays: setting.P2P_relays,
+        P2P_AutoStart: setting.P2P_AutoStart,
+        P2P_AutoBroadcast: setting.P2P_AutoBroadcast,
+        P2P_DevicePeerName: setting.P2P_DevicePeerName || "",
+        P2P_turnServers: setting.P2P_turnServers,
+        P2P_turnUsername: setting.P2P_turnUsername,
+        P2P_turnCredential: setting.P2P_turnCredential,
+    };
 }

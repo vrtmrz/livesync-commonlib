@@ -1,4 +1,12 @@
-import { type ActionSender, type Room, selfId, joinRoom } from "trystero/nostr";
+import {
+    type ActionSender,
+    type Room,
+    selfId,
+    joinRoom,
+    type BaseRoomConfig,
+    type RelayConfig,
+    type TurnConfig,
+} from "trystero/nostr";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } from "../../common/types";
 import { LOG_LEVEL_VERBOSE, Logger } from "../../common/logger";
 import {
@@ -21,7 +29,7 @@ import { mixedHash } from "octagonal-wheels/hash/purejs";
 import { EVENT_PLATFORM_UNLOADED } from "../../PlatformAPIs/base/APIBase";
 import { $msg } from "../../common/i18n";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock_v2";
-import { Refiner } from "octagonal-wheels/dataobject/Refiner.js";
+import { Computed } from "octagonal-wheels/dataobject/Computed";
 
 export type PeerInfo = Advertisement & {
     isAccepted: boolean | undefined;
@@ -278,7 +286,7 @@ You can chose as follows:
                 }
             });
     }
-    _acceptablePeers = new Refiner({
+    _acceptablePeers = new Computed({
         evaluation: (settings: P2PSyncSetting) => {
             return `${settings?.P2P_AutoAcceptingPeers ?? ""}`
                 .split(",")
@@ -287,7 +295,7 @@ You can chose as follows:
                 .map((e) => (e.startsWith("~") ? new RegExp(e.substring(1), "i") : new RegExp(`^${e}$`, "i")));
         },
     });
-    _shouldDenyPeers = new Refiner({
+    _shouldDenyPeers = new Computed({
         evaluation: (settings: P2PSyncSetting) => {
             return `${settings?.P2P_AutoDenyingPeers ?? ""}`
                 .split(",")
@@ -305,8 +313,8 @@ You can chose as follows:
         if (this.temporaryAcceptedPeers.has(peerId)) return this.temporaryAcceptedPeers.get(peerId);
         const accepted = await this.acceptedPeers.get(peerName);
         if (accepted !== undefined && accepted !== null) return accepted;
-        const isAcceptable = (await this._acceptablePeers.update(this.settings).value).some((e) => e.test(peerName));
-        const isDeny = (await this._shouldDenyPeers.update(this.settings).value).some((e) => e.test(peerName));
+        const isAcceptable = (await this._acceptablePeers.update(this.settings)).value.some((e) => e.test(peerName));
+        const isDeny = (await this._shouldDenyPeers.update(this.settings)).value.some((e) => e.test(peerName));
 
         if (isAcceptable) {
             if (isDeny) return false;
@@ -416,21 +424,26 @@ You can chose as follows:
             return;
         }
         const relays = this.settings.P2P_relays.split(",").filter((e) => e.trim().length > 0);
-        const room = joinRoom(
-            {
-                relayUrls: relays,
-                appId: this.settings.P2P_AppID,
-                password: passphrase,
-            },
-            this.settings.P2P_roomID,
-            //@ts-ignore
-            (error: any) => {
-                Logger(`Some error has been occurred while connecting the signalling server.`, LOG_LEVEL_INFO);
-                Logger(`Error: ${JSON.stringify(error)}`, LOG_LEVEL_INFO);
+        const turnServers = this.settings.P2P_turnServers.split(",")
+            .map((e) => e.trim())
+            .filter((e) => e.length > 0);
 
-                void this.ensureLeaved();
-            }
-        );
+        const options = {
+            relayUrls: relays,
+            appId: this.settings.P2P_AppID,
+            password: passphrase,
+            turnConfig:
+                turnServers.length > 0
+                    ? [
+                          {
+                              urls: turnServers,
+                              username: this.settings.P2P_turnUsername,
+                              credential: this.settings.P2P_turnCredential,
+                          },
+                      ]
+                    : [],
+        } satisfies BaseRoomConfig & RelayConfig & TurnConfig;
+        const room = joinRoom(options, this.settings.P2P_roomID, true);
         await this.setRoom(room);
         this.onAfterJoinRoom();
         void this.dispatchConnectionStatus();

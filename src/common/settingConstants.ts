@@ -62,13 +62,15 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
     couchDB_PASSWORD: {
         name: "Password",
         desc: "password",
+        isHidden: true,
     },
     couchDB_DBNAME: {
         name: "Database Name",
     },
     passphrase: {
         name: "Passphrase",
-        desc: "Encryption phassphrase. If changed, you should overwrite the server's database with the new (encrypted) files.",
+        desc: "Encryption passphrase. If changed, you should overwrite the server's database with the new (encrypted) files.",
+        isHidden: true,
     },
     showStatusOnEditor: {
         name: "Show status inside the editor",
@@ -246,7 +248,7 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         desc: "Notify when other device has newly customized.",
     },
     remoteType: {
-        name: "Remote Type",
+        name: "Active Remote Type",
         desc: "Remote server type",
     },
     endpoint: {
@@ -258,6 +260,7 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
     },
     secretKey: {
         name: "Secret Key",
+        isHidden: true,
     },
     region: {
         name: "Region",
@@ -407,6 +410,17 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
     forcePathStyle: {
         name: "Enable forcePathStyle",
         desc: "If enabled, the forcePathStyle option will be used for bucket operations.",
+    },
+    P2P_AutoBroadcast: {
+        name: "Automatically broadcast changes to connected peers",
+        desc: "If enabled, changes will be automatically broadcasted to all connected peers. Notified peers will start fetching the changes.",
+    },
+    P2P_AutoStart: {
+        name: "Automatically start P2P connection on launch",
+        desc: "If enabled, the P2P connection will be automatically started when the application launches.",
+    },
+    P2P_Enabled: {
+        name: "Enable P2P Synchronization",
     },
 };
 function translateInfo(infoSrc: ConfigurationItem | undefined | false) {

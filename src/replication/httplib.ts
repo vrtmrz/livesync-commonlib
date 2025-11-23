@@ -1,4 +1,3 @@
-import { Refiner } from "octagonal-wheels/dataobject/Refiner";
 import type {
     CouchDBCredentials,
     JWTCredentials,
@@ -9,6 +8,7 @@ import type {
     RemoteDBSettings,
 } from "../common/types";
 import { arrayBufferToBase64Single, writeString } from "../string_and_binary/convert";
+import { Computed } from "octagonal-wheels/dataobject/Computed";
 
 /**
  * Generates a credential object based on the provided settings.
@@ -39,8 +39,8 @@ export function generateCredentialObject(settings: RemoteDBSettings) {
  * And it caches the result for performance if the credentials are not changed.
  */
 export class BasicHeaderGenerator {
-    _header = new Refiner<CouchDBCredentials, string>({
-        evaluation(source, previous) {
+    _header = new Computed({
+        evaluation: (source: CouchDBCredentials) => {
             if ("username" in source) {
                 const userNameAndPassword =
                     source.username && source.password ? `${source.username}:${source.password}` : "";
@@ -56,7 +56,7 @@ export class BasicHeaderGenerator {
      * @returns {Promise<string>} The basic authentication header (without "Basic" prefix).
      */
     async getBasicHeader(auth: CouchDBCredentials): Promise<string> {
-        return await this._header.update(auth).value;
+        return (await this._header.update(auth)).value;
     }
 }
 /**
@@ -98,23 +98,24 @@ export class JWTTokenGenerator {
             throw new Error("Supplied JWT algorithm is not supported.");
         }
     }
-    _currentCryptoKey = new Refiner<JWTCredentials, CryptoKey>({
-        evaluation: async (auth, previous) => {
+    _currentCryptoKey = new Computed({
+        evaluation: async (auth: JWTCredentials) => {
             return await this._importKey(auth);
         },
     });
 
-    _jwt = new Refiner<JWTParams, PreparedJWT>({
-        evaluation: async (params, previous) => {
+    _jwt = new Computed({
+        evaluation: async (params: JWTParams) => {
             const encodedHeader = btoa(JSON.stringify(params.header));
             const encodedPayload = btoa(JSON.stringify(params.payload));
             const buff = `${encodedHeader}.${encodedPayload}`.replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
 
-            const key = await this._currentCryptoKey.update(params.credentials).value;
+            const key = (await this._currentCryptoKey.update(params.credentials)).value;
             let token = "";
             if (params.header.alg == "ES256" || params.header.alg == "ES512") {
+                const digestAlg = params.header.alg == "ES256" ? "SHA-256" : "SHA-512";
                 const jwt = await crypto.subtle.sign(
-                    { name: "ECDSA", hash: { name: "SHA-256" } },
+                    { name: "ECDSA", hash: { name: digestAlg } },
                     key,
                     writeString(buff)
                 );
@@ -142,8 +143,8 @@ export class JWTTokenGenerator {
         },
     });
 
-    _jwtParams = new Refiner<JWTCredentials, JWTParams>({
-        evaluation(source, previous) {
+    _jwtParams = new Computed({
+        evaluation(source: JWTCredentials) {
             const kid = source.jwtKid || undefined;
             const sub = (source.jwtSub || "").trim();
             if (sub == "") {
@@ -175,15 +176,17 @@ export class JWTTokenGenerator {
                 credentials: source,
             };
         },
-        shouldUpdate(isDifferent, source, previous) {
-            if (isDifferent) {
+        requiresUpdate(args, previousArgs, previous) {
+            // if previous is not present.
+            if (!previous || previous instanceof Error) {
                 return true;
             }
-            if (!previous) {
-                return true;
-            }
-            // if expired.
-            const d = ~~(new Date().getTime() / 1000);
+            // Check if the expiration time is near.
+            // This means that if the token is valid for 100 seconds, we consider it expired 10 seconds before actual expiration.
+            const ttl = previous.payload.exp - previous.payload.iat;
+            const margin20p = ttl * 0.1; // 10% margin of ttl
+            const margin = Math.min(10, Math.max(margin20p, 60)); // max 10 seconds, min 60 seconds
+            const d = ~~(new Date().getTime() / 1000) + margin; // current time + margin
             if (previous.payload.exp < d) {
                 // console.warn(`jwt expired ${previous.payload.exp} < ${d}`);
                 return true;
@@ -193,8 +196,8 @@ export class JWTTokenGenerator {
     });
 
     async getJWT(auth: JWTCredentials): Promise<PreparedJWT> {
-        const params = await this._jwtParams.update(auth).value;
-        const jwt = await this._jwt.update(params).value;
+        const params = (await this._jwtParams.update(auth)).value;
+        const jwt = (await this._jwt.update(params)).value;
         return jwt;
     }
 
