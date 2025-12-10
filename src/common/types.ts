@@ -805,9 +805,13 @@ interface ChunkSettings {
  */
 interface OnDemandChunkSettings {
     /**
-     * Indicates whether chunks should be fetch online.
+     * Indicates whether chunks should be fetch online. (means replication transfers only metadata).
      */
     readChunksOnline: boolean;
+    /**
+     * Indicates whether to use only local chunks without fetching online.
+     */
+    useOnlyLocalChunk: boolean;
 
     /**
      * The number of concurrent chunk reads allowed when fetching online.
@@ -1264,6 +1268,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     processSizeMismatchedFiles: false,
     forcePathStyle: true,
     syncInternalFileOverwritePatterns: "" as CustomRegExpSourceList<",">,
+    useOnlyLocalChunk: false,
 };
 
 export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> = {
@@ -1424,6 +1429,7 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     P2P_turnUsername: 151,
     P2P_turnCredential: 152,
     syncInternalFileOverwritePatterns: 153,
+    useOnlyLocalChunk: 154,
 } as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
@@ -1869,6 +1875,11 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         name: "TURN Credential",
         desc: "The credential/password for the TURN servers.",
         isHidden: true,
+    },
+    useOnlyLocalChunk: {
+        name: "Use Only Local Chunks",
+        desc: "If enabled, the plugin will not attempt to connect to the remote database even if the chunk was not found locally.",
+        isAdvanced: true,
     },
 };
 
