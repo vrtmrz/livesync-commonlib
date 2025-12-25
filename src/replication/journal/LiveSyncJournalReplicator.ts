@@ -10,6 +10,7 @@ import {
     DEVICE_ID_PREFERRED,
     TweakValuesTemplate,
     type TweakValues,
+    type NodeData,
 } from "../../common/types.ts";
 import { Logger } from "../../common/logger.ts";
 
@@ -90,11 +91,20 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         currentVersionRange: ChunkVersionRange
     ): Promise<ENSURE_DB_RESULT> {
         const downloadedMilestone = await this.client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
+        const cPointInfo = await this.client.getCheckpointInfo();
+        const progress = [...(cPointInfo?.receivedFiles || [])].sort().pop() || "";
         return await ensureRemoteIsCompatible(
             downloadedMilestone,
             this.env.getSettings(),
             deviceNodeID,
             currentVersionRange,
+            {
+                app_version: this.env.services.API.getAppVersion(),
+                plugin_version: this.env.services.API.getPluginVersion(),
+                vault_name: this.env.services.vault.vaultName(),
+                device_name: this.env.services.vault.getVaultName(),
+                progress: progress,
+            },
             async (info) => {
                 await this.client.uploadJson(MILSTONE_DOCID, info);
             }
@@ -242,6 +252,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             cleaned: lockByClean,
             accepted_nodes: [this.nodeid],
             node_chunk_info: { [this.nodeid]: currentVersionRange },
+            node_info: {},
             tweak_values: {},
         };
 
@@ -268,6 +279,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             locked: false,
             accepted_nodes: [this.nodeid],
             node_chunk_info: { [this.nodeid]: currentVersionRange },
+            node_info: {},
             tweak_values: {},
         };
 
@@ -347,5 +359,10 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     countCompromisedChunks(): Promise<number> {
         Logger(`Bucket Sync Replicator cannot count compromised chunks`, LOG_LEVEL_VERBOSE);
         return Promise.resolve(0);
+    }
+    getConnectedDeviceList(
+        setting?: RemoteDBSettings
+    ): Promise<false | { node_info: Record<string, NodeData>; accepted_nodes: string[] }> {
+        return Promise.resolve(false);
     }
 }

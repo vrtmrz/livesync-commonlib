@@ -53,6 +53,8 @@ export class InjectableAPIService extends APIService {
     isMobile: typeof APIService.prototype.isMobile;
     showWindow: typeof APIService.prototype.showWindow;
     getAppID: typeof APIService.prototype.getAppID;
+    getAppVersion: typeof APIService.prototype.getAppVersion;
+    getPluginVersion: typeof APIService.prototype.getPluginVersion;
     isLastPostFailedDueToPayloadSize: typeof APIService.prototype.isLastPostFailedDueToPayloadSize;
 
     handleAddLog: HandlerFunc<typeof APIService.prototype.addLog>;
@@ -61,6 +63,10 @@ export class InjectableAPIService extends APIService {
     handleShowWindow: HandlerFunc<typeof APIService.prototype.showWindow>;
     handleGetAppID: HandlerFunc<typeof APIService.prototype.getAppID>;
     handleIsLastPostFailedDueToPayloadSize: HandlerFunc<typeof APIService.prototype.isLastPostFailedDueToPayloadSize>;
+
+    handleGetAppVersion: HandlerFunc<typeof APIService.prototype.getAppVersion>;
+    handleGetPluginVersion: HandlerFunc<typeof APIService.prototype.getPluginVersion>;
+
     override getPlatform(): string {
         return "unknown";
     }
@@ -80,6 +86,8 @@ export class InjectableAPIService extends APIService {
             this._throughHole,
             "API.isLastPostFailedDueToPayloadSize"
         );
+        [this.getAppVersion, this.handleGetAppVersion] = bindMethod(this._throughHole, "API.getAppVersion");
+        [this.getPluginVersion, this.handleGetPluginVersion] = bindMethod(this._throughHole, "API.getPluginVersion");
     }
 }
 

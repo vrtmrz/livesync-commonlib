@@ -21,6 +21,8 @@ import {
     DOCID_SYNC_PARAMETERS,
     DEFAULT_SYNC_PARAMETERS,
     ProtocolVersions,
+    type NodeData,
+    type DeviceInfo,
 } from "../../common/types.ts";
 import {
     resolveWithIgnoreKnownError,
@@ -843,8 +845,16 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             this.remoteLockedAndDeviceNotAccepted = false;
             this.tweakSettingsMismatched = false;
             this.preferredTweakValue = undefined;
+            const progress = `${dbRet.info.update_seq}`;
+            const info = {
+                app_version: this.env.services.API.getAppVersion(),
+                plugin_version: this.env.services.API.getPluginVersion(),
+                vault_name: this.env.services.vault.vaultName(),
+                device_name: this.env.services.vault.getVaultName(),
+                progress: progress,
+            } satisfies DeviceInfo;
 
-            const ensure = await ensureDatabaseIsCompatible(dbRet.db, setting, this.nodeid, currentVersionRange);
+            const ensure = await ensureDatabaseIsCompatible(dbRet.db, setting, this.nodeid, currentVersionRange, info);
             if (ensure == "INCOMPATIBLE") {
                 Logger(
                     "The remote database has no compatibility with the running version. Please upgrade the plugin.",
@@ -1051,6 +1061,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             cleaned: lockByClean,
             accepted_nodes: [this.nodeid],
             node_chunk_info: { [this.nodeid]: currentVersionRange },
+            node_info: {},
             tweak_values: {},
         };
 
@@ -1087,6 +1098,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             created: (new Date() as any) / 1,
             locked: false,
             accepted_nodes: [this.nodeid],
+            node_info: {},
             node_chunk_info: { [this.nodeid]: currentVersionRange },
             tweak_values: {},
         };
@@ -1352,5 +1364,24 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
         const compromised = await countCompromisedChunks(dbRet.db);
         return compromised;
+    }
+
+    async getConnectedDeviceList(
+        setting: RemoteDBSettings = this.env.getSettings()
+    ): Promise<false | { node_info: Record<string, NodeData>; accepted_nodes: string[] }> {
+        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
+        if (typeof dbRet === "string") {
+            const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
+            Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
+            return false;
+        }
+        const milestoneDoc = await dbRet.db.get(MILESTONE_DOCID);
+        if (!milestoneDoc) {
+            Logger("Could not retrieve remote milestone", LOG_LEVEL_NOTICE);
+            return false;
+        }
+        const nodeInfo = (milestoneDoc as EntryMilestoneInfo).node_info;
+        const acceptedNodes = (milestoneDoc as EntryMilestoneInfo).accepted_nodes || [];
+        return { node_info: nodeInfo, accepted_nodes: acceptedNodes };
     }
 }

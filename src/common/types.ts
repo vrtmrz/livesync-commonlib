@@ -1946,15 +1946,42 @@ export type TweakValues = typeof TweakValuesTemplate;
 
 export const DEVICE_ID_PREFERRED = "PREFERRED";
 
+export type NodeKey = string;
+export interface DeviceInfo {
+    /**
+     * Name of the device (Initially from deviceAndVaultName setting, configurable).
+     */
+    device_name: string;
+    /**
+     * Vault name (From vaultName setting).
+     */
+    vault_name: string;
+    /**
+     * Obsidian App version of the device.
+     */
+    app_version: string;
+    /**
+     * Plugin version of the device.
+     */
+    plugin_version: string;
+    progress: string;
+}
+export interface NodeData extends DeviceInfo {
+    /**
+     * Epoch time in milliseconds when the device last connected.
+     */
+    last_connected: number;
+}
 export interface EntryMilestoneInfo extends DatabaseEntry {
     _id: typeof MILESTONE_DOCID;
     type: EntryTypes["MILESTONE_INFO"];
     created: number;
     accepted_nodes: string[];
+    node_info: { [key: NodeKey]: NodeData };
     locked: boolean;
     cleaned?: boolean;
-    node_chunk_info: { [key: string]: ChunkVersionRange };
-    tweak_values: { [key: string]: TweakValues };
+    node_chunk_info: { [key: NodeKey]: ChunkVersionRange };
+    tweak_values: { [key: NodeKey]: TweakValues };
 }
 
 export interface EntryNodeInfo extends DatabaseEntry {

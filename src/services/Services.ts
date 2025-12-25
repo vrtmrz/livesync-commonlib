@@ -157,6 +157,8 @@ export abstract class APIService extends ServiceBase {
      */
     abstract isLastPostFailedDueToPayloadSize(): boolean;
     abstract getPlatform(): string;
+    abstract getAppVersion(): string;
+    abstract getPluginVersion(): string;
 }
 
 /**

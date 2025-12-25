@@ -8,6 +8,7 @@ import {
     LOG_LEVEL_INFO,
     LOG_LEVEL_VERBOSE,
     type LOG_LEVEL,
+    type NodeData,
 } from "../../common/types";
 import {
     LiveSyncAbstractReplicator,
@@ -270,6 +271,16 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     countCompromisedChunks(): Promise<number> {
         Logger(`P2P Replicator cannot count compromised chunks`, LOG_LEVEL_VERBOSE);
         return Promise.resolve(0);
+    }
+
+    getConnectedDeviceList(
+        setting?: RemoteDBSettings
+    ): Promise<false | { node_info: Record<string, NodeData>; accepted_nodes: string[] }> {
+        Logger(
+            `Trying to get connected device list but P2P replication does not support to do this. This operation has been ignored`,
+            LOG_LEVEL_INFO
+        );
+        return Promise.resolve(false);
     }
 
     env: LiveSyncTrysteroReplicatorEnv;
