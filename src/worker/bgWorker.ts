@@ -3,7 +3,7 @@
 import { promiseWithResolver } from "octagonal-wheels/promises.js";
 import { eventHub } from "../hub/hub.ts";
 //@ts-ignore
-import WorkerX from "./bg.worker.ts?worker";
+import WorkerX from "./bg.worker.ts?worker&inline";
 import { EVENT_PLATFORM_UNLOADED } from "../PlatformAPIs/base/APIBase.ts";
 import { info, LOG_KIND_ERROR } from "octagonal-wheels/common/logger.js";
 import { encryptionOnWorker, encryptionHKDFOnWorker, handleTaskEncrypt } from "./bgWorker.encryption.ts";
