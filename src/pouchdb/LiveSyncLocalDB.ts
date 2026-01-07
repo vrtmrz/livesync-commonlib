@@ -147,7 +147,7 @@ export class LiveSyncLocalDB {
         }
         Logger("Opening Database...");
         Logger("Database info", LOG_LEVEL_VERBOSE);
-        Logger(await this.localDatabase.info(), LOG_LEVEL_VERBOSE);
+        Logger(JSON.stringify(await this.localDatabase.info(), null, 2), LOG_LEVEL_VERBOSE);
         await this.managers.initManagers();
         this.localDatabase.on("close", () => {
             Logger("Database closed.");

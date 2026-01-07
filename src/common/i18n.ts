@@ -32,7 +32,7 @@ function _getMessage(key: string, lang: I18N_LANGS) {
     let msg = msgs?.[lang];
 
     if (!msg) {
-        if (!missingTranslations.contains(key)) {
+        if (missingTranslations.indexOf(key) === -1) {
             __onMissingTranslations(key);
             missingTranslations.push(key);
         }

@@ -791,3 +791,11 @@ export function pickP2PSyncSettings(setting: Partial<ObsidianLiveSyncSettings> &
         P2P_turnCredential: setting.P2P_turnCredential,
     };
 }
+
+export function wrapByDefault<T, U>(func: () => T, onError: (err: Error) => U): T | U {
+    try {
+        return func();
+    } catch (ex: any) {
+        return onError(ex);
+    }
+}

@@ -1,4 +1,4 @@
-import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
+import { LOG_LEVEL_DEBUG, Logger } from "octagonal-wheels/common/logger";
 
 type InstanceHaveOnBindFunction = {
     onBindFunction: (core: any, services: any) => void;
@@ -36,6 +36,6 @@ export function __$checkInstanceBinding<T extends InstanceHaveOnBindFunction>(in
         Logger(`[${thisName}] ⚠️ Missing functions in onBindFunction: ${missingInOnBind.join(", ")}`);
     }
     if (missingInThis.length == 0 && missingInOnBind.length == 0) {
-        Logger(`[${thisName}] All functions are properly bound`, LOG_LEVEL_VERBOSE);
+        Logger(`[${thisName}] All functions are properly bound`, LOG_LEVEL_DEBUG);
     }
 }
