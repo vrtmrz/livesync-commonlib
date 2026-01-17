@@ -4,6 +4,6 @@ export interface KeyValueDatabase {
     del(key: IDBValidKey): Promise<void>;
     clear(): Promise<void>;
     keys(query?: IDBValidKey | IDBKeyRange, count?: number): Promise<IDBValidKey[]>;
-    close(): void;
+    close(): Promise<void>;
     destroy(): Promise<void>;
 }
