@@ -476,13 +476,13 @@ export abstract class AppLifecycleService<T extends ServiceContext = ServiceCont
      * Event triggered when the plug-in's layout is ready.
      * In Obsidian, it is after the workspace is ready.
      */
-    readonly onLayoutReady = handlers<IAppLifecycleService>().firstResult("onLayoutReady");
+    readonly onLayoutReady = handlers<IAppLifecycleService>().bailFirstFailure("onLayoutReady");
 
     /**
      * Event triggered when the plug-in is being initialized for the first time.
      * This is only called once per plug-in lifecycle.
      */
-    readonly onFirstInitialise = handlers<IAppLifecycleService>().firstResult("onFirstInitialise");
+    readonly onFirstInitialise = handlers<IAppLifecycleService>().bailFirstFailure("onFirstInitialise");
 
     /**
      * Event triggered when the plug-in is fully ready.
