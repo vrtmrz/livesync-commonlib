@@ -47,8 +47,9 @@ import {
     SyncParamsUpdateError,
 } from "../replication/SyncParamsHandler.ts";
 import { LiveSyncManagers } from "../managers/LiveSyncManagers.ts";
-import { InjectableServiceHub } from "../services/InjectableServices.ts";
+import { InjectableServiceHub, InjectableVaultService } from "../services/InjectableServices.ts";
 import { ConfigServiceBrowserCompat, UIServiceStub } from "../services/Services.ts";
+import { ServiceContext } from "../services/ServiceHub.ts";
 export type DirectFileManipulatorOptions = {
     url: string;
     username: string;
@@ -109,9 +110,12 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
 
     options: DirectFileManipulatorOptions;
     ready = promiseWithResolvers<void>();
-    services = new InjectableServiceHub({
-        ui: new UIServiceStub(),
-        config: new ConfigServiceBrowserCompat(),
+    context = new ServiceContext();
+    vaultService = new InjectableVaultService(this.context);
+    services = new InjectableServiceHub(this.context, {
+        ui: new UIServiceStub(this.context),
+        vault: this.vaultService,
+        config: new ConfigServiceBrowserCompat(this.context, this.vaultService),
     });
     constructor(options: DirectFileManipulatorOptions) {
         this.options = options;
@@ -130,10 +134,10 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 return getSettings();
             },
         });
-        this.services.path.handleId2Path(this.$$id2path.bind(this));
-        this.services.path.handlePath2Id(this.$$path2id.bind(this));
-        this.services.database.handleCreatePouchDBInstance(this.$$createPouchDBInstance.bind(this));
-        this.services.databaseEvents.handleOnDatabaseInitialisation(this.$everyOnInitializeDatabase.bind(this));
+        this.services.path.id2path.setHandler(this.$$id2path.bind(this));
+        this.services.path.path2id.setHandler(this.$$path2id.bind(this));
+        this.services.database.createPouchDBInstance.setHandler(this.$$createPouchDBInstance.bind(this));
+        this.services.databaseEvents.onDatabaseInitialisation.addHandler(this.$everyOnInitializeDatabase.bind(this));
         this.liveSyncLocalDB = new LiveSyncLocalDB(this.options.url, this);
         void this.liveSyncLocalDB.initializeDatabase().then(() => {
             this.ready.resolve();

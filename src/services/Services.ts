@@ -3,125 +3,60 @@ import { type LOG_LEVEL } from "octagonal-wheels/common/logger";
 import type {
     AUTO_MERGED,
     CouchDBCredentials,
-    diff_result,
     DocumentID,
     EntryDoc,
     EntryHasPath,
-    FileEventItem,
     FilePath,
     FilePathWithPrefix,
-    LoadedEntry,
-    MetaEntry,
     MISSING_OR_ERROR,
     ObsidianLiveSyncSettings,
     RemoteDBSettings,
     TweakValues,
     UXFileInfoStub,
 } from "../common/types";
-// TODO: Migrate to octagonal-wheels
-import type { ServiceBackend } from "./ServiceBackend.ts";
-import type { LiveSyncLocalDB } from "../pouchdb/LiveSyncLocalDB";
 import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator";
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
 import type { SvelteDialogManagerBase } from "../UI/svelteDialog.ts";
-import type { ServiceHub } from "./ServiceHub.ts";
+import { handlers } from "./HandlerUtils.ts";
+import type {
+    IAPIService,
+    IAppLifecycleService,
+    IConfigService,
+    IConflictService,
+    IDatabaseEventService,
+    IDatabaseService,
+    IFileProcessingService,
+    IPathService,
+    IRemoteService,
+    IReplicationService,
+    IReplicatorService,
+    ISettingService,
+    ITestService,
+    ITweakValueService,
+    IUIService,
+    IVaultService,
+} from "./IService.ts";
+import type { ServiceContext } from "./ServiceHub.ts";
 
 declare global {
     interface OPTIONAL_SYNC_FEATURES {
         DISABLE: "DISABLE";
     }
 }
-type HandlerFunc<F extends (...args: any[]) => any> = (handler: (...args: Parameters<F>) => ReturnType<F>) => void;
-type HandlerFuncWithoutUndefined<F extends (...args: any[]) => any> = (
-    handler: (...args: Parameters<F>) => Promise<Exclude<Awaited<ReturnType<F>>, undefined>>
-) => void;
-export abstract class HubService {
-    // TODO: Possibly we need weak reference here.
-    protected _services!: ServiceHub;
-    get services() {
-        return this._services;
-    }
-    setServices(services: ServiceHub) {
-        this._services = services;
+export abstract class ServiceBase<T extends ServiceContext> {
+    private context: T;
+    constructor(context: T) {
+        this.context = context;
     }
 }
-export abstract class ServiceBase extends HubService {
-    protected readonly _backend: ServiceBackend;
 
-    /**
-     * Register a handler that returns all results from the listeners.
-     * Means ex-`all`
-     * @param key The event key to listen to.
-     */
-    protected _all<U extends (...args: any[]) => any>(key: string) {
-        return this._backend.all<Parameters<U>>(key);
-    }
-
-    /**
-     * Register a handler that returns the first success (true) from the listeners.
-     * Means ex-`any`
-     * @param key The event key to listen to.
-     * @returns
-     */
-    protected _first<T extends (...args: any[]) => any, U = ReturnType<T>>(key: string) {
-        return this._backend.first<Parameters<T>, Awaited<U>>(key);
-    }
-
-    /**
-     * Register a handler that returns the first success (true) from the listeners.
-     * Means ex-`any` of some sort.
-     * @param key The event key to listen to.
-     * @returns
-     */
-    protected _firstOrUndefined<T extends (...args: any[]) => any, U = ReturnType<T>>(key: string) {
-        return this._backend.firstOrUndefined<Parameters<T>, Awaited<U>>(key);
-    }
-    /**
-     * Register a handler that returns the first failure (false) from the listeners.
-     * Means ex-`every`
-     * @param key The event key to listen to.
-     * @returns
-     */
-    protected _firstFailure<T extends (...args: any[]) => any>(key: string) {
-        return this._backend.firstFailure<Parameters<T>>(key);
-    }
-
-    /**
-     *  Register a handler that broadcasts to all listeners without caring about the result.
-     *  Means ex-`all` of some sort.
-     * @param key The event key to listen to.
-     * @returns
-     */
-    protected _broadcast<T extends (...args: any[]) => any>(key: string) {
-        return this._backend.broadcast<Parameters<T>>(key);
-    }
-
-    /**
-     * Register a collector that collects results from all listeners.
-     * @param key The event key to listen to.
-     * @returns A collector for the specified event key.
-     */
-    protected _collect<T extends (...args: any[]) => U, U = ReturnType<T>>(key: string) {
-        return this._backend.collect<Parameters<T>, U>(key);
-    }
-
-    /**
-     * Register a batch collector that collects results from all listeners in batches.
-     * @param key The event key to listen to.
-     * @returns A batch collector for the specified event key.
-     */
-    protected _collectBatch<T extends (...args: any[]) => U, U = ReturnType<T>>(key: string) {
-        return this._backend.collectBatch<Parameters<T>, U>(key);
-    }
-    constructor(hub: ServiceBackend) {
-        super();
-        this._backend = hub;
-    }
-}
 /**
  * The APIService provides methods for interacting with the plug-in's API,
  */
-export abstract class APIService extends ServiceBase {
+export abstract class APIService<T extends ServiceContext = ServiceContext>
+    extends ServiceBase<T>
+    implements IAPIService
+{
     /**
      * Get a custom fetch handler for making HTTP requests (e.g., S3 without CORS issues).
      */
@@ -156,8 +91,11 @@ export abstract class APIService extends ServiceBase {
      * Check if the last POST request failed due to payload size.
      */
     abstract isLastPostFailedDueToPayloadSize(): boolean;
+
     abstract getPlatform(): string;
+
     abstract getAppVersion(): string;
+
     abstract getPluginVersion(): string;
 }
 
@@ -165,7 +103,10 @@ export abstract class APIService extends ServiceBase {
  * The PathService provides methods for converting between file paths and document IDs.
  * This class would be migrated to the new logic later.
  */
-export abstract class PathService extends ServiceBase {
+export abstract class PathService<T extends ServiceContext = ServiceContext>
+    extends ServiceBase<T>
+    implements IPathService
+{
     /**
      * Convert a document ID or entry to a virtual file path.
      * @param id A document ID. Nowadays, it is mostly not the same as the file path.
@@ -174,6 +115,7 @@ export abstract class PathService extends ServiceBase {
      * @param stripPrefix Whether to strip the prefix from the path.
      */
     abstract id2path(id: DocumentID, entry?: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
+
     /**
      * Convert a virtual file path to a document ID (with prefix if any).
      * @param filename A file path with or without prefix.
@@ -186,7 +128,10 @@ export abstract class PathService extends ServiceBase {
  * The DatabaseService provides methods for managing the local database.
  * Please note that each event of database lifecycle is handled in DatabaseEventService.
  */
-export abstract class DatabaseService extends ServiceBase {
+export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
+    extends ServiceBase<T>
+    implements IDatabaseService
+{
     /**
      * Create a new PouchDB instance.
      * @param name Optional name for the database instance.
@@ -207,11 +152,13 @@ export abstract class DatabaseService extends ServiceBase {
      * Open the local database.
      */
     abstract openDatabase(): Promise<boolean>;
+
     /**
      * Discard the local database.
      * Please note that this *DOES* delete the database contents perfectly.
      */
     abstract resetDatabase(): Promise<boolean>;
+
     /**
      * Check if the local database is ready.
      */
@@ -221,66 +168,34 @@ export abstract class DatabaseService extends ServiceBase {
 /**
  * The DatabaseEventService provides methods for handling database lifecycle events.
  */
-export abstract class DatabaseEventService extends ServiceBase {
-    constructor(hub: ServiceBackend) {
-        super(hub);
-        [this.onUnloadDatabase, this.handleOnUnloadDatabase] = this._all<typeof this.onUnloadDatabase>("dbUnload");
-        [this.onCloseDatabase, this.handleOnCloseDatabase] = this._all<typeof this.onCloseDatabase>("dbClose");
-        [this.onDatabaseInitialisation, this.handleOnDatabaseInitialisation] =
-            this._firstFailure<typeof this.onDatabaseInitialisation>("databaseInitialisation");
-        [this.onDatabaseInitialised, this.handleDatabaseInitialised] =
-            this._firstFailure<typeof this.onDatabaseInitialised>("databaseInitialised");
-        [this.onResetDatabase, this.handleOnResetDatabase] =
-            this._firstFailure<typeof this.onResetDatabase>("resetDatabase");
-    }
-
+export abstract class DatabaseEventService<T extends ServiceContext = ServiceContext>
+    extends ServiceBase<T>
+    implements IDatabaseEventService
+{
     /**
      * Event triggered when the database is about to be unloaded.
      */
-    readonly onUnloadDatabase: (db: LiveSyncLocalDB) => Promise<boolean>;
-    /**
-     * Handler to register for the onUnloadDatabase event.
-     */
-    readonly handleOnUnloadDatabase: HandlerFunc<typeof this.onUnloadDatabase>;
+    readonly onUnloadDatabase = handlers<IDatabaseEventService>().all("onUnloadDatabase");
 
     /**
      * Event triggered when the database is about to be closed.
      */
-    readonly onCloseDatabase: (db: LiveSyncLocalDB) => Promise<boolean>;
-
-    /**
-     * Handler to register for the onCloseDatabase event.
-     */
-    readonly handleOnCloseDatabase: HandlerFunc<typeof this.onCloseDatabase>;
+    readonly onCloseDatabase = handlers<IDatabaseEventService>().all("onCloseDatabase");
 
     /**
      * Event triggered when the database is being initialized.
      */
-    readonly onDatabaseInitialisation: (db: LiveSyncLocalDB) => Promise<boolean>;
-    /**
-     * Handler to register for the onDatabaseInitialisation event.
-     */
-    readonly handleOnDatabaseInitialisation: HandlerFunc<typeof this.onDatabaseInitialisation>;
+    readonly onDatabaseInitialisation = handlers<IDatabaseEventService>().bailFirstFailure("onDatabaseInitialisation");
 
     /**
      * Event triggered when the database has been initialized.
      */
-    readonly onDatabaseInitialised: (showNotice: boolean) => Promise<boolean>;
-    /**
-     * Handler to register for the onDatabaseInitialised event.
-     */
-    readonly handleDatabaseInitialised: HandlerFunc<typeof this.onDatabaseInitialised>;
+    readonly onDatabaseInitialised = handlers<IDatabaseEventService>().bailFirstFailure("onDatabaseInitialised");
 
     /**
      * Event triggered when the database is being reset.
      */
-    readonly onResetDatabase: (db: LiveSyncLocalDB) => Promise<boolean>;
-
-    /**
-     * Handler to register for the onResetDatabase event.
-     */
-    readonly handleOnResetDatabase: HandlerFunc<typeof this.onResetDatabase>;
-
+    readonly onResetDatabase = handlers<IDatabaseEventService>().bailFirstFailure("onResetDatabase");
     /**
      * Initialize the database.
      * @param showingNotice Whether to show a notice to the user.
@@ -297,80 +212,44 @@ export abstract class DatabaseEventService extends ServiceBase {
 /**
  * File processing service handles file events and processes them accordingly.
  */
-export class FileProcessingService extends ServiceBase {
-    constructor(hub: ServiceBackend) {
-        super(hub);
-        [this.processFileEvent, this.handleProcessFileEvent] =
-            this._first<typeof this.processFileEvent>("processFileEvent");
-        [this.processOptionalFileEvent, this.handleOptionalFileEvent] =
-            this._first<typeof this.processOptionalFileEvent>("processOptionalFileEvent");
-        [this.commitPendingFileEvents, this.handleCommitPendingFileEvents] =
-            this._firstFailure<typeof this.commitPendingFileEvents>("commitPendingFileEvents");
-    }
-
+export class FileProcessingService<T extends ServiceContext = ServiceContext>
+    extends ServiceBase<T>
+    implements IFileProcessingService
+{
     /**
      * Process a file event item by the registered handlers.
      */
-    readonly processFileEvent: (item: FileEventItem) => Promise<boolean>;
-    /**
-     * Handler to register for the processFileEvent event.
-     */
-    readonly handleProcessFileEvent: HandlerFunc<typeof this.processFileEvent>;
+    readonly processFileEvent = handlers<IFileProcessingService>().anySuccess("processFileEvent");
 
     /**
      * Process a file event item optionally, if any handler is registered.
      * i.e., hidden files synchronisation or customisation sync.
      */
-    readonly processOptionalFileEvent: (path: FilePath) => Promise<boolean>;
-
-    /**
-     * Handler to register for the processOptionalFileEvent event.
-     */
-    readonly handleOptionalFileEvent: HandlerFunc<typeof this.processOptionalFileEvent>;
+    readonly processOptionalFileEvent = handlers<IFileProcessingService>().anySuccess("processOptionalFileEvent");
 
     /**
      * Commit any pending file events that have been queued for processing.
      */
-    readonly commitPendingFileEvents: () => Promise<boolean>;
-    /**
-     * Handler to register for the commitPendingFileEvents event.
-     */
-    readonly handleCommitPendingFileEvents: HandlerFunc<typeof this.commitPendingFileEvents>;
+    readonly commitPendingFileEvents = handlers<IFileProcessingService>().bailFirstFailure("commitPendingFileEvents");
 }
 
 /**
  * The ReplicatorService provides methods for managing replication.
  */
-export abstract class ReplicatorService extends ServiceBase {
-    constructor(hub: ServiceBackend) {
-        super(hub);
-        [this.getNewReplicator, this.handleGetNewReplicator] =
-            this._firstOrUndefined<typeof this.getNewReplicator>("getNewReplicator");
-        [this.onCloseActiveReplication, this.handleOnCloseActiveReplication] =
-            this._first<typeof this.onCloseActiveReplication>("closeActiveReplication");
-    }
+export abstract class ReplicatorService<T extends ServiceContext = ServiceContext>
+    extends ServiceBase<T>
+    implements IReplicatorService
+{
     /**
      * Close the active replication if any.
      * Not used currently.
      */
-    readonly onCloseActiveReplication: () => Promise<boolean>;
-    /**
-     * Handler to register for the onCloseActiveReplication event.
-     * Not used currently.
-     */
-    readonly handleOnCloseActiveReplication: HandlerFunc<typeof this.onCloseActiveReplication>;
+    readonly onCloseActiveReplication = handlers<IReplicatorService>().anySuccess("onCloseActiveReplication");
 
     /**
      * Get a new replicator instance based on the provided settings.
      */
-    readonly getNewReplicator: (
-        settingOverride?: Partial<ObsidianLiveSyncSettings>
-    ) => Promise<LiveSyncAbstractReplicator | undefined | false>;
-    /**
-     * Handler to register for the getNewReplicator event, active replicator should produce an instance.
-     */
-    readonly handleGetNewReplicator: HandlerFuncWithoutUndefined<typeof this.getNewReplicator>;
-
+    readonly getNewReplicator = handlers<IReplicatorService>().firstResult("getNewReplicator");
     /**
      * Get the currently active replicator instance.
      * If no active replicator, return undefined but that is the fatal situation (on Obsidian).
@@ -381,40 +260,21 @@ export abstract class ReplicatorService extends ServiceBase {
 /**
  * The ReplicationService provides methods for managing replication processes.
  */
-export abstract class ReplicationService extends ServiceBase {
-    constructor(hub: ServiceBackend) {
-        super(hub);
-        [this.processOptionalSynchroniseResult, this.handleProcessOptionalSynchroniseResult] = this._first<
-            typeof this.processOptionalSynchroniseResult
-        >("processOptionalSynchroniseResult");
-        [this.processSynchroniseResult, this.handleProcessSynchroniseResult] =
-            this._first<typeof this.processSynchroniseResult>("processSynchroniseResult");
-        [this.processVirtualDocument, this.handleProcessVirtualDocuments] =
-            this._first<typeof this.processVirtualDocument>("processVirtualDocuments");
-        [this.onBeforeReplicate, this.handleBeforeReplicate] =
-            this._firstFailure<typeof this.onBeforeReplicate>("beforeReplicate");
-        [this.checkConnectionFailure, this.handleCheckConnectionFailure] =
-            this._first<typeof this.checkConnectionFailure>("connectionHasFailure");
-    }
-
+export abstract class ReplicationService<T extends ServiceContext = ServiceContext>
+    extends ServiceBase<T>
+    implements IReplicationService
+{
     /**
      * Process a synchronisation result document.
      */
-    readonly processSynchroniseResult: (doc: MetaEntry) => Promise<boolean>;
-    /**
-     * Handler to register for the processSynchroniseResult event.
-     */
-    readonly handleProcessSynchroniseResult: HandlerFunc<typeof this.processSynchroniseResult>;
+    readonly processSynchroniseResult = handlers<IReplicationService>().anySuccess("processSynchroniseResult");
 
     /**
      * Process a synchronisation result document for optional entries i.e., hidden files.
      */
-    readonly processOptionalSynchroniseResult: (doc: LoadedEntry) => Promise<boolean>;
-    /**
-     * Handler to register for the processOptionalSynchroniseResult event.
-     */
-    readonly handleProcessOptionalSynchroniseResult: HandlerFunc<typeof this.processOptionalSynchroniseResult>;
-
+    readonly processOptionalSynchroniseResult = handlers<IReplicationService>().anySuccess(
+        "processOptionalSynchroniseResult"
+    );
     /**
      * Process an array of synchronisation result documents.
      * @param docs An array of documents to parse and handle.
@@ -423,20 +283,12 @@ export abstract class ReplicationService extends ServiceBase {
     /**
      * Process a virtual document (e.g., for customisation sync).
      */
-    readonly processVirtualDocument: (docs: PouchDB.Core.ExistingDocument<EntryDoc>) => Promise<boolean>;
-    /**
-     * Handler to register for the processVirtualDocument event.
-     */
-    readonly handleProcessVirtualDocuments: HandlerFunc<typeof this.processVirtualDocument>;
+    readonly processVirtualDocument = handlers<IReplicationService>().anySuccess("processVirtualDocument");
 
     /**
      * An event triggered before starting replication.
      */
-    readonly onBeforeReplicate: (showMessage: boolean) => Promise<boolean>;
-    /**
-     * Handler to register for the onBeforeReplicate event.
-     */
-    readonly handleBeforeReplicate: HandlerFunc<typeof this.onBeforeReplicate>;
+    readonly onBeforeReplicate = handlers<IReplicationService>().bailFirstFailure("onBeforeReplicate");
     /**
      *  Check if the replication is ready to start.
      * @param showMessage Whether to show messages to the user.
@@ -458,22 +310,16 @@ export abstract class ReplicationService extends ServiceBase {
     /**
      * Check if there is a connection failure with the remote database.
      */
-    readonly checkConnectionFailure: () => Promise<boolean | "CHECKAGAIN" | undefined>;
-
-    /**
-     * Handler to register for the checkConnectionFailure event.
-     */
-    readonly handleCheckConnectionFailure: HandlerFunc<typeof this.checkConnectionFailure>;
+    readonly checkConnectionFailure = handlers<IReplicationService>().firstResult("checkConnectionFailure");
 }
 
 /**
  * The RemoteService provides methods for interacting with the remote database.
  */
-export abstract class RemoteService extends ServiceBase {
-    constructor(hub: ServiceBackend) {
-        super(hub);
-    }
-
+export abstract class RemoteService<T extends ServiceContext = ServiceContext>
+    extends ServiceBase<T>
+    implements IRemoteService
+{
     /**
      * Connect to the remote database with the provided settings.
      * @param uri  The URI of the remote database.
@@ -545,6 +391,7 @@ export abstract class RemoteService extends ServiceBase {
      * @returns Promise<void>
      */
     abstract tryResetDatabase(): Promise<void>;
+
     /**
      * Try to create the remote database if it does not exist.
      * Note that all error will be thrown to the caller.
@@ -557,26 +404,16 @@ export abstract class RemoteService extends ServiceBase {
 /**
  * The ConflictService provides methods for handling file conflicts.
  */
-export abstract class ConflictService extends ServiceBase {
-    constructor(hub: ServiceBackend) {
-        super(hub);
-        [this.resolveByUserInteraction, this.handleResolveByUserInteraction] =
-            this._first<typeof this.resolveByUserInteraction>("resolveByUserInteraction");
-        [this.getOptionalConflictCheckMethod, this.handleGetOptionalConflictCheckMethod] = this._first<
-            typeof this.getOptionalConflictCheckMethod
-        >("getOptionalConflictCheckMethod");
-    }
-
+export abstract class ConflictService<T extends ServiceContext = ServiceContext>
+    extends ServiceBase<T>
+    implements IConflictService
+{
     /**
      * Get an optional conflict check method for a given file (virtual) path.
      */
-    readonly getOptionalConflictCheckMethod: (path: FilePathWithPrefix) => Promise<boolean | undefined | "newer">;
-
-    /**
-     * Handler to register for the getOptionalConflictCheckMethod event.
-     */
-    readonly handleGetOptionalConflictCheckMethod: HandlerFunc<typeof this.getOptionalConflictCheckMethod>;
-
+    readonly getOptionalConflictCheckMethod = handlers<IConflictService>().firstResult(
+        "getOptionalConflictCheckMethod"
+    );
     /**
      * Queue a check for conflicts if the file is currently open in the editor.
      * @param path The file (virtual) path to check for conflicts.
@@ -600,15 +437,7 @@ export abstract class ConflictService extends ServiceBase {
      * @param conflictCheckResult The result of the conflict check.
      * @returns A promise that resolves to true if the conflict was resolved, false if not, or undefined if no action was taken.
      */
-    readonly resolveByUserInteraction: (
-        filename: FilePathWithPrefix,
-        conflictCheckResult: diff_result
-    ) => Promise<boolean | undefined>;
-
-    /**
-     * Handler to register for the resolveByUserInteraction event.
-     */
-    readonly handleResolveByUserInteraction: HandlerFunc<typeof this.resolveByUserInteraction>;
+    readonly resolveByUserInteraction = handlers<IConflictService>().firstResult("resolveByUserInteraction");
 
     /**
      * Resolve a conflict by deleting a specific revision.
@@ -639,148 +468,78 @@ export abstract class ConflictService extends ServiceBase {
 /**
  * The AppLifecycleService provides methods for managing the plug-in's lifecycle events.
  */
-export abstract class AppLifecycleService extends ServiceBase {
-    constructor(hub: ServiceBackend) {
-        super(hub);
-        [this.onLayoutReady, this.handleLayoutReady] = this._firstFailure("layoutReady");
-        [this.onFirstInitialise, this.handleFirstInitialise] = this._firstFailure("firstInitialise");
-        [this.onReady, this.handleOnReady] = this._firstFailure("appReady");
-        [this.onWireUpEvents, this.handleOnWireUpEvents] = this._firstFailure("wireUpEvents");
-        [this.onLoad, this.handleOnLoad] = this._firstFailure("appLoad");
-        [this.onAppUnload, this.handleOnAppUnload] = this._broadcast("appUnload");
-        [this.onScanningStartupIssues, this.handleOnScanningStartupIssues] = this._all("scanStartupIssues");
-        [this.onInitialise, this.handleOnInitialise] = this._firstFailure("appInitialise");
-        [this.onLoaded, this.handleOnLoaded] = this._firstFailure("appLoaded");
-        [this.onSettingLoaded, this.handleOnSettingLoaded] = this._firstFailure("applyStartupLoaded");
-        [this.onBeforeUnload, this.handleOnBeforeUnload] = this._all("beforeUnload");
-        [this.onUnload, this.handleOnUnload] = this._all("unload");
-        [this.onSuspending, this.handleOnSuspending] = this._firstFailure("beforeSuspendProcess");
-        [this.onResuming, this.handleOnResuming] = this._firstFailure("onResumeProcess");
-        [this.onResumed, this.handleOnResumed] = this._firstFailure("afterResumeProcess");
-        [this.getUnresolvedMessages, this.reportUnresolvedMessages] = this._collectBatch("unresolvedMessages");
-    }
-
+export abstract class AppLifecycleService<T extends ServiceContext = ServiceContext>
+    extends ServiceBase<T>
+    implements IAppLifecycleService
+{
     /**
      * Event triggered when the plug-in's layout is ready.
      * In Obsidian, it is after the workspace is ready.
      */
-    readonly onLayoutReady: () => Promise<boolean>;
-
-    /**
-     * Handler to register for the onLayoutReady event.
-     */
-    readonly handleLayoutReady: HandlerFunc<typeof this.onLayoutReady>;
+    readonly onLayoutReady = handlers<IAppLifecycleService>().firstResult("onLayoutReady");
 
     /**
      * Event triggered when the plug-in is being initialized for the first time.
      * This is only called once per plug-in lifecycle.
      */
-    readonly onFirstInitialise: () => Promise<boolean>;
-
-    /**
-     * Handler to register for the onFirstInitialise event.
-     */
-    readonly handleFirstInitialise: HandlerFunc<typeof this.onFirstInitialise>;
+    readonly onFirstInitialise = handlers<IAppLifecycleService>().firstResult("onFirstInitialise");
 
     /**
      * Event triggered when the plug-in is fully ready.
      * This is called after all initialisation processes are complete.
      */
-    readonly onReady: () => Promise<boolean>;
-    /**
-     * Handler to register for the onReady event.
-     */
-    readonly handleOnReady: HandlerFunc<typeof this.onReady>;
+    readonly onReady = handlers<IAppLifecycleService>().bailFirstFailure("onReady");
 
     /**
      * Event triggered to wire up necessary event listeners.
      * This is typically called during the initialisation phase.
      */
-    readonly onWireUpEvents: () => Promise<boolean>;
-
-    /**
-     * Handler to register for the onWireUpEvents event.
-     */
-    readonly handleOnWireUpEvents: HandlerFunc<typeof this.onWireUpEvents>;
+    readonly onWireUpEvents = handlers<IAppLifecycleService>().bailFirstFailure("onWireUpEvents");
 
     /**
      * Event triggered when the plug-in is being initialised.
      */
-    readonly onInitialise: () => Promise<boolean>;
-    /**
-     * Handler to register for the onInitialise event.
-     */
-    readonly handleOnInitialise: HandlerFunc<typeof this.onInitialise>;
+    readonly onInitialise = handlers<IAppLifecycleService>().bailFirstFailure("onInitialise");
 
     /**
      * Event triggered when the plug-in is loading.
      * This is typically called during the quite early initialisation phase, before everything.
      * In Obsidian, it is in the onload() method of the plugin.
      */
-    readonly onLoad: () => Promise<boolean>;
-    /**
-     * Handler to register for the onLoad event.
-     */
-    readonly handleOnLoad: HandlerFunc<typeof this.onLoad>;
+    readonly onLoad = handlers<IAppLifecycleService>().bailFirstFailure("onLoad");
 
     /**
      * Event triggered when the plug-in's settings have been loaded and applied.
      */
-    readonly onSettingLoaded: () => Promise<boolean>;
-    /**
-     * Handler to register for the onSettingLoaded event.
-     */
-    readonly handleOnSettingLoaded: HandlerFunc<typeof this.onSettingLoaded>;
+    readonly onSettingLoaded = handlers<IAppLifecycleService>().bailFirstFailure("onSettingLoaded");
 
     /**
      * Event triggered when the plug-in has fully loaded.
      * This is typically called after all initialisation and loading processes are complete.
      */
-    readonly onLoaded: () => Promise<boolean>;
-    /**
-     * Handler to register for the onLoaded event.
-     */
-    readonly handleOnLoaded: HandlerFunc<typeof this.onLoaded>;
+    readonly onLoaded = handlers<IAppLifecycleService>().bailFirstFailure("onLoaded");
 
     /**
      * Scan for any startup issues that may affect the plug-in's operation.
      */
-    readonly onScanningStartupIssues: () => Promise<boolean>;
-    /**
-     * Handler to register for the onScanningStartupIssues event.
-     */
-    readonly handleOnScanningStartupIssues: HandlerFunc<typeof this.onScanningStartupIssues>;
+    readonly onScanningStartupIssues = handlers<IAppLifecycleService>().all("onScanningStartupIssues");
 
     /**
      * Event triggered when the plug-in is unloading (e.g., during app shutdown or plug-in disable).
      * This is typically called during the unload() method of the plugin.
      * Entry point to unload everything.
      */
-    readonly onAppUnload: () => Promise<void>;
-    /**
-     * Handler to register for the onAppUnload event.
-     */
-    readonly handleOnAppUnload: HandlerFunc<typeof this.onAppUnload>;
-
+    readonly onAppUnload = handlers<IAppLifecycleService>().dispatchParallel("onAppUnload");
     /**
      * Event triggered before the plug-in is unloaded.
      * This is typically used to perform any necessary cleanup or save state before the plug-in is unloaded.
      */
-    readonly onBeforeUnload: () => Promise<boolean>;
-    /**
-     * Handler to register for the onBeforeUnload event.
-     */
-    readonly handleOnBeforeUnload: HandlerFunc<typeof this.onBeforeUnload>;
+    readonly onBeforeUnload = handlers<IAppLifecycleService>().all("onBeforeUnload");
 
     /**
      * Event triggered when the plug-in is being unloaded.
      */
-    readonly onUnload: () => Promise<boolean>;
-    /**
-     * Handler to register for the onUnload event.
-     */
-    readonly handleOnUnload: HandlerFunc<typeof this.onUnload>;
-
+    readonly onUnload = handlers<IAppLifecycleService>().all("onUnload");
     /**
      * Perform an immediate restart of the application.
      * Note that this is not graceful, and not only the plug-in. APPLICATION (means Obsidian) will be restarted.
@@ -803,32 +562,17 @@ export abstract class AppLifecycleService extends ServiceBase {
     /**
      * Event triggered when the application is being suspended (e.g., system sleep).
      */
-    readonly onSuspending: () => Promise<boolean>;
-
-    /**
-     * Handler to register for the onSuspending event.
-     */
-    readonly handleOnSuspending: HandlerFunc<typeof this.onSuspending>;
+    readonly onSuspending = handlers<IAppLifecycleService>().bailFirstFailure("onSuspending");
 
     /**
      * Event triggered when the application is resuming from a suspended state.
      */
-    readonly onResuming: () => Promise<boolean>;
-
-    /**
-     * Handler to register for the onResuming event.
-     */
-    readonly handleOnResuming: HandlerFunc<typeof this.onResuming>;
+    readonly onResuming = handlers<IAppLifecycleService>().bailFirstFailure("onResuming");
 
     /**
      * Event triggered after the application has resumed from a suspended state.
      */
-    readonly onResumed: () => Promise<boolean>;
-
-    /**
-     * Handler to register for the onResumed event.
-     */
-    readonly handleOnResumed: HandlerFunc<typeof this.onResumed>;
+    readonly onResumed = handlers<IAppLifecycleService>().bailFirstFailure("onResumed");
 
     /**
      * Check if the plug-in is currently suspended.
@@ -847,14 +591,17 @@ export abstract class AppLifecycleService extends ServiceBase {
      * If not ready, most operations will be blocked.
      */
     abstract isReady(): boolean;
+
     /**
      * Mark the plug-in as ready.
      */
     abstract markIsReady(): void;
+
     /**
      * Reset the ready state of the plug-in.
      */
     abstract resetIsReady(): void;
+
     /**
      * Check if the plug-in has been unloaded.
      */
@@ -868,26 +615,13 @@ export abstract class AppLifecycleService extends ServiceBase {
     /**
      * Get unresolved error messages.
      */
-    readonly getUnresolvedMessages: () => Promise<string[][]>;
-    /**
-     * Report unresolved error messages.
-     */
-    readonly reportUnresolvedMessages: HandlerFunc<() => Promise<string[]>>;
+    readonly getUnresolvedMessages = handlers<IAppLifecycleService>().dispatchParallel("getUnresolvedMessages");
 }
 
-export abstract class SettingService extends ServiceBase {
-    constructor(hub: ServiceBackend) {
-        super(hub);
-        [this.onBeforeRealiseSetting, this.handleBeforeRealiseSetting] = this._firstFailure("beforeRealiseSetting");
-        [this.onSettingRealised, this.handleSettingRealised] = this._firstFailure("afterRealiseSetting");
-        [this.onRealiseSetting, this.handleOnRealiseSetting] = this._firstFailure("realiseSetting");
-        [this.suspendAllSync, this.handleSuspendAllSync] = this._all("suspendAllSync");
-        [this.suspendExtraSync, this.handleSuspendExtraSync] = this._all("suspendExtraSync");
-        [this.suggestOptionalFeatures, this.handleSuggestOptionalFeatures] =
-            this._all<typeof this.suggestOptionalFeatures>("suggestOptionalFeatures");
-        [this.enableOptionalFeature, this.handleEnableOptionalFeature] =
-            this._all<typeof this.enableOptionalFeature>("enableOptionalFeature");
-    }
+export abstract class SettingService<T extends ServiceContext = ServiceContext>
+    extends ServiceBase<T>
+    implements ISettingService
+{
     /**
      * Clear any used passphrase from memory.
      */
@@ -926,6 +660,7 @@ export abstract class SettingService extends ServiceBase {
      * @param name The unique name to set.
      */
     abstract setDeviceAndVaultName(name: string): void;
+
     /**
      * Save the current device and vault name to settings, aside from the main settings.
      */
@@ -940,73 +675,39 @@ export abstract class SettingService extends ServiceBase {
      * Event triggered before realising the settings.
      * Handlers can return false to abort the realisation process.
      */
-    readonly onBeforeRealiseSetting: () => Promise<boolean>;
-
-    /**
-     * Handler to register for the onBeforeRealiseSetting event.
-     */
-    readonly handleBeforeRealiseSetting: HandlerFunc<typeof this.onBeforeRealiseSetting>;
+    readonly onBeforeRealiseSetting = handlers<ISettingService>().bailFirstFailure("onBeforeRealiseSetting");
 
     /**
      * Event triggered after the settings have been realised.
      */
-    readonly onSettingRealised: () => Promise<boolean>;
-
-    /**
-     * Handler to register for the onSettingRealised event.
-     */
-    readonly handleSettingRealised: HandlerFunc<typeof this.onSettingRealised>;
+    readonly onSettingRealised = handlers<ISettingService>().bailFirstFailure("onSettingRealised");
 
     /**
      * Event triggered to realise the settings.
      */
-    readonly onRealiseSetting: () => Promise<boolean>;
-
-    /**
-     * Handler to register for the onRealiseSetting event.
-     */
-    readonly handleOnRealiseSetting: HandlerFunc<typeof this.onRealiseSetting>;
+    readonly onRealiseSetting = handlers<ISettingService>().bailFirstFailure("onRealiseSetting");
 
     /**
      * Suspend all synchronisation activities and save to the settings.
      */
-    readonly suspendAllSync: () => Promise<boolean>;
-
-    /**
-     * Handler to register for the suspendAllSync event.
-     */
-    readonly handleSuspendAllSync: HandlerFunc<typeof this.suspendAllSync>;
+    readonly suspendAllSync = handlers<ISettingService>().all("suspendAllSync");
 
     /**
      * Suspend extra synchronisation activities, e.g., hidden files sync.
      */
-    readonly suspendExtraSync: () => Promise<boolean>;
-    /**
-     * Handler to register for the suspendExtraSync event and save to the settings.
-     */
-    readonly handleSuspendExtraSync: HandlerFunc<typeof this.suspendExtraSync>;
+    readonly suspendExtraSync = handlers<ISettingService>().all("suspendExtraSync");
 
     /**
      * Suggest enabling optional features to the user.
      */
-    readonly suggestOptionalFeatures: (opt: { enableFetch?: boolean; enableOverwrite?: boolean }) => Promise<boolean>;
+    readonly suggestOptionalFeatures = handlers<ISettingService>().all("suggestOptionalFeatures");
 
-    /**
-     * Handler to register for the suggestOptionalFeatures event.
-     * Each optional feature should suggest itself.
-     */
-    readonly handleSuggestOptionalFeatures: HandlerFunc<typeof this.suggestOptionalFeatures>;
     /**
      * Enable an optional feature and save to the settings.
      * It may also raised from `handleSuggestOptionalFeatures` if the user agrees.
      * @param mode The optional feature to enable.
      */
-    readonly enableOptionalFeature: (mode: keyof OPTIONAL_SYNC_FEATURES) => Promise<boolean>;
-
-    /**
-     * Handler to register for the enableOptionalFeature event.
-     */
-    readonly handleEnableOptionalFeature: HandlerFunc<typeof this.enableOptionalFeature>;
+    readonly enableOptionalFeature = handlers<ISettingService>().all("enableOptionalFeature");
 
     /**
      * Get the current settings.
@@ -1025,7 +726,10 @@ export abstract class SettingService extends ServiceBase {
 /**
  * The TweakValueService provides methods for managing tweak values and resolving mismatches.
  */
-export abstract class TweakValueService extends ServiceBase {
+export abstract class TweakValueService<T extends ServiceContext = ServiceContext>
+    extends ServiceBase<T>
+    implements ITweakValueService
+{
     /**
      * Fetch and trial the remote database settings to determine if they are preferred.
      * @param trialSetting The remote database settings to connect.
@@ -1066,14 +770,15 @@ export abstract class TweakValueService extends ServiceBase {
 /**
  * The VaultService provides methods for interacting with the vault (local file system).
  */
-export abstract class VaultService extends ServiceBase {
-    constructor(hub: ServiceBackend) {
-        super(hub);
-    }
+export abstract class VaultService<T extends ServiceContext = ServiceContext>
+    extends ServiceBase<T>
+    implements IVaultService
+{
     /**
      * Get the vault name only.
      */
     abstract vaultName(): string;
+
     /**
      * Get the vault name with additional suffixes.
      */
@@ -1125,36 +830,23 @@ export abstract class VaultService extends ServiceBase {
 /**
  * The TestService provides methods for adding and handling test results.
  */
-export abstract class TestService extends ServiceBase {
-    constructor(hub: ServiceBackend) {
-        super(hub);
-        [this.test, this.handleTest] = this._firstFailure<typeof this.test>("test");
-        [this.testMultiDevice, this.handleTestMultiDevice] =
-            this._firstFailure<typeof this.testMultiDevice>("testMultiDevice");
-    }
+export abstract class TestService<T extends ServiceContext = ServiceContext>
+    extends ServiceBase<T>
+    implements ITestService
+{
     /**
      * Run the test suite to verify the plug-in's functionality.
      * This is typically used for development and debugging purposes.
      * It may involve user interaction (means raising resolveByUserInteraction).
      */
-    readonly test: () => Promise<boolean>;
-
-    /**
-     * Handler to register for the test event.
-     */
-    readonly handleTest: HandlerFunc<typeof this.test>;
+    readonly test = handlers<ITestService>().bailFirstFailure("test");
 
     /**
      * Run the multi-device test suite to verify the plug-in's functionality across multiple devices.
      * This is typically used for development and debugging purposes.
      * It may involve user interaction (means raising resolveByUserInteraction).
      */
-    readonly testMultiDevice: () => Promise<boolean>;
-
-    /**
-     * Handler to register for the testMultiDevice event.
-     */
-    readonly handleTestMultiDevice: HandlerFunc<typeof this.testMultiDevice>;
+    readonly testMultiDevice = handlers<ITestService>().bailFirstFailure("testMultiDevice");
 
     /**
      * Add a test result to the test suite.
@@ -1167,22 +859,29 @@ export abstract class TestService extends ServiceBase {
     abstract addTestResult(name: string, key: string, result: boolean, summary?: string, message?: string): void;
 }
 
-export abstract class UIService extends HubService {
+export abstract class UIService<T extends ServiceContext = ServiceContext>
+    extends ServiceBase<T>
+    implements IUIService
+{
     abstract get dialogManager(): SvelteDialogManagerBase;
+
     abstract promptCopyToClipboard(title: string, value: string): Promise<boolean>;
+
     abstract showMarkdownDialog<T extends string[]>(
         title: string,
         contentMD: string,
         buttons: T
     ): Promise<(typeof buttons)[number] | false>;
 }
-export class UIServiceStub extends UIService {
+export class UIServiceStub<T extends ServiceContext = ServiceContext> extends UIService<T> {
     get dialogManager(): SvelteDialogManagerBase {
         throw new Error("UIService.dialogManager not implemented (stub)");
     }
+
     promptCopyToClipboard(title: string, value: string): Promise<boolean> {
         throw new Error("UIService.promptCopyToClipboard not implemented (stub)");
     }
+
     showMarkdownDialog<T extends string[]>(
         title: string,
         contentMD: string,
@@ -1192,50 +891,38 @@ export class UIServiceStub extends UIService {
     }
 }
 
-export abstract class ConfigService extends HubService {
+export abstract class ConfigService<T extends ServiceContext = ServiceContext>
+    extends ServiceBase<T>
+    implements IConfigService
+{
     abstract getSmallConfig(key: string): string | null;
+
     abstract setSmallConfig(key: string, value: string): void;
+
     abstract deleteSmallConfig(key: string): void;
 }
 
-export class ConfigServiceBrowserCompat extends ConfigService {
+export class ConfigServiceBrowserCompat<T extends ServiceContext = ServiceContext> extends ConfigService<T> {
+    private _vaultService: IVaultService;
+    constructor(context: T, vaultService: IVaultService) {
+        super(context);
+        this._vaultService = vaultService;
+    }
     getSmallConfig(key: string) {
-        const vaultName = this.services.vault.getVaultName();
+        const vaultName = this._vaultService.getVaultName();
         const dbKey = `${vaultName}-${key}`;
         return localStorage.getItem(dbKey);
     }
+
     setSmallConfig(key: string, value: string): void {
-        const vaultName = this.services.vault.getVaultName();
+        const vaultName = this._vaultService.getVaultName();
         const dbKey = `${vaultName}-${key}`;
         localStorage.setItem(dbKey, value);
     }
+
     deleteSmallConfig(key: string): void {
-        const vaultName = this.services.vault.getVaultName();
+        const vaultName = this._vaultService.getVaultName();
         const dbKey = `${vaultName}-${key}`;
         localStorage.removeItem(dbKey);
-    }
-}
-
-/**
- * ThroughHole is a utility class that allows lazy binding for older implementations.
- * For easy migration for future refactoring and adding tests.
- */
-export class ThroughHole {
-    registeredFunctions = new Map<string, () => any>();
-    bindFunction<T extends (...args: any[]) => any>(name: string, func: T): void {
-        this.registeredFunctions.set(name, func);
-    }
-    getFunction<T extends (...args: any[]) => any>(name: string): T {
-        let invocation: ((...args: Parameters<T>) => ReturnType<T>) | undefined;
-        const overlay = (...args: Parameters<T>) => {
-            if (!invocation) {
-                invocation = this.registeredFunctions.get(name);
-            }
-            if (!invocation) {
-                throw new Error(`Function ${name} is not bound in ThroughHole`);
-            }
-            return invocation(...args);
-        };
-        return overlay as T;
     }
 }
