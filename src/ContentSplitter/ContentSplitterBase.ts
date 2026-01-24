@@ -41,6 +41,7 @@ export abstract class ContentSplitterCore {
 
 export abstract class ContentSplitterBase extends ContentSplitterCore {
     initialise(_options: ContentSplitterOptions): Promise<boolean> {
+        this.options = _options;
         return Promise.resolve(true); // Default implementation, should be overridden
     }
 

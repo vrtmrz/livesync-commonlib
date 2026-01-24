@@ -516,8 +516,12 @@ interface SafetyValveSettings {
      * Indicates whether suspension should be avoided during fetching operations.
      */
     doNotSuspendOnFetching: boolean;
-}
 
+    /**
+     * Maximum file modification time applied to reflected file events
+     */
+    maxMTimeForReflectEvents: number;
+}
 /**
  * Represents the settings required to synchronise with a bucket.
  */
@@ -1263,12 +1267,13 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     jwtExpDuration: 5,
     useRequestAPI: false,
     bucketPrefix: "",
-    chunkSplitterVersion: "",
+    chunkSplitterVersion: ChunkAlgorithms.RabinKarp,
     E2EEAlgorithm: E2EEAlgorithms.V2,
     processSizeMismatchedFiles: false,
     forcePathStyle: true,
     syncInternalFileOverwritePatterns: "" as CustomRegExpSourceList<",">,
     useOnlyLocalChunk: false,
+    maxMTimeForReflectEvents: 0,
 };
 
 export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> = {
@@ -1430,6 +1435,7 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     P2P_turnCredential: 152,
     syncInternalFileOverwritePatterns: 153,
     useOnlyLocalChunk: 154,
+    maxMTimeForReflectEvents: 155,
 } as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {

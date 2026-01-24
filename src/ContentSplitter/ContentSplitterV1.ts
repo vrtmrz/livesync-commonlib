@@ -10,7 +10,9 @@ import { ContentSplitterBase } from "./ContentSplitterBase";
 export class ContentSplitterV1 extends ContentSplitterBase {
     static isAvailableFor(setting: ContentSplitterOptions): boolean {
         return (
-            setting.settings.chunkSplitterVersion === ChunkAlgorithms.V1 || setting.settings.chunkSplitterVersion === ""
+            setting.settings.chunkSplitterVersion === ChunkAlgorithms.V1 ||
+            setting.settings.chunkSplitterVersion === "" ||
+            setting.settings.chunkSplitterVersion === undefined
         );
     }
     async processSplit(

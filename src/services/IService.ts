@@ -22,6 +22,7 @@ import type {
 import type { LiveSyncLocalDB } from "../pouchdb/LiveSyncLocalDB";
 import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator";
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
+import type { Confirm } from "../interfaces/Confirm";
 
 export interface IAPIService {
     getCustomFetchHandler(): FetchHttpHandler;
@@ -280,6 +281,8 @@ export interface IUIService {
         contentMD: string,
         buttons: T
     ): Promise<(typeof buttons)[number] | false>;
+
+    get confirm(): Confirm;
 }
 export interface IConfigService {
     getSmallConfig(key: string): string | null;

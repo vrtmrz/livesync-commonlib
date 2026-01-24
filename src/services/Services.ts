@@ -37,6 +37,7 @@ import type {
     IVaultService,
 } from "./IService.ts";
 import type { ServiceContext } from "./ServiceHub.ts";
+import type { Confirm } from "../interfaces/Confirm.ts";
 
 declare global {
     interface OPTIONAL_SYNC_FEATURES {
@@ -872,6 +873,8 @@ export abstract class UIService<T extends ServiceContext = ServiceContext>
         contentMD: string,
         buttons: T
     ): Promise<(typeof buttons)[number] | false>;
+
+    abstract get confirm(): Confirm;
 }
 export class UIServiceStub<T extends ServiceContext = ServiceContext> extends UIService<T> {
     get dialogManager(): SvelteDialogManagerBase {
@@ -888,6 +891,9 @@ export class UIServiceStub<T extends ServiceContext = ServiceContext> extends UI
         buttons: T
     ): Promise<(typeof buttons)[number] | false> {
         throw new Error("UIService.showMarkdownDialog not implemented (stub)");
+    }
+    get confirm(): Confirm {
+        throw new Error("UIService.confirm not implemented (stub)");
     }
 }
 
