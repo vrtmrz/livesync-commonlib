@@ -1,0 +1,1 @@
+WebPeer is moved to the main repository. Please visit the following link to access the latest version of WebPeer: [https://github.com/vrtmrz/obsidian-livesync/tree/main/src/apps/webpeer](
