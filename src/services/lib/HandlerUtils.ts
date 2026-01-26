@@ -1,5 +1,5 @@
 import { promiseWithResolvers } from "octagonal-wheels/promises";
-import { LOG_LEVEL_VERBOSE, Logger } from "../common/logger";
+import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger";
 
 /**
  * A function type that can be used as a handler.

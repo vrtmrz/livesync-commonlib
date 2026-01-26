@@ -26,7 +26,7 @@ import { TrysteroReplicatorP2PClient } from "./TrysteroReplicatorP2PClient";
 import { eventHub } from "../../hub/hub";
 import { createHostingDB } from "./ProxiedDB";
 import { mixedHash } from "octagonal-wheels/hash/purejs";
-import { EVENT_PLATFORM_UNLOADED } from "../../PlatformAPIs/base/APIBase";
+import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 import { $msg } from "../../common/i18n";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock_v2";
 import { Computed } from "octagonal-wheels/dataobject/Computed";

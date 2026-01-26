@@ -21,7 +21,6 @@ import {
     EVENT_P2P_CONNECTED,
     EVENT_P2P_REQUEST_FORCE_OPEN,
 } from "./TrysteroReplicatorP2PServer";
-import { getConfirmInstance } from "../../PlatformAPIs/obsidian/Confirm";
 import { $msg } from "../../common/i18n";
 import { delay } from "octagonal-wheels/promises";
 import type { ServiceHub } from "../../services/ServiceHub";
@@ -108,7 +107,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             knownPeers = r.server?.knownAdvertisements ?? [];
         }
         const message = `Rebuild from which peer?${settingPeerName ? `\n [*] indicates the peer you have selected before.` : ""}`;
-        const confirm = await getConfirmInstance();
+        const confirm = this.env.services.UI.confirm;
         // const peerNames = knownPeers.map(e => e.name);
         const markedPeerNames = knownPeers.map(
             (e) => `${e.name}\u2001${e.name == settingPeerName ? `[*]` : ""} (${e.peerId})`
@@ -134,7 +133,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         return peerId;
     }
     async tryUntilSuccess<T>(func: () => Promise<T | false>, repeat: number, logLevel: LOG_LEVEL): Promise<T | false> {
-        const confirm = await getConfirmInstance();
+        const confirm = this.env.services.UI.confirm;
         if (!confirm) {
             Logger(`Cannot find confirm instance.`, logLevel);
             return Promise.reject(`Cannot find confirm instance.`);
@@ -162,7 +161,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         const logLevel = showingNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
         if (setting.P2P_Enabled == false) {
             // const message = `Rebuild from which peer?${settingPeerName ? `\n [*] indicates the peer you have selected before.` : ""}`;
-            const confirm = await getConfirmInstance();
+            const confirm = this.env.services.UI.confirm;
             if ((await confirm.askYesNoDialog($msg("P2P.DisabledButNeed"), {})) != "yes") {
                 Logger($msg("P2P.NotEnabled"), logLevel);
             }

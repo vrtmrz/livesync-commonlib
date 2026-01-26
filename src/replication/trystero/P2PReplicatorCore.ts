@@ -6,7 +6,6 @@ import { reactiveSource, type ReactiveSource } from "octagonal-wheels/dataobject
 import { EVENT_DATABASE_REBUILT, EVENT_SETTING_SAVED } from "../../events/coreEvents";
 import { eventHub } from "../../hub/hub";
 import type { Confirm } from "../../interfaces/Confirm";
-import { EVENT_PLATFORM_UNLOADED } from "../../PlatformAPIs/base/APIBase";
 import { setReplicatorFunc } from "./LiveSyncTrysteroReplicator";
 import type { CommandShim, PluginShim } from "./P2PReplicatorPaneCommon";
 import { type P2PReplicationProgress } from "./TrysteroReplicator";
@@ -19,7 +18,8 @@ import {
     EVENT_P2P_REQUEST_FORCE_OPEN,
     EVENT_REQUEST_STATUS,
 } from "./TrysteroReplicatorP2PServer";
-import type { ServiceHub } from "../../services/ServiceHub";
+import type { InjectableServiceHub } from "../../services/InjectableServices";
+import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 
 export function setP2PReplicatorInstance(instance: CommandShim) {
     setReplicatorFunc(() => instance._replicatorInstance);
@@ -168,5 +168,5 @@ export interface P2PReplicatorBase {
     handleReplicatedDocuments(docs: EntryDoc[]): Promise<void>;
     init(): Promise<this>;
 
-    services: ServiceHub;
+    services: InjectableServiceHub;
 }

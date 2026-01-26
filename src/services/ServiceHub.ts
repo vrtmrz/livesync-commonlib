@@ -1,24 +1,21 @@
-import type {
-    APIService,
-    PathService,
-    DatabaseService,
-    DatabaseEventService,
-    ReplicatorService,
-    FileProcessingService,
-    ReplicationService,
-    RemoteService,
-    AppLifecycleService,
-    SettingService,
-    TweakValueService,
-    VaultService,
-    ConflictService,
-    TestService,
-    UIService,
-    ConfigService,
-} from "./Services.ts";
-export class ServiceContext {
-    // Placeholder for future context properties
-}
+import type { UIService } from "./implements/base/UIService.ts";
+import type { ConfigService } from "@lib/services/base/ConfigService.ts";
+import type { TestService } from "@lib/services/base/TestService.ts";
+import type { VaultService } from "@lib/services/base/VaultService.ts";
+import type { TweakValueService } from "@lib/services/base/TweakValueService.ts";
+import type { SettingService } from "@lib/services/base/SettingService.ts";
+import type { AppLifecycleService } from "@lib/services/base/AppLifecycleService.ts";
+import type { ConflictService } from "@lib/services/base/ConflictService.ts";
+import type { RemoteService } from "@lib/services/base/RemoteService.ts";
+import type { ReplicationService } from "@lib/services/base/ReplicationService.ts";
+import type { ReplicatorService } from "@lib/services/base/ReplicatorService.ts";
+import type { FileProcessingService } from "@lib/services/base/FileProcessingService.ts";
+import type { DatabaseEventService } from "@lib/services/base/DatabaseEventService.ts";
+import type { DatabaseService } from "@lib/services/base/DatabaseService.ts";
+import type { PathService } from "@lib/services/base/PathService.ts";
+import type { APIService } from "@lib/services/base/APIService.ts";
+import type { ServiceContext } from "./base/ServiceBase.ts";
+
 export type ServiceInstances<T extends ServiceContext = ServiceContext> = {
     API?: APIService<T>;
     path?: PathService<T>;

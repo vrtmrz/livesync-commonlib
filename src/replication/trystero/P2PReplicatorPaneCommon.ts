@@ -61,7 +61,7 @@ export interface CommandShim {
     disableBroadcastCastings(): void; ///cmdSync._replicatorInstance?.disableBroadcastChanges();
     _replicatorInstance?: TrysteroReplicator;
     initialiseP2PReplicator(): Promise<TrysteroReplicator>;
-    getPlatform(): string;
+    // getPlatform(): string;
     settings: P2PSyncSetting;
     _notice(msg: string): void;
 }

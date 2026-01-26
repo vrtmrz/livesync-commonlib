@@ -47,9 +47,8 @@ import {
     SyncParamsUpdateError,
 } from "../replication/SyncParamsHandler.ts";
 import { LiveSyncManagers } from "../managers/LiveSyncManagers.ts";
-import { InjectableServiceHub, InjectableVaultService } from "../services/InjectableServices.ts";
-import { ConfigServiceBrowserCompat, UIServiceStub } from "../services/Services.ts";
-import { ServiceContext } from "../services/ServiceHub.ts";
+import { HeadlessServiceHub } from "../services/HeadlessServices.ts";
+
 export type DirectFileManipulatorOptions = {
     url: string;
     username: string;
@@ -110,13 +109,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
 
     options: DirectFileManipulatorOptions;
     ready = promiseWithResolvers<void>();
-    context = new ServiceContext();
-    vaultService = new InjectableVaultService(this.context);
-    services = new InjectableServiceHub(this.context, {
-        ui: new UIServiceStub(this.context),
-        vault: this.vaultService,
-        config: new ConfigServiceBrowserCompat(this.context, this.vaultService),
-    });
+    services = new HeadlessServiceHub();
     constructor(options: DirectFileManipulatorOptions) {
         this.options = options;
         const getDB = () => this.liveSyncLocalDB.localDatabase;

@@ -17,12 +17,18 @@ import type {
     RemoteDBSettings,
     TweakValues,
     UXFileInfoStub,
-} from "../common/types";
+} from "../../common/types";
 
-import type { LiveSyncLocalDB } from "../pouchdb/LiveSyncLocalDB";
-import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator";
+import type { LiveSyncLocalDB } from "../../pouchdb/LiveSyncLocalDB";
+import type { LiveSyncAbstractReplicator } from "../../replication/LiveSyncAbstractReplicator";
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
-import type { Confirm } from "../interfaces/Confirm";
+import type { Confirm } from "../../interfaces/Confirm";
+
+declare global {
+    interface OPTIONAL_SYNC_FEATURES {
+        DISABLE: "DISABLE";
+    }
+}
 
 export interface IAPIService {
     getCustomFetchHandler(): FetchHttpHandler;
@@ -55,6 +61,7 @@ export interface IDatabaseService {
     ): PouchDB.Database<T>;
 
     openSimpleStore<T>(kind: string): SimpleStore<T>;
+    dropSimpleStore(kind: string): Promise<void>;
 
     openDatabase(): Promise<boolean>;
 
