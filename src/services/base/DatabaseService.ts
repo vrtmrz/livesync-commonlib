@@ -32,12 +32,6 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
     abstract openSimpleStore<T>(kind: string): SimpleStore<T>;
 
     /**
-     * drop a simple store.
-     * @param kind The kind of simple store to drop.
-     */
-    abstract dropSimpleStore(kind: string): Promise<void>;
-
-    /**
      * Discard the local database.
      * Please note that this *DOES* delete the database contents perfectly.
      */

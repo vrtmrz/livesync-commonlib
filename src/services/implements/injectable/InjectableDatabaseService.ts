@@ -14,8 +14,6 @@ export abstract class InjectableDatabaseService<T extends ServiceContext> extend
     };
     abstract openSimpleStore<T>(kind: string): SimpleStore<T>;
 
-    dropSimpleStore = handlers<IDatabaseService>().binder("dropSimpleStore");
-
     openDatabase = handlers<IDatabaseService>().binder("openDatabase");
     resetDatabase = handlers<IDatabaseService>().binder("resetDatabase");
     isDatabaseReady = handlers<IDatabaseService>().binder("isDatabaseReady");

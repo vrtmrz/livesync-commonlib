@@ -61,7 +61,6 @@ export interface IDatabaseService {
     ): PouchDB.Database<T>;
 
     openSimpleStore<T>(kind: string): SimpleStore<T>;
-    dropSimpleStore(kind: string): Promise<void>;
 
     openDatabase(): Promise<boolean>;
 
