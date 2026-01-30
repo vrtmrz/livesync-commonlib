@@ -90,6 +90,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
     constructor(
         context: T,
         services: InjectableServiceInstances<T> & {
+            API: InjectableAPIService<T>;
             ui: UIService<T>;
             config: ConfigService<T>;
             database: InjectableDatabaseService<T>;
@@ -97,7 +98,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
     ) {
         super(context, services);
         // TODO reorder to resolve dependencies (or make sure dependencies)
-        this._api = services.API ?? new InjectableAPIService<T>(context);
+        this._api = services.API;
         this._path = services.path ?? new InjectablePathService<T>(context);
         this._database = services.database;
         this._databaseEvents = services.databaseEvents ?? new InjectableDatabaseEventService<T>(context);
