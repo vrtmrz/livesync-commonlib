@@ -2,7 +2,9 @@ function isTextBlob(blob: Blob) {
     return blob.type === "text/plain";
 }
 
+import { LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
 import { arrayBufferToBase64Single, readString } from "./convert.ts";
+import { wrapByDefault } from "../common/utils.ts";
 
 /// Chunk utilities
 function* pickPiece(leftData: string[], minimumChunkSize: number): Generator<string> {
@@ -68,8 +70,17 @@ function* pickPiece(leftData: string[], minimumChunkSize: number): Generator<str
 
 const charNewLine = "\n".charCodeAt(0);
 
-//@ts-ignore Segmenter is not available in all browsers yet.
-const segmenter = "Segmenter" in Intl ? new Intl.Segmenter(navigator.language, { granularity: "sentence" }) : undefined;
+const segmenter =
+    "Segmenter" in Intl
+        ? wrapByDefault(
+              //@ts-ignore Segmenter is not available in all browsers yet.
+              () => new Intl.Segmenter(navigator.language, { granularity: "sentence" }),
+              (err) => {
+                  Logger(`Failed to create Intl.Segmenter: ${err.message}`, LOG_LEVEL_VERBOSE);
+                  return undefined;
+              }
+          )
+        : undefined;
 
 function* splitStringWithinLength(text: string, pieceSize: number) {
     let leftData = text;

@@ -3,8 +3,8 @@
 import { promiseWithResolver } from "octagonal-wheels/promises.js";
 import { eventHub } from "../hub/hub.ts";
 //@ts-ignore
-import WorkerX from "./bg.worker.ts?worker";
-import { EVENT_PLATFORM_UNLOADED } from "../PlatformAPIs/base/APIBase.ts";
+import WorkerX from "./bg.worker.ts?worker&inline";
+import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 import { info, LOG_KIND_ERROR } from "octagonal-wheels/common/logger.js";
 import { encryptionOnWorker, encryptionHKDFOnWorker, handleTaskEncrypt } from "./bgWorker.encryption.ts";
 import { _splitPieces2Worker, handleTaskSplit } from "./bgWorker.splitting.ts";
@@ -93,7 +93,42 @@ function initialiseWorkers() {
     );
 }
 
-const workers: WorkerInstance[] = initialiseWorkers();
+let workers: WorkerInstance[] = [];
+export function initialiseWorkerModule() {
+    if (workers.length > 0) {
+        terminateWorker();
+        workers = [];
+    }
+    workers = initialiseWorkers();
+    for (const inst of workers) {
+        inst.worker.onmessage = ({ data }) => {
+            const key = data.key as number;
+            // debugger;
+            const process = tasks.get(key);
+            if (!process) {
+                info(`Invalid key ${key} of background processing`, LOG_KIND_ERROR);
+                return;
+            }
+            if (process.type === "split") {
+                handleTaskSplit(process, data);
+            } else if (process.type === "encrypt" || process.type === "decrypt") {
+                handleTaskEncrypt(process, data);
+            } else if (process.type === "encryptHKDF" || process.type === "decryptHKDF") {
+                handleTaskEncrypt(process, data);
+            } else {
+                info("Invalid response type" + process);
+            }
+        };
+        inst.worker.onerror = () => {
+            inst.worker.terminate();
+            workers.splice(workers.indexOf(inst), 1);
+        };
+    }
+
+    eventHub.on(EVENT_PLATFORM_UNLOADED, () => {
+        terminateWorker();
+    });
+}
 
 let key = 0;
 let roundRobinIdx = 0;
@@ -136,32 +171,5 @@ export function terminateWorker() {
     }
     // isTerminated = true;
 }
-initialiseWorkers();
-for (const inst of workers) {
-    inst.worker.onmessage = ({ data }) => {
-        const key = data.key as number;
-        // debugger;
-        const process = tasks.get(key);
-        if (!process) {
-            info(`Invalid key ${key} of background processing`, LOG_KIND_ERROR);
-            return;
-        }
-        if (process.type === "split") {
-            handleTaskSplit(process, data);
-        } else if (process.type === "encrypt" || process.type === "decrypt") {
-            handleTaskEncrypt(process, data);
-        } else if (process.type === "encryptHKDF" || process.type === "decryptHKDF") {
-            handleTaskEncrypt(process, data);
-        } else {
-            info("Invalid response type" + process);
-        }
-    };
-    inst.worker.onerror = () => {
-        inst.worker.terminate();
-        workers.splice(workers.indexOf(inst), 1);
-    };
-}
 
-eventHub.on(EVENT_PLATFORM_UNLOADED, () => {
-    terminateWorker();
-});
+initialiseWorkerModule();

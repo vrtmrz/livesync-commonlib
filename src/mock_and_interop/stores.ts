@@ -1,4 +1,3 @@
-import { QueueProcessor } from "octagonal-wheels/concurrency/processor";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import type { LOG_LEVEL } from "../common/types.ts";
 
@@ -17,12 +16,5 @@ export type LogEntry = {
     level?: LOG_LEVEL;
     key?: string;
 };
-
-export const logStore = new QueueProcessor(
-    (e: LogEntry[]) => {
-        return e;
-    },
-    { batchSize: 1, suspended: false, keepResultUntilDownstreamConnected: true }
-);
 
 export const logMessages = reactiveSource<string[]>([]);

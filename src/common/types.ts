@@ -516,8 +516,12 @@ interface SafetyValveSettings {
      * Indicates whether suspension should be avoided during fetching operations.
      */
     doNotSuspendOnFetching: boolean;
-}
 
+    /**
+     * Maximum file modification time applied to reflected file events
+     */
+    maxMTimeForReflectEvents: number;
+}
 /**
  * Represents the settings required to synchronise with a bucket.
  */
@@ -805,9 +809,13 @@ interface ChunkSettings {
  */
 interface OnDemandChunkSettings {
     /**
-     * Indicates whether chunks should be fetch online.
+     * Indicates whether chunks should be fetch online. (means replication transfers only metadata).
      */
     readChunksOnline: boolean;
+    /**
+     * Indicates whether to use only local chunks without fetching online.
+     */
+    useOnlyLocalChunk: boolean;
 
     /**
      * The number of concurrent chunk reads allowed when fetching online.
@@ -1259,11 +1267,13 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     jwtExpDuration: 5,
     useRequestAPI: false,
     bucketPrefix: "",
-    chunkSplitterVersion: "",
+    chunkSplitterVersion: ChunkAlgorithms.RabinKarp,
     E2EEAlgorithm: E2EEAlgorithms.V2,
     processSizeMismatchedFiles: false,
     forcePathStyle: true,
     syncInternalFileOverwritePatterns: "" as CustomRegExpSourceList<",">,
+    useOnlyLocalChunk: false,
+    maxMTimeForReflectEvents: 0,
 };
 
 export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> = {
@@ -1424,6 +1434,8 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     P2P_turnUsername: 151,
     P2P_turnCredential: 152,
     syncInternalFileOverwritePatterns: 153,
+    useOnlyLocalChunk: 154,
+    maxMTimeForReflectEvents: 155,
 } as const;
 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
@@ -1870,6 +1882,11 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         desc: "The credential/password for the TURN servers.",
         isHidden: true,
     },
+    useOnlyLocalChunk: {
+        name: "Use Only Local Chunks",
+        desc: "If enabled, the plugin will not attempt to connect to the remote database even if the chunk was not found locally.",
+        isAdvanced: true,
+    },
 };
 
 export const LEVEL_ADVANCED = "ADVANCED";
@@ -1935,15 +1952,42 @@ export type TweakValues = typeof TweakValuesTemplate;
 
 export const DEVICE_ID_PREFERRED = "PREFERRED";
 
+export type NodeKey = string;
+export interface DeviceInfo {
+    /**
+     * Name of the device (Initially from deviceAndVaultName setting, configurable).
+     */
+    device_name: string;
+    /**
+     * Vault name (From vaultName setting).
+     */
+    vault_name: string;
+    /**
+     * Obsidian App version of the device.
+     */
+    app_version: string;
+    /**
+     * Plugin version of the device.
+     */
+    plugin_version: string;
+    progress: string;
+}
+export interface NodeData extends DeviceInfo {
+    /**
+     * Epoch time in milliseconds when the device last connected.
+     */
+    last_connected: number;
+}
 export interface EntryMilestoneInfo extends DatabaseEntry {
     _id: typeof MILESTONE_DOCID;
     type: EntryTypes["MILESTONE_INFO"];
     created: number;
     accepted_nodes: string[];
+    node_info: { [key: NodeKey]: NodeData };
     locked: boolean;
     cleaned?: boolean;
-    node_chunk_info: { [key: string]: ChunkVersionRange };
-    tweak_values: { [key: string]: TweakValues };
+    node_chunk_info: { [key: NodeKey]: ChunkVersionRange };
+    tweak_values: { [key: NodeKey]: TweakValues };
 }
 
 export interface EntryNodeInfo extends DatabaseEntry {

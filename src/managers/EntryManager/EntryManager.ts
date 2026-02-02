@@ -80,7 +80,10 @@ export class EntryManager {
         if (this.settings.remoteType !== REMOTE_COUCHDB) {
             return false;
         }
-        return this.settings.readChunksOnline;
+        if (this.settings.useOnlyLocalChunk) {
+            return false;
+        }
+        return true;
     }
 
     isTargetFile(filenameSrc: string) {

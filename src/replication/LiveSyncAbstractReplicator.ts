@@ -8,6 +8,7 @@ import {
     type EntryNodeInfo,
     NODEINFO_DOCID,
     type TweakValues,
+    type NodeData,
 } from "../common/types.ts";
 
 import type { ReactiveSource } from "octagonal-wheels/dataobject/reactive";
@@ -156,4 +157,8 @@ export abstract class LiveSyncAbstractReplicator {
     abstract getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<false | TweakValues>;
 
     abstract countCompromisedChunks(setting?: RemoteDBSettings): Promise<number | boolean>;
+
+    abstract getConnectedDeviceList(
+        setting?: RemoteDBSettings
+    ): Promise<false | { node_info: Record<string, NodeData>; accepted_nodes: string[] }>;
 }

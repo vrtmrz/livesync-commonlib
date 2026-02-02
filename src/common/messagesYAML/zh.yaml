@@ -7,7 +7,11 @@
 (Not recommended) If set, credentials will be stored in the file.: （不建议）如果设置，凭据将存储在文件中。
 (Obsolete) Use an old adapter for compatibility: （已弃用）为兼容性使用旧适配器
 Access Key: Access Key
+Active Remote Configuration: 生效中的远程配置
 Always prompt merge conflicts: 始终提示合并冲突
+Analyse: 立即分析
+Analyse database usage: 分析数据库使用情况
+Analyse database usage and generate a TSV report for diagnosis yourself. You can paste the generated report with any spreadsheet you like.: 分析数据库使用情况并生成 TSV 报告以供您自行诊断。您可以将生成的报告粘贴到您喜欢的任何电子表格中。
 Apply Latest Change if Conflicting: 如果冲突则应用最新更改
 Apply preset configuration: 应用预设配置
 Automatically Sync all files when opening Obsidian.: 打开 Obsidian 时自动同步所有文件。
@@ -19,8 +23,10 @@ Before v0.17.16, we used an old adapter for the local database. Now the new adap
   在 v0.17.16
   之前，我们使用旧适配器作为本地数据库。现在首选新适配器。但是，它需要重建本地数据库。请在有足够时间时禁用此开关。如果保持启用状态，并且在从远程数据库获取时，系统将要求您禁用此开关。
 Bucket Name: Bucket Name
+Check: 立即检查
 Comma separated `.gitignore, .dockerignore`: 用逗号分隔，例如 `.gitignore, .dockerignore`
 Compute revisions for chunks (Previous behaviour): 为 chunks 计算修订版本（以前的行为）
+Copy Report to clipboard: 将报告复制到剪贴板
 Data Compression: 数据压缩（实验性）
 Database Name: 数据库名称
 Database suffix: 数据库后缀
@@ -58,6 +64,7 @@ If enabled per-filed efficient customization sync will be used. We need a small 
   v0.23.18。一旦启用此功能，我们将失去与旧版本的兼容性。
 If enabled, chunks will be split into no more than 100 items. However, dedupe is slightly weaker.: 如果启用，数据块将被分割成不超过 100 项。但是，去重效果会稍弱。
 If enabled, newly created chunks are temporarily kept within the document, and graduated to become independent chunks once stabilised.: 如果启用，新创建的数据块将暂时保留在文档中，并在稳定后成为独立数据块。
+If enabled, the ⛔ icon will be shown inside the status instead of the file warnings banner. No details will be shown.: 如果启用，状态栏内将显示 ⛔ 图标，而非文件警告横幅，不会显示任何详细信息。
 If enabled, the file under 1kb will be processed in the UI thread.: 如果启用，小于 1kb 的文件将在 UI 线程中处理。
 If enabled, the notification of hidden files change will be suppressed.: 如果启用，隐藏文件更改的通知将被抑制。
 If this enabled, all chunks will be stored with the revision made from its content. (Previous behaviour): 如果启用，所有 chunks 将使用根据其内容生成的修订版本存储。（以前的行为）
@@ -92,6 +99,7 @@ MB (0 to disable).: MB（0为禁用）。
 Memory cache size (by total characters): 内存缓存大小（按总字符数）
 Memory cache size (by total items): 内存缓存大小（按总项目数）
 Minimum delay for batch database updating: 批量数据库更新的最小延迟
+Minimum interval for syncing: 同步最小间隔
 moduleCheckRemoteSize:
   logCheckingStorageSizes: 正在检查存储大小
   logCurrentStorageSize: 远程存储大小：${measuredSize}
@@ -447,14 +455,22 @@ Password: 密码
 Path Obfuscation: 路径混淆
 Per-file-saved customization sync: 按文件保存的自定义同步
 Periodic Sync interval: 定期同步间隔
+Prepare the 'report' to create an issue: 准备 '报告' 以创建问题单
 Presets: 预设
 Process small files in the foreground: 在前台处理小文件
+Property Encryption: 属性加密
 Reducing the frequency with which on-disk changes are reflected into the DB: 降低将磁盘上的更改反映到数据库中的频率
 Region: Region
 Remote server type: 远程服务器类型
 Remote Type: 远程类型
 Requires restart of Obsidian: 需要重启 Obsidian
 Requires restart of Obsidian.: 需要重启 Obsidian。
+Rerun Onboarding Wizard: 重新运行引导向导
+Rerun the onboarding wizard to set up Self-hosted LiveSync again.: 重新运行引导向导以再次设置 Self-hosted LiveSync。
+Rerun Wizard: 重新运行向导
+Reset notification threshold and check the remote database usage: 重置通知阈值并检查远程数据库使用情况
+Reset the remote storage size threshold and check the remote storage size again.: 重置远程存储大小阈值并再次检查远程存储大小。
+Run Doctor: 立即诊断
 Save settings to a markdown file. You will be notified when new settings arrive. You can set different files by the platform.: 将设置保存到一个 Markdown 文件中。当新设置到达时，您将收到通知。您可以根据平台设置不同的文件。
 Saving will be performed forcefully after this number of seconds.: 在此秒数后将强制执行保存。
 Scan changes on customization sync: 在自定义同步时扫描更改
@@ -468,12 +484,22 @@ Seconds, 0 to disable: 秒，0为禁用
 Seconds. Saving to the local database will be delayed until this value after we stop typing or saving.: 秒。在我们停止输入或保存后，保存到本地数据库将延迟此值。
 Secret Key: Secret Key
 Server URI: 服务器 URI
+Setting:
+  TroubleShooting:
+    _value: 故障排除
+    Doctor:
+      _value: 设置诊断
+      Desc: 检测系统中不合理的设置。（与迁移期间逻辑相同）
+    ScanBrokenFiles:
+      _value: 扫描损坏或异常的文件
+      Desc: 扫描数据库中未正确存储的文件。
 Should we keep folders that don't have any files inside?: 我们是否应该保留内部没有任何文件的文件夹？
 Should we only check for conflicts when a file is opened?: 我们是否应该仅在文件打开时检查冲突？
 Should we prompt you about conflicting files when a file is opened?: 当文件打开时，是否提示冲突文件？
 Should we prompt you for every single merge, even if we can safely merge automatcially?: 即使我们可以安全地自动合并，是否也应该为每一次合并提示您？
 Show only notifications: 仅显示通知
 Show status as icons only: 仅以图标显示状态
+Show status icon instead of file warnings banner: 显示状态图标，而非文件警告横幅
 Show status inside the editor: 在编辑器内显示状态
 Show status on the status bar: 在状态栏上显示状态
 Show verbose log. Please enable if you report an issue.: 显示详细日志。如果您报告问题，请启用此选项。
@@ -496,6 +522,7 @@ The Hash algorithm for chunk IDs: 块 ID 的哈希算法（实验性）
 The maximum duration for which chunks can be incubated within the document. Chunks exceeding this period will graduate to independent chunks.: 文档中可以孵化的数据块的最大持续时间。超过此时间的数据块将成为独立数据块。
 The maximum number of chunks that can be incubated within the document. Chunks exceeding this number will immediately graduate to independent chunks.: 文档中可以孵化的数据块的最大数量。超过此数量的数据块将立即成为独立数据块。
 The maximum total size of chunks that can be incubated within the document. Chunks exceeding this size will immediately graduate to independent chunks.: 文档中可以孵化的数据块的最大总大小。超过此大小的数据块将立即成为独立数据块。
+The minimum interval for automatic synchronisation on event.: 基于事件自动同步的最小间隔。
 This passphrase will not be copied to another device. It will be set to `Default` until you configure it again.: 此密码不会复制到另一台设备。在您再次配置之前，它将设置为 `Default`。
 Unique name between all synchronized devices. To edit this setting, please disable customization sync once.: 所有同步设备之间的唯一名称。要编辑此设置，请首先禁用自定义同步
 Use Custom HTTP Handler: 使用自定义 HTTP 处理程序

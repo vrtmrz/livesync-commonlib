@@ -47,8 +47,8 @@ import {
     SyncParamsUpdateError,
 } from "../replication/SyncParamsHandler.ts";
 import { LiveSyncManagers } from "../managers/LiveSyncManagers.ts";
-import { InjectableServiceHub } from "../services/InjectableServices.ts";
-import { ConfigServiceBrowserCompat, UIServiceStub } from "../services/Services.ts";
+import { HeadlessServiceHub } from "../services/HeadlessServices.ts";
+
 export type DirectFileManipulatorOptions = {
     url: string;
     username: string;
@@ -109,10 +109,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
 
     options: DirectFileManipulatorOptions;
     ready = promiseWithResolvers<void>();
-    services = new InjectableServiceHub({
-        ui: new UIServiceStub(),
-        config: new ConfigServiceBrowserCompat(),
-    });
+    services = new HeadlessServiceHub();
     constructor(options: DirectFileManipulatorOptions) {
         this.options = options;
         const getDB = () => this.liveSyncLocalDB.localDatabase;
@@ -130,10 +127,10 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 return getSettings();
             },
         });
-        this.services.path.handleId2Path(this.$$id2path.bind(this));
-        this.services.path.handlePath2Id(this.$$path2id.bind(this));
-        this.services.database.handleCreatePouchDBInstance(this.$$createPouchDBInstance.bind(this));
-        this.services.databaseEvents.handleOnDatabaseInitialisation(this.$everyOnInitializeDatabase.bind(this));
+        this.services.path.id2path.setHandler(this.$$id2path.bind(this));
+        this.services.path.path2id.setHandler(this.$$path2id.bind(this));
+        this.services.database.createPouchDBInstance.setHandler(this.$$createPouchDBInstance.bind(this));
+        this.services.databaseEvents.onDatabaseInitialisation.addHandler(this.$everyOnInitializeDatabase.bind(this));
         this.liveSyncLocalDB = new LiveSyncLocalDB(this.options.url, this);
         void this.liveSyncLocalDB.initializeDatabase().then(() => {
             this.ready.resolve();

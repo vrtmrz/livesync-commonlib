@@ -422,6 +422,10 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
     P2P_Enabled: {
         name: "Enable P2P Synchronization",
     },
+    maxMTimeForReflectEvents: {
+        name: "Maximum file modification time for reflected file events",
+        desc: "Files with modification times greater than this value (in seconds since the Unix epoch) will not have their events reflected. Set to 0 to disable this limit.",
+    },
 };
 function translateInfo(infoSrc: ConfigurationItem | undefined | false) {
     if (!infoSrc) return false;
