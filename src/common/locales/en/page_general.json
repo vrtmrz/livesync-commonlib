@@ -1,0 +1,25 @@
+{
+    "general.title": "General",
+
+    "general.appearance.title": "Appearance",
+    "general.appearance.displayLanguage.title": "Display Language",
+    "general.appearance.displayLanguage.desc": "Not all messages are translated; revert to \"English\" when reporting issues.",
+    "general.appearance.showStatusInEditor.title": "Show Status in Editor",
+    "general.appearance.showStatusInEditor.desc": "Display sync status in editor. Requires restart.",
+    "general.appearance.showStatusAsIcons.title": "Show Status as Icons",
+    "general.appearance.showStatusAsIcons.desc": "Display sync status in editor as icons instead of text. Requires restart.",
+    "general.appearance.showStatusInStatusBar.title": "Show Status on Status Bar",
+    "general.appearance.showStatusInStatusBar.desc": "Display sync status in the status bar. Requires restart.",
+    "general.appearance.useStatusIconInstead.title": "Use Status Icon Instead on Banner",
+    "general.appearance.useStatusIconInstead.desc": "Display an icon instead of a warning banner. This will not provide details.",
+
+    "general.logging.title": "Logging",
+    "general.logging.onlyNotifications.title": "Notifications Only",
+    "general.logging.onlyNotifications.desc": "Disables logging; only shows notifications. Turn off if reporting issues.",
+    "general.logging.verboseLogging.title": "Verbose Logging",
+    "general.logging.verboseLogging.desc": "Provides more detailed logs. Turn on if reporting issues.",
+
+    "general.reset.title": "Reset",
+    "general.reset.resetClient.title": "Reset Client",
+    "general.reset.resetClient.desc": "Clears the client's configuration and disconnects it from the server, returning it to its initial state. The server configuration and data is not affected."
+}
