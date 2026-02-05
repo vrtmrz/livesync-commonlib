@@ -650,7 +650,7 @@ export const _allMessages = {
         zh: "实验性",
     },
     "K.long_p2p_sync": {
-        def: "%{title_p2p_sync} (%{exp})",
+        def: "%{title_p2p_sync}",
         ja: "%{title_p2p_sync} (%{exp})",
         ko: "%{title_p2p_sync} (%{exp})",
         zh: "%{title_p2p_sync} (%{exp})",
@@ -674,7 +674,7 @@ export const _allMessages = {
         zh: "扫描自定义",
     },
     "K.short_p2p_sync": {
-        def: "P2P Sync (%{exp})",
+        def: "P2P Sync",
         ja: "P2P Sync (%{exp})",
         ko: "P2P 동기화 (%{exp})",
         zh: "P2P同步(%{exp})",
@@ -2814,7 +2814,7 @@ export const _allMessages = {
         zh: "%{title_p2p_sync} 已禁用。你确定要启用它吗？",
     },
     "P2P.FailedToOpen": {
-        def: "Failed to open P2P connection to the signaling server.",
+        def: "Failed to open P2P connection to the signalling server.",
         ja: "シグナリングサーバーへのP2P接続を開けませんでした。",
         ko: "시그널링 서버에 P2P 연결을 열 수 없습니다.",
         zh: "无法打开 P2P 连接到信令服务器",
@@ -2832,25 +2832,25 @@ export const _allMessages = {
         zh: "未检测到对等方，正在等待其他对等方的连接...",
     },
     "P2P.Note.description": {
-        def: " This replicator allows us to synchronise our vault with other devices\nusing a peer-to-peer connection. We can        use this to synchronise our vault with our other devices without using a cloud service.\nThis replicator is based on Trystero. It also uses a signaling server to establish a connection between devices. The signaling server is used to exchange connection information between devices. It does (or,should) not know or store any of our data.\n\nThe signaling server can be hosted by anyone. This is just a Nostr relay. For the sake of simplicity and checking the behaviour of the replicator, an instance of the signaling server is hosted by vrtmrz. You can use the experimental server provided by vrtmrz, or you can use any other server.\n\nBy the way, even if the signaling server does not store our data, it can see the connection information of some of our devices. Please be aware of this. Also, be cautious when using the server provided by someone else.",
+        def: " This replicator allows us to synchronise our vault with other devices\nusing a peer-to-peer connection. We can use this to synchronise our vault with our other devices without using a cloud service.\nThis replicator is based on Trystero. It also uses a signalling server to establish a connection between devices. The signalling server is used to exchange connection information between devices. It does (or,should) not know or store any of our data.\n\nThe signalling server can be hosted by anyone. This is just a Nostr relay. For the sake of simplicity and checking the behaviour of the replicator, an instance of the signalling server is hosted by vrtmrz. You can use the experimental server provided by vrtmrz, or you can use any other server.\n\nBy the way, even if the signalling server does not store our data, it can see the connection information of some of our devices. Please be aware of this. Also, be cautious when using the server provided by someone else.",
         ja: "このレプリケーターは、ピアツーピア接続を使用して、Vaultを他のデバイスと同期することができます。クラウドサービスを使用せずに、他のデバイスとVaultを同期することができます。\nこのレプリケーターはTrysteroをベースにしています。デバイス間の接続を確立するためにシグナリングサーバーを使用します。シグナリングサーバーはデバイス間で接続情報を交換するために使用されます。私たちのデータを知ったり保存したりすることはありません（または、そうあるべきではありません）。\n\nシグナリングサーバーは誰でもホストできます。これは単なるNostrリレーです。簡便さとレプリケーターの動作確認のために、vrtmrzがシグナリングサーバーのインスタンスをホストしています。vrtmrzが提供する実験用サーバーを使用することも、他のサーバーを使用することもできます。\n\nなお、シグナリングサーバーが私たちのデータを保存しなくても、一部のデバイスの接続情報を見ることができます。これにご注意ください。また、他の人が提供するサーバーを使用する場合は注意してください。",
         ko: "이 복제기는 피어 투 피어(P2P) 연결을 통해 다른 기기들과 볼트를 동기화할 수 있도록 합니다. 클라우드 서비스를 거치지 않고도 기기간 동기화를 구현할 수 있습니다.\n\n이 복제기는 Trystero를 기반으로 하며, 기기 간 연결을 설정하기 위해 시그널링 서버를 사용합니다. 시그널링 서버는 단순히 연결 정보를 교환하는 용도로만 사용되며, 사용자 데이터를 저장하거나 접근하지 않습니다 (또는 그래야만 합니다).\n\n시그널링 서버는 누구나 운영할 수 있으며, 이는 단순한 Nostr 릴레이입니다. 편의성과 복제기의 작동 확인을 위해 `vrtmrz`가 자체적으로 시그널링 서버 인스턴스를 운영 중입니다. 사용자는 `vrtmrz`가 제공하는 실험용 서버를 사용할 수도 있고, 별도로 자신만의 서버를 설정할 수도 있습니다.\n\n참고로, 시그널링 서버는 사용자 데이터를 저장하지 않더라도 일부 기기의 연결 정보는 볼 수 있습니다. 이 점을 유의해 주세요. 특히 타인이 운영하는 서버를 사용할 경우 주의가 필요합니다.",
         zh: " This replicator allows us to synchronise our vault with other devices\nusing a peer-to-peer connection. We can        use this to synchronise our vault with our other devices without using a cloud service.\nThis replicator is based on Trystero. It also uses a signaling server to establish a connection between devices. The signaling server is used to exchange connection information between devices. It does (or,should) not know or store any of our data.\n\nThe signaling server can be hosted by anyone. This is just a Nostr relay. For the sake of simplicity and checking the behaviour of the replicator, an instance of the signaling server is hosted by vrtmrz. You can use the experimental server provided by vrtmrz, or you can use any other server.\n\nBy the way, even if the signaling server does not store our data, it can see the connection information of some of our devices. Please be aware of this. Also, be cautious when using the server provided by someone else.",
     },
     "P2P.Note.important_note": {
-        def: "The Experimental Implementation of the Peer-to-Peer Replicator.",
+        def: "Peer-to-Peer Replicator.",
         ja: "ピアツーピアレプリケーターの実験的実装",
         ko: "피어 투 피어(P2P) 복제기의 실험적 구현입니다.",
         zh: "The Experimental Implementation of the Peer-to-Peer Replicator.",
     },
     "P2P.Note.important_note_sub": {
-        def: "This feature is still in the experimental stage. Please be aware that this feature may not work as expected. Furthermore, it may have some bugs, security issues, and other issues. Please use this feature at your own risk. Please contribute to the development of this feature.",
+        def: "This feature is still on the bleeding edge. Please be aware that ensure your data is backed up before using this feature. And, we would be so happy if you could contribute to the development of this feature.",
         ja: "この機能はまだ実験段階です。期待通りに動作しない可能性があることにご注意ください。さらに、バグ、セキュリティの問題、その他の問題がある可能性があります。この機能は自己責任でご使用ください。この機能の開発にご協力ください。",
         ko: "이 기능은 아직 실험 단계에 있습니다. 이 기능이 예상대로 작동하지 않을 수 있음을 알아주세요. 또한 버그, 보안 문제 및 기타 문제가 있을 수 있습니다. 이 기능을 사용할 때는 본인의 책임 하에 사용하세요. 이 기능의 개발에 기여해 주세요.",
         zh: "This feature is still in the experimental stage. Please be aware that this feature may not work as expected. Furthermore, it may have some bugs, security issues, and other issues. Please use this feature at your own risk. Please contribute to the development of this feature.",
     },
     "P2P.Note.Summary": {
-        def: "What is this  feature? (and some important notes, please read once)",
+        def: "What is this feature? (and some important notes, please read once)",
         ja: "この機能について（重要な注意事項を含む、一度お読みください）",
         ko: "이 기능은 무엇인가요? (설명과 참고사항이 적혀있습니다. 한 번 읽어보세요!)",
         zh: "What is this  feature? (and some important notes, please read once)",
