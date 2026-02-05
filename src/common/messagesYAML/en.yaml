@@ -13,7 +13,13 @@
 (Not recommended) If set, credentials will be stored in the file.: (Not recommended) If set, credentials will be stored in the file.
 (Obsolete) Use an old adapter for compatibility: (Obsolete) Use an old adapter for compatibility
 Access Key: Access Key
+Active Remote Configuration: Active Remote Configuration
 Always prompt merge conflicts: Always prompt merge conflicts
+Analyse: Analyse
+Analyse database usage: Analyse database usage
+Analyse database usage and generate a TSV report for diagnosis yourself. You can paste the generated report with any spreadsheet you like.:
+  Analyse database usage and generate a TSV report for diagnosis yourself. You
+  can paste the generated report with any spreadsheet you like.
 Apply Latest Change if Conflicting: Apply Latest Change if Conflicting
 Apply preset configuration: Apply preset configuration
 Automatically Sync all files when opening Obsidian.: Automatically Sync all files when opening Obsidian.
@@ -27,10 +33,12 @@ Before v0.17.16, we used an old adapter for the local database. Now the new adap
   disable this toggle when you have enough time. If leave it enabled, also while
   fetching from the remote database, you will be asked to disable this.
 Bucket Name: Bucket Name
+Check: Check
 cmdConfigSync:
   showCustomizationSync: Show Customization sync
 Comma separated `.gitignore, .dockerignore`: Comma separated `.gitignore, .dockerignore`
 Compute revisions for chunks: Compute revisions for chunks
+Copy Report to clipboard: Copy Report to clipboard
 Data Compression: Data Compression
 Database Name: Database Name
 Database suffix: Database suffix
@@ -89,7 +97,7 @@ Doctor:
 
       Shall we get started?
     MainFix: |-
-
+      
       ## ${name}
 
       | Current | Ideal |
@@ -120,11 +128,13 @@ Doctor:
     SomeSkipped: We left some issues as is. Shall I ask you again on next startup?
   RULES:
     E2EE_V02500:
-      REASON: >-
-        The End-to-End Encryption has got now more robust and faster. Also because, the previous E2EE was found to be compromised in a re-conducted code review. It should be applied as soon as possible. Really apologises for your inconvenience.
-        And, this setting is not forward compatible. All synchronised devices must be updated to v0.25.0 or higher.
-        Rebuilds are not required and will be converted from the new transfer to the new format, However, it is recommended to rebuild whenever possible.
-
+      REASON: The End-to-End Encryption has got now more robust and faster. Also
+        because, the previous E2EE was found to be compromised in a re-conducted
+        code review. It should be applied as soon as possible. Really apologises
+        for your inconvenience. And, this setting is not forward compatible. All
+        synchronised devices must be updated to v0.25.0 or higher. Rebuilds are
+        not required and will be converted from the new transfer to the new
+        format, However, it is recommended to rebuild whenever possible.
 Enable advanced features: Enable advanced features
 Enable customization sync: Enable customization sync
 Enable Developers' Debug Tools.: Enable Developers' Debug Tools.
@@ -162,6 +172,9 @@ If enabled, chunks will be split into no more than 100 items. However, dedupe is
 If enabled, newly created chunks are temporarily kept within the document, and graduated to become independent chunks once stabilised.:
   If enabled, newly created chunks are temporarily kept within the document, and
   graduated to become independent chunks once stabilised.
+If enabled, the ⛔ icon will be shown inside the status instead of the file warnings banner. No details will be shown.:
+  If enabled, the ⛔ icon will be shown inside the status instead of the file
+  warnings banner. No details will be shown.
 If enabled, the file under 1kb will be processed in the UI thread.: If enabled, the file under 1kb will be processed in the UI thread.
 If enabled, the notification of hidden files change will be suppressed.: If enabled, the notification of hidden files change will be suppressed.
 If this enabled, all chunks will be stored with the revision made from its content. (Previous behaviour):
@@ -249,6 +262,7 @@ MB (0 to disable).: MB (0 to disable).
 Memory cache size (by total characters): Memory cache size (by total characters)
 Memory cache size (by total items): Memory cache size (by total items)
 Minimum delay for batch database updating: Minimum delay for batch database updating
+Minimum interval for syncing: Minimum interval for syncing
 moduleCheckRemoteSize:
   logCheckingStorageSizes: Checking storage sizes
   logCurrentStorageSize: "Remote storage size: ${measuredSize}"
@@ -359,6 +373,70 @@ moduleLog:
   showLog: Show Log
 moduleMigration:
   docUri: https://github.com/vrtmrz/obsidian-livesync/blob/main/README.md#how-to-use
+  fix0256:
+    buttons:
+      checkItLater: Check it later
+      DismissForever: I have fixed it, and do not ask again
+      fix: Fix
+    message: >
+      Due to a recent bug (in v0.25.6), some files may not have been saved
+      correctly in the sync database.
+
+      We have scanned our files and found some that need to be fixed.
+
+
+      **Files ready to be fixed:**
+
+
+      ${files}
+
+
+      These files have size-matched original file on the storage, and are likely
+      to be recoverable.
+
+      We can use them to fix the database, please click the "Fix" button below
+      to fix them.
+
+
+      ${messageUnrecoverable}
+
+
+      If you want to run it again, you can do so from Hatch.
+    messageUnrecoverable: >
+      **Files cannot be fixed on this device:**
+
+
+      ${filesNotRecoverable}
+
+
+      These files have inconsistent metadata, and cannot be fixed on this device
+      (mostly we cannot determine which is correct).
+
+      To restore them, please check your other devices (also by this feature) or
+      restore them manually from a backup.
+    title: Broken files has been detected
+  insecureChunkExist:
+    buttons:
+      fetch: I already rebuilt the remote. Fetch from the remote
+      later: I will do it later
+      rebuild: Rebuild Everything
+    laterMessage: We strongly recommend to treat this as soon as possible!
+    message: >
+      Some chunks are not securely stored and are not encrypted in databases.
+
+      **Please rebuild the database to fix this issue**.
+
+
+      If your Remote Database is not configured with SSL, or using less-secure
+      credentials, **you are at risk of exposing sensitive data**.
+
+
+      Note: Please upgrade your Self-hosted LiveSync v0.25.6 or higher on all
+      your devices, and back your vault up surely.
+
+      Note2: Rebuild Everything and Fetch consumes a bit of time and traffic,
+      please do it in off-peak hours and ensure a stable network connection.
+    title: Insecure chunks found!
   logBulkSendCorrupted: Send chunks in bulk has been enabled, however, this
     feature had been corrupted. Sorry for your inconvenience. Automatically
     disabled.
@@ -455,49 +533,6 @@ moduleMigration:
   titleCaseSensitivity: Case Sensitivity
   titleRecommendSetupUri: Recommendation to use Setup URI
   titleWelcome: Welcome to Self-hosted LiveSync
-  fix0256:
-    title: Broken files has been detected
-    message: |
-      Due to a recent bug (in v0.25.6), some files may not have been saved correctly in the sync database.
-      We have scanned our files and found some that need to be fixed.
-
-      **Files ready to be fixed:**
-
-      ${files}
-
-      These files have size-matched original file on the storage, and are likely to be recoverable.
-      We can use them to fix the database, please click the "Fix" button below to fix them.
-
-      ${messageUnrecoverable}
-
-      If you want to run it again, you can do so from Hatch.
-    messageUnrecoverable: |
-      **Files cannot be fixed on this device:**
-
-      ${filesNotRecoverable}
-
-      These files have inconsistent metadata, and cannot be fixed on this device (mostly we cannot determine which is correct).
-      To restore them, please check your other devices (also by this feature) or restore them manually from a backup.
-    buttons:
-      fix: Fix
-      checkItLater: Check it later
-      DismissForever: I have fixed it, and do not ask again
-  insecureChunkExist:
-    title: Insecure chunks found!
-    message: |
-      Some chunks are not securely stored and are not encrypted in databases.
-      **Please rebuild the database to fix this issue**.
-
-      If your Remote Database is not configured with SSL, or using less-secure credentials, **you are at risk of exposing sensitive data**.
-
-      Note: Please upgrade your Self-hosted LiveSync v0.25.6 or higher on all your devices, and back your vault up surely.
-      Note2: Rebuild Everything and Fetch consumes a bit of time and traffic, please do it in off-peak hours and ensure a stable network connection.
-    buttons:
-      rebuild: Rebuild Everything
-      fetch: I already rebuilt the remote. Fetch from the remote
-      later: I will do it later
-    laterMessage: We strongly recommend to treat this as soon as possible!
-
 moduleObsidianMenu:
   replicate: Replicate
 Move remotely deleted files to the trash, instead of deleting.: Move remotely deleted files to the trash, instead of deleting.
@@ -703,7 +738,6 @@ obsidianLiveSyncSettingTab:
   nameTestConnection: Test Connection
   nameTestDatabaseConnection: Test Database Connection
   nameValidateDatabaseConfig: Validate Database Configuration
-  serverVersion: 'Server info: ${info}'
   okAdminPrivileges: ✔ You have administrator privileges.
   okCorsCredentials: ✔ cors.credentials is ok.
   okCorsCredentialsForOrigin: CORS credentials OK
@@ -735,6 +769,8 @@ obsidianLiveSyncSettingTab:
   panelPrivacyEncryption: Privacy & Encryption
   panelRemoteConfiguration: Remote Configuration
   panelSetup: Setup
+  serverVersion: "Server info: ${info}"
+  titleActiveRemoteServer: Active Remote Server
   titleAppearance: Appearance
   titleConflictResolution: Conflict resolution
   titleCongratulations: Congratulations!
@@ -754,9 +790,7 @@ obsidianLiveSyncSettingTab:
   titleQuickSetup: Quick Setup
   titleRebuildRequired: Rebuild Required
   titleRemoteConfigCheckFailed: Remote Configuration Check Failed
-  # titleRemoteServer is obsoleted
   titleRemoteServer: Remote Server
-  titleActiveRemoteServer: Active Remote Server
   titleReset: Reset
   titleSetupOtherDevices: To setup other devices
   titleSynchronizationMethod: Synchronization Method
@@ -819,8 +853,10 @@ Password: Password
 Path Obfuscation: Path Obfuscation
 Per-file-saved customization sync: Per-file-saved customization sync
 Periodic Sync interval: Periodic Sync interval
+Prepare the 'report' to create an issue: Prepare the 'report' to create an issue
 Presets: Presets
 Process small files in the foreground: Process small files in the foreground
+Property Encryption: Property Encryption
 RedFlag:
   Fetch:
     Method:
@@ -901,12 +937,12 @@ RedFlag:
       FetchTraditional: Fetch everything from the remote
       Title: How do you want to fetch?
   FetchRemoteConfig:
-    Message: |-
-      Do you want to fetch and apply remotely stored preference settings to the device?
-    Title: Fetch Remote Configuration
     Buttons:
-      Fetch: Yes, fetch and apply remote settings
       Cancel: No, use local settings
+      Fetch: Yes, fetch and apply remote settings
+    Message: Do you want to fetch and apply remotely stored preference settings to
+      the device?
+    Title: Fetch Remote Configuration
 Reducing the frequency with which on-disk changes are reflected into the DB: Reducing the frequency with which on-disk changes are reflected into the DB
 Region: Region
 Remote server type: Remote server type
@@ -944,9 +980,18 @@ Replicator:
     InitialiseFatalError: No replicator is available, this is the fatal error.
     Pending: Some file events are pending. Replication has been cancelled.
     SomeModuleFailed: Replication has been cancelled by some module failure
-    VersionUpFlash: An update has been detected. Please open the Settings dialogue and check the Change Log. Replication has been cancelled.
+    VersionUpFlash: An update has been detected. Please open the Settings dialogue
+      and check the Change Log. Replication has been cancelled.
 Requires restart of Obsidian: Requires restart of Obsidian
 Requires restart of Obsidian.: Requires restart of Obsidian.
+Rerun Onboarding Wizard: Rerun Onboarding Wizard
+Rerun the onboarding wizard to set up Self-hosted LiveSync again.: Rerun the onboarding wizard to set up Self-hosted LiveSync again.
+Rerun Wizard: Rerun Wizard
+Reset notification threshold and check the remote database usage: Reset notification threshold and check the remote database usage
+Reset the remote storage size threshold and check the remote storage size again.:
+  Reset the remote storage size threshold and check the remote storage size
+  again.
+Run Doctor: Run Doctor
 Save settings to a markdown file. You will be notified when new settings arrive. You can set different files by the platform.:
   Save settings to a markdown file. You will be notified when new settings
   arrive. You can set different files by the platform.
@@ -1044,6 +1089,64 @@ SettingTab:
     AskRebuild: Your changes require fetching from the remote database. Do you want
       to proceed?
 Setup:
+  Apply:
+    Buttons:
+      ApplyAndFetch: Apply and Fetch
+      ApplyAndMerge: Apply and Merge
+      ApplyAndRebuild: Apply and Rebuild
+      Cancel: Discard and Cancel
+      OnlyApply: Only Apply
+    Message: >-
+      The new configuration is ready. Let us proceed to apply it.
+
+      There are several ways to apply this:
+
+
+      - Apply and Fetch
+        Configure this device as a new client. After applying, synchronise from the remote server.
+      - Apply and Merge
+        Configure on a device that already has the file. It processes the local files and transfers the differences. Conflicts may arise.
+      - Apply and Rebuild
+        Rebuild the remote using local files. This is typically done if the server becomes corrupted or we wish to start from scratch.
+        Other devices will be locked and required to re-fetch.
+      - Only Apply
+        Apply only. Conflicts may arise if a rebuild is required.
+    Title: Apply new configuration from the ${method}
+    WarningRebuildRecommended: "NOTE: after adjusting the settings, it has been
+      determined that a rebuild is required; Just Import is not recommended."
+  Doctor:
+    Buttons:
+      No: No, please use the settings in the URI as is
+      Yes: Yes, please consult the doctor
+    Message: >-
+      Self-hosted LiveSync has gradually become longer in history and some
+      recommended settings have changed.
+
+
+      Now, setup is a very good time to do this.
+
+
+      Do you want to run Doctor to check if the imported settings are optimal
+      compared to the latest state?
+    Title: Do you want to consult the doctor?
+  FetchRemoteConf:
+    Buttons:
+      Fetch: Yes, please fetch the configuration
+      Skip: No, please use the settings in the URI
+    Message: >-
+      If we have already synchronised once with another device, the remote
+      database stores the suitable configuration values between the synchronised
+      devices. The plug-in would like to retrieve them for robust configuration.
+
+
+      However, we have to make sure the one thing. Are we currently in a
+      situation where we can access the network safely and retrieve the
+      settings?
+
+
+      Note: Mostly, you are safe to do this, that your remote database is hosted
+      with a SSL certificate, and your network is not compromised.
+    Title: Fetch configuration from remote database?
   QRCode: >-
     We have generated a QR code to transfer the settings. Please scan the QR
     code with your phone or other device.
@@ -1057,51 +1160,6 @@ Setup:
   ShowQRCode:
     _value: Show QR code
     Desc: Show QR code to transfer the settings.
-  Apply:
-    Title: Apply new configuration from the ${method}
-    Message: |-
-      The new configuration is ready. Let us proceed to apply it.
-      There are several ways to apply this:
-
-      - Apply and Fetch
-        Configure this device as a new client. After applying, synchronise from the remote server.
-      - Apply and Merge
-        Configure on a device that already has the file. It processes the local files and transfers the differences. Conflicts may arise.
-      - Apply and Rebuild
-        Rebuild the remote using local files. This is typically done if the server becomes corrupted or we wish to start from scratch.
-        Other devices will be locked and required to re-fetch.
-      - Only Apply
-        Apply only. Conflicts may arise if a rebuild is required.
-    WarningRebuildRecommended: >-
-      NOTE: after adjusting the settings, it has been determined that a rebuild is required; Just Import is not recommended.
-    Buttons:
-      ApplyAndFetch: Apply and Fetch
-      ApplyAndMerge: Apply and Merge
-      ApplyAndRebuild: Apply and Rebuild
-      OnlyApply: Only Apply
-      Cancel: Discard and Cancel
-  FetchRemoteConf:
-    Message: |-
-      If we have already synchronised once with another device, the remote database stores the suitable configuration values between the synchronised devices. The plug-in would like to retrieve them for robust configuration.
-
-      However, we have to make sure the one thing. Are we currently in a situation where we can access the network safely and retrieve the settings?
-
-      Note: Mostly, you are safe to do this, that your remote database is hosted with a SSL certificate, and your network is not compromised.
-    Buttons:
-      Fetch: Yes, please fetch the configuration
-      Skip: No, please use the settings in the URI
-    Title: Fetch configuration from remote database?
-  Doctor:
-    Buttons:
-      Yes: Yes, please consult the doctor
-      No: No, please use the settings in the URI as is
-    Title: Do you want to consult the doctor?
-    Message: |-
-      Self-hosted LiveSync has gradually become longer in history and some recommended settings have changed.
-
-      Now, setup is a very good time to do this.
-
-      Do you want to run Doctor to check if the imported settings are optimal compared to the latest state?
 Should we keep folders that don't have any files inside?: Should we keep folders that don't have any files inside?
 Should we only check for conflicts when a file is opened?: Should we only check for conflicts when a file is opened?
 Should we prompt you about conflicting files when a file is opened?: Should we prompt you about conflicting files when a file is opened?
@@ -1110,6 +1168,7 @@ Should we prompt you for every single merge, even if we can safely merge automat
   automatcially?
 Show only notifications: Show only notifications
 Show status as icons only: Show status as icons only
+Show status icon instead of file warnings banner: Show status icon instead of file warnings banner
 Show status inside the editor: Show status inside the editor
 Show status on the status bar: Show status on the status bar
 Show verbose log. Please enable if you report an issue.: Show verbose log. Please enable if you report an issue.
@@ -1140,6 +1199,7 @@ The maximum number of chunks that can be incubated within the document. Chunks e
 The maximum total size of chunks that can be incubated within the document. Chunks exceeding this size will immediately graduate to independent chunks.:
   The maximum total size of chunks that can be incubated within the document.
   Chunks exceeding this size will immediately graduate to independent chunks.
+The minimum interval for automatic synchronisation on event.: The minimum interval for automatic synchronisation on event.
 This passphrase will not be copied to another device. It will be set to `Default` until you configure it again.:
   This passphrase will not be copied to another device. It will be set to
   `Default` until you configure it again.
@@ -1155,7 +1215,7 @@ TweakMismatchResolve:
     UseRemoteWithRebuild: Apply settings to this device, and fetch again
   Message:
     Main: >-
-
+      
       The settings in the remote database are as follows. These values are
       configured by other devices, which are synchronised with this device at
       least once.
@@ -1190,7 +1250,7 @@ TweakMismatchResolve:
       ${additionalMessage}
     UseRemote:
       WarningRebuildRecommended: >-
-
+        
         >[!NOTICE]
 
         > Some changes are compatible but may consume extra storage and transfer
@@ -1200,7 +1260,7 @@ TweakMismatchResolve:
         > ***Please ensure that you have time and are connected to a stable
         network to apply!***
       WarningRebuildRequired: >-
-
+        
         >[!WARNING]
 
         > Some remote configurations are not compatible with the local database
@@ -1209,7 +1269,7 @@ TweakMismatchResolve:
         > ***Please ensure that you have time and are connected to a stable
         network to apply!***
     WarningIncompatibleRebuildRecommended: >-
-
+      
       >[!NOTICE]
 
       > We have detected that some of the values are different to make
@@ -1222,7 +1282,7 @@ TweakMismatchResolve:
       > If you want to rebuild, it takes a few minutes or more. **Make sure it
       is safe to perform it now.**
     WarningIncompatibleRebuildRequired: >-
-
+      
       >[!WARNING]
 
       > We have detected that some of the values are different to make
