@@ -197,11 +197,11 @@ Incubate Chunks in Document: Incubate Chunks in Document
 Interval (sec): Interval (sec)
 K:
   exp: Experimental
-  long_p2p_sync: "%{title_p2p_sync} (%{exp})"
+  long_p2p_sync: "%{title_p2p_sync}"
   P2P: "%{Peer}-to-%{Peer}"
   Peer: Peer
   ScanCustomization: Scan customization
-  short_p2p_sync: P2P Sync (%{exp})
+  short_p2p_sync: P2P Sync
   title_p2p_sync: Peer-to-Peer Sync
 Keep empty folder: Keep empty folder
 lang_def: Default
@@ -807,36 +807,36 @@ P2P:
     Please input the passphrase to share the configuration. You can ignore the
     request by cancelling this dialogue.
   DisabledButNeed: "%{title_p2p_sync} is disabled. Do you really want to enable it?"
-  FailedToOpen: Failed to open P2P connection to the signaling server.
+  FailedToOpen: Failed to open P2P connection to the signalling server.
   NoAutoSyncPeers: No auto-sync peers found. Please set peers on the %{long_p2p_sync} pane.
   NoKnownPeers: No peers has been detected, waiting incoming other peers...
   Note:
     description: >2-
        This replicator allows us to synchronise our vault with other devices
-      using a peer-to-peer connection. We can        use this to synchronise our
+      using a peer-to-peer connection. We can use this to synchronise our
       vault with our other devices without using a cloud service.
 
-      This replicator is based on Trystero. It also uses a signaling server to
-      establish a connection between devices. The signaling server is used to
+      This replicator is based on Trystero. It also uses a signalling server to
+      establish a connection between devices. The signalling server is used to
       exchange connection information between devices. It does (or,should) not
       know or store any of our data.
 
 
-      The signaling server can be hosted by anyone. This is just a Nostr relay.
+      The signalling server can be hosted by anyone. This is just a Nostr relay.
       For the sake of simplicity and checking the behaviour of the replicator,
-      an instance of the signaling server is hosted by vrtmrz. You can use the
+      an instance of the signalling server is hosted by vrtmrz. You can use the
       experimental server provided by vrtmrz, or you can use any other server.
 
 
-      By the way, even if the signaling server does not store our data, it can
+      By the way, even if the signalling server does not store our data, it can
       see the connection information of some of our devices. Please be aware of
       this. Also, be cautious when using the server provided by someone else.
-    important_note: The Experimental Implementation of the Peer-to-Peer Replicator.
-    important_note_sub: This feature is still in the experimental stage. Please be
-      aware that this feature may not work as expected. Furthermore, it may have
-      some bugs, security issues, and other issues. Please use this feature at
-      your own risk. Please contribute to the development of this feature.
-    Summary: What is this  feature? (and some important notes, please read once)
+    important_note: Peer-to-Peer Replicator.
+    important_note_sub: This feature is still on the bleeding edge. Please be
+      aware that ensure your data is backed up before using this feature. And,
+      we would be so happy if you could contribute to the development of this feature.
+
+    Summary: What is this feature? (and some important notes, please read once)
   NotEnabled: "%{title_p2p_sync} is not enabled. We cannot open a new connection."
   P2PReplication: "%{P2P} Replication"
   PaneTitle: "%{long_p2p_sync}"
