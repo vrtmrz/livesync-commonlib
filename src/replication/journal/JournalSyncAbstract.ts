@@ -11,6 +11,8 @@ import {
     ProtocolVersions,
     DOCID_JOURNAL_SYNC_PARAMETERS,
     type BucketSyncSetting,
+    E2EEAlgorithms,
+    type RemoteDBSettings,
 } from "../../common/types.ts";
 import { Logger } from "../../common/logger.ts";
 import type { ReplicationCallback, ReplicationStat } from "../LiveSyncAbstractReplicator.ts";
@@ -33,12 +35,18 @@ import { Notifier } from "octagonal-wheels/concurrency/processor";
 
 import {
     clearHandlers,
+    createSyncParamsHanderForServer,
     SyncParamsFetchError,
     SyncParamsNotFoundError,
     SyncParamsUpdateError,
 } from "../SyncParamsHandler.ts";
 import { eventHub } from "../../hub/hub.ts";
 import { REMOTE_CHUNK_FETCHED } from "../../pouchdb/LiveSyncLocalDB.ts";
+import { decryptBinary, encryptBinary } from "octagonal-wheels/encryption/encryption";
+import {
+    encryptBinary as encryptBinaryHKDF,
+    decryptBinary as decryptBinaryHKDF,
+} from "octagonal-wheels/encryption/hkdf";
 const RECORD_SPLIT = `\n`;
 const UNIT_SPLIT = `\u001f`;
 type ProcessingEntry = PouchDB.Core.PutDocument<EntryDoc> & PouchDB.Core.GetMeta;
@@ -205,6 +213,86 @@ export abstract class JournalSyncAbstract {
     abstract downloadFile(key: string): Promise<Uint8Array | false>;
     abstract listFiles(from: string, limit?: number): Promise<string[]>;
     abstract isAvailable(): Promise<boolean>;
+    getRemoteKey(): string {
+        return this.getHash(this._settings);
+    }
+    async getReplicationPBKDF2Salt(refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
+        const server = this.getRemoteKey();
+        const manager = createSyncParamsHanderForServer(server, {
+            put: (params: SyncParameters) => this.putSyncParameters(params),
+            get: () => this.getSyncParameters(),
+            create: () => this.getInitialSyncParameters(),
+        });
+        return await manager.getPBKDF2Salt(refresh);
+    }
+    isEncryptionPrevented(fileName: string): boolean {
+        // Prevent encryption for some files
+        if (fileName.endsWith(DOCID_JOURNAL_SYNC_PARAMETERS)) return true;
+        return false;
+    }
+    private async decryptDataV2(
+        encrypted: Uint8Array<ArrayBuffer>,
+        set: RemoteDBSettings
+    ): Promise<Uint8Array<ArrayBuffer>> {
+        const salt = await this.getReplicationPBKDF2Salt();
+        return await decryptBinaryHKDF(encrypted, set.passphrase, salt);
+    }
+    private async decryptDataV1(
+        encrypted: Uint8Array<ArrayBuffer>,
+        set: RemoteDBSettings
+    ): Promise<Uint8Array<ArrayBuffer>> {
+        return (await decryptBinary(
+            encrypted,
+            set.passphrase,
+            set.useDynamicIterationCount
+        )) as Uint8Array<ArrayBuffer>;
+    }
+    async decryptDownloaded(
+        key: string,
+        encrypted: Uint8Array<ArrayBuffer>,
+        set: RemoteDBSettings
+    ): Promise<Uint8Array<ArrayBuffer>> {
+        const u = new Uint8Array(encrypted);
+        try {
+            if (!set.encrypt || set.passphrase == "" || this.isEncryptionPrevented(key)) {
+                return u;
+            }
+            if (set.E2EEAlgorithm === E2EEAlgorithms.ForceV1) {
+                // If forced to V1, do not try V2 decryption, just do V1 and throw error if fails
+                return await this.decryptDataV1(u, set);
+            }
+            const decrypted = await this.decryptDataV2(u, set);
+            return decrypted;
+        } catch (ex) {
+            Logger(`Failed to decrypt in v2. Falling back to v1: ${key}`, LOG_LEVEL_INFO);
+            try {
+                const r = await this.decryptDataV1(u, set);
+                Logger(`Decrypted in v1: ${key}`, LOG_LEVEL_VERBOSE);
+                return r;
+            } catch (ex2) {
+                Logger(`Could not decrypt in v1: ${key}`, LOG_LEVEL_VERBOSE);
+                Logger(ex, LOG_LEVEL_VERBOSE);
+                Logger(ex2, LOG_LEVEL_VERBOSE);
+                throw ex2;
+            }
+        }
+    }
+    async encryptForUpload(
+        key: string,
+        data: Uint8Array<ArrayBuffer>,
+        set: RemoteDBSettings
+    ): Promise<Uint8Array<ArrayBuffer>> {
+        if (!set.encrypt || set.passphrase == "" || this.isEncryptionPrevented(key)) {
+            return data;
+        }
+
+        if (set.E2EEAlgorithm === E2EEAlgorithms.V2) {
+            const salt = await this.getReplicationPBKDF2Salt();
+            return await encryptBinaryHKDF(data, set.passphrase, salt);
+        } else {
+            return await encryptBinary(data, set.passphrase, set.useDynamicIterationCount);
+        }
+    }
 
     async _createJournalPack(override?: number | string) {
         const checkPointInfo = await this.getCheckpointInfo();

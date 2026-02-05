@@ -4,46 +4,15 @@ import { Md5 } from "@smithy/md5-js";
 
 import { ConfiguredRetryStrategy } from "@smithy/util-retry";
 
-import {
-    DOCID_JOURNAL_SYNC_PARAMETERS,
-    E2EEAlgorithms,
-    LOG_LEVEL_NOTICE,
-    LOG_LEVEL_VERBOSE,
-    type SyncParameters,
-} from "../../../common/types.ts";
+import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../../../common/types.ts";
 import { Logger } from "../../../common/logger.ts";
 import { JournalSyncAbstract } from "../JournalSyncAbstract.ts";
-import { decryptBinary, encryptBinary } from "octagonal-wheels/encryption/encryption";
-import {
-    encryptBinary as encryptBinaryHKDF,
-    decryptBinary as decryptBinaryHKDF,
-} from "octagonal-wheels/encryption/hkdf";
 import type { RemoteDBStatus } from "../../LiveSyncAbstractReplicator.ts";
 import { promiseWithResolver } from "octagonal-wheels/promises";
 import type { SourceData } from "@smithy/types";
-import { clearHandlers, createSyncParamsHanderForServer } from "../../SyncParamsHandler.ts";
+import { clearHandlers } from "../../SyncParamsHandler.ts";
 
 export class JournalSyncMinio extends JournalSyncAbstract {
-    getRemoteKey(): string {
-        return this.getHash(this._settings);
-    }
-    async getReplicationPBKDF2Salt(refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
-        const server = this.getRemoteKey();
-        const manager = createSyncParamsHanderForServer(server, {
-            put: (params: SyncParameters) => this.putSyncParameters(params),
-            get: () => this.getSyncParameters(),
-            create: () => this.getInitialSyncParameters(),
-        });
-        return await manager.getPBKDF2Salt(refresh);
-    }
-
-    isEncryptionPrevented(fileName: string): boolean {
-        // Prevent encryption for some files
-        if (fileName.endsWith(DOCID_JOURNAL_SYNC_PARAMETERS)) return true;
-
-        return false;
-    }
-
     _instance?: S3;
 
     _getClient(): S3 {
@@ -189,16 +158,9 @@ export class JournalSyncMinio extends JournalSyncAbstract {
 
     async uploadFile(key: string, blob: Blob, mime: string) {
         try {
-            let u = new Uint8Array(await blob.arrayBuffer());
+            const buf = new Uint8Array(await blob.arrayBuffer());
             const set = this.env.getSettings();
-            if (set.encrypt && set.passphrase != "" && !this.isEncryptionPrevented(key)) {
-                if (set.E2EEAlgorithm === E2EEAlgorithms.V2) {
-                    const salt = await this.getReplicationPBKDF2Salt();
-                    u = await encryptBinaryHKDF(u, set.passphrase, salt);
-                } else {
-                    u = await encryptBinary(u, set.passphrase, set.useDynamicIterationCount);
-                }
-            }
+            const u = await this.encryptForUpload(key, buf, set);
             const client = this._getClient();
             const cmd = new PutObjectCommand({
                 Bucket: this.bucket,
@@ -226,26 +188,14 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         const set = this.env.getSettings();
         try {
             if (r.Body) {
-                let u = new Uint8Array(await r.Body.transformToByteArray());
-                if (set.encrypt && set.passphrase != "" && !this.isEncryptionPrevented(key)) {
-                    if (set.E2EEAlgorithm === E2EEAlgorithms.V2) {
-                        const salt = await this.getReplicationPBKDF2Salt();
-                        u = await decryptBinaryHKDF(u, set.passphrase, salt);
-                    } else if (set.E2EEAlgorithm === E2EEAlgorithms.V1) {
-                        try {
-                            const salt = await this.getReplicationPBKDF2Salt();
-                            u = await decryptBinaryHKDF(u, set.passphrase, salt);
-                        } catch (ex) {
-                            // If throws here, completely failed to decrypt
-                            Logger(`Could not decrypt ${key} in v2`, LOG_LEVEL_VERBOSE);
-                            Logger(ex, LOG_LEVEL_VERBOSE);
-                            u = new Uint8Array(await decryptBinary(u, set.passphrase, set.useDynamicIterationCount));
-                        }
-                    } else if (set.E2EEAlgorithm === E2EEAlgorithms.ForceV1) {
-                        u = new Uint8Array(await decryptBinary(u, set.passphrase, set.useDynamicIterationCount));
-                    }
+                const u = new Uint8Array(await r.Body.transformToByteArray());
+                try {
+                    return await this.decryptDownloaded(key, u, set);
+                } catch (ex) {
+                    Logger(`Could not decrypt downloaded file ${key}`, LOG_LEVEL_NOTICE);
+                    Logger(ex, LOG_LEVEL_VERBOSE);
+                    return false;
                 }
-                return u;
             }
         } catch (ex) {
             Logger(`Could not download ${key}`);
