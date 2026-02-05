@@ -21,7 +21,7 @@ for (const file of files) {
             .map(([key, value]) => [key.endsWith("._value") ? key.slice(0, -7) : key, value] as [string, any])
             .sort(([keyA], [keyB]) => keyA.localeCompare(keyB))
     );
-    const yamlData = JSON.stringify(jsonData, null, 4)+"\n";
+    const yamlData = JSON.stringify(jsonData, null, 4) + "\n";
     const yamlFilePath = filePath.replace(/\.yaml$/, ".json").replace("YAML", "Json");
     await writeFile(yamlFilePath, yamlData, "utf-8");
     console.log(`Converted ${filePath} to ${yamlFilePath}`);
