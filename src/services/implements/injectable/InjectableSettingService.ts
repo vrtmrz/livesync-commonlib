@@ -14,6 +14,5 @@ export class InjectableSettingService<T extends ServiceContext> extends SettingS
     saveSettingData = handlers<ISettingService>().binder("saveSettingData");
     loadSettings = handlers<ISettingService>().binder("loadSettings");
     currentSettings = handlers<ISettingService>().binder("currentSettings");
-    shouldCheckCaseInsensitively = handlers<ISettingService>().binder("shouldCheckCaseInsensitively");
     importSettings = handlers<ISettingService>().binder("importSettings");
 }

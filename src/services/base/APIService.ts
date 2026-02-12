@@ -1,6 +1,6 @@
 import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import type { LOG_LEVEL } from "@lib/common/logger";
-import type { IAPIService } from "./IService";
+import type { IAPIService, ICommandCompat } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 
 /**
@@ -52,4 +52,32 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
     abstract getPluginVersion(): string;
 
     abstract getCrypto(): Crypto;
+
+    /**
+     * Register a command to the runtime.
+     * @param command
+     */
+    abstract addCommand<TCommand extends ICommandCompat>(command: TCommand): TCommand;
+
+    /**
+     * Register a window (or leaf) type to the runtime.
+     * @param type
+     * @param factory
+     */
+    abstract registerWindow(type: string, factory: (leaf: any) => any): void;
+
+    /**
+     * Add a ribbon icon to the UI.
+     * @param icon
+     * @param title
+     * @param callback
+     */
+    abstract addRibbonIcon(icon: string, title: string, callback: (evt: MouseEvent) => any): HTMLElement;
+
+    /**
+     * Register a protocol handler.
+     * @param action The action string for the protocol.
+     * @param handler The handler function for the protocol.
+     */
+    abstract registerProtocolHandler(action: string, handler: (params: Record<string, string>) => any): void;
 }

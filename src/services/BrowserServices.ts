@@ -9,7 +9,7 @@ import { InjectableReplicatorService } from "@lib/services/implements/injectable
 import { InjectableSettingService } from "@lib/services/implements/injectable/InjectableSettingService";
 import { InjectableTestService } from "@lib/services/implements/injectable/InjectableTestService";
 import { InjectableTweakValueService } from "@lib/services/implements/injectable/InjectableTweakValueService";
-import { InjectableVaultService } from "@lib/services/implements/injectable/InjectableVaultService";
+import { InjectableVaultServiceCompat } from "@lib/services/implements/injectable/InjectableVaultService";
 import { ServiceContext } from "@lib/services/base/ServiceBase";
 import { ConfigServiceBrowserCompat } from "@lib/services/implements/browser/ConfigServiceBrowserCompat";
 import { InjectableServiceHub } from "@lib/services/implements/injectable/InjectableServiceHub";
@@ -31,7 +31,9 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
         const remote = new InjectableRemoteService(context);
         const setting = new InjectableSettingService(context);
         const tweakValue = new InjectableTweakValueService(context);
-        const vault = new InjectableVaultService(context);
+        const vault = new InjectableVaultServiceCompat<T>(context, {
+            settingService: setting,
+        });
         const test = new InjectableTestService(context);
         const databaseEvents = new InjectableDatabaseEventService(context);
         const path = new InjectablePathService(context);

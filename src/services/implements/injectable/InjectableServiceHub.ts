@@ -94,6 +94,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
             ui: UIService<T>;
             config: ConfigService<T>;
             database: InjectableDatabaseService<T>;
+            vault: InjectableVaultService<T>;
         }
     ) {
         super(context, services);
@@ -110,7 +111,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
         this._appLifecycle = services.appLifecycle ?? new InjectableAppLifecycleService<T>(context);
         this._setting = services.setting ?? new InjectableSettingService<T>(context);
         this._tweakValue = services.tweakValue ?? new InjectableTweakValueService<T>(context);
-        this._vault = services.vault ?? new InjectableVaultService<T>(context);
+        this._vault = services.vault;
         this._test = services.test ?? new InjectableTestService<T>(context);
         this._ui = services.ui;
         this._config = services.config;

@@ -3,14 +3,16 @@ import type { ServiceContext } from "../../base/ServiceBase";
 import { VaultService } from "../../base/VaultService";
 import { handlers } from "../../lib/HandlerUtils";
 
-export class InjectableVaultService<T extends ServiceContext> extends VaultService<T> {
-    getVaultName = handlers<IVaultService>().binder("getVaultName");
+export abstract class InjectableVaultService<T extends ServiceContext> extends VaultService<T> {
     scanVault = handlers<IVaultService>().binder("scanVault");
     isIgnoredByIgnoreFile = handlers<IVaultService>().binder("isIgnoredByIgnoreFile");
     isTargetFile = handlers<IVaultService>().binder("isTargetFile");
-    isFileSizeTooLarge = handlers<IVaultService>().binder("isFileSizeTooLarge");
-    getActiveFilePath = handlers<IVaultService>().binder("getActiveFilePath");
     markFileListPossiblyChanged = handlers<IVaultService>().binder("markFileListPossiblyChanged");
-    isStorageInsensitive = handlers<IVaultService>().binder("isStorageInsensitive");
+}
+
+export class InjectableVaultServiceCompat<T extends ServiceContext> extends InjectableVaultService<T> {
     vaultName = handlers<IVaultService>().binder("vaultName");
+    isStorageInsensitive = handlers<IVaultService>().binder("isStorageInsensitive");
+    getActiveFilePath = handlers<IVaultService>().binder("getActiveFilePath");
+    // shouldCheckCaseInsensitively = handlers<IVaultService>().binder("shouldCheckCaseInsensitively");
 }

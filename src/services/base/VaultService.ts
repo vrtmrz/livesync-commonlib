@@ -1,7 +1,10 @@
 import type { UXFileInfoStub, FilePath } from "@lib/common/types";
-import type { IVaultService } from "./IService";
+import type { ISettingService, IVaultService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 
+export interface VaultServiceDependencies {
+    settingService: ISettingService;
+}
 /**
  * The VaultService provides methods for interacting with the vault (local file system).
  */
@@ -9,6 +12,14 @@ export abstract class VaultService<T extends ServiceContext = ServiceContext>
     extends ServiceBase<T>
     implements IVaultService
 {
+    protected settingService: ISettingService;
+    get settings() {
+        return this.settingService.currentSettings();
+    }
+    constructor(context: T, dependencies: VaultServiceDependencies) {
+        super(context);
+        this.settingService = dependencies.settingService;
+    }
     /**
      * Get the vault name only.
      */
@@ -17,7 +28,12 @@ export abstract class VaultService<T extends ServiceContext = ServiceContext>
     /**
      * Get the vault name with additional suffixes.
      */
-    abstract getVaultName(): string;
+    getVaultName() {
+        return (
+            this.vaultName() +
+            (this.settings.additionalSuffixOfDatabaseName ? "-" + this.settings.additionalSuffixOfDatabaseName : "")
+        );
+    }
 
     /**
      * Scan the vault for changes (especially for changes during the plug-in were not running).
@@ -48,7 +64,15 @@ export abstract class VaultService<T extends ServiceContext = ServiceContext>
      * Check if a filesize is too large against the current settings.
      * @param size The file size to check.
      */
-    abstract isFileSizeTooLarge(size: number): boolean;
+    isFileSizeTooLarge(size: number) {
+        const maxSize = this.settings.syncMaxSizeInMB;
+        if (maxSize > 0 && size > 0) {
+            if (maxSize * 1024 * 1024 < size) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /**
      * Get the currently active file path in the editor, if any.
@@ -60,4 +84,14 @@ export abstract class VaultService<T extends ServiceContext = ServiceContext>
      * This is important for certain operating systems like Windows and macOS.
      */
     abstract isStorageInsensitive(): boolean;
+
+    /**
+     * Check if the file system should be treated case-insensitively.
+     * This is important for certain operating systems like Windows and macOS.
+     */
+    shouldCheckCaseInsensitively(): boolean {
+        // By default, only check if the setting says so.
+        // Override this method in subclasses for the platform-specific logic, i.e., checking the underlying file system.
+        return !this.settings.handleFilenameCaseSensitive;
+    }
 }

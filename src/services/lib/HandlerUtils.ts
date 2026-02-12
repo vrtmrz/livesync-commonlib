@@ -54,6 +54,7 @@ export interface MultiRegisterHandler<T extends any[], U> {
      * @param callback The handler function to remove.
      */
     removeHandler(callback: BooleanHandlerFunc<T, U>): void;
+    use(callback: BooleanHandlerFunc<T, U>): UnregisterFunction;
 }
 
 /**
@@ -202,6 +203,15 @@ export class MultiBinder<T extends HandlerFunc<any, any>>
      */
     removeHandler(callback: T) {
         this._callbacks.delete(callback);
+    }
+
+    /**
+     * Adds a handler function (alias of addHandler, but more semantic).
+     * @param callback
+     * @returns
+     */
+    use(callback: T) {
+        return this.addHandler(callback);
     }
 }
 
@@ -463,6 +473,7 @@ function getMultipleBound<T extends MultiBinderInstance<any, any> | DispatchHand
     };
     func.addHandler = handler.addHandler.bind(handler);
     func.removeHandler = handler.removeHandler.bind(handler);
+    func.use = handler;
     return func as MultipleHandlerFunction<typeof __handler>;
 }
 

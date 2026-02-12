@@ -30,6 +30,16 @@ declare global {
     }
 }
 
+export interface ICommandCompat {
+    id: string;
+    name: string;
+    icon?: string;
+    callback?: () => any;
+    checkCallback?: (checking: boolean) => boolean | void;
+    editorCallback?: (editor: any, ctx: any) => any;
+    editorCheckCallback?: (checking: any, editor: any, ctx: any) => boolean | void;
+}
+
 export interface IAPIService {
     getCustomFetchHandler(): FetchHttpHandler;
 
@@ -48,6 +58,10 @@ export interface IAPIService {
     getAppVersion(): string;
 
     getPluginVersion(): string;
+    addCommand<TCommand extends ICommandCompat>(command: TCommand): TCommand;
+    registerWindow(type: string, factory: (leaf: any) => any): void;
+    addRibbonIcon(icon: string, title: string, callback: (evt: MouseEvent) => any): HTMLElement;
+    registerProtocolHandler(action: string, handler: (params: Record<string, string>) => any): void;
 }
 export interface IPathService {
     id2path(id: DocumentID, entry?: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
@@ -234,8 +248,6 @@ export interface ISettingService {
 
     currentSettings(): ObsidianLiveSyncSettings;
 
-    shouldCheckCaseInsensitively(): boolean;
-
     importSettings(imported: Partial<ObsidianLiveSyncSettings>): Promise<boolean>;
 }
 export interface ITweakValueService {
@@ -272,6 +284,8 @@ export interface IVaultService {
     getActiveFilePath(): FilePath | undefined;
 
     isStorageInsensitive(): boolean;
+
+    shouldCheckCaseInsensitively(): boolean;
 }
 export interface ITestService {
     test(): Promise<boolean>;

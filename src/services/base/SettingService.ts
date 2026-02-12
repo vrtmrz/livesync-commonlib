@@ -99,11 +99,5 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
      */
     abstract currentSettings(): ObsidianLiveSyncSettings;
 
-    /**
-     * Check if the file system should be treated case-insensitively.
-     * This is important for certain operating systems like Windows and macOS.
-     */
-    abstract shouldCheckCaseInsensitively(): boolean;
-
     abstract importSettings(imported: Partial<ObsidianLiveSyncSettings>): Promise<boolean>;
 }
