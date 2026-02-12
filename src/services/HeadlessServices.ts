@@ -4,7 +4,7 @@ import { InjectableAppLifecycleService } from "@lib/services/implements/injectab
 import { InjectableConflictService } from "@lib/services/implements/injectable/InjectableConflictService";
 import { InjectableDatabaseEventService } from "@lib/services/implements/injectable/InjectableDatabaseEventService";
 import { InjectableFileProcessingService } from "@lib/services/implements/injectable/InjectableFileProcessingService";
-import { InjectablePathService } from "@lib/services/implements/injectable/InjectablePathService";
+import { PathServiceCompat } from "@lib/services/implements/injectable/InjectablePathService";
 import { InjectableRemoteService } from "@lib/services/implements/injectable/InjectableRemoteService";
 import { InjectableReplicationService } from "@lib/services/implements/injectable/InjectableReplicationService";
 import { InjectableReplicatorService } from "@lib/services/implements/injectable/InjectableReplicatorService";
@@ -18,10 +18,11 @@ import { InjectableServiceHub } from "@lib/services/implements/injectable/Inject
 import type { ServiceInstances } from "@lib/services/ServiceHub";
 
 import type { Confirm } from "../interfaces/Confirm";
-import { SvelteDialogManagerBase, type ComponentHasResult } from "../UI/svelteDialog";
+
 import { UIService } from "@lib/services/implements/base/UIService";
 import { HeadlessAPIService } from "./implements/headless/HeadlessAPIService";
 import { HeadlessDatabaseService } from "./implements/headless/HeadlessDatabaseService";
+import { SvelteDialogManagerBase, type ComponentHasResult } from "./implements/base/SvelteDialog";
 
 class HeadlessConfirm implements Confirm {
     askYesNo(message: string): Promise<"yes" | "no"> {
@@ -72,6 +73,9 @@ type HeadlessUIServiceDependencies<T extends ServiceContext = ServiceContext> = 
 };
 
 class HeadlessUIService extends UIService<ServiceContext> {
+    override get dialogToCopy(): never {
+        throw new Error("Method not implemented.");
+    }
     constructor(context: ServiceContext, dependents: HeadlessUIServiceDependencies<ServiceContext>) {
         const headlessConfirm = new HeadlessConfirm();
         const headlessSvelteDialogManager = new HeadlessSvelteDialogManager<ServiceContext>(context, {
@@ -107,7 +111,9 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
         });
         const test = new InjectableTestService(context);
         const databaseEvents = new InjectableDatabaseEventService(context);
-        const path = new InjectablePathService(context);
+        const path = new PathServiceCompat(context, {
+            settingService: setting,
+        });
         const config = new ConfigServiceBrowserCompat<ServiceContext>(context, vault);
         const ui = new HeadlessUIService(context, {
             appLifecycle,

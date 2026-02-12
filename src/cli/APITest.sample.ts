@@ -23,6 +23,7 @@ const opt: DirectFileManipulatorOptions = {
 };
 
 const directFileManipulator = new DirectFileManipulator(opt);
+await directFileManipulator.init();
 const f = await directFileManipulator.get("test.md" as FilePathWithPrefix);
 console.dir(f);
 const testData = createTextBlob(`Hello world a`);

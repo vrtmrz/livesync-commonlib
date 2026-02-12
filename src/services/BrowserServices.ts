@@ -2,7 +2,7 @@ import { InjectableAppLifecycleService } from "@lib/services/implements/injectab
 import { InjectableConflictService } from "@lib/services/implements/injectable/InjectableConflictService";
 import { InjectableDatabaseEventService } from "@lib/services/implements/injectable/InjectableDatabaseEventService";
 import { InjectableFileProcessingService } from "@lib/services/implements/injectable/InjectableFileProcessingService";
-import { InjectablePathService } from "@lib/services/implements/injectable/InjectablePathService";
+import { PathServiceCompat } from "@lib/services/implements/injectable/InjectablePathService";
 import { InjectableRemoteService } from "@lib/services/implements/injectable/InjectableRemoteService";
 import { InjectableReplicationService } from "@lib/services/implements/injectable/InjectableReplicationService";
 import { InjectableReplicatorService } from "@lib/services/implements/injectable/InjectableReplicatorService";
@@ -19,6 +19,10 @@ import { BrowserAPIService } from "./implements/browser/BrowserAPIService";
 import { BrowserDatabaseService } from "./implements/browser/BrowserDatabaseService";
 
 export class BrowserServiceHub<T extends ServiceContext> extends InjectableServiceHub<T> {
+    //  get vault():InjectableVaultServiceCompat<T>;
+    get vault(): InjectableVaultServiceCompat<T> {
+        return this._vault as InjectableVaultServiceCompat<T>;
+    }
     constructor() {
         const context = new ServiceContext() as T;
         const API = new BrowserAPIService(context);
@@ -36,7 +40,9 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
         });
         const test = new InjectableTestService(context);
         const databaseEvents = new InjectableDatabaseEventService(context);
-        const path = new InjectablePathService(context);
+        const path = new PathServiceCompat(context, {
+            settingService: setting,
+        });
         const config = new ConfigServiceBrowserCompat<T>(context, vault);
         const ui = new BrowserUIService<T>(context, {
             appLifecycle,

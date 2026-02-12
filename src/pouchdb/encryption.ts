@@ -14,7 +14,7 @@ import { isEncryptedChunkEntry, isSyncInfoEntry, isObfuscatedEntry } from "../co
 import { isPathProbablyObfuscated, obfuscatePath } from "octagonal-wheels/encryption/encryption";
 // import { encryptHKDF, decryptHKDF } from "../encryption/encryptHKDF.ts";
 import { getPath } from "../string_and_binary/path.ts";
-import { encryptWorker, decryptWorker, encryptHKDFWorker, decryptHKDFWorker } from "../worker/bgWorker.ts";
+import { encryptWorker, decryptWorker, encryptHKDFWorker, decryptHKDFWorker } from "@lib/worker/bgWorker.ts";
 
 export const encrypt = encryptWorker;
 export const decrypt = decryptWorker;

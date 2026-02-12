@@ -1,6 +1,7 @@
 import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import { type LOG_LEVEL } from "octagonal-wheels/common/logger";
 import type {
+    AnyEntry,
     AUTO_MERGED,
     CouchDBCredentials,
     diff_result,
@@ -67,6 +68,7 @@ export interface IPathService {
     id2path(id: DocumentID, entry?: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
 
     path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID>;
+    getPath(entry: AnyEntry): FilePathWithPrefix;
 }
 export interface IDatabaseService {
     createPouchDBInstance<T extends object>(

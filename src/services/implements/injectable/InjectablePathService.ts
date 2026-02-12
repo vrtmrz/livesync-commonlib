@@ -1,9 +1,10 @@
-import type { IPathService } from "../../base/IService";
 import { PathService } from "../../base/PathService";
 import type { ServiceContext } from "../../base/ServiceBase";
-import { handlers } from "../../lib/HandlerUtils";
 
-export class InjectablePathService<T extends ServiceContext> extends PathService<T> {
-    id2path = handlers<IPathService>().binder("id2path");
-    path2id = handlers<IPathService>().binder("path2id");
+export class PathServiceCompat<T extends ServiceContext> extends PathService<T> {
+    override normalizePath(path: string): string {
+        // Turns the path with forward slashes, strip double slashes
+        const fPath = path.replace(/\\/g, "/").replace(/\/+/g, "/");
+        return fPath;
+    }
 }

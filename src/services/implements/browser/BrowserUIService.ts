@@ -5,6 +5,7 @@ import type { ReplicatorService } from "@lib/services/base/ReplicatorService";
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
 import { BrowserConfirm } from "./BrowserConfirm";
 import { BrowserSvelteDialogManager } from "./SvelteDialogBrowser";
+import DialogToCopy from "@/lib/src/UI/dialogues/DialogueToCopy.svelte";
 
 export type BrowserUIServiceDependencies<T extends ServiceContext = ServiceContext> = {
     appLifecycle: AppLifecycleService<T>;
@@ -13,6 +14,9 @@ export type BrowserUIServiceDependencies<T extends ServiceContext = ServiceConte
 };
 
 export class BrowserUIService<T extends ServiceContext> extends UIService<T> {
+    override get dialogToCopy() {
+        return DialogToCopy;
+    }
     constructor(context: T, dependents: BrowserUIServiceDependencies<T>) {
         const browserConfirm = new BrowserConfirm(context);
         const obsidianSvelteDialogManager = new BrowserSvelteDialogManager<T>(context, {

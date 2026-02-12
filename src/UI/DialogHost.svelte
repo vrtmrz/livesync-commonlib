@@ -1,17 +1,19 @@
 <script lang="ts">
+    import type { DialogHostProps } from "../services/implements/base/SvelteDialog";
     import { type DialogSvelteComponentBaseProps, type ComponentHasResult } from "./svelteDialog";
-    type Props = DialogSvelteComponentBaseProps & {
-        /**
-         * The Svelte component to mount inside the dialog host
-         */
-        mountComponent: ComponentHasResult<any>;
-        /**
-         * Callback function to setup the dialog context
-         * @param props
-         */
-        onSetupContext?(props: DialogSvelteComponentBaseProps): void;
-    };
-    const { setTitle, closeDialog, setResult, mountComponent, getInitialData, onSetupContext }: Props = $props();
+    // type Props = DialogSvelteComponentBaseProps & {
+    //     /**
+    //      * The Svelte component to mount inside the dialog host
+    //      */
+    //     mountComponent: ComponentHasResult<any>;
+    //     /**
+    //      * Callback function to setup the dialog context
+    //      * @param props
+    //      */
+    //     onSetupContext?(props: DialogSvelteComponentBaseProps): void;
+    // };
+    const { setTitle, closeDialog, setResult, mountComponent, getInitialData, onSetupContext }: DialogHostProps =
+        $props();
     const contextProps = {
         setTitle,
         closeDialog,

@@ -1,4 +1,5 @@
 import type { ConfigService } from "../../base/ConfigService";
+import { PathService } from "../../base/PathService";
 import type { ServiceContext } from "../../base/ServiceBase";
 import { ServiceHub } from "../../ServiceHub";
 import type { UIService } from "../base/UIService";
@@ -8,7 +9,6 @@ import { InjectableConflictService } from "./InjectableConflictService";
 import { InjectableDatabaseEventService } from "./InjectableDatabaseEventService";
 import { InjectableDatabaseService } from "./InjectableDatabaseService";
 import { InjectableFileProcessingService } from "./InjectableFileProcessingService";
-import { InjectablePathService } from "./InjectablePathService";
 import { InjectableRemoteService } from "./InjectableRemoteService";
 import { InjectableReplicationService } from "./InjectableReplicationService";
 import { InjectableReplicatorService } from "./InjectableReplicatorService";
@@ -21,7 +21,7 @@ import { InjectableVaultService } from "./InjectableVaultService";
 export class InjectableServiceHub<T extends ServiceContext = ServiceContext> extends ServiceHub<T> {
     protected readonly _api: InjectableAPIService<T>;
 
-    protected readonly _path: InjectablePathService<T>;
+    protected readonly _path: PathService<T>;
     protected readonly _database: InjectableDatabaseService<T>;
     protected readonly _databaseEvents: InjectableDatabaseEventService<T>;
     protected readonly _replicator: InjectableReplicatorService<T>;
@@ -40,7 +40,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
     get API(): InjectableAPIService<T> {
         return this._api;
     }
-    get path(): InjectablePathService<T> {
+    get path(): PathService<T> {
         return this._path;
     }
     get database(): InjectableDatabaseService<T> {
@@ -90,6 +90,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
     constructor(
         context: T,
         services: InjectableServiceInstances<T> & {
+            path: PathService<T>;
             API: InjectableAPIService<T>;
             ui: UIService<T>;
             config: ConfigService<T>;
@@ -100,7 +101,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
         super(context, services);
         // TODO reorder to resolve dependencies (or make sure dependencies)
         this._api = services.API;
-        this._path = services.path ?? new InjectablePathService<T>(context);
+        this._path = services.path;
         this._database = services.database;
         this._databaseEvents = services.databaseEvents ?? new InjectableDatabaseEventService<T>(context);
         this._replicator = services.replicator ?? new InjectableReplicatorService<T>(context);

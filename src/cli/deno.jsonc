@@ -1,7 +1,10 @@
 {
     "imports": {
-        "../worker/bgWorker.ts": "../worker/bgWorker.mock.ts"
+        "@/": "../../../",
+        "@lib/": "../",
+        "@lib/worker/bgWorker.ts": "../worker/bgWorker.mock.ts",
+        "octagonal-wheels": "npm:octagonal-wheels",
     },
-
-    "unstable": ["sloppy-imports", "byonm"]
+    "nodeModulesDir": "manual",
+    "unstable": ["sloppy-imports", "byonm"],
 }

@@ -1,7 +1,7 @@
 import { type ComponentHasResult, SvelteDialogManagerBase, SvelteDialogMixIn } from "../base/SvelteDialog.ts";
 import type { ServiceContext } from "@lib/services/base/ServiceBase.ts";
 import type { SvelteDialogManagerDependencies } from "../base/SvelteDialog";
-
+import DialogHost from "@/lib/src/UI/DialogHost.svelte";
 export type DialogMessageProps = Record<string, any>;
 
 export class ShimModal {
@@ -42,7 +42,7 @@ export class ShimModal {
     }
 }
 
-const BrowserSvelteDialogBase = SvelteDialogMixIn(ShimModal);
+const BrowserSvelteDialogBase = SvelteDialogMixIn(ShimModal, DialogHost);
 
 export class SvelteDialogBrowser<T, U, C extends ServiceContext = ServiceContext> extends BrowserSvelteDialogBase<
     T,

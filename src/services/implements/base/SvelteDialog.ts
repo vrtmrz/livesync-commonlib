@@ -7,7 +7,7 @@ import { LOG_LEVEL_NOTICE, Logger } from "@/lib/src/common/logger";
 import { fireAndForget, promiseWithResolvers, type PromiseWithResolvers } from "octagonal-wheels/promises";
 import { eventHub } from "@/lib/src/hub/hub";
 import { EVENT_PLUGIN_UNLOADED } from "@/lib/src/events/coreEvents";
-import DialogHost from "@/lib/src/UI/DialogHost.svelte";
+
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
 
 export type SvelteDialogManagerDependencies<T extends ServiceContext = ServiceContext> = {
@@ -37,7 +37,17 @@ export type DialogControlBase<T = any, U = any> = {
     closeDialog: () => void;
 } & HasSetResult<T> &
     HasGetInitialData<U>;
-
+export type DialogHostProps = DialogSvelteComponentBaseProps & {
+    /**
+     * The Svelte component to mount inside the dialog host
+     */
+    mountComponent: ComponentHasResult<any>;
+    /**
+     * Callback function to setup the dialog context
+     * @param props
+     */
+    onSetupContext?(props: DialogSvelteComponentBaseProps): void;
+};
 export type DialogContext<C extends ServiceContext = ServiceContext, T = any, U = any> = DialogControlBase<T, U> & {
     context: C;
     services: SvelteDialogManagerDependencies<C>;
@@ -64,7 +74,7 @@ export interface IModalBase {
     onClose(): void;
     open(): void;
 }
-export function SvelteDialogMixIn<TBase extends Constructor<IModalBase>>(TBase: TBase) {
+export function SvelteDialogMixIn<TBase extends Constructor<IModalBase>>(TBase: TBase, d: Component<DialogHostProps>) {
     return class SvelteDialog<
         T,
         U,
@@ -118,7 +128,7 @@ export function SvelteDialogMixIn<TBase extends Constructor<IModalBase>>(TBase: 
                 }
             });
             this.resultPromiseWithResolvers = pr;
-            this.mountedComponent = mount(DialogHost, {
+            this.mountedComponent = mount(d, {
                 target: contentEl,
                 props: {
                     onSetupContext: (props: DialogSvelteComponentBaseProps) => {

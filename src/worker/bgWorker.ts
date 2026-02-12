@@ -171,5 +171,3 @@ export function terminateWorker() {
     }
     // isTerminated = true;
 }
-
-initialiseWorkerModule();

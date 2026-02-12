@@ -1,8 +1,6 @@
 /**
  * The API for manipulating files stored in the CouchDB by Self-hosted LiveSync or its families.
  */
-
-import { addPrefix, id2path_base, path2id_base, stripAllPrefixes } from "../string_and_binary/path.ts";
 import {
     type DocumentID,
     type FilePathWithPrefix,
@@ -110,10 +108,15 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     options: DirectFileManipulatorOptions;
     ready = promiseWithResolvers<void>();
     services = new HeadlessServiceHub();
+    public async init() {
+        await this.liveSyncLocalDB.initializeDatabase();
+        this.ready.resolve();
+        this.liveSyncLocalDB.refreshSettings();
+    }
     constructor(options: DirectFileManipulatorOptions) {
         this.options = options;
         const getDB = () => this.liveSyncLocalDB.localDatabase;
-        const getSettings = () => this.settings;
+        const getSettings = () => this.settings as any;
         this.managers = new LiveSyncManagers({
             get database() {
                 return getDB();
@@ -127,32 +130,18 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 return getSettings();
             },
         });
-        this.services.path.id2path.setHandler(this.$$id2path.bind(this));
-        this.services.path.path2id.setHandler(this.$$path2id.bind(this));
+        this.services.setting.currentSettings.setHandler(getSettings.bind(this));
         this.services.database.createPouchDBInstance.setHandler(this.$$createPouchDBInstance.bind(this));
         this.services.databaseEvents.onDatabaseInitialisation.addHandler(this.$everyOnInitializeDatabase.bind(this));
         this.liveSyncLocalDB = new LiveSyncLocalDB(this.options.url, this);
-        void this.liveSyncLocalDB.initializeDatabase().then(() => {
-            this.ready.resolve();
-            this.liveSyncLocalDB.refreshSettings();
-        });
+        void this.init();
     }
 
     $$id2path(id: DocumentID, entry?: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix {
-        const path = id2path_base(id, entry);
-        if (stripPrefix) {
-            return stripAllPrefixes(path);
-        }
-        return path;
+        return this.services.path.id2path(id, entry, stripPrefix);
     }
     async $$path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID> {
-        const fileName = prefix ? addPrefix(filename, prefix) : filename;
-        const id = await path2id_base(
-            fileName,
-            this.options.obfuscatePassphrase ?? false,
-            !this.options.handleFilenameCaseSensitive
-        );
-        return id;
+        return await this.services.path.path2id(filename, prefix);
     }
     $$createPouchDBInstance<T extends object>(
         _name?: string,
@@ -227,13 +216,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         return this.liveSyncLocalDB.onunload();
     }
     async path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID> {
-        const fileName = prefix ? addPrefix(filename, prefix) : filename;
-        const id = await path2id_base(
-            fileName,
-            this.options.obfuscatePassphrase ?? false,
-            !this.options.handleFilenameCaseSensitive
-        );
-        return id;
+        return await this.services.path.path2id(filename, prefix);
     }
 
     get settings() {

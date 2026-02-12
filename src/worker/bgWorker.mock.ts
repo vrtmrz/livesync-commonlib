@@ -3,6 +3,8 @@ import { decrypt, encrypt } from "octagonal-wheels/encryption/index.js";
 import { encrypt as encryptHKDF, decrypt as decryptHKDF } from "octagonal-wheels/encryption/hkdf";
 
 import { splitPieces2, splitPieces2V2, splitPiecesRabinKarp } from "../string_and_binary/chunks.ts";
+import type { EncryptHKDFProcessItem, EncryptProcessItem, SplitProcessItem, ProcessItem } from "./universalTypes.ts";
+import { promiseWithResolvers } from "octagonal-wheels/promises";
 
 export type SplitArguments = {
     key: number;
@@ -90,3 +92,21 @@ export function decryptHKDFWorker(
 ): Promise<string> {
     return decryptHKDF(input, passphrase, pbkdf2Salt);
 }
+
+export function startWorker(data: Omit<EncryptHKDFArguments, "key">): EncryptHKDFProcessItem;
+export function startWorker(data: Omit<EncryptArguments, "key">): EncryptProcessItem;
+export function startWorker(data: Omit<SplitArguments, "key">): SplitProcessItem;
+export function startWorker(data: Omit<EncryptArguments | SplitArguments | EncryptHKDFArguments, "key">): ProcessItem {
+    const task = promiseWithResolvers<string | null>();
+    task.resolve();
+    return {
+        task: task,
+        key: 0,
+        type: data.type,
+        finalize: () => {
+            // No op
+        },
+    };
+}
+
+export const tasks = new Map<number, ProcessItem>();

@@ -1,6 +1,6 @@
 import { ChunkAlgorithms } from "../common/types.ts";
 import { splitPiecesRabinKarp } from "../string_and_binary/chunks.ts";
-import { splitPieces2WorkerRabinKarp } from "../worker/bgWorker.ts";
+import { splitPieces2WorkerRabinKarp } from "@lib/worker/bgWorker.ts";
 import type { ContentSplitterOptions, SplitOptions } from "./ContentSplitter.ts";
 import { ContentSplitterBase } from "./ContentSplitterBase.ts";
 /**
