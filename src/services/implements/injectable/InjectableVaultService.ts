@@ -6,7 +6,7 @@ import { handlers } from "../../lib/HandlerUtils";
 export abstract class InjectableVaultService<T extends ServiceContext> extends VaultService<T> {
     scanVault = handlers<IVaultService>().binder("scanVault");
     isIgnoredByIgnoreFile = handlers<IVaultService>().binder("isIgnoredByIgnoreFile");
-    isTargetFile = handlers<IVaultService>().binder("isTargetFile");
+    isTargetFile = handlers<IVaultService>().bailFirstFailure("isTargetFile");
     markFileListPossiblyChanged = handlers<IVaultService>().binder("markFileListPossiblyChanged");
 }
 

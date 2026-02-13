@@ -11,7 +11,7 @@ import type { InjectableFileProcessingService } from "./InjectableFileProcessing
 import type { InjectableReplicationService } from "./InjectableReplicationService";
 import type { InjectableRemoteService } from "./InjectableRemoteService";
 import type { InjectableConflictService } from "./InjectableConflictService";
-import type { InjectableAppLifecycleService } from "./InjectableAppLifecycleService";
+import type { AppLifecycleServiceBase } from "./InjectableAppLifecycleService";
 import type { InjectableSettingService } from "./InjectableSettingService";
 import type { InjectableTweakValueService } from "./InjectableTweakValueService";
 import type { InjectableVaultService } from "./InjectableVaultService";
@@ -28,7 +28,7 @@ export type InjectableServiceInstances<T extends ServiceContext> = ServiceInstan
     replication?: InjectableReplicationService<T>;
     remote?: InjectableRemoteService<T>;
     conflict?: InjectableConflictService<T>;
-    appLifecycle?: InjectableAppLifecycleService<T>;
+    appLifecycle?: AppLifecycleServiceBase<T>;
     setting?: InjectableSettingService<T>;
     tweakValue?: InjectableTweakValueService<T>;
     vault?: InjectableVaultService<T>;

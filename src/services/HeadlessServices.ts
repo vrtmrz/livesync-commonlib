@@ -23,7 +23,14 @@ import { UIService } from "@lib/services/implements/base/UIService";
 import { HeadlessAPIService } from "./implements/headless/HeadlessAPIService";
 import { HeadlessDatabaseService } from "./implements/headless/HeadlessDatabaseService";
 import { SvelteDialogManagerBase, type ComponentHasResult } from "./implements/base/SvelteDialog";
-
+class HeadlessAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
+    constructor(context: T) {
+        super(context);
+        // The main entry point when the environment is ready
+        // const onReady = this.onReady.bind(this);
+        // In headless, we must call onReady externally when ready
+    }
+}
 class HeadlessConfirm implements Confirm {
     askYesNo(message: string): Promise<"yes" | "no"> {
         throw new Error("Method not implemented.");
@@ -97,7 +104,7 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
         const context = new ServiceContext();
 
         const API = new HeadlessAPIService(context);
-        const appLifecycle = new InjectableAppLifecycleService(context);
+        const appLifecycle = new HeadlessAppLifecycleService(context);
         const conflict = new InjectableConflictService(context);
         const database = new HeadlessDatabaseService(context);
         const fileProcessing = new InjectableFileProcessingService(context);

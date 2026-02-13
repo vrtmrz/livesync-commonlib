@@ -279,7 +279,7 @@ export interface IVaultService {
 
     markFileListPossiblyChanged(): void;
 
-    isTargetFile(file: string | UXFileInfoStub, keepFileCheckList?: boolean): Promise<boolean>;
+    isTargetFile(file: string | UXFileInfoStub): Promise<boolean>;
 
     isFileSizeTooLarge(size: number): boolean;
 

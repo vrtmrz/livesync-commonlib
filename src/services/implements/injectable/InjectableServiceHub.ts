@@ -4,7 +4,7 @@ import type { ServiceContext } from "../../base/ServiceBase";
 import { ServiceHub } from "../../ServiceHub";
 import type { UIService } from "../base/UIService";
 import { InjectableAPIService } from "./InjectableAPIService";
-import { InjectableAppLifecycleService } from "./InjectableAppLifecycleService";
+import { type AppLifecycleServiceBase } from "./InjectableAppLifecycleService";
 import { InjectableConflictService } from "./InjectableConflictService";
 import { InjectableDatabaseEventService } from "./InjectableDatabaseEventService";
 import { InjectableDatabaseService } from "./InjectableDatabaseService";
@@ -29,7 +29,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
     protected readonly _replication: InjectableReplicationService<T>;
     protected readonly _remote: InjectableRemoteService<T>;
     protected readonly _conflict: InjectableConflictService<T>;
-    protected readonly _appLifecycle: InjectableAppLifecycleService<T>;
+    protected readonly _appLifecycle: AppLifecycleServiceBase<T>;
     protected readonly _setting: InjectableSettingService<T>;
     protected readonly _tweakValue: InjectableTweakValueService<T>;
     protected readonly _vault: InjectableVaultService<T>;
@@ -64,7 +64,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
     get conflict(): InjectableConflictService<T> {
         return this._conflict;
     }
-    get appLifecycle(): InjectableAppLifecycleService<T> {
+    get appLifecycle(): AppLifecycleServiceBase<T> {
         return this._appLifecycle;
     }
     get setting(): InjectableSettingService<T> {
@@ -90,6 +90,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
     constructor(
         context: T,
         services: InjectableServiceInstances<T> & {
+            appLifecycle: AppLifecycleServiceBase<T>;
             path: PathService<T>;
             API: InjectableAPIService<T>;
             ui: UIService<T>;
@@ -109,7 +110,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
         this._replication = services.replication ?? new InjectableReplicationService<T>(context);
         this._remote = services.remote ?? new InjectableRemoteService<T>(context);
         this._conflict = services.conflict ?? new InjectableConflictService<T>(context);
-        this._appLifecycle = services.appLifecycle ?? new InjectableAppLifecycleService<T>(context);
+        this._appLifecycle = services.appLifecycle;
         this._setting = services.setting ?? new InjectableSettingService<T>(context);
         this._tweakValue = services.tweakValue ?? new InjectableTweakValueService<T>(context);
         this._vault = services.vault;

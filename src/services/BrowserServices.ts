@@ -18,6 +18,14 @@ import type { ServiceInstances } from "@lib/services/ServiceHub";
 import { BrowserAPIService } from "./implements/browser/BrowserAPIService";
 import { BrowserDatabaseService } from "./implements/browser/BrowserDatabaseService";
 
+class BrowserAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
+    constructor(context: T) {
+        super(context);
+        // The main entry point when the browser environment is ready
+        const onReady = this.onReady.bind(this);
+        document.addEventListener("DOMContentLoaded", onReady);
+    }
+}
 export class BrowserServiceHub<T extends ServiceContext> extends InjectableServiceHub<T> {
     //  get vault():InjectableVaultServiceCompat<T>;
     get vault(): InjectableVaultServiceCompat<T> {
@@ -26,7 +34,7 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
     constructor() {
         const context = new ServiceContext() as T;
         const API = new BrowserAPIService(context);
-        const appLifecycle = new InjectableAppLifecycleService(context);
+        const appLifecycle = new BrowserAppLifecycleService(context);
         const conflict = new InjectableConflictService(context);
         const database = new BrowserDatabaseService(context);
         const fileProcessing = new InjectableFileProcessingService(context);
