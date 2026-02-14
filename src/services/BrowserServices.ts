@@ -21,9 +21,6 @@ import { BrowserDatabaseService } from "./implements/browser/BrowserDatabaseServ
 class BrowserAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
     constructor(context: T) {
         super(context);
-        // The main entry point when the browser environment is ready
-        const onReady = this.onReady.bind(this);
-        document.addEventListener("DOMContentLoaded", onReady);
     }
 }
 export class BrowserServiceHub<T extends ServiceContext> extends InjectableServiceHub<T> {
