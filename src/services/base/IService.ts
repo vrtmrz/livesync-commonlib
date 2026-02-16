@@ -87,6 +87,10 @@ export interface IDatabaseService {
 
     resetDatabase(): Promise<boolean>;
 
+    onDatabaseReset: () => Promise<boolean>;
+
+    onOpenDatabase: (vaultName: string) => Promise<boolean>;
+
     isDatabaseReady(): boolean;
 }
 export interface IDatabaseEventService {
@@ -114,6 +118,8 @@ export interface IFileProcessingService {
 }
 export interface IReplicatorService {
     onCloseActiveReplication(): Promise<boolean>;
+
+    onReplicatorInitialised(): Promise<boolean>;
 
     getNewReplicator(
         settingOverride?: Partial<ObsidianLiveSyncSettings>

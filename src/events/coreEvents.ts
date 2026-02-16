@@ -25,6 +25,8 @@ export const EVENT_DOCUMENT_STUB_CREATED = "document-stub-created";
 export const EVENT_REQUEST_OPEN_P2P_SETTINGS = "request-open-p2p-settings";
 export const EVENT_PLATFORM_UNLOADED = "platform-unloaded";
 
+export const EVENT_ON_UNRESOLVED_ERROR = "on-unresolved-error";
+
 // export const EVENT_FILE_CHANGED = "file-changed";
 
 declare global {
@@ -42,5 +44,6 @@ declare global {
         [EVENT_DATABASE_REBUILT]: undefined;
         [EVENT_REQUEST_OPEN_P2P_SETTINGS]: undefined;
         [EVENT_PLATFORM_UNLOADED]: undefined;
+        [EVENT_ON_UNRESOLVED_ERROR]: undefined;
     }
 }

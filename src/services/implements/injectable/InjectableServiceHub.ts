@@ -8,7 +8,6 @@ import { InjectableAPIService } from "./InjectableAPIService";
 import { type AppLifecycleServiceBase } from "./InjectableAppLifecycleService";
 import { InjectableConflictService } from "./InjectableConflictService";
 import { InjectableDatabaseEventService } from "./InjectableDatabaseEventService";
-import { InjectableDatabaseService } from "./InjectableDatabaseService";
 import { InjectableFileProcessingService } from "./InjectableFileProcessingService";
 import { InjectableRemoteService } from "./InjectableRemoteService";
 import { InjectableReplicationService } from "./InjectableReplicationService";
@@ -18,12 +17,13 @@ import { InjectableSettingService } from "./InjectableSettingService";
 import { InjectableTestService } from "./InjectableTestService";
 import { InjectableTweakValueService } from "./InjectableTweakValueService";
 import { InjectableVaultService } from "./InjectableVaultService";
+import type { DatabaseService } from "@lib/services/base/DatabaseService.ts";
 
 export class InjectableServiceHub<T extends ServiceContext = ServiceContext> extends ServiceHub<T> {
     protected readonly _api: InjectableAPIService<T>;
 
     protected readonly _path: PathService<T>;
-    protected readonly _database: InjectableDatabaseService<T>;
+    protected readonly _database: DatabaseService<T>;
     protected readonly _databaseEvents: InjectableDatabaseEventService<T>;
     protected readonly _replicator: InjectableReplicatorService<T>;
     protected readonly _fileProcessing: InjectableFileProcessingService<T>;
@@ -45,7 +45,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
     get path(): PathService<T> {
         return this._path;
     }
-    get database(): InjectableDatabaseService<T> {
+    get database(): DatabaseService<T> {
         return this._database;
     }
     get databaseEvents(): InjectableDatabaseEventService<T> {
@@ -101,9 +101,10 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
             API: InjectableAPIService<T>;
             ui: UIService<T>;
             config: ConfigService<T>;
-            database: InjectableDatabaseService<T>;
+            database: DatabaseService<T>;
             vault: InjectableVaultService<T>;
             keyValueDB: KeyValueDBService<T>;
+            replicator: InjectableReplicatorService<T>;
         }
     ) {
         super(context, services);
@@ -112,7 +113,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
         this._path = services.path;
         this._database = services.database;
         this._databaseEvents = services.databaseEvents ?? new InjectableDatabaseEventService<T>(context);
-        this._replicator = services.replicator ?? new InjectableReplicatorService<T>(context);
+        this._replicator = services.replicator;
         this._fileProcessing = services.fileProcessing ?? new InjectableFileProcessingService<T>(context);
         this._replication = services.replication ?? new InjectableReplicationService<T>(context);
         this._remote = services.remote ?? new InjectableRemoteService<T>(context);

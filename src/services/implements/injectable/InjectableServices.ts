@@ -4,7 +4,6 @@ import type { ConfigService } from "@lib/services/base/ConfigService.ts";
 import type { ServiceContext } from "@lib/services/base/ServiceBase.ts";
 
 import type { InjectableAPIService } from "./InjectableAPIService";
-import type { InjectableDatabaseService } from "./InjectableDatabaseService";
 import type { InjectableDatabaseEventService } from "./InjectableDatabaseEventService";
 import type { InjectableReplicatorService } from "./InjectableReplicatorService";
 import type { InjectableFileProcessingService } from "./InjectableFileProcessingService";
@@ -17,11 +16,12 @@ import type { InjectableTweakValueService } from "./InjectableTweakValueService"
 import type { InjectableVaultService } from "./InjectableVaultService";
 import type { InjectableTestService } from "./InjectableTestService";
 import type { PathService } from "../../base/PathService";
+import type { DatabaseService } from "@lib/services/base/DatabaseService.ts";
 
 export type InjectableServiceInstances<T extends ServiceContext> = ServiceInstances<T> & {
     API?: InjectableAPIService<T>;
     path?: PathService<T>;
-    database?: InjectableDatabaseService<T>;
+    database?: DatabaseService<T>;
     databaseEvents?: InjectableDatabaseEventService<T>;
     replicator?: InjectableReplicatorService<T>;
     fileProcessing?: InjectableFileProcessingService<T>;

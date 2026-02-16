@@ -23,7 +23,8 @@ import { UIService } from "@lib/services/implements/base/UIService";
 import { HeadlessAPIService } from "./implements/headless/HeadlessAPIService";
 import { HeadlessDatabaseService, HeadlessKeyValueDBService } from "./implements/headless/HeadlessDatabaseService";
 import { SvelteDialogManagerBase, type ComponentHasResult } from "./implements/base/SvelteDialog";
-import type { InjectableDatabaseService } from "./implements/injectable/InjectableDatabaseService";
+import type { DatabaseService } from "@lib/services/base/DatabaseService.ts";
+
 class HeadlessAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
     constructor(context: T) {
         super(context);
@@ -105,7 +106,7 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
     constructor(
         _context?: ServiceContext,
         overrideServiceConstructor: {
-            database?: Constructor<InjectableDatabaseService<ServiceContext>>;
+            database?: Constructor<DatabaseService<ServiceContext>>;
         } = {}
     ) {
         const context = _context ?? new ServiceContext();
@@ -115,7 +116,7 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
         const conflict = new InjectableConflictService(context);
         const fileProcessing = new InjectableFileProcessingService(context);
         const replication = new InjectableReplicationService(context);
-        const replicator = new InjectableReplicatorService(context);
+
         const remote = new InjectableRemoteService(context);
         const setting = new InjectableSettingService(context);
         const tweakValue = new InjectableTweakValueService(context);
@@ -133,6 +134,11 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
             setting: setting,
         });
         const config = new ConfigServiceBrowserCompat<ServiceContext>(context, vault);
+        const replicator = new InjectableReplicatorService(context, {
+            settingService: setting,
+            appLifecycleService: appLifecycle,
+            databaseEventService: databaseEvents,
+        });
         const ui = new HeadlessUIService(context, {
             appLifecycle,
             config,

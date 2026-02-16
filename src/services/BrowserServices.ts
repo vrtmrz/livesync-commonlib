@@ -35,7 +35,7 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
         const conflict = new InjectableConflictService(context);
         const fileProcessing = new InjectableFileProcessingService(context);
         const replication = new InjectableReplicationService(context);
-        const replicator = new InjectableReplicatorService(context);
+
         const remote = new InjectableRemoteService(context);
         const setting = new InjectableSettingService(context);
         const tweakValue = new InjectableTweakValueService(context);
@@ -53,6 +53,11 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
             setting: setting,
         });
         const config = new ConfigServiceBrowserCompat<T>(context, vault);
+        const replicator = new InjectableReplicatorService(context, {
+            settingService: setting,
+            appLifecycleService: appLifecycle,
+            databaseEventService: databaseEvents,
+        });
         const ui = new BrowserUIService<T>(context, {
             appLifecycle,
             config,
