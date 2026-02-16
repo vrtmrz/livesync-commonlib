@@ -16,7 +16,7 @@ import { InjectableServiceHub } from "@lib/services/implements/injectable/Inject
 import { BrowserUIService } from "@lib/services/implements/browser/BrowserUIService";
 import type { ServiceInstances } from "@lib/services/ServiceHub";
 import { BrowserAPIService } from "./implements/browser/BrowserAPIService";
-import { BrowserDatabaseService } from "./implements/browser/BrowserDatabaseService";
+import { BrowserDatabaseService, BrowserKeyValueDBService } from "./implements/browser/BrowserDatabaseService";
 
 class BrowserAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
     constructor(context: T) {
@@ -33,7 +33,6 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
         const API = new BrowserAPIService(context);
         const appLifecycle = new BrowserAppLifecycleService(context);
         const conflict = new InjectableConflictService(context);
-        const database = new BrowserDatabaseService(context);
         const fileProcessing = new InjectableFileProcessingService(context);
         const replication = new InjectableReplicationService(context);
         const replicator = new InjectableReplicatorService(context);
@@ -48,11 +47,21 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
         const path = new PathServiceCompat(context, {
             settingService: setting,
         });
+        const database = new BrowserDatabaseService(context, {
+            path: path,
+            vault: vault,
+            setting: setting,
+        });
         const config = new ConfigServiceBrowserCompat<T>(context, vault);
         const ui = new BrowserUIService<T>(context, {
             appLifecycle,
             config,
             replicator,
+        });
+        const keyValueDB = new BrowserKeyValueDBService(context, {
+            appLifecycle: appLifecycle,
+            databaseEvents: databaseEvents,
+            vault: vault,
         });
         // Using 'satisfies' to ensure all services are provided
         const serviceInstancesToInit = {
@@ -72,6 +81,7 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
             path: path,
             API: API,
             config: config,
+            keyValueDB: keyValueDB,
         } satisfies Required<ServiceInstances<T>>;
 
         super(context, serviceInstancesToInit);

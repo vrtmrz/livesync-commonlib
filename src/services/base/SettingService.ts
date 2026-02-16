@@ -7,6 +7,8 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     extends ServiceBase<T>
     implements ISettingService
 {
+    deviceAndVaultName: string = "";
+
     /**
      * Clear any used passphrase from memory.
      */
@@ -38,13 +40,17 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     /**
      * Get the unique name for identify the device.
      */
-    abstract getDeviceAndVaultName(): string;
+    getDeviceAndVaultName(): string {
+        return this.deviceAndVaultName;
+    }
 
     /**
      * Set the unique name for identify the device.
      * @param name The unique name to set.
      */
-    abstract setDeviceAndVaultName(name: string): void;
+    setDeviceAndVaultName(name: string): void {
+        this.deviceAndVaultName = name;
+    }
 
     /**
      * Save the current device and vault name to settings, aside from the main settings.

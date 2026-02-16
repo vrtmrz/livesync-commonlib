@@ -498,7 +498,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         fromSeq?: number | string
     ) {
         const trench = new Trench(
-            this.env.services.database.openSimpleStore<{
+            this.env.services.keyValueDB.openSimpleStore<{
                 seq: string | number;
                 doc: PouchDB.Core.ExistingDocument<EntryDoc & PouchDB.Core.ChangesMeta> | undefined;
                 id: DocumentID;

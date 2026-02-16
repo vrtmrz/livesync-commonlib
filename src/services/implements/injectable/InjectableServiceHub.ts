@@ -1,4 +1,5 @@
 import type { ConfigService } from "../../base/ConfigService";
+import type { KeyValueDBService } from "../../base/KeyValueDBService";
 import { PathService } from "../../base/PathService";
 import type { ServiceContext } from "../../base/ServiceBase";
 import { ServiceHub } from "../../ServiceHub";
@@ -36,6 +37,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
     protected readonly _test: InjectableTestService<T>;
     protected readonly _ui: UIService<T>;
     protected readonly _config: ConfigService<T>;
+    protected readonly _keyValueDB: KeyValueDBService<T>;
 
     get API(): InjectableAPIService<T> {
         return this._api;
@@ -80,6 +82,10 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
         return this._test;
     }
 
+    get keyValueDB(): KeyValueDBService<T> {
+        return this._keyValueDB;
+    }
+
     get UI(): UIService<T> {
         return this._ui;
     }
@@ -97,6 +103,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
             config: ConfigService<T>;
             database: InjectableDatabaseService<T>;
             vault: InjectableVaultService<T>;
+            keyValueDB: KeyValueDBService<T>;
         }
     ) {
         super(context, services);
@@ -117,5 +124,6 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
         this._test = services.test ?? new InjectableTestService<T>(context);
         this._ui = services.ui;
         this._config = services.config;
+        this._keyValueDB = services.keyValueDB;
     }
 }

@@ -732,4 +732,31 @@ describe("handlers", () => {
         });
         expect(await result).toBe(10);
     });
+    it("should handle priority all handlers", async () => {
+        const priorityAll = handler.all("hello");
+        const results: string[] = [];
+        priorityAll.addHandler(async (msg: string) => {
+            results.push("handler0");
+            return Promise.resolve(true);
+        });
+        priorityAll.addHandler(async (msg: string) => {
+            results.push("handler1");
+            return Promise.resolve(true);
+        }, 10);
+        priorityAll.addHandler(async (msg: string) => {
+            results.push("handler2");
+            return Promise.resolve(true);
+        }, 20);
+        priorityAll.addHandler(async (msg: string) => {
+            results.push("handler3");
+            return Promise.resolve(true);
+        }, 15);
+        priorityAll.addHandler(async (msg: string) => {
+            results.push("handler3.1");
+            return Promise.resolve(true);
+        }, 15);
+        const result = await priorityAll("test");
+        expect(result).toBe(true);
+        expect(results).toEqual(["handler0", "handler1", "handler3", "handler3.1", "handler2"]);
+    });
 });

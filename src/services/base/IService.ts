@@ -24,6 +24,7 @@ import type { LiveSyncLocalDB } from "../../pouchdb/LiveSyncLocalDB";
 import type { LiveSyncAbstractReplicator } from "../../replication/LiveSyncAbstractReplicator";
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
 import type { Confirm } from "../../interfaces/Confirm";
+import type { LiveSyncManagers } from "../../managers/LiveSyncManagers";
 
 declare global {
     interface OPTIONAL_SYNC_FEATURES {
@@ -70,15 +71,19 @@ export interface IPathService {
     path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID>;
     getPath(entry: AnyEntry): FilePathWithPrefix;
 }
+export interface openDatabaseParameters {
+    replicator: IReplicatorService;
+    databaseEvents: IDatabaseEventService;
+}
 export interface IDatabaseService {
+    localDatabase: LiveSyncLocalDB;
+    managers: LiveSyncManagers;
     createPouchDBInstance<T extends object>(
         name?: string,
         options?: PouchDB.Configuration.DatabaseConfiguration
     ): PouchDB.Database<T>;
 
-    openSimpleStore<T>(kind: string): SimpleStore<T>;
-
-    openDatabase(): Promise<boolean>;
+    openDatabase(params: openDatabaseParameters): Promise<boolean>;
 
     resetDatabase(): Promise<boolean>;
 
@@ -96,6 +101,9 @@ export interface IDatabaseEventService {
     onResetDatabase(db: LiveSyncLocalDB): Promise<boolean>;
 
     initialiseDatabase(showingNotice?: boolean, reopenDatabase?: boolean, ignoreSuspending?: boolean): Promise<boolean>;
+}
+export interface IKeyValueDBService {
+    openSimpleStore<T>(kind: string): SimpleStore<T>;
 }
 export interface IFileProcessingService {
     processFileEvent(item: FileEventItem): Promise<boolean>;
@@ -312,4 +320,24 @@ export interface IConfigService {
     setSmallConfig(key: string, value: string): void;
 
     deleteSmallConfig(key: string): void;
+}
+
+export interface IServiceHub {
+    API: IAPIService;
+    path: IPathService;
+    database: IDatabaseService;
+    databaseEvents: IDatabaseEventService;
+    replicator: IReplicatorService;
+    fileProcessing: IFileProcessingService;
+    replication: IReplicationService;
+    remote: IRemoteService;
+    conflict: IConflictService;
+    appLifecycle: IAppLifecycleService;
+    setting: ISettingService;
+    tweakValue: ITweakValueService;
+    vault: IVaultService;
+    test: ITestService;
+    UI: IUIService;
+    config: IConfigService;
+    keyValueDB: IKeyValueDBService;
 }

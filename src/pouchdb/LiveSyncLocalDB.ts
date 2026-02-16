@@ -24,7 +24,7 @@ import { eventHub } from "../hub/hub.ts";
 import { FallbackWeakRef } from "octagonal-wheels/common/polyfill";
 import type { LiveSyncManagers } from "../managers/LiveSyncManagers.ts";
 import type { AutoMergeResult } from "../managers/ConflictManager.ts";
-import type { ServiceHub } from "../services/ServiceHub.ts";
+import type { IServiceHub } from "../services/base/IService.ts";
 
 export const REMOTE_CHUNK_FETCHED = "remote-chunk-fetched";
 export type REMOTE_CHUNK_FETCHED = typeof REMOTE_CHUNK_FETCHED;
@@ -50,9 +50,9 @@ export interface LiveSyncLocalDBEnv {
     // $everyOnInitializeDatabase(db: LiveSyncLocalDB): Promise<boolean>;
     // $everyOnResetDatabase(db: LiveSyncLocalDB): Promise<boolean>;
     // $$getReplicator: () => LiveSyncAbstractReplicator;
-    getSettings(): RemoteDBSettings;
+    // getSettings(): RemoteDBSettings;
     managers: LiveSyncManagers;
-    services: ServiceHub;
+    services: Pick<IServiceHub, "database" | "databaseEvents" | "replicator" | "setting">;
 }
 
 export function getNoFromRev(rev: string) {
@@ -96,7 +96,7 @@ export class LiveSyncLocalDB {
     }
 
     refreshSettings() {
-        const settings = this.env.getSettings();
+        const settings = this.env.services.setting.currentSettings();
         this.settings = settings;
         void this._prepareHashFunctions();
     }

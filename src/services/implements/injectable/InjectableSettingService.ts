@@ -8,8 +8,6 @@ export class InjectableSettingService<T extends ServiceContext> extends SettingS
     realiseSetting = handlers<ISettingService>().binder("realiseSetting");
     decryptSettings = handlers<ISettingService>().binder("decryptSettings");
     adjustSettings = handlers<ISettingService>().binder("adjustSettings");
-    getDeviceAndVaultName = handlers<ISettingService>().binder("getDeviceAndVaultName");
-    setDeviceAndVaultName = handlers<ISettingService>().binder("setDeviceAndVaultName");
     saveDeviceAndVaultName = handlers<ISettingService>().binder("saveDeviceAndVaultName");
     saveSettingData = handlers<ISettingService>().binder("saveSettingData");
     loadSettings = handlers<ISettingService>().binder("loadSettings");

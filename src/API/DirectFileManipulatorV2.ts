@@ -46,6 +46,8 @@ import {
 } from "../replication/SyncParamsHandler.ts";
 import { LiveSyncManagers } from "../managers/LiveSyncManagers.ts";
 import { HeadlessServiceHub } from "../services/HeadlessServices.ts";
+import { HeadlessDatabaseService } from "../services/implements/headless/HeadlessDatabaseService.ts";
+import { ServiceContext } from "../services/base/ServiceBase.ts";
 
 export type DirectFileManipulatorOptions = {
     url: string;
@@ -101,19 +103,35 @@ export type EnumerateConditions = {
     ids?: string[];
     metaOnly: boolean;
 };
+
 export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     liveSyncLocalDB: LiveSyncLocalDB;
     managers: LiveSyncManagers;
 
     options: DirectFileManipulatorOptions;
     ready = promiseWithResolvers<void>();
-    services = new HeadlessServiceHub();
+    services: HeadlessServiceHub;
     public async init() {
         await this.services.appLifecycle.onReady();
         await this.liveSyncLocalDB.initializeDatabase();
         this.ready.resolve();
         this.liveSyncLocalDB.refreshSettings();
     }
+    getBoundDatabaseService(options: () => DirectFileManipulatorOptions) {
+        const _option = options;
+        return class HeadlessDatabaseServiceExt<T extends ServiceContext> extends HeadlessDatabaseService<T> {
+            override createPouchDBInstance<T extends object>(
+                _name?: string,
+                _options?: PouchDB.Configuration.DatabaseConfiguration
+            ): PouchDB.Database<T> {
+                const option = _option();
+                return new PouchDB(option.url + "/" + option.database, {
+                    auth: { username: option.username, password: option.password },
+                });
+            }
+        };
+    }
+
     constructor(options: DirectFileManipulatorOptions) {
         this.options = options;
         const getDB = () => this.liveSyncLocalDB.localDatabase;
@@ -131,8 +149,14 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 return getSettings();
             },
         });
+
+        const context = new ServiceContext();
+        this.services = new HeadlessServiceHub(context, {
+            database: this.getBoundDatabaseService(() => this.options),
+        });
+
         this.services.setting.currentSettings.setHandler(getSettings.bind(this));
-        this.services.database.createPouchDBInstance.setHandler(this.$$createPouchDBInstance.bind(this));
+        // this.services.database.createPouchDBInstance.setHandler(this.$$createPouchDBInstance.bind(this));
         this.services.databaseEvents.onDatabaseInitialisation.addHandler(this.$everyOnInitializeDatabase.bind(this));
         this.liveSyncLocalDB = new LiveSyncLocalDB(this.options.url, this);
         void this.init();
@@ -144,14 +168,14 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     async $$path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID> {
         return await this.services.path.path2id(filename, prefix);
     }
-    $$createPouchDBInstance<T extends object>(
-        _name?: string,
-        _options?: PouchDB.Configuration.DatabaseConfiguration
-    ): PouchDB.Database<T> {
-        return new PouchDB(this.options.url + "/" + this.options.database, {
-            auth: { username: this.options.username, password: this.options.password },
-        });
-    }
+    // $$createPouchDBInstance<T extends object>(
+    //     _name?: string,
+    //     _options?: PouchDB.Configuration.DatabaseConfiguration
+    // ): PouchDB.Database<T> {
+    //     return new PouchDB(this.options.url + "/" + this.options.database, {
+    //         auth: { username: this.options.username, password: this.options.password },
+    //     });
+    // }
 
     getInitialSyncParameters(setting: RemoteDBSettings): Promise<SyncParameters> {
         // TODO: Switch to select protocolVersion based on the setting.

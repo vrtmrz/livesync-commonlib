@@ -1,6 +1,7 @@
-import type { SimpleStore } from "@lib/common/utils";
-import type { IDatabaseService } from "./IService";
+import type { IDatabaseService, openDatabaseParameters } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
+import type { LiveSyncManagers } from "../../managers/LiveSyncManagers";
+import type { LiveSyncLocalDB } from "../../pouchdb/LiveSyncLocalDB";
 
 /**
  * The DatabaseService provides methods for managing the local database.
@@ -10,6 +11,8 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
     extends ServiceBase<T>
     implements IDatabaseService
 {
+    abstract get localDatabase(): LiveSyncLocalDB;
+    abstract get managers(): LiveSyncManagers;
     /**
      * Create a new PouchDB instance.
      * @param name Optional name for the database instance.
@@ -20,16 +23,12 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
         options?: PouchDB.Configuration.DatabaseConfiguration
     ): PouchDB.Database<T>;
 
+    // Additional process when opening database, such as initializing managers or local database instance.
+    abstract onOpenDatabase(vaultName: string): Promise<void>;
     /**
      * Open the local database.
      */
-    abstract openDatabase(): Promise<boolean>;
-
-    /**
-     * Open a simple store for storing key-value pairs.
-     * @param kind The kind of simple store to open.
-     */
-    abstract openSimpleStore<T>(kind: string): SimpleStore<T>;
+    abstract openDatabase(params: openDatabaseParameters): Promise<boolean>;
 
     /**
      * Discard the local database.

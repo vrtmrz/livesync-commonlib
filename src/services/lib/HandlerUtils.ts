@@ -180,19 +180,31 @@ export class MultiBinder<T extends HandlerFunc<any, any>>
     constructor(name: string) {
         this._name = name;
     }
-    protected _callbacks = new Set<T>();
+    protected _callbackMap = new Map<T, [number, number]>();
+    protected _isCallbackDirty = false;
+    protected _maxUsedPriority = 0;
 
     /**
      * Adds a handler function.
      * Note: The same function is only added once.
      * @param callback The handler function to add.
+     * @param priority The priority of the handler, Do not use floating numbers to prevent confusion.
      * @returns A function to unregister the added handler.
      *
      */
-    addHandler(callback: T) {
-        this._callbacks.add(callback);
+    addHandler(callback: T, priority: number = 0, allowSwap: boolean = false): UnregisterFunction {
+        // if (this._callbackMap.has(callback)) {
+        //     if (allowSwap) {
+        //         this.removeHandler(callback);
+        //     } else {
+        //         throw new Error(`Handler ${this._name} already has the same callback`);
+        //     }
+        // }
+        this._callbackMap.set(callback, [priority, this._maxUsedPriority++]);
+        this._isCallbackDirty = true;
         const unregister = () => {
             this.removeHandler(callback);
+            this._isCallbackDirty = true;
         };
         return unregister;
     }
@@ -202,7 +214,8 @@ export class MultiBinder<T extends HandlerFunc<any, any>>
      * @param callback The handler function to remove.
      */
     removeHandler(callback: T) {
-        this._callbacks.delete(callback);
+        this._callbackMap.delete(callback);
+        this._isCallbackDirty = true;
     }
 
     /**
@@ -210,8 +223,26 @@ export class MultiBinder<T extends HandlerFunc<any, any>>
      * @param callback
      * @returns
      */
-    use(callback: T) {
-        return this.addHandler(callback);
+    use(callback: T, priority: number = 0) {
+        return this.addHandler(callback, priority);
+    }
+
+    _sortedCallbacks: T[] = [];
+    protected get _callbacks(): T[] {
+        if (this._isCallbackDirty) {
+            this._sortedCallbacks = Array.from(this._callbackMap.entries())
+                .sort((a, b) => {
+                    const [priorityA, registerOrderA] = a[1];
+                    const [priorityB, registerOrderB] = b[1];
+                    if (priorityA !== priorityB) {
+                        return priorityA - priorityB; // Sort by priority first
+                    }
+                    return registerOrderA - registerOrderB; // If priorities are equal, sort by registration order
+                })
+                .map((entry) => entry[0]);
+            this._isCallbackDirty = false;
+        }
+        return this._sortedCallbacks;
     }
 }
 
@@ -298,6 +329,7 @@ export class AllHandler<T extends any[]> extends BooleanHandlerBase<T> {
             } catch (error) {
                 // On error, consider it as failure
                 Logger(`AllHandler ${this._name} treated error as failure: ${error}`, LOG_LEVEL_VERBOSE);
+                Logger(error, LOG_LEVEL_VERBOSE);
                 return false;
             }
         }
@@ -446,7 +478,7 @@ export interface BooleanMultipleHandlerFunction<TFunc extends (...args: any[]) =
      * @param callback The handler function to add.
      * @returns A function to remove the added handler.
      */
-    addHandler: (callback: TFunc) => () => void;
+    addHandler: (callback: TFunc, priority?: number) => () => void;
     /**
      * Removes a handler function.
      * @param callback The handler function to remove.
@@ -544,7 +576,7 @@ type FunctionKeys<T> = {
     [K in keyof T]: T[K] extends (...args: any[]) => any ? K : never;
 }[keyof T];
 
-export function handlers<T extends Record<keyof T, (...args: any[]) => any>>() {
+export function handlers<T extends Record<keyof T, ((...args: any[]) => any) | any>>() {
     return {
         /**
          * Create a handler that invokes all added handler functions sequentially until one returns false.
@@ -604,158 +636,6 @@ export function handlers<T extends Record<keyof T, (...args: any[]) => any>>() {
         },
         lazyBinder<K extends FunctionKeys<T>>(name: K): LazyHandlerFunction<T[K]> {
             return lazyBindableFunction<T[K]>(String(name));
-        },
-    };
-}
-
-export type MiddlewareContext<Args extends any[]> = {
-    args: Args; // Arguments passed to the middleware
-    state: Record<string, any>; // Place to store data shared between middleware
-};
-
-export interface MiddlewareUseOptionIndex {
-    index: number; // Index to insert the middleware at, if negative, counts from the end
-    before?: boolean; // If true, insert before the index, otherwise after
-    // Hence if you want to insert at the start, use index 0, before true
-    // If you want to insert at the end, use index -1, before false (or omit before)
-}
-export interface MiddlewareUseOptionStep {
-    step: (ctx: MiddlewareContext<any[]>, next: (...params: any[]) => Promise<any>) => Promise<any>;
-    before?: boolean; // If true, insert before the step, otherwise after
-}
-export type MiddlewareUseOption = MiddlewareUseOptionIndex | MiddlewareUseOptionStep;
-export const SYMBOL_MIDDLEWARE_FINAL_STEP = Symbol("MiddlewareFinalStep");
-export class MiddlewarePipeline<TArgs extends any[], TResult> {
-    constructor(finalStep?: (ctx: MiddlewareContext<TArgs>) => Promise<TResult>) {
-        if (finalStep) {
-            this.finalStep = finalStep;
-        }
-    }
-    protected composed: (ctx: MiddlewareContext<TArgs>) => Promise<TResult> = (ctx: MiddlewareContext<TArgs>) => {
-        throw new Error("No middleware steps defined.");
-    };
-    protected _steps: Array<
-        (ctx: MiddlewareContext<TArgs>, next: (...params: TArgs) => Promise<TResult>) => Promise<TResult>
-    > = [];
-    protected _isComposedDirty: boolean = true;
-
-    // Please override this method to define the final step of the pipeline.
-    protected finalStep: (ctx: MiddlewareContext<TArgs>) => Promise<TResult> = (ctx: MiddlewareContext<TArgs>) => {
-        return Promise.resolve(SYMBOL_MIDDLEWARE_FINAL_STEP as unknown as TResult);
-    };
-
-    private _updateComposed() {
-        const compose = (steps: typeof this._steps) => {
-            return async (ctx: MiddlewareContext<TArgs>): Promise<TResult> => {
-                const invokeStep = async (index: number, currentArgs: TArgs): Promise<TResult> => {
-                    const newCtx: MiddlewareContext<TArgs> = {
-                        args: currentArgs,
-                        state: ctx.state,
-                    };
-
-                    if (index < steps.length) {
-                        const step = steps[index];
-                        return await step(newCtx, (...nextArgs: TArgs) => invokeStep(index + 1, nextArgs));
-                    } else {
-                        return await this.finalStep(newCtx);
-                    }
-                };
-                return await invokeStep(0, ctx.args);
-            };
-        };
-        const fn = compose(this._steps);
-        this.composed = fn;
-        this._isComposedDirty = false;
-    }
-
-    use(
-        step: (ctx: MiddlewareContext<TArgs>, next: (...params: TArgs) => Promise<TResult>) => Promise<TResult>
-    ): UnregisterFunction {
-        if (this._steps.includes(step)) {
-            throw new Error("The same middleware step is already registered.");
-        }
-        this._steps.push(step);
-        this._isComposedDirty = true;
-        return () => {
-            this._isComposedDirty = true;
-            this._steps = this._steps.filter((s) => s !== step);
-        };
-    }
-    // use(step: (ctx: MiddlewareContext<TArgs>, next: (...params: TArgs) => Promise<TResult>) => Promise<TResult>, options?: MiddlewareUseOption): UnregisterFunction {
-    //     if (this._steps.includes(step)) {
-    //         throw new Error("The same middleware step is already registered.");
-    //     }
-
-    //     if (!options) {
-    //         options = { index: -1, before: false };
-    //     }
-    //     let position = -1;
-    //     if ("index" in options) {
-    //         position = options.index;
-    //     } else if ("step" in options) {
-    //         position = this._steps.indexOf(options.step);
-    //     }
-    //     // clamp
-    //     if (position < 0) {
-    //         position = this._steps.length + position;
-    //     }
-    //     if (position > this._steps.length) {
-    //         position = this._steps.length;
-    //     }
-
-    //     if (options.before === true) {
-    //         this._steps.splice(position, 0, step);
-    //     } else {
-    //         this._steps.splice(position + 1, 0, step);
-    //     }
-
-    //     this._isComposedDirty = true;
-    //     return () => {
-    //         this._isComposedDirty = true;
-    //         this._steps = this._steps.filter(s => s !== step);
-    //     }
-    // }
-
-    async invoke(...args: TArgs): Promise<TResult> {
-        const context: MiddlewareContext<TArgs> = {
-            args,
-            state: {},
-        };
-        if (this._isComposedDirty) {
-            this._updateComposed();
-        }
-        const w = await this.composed(context);
-        if (w === SYMBOL_MIDDLEWARE_FINAL_STEP) {
-            throw new Error("No handling was performed in the middleware pipeline.");
-        }
-        return w;
-    }
-}
-
-interface MiddlewareFunction<TFunc extends (...args: any[]) => any | Promise<any>> {
-    (...args: Parameters<TFunc>): Promise<Awaited<ReturnType<TFunc>>>;
-    use: (
-        step: (
-            ctx: MiddlewareContext<Parameters<TFunc>>,
-            next: (...params: Parameters<TFunc>) => Promise<Awaited<ReturnType<TFunc>>>
-        ) => Promise<Awaited<ReturnType<TFunc>>>
-    ) => UnregisterFunction;
-}
-
-export function composable<T extends Record<keyof T, (...args: any[]) => any>>() {
-    return {
-        /**
-         * Create a middleware pipeline for the specified function.
-         * @param name
-         * @returns
-         */
-        useMiddleware<K extends FunctionKeys<T>>(name: K): MiddlewareFunction<T[K]> {
-            const pipeline = new MiddlewarePipeline<Parameters<T[K]>, Awaited<ReturnType<T[K]>>>();
-            const func = async (...args: Parameters<T[K]>): Promise<Awaited<ReturnType<T[K]>>> => {
-                return await pipeline.invoke(...args);
-            };
-            func.use = pipeline.use.bind(pipeline);
-            return func;
         },
     };
 }

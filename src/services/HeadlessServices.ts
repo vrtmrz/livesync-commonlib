@@ -21,8 +21,9 @@ import type { Confirm } from "../interfaces/Confirm";
 
 import { UIService } from "@lib/services/implements/base/UIService";
 import { HeadlessAPIService } from "./implements/headless/HeadlessAPIService";
-import { HeadlessDatabaseService } from "./implements/headless/HeadlessDatabaseService";
+import { HeadlessDatabaseService, HeadlessKeyValueDBService } from "./implements/headless/HeadlessDatabaseService";
 import { SvelteDialogManagerBase, type ComponentHasResult } from "./implements/base/SvelteDialog";
+import type { InjectableDatabaseService } from "./implements/injectable/InjectableDatabaseService";
 class HeadlessAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
     constructor(context: T) {
         super(context);
@@ -98,15 +99,20 @@ class HeadlessUIService extends UIService<ServiceContext> {
         });
     }
 }
+type Constructor<T> = new (...args: any[]) => T;
 
 export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
-    constructor() {
-        const context = new ServiceContext();
+    constructor(
+        _context?: ServiceContext,
+        overrideServiceConstructor: {
+            database?: Constructor<InjectableDatabaseService<ServiceContext>>;
+        } = {}
+    ) {
+        const context = _context ?? new ServiceContext();
 
         const API = new HeadlessAPIService(context);
         const appLifecycle = new HeadlessAppLifecycleService(context);
         const conflict = new InjectableConflictService(context);
-        const database = new HeadlessDatabaseService(context);
         const fileProcessing = new InjectableFileProcessingService(context);
         const replication = new InjectableReplicationService(context);
         const replicator = new InjectableReplicatorService(context);
@@ -121,11 +127,21 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
         const path = new PathServiceCompat(context, {
             settingService: setting,
         });
+        const database = new (overrideServiceConstructor.database ?? HeadlessDatabaseService)(context, {
+            path: path,
+            vault: vault,
+            setting: setting,
+        });
         const config = new ConfigServiceBrowserCompat<ServiceContext>(context, vault);
         const ui = new HeadlessUIService(context, {
             appLifecycle,
             config,
             replicator,
+        });
+        const keyValueDB = new HeadlessKeyValueDBService(context, {
+            appLifecycle: appLifecycle,
+            databaseEvents: databaseEvents,
+            vault: vault,
         });
         // Using 'satisfies' to ensure all services are provided
         const serviceInstancesToInit = {
@@ -145,6 +161,7 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
             path: path,
             API: API,
             config: config,
+            keyValueDB: keyValueDB,
         } satisfies Required<ServiceInstances<ServiceContext>>;
 
         super(context, serviceInstancesToInit);
