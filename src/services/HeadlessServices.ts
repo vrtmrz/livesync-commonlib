@@ -133,7 +133,11 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
             vault: vault,
             setting: setting,
         });
-        const config = new ConfigServiceBrowserCompat<ServiceContext>(context, vault);
+        const config = new ConfigServiceBrowserCompat<ServiceContext>(context, {
+            vaultService: vault,
+            settingService: setting,
+            APIService: API,
+        });
         const replicator = new InjectableReplicatorService(context, {
             settingService: setting,
             appLifecycleService: appLifecycle,

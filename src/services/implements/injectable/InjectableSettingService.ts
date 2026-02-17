@@ -13,4 +13,6 @@ export class InjectableSettingService<T extends ServiceContext> extends SettingS
     loadSettings = handlers<ISettingService>().binder("loadSettings");
     currentSettings = handlers<ISettingService>().binder("currentSettings");
     importSettings = handlers<ISettingService>().binder("importSettings");
+    updateSettings = handlers<ISettingService>().binder("updateSettings");
+    applyPartial = handlers<ISettingService>().binder("applyPartial");
 }

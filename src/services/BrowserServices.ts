@@ -52,7 +52,11 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
             vault: vault,
             setting: setting,
         });
-        const config = new ConfigServiceBrowserCompat<T>(context, vault);
+        const config = new ConfigServiceBrowserCompat<T>(context, {
+            vaultService: vault,
+            settingService: setting,
+            APIService: API,
+        });
         const replicator = new InjectableReplicatorService(context, {
             settingService: setting,
             appLifecycleService: appLifecycle,

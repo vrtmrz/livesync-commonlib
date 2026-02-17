@@ -1,3 +1,4 @@
+import { stripAllPrefixes } from "../string_and_binary/path";
 import type { DocumentID, FilePath, FilePathWithPrefix } from "./models/db.type";
 import { CHeader, ICHeader, ICHeaderLength, ICXHeader, PSCHeader } from "./models/fileaccess.const";
 import type { UXFileInfoStub } from "./types";
@@ -33,4 +34,19 @@ export function isPluginMetadata(str: string): boolean {
 }
 export function isCustomisationSyncMetadata(str: string): boolean {
     return str.startsWith(ICXHeader);
+}
+
+export function getPathFromUXFileInfo(file: UXFileInfoStub | string | FilePathWithPrefix) {
+    if (typeof file == "string") return file as FilePathWithPrefix;
+    return file.path;
+}
+export function getStoragePathFromUXFileInfo(file: UXFileInfoStub | string | FilePathWithPrefix) {
+    if (typeof file == "string") return stripAllPrefixes(file as FilePathWithPrefix);
+    return stripAllPrefixes(file.path);
+}
+export function getDatabasePathFromUXFileInfo(file: UXFileInfoStub | string | FilePathWithPrefix) {
+    if (typeof file == "string" && file.startsWith(ICXHeader)) return file as FilePathWithPrefix;
+    const prefix = isInternalFile(file) ? ICHeader : "";
+    if (typeof file == "string") return (prefix + stripAllPrefixes(file as FilePathWithPrefix)) as FilePathWithPrefix;
+    return (prefix + stripAllPrefixes(file.path)) as FilePathWithPrefix;
 }

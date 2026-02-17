@@ -66,4 +66,6 @@ export abstract class ConflictService<T extends ServiceContext = ServiceContext>
      * @param filename The file (virtual) path to resolve.
      */
     abstract resolveByNewest(filename: FilePathWithPrefix): Promise<boolean>;
+
+    abstract resolveAllConflictedFilesByNewerOnes(): Promise<void>;
 }

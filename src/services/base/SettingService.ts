@@ -106,4 +106,6 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     abstract currentSettings(): ObsidianLiveSyncSettings;
 
     abstract importSettings(imported: Partial<ObsidianLiveSyncSettings>): Promise<boolean>;
+    abstract updateSettings(updateFn: (current: ObsidianLiveSyncSettings) => ObsidianLiveSyncSettings): Promise<void>;
+    abstract applyPartial(partial: Partial<ObsidianLiveSyncSettings>): Promise<void>;
 }

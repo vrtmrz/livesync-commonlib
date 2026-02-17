@@ -72,19 +72,4 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
      * Mark the database as resolved. Then the client (current device) can be connected.
      */
     abstract markResolved(): Promise<void>;
-
-    /**
-     * Try to reset the remote database if possible.
-     * Note that all error will be thrown to the caller.
-     * @returns Promise<void>
-     */
-    abstract tryResetDatabase(): Promise<void>;
-
-    /**
-     * Try to create the remote database if it does not exist.
-     * Note that all error will be thrown to the caller.
-     * @returns Promise<void>
-     *
-     */
-    abstract tryCreateDatabase(): Promise<void>;
 }

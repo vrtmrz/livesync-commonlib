@@ -45,7 +45,7 @@ export interface ICommandCompat {
 export interface IAPIService {
     getCustomFetchHandler(): FetchHttpHandler;
 
-    addLog(message: any, level: LOG_LEVEL, key: string): void;
+    addLog(message: any, level: LOG_LEVEL, key?: string): void;
 
     isMobile(): boolean;
 
@@ -169,10 +169,6 @@ export interface IRemoteService {
     markUnlocked(): Promise<void>;
 
     markResolved(): Promise<void>;
-
-    tryResetDatabase(): Promise<void>;
-
-    tryCreateDatabase(): Promise<void>;
 }
 export interface IConflictService {
     getOptionalConflictCheckMethod(path: FilePathWithPrefix): Promise<boolean | undefined | "newer">;
@@ -196,6 +192,8 @@ export interface IConflictService {
     resolve(filename: FilePathWithPrefix): Promise<void>;
 
     resolveByNewest(filename: FilePathWithPrefix): Promise<boolean>;
+
+    resolveAllConflictedFilesByNewerOnes(): Promise<void>;
 }
 export interface IAppLifecycleService {
     onLayoutReady(): Promise<boolean>;
@@ -265,6 +263,8 @@ export interface ISettingService {
     currentSettings(): ObsidianLiveSyncSettings;
 
     importSettings(imported: Partial<ObsidianLiveSyncSettings>): Promise<boolean>;
+    updateSettings(updateFn: (current: ObsidianLiveSyncSettings) => ObsidianLiveSyncSettings): Promise<void>;
+    applyPartial(partial: Partial<ObsidianLiveSyncSettings>): Promise<void>;
 }
 export interface ITweakValueService {
     fetchRemotePreferred(trialSetting: RemoteDBSettings): Promise<TweakValues | false>;

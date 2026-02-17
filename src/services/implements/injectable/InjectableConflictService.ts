@@ -10,4 +10,5 @@ export class InjectableConflictService<T extends ServiceContext> extends Conflic
     resolveByDeletingRevision = handlers<IConflictService>().binder("resolveByDeletingRevision");
     resolve = handlers<IConflictService>().binder("resolve");
     resolveByNewest = handlers<IConflictService>().binder("resolveByNewest");
+    resolveAllConflictedFilesByNewerOnes = handlers<IConflictService>().binder("resolveAllConflictedFilesByNewerOnes");
 }
