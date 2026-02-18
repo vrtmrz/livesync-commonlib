@@ -42,6 +42,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         this.databaseEventService = dependencies.databaseEventService;
         this.databaseEventService.onResetDatabase.addHandler(this.disposeReplicator.bind(this));
         this.databaseEventService.onDatabaseInitialisation.addHandler(this.disposeReplicator.bind(this));
+        this.databaseEventService.onDatabaseInitialised.addHandler(this._initialiseReplicator.bind(this));
     }
 
     private async disposeReplicator() {
