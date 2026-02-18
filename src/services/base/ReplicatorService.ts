@@ -40,8 +40,20 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         this.settingService = dependencies.settingService;
         this.settingService.onRealiseSetting.addHandler(this._initialiseReplicator.bind(this));
         this.databaseEventService = dependencies.databaseEventService;
-        this.databaseEventService.onResetDatabase.addHandler(this._initialiseReplicator.bind(this));
-        this.databaseEventService.onDatabaseInitialisation.addHandler(this._initialiseReplicator.bind(this));
+        this.databaseEventService.onResetDatabase.addHandler(this.disposeReplicator.bind(this));
+        this.databaseEventService.onDatabaseInitialisation.addHandler(this.disposeReplicator.bind(this));
+    }
+
+    private async disposeReplicator() {
+        this._log("Detect database reset, closing active replicator if exists.");
+        if (this._activeReplicator) {
+            await this._activeReplicator.closeReplication();
+        }
+        // To flush e2ee salts, device id, and other information kept in the replicator instance, to avoid potential database corruption after reset.
+
+        this._activeReplicator = undefined;
+        this._replicatorType = undefined;
+        return true;
     }
 
     private async _initialiseReplicator() {

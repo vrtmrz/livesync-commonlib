@@ -8,10 +8,14 @@ import type {
     UXStat,
 } from "@lib/common/types";
 import type { CustomRegExp } from "@lib/common/utils";
+import type { FileWithFileStat, FileWithStatAsProp } from "@lib/common/models/fileaccess.type";
 export interface IStorageAccessManager {
     processWriteFile<T>(file: UXFileInfoStub | FilePathWithPrefix, proc: () => Promise<T>): Promise<T>;
     processReadFile<T>(file: UXFileInfoStub | FilePathWithPrefix, proc: () => Promise<T>): Promise<T>;
     isFileProcessing(file: UXFileInfoStub | FilePathWithPrefix): boolean;
+    recentlyTouched(file: FileWithStatAsProp | FileWithFileStat): boolean;
+    touch(file: FileWithStatAsProp | FileWithFileStat): void;
+    clearTouched(): void;
 }
 export interface StorageAccess {
     restoreState(): Promise<void>;

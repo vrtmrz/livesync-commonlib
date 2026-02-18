@@ -293,7 +293,6 @@ export abstract class ServiceFileHandlerBase
         if (!existOnDB && existOnStorage) {
             // Deletion has been Transferred. Storage files will be deleted.
             // Note: If the folder becomes empty, the folder will be deleted if not configured to keep it.
-            // This behaviour is implemented on the `ModuleFileAccessObsidian`.
             // And it does not care actually deleted.
             await this.storage.deleteVaultItem(path);
             return true;

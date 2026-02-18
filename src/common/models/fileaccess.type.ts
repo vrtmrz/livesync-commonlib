@@ -69,3 +69,11 @@ export type FileEventItem = {
     cancelled?: boolean;
     batched?: boolean;
 };
+
+export interface FileWithFileStat extends Omit<UXStat, "type"> {
+    path: FilePath;
+}
+export interface FileWithStatAsProp {
+    path: FilePath;
+    stat: Omit<UXStat, "type">;
+}
