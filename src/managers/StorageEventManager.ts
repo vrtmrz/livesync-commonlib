@@ -49,7 +49,6 @@ export abstract class StorageEventManagerBase extends StorageEventManager {
     protected vaultService: IVaultService;
     protected fileProcessing: FileProcessingService;
     protected storageAccess: IStorageAccessManager;
-    protected settings: ReturnType<SettingService["currentSettings"]>;
 
     protected get shouldBatchSave() {
         return this.settings?.batchSave && this.settings?.liveSync != true;
@@ -60,6 +59,9 @@ export abstract class StorageEventManagerBase extends StorageEventManager {
     protected get batchSaveMaximumDelay(): number {
         return this.settings?.batchSaveMaximumDelay ?? DEFAULT_SETTINGS.batchSaveMaximumDelay;
     }
+    get settings() {
+        return this.setting.currentSettings();
+    }
     constructor(dependencies: StorageEventManagerBaseDependencies) {
         super();
         this.setting = dependencies.setting;
@@ -67,11 +69,6 @@ export abstract class StorageEventManagerBase extends StorageEventManager {
         this.fileProcessing = dependencies.fileProcessing;
         this.storageAccess = dependencies.storageAccessManager;
         this._log = createInstanceLogFunction("StorageEventManager", dependencies.APIService);
-        this.settings = undefined!; // Will be set on realise setting, but we need to set it here to avoid the undefined error in the constructor.
-        this.setting.onSettingRealised.addHandler(() => {
-            this.settings = this.setting.currentSettings();
-            return Promise.resolve(true);
-        });
     }
 
     abstract _saveSnapshot(snapshot: (FileEventItem | FileEventItemSentinel)[]): Promise<void>;
