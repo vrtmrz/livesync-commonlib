@@ -106,7 +106,10 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
      * Save the current device and vault name to settings, aside from the main settings.
      */
     saveDeviceAndVaultName(): void {
-        const lsKey = "obsidian-live-sync-vaultanddevicename-" + this.APIService.getSystemVaultName();
+        const lsKey =
+            "obsidian-live-sync-vaultanddevicename-" +
+            this.APIService.getSystemVaultName() +
+            this.additionalSuffixOfDatabaseName();
         this.setItem(lsKey, this.deviceAndVaultName);
     }
 
@@ -402,7 +405,10 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
 
         await this.adjustSettings(this.settings);
 
-        const lsKey = "obsidian-live-sync-vaultanddevicename-" + this.APIService.getSystemVaultName();
+        const lsKey =
+            "obsidian-live-sync-vaultanddevicename-" +
+            this.APIService.getSystemVaultName() +
+            this.additionalSuffixOfDatabaseName();
         if (this.settings.deviceAndVaultName != "") {
             if (!this.getItem(lsKey)) {
                 this.setDeviceAndVaultName(this.settings.deviceAndVaultName);
