@@ -1,11 +1,57 @@
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
 import { InjectableAPIService } from "@lib/services/implements/injectable/InjectableAPIService";
 import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
-import type { ICommandCompat } from "../../base/IService";
+import type { IAPIService, ICommandCompat } from "../../base/IService";
+import { handlers } from "../../lib/HandlerUtils";
+import type { Confirm } from "@lib/interfaces/Confirm";
 const module = await import("node:crypto");
 declare const MANIFEST_VERSION: string | undefined;
 // declare const PACKAGE_VERSION: string | undefined;
+export class HeadlessConfirm implements Confirm {
+    askYesNo(message: string): Promise<"yes" | "no"> {
+        throw new Error("Method not implemented.");
+    }
+    askString(title: string, key: string, placeholder: string, isPassword?: boolean): Promise<string | false> {
+        throw new Error("Method not implemented.");
+    }
+    askYesNoDialog(
+        message: string,
+        opt: { title?: string; defaultOption?: "Yes" | "No"; timeout?: number }
+    ): Promise<"yes" | "no"> {
+        throw new Error("Method not implemented.");
+    }
+    askSelectString(message: string, items: string[]): Promise<string> {
+        throw new Error("Method not implemented.");
+    }
+    askSelectStringDialogue<T extends readonly string[]>(
+        message: string,
+        buttons: T,
+        opt: { title?: string; defaultAction: T[number]; timeout?: number }
+    ): Promise<T[number] | false> {
+        throw new Error("Method not implemented.");
+    }
+    askInPopup(key: string, dialogText: string, anchorCallback: (anchor: HTMLAnchorElement) => void): void {
+        throw new Error("Method not implemented.");
+    }
+    confirmWithMessage(
+        title: string,
+        contentMd: string,
+        buttons: string[],
+        defaultAction: (typeof buttons)[number],
+        timeout?: number
+    ): Promise<(typeof buttons)[number] | false> {
+        throw new Error("Method not implemented.");
+    }
+}
 export class HeadlessAPIService<T extends ServiceContext> extends InjectableAPIService<T> {
+    private _confirmInstance: Confirm;
+    constructor(context: T) {
+        super(context);
+        this._confirmInstance = new HeadlessConfirm();
+    }
+    get confirm(): Confirm {
+        return this._confirmInstance;
+    }
     showWindow(type: string): Promise<void> {
         // In a browser environment, showing a window might not be applicable.
         // TODO: Think implementation
@@ -29,6 +75,7 @@ export class HeadlessAPIService<T extends ServiceContext> extends InjectableAPIS
     override getPlatform(): string {
         return "server";
     }
+    getSystemVaultName = handlers<IAPIService>().binder("getSystemVaultName");
     override getCrypto(): Crypto {
         const webcrypto = module.webcrypto as Crypto;
         return webcrypto;

@@ -11,12 +11,12 @@ import type { InjectableReplicationService } from "./InjectableReplicationServic
 import type { InjectableRemoteService } from "./InjectableRemoteService";
 import type { InjectableConflictService } from "./InjectableConflictService";
 import type { AppLifecycleServiceBase } from "./InjectableAppLifecycleService";
-import type { InjectableSettingService } from "./InjectableSettingService";
 import type { InjectableTweakValueService } from "./InjectableTweakValueService";
 import type { InjectableVaultService } from "./InjectableVaultService";
 import type { InjectableTestService } from "./InjectableTestService";
 import type { PathService } from "../../base/PathService";
 import type { DatabaseService } from "@lib/services/base/DatabaseService.ts";
+import type { SettingService } from "../../base/SettingService";
 
 export type InjectableServiceInstances<T extends ServiceContext> = ServiceInstances<T> & {
     API?: InjectableAPIService<T>;
@@ -29,7 +29,7 @@ export type InjectableServiceInstances<T extends ServiceContext> = ServiceInstan
     remote?: InjectableRemoteService<T>;
     conflict?: InjectableConflictService<T>;
     appLifecycle?: AppLifecycleServiceBase<T>;
-    setting?: InjectableSettingService<T>;
+    setting?: SettingService<T>;
     tweakValue?: InjectableTweakValueService<T>;
     vault?: InjectableVaultService<T>;
     test?: InjectableTestService<T>;

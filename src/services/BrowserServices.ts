@@ -17,6 +17,7 @@ import { BrowserUIService } from "@lib/services/implements/browser/BrowserUIServ
 import type { ServiceInstances } from "@lib/services/ServiceHub";
 import { BrowserAPIService } from "./implements/browser/BrowserAPIService";
 import { BrowserDatabaseService, BrowserKeyValueDBService } from "./implements/browser/BrowserDatabaseService";
+import { ControlService } from "./base/ControlService";
 
 class BrowserAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
     constructor(context: T) {
@@ -37,10 +38,11 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
         const replication = new InjectableReplicationService(context);
 
         const remote = new InjectableRemoteService(context);
-        const setting = new InjectableSettingService(context);
+        const setting = new InjectableSettingService(context, { APIService: API });
         const tweakValue = new InjectableTweakValueService(context);
         const vault = new InjectableVaultServiceCompat<T>(context, {
             settingService: setting,
+            APIService: API,
         });
         const test = new InjectableTestService(context);
         const databaseEvents = new InjectableDatabaseEventService(context);
@@ -53,7 +55,6 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
             setting: setting,
         });
         const config = new ConfigServiceBrowserCompat<T>(context, {
-            vaultService: vault,
             settingService: setting,
             APIService: API,
         });
@@ -66,12 +67,21 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
             appLifecycle,
             config,
             replicator,
+            APIService: API,
         });
         const keyValueDB = new BrowserKeyValueDBService(context, {
             appLifecycle: appLifecycle,
             databaseEvents: databaseEvents,
             vault: vault,
         });
+        const control = new ControlService(context, {
+            appLifecycleService: appLifecycle,
+            databaseService: database,
+            fileProcessingService: fileProcessing,
+            settingService: setting,
+            APIService: API,
+        });
+
         // Using 'satisfies' to ensure all services are provided
         const serviceInstancesToInit = {
             appLifecycle: appLifecycle,
@@ -91,6 +101,7 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
             API: API,
             config: config,
             keyValueDB: keyValueDB,
+            control: control,
         } satisfies Required<ServiceInstances<T>>;
 
         super(context, serviceInstancesToInit);

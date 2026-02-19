@@ -1,9 +1,10 @@
 import type { UXFileInfoStub, FilePath } from "@lib/common/types";
-import type { ISettingService, IVaultService } from "./IService";
+import type { IAPIService, ISettingService, IVaultService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 
 export interface VaultServiceDependencies {
     settingService: ISettingService;
+    APIService: IAPIService;
 }
 /**
  * The VaultService provides methods for interacting with the vault (local file system).
@@ -13,17 +14,21 @@ export abstract class VaultService<T extends ServiceContext = ServiceContext>
     implements IVaultService
 {
     protected settingService: ISettingService;
+    protected APIService: IAPIService;
     get settings() {
         return this.settingService.currentSettings();
     }
     constructor(context: T, dependencies: VaultServiceDependencies) {
         super(context);
         this.settingService = dependencies.settingService;
+        this.APIService = dependencies.APIService;
     }
     /**
      * Get the vault name only.
      */
-    abstract vaultName(): string;
+    vaultName(): string {
+        return this.APIService.getSystemVaultName();
+    }
 
     /**
      * Get the vault name with additional suffixes.

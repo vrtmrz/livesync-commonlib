@@ -8,7 +8,6 @@ import { PathServiceCompat } from "@lib/services/implements/injectable/Injectabl
 import { InjectableRemoteService } from "@lib/services/implements/injectable/InjectableRemoteService";
 import { InjectableReplicationService } from "@lib/services/implements/injectable/InjectableReplicationService";
 import { InjectableReplicatorService } from "@lib/services/implements/injectable/InjectableReplicatorService";
-import { InjectableSettingService } from "@lib/services/implements/injectable/InjectableSettingService";
 import { InjectableTestService } from "@lib/services/implements/injectable/InjectableTestService";
 import { InjectableTweakValueService } from "@lib/services/implements/injectable/InjectableTweakValueService";
 import { InjectableVaultServiceCompat } from "@lib/services/implements/injectable/InjectableVaultService";
@@ -17,13 +16,13 @@ import { ConfigServiceBrowserCompat } from "@lib/services/implements/browser/Con
 import { InjectableServiceHub } from "@lib/services/implements/injectable/InjectableServiceHub";
 import type { ServiceInstances } from "@lib/services/ServiceHub";
 
-import type { Confirm } from "../interfaces/Confirm";
-
 import { UIService } from "@lib/services/implements/base/UIService";
 import { HeadlessAPIService } from "./implements/headless/HeadlessAPIService";
 import { HeadlessDatabaseService, HeadlessKeyValueDBService } from "./implements/headless/HeadlessDatabaseService";
 import { SvelteDialogManagerBase, type ComponentHasResult } from "./implements/base/SvelteDialog";
 import type { DatabaseService } from "@lib/services/base/DatabaseService.ts";
+import { ControlService } from "./base/ControlService";
+import { InjectableSettingService } from "./implements/injectable/InjectableSettingService";
 
 class HeadlessAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
     constructor(context: T) {
@@ -33,42 +32,7 @@ class HeadlessAppLifecycleService<T extends ServiceContext> extends InjectableAp
         // In headless, we must call onReady externally when ready
     }
 }
-class HeadlessConfirm implements Confirm {
-    askYesNo(message: string): Promise<"yes" | "no"> {
-        throw new Error("Method not implemented.");
-    }
-    askString(title: string, key: string, placeholder: string, isPassword?: boolean): Promise<string | false> {
-        throw new Error("Method not implemented.");
-    }
-    askYesNoDialog(
-        message: string,
-        opt: { title?: string; defaultOption?: "Yes" | "No"; timeout?: number }
-    ): Promise<"yes" | "no"> {
-        throw new Error("Method not implemented.");
-    }
-    askSelectString(message: string, items: string[]): Promise<string> {
-        throw new Error("Method not implemented.");
-    }
-    askSelectStringDialogue<T extends readonly string[]>(
-        message: string,
-        buttons: T,
-        opt: { title?: string; defaultAction: T[number]; timeout?: number }
-    ): Promise<T[number] | false> {
-        throw new Error("Method not implemented.");
-    }
-    askInPopup(key: string, dialogText: string, anchorCallback: (anchor: HTMLAnchorElement) => void): void {
-        throw new Error("Method not implemented.");
-    }
-    confirmWithMessage(
-        title: string,
-        contentMd: string,
-        buttons: string[],
-        defaultAction: (typeof buttons)[number],
-        timeout?: number
-    ): Promise<(typeof buttons)[number] | false> {
-        throw new Error("Method not implemented.");
-    }
-}
+
 class HeadlessSvelteDialogManager<T extends ServiceContext> extends SvelteDialogManagerBase<T> {
     openSvelteDialog<T, U>(component: ComponentHasResult<T, U>, initialData?: U): Promise<T | undefined> {
         throw new Error("Method not implemented.");
@@ -79,6 +43,7 @@ type HeadlessUIServiceDependencies<T extends ServiceContext = ServiceContext> = 
     appLifecycle: AppLifecycleService<T>;
     config: ConfigServiceBrowserCompat<T>;
     replicator: InjectableReplicatorService<T>;
+    APIService: HeadlessAPIService<T>;
 };
 
 class HeadlessUIService extends UIService<ServiceContext> {
@@ -86,7 +51,7 @@ class HeadlessUIService extends UIService<ServiceContext> {
         throw new Error("Method not implemented.");
     }
     constructor(context: ServiceContext, dependents: HeadlessUIServiceDependencies<ServiceContext>) {
-        const headlessConfirm = new HeadlessConfirm();
+        const headlessConfirm = dependents.APIService.confirm;
         const headlessSvelteDialogManager = new HeadlessSvelteDialogManager<ServiceContext>(context, {
             confirm: headlessConfirm,
             appLifecycle: dependents.appLifecycle,
@@ -96,7 +61,7 @@ class HeadlessUIService extends UIService<ServiceContext> {
         super(context, {
             appLifecycle: dependents.appLifecycle,
             dialogManager: headlessSvelteDialogManager,
-            confirm: headlessConfirm,
+            APIService: dependents.APIService,
         });
     }
 }
@@ -118,10 +83,13 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
         const replication = new InjectableReplicationService(context);
 
         const remote = new InjectableRemoteService(context);
-        const setting = new InjectableSettingService(context);
+        const setting = new InjectableSettingService(context, {
+            APIService: API,
+        });
         const tweakValue = new InjectableTweakValueService(context);
         const vault = new InjectableVaultServiceCompat(context, {
             settingService: setting,
+            APIService: API,
         });
         const test = new InjectableTestService(context);
         const databaseEvents = new InjectableDatabaseEventService(context);
@@ -134,7 +102,6 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
             setting: setting,
         });
         const config = new ConfigServiceBrowserCompat<ServiceContext>(context, {
-            vaultService: vault,
             settingService: setting,
             APIService: API,
         });
@@ -147,11 +114,19 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
             appLifecycle,
             config,
             replicator,
+            APIService: API,
         });
         const keyValueDB = new HeadlessKeyValueDBService(context, {
             appLifecycle: appLifecycle,
             databaseEvents: databaseEvents,
             vault: vault,
+        });
+        const control = new ControlService(context, {
+            appLifecycleService: appLifecycle,
+            settingService: setting,
+            databaseService: database,
+            fileProcessingService: fileProcessing,
+            APIService: API,
         });
         // Using 'satisfies' to ensure all services are provided
         const serviceInstancesToInit = {
@@ -172,6 +147,7 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
             API: API,
             config: config,
             keyValueDB: keyValueDB,
+            control: control,
         } satisfies Required<ServiceInstances<ServiceContext>>;
 
         super(context, serviceInstancesToInit);

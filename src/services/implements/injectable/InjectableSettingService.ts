@@ -1,18 +1,36 @@
-import type { ISettingService } from "../../base/IService";
+import { EVENT_SETTING_SAVED } from "@lib/events/coreEvents";
 import type { ServiceContext } from "../../base/ServiceBase";
-import { SettingService } from "../../base/SettingService";
+import { SettingService, type SettingServiceDependencies } from "../../base/SettingService";
+import { EVENT_REQUEST_RELOAD_SETTING_TAB } from "@/common/events";
+
+import { eventHub } from "@lib/hub/hub";
+import type { ObsidianLiveSyncSettings } from "@lib/common/types";
 import { handlers } from "../../lib/HandlerUtils";
 
 export class InjectableSettingService<T extends ServiceContext> extends SettingService<T> {
-    clearUsedPassphrase = handlers<ISettingService>().binder("clearUsedPassphrase");
-    realiseSetting = handlers<ISettingService>().binder("realiseSetting");
-    decryptSettings = handlers<ISettingService>().binder("decryptSettings");
-    adjustSettings = handlers<ISettingService>().binder("adjustSettings");
-    saveDeviceAndVaultName = handlers<ISettingService>().binder("saveDeviceAndVaultName");
-    saveSettingData = handlers<ISettingService>().binder("saveSettingData");
-    loadSettings = handlers<ISettingService>().binder("loadSettings");
-    currentSettings = handlers<ISettingService>().binder("currentSettings");
-    importSettings = handlers<ISettingService>().binder("importSettings");
-    updateSettings = handlers<ISettingService>().binder("updateSettings");
-    applyPartial = handlers<ISettingService>().binder("applyPartial");
+    constructor(context: T, dependencies: SettingServiceDependencies) {
+        super(context, dependencies);
+        this.onSettingSaved.addHandler((settings) => {
+            eventHub.emitEvent(EVENT_SETTING_SAVED, settings);
+            return Promise.resolve(true);
+        });
+        this.onSettingLoaded.addHandler((settings) => {
+            eventHub.emitEvent(EVENT_REQUEST_RELOAD_SETTING_TAB);
+            return Promise.resolve(true);
+        });
+    }
+    protected setItem(key: string, value: string) {
+        return localStorage.setItem(key, value);
+    }
+    protected getItem(key: string): string {
+        return localStorage.getItem(key) ?? "";
+    }
+    protected deleteItem(key: string): void {
+        localStorage.removeItem(key);
+    }
+
+    // override currentSettings = handlers<SettingService<T>>().binder("currentSettings");
+
+    saveData = handlers<{ saveData: (data: ObsidianLiveSyncSettings) => Promise<void> }>().binder("saveData");
+    loadData = handlers<{ loadData: () => Promise<ObsidianLiveSyncSettings | undefined> }>().binder("loadData");
 }

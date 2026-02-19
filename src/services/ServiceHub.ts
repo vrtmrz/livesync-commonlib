@@ -17,6 +17,7 @@ import type { APIService } from "@lib/services/base/APIService.ts";
 import type { ServiceContext } from "./base/ServiceBase.ts";
 import type { IServiceHub } from "./base/IService.ts";
 import type { KeyValueDBService } from "./base/KeyValueDBService.ts";
+import type { ControlService } from "./base/ControlService.ts";
 
 export type ServiceInstances<T extends ServiceContext = ServiceContext> = {
     API?: APIService<T>;
@@ -36,6 +37,7 @@ export type ServiceInstances<T extends ServiceContext = ServiceContext> = {
     ui?: UIService<T>;
     config?: ConfigService<T>;
     keyValueDB?: KeyValueDBService<T>;
+    control?: ControlService<T>;
 };
 
 export abstract class ServiceHub<T extends ServiceContext = ServiceContext> implements IServiceHub {
@@ -57,6 +59,7 @@ export abstract class ServiceHub<T extends ServiceContext = ServiceContext> impl
     protected abstract _ui: UIService<T>;
     protected abstract _config: ConfigService<T>;
     protected abstract _keyValueDB: KeyValueDBService<T>;
+    protected abstract _control: ControlService<T>;
     protected _injected: ServiceInstances<T> = {};
     constructor(context: T, services: ServiceInstances<T> = {}) {
         this.context = context;
@@ -114,5 +117,8 @@ export abstract class ServiceHub<T extends ServiceContext = ServiceContext> impl
     }
     get keyValueDB(): KeyValueDBService<T> {
         return this._injected.keyValueDB || this._keyValueDB;
+    }
+    get control(): ControlService<T> {
+        return this._injected.control || this._control;
     }
 }

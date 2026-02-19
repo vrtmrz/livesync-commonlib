@@ -792,7 +792,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
 
     updateInfo: () => void = () => {
-        this.env.replicationStat.value = {
+        this.env.services.replicator.replicationStatics.value = {
             sent: this.docSent,
             arrived: this.docArrived,
             maxPullSeq: this.maxPullSeq,

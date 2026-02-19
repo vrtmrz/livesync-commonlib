@@ -19,6 +19,7 @@ import { delay } from "octagonal-wheels/promises";
 import { eventHub } from "@lib/hub/hub";
 import { EVENT_DATABASE_REBUILT } from "@lib/events/coreEvents";
 import { ServiceModuleBase } from "@lib/serviceModules/ServiceModuleBase";
+import type { ControlService } from "../services/base/ControlService";
 
 export interface ServiceRebuilderDependencies {
     appLifecycle: AppLifecycleService;
@@ -33,6 +34,7 @@ export interface ServiceRebuilderDependencies {
     replication: ReplicationService;
     database: DatabaseService;
     fileHandler: IFileHandler;
+    control: ControlService;
 }
 
 export class ServiceRebuilder extends ServiceModuleBase<ServiceRebuilderDependencies> implements Rebuilder {
@@ -48,7 +50,7 @@ export class ServiceRebuilder extends ServiceModuleBase<ServiceRebuilderDependen
     private replication: ReplicationService;
     private database: DatabaseService;
     private fileHandler: IFileHandler;
-
+    private control: ControlService;
     constructor(services: ServiceRebuilderDependencies) {
         super(services);
         this.appLifecycle = services.appLifecycle;
@@ -63,6 +65,7 @@ export class ServiceRebuilder extends ServiceModuleBase<ServiceRebuilderDependen
         this.replication = services.replication;
         this.database = services.database;
         this.fileHandler = services.fileHandler;
+        this.control = services.control;
         services.database.onDatabaseReset.addHandler(this._onResetLocalDatabase.bind(this));
         // services.remote.tryResetDatabase.setHandler(this._tryResetRemoteDatabase.bind(this));
         // services.remote.tryCreateDatabase.setHandler(this._tryCreateRemoteDatabase.bind(this));
@@ -113,7 +116,7 @@ Please enable them from the settings screen after setup is complete.`,
         });
         // this.core.settings.isConfigured = true;
         // this.core.settings.notifyThresholdOfRemoteStorageSize = DEFAULT_SETTINGS.notifyThresholdOfRemoteStorageSize;
-        await this.setting.realiseSetting();
+        await this.control.applySettings();
         await this.remote.markLocked();
         await this._tryResetRemoteDatabase();
         await this.remote.markLocked();
@@ -136,7 +139,7 @@ Please enable them from the settings screen after setup is complete.`,
             isConfigured: true,
             notifyThresholdOfRemoteStorageSize: DEFAULT_SETTINGS.notifyThresholdOfRemoteStorageSize,
         });
-        await this.setting.realiseSetting();
+        await this.control.applySettings();
         await this.resetLocalDatabase();
         await delay(1000);
         await this.databaseEvents.initialiseDatabase(true, true, true);
@@ -280,7 +283,7 @@ Are you sure you wish to proceed?`;
             }
         }
         await this.suspendReflectingDatabase();
-        await this.setting.realiseSetting();
+        await this.control.applySettings();
         await this.resetLocalDatabase();
         await delay(1000);
         await this.database.openDatabase({

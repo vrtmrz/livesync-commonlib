@@ -5,10 +5,10 @@ export type {
     GuestDialogProps,
     DialogSvelteComponentBaseProps,
     DialogControlBase,
-} from "@/lib/src/services/implements/base/SvelteDialog.ts";
+} from "@lib/services/implements/base/SvelteDialog.ts";
 export {
     CONTEXT_DIALOG_CONTROLS,
     setupDialogContext,
     getDialogContext,
     SvelteDialogManagerBase,
-} from "@/lib/src/services/implements/base/SvelteDialog.ts";
+} from "@lib/services/implements/base/SvelteDialog.ts";

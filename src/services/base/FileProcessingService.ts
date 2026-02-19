@@ -1,6 +1,7 @@
 import { handlers } from "@lib/services/lib/HandlerUtils";
 import type { IFileProcessingService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
+import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 
 /**
  * File processing service handles file events and processes them accordingly.
@@ -24,4 +25,7 @@ export class FileProcessingService<T extends ServiceContext = ServiceContext>
      * Commit any pending file events that have been queued for processing.
      */
     readonly commitPendingFileEvents = handlers<IFileProcessingService>().bailFirstFailure("commitPendingFileEvents");
+    batched = reactiveSource(0);
+    totalQueued = reactiveSource(0);
+    processing = reactiveSource(0);
 }

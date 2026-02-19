@@ -3,6 +3,7 @@ import { handlers } from "@lib/services/lib/HandlerUtils";
 import type { IConflictService } from "@lib/services/base/IService";
 import { ServiceBase } from "@lib/services/base/ServiceBase";
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
+import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 
 /**
  * The ConflictService provides methods for handling file conflicts.
@@ -68,4 +69,5 @@ export abstract class ConflictService<T extends ServiceContext = ServiceContext>
     abstract resolveByNewest(filename: FilePathWithPrefix): Promise<boolean>;
 
     abstract resolveAllConflictedFilesByNewerOnes(): Promise<void>;
+    conflictProcessQueueCount = reactiveSource(0);
 }

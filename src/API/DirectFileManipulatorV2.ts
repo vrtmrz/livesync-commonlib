@@ -48,6 +48,7 @@ import { LiveSyncManagers } from "../managers/LiveSyncManagers.ts";
 import { HeadlessServiceHub } from "../services/HeadlessServices.ts";
 import { HeadlessDatabaseService } from "../services/implements/headless/HeadlessDatabaseService.ts";
 import { ServiceContext } from "../services/base/ServiceBase.ts";
+import type { InjectableSettingService } from "../services/implements/injectable/InjectableSettingService.ts";
 
 export type DirectFileManipulatorOptions = {
     url: string;
@@ -155,7 +156,17 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
             database: this.getBoundDatabaseService(() => this.options),
         });
 
-        this.services.setting.currentSettings.setHandler(getSettings.bind(this));
+        // (this.services.setting as InjectableSettingService<ServiceContext>).currentSettings.setHandler(
+        //     getSettings.bind(this)
+        // );
+        (this.services.setting as InjectableSettingService<ServiceContext>).saveData.setHandler((data) => {
+            console.warn("Saving settings is not supported in DirectFileManipulator.");
+            return Promise.resolve();
+        });
+        (this.services.setting as InjectableSettingService<ServiceContext>).loadData.setHandler(() => {
+            console.warn("Loading settings is not supported in DirectFileManipulator.");
+            return Promise.resolve(getSettings());
+        });
         // this.services.database.createPouchDBInstance.setHandler(this.$$createPouchDBInstance.bind(this));
         this.services.databaseEvents.onDatabaseInitialisation.addHandler(this.$everyOnInitializeDatabase.bind(this));
         this.liveSyncLocalDB = new LiveSyncLocalDB(this.options.url, this);

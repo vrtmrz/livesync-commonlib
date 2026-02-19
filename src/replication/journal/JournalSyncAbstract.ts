@@ -162,8 +162,8 @@ export abstract class JournalSyncAbstract {
     }
 
     updateInfo(info: Partial<ReplicationStat>) {
-        const old = this.env.replicationStat.value;
-        this.env.replicationStat.value = {
+        const old = this.env.services.replicator.replicationStatics.value;
+        this.env.services.replicator.replicationStatics.value = {
             sent: info.sent ?? old.sent,
             arrived: info.arrived ?? old.arrived,
             maxPullSeq: info.maxPullSeq ?? old.maxPullSeq,

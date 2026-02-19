@@ -11,6 +11,8 @@ import { yieldMicrotask } from "octagonal-wheels/promises";
 import type { DatabaseEventService } from "./DatabaseEventService";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { RemoteTypes } from "@lib/common/types";
+import { DEFAULT_REPLICATION_STATICS } from "../../common/models/shared.definition";
+import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 
 export interface ReplicatorServiceDependencies {
     settingService: SettingService;
@@ -86,6 +88,9 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
             }
             this._activeReplicator = newReplicator;
             this._replicatorType = replicatorType;
+
+            // Reset replication statics when replicator changes.
+            this.replicationStatics.value = { ...DEFAULT_REPLICATION_STATICS };
             await yieldMicrotask();
             // Probably we need to clear all synchronising parameters handlers
             // Note that parameters handler keeps an key-deriving salt in memory,
@@ -131,4 +136,6 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         this._unresolvedErrorManager.clearError(message);
         return this._activeReplicator;
     }
+
+    replicationStatics = reactiveSource({ ...DEFAULT_REPLICATION_STATICS });
 }

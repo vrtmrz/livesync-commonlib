@@ -1,7 +1,9 @@
 import type { ConfigService } from "../../base/ConfigService";
+import { ControlService } from "../../base/ControlService";
 import type { KeyValueDBService } from "../../base/KeyValueDBService";
 import { PathService } from "../../base/PathService";
 import type { ServiceContext } from "../../base/ServiceBase";
+import type { SettingService } from "../../base/SettingService";
 import { ServiceHub } from "../../ServiceHub";
 import type { UIService } from "../base/UIService";
 import { InjectableAPIService } from "./InjectableAPIService";
@@ -13,7 +15,6 @@ import { InjectableRemoteService } from "./InjectableRemoteService";
 import { InjectableReplicationService } from "./InjectableReplicationService";
 import { InjectableReplicatorService } from "./InjectableReplicatorService";
 import type { InjectableServiceInstances } from "./InjectableServices";
-import { InjectableSettingService } from "./InjectableSettingService";
 import { InjectableTestService } from "./InjectableTestService";
 import { InjectableTweakValueService } from "./InjectableTweakValueService";
 import { InjectableVaultService } from "./InjectableVaultService";
@@ -31,13 +32,14 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
     protected readonly _remote: InjectableRemoteService<T>;
     protected readonly _conflict: InjectableConflictService<T>;
     protected readonly _appLifecycle: AppLifecycleServiceBase<T>;
-    protected readonly _setting: InjectableSettingService<T>;
+    protected readonly _setting: SettingService<T>;
     protected readonly _tweakValue: InjectableTweakValueService<T>;
     protected readonly _vault: InjectableVaultService<T>;
     protected readonly _test: InjectableTestService<T>;
     protected readonly _ui: UIService<T>;
     protected readonly _config: ConfigService<T>;
     protected readonly _keyValueDB: KeyValueDBService<T>;
+    protected readonly _control: ControlService<T>;
 
     get API(): InjectableAPIService<T> {
         return this._api;
@@ -69,7 +71,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
     get appLifecycle(): AppLifecycleServiceBase<T> {
         return this._appLifecycle;
     }
-    get setting(): InjectableSettingService<T> {
+    get setting(): SettingService<T> {
         return this._setting;
     }
     get tweakValue(): InjectableTweakValueService<T> {
@@ -80,6 +82,10 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
     }
     get test(): InjectableTestService<T> {
         return this._test;
+    }
+
+    get control(): ControlService<T> {
+        return this._control;
     }
 
     get keyValueDB(): KeyValueDBService<T> {
@@ -96,6 +102,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
     constructor(
         context: T,
         services: InjectableServiceInstances<T> & {
+            setting: SettingService<T>;
             appLifecycle: AppLifecycleServiceBase<T>;
             path: PathService<T>;
             API: InjectableAPIService<T>;
@@ -119,12 +126,21 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
         this._remote = services.remote ?? new InjectableRemoteService<T>(context);
         this._conflict = services.conflict ?? new InjectableConflictService<T>(context);
         this._appLifecycle = services.appLifecycle;
-        this._setting = services.setting ?? new InjectableSettingService<T>(context);
+        this._setting = services.setting;
         this._tweakValue = services.tweakValue ?? new InjectableTweakValueService<T>(context);
         this._vault = services.vault;
         this._test = services.test ?? new InjectableTestService<T>(context);
         this._ui = services.ui;
         this._config = services.config;
         this._keyValueDB = services.keyValueDB;
+        this._control =
+            services.control ??
+            new ControlService<T>(context, {
+                appLifecycleService: this._appLifecycle,
+                databaseService: this._database,
+                fileProcessingService: this._fileProcessing,
+                settingService: this._setting,
+                APIService: this._api,
+            });
     }
 }

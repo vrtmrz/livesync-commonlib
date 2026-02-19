@@ -2,6 +2,8 @@ import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import type { LOG_LEVEL } from "@lib/common/logger";
 import type { IAPIService, ICommandCompat } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
+import type { Confirm } from "../../interfaces/Confirm";
+import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 
 /**
  * The APIService provides methods for interacting with the plug-in's API,
@@ -40,6 +42,10 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
      */
     abstract getAppID(): string;
 
+    /**
+     * Returns the vaultName which system has identified, without any additional suffix.
+     */
+    abstract getSystemVaultName(): string;
     /**
      * Check if the last POST request failed due to payload size.
      */
@@ -80,4 +86,11 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
      * @param handler The handler function for the protocol.
      */
     abstract registerProtocolHandler(action: string, handler: (params: Record<string, string>) => any): void;
+
+    /**
+     * Get the basic UI component for showing a confirmation dialog to the user.
+     */
+    abstract get confirm(): Confirm;
+    requestCount = reactiveSource(0);
+    responseCount = reactiveSource(0);
 }

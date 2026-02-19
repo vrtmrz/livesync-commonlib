@@ -1,6 +1,6 @@
 import type { Confirm } from "@lib/interfaces/Confirm";
 import type { ComponentHasResult, SvelteDialogManagerBase } from "@lib/UI/svelteDialog";
-import type { IUIService } from "@lib/services/base/IService";
+import type { IAPIService, IUIService } from "@lib/services/base/IService";
 
 import { type AppLifecycleService } from "@lib/services/base/AppLifecycleService.ts";
 import { ServiceBase, type ServiceContext } from "@lib/services/base/ServiceBase";
@@ -8,20 +8,20 @@ import { ServiceBase, type ServiceContext } from "@lib/services/base/ServiceBase
 export type UIServiceDependencies<T extends ServiceContext = ServiceContext> = {
     appLifecycle: AppLifecycleService<T>;
     dialogManager: SvelteDialogManagerBase<T>;
-    confirm: Confirm;
+    APIService: IAPIService;
 };
 
 export abstract class UIService<T extends ServiceContext = ServiceContext>
     extends ServiceBase<T>
     implements IUIService
 {
-    _confirmInstance: Confirm;
     private _dialogManager: SvelteDialogManagerBase<T>;
+    protected _APIService: IAPIService;
     abstract get dialogToCopy(): ComponentHasResult<"ok" | "cancel", { title: string; dataToCopy: string }>;
     constructor(context: T, dependents: UIServiceDependencies<T>) {
         super(context);
-        this._confirmInstance = dependents.confirm;
         this._dialogManager = dependents.dialogManager;
+        this._APIService = dependents.APIService;
     }
     get dialogManager(): SvelteDialogManagerBase<T> {
         return this._dialogManager;
@@ -45,13 +45,13 @@ export abstract class UIService<T extends ServiceContext = ServiceContext>
         buttons: T,
         defaultAction?: (typeof buttons)[number]
     ): Promise<(typeof buttons)[number] | false> {
-        return this._confirmInstance.askSelectStringDialogue(contentMD, buttons, {
+        return this._APIService.confirm.askSelectStringDialogue(contentMD, buttons, {
             title,
             defaultAction: defaultAction ?? buttons[0],
             timeout: 0,
         });
     }
     get confirm(): Confirm {
-        return this._confirmInstance;
+        return this._APIService.confirm;
     }
 }

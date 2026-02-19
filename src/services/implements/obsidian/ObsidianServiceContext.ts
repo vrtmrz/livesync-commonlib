@@ -1,4 +1,4 @@
-import { ServiceContext } from "@/lib/src/services/base/ServiceBase";
+import { ServiceContext } from "@lib/services/base/ServiceBase";
 // Be sure to use only types here, to avoid circular dependencies
 import type ObsidianLiveSyncPlugin from "@/main";
 import type { App, Plugin } from "@/deps";

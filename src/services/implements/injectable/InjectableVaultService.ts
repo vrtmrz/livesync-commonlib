@@ -11,8 +11,6 @@ export abstract class InjectableVaultService<T extends ServiceContext> extends V
 }
 
 export class InjectableVaultServiceCompat<T extends ServiceContext> extends InjectableVaultService<T> {
-    vaultName = handlers<IVaultService>().binder("vaultName");
     isStorageInsensitive = handlers<IVaultService>().binder("isStorageInsensitive");
     getActiveFilePath = handlers<IVaultService>().binder("getActiveFilePath");
-    // shouldCheckCaseInsensitively = handlers<IVaultService>().binder("shouldCheckCaseInsensitively");
 }

@@ -2,6 +2,7 @@ import type { EntryDoc } from "@lib/common/types";
 import { handlers } from "@lib/services/lib/HandlerUtils";
 import type { IReplicationService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
+import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 
 /**
  * The ReplicationService provides methods for managing replication processes.
@@ -57,4 +58,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
      * Check if there is a connection failure with the remote database.
      */
     readonly checkConnectionFailure = handlers<IReplicationService>().firstResult("checkConnectionFailure");
+    databaseQueueCount = reactiveSource(0);
+    storageApplyingCount = reactiveSource(0);
+    replicationResultCount = reactiveSource(0);
 }

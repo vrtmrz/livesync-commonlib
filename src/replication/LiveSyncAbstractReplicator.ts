@@ -11,7 +11,6 @@ import {
     type NodeData,
 } from "../common/types.ts";
 
-import type { ReactiveSource } from "octagonal-wheels/dataobject/reactive";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
 import { resolveWithIgnoreKnownError, type SimpleStore } from "../common/utils.ts";
 import type { KeyValueDatabase } from "../interfaces/KeyValueDatabase.ts";
@@ -35,7 +34,7 @@ export interface LiveSyncReplicatorEnv {
     getSettings(): RemoteDBSettings & BucketSyncSetting & Pick<ObsidianLiveSyncSettings, "remoteType">;
     // $$isMobile(): boolean;
     // $$parseReplicationResult: ReplicationCallback;
-    replicationStat: ReactiveSource<ReplicationStat>;
+    // replicationStat: ReactiveSource<ReplicationStat>;
     kvDB: KeyValueDatabase;
     simpleStore: SimpleStore<any>;
 }
@@ -123,7 +122,7 @@ export abstract class LiveSyncAbstractReplicator {
     ): Promise<void | boolean>;
 
     updateInfo: () => void = () => {
-        this.env.replicationStat.value = {
+        this.env.services.replicator.replicationStatics.value = {
             sent: this.docSent,
             arrived: this.docArrived,
             maxPullSeq: this.maxPullSeq,

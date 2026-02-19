@@ -1,11 +1,23 @@
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
 import { InjectableAPIService } from "@lib/services/implements/injectable/InjectableAPIService";
 import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
-import type { ICommandCompat } from "../../base/IService";
+import type { IAPIService, ICommandCompat } from "../../base/IService";
+import { handlers } from "../../lib/HandlerUtils";
+import type { Confirm } from "@lib/interfaces/Confirm";
+import { BrowserConfirm } from "./BrowserConfirm";
 export declare const PACKAGE_VERSION: string;
 export declare const MANIFEST_VERSION: string;
 
 export class BrowserAPIService<T extends ServiceContext> extends InjectableAPIService<T> {
+    _confirmInstance: Confirm;
+    constructor(context: T) {
+        super(context);
+        this._confirmInstance = new BrowserConfirm(context);
+    }
+    get confirm(): Confirm {
+        return this._confirmInstance;
+    }
+
     showWindow(type: string): Promise<void> {
         // In a browser environment, showing a window might not be applicable.
         // TODO: Think implementation
@@ -20,6 +32,7 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
     getAppID(): string {
         return "browser-app";
     }
+    getSystemVaultName = handlers<IAPIService>().binder("getSystemVaultName");
     getAppVersion(): string {
         return `${MANIFEST_VERSION ?? "0.0.0."}`;
     }

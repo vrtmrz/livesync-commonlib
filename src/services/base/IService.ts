@@ -25,6 +25,8 @@ import type { LiveSyncAbstractReplicator } from "../../replication/LiveSyncAbstr
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
 import type { Confirm } from "../../interfaces/Confirm";
 import type { LiveSyncManagers } from "../../managers/LiveSyncManagers";
+import type { ReactiveSource } from "octagonal-wheels/dataobject/reactive";
+import type { ReplicationStatics } from "../../common/models/shared.definition";
 
 declare global {
     interface OPTIONAL_SYNC_FEATURES {
@@ -53,6 +55,8 @@ export interface IAPIService {
 
     getAppID(): string;
 
+    getSystemVaultName(): string;
+
     isLastPostFailedDueToPayloadSize(): boolean;
 
     getPlatform(): string;
@@ -64,6 +68,9 @@ export interface IAPIService {
     registerWindow(type: string, factory: (leaf: any) => any): void;
     addRibbonIcon(icon: string, title: string, callback: (evt: MouseEvent) => any): HTMLElement;
     registerProtocolHandler(action: string, handler: (params: Record<string, string>) => any): void;
+    confirm: Confirm;
+    responseCount: ReactiveSource<number>;
+    requestCount: ReactiveSource<number>;
 }
 export interface IPathService {
     id2path(id: DocumentID, entry?: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
@@ -115,6 +122,9 @@ export interface IFileProcessingService {
     processOptionalFileEvent(path: FilePath): Promise<boolean>;
 
     commitPendingFileEvents(): Promise<boolean>;
+    batched: ReactiveSource<number>;
+    processing: ReactiveSource<number>;
+    totalQueued: ReactiveSource<number>;
 }
 export interface IReplicatorService {
     onCloseActiveReplication(): Promise<boolean>;
@@ -126,6 +136,7 @@ export interface IReplicatorService {
     ): Promise<LiveSyncAbstractReplicator | undefined | false>;
 
     getActiveReplicator(): LiveSyncAbstractReplicator | undefined;
+    replicationStatics: ReactiveSource<ReplicationStatics>;
 }
 export interface IReplicationService {
     processSynchroniseResult(doc: MetaEntry): Promise<boolean>;
@@ -138,6 +149,9 @@ export interface IReplicationService {
     replicate(showMessage?: boolean): Promise<boolean | void>;
     replicateByEvent(showMessage?: boolean): Promise<boolean | void>;
     parseSynchroniseResult(docs: Array<PouchDB.Core.ExistingDocument<EntryDoc>>): void;
+    databaseQueueCount: ReactiveSource<number>;
+    storageApplyingCount: ReactiveSource<number>;
+    replicationResultCount: ReactiveSource<number>;
 }
 export interface IRemoteService {
     connect(
@@ -194,6 +208,7 @@ export interface IConflictService {
     resolveByNewest(filename: FilePathWithPrefix): Promise<boolean>;
 
     resolveAllConflictedFilesByNewerOnes(): Promise<void>;
+    conflictProcessQueueCount: ReactiveSource<number>;
 }
 export interface IAppLifecycleService {
     onLayoutReady(): Promise<boolean>;
@@ -244,8 +259,6 @@ export interface ISettingService {
 
     clearUsedPassphrase(): void;
 
-    realiseSetting(): Promise<void>;
-
     decryptSettings(settings: ObsidianLiveSyncSettings): Promise<ObsidianLiveSyncSettings>;
 
     adjustSettings(settings: ObsidianLiveSyncSettings): Promise<ObsidianLiveSyncSettings>;
@@ -262,9 +275,18 @@ export interface ISettingService {
 
     currentSettings(): ObsidianLiveSyncSettings;
 
-    importSettings(imported: Partial<ObsidianLiveSyncSettings>): Promise<boolean>;
     updateSettings(updateFn: (current: ObsidianLiveSyncSettings) => ObsidianLiveSyncSettings): Promise<void>;
     applyPartial(partial: Partial<ObsidianLiveSyncSettings>): Promise<void>;
+
+    onSettingLoaded(settings: ObsidianLiveSyncSettings): Promise<boolean>;
+    onSettingChanged(settings: ObsidianLiveSyncSettings): Promise<boolean>;
+    onSettingSaved(settings: ObsidianLiveSyncSettings): Promise<boolean>;
+
+    getSmallConfig(key: string): string | null;
+
+    setSmallConfig(key: string, value: string): void;
+
+    deleteSmallConfig(key: string): void;
 }
 export interface ITweakValueService {
     fetchRemotePreferred(trialSetting: RemoteDBSettings): Promise<TweakValues | false>;
@@ -346,4 +368,12 @@ export interface IServiceHub {
     UI: IUIService;
     config: IConfigService;
     keyValueDB: IKeyValueDBService;
+    control: IControlService;
+}
+
+export interface IControlService {
+    applySettings(): Promise<void>;
+    onLoad(): Promise<boolean>;
+    onReady(): Promise<boolean>;
+    onUnload(): Promise<void>;
 }

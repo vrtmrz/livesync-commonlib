@@ -1,16 +1,17 @@
-import { UIService } from "@/lib/src/services/implements/base/UIService";
+import { UIService } from "@lib/services/implements/base/UIService";
 import type { ConfigService } from "@lib/services/base/ConfigService";
 import type { AppLifecycleService } from "@lib/services/base/AppLifecycleService";
 import type { ReplicatorService } from "@lib/services/base/ReplicatorService";
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
-import { BrowserConfirm } from "./BrowserConfirm";
 import { BrowserSvelteDialogManager } from "./SvelteDialogBrowser";
-import DialogToCopy from "@/lib/src/UI/dialogues/DialogueToCopy.svelte";
+import DialogToCopy from "@lib/UI/dialogues/DialogueToCopy.svelte";
+import type { IAPIService } from "../../base/IService";
 
 export type BrowserUIServiceDependencies<T extends ServiceContext = ServiceContext> = {
     appLifecycle: AppLifecycleService<T>;
     config: ConfigService<T>;
     replicator: ReplicatorService<T>;
+    APIService: IAPIService;
 };
 
 export class BrowserUIService<T extends ServiceContext> extends UIService<T> {
@@ -18,7 +19,7 @@ export class BrowserUIService<T extends ServiceContext> extends UIService<T> {
         return DialogToCopy;
     }
     constructor(context: T, dependents: BrowserUIServiceDependencies<T>) {
-        const browserConfirm = new BrowserConfirm(context);
+        const browserConfirm = dependents.APIService.confirm;
         const obsidianSvelteDialogManager = new BrowserSvelteDialogManager<T>(context, {
             appLifecycle: dependents.appLifecycle,
             config: dependents.config,
@@ -28,7 +29,7 @@ export class BrowserUIService<T extends ServiceContext> extends UIService<T> {
         super(context, {
             appLifecycle: dependents.appLifecycle,
             dialogManager: obsidianSvelteDialogManager,
-            confirm: browserConfirm,
+            APIService: dependents.APIService,
         });
     }
 }
