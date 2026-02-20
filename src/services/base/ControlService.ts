@@ -7,12 +7,24 @@ import { LOG_LEVEL_URGENT } from "octagonal-wheels/common/logger";
 import { createInstanceLogFunction } from "../lib/logUtils";
 import type { APIService } from "./APIService";
 import type { DatabaseService } from "./DatabaseService";
-import type { IAppLifecycleService, IControlService, IFileProcessingService, ISettingService } from "./IService";
+import type {
+    IAppLifecycleService,
+    IControlService,
+    IFileProcessingService,
+    IReplicatorService,
+    ISettingService,
+} from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
+import { eventHub } from "../../hub/hub";
+import { EVENT_PLATFORM_UNLOADED, EVENT_PLUGIN_UNLOADED } from "../../events/coreEvents";
+import { cancelAllPeriodicTask, cancelAllTasks } from "octagonal-wheels/concurrency/task";
+import { stopAllRunningProcessors } from "octagonal-wheels/concurrency/processor";
+import { $msg } from "../../common/i18n";
 
 // ControlService can depend on any service.
 export interface ControlServiceDependencies {
     appLifecycleService: IAppLifecycleService;
+    replicatorService: IReplicatorService;
     settingService: ISettingService;
     databaseService: DatabaseService;
     fileProcessingService: IFileProcessingService;
@@ -28,6 +40,14 @@ export class ControlService<T extends ServiceContext = ServiceContext>
 {
     services: ControlServiceDependencies;
     _log: ReturnType<typeof createInstanceLogFunction>;
+    _unloaded = false;
+
+    /**
+     * Check if the plug-in has been unloaded.
+     */
+    hasUnloaded(): boolean {
+        return this._unloaded;
+    }
 
     constructor(context: T, dependencies: ControlServiceDependencies) {
         super(context);
@@ -50,6 +70,29 @@ export class ControlService<T extends ServiceContext = ServiceContext>
         await this.services.appLifecycleService.onResuming();
         await this.services.appLifecycleService.onResumed();
         await this.services.settingService.onSettingRealised();
+    }
+
+    private async _onLiveSyncUnload(): Promise<void> {
+        eventHub.emitEvent(EVENT_PLUGIN_UNLOADED);
+        await this.services.appLifecycleService.onBeforeUnload();
+        await this.services.appLifecycleService.onAppUnload();
+        cancelAllPeriodicTask();
+        cancelAllTasks();
+        stopAllRunningProcessors();
+        await this.services.appLifecycleService.onUnload();
+        this._unloaded = true;
+        if (this.services.databaseService.localDatabase != null) {
+            this.services.databaseService.localDatabase.onunload();
+            const activeReplicator = this.services.replicatorService.getActiveReplicator();
+            if (activeReplicator) {
+                activeReplicator.closeReplication();
+            }
+            await this.services.databaseService.localDatabase.close();
+        }
+        eventHub.emitEvent(EVENT_PLATFORM_UNLOADED);
+        eventHub.offAll();
+        this._log($msg("moduleLiveSyncMain.logUnloadingPlugin"));
+        return;
     }
 
     /**
@@ -78,6 +121,6 @@ export class ControlService<T extends ServiceContext = ServiceContext>
      * @returns
      */
     async onUnload() {
-        return await this.services.appLifecycleService.onAppUnload();
+        return await this._onLiveSyncUnload();
     }
 }

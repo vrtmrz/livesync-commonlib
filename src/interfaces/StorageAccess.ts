@@ -18,6 +18,8 @@ export interface IStorageAccessManager {
     clearTouched(): void;
 }
 export interface StorageAccess {
+    normalisePath(path: string): string;
+
     restoreState(): Promise<void>;
 
     deleteVaultItem(file: FilePathWithPrefix | UXFileInfoStub | UXFolderInfo): Promise<void>;

@@ -46,6 +46,10 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     // env: LiveSyncTrysteroReplicatorEnv;
 
     // NOTE: This is not used for P2P synchronisation. just for the sake of interface compatibility.
+
+    override get isChunkSendingSupported(): boolean {
+        return false;
+    }
     getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
         return Promise.resolve(new Uint8Array(32));
     }
@@ -282,7 +286,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         return Promise.resolve(false);
     }
 
-    env: LiveSyncTrysteroReplicatorEnv;
+    override env: LiveSyncTrysteroReplicatorEnv;
     constructor(env: LiveSyncTrysteroReplicatorEnv) {
         super(env);
         this.env = env;

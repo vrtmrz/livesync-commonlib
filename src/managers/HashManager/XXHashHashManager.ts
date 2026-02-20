@@ -41,7 +41,7 @@ export class XXHash32RawHashManager extends XXHashHashManager {
      * @param hashAlg - The hash algorithm to check.
      * @returns True if available, false otherwise.
      */
-    static isAvailableFor(hashAlg: HashAlgorithm): boolean {
+    static override isAvailableFor(hashAlg: HashAlgorithm): boolean {
         return hashAlg === HashAlgorithms.LEGACY;
     }
 
@@ -75,7 +75,7 @@ export class XXHash64HashManager extends XXHashHashManager {
      * @param hashAlg - The hash algorithm to check.
      * @returns True if available, false otherwise.
      */
-    static isAvailableFor(hashAlg: HashAlgorithm): boolean {
+    static override isAvailableFor(hashAlg: HashAlgorithm): boolean {
         return hashAlg === HashAlgorithms.XXHASH64;
     }
 
@@ -110,7 +110,7 @@ export class FallbackWasmHashManager extends XXHashHashManager {
      * @param hashAlg - The hash algorithm to check.
      * @returns True.
      */
-    static isAvailableFor(hashAlg: HashAlgorithm): boolean {
+    static override isAvailableFor(hashAlg: HashAlgorithm): boolean {
         return true; // As a fallback hash manager, it is always available.
     }
 

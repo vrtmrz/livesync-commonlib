@@ -2,8 +2,6 @@ import {
     type EntryDoc,
     type DatabaseConnectingStatus,
     type RemoteDBSettings,
-    type BucketSyncSetting,
-    type ObsidianLiveSyncSettings,
     type EntryLeaf,
     type EntryNodeInfo,
     NODEINFO_DOCID,
@@ -12,12 +10,11 @@ import {
 } from "../common/types.ts";
 
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
-import { resolveWithIgnoreKnownError, type SimpleStore } from "../common/utils.ts";
-import type { KeyValueDatabase } from "../interfaces/KeyValueDatabase.ts";
+import { resolveWithIgnoreKnownError } from "../common/utils.ts";
 import { arrayBufferToBase64Single } from "../string_and_binary/convert.ts";
 import type { ServiceHub } from "../services/ServiceHub.ts";
 
-export type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<void> | void;
+export type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<boolean> | boolean;
 export type ReplicationStat = {
     sent: number;
     arrived: number;
@@ -29,14 +26,6 @@ export type ReplicationStat = {
 };
 export interface LiveSyncReplicatorEnv {
     services: ServiceHub;
-    getDatabase(): PouchDB.Database<EntryDoc>;
-
-    getSettings(): RemoteDBSettings & BucketSyncSetting & Pick<ObsidianLiveSyncSettings, "remoteType">;
-    // $$isMobile(): boolean;
-    // $$parseReplicationResult: ReplicationCallback;
-    // replicationStat: ReactiveSource<ReplicationStat>;
-    kvDB: KeyValueDatabase;
-    simpleStore: SimpleStore<any>;
 }
 
 export type RemoteDBStatus = {
@@ -63,6 +52,27 @@ export abstract class LiveSyncAbstractReplicator {
     tweakSettingsMismatched = false;
     preferredTweakValue?: TweakValues;
 
+    abstract get isChunkSendingSupported(): boolean;
+
+    get database() {
+        return this.env.services.database.localDatabase;
+    }
+    get rawDatabase() {
+        return this.env.services.database.localDatabase.localDatabase;
+    }
+    get currentSettings() {
+        return this.env.services.setting.currentSettings();
+    }
+    sendChunks(
+        setting: RemoteDBSettings,
+        remoteDB: PouchDB.Database<EntryDoc> | undefined,
+        showResult: boolean,
+        fromSeq?: number | string
+    ) {
+        // Default implementation does nothing. Only CouchDB replicator needs this.
+        return Promise.resolve(true);
+    }
+
     abstract getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array<ArrayBuffer>>;
     async ensurePBKDF2Salt(
         setting: RemoteDBSettings,
@@ -86,7 +96,7 @@ export abstract class LiveSyncAbstractReplicator {
     }
     env: LiveSyncReplicatorEnv;
     async initializeDatabaseForReplication(): Promise<boolean> {
-        const db = this.env.getDatabase();
+        const db = this.rawDatabase;
         try {
             const nodeinfo: EntryNodeInfo = await resolveWithIgnoreKnownError<EntryNodeInfo>(db.get(NODEINFO_DOCID), {
                 _id: NODEINFO_DOCID,

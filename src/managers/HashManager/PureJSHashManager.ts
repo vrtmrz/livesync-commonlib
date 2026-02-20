@@ -14,7 +14,7 @@ export class PureJSHashManager extends HashManagerCore {
      * @param hashAlg The hash algorithm to check.
      * @returns True if the algorithm is "mixed-purejs".
      */
-    static isAvailableFor(hashAlg: HashAlgorithm): boolean {
+    static override isAvailableFor(hashAlg: HashAlgorithm): boolean {
         return hashAlg === HashAlgorithms.MIXED_PUREJS;
     }
 
@@ -57,7 +57,7 @@ export class SHA1HashManager extends HashManagerCore {
      * @param hashAlg The hash algorithm to check.
      * @returns True if the algorithm is "sha1".
      */
-    static isAvailableFor(hashAlg: HashAlgorithm): boolean {
+    static override isAvailableFor(hashAlg: HashAlgorithm): boolean {
         return hashAlg === HashAlgorithms.SHA1;
     }
 
@@ -99,7 +99,7 @@ export class FallbackPureJSHashManager extends PureJSHashManager {
      * @param _hashAlg The hash algorithm (ignored).
      * @returns True.
      */
-    static isAvailableFor(_hashAlg: HashAlgorithm): boolean {
+    static override isAvailableFor(_hashAlg: HashAlgorithm): boolean {
         return true; // As a fallback hash manager, it is always available.
     }
 }

@@ -10,7 +10,7 @@ interface ErrorWithCause extends Error {
  * The class also includes static methods to check whether an error is caused by a specific error class.
  */
 export class LiveSyncError extends Error implements ErrorWithCause {
-    name = this.constructor.name;
+    override name = this.constructor.name;
     cause?: Error;
     overrideStatus?: number;
     /**

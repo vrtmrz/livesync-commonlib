@@ -8,7 +8,7 @@ import { ContentSplitterBase } from "./ContentSplitterBase.ts";
  * Content splitter for version 2, which supports segmenter-based splitting.
  */
 export class ContentSplitterV2 extends ContentSplitterBase {
-    static isAvailableFor(setting: ContentSplitterOptions): boolean {
+    static override isAvailableFor(setting: ContentSplitterOptions): boolean {
         return (
             setting.settings.chunkSplitterVersion === ChunkAlgorithms.V2 ||
             setting.settings.chunkSplitterVersion === ChunkAlgorithms.V2Segmenter

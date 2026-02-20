@@ -1,4 +1,4 @@
-import { type AppLifecycleService } from "@lib/services/base/AppLifecycleService";
+import { type AppLifecycleService, type AppLifecycleServiceDependencies } from "@lib/services/base/AppLifecycleService";
 
 import { InjectableAppLifecycleService } from "@lib/services/implements/injectable/InjectableAppLifecycleService";
 import { InjectableConflictService } from "@lib/services/implements/injectable/InjectableConflictService";
@@ -23,10 +23,11 @@ import { SvelteDialogManagerBase, type ComponentHasResult } from "./implements/b
 import type { DatabaseService } from "@lib/services/base/DatabaseService.ts";
 import { ControlService } from "./base/ControlService";
 import { InjectableSettingService } from "./implements/injectable/InjectableSettingService";
+import type { IControlService } from "./base/IService";
 
 class HeadlessAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
-    constructor(context: T) {
-        super(context);
+    constructor(context: T, dependencies: AppLifecycleServiceDependencies) {
+        super(context, dependencies);
         // The main entry point when the environment is ready
         // const onReady = this.onReady.bind(this);
         // In headless, we must call onReady externally when ready
@@ -44,6 +45,7 @@ type HeadlessUIServiceDependencies<T extends ServiceContext = ServiceContext> = 
     config: ConfigServiceBrowserCompat<T>;
     replicator: InjectableReplicatorService<T>;
     APIService: HeadlessAPIService<T>;
+    control: IControlService;
 };
 
 class HeadlessUIService extends UIService<ServiceContext> {
@@ -57,6 +59,7 @@ class HeadlessUIService extends UIService<ServiceContext> {
             appLifecycle: dependents.appLifecycle,
             config: dependents.config,
             replicator: dependents.replicator,
+            control: dependents.control,
         });
         super(context, {
             appLifecycle: dependents.appLifecycle,
@@ -77,14 +80,15 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
         const context = _context ?? new ServiceContext();
 
         const API = new HeadlessAPIService(context);
-        const appLifecycle = new HeadlessAppLifecycleService(context);
         const conflict = new InjectableConflictService(context);
         const fileProcessing = new InjectableFileProcessingService(context);
-        const replication = new InjectableReplicationService(context);
 
         const remote = new InjectableRemoteService(context);
         const setting = new InjectableSettingService(context, {
             APIService: API,
+        });
+        const appLifecycle = new HeadlessAppLifecycleService(context, {
+            settingService: setting,
         });
         const tweakValue = new InjectableTweakValueService(context);
         const vault = new InjectableVaultServiceCompat(context, {
@@ -110,12 +114,16 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
             appLifecycleService: appLifecycle,
             databaseEventService: databaseEvents,
         });
-        const ui = new HeadlessUIService(context, {
-            appLifecycle,
-            config,
-            replicator,
+        const replication = new InjectableReplicationService(context, {
             APIService: API,
+            appLifecycleService: appLifecycle,
+            databaseEventService: databaseEvents,
+            replicatorService: replicator,
+            settingService: setting,
+            fileProcessingService: fileProcessing,
+            databaseService: database,
         });
+
         const keyValueDB = new HeadlessKeyValueDBService(context, {
             appLifecycle: appLifecycle,
             databaseEvents: databaseEvents,
@@ -127,6 +135,14 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
             databaseService: database,
             fileProcessingService: fileProcessing,
             APIService: API,
+            replicatorService: replicator,
+        });
+        const ui = new HeadlessUIService(context, {
+            appLifecycle,
+            config,
+            replicator,
+            APIService: API,
+            control: control,
         });
         // Using 'satisfies' to ensure all services are provided
         const serviceInstancesToInit = {

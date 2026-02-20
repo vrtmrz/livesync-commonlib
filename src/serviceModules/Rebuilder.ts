@@ -117,15 +117,15 @@ Please enable them from the settings screen after setup is complete.`,
         // this.core.settings.isConfigured = true;
         // this.core.settings.notifyThresholdOfRemoteStorageSize = DEFAULT_SETTINGS.notifyThresholdOfRemoteStorageSize;
         await this.control.applySettings();
-        await this.remote.markLocked();
+        await this.replication.markLocked();
         await this._tryResetRemoteDatabase();
-        await this.remote.markLocked();
+        await this.replication.markLocked();
         await delay(500);
         // await this.askUsingOptionalFeature({ enableOverwrite: true });
         await delay(1000);
-        await this.remote.replicateAllToRemote(true);
+        await this.replication.replicateAllToRemote(true);
         await delay(1000);
-        await this.remote.replicateAllToRemote(true, true);
+        await this.replication.replicateAllToRemote(true, true);
         await this.informOptionalFeatures();
     }
     $rebuildRemote(): Promise<void> {
@@ -143,16 +143,16 @@ Please enable them from the settings screen after setup is complete.`,
         await this.resetLocalDatabase();
         await delay(1000);
         await this.databaseEvents.initialiseDatabase(true, true, true);
-        await this.remote.markLocked();
+        await this.replication.markLocked();
         await this._tryResetRemoteDatabase();
-        await this.remote.markLocked();
+        await this.replication.markLocked();
         await delay(500);
         // We do not have any other devices' data, so we do not need to ask for overwriting.
         // await this.askUsingOptionalFeature({ enableOverwrite: false });
         await delay(1000);
-        await this.remote.replicateAllToRemote(true);
+        await this.replication.replicateAllToRemote(true);
         await delay(1000);
-        await this.remote.replicateAllToRemote(true, true);
+        await this.replication.replicateAllToRemote(true, true);
         await this.informOptionalFeatures();
     }
 
@@ -299,11 +299,11 @@ Are you sure you wish to proceed?`;
         } else {
             // Do not create local file entries before sync (Means use remote information)
         }
-        await this.remote.markResolved();
+        await this.replication.markResolved();
         await delay(500);
-        await this.remote.replicateAllFromRemote(true);
+        await this.replication.replicateAllFromRemote(true);
         await delay(1000);
-        await this.remote.replicateAllFromRemote(true);
+        await this.replication.replicateAllFromRemote(true);
         await this.resumeReflectingDatabase();
         await this.informOptionalFeatures();
         // No longer enable

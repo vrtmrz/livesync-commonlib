@@ -255,8 +255,10 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         return this.settings;
     }
 
-    // abstract importSettings(imported: Partial<ObsidianLiveSyncSettings>): Promise<boolean>;
-    updateSettings(updateFn: (settings: ObsidianLiveSyncSettings) => ObsidianLiveSyncSettings): Promise<void> {
+    updateSettings(
+        updateFn: (settings: ObsidianLiveSyncSettings) => ObsidianLiveSyncSettings,
+        saveImmediately?: boolean
+    ): Promise<void> {
         try {
             const updated = updateFn(this.settings);
             this.settings = updated;
@@ -264,14 +266,20 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             this._log("Error in update function: " + ex, LOG_LEVEL_URGENT);
             return Promise.reject(ex);
         }
+        if (saveImmediately) {
+            return this.saveSettingData();
+        }
         return Promise.resolve();
     }
-    applyPartial(partial: Partial<ObsidianLiveSyncSettings>): Promise<void> {
+    applyPartial(partial: Partial<ObsidianLiveSyncSettings>, saveImmediately?: boolean): Promise<void> {
         try {
             this.settings = { ...this.settings, ...partial };
         } catch (ex) {
             this._log("Error in applying partial settings: " + ex, LOG_LEVEL_URGENT);
             return Promise.reject(ex);
+        }
+        if (saveImmediately) {
+            return this.saveSettingData();
         }
         return Promise.resolve();
     }

@@ -78,6 +78,10 @@ export class ServiceFileAccessBase<
         return Promise.resolve(true);
     }
 
+    normalisePath(path: string): string {
+        return this.vaultAccess.normalisePath(path);
+    }
+
     async writeFileAuto(path: string, data: string | ArrayBuffer, opt?: UXDataWriteOptions): Promise<boolean> {
         const file = this.vaultAccess.getAbstractFileByPath(path);
         if (this.vaultAccess.isFile(file)) {

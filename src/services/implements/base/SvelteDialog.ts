@@ -9,12 +9,14 @@ import { eventHub } from "@/lib/src/hub/hub";
 import { EVENT_PLUGIN_UNLOADED } from "@/lib/src/events/coreEvents";
 
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
+import type { IControlService } from "../../base/IService";
 
 export type SvelteDialogManagerDependencies<T extends ServiceContext = ServiceContext> = {
     appLifecycle: AppLifecycleService<T>;
     replicator: ReplicatorService<T>;
     config: ConfigService<T>;
     confirm: Confirm;
+    control: IControlService;
 };
 
 export type HasSetResult<T = any> = {
@@ -111,7 +113,7 @@ export function SvelteDialogMixIn<TBase extends Constructor<IModalBase>>(TBase: 
             this.resultPromiseWithResolvers = undefined;
         }
         resultPromiseWithResolvers?: PromiseWithResolvers<T | undefined>;
-        onOpen() {
+        override onOpen() {
             const { contentEl } = this;
             contentEl.empty();
             // eslint-disable-next-line @typescript-eslint/no-this-alias
@@ -158,7 +160,7 @@ export function SvelteDialogMixIn<TBase extends Constructor<IModalBase>>(TBase: 
             }
             return this.resultPromiseWithResolvers.promise;
         }
-        onClose() {
+        override onClose() {
             this.resolveResult();
             fireAndForget(async () => {
                 if (this.mountedComponent) {
@@ -195,7 +197,7 @@ export abstract class SvelteDialogManagerBase<T extends ServiceContext> {
             if (ret !== undefined) {
                 return ret;
             }
-            if (this.dependents.appLifecycle.hasUnloaded()) {
+            if (this.dependents.control.hasUnloaded()) {
                 throw new Error("Operation cancelled due to app shutdown.");
             }
             Logger("Please select 'Cancel' explicitly to cancel this operation.", LOG_LEVEL_NOTICE);

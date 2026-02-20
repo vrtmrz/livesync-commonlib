@@ -84,7 +84,16 @@ export abstract class JournalSyncAbstract {
     get forcePathStyle() {
         return this._settings.forcePathStyle;
     }
-    db: PouchDB.Database<EntryDoc>;
+    get db() {
+        return this.env.services.database.localDatabase.localDatabase;
+    }
+
+    /**
+     * Return current (environmental) settings, not the instance settings.
+     */
+    get currentSettings() {
+        return this.env.services.setting.currentSettings();
+    }
     hash = "";
     processReplication: ReplicationCallback;
     batchSize = 100;
@@ -142,8 +151,6 @@ export abstract class JournalSyncAbstract {
     }
     constructor(settings: BucketSyncSetting, store: SimpleStore<CheckPointInfo>, env: LiveSyncJournalReplicatorEnv) {
         this._settings = settings;
-
-        this.db = env.getDatabase();
         this.env = env;
         this.processReplication = async (docs) => await env.services.replication.parseSynchroniseResult(docs);
         this.store = store;
@@ -153,7 +160,6 @@ export abstract class JournalSyncAbstract {
     }
     applyNewConfig(settings: BucketSyncSetting, store: SimpleStore<CheckPointInfo>, env: LiveSyncJournalReplicatorEnv) {
         this._settings = settings;
-        this.db = env.getDatabase();
         this.env = env;
         this.processReplication = async (docs) => await env.services.replication.parseSynchroniseResult(docs);
         this.store = store;

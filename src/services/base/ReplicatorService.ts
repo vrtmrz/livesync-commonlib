@@ -32,12 +32,14 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     private databaseEventService: DatabaseEventService;
     private _activeReplicator: LiveSyncAbstractReplicator | undefined;
     private _replicatorType: string | undefined;
+    private appLifecycleService: AppLifecycleService;
     _unresolvedErrorManager: UnresolvedErrorManager;
     constructor(
         context: T,
         protected dependencies: ReplicatorServiceDependencies
     ) {
         super(context);
+        this.appLifecycleService = dependencies.appLifecycleService;
         this._unresolvedErrorManager = new UnresolvedErrorManager(dependencies.appLifecycleService);
         this.settingService = dependencies.settingService;
         this.settingService.onRealiseSetting.addHandler(this._initialiseReplicator.bind(this));
@@ -45,8 +47,16 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         this.databaseEventService.onResetDatabase.addHandler(this.disposeReplicator.bind(this));
         this.databaseEventService.onDatabaseInitialisation.addHandler(this.disposeReplicator.bind(this));
         this.databaseEventService.onDatabaseInitialised.addHandler(this._initialiseReplicator.bind(this));
+        this.appLifecycleService.onSuspending.addHandler(this.suspendReplication.bind(this));
     }
 
+    private suspendReplication() {
+        const activeReplicator = this.getActiveReplicator();
+        if (activeReplicator) {
+            activeReplicator.closeReplication();
+        }
+        return Promise.resolve(true);
+    }
     private async disposeReplicator() {
         this._log("Detect database reset, closing active replicator if exists.");
         if (this._activeReplicator) {

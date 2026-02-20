@@ -34,3 +34,5 @@ export function createInstanceLogFunction(serviceName: string, APIService?: IAPI
         logFunc(formattedMsg, level, key);
     };
 }
+
+export type LogFunction = ReturnType<typeof createInstanceLogFunction>;

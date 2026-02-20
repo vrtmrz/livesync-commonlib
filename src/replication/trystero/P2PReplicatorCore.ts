@@ -165,7 +165,7 @@ export interface P2PReplicatorBase {
     getDB: () => PouchDB.Database<EntryDoc>;
     confirm: Confirm;
     simpleStore(): SimpleStore<any>;
-    handleReplicatedDocuments(docs: EntryDoc[]): Promise<void>;
+    handleReplicatedDocuments(docs: EntryDoc[]): Promise<boolean>;
     init(): Promise<this>;
 
     services: InjectableServiceHub;

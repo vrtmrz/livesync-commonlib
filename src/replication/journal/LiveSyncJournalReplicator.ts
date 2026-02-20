@@ -1,6 +1,5 @@
 import {
     type EntryMilestoneInfo,
-    type DatabaseConnectingStatus,
     type RemoteDBSettings,
     type EntryLeaf,
     LOG_LEVEL_NOTICE,
@@ -38,33 +37,24 @@ const currentVersionRange: ChunkVersionRange = {
 };
 
 export interface LiveSyncJournalReplicatorEnv extends LiveSyncReplicatorEnv {
-    simpleStore: SimpleStore<CheckPointInfo | any>;
+    // simpleStore: SimpleStore<CheckPointInfo | any>;
     // $$customFetchHandler: () => FetchHttpHandler | undefined;
     services: ServiceHub;
 }
 
 export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
-    syncStatus: DatabaseConnectingStatus = "NOT_CONNECTED";
-    docArrived = 0;
-    docSent = 0;
+    override env: LiveSyncJournalReplicatorEnv;
 
-    lastSyncPullSeq = 0;
-    maxPullSeq = 0;
-    lastSyncPushSeq = 0;
-    maxPushSeq = 0;
-    controller?: AbortController;
-    originalSetting!: RemoteDBSettings;
-    nodeid = "";
-    remoteLocked = false;
-    remoteCleaned = false;
-    remoteLockedAndDeviceNotAccepted = false;
-
-    env: LiveSyncJournalReplicatorEnv;
-
+    get isChunkSendingSupported(): boolean {
+        return false;
+    }
     get client() {
         return this.setupJournalSyncClient();
     }
 
+    get simpleStore() {
+        return this.env.services.keyValueDB.simpleStore as SimpleStore<CheckPointInfo>;
+    }
     _client!: JournalSyncMinio;
 
     override async getReplicationPBKDF2Salt(
@@ -75,13 +65,13 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     setupJournalSyncClient() {
-        const settings = this.env.getSettings();
+        const settings = this.currentSettings;
         if (this._client) {
-            this._client.applyNewConfig(settings, this.env.simpleStore, this.env);
+            this._client.applyNewConfig(settings, this.simpleStore, this.env);
             // NO OP.
             // this._client.requestStop();
         } else {
-            this._client = new JournalSyncMinio(settings, this.env.simpleStore, this.env);
+            this._client = new JournalSyncMinio(settings, this.simpleStore, this.env);
         }
         return this._client;
     }
@@ -95,7 +85,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         const progress = [...(cPointInfo?.receivedFiles || [])].sort().pop() || "";
         return await ensureRemoteIsCompatible(
             downloadedMilestone,
-            this.env.getSettings(),
+            this.currentSettings,
             deviceNodeID,
             currentVersionRange,
             {
@@ -116,7 +106,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         this.env = env;
         // initialize local node information.
         fireAndForget(() => this.initializeDatabaseForReplication());
-        this.env.getDatabase().on("close", () => {
+        this.rawDatabase.on("close", () => {
             this.closeReplication();
         });
     }
@@ -137,17 +127,6 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         await this.client.sync(showResult);
     }
 
-    updateInfo: () => void = () => {
-        this.env.services.replicator.replicationStatics.value = {
-            sent: this.docSent,
-            arrived: this.docArrived,
-            maxPullSeq: this.maxPullSeq,
-            maxPushSeq: this.maxPushSeq,
-            lastSyncPullSeq: this.lastSyncPullSeq,
-            lastSyncPushSeq: this.lastSyncPushSeq,
-            syncStatus: this.syncStatus,
-        };
-    };
     async replicateAllToServer(setting: RemoteDBSettings, showingNotice?: boolean) {
         if (!(await this.checkReplicationConnectivity(false))) return false;
         return await this.client.sendLocalJournal(showingNotice);
@@ -295,7 +274,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
 
     async tryConnectRemote(setting: RemoteDBSettings, showResult: boolean = true): Promise<boolean> {
         const endpoint = setting.endpoint;
-        const testClient = new JournalSyncMinio(setting, this.env.simpleStore, this.env);
+        const testClient = new JournalSyncMinio(setting, this.simpleStore, this.env);
         try {
             await testClient.listFiles("", 1);
             Logger(`Connected to ${endpoint} successfully!`, LOG_LEVEL_NOTICE);
@@ -352,7 +331,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus> {
-        const testClient = new JournalSyncMinio(setting, this.env.simpleStore, this.env);
+        const testClient = new JournalSyncMinio(setting, this.simpleStore, this.env);
         return await testClient.getUsage();
     }
 

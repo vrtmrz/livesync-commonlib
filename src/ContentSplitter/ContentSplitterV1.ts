@@ -8,7 +8,7 @@ import { ContentSplitterBase } from "./ContentSplitterBase";
  * Legacy content splitter for version 1.
  */
 export class ContentSplitterV1 extends ContentSplitterBase {
-    static isAvailableFor(setting: ContentSplitterOptions): boolean {
+    static override isAvailableFor(setting: ContentSplitterOptions): boolean {
         return (
             setting.settings.chunkSplitterVersion === ChunkAlgorithms.V1 ||
             setting.settings.chunkSplitterVersion === "" ||

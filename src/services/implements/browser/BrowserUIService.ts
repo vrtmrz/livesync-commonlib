@@ -5,13 +5,14 @@ import type { ReplicatorService } from "@lib/services/base/ReplicatorService";
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
 import { BrowserSvelteDialogManager } from "./SvelteDialogBrowser";
 import DialogToCopy from "@lib/UI/dialogues/DialogueToCopy.svelte";
-import type { IAPIService } from "../../base/IService";
+import type { IAPIService, IControlService } from "../../base/IService";
 
 export type BrowserUIServiceDependencies<T extends ServiceContext = ServiceContext> = {
     appLifecycle: AppLifecycleService<T>;
     config: ConfigService<T>;
     replicator: ReplicatorService<T>;
     APIService: IAPIService;
+    control: IControlService;
 };
 
 export class BrowserUIService<T extends ServiceContext> extends UIService<T> {
@@ -25,6 +26,7 @@ export class BrowserUIService<T extends ServiceContext> extends UIService<T> {
             config: dependents.config,
             replicator: dependents.replicator,
             confirm: browserConfirm,
+            control: dependents.control,
         });
         super(context, {
             appLifecycle: dependents.appLifecycle,

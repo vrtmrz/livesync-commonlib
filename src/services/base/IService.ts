@@ -145,13 +145,27 @@ export interface IReplicationService {
     processVirtualDocument(docs: PouchDB.Core.ExistingDocument<EntryDoc>): Promise<boolean>;
     onBeforeReplicate(showMessage: boolean): Promise<boolean>;
     checkConnectionFailure(): Promise<boolean | "CHECKAGAIN" | undefined>;
+
+    onCheckReplicationReady(showMessage: boolean): Promise<boolean>;
     isReplicationReady(showMessage: boolean): Promise<boolean>;
+    performReplication(showMessage?: boolean): Promise<boolean | void>;
     replicate(showMessage?: boolean): Promise<boolean | void>;
     replicateByEvent(showMessage?: boolean): Promise<boolean | void>;
-    parseSynchroniseResult(docs: Array<PouchDB.Core.ExistingDocument<EntryDoc>>): void;
+    onReplicationFailed(showMessage?: boolean): Promise<boolean>;
+    parseSynchroniseResult(docs: Array<PouchDB.Core.ExistingDocument<EntryDoc>>): Promise<boolean>;
     databaseQueueCount: ReactiveSource<number>;
     storageApplyingCount: ReactiveSource<number>;
     replicationResultCount: ReactiveSource<number>;
+
+    replicateAllToRemote(showingNotice?: boolean, sendChunksInBulkDisabled?: boolean): Promise<boolean>;
+
+    replicateAllFromRemote(showingNotice?: boolean): Promise<boolean>;
+
+    markLocked(lockByClean?: boolean): Promise<void>;
+
+    markUnlocked(): Promise<void>;
+
+    markResolved(): Promise<void>;
 }
 export interface IRemoteService {
     connect(
@@ -173,16 +187,6 @@ export interface IRemoteService {
               info: PouchDB.Core.DatabaseInfo;
           }
     >;
-
-    replicateAllToRemote(showingNotice?: boolean, sendChunksInBulkDisabled?: boolean): Promise<boolean>;
-
-    replicateAllFromRemote(showingNotice?: boolean): Promise<boolean>;
-
-    markLocked(lockByClean?: boolean): Promise<void>;
-
-    markUnlocked(): Promise<void>;
-
-    markResolved(): Promise<void>;
 }
 export interface IConflictService {
     getOptionalConflictCheckMethod(path: FilePathWithPrefix): Promise<boolean | undefined | "newer">;
@@ -244,8 +248,6 @@ export interface IAppLifecycleService {
 
     resetIsReady(): void;
 
-    hasUnloaded(): boolean;
-
     isReloadingScheduled(): boolean;
 }
 export interface ISettingService {
@@ -275,8 +277,11 @@ export interface ISettingService {
 
     currentSettings(): ObsidianLiveSyncSettings;
 
-    updateSettings(updateFn: (current: ObsidianLiveSyncSettings) => ObsidianLiveSyncSettings): Promise<void>;
-    applyPartial(partial: Partial<ObsidianLiveSyncSettings>): Promise<void>;
+    updateSettings(
+        updateFn: (current: ObsidianLiveSyncSettings) => ObsidianLiveSyncSettings,
+        saveImmediately?: boolean
+    ): Promise<void>;
+    applyPartial(partial: Partial<ObsidianLiveSyncSettings>, saveImmediately?: boolean): Promise<void>;
 
     onSettingLoaded(settings: ObsidianLiveSyncSettings): Promise<boolean>;
     onSettingChanged(settings: ObsidianLiveSyncSettings): Promise<boolean>;
@@ -376,4 +381,5 @@ export interface IControlService {
     onLoad(): Promise<boolean>;
     onReady(): Promise<boolean>;
     onUnload(): Promise<void>;
+    hasUnloaded(): boolean;
 }

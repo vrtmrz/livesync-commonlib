@@ -63,6 +63,7 @@ export abstract class FileAccessBase<
     abstract nativeFileToUXFileInfoStub(file: TNativeFile): UXFileInfoStub;
     abstract nativeFolderToUXFolder(file: TNativeFolder): UXFolderInfo;
 
+    protected abstract _normalisePath(path: string): string;
     protected abstract _trash(file: TNativeAbstractFile, force?: boolean): Promise<void>;
     protected abstract _getAbstractFileByPathInsensitive(path: FilePath | string): TNativeAbstractFile | null;
     protected abstract _getAbstractFileByPath(path: FilePath | string): TNativeAbstractFile | null;
@@ -121,6 +122,10 @@ export abstract class FileAccessBase<
         this.settingService = dependencies.settingService;
         this.APIService = dependencies.APIService;
         this._log = createInstanceLogFunction("FileAccess", this.APIService);
+    }
+
+    normalisePath(path: string): string {
+        return this._normalisePath(path);
     }
 
     protected _writeOp<T extends TNativeAbstractFile | string, U>(

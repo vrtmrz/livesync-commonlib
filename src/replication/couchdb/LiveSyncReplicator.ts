@@ -3,7 +3,6 @@ import {
     type EntryMilestoneInfo,
     VER,
     MILESTONE_DOCID,
-    type DatabaseConnectingStatus,
     type ChunkVersionRange,
     type RemoteDBSettings,
     type EntryLeaf,
@@ -138,23 +137,10 @@ export interface LiveSyncCouchDBReplicatorEnv extends LiveSyncReplicatorEnv {
 }
 
 export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
-    syncStatus: DatabaseConnectingStatus = "NOT_CONNECTED";
-    docArrived = 0;
-    docSent = 0;
+    override get isChunkSendingSupported(): boolean {
+        return true;
+    }
 
-    lastSyncPullSeq = 0;
-    maxPullSeq = 0;
-    lastSyncPushSeq = 0;
-    maxPushSeq = 0;
-    controller?: AbortController;
-    // localDatabase: PouchDB.Database<EntryDoc>;
-    originalSetting!: RemoteDBSettings;
-    nodeid = "";
-    remoteLocked = false;
-    remoteCleaned = false;
-    remoteLockedAndDeviceNotAccepted = false;
-
-    env: LiveSyncCouchDBReplicatorEnv;
     isMobile() {
         return this.env.services.API.isMobile();
     }
@@ -164,7 +150,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         this.env = env;
         // initialize local node information.
         void this.initializeDatabaseForReplication();
-        this.env.getDatabase().on("close", () => {
+        this.rawDatabase.on("close", () => {
             this.closeReplication();
         });
     }
@@ -490,8 +476,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         return newMax;
     }
 
-    // No longer used. Kept only for troubleshooting.
-    async sendChunks(
+    // Used for sending chunks in bulk before replication.
+    override async sendChunks(
         setting: RemoteDBSettings,
         remoteDB: PouchDB.Database<EntryDoc> | undefined,
         showResult: boolean,
@@ -523,7 +509,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         Logger(`Bulk sending chunks to remote database...`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
         const remoteMilestone = await remoteDB.get(MILESTONE_DOCID);
         const remoteID = (remoteMilestone as any)?.created;
-        const localDB = this.env.getDatabase();
+        const localDB = this.rawDatabase;
         const te = new TextEncoder();
         Logger(
             $msg("liveSyncReplicator.checkingLastSyncPoint"),
@@ -695,7 +681,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 );
                 return false;
             }
-            const localDB = this.env.getDatabase();
+            const localDB = this.rawDatabase;
             Logger($msg("liveSyncReplicator.oneShotSyncBegin", { syncMode }));
             const ret = await this.checkReplicationConnectivity(setting, false, retrying, showResult, ignoreCleanLock);
             if (ret === false) {
@@ -791,17 +777,6 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         return await next();
     }
 
-    updateInfo: () => void = () => {
-        this.env.services.replicator.replicationStatics.value = {
-            sent: this.docSent,
-            arrived: this.docArrived,
-            maxPullSeq: this.maxPullSeq,
-            maxPushSeq: this.maxPushSeq,
-            lastSyncPullSeq: this.lastSyncPullSeq,
-            lastSyncPushSeq: this.lastSyncPushSeq,
-            syncStatus: this.syncStatus,
-        };
-    };
     replicateAllToServer(setting: RemoteDBSettings, showingNotice?: boolean) {
         return this.openOneShotReplication(setting, showingNotice ?? false, false, "pushOnly");
     }
@@ -924,7 +899,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 );
                 return false;
             }
-            const localDB = this.env.getDatabase();
+            const localDB = this.rawDatabase;
             Logger($msg("liveSyncReplicator.beforeLiveSync"));
             if (await this.openOneShotReplication(setting, showResult, false, "pullOnly")) {
                 Logger($msg("liveSyncReplicator.liveSyncBegin"));
@@ -1207,7 +1182,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
 
     async fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]> {
-        const ret = await this.connectRemoteCouchDBWithSetting(this.env.getSettings(), this.isMobile(), false, true);
+        const ret = await this.connectRemoteCouchDBWithSetting(this.currentSettings, this.isMobile(), false, true);
         if (typeof ret === "string") {
             Logger(
                 `${$msg("liveSyncReplicator.couldNotConnectToServer")} ${ret} `,
@@ -1355,7 +1330,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         };
     }
 
-    async countCompromisedChunks(setting: RemoteDBSettings = this.env.getSettings()): Promise<number | boolean> {
+    async countCompromisedChunks(setting: RemoteDBSettings = this.currentSettings): Promise<number | boolean> {
         const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
         if (typeof dbRet === "string") {
             const uri = setting.couchDB_URI + (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
@@ -1367,7 +1342,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getConnectedDeviceList(
-        setting: RemoteDBSettings = this.env.getSettings()
+        setting: RemoteDBSettings = this.currentSettings
     ): Promise<false | { node_info: Record<string, NodeData>; accepted_nodes: string[] }> {
         const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
         if (typeof dbRet === "string") {

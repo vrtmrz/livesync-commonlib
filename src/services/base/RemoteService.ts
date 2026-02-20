@@ -43,33 +43,4 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
               info: PouchDB.Core.DatabaseInfo;
           }
     >;
-
-    /**
-     * Replicate all local database content to the remote database.
-     * @param showingNotice Whether to show a notice to the user.
-     * @param sendChunksInBulkDisabled Whether to disable sending chunks in bulk.
-     */
-    abstract replicateAllToRemote(showingNotice?: boolean, sendChunksInBulkDisabled?: boolean): Promise<boolean>;
-
-    /**
-     * Replicate all content from the remote database to the local database.
-     * @param showingNotice Whether to show a notice to the user.
-     */
-    abstract replicateAllFromRemote(showingNotice?: boolean): Promise<boolean>;
-
-    /**
-     * Mark the database as locked.
-     * @param lockByClean Whether the lock is due to a clean operation (e.g., reset).
-     */
-    abstract markLocked(lockByClean?: boolean): Promise<void>;
-
-    /**
-     * Mark the database as unlocked. Then other clients will be banned to connect until resolved.
-     */
-    abstract markUnlocked(): Promise<void>;
-
-    /**
-     * Mark the database as resolved. Then the client (current device) can be connected.
-     */
-    abstract markResolved(): Promise<void>;
 }

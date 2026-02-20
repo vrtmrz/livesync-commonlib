@@ -41,61 +41,61 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
     protected readonly _keyValueDB: KeyValueDBService<T>;
     protected readonly _control: ControlService<T>;
 
-    get API(): InjectableAPIService<T> {
+    override get API(): InjectableAPIService<T> {
         return this._api;
     }
-    get path(): PathService<T> {
+    override get path(): PathService<T> {
         return this._path;
     }
-    get database(): DatabaseService<T> {
+    override get database(): DatabaseService<T> {
         return this._database;
     }
-    get databaseEvents(): InjectableDatabaseEventService<T> {
+    override get databaseEvents(): InjectableDatabaseEventService<T> {
         return this._databaseEvents;
     }
-    get replicator(): InjectableReplicatorService<T> {
+    override get replicator(): InjectableReplicatorService<T> {
         return this._replicator;
     }
-    get fileProcessing(): InjectableFileProcessingService<T> {
+    override get fileProcessing(): InjectableFileProcessingService<T> {
         return this._fileProcessing;
     }
-    get replication(): InjectableReplicationService<T> {
+    override get replication(): InjectableReplicationService<T> {
         return this._replication;
     }
-    get remote(): InjectableRemoteService<T> {
+    override get remote(): InjectableRemoteService<T> {
         return this._remote;
     }
-    get conflict(): InjectableConflictService<T> {
+    override get conflict(): InjectableConflictService<T> {
         return this._conflict;
     }
-    get appLifecycle(): AppLifecycleServiceBase<T> {
+    override get appLifecycle(): AppLifecycleServiceBase<T> {
         return this._appLifecycle;
     }
-    get setting(): SettingService<T> {
+    override get setting(): SettingService<T> {
         return this._setting;
     }
-    get tweakValue(): InjectableTweakValueService<T> {
+    override get tweakValue(): InjectableTweakValueService<T> {
         return this._tweakValue;
     }
-    get vault(): InjectableVaultService<T> {
+    override get vault(): InjectableVaultService<T> {
         return this._vault;
     }
-    get test(): InjectableTestService<T> {
+    override get test(): InjectableTestService<T> {
         return this._test;
     }
 
-    get control(): ControlService<T> {
+    override get control(): ControlService<T> {
         return this._control;
     }
 
-    get keyValueDB(): KeyValueDBService<T> {
+    override get keyValueDB(): KeyValueDBService<T> {
         return this._keyValueDB;
     }
 
-    get UI(): UIService<T> {
+    override get UI(): UIService<T> {
         return this._ui;
     }
-    get config(): ConfigService<T> {
+    override get config(): ConfigService<T> {
         return this._config;
     }
 
@@ -122,12 +122,22 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
         this._databaseEvents = services.databaseEvents ?? new InjectableDatabaseEventService<T>(context);
         this._replicator = services.replicator;
         this._fileProcessing = services.fileProcessing ?? new InjectableFileProcessingService<T>(context);
-        this._replication = services.replication ?? new InjectableReplicationService<T>(context);
         this._remote = services.remote ?? new InjectableRemoteService<T>(context);
         this._conflict = services.conflict ?? new InjectableConflictService<T>(context);
         this._appLifecycle = services.appLifecycle;
         this._setting = services.setting;
         this._tweakValue = services.tweakValue ?? new InjectableTweakValueService<T>(context);
+        this._replication =
+            services.replication ??
+            new InjectableReplicationService<T>(context, {
+                APIService: this._api,
+                appLifecycleService: this._appLifecycle,
+                databaseEventService: this._databaseEvents,
+                replicatorService: this._replicator,
+                settingService: this._setting,
+                databaseService: this._database,
+                fileProcessingService: this._fileProcessing,
+            });
         this._vault = services.vault;
         this._test = services.test ?? new InjectableTestService<T>(context);
         this._ui = services.ui;
@@ -141,6 +151,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
                 fileProcessingService: this._fileProcessing,
                 settingService: this._setting,
                 APIService: this._api,
+                replicatorService: this._replicator,
             });
     }
 }

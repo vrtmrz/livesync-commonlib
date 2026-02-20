@@ -7,7 +7,7 @@ import { ContentSplitterBase } from "./ContentSplitterBase.ts";
  * Rabin-Karp content splitter for efficient chunking
  */
 export class ContentSplitterRabinKarp extends ContentSplitterBase {
-    static isAvailableFor(setting: ContentSplitterOptions): boolean {
+    static override isAvailableFor(setting: ContentSplitterOptions): boolean {
         return setting.settings.chunkSplitterVersion === ChunkAlgorithms.RabinKarp;
     }
     async processSplit(

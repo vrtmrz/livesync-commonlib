@@ -159,7 +159,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
     async uploadFile(key: string, blob: Blob, mime: string) {
         try {
             const buf = new Uint8Array(await blob.arrayBuffer());
-            const set = this.env.getSettings();
+            const set = this.currentSettings;
             const u = await this.encryptForUpload(key, buf, set);
             const client = this._getClient();
             const cmd = new PutObjectCommand({
@@ -185,7 +185,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
             ...(ignoreCache ? { ResponseCacheControl: "no-cache" } : {}),
         });
         const r = await client.send(cmd);
-        const set = this.env.getSettings();
+        const set = this.currentSettings;
         try {
             if (r.Body) {
                 const u = new Uint8Array(await r.Body.transformToByteArray());

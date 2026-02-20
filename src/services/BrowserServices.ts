@@ -18,27 +18,27 @@ import type { ServiceInstances } from "@lib/services/ServiceHub";
 import { BrowserAPIService } from "./implements/browser/BrowserAPIService";
 import { BrowserDatabaseService, BrowserKeyValueDBService } from "./implements/browser/BrowserDatabaseService";
 import { ControlService } from "./base/ControlService";
+import type { AppLifecycleServiceDependencies } from "./base/AppLifecycleService";
 
 class BrowserAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
-    constructor(context: T) {
-        super(context);
+    constructor(context: T, dependencies: AppLifecycleServiceDependencies) {
+        super(context, dependencies);
     }
 }
 export class BrowserServiceHub<T extends ServiceContext> extends InjectableServiceHub<T> {
     //  get vault():InjectableVaultServiceCompat<T>;
-    get vault(): InjectableVaultServiceCompat<T> {
+    override get vault(): InjectableVaultServiceCompat<T> {
         return this._vault as InjectableVaultServiceCompat<T>;
     }
     constructor() {
         const context = new ServiceContext() as T;
         const API = new BrowserAPIService(context);
-        const appLifecycle = new BrowserAppLifecycleService(context);
         const conflict = new InjectableConflictService(context);
         const fileProcessing = new InjectableFileProcessingService(context);
-        const replication = new InjectableReplicationService(context);
 
         const remote = new InjectableRemoteService(context);
         const setting = new InjectableSettingService(context, { APIService: API });
+        const appLifecycle = new BrowserAppLifecycleService(context, { settingService: setting });
         const tweakValue = new InjectableTweakValueService(context);
         const vault = new InjectableVaultServiceCompat<T>(context, {
             settingService: setting,
@@ -63,11 +63,14 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
             appLifecycleService: appLifecycle,
             databaseEventService: databaseEvents,
         });
-        const ui = new BrowserUIService<T>(context, {
-            appLifecycle,
-            config,
-            replicator,
+        const replication = new InjectableReplicationService(context, {
             APIService: API,
+            appLifecycleService: appLifecycle,
+            databaseEventService: databaseEvents,
+            replicatorService: replicator,
+            settingService: setting,
+            fileProcessingService: fileProcessing,
+            databaseService: database,
         });
         const keyValueDB = new BrowserKeyValueDBService(context, {
             appLifecycle: appLifecycle,
@@ -80,6 +83,14 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
             fileProcessingService: fileProcessing,
             settingService: setting,
             APIService: API,
+            replicatorService: replicator,
+        });
+        const ui = new BrowserUIService<T>(context, {
+            appLifecycle,
+            config,
+            replicator,
+            APIService: API,
+            control: control,
         });
 
         // Using 'satisfies' to ensure all services are provided

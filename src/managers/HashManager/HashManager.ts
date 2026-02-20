@@ -34,7 +34,7 @@ export class HashManager extends HashManagerCore {
      * @param hashAlg The hash algorithm to check
      * @returns True if available
      */
-    static isAvailableFor(hashAlg: HashAlgorithm): boolean {
+    static override isAvailableFor(hashAlg: HashAlgorithm): boolean {
         return HashManagers.some((manager) => manager.isAvailableFor(hashAlg));
     }
 
@@ -87,7 +87,7 @@ export class HashManager extends HashManagerCore {
      * @param piece The string to be hashed
      * @returns The hash value (returned as a Promise)
      */
-    computeHash(piece: string): Promise<string> {
+    override computeHash(piece: string): Promise<string> {
         return this.manager.computeHash(piece);
     }
 

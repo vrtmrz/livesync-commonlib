@@ -1,6 +1,10 @@
 import { handlers } from "@lib/services/lib/HandlerUtils";
-import type { IAppLifecycleService } from "./IService";
+import type { IAppLifecycleService, ISettingService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
+
+export interface AppLifecycleServiceDependencies {
+    settingService: ISettingService;
+}
 /**
  * The AppLifecycleService provides methods for managing the plug-in's lifecycle events.
  */
@@ -8,6 +12,13 @@ export abstract class AppLifecycleService<T extends ServiceContext = ServiceCont
     extends ServiceBase<T>
     implements IAppLifecycleService
 {
+    protected readonly settingService: ISettingService;
+
+    constructor(context: T, dependencies: AppLifecycleServiceDependencies) {
+        super(context);
+        this.settingService = dependencies.settingService;
+    }
+
     /**
      * Event triggered when the plug-in's layout is ready.
      * In Obsidian, it is after the workspace is ready.
@@ -110,38 +121,48 @@ export abstract class AppLifecycleService<T extends ServiceContext = ServiceCont
      */
     readonly onResumed = handlers<IAppLifecycleService>().bailFirstFailure("onResumed");
 
+    private _isSuspended = false;
+
     /**
      * Check if the plug-in is currently suspended.
+     * Also consider the plug-in as suspended if it is not configured, to prevent any issues before configuration.
      */
-    abstract isSuspended(): boolean;
+    isSuspended(): boolean {
+        const settings = this.settingService.currentSettings();
+        return this._isSuspended || !settings?.isConfigured;
+    }
 
     /**
      * Set the suspension state of the plug-in.
      * @param suspend Set to true to suspend the plug-in, false to resume.
      */
-    abstract setSuspended(suspend: boolean): void;
+    setSuspended(suspend: boolean): void {
+        this._isSuspended = suspend;
+    }
 
+    private _isReady = false;
     /**
      * Check if the plug-in is ready.
      * A ready plug-in means it has been fully initialised and is operational.
      * If not ready, most operations will be blocked.
      */
-    abstract isReady(): boolean;
+    isReady(): boolean {
+        return this._isReady;
+    }
 
     /**
      * Mark the plug-in as ready.
      */
-    abstract markIsReady(): void;
+    markIsReady(): void {
+        this._isReady = true;
+    }
 
     /**
      * Reset the ready state of the plug-in.
      */
-    abstract resetIsReady(): void;
-
-    /**
-     * Check if the plug-in has been unloaded.
-     */
-    abstract hasUnloaded(): boolean;
+    resetIsReady(): void {
+        this._isReady = false;
+    }
 
     /**
      * Check if a restart has been scheduled.

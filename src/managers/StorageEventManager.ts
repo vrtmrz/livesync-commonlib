@@ -516,5 +516,5 @@ export abstract class StorageEventManagerBase extends StorageEventManager {
         this._cancelWaiting(item.args.file.path);
     }
 
-    abstract beginWatch(): Promise<void>;
+    abstract override beginWatch(): Promise<void>;
 }
