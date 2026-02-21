@@ -33,6 +33,11 @@ export abstract class DatabaseEventService<T extends ServiceContext = ServiceCon
      * Event triggered when the database is being reset.
      */
     readonly onResetDatabase = handlers<IDatabaseEventService>().bailFirstFailure("onResetDatabase");
+
+    /**
+     * Event triggered when the database is ready for use.
+     */
+    readonly onDatabaseHasReady = handlers<IDatabaseEventService>().bailFirstFailure("onDatabaseHasReady");
     /**
      * Initialize the database.
      * @param showingNotice Whether to show a notice to the user.

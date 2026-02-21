@@ -109,6 +109,8 @@ export interface IDatabaseEventService {
 
     onDatabaseInitialised(showNotice: boolean): Promise<boolean>;
 
+    onDatabaseHasReady(): Promise<boolean>;
+
     onResetDatabase(db: LiveSyncLocalDB): Promise<boolean>;
 
     initialiseDatabase(showingNotice?: boolean, reopenDatabase?: boolean, ignoreSuspending?: boolean): Promise<boolean>;

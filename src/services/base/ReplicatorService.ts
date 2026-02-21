@@ -46,7 +46,8 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         this.databaseEventService = dependencies.databaseEventService;
         this.databaseEventService.onResetDatabase.addHandler(this.disposeReplicator.bind(this));
         this.databaseEventService.onDatabaseInitialisation.addHandler(this.disposeReplicator.bind(this));
-        this.databaseEventService.onDatabaseInitialised.addHandler(this._initialiseReplicator.bind(this));
+        this.databaseEventService.onDatabaseInitialised.addHandler(this.reinitialiseReplicator.bind(this));
+        this.databaseEventService.onDatabaseHasReady.addHandler(this.reinitialiseReplicator.bind(this));
         this.appLifecycleService.onSuspending.addHandler(this.suspendReplication.bind(this));
     }
 
@@ -56,6 +57,12 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
             activeReplicator.closeReplication();
         }
         return Promise.resolve(true);
+    }
+
+    private async reinitialiseReplicator() {
+        await this.disposeReplicator();
+        await yieldMicrotask();
+        return this._initialiseReplicator();
     }
     private async disposeReplicator() {
         this._log("Detect database reset, closing active replicator if exists.");

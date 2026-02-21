@@ -165,6 +165,13 @@ export class LiveSyncLocalDB {
         });
         this.offRemoteChunkFetchedHandler = unload;
         this.isReady = true;
+        if (!(await this.env.services.databaseEvents.onDatabaseHasReady())) {
+            Logger(
+                "Some module has prevented the database from being ready. The database is initialised but not ready for use.",
+                LOG_LEVEL_NOTICE
+            );
+            return false;
+        }
         Logger("Database is now ready.");
         return true;
     }
