@@ -406,6 +406,10 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         name: "Show status icon instead of file warnings banner",
         desc: "If enabled, the ⛔ icon will be shown inside the status instead of the file warnings banner. No details will be shown.",
     },
+    connectionWarningStyle: {
+        name: "Connection warning style",
+        desc: "How to display connection errors when the sync server is unreachable.",
+    },
     bucketPrefix: {
         name: "File prefix on the bucket",
         desc: "Effectively a directory. Should end with `/`. e.g., `vault-name/`.",
