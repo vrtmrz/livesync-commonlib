@@ -313,6 +313,12 @@ interface UISettings {
     hideFileWarningNotice: boolean;
 
     /**
+     * How to display connection error warnings.
+     * "banner" shows the full banner, "icon" shows only an icon, "hidden" suppresses entirely.
+     */
+    connectionWarningStyle: "banner"|"icon"|"hidden"
+
+    /**
      * The language to be used for display.
      */
     displayLanguage: I18N_LANGS;
