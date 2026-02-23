@@ -160,5 +160,5 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     syncInternalFileOverwritePatterns: 153,
     useOnlyLocalChunk: 154,
     maxMTimeForReflectEvents: 155,
-    connectionWarningStyle: 156,
+    networkWarningStyle: 156,
 } as const;

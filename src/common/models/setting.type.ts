@@ -316,7 +316,7 @@ interface UISettings {
      * How to display connection error warnings.
      * "banner" shows the full banner, "icon" shows only an icon, "hidden" suppresses entirely.
      */
-    connectionWarningStyle: "banner"|"icon"|"hidden"
+    networkWarningStyle: "" | "icon" | "hidden"
 
     /**
      * The language to be used for display.
@@ -977,21 +977,21 @@ interface DeletedFileMetadataSettings {
 
 interface ObsidianLiveSyncSettings_PluginSetting
     extends SyncMethodSettings,
-        UISettings,
-        FileHandlingSettings,
-        MergeBehaviourSettings,
-        EncryptedUserSettings,
-        PeriodicReplicationSettings,
-        InternalFileSettings,
-        PluginSyncSettings,
-        ModeSettings,
-        ExtraTweakSettings,
-        BetaTweakSettings,
-        ObsoleteSettings,
-        DebugModeSettings,
-        SettingSyncSettings,
-        SafetyValveSettings,
-        DataOnSettings {}
+    UISettings,
+    FileHandlingSettings,
+    MergeBehaviourSettings,
+    EncryptedUserSettings,
+    PeriodicReplicationSettings,
+    InternalFileSettings,
+    PluginSyncSettings,
+    ModeSettings,
+    ExtraTweakSettings,
+    BetaTweakSettings,
+    ObsoleteSettings,
+    DebugModeSettings,
+    SettingSyncSettings,
+    SafetyValveSettings,
+    DataOnSettings { }
 
 export type RemoteDBSettings = CouchDBConnection &
     BucketSyncSetting &
