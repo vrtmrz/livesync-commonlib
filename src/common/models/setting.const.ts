@@ -60,4 +60,3 @@ export const NetworkWarningStyles = {
     ICON: "icon",
     HIDDEN: "hidden",
 } as const;
-
