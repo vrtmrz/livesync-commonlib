@@ -17,7 +17,7 @@ import type {
 } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
-import { createInstanceLogFunction, type LogFunction } from "../lib/logUtils";
+import { createInstanceLogFunction, MARK_LOG_NETWORK_ERROR, type LogFunction } from "../lib/logUtils";
 import { $msg } from "../../common/i18n";
 import type { LiveSyncAbstractReplicator } from "../../replication/LiveSyncAbstractReplicator";
 import { UnresolvedErrorManager } from "./UnresolvedErrorManager";
@@ -139,7 +139,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             // check for tagged network errors for filtering by NetworkWarningStyles
             const hasNetworkError = (await this.appLifecycleService.getUnresolvedMessages())
                 .flat()
-                .some((e) => typeof e == "string" && e.indexOf("\u{200b}") !== -1);
+                .some((e) => typeof e == "string" && e.indexOf(MARK_LOG_NETWORK_ERROR) !== -1);
             if (!hasNetworkError) {
                 this.showError($msg("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_NOTICE);
             } else {

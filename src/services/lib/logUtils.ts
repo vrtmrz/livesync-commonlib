@@ -7,6 +7,7 @@ import {
 } from "octagonal-wheels/common/logger";
 import type { IAPIService } from "../base/IService";
 export const MARK_LOG_SEPARATOR = "\u{200A}";
+export const MARK_LOG_NETWORK_ERROR = "\u{200b}"; // u+200B is a zero-width space, which is used to tag logs as network errors for filtering purposes.
 
 /**
  * Creates a log function that prefixes messages with the service name and uses the provided APIService's addLog method if available.
