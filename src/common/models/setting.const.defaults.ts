@@ -61,6 +61,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     showStatusOnStatusbar: true,
     showOnlyIconsOnEditor: false,
     hideFileWarningNotice: false,
+    networkWarningStyle: "",
     usePluginSync: false,
     autoSweepPlugins: false,
     autoSweepPluginsPeriodic: false,

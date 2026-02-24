@@ -53,3 +53,11 @@ export const MODE_SELECTIVE = 0;
 export const MODE_AUTOMATIC = 1;
 export const MODE_PAUSED = 2;
 export const MODE_SHINY = 3;
+
+// Network constants for banner setting
+export const NetworkWarningStyles = {
+    BANNER: "",
+    ICON: "icon",
+    HIDDEN: "hidden",
+} as const;
+
