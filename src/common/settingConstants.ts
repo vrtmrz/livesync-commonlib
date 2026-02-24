@@ -53,10 +53,10 @@ export type AllSettingItemKey = AllStringItemKey | AllNumericItemKey | AllBoolea
 export type ValueOf<T extends AllSettingItemKey> = T extends AllStringItemKey
     ? string
     : T extends AllNumericItemKey
-      ? number
-      : T extends AllBooleanItemKey
-        ? boolean
-        : AllSettings[T];
+    ? number
+    : T extends AllBooleanItemKey
+    ? boolean
+    : AllSettings[T];
 
 export const SettingInformation: Partial<Record<keyof AllSettings, ConfigurationItem>> = {
     liveSync: {
@@ -405,6 +405,10 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
     hideFileWarningNotice: {
         name: "Show status icon instead of file warnings banner",
         desc: "If enabled, the ⛔ icon will be shown inside the status instead of the file warnings banner. No details will be shown.",
+    },
+    networkWarningStyle: {
+        name: "Network warning style",
+        desc: "How to display network errors when the sync server is unreachable.",
     },
     bucketPrefix: {
         name: "File prefix on the bucket",
