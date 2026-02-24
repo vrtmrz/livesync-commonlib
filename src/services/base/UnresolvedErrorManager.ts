@@ -28,9 +28,17 @@ export class UnresolvedErrorManager {
         this._occurredErrors.clear();
         eventHub.emitEvent(EVENT_ON_UNRESOLVED_ERROR);
     }
+
+    countErrors(needle: string) {
+        return Array.from(this._occurredErrors).filter(
+            (error) => typeof error === "string" && error.indexOf(needle) !== -1
+        ).length;
+    }
+
     private _reportUnresolvedMessages() {
         return Promise.resolve(Array.from(this._occurredErrors));
     }
+
     constructor(appLifecycleService: AppLifecycleService) {
         this.appLifecycleService = appLifecycleService;
         this.appLifecycleService.getUnresolvedMessages.addHandler(this._reportUnresolvedMessages.bind(this));

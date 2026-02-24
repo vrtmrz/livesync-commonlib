@@ -136,7 +136,15 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             return false;
         }
         if (!(await this.onBeforeReplicate(showMessage))) {
-            this.showError($msg("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_NOTICE);
+            // check for tagged network errors for filtering by NetworkWarningStyles
+            const hasNetworkError = (await this.appLifecycleService.getUnresolvedMessages())
+                .flat()
+                .some((e) => typeof e == "string" && e.indexOf("\u{200b}") !== -1);
+            if (!hasNetworkError) {
+                this.showError($msg("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_NOTICE);
+            } else {
+                this._log($msg("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_INFO);
+            }
             return false;
         }
         this.clearErrors();

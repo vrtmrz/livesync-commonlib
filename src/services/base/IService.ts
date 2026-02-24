@@ -232,7 +232,7 @@ export interface IAppLifecycleService {
     onSuspending(): Promise<boolean>;
     onResuming(): Promise<boolean>;
     onResumed(): Promise<boolean>;
-    getUnresolvedMessages: () => Promise<(string | Error)[]>;
+    getUnresolvedMessages: () => Promise<(string | Error)[][]>;
 
     performRestart(): void;
 

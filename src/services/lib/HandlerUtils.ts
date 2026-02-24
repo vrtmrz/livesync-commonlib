@@ -468,6 +468,36 @@ export interface MultipleHandlerFunction<TFunc extends (...args: any[]) => any |
      */
     removeHandler: (callback: TFunc) => void;
 }
+
+/**
+ * A function type that can be used as a value-collecting handler with add/remove functionality.
+ */
+export type CollectorFunction<TFunc extends (...args: any[]) => any | Promise<any>> = (
+    ...args: Parameters<TFunc>
+) => Promise<Awaited<ReturnType<TFunc>>[number]>;
+
+/**
+ * A Handler function type that can have multiple handlers added or removed, and collects their results into an array.
+ */
+export interface CollectiveHandlerFunction<TFunc extends (...args: any[]) => any[] | Promise<any[]>> {
+    /**
+     * Invokes the handler function with the provided arguments.
+     */
+    (...args: Parameters<TFunc>): ReturnType<TFunc>;
+    /**
+     * Adds a handler function.
+     * @param callback The handler function to add.
+     * @returns A function to remove the added handler.
+     */
+    addHandler: (callback: CollectorFunction<TFunc>) => () => void;
+    /**
+     * Removes a handler function.
+     * @param callback The handler function to remove.
+     * @returns
+     */
+    removeHandler: (callback: CollectorFunction<TFunc>) => void;
+}
+
 export interface BooleanMultipleHandlerFunction<TFunc extends (...args: any[]) => boolean | Promise<boolean>> {
     /**
      * Invokes the handler function with the provided arguments.
@@ -496,7 +526,7 @@ function getMultipleBound<T extends BooleanMultiBinderInstance<any>>(
     handler: T
 ): BooleanMultipleHandlerFunction<T["invoke"]>;
 function getMultipleBound<T extends MultiBinderInstance<any, any>>(handler: T): MultipleHandlerFunction<T["invoke"]>;
-function getMultipleBound<T extends DispatchHandler<any, any>>(handler: T): MultipleHandlerFunction<T["dispatch"]>;
+function getMultipleBound<T extends DispatchHandler<any, any>>(handler: T): CollectiveHandlerFunction<T["dispatch"]>;
 function getMultipleBound<T extends MultiBinderInstance<any, any> | DispatchHandler<any, any>>(handler: T) {
     const _handler = "invoke" in handler ? handler.invoke : handler.dispatch;
     const __handler = _handler.bind(handler);
@@ -544,15 +574,14 @@ export function firstResultFunction<TFunc extends (...args: any[]) => Promise<an
     return getMultipleBound(handler);
 }
 
-export function dispatchParallelFunction<TFunc extends (...args: any[]) => Promise<any>>(
+export function dispatchParallelFunction<TFunc extends (...args: any[]) => Promise<any[]>>(
     name?: string
-): MultipleHandlerFunction<TFunc> {
-    const handler = new DispatchParallel<Parameters<TFunc>, Awaited<ReturnType<TFunc>>>(
+): CollectiveHandlerFunction<TFunc> {
+    const handler = new DispatchParallel<Parameters<TFunc>, Awaited<ReturnType<TFunc>>[number]>(
         name ?? "dispatchParallelFunction"
     );
     return getMultipleBound(handler);
 }
-
 export function bindableFunction<TFunc extends (...args: any[]) => any>(name?: string): HandlerFunction<TFunc> {
     const handler = new Binder<TFunc>(name ?? "bindableFunction");
     const func = (...args: Parameters<TFunc>): ReturnType<TFunc> => {
@@ -623,7 +652,7 @@ export function handlers<T extends Record<keyof T, ((...args: any[]) => any) | a
          * @param name
          * @returns
          */
-        dispatchParallel<K extends FunctionKeys<T>>(name: K): MultipleHandlerFunction<T[K]> {
+        dispatchParallel<K extends FunctionKeys<T>>(name: K): CollectiveHandlerFunction<T[K]> {
             return dispatchParallelFunction<T[K]>(String(name));
         },
         /**
