@@ -4,7 +4,8 @@ import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import type { IAPIService, ICommandCompat } from "../../base/IService";
 import { handlers } from "../../lib/HandlerUtils";
 import type { Confirm } from "@lib/interfaces/Confirm";
-const module = await import("node:crypto");
+// const module = await import("node:crypto");
+import module from "node:crypto";
 declare const MANIFEST_VERSION: string | undefined;
 // declare const PACKAGE_VERSION: string | undefined;
 export class HeadlessConfirm implements Confirm {

@@ -169,9 +169,10 @@ export class LazyBinder<T extends HandlerFunc<any, any>>
 /**
  * A multi-binder that allows adding and removing multiple handler functions.
  */
-export class MultiBinder<T extends HandlerFunc<any, any>>
-    implements MultiRegisterHandler<Parameters<T>, ReturnType<T>>
-{
+export class MultiBinder<T extends HandlerFunc<any, any>> implements MultiRegisterHandler<
+    Parameters<T>,
+    ReturnType<T>
+> {
     protected _name: string;
     /**
      * Creates a new MultiBinder instance.
@@ -519,8 +520,7 @@ export interface BooleanMultipleHandlerFunction<TFunc extends (...args: any[]) =
 // interface BinderInstance<T extends any[], U> extends InvokableHandler<T, U>, BinderHandler<T, U> { }
 export interface MultiBinderInstance<T extends any[], U> extends InvokableHandler<T, U>, MultiRegisterHandler<T, U> {}
 export interface BooleanMultiBinderInstance<T extends any[]>
-    extends InvokableBooleanHandler<T>,
-        MultiRegisterHandler<T, boolean> {}
+    extends InvokableBooleanHandler<T>, MultiRegisterHandler<T, boolean> {}
 
 function getMultipleBound<T extends BooleanMultiBinderInstance<any>>(
     handler: T

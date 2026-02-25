@@ -36,9 +36,13 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
         const conflict = new InjectableConflictService(context);
         const fileProcessing = new InjectableFileProcessingService(context);
 
-        const remote = new InjectableRemoteService(context);
         const setting = new InjectableSettingService(context, { APIService: API });
         const appLifecycle = new BrowserAppLifecycleService(context, { settingService: setting });
+        const remote = new InjectableRemoteService(context, {
+            APIService: API,
+            appLifecycle: appLifecycle,
+            setting: setting,
+        });
         const tweakValue = new InjectableTweakValueService(context);
         const vault = new InjectableVaultServiceCompat<T>(context, {
             settingService: setting,

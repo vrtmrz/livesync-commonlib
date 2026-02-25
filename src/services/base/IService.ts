@@ -57,8 +57,6 @@ export interface IAPIService {
 
     getSystemVaultName(): string;
 
-    isLastPostFailedDueToPayloadSize(): boolean;
-
     getPlatform(): string;
 
     getAppVersion(): string;
@@ -71,6 +69,9 @@ export interface IAPIService {
     confirm: Confirm;
     responseCount: ReactiveSource<number>;
     requestCount: ReactiveSource<number>;
+    isOnline: boolean;
+    webCompatFetch(url: string | Request, opts?: RequestInit): Promise<Response>;
+    nativeFetch(url: string | Request, opts?: RequestInit): Promise<Response>;
 }
 export interface IPathService {
     id2path(id: DocumentID, entry?: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
@@ -127,6 +128,8 @@ export interface IFileProcessingService {
     batched: ReactiveSource<number>;
     processing: ReactiveSource<number>;
     totalQueued: ReactiveSource<number>;
+    totalStorageFileEventCount: number;
+    onStorageFileEvent(): void;
 }
 export interface IReplicatorService {
     onCloseActiveReplication(): Promise<boolean>;
@@ -189,6 +192,11 @@ export interface IRemoteService {
               info: PouchDB.Core.DatabaseInfo;
           }
     >;
+
+    /**
+     * State if the last POST request failed due to payload size.
+     */
+    get hadLastPostFailedBySize(): boolean;
 }
 export interface IConflictService {
     getOptionalConflictCheckMethod(path: FilePathWithPrefix): Promise<boolean | undefined | "newer">;
@@ -319,8 +327,6 @@ export interface IVaultService {
     scanVault(showingNotice?: boolean, ignoreSuspending?: boolean): Promise<boolean>;
 
     isIgnoredByIgnoreFile(file: string | UXFileInfoStub): Promise<boolean>;
-
-    markFileListPossiblyChanged(): void;
 
     isTargetFile(file: string | UXFileInfoStub): Promise<boolean>;
 

@@ -4,7 +4,6 @@ import type { IAPIService, ICommandCompat } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import type { Confirm } from "../../interfaces/Confirm";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
-
 /**
  * The APIService provides methods for interacting with the plug-in's API,
  */
@@ -49,7 +48,7 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
     /**
      * Check if the last POST request failed due to payload size.
      */
-    abstract isLastPostFailedDueToPayloadSize(): boolean;
+    // abstract isLastPostFailedDueToPayloadSize(): boolean;
 
     abstract getPlatform(): string;
 
@@ -93,4 +92,20 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
     abstract get confirm(): Confirm;
     requestCount = reactiveSource(0);
     responseCount = reactiveSource(0);
+
+    get isOnline() {
+        if ("navigator" in globalThis) {
+            return navigator.onLine;
+        }
+        return true;
+    }
+
+    webCompatFetch(req: string | Request, opts?: RequestInit): Promise<Response> {
+        return fetch(req, opts);
+    }
+
+    // By default, nativeFetch is not implemented. It can be overridden by platforms that support it (e.g., ObsidianAPIService).
+    nativeFetch(req: string | Request, opts?: RequestInit): Promise<Response> {
+        throw new Error("nativeFetch is not implemented for this platform");
+    }
 }

@@ -5,7 +5,7 @@ import { handlers } from "../../lib/HandlerUtils";
 
 export abstract class InjectableAPIService<T extends ServiceContext> extends APIService<T> {
     addLog = handlers<IAPIService>().binder("addLog");
-    isLastPostFailedDueToPayloadSize = handlers<IAPIService>().binder("isLastPostFailedDueToPayloadSize");
+    // isLastPostFailedDueToPayloadSize = handlers<IAPIService>().binder("isLastPostFailedDueToPayloadSize");
 
     override getPlatform(): string {
         return "unknown";

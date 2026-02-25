@@ -22,7 +22,7 @@ import { StorageEventManager, type FileEvent } from "@lib/interfaces/StorageEven
 import type { IAPIService, IVaultService } from "@lib/services/base/IService.ts";
 import type { SettingService } from "@lib/services/base/SettingService.ts";
 import type { FileProcessingService } from "@lib/services/base/FileProcessingService.ts";
-import { createInstanceLogFunction } from "@/lib/src/services/lib/logUtils";
+import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 
 type WaitInfo = {
     since: number;
@@ -110,7 +110,7 @@ export abstract class StorageEventManagerBase extends StorageEventManager {
         if (settings.maxMTimeForReflectEvents > 0) {
             return;
         }
-        this.vaultService.markFileListPossiblyChanged();
+        this.fileProcessing.onStorageFileEvent();
         // Flag up to be reload
         for (const param of params) {
             if (shouldBeIgnored(param.file.path)) {

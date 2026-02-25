@@ -976,7 +976,8 @@ interface DeletedFileMetadataSettings {
 }
 
 interface ObsidianLiveSyncSettings_PluginSetting
-    extends SyncMethodSettings,
+    extends
+        SyncMethodSettings,
         UISettings,
         FileHandlingSettings,
         MergeBehaviourSettings,

@@ -1,6 +1,7 @@
-import type { UXFileInfoStub, FilePath } from "@lib/common/types";
+import type { FilePath } from "@lib/common/types";
 import type { IAPIService, ISettingService, IVaultService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
+import { handlers } from "../lib/HandlerUtils";
 
 export interface VaultServiceDependencies {
     settingService: ISettingService;
@@ -15,6 +16,7 @@ export abstract class VaultService<T extends ServiceContext = ServiceContext>
 {
     protected settingService: ISettingService;
     protected APIService: IAPIService;
+
     get settings() {
         return this.settingService.currentSettings();
     }
@@ -51,19 +53,14 @@ export abstract class VaultService<T extends ServiceContext = ServiceContext>
      * Check if a file is ignored by the ignore file (e.g., .gitignore, .obsidianignore).
      * @param file The file path or file info stub to check.
      */
-    abstract isIgnoredByIgnoreFile(file: string | UXFileInfoStub): Promise<boolean>;
-
-    /**
-     * Mark the file list as possibly changed, so that the next operation will re-scan the vault.
-     */
-    abstract markFileListPossiblyChanged(): void;
+    readonly isIgnoredByIgnoreFile = handlers<IVaultService>().anySuccess("isIgnoredByIgnoreFile");
 
     /**
      * Check if a file is a target file for synchronisation.
      * @param file The file path or file info stub to check.
      * @param keepFileCheckList Whether to keep the file in the check list.
      */
-    abstract isTargetFile(file: string | UXFileInfoStub, keepFileCheckList?: boolean): Promise<boolean>;
+    readonly isTargetFile = handlers<IVaultService>().bailFirstFailure("isTargetFile");
 
     /**
      * Check if a filesize is too large against the current settings.

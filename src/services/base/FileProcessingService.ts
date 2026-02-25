@@ -28,4 +28,8 @@ export class FileProcessingService<T extends ServiceContext = ServiceContext>
     batched = reactiveSource(0);
     totalQueued = reactiveSource(0);
     processing = reactiveSource(0);
+    totalStorageFileEventCount: number = 0;
+    onStorageFileEvent() {
+        this.totalStorageFileEventCount++;
+    }
 }

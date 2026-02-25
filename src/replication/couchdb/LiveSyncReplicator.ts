@@ -378,7 +378,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     case "error":
                         this.replicationErrored(e);
                         Logger("Replication stopped.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
-                        if (this.env.services.API.isLastPostFailedDueToPayloadSize()) {
+                        if (this.env.services.remote.hadLastPostFailedBySize) {
                             if (e && e?.status == 413) {
                                 Logger(
                                     `Something went wrong during synchronisation. Please check the log!`,

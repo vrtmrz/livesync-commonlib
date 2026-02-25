@@ -122,10 +122,16 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
         this._databaseEvents = services.databaseEvents ?? new InjectableDatabaseEventService<T>(context);
         this._replicator = services.replicator;
         this._fileProcessing = services.fileProcessing ?? new InjectableFileProcessingService<T>(context);
-        this._remote = services.remote ?? new InjectableRemoteService<T>(context);
         this._conflict = services.conflict ?? new InjectableConflictService<T>(context);
         this._appLifecycle = services.appLifecycle;
         this._setting = services.setting;
+        this._remote =
+            services.remote ??
+            new InjectableRemoteService<T>(context, {
+                APIService: this._api,
+                appLifecycle: this._appLifecycle,
+                setting: this._setting,
+            });
         this._tweakValue = services.tweakValue ?? new InjectableTweakValueService<T>(context);
         this._replication =
             services.replication ??

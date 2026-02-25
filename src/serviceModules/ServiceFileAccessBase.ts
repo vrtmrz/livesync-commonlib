@@ -40,12 +40,12 @@ export interface StorageAccessBaseDependencies<
 // export class ServiceFileAccessBase extends
 
 export class ServiceFileAccessBase<
-        TNativeAbstractFile extends AbstractInfo = AbstractInfo,
-        TNativeFile extends TNativeAbstractFile & AbstractFile = TNativeAbstractFile & AbstractFile,
-        TNativeFolder extends TNativeAbstractFile & AbstractFolder<TNativeAbstractFile> = TNativeAbstractFile &
-            AbstractFolder<TNativeAbstractFile>,
-        TStat extends UXStat = UXStat,
-    >
+    TNativeAbstractFile extends AbstractInfo = AbstractInfo,
+    TNativeFile extends TNativeAbstractFile & AbstractFile = TNativeAbstractFile & AbstractFile,
+    TNativeFolder extends TNativeAbstractFile & AbstractFolder<TNativeAbstractFile> = TNativeAbstractFile &
+        AbstractFolder<TNativeAbstractFile>,
+    TStat extends UXStat = UXStat,
+>
     extends ServiceModuleBase<StorageAccessBaseDependencies<TNativeAbstractFile, TNativeFile, TNativeFolder, TStat>>
     implements StorageAccess
 {
