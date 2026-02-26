@@ -27,6 +27,8 @@ export const EVENT_PLATFORM_UNLOADED = "platform-unloaded";
 
 export const EVENT_ON_UNRESOLVED_ERROR = "on-unresolved-error";
 
+export const EVENT_REQUEST_CHECK_REMOTE_SIZE = "request-check-remote-size";
+
 // export const EVENT_FILE_CHANGED = "file-changed";
 
 declare global {
@@ -45,5 +47,6 @@ declare global {
         [EVENT_REQUEST_OPEN_P2P_SETTINGS]: undefined;
         [EVENT_PLATFORM_UNLOADED]: undefined;
         [EVENT_ON_UNRESOLVED_ERROR]: undefined;
+        [EVENT_REQUEST_CHECK_REMOTE_SIZE]: undefined;
     }
 }
