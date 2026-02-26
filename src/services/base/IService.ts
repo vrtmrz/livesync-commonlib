@@ -24,9 +24,10 @@ import type { LiveSyncLocalDB } from "../../pouchdb/LiveSyncLocalDB";
 import type { LiveSyncAbstractReplicator } from "../../replication/LiveSyncAbstractReplicator";
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
 import type { Confirm } from "../../interfaces/Confirm";
-import type { LiveSyncManagers } from "../../managers/LiveSyncManagers";
 import type { ReactiveSource } from "octagonal-wheels/dataobject/reactive";
 import type { ReplicationStatics } from "../../common/models/shared.definition";
+import type { ReplicatorService } from "./ReplicatorService";
+import type { DatabaseEventService } from "./DatabaseEventService";
 
 declare global {
     interface OPTIONAL_SYNC_FEATURES {
@@ -80,12 +81,11 @@ export interface IPathService {
     getPath(entry: AnyEntry): FilePathWithPrefix;
 }
 export interface openDatabaseParameters {
-    replicator: IReplicatorService;
-    databaseEvents: IDatabaseEventService;
+    replicator: ReplicatorService;
+    databaseEvents: DatabaseEventService;
 }
 export interface IDatabaseService {
     localDatabase: LiveSyncLocalDB;
-    managers: LiveSyncManagers;
     createPouchDBInstance<T extends object>(
         name?: string,
         options?: PouchDB.Configuration.DatabaseConfiguration

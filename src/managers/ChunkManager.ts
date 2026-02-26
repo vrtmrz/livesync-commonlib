@@ -5,11 +5,13 @@ import { LiveSyncError, LiveSyncFatalError } from "../common/LSError.ts";
 import type { DocumentID, EntryDoc, EntryLeaf } from "../common/types.ts";
 import type { ChangeManager } from "./ChangeManager.ts";
 import { EVENT_MISSING_CHUNK_REMOTE, EVENT_MISSING_CHUNKS } from "./ChunkFetcher.ts";
+import type { ISettingService } from "../services/base/IService.ts";
 
 export type ChunkManagerOptions = {
     database: PouchDB.Database<EntryDoc>;
     changeManager: ChangeManager<EntryDoc>;
-    maxCacheSize?: number; // Maximum cache size
+    // maxCacheSize?: number; // Maximum cache size
+    settingService: ISettingService;
 };
 const DEFAULT_MAX_CACHE_SIZE = 100000; // Default cache size (Even if still lower, cached values will be purged by GC).
 export type ChunkReadOptions = {
@@ -283,6 +285,8 @@ export class ChunkManager {
     }
     constructor(options: ChunkManagerOptions) {
         this.options = options;
+        const settings = options.settingService.currentSettings();
+        this.maxCacheSize = settings.hashCacheMaxCount * 10;
         this.caches = new Map();
         this.changeHandler = this.changeManager.addCallback(this.onChangeHandler);
         this.addListener(EVENT_CHUNK_FETCHED, this.onChunkArrivedHandler, { signal: this.abort.signal });

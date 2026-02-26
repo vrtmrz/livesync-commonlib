@@ -44,7 +44,7 @@ import {
     SyncParamsNotFoundError,
     SyncParamsUpdateError,
 } from "../replication/SyncParamsHandler.ts";
-import { LiveSyncManagers } from "../managers/LiveSyncManagers.ts";
+
 import { HeadlessServiceHub } from "../services/HeadlessServices.ts";
 import { HeadlessDatabaseService } from "../services/implements/headless/HeadlessDatabaseService.ts";
 import { ServiceContext } from "../services/base/ServiceBase.ts";
@@ -107,8 +107,6 @@ export type EnumerateConditions = {
 
 export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     liveSyncLocalDB: LiveSyncLocalDB;
-    managers: LiveSyncManagers;
-
     options: DirectFileManipulatorOptions;
     ready = promiseWithResolvers<void>();
     services: HeadlessServiceHub;
@@ -135,22 +133,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
 
     constructor(options: DirectFileManipulatorOptions) {
         this.options = options;
-        const getDB = () => this.liveSyncLocalDB.localDatabase;
         const getSettings = () => this.settings as any;
-        this.managers = new LiveSyncManagers({
-            get database() {
-                return getDB();
-            },
-            getActiveReplicator: () =>
-                // Note: this function will throw an error due to lacking that in this implementation.
-                this.services.replicator.getActiveReplicator()!,
-            id2path: this.$$id2path.bind(this),
-            path2id: this.$$path2id.bind(this),
-            get settings() {
-                return getSettings();
-            },
-        });
-
         const context = new ServiceContext();
         this.services = new HeadlessServiceHub(context, {
             database: this.getBoundDatabaseService(() => this.options),

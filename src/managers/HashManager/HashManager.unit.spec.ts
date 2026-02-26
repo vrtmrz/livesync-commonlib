@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { HashManager } from "./HashManager.ts";
 import { DEFAULT_SETTINGS, HashAlgorithms, type HashAlgorithm, type RemoteDBSettings } from "../../common/types.ts";
 import { HashEncryptedPrefix } from "./HashManagerCore.ts";
+import type { SettingService } from "../../services/base/SettingService.ts";
 
 const generateSettings = (hashAlg: HashAlgorithm, passphrase?: string) =>
     ({
@@ -27,11 +28,16 @@ const CompatibilityEncrypted = {
     [HashAlgorithms.LEGACY]: "+-gslt6r",
 } as const;
 
+function createMockSettingService(settings: RemoteDBSettings) {
+    return {
+        currentSettings: () => settings,
+    } as SettingService;
+}
 const generateHashManager = (settings: RemoteDBSettings) => {
     if (!HashManager.isAvailableFor(settings.hashAlg)) {
         throw new Error(`HashManager for ${settings.hashAlg} is not available`);
     }
-    return new HashManager({ settings });
+    return new HashManager({ settingService: createMockSettingService(settings) });
 };
 
 describe("HashManager", () => {

@@ -21,6 +21,7 @@ import {
 } from "../common/utils.ts";
 import type { EntryManager } from "../managers/EntryManager/EntryManager.ts";
 import { isErrorOfMissingDoc } from "../pouchdb/utils_couchdb.ts";
+import type { IPathService } from "../services/base/IService.ts";
 
 type AutoMergeOutcomeOK = {
     ok: DIFF_CHECK_RESULT_AUTO;
@@ -42,6 +43,7 @@ export type AutoMergeResult = Promise<AutoMergeOutcomeOK | AutoMergeCanBeDoneByD
 
 export interface ConflictManagerOptions {
     entryManager: EntryManager;
+    pathService: IPathService;
     database: PouchDB.Database<EntryDoc>;
 }
 export class ConflictManager {
@@ -325,7 +327,7 @@ export class ConflictManager {
         const conflictedRev = conflicts[0];
         const conflictedRevNo = Number(conflictedRev.split("-")[0]);
         //Search
-        const revFrom = await this.database.get<EntryDoc>(await this.options.entryManager.path2id(path), {
+        const revFrom = await this.database.get<EntryDoc>(await this.options.pathService.path2id(path), {
             revs_info: true,
         });
         const commonBase =

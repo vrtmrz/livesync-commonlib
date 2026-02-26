@@ -81,13 +81,14 @@ export class ControlService<T extends ServiceContext = ServiceContext>
         stopAllRunningProcessors();
         await this.services.appLifecycleService.onUnload();
         this._unloaded = true;
-        if (this.services.databaseService.localDatabase != null) {
-            this.services.databaseService.localDatabase.onunload();
+        const localDatabase = this.services.databaseService.localDatabaseDirect;
+        if (localDatabase != null) {
             const activeReplicator = this.services.replicatorService.getActiveReplicator();
             if (activeReplicator) {
                 activeReplicator.closeReplication();
             }
-            await this.services.databaseService.localDatabase.close();
+            localDatabase.onunload();
+            await localDatabase.close();
         }
         eventHub.emitEvent(EVENT_PLATFORM_UNLOADED);
         eventHub.offAll();

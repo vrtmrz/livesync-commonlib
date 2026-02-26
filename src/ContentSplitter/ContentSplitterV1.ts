@@ -9,10 +9,11 @@ import { ContentSplitterBase } from "./ContentSplitterBase";
  */
 export class ContentSplitterV1 extends ContentSplitterBase {
     static override isAvailableFor(setting: ContentSplitterOptions): boolean {
+        const settings = setting.settingService.currentSettings();
         return (
-            setting.settings.chunkSplitterVersion === ChunkAlgorithms.V1 ||
-            setting.settings.chunkSplitterVersion === "" ||
-            setting.settings.chunkSplitterVersion === undefined
+            settings.chunkSplitterVersion === ChunkAlgorithms.V1 ||
+            settings.chunkSplitterVersion === "" ||
+            settings.chunkSplitterVersion === undefined
         );
     }
     async processSplit(

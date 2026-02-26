@@ -63,25 +63,26 @@ export abstract class ContentSplitterBase extends ContentSplitterCore {
     ): Promise<AsyncGenerator<string, void, unknown> | Generator<string, void, unknown>>;
 
     getParamsFor(entry: SavingEntry): SplitOptions {
-        const maxChunkSize = Math.floor(MAX_DOC_SIZE_BIN * ((this.options.settings.customChunkSize || 0) * 1 + 1));
+        const settings = this.options.settingService.currentSettings();
+        const maxChunkSize = Math.floor(MAX_DOC_SIZE_BIN * ((settings.customChunkSize || 0) * 1 + 1));
         const pieceSize = maxChunkSize;
 
-        const minimumChunkSize = this.options.settings.minimumChunkSize;
+        const minimumChunkSize = settings.minimumChunkSize;
         const path = entry.path;
 
         const plainSplit = shouldSplitAsPlainText(path);
         const maxSize = MAX_CHUNKS_SIZE_ON_UI;
         const blob = entry.data instanceof Blob ? entry.data : createTextBlob(entry.data);
         let useWorker = true;
-        if (this.options.settings.disableWorkerForGeneratingChunks) {
+        if (settings.disableWorkerForGeneratingChunks) {
             useWorker = false;
         }
-        if (useWorker && this.options.settings.processSmallFilesInUIThread) {
+        if (useWorker && settings.processSmallFilesInUIThread) {
             if (blob.size <= maxSize) {
                 useWorker = false;
             }
         }
-        const useSegmenter = this.options.settings.chunkSplitterVersion === ChunkAlgorithms.V2Segmenter;
+        const useSegmenter = settings.chunkSplitterVersion === ChunkAlgorithms.V2Segmenter;
         return {
             blob,
             path,

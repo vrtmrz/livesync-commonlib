@@ -22,9 +22,11 @@ import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 import { EVENT_CHUNK_FETCHED } from "../managers/ChunkManager.ts";
 import { eventHub } from "../hub/hub.ts";
 import { FallbackWeakRef } from "octagonal-wheels/common/polyfill";
-import type { LiveSyncManagers } from "../managers/LiveSyncManagers.ts";
+import { LiveSyncManagers } from "../managers/LiveSyncManagers.ts";
 import type { AutoMergeResult } from "../managers/ConflictManager.ts";
 import type { IServiceHub } from "../services/base/IService.ts";
+import type { APIService } from "../services/base/APIService.ts";
+import { createInstanceLogFunction, type LogFunction } from "../services/lib/logUtils.ts";
 
 export const REMOTE_CHUNK_FETCHED = "remote-chunk-fetched";
 export type REMOTE_CHUNK_FETCHED = typeof REMOTE_CHUNK_FETCHED;
@@ -51,8 +53,8 @@ export interface LiveSyncLocalDBEnv {
     // $everyOnResetDatabase(db: LiveSyncLocalDB): Promise<boolean>;
     // $$getReplicator: () => LiveSyncAbstractReplicator;
     // getSettings(): RemoteDBSettings;
-    managers: LiveSyncManagers;
-    services: Pick<IServiceHub, "database" | "databaseEvents" | "replicator" | "setting">;
+    // managers: LiveSyncManagers;
+    services: Pick<IServiceHub, "API" | "database" | "databaseEvents" | "replicator" | "setting" | "path">;
 }
 
 export function getNoFromRev(rev: string) {
@@ -71,8 +73,14 @@ export class LiveSyncLocalDB {
     dbname: string;
     settings!: RemoteDBSettings;
     localDatabase!: PouchDB.Database<EntryDoc>;
+    _log: LogFunction;
+
+    private _managers?: LiveSyncManagers;
     get managers() {
-        return this.env.managers;
+        if (!this._managers) {
+            throw new Error("Managers are not ready yet.");
+        }
+        return this._managers;
     }
 
     isReady = false;
@@ -82,11 +90,11 @@ export class LiveSyncLocalDB {
     env: LiveSyncLocalDBEnv;
 
     clearCaches() {
-        this.managers.clearCaches();
+        this._managers?.clearCaches();
     }
 
     async _prepareHashFunctions() {
-        await this.managers?.prepareHashFunction();
+        await this._managers?.prepareHashFunction();
     }
 
     onunload() {
@@ -109,11 +117,12 @@ export class LiveSyncLocalDB {
         };
         this.dbname = dbname;
         this.env = env;
+        this._log = createInstanceLogFunction("LiveSyncLocalDB", this.env.services.API);
         this.refreshSettings();
     }
 
     async close() {
-        Logger("Database closed (by close)");
+        this._log("Database closed (by close)");
         this.isReady = false;
         this.offRemoteChunkFetchedHandler?.();
         if (this.localDatabase != null) {
@@ -128,9 +137,11 @@ export class LiveSyncLocalDB {
 
     async initializeDatabase(): Promise<boolean> {
         await this._prepareHashFunctions();
-        if (this.localDatabase != null) await this.localDatabase.close();
-        //@ts-ignore
-        this.localDatabase = null;
+        if (this.localDatabase != null) {
+            this.localDatabase.removeAllListeners();
+            await this.localDatabase.close();
+        }
+        this.localDatabase = null!;
 
         this.localDatabase = this.env.services.database.createPouchDBInstance<EntryDoc>(
             this.dbname + SuffixDatabaseName,
@@ -140,17 +151,29 @@ export class LiveSyncLocalDB {
                 deterministic_revs: true,
             }
         );
+
+        const manager = new LiveSyncManagers({
+            database: this.localDatabase,
+            APIService: this.env.services.API as APIService,
+            pathService: this.env.services.path,
+            replicatorService: this.env.services.replicator,
+            settingService: this.env.services.setting,
+            databaseService: this.env.services.database,
+        });
+
+        this._managers = manager;
+        // await this.managers.initManagers();
         if (!(await this.env.services.databaseEvents.onDatabaseInitialisation(this))) {
-            Logger("Initializing Database has been failed on some module", LOG_LEVEL_NOTICE);
+            this._log("Initializing Database has been failed on some module", LOG_LEVEL_NOTICE);
             // TODO ask for continue or disable all.
             // return false;
         }
-        Logger("Opening Database...");
-        Logger("Database info", LOG_LEVEL_VERBOSE);
-        Logger(JSON.stringify(await this.localDatabase.info(), null, 2), LOG_LEVEL_VERBOSE);
-        await this.managers.initManagers();
+        this._log("Opening Database...");
+        this._log("Database info", LOG_LEVEL_VERBOSE);
+        this._log(JSON.stringify(await this.localDatabase.info(), null, 2), LOG_LEVEL_VERBOSE);
+        await this.managers.initialise();
         this.localDatabase.on("close", () => {
-            Logger("Database closed.");
+            this._log("Database closed.");
             this.isReady = false;
             this.localDatabase.removeAllListeners();
             this.env.services.replicator.getActiveReplicator()?.closeReplication();
@@ -166,13 +189,13 @@ export class LiveSyncLocalDB {
         this.offRemoteChunkFetchedHandler = unload;
         this.isReady = true;
         if (!(await this.env.services.databaseEvents.onDatabaseHasReady())) {
-            Logger(
+            this._log(
                 "Some module has prevented the database from being ready. The database is initialised but not ready for use.",
                 LOG_LEVEL_NOTICE
             );
             return false;
         }
-        Logger("Database is now ready.");
+        this._log("Database is now ready.");
         return true;
     }
 
@@ -284,7 +307,7 @@ export class LiveSyncLocalDB {
         //@ts-ignore
         this.localDatabase = null;
         await this.initializeDatabase();
-        Logger("Local Database Reset", LOG_LEVEL_NOTICE);
+        this._log("Local Database Reset", LOG_LEVEL_NOTICE);
         return true;
     }
 

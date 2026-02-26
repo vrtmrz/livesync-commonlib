@@ -57,6 +57,7 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
             path: path,
             vault: vault,
             setting: setting,
+            API: API,
         });
         const config = new ConfigServiceBrowserCompat<T>(context, {
             settingService: setting,

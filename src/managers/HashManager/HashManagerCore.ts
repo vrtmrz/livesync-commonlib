@@ -1,5 +1,6 @@
 import { fallbackMixedHashEach, mixedHash } from "octagonal-wheels/hash/purejs";
-import { type RemoteDBSettings, SEED_MURMURHASH, type HashAlgorithm, SALT_OF_ID } from "../../common/types.ts";
+import { type HashAlgorithm, SALT_OF_ID, SEED_MURMURHASH } from "../../common/types.ts";
+import type { ISettingService } from "../../services/base/IService.ts";
 
 /**
  * Prefix for encrypted hashes.
@@ -15,7 +16,7 @@ export type HashManagerCoreOptions = {
     /**
      * Remote database settings used for hash management.
      */
-    settings: RemoteDBSettings;
+    settingService: ISettingService;
 };
 
 /**
@@ -26,10 +27,7 @@ export type HashManagerCoreOptions = {
  * hash computation methods.
  */
 export abstract class HashManagerCore {
-    /**
-     * Remote database settings.
-     */
-    settings: RemoteDBSettings;
+    protected settingService: ISettingService;
 
     /**
      * Indicates whether encryption is enabled for hash computation.
@@ -58,7 +56,7 @@ export abstract class HashManagerCore {
      */
     constructor(options: HashManagerCoreOptions) {
         this.options = options;
-        this.settings = options.settings;
+        this.settingService = options.settingService;
         this.applyOptions(options);
     }
 
@@ -73,9 +71,9 @@ export abstract class HashManagerCore {
         if (options) {
             this.options = options;
         }
-        this.settings = this.options.settings;
-        this.useEncryption = this.settings.encrypt ?? false;
-        const passphrase = this.settings.passphrase || "";
+        const settings = this.options.settingService.currentSettings();
+        this.useEncryption = settings.encrypt ?? false;
+        const passphrase = settings.passphrase || "";
         const usingLetters = ~~((passphrase.length / 4) * 3);
         const passphraseForHash = SALT_OF_ID + passphrase.substring(0, usingLetters);
         this.hashedPassphrase = fallbackMixedHashEach(passphraseForHash);

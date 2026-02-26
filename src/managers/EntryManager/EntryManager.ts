@@ -2,7 +2,6 @@ import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "octagonal-wheels/co
 import { serialized } from "octagonal-wheels/concurrency/lock_v2";
 import {
     type EntryDoc,
-    type RemoteDBSettings,
     type DocumentID,
     type EntryHasPath,
     type FilePathWithPrefix,
@@ -31,19 +30,16 @@ import { stripAllPrefixes } from "../../string_and_binary/path.ts";
 import type { ChunkFetcher } from "../ChunkFetcher.ts";
 import type { ChunkManager, ChunkWriteOptions } from "../ChunkManager.ts";
 import type { HashManager } from "../HashManager/HashManager.ts";
-import type { ChangeManager } from "../ChangeManager.ts";
+import type { IPathService, ISettingService } from "../../services/base/IService.ts";
 
 export interface EntryManagerOptions {
     hashManager: HashManager;
     chunkFetcher: ChunkFetcher;
-    changeManager: ChangeManager<EntryDoc>;
     chunkManager: ChunkManager;
     splitter: ContentSplitter;
-
     database: PouchDB.Database<EntryDoc>;
-    settings: RemoteDBSettings;
-    $$id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
-    $$path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID>;
+    settingService: ISettingService;
+    pathService: IPathService;
 }
 
 export class EntryManager {
@@ -66,39 +62,39 @@ export class EntryManager {
     get splitter(): ContentSplitter {
         return this.options.splitter;
     }
-    get settings(): RemoteDBSettings {
-        return this.options.settings;
+
+    private id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix {
+        return this.options.pathService.id2path(id, entry, stripPrefix);
     }
-    id2path(id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix {
-        return this.options.$$id2path(id, entry, stripPrefix);
-    }
-    async path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID> {
-        return await this.options.$$path2id(filename, prefix);
+    private async path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID> {
+        return await this.options.pathService.path2id(filename, prefix);
     }
 
     get isOnDemandChunkEnabled() {
-        if (this.settings.remoteType !== REMOTE_COUCHDB) {
+        const settings = this.options.settingService.currentSettings();
+        if (settings.remoteType !== REMOTE_COUCHDB) {
             return false;
         }
-        if (this.settings.useOnlyLocalChunk) {
+        if (settings.useOnlyLocalChunk) {
             return false;
         }
         return true;
     }
 
     isTargetFile(filenameSrc: string) {
+        const settings = this.options.settingService.currentSettings();
         const file = filenameSrc.startsWith("i:") ? filenameSrc.substring(2) : filenameSrc;
         if (file.startsWith("ix:")) return true;
         if (file.startsWith("ps:")) return true;
         if (file.includes(":")) {
             return false;
         }
-        if (this.settings.syncOnlyRegEx) {
-            const syncOnly = getFileRegExp(this.settings, "syncOnlyRegEx");
+        if (settings.syncOnlyRegEx) {
+            const syncOnly = getFileRegExp(settings, "syncOnlyRegEx");
             if (syncOnly.length > 0 && !syncOnly.some((e) => e.test(file))) return false;
         }
-        if (this.settings.syncIgnoreRegEx) {
-            const syncIgnore = getFileRegExp(this.settings, "syncIgnoreRegEx");
+        if (settings.syncIgnoreRegEx) {
+            const syncIgnore = getFileRegExp(settings, "syncIgnoreRegEx");
             if (syncIgnore.some((e) => e.test(file))) return false;
         }
         return true;
@@ -197,6 +193,7 @@ export class EntryManager {
         if (!this.isTargetFile(filename)) {
             return false;
         }
+        const settings = this.options.settingService.currentSettings();
         const dispFilename = stripAllPrefixes(filename);
         const deleted = meta.deleted ?? meta._deleted ?? undefined;
         if (!meta.type || (meta.type && meta.type == "notes")) {
@@ -256,9 +253,9 @@ export class EntryManager {
                     edenChunks = Object.fromEntries(chunks.map((e) => [e._id, e]));
                 }
 
-                const isChunksCorrectedIncrementally = this.settings.remoteType !== RemoteTypes.REMOTE_MINIO;
+                const isChunksCorrectedIncrementally = settings.remoteType !== RemoteTypes.REMOTE_MINIO;
                 const isNetworkEnabled =
-                    this.isOnDemandChunkEnabled && this.settings.remoteType !== RemoteTypes.REMOTE_MINIO;
+                    this.isOnDemandChunkEnabled && settings.remoteType !== RemoteTypes.REMOTE_MINIO;
                 const timeout = waitForReady
                     ? isChunksCorrectedIncrementally
                         ? LEAF_WAIT_TIMEOUT
@@ -330,6 +327,7 @@ export class EntryManager {
         try {
             return (
                 (await serialized("file:" + path, async () => {
+                    const settings = this.options.settingService.currentSettings();
                     let obj: EntryDocResponse | null = null;
                     if (opt) {
                         obj = await this.localDatabase.get(id, opt);
@@ -357,7 +355,7 @@ export class EntryManager {
                         } else {
                             obj.deleted = true;
                             obj.mtime = Date.now();
-                            if (this.settings.deleteMetadataOfDeletedFiles) {
+                            if (settings.deleteMetadataOfDeletedFiles) {
                                 obj._deleted = true;
                             }
                         }

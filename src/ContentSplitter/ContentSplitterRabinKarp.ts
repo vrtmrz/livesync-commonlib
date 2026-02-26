@@ -8,7 +8,8 @@ import { ContentSplitterBase } from "./ContentSplitterBase.ts";
  */
 export class ContentSplitterRabinKarp extends ContentSplitterBase {
     static override isAvailableFor(setting: ContentSplitterOptions): boolean {
-        return setting.settings.chunkSplitterVersion === ChunkAlgorithms.RabinKarp;
+        const settings = setting.settingService.currentSettings();
+        return settings.chunkSplitterVersion === ChunkAlgorithms.RabinKarp;
     }
     async processSplit(
         options: SplitOptions

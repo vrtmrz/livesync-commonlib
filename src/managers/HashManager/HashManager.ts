@@ -45,14 +45,15 @@ export class HashManager extends HashManagerCore {
      * @throws Throws an error if no available manager exists
      */
     async setManager(): Promise<boolean> {
+        const settings = this.options.settingService.currentSettings();
         for (const Manager of HashManagers) {
-            if (Manager.isAvailableFor(this.settings.hashAlg)) {
+            if (Manager.isAvailableFor(settings.hashAlg)) {
                 this.manager = new Manager(this.options);
                 return await this.manager.initialise();
             }
         }
         // deno-coverage-ignore Fallback managers are always present, so this should never be reached.
-        throw new Error(`HashManager for ${this.settings.hashAlg} is not available`);
+        throw new Error(`HashManager for ${settings.hashAlg} is not available`);
     }
 
     /**
@@ -71,13 +72,14 @@ export class HashManager extends HashManagerCore {
      * @throws Throws an error if initialisation fails
      */
     async processInitialise(): Promise<boolean> {
+        const settings = this.options.settingService.currentSettings();
         if (await this.setManager()) {
-            Logger(`HashManager for ${this.settings.hashAlg} has been initialised`, LOG_LEVEL_VERBOSE);
+            Logger(`HashManager for ${settings.hashAlg} has been initialised`, LOG_LEVEL_VERBOSE);
             return true;
         }
         // deno-coverage-ignore-start This branch should never be reached.
-        Logger(`HashManager for ${this.settings.hashAlg} failed to initialise`);
-        throw new Error(`HashManager for ${this.settings.hashAlg} failed to initialise`);
+        Logger(`HashManager for ${settings.hashAlg} failed to initialise`);
+        throw new Error(`HashManager for ${settings.hashAlg} failed to initialise`);
         // deno-coverage-ignore-stop
     }
 

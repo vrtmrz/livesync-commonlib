@@ -65,20 +65,22 @@ export class ChangeManager<T extends object = object> {
      *
      * @param changeResponse - The change response object from the PouchDB changes feed.
      */
-    _onChange(changeResponse: PouchDB.Core.ChangesResponseChange<T>): void {
+    async _onChange(changeResponse: PouchDB.Core.ChangesResponseChange<T>): Promise<void> {
         if (!this._callbacks.length) {
             return;
         }
         // Cleanup dead WeakRefs
         this._callbacks = this._callbacks.filter((callback) => callback.deref() !== undefined);
         for (const callback of this._callbacks) {
-            const cb = callback.deref();
-            // deno-coverage-ignore-start : previously we have filtered out dead WeakRefs. Safety check.
-            if (!cb) {
-                continue;
+            try {
+                const cb = callback.deref();
+                if (!cb) {
+                    continue;
+                }
+                await Promise.resolve(cb(changeResponse));
+            } catch (err) {
+                this._changes?.emit("error", err);
             }
-            // deno-coverage-ignore-stop
-            void cb(changeResponse);
         }
     }
 
@@ -87,9 +89,10 @@ export class ChangeManager<T extends object = object> {
      */
     setupListener(): void {
         if (this._changes) {
-            void this._changes?.removeAllListeners();
-            this._changes?.cancel();
+            const changes = this._changes;
             this._changes = undefined;
+            void changes.removeAllListeners();
+            changes.cancel();
         }
 
         const changes = this._database.changes({

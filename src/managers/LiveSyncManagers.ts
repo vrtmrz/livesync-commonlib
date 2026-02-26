@@ -1,11 +1,4 @@
-import type {
-    EntryDoc,
-    DocumentID,
-    EntryHasPath,
-    FilePathWithPrefix,
-    FilePath,
-    RemoteDBSettings,
-} from "../common/types";
+import { LOG_LEVEL_VERBOSE, type EntryDoc } from "../common/types";
 import { ContentSplitter } from "../ContentSplitter/ContentSplitters.ts";
 import { ChangeManager } from "../managers/ChangeManager.ts";
 import { ChunkFetcher } from "../managers/ChunkFetcher.ts";
@@ -13,33 +6,54 @@ import { ChunkManager } from "../managers/ChunkManager.ts";
 import { ConflictManager } from "../managers/ConflictManager.ts";
 import { EntryManager } from "../managers/EntryManager/EntryManager.ts";
 import { HashManager } from "../managers/HashManager/HashManager.ts";
-import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
+import type { APIService } from "../services/base/APIService.ts";
+import type { IDatabaseService, IPathService, IReplicatorService, ISettingService } from "../services/base/IService.ts";
+import { createInstanceLogFunction, type LogFunction } from "../services/lib/logUtils.ts";
 
-export interface LiveSyncManagersOptions {
+export interface LiveSyncManagersOptions<TSettingService extends ISettingService = ISettingService> {
     database: PouchDB.Database<EntryDoc>;
-    getActiveReplicator: () => LiveSyncAbstractReplicator;
-    id2path: (id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean) => FilePathWithPrefix;
-    path2id: (filename: FilePathWithPrefix | FilePath, prefix?: string) => Promise<DocumentID>;
-    settings: RemoteDBSettings;
+    databaseService: IDatabaseService;
+    settingService: TSettingService;
+    pathService: IPathService;
+    replicatorService: IReplicatorService;
+    APIService: APIService;
 }
 export class LiveSyncManagers {
-    hashManager!: HashManager;
-    chunkFetcher!: ChunkFetcher;
-    changeManager!: ChangeManager<EntryDoc>;
-    chunkManager!: ChunkManager;
-    splitter!: ContentSplitter;
-    entryManager!: EntryManager;
-    conflictManager!: ConflictManager;
+    protected _pathService: IPathService;
+    protected _replicatorService: IReplicatorService;
+    protected _settingService: ISettingService;
+    protected _APIService: APIService;
 
-    options: LiveSyncManagersOptions;
+    hashManager: HashManager;
+    chunkFetcher: ChunkFetcher;
+    changeManager: ChangeManager<EntryDoc>;
+    chunkManager: ChunkManager;
+    splitter: ContentSplitter;
+    entryManager: EntryManager;
+    conflictManager: ConflictManager;
+
+    protected options: LiveSyncManagersOptions;
+    protected log: LogFunction;
     constructor(options: LiveSyncManagersOptions) {
         this.options = options;
-    }
-    get settings() {
-        return this.options.settings;
+        this._APIService = options.APIService;
+        this._pathService = options.pathService;
+        this._replicatorService = options.replicatorService;
+        this._settingService = options.settingService;
+        this.log = createInstanceLogFunction("LiveSyncManagers", this._APIService);
+        const { changeManager, hashManager, splitter, chunkManager, chunkFetcher, entryManager, conflictManager } =
+            this.getManagerMembers();
+        this.changeManager = changeManager;
+        this.hashManager = hashManager;
+        this.splitter = splitter;
+        this.chunkManager = chunkManager;
+        this.chunkFetcher = chunkFetcher;
+        this.entryManager = entryManager;
+        this.conflictManager = conflictManager;
     }
 
     async teardownManagers() {
+        this.log("Teardown LiveSync Managers...", LOG_LEVEL_VERBOSE);
         if (this.changeManager) {
             this.changeManager.teardown();
             this.changeManager = undefined!;
@@ -52,80 +66,82 @@ export class LiveSyncManagers {
             this.chunkManager.destroy();
             this.chunkManager = undefined!;
         }
+        this.log("Teardown LiveSync Managers... Done");
         return await Promise.resolve();
     }
-    getProxy() {
-        const getDB = () => this.options.database;
-        const getChangeManager = () => this.changeManager;
-        const getChunkManager = () => this.chunkManager;
-        const getReplicator = () => this.options.getActiveReplicator();
-        const getSettings = () => this.options.settings;
-        const getEntryManager = () => this.entryManager;
-        const getHashManager = () => this.hashManager;
-        const getChunkFetcher = () => this.chunkFetcher;
-        const getSplitter = () => this.splitter;
-        const proxy = {
-            get database() {
-                return getDB();
-            },
-            get changeManager() {
-                return getChangeManager();
-            },
-            get chunkManager() {
-                return getChunkManager();
-            },
-            getActiveReplicator() {
-                return getReplicator();
-            },
-            get settings() {
-                return getSettings();
-            },
-            get entryManager() {
-                return getEntryManager();
-            },
-            get hashManager() {
-                return getHashManager();
-            },
-            $$path2id: (filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID> => {
-                return this.options.path2id(filename, prefix);
-            },
-            $$id2path: (id: DocumentID, entry: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix => {
-                return this.options.id2path(id, entry, stripPrefix);
-            },
-            get chunkFetcher() {
-                return getChunkFetcher();
-            },
-            get splitter() {
-                return getSplitter();
-            },
+
+    protected getManagerMembers() {
+        this.log("Creating LiveSync Managers...");
+        const database = this.options.databaseService.localDatabase.localDatabase;
+
+        const changeManager = new ChangeManager<EntryDoc>({
+            database,
+        });
+
+        const hashManager = new HashManager({
+            settingService: this.options.settingService,
+        });
+
+        const splitter = new ContentSplitter({
+            settingService: this.options.settingService,
+        });
+
+        const chunkManager = new ChunkManager({
+            changeManager: changeManager,
+            database,
+            settingService: this.options.settingService,
+        });
+        const chunkFetcher = new ChunkFetcher({
+            chunkManager: chunkManager,
+            replicatorService: this.options.replicatorService,
+            settingService: this.options.settingService,
+        });
+        const entryManager = new EntryManager({
+            database,
+            hashManager: hashManager,
+            chunkFetcher: chunkFetcher,
+            chunkManager: chunkManager,
+            splitter: splitter,
+            pathService: this._pathService,
+            settingService: this.options.settingService,
+        });
+        const conflictManager = new ConflictManager({
+            entryManager: entryManager,
+            database,
+            pathService: this._pathService,
+        });
+        this.log("LiveSync Managers have been created");
+        return {
+            changeManager,
+            hashManager,
+            splitter,
+            chunkManager,
+            chunkFetcher,
+            entryManager,
+            conflictManager,
         };
-        return proxy;
     }
-    async initManagers() {
-        await this.teardownManagers();
-        const proxy = this.getProxy();
-        this.hashManager = new HashManager({
-            ...proxy,
+    async initialise() {
+        this.log("Initialising LiveSync Managers...", LOG_LEVEL_VERBOSE);
+        await this.splitter.initialise({
+            settingService: this.options.settingService,
         });
-        this.splitter = new ContentSplitter({
-            ...proxy,
-        });
-        await this.splitter.initialise(proxy);
         await this.hashManager.initialise();
+        this.log("LiveSync Manager has been initialised");
+    }
+    async reinitialise() {
+        await this.teardownManagers();
 
-        this.changeManager = new ChangeManager(proxy);
-
-        this.chunkManager = new ChunkManager({
-            ...proxy,
-            maxCacheSize: this.settings.hashCacheMaxCount * 10,
-        });
-        this.chunkFetcher = new ChunkFetcher(proxy);
-        this.entryManager = new EntryManager({
-            ...proxy,
-        });
-        this.conflictManager = new ConflictManager({
-            ...proxy,
-        });
+        const { changeManager, hashManager, splitter, chunkManager, chunkFetcher, entryManager, conflictManager } =
+            this.getManagerMembers();
+        this.changeManager = changeManager;
+        this.hashManager = hashManager;
+        this.splitter = splitter;
+        this.chunkManager = chunkManager;
+        this.chunkFetcher = chunkFetcher;
+        this.entryManager = entryManager;
+        this.conflictManager = conflictManager;
+        await this.initialise();
     }
 
     clearCaches() {
@@ -133,8 +149,9 @@ export class LiveSyncManagers {
     }
 
     async prepareHashFunction() {
-        const proxy = this.getProxy();
-        this.hashManager = new HashManager(proxy);
+        this.hashManager = new HashManager({
+            settingService: this.options.settingService,
+        });
         await this.hashManager.initialise();
     }
 }

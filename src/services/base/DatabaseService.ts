@@ -1,23 +1,19 @@
-import type {
-    IDatabaseService,
-    IPathService,
-    ISettingService,
-    IVaultService,
-    openDatabaseParameters,
-} from "./IService";
+import type { IDatabaseService, IPathService, IVaultService, openDatabaseParameters } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
-import { LiveSyncManagers } from "@lib/managers/LiveSyncManagers";
 import { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB";
 import { handlers } from "../lib/HandlerUtils";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils.ts";
 import { PouchDB } from "@lib/pouchdb/pouchdb-browser.ts";
 import { ExtraSuffixIndexedDB } from "@lib/common/models/shared.const.ts";
 import { $msg } from "@lib/common/i18n.ts";
+import type { SettingService } from "./SettingService";
+import type { APIService } from "./APIService";
 
 export type DatabaseServiceDependencies = {
     path: IPathService;
     vault: IVaultService;
-    setting: ISettingService;
+    setting: SettingService;
+    API: APIService;
 };
 /**
  * The DatabaseService provides methods for managing the local database.
@@ -35,7 +31,6 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
     }
 
     protected _localDatabase: LiveSyncLocalDB | null = null;
-    protected _managers: LiveSyncManagers | null = null;
 
     protected services: DatabaseServiceDependencies;
 
@@ -53,12 +48,8 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
         }
         return this._localDatabase;
     }
-
-    get managers() {
-        if (!this._managers) {
-            throw new Error("Managers are not ready yet.");
-        }
-        return this._managers;
+    get localDatabaseDirect() {
+        return this._localDatabase;
     }
 
     createPouchDBInstance<T extends object>(
@@ -82,26 +73,12 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
         }
         const vaultName = this.services.vault.getVaultName();
         this._log($msg("moduleLocalDatabase.logWaitingForReady"));
-        const getDB = () => this.localDatabase.localDatabase;
-        const getSettings = () => this.services.setting.currentSettings();
-        this._managers = new LiveSyncManagers({
-            get database() {
-                return getDB();
-            },
-            getActiveReplicator: () => params.replicator.getActiveReplicator()!,
-            id2path: this.services.path.id2path.bind(this.services.path),
-            path2id: this.services.path.path2id.bind(this.services.path),
-            get settings() {
-                return getSettings();
-            },
-        });
         const env = {
             services: {
                 ...this.services,
                 ...params,
                 database: this,
             },
-            managers: this.managers,
         };
         this._localDatabase = new LiveSyncLocalDB(vaultName, env);
         await this.onOpenDatabase(vaultName);

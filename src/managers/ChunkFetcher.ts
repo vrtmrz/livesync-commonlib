@@ -1,19 +1,18 @@
 import { delay } from "octagonal-wheels/promises";
 import { unique } from "octagonal-wheels/collection";
 import { LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
-import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf, type RemoteDBSettings } from "../common/types.ts";
-
-import type { LiveSyncAbstractReplicator } from "../replication/LiveSyncAbstractReplicator.ts";
+import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf } from "../common/types.ts";
 
 import { EVENT_CHUNK_FETCHED, type ChunkManager } from "./ChunkManager.ts";
+import type { IReplicatorService, ISettingService } from "../services/base/IService.ts";
 
 export const EVENT_MISSING_CHUNKS = "missingChunks";
 export const EVENT_MISSING_CHUNK_REMOTE = "missingChunkRemote";
 
 export type ChunkFetcherOptions = {
-    settings: RemoteDBSettings;
+    settingService: ISettingService;
     chunkManager: ChunkManager;
-    getActiveReplicator: () => LiveSyncAbstractReplicator;
+    replicatorService: IReplicatorService;
 };
 const BATCH_SIZE = 100; // Number of chunks to fetch in one request
 
@@ -26,14 +25,13 @@ export class ChunkFetcher {
     queue = [] as DocumentID[];
 
     get interval(): number {
-        return (
-            this.options.settings.minimumIntervalOfReadChunksOnline ||
-            DEFAULT_SETTINGS.minimumIntervalOfReadChunksOnline
-        );
+        const settings = this.options.settingService.currentSettings();
+        return settings.minimumIntervalOfReadChunksOnline || DEFAULT_SETTINGS.minimumIntervalOfReadChunksOnline;
     }
 
     get concurrency(): number {
-        return this.options.settings.concurrencyOfReadChunksOnline || DEFAULT_SETTINGS.concurrencyOfReadChunksOnline;
+        const settings = this.options.settingService.currentSettings();
+        return settings.concurrencyOfReadChunksOnline || DEFAULT_SETTINGS.concurrencyOfReadChunksOnline;
     }
 
     abort: AbortController = new AbortController();
@@ -85,7 +83,7 @@ export class ChunkFetcher {
             this.previousRequestTime = now;
             const timeToWait = Math.max(this.interval - timeSinceLastRequest, 0);
             if (timeToWait > 0) await delay(timeToWait);
-            const replicator = this.options.getActiveReplicator();
+            const replicator = this.options.replicatorService.getActiveReplicator();
             if (!replicator) {
                 Logger("No active replicator was found to request missing chunks.");
                 return;
