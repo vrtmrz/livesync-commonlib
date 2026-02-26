@@ -138,7 +138,6 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
             new InjectableReplicationService<T>(context, {
                 APIService: this._api,
                 appLifecycleService: this._appLifecycle,
-                databaseEventService: this._databaseEvents,
                 replicatorService: this._replicator,
                 settingService: this._setting,
                 databaseService: this._database,

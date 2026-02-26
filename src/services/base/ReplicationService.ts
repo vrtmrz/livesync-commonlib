@@ -8,7 +8,6 @@ import {
 import { handlers } from "@lib/services/lib/HandlerUtils";
 import type {
     IAPIService,
-    IDatabaseEventService,
     IDatabaseService,
     IFileProcessingService,
     IReplicationService,
@@ -33,7 +32,6 @@ export interface ReplicationServiceDependencies {
     APIService: IAPIService;
     settingService: ISettingService;
     appLifecycleService: AppLifecycleService;
-    databaseEventService: IDatabaseEventService;
     databaseService: IDatabaseService;
     replicatorService: IReplicatorService;
     fileProcessingService: IFileProcessingService;
@@ -56,7 +54,6 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
 
     _log: LogFunction;
     settingService: ISettingService;
-    databaseEventService: IDatabaseEventService;
     appLifecycleService: AppLifecycleService;
     replicatorService: IReplicatorService;
     APIService: IAPIService;
@@ -66,7 +63,6 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
         super(context);
         this.appLifecycleService = dependencies.appLifecycleService;
         this.settingService = dependencies.settingService;
-        this.databaseEventService = dependencies.databaseEventService;
         this.replicatorService = dependencies.replicatorService;
         this.APIService = dependencies.APIService;
         this.fileProcessing = dependencies.fileProcessingService;
@@ -131,7 +127,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             return false;
         }
 
-        if (!this.databaseService.managers.networkManager.isOnline) {
+        if (!this.APIService.isOnline) {
             this.showError("Network is offline", showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
             return false;
         }

@@ -70,7 +70,6 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
         const replication = new InjectableReplicationService(context, {
             APIService: API,
             appLifecycleService: appLifecycle,
-            databaseEventService: databaseEvents,
             replicatorService: replicator,
             settingService: setting,
             fileProcessingService: fileProcessing,
