@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { HashManager } from "./HashManager.ts";
-import { DEFAULT_SETTINGS, HashAlgorithms, type HashAlgorithm, type RemoteDBSettings } from "../../common/types.ts";
+import { DEFAULT_SETTINGS, HashAlgorithms, type HashAlgorithm, type RemoteDBSettings } from "@lib/common/types.ts";
 import { HashEncryptedPrefix } from "./HashManagerCore.ts";
-import type { SettingService } from "../../services/base/SettingService.ts";
+import type { SettingService } from "@lib/services/base/SettingService.ts";
 
 const generateSettings = (hashAlg: HashAlgorithm, passphrase?: string) =>
     ({

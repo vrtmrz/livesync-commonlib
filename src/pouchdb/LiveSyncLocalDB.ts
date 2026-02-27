@@ -19,7 +19,7 @@ import {
 import { Logger } from "../common/logger.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
-import { EVENT_CHUNK_FETCHED } from "../managers/ChunkManager.ts";
+import { EVENT_CHUNK_FETCHED } from "../managers/ChunkFetcher.ts";
 import { eventHub } from "../hub/hub.ts";
 import { FallbackWeakRef } from "octagonal-wheels/common/polyfill";
 import { LiveSyncManagers } from "../managers/LiveSyncManagers.ts";

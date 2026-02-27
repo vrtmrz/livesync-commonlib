@@ -1,7 +1,7 @@
-import { HashAlgorithms, type HashAlgorithm } from "../../common/types.ts";
 import { HashManagerCore } from "./HashManagerCore.ts";
 import { fallbackMixedHashEach, sha1 } from "octagonal-wheels/hash/purejs";
-
+import { HashAlgorithms } from "@lib/common/models/setting.const.ts";
+import type { HashAlgorithm } from "@lib/common/models/setting.type.ts";
 /**
  * Provides hash management using the "mixed-purejs" algorithm.
  *

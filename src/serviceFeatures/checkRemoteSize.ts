@@ -18,7 +18,7 @@ export function onNotifyRemoteSizeNotConfiguredFactory(
     return async () => {
         log($msg("moduleCheckRemoteSize.logCheckingStorageSizes"), LOG_LEVEL_VERBOSE);
         const settings = host.services.setting.currentSettings();
-        if (settings.notifyThresholdOfRemoteStorageSize > 0) {
+        if (settings.notifyThresholdOfRemoteStorageSize >= 0) {
             return true;
         }
         const message = $msg("moduleCheckRemoteSize.msgSetDBCapacity");

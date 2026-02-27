@@ -1,9 +1,8 @@
-import { type HashAlgorithm } from "../../common/types.ts";
+import type { HashAlgorithm } from "@lib/common/models/setting.type.ts";
 import { FallbackWasmHashManager, XXHash32RawHashManager, XXHash64HashManager } from "./XXHashHashManager.ts";
 import { FallbackPureJSHashManager, PureJSHashManager, SHA1HashManager } from "./PureJSHashManager.ts";
 import { HashManagerCore, type HashManagerCoreOptions } from "./HashManagerCore.ts";
 import { LOG_LEVEL_VERBOSE, Logger } from "../../common/logger.ts";
-
 /**
  * List of available hash managers.
  * For compatibility, please retain fallback managers.

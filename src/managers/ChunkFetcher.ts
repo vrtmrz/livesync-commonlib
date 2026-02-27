@@ -3,12 +3,13 @@ import { unique } from "octagonal-wheels/collection";
 import { LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
 import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf } from "../common/types.ts";
 
-import { EVENT_CHUNK_FETCHED, type ChunkManager } from "./ChunkManager.ts";
+import { type ChunkManager } from "./ChunkManager.ts";
+
 import type { IReplicatorService, ISettingService } from "../services/base/IService.ts";
 
 export const EVENT_MISSING_CHUNKS = "missingChunks";
 export const EVENT_MISSING_CHUNK_REMOTE = "missingChunkRemote";
-
+export const EVENT_CHUNK_FETCHED = "chunkFetched"; // Event for chunk arrival
 export type ChunkFetcherOptions = {
     settingService: ISettingService;
     chunkManager: ChunkManager;

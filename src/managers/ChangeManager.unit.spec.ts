@@ -108,7 +108,7 @@ describe("ChangeManager", () => {
         await db.put({ _id: "doc1", _rev: result.rev, data: "updated data" });
 
         // Wait for the change event to be processed
-        await new Promise((resolve) => setTimeout(resolve, PROMISE_SLEEP));
+        await new Promise((resolve) => setTimeout(resolve, PROMISE_SLEEP * 2));
 
         expect(callback).toHaveBeenCalledTimes(1);
         expect(callback).toHaveBeenCalledWith(

@@ -99,7 +99,6 @@ export class LiveSyncManagers {
         const entryManager = new EntryManager({
             database,
             hashManager: hashManager,
-            chunkFetcher: chunkFetcher,
             chunkManager: chunkManager,
             splitter: splitter,
             pathService: this._pathService,

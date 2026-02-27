@@ -1,6 +1,7 @@
 import { fallbackMixedHashEach, mixedHash } from "octagonal-wheels/hash/purejs";
-import { type HashAlgorithm, SALT_OF_ID, SEED_MURMURHASH } from "../../common/types.ts";
-import type { ISettingService } from "../../services/base/IService.ts";
+import type { ISettingService } from "@lib/services/base/IService.ts";
+import { SALT_OF_ID, SEED_MURMURHASH } from "@lib/common/models/shared.const.behabiour.ts";
+import type { HashAlgorithm } from "@lib/common/models/setting.type.ts";
 
 /**
  * Prefix for encrypted hashes.
