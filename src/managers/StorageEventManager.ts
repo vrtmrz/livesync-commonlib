@@ -23,6 +23,7 @@ import type { IAPIService, IVaultService } from "@lib/services/base/IService.ts"
 import type { SettingService } from "@lib/services/base/SettingService.ts";
 import type { FileProcessingService } from "@lib/services/base/FileProcessingService.ts";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
+import type { IStorageEventManagerAdapter } from "./adapters";
 
 type WaitInfo = {
     since: number;
@@ -43,12 +44,32 @@ export interface StorageEventManagerBaseDependencies {
     storageAccessManager: IStorageAccessManager;
     APIService: IAPIService;
 }
-export abstract class StorageEventManagerBase extends StorageEventManager {
+
+/**
+ * Type helper to extract the file type from a storage event manager adapter
+ */
+export type ExtractFile<T> = T extends IStorageEventManagerAdapter<infer F, any> ? F : never;
+
+/**
+ * Type helper to extract the folder type from a storage event manager adapter
+ */
+export type ExtractFolder<T> = T extends IStorageEventManagerAdapter<any, infer D> ? D : never;
+
+/**
+ * Base class for storage event management
+ * Uses adapter pattern for platform-specific implementations
+ *
+ * @template TAdapter - The storage event manager adapter type
+ */
+export abstract class StorageEventManagerBase<
+    TAdapter extends IStorageEventManagerAdapter<any, any>,
+> extends StorageEventManager {
     _log: ReturnType<typeof createInstanceLogFunction>;
     protected setting: SettingService;
     protected vaultService: IVaultService;
     protected fileProcessing: FileProcessingService;
     protected storageAccess: IStorageAccessManager;
+    protected adapter: TAdapter;
 
     protected get shouldBatchSave() {
         return this.settings?.batchSave && this.settings?.liveSync != true;
@@ -62,8 +83,9 @@ export abstract class StorageEventManagerBase extends StorageEventManager {
     get settings() {
         return this.setting.currentSettings();
     }
-    constructor(dependencies: StorageEventManagerBaseDependencies) {
+    constructor(adapter: TAdapter, dependencies: StorageEventManagerBaseDependencies) {
         super();
+        this.adapter = adapter;
         this.setting = dependencies.setting;
         this.vaultService = dependencies.vaultService;
         this.fileProcessing = dependencies.fileProcessing;
@@ -71,22 +93,41 @@ export abstract class StorageEventManagerBase extends StorageEventManager {
         this._log = createInstanceLogFunction("StorageEventManager", dependencies.APIService);
     }
 
-    abstract _saveSnapshot(snapshot: (FileEventItem | FileEventItemSentinel)[]): Promise<void>;
-    abstract _loadSnapshot(): Promise<(FileEventItem | FileEventItemSentinel)[]>;
-
-    // override if needed
-    isFolder(file: UXFileInfoStub | UXInternalFileInfoStub | UXFolderInfo): boolean {
-        return file.isFolder || false;
-    }
-    // override if needed,
-    isFile(file: UXFileInfoStub | UXInternalFileInfoStub | UXFolderInfo): boolean {
-        if (file.isFolder) {
-            return false;
-        }
-        return true;
+    // Delegated methods to adapter
+    _saveSnapshot(snapshot: (FileEventItem | FileEventItemSentinel)[]): Promise<void> {
+        return this.adapter.persistence.saveSnapshot(snapshot);
     }
 
-    protected abstract updateStatus(): void;
+    _loadSnapshot(): Promise<(FileEventItem | FileEventItemSentinel)[] | null> {
+        return this.adapter.persistence.loadSnapshot();
+    }
+
+    // Type guard methods delegated to adapter
+    isFolder(
+        file: UXFileInfoStub | UXInternalFileInfoStub | UXFolderInfo | ExtractFolder<TAdapter> | ExtractFile<TAdapter>
+    ): boolean {
+        return this.adapter.typeGuard.isFolder(file);
+    }
+
+    isFile(
+        file: UXFileInfoStub | UXInternalFileInfoStub | UXFolderInfo | ExtractFolder<TAdapter> | ExtractFile<TAdapter>
+    ): boolean {
+        return this.adapter.typeGuard.isFile(file);
+    }
+
+    protected updateStatus(): void {
+        const allFileEventItems = this.bufferedQueuedItems.filter((e): e is FileEventItem => "args" in e);
+        const allItems = allFileEventItems.filter((e) => !e.cancelled);
+        const totalItems = allItems.length + this.concurrentProcessing.waiting;
+        const processing = this.processingCount;
+        const batchedCount = this._waitingMap.size;
+
+        this.adapter.status.updateStatus({
+            batched: batchedCount,
+            processing: processing,
+            totalQueued: totalItems + batchedCount + processing,
+        });
+    }
 
     /**
      * Snapshot restoration promise.
@@ -516,5 +557,120 @@ export abstract class StorageEventManagerBase extends StorageEventManager {
         this._cancelWaiting(item.args.file.path);
     }
 
-    abstract override beginWatch(): Promise<void>;
+    /**
+     * Begin watching for storage events
+     */
+    async beginWatch(): Promise<void> {
+        await this.snapShotRestored;
+
+        await this.adapter.watch.beginWatch({
+            onCreate: (file, ctx) => this.watchVaultCreate(file, ctx),
+            onChange: (file, ctx) => this.watchVaultChange(file, ctx),
+            onDelete: (file, ctx) => this.watchVaultDelete(file, ctx),
+            onRename: (file, oldPath, ctx) => this.watchVaultRename(file, oldPath, ctx),
+            onRaw: (path) => this.watchVaultRawEvents(path),
+            onEditorChange: (editor, info) => this.watchEditorChange(editor, info),
+        });
+    }
+
+    /**
+     * Platform-agnostic event handlers
+     */
+    protected watchEditorChange(editor: any, info: any) {
+        if (!("path" in info)) {
+            return;
+        }
+        if (!this.shouldBatchSave) {
+            return;
+        }
+        const file = info?.file;
+        if (!file) return;
+        const path = this.adapter.typeGuard.isFile(file) ? file.path : info.path;
+        if (!path) return;
+
+        if (this.storageAccess.isFileProcessing(path as FilePath)) {
+            return;
+        }
+        if (!this.isWaiting(path as FilePath)) {
+            return;
+        }
+        const data = info?.data as string;
+        const fi: FileEvent = {
+            type: "CHANGED",
+            file: this.adapter.converter.toFileInfo(file),
+            cachedData: data,
+        };
+        void this.appendQueue([fi]);
+    }
+
+    protected watchVaultCreate(file: any, ctx?: any) {
+        if (this.adapter.typeGuard.isFolder(file)) return;
+        const path = (file as { path: string }).path as FilePath;
+        if (this.storageAccess.isFileProcessing(path)) {
+            return;
+        }
+        const fileInfo = this.adapter.converter.toFileInfo(file);
+        void this.appendQueue([{ type: "CREATE", file: fileInfo }], ctx);
+    }
+
+    protected watchVaultChange(file: any, ctx?: any) {
+        if (this.adapter.typeGuard.isFolder(file)) return;
+        const path = (file as { path: string }).path as FilePath;
+        if (this.storageAccess.isFileProcessing(path)) {
+            return;
+        }
+        const fileInfo = this.adapter.converter.toFileInfo(file);
+        void this.appendQueue([{ type: "CHANGED", file: fileInfo }], ctx);
+    }
+
+    protected watchVaultDelete(file: any, ctx?: any) {
+        if (this.adapter.typeGuard.isFolder(file)) return;
+        const path = (file as { path: string }).path as FilePath;
+        if (this.storageAccess.isFileProcessing(path)) {
+            return;
+        }
+        const fileInfo = this.adapter.converter.toFileInfo(file, true);
+        void this.appendQueue([{ type: "DELETE", file: fileInfo }], ctx);
+    }
+
+    protected watchVaultRename(file: any, oldPath: string, ctx?: any) {
+        if (this.adapter.typeGuard.isFile(file)) {
+            const fileInfo = this.adapter.converter.toFileInfo(file);
+            void this.appendQueue(
+                [
+                    {
+                        type: "DELETE",
+                        file: {
+                            path: oldPath as FilePath,
+                            name: fileInfo.name,
+                            stat: fileInfo.stat,
+                            deleted: true,
+                        },
+                        skipBatchWait: true,
+                    },
+                    { type: "CREATE", file: fileInfo, skipBatchWait: true },
+                ],
+                ctx
+            );
+        }
+    }
+
+    protected watchVaultRawEvents(path: FilePath) {
+        if (this.storageAccess.isFileProcessing(path)) {
+            return;
+        }
+        // Only for internal files.
+        if (!this.settings) return;
+        if (this.settings.useIgnoreFiles) {
+            // If it is one of ignore files, refresh the cached one.
+            void this.vaultService.isTargetFile(path).then(() => this._watchVaultRawEvents(path));
+        } else {
+            void this._watchVaultRawEvents(path);
+        }
+    }
+
+    protected async _watchVaultRawEvents(path: FilePath) {
+        // Override in platform-specific implementation if needed
+        // For Obsidian: check syncInternalFiles, watchInternalFileChanges, etc.
+    }
 }

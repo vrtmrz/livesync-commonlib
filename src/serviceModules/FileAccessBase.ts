@@ -1,10 +1,11 @@
 import { isPlainText } from "@lib/string_and_binary/path.ts";
-import type { FilePath, UXDataWriteOptions, UXFileInfoStub, UXFolderInfo, UXStat } from "@lib/common/types.ts";
+import type { FilePath, UXDataWriteOptions, UXFileInfoStub, UXFolderInfo } from "@lib/common/types.ts";
 import { createBinaryBlob, isDocContentSame } from "@lib/common/utils.ts";
 import type { IStorageAccessManager } from "@lib/interfaces/StorageAccess.ts";
-import type { IAPIService, ISettingService, IVaultService } from "@lib/services/base/IService.ts";
+import type { IAPIService, IPathService, ISettingService, IVaultService } from "@lib/services/base/IService.ts";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils.ts";
 import type { FileWithFileStat } from "../common/models/fileaccess.type";
+import type { IFileSystemAdapter } from "./adapters";
 
 export function toArrayBuffer(arr: Uint8Array<ArrayBuffer> | ArrayBuffer | DataView<ArrayBuffer>): ArrayBuffer {
     if (arr instanceof Uint8Array) {
@@ -20,115 +21,98 @@ export interface FileAccessBaseDependencies {
     vaultService: IVaultService;
     storageAccessManager: IStorageAccessManager;
     settingService: ISettingService;
+    pathService: IPathService;
     APIService: IAPIService;
 }
 
-export interface AbstractInfo {
-    parent: AbstractFolder | null;
-    path: string;
-}
+/**
+ * Type helper to extract the abstract file type from a file system adapter
+ */
+export type ExtractAbstractFile<T> = T extends IFileSystemAdapter<infer A, any, any, any> ? A : never;
 
-export interface AbstractFile extends AbstractInfo {
-    stat: Omit<UXStat, "type">;
-}
-export interface AbstractFolder<TItems extends AbstractInfo = AbstractInfo> extends AbstractInfo {
-    children: TItems[];
-}
+/**
+ * Type helper to extract the file type from a file system adapter
+ */
+export type ExtractFile<T> = T extends IFileSystemAdapter<any, infer F, any, any> ? F : never;
 
-export abstract class FileAccessBase<
-    TNativeAbstractFile extends AbstractInfo = AbstractInfo,
-    TNativeFile extends TNativeAbstractFile & AbstractFile = TNativeAbstractFile & AbstractFile,
-    TNativeFolder extends TNativeAbstractFile & AbstractFolder<TNativeAbstractFile> = TNativeAbstractFile &
-        AbstractFolder<TNativeAbstractFile>,
-    TStat extends UXStat = UXStat,
-> {
+/**
+ * Type helper to extract the folder type from a file system adapter
+ */
+export type ExtractFolder<T> = T extends IFileSystemAdapter<any, any, infer D, any> ? D : never;
+
+/**
+ * Type helper to extract the stat type from a file system adapter
+ */
+export type ExtractStat<T> = T extends IFileSystemAdapter<any, any, any, infer S> ? S : never;
+
+/**
+ * Base class for file access operations
+ * Uses adapter pattern for platform-specific implementations
+ *
+ * @template TAdapter - The file system adapter type, which determines all native file types
+ */
+export class FileAccessBase<TAdapter extends IFileSystemAdapter<any, any, any, any>> {
     protected storageAccessManager: IStorageAccessManager;
     protected vaultService: IVaultService;
     protected settingService: ISettingService;
     protected APIService: IAPIService;
+    protected path: IPathService;
+    protected adapter: TAdapter;
 
     _log: ReturnType<typeof createInstanceLogFunction>;
 
-    // The following methods must be implemented by the subclass to provide the actual file access logic.
-
-    abstract isFile(
-        file: UXFileInfoStub | TNativeAbstractFile | FilePath | TNativeFolder | TNativeFile | null
-    ): file is TNativeFile;
-    abstract isFolder(
-        item: UXFileInfoStub | TNativeAbstractFile | FilePath | TNativeFolder | TNativeFile | null
-    ): item is TNativeFolder;
-    protected abstract markChangesAreSame(path: string, mtime: number, newMtime: number): void;
-    abstract getPath(file: TNativeAbstractFile | string): FilePath;
-
-    abstract nativeFileToUXFileInfoStub(file: TNativeFile): UXFileInfoStub;
-    abstract nativeFolderToUXFolder(file: TNativeFolder): UXFolderInfo;
-
-    protected abstract _normalisePath(path: string): string;
-    protected abstract _trash(file: TNativeAbstractFile, force?: boolean): Promise<void>;
-    protected abstract _getAbstractFileByPathInsensitive(path: FilePath | string): TNativeAbstractFile | null;
-    protected abstract _getAbstractFileByPath(path: FilePath | string): TNativeAbstractFile | null;
-    protected abstract _getFiles(): TNativeFile[];
-    protected abstract _adapterMkdir(path: string): Promise<void>;
-
-    protected abstract _delete(file: TNativeAbstractFile, force?: boolean): Promise<void>;
-
-    protected abstract _reconcileInternalFile(path: string): Promise<void>;
-    protected abstract _trigger(name: string, ...data: any[]): any;
-    protected abstract _vaultModify(file: TNativeFile, data: string, options?: UXDataWriteOptions): Promise<void>;
-    protected abstract _vaultModifyBinary(
-        file: TNativeFile,
-        data: ArrayBuffer,
-        options?: UXDataWriteOptions
-    ): Promise<void>;
-    protected abstract _vaultCreate(path: string, data: string, options?: UXDataWriteOptions): Promise<TNativeFile>;
-    protected abstract _vaultCreateBinary(
-        path: string,
-        data: ArrayBuffer,
-        options?: UXDataWriteOptions
-    ): Promise<TNativeFile>;
-
-    protected abstract _statFromNative(file: TNativeFile): Promise<TNativeFile["stat"]>;
-
-    protected abstract _vaultRead(file: TNativeFile): Promise<string>;
-    protected abstract _vaultCacheRead(file: TNativeFile): Promise<string>;
-    protected abstract _vaultReadBinary(file: TNativeFile): Promise<ArrayBuffer>;
-
-    protected abstract _adapterReadBinary(file: string): Promise<ArrayBuffer>;
-
-    protected abstract _adapterAppend(
-        normalizedPath: string,
-        data: string,
-        options?: UXDataWriteOptions
-    ): Promise<void>;
-
-    protected abstract _adapterWrite(file: string, data: string, options?: UXDataWriteOptions): Promise<void>;
-    protected abstract _adapterWriteBinary(
-        file: string,
-        data: ArrayBuffer,
-        options?: UXDataWriteOptions
-    ): Promise<void>;
-    protected abstract _tryAdapterStat(file: string): Promise<TStat | null>;
-    protected abstract _adapterStat(file: string): Promise<TStat | null>;
-    protected abstract _adapterExists(file: TNativeFile | string): Promise<boolean>;
-    protected abstract _adapterRemove(file: string): Promise<void>;
-    protected abstract _adapterRead(file: string): Promise<string>;
-
-    protected abstract _adapterList(basePath: string): Promise<{ files: string[]; folders: string[] }>;
-
-    // Default implementations. Probably should not be overridden, but can be if necessary.
-    constructor(dependencies: FileAccessBaseDependencies) {
+    constructor(adapter: TAdapter, dependencies: FileAccessBaseDependencies) {
+        this.adapter = adapter;
         this.storageAccessManager = dependencies.storageAccessManager;
         this.vaultService = dependencies.vaultService;
         this.settingService = dependencies.settingService;
         this.APIService = dependencies.APIService;
+        this.path = dependencies.pathService;
         this._log = createInstanceLogFunction("FileAccess", this.APIService);
     }
 
-    normalisePath(path: string): string {
-        return this._normalisePath(path);
+    // Delegated methods to adapter
+    isFile(
+        file:
+            | UXFileInfoStub
+            | ExtractAbstractFile<TAdapter>
+            | FilePath
+            | ExtractFolder<TAdapter>
+            | ExtractFile<TAdapter>
+            | null
+    ): file is ExtractFile<TAdapter> {
+        return this.adapter.typeGuard.isFile(file);
     }
 
-    protected _writeOp<T extends TNativeAbstractFile | string, U>(
+    isFolder(
+        item:
+            | UXFileInfoStub
+            | ExtractAbstractFile<TAdapter>
+            | FilePath
+            | ExtractFolder<TAdapter>
+            | ExtractFile<TAdapter>
+            | null
+    ): item is ExtractFolder<TAdapter> {
+        return this.adapter.typeGuard.isFolder(item);
+    }
+
+    getPath(file: ExtractAbstractFile<TAdapter> | string): FilePath {
+        return this.adapter.path.getPath(file);
+    }
+
+    nativeFileToUXFileInfoStub(file: ExtractFile<TAdapter>): UXFileInfoStub {
+        return this.adapter.conversion.nativeFileToUXFileInfoStub(file);
+    }
+
+    nativeFolderToUXFolder(file: ExtractFolder<TAdapter>): UXFolderInfo {
+        return this.adapter.conversion.nativeFolderToUXFolder(file);
+    }
+
+    normalisePath(path: string): string {
+        return this.adapter.path.normalisePath(path);
+    }
+
+    protected _writeOp<T extends ExtractAbstractFile<TAdapter> | string, U>(
         file: T,
         callback: (path: FilePath, file: T) => Promise<U>
     ): Promise<U> {
@@ -136,7 +120,7 @@ export abstract class FileAccessBase<
         return this.storageAccessManager.processWriteFile(path, async () => await callback(path, file));
     }
 
-    protected _readOp<T extends TNativeAbstractFile | string, U>(
+    protected _readOp<T extends ExtractAbstractFile<TAdapter> | string, U>(
         file: T,
         callback: (path: FilePath, file: T) => Promise<U>
     ): Promise<U> {
@@ -144,102 +128,102 @@ export abstract class FileAccessBase<
         return this.storageAccessManager.processReadFile(path, async () => await callback(path, file));
     }
 
-    async tryAdapterStat(file: TNativeFile | string) {
-        return await this._readOp(file, async (path) => await this._tryAdapterStat(path));
+    async tryAdapterStat(file: ExtractFile<TAdapter> | string) {
+        return await this._readOp(file, async (path) => await this.adapter.storage.trystat(path));
     }
 
-    async adapterStat(file: TNativeFile | string): Promise<TStat | null> {
-        return await this._readOp(file, async (path) => await this._adapterStat(path));
+    async adapterStat(file: ExtractFile<TAdapter> | string): Promise<ExtractStat<TAdapter> | null> {
+        return await this._readOp(file, async (path) => await this.adapter.storage.stat(path));
     }
 
-    async adapterExists(file: TNativeFile | string): Promise<boolean> {
-        return await this._readOp(file, async (path) => await this._adapterExists(path));
+    async adapterExists(file: ExtractFile<TAdapter> | string): Promise<boolean> {
+        return await this._readOp(file, async (path) => await this.adapter.storage.exists(path));
     }
 
-    async adapterRemove(file: TNativeFile | string): Promise<void> {
-        return await this._writeOp(file, async (path) => await this._adapterRemove(path));
+    async adapterRemove(file: ExtractFile<TAdapter> | string): Promise<void> {
+        return await this._writeOp(file, async (path) => await this.adapter.storage.remove(path));
     }
 
-    async adapterRead(file: TNativeFile | string): Promise<string> {
-        return await this._readOp(file, async (path) => await this._adapterRead(path));
+    async adapterRead(file: ExtractFile<TAdapter> | string): Promise<string> {
+        return await this._readOp(file, async (path) => await this.adapter.storage.read(path));
     }
 
-    async adapterReadBinary(file: TNativeFile | string): Promise<ArrayBuffer> {
-        return await this._readOp(file, async (path) => await this._adapterReadBinary(path));
+    async adapterReadBinary(file: ExtractFile<TAdapter> | string): Promise<ArrayBuffer> {
+        return await this._readOp(file, async (path) => await this.adapter.storage.readBinary(path));
     }
 
-    async adapterReadAuto(file: TNativeFile | string): Promise<string | ArrayBuffer> {
+    async adapterReadAuto(file: ExtractFile<TAdapter> | string): Promise<string | ArrayBuffer> {
         const path = this.getPath(file);
         if (isPlainText(path)) {
-            return await this._readOp(file, async (path) => await this._adapterRead(path));
+            return await this._readOp(file, async (path) => await this.adapter.storage.read(path));
         }
-        return await this._readOp(file, async (path) => await this._adapterReadBinary(path));
+        return await this._readOp(file, async (path) => await this.adapter.storage.readBinary(path));
     }
 
     async adapterWrite(
-        file: TNativeFile | string,
+        file: ExtractFile<TAdapter> | string,
         data: string | ArrayBuffer | Uint8Array<ArrayBuffer>,
         options?: UXDataWriteOptions
     ): Promise<void> {
         if (typeof data === "string") {
-            return await this._writeOp(file, async (path) => await this._adapterWrite(path, data, options));
+            return await this._writeOp(file, async (path) => await this.adapter.storage.write(path, data, options));
         } else {
             return await this._writeOp(
                 file,
-                async (path) => await this._adapterWriteBinary(path, toArrayBuffer(data), options)
+                async (path) => await this.adapter.storage.writeBinary(path, toArrayBuffer(data), options)
             );
         }
     }
 
     adapterList(basePath: string): Promise<{ files: string[]; folders: string[] }> {
-        return this._adapterList(basePath);
+        return this.adapter.storage.list(basePath);
     }
 
-    async vaultCacheRead(file: TNativeFile): Promise<string> {
-        return await this._readOp(file, async (path) => await this._vaultCacheRead(file));
+    async vaultCacheRead(file: ExtractFile<TAdapter>): Promise<string> {
+        return await this._readOp(file, async (path) => await this.adapter.vault.cachedRead(file));
     }
 
-    vaultRead(file: TNativeFile): Promise<string> {
-        return this._readOp(file, async (path) => await this._vaultRead(file));
+    vaultRead(file: ExtractFile<TAdapter>): Promise<string> {
+        return this._readOp(file, async (path) => await this.adapter.vault.read(file));
     }
 
-    vaultReadBinary(file: TNativeFile): Promise<ArrayBuffer> {
-        return this._readOp(file, async (path) => await this._vaultReadBinary(file));
+    vaultReadBinary(file: ExtractFile<TAdapter>): Promise<ArrayBuffer> {
+        return this._readOp(file, async (path) => await this.adapter.vault.readBinary(file));
     }
 
-    async vaultReadAuto(file: TNativeFile) {
+    async vaultReadAuto(file: ExtractFile<TAdapter>) {
         const path = this.getPath(file);
         if (isPlainText(path)) {
-            return await this._readOp(path, async (path) => await this._vaultRead(file));
+            return await this._readOp(path, async (path) => await this.adapter.vault.read(file));
         }
-        return await this._readOp(path, async (path) => await this._vaultReadBinary(file));
+        return await this._readOp(path, async (path) => await this.adapter.vault.readBinary(file));
     }
 
     async vaultModify(
-        file: TNativeFile,
+        file: ExtractFile<TAdapter>,
         data: string | ArrayBuffer | Uint8Array<ArrayBuffer>,
         options?: UXDataWriteOptions
     ) {
         if (typeof data === "string") {
             return await this._writeOp(file, async (path) => {
-                const oldData = await this._vaultRead(file);
+                const oldData = await this.adapter.vault.read(file);
                 if (data === oldData) {
-                    const stat = await this._statFromNative(file);
-                    if (options && options.mtime) this.markChangesAreSame(path, stat.mtime, options.mtime);
+                    const stat = await this.adapter.statFromNative(file);
+                    if (options && options.mtime) this.path.markChangesAreSame(path, stat.mtime, options.mtime);
                     return true;
                 }
-                await this._vaultModify(file, data, options);
+                await this.adapter.vault.modify(file, data, options);
                 return true;
             });
         } else {
             return await this._writeOp(file, async (path) => {
-                const oldData = await this._vaultReadBinary(file);
+                const oldData = await this.adapter.vault.readBinary(file);
                 if (await isDocContentSame(createBinaryBlob(oldData), createBinaryBlob(data))) {
-                    const stat = await this._statFromNative(file);
-                    if (options && options.mtime) this.markChangesAreSame(path, stat.mtime, options.mtime);
+                    const stat = await this.adapter.statFromNative(file);
+                    if (options && options.mtime) this.path.markChangesAreSame(path, stat.mtime, options.mtime);
                     return true;
                 }
-                await this._vaultModifyBinary(file, toArrayBuffer(data), options);
+                await this.adapter.vault.modifyBinary(file, toArrayBuffer(data), options);
                 return true;
             });
         }
@@ -249,22 +233,22 @@ export abstract class FileAccessBase<
         path: string,
         data: string | ArrayBuffer | Uint8Array<ArrayBuffer>,
         options?: UXDataWriteOptions
-    ): Promise<TNativeFile> {
+    ): Promise<ExtractFile<TAdapter>> {
         if (typeof data === "string") {
-            return await this._writeOp(path as FilePath, () => this._vaultCreate(path, data, options));
+            return await this._writeOp(path as FilePath, () => this.adapter.vault.create(path, data, options));
         } else {
             return await this._writeOp(path as FilePath, () =>
-                this._vaultCreateBinary(path, toArrayBuffer(data), options)
+                this.adapter.vault.createBinary(path, toArrayBuffer(data), options)
             );
         }
     }
 
     trigger(name: string, ...data: any[]) {
-        return this._trigger(name, ...data);
+        return this.adapter.vault.trigger(name, ...data);
     }
 
     async reconcileInternalFile(path: string): Promise<void> {
-        return await this._reconcileInternalFile(path);
+        return await this.adapter.reconcileInternalFile(path);
     }
 
     /**
@@ -276,31 +260,31 @@ export abstract class FileAccessBase<
      * @returns
      */
     async adapterAppend(normalizedPath: string, data: string, options?: UXDataWriteOptions): Promise<void> {
-        return await this._adapterAppend(normalizedPath, data, options);
+        return await this.adapter.storage.append(normalizedPath, data, options);
     }
 
-    async delete(file: TNativeAbstractFile, force?: boolean): Promise<void> {
-        return await this._writeOp(file, async (path, file) => await this._delete(file, force));
+    async delete(file: ExtractAbstractFile<TAdapter> | ExtractFolder<TAdapter>, force?: boolean): Promise<void> {
+        return await this._writeOp(file, async (path, file) => await this.adapter.vault.delete(file, force));
     }
 
-    async trash(file: TNativeAbstractFile, force?: boolean): Promise<void> {
-        return await this._writeOp(file, async (path, file) => await this._trash(file, force));
+    async trash(file: ExtractAbstractFile<TAdapter> | ExtractFolder<TAdapter>, force?: boolean): Promise<void> {
+        return await this._writeOp(file, async (path, file) => await this.adapter.vault.trash(file, force));
     }
 
     protected isStorageInsensitive(): boolean {
         return this.vaultService.isStorageInsensitive();
     }
 
-    getAbstractFileByPath(path: FilePath | string): TNativeAbstractFile | null {
+    getAbstractFileByPath(path: FilePath | string): ExtractAbstractFile<TAdapter> | null {
         const setting = this.settingService.currentSettings();
         if (!setting.handleFilenameCaseSensitive || this.isStorageInsensitive()) {
-            return this._getAbstractFileByPathInsensitive(path);
+            return this.adapter.getAbstractFileByPathInsensitive(path);
         }
-        return this._getAbstractFileByPath(path);
+        return this.adapter.getAbstractFileByPath(path);
     }
 
-    getFiles(): TNativeFile[] {
-        return this._getFiles();
+    getFiles(): ExtractFile<TAdapter>[] {
+        return this.adapter.getFiles();
     }
 
     async ensureDirectory(fullPath: string) {
@@ -310,7 +294,7 @@ export abstract class FileAccessBase<
         for (const v of pathElements) {
             c += v;
             try {
-                await this._adapterMkdir(c);
+                await this.adapter.storage.mkdir(c);
             } catch (ex: any) {
                 if (ex?.message == "Folder already exists.") {
                     // Skip if already exists.
@@ -323,14 +307,15 @@ export abstract class FileAccessBase<
         }
     }
 
-    async touch(file: TNativeFile | FilePath): Promise<void> {
+    async touch(file: ExtractFile<TAdapter> | FilePath): Promise<void> {
         const path = this.getPath(file);
-        const statOrg = this.isFile(file) ? file.stat : await this._adapterStat(path);
+        const statOrg = this.isFile(file) ? file.stat : await this.adapter.storage.stat(path);
         return this.storageAccessManager.touch({ path, stat: statOrg || { ctime: 0, mtime: 0, size: 0 } });
     }
 
-    recentlyTouched(file: TNativeFile | UXFileInfoStub | FileWithFileStat) {
-        return this.storageAccessManager.recentlyTouched({ ...file, path: file.path as FilePath });
+    recentlyTouched(file: ExtractFile<TAdapter> | UXFileInfoStub | FileWithFileStat) {
+        const path = (file as any).path as FilePath;
+        return this.storageAccessManager.recentlyTouched({ ...file, path });
     }
     clearTouched() {
         return this.storageAccessManager.clearTouched();

@@ -1,5 +1,4 @@
 import type {
-    AnyEntry,
     UXFileInfoStub,
     FilePathWithPrefix,
     UXFileInfo,
@@ -33,7 +32,7 @@ export interface ServiceDatabaseFileAccessDependencies {
     database: DatabaseService;
 }
 
-export abstract class ServiceDatabaseFileAccessBase
+export class ServiceDatabaseFileAccessBase
     extends ServiceModuleBase<ServiceDatabaseFileAccessDependencies>
     implements DatabaseFileAccess
 {
@@ -41,7 +40,6 @@ export abstract class ServiceDatabaseFileAccessBase
     private storageAccess: StorageAccess;
     private path: PathService;
     private database: DatabaseService;
-    abstract markChangesAreSame(old: AnyEntry, newMtime: number, oldMtime: number): void;
     constructor(services: ServiceDatabaseFileAccessDependencies) {
         super(services);
         this.vault = services.vault;
@@ -191,7 +189,7 @@ export abstract class ServiceDatabaseFileAccessBase
                         msg + "Skipped (not changed) " + fullPath + (d._deleted || d.deleted ? " (deleted)" : ""),
                         LOG_LEVEL_VERBOSE
                     );
-                    this.markChangesAreSame(old, d.mtime, old.mtime);
+                    this.path.markChangesAreSame(old, d.mtime, old.mtime);
                     return true;
                     // d._rev = old._rev;
                 }

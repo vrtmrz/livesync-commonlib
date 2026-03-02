@@ -10,7 +10,6 @@ import type {
     UXFileInfoStub,
     UXInternalFileInfoStub,
 } from "@lib/common/types";
-// import { compareFileFreshness, EVEN, getStoragePathFromUXFileInfo, markChangesAreSame } from "../common/utils";
 import { getDocDataAsArray, isDocContentSame, readAsBlob, readContent } from "@lib/common/utils";
 import { shouldBeIgnored, stripAllPrefixes } from "@lib/string_and_binary/path";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
@@ -27,7 +26,7 @@ import type { PathService } from "@lib/services/base/PathService.ts";
 import type { SettingService } from "@lib/services/base/SettingService.ts";
 import type { VaultService } from "@lib/services/base/VaultService.ts";
 import { getStoragePathFromUXFileInfo } from "@lib/common/typeUtils";
-import { type TARGET_IS_NEW, type BASE_IS_NEW, EVEN } from "@lib/common/models/shared.const.symbols";
+import { EVEN } from "../common/models/shared.const.symbols";
 
 export interface ServiceFileHandlerDependencies {
     API: APIService;
@@ -51,11 +50,6 @@ export abstract class ServiceFileHandlerBase
     private path: PathService;
     private setting: SettingService;
     private vault: VaultService;
-    abstract markChangesAreSame(old: UXFileInfo | AnyEntry, newMtime: number, oldMtime: number): boolean | undefined;
-    abstract compareFileFreshness(
-        baseFile: UXFileInfoStub | AnyEntry | undefined,
-        checkTarget: UXFileInfo | AnyEntry | undefined
-    ): typeof BASE_IS_NEW | typeof TARGET_IS_NEW | typeof EVEN;
     constructor(services: ServiceFileHandlerDependencies) {
         super(services);
         this.databaseFileAccess = services.databaseFileAccess;
@@ -131,7 +125,7 @@ export abstract class ServiceFileHandlerBase
             // Note: This checks only the mtime with the resolution reduced to 2 seconds.
             //       2 seconds it for the ZIP file's mtime. If not, we cannot backup the vault as the ZIP file.
             //       This is hardcoded on `compareMtime` of `src/common/utils.ts`.
-            if (this.compareFileFreshness(file, entry) !== EVEN) {
+            if (this.path.compareFileFreshness(file, entry) !== EVEN) {
                 shouldApplied = true;
             }
             // 2. if not, the content should be checked.
@@ -145,7 +139,7 @@ export abstract class ServiceFileHandlerBase
                 if (await isDocContentSame(getDocDataAsArray(entry.data), readFile.body)) {
                     // Timestamp is different but the content is same. therefore, two timestamps should be handled as same.
                     // So, mark the changes are same.
-                    this.markChangesAreSame(readFile, readFile.stat.mtime, entry.mtime);
+                    this.path.markChangesAreSame(readFile, readFile.stat.mtime, entry.mtime);
                 } else {
                     shouldApplied = true;
                 }
@@ -327,7 +321,7 @@ export abstract class ServiceFileHandlerBase
             // Note: This checks only the mtime with the resolution reduced to 2 seconds.
             //       2 seconds it for the ZIP file's mtime. If not, we cannot backup the vault as the ZIP file.
             //       This is hardcoded on `compareMtime` of `src/common/utils.ts`.
-            if (this.compareFileFreshness(existDoc, docEntry) !== EVEN) {
+            if (this.path.compareFileFreshness(existDoc, docEntry) !== EVEN) {
                 shouldApplied = true;
             }
             // 2. if not, the content should be checked.
@@ -339,7 +333,7 @@ export abstract class ServiceFileHandlerBase
                     shouldApplied = false;
                     // Timestamp is different but the content is same. therefore, two timestamps should be handled as same.
                     // So, mark the changes are same.
-                    this.markChangesAreSame(docRead, docRead.mtime, existDoc.stat.mtime);
+                    this.path.markChangesAreSame(docRead, docRead.mtime, existDoc.stat.mtime);
                 } else {
                     shouldApplied = true;
                 }

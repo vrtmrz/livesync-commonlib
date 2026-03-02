@@ -17,6 +17,7 @@ import type {
     ObsidianLiveSyncSettings,
     RemoteDBSettings,
     TweakValues,
+    UXFileInfo,
     UXFileInfoStub,
 } from "../../common/types";
 
@@ -28,6 +29,7 @@ import type { ReactiveSource } from "octagonal-wheels/dataobject/reactive";
 import type { ReplicationStatics } from "../../common/models/shared.definition";
 import type { ReplicatorService } from "./ReplicatorService";
 import type { DatabaseEventService } from "./DatabaseEventService";
+import type { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 
 declare global {
     interface OPTIONAL_SYNC_FEATURES {
@@ -79,6 +81,20 @@ export interface IPathService {
 
     path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID>;
     getPath(entry: AnyEntry): FilePathWithPrefix;
+    markChangesAreSame(
+        old: UXFileInfo | AnyEntry | FilePathWithPrefix,
+        newMtime: number,
+        oldMtime: number
+    ): boolean | undefined;
+    unmarkChanges(file: AnyEntry | FilePathWithPrefix | UXFileInfoStub): void;
+    compareFileFreshness(
+        baseFile: UXFileInfoStub | AnyEntry | undefined,
+        checkTarget: UXFileInfo | AnyEntry | undefined
+    ): typeof BASE_IS_NEW | typeof TARGET_IS_NEW | typeof EVEN;
+    isMarkedAsSameChanges(
+        file: UXFileInfoStub | AnyEntry | FilePathWithPrefix,
+        mtimes: number[]
+    ): undefined | typeof EVEN;
 }
 export interface openDatabaseParameters {
     replicator: ReplicatorService;

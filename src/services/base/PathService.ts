@@ -1,8 +1,17 @@
-import type { DocumentID, EntryHasPath, FilePathWithPrefix, FilePath, AnyEntry } from "@lib/common/types";
+import type {
+    DocumentID,
+    EntryHasPath,
+    FilePathWithPrefix,
+    FilePath,
+    AnyEntry,
+    UXFileInfo,
+    UXFileInfoStub,
+} from "@lib/common/types";
 import type { IPathService, ISettingService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { addPrefix, id2path_base, path2id_base } from "../../string_and_binary/path";
 import { isInternalMetadata, stripInternalMetadataPrefix } from "../../common/typeUtils";
+import type { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 
 export interface PathServiceDependencies {
     settingService: ISettingService;
@@ -81,4 +90,19 @@ export abstract class PathService<T extends ServiceContext = ServiceContext>
     getPath(entry: AnyEntry): FilePathWithPrefix {
         return this.id2path(entry._id, entry);
     }
+
+    abstract markChangesAreSame(
+        old: UXFileInfo | AnyEntry | FilePathWithPrefix,
+        newMtime: number,
+        oldMtime: number
+    ): boolean | undefined;
+    abstract unmarkChanges(file: AnyEntry | FilePathWithPrefix | UXFileInfoStub): void;
+    abstract compareFileFreshness(
+        baseFile: UXFileInfoStub | AnyEntry | undefined,
+        checkTarget: UXFileInfo | AnyEntry | undefined
+    ): typeof BASE_IS_NEW | typeof TARGET_IS_NEW | typeof EVEN;
+    abstract isMarkedAsSameChanges(
+        file: UXFileInfoStub | AnyEntry | FilePathWithPrefix,
+        mtimes: number[]
+    ): undefined | typeof EVEN;
 }

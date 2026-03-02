@@ -46,6 +46,7 @@ import { throttle } from "octagonal-wheels/function";
 export { throttle };
 
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
+import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "./models/shared.const.symbols.ts";
 export type { SimpleStore };
 
 export { sizeToHumanReadable } from "octagonal-wheels/number";
@@ -798,4 +799,18 @@ export function wrapByDefault<T, U>(func: () => T, onError: (err: Error) => U): 
     } catch (ex: any) {
         return onError(ex);
     }
+}
+
+const resolution = 2000;
+export function compareMTime(
+    baseMTime: number,
+    targetMTime: number
+): typeof BASE_IS_NEW | typeof TARGET_IS_NEW | typeof EVEN {
+    const truncatedBaseMTime = ~~(baseMTime / resolution) * resolution;
+    const truncatedTargetMTime = ~~(targetMTime / resolution) * resolution;
+    // Logger(`Resolution MTime ${truncatedBaseMTime} and ${truncatedTargetMTime} `, LOG_LEVEL_VERBOSE);
+    if (truncatedBaseMTime == truncatedTargetMTime) return EVEN;
+    if (truncatedBaseMTime > truncatedTargetMTime) return BASE_IS_NEW;
+    if (truncatedBaseMTime < truncatedTargetMTime) return TARGET_IS_NEW;
+    throw new Error("Unexpected error");
 }

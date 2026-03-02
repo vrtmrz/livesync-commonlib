@@ -19,14 +19,10 @@ import { StorageEventManager } from "@lib/interfaces/StorageEventManager.ts";
 import { createBlob, type CustomRegExp } from "@lib/common/utils";
 import type { VaultService } from "@lib/services/base/VaultService";
 import type { SettingService } from "@lib/services/base/SettingService";
-import type { AbstractFile, AbstractFolder, AbstractInfo, FileAccessBase } from "@lib/serviceModules/FileAccessBase";
-export interface StorageAccessBaseDependencies<
-    TNativeAbstractFile extends AbstractInfo = AbstractInfo,
-    TNativeFile extends TNativeAbstractFile & AbstractFile = TNativeAbstractFile & AbstractFile,
-    TNativeFolder extends TNativeAbstractFile & AbstractFolder<TNativeAbstractFile> = TNativeAbstractFile &
-        AbstractFolder<TNativeAbstractFile>,
-    TStat extends UXStat = UXStat,
-> {
+import type { FileAccessBase, ExtractFile, ExtractFolder } from "@lib/serviceModules/FileAccessBase";
+import type { IFileSystemAdapter } from "@lib/serviceModules/adapters";
+
+export interface StorageAccessBaseDependencies<TAdapter extends IFileSystemAdapter<any, any, any, any>> {
     API: APIService;
     appLifecycle: AppLifecycleService;
     fileProcessing: FileProcessingService;
@@ -34,27 +30,19 @@ export interface StorageAccessBaseDependencies<
     setting: SettingService;
     storageEventManager: StorageEventManager;
     storageAccessManager: IStorageAccessManager;
-    vaultAccess: FileAccessBase<TNativeAbstractFile, TNativeFile, TNativeFolder, TStat>;
+    vaultAccess: FileAccessBase<TAdapter>;
 }
-// export interface StorageAccessObsidianDependencies extends StorageAccessObsidianBaseDependencies<TAbstractFile, TFile, TFolder, Stat> {}
-// export class ServiceFileAccessBase extends
 
-export class ServiceFileAccessBase<
-    TNativeAbstractFile extends AbstractInfo = AbstractInfo,
-    TNativeFile extends TNativeAbstractFile & AbstractFile = TNativeAbstractFile & AbstractFile,
-    TNativeFolder extends TNativeAbstractFile & AbstractFolder<TNativeAbstractFile> = TNativeAbstractFile &
-        AbstractFolder<TNativeAbstractFile>,
-    TStat extends UXStat = UXStat,
->
-    extends ServiceModuleBase<StorageAccessBaseDependencies<TNativeAbstractFile, TNativeFile, TNativeFolder, TStat>>
+export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any, any, any>>
+    extends ServiceModuleBase<StorageAccessBaseDependencies<TAdapter>>
     implements StorageAccess
 {
-    private vaultAccess: FileAccessBase<TNativeAbstractFile, TNativeFile, TNativeFolder, TStat>;
+    private vaultAccess: FileAccessBase<TAdapter>;
     private vaultManager: StorageEventManager;
     private vault: VaultService;
     private setting: SettingService;
 
-    constructor(services: StorageAccessBaseDependencies<TNativeAbstractFile, TNativeFile, TNativeFolder, TStat>) {
+    constructor(services: StorageAccessBaseDependencies<TAdapter>) {
         super(services);
         // this.appLifecycle = services.appLifecycle;
         this.vault = services.vault;
@@ -167,10 +155,13 @@ export class ServiceFileAccessBase<
         const file = this.vaultAccess.getAbstractFileByPath(path);
         if (file === null) return Promise.resolve(null);
         if (this.vaultAccess.isFile(file)) {
+            const fileWithStat = file as ExtractFile<TAdapter> & {
+                stat: { ctime: number; mtime: number; size: number };
+            };
             return Promise.resolve({
-                ctime: file.stat.ctime,
-                mtime: file.stat.mtime,
-                size: file.stat.size,
+                ctime: fileWithStat.stat.ctime,
+                mtime: fileWithStat.stat.mtime,
+                size: fileWithStat.stat.size,
                 type: "file",
             });
         } else {
@@ -315,10 +306,10 @@ export class ServiceFileAccessBase<
         await this.vaultAccess.touch(path as FilePath);
     }
     recentlyTouched(file: UXFileInfoStub | FilePathWithPrefix): boolean {
-        const xFile = typeof file === "string" ? (this.vaultAccess.getAbstractFileByPath(file) as TNativeFile) : file;
+        const xFile = typeof file === "string" ? this.vaultAccess.getAbstractFileByPath(file) : file;
         if (xFile === null) return false;
         if (this.vaultAccess.isFolder(xFile)) return false;
-        return this.vaultAccess.recentlyTouched(xFile);
+        return this.vaultAccess.recentlyTouched(xFile as any);
     }
     clearTouched(): void {
         this.vaultAccess.clearTouched();
@@ -340,21 +331,22 @@ export class ServiceFileAccessBase<
         return this.vaultAccess.trash(xFile, system);
     }
 
-    async __deleteVaultItem(file: TNativeFile | TNativeFolder): Promise<void> {
+    async __deleteVaultItem(file: ExtractFile<TAdapter> | ExtractFolder<TAdapter>): Promise<void> {
+        const filePath = this.vaultAccess.getPath(file);
         if (this.vaultAccess.isFile(file)) {
-            if (!(await this.vault.isTargetFile(file.path))) return;
+            if (!(await this.vault.isTargetFile(filePath))) return;
         }
-        const dir = file.parent as TNativeFolder | null;
+        const dir = (file as any).parent as ExtractFolder<TAdapter> | null;
         const settings = this.setting.currentSettings();
         if (settings.trashInsteadDelete) {
             await this.vaultAccess.trash(file, false);
         } else {
             await this.vaultAccess.delete(file, true);
         }
-        this._log(`xxx <- STORAGE (deleted) ${file.path}`);
+        this._log(`xxx <- STORAGE (deleted) ${filePath}`);
         if (dir) {
-            this._log(`files: ${dir.children.length}`);
-            if (dir.children.length == 0) {
+            this._log(`files: ${(dir as any)?.children?.length ?? "unknown"}`);
+            if (dir?.children?.length ?? 0 == 0) {
                 if (!settings.doNotDeleteFolder) {
                     this._log(
                         `All files under the parent directory (${dir.path}) have been deleted, so delete this one.`
