@@ -180,7 +180,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                 /* NO OP FOR NARROWING */
             } else if (ensure[0] == "MISMATCHED") {
                 Logger(
-                    `Configuration mismatching between the clients has been detected. This can be harmful or extra capacity consumption. We have to make these value unified.`,
+                    `Configuration mismatching between the clients has been detected. This can be harmful or extra capacity consumption. We have to make these value unified. When replication is initiated manually via the command palette or ribbon, a dialogue box will open to address this.`,
                     LOG_LEVEL_NOTICE
                 );
                 this.tweakSettingsMismatched = true;

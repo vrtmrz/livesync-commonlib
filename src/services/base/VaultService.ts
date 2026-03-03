@@ -47,7 +47,7 @@ export abstract class VaultService<T extends ServiceContext = ServiceContext>
      * @param showingNotice Whether to show a notice to the user.
      * @param ignoreSuspending Whether to ignore any suspending state.
      */
-    abstract scanVault(showingNotice?: boolean, ignoreSuspending?: boolean): Promise<boolean>;
+    readonly scanVault = handlers<IVaultService>().bailFirstFailure("scanVault");
 
     /**
      * Check if a file is ignored by the ignore file (e.g., .gitignore, .obsidianignore).
@@ -96,4 +96,10 @@ export abstract class VaultService<T extends ServiceContext = ServiceContext>
         // Override this method in subclasses for the platform-specific logic, i.e., checking the underlying file system.
         return !this.settings.handleFilenameCaseSensitive;
     }
+
+    /**
+     * Check if a given path is valid in the vault.
+     * @param path The file path to check.
+     */
+    abstract isValidPath(path: string): boolean;
 }

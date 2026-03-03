@@ -353,6 +353,7 @@ export interface IVaultService {
     isStorageInsensitive(): boolean;
 
     shouldCheckCaseInsensitively(): boolean;
+    isValidPath(path: string): boolean;
 }
 export interface ITestService {
     test(): Promise<boolean>;
