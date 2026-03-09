@@ -346,7 +346,7 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
         this._log(`xxx <- STORAGE (deleted) ${filePath}`);
         if (dir) {
             this._log(`files: ${(dir as any)?.children?.length ?? "unknown"}`);
-            if (dir?.children?.length ?? 0 == 0) {
+            if ((dir?.children?.length ?? 0) === 0) {
                 if (!settings.doNotDeleteFolder) {
                     this._log(
                         `All files under the parent directory (${dir.path}) have been deleted, so delete this one.`
