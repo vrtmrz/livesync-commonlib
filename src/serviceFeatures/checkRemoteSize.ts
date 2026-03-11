@@ -73,13 +73,18 @@ export function onNotifyRemoteSizeExceedFactory(
     log: ReturnType<typeof createInstanceLogFunction>
 ) {
     return async () => {
+        const settings = host.services.setting.currentSettings();
+        if (settings.notifyThresholdOfRemoteStorageSize < 0) {
+            log("User has chosen to not receive remote storage size exceed notification.", LOG_LEVEL_INFO);
+            return true;
+        }
         if (host.services.API.isOnline === false) {
             log("Network is offline, skipping remote size exceed check.", LOG_LEVEL_INFO);
             return true;
         }
         const replicator = host.services.replicator.getActiveReplicator();
         const remoteStat = await replicator?.getRemoteStatus(host.services.setting.currentSettings());
-        const settings = host.services.setting.currentSettings();
+
         if (!remoteStat) {
             // If we cannot get the remote status, we should not block subsequent processes.
             log("Failed to get remote status, skipping remote size exceed check.", LOG_LEVEL_INFO);

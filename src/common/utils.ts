@@ -814,3 +814,8 @@ export function compareMTime(
     if (truncatedBaseMTime < truncatedTargetMTime) return TARGET_IS_NEW;
     throw new Error("Unexpected error");
 }
+
+export function displayRev(rev: string) {
+    const [number, hash] = rev.split("-");
+    return `${number}-${hash.substring(0, 6)}`;
+}

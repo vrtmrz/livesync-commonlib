@@ -99,7 +99,7 @@ export async function syncFileBetweenDBandStorage(
         throw new Error(`Missing doc:${docPath}`);
     }
     if ("path" in file) {
-        const w = host.serviceModules.storageAccess.getFileStub(docPath);
+        const w = await host.serviceModules.storageAccess.getFileStub(docPath);
         if (w) {
             file = w;
         } else {
@@ -208,7 +208,7 @@ export async function collectFilesOnStorage(
     log: LogFunction
 ) {
     log("Collecting local files on the storage", LOG_LEVEL_VERBOSE);
-    const filesStorageSrc = host.serviceModules.storageAccess.getFiles();
+    const filesStorageSrc = await host.serviceModules.storageAccess.getFiles();
 
     const _filesStorage: UXFileInfoStub[] = [];
 

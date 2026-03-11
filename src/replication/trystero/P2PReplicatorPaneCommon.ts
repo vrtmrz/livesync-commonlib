@@ -44,12 +44,15 @@ declare global {
 }
 
 export interface PluginShim {
-    saveSettings: () => Promise<void>;
-    settings: P2PSyncSetting;
-    rebuilder: any;
+    // saveSettings: () => Promise<void>;
+    // settings: P2PSyncSetting;
+    // rebuilder: any;
     // $$scheduleAppReload: () => void;
     // $$getVaultName: () => string;
     services: InjectableServiceHub;
+    core: {
+        services: InjectableServiceHub;
+    };
     // confirm: any;
 }
 export interface CommandShim {

@@ -16,7 +16,7 @@ import type { IStorageAccessManager, StorageAccess } from "@lib/interfaces/Stora
 import type { AppLifecycleService } from "@lib/services/base/AppLifecycleService";
 import type { FileProcessingService } from "@lib/services/base/FileProcessingService";
 import { StorageEventManager } from "@lib/interfaces/StorageEventManager.ts";
-import { createBlob, type CustomRegExp } from "@lib/common/utils";
+import { createBlob, fireAndForget, type CustomRegExp } from "@lib/common/utils";
 import type { VaultService } from "@lib/services/base/VaultService";
 import type { SettingService } from "@lib/services/base/SettingService";
 import type { FileAccessBase, ExtractFile, ExtractFolder } from "@lib/serviceModules/FileAccessBase";
@@ -71,7 +71,7 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
     }
 
     async writeFileAuto(path: string, data: string | ArrayBuffer, opt?: UXDataWriteOptions): Promise<boolean> {
-        const file = this.vaultAccess.getAbstractFileByPath(path);
+        const file = await this.vaultAccess.getAbstractFileByPath(path);
         if (this.vaultAccess.isFile(file)) {
             return this.vaultAccess.vaultModify(file, data, opt);
         } else if (file === null) {
@@ -112,24 +112,24 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
             return false;
         }
     }
-    readFileAuto(path: string): Promise<string | ArrayBuffer> {
-        const file = this.vaultAccess.getAbstractFileByPath(path);
+    async readFileAuto(path: string): Promise<string | ArrayBuffer> {
+        const file = await this.vaultAccess.getAbstractFileByPath(path);
         if (this.vaultAccess.isFile(file)) {
             return this.vaultAccess.vaultRead(file);
         } else {
             throw new Error(`Could not read file (Possibly does not exist): ${path}`);
         }
     }
-    readFileText(path: string): Promise<string> {
-        const file = this.vaultAccess.getAbstractFileByPath(path);
+    async readFileText(path: string): Promise<string> {
+        const file = await this.vaultAccess.getAbstractFileByPath(path);
         if (this.vaultAccess.isFile(file)) {
             return this.vaultAccess.vaultRead(file);
         } else {
             throw new Error(`Could not read file (Possibly does not exist): ${path}`);
         }
     }
-    isExists(path: string): Promise<boolean> {
-        return Promise.resolve(this.vaultAccess.isFile(this.vaultAccess.getAbstractFileByPath(path)));
+    async isExists(path: string): Promise<boolean> {
+        return this.vaultAccess.isFile(await this.vaultAccess.getAbstractFileByPath(path));
     }
     async writeHiddenFileAuto(path: string, data: string | ArrayBuffer, opt?: UXDataWriteOptions): Promise<boolean> {
         try {
@@ -151,8 +151,8 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
             return false;
         }
     }
-    stat(path: string): Promise<UXStat | null> {
-        const file = this.vaultAccess.getAbstractFileByPath(path);
+    async stat(path: string): Promise<UXStat | null> {
+        const file = await this.vaultAccess.getAbstractFileByPath(path);
         if (file === null) return Promise.resolve(null);
         if (this.vaultAccess.isFile(file)) {
             const fileWithStat = file as ExtractFile<TAdapter> & {
@@ -206,10 +206,13 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
             return false;
         }
     }
-    triggerFileEvent(event: string, path: string): void {
-        const file = this.vaultAccess.getAbstractFileByPath(path);
+    async _triggerFileEvent(event: string, path: string): Promise<void> {
+        const file = await this.vaultAccess.getAbstractFileByPath(path);
         if (file === null) return;
         this.vaultAccess.trigger(event, file);
+    }
+    triggerFileEvent(event: string, path: string): void {
+        fireAndForget(async () => await this._triggerFileEvent(event, path));
     }
     async triggerHiddenFile(path: string): Promise<void> {
         await this.vaultAccess.reconcileInternalFile(path);
@@ -217,8 +220,8 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
     // getFileStub(file: TFile): UXFileInfoStub {
     //     return  TFileToUXFileInfoStub(file);
     // }
-    getFileStub(path: string): UXFileInfoStub | null {
-        const file = this.vaultAccess.getAbstractFileByPath(path);
+    async getFileStub(path: string): Promise<UXFileInfoStub | null> {
+        const file = await this.vaultAccess.getAbstractFileByPath(path);
         if (this.vaultAccess.isFile(file)) {
             return this.vaultAccess.nativeFileToUXFileInfoStub(file);
         } else {
@@ -227,7 +230,7 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
     }
 
     async readStubContent(stub: UXFileInfoStub): Promise<UXFileInfo | false> {
-        const file = this.vaultAccess.getAbstractFileByPath(stub.path);
+        const file = await this.vaultAccess.getAbstractFileByPath(stub.path);
         if (!this.vaultAccess.isFile(file)) {
             this._log(`Could not read file (Possibly does not exist or a folder): ${stub.path}`, LOG_LEVEL_VERBOSE);
             return false;
@@ -239,8 +242,8 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
             body: createBlob(data),
         };
     }
-    getStub(path: string): UXFileInfoStub | UXFolderInfo | null {
-        const file = this.vaultAccess.getAbstractFileByPath(path);
+    async getStub(path: string): Promise<UXFileInfoStub | UXFolderInfo | null> {
+        const file = await this.vaultAccess.getAbstractFileByPath(path);
         if (this.vaultAccess.isFile(file)) {
             return this.vaultAccess.nativeFileToUXFileInfoStub(file);
         } else if (this.vaultAccess.isFolder(file)) {
@@ -248,11 +251,13 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
         }
         return null;
     }
-    getFiles(): UXFileInfoStub[] {
-        return this.vaultAccess.getFiles().map((f) => this.vaultAccess.nativeFileToUXFileInfoStub(f));
+    async getFiles(): Promise<UXFileInfoStub[]> {
+        const files = await this.vaultAccess.getFiles();
+        return files.map((f) => this.vaultAccess.nativeFileToUXFileInfoStub(f));
     }
-    getFileNames(): FilePath[] {
-        return this.vaultAccess.getFiles().map((f) => f.path as FilePath);
+    async getFileNames(): Promise<FilePath[]> {
+        const files = await this.vaultAccess.getFiles();
+        return files.map((f) => f.path as FilePath);
     }
 
     async getFilesIncludeHidden(
@@ -305,8 +310,8 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
         const path = typeof file === "string" ? file : file.path;
         await this.vaultAccess.touch(path as FilePath);
     }
-    recentlyTouched(file: UXFileInfoStub | FilePathWithPrefix): boolean {
-        const xFile = typeof file === "string" ? this.vaultAccess.getAbstractFileByPath(file) : file;
+    async recentlyTouched(file: UXFileInfoStub | FilePathWithPrefix): Promise<boolean> {
+        const xFile = typeof file === "string" ? await this.vaultAccess.getAbstractFileByPath(file) : file;
         if (xFile === null) return false;
         if (this.vaultAccess.isFolder(xFile)) return false;
         return this.vaultAccess.recentlyTouched(xFile as any);
@@ -315,17 +320,17 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
         this.vaultAccess.clearTouched();
     }
 
-    delete(file: FilePathWithPrefix | UXFileInfoStub | string, force: boolean): Promise<void> {
+    async delete(file: FilePathWithPrefix | UXFileInfoStub | string, force: boolean): Promise<void> {
         const xPath = typeof file === "string" ? file : file.path;
-        const xFile = this.vaultAccess.getAbstractFileByPath(xPath);
+        const xFile = await this.vaultAccess.getAbstractFileByPath(xPath);
         if (xFile === null) return Promise.resolve();
         // if (!(xFile instanceof TFile) && !(xFile instanceof TFolder)) return Promise.resolve();
         if (!this.vaultAccess.isFile(xFile) && !this.vaultAccess.isFolder(xFile)) return Promise.resolve();
         return this.vaultAccess.delete(xFile, force);
     }
-    trash(file: FilePathWithPrefix | UXFileInfoStub | string, system: boolean): Promise<void> {
+    async trash(file: FilePathWithPrefix | UXFileInfoStub | string, system: boolean): Promise<void> {
         const xPath = typeof file === "string" ? file : file.path;
-        const xFile = this.vaultAccess.getAbstractFileByPath(xPath);
+        const xFile = await this.vaultAccess.getAbstractFileByPath(xPath);
         if (xFile === null) return Promise.resolve();
         if (!this.vaultAccess.isFile(xFile) && !this.vaultAccess.isFolder(xFile)) return Promise.resolve();
         return this.vaultAccess.trash(xFile, system);
@@ -359,7 +364,7 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
 
     async deleteVaultItem(fileSrc: FilePathWithPrefix | UXFileInfoStub | UXFolderInfo): Promise<void> {
         const path = typeof fileSrc === "string" ? fileSrc : fileSrc.path;
-        const file = this.vaultAccess.getAbstractFileByPath(path);
+        const file = await this.vaultAccess.getAbstractFileByPath(path);
         if (file === null) return;
         if (this.vaultAccess.isFile(file) || this.vaultAccess.isFolder(file)) {
             return await this.__deleteVaultItem(file);

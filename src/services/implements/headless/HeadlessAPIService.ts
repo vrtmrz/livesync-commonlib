@@ -1,8 +1,7 @@
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
 import { InjectableAPIService } from "@lib/services/implements/injectable/InjectableAPIService";
 import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
-import type { IAPIService, ICommandCompat } from "../../base/IService";
-import { handlers } from "../../lib/HandlerUtils";
+import type { ICommandCompat } from "../../base/IService";
 import type { Confirm } from "@lib/interfaces/Confirm";
 // const module = await import("node:crypto");
 import module from "node:crypto";
@@ -76,7 +75,7 @@ export class HeadlessAPIService<T extends ServiceContext> extends InjectableAPIS
     override getPlatform(): string {
         return "server";
     }
-    getSystemVaultName = handlers<IAPIService>().binder("getSystemVaultName");
+
     override getCrypto(): Crypto {
         const webcrypto = module.webcrypto as Crypto;
         return webcrypto;
@@ -93,5 +92,12 @@ export class HeadlessAPIService<T extends ServiceContext> extends InjectableAPIS
     }
     registerProtocolHandler(action: string, handler: (params: Record<string, string>) => any): void {
         // In a browser environment, protocol handler registration might not be applicable.
+    }
+    addStatusBarItem(): HTMLElement | undefined {
+        // In a browser environment, status bar item might not be applicable.
+        return undefined;
+    }
+    getSystemVaultName(): string {
+        return ".livesync";
     }
 }

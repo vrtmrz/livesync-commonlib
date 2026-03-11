@@ -63,6 +63,10 @@ export abstract class VaultService<T extends ServiceContext = ServiceContext>
     readonly isTargetFile = handlers<IVaultService>().bailFirstFailure("isTargetFile");
 
     /**
+     * Check if a file is a target file for some extra feature
+     */
+    readonly isTargetFileInExtra = handlers<IVaultService>().anySuccess("isTargetFileInExtra");
+    /**
      * Check if a filesize is too large against the current settings.
      * @param size The file size to check.
      */

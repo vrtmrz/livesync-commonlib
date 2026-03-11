@@ -257,11 +257,13 @@ class MockFileSystemAdapter implements IFileSystemAdapter<MockAbstractFile, Mock
         }
     }
 
-    getAbstractFileByPath(path: FilePath | string): MockAbstractFile | null {
+    async getAbstractFileByPath(path: FilePath | string): Promise<MockAbstractFile | null> {
+        await Promise.resolve(); // Simulate async operation
         return this.files.get(path) || null;
     }
 
-    getAbstractFileByPathInsensitive(path: FilePath | string): MockAbstractFile | null {
+    async getAbstractFileByPathInsensitive(path: FilePath | string): Promise<MockAbstractFile | null> {
+        await Promise.resolve(); // Simulate async operation
         const lowerPath = path.toLowerCase();
         for (const [key, value] of this.files.entries()) {
             if (key.toLowerCase() === lowerPath) {
@@ -271,14 +273,14 @@ class MockFileSystemAdapter implements IFileSystemAdapter<MockAbstractFile, Mock
         return null;
     }
 
-    getFiles(): MockFile[] {
+    getFiles(): Promise<MockFile[]> {
         const result: MockFile[] = [];
         for (const file of this.files.values()) {
             if (this.typeGuard.isFile(file)) {
                 result.push(file);
             }
         }
-        return result;
+        return Promise.resolve(result);
     }
 
     statFromNative(file: MockFile): Promise<MockStat> {
@@ -499,7 +501,7 @@ describe("FileAccessBase", () => {
     });
 
     describe("File system operations", () => {
-        it("should get file by path", () => {
+        it("should get file by path", async () => {
             const file: MockFile = {
                 path: "test.md",
                 name: "test.md",
@@ -507,11 +509,11 @@ describe("FileAccessBase", () => {
                 content: "",
             };
             adapter.setMockFile("test.md", file);
-            const result = fileAccess.getAbstractFileByPath("test.md");
+            const result = await fileAccess.getAbstractFileByPath("test.md");
             expect(result).toBe(file);
         });
 
-        it("should get file by path case-insensitively when configured", () => {
+        it("should get file by path case-insensitively when configured", async () => {
             const file: MockFile = {
                 path: "test.md",
                 name: "test.md",
@@ -525,11 +527,11 @@ describe("FileAccessBase", () => {
                 handleFilenameCaseSensitive: false,
             });
 
-            const result = fileAccess.getAbstractFileByPath("TEST.MD");
+            const result = await fileAccess.getAbstractFileByPath("TEST.MD");
             expect(result).toBe(file);
         });
 
-        it("should get all files", () => {
+        it("should get all files", async () => {
             const file1: MockFile = {
                 path: "file1.md",
                 name: "file1.md",
@@ -545,13 +547,13 @@ describe("FileAccessBase", () => {
             adapter.setMockFile("file1.md", file1);
             adapter.setMockFile("file2.md", file2);
 
-            const files = fileAccess.getFiles();
+            const files = await fileAccess.getFiles();
             expect(files).toHaveLength(2);
             expect(files).toContain(file1);
             expect(files).toContain(file2);
         });
 
-        it("should use case-insensitive search when storage is insensitive", () => {
+        it("should use case-insensitive search when storage is insensitive", async () => {
             const file: MockFile = {
                 path: "CaseSensitive.md",
                 name: "CaseSensitive.md",
@@ -562,7 +564,7 @@ describe("FileAccessBase", () => {
 
             dependencies.vaultService.isStorageInsensitive = vi.fn().mockReturnValue(true);
 
-            const result = fileAccess.getAbstractFileByPath("casesensitive.md");
+            const result = await fileAccess.getAbstractFileByPath("casesensitive.md");
             expect(result).toBe(file);
         });
     });

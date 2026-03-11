@@ -25,8 +25,8 @@ export function isAcceptedInFilenameDuplicationFactory(
     log: LogFunction
 ) {
     const fileCountMapComputed = new Computed({
-        evaluation: (fileEventCount: number) => {
-            const vaultFiles = host.serviceModules.storageAccess.getFileNames().sort();
+        evaluation: async (fileEventCount: number) => {
+            const vaultFiles = (await host.serviceModules.storageAccess.getFileNames()).sort();
             const fileCountMap: Record<string, number> = {};
             for (const file of vaultFiles) {
                 const lc = file.toLowerCase();

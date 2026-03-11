@@ -15,18 +15,14 @@ import { Logger } from "../../common/logger.ts";
 
 import { JournalSyncMinio } from "./objectstore/JournalSyncMinio.ts";
 
-import {
-    LiveSyncAbstractReplicator,
-    type LiveSyncReplicatorEnv,
-    type RemoteDBStatus,
-} from "../LiveSyncAbstractReplicator.ts";
+import { LiveSyncAbstractReplicator, type RemoteDBStatus } from "../LiveSyncAbstractReplicator.ts";
 import { ensureRemoteIsCompatible, type ENSURE_DB_RESULT } from "../../pouchdb/LiveSyncDBFunctions.ts";
 import type { CheckPointInfo } from "./JournalSyncTypes.ts";
 import { fireAndForget, type SimpleStore } from "../../common/utils.ts";
 
 import { extractObject } from "../../common/utils.ts";
 import { clearHandlers } from "../SyncParamsHandler.ts";
-import type { ServiceHub } from "../../services/ServiceHub.ts";
+import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 
 const MILSTONE_DOCID = "_00000000-milestone.json";
 
@@ -35,12 +31,6 @@ const currentVersionRange: ChunkVersionRange = {
     max: 2,
     current: 2,
 };
-
-export interface LiveSyncJournalReplicatorEnv extends LiveSyncReplicatorEnv {
-    // simpleStore: SimpleStore<CheckPointInfo | any>;
-    // $$customFetchHandler: () => FetchHttpHandler | undefined;
-    services: ServiceHub;
-}
 
 export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     override env: LiveSyncJournalReplicatorEnv;

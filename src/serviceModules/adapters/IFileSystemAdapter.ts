@@ -35,17 +35,17 @@ export interface IFileSystemAdapter<
     /**
      * Get a file or folder by path (case-sensitive)
      */
-    getAbstractFileByPath(path: FilePath | string): TNativeAbstractFile | null;
+    getAbstractFileByPath(path: FilePath | string): Promise<TNativeAbstractFile | null>;
 
     /**
      * Get a file or folder by path (case-insensitive)
      */
-    getAbstractFileByPathInsensitive(path: FilePath | string): TNativeAbstractFile | null;
+    getAbstractFileByPathInsensitive(path: FilePath | string): Promise<TNativeAbstractFile | null>;
 
     /**
      * Get all files in the vault
      */
-    getFiles(): TNativeFile[];
+    getFiles(): Promise<TNativeFile[]>;
 
     /**
      * Get file statistics from a native file object

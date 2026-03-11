@@ -109,7 +109,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     liveSyncLocalDB: LiveSyncLocalDB;
     options: DirectFileManipulatorOptions;
     ready = promiseWithResolvers<void>();
-    services: HeadlessServiceHub;
+    services: HeadlessServiceHub<ServiceContext>;
     public async init() {
         await this.services.appLifecycle.onReady();
         await this.liveSyncLocalDB.initializeDatabase();

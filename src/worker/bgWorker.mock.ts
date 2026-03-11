@@ -110,3 +110,5 @@ export function startWorker(data: Omit<EncryptArguments | SplitArguments | Encry
 }
 
 export const tasks = new Map<number, ProcessItem>();
+
+export function initialiseWorkerModule() {}

@@ -31,6 +31,6 @@ export class InjectableSettingService<T extends ServiceContext> extends SettingS
 
     // override currentSettings = handlers<SettingService<T>>().binder("currentSettings");
 
-    saveData = handlers<{ saveData: (data: ObsidianLiveSyncSettings) => Promise<void> }>().binder("saveData");
-    loadData = handlers<{ loadData: () => Promise<ObsidianLiveSyncSettings | undefined> }>().binder("loadData");
+    public saveData = handlers<{ saveData: (data: ObsidianLiveSyncSettings) => Promise<void> }>().binder("saveData");
+    public loadData = handlers<{ loadData: () => Promise<ObsidianLiveSyncSettings | undefined> }>().binder("loadData");
 }

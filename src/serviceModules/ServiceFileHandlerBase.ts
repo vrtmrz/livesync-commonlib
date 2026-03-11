@@ -85,13 +85,20 @@ export abstract class ServiceFileHandlerBase
         }
         return readFile;
     }
+    private async infoToStub<T extends UXFileInfoStub | UXFileInfo | UXInternalFileInfoStub>(
+        info: null | T | FilePathWithPrefix | FilePath
+    ): Promise<T | UXFileInfoStub | null> {
+        if (info == null) return null;
+        const file = typeof info === "string" ? await this.storage.getFileStub(info) : info;
+        return file;
+    }
 
     async storeFileToDB(
         info: UXFileInfoStub | UXFileInfo | UXInternalFileInfoStub | FilePathWithPrefix,
         force: boolean = false,
         onlyChunks: boolean = false
     ): Promise<boolean> {
-        const file = typeof info === "string" ? this.storage.getFileStub(info) : info;
+        const file = await this.infoToStub(info);
         if (file == null) {
             this._log(`File ${info} is not exist on the storage`, LOG_LEVEL_VERBOSE);
             return false;
@@ -168,7 +175,7 @@ export abstract class ServiceFileHandlerBase
     }
 
     async deleteFileFromDB(info: UXFileInfoStub | UXInternalFileInfoStub | FilePath): Promise<boolean> {
-        const file = typeof info === "string" ? this.storage.getFileStub(info) : info;
+        const file = await this.infoToStub(info);
         if (file == null) {
             this._log(`File ${info} is not exist on the storage`, LOG_LEVEL_VERBOSE);
             return false;
@@ -227,7 +234,7 @@ export abstract class ServiceFileHandlerBase
         rev: string,
         force?: boolean
     ): Promise<boolean> {
-        const file = typeof info === "string" ? this.storage.getFileStub(info) : info;
+        const file = await this.infoToStub(info);
         if (file == null) {
             this._log(`File ${info} is not exist on the storage`, LOG_LEVEL_VERBOSE);
             return false;
@@ -245,7 +252,7 @@ export abstract class ServiceFileHandlerBase
         info: UXFileInfoStub | UXFileInfo | FilePath | null,
         force?: boolean
     ): Promise<boolean> {
-        const file = typeof info === "string" ? this.storage.getFileStub(info) : info;
+        const file = await this.infoToStub(info);
         const mode = file == null ? "create" : "modify";
         const pathFromEntryInfo = typeof entryInfo === "string" ? entryInfo : this.getPath(entryInfo);
         const docEntry = await this.db.fetchEntryMeta(pathFromEntryInfo, undefined, true);
@@ -270,7 +277,7 @@ export abstract class ServiceFileHandlerBase
         }
 
         // 2. Check if the file is already exist on the storage.
-        const existDoc = this.storage.getStub(path);
+        const existDoc = await this.storage.getStub(path);
         if (existDoc && existDoc.isFolder) {
             this._log(`Folder ${path} is already exist on the storage as a folder`, LOG_LEVEL_VERBOSE);
             // We can do nothing, and other modules should also nothing to do.
@@ -402,7 +409,7 @@ export abstract class ServiceFileHandlerBase
             }
             const path = this.getPath(entry);
 
-            const targetFile = this.storage.getStub(this.getPathWithoutPrefix(entry));
+            const targetFile = await this.storage.getStub(this.getPathWithoutPrefix(entry));
             if (targetFile && targetFile.isFolder) {
                 this._log(`${path} is already exist as the folder`);
                 // Nothing to do and other modules should also nothing to do.
@@ -430,7 +437,7 @@ export abstract class ServiceFileHandlerBase
         const semaphore = Semaphore(10);
 
         let processed = 0;
-        const filesStorageSrc = this.storage.getFiles();
+        const filesStorageSrc = await this.storage.getFiles();
         const incProcessed = () => {
             processed++;
             if (processed % 25 == 0)

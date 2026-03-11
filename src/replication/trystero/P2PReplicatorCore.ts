@@ -7,7 +7,7 @@ import { EVENT_DATABASE_REBUILT, EVENT_SETTING_SAVED } from "../../events/coreEv
 import { eventHub } from "../../hub/hub";
 import type { Confirm } from "../../interfaces/Confirm";
 import { setReplicatorFunc } from "./LiveSyncTrysteroReplicator";
-import type { CommandShim, PluginShim } from "./P2PReplicatorPaneCommon";
+import type { CommandShim } from "./P2PReplicatorPaneCommon";
 import { type P2PReplicationProgress } from "./TrysteroReplicator";
 import {
     EVENT_ADVERTISEMENT_RECEIVED,
@@ -156,7 +156,6 @@ export class P2PLogCollector {
 
 export interface P2PReplicatorBase {
     storeP2PStatusLine: ReactiveSource<string>;
-    plugin: PluginShim;
     settings: P2PSyncSetting;
     _log(msg: any, level?: LOG_LEVEL): void;
     _notice(msg: any, key?: string): void;

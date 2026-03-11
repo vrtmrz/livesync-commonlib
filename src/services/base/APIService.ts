@@ -108,4 +108,24 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
     nativeFetch(req: string | Request, opts?: RequestInit): Promise<Response> {
         throw new Error("nativeFetch is not implemented for this platform");
     }
+
+    abstract addStatusBarItem(): HTMLElement | undefined;
+
+    setInterval(handler: () => void, timeout: number): number {
+        return globalThis.setInterval(handler, timeout) as unknown as number;
+    }
+
+    clearInterval(timerId: number): void {
+        globalThis.clearInterval(timerId);
+    }
+
+    /**
+     * Get the system configuration directory.
+     * This is used for storing configuration files in a consistent location across platforms.
+     * @returns
+     */
+    getSystemConfigDir() {
+        // SHIM.
+        return ".livesync";
+    }
 }

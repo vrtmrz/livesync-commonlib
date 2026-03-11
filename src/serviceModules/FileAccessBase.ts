@@ -275,16 +275,16 @@ export class FileAccessBase<TAdapter extends IFileSystemAdapter<any, any, any, a
         return this.vaultService.isStorageInsensitive();
     }
 
-    getAbstractFileByPath(path: FilePath | string): ExtractAbstractFile<TAdapter> | null {
+    async getAbstractFileByPath(path: FilePath | string): Promise<ExtractAbstractFile<TAdapter> | null> {
         const setting = this.settingService.currentSettings();
         if (!setting.handleFilenameCaseSensitive || this.isStorageInsensitive()) {
-            return this.adapter.getAbstractFileByPathInsensitive(path);
+            return await this.adapter.getAbstractFileByPathInsensitive(path);
         }
-        return this.adapter.getAbstractFileByPath(path);
+        return await this.adapter.getAbstractFileByPath(path);
     }
 
-    getFiles(): ExtractFile<TAdapter>[] {
-        return this.adapter.getFiles();
+    async getFiles(): Promise<ExtractFile<TAdapter>[]> {
+        return await this.adapter.getFiles();
     }
 
     async ensureDirectory(fullPath: string) {
