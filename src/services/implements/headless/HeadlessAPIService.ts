@@ -100,4 +100,8 @@ export class HeadlessAPIService<T extends ServiceContext> extends InjectableAPIS
     getSystemVaultName(): string {
         return ".livesync";
     }
+
+    override get isOnline(): boolean {
+        return true;
+    }
 }

@@ -66,7 +66,17 @@ export function splitPieces2WorkerRabinKarp(
     filename?: string,
     useSegmenter?: boolean
 ) {
-    return splitPiecesRabinKarp(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter ?? false);
+    return async function* () {
+        const splitter = await splitPiecesRabinKarp(
+            dataSrc,
+            pieceSize,
+            plainSplit,
+            minimumChunkSize,
+            filename,
+            useSegmenter ?? false
+        );
+        yield* splitter();
+    };
 }
 
 export function encryptWorker(input: string, passphrase: string, autoCalculateIterations: boolean): Promise<string> {
