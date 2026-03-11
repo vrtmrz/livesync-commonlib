@@ -10,7 +10,7 @@ please ensure the engine's terms of service are compatible with our project's li
 Your diligence in this matter helps maintain compliance and avoid potential licensing issues.
 Thank you for your consideration.
 
-Usually, our projects (Obsidian LiveSync and its families) are licensed under MIT License.
+Usually, our projects (Self-hosted LiveSync and its families) are licensed under MIT License.
 To see details, please refer to the LICENSES file on each repository.
 
 ## How to internationalise untranslated items?

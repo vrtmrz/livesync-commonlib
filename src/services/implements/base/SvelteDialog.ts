@@ -95,7 +95,7 @@ export function SvelteDialogMixIn<TBase extends Constructor<IModalBase>>(TBase: 
         component!: ComponentHasResult<T, U>;
         result?: T;
         initialData?: U;
-        title: string = "Obsidian LiveSync - Setup Wizard";
+        title: string = "Self-hosted LiveSync - Setup Wizard";
 
         initDialog(
             context: C,
