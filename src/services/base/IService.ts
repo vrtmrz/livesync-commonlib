@@ -415,4 +415,5 @@ export interface IControlService {
     onReady(): Promise<boolean>;
     onUnload(): Promise<void>;
     hasUnloaded(): boolean;
+    activated: Promise<boolean>;
 }
