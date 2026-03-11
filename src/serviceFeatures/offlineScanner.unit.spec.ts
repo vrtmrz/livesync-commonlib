@@ -12,9 +12,9 @@ import {
     updateToStorage,
     syncStorageAndDatabase,
     performFullScan,
-    prepareDatabaseForUse,
     useOfflineScanner,
 } from "./offlineScanner";
+import { prepareDatabaseForUse } from "./prepareDatabaseForUse";
 import { type LogFunction, createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import type { MetaEntry, UXFileInfoStub, FilePathWithPrefix, ObsidianLiveSyncSettings } from "@lib/common/types";
@@ -1268,7 +1268,6 @@ describe("useOfflineScanner", () => {
 
     it("should bind handlers to lifecycle events", () => {
         const addHandlerMock1 = vi.fn();
-        const addHandlerMock2 = vi.fn();
 
         const host = {
             services: {
@@ -1279,13 +1278,13 @@ describe("useOfflineScanner", () => {
                     },
                 },
                 databaseEvents: {
-                    initialiseDatabase: {
-                        addHandler: addHandlerMock1,
+                    onDatabaseInitialised: {
+                        addHandler: vi.fn(),
                     },
                 },
                 vault: {
                     scanVault: {
-                        addHandler: addHandlerMock2,
+                        addHandler: addHandlerMock1,
                     },
                 },
             },
@@ -1293,8 +1292,6 @@ describe("useOfflineScanner", () => {
         } as any;
 
         useOfflineScanner(host);
-
         expect(addHandlerMock1).toHaveBeenCalledWith(expect.any(Function));
-        expect(addHandlerMock2).toHaveBeenCalledWith(expect.any(Function));
     });
 });
