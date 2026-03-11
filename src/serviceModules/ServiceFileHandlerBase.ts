@@ -58,8 +58,8 @@ export abstract class ServiceFileHandlerBase
         this.path = services.path;
         this.setting = services.setting;
         this.vault = services.vault;
-        services.fileProcessing.processFileEvent.addHandler(this._anyHandlerProcessesFileEvent.bind(this));
-        services.replication.processSynchroniseResult.addHandler(this._anyProcessReplicatedDoc.bind(this));
+        services.fileProcessing.processFileEvent.addHandler(this._anyHandlerProcessesFileEvent.bind(this), 100);
+        services.replication.processSynchroniseResult.addHandler(this._anyProcessReplicatedDoc.bind(this), 100);
     }
     get db() {
         return this.databaseFileAccess;
