@@ -104,4 +104,7 @@ export class HeadlessAPIService<T extends ServiceContext> extends InjectableAPIS
     override get isOnline(): boolean {
         return true;
     }
+    override nativeFetch(req: string | Request, opts?: RequestInit): Promise<Response> {
+        return fetch(req, opts);
+    }
 }
