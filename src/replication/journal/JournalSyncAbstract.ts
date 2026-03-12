@@ -194,9 +194,22 @@ export abstract class JournalSyncAbstract {
         const old: any = (await this.store.get(checkPointKey)) || {};
         const items = ["knownIDs", "sentIDs", "receivedFiles", "sentFiles"];
         for (const key of items) {
-            if (key in old && typeof Array.isArray(old[key])) {
-                old[key] = new Set(old[key]);
+            if (!(key in old)) {
+                continue;
             }
+            const value = old[key];
+            if (value instanceof Set) {
+                continue;
+            }
+            if (Array.isArray(value)) {
+                old[key] = new Set(value);
+                continue;
+            }
+            if (value && typeof value === "object") {
+                old[key] = new Set(Object.keys(value));
+                continue;
+            }
+            old[key] = new Set<string>();
         }
         this._currentCheckPointInfo = { ...CheckPointInfoDefault, ...old };
         return this._currentCheckPointInfo;

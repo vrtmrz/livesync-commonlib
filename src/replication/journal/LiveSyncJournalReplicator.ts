@@ -115,6 +115,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     async openReplication(setting: RemoteDBSettings, _: boolean, showResult: boolean, ignoreCleanLock = false) {
         if (!(await this.checkReplicationConnectivity(false, ignoreCleanLock))) return false;
         await this.client.sync(showResult);
+        return true;
     }
 
     async replicateAllToServer(setting: RemoteDBSettings, showingNotice?: boolean) {
