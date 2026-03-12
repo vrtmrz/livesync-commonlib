@@ -115,7 +115,7 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
     async readFileAuto(path: string): Promise<string | ArrayBuffer> {
         const file = await this.vaultAccess.getAbstractFileByPath(path);
         if (this.vaultAccess.isFile(file)) {
-            return this.vaultAccess.vaultRead(file);
+            return this.vaultAccess.vaultReadAuto(file);
         } else {
             throw new Error(`Could not read file (Possibly does not exist): ${path}`);
         }
