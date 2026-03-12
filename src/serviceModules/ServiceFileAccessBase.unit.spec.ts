@@ -91,10 +91,10 @@ describe("ServiceFileAccessBase deletion recursion", () => {
 describe("ServiceFileAccessBase readFileAuto", () => {
     function createServiceForRead(vaultAccessOverrides: Record<string, unknown>) {
         const vaultAccess = {
-            getAbstractFileByPath: vi.fn(async () => ({ kind: "file", path: "assets/image.png" })),
+            getAbstractFileByPath: vi.fn(async () => await Promise.resolve({ kind: "file", path: "assets/image.png" })),
             isFile: vi.fn((item: unknown) => !!item && (item as { kind?: string }).kind === "file"),
-            vaultReadAuto: vi.fn(async () => new ArrayBuffer(0)),
-            vaultRead: vi.fn(async () => ""),
+            vaultReadAuto: vi.fn(async () => await Promise.resolve(new ArrayBuffer(0))),
+            vaultRead: vi.fn(async () => await Promise.resolve("")),
             ...vaultAccessOverrides,
         };
 
@@ -126,9 +126,9 @@ describe("ServiceFileAccessBase readFileAuto", () => {
     it("reads binary files through vaultReadAuto", async () => {
         const expected = Uint8Array.from([0xde, 0xad, 0xbe, 0xef]).buffer;
         const { service, vaultAccess } = createServiceForRead({
-            getAbstractFileByPath: vi.fn(async () => ({ kind: "file", path: "assets/image.png" })),
-            vaultReadAuto: vi.fn(async () => expected),
-            vaultRead: vi.fn(async () => {
+            getAbstractFileByPath: vi.fn(async () => await Promise.resolve({ kind: "file", path: "assets/image.png" })),
+            vaultReadAuto: vi.fn(async () => await Promise.resolve(expected)),
+            vaultRead: vi.fn(() => {
                 throw new Error("vaultRead should not be used by readFileAuto");
             }),
         });
@@ -143,9 +143,9 @@ describe("ServiceFileAccessBase readFileAuto", () => {
     it("reads markdown files through vaultReadAuto", async () => {
         const expected = "# hello";
         const { service, vaultAccess } = createServiceForRead({
-            getAbstractFileByPath: vi.fn(async () => ({ kind: "file", path: "notes/test.md" })),
-            vaultReadAuto: vi.fn(async () => expected),
-            vaultRead: vi.fn(async () => {
+            getAbstractFileByPath: vi.fn(async () => await Promise.resolve({ kind: "file", path: "notes/test.md" })),
+            vaultReadAuto: vi.fn(async () => await Promise.resolve(expected)),
+            vaultRead: vi.fn(() => {
                 throw new Error("vaultRead should not be used by readFileAuto");
             }),
         });
