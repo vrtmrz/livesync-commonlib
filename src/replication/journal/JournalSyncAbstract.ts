@@ -694,7 +694,8 @@ export abstract class JournalSyncAbstract {
                     Logger(`${TASK_TITLE} Something went wrong on processing queue ${key}.`, LOG_LEVEL_NOTICE);
                     return false;
                 }
-                const decompressed = await wrappedInflate(value, { consume: true });
+                const compressed = new Uint8Array(value);
+                const decompressed = await wrappedInflate(compressed, { consume: true });
                 if (decompressed.length == 0) {
                     await commit();
                     downloaded++;
