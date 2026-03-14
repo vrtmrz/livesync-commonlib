@@ -523,12 +523,12 @@ export class TrysteroReplicator {
     acknowledgeProgress(remotePeerId: string, info?: ProgressInfo) {
         if (!this.server) return;
         const connection = this.server.getConnection(remotePeerId);
-        try {
-            void connection.invokeRemoteFunction("onProgressAcknowledged", [this.server.serverPeerId, info], 500);
-        } catch (ex) {
-            Logger("Error while acknowledging the progress", LOG_LEVEL_VERBOSE);
-            Logger(ex, LOG_LEVEL_VERBOSE);
-        }
+        void connection
+            .invokeRemoteFunction("onProgressAcknowledged", [this.server.serverPeerId, info], 500)
+            .catch((ex) => {
+                Logger("Error while acknowledging the progress", LOG_LEVEL_VERBOSE);
+                Logger(ex, LOG_LEVEL_VERBOSE);
+            });
     }
     async replicateFrom(remotePeer: string, showNotice: boolean = false, fromStart = false) {
         const logLevel = showNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
