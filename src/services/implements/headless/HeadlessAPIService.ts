@@ -45,6 +45,7 @@ export class HeadlessConfirm implements Confirm {
 }
 export class HeadlessAPIService<T extends ServiceContext> extends InjectableAPIService<T> {
     private _confirmInstance: Confirm;
+    private _systemVaultName: string | undefined;
     constructor(context: T) {
         super(context);
         this._confirmInstance = new HeadlessConfirm();
@@ -97,8 +98,51 @@ export class HeadlessAPIService<T extends ServiceContext> extends InjectableAPIS
         // In a browser environment, status bar item might not be applicable.
         return undefined;
     }
+
+    private toSafeKeyPart(value: string): string {
+        const trimmed = value.trim();
+        if (trimmed === "") {
+            return "vault";
+        }
+        return trimmed.replace(/[^a-zA-Z0-9._-]/g, "_");
+    }
+
+    private hash32(value: string): string {
+        // Simple FNV-1a hash to create a short stable suffix for key separation.
+        let hash = 0x811c9dc5;
+        for (let i = 0; i < value.length; i++) {
+            hash ^= value.charCodeAt(i);
+            hash = Math.imul(hash, 0x01000193);
+        }
+        return (hash >>> 0).toString(16).padStart(8, "0");
+    }
+
+    private deriveSystemVaultName(): string {
+        const contextLike = this.context as ServiceContext & { vaultPath?: string; vaultName?: string };
+        const explicitName = contextLike.vaultName;
+        if (typeof explicitName === "string" && explicitName.trim() !== "") {
+            return this.toSafeKeyPart(explicitName);
+        }
+
+        const vaultPath = contextLike.vaultPath;
+        if (typeof vaultPath === "string" && vaultPath.trim() !== "") {
+            const normalised = vaultPath.replace(/\\/g, "/").replace(/\/+$/, "");
+            const leaf =
+                normalised
+                    .split("/")
+                    .filter((e) => e !== "")
+                    .pop() ?? "vault";
+            return `${this.toSafeKeyPart(leaf)}-${this.hash32(normalised)}`;
+        }
+
+        return "headless-vault";
+    }
+
     getSystemVaultName(): string {
-        return ".livesync";
+        if (!this._systemVaultName) {
+            this._systemVaultName = this.deriveSystemVaultName();
+        }
+        return this._systemVaultName;
     }
 
     override get isOnline(): boolean {
