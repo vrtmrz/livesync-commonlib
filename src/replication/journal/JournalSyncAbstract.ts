@@ -318,7 +318,6 @@ export abstract class JournalSyncAbstract {
         const from = override || checkPointInfo.lastLocalSeq;
         Logger(`Journal reading from seq:${from}`, LOG_LEVEL_VERBOSE);
         let knownKeyCount = 0;
-        let sendKeyCount = 0;
         const allChangesTask = this.db.changes({
             live: false,
             since: override || from,
@@ -329,28 +328,18 @@ export abstract class JournalSyncAbstract {
             // conflicts: true,
             attachments: false,
             style: "all_docs",
-            filter: (doc: EntryDoc) => {
-                const key = this.getDocKey(doc);
-                if (this._currentCheckPointInfo.knownIDs.has(key)) {
-                    knownKeyCount++;
-                    return false;
-                }
-                if (this._currentCheckPointInfo.sentIDs.has(key)) {
-                    knownKeyCount++;
-                    return false;
-                }
-                sendKeyCount++;
-                return true;
-            },
+            // NOTE: Do NOT add a filter function here that tests the winning-revision doc.
+            // With style:"all_docs", each change entry can carry multiple leaf revisions
+            // (e.g. the winner plus a newly-created tombstone for a resolved conflict).
+            // A filter based on the winner's key would incorrectly suppress the entire entry
+            // even when one of the other leaf revisions (e.g. the tombstone) has never been
+            // sent.  Per-revision deduplication is handled correctly by the second filter
+            // applied after bulkGet below.
         });
         const allChanges = await allChangesTask;
         if (allChanges.results.length == 0) {
             return { changes: [], hasNext: false, packLastSeq: allChanges.last_seq };
         }
-        Logger(
-            `${sendKeyCount} items possibly needs to be sent (${knownKeyCount} keys has been received before)`,
-            LOG_LEVEL_DEBUG
-        );
         const bd = await this.db.bulkGet({
             docs: allChanges.results.map((e) => e.changes.map((change) => ({ id: e.id, rev: change.rev }))).flat(),
             revs: true,
@@ -375,6 +364,10 @@ export abstract class JournalSyncAbstract {
                 }
                 return true;
             }) as (EntryDoc & PouchDB.Core.GetMeta)[];
+        Logger(
+            `Checked ${allChanges.results.length} changed entries, selected ${docChanges.length} docs (${knownKeyCount} keys already known)`,
+            LOG_LEVEL_DEBUG
+        );
         return { changes: docChanges, hasNext, packLastSeq };
     }
 
