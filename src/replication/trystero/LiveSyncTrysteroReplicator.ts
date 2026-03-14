@@ -9,97 +9,208 @@ import {
     LOG_LEVEL_VERBOSE,
     type LOG_LEVEL,
     type NodeData,
+    SETTING_KEY_P2P_DEVICE_NAME,
 } from "../../common/types";
 import {
     LiveSyncAbstractReplicator,
     type LiveSyncReplicatorEnv,
     type RemoteDBStatus,
 } from "../LiveSyncAbstractReplicator";
-import type { TrysteroReplicator } from "./TrysteroReplicator";
+import { TrysteroReplicator } from "./TrysteroReplicator";
 import {
     EVENT_ADVERTISEMENT_RECEIVED,
     EVENT_P2P_CONNECTED,
-    EVENT_P2P_REQUEST_FORCE_OPEN,
+    P2PHost,
+    type AcceptanceDecision,
+    type RevokeAcceptanceDecision,
 } from "./TrysteroReplicatorP2PServer";
 import { $msg } from "../../common/i18n";
 import { delay } from "octagonal-wheels/promises";
-import type { ServiceHub } from "../../services/ServiceHub";
-
-// This is under so weird structure. We need to place this in the right place in the near future.
-
-let replicatorInstanceGetter: () => TrysteroReplicator | undefined = () => undefined;
-
-export function getReplicatorInstance() {
-    return replicatorInstanceGetter();
-}
-export function setReplicatorFunc(func: () => TrysteroReplicator | undefined) {
-    replicatorInstanceGetter = func;
-}
+import type { IServiceHub } from "../../services/base/IService";
+import type { Advertisement } from "./types";
 
 export interface LiveSyncTrysteroReplicatorEnv extends LiveSyncReplicatorEnv {
-    // $$saveSettingData(): void | Promise<void>;
-    services: ServiceHub;
-    settings: RemoteDBSettings;
+    services: IServiceHub;
 }
 
 export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
-    // env: LiveSyncTrysteroReplicatorEnv;
-
-    // NOTE: This is not used for P2P synchronisation. just for the sake of interface compatibility.
+    private _p2pHost?: P2PHost;
+    private _replicator?: TrysteroReplicator;
 
     override get isChunkSendingSupported(): boolean {
         return false;
     }
-    getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
+
+    getReplicationPBKDF2Salt(_setting: RemoteDBSettings, _refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
         return Promise.resolve(new Uint8Array(32));
     }
+
     terminateSync(): void {
-        // return Promise.resolve();
-        // throw new Error("Method not implemented.");
+        // no-op for P2P
     }
+
+    private _buildEnv() {
+        const services = this.env.services;
+        return {
+            get settings() {
+                return services.setting.currentSettings();
+            },
+            get db() {
+                return services.database.localDatabase.localDatabase;
+            },
+            get simpleStore() {
+                return services.keyValueDB.openSimpleStore("p2p-sync");
+            },
+            get deviceName() {
+                return (
+                    services.config.getSmallConfig(SETTING_KEY_P2P_DEVICE_NAME) || services.vault.getVaultName()
+                );
+            },
+            get platform() {
+                return services.API.getPlatform();
+            },
+            get confirm() {
+                return services.API.confirm;
+            },
+            processReplicatedDocs: async (docs: any[]) => {
+                await services.replication.parseSynchroniseResult(docs as any);
+            },
+        };
+    }
+
+    async open() {
+        if (this._replicator && this._p2pHost?.isServing) {
+            return;
+        }
+        try {
+            const env = this._buildEnv();
+            const host = new P2PHost(env as any);
+            const replicator = new TrysteroReplicator(env as any, host);
+            this._p2pHost = host;
+            this._replicator = replicator;
+            await replicator.open();
+        } catch (e) {
+            Logger(e instanceof Error ? e.message : "Error while opening P2P connection", LOG_LEVEL_NOTICE);
+            Logger(e, LOG_LEVEL_VERBOSE);
+            this._p2pHost = undefined;
+            this._replicator = undefined;
+        }
+    }
+
+    async close() {
+        if (this._replicator) {
+            this._replicator.disableBroadcastChanges();
+            await this._replicator.close();
+            this._replicator = undefined;
+        }
+        this._p2pHost = undefined;
+    }
+
+    closeReplication(): void {
+        this._replicator?.disconnectFromServer();
+    }
+
+    get server() {
+        return this._replicator?.server;
+    }
+
+    get knownAdvertisements() {
+        return this._replicator?.knownAdvertisements ?? [];
+    }
+
+    enableBroadcastChanges() {
+        this._replicator?.enableBroadcastChanges();
+    }
+
+    disableBroadcastChanges() {
+        this._replicator?.disableBroadcastChanges();
+    }
+
+    requestStatus() {
+        this._replicator?.requestStatus();
+    }
+
+    onNewPeer(peer: Advertisement) {
+        return this._replicator?.onNewPeer(peer);
+    }
+
+    onPeerLeaved(peerId: string) {
+        this._replicator?.onPeerLeaved(peerId);
+    }
+
+    async replicateFromCommand(showResult: boolean = false) {
+        await this._replicator?.replicateFromCommand(showResult);
+    }
+
+    async replicateFrom(peerId: string, showNotice: boolean = false) {
+        if (!this._replicator) throw new Error("P2P replicator is not open");
+        return await this._replicator.replicateFrom(peerId, showNotice);
+    }
+
+    async requestSynchroniseToPeer(peerId: string) {
+        if (!this._replicator) throw new Error("P2P replicator is not open");
+        return await this._replicator.requestSynchroniseToPeer(peerId);
+    }
+
+    async getRemoteConfig(peerId: string) {
+        if (!this._replicator) throw new Error("P2P replicator is not open");
+        return await this._replicator.getRemoteConfig(peerId);
+    }
+
+    watchPeer(peerId: string) {
+        this._replicator?.watchPeer(peerId);
+    }
+
+    unwatchPeer(peerId: string) {
+        this._replicator?.unwatchPeer(peerId);
+    }
+
+    async sync(peerId: string, showNotice: boolean = false) {
+        if (!this._replicator) throw new Error("P2P replicator is not open");
+        return await this._replicator.sync(peerId, showNotice);
+    }
+
+    async makeDecision(decision: AcceptanceDecision) {
+        await this._replicator?.server?.makeDecision(decision);
+    }
+
+    async revokeDecision(decision: RevokeAcceptanceDecision) {
+        await this._replicator?.server?.revokeDecision(decision);
+    }
+
+    async makeSureOpened() {
+        if (!this._replicator || !this._p2pHost?.isServing) {
+            await this.open();
+        }
+    }
+
     async openReplication(
-        setting: RemoteDBSettings,
-        keepAlive: boolean,
+        _setting: RemoteDBSettings,
+        _keepAlive: boolean,
         showResult: boolean,
-        ignoreCleanLock: boolean
+        _ignoreCleanLock: boolean
     ): Promise<void | boolean> {
         const logLevel = showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
-        const r = await this.getP2PConnection(logLevel);
-        if (!r) {
+        if (!this._replicator) {
+            Logger($msg("P2P.ReplicatorInstanceMissing"), logLevel);
             return false;
         }
-        await r.replicateFromCommand(showResult);
+        await this._replicator.makeSureOpened();
+        await this._replicator.replicateFromCommand(showResult);
     }
-    tryConnectRemote(setting: RemoteDBSettings, showResult?: boolean): Promise<boolean> {
-        // throw new Error("Method not implemented.");
+
+    tryConnectRemote(_setting: RemoteDBSettings, _showResult?: boolean): Promise<boolean> {
         return Promise.resolve(false);
     }
+
     replicateAllToServer(
-        setting: RemoteDBSettings,
-        showingNotice?: boolean,
-        sendChunksInBulkDisabled?: boolean
+        _setting: RemoteDBSettings,
+        _showingNotice?: boolean,
+        _sendChunksInBulkDisabled?: boolean
     ): Promise<boolean> {
-        // throw new Error("Method not implemented.");
         return Promise.resolve(false);
     }
-    async openP2P(logLevel: LOG_LEVEL) {
-        const r = getReplicatorInstance();
-        if (!r) {
-            Logger($msg("P2P.ReplicatorInstanceMissing"), logLevel);
-            return false;
-        }
-        await r.open();
-        return r;
-    }
-    async getP2PConnection(logLevel: LOG_LEVEL) {
-        const r = getReplicatorInstance();
-        if (!r) {
-            Logger($msg("P2P.ReplicatorInstanceMissing"), logLevel);
-            return false;
-        }
-        await r.makeSureOpened();
-        return r;
-    }
+
     async selectPeer(settingPeerName: string, r: TrysteroReplicator, logLevel: LOG_LEVEL): Promise<string | false> {
         const knownPeersOrg = r.server?.knownAdvertisements ?? [];
         let knownPeers: typeof knownPeersOrg;
@@ -110,11 +221,12 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             await Promise.race([delay(5000), eventHub.waitFor(EVENT_ADVERTISEMENT_RECEIVED)]);
             knownPeers = r.server?.knownAdvertisements ?? [];
         }
-        const message = `Rebuild from which peer?${settingPeerName ? `\n [*] indicates the peer you have selected before.` : ""}`;
+        const message =
+            "Rebuild from which peer?" +
+            (settingPeerName ? "\n [*] indicates the peer you have selected before." : "");
         const confirm = this.env.services.UI.confirm;
-        // const peerNames = knownPeers.map(e => e.name);
         const markedPeerNames = knownPeers.map(
-            (e) => `${e.name}\u2001${e.name == settingPeerName ? `[*]` : ""} (${e.peerId})`
+            (e) => e.name + "\u2001" + (e.name == settingPeerName ? "[*]" : "") + " (" + e.peerId + ")"
         );
         const options = [...markedPeerNames, "Refresh List", "Cancel"];
         const selected = await confirm.askSelectStringDialogue(message, options, {
@@ -131,28 +243,26 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         const selectedPeerName = selected.split("\u2001")[0];
         const peerId = knownPeers.find((e) => e.name == selectedPeerName)?.peerId;
         if (!peerId) {
-            Logger(`Failed to find peerId for ${selectedPeerName}`, logLevel);
+            Logger("Failed to find peerId for " + selectedPeerName, logLevel);
             return false;
         }
         return peerId;
     }
+
     async tryUntilSuccess<T>(func: () => Promise<T | false>, repeat: number, logLevel: LOG_LEVEL): Promise<T | false> {
         const confirm = this.env.services.UI.confirm;
         if (!confirm) {
-            Logger(`Cannot find confirm instance.`, logLevel);
-            return Promise.reject(`Cannot find confirm instance.`);
+            Logger("Cannot find confirm instance.", logLevel);
+            return Promise.reject("Cannot find confirm instance.");
         }
         let result;
         while (!result) {
             for (let i = 0; i < repeat; i++) {
                 try {
                     result = await func();
-                    if (result) {
-                        break;
-                    }
+                    if (result) break;
                 } catch (e) {
-                    // Logger(`Failed`, logLevel);
-                    Logger(`Error: ${e}`, logLevel);
+                    Logger("Error: " + e, logLevel);
                     result = false;
                 }
                 await delay(1000);
@@ -164,123 +274,111 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     async replicateAllFromServer(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean> {
         const logLevel = showingNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
         if (setting.P2P_Enabled == false) {
-            // const message = `Rebuild from which peer?${settingPeerName ? `\n [*] indicates the peer you have selected before.` : ""}`;
             const confirm = this.env.services.UI.confirm;
             if ((await confirm.askYesNoDialog($msg("P2P.DisabledButNeed"), {})) != "yes") {
                 Logger($msg("P2P.NotEnabled"), logLevel);
             }
             setting.P2P_Enabled = true;
-            this.env.settings.P2P_Enabled = true;
+            this.env.services.setting.currentSettings().P2P_Enabled = true;
             await this.env.services.setting.saveSettingData();
             await delay(100);
             return this.replicateAllFromServer(setting, showingNotice);
         }
-        // Establish P2P connection
-        eventHub.emitEvent(EVENT_P2P_REQUEST_FORCE_OPEN);
+        await this.open();
         await eventHub.waitFor(EVENT_P2P_CONNECTED);
-        // const somePeerAdArrived = eventHub.waitFor(EVENT_ADVERTISEMENT_RECEIVED);
 
         const peerFrom = setting.P2P_RebuildFrom;
-        const instance = getReplicatorInstance();
-        if (!instance) {
-            Logger(`Failed to get replicator instance.`, logLevel);
+        if (!this._replicator) {
+            Logger("Failed to get replicator instance.", logLevel);
             return false;
         }
-        instance.setOnSetup();
+        this._replicator.setOnSetup();
         try {
-            const r = await this.tryUntilSuccess(() => this.openP2P(logLevel), 10, logLevel);
+            const r = await this.tryUntilSuccess(
+                async () => {
+                    await this.makeSureOpened();
+                    return this._replicator ?? false;
+                },
+                10,
+                logLevel
+            );
             if (r === false) {
-                Logger(`Failed to open P2P connection.`, logLevel);
+                Logger("Failed to open P2P connection.", logLevel);
                 return false;
             }
-            // await Promise.race([somePeerAdArrived, delay(10000)]);
             const peerId = await this.selectPeer(peerFrom, r, logLevel);
             if (peerId === false) {
-                Logger(`Failed to connect peer.`, logLevel);
+                Logger("Failed to connect peer.", logLevel);
                 return false;
             }
-            this.env.settings.P2P_RebuildFrom = "";
-            Logger(`Fetching from peer ${peerId}.`, logLevel);
-
+            this.env.services.setting.currentSettings().P2P_RebuildFrom = "";
+            Logger("Fetching from peer " + peerId + ".", logLevel);
             const rep = await r.replicateFrom(peerId, showingNotice);
             if (rep.ok) {
-                Logger(`P2P Fetching has been succeed from ${peerId}.`, logLevel);
+                Logger("P2P Fetching has been succeed from " + peerId + ".", logLevel);
                 return true;
             } else {
-                Logger(`Failed to fetch from peer ${peerId}.`, logLevel);
+                Logger("Failed to fetch from peer " + peerId + ".", logLevel);
                 Logger(rep.error, LOG_LEVEL_VERBOSE);
                 return false;
             }
         } finally {
-            instance.clearOnSetup();
+            this._replicator?.clearOnSetup();
         }
     }
-    closeReplication(): void {
-        // throw new Error("Method not implemented.");
-        const r = getReplicatorInstance();
-        r?.disconnectFromServer();
-        return;
-    }
-    tryResetRemoteDatabase(setting: RemoteDBSettings): Promise<void> {
+
+    tryResetRemoteDatabase(_setting: RemoteDBSettings): Promise<void> {
         throw new Error("P2P replication does not support database reset.");
     }
-    tryCreateRemoteDatabase(setting: RemoteDBSettings): Promise<void> {
+    tryCreateRemoteDatabase(_setting: RemoteDBSettings): Promise<void> {
         throw new Error("P2P replication does not support database reset.");
     }
-    markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean): Promise<void> {
+    markRemoteLocked(_setting: RemoteDBSettings, _locked: boolean, _lockByClean: boolean): Promise<void> {
         throw new Error("P2P replication does not support database lock.");
     }
-    markRemoteResolved(setting: RemoteDBSettings): Promise<void> {
-        // This may requires to
+    markRemoteResolved(_setting: RemoteDBSettings): Promise<void> {
         Logger(
-            `Trying resolving remote-database-lock but P2P replication does not support database lock. This operation has been ignored`,
+            "Trying resolving remote-database-lock but P2P replication does not support database lock. This operation has been ignored",
             LOG_LEVEL_INFO
         );
         return Promise.resolve();
-        // throw new Error("P2P replication does not support database lock.");
     }
-    resetRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
+    resetRemoteTweakSettings(_setting: RemoteDBSettings): Promise<void> {
         throw new Error("P2P replication does not support resetting tweaks.");
     }
-    setPreferredRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
+    setPreferredRemoteTweakSettings(_setting: RemoteDBSettings): Promise<void> {
         Logger(
-            `Trying setting tweak values but P2P replication does not support to do this. This operation has been ignored`,
+            "Trying setting tweak values but P2P replication does not support to do this. This operation has been ignored",
             LOG_LEVEL_INFO
         );
         return Promise.resolve();
     }
-    fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]> {
+    fetchRemoteChunks(_missingChunks: string[], _showResult: boolean): Promise<false | EntryLeaf[]> {
         return Promise.resolve(false);
     }
-    getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus> {
+    getRemoteStatus(_setting: RemoteDBSettings): Promise<false | RemoteDBStatus> {
         Logger(
-            `Trying to get remote status but P2P replication does not support to do this. This operation has been ignored`,
+            "Trying to get remote status but P2P replication does not support to do this. This operation has been ignored",
             LOG_LEVEL_INFO
         );
         return Promise.resolve(false);
     }
-    getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<false | TweakValues> {
+    getRemotePreferredTweakValues(_setting: RemoteDBSettings): Promise<false | TweakValues> {
         Logger(
-            `Trying to get tweak values but P2P replication does not support to do this. This operation has been ignored`,
+            "Trying to get tweak values but P2P replication does not support to do this. This operation has been ignored",
             LOG_LEVEL_INFO
         );
         return Promise.resolve(false);
     }
-
-    /**
-     * Count the number of compromised chunks in the remote database. (Not supported)
-     * @returns The number of compromised chunks.
-     */
     countCompromisedChunks(): Promise<number> {
-        Logger(`P2P Replicator cannot count compromised chunks`, LOG_LEVEL_VERBOSE);
+        Logger("P2P Replicator cannot count compromised chunks", LOG_LEVEL_VERBOSE);
         return Promise.resolve(0);
     }
-
     getConnectedDeviceList(
-        setting?: RemoteDBSettings
+        _setting?: RemoteDBSettings
     ): Promise<false | { node_info: Record<string, NodeData>; accepted_nodes: string[] }> {
         Logger(
-            `Trying to get connected device list but P2P replication does not support to do this. This operation has been ignored`,
+            "Trying to get connected device list but P2P replication does not support to do this. This operation has been ignored",
             LOG_LEVEL_INFO
         );
         return Promise.resolve(false);
@@ -290,6 +388,5 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     constructor(env: LiveSyncTrysteroReplicatorEnv) {
         super(env);
         this.env = env;
-        // Stub.
     }
 }

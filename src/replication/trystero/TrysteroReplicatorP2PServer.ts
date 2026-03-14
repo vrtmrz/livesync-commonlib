@@ -519,3 +519,5 @@ You can chose as follows:
         return client;
     }
 }
+
+export { TrysteroReplicatorP2PServer as P2PHost };

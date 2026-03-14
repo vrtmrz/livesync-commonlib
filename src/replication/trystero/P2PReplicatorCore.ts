@@ -1,13 +1,11 @@
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
 
-import { $msg } from "../../common/i18n";
 import { type EntryDoc, type LOG_LEVEL, type P2PSyncSetting } from "../../common/types";
 import { reactiveSource, type ReactiveSource } from "octagonal-wheels/dataobject/reactive";
 import { EVENT_DATABASE_REBUILT, EVENT_SETTING_SAVED } from "../../events/coreEvents";
 import { eventHub } from "../../hub/hub";
 import type { Confirm } from "../../interfaces/Confirm";
-import { setReplicatorFunc } from "./LiveSyncTrysteroReplicator";
-import type { CommandShim } from "./P2PReplicatorPaneCommon";
+import { LiveSyncTrysteroReplicator, type LiveSyncTrysteroReplicatorEnv } from "./LiveSyncTrysteroReplicator";
 import { type P2PReplicationProgress } from "./TrysteroReplicator";
 import {
     EVENT_ADVERTISEMENT_RECEIVED,
@@ -15,59 +13,37 @@ import {
     EVENT_P2P_CONNECTED,
     EVENT_P2P_DISCONNECTED,
     EVENT_P2P_REPLICATOR_PROGRESS,
-    EVENT_P2P_REQUEST_FORCE_OPEN,
     EVENT_REQUEST_STATUS,
 } from "./TrysteroReplicatorP2PServer";
 import type { InjectableServiceHub } from "../../services/InjectableServices";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
+import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 
-export function setP2PReplicatorInstance(instance: CommandShim) {
-    setReplicatorFunc(() => instance._replicatorInstance);
-}
-
-export function removeP2PReplicatorInstance() {
-    setReplicatorFunc(() => undefined);
-}
-
-export function addP2PEventHandlers(instance: CommandShim) {
-    eventHub.onEvent(EVENT_ADVERTISEMENT_RECEIVED, (peerId) => instance._replicatorInstance?.onNewPeer(peerId));
-    eventHub.onEvent(EVENT_DEVICE_LEAVED, (info) => instance._replicatorInstance?.onPeerLeaved(info));
+export function addP2PEventHandlers(instance: LiveSyncTrysteroReplicator) {
+    eventHub.onEvent(EVENT_ADVERTISEMENT_RECEIVED, (peer) => instance.onNewPeer(peer));
+    eventHub.onEvent(EVENT_DEVICE_LEAVED, (peerId) => instance.onPeerLeaved(peerId));
     eventHub.onEvent(EVENT_REQUEST_STATUS, () => {
-        instance._replicatorInstance?.requestStatus();
+        instance.requestStatus();
     });
     eventHub.onEvent(EVENT_DATABASE_REBUILT, async () => {
-        await instance.initialiseP2PReplicator();
-    });
-    eventHub.onEvent(EVENT_P2P_REQUEST_FORCE_OPEN, () => {
-        // Only `shim` has this method, why?
-        // TODO: Check if this is a bug
-        void instance.open();
+        await instance.open();
     });
     eventHub.onEvent(EVENT_PLATFORM_UNLOADED, () => {
         void instance.close();
     });
-    eventHub.onEvent(EVENT_SETTING_SAVED, async (settings: P2PSyncSetting) => {
-        // this.plugin.settings = settings; // Only `shim` has this. seems not needed.
-        await instance.initialiseP2PReplicator();
+    eventHub.onEvent(EVENT_SETTING_SAVED, async (_settings: P2PSyncSetting) => {
+        await instance.open();
     });
 }
 
-export async function openP2PReplicator(instance: CommandShim) {
-    if (!instance.settings.P2P_Enabled) {
-        instance._notice($msg("P2P.NotEnabled"));
-        return;
-    }
-
-    if (!instance._replicatorInstance) {
-        await instance.initialiseP2PReplicator();
-        await instance._replicatorInstance!.open();
-    } else {
-        await instance._replicatorInstance?.open();
+export async function openP2PReplicator(instance: LiveSyncTrysteroReplicator) {
+    if (!instance.server?.isServing) {
+        await instance.open();
     }
 }
-export async function closeP2PReplicator(instance: CommandShim) {
-    await instance._replicatorInstance?.close();
-    instance._replicatorInstance = undefined;
+
+export async function closeP2PReplicator(instance: LiveSyncTrysteroReplicator) {
+    await instance.close();
 }
 
 export class P2PLogCollector {
@@ -168,4 +144,66 @@ export interface P2PReplicatorBase {
     init(): Promise<this>;
 
     services: InjectableServiceHub;
+}
+
+export type UseP2PReplicatorResult = {
+    replicator: LiveSyncTrysteroReplicator;
+    p2pLogCollector: P2PLogCollector;
+    storeP2PStatusLine: ReactiveSource<string>;
+};
+
+/**
+ * ServiceFeature: P2P Replicator lifecycle management.
+ * Binds a LiveSyncTrysteroReplicator to the host's lifecycle events,
+ * following the same middleware style as useOfflineScanner.
+ */
+export function useP2PReplicator(
+    host: NecessaryServices<
+        | "API"
+        | "appLifecycle"
+        | "setting"
+        | "vault"
+        | "database"
+        | "databaseEvents"
+        | "keyValueDB"
+        | "replication"
+        | "config"
+        | "UI"
+        | "replicator",
+        never
+    >
+): UseP2PReplicatorResult {
+
+    const env: LiveSyncTrysteroReplicatorEnv = { services: host.services as any };
+    const replicator = new LiveSyncTrysteroReplicator(env);
+    addP2PEventHandlers(replicator);
+
+    const p2pLogCollector = new P2PLogCollector();
+    const storeP2PStatusLine = reactiveSource("");
+    p2pLogCollector.p2pReplicationLine.onChanged((line) => {
+        storeP2PStatusLine.value = line.value;
+    });
+
+    // Lifecycle bindings
+    host.services.appLifecycle.onResumed.addHandler( () => {
+        const settings = host.services.setting.currentSettings();
+        if (settings.P2P_Enabled && settings.P2P_AutoStart) {
+            setTimeout(() => void replicator.open(), 100);
+        }
+        return Promise.resolve(true);
+    });
+
+    host.services.appLifecycle.onSuspending.addHandler(async () => {
+        await replicator.close();
+        return true;
+    });
+
+    host.services.databaseEvents.onDatabaseInitialisation.addHandler(async () => {
+        await replicator.close();
+        return true;
+    });
+
+    // _log("useP2PReplicator initialized");
+
+    return { replicator, p2pLogCollector, storeP2PStatusLine };
 }

@@ -9,7 +9,7 @@ import { delay, fireAndForget } from "octagonal-wheels/promises";
 import {
     EVENT_P2P_REPLICATOR_PROGRESS,
     EVENT_P2P_REPLICATOR_STATUS,
-    type TrysteroReplicatorP2PServer,
+    P2PHost,
 } from "./TrysteroReplicatorP2PServer";
 import { eventHub } from "../../hub/hub";
 import { encryptWithEphemeralSalt, decryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
@@ -90,7 +90,7 @@ async function getHashedStringWithCurrentTime(source: string) {
 export class TrysteroReplicator {
     _env: ReplicatorHostEnv;
 
-    server?: TrysteroReplicatorP2PServer;
+    server?: P2PHost;
     replicationStatus() {
         return {};
     }
@@ -111,8 +111,12 @@ export class TrysteroReplicator {
         return this._env.confirm;
     }
 
-    constructor(env: ReplicatorHostEnv) {
+    constructor(env: ReplicatorHostEnv, server?: P2PHost) {
         this._env = env;
+        if (server) {
+            this.server = server;
+            return;
+        }
         try {
             if (!this.settings.P2P_Enabled) {
                 Logger("P2P is not enabled", LOG_LEVEL_VERBOSE);
