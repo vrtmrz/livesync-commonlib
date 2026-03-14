@@ -6,11 +6,7 @@ import { type Advertisement, type ReplicatorHostEnv } from "./types";
 import { TrysteroConnection } from "./TrysteroReplicatorP2PConnection";
 import { scheduleOnceIfDuplicated, serialized, skipIfDuplicated } from "octagonal-wheels/concurrency/lock_v2";
 import { delay, fireAndForget } from "octagonal-wheels/promises";
-import {
-    EVENT_P2P_REPLICATOR_PROGRESS,
-    EVENT_P2P_REPLICATOR_STATUS,
-    P2PHost,
-} from "./TrysteroReplicatorP2PServer";
+import { EVENT_P2P_REPLICATOR_PROGRESS, EVENT_P2P_REPLICATOR_STATUS, P2PHost } from "./TrysteroReplicatorP2PServer";
 import { eventHub } from "../../hub/hub";
 import { encryptWithEphemeralSalt, decryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
 import { $msg } from "../../common/i18n";

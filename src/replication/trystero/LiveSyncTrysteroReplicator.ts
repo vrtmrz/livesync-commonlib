@@ -62,9 +62,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
                 return services.keyValueDB.openSimpleStore("p2p-sync");
             },
             get deviceName() {
-                return (
-                    services.config.getSmallConfig(SETTING_KEY_P2P_DEVICE_NAME) || services.vault.getVaultName()
-                );
+                return services.config.getSmallConfig(SETTING_KEY_P2P_DEVICE_NAME) || services.vault.getVaultName();
             },
             get platform() {
                 return services.API.getPlatform();
@@ -222,8 +220,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             knownPeers = r.server?.knownAdvertisements ?? [];
         }
         const message =
-            "Rebuild from which peer?" +
-            (settingPeerName ? "\n [*] indicates the peer you have selected before." : "");
+            "Rebuild from which peer?" + (settingPeerName ? "\n [*] indicates the peer you have selected before." : "");
         const confirm = this.env.services.UI.confirm;
         const markedPeerNames = knownPeers.map(
             (e) => e.name + "\u2001" + (e.name == settingPeerName ? "[*]" : "") + " (" + e.peerId + ")"
