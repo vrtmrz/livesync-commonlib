@@ -217,7 +217,8 @@ export class TrysteroReplicator {
                 if (this._onSetup) {
                     return { error: new Error("The setup is in progress") };
                 }
-                return await this.replicateFrom(fromPeerId);
+                const result = await this.replicateFrom(fromPeerId);
+                return result;
             },
             "!reqAuth": async (fromPeerId: string) => {
                 return await this.server?.isAcceptablePeer(fromPeerId);
@@ -340,11 +341,17 @@ export class TrysteroReplicator {
     lastSeq = "" as string | number;
     async requestSynchroniseToPeer(
         peerId: string
-    ): Promise<ReturnType<ReturnType<typeof this.getCommands>["reqSync"]>> {
+    ): Promise<Awaited<ReturnType<ReturnType<typeof this.getCommands>["reqSync"]>>> {
         await delay(25);
         if (!this.server) throw new Error("Server is not available");
+        // Logger(`P2P requesting remote sync from ${peerId}`, LOG_LEVEL_NOTICE, "p2p-replicator");
         const conn = this.server.getConnection(peerId);
-        return await conn.invokeRemoteFunction("reqSync", [this.server.serverPeerId], 0);
+        const result = await conn.invokeRemoteFunction<
+            [string],
+            Awaited<ReturnType<ReturnType<typeof this.getCommands>["reqSync"]>>
+        >("reqSync", [this.server.serverPeerId], 0);
+        // Logger(`P2P remote sync request returned from ${peerId}`, LOG_LEVEL_NOTICE, "p2p-replicator");
+        return result;
     }
 
     async requestSynchroniseToAllAvailablePeers() {
@@ -444,6 +451,7 @@ export class TrysteroReplicator {
             Logger("Error while syncing from the remote", logLevel, "p2p-replicator");
             Logger(res.error, LOG_LEVEL_VERBOSE);
         }
+        // Logger(`P2P sync finished with ${remotePeer}`, LOG_LEVEL_NOTICE, "p2p-replicator");
     }
 
     _replicateToPeers = new Set<string>();
@@ -557,6 +565,21 @@ export class TrysteroReplicator {
             }
             const connection = this.server.getConnection(remotePeer);
             const remoteDB = connection.remoteDB;
+            Logger(`P2P replicateFrom preparing remote DB info for ${remotePeer}`, LOG_LEVEL_VERBOSE, "p2p-replicator");
+            const remoteDBInfo = await remoteDB.info();
+            Logger(
+                `P2P replicateFrom remote DB info for ${remotePeer}: ${remoteDBInfo.db_name} seq=${remoteDBInfo.update_seq}`,
+                LOG_LEVEL_VERBOSE,
+                "p2p-replicator"
+            );
+            const localDBInfo = await this.db.info();
+            Logger(
+                `P2P replicateFrom local DB info for ${remotePeer}: ${localDBInfo.db_name} seq=${localDBInfo.update_seq}`,
+                LOG_LEVEL_VERBOSE,
+                "p2p-replicator"
+            );
+            Logger(`P2P replicateFrom entering replicateShim for ${remotePeer}`, LOG_LEVEL_VERBOSE, "p2p-replicator");
+            // const batchSize = 8;
             await replicateShim(
                 this.db,
                 remoteDB as PouchDBShim<any>,
@@ -571,8 +594,9 @@ export class TrysteroReplicator {
                         "p2p-replicator"
                     );
                 },
-                { live: false, rewind: fromStart }
+                { live: false, rewind: fromStart /*, batch_size: batchSize */ }
             );
+            Logger(`P2P replicateFrom replicateShim returned for ${remotePeer}`, LOG_LEVEL_VERBOSE, "p2p-replicator");
             void this.acknowledgeProgress(remotePeer, undefined);
             Logger(`P2P Replication from ${remotePeer} has been completed`, logLevel, "p2p-replicator");
         } catch (e) {

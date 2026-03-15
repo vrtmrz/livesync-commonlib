@@ -244,6 +244,7 @@ Target: ${targetDBInfo.db_name} (${targetDBInfo.update_seq})`;
     } catch (ex) {
         Logger(`Failed to replicate the database`, LOG_LEVEL_VERBOSE);
         Logger(ex, LOG_LEVEL_VERBOSE);
+        throw ex;
     }
     Logger(`Replication has been completed`, LOG_LEVEL_VERBOSE);
 }

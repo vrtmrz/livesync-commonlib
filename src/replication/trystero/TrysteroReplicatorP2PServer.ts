@@ -61,6 +61,7 @@ export const EVENT_P2P_CONNECTED = "p2p-connected";
 export const EVENT_P2P_DISCONNECTED = "p2p-disconnected";
 export const EVENT_P2P_REPLICATOR_STATUS = "p2p-replicator-status";
 export const EVENT_P2P_REPLICATOR_PROGRESS = "p2p-replicator-progress";
+// const ADVERTISEMENT_REBROADCAST_INTERVAL_MS = 25000;
 declare global {
     interface LSEvents {
         [EVENT_SERVER_STATUS]: P2PServerInfo;
@@ -200,6 +201,7 @@ export class TrysteroReplicatorP2PServer {
     }
 
     _sendAdvertisement?: ActionSender<Advertisement>;
+    // _advertisementTimer?: ReturnType<typeof setInterval>;
     sendAdvertisement(peerId?: string) {
         if (!this.isEnabled) return;
         const devInfo = this.deviceInfo;
@@ -213,6 +215,25 @@ export class TrysteroReplicatorP2PServer {
             void this._sendAdvertisement(data, peerId);
         }
     }
+
+    // startAdvertisementBroadcast() {
+    //     if (this._advertisementTimer) {
+    //         clearInterval(this._advertisementTimer);
+    //     }
+    //     this._advertisementTimer = setInterval(() => {
+    //         if (!this.isServing || !this.isEnabled) {
+    //             return;
+    //         }
+    //         this.sendAdvertisement();
+    //     }, ADVERTISEMENT_REBROADCAST_INTERVAL_MS);
+    // }
+
+    // stopAdvertisementBroadcast() {
+    //     if (this._advertisementTimer) {
+    //         clearInterval(this._advertisementTimer);
+    //         this._advertisementTimer = undefined;
+    //     }
+    // }
 
     _knownAdvertisements = new Map<string, Advertisement>();
     get knownAdvertisements() {
@@ -413,6 +434,7 @@ You can chose as follows:
             this.serveObject(b);
         });
         await this.sendAdvertisement();
+        // this.startAdvertisementBroadcast();
     }
 
     async start(bindings: BindableObject<any>[] = []) {
@@ -495,6 +517,7 @@ You can chose as follows:
         }
     }
     async close() {
+        // this.stopAdvertisementBroadcast();
         this.assignedFunctions.clear();
         const peers = this.room?.getPeers() ?? {};
         this.clients.forEach((client) => client.close());

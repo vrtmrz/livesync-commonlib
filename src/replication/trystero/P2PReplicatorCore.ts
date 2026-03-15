@@ -17,7 +17,7 @@ import {
 import type { InjectableServiceHub } from "../../services/InjectableServices";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
-import { Logger, LOG_LEVEL_NOTICE } from "../../common/logger";
+import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../../common/logger";
 
 export function addP2PEventHandlers(instance: LiveSyncTrysteroReplicator) {
     eventHub.onEvent(EVENT_ADVERTISEMENT_RECEIVED, (peer) => instance.onNewPeer(peer));
@@ -180,8 +180,13 @@ export function useP2PReplicator(
     viewTypeAndFactory?: [viewType: string, factory: P2PViewFactory]
 ): UseP2PReplicatorResult {
     const env: LiveSyncTrysteroReplicatorEnv = { services: host.services as any };
-    const replicator = new LiveSyncTrysteroReplicator(env);
-    addP2PEventHandlers(replicator);
+    let replicator = new LiveSyncTrysteroReplicator(env);
+    const activeReplicator = {
+        get instance() {
+            return replicator;
+        },
+    };
+    addP2PEventHandlers(activeReplicator.instance);
 
     const p2pLogCollector = new P2PLogCollector();
     const storeP2PStatusLine = reactiveSource("");
@@ -225,10 +230,20 @@ export function useP2PReplicator(
     });
 
     // New replicator factory
-    host.services.replicator.getNewReplicator.addHandler((settingOverride: Partial<any> = {}) => {
+    host.services.replicator.getNewReplicator.addHandler(async (settingOverride: Partial<any> = {}) => {
         const settings = { ...host.services.setting.currentSettings(), ...settingOverride };
         if (settings.remoteType == REMOTE_P2P) {
-            return Promise.resolve(new LiveSyncTrysteroReplicator({ services: host.services as any }));
+            // Returning replicator instance directly here
+            // return Promise.resolve(replicator);
+            try {
+                await replicator.close();
+            } catch (e) {
+                Logger(`Error closing existing p2p replicator`);
+                Logger(e, LOG_LEVEL_VERBOSE);
+            }
+            const newReplicator = new LiveSyncTrysteroReplicator({ services: host.services as any });
+            replicator = newReplicator; // Update the replicator reference for lifecycle handlers
+            return Promise.resolve(replicator);
         }
         return undefined!;
     });

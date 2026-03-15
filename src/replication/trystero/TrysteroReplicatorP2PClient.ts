@@ -4,6 +4,7 @@ import type { EntryDoc } from "../../common/types";
 import type { PouchDBShim } from "../../pouchdb/ReplicatorShim";
 import type { TrysteroReplicatorP2PServer } from "./TrysteroReplicatorP2PServer";
 import {
+    BULK_GET_RPC_TIMEOUT,
     DEFAULT_RPC_TIMEOUT,
     type Request,
     DIRECTION_REQUEST,
@@ -34,7 +35,7 @@ export class TrysteroReplicatorP2PClient {
             changes: this.bindRemoteFunction("changes"),
             revsDiff: this.bindRemoteFunction("revsDiff"),
             bulkDocs: this.bindRemoteFunction("bulkDocs"),
-            bulkGet: this.bindRemoteFunction("bulkGet"),
+            bulkGet: this.bindRemoteFunction("bulkGet", BULK_GET_RPC_TIMEOUT),
             put: this.bindRemoteFunction("put"),
             get: this.bindRemoteFunction("get"),
         } as PouchDBShim<EntryDoc>;
