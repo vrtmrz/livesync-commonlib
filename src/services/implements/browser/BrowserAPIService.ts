@@ -96,45 +96,20 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
             // Very sample log panel implementation, just for development and debugging purpose. It will be improved later, and maybe even support some features like log level filtering.
             panel = document.createElement("div");
             panel.id = "livesync-log-panel";
-            panel.style.position = "fixed";
-            panel.style.left = "0";
-            panel.style.right = "0";
-            panel.style.bottom = "0";
-            panel.style.height = "42vh";
-            panel.style.zIndex = "900";
-            panel.style.display = "flex";
-            panel.style.flexDirection = "column";
-            panel.style.background = "#0f172a";
-            panel.style.borderTop = "1px solid #334155";
 
             const header = document.createElement("div");
             header.textContent = "LiveSync Logs";
-            header.style.padding = "8px 12px";
-            header.style.fontSize = "12px";
-            header.style.fontWeight = "600";
-            header.style.color = "#e2e8f0";
-            header.style.background = "#111827";
-            header.style.borderBottom = "1px solid #334155";
+            header.className = "livesync-log-header";
 
             viewport = document.createElement("div");
             viewport.id = "livesync-log-viewport";
-            viewport.style.flex = "1";
-            viewport.style.overflow = "auto";
-            viewport.style.padding = "8px 12px";
-            viewport.style.fontFamily = "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace";
-            viewport.style.fontSize = "12px";
-            viewport.style.lineHeight = "1.4";
-            viewport.style.color = "#e2e8f0";
-            viewport.style.whiteSpace = "pre-wrap";
-            viewport.style.wordBreak = "break-word";
 
             panel.appendChild(header);
             panel.appendChild(viewport);
             document.body.appendChild(panel);
         }
 
-        document.body.style.minHeight = "100vh";
-        document.body.style.paddingBottom = "42vh";
+        document.body.classList.add("livesync-log-visible");
 
         this.logPanel = panel;
         this.logViewport = viewport;
@@ -169,7 +144,7 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
 
         const line = document.createElement("div");
         line.textContent = this.formatLogLine(message, level, key);
-        line.style.marginBottom = "2px";
+        line.className = "livesync-log-line";
 
         this.logViewport.appendChild(line);
 
@@ -189,18 +164,6 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
         if (!host) {
             host = document.createElement("div");
             host.id = "livesync-command-bar";
-            host.style.position = "fixed";
-            host.style.right = "16px";
-            host.style.bottom = "16px";
-            host.style.zIndex = "1000";
-            host.style.display = "flex";
-            host.style.flexWrap = "wrap";
-            host.style.gap = "8px";
-            host.style.maxWidth = "40vw";
-            host.style.padding = "10px";
-            host.style.borderRadius = "10px";
-            host.style.background = "rgba(255,255,255,0.95)";
-            host.style.boxShadow = "0 4px 16px rgba(0,0,0,0.2)";
             document.body.appendChild(host);
         }
 
@@ -217,33 +180,12 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
         if (!root) {
             root = document.createElement("div");
             root.id = "livesync-window-root";
-            root.style.position = "fixed";
-            root.style.top = "16px";
-            root.style.left = "16px";
-            root.style.right = "16px";
-            root.style.bottom = "calc(42vh + 16px)";
-            root.style.zIndex = "850";
-            root.style.display = "flex";
-            root.style.flexDirection = "column";
-            root.style.borderRadius = "10px";
-            root.style.background = "rgba(255,255,255,0.98)";
-            root.style.boxShadow = "0 4px 16px rgba(0,0,0,0.18)";
-            root.style.overflow = "hidden";
 
             const tabs = document.createElement("div");
             tabs.id = "livesync-window-tabs";
-            tabs.style.display = "flex";
-            tabs.style.gap = "6px";
-            tabs.style.padding = "8px";
-            tabs.style.background = "#f3f4f6";
-            tabs.style.borderBottom = "1px solid #e5e7eb";
 
             const body = document.createElement("div");
             body.id = "livesync-window-body";
-            body.style.position = "relative";
-            body.style.flex = "1";
-            body.style.overflow = "auto";
-            body.style.padding = "10px";
 
             root.appendChild(tabs);
             root.appendChild(body);
@@ -267,12 +209,7 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
         tab.type = "button";
         tab.dataset.windowTab = type;
         tab.textContent = type;
-        tab.style.border = "1px solid #d1d5db";
-        tab.style.background = "#fff";
-        tab.style.padding = "4px 8px";
-        tab.style.borderRadius = "6px";
-        tab.style.cursor = "pointer";
-        tab.style.fontSize = "12px";
+        tab.className = "livesync-window-tab";
         tab.onclick = () => {
             void this.showWindow(type);
         };
@@ -290,10 +227,7 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
         // Very sample implementation, just for development and debugging purpose. It will be improved later.
         const panel = document.createElement("div");
         panel.dataset.windowPanel = type;
-        panel.style.display = "none";
-        panel.style.width = "100%";
-        panel.style.height = "100%";
-        panel.style.overflow = "auto";
+        panel.className = "livesync-window-panel";
 
         this.windowBody!.appendChild(panel);
         this.windowPanels.set(type, panel);
@@ -304,14 +238,13 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
     private activateWindow(type: string): void {
         this.activeWindowType = type;
         for (const [windowType, panel] of this.windowPanels.entries()) {
-            panel.style.display = windowType === type ? "block" : "none";
+            panel.classList.toggle("is-active", windowType === type);
         }
 
         const tabs = this.windowTabs?.querySelectorAll("button[data-window-tab]") ?? [];
         tabs.forEach((tab) => {
             const isActive = (tab as HTMLButtonElement).dataset.windowTab === type;
-            (tab as HTMLButtonElement).style.background = isActive ? "#e0e7ff" : "#fff";
-            (tab as HTMLButtonElement).style.borderColor = isActive ? "#818cf8" : "#d1d5db";
+            (tab as HTMLButtonElement).classList.toggle("is-active", isActive);
         });
     }
 
@@ -366,7 +299,7 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
             }
             const enabled = this.evaluateEnabled(command);
             button.disabled = !enabled;
-            button.style.opacity = enabled ? "1" : "0.55";
+            button.classList.toggle("is-disabled", !enabled);
             if (!enabled && !button.title) {
                 button.title = id;
             }
@@ -381,22 +314,7 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
         if (!button) {
             button = document.createElement("button");
             button.type = "button";
-            button.style.border = "1px solid #ddd";
-            button.style.borderRadius = "8px";
-            button.style.padding = "6px 10px";
-            button.style.background = "#fff";
-            button.style.cursor = "pointer";
-            button.style.fontSize = "12px";
-            button.style.lineHeight = "1.2";
-            button.style.whiteSpace = "nowrap";
-            button.onmouseenter = () => {
-                if (!button!.disabled) {
-                    button!.style.background = "#f3f4f6";
-                }
-            };
-            button.onmouseleave = () => {
-                button!.style.background = "#fff";
-            };
+            button.className = "livesync-command-button";
             bar.appendChild(button);
             this.commandButtons.set(key, button);
         }
@@ -408,7 +326,7 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
 
         const enabled = this.evaluateEnabled(command);
         button.disabled = !enabled;
-        button.style.opacity = enabled ? "1" : "0.55";
+        button.classList.toggle("is-disabled", !enabled);
 
         queueMicrotask(() => this.refreshCommandStates());
 
