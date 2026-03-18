@@ -5,6 +5,7 @@ import type { IAPIService, ICommandCompat } from "../../base/IService";
 import { handlers } from "../../lib/HandlerUtils";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import { BrowserConfirm } from "./BrowserConfirm";
+import { LOG_LEVEL_VERBOSE } from "@/lib/src/common/logger";
 export declare const PACKAGE_VERSION: string;
 export declare const MANIFEST_VERSION: string;
 
@@ -27,7 +28,9 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
         super(context);
         this._confirmInstance = new BrowserConfirm(context);
         this.addLog.setHandler((message, level, key) => {
-            this.appendLog(message, level, key);
+            if (level >= LOG_LEVEL_VERBOSE) {
+                this.appendLog(message, level, key);
+            }
         });
     }
     get confirm(): Confirm {
@@ -277,6 +280,11 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
     }
 
     private executeCommand(command: ICommandCompat): void {
+        const enabled = this.evaluateEnabled(command);
+        if (!enabled) {
+            console.warn(`[BrowserAPIService] Command is not enabled: ${command.id}`);
+            return;
+        }
         try {
             if (command.checkCallback) {
                 const canRun = command.checkCallback(false);
@@ -328,11 +336,7 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
         (button as any).__command = command;
         button.onclick = () => this.executeCommand(command);
 
-        const enabled = this.evaluateEnabled(command);
-        button.disabled = !enabled;
-        button.classList.toggle("is-disabled", !enabled);
-
-        queueMicrotask(() => this.refreshCommandStates());
+        // queueMicrotask(() => this.refreshCommandStates());
 
         return command;
     }

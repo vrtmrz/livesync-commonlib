@@ -9,8 +9,10 @@ export class ShimModal {
     titleEl: HTMLElement;
     modalEl: HTMLElement;
     isOpen: boolean = false;
-
+    baseEl: HTMLElement;
     constructor() {
+        const baseEl = document.createElement("popup");
+        this.baseEl = baseEl;
         this.contentEl = document.createElement("div");
         this.contentEl.className = "modal-content";
         this.titleEl = document.createElement("div");
@@ -20,18 +22,20 @@ export class ShimModal {
         this.modalEl.style.display = "none";
         this.modalEl.appendChild(this.titleEl);
         this.modalEl.appendChild(this.contentEl);
+        this.baseEl.appendChild(this.modalEl);
     }
     open() {
         this.isOpen = true;
         this.modalEl.style.display = "block";
-        if (!this.modalEl.parentElement) {
-            document.body.appendChild(this.modalEl);
+        if (!this.baseEl.parentElement) {
+            document.body.appendChild(this.baseEl);
         }
         this.onOpen();
     }
     close() {
         this.isOpen = false;
-        this.modalEl.style.display = "none";
+        this.baseEl.style.display = "none";
+        this.baseEl.remove();
         this.onClose();
     }
     onOpen() {}
