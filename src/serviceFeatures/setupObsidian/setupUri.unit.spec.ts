@@ -17,7 +17,7 @@ describe("setupObsidian/setupUri", () => {
     });
 
     it("askEncryptingPassphrase should delegate to confirm.askString", async () => {
-        const askString = vi.fn(async () => "secret");
+        const askString = vi.fn(() => "secret");
         const host = {
             services: {
                 UI: {
@@ -42,7 +42,7 @@ describe("setupObsidian/setupUri", () => {
                 },
                 UI: {
                     confirm: {
-                        askString: vi.fn(async () => false),
+                        askString: vi.fn(() => false),
                     },
                     promptCopyToClipboard,
                 },
@@ -58,7 +58,7 @@ describe("setupObsidian/setupUri", () => {
     });
 
     it("copySetupURI should encode with short mode by default", async () => {
-        const promptCopyToClipboard = vi.fn(async () => true);
+        const promptCopyToClipboard = vi.fn(() => true);
         const currentSettings = { pluginSyncExtendedSetting: true, x: 1 };
         const host = {
             services: {
@@ -67,7 +67,7 @@ describe("setupObsidian/setupUri", () => {
                 },
                 UI: {
                     confirm: {
-                        askString: vi.fn(async () => "pass"),
+                        askString: vi.fn(() => "pass"),
                     },
                     promptCopyToClipboard,
                 },
@@ -89,7 +89,7 @@ describe("setupObsidian/setupUri", () => {
     });
 
     it("copySetupURIFull should encode with full mode", async () => {
-        const promptCopyToClipboard = vi.fn(async () => true);
+        const promptCopyToClipboard = vi.fn(() => true);
         const currentSettings = { pluginSyncExtendedSetting: true, x: 1 };
         const host = {
             services: {
@@ -98,7 +98,7 @@ describe("setupObsidian/setupUri", () => {
                 },
                 UI: {
                     confirm: {
-                        askString: vi.fn(async () => "pass-full"),
+                        askString: vi.fn(() => "pass-full"),
                     },
                     promptCopyToClipboard,
                 },
@@ -135,9 +135,9 @@ describe("setupObsidian/setupUri", () => {
                 },
                 UI: {
                     confirm: {
-                        askString: vi.fn(async () => "pass"),
+                        askString: vi.fn(() => "pass"),
                     },
-                    promptCopyToClipboard: vi.fn(async () => true),
+                    promptCopyToClipboard: vi.fn(() => true),
                 },
             },
         } as any;

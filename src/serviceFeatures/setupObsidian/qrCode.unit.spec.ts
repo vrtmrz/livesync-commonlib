@@ -52,7 +52,7 @@ describe("setupObsidian/qrCode", () => {
     });
 
     it("encodeSetupSettingsAsQR should show confirm dialog when QR is generated", async () => {
-        const confirmWithMessage = vi.fn(async () => true);
+        const confirmWithMessage = vi.fn(() => true);
         const host = {
             services: {
                 setting: {
