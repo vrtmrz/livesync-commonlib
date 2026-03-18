@@ -74,7 +74,7 @@ export function onNotifyRemoteSizeExceedFactory(
 ) {
     return async () => {
         const settings = host.services.setting.currentSettings();
-        if (settings.notifyThresholdOfRemoteStorageSize < 0) {
+        if (settings.notifyThresholdOfRemoteStorageSize <= 0) {
             log("User has chosen to not receive remote storage size exceed notification.", LOG_LEVEL_INFO);
             return true;
         }
