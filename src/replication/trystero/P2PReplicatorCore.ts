@@ -1,156 +1,16 @@
-import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
-import { type EntryDoc, type LOG_LEVEL, AutoAccepting, type P2PSyncSetting, REMOTE_P2P } from "../../common/types";
-import { reactiveSource, type ReactiveSource } from "octagonal-wheels/dataobject/reactive";
-import { EVENT_DATABASE_REBUILT, EVENT_SETTING_SAVED, EVENT_REQUEST_OPEN_P2P } from "../../events/coreEvents";
+/**
+ * Obsoleted: separated into non-UI things and UI things.
+ */
+import { AutoAccepting, REMOTE_P2P } from "../../common/types";
+import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
+import { EVENT_REQUEST_OPEN_P2P } from "../../events/coreEvents";
 import { eventHub } from "../../hub/hub";
-import type { Confirm } from "../../interfaces/Confirm";
 import { LiveSyncTrysteroReplicator, type LiveSyncTrysteroReplicatorEnv } from "./LiveSyncTrysteroReplicator";
-import { type P2PReplicationProgress } from "./TrysteroReplicator";
-import {
-    EVENT_ADVERTISEMENT_RECEIVED,
-    EVENT_DEVICE_LEAVED,
-    EVENT_P2P_CONNECTED,
-    EVENT_P2P_DISCONNECTED,
-    EVENT_P2P_REPLICATOR_PROGRESS,
-    EVENT_REQUEST_STATUS,
-} from "./TrysteroReplicatorP2PServer";
-import type { InjectableServiceHub } from "../../services/InjectableServices";
-import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../../common/logger";
-
-export function addP2PEventHandlers(instance: LiveSyncTrysteroReplicator) {
-    eventHub.onEvent(EVENT_ADVERTISEMENT_RECEIVED, (peer) => instance.onNewPeer(peer));
-    eventHub.onEvent(EVENT_DEVICE_LEAVED, (peerId) => instance.onPeerLeaved(peerId));
-    eventHub.onEvent(EVENT_REQUEST_STATUS, () => {
-        instance.requestStatus();
-    });
-    eventHub.onEvent(EVENT_DATABASE_REBUILT, async () => {
-        await instance.open();
-    });
-    eventHub.onEvent(EVENT_PLATFORM_UNLOADED, () => {
-        void instance.close();
-    });
-    eventHub.onEvent(EVENT_SETTING_SAVED, async (_settings: P2PSyncSetting) => {
-        await instance.open();
-    });
-}
-
-export async function openP2PReplicator(instance: LiveSyncTrysteroReplicator) {
-    if (!instance.server?.isServing) {
-        await instance.open();
-    }
-}
-
-export async function closeP2PReplicator(instance: LiveSyncTrysteroReplicator) {
-    await instance.close();
-}
-
-export class P2PLogCollector {
-    constructor() {
-        eventHub.onEvent(EVENT_ADVERTISEMENT_RECEIVED, (data) => {
-            this.p2pReplicationResult.set(data.peerId, {
-                peerId: data.peerId,
-                peerName: data.name,
-                fetching: {
-                    current: 0,
-                    max: 0,
-                    isActive: false,
-                },
-                sending: {
-                    current: 0,
-                    max: 0,
-                    isActive: false,
-                },
-            });
-            this.updateP2PReplicationLine();
-        });
-        eventHub.onEvent(EVENT_P2P_CONNECTED, () => {
-            this.p2pReplicationResult.clear();
-            this.updateP2PReplicationLine();
-        });
-        eventHub.onEvent(EVENT_P2P_DISCONNECTED, () => {
-            this.p2pReplicationResult.clear();
-            this.updateP2PReplicationLine();
-        });
-        eventHub.onEvent(EVENT_DEVICE_LEAVED, (peerId) => {
-            this.p2pReplicationResult.delete(peerId);
-            this.updateP2PReplicationLine();
-        });
-        eventHub.onEvent(EVENT_P2P_REPLICATOR_PROGRESS, (data) => {
-            const prev = this.p2pReplicationResult.get(data.peerId) || {
-                peerId: data.peerId,
-                peerName: data.peerName,
-                fetching: {
-                    current: 0,
-                    max: 0,
-                    isActive: false,
-                },
-                sending: {
-                    current: 0,
-                    max: 0,
-                    isActive: false,
-                },
-            };
-            if ("fetching" in data) {
-                if (data.fetching.isActive) {
-                    prev.fetching = data.fetching;
-                } else {
-                    prev.fetching.isActive = false;
-                }
-            }
-            if ("sending" in data) {
-                if (data.sending.isActive) {
-                    prev.sending = data.sending;
-                } else {
-                    prev.sending.isActive = false;
-                }
-            }
-            this.p2pReplicationResult.set(data.peerId, prev);
-            this.updateP2PReplicationLine();
-        });
-    }
-    p2pReplicationResult = new Map<string, P2PReplicationProgress>();
-    updateP2PReplicationLine() {
-        const p2pReplicationResultX = [...this.p2pReplicationResult.values()].sort((a, b) =>
-            a.peerId.localeCompare(b.peerId)
-        );
-        const renderProgress = (current: number, max: number) => {
-            if (current == max) return `${current}`;
-            return `${current} (${max})`;
-        };
-        const line = p2pReplicationResultX
-            .map(
-                (e) =>
-                    `${e.fetching.isActive || e.sending.isActive ? "⚡" : "💤"} ${e.peerName} ↑ ${renderProgress(e.sending.current, e.sending.max)} ↓ ${renderProgress(e.fetching.current, e.fetching.max)} `
-            )
-            .join("\n");
-        this.p2pReplicationLine.value = line;
-    }
-    p2pReplicationLine = reactiveSource("");
-}
-
-export interface P2PReplicatorBase {
-    storeP2PStatusLine: ReactiveSource<string>;
-    settings: P2PSyncSetting;
-    _log(msg: any, level?: LOG_LEVEL): void;
-    _notice(msg: any, key?: string): void;
-
-    getSettings(): P2PSyncSetting;
-    getDB: () => PouchDB.Database<EntryDoc>;
-    confirm: Confirm;
-    simpleStore(): SimpleStore<any>;
-    handleReplicatedDocuments(docs: EntryDoc[]): Promise<boolean>;
-    init(): Promise<this>;
-
-    services: InjectableServiceHub;
-}
-
-export type UseP2PReplicatorResult = {
-    replicator: LiveSyncTrysteroReplicator;
-    p2pLogCollector: P2PLogCollector;
-    storeP2PStatusLine: ReactiveSource<string>;
-};
+import { P2PLogCollector } from "./P2PLogCollector";
+import { addP2PEventHandlers } from "./addP2PEventHandlers";
+import type { P2PPaneParams } from "./UseP2PReplicatorResult";
 
 export type P2PViewFactory = (leaf: any) => any;
 
@@ -178,7 +38,7 @@ export function useP2PReplicator(
         never
     >,
     viewTypeAndFactory?: [viewType: string, factory: P2PViewFactory]
-): UseP2PReplicatorResult {
+): P2PPaneParams {
     const env: LiveSyncTrysteroReplicatorEnv = { services: host.services as any };
     let replicator = new LiveSyncTrysteroReplicator(env);
     const activeReplicator = {

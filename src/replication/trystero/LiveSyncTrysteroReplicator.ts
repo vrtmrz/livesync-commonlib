@@ -37,6 +37,12 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     private _p2pHost?: P2PHost;
     private _replicator?: TrysteroReplicator;
 
+    get rawReplicator() {
+        return this._replicator;
+    }
+    get rawHost() {
+        return this._p2pHost;
+    }
     override get isChunkSendingSupported(): boolean {
         return false;
     }

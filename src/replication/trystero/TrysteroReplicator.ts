@@ -738,7 +738,6 @@ export class TrysteroReplicator {
             "Some mismatched configuration have been detected... Please check settings for efficient replication.",
             LOG_LEVEL_NOTICE
         );
-
         return true;
     }
 
