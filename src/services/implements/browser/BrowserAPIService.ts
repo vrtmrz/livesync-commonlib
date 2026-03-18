@@ -84,6 +84,10 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
         return globalThis.crypto;
     }
 
+    override nativeFetch(req: string | Request, opts?: RequestInit): Promise<Response> {
+        return fetch(req, opts);
+    }
+
     private ensureLogPanel(): HTMLDivElement {
         if (this.logPanel && document.body.contains(this.logPanel)) {
             return this.logPanel;
