@@ -152,8 +152,13 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         });
         // this.services.database.createPouchDBInstance.setHandler(this.$$createPouchDBInstance.bind(this));
         (this.services.API as InjectableAPIService<ServiceContext>).addLog.setHandler(() => {});
+        // Initialize settings on the service so managers can access them during construction.
+        this.services.setting.settings = this.settings as any;
         this.services.databaseEvents.onDatabaseInitialisation.addHandler(this.$everyOnInitializeDatabase.bind(this));
         this.liveSyncLocalDB = new LiveSyncLocalDB(this.options.url, this);
+        // Register the LiveSyncLocalDB with the database service so LiveSyncManagers
+        // can access it via databaseService.localDatabase during initialization.
+        (this.services.database as any)._localDatabase = this.liveSyncLocalDB;
         void this.init();
     }
 
