@@ -401,7 +401,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         // return;
     }
     async *_enumerate(startKey: string, endKey: string, opt: { metaOnly: boolean }) {
-        if (opt.metaOnly) return this.liveSyncLocalDB.findEntries(startKey, endKey, {});
+        if (opt.metaOnly) return yield* this.liveSyncLocalDB.findEntries(startKey, endKey, {});
         for await (const f of this.liveSyncLocalDB.findEntries(startKey, endKey, {})) {
             yield await this.getByMeta(f);
         }
