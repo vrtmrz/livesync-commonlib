@@ -463,7 +463,14 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                     }
                 }
                 Logger(`WATCH: PROCESSING: ${doc.path}`, LEVEL_VERBOSE, "watch");
-                const docX = await this.getByMeta(doc);
+                let docX;
+                try {
+                    docX = await this.getByMeta(doc);
+                } catch (ex) {
+                    Logger(`WATCH: DECRYPT FAILED: ${doc.path}`, LEVEL_INFO, "watch");
+                    Logger(ex, LEVEL_VERBOSE, "watch");
+                    return;
+                }
                 try {
                     await callback(docX, change.seq);
                     Logger(`WATCH: PROCESS DONE: ${doc.path}`, LEVEL_INFO, "watch");
