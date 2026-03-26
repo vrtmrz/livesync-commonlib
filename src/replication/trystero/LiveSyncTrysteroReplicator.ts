@@ -86,6 +86,10 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         if (this._replicator && this._p2pHost?.isServing) {
             return;
         }
+        if (!this.env.services.setting.currentSettings().P2P_Enabled) {
+            // Nothing to do.
+            return;
+        }
         try {
             const env = this._buildEnv();
             const host = new P2PHost(env as any);
