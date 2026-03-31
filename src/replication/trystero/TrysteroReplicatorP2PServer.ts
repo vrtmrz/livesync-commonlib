@@ -5,8 +5,7 @@ import {
     joinRoom,
     type BaseRoomConfig,
     type RelayConfig,
-    type TurnConfig,
-} from "trystero/nostr";
+} from "@trystero-p2p/nostr";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } from "../../common/types";
 import { LOG_LEVEL_VERBOSE, Logger } from "../../common/logger";
 import {
@@ -449,11 +448,14 @@ You can chose as follows:
         const turnServers = this.settings.P2P_turnServers.split(",")
             .map((e) => e.trim())
             .filter((e) => e.length > 0);
+        const rtcPolyfill = (globalThis as any).RTCPeerConnection;
 
         const options = {
             relayUrls: relays,
             appId: this.settings.P2P_AppID,
             password: passphrase,
+            manualRelayReconnection: true,
+            ...(typeof rtcPolyfill === "function" ? { rtcPolyfill } : {}),
             turnConfig:
                 turnServers.length > 0
                     ? [
@@ -464,8 +466,8 @@ You can chose as follows:
                           },
                       ]
                     : [],
-        } satisfies BaseRoomConfig & RelayConfig & TurnConfig;
-        const room = joinRoom(options, this.settings.P2P_roomID, true);
+        } satisfies BaseRoomConfig & RelayConfig;
+        const room = joinRoom(options, this.settings.P2P_roomID);
         await this.setRoom(room);
         this.onAfterJoinRoom();
         void this.dispatchConnectionStatus();

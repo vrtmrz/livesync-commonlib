@@ -12,7 +12,7 @@ import { encryptWithEphemeralSalt, decryptWithEphemeralSalt } from "octagonal-wh
 import { $msg } from "../../common/i18n";
 import { sha1 } from "octagonal-wheels/hash/purejs";
 import { isObjectDifferent } from "octagonal-wheels/object";
-import { getRelaySockets, pauseRelayReconnection, resumeRelayReconnection } from "trystero/nostr";
+import { getRelaySockets, pauseRelayReconnection, resumeRelayReconnection } from "@trystero-p2p/nostr";
 
 async function encrypt(data: string, passphrase: string) {
     return await encryptWithEphemeralSalt(data, passphrase, true);
@@ -775,7 +775,7 @@ export class TrysteroReplicator {
     }
 
     disconnectFromServer() {
-        const connections = getRelaySockets();
+        const connections = getRelaySockets() as Record<string, { close: () => void; onclose: (() => void) | null }>;
         const sockets = Object.entries(connections);
         pauseRelayReconnection();
         sockets.forEach(([, s]) => {
