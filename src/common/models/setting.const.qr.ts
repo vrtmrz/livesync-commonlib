@@ -161,4 +161,6 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     useOnlyLocalChunk: 154,
     maxMTimeForReflectEvents: 155,
     networkWarningStyle: 156,
+    remoteConfigurations: 157,
+    activeConfigurationId: 158,
 } as const;

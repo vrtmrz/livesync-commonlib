@@ -98,6 +98,8 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     encryptedPassphrase: "",
     encryptedCouchDBConnection: "",
     permitEmptyPassphrase: false,
+    remoteConfigurations: {},
+    activeConfigurationId: "",
     useIndexedDBAdapter: false,
     useTimeouts: false,
     writeLogToTheFile: false,

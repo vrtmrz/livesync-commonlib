@@ -120,7 +120,11 @@ export abstract class HashManagerCore {
      * @returns Promise resolving to the computed hash string.
      */
     async computeHash(piece: string): Promise<string> {
-        await this.initialiseTask;
+        // if (!this.initialiseTask) {
+        //     await this.initialise();
+        // } else {
+        //     await this.initialiseTask;
+        // }
         if (this.useEncryption) {
             return HashEncryptedPrefix + (await this.computeHashWithEncryption(piece));
         }

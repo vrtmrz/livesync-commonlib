@@ -975,6 +975,38 @@ interface DeletedFileMetadataSettings {
     automaticallyDeleteMetadataOfDeletedFiles: number;
 }
 
+/**
+ * Represents a single remote configuration.
+ */
+export interface RemoteConfiguration {
+    /**
+     * Unique identifier for this configuration.
+     */
+    id: string;
+    /**
+     * Display name for the configuration.
+     */
+    name: string;
+    /**
+     * The connection string (URI) for the remote.
+     * This may be an encrypted string if configPassphraseStore is set.
+     */
+    uri: string;
+    /**
+     * Indicates whether this configuration is encrypted.
+     */
+    isEncrypted: boolean;
+}
+export interface RemoteConfigurations {
+    /**
+     * The list of remote configurations.
+     */
+    remoteConfigurations: Record<string, RemoteConfiguration>;
+    /**
+     * The ID of the currently active remote configuration.
+     */
+    activeConfigurationId: string;
+}
 interface ObsidianLiveSyncSettings_PluginSetting
     extends
         SyncMethodSettings,
@@ -992,7 +1024,8 @@ interface ObsidianLiveSyncSettings_PluginSetting
         DebugModeSettings,
         SettingSyncSettings,
         SafetyValveSettings,
-        DataOnSettings {}
+        DataOnSettings,
+        RemoteConfigurations {}
 
 export type RemoteDBSettings = CouchDBConnection &
     BucketSyncSetting &
@@ -1013,7 +1046,8 @@ export type RemoteDBSettings = CouchDBConnection &
     ConflictHandlingSettings &
     EdgeCaseHandlingSettings &
     DeletedFileMetadataSettings &
-    P2PSyncSetting;
+    P2PSyncSetting &
+    RemoteConfigurations;
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings & LocalDBSettings;
 

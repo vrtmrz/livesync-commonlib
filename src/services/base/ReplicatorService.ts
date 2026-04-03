@@ -52,7 +52,9 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     }
 
     private suspendReplication() {
-        const activeReplicator = this.getActiveReplicator();
+        // During early lifecycle (e.g. settings migration), suspension can happen before
+        // replicator initialisation. Avoid emitting unresolved-error noise in that case.
+        const activeReplicator = this._activeReplicator;
         if (activeReplicator) {
             activeReplicator.closeReplication();
         }
