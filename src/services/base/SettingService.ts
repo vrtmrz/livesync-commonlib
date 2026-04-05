@@ -156,7 +156,12 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
      */
     async saveSettingData() {
         this.saveDeviceAndVaultName();
-        const settings = { ...this.settings };
+        const settings = {
+            ...this.settings,
+            remoteConfigurations: Object.fromEntries(
+                Object.entries(this.settings.remoteConfigurations || {}).map(([id, config]) => [id, { ...config }])
+            ),
+        };
         settings.deviceAndVaultName = "";
         if (settings.P2P_DevicePeerName && settings.P2P_DevicePeerName.trim() !== "") {
             this._log("Saving device peer name to small config");

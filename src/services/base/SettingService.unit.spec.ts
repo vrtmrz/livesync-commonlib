@@ -106,6 +106,28 @@ describe("SettingService", () => {
         expect(persisted?.remoteConfigurations.r1.uri).not.toBe(plainURI);
     });
 
+    it("saveSettingData should not mutate in-memory remote configuration URIs", async () => {
+        const service = createService();
+        const plainURI = "sls+http://user:password@localhost:5984/?db=vault";
+        service.settings = {
+            ...service.settings,
+            remoteConfigurations: {
+                r1: {
+                    id: "r1",
+                    name: "Primary",
+                    uri: plainURI,
+                    isEncrypted: false,
+                },
+            },
+            activeConfigurationId: "r1",
+        };
+
+        await service.saveSettingData();
+
+        expect(service.currentSettings().remoteConfigurations.r1.uri).toBe(plainURI);
+        expect(service.currentSettings().remoteConfigurations.r1.isEncrypted).toBe(false);
+    });
+
     it("decryptSettings should restore encrypted remote configuration URIs", async () => {
         const service = createService();
         const plainURI = "sls+s3://ak:sk@example.com/?endpoint=https%3A%2F%2Fexample.com&bucket=vault";
