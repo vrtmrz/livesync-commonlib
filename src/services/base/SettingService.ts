@@ -17,6 +17,7 @@ import { createInstanceLogFunction } from "../lib/logUtils";
 import { isCloudantURI } from "../../pouchdb/utils_couchdb";
 import { decryptString, encryptString } from "../../encryption/stringEncryption";
 import { setLang } from "../../common/i18n";
+import { migrateLegacyRemoteConfigurationsInPlace } from "@lib/serviceFeatures/remoteConfig";
 
 export interface SettingServiceDependencies {
     APIService: IAPIService;
@@ -59,7 +60,16 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
      * @param settings The settings to adjust.
      */
     adjustSettings(settings: ObsidianLiveSyncSettings): Promise<ObsidianLiveSyncSettings> {
-        // Adjust settings as needed
+        if (
+            migrateLegacyRemoteConfigurationsInPlace(settings, (message) => {
+                this._log(message, LOG_LEVEL_NOTICE);
+            })
+        ) {
+            this._log(
+                "Legacy remote configuration has been migrated to the remote configuration list.",
+                LOG_LEVEL_NOTICE
+            );
+        }
 
         // Delete this feature to avoid problems on mobile.
         settings.disableRequestURI = true;
@@ -271,6 +281,21 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         }
         return Promise.resolve();
     }
+    async applyExternalSettings(partial: Partial<ObsidianLiveSyncSettings>, saveImmediately?: boolean): Promise<void> {
+        try {
+            this.settings = await this.adjustSettings({
+                ...this.settings,
+                ...partial,
+            });
+        } catch (ex) {
+            this._log("Error in applying external settings: " + ex, LOG_LEVEL_URGENT);
+            return Promise.reject(ex);
+        }
+        if (saveImmediately) {
+            return this.saveSettingData();
+        }
+        return Promise.resolve();
+    }
     applyPartial(partial: Partial<ObsidianLiveSyncSettings>, saveImmediately?: boolean): Promise<void> {
         try {
             this.settings = { ...this.settings, ...partial };
@@ -393,6 +418,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
 
     async loadSettings(): Promise<void> {
         const settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()) as ObsidianLiveSyncSettings;
+        const hadRemoteConfigurations = Object.keys(settings.remoteConfigurations ?? {}).length > 0;
 
         if (typeof settings.isConfigured == "undefined") {
             // If migrated, mark true
@@ -412,6 +438,8 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         setLang(this.settings.displayLanguage);
 
         await this.adjustSettings(this.settings);
+        const shouldPersistMigratedRemoteConfigurations =
+            !hadRemoteConfigurations && Object.keys(this.settings.remoteConfigurations ?? {}).length > 0;
 
         const lsKey =
             "obsidian-live-sync-vaultanddevicename-" +
@@ -437,6 +465,10 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                 this._log("Device name missing. Disabling plug-in sync.", LOG_LEVEL_NOTICE);
                 this.settings.usePluginSync = false;
             }
+        }
+
+        if (shouldPersistMigratedRemoteConfigurations) {
+            await this.saveSettingData();
         }
 
         // this.core.ignoreFiles = this.settings.ignoreFiles.split(",").map(e => e.trim());

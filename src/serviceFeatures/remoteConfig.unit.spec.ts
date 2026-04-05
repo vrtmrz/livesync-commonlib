@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { migrateToMultipleRemoteConfigurations, activateRemoteConfiguration } from "@lib/serviceFeatures/remoteConfig";
+import {
+    migrateLegacyRemoteConfigurationsInPlace,
+    migrateToMultipleRemoteConfigurations,
+    activateRemoteConfiguration,
+} from "@lib/serviceFeatures/remoteConfig";
 import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
 import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 
@@ -123,6 +127,21 @@ describe("Remote Configuration Migration", () => {
     it("should not migrate if no remote settings are present", async () => {
         const result = await migrateToMultipleRemoteConfigurations(mockHost);
         expect(result).toBe(false);
+    });
+
+    it("should migrate legacy remote settings in place without host services", () => {
+        mockSettings.couchDB_URI = "http://localhost:5984";
+        mockSettings.couchDB_USER = "user";
+        mockSettings.couchDB_PASSWORD = "password";
+        mockSettings.couchDB_DBNAME = "vault";
+
+        const result = migrateLegacyRemoteConfigurationsInPlace(mockSettings as ObsidianLiveSyncSettings);
+
+        expect(result).toBe(true);
+        expect(mockSettings.remoteConfigurations?.["legacy-couchdb"]?.uri).toContain(
+            "sls+http://user:password@localhost:5984"
+        );
+        expect(mockSettings.activeConfigurationId).toBe("legacy-couchdb");
     });
 });
 

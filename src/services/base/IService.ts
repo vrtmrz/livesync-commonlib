@@ -312,6 +312,7 @@ export interface ISettingService {
         updateFn: (current: ObsidianLiveSyncSettings) => ObsidianLiveSyncSettings,
         saveImmediately?: boolean
     ): Promise<void>;
+    applyExternalSettings(partial: Partial<ObsidianLiveSyncSettings>, saveImmediately?: boolean): Promise<void>;
     applyPartial(partial: Partial<ObsidianLiveSyncSettings>, saveImmediately?: boolean): Promise<void>;
 
     onSettingLoaded(settings: ObsidianLiveSyncSettings): Promise<boolean>;

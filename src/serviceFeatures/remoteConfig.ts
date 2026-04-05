@@ -10,6 +10,69 @@ export type RemoteConfigHost = NecessaryServices<
     never
 >;
 
+export function migrateLegacyRemoteConfigurationsInPlace(
+    settings: ObsidianLiveSyncSettings,
+    log?: (message: string) => void
+): boolean {
+    const hasText = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
+
+    if (!settings.remoteConfigurations) {
+        settings.remoteConfigurations = {};
+    }
+
+    if (Object.keys(settings.remoteConfigurations).length !== 0) {
+        return false;
+    }
+
+    const hasCouchDB = hasText(settings.couchDB_URI);
+    const hasS3 = hasText(settings.endpoint);
+    const hasP2P = hasText(settings.P2P_roomID);
+
+    if (!hasCouchDB && !hasS3 && !hasP2P) {
+        return false;
+    }
+
+    log?.("Migrating existing remote configuration to sls+ format...");
+
+    const candidates: Array<{ id: string; name: string; type: "couchdb" | "s3" | "p2p"; enabled: boolean }> = [
+        { id: "legacy-couchdb", name: "CouchDB Remote", type: "couchdb", enabled: hasCouchDB },
+        { id: "legacy-s3", name: "S3 Remote", type: "s3", enabled: hasS3 },
+        { id: "legacy-p2p", name: "P2P Remote", type: "p2p", enabled: hasP2P },
+    ];
+
+    for (const candidate of candidates) {
+        if (!candidate.enabled) continue;
+        try {
+            const uri = ConnectionStringParser.serialize({
+                type: candidate.type,
+                settings: settings as RemoteDBSettings,
+            });
+            settings.remoteConfigurations[candidate.id] = {
+                id: candidate.id,
+                name: candidate.name,
+                uri,
+                isEncrypted: false,
+            };
+        } catch (e) {
+            log?.(`Failed to migrate ${candidate.type} configuration: ${e}`);
+        }
+    }
+
+    const createdIds = Object.keys(settings.remoteConfigurations);
+    if (createdIds.length === 0) {
+        return false;
+    }
+
+    const preferredId =
+        settings.remoteType === REMOTE_MINIO
+            ? "legacy-s3"
+            : settings.remoteType === REMOTE_P2P
+              ? "legacy-p2p"
+              : "legacy-couchdb";
+    settings.activeConfigurationId = settings.remoteConfigurations[preferredId] ? preferredId : createdIds[0];
+    return true;
+}
+
 /**
  * SF:RemoteConfig - Service Feature for Remote Configuration Management
  */
@@ -20,62 +83,9 @@ export type RemoteConfigHost = NecessaryServices<
 export async function migrateToMultipleRemoteConfigurations(host: RemoteConfigHost): Promise<boolean> {
     const log = createInstanceLogFunction("SF:RemoteConfig", host.services.API);
     const settings = host.services.setting.currentSettings();
-    const hasText = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
-
-    if (!settings.remoteConfigurations) {
-        settings.remoteConfigurations = {};
-    }
-
-    if (Object.keys(settings.remoteConfigurations).length === 0) {
-        const hasCouchDB = hasText(settings.couchDB_URI);
-        const hasS3 = hasText(settings.endpoint);
-        const hasP2P = hasText(settings.P2P_roomID);
-
-        if (!hasCouchDB && !hasS3 && !hasP2P) {
-            return false;
-        }
-
-        log("Migrating existing remote configuration to sls+ format...");
-
-        const candidates: Array<{ id: string; name: string; type: "couchdb" | "s3" | "p2p"; enabled: boolean }> = [
-            { id: "legacy-couchdb", name: "CouchDB Remote", type: "couchdb", enabled: hasCouchDB },
-            { id: "legacy-s3", name: "S3 Remote", type: "s3", enabled: hasS3 },
-            { id: "legacy-p2p", name: "P2P Remote", type: "p2p", enabled: hasP2P },
-        ];
-
-        for (const candidate of candidates) {
-            if (!candidate.enabled) continue;
-            try {
-                const uri = ConnectionStringParser.serialize({
-                    type: candidate.type,
-                    settings: settings as RemoteDBSettings,
-                });
-                settings.remoteConfigurations[candidate.id] = {
-                    id: candidate.id,
-                    name: candidate.name,
-                    uri,
-                    isEncrypted: false,
-                };
-            } catch (e) {
-                log(`Failed to migrate ${candidate.type} configuration: ${e}`);
-            }
-        }
-
-        const createdIds = Object.keys(settings.remoteConfigurations);
-        if (createdIds.length === 0) {
-            return false;
-        }
-
-        const preferredId =
-            settings.remoteType === REMOTE_MINIO
-                ? "legacy-s3"
-                : settings.remoteType === REMOTE_P2P
-                  ? "legacy-p2p"
-                  : "legacy-couchdb";
-        settings.activeConfigurationId = settings.remoteConfigurations[preferredId] ? preferredId : createdIds[0];
-
+    if (migrateLegacyRemoteConfigurationsInPlace(settings, log)) {
         await host.services.setting.saveSettingData();
-        log(`Successfully migrated ${createdIds.length} remote configuration(s).`);
+        log(`Successfully migrated ${Object.keys(settings.remoteConfigurations).length} remote configuration(s).`);
         return true;
     }
     return false;
