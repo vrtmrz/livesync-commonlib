@@ -241,7 +241,10 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         }
     }
 
-    private async decryptRemoteConfigurationUris(settings: ObsidianLiveSyncSettings, passphrase: string): Promise<void> {
+    private async decryptRemoteConfigurationUris(
+        settings: ObsidianLiveSyncSettings,
+        passphrase: string
+    ): Promise<void> {
         const configs = settings.remoteConfigurations || {};
         for (const [id, config] of Object.entries(configs)) {
             if (!config.isEncrypted) {
