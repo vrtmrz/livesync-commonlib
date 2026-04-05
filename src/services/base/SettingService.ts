@@ -18,6 +18,7 @@ import { isCloudantURI } from "../../pouchdb/utils_couchdb";
 import { decryptString, encryptString } from "../../encryption/stringEncryption";
 import { setLang } from "../../common/i18n";
 import { migrateLegacyRemoteConfigurationsInPlace } from "@lib/serviceFeatures/remoteConfig";
+import { ConnectionStringParser } from "@lib/common/ConnectionString";
 
 export interface SettingServiceDependencies {
     APIService: IAPIService;
@@ -212,9 +213,68 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                 settings.encryptedPassphrase = await this.encryptConfigurationItem(settings.passphrase, settings);
                 settings.passphrase = "";
             }
+            await this.encryptRemoteConfigurationUris(settings);
         }
         await this.saveData(settings);
         void this.onSettingSaved(settings);
+    }
+
+    private async encryptRemoteConfigurationUris(settings: ObsidianLiveSyncSettings): Promise<void> {
+        const configs = settings.remoteConfigurations || {};
+        for (const [id, config] of Object.entries(configs)) {
+            if (config.isEncrypted || config.uri.trim() === "") {
+                continue;
+            }
+            const encryptedURI = await this.encryptConfigurationItem(config.uri, settings);
+            if (encryptedURI === "") {
+                this._log(
+                    `Failed to encrypt remote configuration '${id}'. This entry will be saved in plain text.`,
+                    LOG_LEVEL_URGENT
+                );
+                continue;
+            }
+            configs[id] = {
+                ...config,
+                uri: encryptedURI,
+                isEncrypted: true,
+            };
+        }
+    }
+
+    private async decryptRemoteConfigurationUris(settings: ObsidianLiveSyncSettings, passphrase: string): Promise<void> {
+        const configs = settings.remoteConfigurations || {};
+        for (const [id, config] of Object.entries(configs)) {
+            if (!config.isEncrypted) {
+                continue;
+            }
+            const decryptedURI = await this.decryptConfigurationItem(config.uri, passphrase);
+            if (decryptedURI === false) {
+                try {
+                    ConnectionStringParser.parse(config.uri);
+                    configs[id] = {
+                        ...config,
+                        isEncrypted: false,
+                    };
+                    this._log(
+                        `Remote configuration '${id}' had a plain-text URI marked as encrypted. The flag has been repaired.`,
+                        LOG_LEVEL_NOTICE
+                    );
+                    continue;
+                } catch {
+                    // If parsing also fails, keep the original entry and report the error below.
+                }
+                this._log(
+                    `Failed to decrypt remote configuration '${id}'. Verify passphrase and configuration.`,
+                    LOG_LEVEL_URGENT
+                );
+                continue;
+            }
+            configs[id] = {
+                ...config,
+                uri: decryptedURI,
+                isEncrypted: false,
+            };
+        }
     }
 
     /**
@@ -328,10 +388,14 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     }
 
     async decryptConfigurationItem(encrypted: string, passphrase: string) {
-        const dec = await decryptString(encrypted, passphrase + SALT_OF_PASSPHRASE);
-        if (dec) {
-            this.usedPassphrase = passphrase;
-            return dec;
+        try {
+            const dec = await decryptString(encrypted, passphrase + SALT_OF_PASSPHRASE);
+            if (dec) {
+                this.usedPassphrase = passphrase;
+                return dec;
+            }
+        } catch (ex) {
+            this._log(`Failed to decrypt configuration item: ${ex}`, LOG_LEVEL_NOTICE);
         }
         return false;
     }
@@ -365,6 +429,15 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         const passphrase = await this.getPassphrase(settings);
         if (passphrase === false) {
             this._log("No passphrase found for data.json! Verify configuration before syncing.", LOG_LEVEL_URGENT);
+            const hasEncryptedRemoteConfigurations = Object.values(settings.remoteConfigurations || {}).some(
+                (config) => config.isEncrypted
+            );
+            if (hasEncryptedRemoteConfigurations) {
+                this._log(
+                    "Encrypted remote configurations found, but passphrase is unavailable. Verify configuration before syncing.",
+                    LOG_LEVEL_URGENT
+                );
+            }
         } else {
             if (settings.encryptedCouchDBConnection) {
                 const keys = [
@@ -412,6 +485,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                     settings.passphrase = "";
                 }
             }
+            await this.decryptRemoteConfigurationUris(settings, passphrase);
         }
         return settings;
     }

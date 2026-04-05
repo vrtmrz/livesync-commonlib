@@ -5,12 +5,14 @@ import { ServiceContext } from "./ServiceBase";
 import type { ObsidianLiveSyncSettings } from "@lib/common/types";
 
 class TestSettingService extends SettingService<ServiceContext> {
+    lastSavedSetting?: ObsidianLiveSyncSettings;
     protected setItem(_key: string, _value: string): void {}
     protected getItem(_key: string): string {
         return "";
     }
     protected deleteItem(_key: string): void {}
-    protected saveData(_setting: ObsidianLiveSyncSettings): Promise<void> {
+    protected saveData(setting: ObsidianLiveSyncSettings): Promise<void> {
+        this.lastSavedSetting = JSON.parse(JSON.stringify(setting));
         return Promise.resolve();
     }
     protected loadData(): Promise<ObsidianLiveSyncSettings | undefined> {
@@ -78,5 +80,75 @@ describe("SettingService", () => {
         );
         expect(service.currentSettings().activeConfigurationId).toBe("legacy-couchdb");
         expect(saveSpy).toHaveBeenCalledTimes(1);
+    });
+
+    it("saveSettingData should encrypt remote configuration URIs before persisting", async () => {
+        const service = createService();
+        const plainURI = "sls+http://user:password@localhost:5984/?db=vault";
+        service.settings = {
+            ...service.settings,
+            remoteConfigurations: {
+                r1: {
+                    id: "r1",
+                    name: "Primary",
+                    uri: plainURI,
+                    isEncrypted: false,
+                },
+            },
+            activeConfigurationId: "r1",
+        };
+
+        await service.saveSettingData();
+
+        const persisted = service.lastSavedSetting;
+        expect(persisted).toBeDefined();
+        expect(persisted?.remoteConfigurations.r1.isEncrypted).toBe(true);
+        expect(persisted?.remoteConfigurations.r1.uri).not.toBe(plainURI);
+    });
+
+    it("decryptSettings should restore encrypted remote configuration URIs", async () => {
+        const service = createService();
+        const plainURI = "sls+s3://ak:sk@example.com/?endpoint=https%3A%2F%2Fexample.com&bucket=vault";
+        service.settings = {
+            ...service.settings,
+            remoteConfigurations: {
+                r1: {
+                    id: "r1",
+                    name: "Primary",
+                    uri: plainURI,
+                    isEncrypted: false,
+                },
+            },
+            activeConfigurationId: "r1",
+        };
+
+        await service.saveSettingData();
+        const encrypted = JSON.parse(JSON.stringify(service.lastSavedSetting!)) as ObsidianLiveSyncSettings;
+
+        const decrypted = await service.decryptSettings(encrypted);
+
+        expect(decrypted.remoteConfigurations.r1.isEncrypted).toBe(false);
+        expect(decrypted.remoteConfigurations.r1.uri).toBe(plainURI);
+    });
+
+    it("decryptSettings should repair a plain-text remote URI that is incorrectly marked as encrypted", async () => {
+        const service = createService();
+        const plainURI = "sls+http://user:password@localhost:5984/?db=vault";
+
+        const decrypted = await service.decryptSettings({
+            ...DEFAULT_SETTINGS,
+            remoteConfigurations: {
+                r1: {
+                    id: "r1",
+                    name: "Primary",
+                    uri: plainURI,
+                    isEncrypted: true,
+                },
+            },
+            activeConfigurationId: "r1",
+        });
+
+        expect(decrypted.remoteConfigurations.r1.uri).toBe(plainURI);
+        expect(decrypted.remoteConfigurations.r1.isEncrypted).toBe(false);
     });
 });

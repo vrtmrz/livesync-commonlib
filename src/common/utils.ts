@@ -668,7 +668,8 @@ export function isInvertedRegExp(regexp: CustomRegExpSource) {
 
 function parseCustomRegExpList<D extends string>(list: CustomRegExpSourceList<D>, flags?: string, delimiter?: D) {
     const d = delimiter ?? ",";
-    const items = list
+    const source = `${list ?? ""}`;
+    const items = source
         .replace(/\n| /g, "")
         .split(d)
         .filter((e) => e);
@@ -683,7 +684,8 @@ export function constructCustomRegExpList<D extends string>(
 }
 export function splitCustomRegExpList<D extends string>(list: CustomRegExpSourceList<D>, delimiter: D) {
     const d = delimiter;
-    return list.split(d).filter((e) => e as CustomRegExpSource) as CustomRegExpSource[];
+    const source = `${list ?? ""}`;
+    return source.split(d).filter((e) => e as CustomRegExpSource) as CustomRegExpSource[];
 }
 
 export class CustomRegExp {
