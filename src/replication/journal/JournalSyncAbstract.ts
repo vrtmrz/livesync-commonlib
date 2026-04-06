@@ -223,6 +223,72 @@ export abstract class JournalSyncAbstract {
         clearHandlers();
     }
 
+    private getJournalEpochFromSyncParams(params: SyncParameters): string {
+        return `${params.protocolVersion}:${params.pbkdf2salt}`;
+    }
+
+    // Side-effect preflight: update checkpoint state.
+    // Connectivity gates call this before compatibility checks so send/receive paths stay pure.
+    async ensureCheckpointCachesAreFresh(): Promise<void> {
+        let journalEpoch = "";
+        try {
+            const params = await this.getSyncParameters();
+            journalEpoch = this.getJournalEpochFromSyncParams(params);
+        } catch {
+            // If we cannot fetch sync parameters yet, keep the current checkpoint state.
+            return;
+        }
+
+        const current = await this.getCheckpointInfo();
+        if (current.journalEpoch === journalEpoch) {
+            return;
+        }
+
+        // Epoch changed (or first observed on migrated devices).
+        // Use sentFiles to determine whether the remote was wiped:
+        //   - No sent history          → fresh device or empty state; save epoch, keep caches.
+        //   - File still on remote     → epoch changed without a wipe (e.g. protocol bump or
+        //                                first run after upgrade); save epoch, keep caches.
+        //   - File gone from remote    → wipe confirmed; save epoch, reset caches.
+        // sentFiles names are timestamp-based (e.g. "1712345678900-docs.jsonl.gz") and
+        // virtually never collide across separate remote lifetimes.
+        const lastSentFile = [...current.sentFiles].sort().pop();
+
+        if (!lastSentFile) {
+            // No send history: cannot confirm wipe; just record the epoch.
+            await this.updateCheckPointInfo((info) => ({ ...info, journalEpoch }));
+            return;
+        }
+
+        let remoteWipeConfirmed: boolean;
+        try {
+            // listFiles uses S3 StartAfter (exclusive), so slice off the last char to land
+            // just before the target key, then check if the returned entry matches exactly.
+            const probe = await this.listFiles(lastSentFile.slice(0, -1), 1);
+            remoteWipeConfirmed = probe[0] !== lastSentFile;
+        } catch {
+            remoteWipeConfirmed = true;
+        }
+
+        if (!remoteWipeConfirmed) {
+            // Remote files are intact: no wipe occurred. Save epoch and preserve caches.
+            await this.updateCheckPointInfo((info) => ({ ...info, journalEpoch }));
+            Logger(`Journal epoch changed (remote files still present). Epoch updated; caches kept.`, LOG_LEVEL_NOTICE);
+            return;
+        }
+
+        Logger(`Journal epoch changed and remote wipe confirmed. Clearing dedupe caches.`, LOG_LEVEL_NOTICE);
+        await this.updateCheckPointInfo((info) => ({
+            ...info,
+            journalEpoch,
+            knownIDs: new Set<string>(),
+            sentIDs: new Set<string>(),
+            receivedFiles: new Set<string>(),
+            sentFiles: new Set<string>(),
+        }));
+        clearHandlers();
+    }
+
     abstract resetBucket(): Promise<boolean>;
 
     abstract uploadJson<T>(key: string, body: any): Promise<T | boolean>;

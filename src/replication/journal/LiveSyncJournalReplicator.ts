@@ -113,26 +113,28 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async openReplication(setting: RemoteDBSettings, _: boolean, showResult: boolean, ignoreCleanLock = false) {
-        if (!(await this.checkReplicationConnectivity(false, ignoreCleanLock))) return false;
+        if (!(await this.checkReplicationConnectivity(false, ignoreCleanLock, showResult))) return false;
         await this.client.sync(showResult);
         return true;
     }
 
     async replicateAllToServer(setting: RemoteDBSettings, showingNotice?: boolean) {
-        if (!(await this.checkReplicationConnectivity(false))) return false;
+        if (!(await this.checkReplicationConnectivity(false, false, !!showingNotice))) return false;
         return await this.client.sendLocalJournal(showingNotice);
     }
 
     async replicateAllFromServer(setting: RemoteDBSettings, showingNotice?: boolean) {
-        if (!(await this.checkReplicationConnectivity(false))) return false;
+        if (!(await this.checkReplicationConnectivity(false, false, !!showingNotice))) return false;
         return await this.client.receiveRemoteJournal(showingNotice);
     }
 
-    async checkReplicationConnectivity(skipCheck: boolean, ignoreCleanLock = false) {
+    async checkReplicationConnectivity(skipCheck: boolean, ignoreCleanLock = false, showMessage = false) {
         if (!(await this.client.isAvailable())) {
             return false;
         }
         if (!skipCheck) {
+            // Keep compatibility result semantics strict: epoch/cache policy is handled as a separate preflight.
+            await this.client.ensureCheckpointCachesAreFresh();
             this.remoteCleaned = false;
             this.remoteLocked = false;
             this.remoteLockedAndDeviceNotAccepted = false;
