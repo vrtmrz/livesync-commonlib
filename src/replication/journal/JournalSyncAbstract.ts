@@ -544,7 +544,10 @@ export abstract class JournalSyncAbstract {
                     const { changes, hasNext, packLastSeq } = await this._createJournalPack(currentLastSeq);
                     const currentSeq = (packLastSeq as number) - startSeq;
                     if (changes.length == 0) {
-                        isFinished = true;
+                        Logger(
+                            `Packing Journal: No sendable docs in this batch (${currentSeq} / ${seqToProcess}); continuing while there are newer changes.`,
+                            LOG_LEVEL_VERBOSE
+                        );
                     } else {
                         Logger(`Packing Journal: ${currentSeq} / ${seqToProcess}`, logLevel, MSG_KEY);
                         // this.updateInfo({ maxPushSeq: max, sent: currentLastSeq as number, lastSyncPushSeq: startSeq })
