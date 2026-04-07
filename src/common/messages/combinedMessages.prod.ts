@@ -570,49 +570,51 @@ export const _allMessages = {
         zh: "保留空文件夹",
     },
     lang_def: {
-        def: "Default",
-        ko: "Default",
+        def: "English",
+        es: "Inglés",
+        ko: "영어",
     },
     "lang-de": {
-        def: "Deutsche",
+        def: "German",
         es: "Alemán",
-        ko: "Deutsche",
+        ko: "독일 사람",
         zh: "德语",
     },
     "lang-def": {
         def: "%{lang_def}",
+        es: "%{lang_def}",
         ko: "%{lang_def}",
     },
     "lang-es": {
-        def: "Español",
+        def: "Spanish",
         es: "Español",
-        ko: "Español",
+        ko: "스페인 사람",
         zh: "西班牙语",
     },
     "lang-ja": {
-        def: "日本語",
+        def: "Japanese",
         es: "Japonés",
-        ko: "日本語",
+        ko: "일본어",
         zh: "日语",
     },
     "lang-ko": {
-        def: "한국어",
+        def: "Korean",
         ko: "한국어",
     },
     "lang-ru": {
-        def: "Русский",
+        def: "Russian",
         es: "Ruso",
-        ko: "Русский",
+        ko: "러시아인",
         zh: "俄语",
     },
     "lang-zh": {
-        def: "简体中文",
+        def: "Chinese",
         es: "Chino simplificado",
         ko: "简体中文",
         zh: "简体中文",
     },
     "lang-zh-tw": {
-        def: "繁體中文",
+        def: "Traditional Chinese (Taiwan)",
         es: "Chino tradicional",
         ko: "繁體中文",
         zh: "繁體中文",
@@ -1413,13 +1415,13 @@ export const _allMessages = {
         zh: "默认",
     },
     "obsidianLiveSyncSettingTab.descConnectSetupURI": {
-        def: "Recommended method to configure Self-hosted LiveSync.",
+        def: "This is the recommended method to set up Self-hosted LiveSync with a Setup URI.",
         es: "Este es el método recomendado para configurar Self-hosted LiveSync con una URI de configuración.",
         ko: "이것은 Setup URI로 Self-hosted LiveSync를 설정하는 권장 방법입니다.",
         zh: "这是使用设置 URI 设置 Self-hosted LiveSync 的推荐方法。",
     },
     "obsidianLiveSyncSettingTab.descCopySetupURI": {
-        def: "Generate a Setup URI for another device.",
+        def: "Perfect for setting up a new device!",
         es: "¡Perfecto para configurar un nuevo dispositivo!",
         ko: "새 기기 설정에 완벽합니다!",
         zh: "非常适合设置新设备！",
@@ -1437,7 +1439,7 @@ export const _allMessages = {
         zh: "从已配置的远程服务器获取必要的设置。",
     },
     "obsidianLiveSyncSettingTab.descManualSetup": {
-        def: "Use only if you don't have a Setup URI.",
+        def: "Not recommended, but useful if you don't have a Setup URI",
         es: "No recomendado, pero útil si no tienes una URI de configuración",
         ko: "권장하지 않지만 Setup URI가 없는 경우에 유용합니다",
         zh: "不推荐，但如果您没有设置 URI 则很有用",
@@ -1899,13 +1901,13 @@ export const _allMessages = {
         zh: "应用设置",
     },
     "obsidianLiveSyncSettingTab.nameConnectSetupURI": {
-        def: "Connect via Setup URI",
+        def: "Connect with Setup URI",
         es: "Conectar con URI de configuración",
         ko: "Setup URI로 연결",
         zh: "使用设置 URI 连接",
     },
     "obsidianLiveSyncSettingTab.nameCopySetupURI": {
-        def: "Copy Settings to URI",
+        def: "Copy the current settings to a Setup URI",
         es: "Copiar la configuración actual a una URI de configuración",
         ko: "현재 설정을 Setup URI로 복사",
         zh: "将当前设置复制为设置 URI",
@@ -2124,7 +2126,7 @@ export const _allMessages = {
         zh: "更新日志",
     },
     "obsidianLiveSyncSettingTab.panelGeneralSettings": {
-        def: "General",
+        def: "General Settings",
         es: "Configuraciones Generales",
         ko: "일반 설정",
         zh: "常规设置",
@@ -2136,13 +2138,13 @@ export const _allMessages = {
         zh: "隐私与加密",
     },
     "obsidianLiveSyncSettingTab.panelRemoteConfiguration": {
-        def: "Remote",
+        def: "Remote Configuration",
         es: "Configuración remota",
         ko: "원격 구성",
         zh: "远程配置",
     },
     "obsidianLiveSyncSettingTab.panelSetup": {
-        def: "Getting Started",
+        def: "Setup",
         es: "Configuración",
         ko: "설정",
         zh: "设置",
@@ -2277,7 +2279,7 @@ export const _allMessages = {
         zh: "重置",
     },
     "obsidianLiveSyncSettingTab.titleSetupOtherDevices": {
-        def: "Setup on Other Devices",
+        def: "To setup other devices",
         es: "Para configurar otros dispositivos",
         ko: "다른 기기 설정",
         zh: "设置其他设备",
@@ -2295,7 +2297,7 @@ export const _allMessages = {
         zh: "同步预设",
     },
     "obsidianLiveSyncSettingTab.titleSyncSettings": {
-        def: "Synchronization",
+        def: "Sync Settings",
         es: "Configuraciones de Sincronización",
         ko: "동기화 설정",
         zh: "同步设置",
@@ -2751,7 +2753,7 @@ export const _allMessages = {
         ko: "QR 코드 표시",
     },
     "Setup.ShowQRCode.Desc": {
-        def: "Scan on another device to transfer your current settings.",
+        def: "Show QR code to transfer the settings.",
         ko: "설정을 전송하기 위한 QR 코드를 표시합니다.",
     },
     "Should we keep folders that don't have any files inside?": {
@@ -3120,6 +3122,138 @@ export const _allMessages = {
         ko: "파일에 로그 기록",
         zh: "将日志写入文件",
     },
+    "action.button.add": {
+        def: "Add",
+    },
+    "action.button.apply": {
+        def: "Apply",
+    },
+    "action.button.browse": {
+        def: "Browse",
+    },
+    "action.button.cancel": {
+        def: "Cancel",
+    },
+    "action.button.check": {
+        def: "Check",
+    },
+    "action.button.close": {
+        def: "Close",
+    },
+    "action.button.connect": {
+        def: "Connect",
+    },
+    "action.button.copy": {
+        def: "Copy",
+    },
+    "action.button.delete": {
+        def: "Delete",
+    },
+    "action.button.deselect": {
+        def: "Deselect",
+    },
+    "action.button.disable": {
+        def: "Disable",
+    },
+    "action.button.disconnect": {
+        def: "Disconnect",
+    },
+    "action.button.download": {
+        def: "Download",
+    },
+    "action.button.edit": {
+        def: "Edit",
+    },
+    "action.button.enable": {
+        def: "Enable",
+    },
+    "action.button.fix": {
+        def: "Fix",
+    },
+    "action.button.open": {
+        def: "Open",
+    },
+    "action.button.ok": {
+        def: "OK",
+    },
+    "action.button.refresh": {
+        def: "Refresh",
+    },
+    "action.button.remove": {
+        def: "Remove",
+    },
+    "action.button.reset": {
+        def: "Reset",
+    },
+    "action.button.run": {
+        def: "Run",
+    },
+    "action.button.save": {
+        def: "Save",
+    },
+    "action.button.scan": {
+        def: "Scan",
+    },
+    "action.button.select": {
+        def: "Select",
+    },
+    "action.button.start": {
+        def: "Start",
+    },
+    "action.button.stop": {
+        def: "Stop",
+    },
+    "action.button.sync": {
+        def: "Sync",
+    },
+    "action.button.upload": {
+        def: "Upload",
+    },
+    "action.button.view": {
+        def: "View",
+    },
+    "action.button.yes": {
+        def: "Yes",
+    },
+    "action.button.no": {
+        def: "No",
+    },
+    "action.button.retry": {
+        def: "Retry",
+    },
+    "action.dropdown.server.couchdb": {
+        def: "CouchDB",
+    },
+    "action.dropdown.server.p2p": {
+        def: "P2P (Beta)",
+    },
+    "dialog.setup.welcome.title": {
+        def: "Welcome to Self-Hosted LiveSync",
+    },
+    "dialog.setup.welcome.desc": {
+        def: "Your device isn't configured yet. Let's begin the setup process.\n\nDo you have a [**Setup URI**](${URI_DOC}) created by an already configured device?",
+    },
+    "dialog.setup.welcome.action.primary": {
+        def: "Yes, I have one",
+    },
+    "dialog.setup.welcome.action.secondary": {
+        def: "No, I don't have one",
+    },
+    "dialog.setup.method.title": {
+        def: "Select Setup Method",
+    },
+    "dialog.setup.method.desc": {
+        def: "If you already have another device configured, it's best to use a **Setup URI**. This will automatically import your existing settings, and help avoid configuration issues. *Learn how to create a Setup URI by reading the [documentation](${URI_DOC}).*\n\nOtherwise, please choose how you'd like to set up this device:",
+    },
+    "dialog.setup.method.action.wizard": {
+        def: "Setup Wizard",
+    },
+    "dialog.setup.method.action.manually": {
+        def: "Manually",
+    },
+    "dialog.setup.method.action.p2p": {
+        def: "P2P Sync (Experimental)",
+    },
     "gettingStarted.title": {
         def: "Getting Started",
     },
@@ -3169,7 +3303,7 @@ export const _allMessages = {
         def: "Display Language",
     },
     "general.appearance.displayLanguage.desc": {
-        def: 'Not all messages are translated; revert to "Default" when reporting issues.',
+        def: 'Not all messages are translated; revert to "English" when reporting issues.',
     },
     "general.appearance.showStatusInEditor.title": {
         def: "Show Status in Editor",
@@ -3177,8 +3311,14 @@ export const _allMessages = {
     "general.appearance.showStatusInEditor.desc": {
         def: "Display sync status in editor. Requires restart.",
     },
+    "general.appearance.showStatusAsIcons.title": {
+        def: "Show Status as Icons",
+    },
+    "general.appearance.showStatusAsIcons.desc": {
+        def: "Display sync status in editor as icons instead of text. Requires restart.",
+    },
     "general.appearance.showStatusInStatusBar.title": {
-        def: "Show Status on Status Bard",
+        def: "Show Status on Status Bar",
     },
     "general.appearance.showStatusInStatusBar.desc": {
         def: "Display sync status in the status bar. Requires restart.",
@@ -3188,6 +3328,9 @@ export const _allMessages = {
     },
     "general.appearance.useStatusIconInstead.desc": {
         def: "Display an icon instead of a warning banner. This will not provide details.",
+    },
+    "general.logging.title": {
+        def: "Logging",
     },
     "general.logging.onlyNotifications.title": {
         def: "Notifications Only",
@@ -3201,6 +3344,15 @@ export const _allMessages = {
     "general.logging.verboseLogging.desc": {
         def: "Provides more detailed logs. Turn on if reporting issues.",
     },
+    "general.reset.title": {
+        def: "Reset",
+    },
+    "general.reset.resetClient.title": {
+        def: "Reset Client",
+    },
+    "general.reset.resetClient.desc": {
+        def: "Clears the client's configuration and disconnects it from the server, returning it to its initial state. The server configuration and data is not affected.",
+    },
     "remote.title": {
         def: "Remote",
     },
@@ -3212,6 +3364,150 @@ export const _allMessages = {
     },
     "remote.serverConfiguration.remoteType.desc": {
         def: "Choose the type of remote server.",
+    },
+    "remote.couchDB.serverURI.title": {
+        def: "Server Address",
+    },
+    "remote.couchDB.serverURI.desc": {
+        def: "The web address of your server running CouchDB. The address must begin with **https://** for mobile devices to connect.",
+    },
+    "remote.couchDB.useJWT.title": {
+        def: "Use JWT (JSON Web Token)",
+    },
+    "remote.couchDB.useJWT.desc": {
+        def: "Enable this if your server uses token-based authentication. When disabled, a username and password will be used instead.",
+    },
+    "remote.couchDB.jwtAlgorithm.title": {
+        def: "Algorithm",
+    },
+    "remote.couchDB.jwtAlgorithm.desc": {
+        def: "The algorithm you server uses for JWT authentication.",
+    },
+    "remote.couchDB.jwtKeypair.title": {
+        def: "Keypair or Pre-shared Key",
+    },
+    "remote.couchDB.jwtKeypair.desc": {
+        def: "The secret or private key used for JWT authentication. Use a base64-encoded key for HSxxx algorithms, or PEM private key for ESxxx algorithms.",
+    },
+    "remote.couchDB.jwtKeyID.title": {
+        def: "Key ID",
+    },
+    "remote.couchDB.jwtKeyID.desc": {
+        def: 'The identifier for the key. This should match the "kid" field in CouchDB\'s jwt_keys.',
+    },
+    "remote.couchDB.jwtSubject.title": {
+        def: "Subject (whoami)",
+    },
+    "remote.couchDB.jwtSubject.desc": {
+        def: "The identity this JWT represents. Usually your username.",
+    },
+    "remote.couchDB.jwtRotationDuration.title": {
+        def: "Rotation Duration",
+    },
+    "remote.couchDB.jwtRotationDuration.desc": {
+        def: "The lifetime of each generated token, in minutes. Tokens will expire after this duration.",
+    },
+    "remote.couchDB.username.title": {
+        def: "Username",
+    },
+    "remote.couchDB.username.desc": {
+        def: "The username used to log in to the server.",
+    },
+    "remote.couchDB.password.title": {
+        def: "Password",
+    },
+    "remote.couchDB.password.desc": {
+        def: "The password used to log in to the server.",
+    },
+    "remote.couchDB.databaseName.title": {
+        def: "Database Name",
+    },
+    "remote.couchDB.databaseName.desc": {
+        def: "The name of the database on the server to connect to.",
+    },
+    "remote.couchDB.customHeaders.title": {
+        def: "Custom Headers",
+    },
+    "remote.couchDB.customHeaders.desc": {
+        def: "Optional headers to include when making requests to CouchDB. For example:\nx-custom-header1: value1\nx-custom-header2: value2",
+    },
+    "remote.couchDB.useRequestAPI.title": {
+        def: "Use Request API",
+    },
+    "remote.couchDB.useRequestAPI.desc": {
+        def: "Enable to bypass CORS issues. This is less secure and may not work in all cases. Read the documentation before using.",
+    },
+    "remote.couchDB.testConnection.title": {
+        def: "Test Database Connection",
+    },
+    "remote.couchDB.testConnection.desc": {
+        def: "Attempts to connect to the database. If the database doesn't exist and you have the necessary permissions, it will be created.",
+    },
+    "remote.couchDB.validateConfig.title": {
+        def: "Validate Database Configuration",
+    },
+    "remote.couchDB.validateConfig.desc": {
+        def: "Checks the database configuration for potential issues and attempts to fix them.",
+    },
+    "remote.couchDB.applySettings.title": {
+        def: "Apply Settings",
+    },
+    "remote.couchDB.applySettings.desc": {
+        def: "Save and apply the current configuration to the database connection.",
+    },
+    "remote.bucket.endpointURL.title": {
+        def: "Endpoint URL",
+    },
+    "remote.bucket.endpointURL.desc": {
+        def: "The URL of the storage service endpoint where the bucket is hosted.",
+    },
+    "remote.bucket.region.title": {
+        def: "Region",
+    },
+    "remote.bucket.region.desc": {
+        def: "The region where the bucket is hosted.",
+    },
+    "remote.bucket.accessKey.title": {
+        def: "Access Key",
+    },
+    "remote.bucket.accessKey.desc": {
+        def: "The access key key used to authenticate with the bucket.",
+    },
+    "remote.bucket.secretKey.title": {
+        def: "Secret Key",
+    },
+    "remote.bucket.secretKey.desc": {
+        def: "The secret key used to authenticate with the bucket.",
+    },
+    "remote.bucket.bucketName.title": {
+        def: "Bucket Name",
+    },
+    "remote.bucket.bucketName.desc": {
+        def: "The name of the bucket to connect to.",
+    },
+    "remote.bucket.filePrefix.title": {
+        def: "File Prefix",
+    },
+    "remote.bucket.filePrefix.desc": {
+        def: "A folder-like prefixfor objects in the bucket. Should end with '/'. For example: 'vault-name/'",
+    },
+    "remote.bucket.forcePathStyle.title": {
+        def: "Enable Force Path Style",
+    },
+    "remote.bucket.forcePathStyle.desc": {
+        def: "Use this option to force path-style URLs for bucket operations. Typically needed for some S3-compatible services.",
+    },
+    "remote.bucket.customHTTPHandler.title": {
+        def: "Use Custom HTTP Handler",
+    },
+    "remote.bucket.customHTTPHandler.desc": {
+        def: "Enable if your object storage service doesn't support CORS.",
+    },
+    "remote.bucket..title": {
+        def: "",
+    },
+    "remote.bucket..desc": {
+        def: "",
     },
     "remote.privacyAndEncryption.title": {
         def: "Privacy & Encryption",
@@ -3332,26 +3628,6 @@ export const _allMessages = {
         def: "Syncs the merged version after differences between client and server files are resolved.",
         es: "Syncs the merged version after differences between client and server files are resolved.",
     },
-    "sync.deletionBehaviour.title": {
-        def: "Deletion Behaviour",
-        es: "Deletion Behaviour",
-    },
-    "sync.deletionBehaviour.moveToTrash.title": {
-        def: "Move to Trash",
-        es: "Move to Trash",
-    },
-    "sync.deletionBehaviour.moveToTrash.desc": {
-        def: "Removed files by sending them to the trash bin instead of deleting them permanently.\n(Locally)",
-        es: "Removed files by sending them to the trash bin instead of deleting them permanently.\n(Locally)",
-    },
-    "sync.deletionBehaviour.keepEmptyFolders.title": {
-        def: "Preserve Empty Folders",
-        es: "Preserve Empty Folders",
-    },
-    "sync.deletionBehaviour.keepEmptyFolders.desc": {
-        def: "Keeps folders even if they no longer contain files.\n(Locally)",
-        es: "Keeps folders even if they no longer contain files.\n(Locally)",
-    },
     "sync.conflictResolution.title": {
         def: "Conflict Resolution",
         es: "Conflict Resolution",
@@ -3440,6 +3716,32 @@ export const _allMessages = {
         def: "Open the customization settings dialog to view or edit items.",
         es: "Open the customization settings dialog to view or edit items.",
     },
+    "sync.customSync.deleteAllCustomizationSync.title": {
+        def: "Delete Customization Sync Data",
+    },
+    "sync.customSync.deleteAllCustomizationSync.desc": {
+        def: "Clears all custom sync data from the local and remote database.",
+    },
+    "sync.deletionBehaviour.title": {
+        def: "Deletion Behaviour",
+        es: "Deletion Behaviour",
+    },
+    "sync.deletionBehaviour.moveToTrash.title": {
+        def: "Move to Trash",
+        es: "Move to Trash",
+    },
+    "sync.deletionBehaviour.moveToTrash.desc": {
+        def: "Removed files by sending them to the trash bin instead of deleting them permanently.\n(Locally)",
+        es: "Removed files by sending them to the trash bin instead of deleting them permanently.\n(Locally)",
+    },
+    "sync.deletionBehaviour.keepEmptyFolders.title": {
+        def: "Preserve Empty Folders",
+        es: "Preserve Empty Folders",
+    },
+    "sync.deletionBehaviour.keepEmptyFolders.desc": {
+        def: "Keeps folders even if they no longer contain files.\n(Locally)",
+        es: "Keeps folders even if they no longer contain files.\n(Locally)",
+    },
     "sync.hiddenFiles.title": {
         def: "Hidden Files",
         es: "Hidden Files",
@@ -3447,5 +3749,164 @@ export const _allMessages = {
     "sync.hiddenFiles.": {
         def: "",
         es: "",
+    },
+    "maintenanceAndRecovery.title": {
+        def: "Maintenance & Recovery",
+    },
+    "maintenanceAndRecovery.troubleshooting.title": {
+        def: "Troubleshooting",
+    },
+    "maintenanceAndRecovery.troubleshooting.settingsDoctor.title": {
+        def: "Settings Doctor",
+    },
+    "maintenanceAndRecovery.troubleshooting.settingsDoctor.desc": {
+        def: "Finds unoptimized settings and recommends better options, similar to the migration process.",
+    },
+    "maintenanceAndRecovery.troubleshooting.scanBrokenFiles.title": {
+        def: "Scan for Broken Files",
+    },
+    "maintenanceAndRecovery.troubleshooting.scanBrokenFiles.desc": {
+        def: "Detects files that aren't properly stored in the database and attempts to repair them.",
+    },
+    "maintenanceAndRecovery.troubleshooting.prepareReport.title": {
+        def: "Prepare Report",
+    },
+    "maintenanceAndRecovery.troubleshooting.prepareReport.desc": {
+        def: "Generates a detailed report with relevant information for developers to troubleshoot and patch issues, then copies it to your clipboard.",
+    },
+    "maintenanceAndRecovery.troubleshooting.writeLogToFile.title": {
+        def: "Write Logs to File",
+    },
+    "maintenanceAndRecovery.troubleshooting.writeLogToFile.desc": {
+        def: "Warning! Enabling this can seriously impact performance. Logs will be written to a seperate file and may contain confidential information, so handle with care.",
+    },
+    "maintenanceAndRecovery.troubleshooting.suspendFileWatch.title": {
+        def: "Suspend File Watching",
+    },
+    "maintenanceAndRecovery.troubleshooting.suspendFileWatch.desc": {
+        def: "Temporarily stop monitoring files for changes.",
+    },
+    "maintenanceAndRecovery.troubleshooting.suspendDatabaseReflecting.title": {
+        def: "Suspend File Replication",
+    },
+    "maintenanceAndRecovery.troubleshooting.suspendDatabaseReflecting.desc": {
+        def: "Temporarily stop syncing between the database and storage files. Changes will not be reflected in either direction.",
+    },
+    "maintenanceAndRecovery.recoveryAndRepair.title": {
+        def: "Recovery & Repair",
+    },
+    "maintenanceAndRecovery.recoveryAndRepair.resolveConflictsByNewest.title": {
+        def: "Resolve Conflicts: Keep Newer",
+    },
+    "maintenanceAndRecovery.recoveryAndRepair.resolveConflictsByNewest.desc": {
+        def: "Overwrites all conflicted files with the newest version. This action is irreversible; older versions cannot be restored.",
+    },
+    "maintenanceAndRecovery.recoveryAndRepair.verifyAndRepairFiles.title": {
+        def: "Verify and Repair Files",
+    },
+    "maintenanceAndRecovery.recoveryAndRepair.verifyAndRepairFiles.desc": {
+        def: "Compares file contents between the local and remote databases. If differences are found, you'll be prompted to choose which version to keep.",
+    },
+    "maintenanceAndRecovery.recoveryAndRepair.fixPathObfuscation.title": {
+        def: "Fix Path Obfuscation",
+    },
+    "maintenanceAndRecovery.recoveryAndRepair.fixPathObfuscation.desc": {
+        def: "Detects files whose paths weren't obfuscated correctly and applies the proper path obfuscation.",
+    },
+    "maintenanceAndRecovery.recoveryAndRepair.recreateMissingChunks.title": {
+        def: "Recreate Missing Chunks",
+    },
+    "maintenanceAndRecovery.recoveryAndRepair.recreateMissingChunks.desc": {
+        def: "Recreates chunks for all files. This can resolve issues cause by missing or incomplete chunks.",
+    },
+    "maintenanceAndRecovery.garbageCollection.title": {
+        def: "Garbage Collection",
+    },
+    "maintenanceAndRecovery.garbageCollection.scanUnusedChunks.title": {
+        def: "Scan for Unused Chunks",
+    },
+    "maintenanceAndRecovery.garbageCollection.scanUnusedChunks.desc": {
+        def: "Identify database chunks that are no longer is use. No data is deleted during this scan.",
+    },
+    "maintenanceAndRecovery.garbageCollection.restoreChunks.title": {
+        def: "Rescue Unsynced Chunks",
+    },
+    "maintenanceAndRecovery.garbageCollection.restoreChunks.desc": {
+        def: "Attempt to restore chunks that were deleted before syncing completed.",
+    },
+    "maintenanceAndRecovery.garbageCollection.deleteUnusedChunks.title": {
+        def: "Delete Unused Chunks",
+    },
+    "maintenanceAndRecovery.garbageCollection.deleteUnusedChunks.desc": {
+        def: "Remove chunks that aren't currently used. LiveSync will generate new chunks if needed later.",
+    },
+    "maintenanceAndRecovery.garbageCollection.deleteOrphanedChunks.title": {
+        def: "Delete Orphaned Chunks",
+    },
+    "maintenanceAndRecovery.garbageCollection.deleteOrphanedChunks.desc": {
+        def: "Remove chunks that are no longer referenced. These chunks cannot be regenerated.",
+    },
+    "maintenanceAndRecovery.garbageCollection.deleteFiles.title": {
+        def: "Permanently Delete Files",
+    },
+    "maintenanceAndRecovery.garbageCollection.deleteFiles.desc": {
+        def: "Completely remove files marked for deletion from the local database. This action cannot be undone.",
+    },
+    "maintenanceAndRecovery.resetAndRebuild.title": {
+        def: "Reset / Rebuild",
+    },
+    "maintenanceAndRecovery.resetAndRebuild.fetchRemoteLocalChunks.title": {
+        def: "Fetch from Remote (Retain Local Chunks)",
+    },
+    "maintenanceAndRecovery.resetAndRebuild.fetchRemoteLocalChunks.desc": {
+        def: "Restore or reconstruct the local database from the remote copy, but retain existing local chunks where possible.",
+    },
+    "maintenanceAndRecovery.resetAndRebuild.fetchRemote.title": {
+        def: "Fetch from Remote",
+    },
+    "maintenanceAndRecovery.resetAndRebuild.fetchRemote.desc": {
+        def: "Restore or reconstruct the local database using the remote copy. Local files may be overwritten.",
+    },
+    "maintenanceAndRecovery.resetAndRebuild.rebuildEverything.title": {
+        def: "Rebuild Everything",
+    },
+    "maintenanceAndRecovery.resetAndRebuild.rebuildEverything.desc": {
+        def: "Rebuild both the local and remote databases from local files. Any discrepencies between local and remote data will be resolved using the local version.",
+    },
+    "maintenanceAndRecovery.resetAndRebuild.performCleanup.title": {
+        def: "Perform Cleanup",
+    },
+    "maintenanceAndRecovery.resetAndRebuild.performCleanup.desc": {
+        def: "Free storage by discarding all outdated file revisions. Requires equivalent free storage space on both the remote server and local client.",
+    },
+    "maintenanceAndRecovery.resetAndRebuild.overwriteRemote.title": {
+        def: "Overwrite Remote Database",
+    },
+    "maintenanceAndRecovery.resetAndRebuild.overwriteRemote.desc": {
+        def: "Replace the remote database with the local database. Use this after changing the encryption passphrase.",
+    },
+    "maintenanceAndRecovery.resetAndRebuild.deleteLocal.title": {
+        def: "Delete Local Database",
+    },
+    "maintenanceAndRecovery.resetAndRebuild.deleteLocal.desc": {
+        def: "Remove the local database entirely. Use this to reset or before uninstalling LiveSync.",
+    },
+    "maintenanceAndRecovery.emergencyActions.title": {
+        def: "Emergency Actions",
+    },
+    "maintenanceAndRecovery.emergencyActions.lockServer.title": {
+        def: "Lock Server",
+    },
+    "maintenanceAndRecovery.emergencyActions.lockServer.desc": {
+        def: "Lock the remote server to prevent synchronization with other devices.",
+    },
+    "maintenanceAndRecovery.emergencyActions.restart.title": {
+        def: "Restart with Sync Disabled",
+    },
+    "maintenanceAndRecovery.emergencyActions.restart.desc": {
+        def: "Stops all local synchronization and restarts Obsidian. Sync will remain disabled until you manually re-enable it.",
+    },
+    "info.title": {
+        def: "Info",
     },
 } as const;

@@ -48,12 +48,12 @@ dialog:
       Note: Not all messages are translated. We are waiting for your
       contributions!
 
-      Note 2: If you create an Issue, **please revert to %{lang-def}** and then
+      Note 2: If you create an Issue, **please revert to %{lang-en}** and then
       take screenshots, messages and logs. This can be done in the setting
       dialogue.
 
       May you find it easy to use!
-    btnRevertToDefault: Keep %{lang-def}
+    btnRevertToDefault: Keep %{lang-en}
     Title: " Translation is available!"
 Disables logging, only shows notifications. Please disable if you report an issue.:
   Disables logging, only shows notifications. Please disable if you report an
@@ -191,9 +191,9 @@ K:
   short_p2p_sync: P2P Sync (%{exp})
   title_p2p_sync: Peer-to-Peer Sync
 Keep empty folder: Keep empty folder
-lang_def: Default
+lang_en: English
 lang-de: Deutsche
-lang-def: "%{lang_def}"
+lang-en: "%{lang_en}"
 lang-es: Español
 lang-ja: 日本語
 lang-ko: 한국어

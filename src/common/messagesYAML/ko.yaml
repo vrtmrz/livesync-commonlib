@@ -41,11 +41,11 @@ dialog:
 
       참고: 모든 메시지가 번역되지는 않습니다. 귀하의 기여를 기다리고 있습니다!
 
-      참고 2: 이슈를 생성하는 경우 **%{lang-def}로 되돌린 후** 스크린샷, 메시지, 로그를 가져와 주세요. 이는 설정 대화
+      참고 2: 이슈를 생성하는 경우 **%{lang-en}로 되돌린 후** 스크린샷, 메시지, 로그를 가져와 주세요. 이는 설정 대화
       상자에서 할 수 있습니다.
 
       간편하게 사용하실 수 있었으면 좋겠습니다!
-    btnRevertToDefault: "%{lang-def} 유지"
+    btnRevertToDefault: "%{lang-en} 유지"
     Title: " 번역을 사용할 수 있습니다!"
 Disables logging, only shows notifications. Please disable if you report an issue.: 로깅을 비활성화하고 알림만 표시합니다. 문제를 신고하는 경우 비활성화해 주세요.
 Display Language: 표시 언어
@@ -143,9 +143,9 @@ K:
   short_p2p_sync: P2P 동기화 (%{exp})
   title_p2p_sync: 피어 투 피어(P2P) 동기화
 Keep empty folder: 빈 폴더 유지
-lang_def: Default
+lang_en: English
 lang-de: Deutsche
-lang-def: "%{lang_def}"
+lang-en: "%{lang_en}"
 lang-es: Español
 lang-ja: 日本語
 lang-ko: 한국어
