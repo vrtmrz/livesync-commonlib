@@ -4290,6 +4290,998 @@ export const _allMessages = {
         ru: "Использовать удалённую конфигурацию",
         zh: "Use Remote Configuration",
     },
+    "Ui.Settings.Advanced.LocalDatabaseTweak": {
+        def: "Local Database Tweak",
+        zh: "本地数据库调整",
+    },
+    "Ui.Settings.Advanced.MemoryCache": {
+        def: "Memory Cache",
+        zh: "内存缓存",
+    },
+    "Ui.Settings.Advanced.TransferTweak": {
+        def: "Transfer Tweak",
+        zh: "传输调整",
+    },
+    "Ui.Settings.Common.Analyse": {
+        def: "Analyse",
+        zh: "分析",
+    },
+    "Ui.Settings.Common.Back": {
+        def: "Back",
+        zh: "返回",
+    },
+    "Ui.Settings.Common.Check": {
+        def: "Check",
+        zh: "检查",
+    },
+    "Ui.Settings.Common.Configure": {
+        def: "Configure",
+        zh: "配置",
+    },
+    "Ui.Settings.Common.Continue": {
+        def: "Continue",
+        zh: "继续",
+    },
+    "Ui.Settings.Common.Delete": {
+        def: "Delete",
+        zh: "删除",
+    },
+    "Ui.Settings.Common.Fetch": {
+        def: "Fetch",
+        zh: "获取",
+    },
+    "Ui.Settings.Common.Lock": {
+        def: "Lock",
+        zh: "锁定",
+    },
+    "Ui.Settings.Common.Merge": {
+        def: "Merge",
+        zh: "合并",
+    },
+    "Ui.Settings.Common.Open": {
+        def: "Open",
+        zh: "打开",
+    },
+    "Ui.Settings.Common.Overwrite": {
+        def: "Overwrite",
+        zh: "覆盖",
+    },
+    "Ui.Settings.Common.Perform": {
+        def: "Perform",
+        zh: "执行",
+    },
+    "Ui.Settings.Common.ResetAll": {
+        def: "Reset all",
+        zh: "全部重置",
+    },
+    "Ui.Settings.Common.ResolveAll": {
+        def: "Resolve All",
+        zh: "全部解决",
+    },
+    "Ui.Settings.Common.Scan": {
+        def: "Scan",
+        zh: "扫描",
+    },
+    "Ui.Settings.Common.Send": {
+        def: "Send",
+        zh: "发送",
+    },
+    "Ui.Settings.Common.Use": {
+        def: "Use",
+        zh: "使用",
+    },
+    "Ui.Settings.Common.VerifyAll": {
+        def: "Verify all",
+        zh: "全部校验",
+    },
+    "Ui.Settings.CustomizationSync.OpenDesc": {
+        def: "Open the dialog",
+        zh: "打开此对话框",
+    },
+    "Ui.Settings.CustomizationSync.Panel": {
+        def: "Customization Sync",
+        zh: "自定义同步",
+    },
+    "Ui.Settings.CustomizationSync.WarnChangeDeviceName": {
+        def: "We cannot change the device name while this feature is enabled. Please disable this feature to change the device name.",
+        zh: "启用此功能时无法修改设备名称。请先关闭此功能，再修改设备名称。",
+    },
+    "Ui.Settings.CustomizationSync.WarnSetDeviceName": {
+        def: "Please set device name to identify this device. This name should be unique among your devices. While not configured, we cannot enable this feature.",
+        zh: "请先设置用于标识此设备的设备名称。该名称应在你的设备之间保持唯一。未设置前无法启用此功能。",
+    },
+    "Ui.Settings.Hatch.AnalyseDatabaseUsage": {
+        def: "Analyse database usage",
+        zh: "分析数据库使用情况",
+    },
+    "Ui.Settings.Hatch.AnalyseDatabaseUsageDesc": {
+        def: "Analyse database usage and generate a TSV report for diagnosis yourself. You can paste the generated report with any spreadsheet you like.",
+        zh: "分析数据库使用情况，并生成 TSV 报告供你自行诊断。你可以将生成的报告粘贴到任意电子表格工具中查看。",
+    },
+    "Ui.Settings.Hatch.BackToNonConfigured": {
+        def: "Back to non-configured",
+        zh: "返回未配置状态",
+    },
+    "Ui.Settings.Hatch.ConvertNonObfuscated": {
+        def: "Check and convert non-path-obfuscated files",
+        zh: "检查并转换未进行路径混淆的文件",
+    },
+    "Ui.Settings.Hatch.ConvertNonObfuscatedDesc": {
+        def: "Check the local database for files that were stored without path obfuscation and convert them when needed.",
+        zh: "检查本地数据库中未按路径混淆方式存储的文件，并在需要时将其转换为正确格式。",
+    },
+    "Ui.Settings.Hatch.CopyIssueReport": {
+        def: "Copy Report to clipboard",
+        zh: "复制报告到剪贴板",
+    },
+    "Ui.Settings.Hatch.DatabaseLabel": {
+        def: "Database: ${details}",
+        zh: "数据库：${details}",
+    },
+    "Ui.Settings.Hatch.DatabaseToStorage": {
+        def: "Database -> Storage",
+        zh: "数据库 -> 存储",
+    },
+    "Ui.Settings.Hatch.DeleteCustomizationSyncData": {
+        def: "Delete all customization sync data",
+        zh: "删除所有自定义同步数据",
+    },
+    "Ui.Settings.Hatch.GeneratedReport": {
+        def: "Generated report",
+        zh: "已生成的报告",
+    },
+    "Ui.Settings.Hatch.Missing": {
+        def: "Missing",
+        zh: "缺失",
+    },
+    "Ui.Settings.Hatch.ModifiedSize": {
+        def: "Modified: ${modified}, Size: ${size}",
+        zh: "修改时间：${modified}，大小：${size}",
+    },
+    "Ui.Settings.Hatch.ModifiedSizeActual": {
+        def: "Modified: ${modified}, Size: ${size} (actual size: ${actualSize})",
+        zh: "修改时间：${modified}，大小：${size}（实际大小：${actualSize}）",
+    },
+    "Ui.Settings.Hatch.PrepareIssueReport": {
+        def: "Prepare the 'report' to create an issue",
+        zh: "准备用于提交问题的报告",
+    },
+    "Ui.Settings.Hatch.RecoveryAndRepair": {
+        def: "Recovery and Repair",
+        zh: "恢复与修复",
+    },
+    "Ui.Settings.Hatch.RecreateAll": {
+        def: "Recreate all",
+        zh: "全部重建",
+    },
+    "Ui.Settings.Hatch.RecreateMissingChunks": {
+        def: "Recreate missing chunks for all files",
+        zh: "为所有文件重新创建缺失的数据块",
+    },
+    "Ui.Settings.Hatch.RecreateMissingChunksDesc": {
+        def: "This will recreate chunks for all files. If there were missing chunks, this may fix the errors.",
+        zh: "此操作会为所有文件重新创建数据块。如果存在缺失的数据块，可能会修复相关错误。",
+    },
+    "Ui.Settings.Hatch.ResetPanel": {
+        def: "Reset",
+        zh: "重置",
+    },
+    "Ui.Settings.Hatch.ResetRemoteUsage": {
+        def: "Reset notification threshold and check the remote database usage",
+        zh: "重置通知阈值并检查远程数据库使用情况",
+    },
+    "Ui.Settings.Hatch.ResetRemoteUsageDesc": {
+        def: "Reset the remote storage size threshold and check the remote storage size again.",
+        zh: "重置远程存储大小阈值，并再次检查远程存储大小。",
+    },
+    "Ui.Settings.Hatch.ResolveAllConflictedFiles": {
+        def: "Resolve all conflicted files by the newer one",
+        zh: "使用较新的版本解决所有冲突文件",
+    },
+    "Ui.Settings.Hatch.ResolveAllConflictedFilesDesc": {
+        def: "Resolve all conflicted files by the newer one. Caution: This will overwrite the older one, and cannot resurrect the overwritten one.",
+        zh: "使用较新的版本解决所有冲突文件。注意：此操作会覆盖较旧版本，且无法恢复被覆盖的内容。",
+    },
+    "Ui.Settings.Hatch.RunDoctor": {
+        def: "Run Doctor",
+        zh: "运行诊断",
+    },
+    "Ui.Settings.Hatch.ScanBrokenFiles": {
+        def: "Scan for broken files",
+        zh: "扫描损坏文件",
+    },
+    "Ui.Settings.Hatch.ScramSwitches": {
+        def: "Scram Switches",
+        zh: "紧急开关",
+    },
+    "Ui.Settings.Hatch.ShowHistory": {
+        def: "Show history",
+        zh: "查看历史",
+    },
+    "Ui.Settings.Hatch.StorageLabel": {
+        def: "Storage: ${details}",
+        zh: "存储：${details}",
+    },
+    "Ui.Settings.Hatch.StorageToDatabase": {
+        def: "Storage -> Database",
+        zh: "存储 -> 数据库",
+    },
+    "Ui.Settings.Hatch.VerifyAndRepairAllFiles": {
+        def: "Verify and repair all files",
+        zh: "校验并修复所有文件",
+    },
+    "Ui.Settings.Hatch.VerifyAndRepairAllFilesDesc": {
+        def: "Compare the content of files between the local database and storage. If they do not match, you will be asked which one to keep.",
+        zh: "比较本地数据库与存储中的文件内容。如果内容不一致，系统会询问你保留哪一份。",
+    },
+    "Ui.Settings.Maintenance.Cleanup": {
+        def: "Perform cleanup",
+        zh: "执行清理",
+    },
+    "Ui.Settings.Maintenance.CleanupDesc": {
+        def: "Reduces storage space by discarding all non-latest revisions. This requires the same amount of free space on the remote server and the local client.",
+        zh: "丢弃所有非最新修订版本，以减少存储空间占用。此操作要求远程服务器和本地客户端都具备同等大小的可用空间。",
+    },
+    "Ui.Settings.Maintenance.DeleteLocalDatabase": {
+        def: "Delete local database to reset or uninstall Self-hosted LiveSync",
+        zh: "删除本地数据库以重置或卸载 Self-hosted LiveSync",
+    },
+    "Ui.Settings.Maintenance.EmergencyRestart": {
+        def: "Emergency restart",
+        zh: "紧急重启",
+    },
+    "Ui.Settings.Maintenance.EmergencyRestartDesc": {
+        def: "Disable all synchronisation and restart.",
+        zh: "禁用所有同步并重新启动。",
+    },
+    "Ui.Settings.Maintenance.FreshStartWipe": {
+        def: "Fresh Start Wipe",
+        zh: "全新开始清空",
+    },
+    "Ui.Settings.Maintenance.FreshStartWipeDesc": {
+        def: "Delete all data on the remote server.",
+        zh: "删除远程服务器上的所有数据。",
+    },
+    "Ui.Settings.Maintenance.GarbageCollection": {
+        def: "Garbage Collection V3 (Beta)",
+        zh: "垃圾回收 V3（测试版）",
+    },
+    "Ui.Settings.Maintenance.GarbageCollectionAction": {
+        def: "Perform Garbage Collection",
+        zh: "执行垃圾回收",
+    },
+    "Ui.Settings.Maintenance.GarbageCollectionDesc": {
+        def: "Perform Garbage Collection to remove unused chunks and reduce database size.",
+        zh: "执行垃圾回收以移除未使用的数据块并减少数据库大小。",
+    },
+    "Ui.Settings.Maintenance.LockServer": {
+        def: "Lock Server",
+        zh: "锁定服务器",
+    },
+    "Ui.Settings.Maintenance.LockServerDesc": {
+        def: "Lock the remote server to prevent synchronisation with other devices.",
+        zh: "锁定远程服务器，防止与其他设备继续同步。",
+    },
+    "Ui.Settings.Maintenance.OverwriteRemote": {
+        def: "Overwrite remote",
+        zh: "覆盖远程端",
+    },
+    "Ui.Settings.Maintenance.OverwriteRemoteDesc": {
+        def: "Overwrite remote with local DB and passphrase.",
+        zh: "使用本地数据库和密码短语覆盖远程端数据。",
+    },
+    "Ui.Settings.Maintenance.OverwriteServerData": {
+        def: "Overwrite Server Data with This Device's Files",
+        zh: "用此设备的文件覆盖服务器数据",
+    },
+    "Ui.Settings.Maintenance.OverwriteServerDataDesc": {
+        def: "Rebuild the local and remote database with files from this device.",
+        zh: "使用此设备上的文件重建本地和远程数据库。",
+    },
+    "Ui.Settings.Maintenance.PurgeAllJournalCounter": {
+        def: "Purge all journal counter",
+        zh: "清空全部日志计数器",
+    },
+    "Ui.Settings.Maintenance.PurgeAllJournalCounterDesc": {
+        def: "Purge all download and upload caches.",
+        zh: "清空所有下载与上传缓存。",
+    },
+    "Ui.Settings.Maintenance.RebuildingOperations": {
+        def: "Rebuilding Operations (Remote Only)",
+        zh: "重建操作（仅远程端）",
+    },
+    "Ui.Settings.Maintenance.Resend": {
+        def: "Resend",
+        zh: "重新发送",
+    },
+    "Ui.Settings.Maintenance.ResendDesc": {
+        def: "Resend all chunks to the remote.",
+        zh: "将所有数据块重新发送到远程端。",
+    },
+    "Ui.Settings.Maintenance.Reset": {
+        def: "Reset",
+        zh: "重置",
+    },
+    "Ui.Settings.Maintenance.ResetAllJournalCounter": {
+        def: "Reset all journal counter",
+        zh: "重置全部日志计数器",
+    },
+    "Ui.Settings.Maintenance.ResetAllJournalCounterDesc": {
+        def: "Initialise all journal history. On the next sync, every item will be received and sent again.",
+        zh: "初始化全部日志历史。下次同步时，所有项目都会重新接收并重新发送。",
+    },
+    "Ui.Settings.Maintenance.ResetJournalReceived": {
+        def: "Reset journal received history",
+        zh: "重置日志接收历史",
+    },
+    "Ui.Settings.Maintenance.ResetJournalReceivedDesc": {
+        def: "Initialise journal received history. On the next sync, every item except those sent by this device will be downloaded again.",
+        zh: "初始化日志接收历史。下次同步时，除当前设备发送的项目外，其余项目都会重新下载。",
+    },
+    "Ui.Settings.Maintenance.ResetJournalSent": {
+        def: "Reset journal sent history",
+        zh: "重置日志发送历史",
+    },
+    "Ui.Settings.Maintenance.ResetJournalSentDesc": {
+        def: "Initialise journal sent history. On the next sync, every item except those received by this device will be sent again.",
+        zh: "初始化日志发送历史。下次同步时，除当前设备已接收的项目外，其余项目都会重新发送。",
+    },
+    "Ui.Settings.Maintenance.ResetLocalSyncInfo": {
+        def: "Reset Synchronisation information",
+        zh: "重置同步信息",
+    },
+    "Ui.Settings.Maintenance.ResetLocalSyncInfoDesc": {
+        def: "Restore or reconstruct local database from remote.",
+        zh: "从远程端恢复或重建本地数据库。",
+    },
+    "Ui.Settings.Maintenance.ResetReceived": {
+        def: "Reset received",
+        zh: "重置接收记录",
+    },
+    "Ui.Settings.Maintenance.ResetSentHistory": {
+        def: "Reset sent history",
+        zh: "重置发送记录",
+    },
+    "Ui.Settings.Maintenance.ResetThisDevice": {
+        def: "Reset Synchronisation on This Device",
+        zh: "重置此设备上的同步状态",
+    },
+    "Ui.Settings.Maintenance.ScheduleAndRestart": {
+        def: "Schedule and Restart",
+        zh: "计划执行并重启",
+    },
+    "Ui.Settings.Maintenance.Scram": {
+        def: "Scram!",
+        zh: "紧急处理",
+    },
+    "Ui.Settings.Maintenance.SendChunks": {
+        def: "Send chunks",
+        zh: "发送数据块",
+    },
+    "Ui.Settings.Maintenance.Syncing": {
+        def: "Syncing",
+        zh: "同步",
+    },
+    "Ui.Settings.Maintenance.WarningLockedReadyAction": {
+        def: "I am ready, unlock the database",
+        zh: "我已准备好，立即解锁数据库",
+    },
+    "Ui.Settings.Maintenance.WarningLockedReadyText": {
+        def: "To prevent unwanted vault corruption, the remote database has been locked for synchronisation. (This device is marked as 'resolved'.) When all your devices are marked as 'resolved', unlock the database. This warning will continue to appear until replication confirms the device is resolved.",
+        zh: "为防止意外的数据仓库损坏，远程数据库已被锁定，暂停同步。（此设备已被标记为“已确认”）当你的所有设备都标记为“已确认”后，再解锁数据库。在复制过程确认此设备已完成确认之前，此警告会持续显示。",
+    },
+    "Ui.Settings.Maintenance.WarningLockedResolveAction": {
+        def: "I have made a backup, mark this device as resolved",
+        zh: "我已完成备份，将此设备标记为“已确认”",
+    },
+    "Ui.Settings.Maintenance.WarningLockedResolveText": {
+        def: "The remote database is locked for synchronisation to prevent vault corruption because this device is not marked as 'resolved'. Please back up your vault, reset the local database, and select 'Mark this device as resolved'. This warning will persist until replication confirms the device is resolved.",
+        zh: "为防止数据仓库损坏，由于此设备尚未标记为“已确认”，远程数据库已被锁定，暂停同步。请先备份你的仓库、重置本地数据库，然后选择“将此设备标记为已确认”。在复制过程确认此设备已完成确认之前，此警告会持续显示。",
+    },
+    "Ui.Settings.Maintenance.WriteRedFlagAndRestart": {
+        def: "Flag and restart",
+        zh: "标记并重启",
+    },
+    "Ui.Settings.Patches.CompatibilityConflict": {
+        def: "Compatibility (Conflict Behaviour)",
+        zh: "兼容性（冲突行为）",
+    },
+    "Ui.Settings.Patches.CompatibilityDatabase": {
+        def: "Compatibility (Database structure)",
+        zh: "兼容性（数据库结构）",
+    },
+    "Ui.Settings.Patches.CompatibilityInternalApi": {
+        def: "Compatibility (Internal API Usage)",
+        zh: "兼容性（内部 API 使用）",
+    },
+    "Ui.Settings.Patches.CompatibilityMetadata": {
+        def: "Compatibility (Metadata)",
+        zh: "兼容性（元数据）",
+    },
+    "Ui.Settings.Patches.CompatibilityRemote": {
+        def: "Compatibility (Remote Database)",
+        zh: "兼容性（远程数据库）",
+    },
+    "Ui.Settings.Patches.CompatibilityTrouble": {
+        def: "Compatibility (Trouble addressed)",
+        zh: "兼容性（已处理问题）",
+    },
+    "Ui.Settings.Patches.CurrentAdapter": {
+        def: "Current adapter: ${adapter}",
+        zh: "当前适配器：${adapter}",
+    },
+    "Ui.Settings.Patches.DatabaseAdapter": {
+        def: "Database Adapter",
+        zh: "数据库适配器",
+    },
+    "Ui.Settings.Patches.DatabaseAdapterDesc": {
+        def: "Select the database adapter to use.",
+        zh: "选择要使用的数据库适配器。",
+    },
+    "Ui.Settings.Patches.EdgeCaseBehaviour": {
+        def: "Edge case addressing (Behaviour)",
+        zh: "边界情况处理（行为）",
+    },
+    "Ui.Settings.Patches.EdgeCaseDatabase": {
+        def: "Edge case addressing (Database)",
+        zh: "边界情况处理（数据库）",
+    },
+    "Ui.Settings.Patches.EdgeCaseProcessing": {
+        def: "Edge case addressing (Processing)",
+        zh: "边界情况处理（处理流程）",
+    },
+    "Ui.Settings.Patches.IndexedDbWarning": {
+        def: "The IndexedDB adapter often offers superior performance in certain scenarios, but it has been found to cause memory leaks when used with LiveSync mode. When using LiveSync mode, please use the IDB adapter instead.",
+        zh: "IndexedDB 适配器在某些场景下通常具有更好的性能，但在 LiveSync 模式下已发现可能导致内存泄漏。使用 LiveSync 模式时，请改用 IDB 适配器。",
+    },
+    "Ui.Settings.Patches.MigratingToIdb": {
+        def: "Migrating all data to IDB...",
+        zh: "正在将所有数据迁移到 IDB...",
+    },
+    "Ui.Settings.Patches.MigratingToIndexedDb": {
+        def: "Migrating all data to IndexedDB...",
+        zh: "正在将所有数据迁移到 IndexedDB...",
+    },
+    "Ui.Settings.Patches.MigrationIdbCompleted": {
+        def: "Migration to IDB completed. Obsidian will be restarted with the new configuration immediately.",
+        zh: "已完成迁移到 IDB。Obsidian 将立即使用新配置重新启动。",
+    },
+    "Ui.Settings.Patches.MigrationIdbCompletedFollowUp": {
+        def: "Migration to IDB completed. Please switch the adapter and restart Obsidian.",
+        zh: "已完成迁移到 IDB。请切换适配器并重新启动 Obsidian。",
+    },
+    "Ui.Settings.Patches.MigrationIndexedDbCompleted": {
+        def: "Migration to IndexedDB completed. Obsidian will be restarted with the new configuration immediately.",
+        zh: "已完成迁移到 IndexedDB。Obsidian 将立即使用新配置重新启动。",
+    },
+    "Ui.Settings.Patches.MigrationIndexedDbCompletedFollowUp": {
+        def: "Migration to IndexedDB completed. Please switch the adapter and restart Obsidian.",
+        zh: "已完成迁移到 IndexedDB。请切换适配器并重新启动 Obsidian。",
+    },
+    "Ui.Settings.Patches.MigrationWarning": {
+        def: "Changing this setting requires migrating existing data, which may take some time, and restarting Obsidian. Please make sure to back up your data before proceeding.",
+        zh: "修改此设置需要迁移现有数据（可能需要一些时间）并重新启动 Obsidian。请先备份你的数据后再继续。",
+    },
+    "Ui.Settings.Patches.OperationToIdb": {
+        def: "to IDB",
+        zh: "迁移到 IDB",
+    },
+    "Ui.Settings.Patches.OperationToIndexedDb": {
+        def: "to IndexedDB",
+        zh: "迁移到 IndexedDB",
+    },
+    "Ui.Settings.Patches.Remediation": {
+        def: "Remediation",
+        zh: "修正",
+    },
+    "Ui.Settings.Patches.RemediationChanged": {
+        def: "Remediation Setting Changed",
+        zh: "修正设置已更改",
+    },
+    "Ui.Settings.Patches.RemediationNoLimit": {
+        def: "No limit configured",
+        zh: "未设置限制",
+    },
+    "Ui.Settings.Patches.RemediationRestarting": {
+        def: "Remediation setting changed. Restarting Obsidian...",
+        zh: "修正设置已更改，正在重新启动 Obsidian...",
+    },
+    "Ui.Settings.Patches.RemediationRestartLater": {
+        def: "Later",
+        zh: "稍后",
+    },
+    "Ui.Settings.Patches.RemediationRestartMessage": {
+        def: "Restarting Obsidian is strongly recommended. Until restart, some changes may not take effect, and the display may be inconsistent. Are you sure you want to restart now?",
+        zh: "强烈建议重新启动 Obsidian。在重启之前，部分更改可能不会生效，界面显示也可能不一致。确定要现在重启吗？",
+    },
+    "Ui.Settings.Patches.RemediationRestartNow": {
+        def: "Restart Now",
+        zh: "立即重启",
+    },
+    "Ui.Settings.Patches.RemediationSuffixChanged": {
+        def: "Suffix has been changed. Reopening database...",
+        zh: "后缀已更改，正在重新打开数据库...",
+    },
+    "Ui.Settings.Patches.RemediationWithValue": {
+        def: "Limit: ${date} (${timestamp})",
+        zh: "限制：${date}（${timestamp}）",
+    },
+    "Ui.Settings.Patches.RemoteDatabaseSunset": {
+        def: "Remote Database Tweak (In sunset)",
+        zh: "远程数据库调整（即将弃用）",
+    },
+    "Ui.Settings.Patches.SwitchToIDB": {
+        def: "Switch to IDB",
+        zh: "切换到 IDB",
+    },
+    "Ui.Settings.Patches.SwitchToIndexedDb": {
+        def: "Switch to IndexedDB",
+        zh: "切换到 IndexedDB",
+    },
+    "Ui.Settings.PowerUsers.ConfigurationEncryption": {
+        def: "Configuration Encryption",
+        zh: "配置加密",
+    },
+    "Ui.Settings.PowerUsers.ConnectionTweak": {
+        def: "CouchDB Connection Tweak",
+        zh: "CouchDB 连接调整",
+    },
+    "Ui.Settings.PowerUsers.ConnectionTweakDesc": {
+        def: "If you reached the payload size limit when using IBM Cloudant, please decrease batch size and batch limit to a lower value.",
+        zh: "如果你在使用 IBM Cloudant 时遇到负载大小限制，请将 batch size 和 batch limit 调低。",
+    },
+    "Ui.Settings.PowerUsers.Default": {
+        def: "Default",
+        zh: "默认",
+    },
+    "Ui.Settings.PowerUsers.Developer": {
+        def: "Developer",
+        zh: "开发者",
+    },
+    "Ui.Settings.PowerUsers.EncryptSensitiveConfig": {
+        def: "Encrypt sensitive configuration items",
+        zh: "加密敏感配置项",
+    },
+    "Ui.Settings.PowerUsers.PromptPassphraseEveryLaunch": {
+        def: "Ask for a passphrase at every launch",
+        zh: "每次启动时询问密码短语",
+    },
+    "Ui.Settings.PowerUsers.UseCustomPassphrase": {
+        def: "Use a custom passphrase",
+        zh: "使用自定义密码短语",
+    },
+    "Ui.Settings.Remote.Activate": {
+        def: "Activate",
+        zh: "启用",
+    },
+    "Ui.Settings.Remote.ActiveSuffix": {
+        def: " (Active)",
+        zh: "（当前启用）",
+    },
+    "Ui.Settings.Remote.AddConnection": {
+        def: "Add new connection",
+        zh: "新增连接",
+    },
+    "Ui.Settings.Remote.AddRemoteDefaultName": {
+        def: "New Remote",
+        zh: "新远程端",
+    },
+    "Ui.Settings.Remote.ConfigureAndChangeRemote": {
+        def: "Configure and change remote",
+        zh: "配置并切换远程端",
+    },
+    "Ui.Settings.Remote.ConfigureE2EE": {
+        def: "Configure E2EE",
+        zh: "配置端到端加密",
+    },
+    "Ui.Settings.Remote.ConfigureRemote": {
+        def: "Configure Remote",
+        zh: "配置远程端",
+    },
+    "Ui.Settings.Remote.DeleteRemoteConfirm": {
+        def: "Delete remote configuration '${name}'?",
+        zh: "确定要删除远程配置“${name}”吗？",
+    },
+    "Ui.Settings.Remote.DeleteRemoteTitle": {
+        def: "Delete Remote Configuration",
+        zh: "删除远程配置",
+    },
+    "Ui.Settings.Remote.DisplayName": {
+        def: "Display name",
+        zh: "显示名称",
+    },
+    "Ui.Settings.Remote.DuplicateRemote": {
+        def: "Duplicate remote",
+        zh: "复制远程配置",
+    },
+    "Ui.Settings.Remote.DuplicateRemoteSuffix": {
+        def: "${name} (Copy)",
+        zh: "${name}（副本）",
+    },
+    "Ui.Settings.Remote.E2EEConfiguration": {
+        def: "E2EE Configuration",
+        zh: "端到端加密配置",
+    },
+    "Ui.Settings.Remote.Export": {
+        def: "Export",
+        zh: "导出",
+    },
+    "Ui.Settings.Remote.FetchRemoteSettings": {
+        def: "Fetch remote settings",
+        zh: "获取远程设置",
+    },
+    "Ui.Settings.Remote.ImportConnection": {
+        def: "Import connection",
+        zh: "导入连接",
+    },
+    "Ui.Settings.Remote.ImportConnectionPrompt": {
+        def: "Paste a connection string",
+        zh: "粘贴连接字符串",
+    },
+    "Ui.Settings.Remote.ImportedCouchDb": {
+        def: "Imported CouchDB",
+        zh: "已导入的 CouchDB",
+    },
+    "Ui.Settings.Remote.ImportedRemote": {
+        def: "Remote",
+        zh: "远程端",
+    },
+    "Ui.Settings.Remote.MoreActions": {
+        def: "More actions",
+        zh: "更多操作",
+    },
+    "Ui.Settings.Remote.PeerToPeerPanel": {
+        def: "Peer-to-Peer Synchronisation",
+        zh: "点对点同步",
+    },
+    "Ui.Settings.Remote.RemoteConfigurationPrefix": {
+        def: "Remote configuration",
+        zh: "远程配置",
+    },
+    "Ui.Settings.Remote.RemoteDatabases": {
+        def: "Remote Databases",
+        zh: "远程数据库",
+    },
+    "Ui.Settings.Remote.RemoteName": {
+        def: "Remote name",
+        zh: "远程名称",
+    },
+    "Ui.Settings.Remote.RemoteNameCouchDb": {
+        def: "CouchDB ${host}",
+        zh: "CouchDB ${host}",
+    },
+    "Ui.Settings.Remote.RemoteNameP2P": {
+        def: "P2P ${room}",
+        zh: "P2P ${room}",
+    },
+    "Ui.Settings.Remote.RemoteNameS3": {
+        def: "S3 ${bucket}",
+        zh: "S3 ${bucket}",
+    },
+    "Ui.Settings.Remote.Rename": {
+        def: "Rename",
+        zh: "重命名",
+    },
+    "Ui.Settings.Selector.AddDefaultPatterns": {
+        def: "Add default patterns",
+        zh: "添加默认模式",
+    },
+    "Ui.Settings.Selector.CrossPlatform": {
+        def: "Cross-platform",
+        zh: "跨平台",
+    },
+    "Ui.Settings.Selector.Default": {
+        def: "Default",
+        zh: "默认",
+    },
+    "Ui.Settings.Selector.HiddenFiles": {
+        def: "Hidden Files",
+        zh: "隐藏文件",
+    },
+    "Ui.Settings.Selector.IgnorePatterns": {
+        def: "Ignore patterns",
+        zh: "忽略模式",
+    },
+    "Ui.Settings.Selector.NonSynchronisingFiles": {
+        def: "Non-Synchronising files",
+        zh: "不同步文件",
+    },
+    "Ui.Settings.Selector.NonSynchronisingFilesDesc": {
+        def: "(RegExp) If this is set, any changes to local and remote files that match this will be skipped.",
+        zh: "（RegExp）如果设置了该项，则本地和远程中匹配这些规则的文件变更将被跳过。",
+    },
+    "Ui.Settings.Selector.NormalFiles": {
+        def: "Normal Files",
+        zh: "普通文件",
+    },
+    "Ui.Settings.Selector.OverwritePatterns": {
+        def: "Overwrite patterns",
+        zh: "覆盖模式",
+    },
+    "Ui.Settings.Selector.OverwritePatternsDesc": {
+        def: "Patterns to match files for overwriting instead of merging",
+        zh: "匹配后将执行覆盖而非合并的文件模式",
+    },
+    "Ui.Settings.Selector.SynchronisingFiles": {
+        def: "Synchronising files",
+        zh: "同步文件",
+    },
+    "Ui.Settings.Selector.SynchronisingFilesDesc": {
+        def: "(RegExp) Empty to sync all files. Set a regular expression filter to limit synchronised files.",
+        zh: "（RegExp）留空则同步所有文件。可设置正则表达式以限制需要同步的文件。",
+    },
+    "Ui.Settings.Selector.TargetPatterns": {
+        def: "Target patterns",
+        zh: "目标模式",
+    },
+    "Ui.Settings.Selector.TargetPatternsDesc": {
+        def: "Patterns to match files for syncing",
+        zh: "用于匹配需要同步文件的模式",
+    },
+    "Ui.Settings.Setup.RerunWizardButton": {
+        def: "Rerun Wizard",
+        zh: "重新运行向导",
+    },
+    "Ui.Settings.Setup.RerunWizardDesc": {
+        def: "Rerun the onboarding wizard to set up Self-hosted LiveSync again.",
+        zh: "重新运行引导向导，再次设置 Self-hosted LiveSync。",
+    },
+    "Ui.Settings.Setup.RerunWizardName": {
+        def: "Rerun Onboarding Wizard",
+        zh: "重新运行引导向导",
+    },
+    "Ui.Settings.SyncSettings.Fetch": {
+        def: "Fetch",
+        zh: "获取",
+    },
+    "Ui.Settings.SyncSettings.Merge": {
+        def: "Merge",
+        zh: "合并",
+    },
+    "Ui.Settings.SyncSettings.Overwrite": {
+        def: "Overwrite",
+        zh: "覆盖",
+    },
+    "Ui.SetupWizard.Common.Back": {
+        def: "No, please take me back",
+        zh: "不，带我返回",
+    },
+    "Ui.SetupWizard.Common.Cancel": {
+        def: "Cancel",
+        zh: "取消",
+    },
+    "Ui.SetupWizard.Common.ProceedSelectOption": {
+        def: "Please select an option to proceed",
+        zh: "请选择一个选项后继续",
+    },
+    "Ui.SetupWizard.Intro.ExistingOption": {
+        def: "I am adding a device to an existing synchronisation setup",
+        zh: "将此设备加入已有同步配置",
+    },
+    "Ui.SetupWizard.Intro.ExistingOptionDesc": {
+        def: "Select this if you are already using synchronisation on another computer or smartphone. Use this option to connect this device to that existing setup.",
+        zh: "如果你已经在另一台电脑或手机上使用同步，请选择此项。此选项用于将当前设备连接到既有同步配置。",
+    },
+    "Ui.SetupWizard.Intro.Guidance": {
+        def: "We will now guide you through a few questions to simplify the synchronisation setup.",
+        zh: "接下来我们会通过几个问题，帮助你更轻松地完成同步配置。",
+    },
+    "Ui.SetupWizard.Intro.NewOption": {
+        def: "I am setting this up for the first time",
+        zh: "首次设置同步",
+    },
+    "Ui.SetupWizard.Intro.NewOptionDesc": {
+        def: "Select this if you are configuring this device as the first synchronisation device.",
+        zh: "如果你正把这台设备作为第一台同步设备进行配置，请选择此项。",
+    },
+    "Ui.SetupWizard.Intro.ProceedExisting": {
+        def: "Yes, I want to add this device to my existing synchronisation",
+        zh: "是的，我要将此设备加入现有同步",
+    },
+    "Ui.SetupWizard.Intro.ProceedNew": {
+        def: "Yes, I want to set up a new synchronisation",
+        zh: "是的，我要开始新的同步配置",
+    },
+    "Ui.SetupWizard.Intro.Question": {
+        def: "First, please select the option that best describes your current situation.",
+        zh: "首先，请选择最符合你当前情况的选项。",
+    },
+    "Ui.SetupWizard.Intro.Title": {
+        def: "Welcome to Self-hosted LiveSync",
+        zh: "欢迎使用 Self-hosted LiveSync",
+    },
+    "Ui.SetupWizard.OutroAskUserMode.CompatibleOption": {
+        def: "The remote is already set up, and the configuration is compatible (or became compatible through this operation).",
+        zh: "远程端已配置完成，且当前配置兼容（或已通过本次操作变为兼容）。",
+    },
+    "Ui.SetupWizard.OutroAskUserMode.CompatibleOptionDesc": {
+        def: "Unless you are certain, selecting this option is risky. It assumes the server configuration is compatible with this device. If that is not the case, data loss may occur. Please make sure you understand the consequences.",
+        zh: "除非你非常确定，否则选择此项存在风险。它假定服务器配置与当前设备兼容。如果事实并非如此，可能会导致数据丢失。请确认你了解后果。",
+    },
+    "Ui.SetupWizard.OutroAskUserMode.ExistingOption": {
+        def: "My remote server is already set up. I want to join this device.",
+        zh: "远程服务器已经配置完成，我想让此设备加入同步。",
+    },
+    "Ui.SetupWizard.OutroAskUserMode.ExistingOptionDesc": {
+        def: "Selecting this option will make this device join the existing server. You need to fetch the existing synchronisation data from the server to this device.",
+        zh: "选择此项后，此设备会加入已有服务器。你需要将服务器上的现有同步数据获取到此设备。",
+    },
+    "Ui.SetupWizard.OutroAskUserMode.Guidance": {
+        def: "The connection to the server has been configured successfully. As the next step, the local database, in other words the synchronisation information, must be rebuilt.",
+        zh: "服务器连接已成功配置。下一步需要重建本地数据库，也就是同步状态信息。",
+    },
+    "Ui.SetupWizard.OutroAskUserMode.NewOption": {
+        def: "I am setting up a new server for the first time / I want to reset my existing server.",
+        zh: "我是第一次配置新服务器 / 我想重置现有服务器。",
+    },
+    "Ui.SetupWizard.OutroAskUserMode.NewOptionDesc": {
+        def: "Selecting this option will initialise the server using the current data on this device. Any existing data on the server will be completely overwritten.",
+        zh: "选择此项后，服务器会使用当前设备上的数据进行初始化。服务器上的现有数据将被完全覆盖。",
+    },
+    "Ui.SetupWizard.OutroAskUserMode.ProceedApplySettings": {
+        def: "Apply the settings",
+        zh: "应用这些设置",
+    },
+    "Ui.SetupWizard.OutroAskUserMode.ProceedNext": {
+        def: "Proceed to the next step.",
+        zh: "继续下一步",
+    },
+    "Ui.SetupWizard.OutroAskUserMode.Question": {
+        def: "Please select your situation.",
+        zh: "请选择你的当前情况。",
+    },
+    "Ui.SetupWizard.OutroAskUserMode.Title": {
+        def: "Mostly Complete: Decision Required",
+        zh: "即将完成：还需要做出选择",
+    },
+    "Ui.SetupWizard.OutroNewUser.GuidancePrimary": {
+        def: "The connection to the server has been configured successfully. As the next step, the synchronisation data on the server will be built from the current data on this device.",
+        zh: "服务器连接已成功配置。下一步将根据当前设备上的数据，在服务器端建立同步数据。",
+    },
+    "Ui.SetupWizard.OutroNewUser.GuidanceWarning": {
+        def: "After restarting, the data on this device will be uploaded to the server as the master copy. Please note that any unintended data currently on the server will be completely overwritten.",
+        zh: "重启后，当前设备上的数据会作为主副本上传到服务器。请注意，服务器上现有的非预期数据将被完全覆盖。",
+    },
+    "Ui.SetupWizard.OutroNewUser.Important": {
+        def: "IMPORTANT",
+        zh: "重要",
+    },
+    "Ui.SetupWizard.OutroNewUser.Proceed": {
+        def: "Restart and Initialise Server",
+        zh: "重启并初始化服务器",
+    },
+    "Ui.SetupWizard.OutroNewUser.Question": {
+        def: "Please select the button below to restart and proceed to the final confirmation.",
+        zh: "请选择下方按钮，重启并进入最终确认步骤。",
+    },
+    "Ui.SetupWizard.OutroNewUser.Title": {
+        def: "Setup Complete: Preparing to Initialise Server",
+        zh: "设置完成：准备初始化服务器",
+    },
+    "Ui.SetupWizard.SelectExisting.Guidance": {
+        def: "You are adding this device to an existing synchronisation setup.",
+        zh: "你正在将此设备加入已有同步配置。",
+    },
+    "Ui.SetupWizard.SelectExisting.ManualOption": {
+        def: "Enter the server information manually",
+        zh: "手动输入服务器信息",
+    },
+    "Ui.SetupWizard.SelectExisting.ManualOptionDesc": {
+        def: "Configure the same server information as your other devices again manually. This is intended only for advanced users.",
+        zh: "手动重新配置与你其他设备相同的服务器信息。此方式仅适用于高级用户。",
+    },
+    "Ui.SetupWizard.SelectExisting.ProceedManual": {
+        def: "I know my server details, let me enter them",
+        zh: "我知道服务器信息，让我手动输入",
+    },
+    "Ui.SetupWizard.SelectExisting.ProceedQr": {
+        def: "Scan the QR code displayed on an active device using this device's camera.",
+        zh: "使用本设备摄像头扫描活动设备上显示的二维码",
+    },
+    "Ui.SetupWizard.SelectExisting.ProceedSetupUri": {
+        def: "Proceed with Setup URI",
+        zh: "使用 Setup URI 继续",
+    },
+    "Ui.SetupWizard.SelectExisting.QrOption": {
+        def: "Scan a QR Code (Recommended for mobile)",
+        zh: "扫描二维码（移动端推荐）",
+    },
+    "Ui.SetupWizard.SelectExisting.QrOptionDesc": {
+        def: "Scan the QR code displayed on an active device using this device's camera.",
+        zh: "使用本设备摄像头扫描活动设备上显示的二维码。",
+    },
+    "Ui.SetupWizard.SelectExisting.Question": {
+        def: "Please select a method to import the settings from another device.",
+        zh: "请选择一种从其他设备导入设置的方法。",
+    },
+    "Ui.SetupWizard.SelectExisting.SetupUriOption": {
+        def: "Use a Setup URI (Recommended)",
+        zh: "使用 Setup URI（推荐）",
+    },
+    "Ui.SetupWizard.SelectExisting.SetupUriOptionDesc": {
+        def: "Paste the Setup URI generated from one of your active devices.",
+        zh: "粘贴从某台已启用设备生成的 Setup URI。",
+    },
+    "Ui.SetupWizard.SelectExisting.Title": {
+        def: "Device Setup Method",
+        zh: "设备设置方式",
+    },
+    "Ui.SetupWizard.SelectNew.Guidance": {
+        def: "We will now proceed with the server configuration.",
+        zh: "接下来将继续配置服务器连接信息。",
+    },
+    "Ui.SetupWizard.SelectNew.ManualOption": {
+        def: "Enter the server information manually",
+        zh: "手动输入服务器信息",
+    },
+    "Ui.SetupWizard.SelectNew.ManualOptionDesc": {
+        def: "This is an advanced option for users who do not have a Setup URI or who want to configure detailed settings.",
+        zh: "如果你没有 Setup URI，或希望自行配置更详细的参数，可选择此高级选项。",
+    },
+    "Ui.SetupWizard.SelectNew.ProceedManual": {
+        def: "I know my server details, let me enter them",
+        zh: "我知道服务器信息，让我手动输入",
+    },
+    "Ui.SetupWizard.SelectNew.ProceedSetupUri": {
+        def: "Proceed with Setup URI",
+        zh: "使用 Setup URI 继续",
+    },
+    "Ui.SetupWizard.SelectNew.Question": {
+        def: "How would you like to configure the connection to your server?",
+        zh: "你希望如何配置服务器连接？",
+    },
+    "Ui.SetupWizard.SelectNew.SetupUriOption": {
+        def: "Use a Setup URI (Recommended)",
+        zh: "使用 Setup URI（推荐）",
+    },
+    "Ui.SetupWizard.SelectNew.SetupUriOptionDesc": {
+        def: "A Setup URI is a single string containing your server address and authentication details. If one was generated by your server installation script, it provides a simple and secure configuration method.",
+        zh: "Setup URI 是一段包含服务器地址和认证信息的文本。如果你的服务器安装脚本已经生成了它，这是最简单且安全的配置方式。",
+    },
+    "Ui.SetupWizard.SelectNew.Title": {
+        def: "Connection Method",
+        zh: "连接方式",
+    },
+    "Ui.SetupWizard.SetupRemote.BucketOption": {
+        def: "S3/MinIO/R2 Object Storage",
+        zh: "S3/MinIO/R2 对象存储",
+    },
+    "Ui.SetupWizard.SetupRemote.BucketOptionDesc": {
+        def: "Synchronisation using journal files. You must already have an S3/MinIO/R2 compatible object storage service set up.",
+        zh: "使用日志文件进行同步。你需要先准备好兼容 S3/MinIO/R2 的对象存储服务。",
+    },
+    "Ui.SetupWizard.SetupRemote.CouchDbOptionDesc": {
+        def: "This is the most suitable synchronisation method for the current design. All features are available. You must already have a CouchDB instance set up.",
+        zh: "这是当前设计下最适合的同步方式，所有功能都可用。你需要先准备好 CouchDB 实例。",
+    },
+    "Ui.SetupWizard.SetupRemote.Guidance": {
+        def: "Please select the type of server you are connecting to.",
+        zh: "请选择你要连接的服务器类型。",
+    },
+    "Ui.SetupWizard.SetupRemote.P2POption": {
+        def: "Peer-to-Peer only",
+        zh: "仅点对点",
+    },
+    "Ui.SetupWizard.SetupRemote.P2POptionDesc": {
+        def: "This enables direct synchronisation between devices. No server is required, but both devices must be online at the same time and some features may be limited. Internet connectivity is required only for signalling, not for data transfer.",
+        zh: "启用设备之间的直接同步。无需服务器，但两台设备必须同时在线，且部分功能可能受限。互联网连接仅用于信令，不用于传输数据。",
+    },
+    "Ui.SetupWizard.SetupRemote.ProceedBucket": {
+        def: "Continue to S3/MinIO/R2 setup",
+        zh: "继续配置 S3/MinIO/R2",
+    },
+    "Ui.SetupWizard.SetupRemote.ProceedCouchDb": {
+        def: "Continue to CouchDB setup",
+        zh: "继续配置 CouchDB",
+    },
+    "Ui.SetupWizard.SetupRemote.ProceedP2P": {
+        def: "Continue to Peer-to-Peer only setup",
+        zh: "继续配置仅点对点模式",
+    },
+    "Ui.SetupWizard.SetupRemote.Title": {
+        def: "Enter Server Information",
+        zh: "输入服务器信息",
+    },
     "Unique name between all synchronized devices. To edit this setting, please disable customization sync once.": {
         def: "Unique name between all synchronized devices. To edit this setting, please disable customization sync once.",
         es: "Nombre único entre dispositivos sincronizados. Para editarlo, desactive sincronización de personalización",
