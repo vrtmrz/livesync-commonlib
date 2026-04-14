@@ -124,8 +124,17 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 _options?: PouchDB.Configuration.DatabaseConfiguration
             ): PouchDB.Database<T> {
                 const option = _option();
+                const authHeader = "Basic " + btoa(`${option.username}:${option.password}`);
                 return new PouchDB(option.url + "/" + option.database, {
-                    auth: { username: option.username, password: option.password },
+                    fetch: (url: string | Request, opts?: RequestInit) => {
+                        return fetch(url, {
+                            ...opts,
+                            headers: {
+                                ...opts?.headers,
+                                "Authorization": authHeader,
+                            },
+                        } as RequestInit);
+                    },
                 });
             }
         };
