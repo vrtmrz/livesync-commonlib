@@ -1,5 +1,6 @@
 import { PartialMessages as def } from "./def.ts";
 import { PartialMessages as es } from "./es.ts";
+import { PartialMessages as fr } from "./fr.ts";
 import { PartialMessages as ja } from "./ja.ts";
 import { PartialMessages as ko } from "./ko.ts";
 import { PartialMessages as ru } from "./ru.ts";
@@ -11,6 +12,7 @@ type MessageKeys = keyof typeof def.def;
 const messages = {
     ...def,
     ...es,
+    ...fr,
     ...ja,
     ...ko,
     ...ru,

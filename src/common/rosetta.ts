@@ -24,6 +24,7 @@ To see details, please refer to the LICENSES file on each repository.
 
 const LANG_DE = "de";
 const LANG_ES = "es";
+const LANG_FR = "fr";
 const LANG_JA = "ja";
 const LANG_RU = "ru";
 const LANG_ZH = "zh";
@@ -33,13 +34,24 @@ const LANG_DEF = "def"; // Default language: English
 
 // Also please order in alphabetic order except for the default language.
 
-export const SUPPORTED_I18N_LANGS = [LANG_DEF, LANG_DE, LANG_ES, LANG_JA, LANG_KO, LANG_RU, LANG_ZH, LANG_ZH_TW];
+export const SUPPORTED_I18N_LANGS = [
+    LANG_DEF,
+    LANG_DE,
+    LANG_ES,
+    LANG_FR,
+    LANG_JA,
+    LANG_KO,
+    LANG_RU,
+    LANG_ZH,
+    LANG_ZH_TW,
+];
 
 // Also this.
 export type I18N_LANGS =
     | typeof LANG_DEF // Default language: English
     | typeof LANG_DE
     | typeof LANG_ES
+    | typeof LANG_FR
     | typeof LANG_JA
     | typeof LANG_KO
     | typeof LANG_RU
@@ -55,6 +67,7 @@ import { _allMessages, type MessageKeys } from "./messages/combinedMessages.dev"
 const expandedMessage = {
     ...expandKeywords(_allMessages, "def"),
     ...expandKeywords(_allMessages, "es"),
+    ...expandKeywords(_allMessages, "fr"),
     ...expandKeywords(_allMessages, "ja"),
     ...expandKeywords(_allMessages, "ko"),
     ...expandKeywords(_allMessages, "ru"),

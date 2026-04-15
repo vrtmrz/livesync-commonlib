@@ -2,6 +2,7 @@ export const _allMessages = {
     "(BETA) Always overwrite with a newer file": {
         def: "(BETA) Always overwrite with a newer file",
         es: "(BETA) Sobrescribir siempre con archivo más nuevo",
+        fr: "(BÊTA) Toujours écraser avec un fichier plus récent",
         ja: "(ベータ機能) 常に新しいファイルで上書きする",
         ko: "(베타) 항상 새로운 파일로 덮어쓰기",
         ru: "(БЕТА) Всегда перезаписывать более новым файлом",
@@ -10,6 +11,7 @@ export const _allMessages = {
     "(Beta) Use ignore files": {
         def: "(Beta) Use ignore files",
         es: "(Beta) Usar archivos de ignorar",
+        fr: "(Bêta) Utiliser les fichiers d'exclusion",
         ja: "(ベータ機能) 除外ファイル(ignore)の使用",
         ko: "(베타) 제외 규칙 파일 사용",
         ru: "(Бета) Использовать файлы игнорирования",
@@ -18,6 +20,7 @@ export const _allMessages = {
     "(Days passed, 0 to disable automatic-deletion)": {
         def: "(Days passed, 0 to disable automatic-deletion)",
         es: "(Días transcurridos, 0 para desactivar)",
+        fr: "(Jours écoulés, 0 pour désactiver la suppression automatique)",
         ja: "(経過日数、0で自動削除を無効化)",
         ko: "(지난 일수, 0으로 설정하면 자동 삭제 비활성화)",
         ru: "(Дней прошло, 0 для отключения автоматического удаления)",
@@ -27,6 +30,7 @@ export const _allMessages = {
         {
             def: "(ex. Read chunks online) If this option is enabled, LiveSync reads chunks online directly instead of replicating them locally. Increasing Custom chunk size is recommended.",
             es: "(Ej: Leer chunks online) Lee chunks directamente en línea. Aumente tamaño de chunks personalizados",
+            fr: "(ex. Lire les fragments en ligne) Si cette option est activée, LiveSync lit les fragments directement en ligne au lieu de les répliquer localement. L'augmentation de la taille personnalisée des fragments est recommandée.",
             ja: "(例: チャンクをオンラインで読む) このオプションを有効にすると、LiveSyncはチャンクをローカルに複製せず、直接オンラインで読み込みます。カスタムチャンクサイズを増やすことをお勧めします。",
             ko: "(예: 청크를 원격에서 읽음) 이 옵션을 활성화하면, LiveSync는 청크를 로컬에 복제하지 않고 원격에서 직접 읽습니다. 커스텀 청크 크기를 키우는 것을 권장합니다.",
             ru: "(ex. Read chunks online) If this option is enabled, LiveSync reads chunks online directly instead of replicating them locally. Increasing Custom chunk size is recommended.",
@@ -36,6 +40,7 @@ export const _allMessages = {
         {
             def: "(MB) If this is set, changes to local and remote files that are larger than this will be skipped. If the file becomes smaller again, a newer one will be used.",
             es: "(MB) Saltar cambios en archivos locales/remotos mayores a este tamaño. Si se reduce, se usará versión nueva",
+            fr: "(Mo) Si cette valeur est définie, les modifications des fichiers locaux et distants plus grands que cette taille seront ignorées. Si le fichier redevient plus petit, une version plus récente sera utilisée.",
             ja: "(MB) この値を設定すると、これより大きいサイズのローカルファイルやリモートファイルの変更はスキップされます。ファイルが再び小さくなった場合は、新しいものが使用されます。",
             ko: "(MB) 이 값이 설정되면, 이보다 큰 로컬 및 원격 파일의 변경 사항은 건너뜁니다. 파일이 다시 작아지면 더 새로운 파일이 사용됩니다.",
             ru: "(MB) If this is set, changes to local and remote files that are larger than this will be skipped. If the file becomes smaller again, a newer one will be used.",
@@ -44,6 +49,7 @@ export const _allMessages = {
     "(Mega chars)": {
         def: "(Mega chars)",
         es: "(Millones de caracteres)",
+        fr: "(Méga caractères)",
         ja: "(メガ文字)",
         ko: "(메가 문자)",
         ru: "(Мега символов)",
@@ -52,6 +58,7 @@ export const _allMessages = {
     "(Not recommended) If set, credentials will be stored in the file.": {
         def: "(Not recommended) If set, credentials will be stored in the file.",
         es: "(No recomendado) Almacena credenciales en el archivo",
+        fr: "(Non recommandé) Si activé, les identifiants seront stockés dans le fichier.",
         ja: "(非推奨) 設定した場合、認証情報がファイルに保存されます。",
         ko: "(권장하지 않음) 설정한 경우 자격 증명이 파일에 저장됩니다.",
         ru: "(Not recommended) If set, credentials will be stored in the file.",
@@ -60,6 +67,7 @@ export const _allMessages = {
     "(Obsolete) Use an old adapter for compatibility": {
         def: "(Obsolete) Use an old adapter for compatibility",
         es: "(Obsoleto) Usar adaptador antiguo",
+        fr: "(Obsolète) Utiliser un ancien adaptateur pour la compatibilité",
         ja: "(廃止済み)古いアダプターを互換性のために利用",
         ko: "(사용 중단) 호환성을 위해 이전 어댑터 사용",
         ru: "(Устарело) Использовать старый адаптер для совместимости",
@@ -68,6 +76,7 @@ export const _allMessages = {
     "Access Key": {
         def: "Access Key",
         es: "Clave de acceso",
+        fr: "Clé d'accès",
         ja: "アクセスキー",
         ko: "액세스 키",
         ru: "Ключ доступа",
@@ -75,12 +84,14 @@ export const _allMessages = {
     },
     "Active Remote Configuration": {
         def: "Active Remote Configuration",
+        fr: "Configuration distante active",
         ru: "Активная удалённая конфигурация",
         zh: "生效中的远程配置",
     },
     "Always prompt merge conflicts": {
         def: "Always prompt merge conflicts",
         es: "Siempre preguntar en conflictos",
+        fr: "Toujours demander pour les conflits de fusion",
         ja: "常に競合は手動で解決する",
         ko: "항상 병합 충돌 알림",
         ru: "Всегда запрашивать разрешение конфликтов слияния",
@@ -88,23 +99,27 @@ export const _allMessages = {
     },
     Analyse: {
         def: "Analyse",
+        fr: "Analyser",
         ru: "Анализировать",
         zh: "立即分析",
     },
     "Analyse database usage": {
         def: "Analyse database usage",
+        fr: "Analyser l'utilisation de la base de données",
         ru: "Анализ использования базы данных",
         zh: "分析数据库使用情况",
     },
     "Analyse database usage and generate a TSV report for diagnosis yourself. You can paste the generated report with any spreadsheet you like.":
         {
             def: "Analyse database usage and generate a TSV report for diagnosis yourself. You can paste the generated report with any spreadsheet you like.",
+            fr: "Analyser l'utilisation de la base de données et générer un rapport TSV pour un diagnostic personnel. Vous pouvez coller le rapport généré dans le tableur de votre choix.",
             ru: "Analyse database usage and generate a TSV report for diagnosis yourself. You can paste the generated report with any spreadsheet you like.",
             zh: "分析数据库使用情况并生成 TSV 报告以供您自行诊断。您可以将生成的报告粘贴到您喜欢的任何电子表格中。",
         },
     "Apply Latest Change if Conflicting": {
         def: "Apply Latest Change if Conflicting",
         es: "Aplicar último cambio en conflictos",
+        fr: "Appliquer la dernière modification en cas de conflit",
         ja: "競合がある場合は最新の変更を適用する",
         ko: "충돌 시 최신 변경 사항 적용",
         ru: "Применить последнее изменение при конфликте",
@@ -113,6 +128,7 @@ export const _allMessages = {
     "Apply preset configuration": {
         def: "Apply preset configuration",
         es: "Aplicar configuración predefinida",
+        fr: "Appliquer une configuration prédéfinie",
         ja: "プリセットを適用する",
         ko: "프리셋 구성 적용",
         ru: "Применить предустановленную конфигурацию",
@@ -121,6 +137,7 @@ export const _allMessages = {
     "Automatically Sync all files when opening Obsidian.": {
         def: "Automatically Sync all files when opening Obsidian.",
         es: "Sincronizar automáticamente todos los archivos al abrir Obsidian",
+        fr: "Synchroniser automatiquement tous les fichiers à l'ouverture d'Obsidian.",
         ja: "Obsidian起動時にすべてのファイルを自動同期します。",
         ko: "Obsidian을 열 때 모든 파일을 자동으로 동기화합니다.",
         ru: "Автоматически синхронизировать все файлы при открытии Obsidian.",
@@ -129,6 +146,7 @@ export const _allMessages = {
     "Batch database update": {
         def: "Batch database update",
         es: "Actualización por lotes de BD",
+        fr: "Mise à jour groupée de la base de données",
         ja: "データベースのバッチ更新",
         ko: "일괄 데이터베이스 업데이트",
         ru: "Пакетное обновление базы данных",
@@ -137,6 +155,7 @@ export const _allMessages = {
     "Batch limit": {
         def: "Batch limit",
         es: "Límite de lotes",
+        fr: "Limite de lot",
         ja: "バッチの上限",
         ko: "일괄 제한",
         ru: "Пакетный лимит",
@@ -145,6 +164,7 @@ export const _allMessages = {
     "Batch size": {
         def: "Batch size",
         es: "Tamaño de lote",
+        fr: "Taille de lot",
         ja: "バッチ容量",
         ko: "일괄 크기",
         ru: "Размер пакета",
@@ -153,6 +173,7 @@ export const _allMessages = {
     "Batch size of on-demand fetching": {
         def: "Batch size of on-demand fetching",
         es: "Tamaño de lote para obtención bajo demanda",
+        fr: "Taille de lot pour la récupération à la demande",
         ja: "オンデマンド取得のバッチサイズ",
         ko: "필요 시 가져올 청크 묶음 크기",
         ru: "Размер пакета при запросе по требованию",
@@ -162,6 +183,7 @@ export const _allMessages = {
         {
             def: "Before v0.17.16, we used an old adapter for the local database. Now the new adapter is preferred. However, it needs local database rebuilding. Please disable this toggle when you have enough time. If leave it enabled, also while fetching from the remote database, you will be asked to disable this.",
             es: "Antes de v0.17.16 usábamos adaptador antiguo. Nuevo adaptador requiere reconstruir BD local. Desactive cuando pueda",
+            fr: "Avant la version v0.17.16, nous utilisions un ancien adaptateur pour la base de données locale. Le nouvel adaptateur est désormais recommandé. Cependant, il nécessite une reconstruction de la base locale. Veuillez désactiver cette option lorsque vous aurez suffisamment de temps. Si elle reste activée, il vous sera également demandé de la désactiver lors de la récupération depuis la base distante.",
             ja: "v0.17.6までは古いアダプターをローカル用のデータベースに使用していましたが、現在は新しいアダプターを推奨しています。しかし、新しいアダプターに変更するにはローカルデータベースの再構築が必要です。有効のままにしておくと、リモートデータベースからフェッチする場合に、この設定を無効にするかの質問が表示されます。",
             ko: "v0.17.16 이전에는 로컬 데이터베이스에 이전 어댑터를 사용했습니다. 이제는 새로운 어댑터를 권장합니다. 하지만 로컬 데이터베이스 재구축이 필요합니다. 충분한 시간이 있을 때 이 토글을 비활성화해 주세요. 활성화된 상태로 두면 원격 데이터베이스에서 가져올 때도 이를 비활성화하라는 메시지가 나타납니다.",
             ru: "Before v0.17.16, we used an old adapter for the local database. Now the new adapter is preferred. However, it needs local database rebuilding. Please disable this toggle when you have enough time. If leave it enabled, also while fetching from the remote database, you will be asked to disable this.",
@@ -170,6 +192,7 @@ export const _allMessages = {
     "Bucket Name": {
         def: "Bucket Name",
         es: "Nombre del bucket",
+        fr: "Nom du bucket",
         ja: "バケット名",
         ko: "버킷 이름",
         ru: "Имя бакета",
@@ -177,12 +200,14 @@ export const _allMessages = {
     },
     Check: {
         def: "Check",
+        fr: "Vérifier",
         ru: "Проверить",
         zh: "立即检查",
     },
     "cmdConfigSync.showCustomizationSync": {
         def: "Show Customization sync",
         es: "Mostrar sincronización de personalización",
+        fr: "Afficher la synchronisation de personnalisation",
         ja: "カスタマイズ同期を表示",
         ko: "사용자 설정 동기화 표시",
         ru: "Показать синхронизацию настроек",
@@ -191,6 +216,7 @@ export const _allMessages = {
     "Comma separated `.gitignore, .dockerignore`": {
         def: "Comma separated `.gitignore, .dockerignore`",
         es: "Separados por comas: `.gitignore, .dockerignore`",
+        fr: "Séparés par des virgules `.gitignore, .dockerignore`",
         ja: "カンマ区切り `.gitignore, .dockerignore`",
         ko: "쉼표로 구분된 `.gitignore, .dockerignore`",
         ru: "Через запятую `.gitignore, .dockerignore`",
@@ -198,6 +224,7 @@ export const _allMessages = {
     },
     "Compute revisions for chunks": {
         def: "Compute revisions for chunks",
+        fr: "Calculer les révisions pour les fragments",
         ja: "チャンクの修正(リビジョン)を計算",
         ko: "청크에 대한 리비전 계산",
         ru: "Вычислять ревизии для чанков",
@@ -205,12 +232,14 @@ export const _allMessages = {
     },
     "Copy Report to clipboard": {
         def: "Copy Report to clipboard",
+        fr: "Copier le rapport dans le presse-papiers",
         ru: "Копировать отчёт в буфер обмена",
         zh: "将报告复制到剪贴板",
     },
     "Data Compression": {
         def: "Data Compression",
         es: "Compresión de datos",
+        fr: "Compression des données",
         ja: "データ圧縮",
         ko: "데이터 압축",
         ru: "Сжатие данных",
@@ -219,6 +248,7 @@ export const _allMessages = {
     "Database Name": {
         def: "Database Name",
         es: "Nombre de la base de datos",
+        fr: "Nom de la base de données",
         ja: "データベース名",
         ko: "데이터베이스 이름",
         ru: "Имя базы данных",
@@ -227,6 +257,7 @@ export const _allMessages = {
     "Database suffix": {
         def: "Database suffix",
         es: "Sufijo de base de datos",
+        fr: "Suffixe de la base de données",
         ja: "データベースの接尾辞(suffix)",
         ko: "데이터베이스 접미사",
         ru: "Суффикс базы данных",
@@ -235,6 +266,7 @@ export const _allMessages = {
     "Delay conflict resolution of inactive files": {
         def: "Delay conflict resolution of inactive files",
         es: "Retrasar resolución de conflictos en archivos inactivos",
+        fr: "Différer la résolution des conflits pour les fichiers inactifs",
         ja: "非アクティブなファイルは、競合解決を先送りする",
         ko: "비활성 파일의 충돌 해결 지연",
         ru: "Отложить разрешение конфликтов для неактивных файлов",
@@ -243,6 +275,7 @@ export const _allMessages = {
     "Delay merge conflict prompt for inactive files.": {
         def: "Delay merge conflict prompt for inactive files.",
         es: "Retrasar aviso de fusión para archivos inactivos",
+        fr: "Différer l'invite de conflit de fusion pour les fichiers inactifs.",
         ja: "非アクティブなファイルの競合解決のプロンプトの表示を遅延させる",
         ko: "비활성 파일의 병합 충돌 프롬프트 지연.",
         ru: "Отложить запрос конфликта слияния для неактивных файлов.",
@@ -251,6 +284,7 @@ export const _allMessages = {
     "Delete old metadata of deleted files on start-up": {
         def: "Delete old metadata of deleted files on start-up",
         es: "Borrar metadatos viejos al iniciar",
+        fr: "Supprimer les anciennes métadonnées des fichiers effacés au démarrage",
         ja: "削除済みデータのメタデータをクリーンナップする",
         ko: "시작 시 삭제된 파일의 오래된 메타데이터 삭제",
         ru: "Удалять старые метаданные удалённых файлов при запуске",
@@ -259,6 +293,7 @@ export const _allMessages = {
     "Device name": {
         def: "Device name",
         es: "Nombre del dispositivo",
+        fr: "Nom de l'appareil",
         ja: "デバイス名",
         ko: "기기 이름",
         ru: "Имя устройства",
@@ -266,6 +301,7 @@ export const _allMessages = {
     },
     "dialog.yourLanguageAvailable": {
         def: "Self-hosted LiveSync had translations for your language, so the %{Display language} setting was enabled.\n\nNote: Not all messages are translated. We are waiting for your contributions!\nNote 2: If you create an Issue, **please revert to %{lang-def}** and then take screenshots, messages and logs. This can be done in the setting dialogue.\nMay you find it easy to use!",
+        fr: "Self-hosted LiveSync dispose d'une traduction pour votre langue, le paramètre %{Display language} a donc été activé.\n\nNote : Tous les messages ne sont pas traduits. Nous attendons vos contributions !\nNote 2 : Si vous créez un ticket, **veuillez revenir à %{lang-def}** puis prendre des captures d'écran, messages et journaux. Cela peut être fait dans la boîte de dialogue des paramètres.\nBonne utilisation !",
         ja: "Self-hosted LiveSync に設定されている言語の翻訳がありましたので、%{Display Language}が適用されました。\n\n注意： 全てのメッセージは翻訳されていません。あなたの貢献をお待ちしています！\nGithubにIssueを作成する際には、 %{Display Language} を一旦 %{lang-def} に戻してから、スクショやメッセージ、ログを収集してください。これは設定から変更できます。\n\n便利に使用できれば幸いです。",
         ko: "Self-hosted LiveSync에서 귀하의 언어로 번역을 제공하므로 %{Display language} 설정이 활성화되었습니다.\n\n참고: 모든 메시지가 번역되지는 않습니다. 귀하의 기여를 기다리고 있습니다!\n참고 2: 이슈를 생성하는 경우 **%{lang-def}로 되돌린 후** 스크린샷, 메시지, 로그를 가져와 주세요. 이는 설정 대화 상자에서 할 수 있습니다.\n간편하게 사용하실 수 있었으면 좋겠습니다!",
         ru: "Self-hosted LiveSync имеет переводы для вашего языка, поэтому была включена настройка языка Display language.\n\nПримечание: Не все сообщения переведены. Мы ждём ваших предложений!\nПримечание 2: При создании Issue, пожалуйста, вернитесь к lang-def, затем сделайте скриншоты, сообщения и логи. Это можно сделать в настройках.\nНадеемся, вам будет удобно использовать!",
@@ -273,6 +309,7 @@ export const _allMessages = {
     },
     "dialog.yourLanguageAvailable.btnRevertToDefault": {
         def: "Keep %{lang-def}",
+        fr: "Conserver %{lang-def}",
         ja: "Keep %{lang-def}",
         ko: "%{lang-def} 유지",
         ru: "Оставить lang-def",
@@ -280,6 +317,7 @@ export const _allMessages = {
     },
     "dialog.yourLanguageAvailable.Title": {
         def: " Translation is available!",
+        fr: " Une traduction est disponible !",
         ja: "翻訳が利用可能です！",
         ko: " 번역을 사용할 수 있습니다!",
         ru: "Доступен перевод!",
@@ -288,6 +326,7 @@ export const _allMessages = {
     "Disables logging, only shows notifications. Please disable if you report an issue.": {
         def: "Disables logging, only shows notifications. Please disable if you report an issue.",
         es: "Desactiva registros, solo muestra notificaciones. Desactívelo si reporta un problema.",
+        fr: "Désactive la journalisation, n'affiche que les notifications. Veuillez désactiver si vous signalez un problème.",
         ja: "ログを無効にし、通知のみを表示します。Issueを報告する場合は無効にしてください。",
         ko: "로깅을 비활성화하고 알림만 표시합니다. 문제를 신고하는 경우 비활성화해 주세요.",
         ru: "Отключает логирование, показывает только уведомления. Пожалуйста, отключите при сообщении о проблеме.",
@@ -296,6 +335,7 @@ export const _allMessages = {
     "Display Language": {
         def: "Display Language",
         es: "Idioma de visualización",
+        fr: "Langue d'affichage",
         ja: "インターフェースの表示言語",
         ko: "표시 언어",
         ru: "Язык интерфейса",
@@ -304,6 +344,7 @@ export const _allMessages = {
     "Do not check configuration mismatch before replication": {
         def: "Do not check configuration mismatch before replication",
         es: "No verificar incompatibilidades antes de replicar",
+        fr: "Ne pas vérifier les incohérences de configuration avant la réplication",
         ja: "サーバーから同期する前に設定の不一致を確認しない",
         ko: "복제 전 구성 불일치 확인 안 함",
         ru: "Не проверять несовпадение конфигурации перед репликацией",
@@ -312,6 +353,7 @@ export const _allMessages = {
     "Do not keep metadata of deleted files.": {
         def: "Do not keep metadata of deleted files.",
         es: "No conservar metadatos de archivos borrados",
+        fr: "Ne pas conserver les métadonnées des fichiers supprimés.",
         ja: "削除済みファイルのメタデータを保持しない",
         ko: "삭제된 파일의 메타데이터를 보관하지 않습니다.",
         ru: "Не хранить метаданные удалённых файлов.",
@@ -320,6 +362,7 @@ export const _allMessages = {
     "Do not split chunks in the background": {
         def: "Do not split chunks in the background",
         es: "No dividir chunks en segundo plano",
+        fr: "Ne pas fragmenter en arrière-plan",
         ja: "バックグラウンドでチャンクを分割しない",
         ko: "백그라운드에서 청크 분할 안 함",
         ru: "Не разделять чанки в фоновом режиме",
@@ -328,6 +371,7 @@ export const _allMessages = {
     "Do not use internal API": {
         def: "Do not use internal API",
         es: "No usar API interna",
+        fr: "Ne pas utiliser l'API interne",
         ja: "内部APIを使用しない",
         ko: "내부 API 사용 안 함",
         ru: "Не использовать внутренний API",
@@ -335,6 +379,7 @@ export const _allMessages = {
     },
     "Doctor.Button.DismissThisVersion": {
         def: "No, and do not ask again until the next release",
+        fr: "Non, et ne plus demander jusqu'à la prochaine version",
         ja: "いいえ、次のリリースまで再度確認しない",
         ko: "아니요, 다음 릴리스까지 다시 묻지 않음",
         ru: "Нет, и не спрашивать до следующего выпуска",
@@ -342,6 +387,7 @@ export const _allMessages = {
     },
     "Doctor.Button.Fix": {
         def: "Fix it",
+        fr: "Corriger",
         ja: "修正する",
         ko: "수정",
         ru: "Исправить",
@@ -349,6 +395,7 @@ export const _allMessages = {
     },
     "Doctor.Button.FixButNoRebuild": {
         def: "Fix it but no rebuild",
+        fr: "Corriger mais sans reconstruction",
         ja: "修正するが再構築はしない",
         ko: "수정하지만 재구축하지 않음",
         ru: "Исправить без перестроения",
@@ -356,6 +403,7 @@ export const _allMessages = {
     },
     "Doctor.Button.No": {
         def: "No",
+        fr: "Non",
         ja: "いいえ",
         ko: "아니요",
         ru: "Нет",
@@ -363,6 +411,7 @@ export const _allMessages = {
     },
     "Doctor.Button.Skip": {
         def: "Leave it as is",
+        fr: "Laisser tel quel",
         ja: "そのままにする",
         ko: "그대로 두기",
         ru: "Оставить как есть",
@@ -370,6 +419,7 @@ export const _allMessages = {
     },
     "Doctor.Button.Yes": {
         def: "Yes",
+        fr: "Oui",
         ja: "はい",
         ko: "예",
         ru: "Да",
@@ -377,6 +427,7 @@ export const _allMessages = {
     },
     "Doctor.Dialogue.Main": {
         def: "Hi! Config Doctor has been activated because of ${activateReason}!\nAnd, unfortunately some configurations were detected as potential problems.\nPlease be assured. Let's solve them one by one.\n\nTo let you know ahead of time, we will ask you about the following items.\n\n${issues}\n\nShall we get started?",
+        fr: "Bonjour ! Config Doctor a été activé en raison de ${activateReason} !\nEt, malheureusement, certaines configurations ont été détectées comme des problèmes potentiels.\nPas d'inquiétude. Résolvons-les un par un.\n\nPour information, nous allons vous interroger sur les éléments suivants.\n\n${issues}\n\nVoulez-vous commencer ?",
         ja: "こんにちは！${activateReason}のため、設定診断ツールが起動しました！\n残念ながら、いくつかの設定が潜在的な問題として検出されました。\nご安心ください。一つずつ解決していきましょう。\n\n事前にお知らせしますと、以下の項目についてお尋ねします。\n\n${issues}\n\n始めていいですか？",
         ko: "안녕하세요! ${activateReason} 로 인해 구성 진단 마법사가 활성화되었습니다!\n그리고 일부 구성이 잠재적인 문제로 감지되었습니다.\n안심하세요. 하나씩 해결해 봅시다.\n\n대상 항목은 다음과 같습니다.\n\n${issues}\n\n시작하시겠습니까?",
         ru: "Привет! Диагностика настроек активирована из-за activateReason!\nК сожалению, некоторые настройки были обнаружены как потенциальные проблемы.\nНе волнуйтесь. Давайте решим их по очереди.\n\nСообщаем вам заранее, мы спросим о следующих пунктах.\n\nissues\n\nНачнём?",
@@ -384,6 +435,7 @@ export const _allMessages = {
     },
     "Doctor.Dialogue.MainFix": {
         def: "\n## ${name}\n\n| Current | Ideal |\n|:---:|:---:|\n| ${current} | ${ideal} |\n\n**Recommendation Level:** ${level}\n\n### Why this has been detected?\n\n${reason}\n\n${note}\n\nFix this to the ideal value?",
+        fr: "\n## ${name}\n\n| Actuel | Idéal |\n|:---:|:---:|\n| ${current} | ${ideal} |\n\n**Niveau de recommandation :** ${level}\n\n### Pourquoi ceci a-t-il été détecté ?\n\n${reason}\n\n${note}\n\nCorriger à la valeur idéale ?",
         ja: "\n## ${name}\n\n| 現在の値 | 理想値 |\n|:---:|:---:|\n| ${current} | ${ideal} |\n\n**推奨レベル:** ${level}\n\n### 診断理由？\n\n${reason}\n\n${note}\n\nこれを理想値に修正しますか？",
         ko: "**구성 이름:** `${name}`\n**현재 값:** `${current}`, **이상적인 값:** `${ideal}`\n**권장 수준:** ${level}\n**왜 이것이 감지되었나요?**\n${reason}\n\n\n${note}\n\n이상적인 값으로 수정하시겠습니까?",
         ru: "name\n\n| Текущее | Идеальное |\n|:---:|:---:|\n| current | ideal |\n\n**Уровень рекомендации:** level\n\n### Почему это было обнаружено?\n\nreason\n\nnote\n\nИсправить на идеальное значение?",
@@ -391,6 +443,7 @@ export const _allMessages = {
     },
     "Doctor.Dialogue.Title": {
         def: "Self-hosted LiveSync Config Doctor",
+        fr: "Docteur Config Self-hosted LiveSync",
         ja: "Self-hosted LiveSync 設定診断ツール",
         ko: "Self-hosted LiveSync 구성 진단 마법사",
         ru: "Диагностика Self-hosted LiveSync",
@@ -398,6 +451,7 @@ export const _allMessages = {
     },
     "Doctor.Dialogue.TitleAlmostDone": {
         def: "Almost done!",
+        fr: "Presque terminé !",
         ja: "あと少しです！",
         ko: "거의 완료되었습니다!",
         ru: "Почти готово!",
@@ -405,6 +459,7 @@ export const _allMessages = {
     },
     "Doctor.Dialogue.TitleFix": {
         def: "Fix issue ${current}/${total}",
+        fr: "Corriger le problème ${current}/${total}",
         ja: "問題の修正 ${current}/${total}",
         ko: "문제 해결 ${current}/${total}",
         ru: "Исправление проблемы current/total",
@@ -412,6 +467,7 @@ export const _allMessages = {
     },
     "Doctor.Level.Must": {
         def: "Must",
+        fr: "Obligatoire",
         ja: "必須",
         ko: "필수",
         ru: "Обязательно",
@@ -419,6 +475,7 @@ export const _allMessages = {
     },
     "Doctor.Level.Necessary": {
         def: "Necessary",
+        fr: "Nécessaire",
         ja: "必要",
         ko: "필수",
         ru: "Необходимо",
@@ -426,6 +483,7 @@ export const _allMessages = {
     },
     "Doctor.Level.Optional": {
         def: "Optional",
+        fr: "Optionnel",
         ja: "任意",
         ko: "선택사항",
         ru: "Опционально",
@@ -433,6 +491,7 @@ export const _allMessages = {
     },
     "Doctor.Level.Recommended": {
         def: "Recommended",
+        fr: "Recommandé",
         ja: "推奨",
         ko: "권장",
         ru: "Рекомендуется",
@@ -440,6 +499,7 @@ export const _allMessages = {
     },
     "Doctor.Message.NoIssues": {
         def: "No issues detected!",
+        fr: "Aucun problème détecté !",
         ja: "問題は検出されませんでした！",
         ko: "문제가 감지되지 않았습니다!",
         ru: "Проблем не обнаружено!",
@@ -447,6 +507,7 @@ export const _allMessages = {
     },
     "Doctor.Message.RebuildLocalRequired": {
         def: "Attention! A local database rebuild is required to apply this!",
+        fr: "Attention ! Une reconstruction de la base locale est requise pour appliquer ceci !",
         ja: "注意！これを適用するにはローカルデータベースの再構築が必要です！",
         ko: "주의! 이를 적용하려면 로컬 데이터베이스 재구축이 필요합니다!",
         ru: "Внимание! Для применения требуется перестроение локальной базы данных!",
@@ -454,6 +515,7 @@ export const _allMessages = {
     },
     "Doctor.Message.RebuildRequired": {
         def: "Attention! A rebuild is required to apply this!",
+        fr: "Attention ! Une reconstruction est requise pour appliquer ceci !",
         ja: "注意！これを適用するには再構築が必要です！",
         ko: "주의! 이를 적용하려면 재구축이 필요합니다!",
         ru: "Внимание! Для применения требуется перестроение!",
@@ -461,6 +523,7 @@ export const _allMessages = {
     },
     "Doctor.Message.SomeSkipped": {
         def: "We left some issues as is. Shall I ask you again on next startup?",
+        fr: "Nous avons laissé certains problèmes en l'état. Dois-je vous demander à nouveau au prochain démarrage ?",
         ja: "いくつかの問題をそのままにしました。次回起動時に再度確認しますか？",
         ko: "일부 문제를 그대로 두었습니다. 다음 시작 시 다시 질문할까요?",
         ru: "Некоторые проблемы оставлены как есть. Спросить снова при следующем запуске?",
@@ -468,6 +531,7 @@ export const _allMessages = {
     },
     "Doctor.RULES.E2EE_V02500.REASON": {
         def: "The End-to-End Encryption has got now more robust and faster. Also because, the previous E2EE was found to be compromised in a re-conducted code review. It should be applied as soon as possible. Really apologises for your inconvenience. And, this setting is not forward compatible. All synchronised devices must be updated to v0.25.0 or higher. Rebuilds are not required and will be converted from the new transfer to the new format, However, it is recommended to rebuild whenever possible.",
+        fr: "Le chiffrement de bout en bout est désormais plus robuste et plus rapide. Aussi parce que le précédent E2EE s'est révélé compromis lors d'une nouvelle revue de code. Il doit être appliqué dès que possible. Nous nous excusons sincèrement pour la gêne occasionnée. Ce paramètre n'est pas compatible avec les versions antérieures. Tous les appareils synchronisés doivent être mis à jour en v0.25.0 ou supérieur. Les reconstructions ne sont pas requises et seront converties du nouveau transfert vers le nouveau format. Il est toutefois recommandé de reconstruire dans la mesure du possible.",
         ja: "エンドツーエンド暗号化がより堅牢で高速になりました。また、以前のE2EEは再コードレビューにより脆弱性が発見されました。できるだけ早く適用することをお勧めします。ご不便をおかけして申し訳ありません。また、この設定は下位互換性がありません。すべての同期デバイスをv0.25.0以降にアップデートする必要があります。再構築は必須ではなく、新しい転送から新しいフォーマットに変換されますが、可能な限り再構築をお勧めします。",
         ru: "Сквозное шифрование стало более надёжным и быстрым. Предыдущее E2EE было скомпрометировано. Следует применить как можно скорее.",
         zh: "The End-to-End Encryption has got now more robust and faster. Also because, the previous E2EE was found to be compromised in a re-conducted code review. It should be applied as soon as possible. Really apologises for your inconvenience. And, this setting is not forward compatible. All synchronised devices must be updated to v0.25.0 or higher. Rebuilds are not required and will be converted from the new transfer to the new format, However, it is recommended to rebuild whenever possible.",
@@ -475,6 +539,7 @@ export const _allMessages = {
     "Enable advanced features": {
         def: "Enable advanced features",
         es: "Habilitar características avanzadas",
+        fr: "Activer les fonctionnalités avancées",
         ja: "高度な機能を有効にする",
         ko: "고급 기능 활성화",
         ru: "Включить расширенные функции",
@@ -483,6 +548,7 @@ export const _allMessages = {
     "Enable customization sync": {
         def: "Enable customization sync",
         es: "Habilitar sincronización de personalización",
+        fr: "Activer la synchronisation de personnalisation",
         ja: "カスタマイズ同期を有効",
         ko: "사용자 설정 동기화 활성화",
         ru: "Включить синхронизацию настроек",
@@ -491,6 +557,7 @@ export const _allMessages = {
     "Enable Developers' Debug Tools.": {
         def: "Enable Developers' Debug Tools.",
         es: "Habilitar herramientas de depuración",
+        fr: "Activer les outils de débogage pour développeurs.",
         ja: "開発者用デバッグツールを有効にする",
         ko: "개발자 디버그 도구 활성화",
         ru: "Включить инструменты разработчика.",
@@ -499,6 +566,7 @@ export const _allMessages = {
     "Enable edge case treatment features": {
         def: "Enable edge case treatment features",
         es: "Habilitar manejo de casos límite",
+        fr: "Activer les fonctionnalités pour cas particuliers",
         ja: "エッジケース対応機能を有効にする",
         ko: "특수 사례 처리 기능 활성화",
         ru: "Включить функции обработки граничных случаев",
@@ -507,6 +575,7 @@ export const _allMessages = {
     "Enable poweruser features": {
         def: "Enable poweruser features",
         es: "Habilitar funciones para usuarios avanzados",
+        fr: "Activer les fonctionnalités pour utilisateurs avancés",
         ja: "エキスパート機能を有効にする",
         ko: "파워 유저 기능 활성화",
         ru: "Включить функции для опытных пользователей",
@@ -515,6 +584,7 @@ export const _allMessages = {
     "Enable this if your Object Storage doesn't support CORS": {
         def: "Enable this if your Object Storage doesn't support CORS",
         es: "Habilitar si su almacenamiento no soporta CORS",
+        fr: "Activer ceci si votre stockage objet ne prend pas en charge CORS",
         ja: "オブジェクトストレージがCORSをサポートしていない場合は有効にしてください",
         ko: "객체 스토리지가 CORS를 지원하지 않는 경우 활성화하세요",
         ru: "Включите, если ваше объектное хранилище не поддерживает CORS",
@@ -523,6 +593,7 @@ export const _allMessages = {
     "Enable this option to automatically apply the most recent change to documents even when it conflicts": {
         def: "Enable this option to automatically apply the most recent change to documents even when it conflicts",
         es: "Aplicar cambios recientes automáticamente aunque generen conflictos",
+        fr: "Activer cette option pour appliquer automatiquement la modification la plus récente aux documents même en cas de conflit",
         ja: "このオプションを有効にすると、競合があっても最新の変更を自動的にドキュメントに適用します",
         ko: "이 옵션을 활성화하면 충돌이 있어도 문서에 가장 최근 변경 사항을 자동으로 적용합니다",
         ru: "Включите эту опцию для автоматического применения последних изменений к документам даже при конфликте",
@@ -532,6 +603,7 @@ export const _allMessages = {
         {
             def: "Encrypt contents on the remote database. If you use the plugin's synchronization feature, enabling this is recommended.",
             es: "Cifrar contenido en la base de datos remota. Se recomienda habilitar si usa la sincronización del plugin.",
+            fr: "Chiffrer le contenu sur la base de données distante. Si vous utilisez la fonction de synchronisation du plugin, l'activation est recommandée.",
             ja: "リモートデータベースの暗号化（オンにすることを推奨）",
             ko: "원격 데이터베이스의 내용을 암호화합니다. 플러그인의 동기화 기능을 사용하는 경우 활성화를 권장합니다.",
             ru: "Шифровать содержимое на удалённой базе данных. Рекомендуется включить при использовании функции синхронизации плагина.",
@@ -540,6 +612,7 @@ export const _allMessages = {
     "Encrypting sensitive configuration items": {
         def: "Encrypting sensitive configuration items",
         es: "Cifrando elementos sensibles",
+        fr: "Chiffrement des éléments de configuration sensibles",
         ja: "機密性の高い設定項目の暗号化",
         ko: "민감한 구성 항목 암호화",
         ru: "Шифрование конфиденциальных настроек",
@@ -548,6 +621,7 @@ export const _allMessages = {
     "Encryption phassphrase. If changed, you should overwrite the server's database with the new (encrypted) files.": {
         def: "Encryption phassphrase. If changed, you should overwrite the server's database with the new (encrypted) files.",
         es: "Frase de cifrado. Si la cambia, sobrescriba la base del servidor con los nuevos archivos cifrados.",
+        fr: "Phrase secrète de chiffrement. Si modifiée, vous devriez écraser la base de données du serveur avec les nouveaux fichiers (chiffrés).",
         ja: "暗号化パスフレーズ。変更した場合、新しい（暗号化された）ファイルでサーバーのデータベースを上書きする必要があります。",
         ko: "패스프레이즈는 암호화에 사용되는 긴 암호 문구입니다. 변경한 경우, 암호화된 새 파일로 서버의 데이터베이스를 덮어써야 합니다.",
         ru: "Парольная фраза шифрования. При изменении нужно перезаписать базу данных сервера новыми (зашифрованными) файлами.",
@@ -556,6 +630,7 @@ export const _allMessages = {
     "End-to-End Encryption": {
         def: "End-to-End Encryption",
         es: "Cifrado de extremo a extremo",
+        fr: "Chiffrement de bout en bout",
         ja: "E2E暗号化",
         ko: "종단간 암호화",
         ru: "Сквозное шифрование",
@@ -564,6 +639,7 @@ export const _allMessages = {
     "Endpoint URL": {
         def: "Endpoint URL",
         es: "URL del endpoint",
+        fr: "URL du point de terminaison",
         ja: "エンドポイントURL",
         ko: "엔드포인트 URL",
         ru: "URL конечной точки",
@@ -572,6 +648,7 @@ export const _allMessages = {
     "Enhance chunk size": {
         def: "Enhance chunk size",
         es: "Mejorar tamaño de chunks",
+        fr: "Améliorer la taille des fragments",
         ja: "チャンクサイズを最適化する",
         ko: "청크 크기 향상",
         ru: "Улучшить размер чанка",
@@ -580,6 +657,7 @@ export const _allMessages = {
     "Fetch chunks on demand": {
         def: "Fetch chunks on demand",
         es: "Obtener chunks bajo demanda",
+        fr: "Récupérer les fragments à la demande",
         ja: "ユーザーのタイミングでチャンクの更新を確認する",
         ko: "필요 시 청크 원격 가져오기",
         ru: "Загружать чанки по требованию",
@@ -588,6 +666,7 @@ export const _allMessages = {
     "Fetch database with previous behaviour": {
         def: "Fetch database with previous behaviour",
         es: "Obtener BD con comportamiento anterior",
+        fr: "Récupérer la base de données avec le comportement précédent",
         ja: "以前の動作でデータベースを取得",
         ko: "이전 동작으로 데이터베이스 가져오기",
         ru: "Загрузить базу данных с предыдущим поведением",
@@ -596,6 +675,7 @@ export const _allMessages = {
     Filename: {
         def: "Filename",
         es: "Nombre de archivo",
+        fr: "Nom de fichier",
         ja: "ファイル名",
         ko: "파일명",
         ru: "Имя файла",
@@ -604,6 +684,7 @@ export const _allMessages = {
     "Forces the file to be synced when opened.": {
         def: "Forces the file to be synced when opened.",
         es: "Forzar sincronización al abrir archivo",
+        fr: "Force la synchronisation du fichier à son ouverture.",
         ja: "ファイルを開いたときに強制的に同期します。",
         ko: "파일을 열 때 강제로 동기화합니다.",
         ru: "Принудительно синхронизировать файл при открытии.",
@@ -612,6 +693,7 @@ export const _allMessages = {
     "Handle files as Case-Sensitive": {
         def: "Handle files as Case-Sensitive",
         es: "Manejar archivos como sensibles a mayúsculas",
+        fr: "Gérer les fichiers en respectant la casse",
         ja: "ファイルの大文字・小文字を区別する",
         ko: "파일을 대소문자 구분으로 처리",
         ru: "Обрабатывать файлы с учётом регистра",
@@ -620,6 +702,7 @@ export const _allMessages = {
     "If disabled(toggled), chunks will be split on the UI thread (Previous behaviour).": {
         def: "If disabled(toggled), chunks will be split on the UI thread (Previous behaviour).",
         es: "Si se desactiva, chunks se dividen en hilo UI (comportamiento anterior)",
+        fr: "Si désactivé, les fragments seront découpés sur le thread UI (comportement précédent).",
         ja: "無効（トグル）にすると、チャンクはUIスレッドで分割されます（以前の動作）。",
         ko: "비활성화(토글)되면 청크는 UI 스레드에서 분할됩니다 (이전 동작).",
         ru: "Если отключено, чанки будут разделяться в основном потоке.",
@@ -629,6 +712,7 @@ export const _allMessages = {
         {
             def: "If enabled per-filed efficient customization sync will be used. We need a small migration when enabling this. And all devices should be updated to v0.23.18. Once we enabled this, we lost a compatibility with old versions.",
             es: "Habilita sincronización eficiente por archivo. Requiere migración y actualizar todos dispositivos a v0.23.18. Pierde compatibilidad con versiones antiguas",
+            fr: "Si activée, la synchronisation de personnalisation efficace par fichier sera utilisée. Une petite migration est nécessaire lors de l'activation. Tous les appareils doivent être à jour en v0.23.18. Une fois cette option activée, la compatibilité avec les anciennes versions est perdue.",
             ja: "有効にすると、ファイルごとの効率的なカスタマイズ同期が使用されます。有効化時に小規模な移行が必要です。また、すべてのデバイスをv0.23.18にアップデートする必要があります。一度有効にすると、古いバージョンとの互換性がなくなります。",
             ko: "활성화하면 파일별 효율적인 사용자 설정 동기화가 사용됩니다. 이를 활성화할 때 소규모 데이터 구조 전환이 필요합니다. 모든 기기를 v0.23.18로 업데이트해야 합니다. 이를 활성화하면 이전 버전과의 호환성이 사라집니다.",
             ru: "If enabled per-filed efficient customization sync will be used. We need a small migration when enabling this. And all devices should be updated to v0.23.18. Once we enabled this, we lost a compatibility with old versions.",
@@ -637,6 +721,7 @@ export const _allMessages = {
     "If enabled, chunks will be split into no more than 100 items. However, dedupe is slightly weaker.": {
         def: "If enabled, chunks will be split into no more than 100 items. However, dedupe is slightly weaker.",
         es: "Divide chunks en máximo 100 ítems. Menos eficiente en deduplicación",
+        fr: "Si activée, les fragments seront découpés en 100 éléments au maximum. Cependant, la déduplication est légèrement moins efficace.",
         ja: "有効にすると、チャンクは最大100項目に分割されます。ただし、重複除去の精度は落ちます。",
         ko: "활성화하면 청크는 최대 100개 항목으로 분할됩니다. 하지만 중복 제거 기능이 약간 약해집니다.",
         ru: "Если включено, чанки будут разделены не более чем на 100 элементов.",
@@ -646,6 +731,7 @@ export const _allMessages = {
         {
             def: "If enabled, newly created chunks are temporarily kept within the document, and graduated to become independent chunks once stabilised.",
             es: "Chunks nuevos se mantienen temporalmente en el documento hasta estabilizarse",
+            fr: "Si activée, les fragments nouvellement créés sont temporairement conservés dans le document et promus en fragments indépendants une fois stabilisés.",
             ja: "有効にすると、新しく作成されたチャンクはドキュメント内に一時的に保持され、安定したら独立したチャンクになります。",
             ko: "활성화하면 새로 생성된 변경 기록(청크)은 문서 안에 임시로 보관되며, 일정 조건을 만족하면 자동으로 문서 밖으로 분리되어 저장됩니다.",
             ru: "Если включено, вновь созданные чанки временно хранятся в документе.",
@@ -654,12 +740,14 @@ export const _allMessages = {
     "If enabled, the ⛔ icon will be shown inside the status instead of the file warnings banner. No details will be shown.":
         {
             def: "If enabled, the ⛔ icon will be shown inside the status instead of the file warnings banner. No details will be shown.",
+            fr: "Si activée, l'icône ⛔ s'affichera dans le statut à la place de la bannière d'avertissements de fichiers. Aucun détail ne sera affiché.",
             ru: "Если включено, значок будет показан внутри статуса.",
             zh: "如果启用，状态栏内将显示 ⛔ 图标，而非文件警告横幅，不会显示任何详细信息。",
         },
     "If enabled, the file under 1kb will be processed in the UI thread.": {
         def: "If enabled, the file under 1kb will be processed in the UI thread.",
         es: "Archivos <1kb se procesan en hilo UI",
+        fr: "Si activée, les fichiers de moins de 1 Ko seront traités sur le thread UI.",
         ja: "有効にすると、1kb未満のファイルはUIスレッドで処理されます。",
         ko: "활성화하면 1kb 미만의 파일은 UI 스레드에서 처리됩니다.",
         ru: "Если включено, файлы меньше 1КБ будут обрабатываться в основном потоке.",
@@ -668,6 +756,7 @@ export const _allMessages = {
     "If enabled, the notification of hidden files change will be suppressed.": {
         def: "If enabled, the notification of hidden files change will be suppressed.",
         es: "Si se habilita, se suprimirá la notificación de cambios en archivos ocultos.",
+        fr: "Si activée, les notifications de modifications des fichiers cachés seront supprimées.",
         ja: "有効にすると、隠しファイルの変更通知が抑制されます。",
         ko: "활성화하면 숨겨진 파일 변경 알림이 억제됩니다.",
         ru: "Если включено, уведомление об изменении скрытых файлов будет подавлено.",
@@ -676,6 +765,7 @@ export const _allMessages = {
     "If this enabled, all chunks will be stored with the revision made from its content. (Previous behaviour)": {
         def: "If this enabled, all chunks will be stored with the revision made from its content. (Previous behaviour)",
         es: "Si se habilita, todos los chunks se almacenan con la revisión hecha desde su contenido. (comportamiento anterior)",
+        fr: "Si activée, tous les fragments seront stockés avec la révision issue de leur contenu. (Comportement précédent)",
         ja: "有効にすると、すべてのチャンクはコンテンツから作成されたリビジョンと共に保存されます（以前の動作）。",
         ko: "이 옵션이 활성화되면 모든 청크는 콘텐츠에서 생성된 리비전과 함께 저장됩니다. (이전 동작)",
         ru: "Если включено, все чанки будут храниться с ревизией из содержимого.",
@@ -684,6 +774,7 @@ export const _allMessages = {
     "If this enabled, All files are handled as case-Sensitive (Previous behaviour).": {
         def: "If this enabled, All files are handled as case-Sensitive (Previous behaviour).",
         es: "Si se habilita, todos los archivos se manejan como sensibles a mayúsculas (comportamiento anterior)",
+        fr: "Si activée, tous les fichiers sont gérés en respectant la casse (comportement précédent).",
         ja: "有効にすると、すべてのファイルは大文字小文字を区別して処理されます（以前の動作）。",
         ko: "이 옵션이 활성화되면 모든 파일이 대소문자를 구분하여 처리됩니다 (이전 동작).",
         ru: "Если включено, все файлы обрабатываются с учётом регистра.",
@@ -693,6 +784,7 @@ export const _allMessages = {
         {
             def: "If this enabled, chunks will be split into semantically meaningful segments. Not all platforms support this feature.",
             es: "Divide chunks en segmentos semánticos. No todos los sistemas lo soportan",
+            fr: "Si activée, les fragments seront découpés en segments sémantiquement signifiants. Toutes les plateformes ne prennent pas en charge cette fonctionnalité.",
             ja: "有効にすると、チャンクは意味的に有意なセグメントに分割されます。すべてのプラットフォームがこの機能をサポートしているわけではありません。",
             ko: "이 옵션을 활성화하면 청크가 문단이나 의미 단위로 나뉘어 저장됩니다. 단, 이 기능은 일부 플랫폼에서는 지원되지 않을 수 있습니다.",
             ru: "Если включено, чанки будут разделены на семантически значимые сегменты.",
@@ -702,6 +794,7 @@ export const _allMessages = {
         {
             def: "If this is set, changes to local files which are matched by the ignore files will be skipped. Remote changes are determined using local ignore files.",
             es: "Saltar cambios en archivos locales que coincidan con ignore files. Cambios remotos usan ignore files locales",
+            fr: "Si défini, les modifications des fichiers locaux correspondant aux fichiers d'exclusion seront ignorées. Les changements distants sont déterminés à l'aide des fichiers d'exclusion locaux.",
             ja: "これを設定すると、除外ファイルに一致するローカルファイルの変更はスキップされます。リモートの変更はローカルの無視ファイルを使用して判定されます。",
             ko: "이 옵션을 활성화하면, 제외 규칙 파일에 일치하는 로컬 파일의 변경 사항은 건너뜁니다. 원격 변경 여부 또한 로컬의 제외 규칙 파일에 따라 판단됩니다.",
             ru: "If this is set, changes to local files which are matched by the ignore files will be skipped. Remote changes are determined using local ignore files.",
@@ -711,6 +804,7 @@ export const _allMessages = {
         {
             def: "If this option is enabled, PouchDB will hold the connection open for 60 seconds, and if no change arrives in that time, close and reopen the socket, instead of holding it open indefinitely. Useful when a proxy limits request duration but can increase resource usage.",
             es: "Mantiene conexión 60s. Si no hay cambios, reinicia socket. Útil con proxies limitantes",
+            fr: "Si cette option est activée, PouchDB maintiendra la connexion ouverte pendant 60 secondes, et si aucun changement n'arrive durant cette période, fermera et rouvrira la socket au lieu de la garder ouverte indéfiniment. Utile lorsqu'un proxy limite la durée des requêtes, mais peut augmenter l'utilisation des ressources.",
             ja: "このオプションを有効にすると、PouchDBは接続を60秒間保持し、その間に通信がない場合、一度接続を閉じて再接続します。接続を無期限に保持する代わりにこの動作を行います。プロキシ(Cloudflareなど)がリクエストの持続時間を制限している場合に有用ですが、リソース使用量が増加する可能性があります。",
             ko: "이 옵션이 활성화되면 PouchDB는 연결을 더이상 무한히 열어두지 않고 60초 동안 유지합니다. 그 시간 내에 변경 사항이 없으면 소켓을 닫고 다시 엽니다. 프록시가 요청 지속 시간을 제한할 때 유용하지만 리소스 사용량이 증가할 수 있습니다.",
             ru: "If this option is enabled, PouchDB will hold the connection open for 60 seconds, and if no change arrives in that time, close and reopen the socket, instead of holding it open indefinitely. Useful when a proxy limits request duration but can increase resource usage.",
@@ -719,6 +813,7 @@ export const _allMessages = {
     "Ignore files": {
         def: "Ignore files",
         es: "Archivos a ignorar",
+        fr: "Fichiers d'exclusion",
         ja: "除外ファイル",
         ko: "제외 규칙 파일",
         ru: "Файлы для игнорирования",
@@ -727,6 +822,7 @@ export const _allMessages = {
     "Incubate Chunks in Document": {
         def: "Incubate Chunks in Document",
         es: "Incubar chunks en documento",
+        fr: "Incuber les fragments dans le document",
         ja: "ドキュメント内でチャンクを一時保管する",
         ko: "문서 내 변경 기록 임시 보관",
         ru: "Инкубировать чанки в документе",
@@ -735,6 +831,7 @@ export const _allMessages = {
     "Interval (sec)": {
         def: "Interval (sec)",
         es: "Intervalo (segundos)",
+        fr: "Intervalle (sec)",
         ja: "秒",
         ko: "간격 (초)",
         ru: "Интервал (сек)",
@@ -742,6 +839,7 @@ export const _allMessages = {
     },
     "K.exp": {
         def: "Experimental",
+        fr: "Expérimental",
         ja: "試験機能",
         ko: "실험 기능",
         ru: "Экспериментальная",
@@ -749,6 +847,7 @@ export const _allMessages = {
     },
     "K.long_p2p_sync": {
         def: "%{title_p2p_sync}",
+        fr: "%{title_p2p_sync}",
         ja: "%{title_p2p_sync} (%{exp})",
         ko: "%{title_p2p_sync} (%{exp})",
         ru: "title_p2p_sync",
@@ -756,6 +855,7 @@ export const _allMessages = {
     },
     "K.P2P": {
         def: "%{Peer}-to-%{Peer}",
+        fr: "%{Peer}-à-%{Peer}",
         ja: "%{Peer}-to-%{Peer}",
         ko: "%{Peer}-to-%{Peer}",
         ru: "Peer-к-Peer",
@@ -763,6 +863,7 @@ export const _allMessages = {
     },
     "K.Peer": {
         def: "Peer",
+        fr: "Pair",
         ja: "Peer",
         ko: "피어",
         ru: "Устройство",
@@ -770,6 +871,7 @@ export const _allMessages = {
     },
     "K.ScanCustomization": {
         def: "Scan customization",
+        fr: "Analyser la personnalisation",
         ja: "Scan customization",
         ko: "사용자 설정 검색",
         ru: "Scan customization",
@@ -777,6 +879,7 @@ export const _allMessages = {
     },
     "K.short_p2p_sync": {
         def: "P2P Sync",
+        fr: "Sync P2P",
         ja: "P2P Sync (%{exp})",
         ko: "P2P 동기화 (%{exp})",
         ru: "P2P Синхр.",
@@ -784,6 +887,7 @@ export const _allMessages = {
     },
     "K.title_p2p_sync": {
         def: "Peer-to-Peer Sync",
+        fr: "Synchronisation pair-à-pair",
         ja: "Peer-to-Peer Sync",
         ko: "피어 투 피어(P2P) 동기화",
         ru: "Синхронизация между устройствами",
@@ -792,6 +896,7 @@ export const _allMessages = {
     "Keep empty folder": {
         def: "Keep empty folder",
         es: "Mantener carpetas vacías",
+        fr: "Conserver les dossiers vides",
         ja: "空フォルダの維持",
         ko: "빈 폴더 유지",
         ru: "Сохранять пустые папки",
@@ -799,6 +904,7 @@ export const _allMessages = {
     },
     lang_def: {
         def: "Default",
+        fr: "Par défaut",
         ja: "Default",
         ko: "Default",
         ru: "По умолчанию",
@@ -807,6 +913,7 @@ export const _allMessages = {
     "lang-de": {
         def: "Deutsche",
         es: "Alemán",
+        fr: "Deutsche",
         ja: "Deutsche",
         ko: "Deutsche",
         ru: "Deutsch",
@@ -814,6 +921,7 @@ export const _allMessages = {
     },
     "lang-def": {
         def: "%{lang_def}",
+        fr: "%{lang_def}",
         ja: "%{lang_def}",
         ko: "%{lang_def}",
         ru: "lang_def",
@@ -822,6 +930,7 @@ export const _allMessages = {
     "lang-es": {
         def: "Español",
         es: "Español",
+        fr: "Español",
         ja: "Español",
         ko: "Español",
         ru: "Español",
@@ -830,6 +939,7 @@ export const _allMessages = {
     "lang-ja": {
         def: "日本語",
         es: "Japonés",
+        fr: "日本語",
         ja: "日本語",
         ko: "日本語",
         ru: "日本語",
@@ -837,6 +947,7 @@ export const _allMessages = {
     },
     "lang-ko": {
         def: "한국어",
+        fr: "한국어",
         ja: "한국어",
         ko: "한국어",
         ru: "한국어",
@@ -845,6 +956,7 @@ export const _allMessages = {
     "lang-ru": {
         def: "Русский",
         es: "Ruso",
+        fr: "Русский",
         ja: "Русский",
         ko: "Русский",
         ru: "Русский",
@@ -853,6 +965,7 @@ export const _allMessages = {
     "lang-zh": {
         def: "简体中文",
         es: "Chino simplificado",
+        fr: "简体中文",
         ja: "简体中文",
         ko: "简体中文",
         ru: "简体中文",
@@ -861,6 +974,7 @@ export const _allMessages = {
     "lang-zh-tw": {
         def: "繁體中文",
         es: "Chino tradicional",
+        fr: "繁體中文",
         ja: "繁體中文",
         ko: "繁體中文",
         ru: "繁體中文",
@@ -870,6 +984,7 @@ export const _allMessages = {
         {
             def: "LiveSync could not handle multiple vaults which have same name without different prefix, This should be automatically configured.",
             es: "LiveSync no puede manejar múltiples bóvedas con mismo nombre sin prefijo. Se configura automáticamente",
+            fr: "LiveSync ne peut pas gérer plusieurs coffres portant le même nom sans préfixe distinct. Ceci devrait être configuré automatiquement.",
             ja: "LiveSyncは、接頭辞（プレフィックス）のない同名の保管庫(Vault)を扱うことができません。これは自動的に設定されます。",
             ko: "LiveSync는 서로 다른 접두사 없이 동일한 이름을 가진 여러 볼트를 처리할 수 없습니다. 이는 자동으로 구성되어야 합니다.",
             ru: "LiveSync не может обработать несколько хранилищ с одинаковым именем без разных префиксов.",
@@ -878,6 +993,7 @@ export const _allMessages = {
     "liveSyncReplicator.beforeLiveSync": {
         def: "Before LiveSync, start OneShot once...",
         es: "Antes de LiveSync, inicia OneShot...",
+        fr: "Avant LiveSync, lancement d'un OneShot initial...",
         ja: "LiveSyncの前に、まずOneShotを開始します...",
         ko: "LiveSync 전에 OneShot을 먼저 시작합니다...",
         ru: "Перед LiveSync запускаем OneShot...",
@@ -886,6 +1002,7 @@ export const _allMessages = {
     "liveSyncReplicator.cantReplicateLowerValue": {
         def: "We can't replicate more lower value.",
         es: "No podemos replicar un valor más bajo.",
+        fr: "Impossible de répliquer une valeur inférieure.",
         ja: "これ以上低い値ではレプリケーション(複製)できません。",
         ko: "더 낮은 값으로 복제할 수 없습니다.",
         ru: "Нельзя реплицировать с меньшим значением.",
@@ -894,6 +1011,7 @@ export const _allMessages = {
     "liveSyncReplicator.checkingLastSyncPoint": {
         def: "Looking for the point last synchronized point.",
         es: "Buscando el último punto sincronizado.",
+        fr: "Recherche du dernier point de synchronisation.",
         ja: "最後に同期したポイントを探しています。",
         ko: "마지막으로 동기화된 지점을 찾고 있습니다.",
         ru: "Поиск последней точки синхронизации.",
@@ -902,6 +1020,7 @@ export const _allMessages = {
     "liveSyncReplicator.couldNotConnectTo": {
         def: "Could not connect to ${uri} : ${name}\n(${db})",
         es: "No se pudo conectar a ${uri} : ${name} \n(${db})",
+        fr: "Connexion impossible à ${uri} : ${name}\n(${db})",
         ja: "${uri} : ${name}に接続できませんでした\n(${db})",
         ko: "${uri}에 연결할 수 없습니다: ${name} \n(${db})",
         ru: "Не удалось подключиться к uri : name\n(db)",
@@ -910,6 +1029,7 @@ export const _allMessages = {
     "liveSyncReplicator.couldNotConnectToRemoteDb": {
         def: "Could not connect to remote database: ${d}",
         es: "No se pudo conectar a base de datos remota: ${d}",
+        fr: "Connexion à la base distante impossible : ${d}",
         ja: "リモートデータベースに接続できませんでした: ${d}",
         ko: "원격 데이터베이스에 연결할 수 없습니다: ${d}",
         ru: "Не удалось подключиться к удалённой базе данных: d",
@@ -918,6 +1038,7 @@ export const _allMessages = {
     "liveSyncReplicator.couldNotConnectToServer": {
         def: "Could not connect to server.",
         es: "No se pudo conectar al servidor.",
+        fr: "Connexion au serveur impossible.",
         ja: "サーバーに接続できませんでした。",
         ko: "서버에 연결할 수 없습니다.",
         ru: "Не удалось подключиться к серверу.",
@@ -926,6 +1047,7 @@ export const _allMessages = {
     "liveSyncReplicator.couldNotConnectToURI": {
         def: "Could not connect to ${uri}:${dbRet}",
         es: "No se pudo conectar a ${uri}:${dbRet}",
+        fr: "Connexion impossible à ${uri}:${dbRet}",
         ja: "${uri}に接続できませんでした: ${dbRet}",
         ko: "${uri}에 연결할 수 없습니다: ${dbRet}",
         ru: "Не удалось подключиться к uri:dbRet",
@@ -934,6 +1056,7 @@ export const _allMessages = {
     "liveSyncReplicator.couldNotMarkResolveRemoteDb": {
         def: "Could not mark resolve remote database.",
         es: "No se pudo marcar como resuelta la base de datos remota.",
+        fr: "Impossible de marquer la résolution de la base distante.",
         ja: "リモートデータベースを解決済みとしてマークできませんでした。",
         ko: "원격 데이터베이스를 해결됨으로 표시할 수 없습니다.",
         ru: "Не удалось отметить удалённую базу данных как разрешённую.",
@@ -942,6 +1065,7 @@ export const _allMessages = {
     "liveSyncReplicator.liveSyncBegin": {
         def: "LiveSync begin...",
         es: "Inicio de LiveSync...",
+        fr: "Démarrage de LiveSync...",
         ja: "LiveSyncを開始...",
         ko: "LiveSync 시작...",
         ru: "Начало LiveSync...",
@@ -950,6 +1074,7 @@ export const _allMessages = {
     "liveSyncReplicator.lockRemoteDb": {
         def: "Lock remote database to prevent data corruption",
         es: "Bloquear base de datos remota para prevenir corrupción de datos",
+        fr: "Verrouillage de la base distante pour éviter la corruption des données",
         ja: "データ破損を防ぐためリモートデータベースをロック",
         ko: "데이터 손상을 방지하기 위해 원격 데이터베이스를 잠급니다",
         ru: "Блокировка удалённой базы данных для предотвращения повреждения данных",
@@ -958,6 +1083,7 @@ export const _allMessages = {
     "liveSyncReplicator.markDeviceResolved": {
         def: "Mark this device as 'resolved'.",
         es: "Marcar este dispositivo como 'resuelto'.",
+        fr: "Marquer cet appareil comme « résolu ».",
         ja: "このデバイスを『解決済み』としてマーク。",
         ko: "이 기기를 '해결됨'으로 표시합니다.",
         ru: "Отметить это устройство как «разрешённое».",
@@ -966,6 +1092,7 @@ export const _allMessages = {
     "liveSyncReplicator.oneShotSyncBegin": {
         def: "OneShot Sync begin... (${syncMode})",
         es: "Inicio de sincronización OneShot... (${syncMode})",
+        fr: "Démarrage de la synchronisation OneShot... (${syncMode})",
         ja: "OneShot同期を開始... (${syncMode})",
         ko: "OneShot 동기화 시작... (${syncMode})",
         ru: "Начало OneShot синхронизации... (syncMode)",
@@ -974,6 +1101,7 @@ export const _allMessages = {
     "liveSyncReplicator.remoteDbCorrupted": {
         def: "Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed",
         es: "La base de datos remota es más nueva o está dañada, asegúrese de tener la última versión de self-hosted-livesync instalada",
+        fr: "La base distante est plus récente ou corrompue, assurez-vous d'avoir installé la dernière version de self-hosted-livesync",
         ja: "リモートデータベースが新しいか破損しています。self-hosted-livesyncの最新バージョンがインストールされていることを確認してください",
         ko: "원격 데이터베이스가 더 최신이거나 손상되었습니다. 최신 버전의 self-hosted-livesync가 설치되어 있는지 확인하세요",
         ru: "Удалённая база данных новее или повреждена, убедитесь, что установлена последняя версия self-hosted-livesync",
@@ -982,6 +1110,7 @@ export const _allMessages = {
     "liveSyncReplicator.remoteDbCreatedOrConnected": {
         def: "Remote Database Created or Connected",
         es: "Base de datos remota creada o conectada",
+        fr: "Base distante créée ou connectée",
         ja: "リモートデータベースが作成または接続されました",
         ko: "원격 데이터베이스가 생성되거나 연결되었습니다",
         ru: "Удалённая база данных создана или подключена",
@@ -990,6 +1119,7 @@ export const _allMessages = {
     "liveSyncReplicator.remoteDbDestroyed": {
         def: "Remote Database Destroyed",
         es: "Base de datos remota destruida",
+        fr: "Base distante détruite",
         ja: "リモートデータベースが削除されました",
         ko: "원격 데이터베이스가 삭제되었습니다",
         ru: "Удалённая база данных уничтожена",
@@ -998,6 +1128,7 @@ export const _allMessages = {
     "liveSyncReplicator.remoteDbDestroyError": {
         def: "Something happened on Remote Database Destroy:",
         es: "Algo ocurrió al destruir base de datos remota:",
+        fr: "Un problème est survenu lors de la destruction de la base distante :",
         ja: "リモートデータベースの削除中に問題が発生しました:",
         ko: "원격 데이터베이스 삭제 중 오류가 발생했습니다:",
         ru: "Произошла ошибка при уничтожении удалённой базы данных:",
@@ -1006,6 +1137,7 @@ export const _allMessages = {
     "liveSyncReplicator.remoteDbMarkedResolved": {
         def: "Remote database has been marked resolved.",
         es: "Base de datos remota marcada como resuelta.",
+        fr: "La base distante a été marquée comme résolue.",
         ja: "リモートデータベースが解決済みとしてマークされました。",
         ko: "원격 데이터베이스가 해결됨으로 표시되었습니다.",
         ru: "Удалённая база данных отмечена как разрешённая.",
@@ -1014,6 +1146,7 @@ export const _allMessages = {
     "liveSyncReplicator.replicationClosed": {
         def: "Replication closed",
         es: "Replicación cerrada",
+        fr: "Réplication fermée",
         ja: "レプリケーション(複製)が終了しました",
         ko: "복제가 종료되었습니다",
         ru: "Репликация закрыта",
@@ -1022,6 +1155,7 @@ export const _allMessages = {
     "liveSyncReplicator.replicationInProgress": {
         def: "Replication is already in progress",
         es: "Replicación en curso",
+        fr: "Une réplication est déjà en cours",
         ja: "レプリケーション(複製)は既に進行中です",
         ko: "복제가 이미 진행 중입니다",
         ru: "Репликация уже выполняется",
@@ -1030,6 +1164,7 @@ export const _allMessages = {
     "liveSyncReplicator.retryLowerBatchSize": {
         def: "Retry with lower batch size:${batch_size}/${batches_limit}",
         es: "Reintentar con tamaño de lote más bajo:${batch_size}/${batches_limit}",
+        fr: "Nouvelle tentative avec une taille de lot réduite :${batch_size}/${batches_limit}",
         ja: "より小さいバッチサイズで再試行: ${batch_size}/${batches_limit}",
         ko: "더 낮은 일괄 크기로 재시도: ${batch_size}/${batches_limit}",
         ru: "Повтор с меньшим размером пакета: batch_size/batches_limit",
@@ -1038,6 +1173,7 @@ export const _allMessages = {
     "liveSyncReplicator.unlockRemoteDb": {
         def: "Unlock remote database to prevent data corruption",
         es: "Desbloquear base de datos remota para prevenir corrupción de datos",
+        fr: "Déverrouillage de la base distante pour éviter la corruption des données",
         ja: "データ破損を防ぐためリモートデータベースをアンロック",
         ko: "데이터 손상을 방지하기 위해 원격 데이터베이스를 잠금 해제합니다",
         ru: "Разблокировка удалённой базы данных для предотвращения повреждения данных",
@@ -1046,6 +1182,7 @@ export const _allMessages = {
     "liveSyncSetting.errorNoSuchSettingItem": {
         def: "No such setting item: ${key}",
         es: "No existe el ajuste: ${key}",
+        fr: "Élément de paramètre inexistant : ${key}",
         ja: "その設定項目は存在しません: ${key}",
         ko: "해당 설정 항목이 없습니다: ${key}",
         ru: "Такого параметра настройки не существует: key",
@@ -1054,6 +1191,7 @@ export const _allMessages = {
     "liveSyncSetting.originalValue": {
         def: "Original: ${value}",
         es: "Original: ${value}",
+        fr: "Original : ${value}",
         ja: "元の値: ${value}",
         ko: "원본: ${value}",
         ru: "Оригинал: value",
@@ -1062,6 +1200,7 @@ export const _allMessages = {
     "liveSyncSetting.valueShouldBeInRange": {
         def: "The value should ${min} < value < ${max}",
         es: "El valor debe estar entre ${min} y ${max}",
+        fr: "La valeur doit être ${min} < valeur < ${max}",
         ja: "値は ${min} < 値 < ${max} の範囲である必要があります",
         ko: "값은 ${min} < 값 < ${max} 범위에 있어야 합니다",
         ru: "Значение должно быть min < значение < max",
@@ -1070,6 +1209,7 @@ export const _allMessages = {
     "liveSyncSettings.btnApply": {
         def: "Apply",
         es: "Aplicar",
+        fr: "Appliquer",
         ja: "適用",
         ko: "적용",
         ru: "Применить",
@@ -1078,6 +1218,7 @@ export const _allMessages = {
     "logPane.autoScroll": {
         def: "Auto scroll",
         es: "Autodesplazamiento",
+        fr: "Défilement automatique",
         ja: "自動スクロール",
         ko: "자동 스크롤",
         ru: "Автопрокрутка",
@@ -1086,6 +1227,7 @@ export const _allMessages = {
     "logPane.logWindowOpened": {
         def: "Log window opened",
         es: "Ventana de registro abierta",
+        fr: "Fenêtre des journaux ouverte",
         ja: "ログウィンドウが開かれました",
         ko: "로그 창이 열렸습니다",
         ru: "Окно лога открыто",
@@ -1094,6 +1236,7 @@ export const _allMessages = {
     "logPane.pause": {
         def: "Pause",
         es: "Pausar",
+        fr: "Pause",
         ja: "一時停止",
         ko: "일시 중단",
         ru: "Пауза",
@@ -1102,6 +1245,7 @@ export const _allMessages = {
     "logPane.title": {
         def: "Self-hosted LiveSync Log",
         es: "Registro de Self-hosted LiveSync",
+        fr: "Journaux Self-hosted LiveSync",
         ja: "Self-hosted LiveSync ログ",
         ko: "Self-hosted LiveSync 로그",
         ru: "Лог Self-hosted LiveSync",
@@ -1110,6 +1254,7 @@ export const _allMessages = {
     "logPane.wrap": {
         def: "Wrap",
         es: "Ajustar",
+        fr: "Retour à la ligne",
         ja: "折り返し",
         ko: "줄 바꿈",
         ru: "Перенос",
@@ -1118,6 +1263,7 @@ export const _allMessages = {
     "Maximum delay for batch database updating": {
         def: "Maximum delay for batch database updating",
         es: "Retraso máximo para actualización por lotes",
+        fr: "Délai maximum pour la mise à jour groupée de la base",
         ja: "バッチデータベース更新の最大遅延",
         ko: "일괄 데이터베이스 업데이트 최대 지연",
         ru: "Максимальная задержка пакетного обновления базы данных",
@@ -1126,6 +1272,7 @@ export const _allMessages = {
     "Maximum file size": {
         def: "Maximum file size",
         es: "Tamaño máximo de archivo",
+        fr: "Taille maximale de fichier",
         ja: "最大ファイル容量",
         ko: "최대 파일 크기",
         ru: "Максимальный размер файла",
@@ -1134,6 +1281,7 @@ export const _allMessages = {
     "Maximum Incubating Chunk Size": {
         def: "Maximum Incubating Chunk Size",
         es: "Tamaño máximo de chunks incubados",
+        fr: "Taille maximale des fragments en incubation",
         ja: "保持するチャンクの最大サイズ",
         ko: "임시 보관 변경 기록의 최대 크기",
         ru: "Максимальный размер инкубируемого чанка",
@@ -1142,6 +1290,7 @@ export const _allMessages = {
     "Maximum Incubating Chunks": {
         def: "Maximum Incubating Chunks",
         es: "Máximo de chunks incubados",
+        fr: "Nombre maximum de fragments en incubation",
         ja: "一時保管する最大チャンク数",
         ko: "임시 보관 중인 변경 기록 최대 수",
         ru: "Максимальное количество инкубируемых чанков",
@@ -1150,6 +1299,7 @@ export const _allMessages = {
     "Maximum Incubation Period": {
         def: "Maximum Incubation Period",
         es: "Periodo máximo de incubación",
+        fr: "Période maximale d'incubation",
         ja: "最大保持期限",
         ko: "변경 기록 임시 보관 최대 시간",
         ru: "Максимальный период инкубации",
@@ -1158,6 +1308,7 @@ export const _allMessages = {
     "MB (0 to disable).": {
         def: "MB (0 to disable).",
         es: "MB (0 para desactivar)",
+        fr: "Mo (0 pour désactiver).",
         ja: "MB (0で無効化)。",
         ko: "MB (0으로 설정하면 비활성화).",
         ru: "МБ (0 для отключения).",
@@ -1166,6 +1317,7 @@ export const _allMessages = {
     "Memory cache size (by total characters)": {
         def: "Memory cache size (by total characters)",
         es: "Tamaño caché memoria (por caracteres)",
+        fr: "Taille du cache mémoire (par nombre total de caractères)",
         ja: "全体でキャッシュする文字数",
         ko: "메모리 캐시 크기 (총 문자 수)",
         ru: "Размер кэша памяти (по общему количеству символов)",
@@ -1174,6 +1326,7 @@ export const _allMessages = {
     "Memory cache size (by total items)": {
         def: "Memory cache size (by total items)",
         es: "Tamaño caché memoria (por ítems)",
+        fr: "Taille du cache mémoire (par nombre total d'éléments)",
         ja: "全体のキャッシュサイズ",
         ko: "메모리 캐시 크기 (총 항목 수)",
         ru: "Размер кэша памяти (по общему количеству элементов)",
@@ -1182,6 +1335,7 @@ export const _allMessages = {
     "Minimum delay for batch database updating": {
         def: "Minimum delay for batch database updating",
         es: "Retraso mínimo para actualización por lotes",
+        fr: "Délai minimum pour la mise à jour groupée de la base",
         ja: "バッチデータベース更新の最小遅延",
         ko: "일괄 데이터베이스 업데이트 최소 지연",
         ru: "Минимальная задержка пакетного обновления базы данных",
@@ -1189,12 +1343,14 @@ export const _allMessages = {
     },
     "Minimum interval for syncing": {
         def: "Minimum interval for syncing",
+        fr: "Intervalle minimum pour la synchronisation",
         ru: "Минимальный интервал синхронизации",
         zh: "同步最小间隔",
     },
     "moduleCheckRemoteSize.logCheckingStorageSizes": {
         def: "Checking storage sizes",
         es: "Comprobando tamaños de almacenamiento",
+        fr: "Vérification des tailles de stockage",
         ja: "ストレージサイズを確認中",
         ko: "스토리지 크기 확인 중",
         ru: "Проверка размеров хранилища",
@@ -1203,6 +1359,7 @@ export const _allMessages = {
     "moduleCheckRemoteSize.logCurrentStorageSize": {
         def: "Remote storage size: ${measuredSize}",
         es: "Tamaño del almacenamiento remoto: ${measuredSize}",
+        fr: "Taille du stockage distant : ${measuredSize}",
         ja: "リモートストレージサイズ: ${measuredSize}",
         ko: "원격 스토리지 크기: ${measuredSize}",
         ru: "Размер удалённого хранилища: measuredSize",
@@ -1211,6 +1368,7 @@ export const _allMessages = {
     "moduleCheckRemoteSize.logExceededWarning": {
         def: "Remote storage size: ${measuredSize} exceeded ${notifySize}",
         es: "Tamaño del almacenamiento remoto: ${measuredSize} superó ${notifySize}",
+        fr: "Taille du stockage distant : ${measuredSize} a dépassé ${notifySize}",
         ja: "リモートストレージサイズ: ${measuredSize} が ${notifySize} を超過しました",
         ko: "원격 스토리지 크기: ${measuredSize}가 ${notifySize}를 초과했습니다",
         ru: "Размер удалённого хранилища: measuredSize превысил notifySize",
@@ -1219,6 +1377,7 @@ export const _allMessages = {
     "moduleCheckRemoteSize.logThresholdEnlarged": {
         def: "Threshold has been enlarged to ${size}MB",
         es: "El umbral se ha ampliado a ${size}MB",
+        fr: "Le seuil a été augmenté à ${size} Mo",
         ja: "しきい値が ${size}MB に設定されました",
         ko: "임계값이 ${size}MB로 증가되었습니다",
         ru: "Порог увеличен до sizeМБ",
@@ -1227,6 +1386,7 @@ export const _allMessages = {
     "moduleCheckRemoteSize.msgConfirmRebuild": {
         def: "This may take a bit of a long time. Do you really want to rebuild everything now?",
         es: "Esto puede llevar un poco de tiempo. ¿Realmente quieres reconstruir todo ahora?",
+        fr: "Cela peut prendre un certain temps. Voulez-vous vraiment tout reconstruire maintenant ?",
         ja: "これは少し時間がかかる場合があります。本当に今すべてを再構築しますか？",
         ko: "시간이 꽤 오래 걸릴 수 있습니다. 정말 지금 모든 것을 재구축하시겠습니까?",
         ru: "Это может занять некоторое время. Вы действительно хотите перестроить всё сейчас?",
@@ -1235,6 +1395,7 @@ export const _allMessages = {
     "moduleCheckRemoteSize.msgDatabaseGrowing": {
         def: "**Your database is getting larger!** But do not worry, we can address it now. The time before running out of space on the remote storage.\n\n| Measured size | Configured size |\n| --- | --- |\n| ${estimatedSize} | ${maxSize} |\n\n> [!MORE]-\n> If you have been using it for many years, there may be unreferenced chunks - that is, garbage - accumulating in the database. Therefore, we recommend rebuilding everything. It will probably become much smaller.\n>\n> If the volume of your vault is simply increasing, it is better to rebuild everything after organizing the files. Self-hosted LiveSync does not delete the actual data even if you delete it to speed up the process. It is roughly [documented](https://github.com/vrtmrz/obsidian-livesync/blob/main/docs/tech_info.md).\n>\n> If you don't mind the increase, you can increase the notification limit by 100MB. This is the case if you are running it on your own server. However, it is better to rebuild everything from time to time.\n>\n\n> [!WARNING]\n> If you perform rebuild everything, make sure all devices are synchronised. The plug-in will merge as much as possible, though.\n",
         es: "**¡Tu base de datos está creciendo!** Pero no te preocupes, podemos abordarlo ahora. El tiempo antes de quedarse sin espacio en el almacenamiento remoto.\n\n| Tamaño medido | Tamaño configurado |\n| --- | --- |\n| ${estimatedSize} | ${maxSize} |\n\n> [!MORE]-\n> Si lo has estado utilizando durante muchos años, puede haber fragmentos no referenciados - es decir, basura - acumulándose en la base de datos. Por lo tanto, recomendamos reconstruir todo. Probablemente se volverá mucho más pequeño.\n>\n> Si el volumen de tu bóveda simplemente está aumentando, es mejor reconstruir todo después de organizar los archivos. Self-hosted LiveSync no elimina los datos reales incluso si los eliminas para acelerar el proceso. Está aproximadamente [documentado](https://github.com/vrtmrz/obsidian-livesync/blob/main/docs/tech_info.md).\n>\n> Si no te importa el aumento, puedes aumentar el límite de notificación en 100 MB. Este es el caso si lo estás ejecutando en tu propio servidor. Sin embargo, es mejor reconstruir todo de vez en cuando.\n>\n\n> [!WARNING]\n> Si realizas la reconstrucción completa, asegúrate de que todos los dispositivos estén sincronizados. El complemento fusionará tanto como sea posible, sin embargo.\n",
+        fr: "**Votre base de données grossit !** Pas d'inquiétude, nous pouvons y remédier dès maintenant, avant de manquer d'espace sur le stockage distant.\n\n| Taille mesurée | Taille configurée |\n| --- | --- |\n| ${estimatedSize} | ${maxSize} |\n\n> [!MORE]-\n> Si vous l'utilisez depuis de nombreuses années, il peut y avoir des fragments non référencés — des déchets, en somme — accumulés dans la base. Nous recommandons donc de tout reconstruire. Cela réduira probablement beaucoup la taille.\n>\n> Si le volume de votre coffre augmente simplement, il est préférable de tout reconstruire après avoir organisé les fichiers. Self-hosted LiveSync ne supprime pas réellement les données même si vous les effacez, afin d'accélérer le processus. Ceci est documenté grossièrement [ici](https://github.com/vrtmrz/obsidian-livesync/blob/main/docs/tech_info.md).\n>\n> Si cela ne vous dérange pas, vous pouvez augmenter la limite de notification de 100 Mo. C'est le cas si vous l'exécutez sur votre propre serveur. Il reste toutefois préférable de tout reconstruire de temps en temps.\n>\n\n> [!WARNING]\n> Si vous tout reconstruisez, assurez-vous que tous les appareils sont synchronisés. Le plug-in fusionnera autant que possible cependant.\n",
         ja: "**データベースが大きくなっています！** でも心配しないでください。リモートストレージの容量が不足する前に対応できます。\n\n| 測定サイズ | 設定サイズ |\n| --- | --- |\n| ${estimatedSize} | ${maxSize} |\n\n> [!MORE]-\n> 長年使用している場合、参照されていないチャンク（つまりゴミ）がデータベースに蓄積している可能性があります。そのため、すべてを再構築することをお勧めします。おそらくかなり小さくなるでしょう。\n>\n> 単純に保管庫の容量が増えている場合は、事前にファイルを整理してからすべてを再構築するのが良いでしょう。Self-hosted LiveSyncは処理速度を上げるため、削除しても実際のデータを削除しません。これはおおまかに[documentation](https://github.com/vrtmrz/obsidian-livesync/blob/main/docs/tech_info.md)に記載されています。\n>\n> 増加を気にしない場合は、通知制限を100MB単位で増やすことができます。これは自分のサーバーで実行している場合に適しています。ただし、定期的にすべてを再構築する方が良いでしょう。\n>\n\n> [!WARNING]\n> すべてを再構築する場合は、すべてのデバイスが同期されていることを確認してください。もちろん、プラグインは可能な限り解決しようと努力はしますけど...\n",
         ko: "**데이터베이스 용량이 점점 커지고 있습니다!** 하지만 걱정하지 마세요. 아직 원격 스토리지 공간이 완전히 부족해진 건 아닙니다.\n\n| 측정된 크기 | 설정된 한도 |\n| --- | --- |\n| ${estimatedSize} | ${maxSize} |\n\n> [!MORE]-\n> 오랜 기간 사용했다면 참조되지 않는 청크, 즉 '쓰레기 데이터'가 쌓였을 수 있습니다. 이 경우 전체 재구성을 권장합니다. 용량이 훨씬 줄어들 수 있습니다.\n> \n> 단순히 볼트 자체 용량이 커지고 있는 것이라면, 먼저 파일을 정리한 후 전체를 재구성하는 것이 좋습니다. Self-hosted LiveSync는 처리 속도를 위해 삭제해도 실제 데이터를 바로 지우지 않습니다. 이 내용은 [기술 문서](https://github.com/vrtmrz/obsidian-livesync/blob/main/docs/tech_info.md)에 간략히 정리되어 있습니다.\n> \n> 용량 증가가 괜찮다면 알림 임계치를 100MB 단위로 높일 수 있습니다. 직접 서버를 운영하는 경우에 적합한 방법입니다. 다만, 가끔은 전체 재구성을 해주는 것이 바람직합니다.\n\n> [!WARNING]\n> 전체 재구성을 실행할 경우, 모든 기기가 반드시 동기화되어 있어야 합니다. 플러그인이 최대한 병합하려고 시도하긴 하지만 완전하지 않을 수 있습니다.",
         ru: "Ваша база данных увеличивается! Но не волнуйтесь, мы можем решить это сейчас.",
@@ -1243,6 +1404,7 @@ export const _allMessages = {
     "moduleCheckRemoteSize.msgSetDBCapacity": {
         def: "We can set a maximum database capacity warning, **to take action before running out of space on the remote storage**.\nDo you want to enable this?\n\n> [!MORE]-\n> - 0: Do not warn about storage size.\n>   This is recommended if you have enough space on the remote storage especially you have self-hosted. And you can check the storage size and rebuild manually.\n> - 800: Warn if the remote storage size exceeds 800MB.\n>   This is recommended if you are using fly.io with 1GB limit or IBM Cloudant.\n> - 2000: Warn if the remote storage size exceeds 2GB.\n\nIf we have reached the limit, we will be asked to enlarge the limit step by step.\n",
         es: "Podemos configurar una advertencia de capacidad máxima de base de datos, **para tomar medidas antes de quedarse sin espacio en el almacenamiento remoto**.\n¿Quieres habilitar esto?\n\n> [!MORE]-\n> - 0: No advertir sobre el tamaño del almacenamiento.\n>   Esto es recomendado si tienes suficiente espacio en el almacenamiento remoto, especialmente si lo tienes autoalojado. Y puedes comprobar el tamaño del almacenamiento y reconstruir manualmente.\n> - 800: Advertir si el tamaño del almacenamiento remoto supera los 800 MB.\n>   Esto es recomendado si estás usando fly.io con un límite de 1 GB o IBM Cloudant.\n> - 2000: Advertir si el tamaño del almacenamiento remoto supera los 2 GB.\n\nSi hemos alcanzado el límite, se nos pedirá que aumentemos el límite paso a paso.\n",
+        fr: "Nous pouvons définir un avertissement de capacité maximale de la base de données, **afin d'agir avant de manquer d'espace sur le stockage distant**.\nVoulez-vous activer ceci ?\n\n> [!MORE]-\n> - 0 : Ne pas avertir sur la taille de stockage.\n>   Recommandé si vous avez suffisamment d'espace sur le stockage distant, surtout en auto-hébergement. Vous pouvez vérifier la taille et reconstruire manuellement.\n> - 800 : Avertir si la taille du stockage distant dépasse 800 Mo.\n>   Recommandé si vous utilisez fly.io avec une limite de 1 Go ou IBM Cloudant.\n> - 2000 : Avertir si la taille du stockage distant dépasse 2 Go.\n\nSi la limite est atteinte, il nous sera proposé de l'augmenter étape par étape.\n",
         ja: "リモートストレージの容量が不足する前に対策を講じるため、**最大データベース容量の警告**を設定できます。\nこれを有効にしますか？\n\n> [!MORE]-\n> - 0: ストレージサイズについて警告しない。\n>   自宅サーバーなど、リモートストレージに十分な容量がある場合に推奨されます。ストレージサイズを確認し、手動で再構築できます。\n> - 800: リモートストレージサイズが800MBを超えたら警告。\n>   1GB制限のfly.ioやIBM Cloudantを使用している場合に推奨されます。\n> - 2000: リモートストレージサイズが2GBを超えたら警告。\n\n制限に達した場合、段階的に制限を増やすよう求められます。\n",
         ko: "**원격 스토리지 공간이 부족해지기 전에 미리 조치할 수 있도록** 데이터베이스 용량 경고를 설정할 수 있습니다.\n이 기능을 활성화하시겠습니까?\n\n> [!MORE]-\n> - 0: 스토리지 용량에 대한 경고 없음\n>   자체 서버를 사용하는 등 여유 공간이 충분한 경우에 권장됩니다. 스토리지 용량을 직접 확인하고 수동으로 재구성할 수 있습니다.\n> - 800: 원격 스토리지 용량이 800MB를 초과하면 경고\n>   1GB 제한이 있는 fly.io나 IBM Cloudant 사용 시 권장됩니다.\n> - 2000: 원격 스토리지 용량이 2GB를 초과하면 경고\n\n설정한 용량 한도에 도달하면, 단계적으로 경고 한도를 늘릴지 여부를 묻게 됩니다.\n",
         ru: "Можно установить предупреждение о максимальной ёмкости базы данных.",
@@ -1251,6 +1413,7 @@ export const _allMessages = {
     "moduleCheckRemoteSize.option2GB": {
         def: "2GB (Standard)",
         es: "2GB (Estándar)",
+        fr: "2 Go (Standard)",
         ja: "2GB (標準)",
         ko: "2GB (표준)",
         ru: "2ГБ (Стандарт)",
@@ -1259,6 +1422,7 @@ export const _allMessages = {
     "moduleCheckRemoteSize.option800MB": {
         def: "800MB (Cloudant, fly.io)",
         es: "800MB (Cloudant, fly.io)",
+        fr: "800 Mo (Cloudant, fly.io)",
         ja: "800MB (Cloudant, fly.io)",
         ko: "800MB (Cloudant, fly.io)",
         ru: "800МБ (Cloudant, fly.io)",
@@ -1267,6 +1431,7 @@ export const _allMessages = {
     "moduleCheckRemoteSize.optionAskMeLater": {
         def: "Ask me later",
         es: "Pregúntame más tarde",
+        fr: "Me demander plus tard",
         ja: "後で確認する",
         ko: "나중에 물어보기",
         ru: "Спросить позже",
@@ -1275,6 +1440,7 @@ export const _allMessages = {
     "moduleCheckRemoteSize.optionDismiss": {
         def: "Dismiss",
         es: "Descartar",
+        fr: "Ignorer",
         ja: "無視",
         ko: "무시",
         ru: "Отклонить",
@@ -1283,6 +1449,7 @@ export const _allMessages = {
     "moduleCheckRemoteSize.optionIncreaseLimit": {
         def: "increase to ${newMax}MB",
         es: "aumentar a ${newMax}MB",
+        fr: "augmenter à ${newMax} Mo",
         ja: "${newMax}MBに設定",
         ko: "${newMax}MB로 증가",
         ru: "увеличить до newMaxМБ",
@@ -1291,6 +1458,7 @@ export const _allMessages = {
     "moduleCheckRemoteSize.optionNoWarn": {
         def: "No, never warn please",
         es: "No, nunca advertir por favor",
+        fr: "Non, ne jamais avertir",
         ja: "いいえ、警告しないでください",
         ko: "아니요, 경고하지 마세요",
         ru: "Нет, не уведомлять",
@@ -1299,6 +1467,7 @@ export const _allMessages = {
     "moduleCheckRemoteSize.optionRebuildAll": {
         def: "Rebuild Everything Now",
         es: "Reconstruir todo ahora",
+        fr: "Tout reconstruire maintenant",
         ja: "今すべてを再構築",
         ko: "지금 모든 것 재구축",
         ru: "Перестроить всё сейчас",
@@ -1307,6 +1476,7 @@ export const _allMessages = {
     "moduleCheckRemoteSize.titleDatabaseSizeLimitExceeded": {
         def: "Remote storage size exceeded the limit",
         es: "El tamaño del almacenamiento remoto superó el límite",
+        fr: "Taille du stockage distant au-delà de la limite",
         ja: "リモートストレージサイズが制限を超過しました",
         ko: "원격 스토리지 크기가 제한을 초과했습니다",
         ru: "Размер удалённого хранилища превысил лимит",
@@ -1315,6 +1485,7 @@ export const _allMessages = {
     "moduleCheckRemoteSize.titleDatabaseSizeNotify": {
         def: "Setting up database size notification",
         es: "Configuración de notificación de tamaño de base de datos",
+        fr: "Configuration de la notification de taille de base",
         ja: "データベースサイズ通知の設定",
         ko: "데이터베이스 크기 알림 설정",
         ru: "Настройка уведомления о размере базы данных",
@@ -1323,6 +1494,7 @@ export const _allMessages = {
     "moduleInputUIObsidian.defaultTitleConfirmation": {
         def: "Confirmation",
         es: "Confirmación",
+        fr: "Confirmation",
         ja: "確認",
         ko: "확인",
         ru: "Подтверждение",
@@ -1331,6 +1503,7 @@ export const _allMessages = {
     "moduleInputUIObsidian.defaultTitleSelect": {
         def: "Select",
         es: "Seleccionar",
+        fr: "Sélection",
         ja: "選択",
         ko: "선택",
         ru: "Выбор",
@@ -1339,6 +1512,7 @@ export const _allMessages = {
     "moduleInputUIObsidian.optionNo": {
         def: "No",
         es: "No",
+        fr: "Non",
         ja: "いいえ",
         ko: "아니요",
         ru: "Нет",
@@ -1347,6 +1521,7 @@ export const _allMessages = {
     "moduleInputUIObsidian.optionYes": {
         def: "Yes",
         es: "Sí",
+        fr: "Oui",
         ja: "はい",
         ko: "예",
         ru: "Да",
@@ -1355,6 +1530,7 @@ export const _allMessages = {
     "moduleLiveSyncMain.logAdditionalSafetyScan": {
         def: "Additional safety scan...",
         es: "Escanéo de seguridad adicional...",
+        fr: "Analyse de sécurité supplémentaire...",
         ja: "追加の安全スキャン中...",
         ko: "추가 안전 검사 중...",
         ru: "Дополнительная проверка безопасности...",
@@ -1363,6 +1539,7 @@ export const _allMessages = {
     "moduleLiveSyncMain.logLoadingPlugin": {
         def: "Loading plugin...",
         es: "Cargando complemento...",
+        fr: "Chargement du plugin...",
         ja: "プラグインをロード中...",
         ko: "플러그인 로딩 중...",
         ru: "Загрузка плагина...",
@@ -1371,6 +1548,7 @@ export const _allMessages = {
     "moduleLiveSyncMain.logPluginInitCancelled": {
         def: "Plugin initialisation was cancelled by a module",
         es: "La inicialización del complemento fue cancelada por un módulo",
+        fr: "L'initialisation du plugin a été annulée par un module",
         ja: "プラグインの初期化がモジュールによってキャンセルされました",
         ko: "모듈에 의해 플러그인 초기화가 취소되었습니다",
         ru: "Инициализация плагина отменена модулем",
@@ -1379,6 +1557,7 @@ export const _allMessages = {
     "moduleLiveSyncMain.logPluginVersion": {
         def: "Self-hosted LiveSync v${manifestVersion} ${packageVersion}",
         es: "Self-hosted LiveSync v${manifestVersion} ${packageVersion}",
+        fr: "Self-hosted LiveSync v${manifestVersion} ${packageVersion}",
         ja: "Self-hosted LiveSync v${manifestVersion} ${packageVersion}",
         ko: "Self-hosted LiveSync v${manifestVersion} ${packageVersion}",
         ru: "Self-hosted LiveSync vmanifestVersion packageVersion",
@@ -1387,6 +1566,7 @@ export const _allMessages = {
     "moduleLiveSyncMain.logReadChangelog": {
         def: "LiveSync has updated, please read the changelog!",
         es: "LiveSync se ha actualizado, ¡por favor lee el registro de cambios!",
+        fr: "LiveSync a été mis à jour, veuillez lire le journal des modifications !",
         ja: "LiveSyncが更新されました。変更履歴をお読みください！",
         ko: "LiveSync가 업데이트되었습니다. 변경사항을 읽어보세요!",
         ru: "LiveSync обновлён, пожалуйста, прочитайте список изменений!",
@@ -1395,6 +1575,7 @@ export const _allMessages = {
     "moduleLiveSyncMain.logSafetyScanCompleted": {
         def: "Additional safety scan completed",
         es: "Escanéo de seguridad adicional completado",
+        fr: "Analyse de sécurité supplémentaire terminée",
         ja: "追加の安全スキャンが完了しました",
         ko: "추가 안전 검사가 완료되었습니다",
         ru: "Дополнительная проверка безопасности завершена",
@@ -1403,6 +1584,7 @@ export const _allMessages = {
     "moduleLiveSyncMain.logSafetyScanFailed": {
         def: "Additional safety scan has failed on a module",
         es: "El escaneo de seguridad adicional ha fallado en un módulo",
+        fr: "L'analyse de sécurité supplémentaire a échoué sur un module",
         ja: "モジュールで追加の安全スキャンが失敗しました",
         ko: "모듈에서 추가 안전 검사가 실패했습니다",
         ru: "Дополнительная проверка безопасности не удалась в модуле",
@@ -1411,6 +1593,7 @@ export const _allMessages = {
     "moduleLiveSyncMain.logUnloadingPlugin": {
         def: "Unloading plugin...",
         es: "Descargando complemento...",
+        fr: "Déchargement du plugin...",
         ja: "プラグインをアンロード中...",
         ko: "플러그인 언로딩 중...",
         ru: "Выгрузка плагина...",
@@ -1419,6 +1602,7 @@ export const _allMessages = {
     "moduleLiveSyncMain.logVersionUpdate": {
         def: "LiveSync has been updated, In case of breaking updates, all automatic synchronization has been temporarily disabled. Ensure that all devices are up to date before enabling.",
         es: "LiveSync se ha actualizado, en caso de actualizaciones que rompan, toda la sincronización automática se ha desactivado temporalmente. Asegúrate de que todos los dispositivos estén actualizados antes de habilitar.",
+        fr: "LiveSync a été mis à jour. En cas de mises à jour non rétrocompatibles, toute synchronisation automatique a été temporairement désactivée. Assurez-vous que tous les appareils sont à jour avant d'activer.",
         ja: "LiveSyncが更新されました。互換性のない更新の場合、すべての自動同期が一時的に無効化されています。有効にする前に、すべてのデバイスが最新の状態であることを確認してください。",
         ko: "LiveSync가 업데이트되었습니다. 호환성 문제가 있는 업데이트의 경우 모든 자동 동기화가 일시적으로 비활성화되었습니다. 활성화하기 전에 모든 기기가 최신 상태인지 확인하세요.",
         ru: "LiveSync обновлён. В случае критических изменений автоматическая синхронизация временно отключена. Убедитесь, что все устройства обновлены перед включением.",
@@ -1427,6 +1611,7 @@ export const _allMessages = {
     "moduleLiveSyncMain.msgScramEnabled": {
         def: "Self-hosted LiveSync has been configured to ignore some events. Is this correct?\n\n| Type | Status | Note |\n|:---:|:---:|---|\n| Storage Events | ${fileWatchingStatus} | Every modification will be ignored |\n| Database Events | ${parseReplicationStatus} | Every synchronised change will be postponed |\n\nDo you want to resume them and restart Obsidian?\n\n> [!DETAILS]-\n> These flags are set by the plug-in while rebuilding, or fetching. If the process ends abnormally, it may be kept unintended.\n> If you are not sure, you can try to rerun these processes. Make sure to back your vault up.\n",
         es: "Self-hosted LiveSync se ha configurado para ignorar algunos eventos. ¿Es esto correcto?\n\n| Tipo | Estado | Nota |\n|:---:|:---:|---|\n| Eventos de almacenamiento | ${fileWatchingStatus} | Se ignorará cada modificación |\n| Eventos de base de datos | ${parseReplicationStatus} | Cada cambio sincronizado se pospondrá |\n\n¿Quieres reanudarlos y reiniciar Obsidian?\n\n> [!DETAILS]-\n> Estas banderas son establecidas por el complemento mientras se reconstruye o se obtiene. Si el proceso termina de forma anormal, puede mantenerse sin querer.\n> Si no estás seguro, puedes intentar volver a ejecutar estos procesos. Asegúrate de hacer una copia de seguridad de tu bóveda.\n",
+        fr: "Self-hosted LiveSync a été configuré pour ignorer certains événements. Est-ce correct ?\n\n| Type | Statut | Note |\n|:---:|:---:|---|\n| Événements de stockage | ${fileWatchingStatus} | Toute modification sera ignorée |\n| Événements de base | ${parseReplicationStatus} | Tout changement synchronisé sera reporté |\n\nVoulez-vous les reprendre et redémarrer Obsidian ?\n\n> [!DETAILS]-\n> Ces indicateurs sont définis par le plug-in lors d'une reconstruction ou d'une récupération. Si le processus se termine anormalement, ils peuvent rester activés involontairement.\n> Si vous n'êtes pas certain, vous pouvez relancer ces processus. Veillez à sauvegarder votre coffre.\n",
         ja: "Self-hosted LiveSyncは一部のイベントを無視するように設定されています。これは正しいですか？\n\n| タイプ | ステータス | メモ |\n|:---:|:---:|---|\n| ストレージイベント | ${fileWatchingStatus} | すべての変更が無視されます |\n| データベースイベント | ${parseReplicationStatus} | すべての同期された変更が延期されます |\n\nこれらを再開してObsidianを再起動しますか？\n\n> [!DETAILS]-\n> これらのフラグは、プラグインが再構築またはフェッチ中に設定されます。プロセスが異常終了した場合、意図せず保持されることがあります。\n> 不明な場合は、これらのプロセスを再実行してみてください。必ず保管庫をバックアップしてください。\n",
         ko: "Self-hosted LiveSync가 일부 이벤트를 무시하도록 설정되어 있습니다. 이 설정이 맞습니까?\n\n| 유형 | 상태 | 설명 |\n|:---:|:---:|---|\n| 스토리지 이벤트 | ${fileWatchingStatus} | 모든 수정 사항이 무시됩니다 |\n| 데이터베이스 이벤트 | ${parseReplicationStatus} | 모든 동기화 변경이 지연됩니다 |\n\n이벤트 감지를 다시 활성화하고 Obsidian을 재시작하시겠습니까?\n\n> [!DETAILS]-\n> 이러한 설정은 플러그인이 재구성 또는 데이터 가져오기 중에 자동으로 설정한 것입니다. 프로세스가 비정상적으로 종료되면 이 상태가 의도치 않게 유지될 수 있습니다.\n> 상태가 확실하지 않다면 이 과정을 다시 실행해 보세요. 재시작 전에 반드시 볼트를 백업해 주세요.",
         ru: "Self-hosted LiveSync has been configured to ignore some events. Is this correct?\n\n| Type | Status | Note |\n|:---:|:---:|---|\n| Storage Events | ${fileWatchingStatus} | Every modification will be ignored |\n| Database Events | ${parseReplicationStatus} | Every synchronised change will be postponed |\n\nDo you want to resume them and restart Obsidian?\n\n> [!DETAILS]-\n> These flags are set by the plug-in while rebuilding, or fetching. If the process ends abnormally, it may be kept unintended.\n> If you are not sure, you can try to rerun these processes. Make sure to back your vault up.\n",
@@ -1435,6 +1620,7 @@ export const _allMessages = {
     "moduleLiveSyncMain.optionKeepLiveSyncDisabled": {
         def: "Keep LiveSync disabled",
         es: "Mantener LiveSync desactivado",
+        fr: "Garder LiveSync désactivé",
         ja: "LiveSyncを無効のままにする",
         ko: "LiveSync 비활성화 유지",
         ru: "Оставить LiveSync отключённым",
@@ -1443,6 +1629,7 @@ export const _allMessages = {
     "moduleLiveSyncMain.optionResumeAndRestart": {
         def: "Resume and restart Obsidian",
         es: "Reanudar y reiniciar Obsidian",
+        fr: "Reprendre et redémarrer Obsidian",
         ja: "再開してObsidianを再起動",
         ko: "재개 후 Obsidian 재시작",
         ru: "Продолжить и перезапустить Obsidian",
@@ -1451,6 +1638,7 @@ export const _allMessages = {
     "moduleLiveSyncMain.titleScramEnabled": {
         def: "Scram Enabled",
         es: "Scram habilitado",
+        fr: "Mode Scram activé",
         ja: "緊急停止(Scram)が有効",
         ko: "Scram 활성화됨",
         ru: "Экстренная остановка включена",
@@ -1459,6 +1647,7 @@ export const _allMessages = {
     "moduleLocalDatabase.logWaitingForReady": {
         def: "Waiting for ready...",
         es: "Esperando a que la base de datos esté lista...",
+        fr: "En attente de disponibilité...",
         ja: "しばらくお待ちください...",
         ko: "준비 대기 중...",
         ru: "Ожидание готовности...",
@@ -1467,6 +1656,7 @@ export const _allMessages = {
     "moduleLog.showLog": {
         def: "Show Log",
         es: "Mostrar registro",
+        fr: "Afficher le journal",
         ja: "ログを表示",
         ko: "로그 표시",
         ru: "Показать лог",
@@ -1475,6 +1665,7 @@ export const _allMessages = {
     "moduleMigration.docUri": {
         def: "https://github.com/vrtmrz/obsidian-livesync/blob/main/README.md#how-to-use",
         es: "https://github.com/vrtmrz/obsidian-livesync/blob/main/README_ES.md#how-to-use",
+        fr: "https://github.com/vrtmrz/obsidian-livesync/blob/main/README.md#how-to-use",
         ja: "https://github.com/vrtmrz/obsidian-livesync/blob/main/README.md#how-to-use",
         ko: "https://github.com/vrtmrz/obsidian-livesync/blob/main/README.md#how-to-use",
         ru: "https://github.com/vrtmrz/obsidian-livesync/blob/main/README.md#how-to-use",
@@ -1482,72 +1673,84 @@ export const _allMessages = {
     },
     "moduleMigration.fix0256.buttons.checkItLater": {
         def: "Check it later",
+        fr: "Vérifier plus tard",
         ja: "後で確認する",
         ru: "Проверить позже",
         zh: "稍后检查",
     },
     "moduleMigration.fix0256.buttons.DismissForever": {
         def: "I have fixed it, and do not ask again",
+        fr: "J'ai corrigé, et ne plus demander",
         ja: "修正済み、今後確認しない",
         ru: "Исправлено, больше не спрашивать",
         zh: "我已经修复了，不再询问",
     },
     "moduleMigration.fix0256.buttons.fix": {
         def: "Fix",
+        fr: "Corriger",
         ja: "修正",
         ru: "Исправить",
         zh: "修复",
     },
     "moduleMigration.fix0256.message": {
         def: 'Due to a recent bug (in v0.25.6), some files may not have been saved correctly in the sync database.\nWe have scanned our files and found some that need to be fixed.\n\n**Files ready to be fixed:**\n\n${files}\n\nThese files have size-matched original file on the storage, and are likely to be recoverable.\nWe can use them to fix the database, please click the "Fix" button below to fix them.\n\n${messageUnrecoverable}\n\nIf you want to run it again, you can do so from Hatch.\n',
+        fr: "En raison d'un bug récent (en v0.25.6), certains fichiers peuvent ne pas avoir été enregistrés correctement dans la base de synchronisation.\nNous avons analysé vos fichiers et trouvé ceux à corriger.\n\n**Fichiers prêts à être corrigés :**\n\n${files}\n\nCes fichiers ont un original de taille correspondante sur le stockage, et sont probablement récupérables.\nNous pouvons les utiliser pour corriger la base, veuillez cliquer sur le bouton « Corriger » ci-dessous pour les réparer.\n\n${messageUnrecoverable}\n\nSi vous voulez relancer l'opération, vous pouvez le faire depuis Hatch.\n",
         ja: "最近のバグ（v0.25.6）により、一部のファイルが同期データベースに正しく保存されていない可能性があります。\nファイルをスキャンし、修正が必要なものが見つかりました。\n\n**修正準備ができたファイル:**\n\n${files}\n\nこれらのファイルはストレージ上の元ファイルとサイズが一致しており、復元可能です。\n「修正」ボタンをクリックしてデータベースを修正できます。\n\n${messageUnrecoverable}\n\n再実行したい場合は、Hatchから実行できます。\n",
         ru: "Из-за недавней ошибки некоторые файлы могут быть неправильно сохранены.",
         zh: "由于最近的一个 bug（在 v0.25.6 版本中），某些文件可能未正确保存到同步数据库中\n我们已经扫描了文件，并发现一些需要修复的文件\n\n**准备修复的文件:**\n\n${files}\n\n这些文件在存储中与原文件的大小匹配，可能是可恢复的\n我们可以使用它们修复数据库，请点击下方的“修复”按钮进行修复\n\n${messageUnrecoverable}\n\n\n如果你希望再次执行此操作，可以前往 Hatch 页面进行操作\n",
     },
     "moduleMigration.fix0256.messageUnrecoverable": {
         def: "**Files cannot be fixed on this device:**\n\n${filesNotRecoverable}\n\nThese files have inconsistent metadata, and cannot be fixed on this device (mostly we cannot determine which is correct).\nTo restore them, please check your other devices (also by this feature) or restore them manually from a backup.\n",
+        fr: "**Fichiers non réparables sur cet appareil :**\n\n${filesNotRecoverable}\n\nCes fichiers ont des métadonnées incohérentes et ne peuvent être corrigés sur cet appareil (le plus souvent, nous ne pouvons déterminer lequel est correct).\nPour les restaurer, vérifiez vos autres appareils (par cette même fonction) ou restaurez-les manuellement depuis une sauvegarde.\n",
         ja: "**このデバイスで修正できないファイル:**\n\n${filesNotRecoverable}\n\nこれらのファイルはメタデータに不整合があり、このデバイスでは修正できません（ほとんどの場合、どちらが正しいか判定できません）。\n復元するには、他のデバイスで確認するか、バックアップから手動で復元してください。\n",
         ru: "Файлы не могут быть исправлены на этом устройстве:",
         zh: "**无法在此设备上修复的文件:**\n\n${filesNotRecoverable}\n\n这些文件的元数据不一致，无法在此设备上修复（大多数情况下我们无法确定哪一个是正确的）\n要恢复它们，请检查你的其他设备（同样使用此功能），或从备份中手动恢复\n",
     },
     "moduleMigration.fix0256.title": {
         def: "Broken files has been detected",
+        fr: "Fichiers corrompus détectés",
         ja: "破損ファイルが検出されました",
         ru: "Обнаружены повреждённые файлы",
         zh: "检测到损坏的文件",
     },
     "moduleMigration.insecureChunkExist.buttons.fetch": {
         def: "I already rebuilt the remote. Fetch from the remote",
+        fr: "J'ai déjà reconstruit le distant. Récupérer depuis le distant",
         ja: "リモートを既に再構築した。リモートからフェッチ",
         ru: "Я уже перестроил удалённую. Загрузить с удалённой",
         zh: "我已经重建了远程数据库，将从远程获取",
     },
     "moduleMigration.insecureChunkExist.buttons.later": {
         def: "I will do it later",
+        fr: "Je le ferai plus tard",
         ja: "後で行う",
         ru: "Сделаю позже",
         zh: "我稍后再做",
     },
     "moduleMigration.insecureChunkExist.buttons.rebuild": {
         def: "Rebuild Everything",
+        fr: "Tout reconstruire",
         ja: "すべてを再構築",
         ru: "Перестроить всё",
         zh: "重建所有内容",
     },
     "moduleMigration.insecureChunkExist.laterMessage": {
         def: "We strongly recommend to treat this as soon as possible!",
+        fr: "Nous recommandons fortement de traiter ceci dès que possible !",
         ja: "できるだけ早く対処することを強くお勧めします！",
         ru: "Мы настоятельно рекомендуем обработать это как можно скорее!",
         zh: "我们强烈建议尽快处理此问题！",
     },
     "moduleMigration.insecureChunkExist.message": {
         def: "Some chunks are not securely stored and are not encrypted in databases.\n**Please rebuild the database to fix this issue**.\n\nIf your Remote Database is not configured with SSL, or using less-secure credentials, **you are at risk of exposing sensitive data**.\n\nNote: Please upgrade your Self-hosted LiveSync v0.25.6 or higher on all your devices, and back your vault up surely.\nNote2: Rebuild Everything and Fetch consumes a bit of time and traffic, please do it in off-peak hours and ensure a stable network connection.\n",
+        fr: "Certains fragments ne sont pas stockés de façon sécurisée et ne sont pas chiffrés dans les bases.\n**Veuillez reconstruire la base pour corriger ce problème.**\n\nSi votre base distante n'est pas configurée avec SSL, ou utilise des identifiants peu sûrs, **vous risquez d'exposer des données sensibles**.\n\nNote : Veuillez mettre à jour Self-hosted LiveSync en v0.25.6 ou supérieur sur tous vos appareils, et sauvegardez votre coffre avec soin.\nNote 2 : Tout reconstruire et Récupérer consomme un peu de temps et de bande passante, veuillez le faire hors des heures de pointe et avec une connexion réseau stable.\n",
         ja: "一部のチャンクが安全に保存されておらず、データベースで暗号化されていません。\n**この問題を修正するにはデータベースを再構築してください**。\n\nリモートデータベースがSSLで設定されていない、または安全性の低い認証情報を使用している場合、**機密データが漏洩するリスクがあります**。\n\n注意: すべてのデバイスでSelf-hosted LiveSync v0.25.6以降にアップグレードし、必ず保管庫をバックアップしてください。\n注意2: すべてを再構築とフェッチは時間とトラフィックを消費します。オフピーク時間に安定したネットワークで実行してください。\n",
         ru: "Некоторые чанки хранятся небезопасно. Пожалуйста, перестройте базу данных.",
         zh: "一些块未安全存储，并且在数据库中未加密\n**请重建数据库以修复此问题**.\n\n如果你的远程数据库未配置 SSL，或者使用了不安全的凭据 **你可能面临暴露敏感数据的风险**.\n\n注意：请在所有设备上将 Self-hosted LiveSync 升级到 v0.25.6 或更高版本，并确保备份你的保险库\n\n注意2：重建所有内容和获取操作会消耗一些时间和流量，请在非高峰时段进行，并确保网络连接稳定\n",
     },
     "moduleMigration.insecureChunkExist.title": {
         def: "Insecure chunks found!",
+        fr: "Fragments non sécurisés détectés !",
         ja: "安全でないチャンクが見つかりました！",
         ru: "Обнаружены небезопасные чанки!",
         zh: "发现不安全的块！",
@@ -1555,6 +1758,7 @@ export const _allMessages = {
     "moduleMigration.logBulkSendCorrupted": {
         def: "Send chunks in bulk has been enabled, however, this feature had been corrupted. Sorry for your inconvenience. Automatically disabled.",
         es: "El envío de fragmentos en bloque se ha habilitado, sin embargo, esta función se ha corrompido. Disculpe las molestias. Deshabilitado automáticamente.",
+        fr: "L'envoi groupé de fragments a été activé, mais cette fonctionnalité était corrompue. Désolé pour la gêne. Désactivée automatiquement.",
         ja: "チャンクの一括送信が有効にされていましたが、この機能に問題がありました。ご不便をおかけして申し訳ありません。自動的に無効化されました。",
         ko: "청크 일괄 전송이 활성화되었지만, 이 기능에 문제가 있었습니다. 불편을 드려 죄송합니다. 자동으로 비활성화되었습니다.",
         ru: "Отправка чанков пакетами была включена, но эта функция была повреждена. Приносим извинения. Автоматически отключено.",
@@ -1563,6 +1767,7 @@ export const _allMessages = {
     "moduleMigration.logFetchRemoteTweakFailed": {
         def: "Failed to fetch remote tweak values",
         es: "Error al obtener los valores de ajuste remoto",
+        fr: "Échec de la récupération des valeurs d'ajustement distantes",
         ja: "リモートの調整値の取得に失敗しました",
         ko: "원격 조정 값을 가져오는데 실패했습니다",
         ru: "Не удалось загрузить удалённые настройки",
@@ -1571,6 +1776,7 @@ export const _allMessages = {
     "moduleMigration.logLocalDatabaseNotReady": {
         def: "Something went wrong! The local database is not ready",
         es: "¡Algo salió mal! La base de datos local no está lista",
+        fr: "Un problème est survenu ! La base locale n'est pas prête",
         ja: "何か問題が発生しました！ローカルデータベースが準備できていません",
         ko: "문제가 발생했습니다! 로컬 데이터베이스가 준비되지 않았습니다",
         ru: "Что-то пошло не так! Локальная база данных не готова",
@@ -1579,6 +1785,7 @@ export const _allMessages = {
     "moduleMigration.logMigratedSameBehaviour": {
         def: "Migrated to db:${current} with the same behaviour as before",
         es: "Migrado a db:${current} con el mismo comportamiento que antes",
+        fr: "Migration vers db:${current} avec le même comportement qu'auparavant",
         ja: "以前と同じ動作でdb:${current}に移行しました",
         ko: "이전과 같은 방식으로 동작하도록 db:${current}로 데이터 구조 전환이 완료되었습니다",
         ru: "Миграция на db:current с тем же поведением, что и раньше",
@@ -1587,6 +1794,7 @@ export const _allMessages = {
     "moduleMigration.logMigrationFailed": {
         def: "Migration failed or cancelled from ${old} to ${current}",
         es: "La migración falló o se canceló de ${old} a ${current}",
+        fr: "Migration échouée ou annulée de ${old} vers ${current}",
         ja: "${old}から${current}への移行が失敗またはキャンセルされました",
         ko: "${old}에서 ${current}로의 데이터 구조 전환이 실패했거나 중단되었습니다",
         ru: "Миграция не удалась или отменена с old на current",
@@ -1595,6 +1803,7 @@ export const _allMessages = {
     "moduleMigration.logRedflag2CreationFail": {
         def: "Failed to create redflag2",
         es: "Error al crear redflag2",
+        fr: "Échec de création de redflag2",
         ja: "redflag2の作成に失敗しました",
         ko: "redflag2 생성에 실패했습니다",
         ru: "Не удалось создать redflag2",
@@ -1603,6 +1812,7 @@ export const _allMessages = {
     "moduleMigration.logRemoteTweakUnavailable": {
         def: "Could not get remote tweak values",
         es: "No se pudieron obtener los valores de ajuste remoto",
+        fr: "Impossible d'obtenir les valeurs d'ajustement distantes",
         ja: "リモートの調整値を取得できませんでした",
         ko: "원격 조정 값을 가져올 수 없습니다",
         ru: "Не удалось получить удалённые настройки",
@@ -1611,6 +1821,7 @@ export const _allMessages = {
     "moduleMigration.logSetupCancelled": {
         def: "The setup has been cancelled, Self-hosted LiveSync waiting for your setup!",
         es: "La configuración ha sido cancelada, ¡Self-hosted LiveSync está esperando tu configuración!",
+        fr: "La configuration a été annulée, Self-hosted LiveSync attend votre configuration !",
         ja: "セットアップがキャンセルされました。Self-hosted LiveSyncはセットアップを待っています！",
         ko: "설정이 취소되었습니다. Self-hosted LiveSync가 설정을 기다리고 있습니다!",
         ru: "Настройка отменена, Self-hosted LiveSync ожидает вашей настройки!",
@@ -1619,6 +1830,7 @@ export const _allMessages = {
     "moduleMigration.msgFetchRemoteAgain": {
         def: "As you may already know, the self-hosted LiveSync has changed its default behaviour and database structure.\n\nAnd thankfully, with your time and efforts, the remote database appears to have already been migrated. Congratulations!\n\nHowever, we need a bit more. The configuration of this device is not compatible with the remote database. We will need to fetch the remote database again. Should we fetch from the remote again now?\n\n___Note: We cannot synchronise until the configuration has been changed and the database has been fetched again.___\n___Note2: The chunks are completely immutable, we can fetch only the metadata and difference.___",
         es: "Como ya sabrás, Self-hosted LiveSync ha cambiado su comportamiento predeterminado y la estructura de la base de datos.\n\nAfortunadamente, con tu tiempo y esfuerzo, la base de datos remota parece haber sido ya migrada. ¡Felicidades!\n\nSin embargo, necesitamos un poco más. La configuración de este dispositivo no es compatible con la base de datos remota. Necesitaremos volver a obtener la base de datos remota. ¿Debemos obtenerla nuevamente ahora?\n\n___Nota: No podemos sincronizar hasta que la configuración haya sido cambiada y la base de datos haya sido obtenida nuevamente.___\n___Nota2: Los fragmentos son completamente inmutables, solo podemos obtener los metadatos y diferencias.___",
+        fr: "Comme vous le savez peut-être déjà, Self-hosted LiveSync a modifié son comportement par défaut et la structure de sa base de données.\n\nEt, grâce à votre temps et vos efforts, la base distante semble déjà avoir été migrée. Félicitations !\n\nCependant, il faut encore un peu plus. La configuration de cet appareil n'est pas compatible avec la base distante. Nous devrons récupérer à nouveau la base distante. Devons-nous récupérer depuis le distant maintenant ?\n\n___Note : Nous ne pouvons pas synchroniser tant que la configuration n'a pas été modifiée et que la base n'a pas été récupérée à nouveau.___\n___Note 2 : Les fragments sont complètement immuables, nous ne pouvons récupérer que les métadonnées et les différences.___",
         ja: "ご存知のとおり、self-hosted LiveSyncはデフォルトの動作とデータベース構造を変更しました。\n\nご協力のおかげで、リモートデータベースはすでに移行されているようです。おめでとうございます！\n\nしかし、もう少し必要です。このデバイスの設定はリモートデータベースと互換性がありません。リモートデータベースを再度フェッチする必要があります。今すぐリモートから再フェッチしますか？\n\n___注意: 設定が変更され、データベースが再フェッチされるまで同期できません。___\n___注意2: チャンクは完全に不変なので、メタデータと差分のみフェッチできます。___",
         ko: "이미 알고 계시겠지만, Self-hosted LiveSync의 기본 동작 방식과 데이터베이스 구조가 변경되었습니다.\n\n다행히도 여러분의 노력 덕분에 원격 데이터베이스는 이미 성공적으로 데이터 구조 전환이 완료된 것으로 보입니다. 축하드립니다!\n\n하지만 아직 일부 추가 작업이 필요합니다. 이 기기의 설정이 원격 데이터베이스와 호환되지 않으므로, 원격 데이터를 다시 가져와야 합니다. 지금 원격 데이터베이스를 다시 가져오시겠습니까?\n\n___참고: 설정이 변경되고 데이터베이스를 다시 불러오기 전까지는 동기화가 불가능합니다.___\n___참고2: 청크는 변경이 불가능한 구조이므로, 메타데이터와 차이점만 가져올 수 있습니다.___",
         ru: "Удалённая база данных, похоже, уже была мигрирована. Конфигурация этого устройства несовместима.",
@@ -1627,6 +1839,7 @@ export const _allMessages = {
     "moduleMigration.msgInitialSetup": {
         def: "Your device has **not been set up yet**. Let me guide you through the setup process.\n\nPlease keep in mind that every dialogue content can be copied to the clipboard. If you need to refer to it later, you can paste it into a note in Obsidian. You can also translate it into your language using a translation tool.\n\nFirst, do you have **Setup URI**?\n\nNote: If you do not know what it is, please refer to the [documentation](${URI_DOC}).",
         es: "Tu dispositivo **aún no ha sido configurado**. Permíteme guiarte a través del proceso de configuración.\n\nTen en cuenta que todo el contenido del diálogo se puede copiar al portapapeles. Si necesitas consultarlo más tarde, puedes pegarlo en una nota en Obsidian. También puedes traducirlo a tu idioma utilizando una herramienta de traducción.\n\nPrimero, ¿tienes **URI de configuración**?\n\nNota: Si no sabes qué es, consulta la [documentación](${URI_DOC}).",
+        fr: "Votre appareil n'a **pas encore été configuré**. Laissez-moi vous guider dans le processus de configuration.\n\nVeuillez noter que chaque contenu de boîte de dialogue peut être copié dans le presse-papiers. Si vous souhaitez vous y référer plus tard, vous pouvez le coller dans une note d'Obsidian. Vous pouvez également le traduire dans votre langue via un outil de traduction.\n\nTout d'abord, disposez-vous d'une **URI de configuration** ?\n\nNote : Si vous ne savez pas ce que c'est, consultez la [documentation](${URI_DOC}).",
         ja: "このデバイスは**まだセットアップされていません**。セットアッププロセスをご案内します。\n\nすべてのダイアログの内容はクリップボードにコピーできます。後で参照する必要があれば、Obsidianのノートに貼り付けてください。翻訳ツールを使ってお使いの言語に翻訳することもできます。\n\nまず、**セットアップURI**をお持ちですか？\n\n注意: それが何か分からない場合は、[documentation](${URI_DOC})を参照してください。",
         ko: "이 기기는 **아직 초기 설정이 완료되지 않았습니다**. 지금부터 설정 과정을 안내해 드리겠습니다.\n\n모든 대화 내용은 클립보드에 복사할 수 있습니다. 나중에 참고하려면 Obsidian 노트에 붙여넣거나 번역 도구를 활용해 번역하셔도 됩니다.\n\n먼저, **Setup URI**를 가지고 계신가요?\n\n참고: Setup URI가 무엇인지 잘 모르시겠다면 [문서](${URI_DOC})를 참고해 주세요.",
         ru: "Ваше устройство ещё не настроено. У вас есть Setup URI?",
@@ -1635,6 +1848,7 @@ export const _allMessages = {
     "moduleMigration.msgRecommendSetupUri": {
         def: "We strongly recommend that you generate a set-up URI and use it.\nIf you do not have knowledge about it, please refer to the [documentation](${URI_DOC}) (Sorry again, but it is important).\n\nHow do you want to set it up manually?",
         es: "Te recomendamos encarecidamente que generes una URI de configuración y la utilices.\nSi no tienes conocimientos al respecto, consulta la [documentación](${URI_DOC}) (Lo siento de nuevo, pero es importante).\n\n¿Cómo quieres configurarlo manualmente?",
+        fr: "Nous recommandons vivement de générer une URI de configuration et de l'utiliser.\nSi vous ne connaissez pas, veuillez consulter la [documentation](${URI_DOC}) (Désolé encore, mais c'est important).\n\nComment souhaitez-vous effectuer la configuration manuellement ?",
         ja: "セットアップURIを生成して使用することを強くお勧めします。\nこれについて知識がない場合は、[documentation](${URI_DOC})を参照してください（重要です）。\n\n手動でセットアップしますか？",
         ko: "Setup URI를 생성해 사용하는 것을 강력히 권장합니다.\nSetup URI가 무엇인지 잘 모르시겠다면 [문서](${URI_DOC})를 참고해 주세요. 중요한 내용이니 꼭 확인하시기 바랍니다.\n\n직접 수동 설정을 진행하시겠습니까?",
         ru: "Мы рекомендуем сгенерировать Setup URI.",
@@ -1643,6 +1857,7 @@ export const _allMessages = {
     "moduleMigration.msgSinceV02321": {
         def: "Since v0.23.21, the self-hosted LiveSync has changed the default behaviour and database structure. The following changes have been made:\n\n1. **Case sensitivity of filenames**\n   The handling of filenames is now case-insensitive. This is a beneficial change for most platforms, other than Linux and iOS, which do not manage filename case sensitivity effectively.\n   (On These, a warning will be displayed for files with the same name but different cases).\n\n2. **Revision handling of the chunks**\n   Chunks are immutable, which allows their revisions to be fixed. This change will enhance the performance of file saving.\n\n___However, to enable either of these changes, both remote and local databases need to be rebuilt. This process takes a few minutes, and we recommend doing it when you have ample time.___\n\n- If you wish to maintain the previous behaviour, you can skip this process by using `${KEEP}`.\n- If you do not have enough time, please choose `${DISMISS}`. You will be prompted again later.\n- If you have rebuilt the database on another device, please select `${DISMISS}` and try synchronizing again. Since a difference has been detected, you will be prompted again.",
         es: "Desde la versión v0.23.21, Self-hosted LiveSync ha cambiado el comportamiento predeterminado y la estructura de la base de datos. Se han realizado los siguientes cambios:\n\n1. **Sensibilidad a mayúsculas de los nombres de archivo**\n    El manejo de los nombres de archivo ahora no distingue entre mayúsculas y minúsculas. Este cambio es beneficioso para la mayoría de las plataformas, excepto Linux y iOS, que no gestionan efectivamente la sensibilidad a mayúsculas de los nombres de archivo.\n    (En estos, se mostrará una advertencia para archivos con el mismo nombre pero diferentes mayúsculas).\n\n2. **Manejo de revisiones de los fragmentos**\n    Los fragmentos son inmutables, lo que permite que sus revisiones sean fijas. Este cambio mejorará el rendimiento al guardar archivos.\n\n___Sin embargo, para habilitar cualquiera de estos cambios, es necesario reconstruir tanto las bases de datos remota como la local. Este proceso toma unos minutos, y recomendamos hacerlo cuando tengas tiempo suficiente.___\n\n- Si deseas mantener el comportamiento anterior, puedes omitir este proceso usando `${KEEP}`.\n- Si no tienes suficiente tiempo, por favor elige `${DISMISS}`. Se te pedirá nuevamente más tarde.\n- Si has reconstruido la base de datos en otro dispositivo, selecciona `${DISMISS}` e intenta sincronizar nuevamente. Dado que se ha detectado una diferencia, se te solicitará nuevamente.",
+        fr: "Depuis la v0.23.21, Self-hosted LiveSync a modifié son comportement par défaut et la structure de sa base. Les changements suivants ont été effectués :\n\n1. **Sensibilité à la casse des noms de fichiers**\n   La gestion des noms de fichiers est désormais insensible à la casse. C'est un changement bénéfique pour la plupart des plateformes, hormis Linux et iOS, qui ne gèrent pas efficacement la casse des noms de fichiers.\n   (Sur celles-ci, un avertissement s'affichera pour les fichiers portant le même nom avec une casse différente).\n\n2. **Gestion des révisions des fragments**\n   Les fragments sont immuables, ce qui permet de fixer leurs révisions. Ce changement améliore les performances d'enregistrement des fichiers.\n\n___Cependant, pour activer l'un ou l'autre de ces changements, les bases locale et distante doivent être reconstruites. Ce processus prend quelques minutes, et nous recommandons de le faire quand vous avez le temps.___\n\n- Si vous souhaitez conserver le comportement précédent, vous pouvez ignorer ce processus via `${KEEP}`.\n- Si vous n'avez pas le temps, choisissez `${DISMISS}`. Vous serez invité à nouveau plus tard.\n- Si vous avez reconstruit la base sur un autre appareil, sélectionnez `${DISMISS}` et réessayez la synchronisation. Une différence étant détectée, vous serez invité à nouveau.",
         ja: "v0.23.21以降、self-hosted LiveSyncはデフォルトの動作とデータベース構造を変更しました。以下の変更が行われました：\n\n1. **ファイル名の大文字小文字の区別**\n   ファイル名の処理が大文字小文字を区別しなくなりました。これは、ファイル名の大文字小文字を効果的に管理しないLinuxとiOS以外のほとんどのプラットフォームにとって有益な変更です。\n   （これらの環境では、同じ名前で大文字小文字が異なるファイルに対して警告が表示されます）。\n\n2. **チャンクのリビジョン処理**\n   チャンクは不変であり、リビジョンを固定できます。この変更により、ファイル保存のパフォーマンスが向上します。\n\n___しかし、これらの変更を有効にするには、リモートとローカルの両方のデータベースを再構築する必要があります。このプロセスは数分かかります。時間に余裕があるときに行うことをお勧めします。___\n\n- 以前の動作を維持したい場合は、`${KEEP}`を使用してこのプロセスをスキップできます。\n- 時間がない場合は、`${DISMISS}`を選択してください。後で再度確認されます。\n- 別のデバイスでデータベースを再構築した場合は、`${DISMISS}`を選択して再度同期してみてください。差異が検出されたため、再度確認されます。",
         ko: "v0.23.21부터 Self-hosted LiveSync의 기본 동작 방식과 데이터베이스 구조가 변경되었습니다. 주요 변경사항은 다음과 같습니다:\n\n1. **파일명 대소문자 구분 처리**\n   이제 파일명은 대소문자를 구분하지 않고 처리됩니다. 이는 파일명 구분을 제대로 지원하지 않는 Linux 및 iOS를 제외한 대부분의 플랫폼에서 유리한 변화입니다.\n   (Linux나 iOS에서는 대소문자만 다른 파일이 존재할 경우 경고가 표시됩니다)\n\n2. **청크 리비전 관리 방식 개선**\n   청크는 변경 불가능한(immutable) 구조로 고정되며, 이를 통해 리비전 처리가 안정화되고 파일 저장 성능이 향상됩니다.\n\n___단, 위 기능을 활성화하려면 원격 및 로컬 데이터베이스를 모두 재구성해야 합니다. 이 과정은 수 분이 소요되므로 여유가 있을 때 실행하시는 것을 권장합니다.___\n\n- 기존 방식대로 유지하려면 `${KEEP}`을 선택해 이 과정을 건너뛸 수 있습니다.\n- 시간이 부족하다면 `${DISMISS}`를 눌러주시면 나중에 다시 안내드리겠습니다.\n- 이미 다른 기기에서 데이터베이스를 재구성하셨다면 `${DISMISS}`를 선택한 뒤 다시 동기화해 보세요. 차이점이 감지되면 다시 안내드리겠습니다.",
         ru: "Начиная с v0.23.21, self-hosted LiveSync изменил поведение и структуру базы данных.",
@@ -1651,6 +1866,7 @@ export const _allMessages = {
     "moduleMigration.optionAdjustRemote": {
         def: "Adjust to remote",
         es: "Ajustar al remoto",
+        fr: "Ajuster au distant",
         ja: "リモートに合わせる",
         ko: "원격에 맞추기",
         ru: "Настроить под удалённую",
@@ -1659,6 +1875,7 @@ export const _allMessages = {
     "moduleMigration.optionDecideLater": {
         def: "Decide it later",
         es: "Decidirlo más tarde",
+        fr: "Décider plus tard",
         ja: "後で決める",
         ko: "나중에 결정하기",
         ru: "Решить позже",
@@ -1667,6 +1884,7 @@ export const _allMessages = {
     "moduleMigration.optionEnableBoth": {
         def: "Enable both",
         es: "Habilitar ambos",
+        fr: "Activer les deux",
         ja: "両方を有効にする",
         ko: "둘 다 활성화",
         ru: "Включить оба",
@@ -1675,6 +1893,7 @@ export const _allMessages = {
     "moduleMigration.optionEnableFilenameCaseInsensitive": {
         def: "Enable only #1",
         es: "Habilitar solo #1",
+        fr: "Activer seulement #1",
         ja: "#1のみ有効にする",
         ko: "#1만 활성화",
         ru: "Включить только #1",
@@ -1683,6 +1902,7 @@ export const _allMessages = {
     "moduleMigration.optionEnableFixedRevisionForChunks": {
         def: "Enable only #2",
         es: "Habilitar solo #2",
+        fr: "Activer seulement #2",
         ja: "#2のみ有効にする",
         ko: "#2만 활성화",
         ru: "Включить только #2",
@@ -1691,6 +1911,7 @@ export const _allMessages = {
     "moduleMigration.optionHaveSetupUri": {
         def: "Yes, I have",
         es: "Sí, tengo",
+        fr: "Oui, j'en ai une",
         ja: "はい、持っています",
         ko: "예, 있습니다",
         ru: "Да, есть",
@@ -1699,6 +1920,7 @@ export const _allMessages = {
     "moduleMigration.optionKeepPreviousBehaviour": {
         def: "Keep previous behaviour",
         es: "Mantener comportamiento anterior",
+        fr: "Conserver le comportement précédent",
         ja: "以前の動作を維持",
         ko: "이전 동작 유지",
         ru: "Сохранить предыдущее поведение",
@@ -1707,6 +1929,7 @@ export const _allMessages = {
     "moduleMigration.optionManualSetup": {
         def: "Set it up all manually",
         es: "Configurarlo todo manualmente",
+        fr: "Tout configurer manuellement",
         ja: "すべて手動でセットアップ",
         ko: "모든 것을 수동으로 설정",
         ru: "Настроить всё вручную",
@@ -1715,6 +1938,7 @@ export const _allMessages = {
     "moduleMigration.optionNoAskAgain": {
         def: "No, please ask again",
         es: "No, por favor pregúntame de nuevo",
+        fr: "Non, demandez à nouveau",
         ja: "いいえ、後で確認する",
         ko: "아니요 (나중에 다시 물어보기)",
         ru: "Нет, спросить снова",
@@ -1723,6 +1947,7 @@ export const _allMessages = {
     "moduleMigration.optionNoSetupUri": {
         def: "No, I do not have",
         es: "No, no tengo",
+        fr: "Non, je n'en ai pas",
         ja: "いいえ、持っていません",
         ko: "아니요, 없습니다",
         ru: "Нет, нет",
@@ -1731,6 +1956,7 @@ export const _allMessages = {
     "moduleMigration.optionRemindNextLaunch": {
         def: "Remind me at the next launch",
         es: "Recordármelo en el próximo inicio",
+        fr: "Me rappeler au prochain lancement",
         ja: "次回起動時にリマインド",
         ko: "다음 시작 시 알림",
         ru: "Напомнить при следующем запуске",
@@ -1738,6 +1964,7 @@ export const _allMessages = {
     },
     "moduleMigration.optionSetupViaP2P": {
         def: "Use %{short_p2p_sync} to set up",
+        fr: "Utiliser %{short_p2p_sync} pour configurer",
         ja: "%{short_p2p_sync}を使ってセットアップ",
         ko: "%{short_p2p_sync}를 사용하여 설정",
         ru: "Использовать short_p2p_sync для настройки",
@@ -1746,6 +1973,7 @@ export const _allMessages = {
     "moduleMigration.optionSetupWizard": {
         def: "Take me into the setup wizard",
         es: "Llévame al asistente de configuración",
+        fr: "Ouvrir l'assistant de configuration",
         ja: "セットアップウィザードへ",
         ko: "설정 마법사로 안내",
         ru: "Перейти в мастер настройки",
@@ -1754,6 +1982,7 @@ export const _allMessages = {
     "moduleMigration.optionYesFetchAgain": {
         def: "Yes, fetch again",
         es: "Sí, obtener nuevamente",
+        fr: "Oui, récupérer à nouveau",
         ja: "はい、再フェッチする",
         ko: "예 (다시 가져오기)",
         ru: "Да, загрузить снова",
@@ -1762,6 +1991,7 @@ export const _allMessages = {
     "moduleMigration.titleCaseSensitivity": {
         def: "Case Sensitivity",
         es: "Sensibilidad a mayúsculas",
+        fr: "Sensibilité à la casse",
         ja: "大文字小文字の区別",
         ko: "대소문자 구분",
         ru: "Чувствительность к регистру",
@@ -1770,6 +2000,7 @@ export const _allMessages = {
     "moduleMigration.titleRecommendSetupUri": {
         def: "Recommendation to use Setup URI",
         es: "Recomendación de uso de URI de configuración",
+        fr: "Recommandation d'utilisation de l'URI de configuration",
         ja: "セットアップURIの使用を推奨",
         ko: "Setup URI 사용 권장",
         ru: "Рекомендация использовать Setup URI",
@@ -1778,6 +2009,7 @@ export const _allMessages = {
     "moduleMigration.titleWelcome": {
         def: "Welcome to Self-hosted LiveSync",
         es: "Bienvenido a Self-hosted LiveSync",
+        fr: "Bienvenue dans Self-hosted LiveSync",
         ja: "Self-hosted LiveSyncへようこそ",
         ko: "Self-hosted LiveSync에 오신 것을 환영합니다",
         ru: "Добро пожаловать в Self-hosted LiveSync",
@@ -1786,6 +2018,7 @@ export const _allMessages = {
     "moduleObsidianMenu.replicate": {
         def: "Replicate",
         es: "Replicar",
+        fr: "Répliquer",
         ja: "レプリケート",
         ko: "복제",
         ru: "Реплицировать",
@@ -1794,6 +2027,7 @@ export const _allMessages = {
     "Move remotely deleted files to the trash, instead of deleting.": {
         def: "Move remotely deleted files to the trash, instead of deleting.",
         es: "Mover archivos borrados remotos a papelera en lugar de eliminarlos",
+        fr: "Déplacer les fichiers supprimés à distance vers la corbeille, au lieu de les supprimer.",
         ja: "リモートで削除されたファイルを削除せずにゴミ箱に移動する。",
         ko: "원격에서 삭제된 파일을 삭제하는 대신 휴지통으로 이동합니다.",
         ru: "Перемещать удалённые на удалённом сервере файлы в корзину вместо удаления.",
@@ -1802,6 +2036,7 @@ export const _allMessages = {
     'Not all messages have been translated. And, please revert to "Default" when reporting errors.': {
         def: 'Not all messages have been translated. And, please revert to "Default" when reporting errors.',
         es: 'No todos los mensajes están traducidos. Por favor, vuelva a "Predeterminado" al reportar errores.',
+        fr: "Tous les messages n'ont pas été traduits. Et veuillez revenir à « Par défaut » lorsque vous signalez des erreurs.",
         ja: 'すべてのメッセージが翻訳されているわけではありません。また、Issue報告の際にはいったん"Default"に戻してください',
         ko: '모든 메시지가 번역되지 않았습니다. 오류 신고 시 "기본값"으로 되돌려 주세요.',
         ru: "Не все сообщения переведены. И, пожалуйста, вернитесь к «По умолчанию» при сообщении об ошибках.",
@@ -1810,6 +2045,7 @@ export const _allMessages = {
     "Notify all setting files": {
         def: "Notify all setting files",
         es: "Notificar todos los archivos de configuración",
+        fr: "Notifier tous les fichiers de paramètres",
         ja: "すべての設定を通知",
         ko: "모든 설정 파일 알림",
         ru: "Уведомлять обо всех файлах настроек",
@@ -1818,6 +2054,7 @@ export const _allMessages = {
     "Notify customized": {
         def: "Notify customized",
         es: "Notificar personalizaciones",
+        fr: "Notifier les personnalisations",
         ja: "カスタマイズが行われたら通知する",
         ko: "사용자 설정 알림",
         ru: "Уведомлять о настройках",
@@ -1826,6 +2063,7 @@ export const _allMessages = {
     "Notify when other device has newly customized.": {
         def: "Notify when other device has newly customized.",
         es: "Notificar cuando otro dispositivo personalice",
+        fr: "Notifier lorsqu'un autre appareil a une nouvelle personnalisation.",
         ja: "別の端末がカスタマイズを行なったら通知する",
         ko: "다른 기기에서 새로운 사용자 설정이 있을 때 알림을 받습니다.",
         ru: "Уведомлять, когда другое устройство изменило настройки.",
@@ -1834,6 +2072,7 @@ export const _allMessages = {
     "Notify when the estimated remote storage size exceeds on start up": {
         def: "Notify when the estimated remote storage size exceeds on start up",
         es: "Notificar cuando el tamaño estimado del almacenamiento remoto exceda al iniciar",
+        fr: "Notifier quand la taille estimée du stockage distant est dépassée au démarrage",
         ja: "起動時に予想リモートストレージサイズを超えたら通知",
         ko: "시작 시 예상 원격 스토리지 크기가 초과되면 알림",
         ru: "Уведомлять, когда оценочный размер удалённого хранилища превышает при запуске",
@@ -1843,6 +2082,7 @@ export const _allMessages = {
         {
             def: "Number of batches to process at a time. Defaults to 40. Minimum is 2. This along with batch size controls how many docs are kept in memory at a time.",
             es: "Número de lotes a procesar. Default 40, mínimo 2. Controla documentos en memoria",
+            fr: "Nombre de lots à traiter à la fois. Par défaut 40. Minimum 2. Ceci, avec la taille de lot, contrôle le nombre de documents conservés en mémoire à la fois.",
             ja: "1度に処理するバッチの数。デフォルトは40、最小は2。この数値は、どれだけの容量の書類がメモリに保存されるかも定義します。",
             ko: "한 번에 처리할 일괄 처리 수입니다. 기본값은 40입니다. 최소값은 2입니다. 이는 일괄 크기와 함께 메모리에 보관되는 문서 수를 제어합니다.",
             ru: "Number of batches to process at a time. Defaults to 40. Minimum is 2. This along with batch size controls how many docs are kept in memory at a time.",
@@ -1851,6 +2091,7 @@ export const _allMessages = {
     "Number of changes to sync at a time. Defaults to 50. Minimum is 2.": {
         def: "Number of changes to sync at a time. Defaults to 50. Minimum is 2.",
         es: "Número de cambios a sincronizar simultáneamente. Default 50, mínimo 2",
+        fr: "Nombre de modifications à synchroniser à la fois. Par défaut 50. Minimum 2.",
         ja: "一度に同期する変更の数。デフォルトは50、最小は2。",
         ko: "한 번에 동기화할 변경 사항의 수입니다. 기본값은 50입니다. 최소값은 2입니다.",
         ru: "Количество изменений для синхронизации за раз. По умолчанию 50. Минимум 2.",
@@ -1859,6 +2100,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.btnApply": {
         def: "Apply",
         es: "Aplicar",
+        fr: "Appliquer",
         ja: "適用",
         ko: "적용",
         ru: "Применить",
@@ -1867,6 +2109,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.btnCheck": {
         def: "Check",
         es: "Verificar",
+        fr: "Vérifier",
         ja: "確認",
         ko: "확인",
         ru: "Проверить",
@@ -1875,6 +2118,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.btnCopy": {
         def: "Copy",
         es: "Copiar",
+        fr: "Copier",
         ja: "コピー",
         ko: "복사",
         ru: "Копировать",
@@ -1883,6 +2127,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.btnDisable": {
         def: "Disable",
         es: "Desactivar",
+        fr: "Désactiver",
         ja: "無効化",
         ko: "비활성화",
         ru: "Отключить",
@@ -1891,6 +2136,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.btnDiscard": {
         def: "Discard",
         es: "Descartar",
+        fr: "Abandonner",
         ja: "破棄",
         ko: "삭제",
         ru: "Отменить",
@@ -1899,6 +2145,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.btnEnable": {
         def: "Enable",
         es: "Activar",
+        fr: "Activer",
         ja: "有効化",
         ko: "활성화",
         ru: "Включить",
@@ -1907,6 +2154,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.btnFix": {
         def: "Fix",
         es: "Corregir",
+        fr: "Corriger",
         ja: "修正",
         ko: "수정",
         ru: "Исправить",
@@ -1915,6 +2163,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.btnGotItAndUpdated": {
         def: "I got it and updated.",
         es: "Lo entendí y actualicé.",
+        fr: "J'ai compris et mis à jour.",
         ja: "理解しました、更新しました。",
         ko: "알겠습니다. 업데이트했습니다.",
         ru: "Понял и обновил.",
@@ -1923,6 +2172,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.btnNext": {
         def: "Next",
         es: "Siguiente",
+        fr: "Suivant",
         ja: "次へ",
         ko: "다음",
         ru: "Далее",
@@ -1931,6 +2181,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.btnStart": {
         def: "Start",
         es: "Iniciar",
+        fr: "Démarrer",
         ja: "開始",
         ko: "시작",
         ru: "Старт",
@@ -1939,6 +2190,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.btnTest": {
         def: "Test",
         es: "Probar",
+        fr: "Tester",
         ja: "テスト",
         ko: "테스트",
         ru: "Тест",
@@ -1947,6 +2199,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.btnUse": {
         def: "Use",
         es: "Usar",
+        fr: "Utiliser",
         ja: "使用",
         ko: "사용",
         ru: "Использовать",
@@ -1955,6 +2208,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.buttonFetch": {
         def: "Fetch",
         es: "Obtener",
+        fr: "Récupérer",
         ja: "フェッチ",
         ko: "가져오기",
         ru: "Загрузить",
@@ -1963,6 +2217,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.buttonNext": {
         def: "Next",
         es: "Siguiente",
+        fr: "Suivant",
         ja: "次へ",
         ko: "다음",
         ru: "Далее",
@@ -1971,6 +2226,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.defaultLanguage": {
         def: "Default",
         es: "Predeterminado",
+        fr: "Par défaut",
         ja: "デフォルト",
         ko: "기본값",
         ru: "По умолчанию",
@@ -1979,6 +2235,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.descConnectSetupURI": {
         def: "This is the recommended method to set up Self-hosted LiveSync with a Setup URI.",
         es: "Este es el método recomendado para configurar Self-hosted LiveSync con una URI de configuración.",
+        fr: "Méthode recommandée pour configurer Self-hosted LiveSync avec une URI de configuration.",
         ja: "セットアップURIを使用してSelf-hosted LiveSyncをセットアップする推奨方法です。",
         ko: "이것은 Setup URI로 Self-hosted LiveSync를 설정하는 권장 방법입니다.",
         ru: "This is the recommended method to set up Self-hosted LiveSync with a Setup URI.",
@@ -1987,6 +2244,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.descCopySetupURI": {
         def: "Perfect for setting up a new device!",
         es: "¡Perfecto para configurar un nuevo dispositivo!",
+        fr: "Parfait pour configurer un nouvel appareil !",
         ja: "新しいデバイスのセットアップにおすすめ！",
         ko: "새 기기 설정에 완벽합니다!",
         ru: "Perfect for setting up a new device!",
@@ -1995,6 +2253,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.descEnableLiveSync": {
         def: "Only enable this after configuring either of the above two options or completing all configuration manually.",
         es: "Solo habilita esto después de configurar cualquiera de las dos opciones anteriores o completar toda la configuración manualmente.",
+        fr: "N'activez ceci qu'après avoir configuré l'une des deux options ci-dessus ou terminé toute la configuration manuellement.",
         ja: "上記の2つのオプションのいずれかを設定するか、すべての設定を手動で完了した後にのみ有効にしてください。",
         ko: "위의 두 옵션 중 하나를 구성하거나 모든 구성을 수동으로 완료한 후에만 활성화하세요.",
         ru: "Only enable this after configuring either of the above two options or completing all configuration manually.",
@@ -2003,6 +2262,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.descFetchConfigFromRemote": {
         def: "Fetch necessary settings from already configured remote server.",
         es: "Obtener las configuraciones necesarias del servidor remoto ya configurado.",
+        fr: "Récupérer les paramètres nécessaires depuis un serveur distant déjà configuré.",
         ja: "既に設定済みのリモートサーバーから必要な設定を取得します。",
         ko: "이미 구성된 원격 서버에서 필요한 설정을 가져옵니다.",
         ru: "Fetch necessary settings from already configured remote server.",
@@ -2011,6 +2271,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.descManualSetup": {
         def: "Not recommended, but useful if you don't have a Setup URI",
         es: "No recomendado, pero útil si no tienes una URI de configuración",
+        fr: "Non recommandé, mais utile si vous n'avez pas d'URI de configuration",
         ja: "推奨しませんが、セットアップURIがない場合に便利です",
         ko: "권장하지 않지만 Setup URI가 없는 경우에 유용합니다",
         ru: "Not recommended, but useful if you don't have a Setup URI",
@@ -2019,6 +2280,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.descTestDatabaseConnection": {
         def: "Open database connection. If the remote database is not found and you have permission to create a database, the database will be created.",
         es: "Abrir conexión a la base de datos. Si no se encuentra la base de datos remota y tienes permiso para crear una base de datos, se creará la base de datos.",
+        fr: "Ouvrir la connexion à la base de données. Si la base distante est introuvable et que vous avez l'autorisation de créer une base, elle sera créée.",
         ja: "データベース接続を開きます。リモートデータベースが見つからず、データベースを作成する権限がある場合は、データベースが作成されます。",
         ko: "데이터베이스 연결을 엽니다. 원격 데이터베이스를 찾을 수 없고 데이터베이스 생성 권한이 있는 경우, 데이터베이스가 생성됩니다.",
         ru: "Open database connection. If the remote database is not found and you have permission to create a database, the database will be created.",
@@ -2027,6 +2289,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.descValidateDatabaseConfig": {
         def: "Checks and fixes any potential issues with the database config.",
         es: "Verifica y soluciona cualquier problema potencial con la configuración de la base de datos.",
+        fr: "Vérifie et corrige les problèmes potentiels de la configuration de la base.",
         ja: "データベース設定の潜在的な問題を確認し、修正します。",
         ko: "데이터베이스 구성의 잠재적 문제를 확인하고 수정합니다.",
         ru: "Checks and fixes any potential issues with the database config.",
@@ -2035,6 +2298,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.errAccessForbidden": {
         def: "❗ Access forbidden.",
         es: "Acceso prohibido.",
+        fr: "❗ Accès interdit.",
         ja: "❗ アクセスが禁止されています。",
         ko: "❗ 액세스가 금지되었습니다.",
         ru: "❗ Доступ запрещён.",
@@ -2043,6 +2307,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.errCannotContinueTest": {
         def: "We could not continue the test.",
         es: "No se pudo continuar con la prueba.",
+        fr: "Impossible de poursuivre le test.",
         ja: "テストを続行できませんでした。",
         ko: "테스트를 계속할 수 없습니다.",
         ru: "Мы не можем продолжить тест.",
@@ -2051,6 +2316,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.errCorsCredentials": {
         def: "❗ cors.credentials is wrong",
         es: "❗ cors.credentials es incorrecto",
+        fr: "❗ cors.credentials est incorrect",
         ja: "❗ cors.credentialsが不正です",
         ko: "❗ cors.credentials가 잘못되었습니다",
         ru: "❗ cors.credentials неверно",
@@ -2059,6 +2325,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.errCorsNotAllowingCredentials": {
         def: "❗ CORS is not allowing credentials",
         es: "CORS no permite credenciales",
+        fr: "❗ CORS n'autorise pas les identifiants",
         ja: "❗ CORSが認証情報を許可していません",
         ko: "❗ CORS에서 자격 증명을 허용하지 않습니다",
         ru: "❗ CORS не разрешает учётные данные",
@@ -2067,6 +2334,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.errCorsOrigins": {
         def: "❗ cors.origins is wrong",
         es: "❗ cors.origins es incorrecto",
+        fr: "❗ cors.origins est incorrect",
         ja: "❗ cors.originsが不正です",
         ko: "❗ cors.origins가 잘못되었습니다",
         ru: "❗ cors.origins неверно",
@@ -2075,6 +2343,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.errEnableCors": {
         def: "❗ httpd.enable_cors is wrong",
         es: "❗ httpd.enable_cors es incorrecto",
+        fr: "❗ httpd.enable_cors est incorrect",
         ja: "❗ httpd.enable_corsが不正です",
         ko: "❗ httpd.enable_cors가 잘못되었습니다",
         ru: "❗ httpd.enable_cors неверно",
@@ -2082,6 +2351,7 @@ export const _allMessages = {
     },
     "obsidianLiveSyncSettingTab.errEnableCorsChttpd": {
         def: "❗ chttpd.enable_cors is wrong",
+        fr: "❗ chttpd.enable_cors est incorrect",
         ja: "❗ chttpd.enable_corsが不正です",
         ru: "❗ chttpd.enable_cors неверно",
         zh: "❗ chttpd.enable_cors 设置错误",
@@ -2089,6 +2359,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.errMaxDocumentSize": {
         def: "❗ couchdb.max_document_size is low)",
         es: "❗ couchdb.max_document_size es bajo)",
+        fr: "❗ couchdb.max_document_size est trop bas)",
         ja: "❗ couchdb.max_document_sizeが低すぎます",
         ko: "❗ couchdb.max_document_size가 낮습니다)",
         ru: "❗ couchdb.max_document_size низкое",
@@ -2097,6 +2368,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.errMaxRequestSize": {
         def: "❗ chttpd.max_http_request_size is low)",
         es: "❗ chttpd.max_http_request_size es bajo)",
+        fr: "❗ chttpd.max_http_request_size est trop bas)",
         ja: "❗ chttpd.max_http_request_sizeが低すぎます",
         ko: "❗ chttpd.max_http_request_size가 낮습니다)",
         ru: "❗ chttpd.max_http_request_size низкое",
@@ -2105,6 +2377,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.errMissingWwwAuth": {
         def: "❗ httpd.WWW-Authenticate is missing",
         es: "❗ httpd.WWW-Authenticate falta",
+        fr: "❗ httpd.WWW-Authenticate est manquant",
         ja: "❗ httpd.WWW-Authenticateが不足しています",
         ko: "❗ httpd.WWW-Authenticate가 누락되었습니다",
         ru: "❗ httpd.WWW-Authenticate отсутствует",
@@ -2113,6 +2386,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.errRequireValidUser": {
         def: "❗ chttpd.require_valid_user is wrong.",
         es: "❗ chttpd.require_valid_user es incorrecto.",
+        fr: "❗ chttpd.require_valid_user est incorrect.",
         ja: "❗ chttpd.require_valid_userが不正です。",
         ko: "❗ chttpd.require_valid_user가 잘못되었습니다.",
         ru: "❗ chttpd.require_valid_user неверно.",
@@ -2121,6 +2395,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.errRequireValidUserAuth": {
         def: "❗ chttpd_auth.require_valid_user is wrong.",
         es: "❗ chttpd_auth.require_valid_user es incorrecto.",
+        fr: "❗ chttpd_auth.require_valid_user est incorrect.",
         ja: "❗ chttpd_auth.require_valid_userが不正です。",
         ko: "❗ chttpd_auth.require_valid_user가 잘못되었습니다.",
         ru: "❗ chttpd_auth.require_valid_user неверно.",
@@ -2129,6 +2404,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.labelDisabled": {
         def: "⏹️ : Disabled",
         es: "⏹️ : Desactivado",
+        fr: "⏹️ : Désactivé",
         ja: "⏹️ : 無効",
         ko: "⏹️ : 비활성화됨",
         ru: "⏹️ : Отключено",
@@ -2137,6 +2413,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.labelEnabled": {
         def: "🔁 : Enabled",
         es: "🔁 : Activado",
+        fr: "🔁 : Activé",
         ja: "🔁 : 有効",
         ko: "🔁 : 활성화됨",
         ru: "🔁 : Включено",
@@ -2145,6 +2422,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.levelAdvanced": {
         def: " (Advanced)",
         es: " (avanzado)",
+        fr: " (Avancé)",
         ja: " (上級)",
         ko: " (고급)",
         ru: " (Расширенные)",
@@ -2153,6 +2431,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.levelEdgeCase": {
         def: " (Edge Case)",
         es: " (excepción)",
+        fr: " (Cas particulier)",
         ja: " (エッジケース)",
         ko: " (특수 사례)",
         ru: " (Граничные случаи)",
@@ -2161,6 +2440,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.levelPowerUser": {
         def: " (Power User)",
         es: " (experto)",
+        fr: " (Utilisateur avancé)",
         ja: " (エキスパート)",
         ko: " (파워 유저)",
         ru: " (Опытный пользователь)",
@@ -2169,6 +2449,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.linkOpenInBrowser": {
         def: "Open in browser",
         es: "Abrir en el navegador",
+        fr: "Ouvrir dans le navigateur",
         ja: "ブラウザで開く",
         ko: "브라우저에서 열기",
         ru: "Открыть в браузере",
@@ -2177,6 +2458,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.linkPageTop": {
         def: "Page Top",
         es: "Ir arriba",
+        fr: "Haut de la page",
         ja: "ページトップ",
         ko: "페이지 상단",
         ru: "В начало страницы",
@@ -2185,6 +2467,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.linkTipsAndTroubleshooting": {
         def: "Tips and Troubleshooting",
         es: "Consejos y solución de problemas",
+        fr: "Conseils et dépannage",
         ja: "ヒントとトラブルシューティング",
         ko: "팁 및 문제 해결",
         ru: "Советы и устранение неполадок",
@@ -2193,6 +2476,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.linkTroubleshooting": {
         def: "/docs/troubleshooting.md",
         es: "/docs/es/troubleshooting.md",
+        fr: "/docs/troubleshooting.md",
         ja: "/docs/troubleshooting.md",
         ko: "/docs/troubleshooting.md",
         ru: "/docs/troubleshooting.md",
@@ -2201,6 +2485,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logCannotUseCloudant": {
         def: "This feature cannot be used with IBM Cloudant.",
         es: "Esta función no se puede utilizar con IBM Cloudant.",
+        fr: "Cette fonctionnalité ne peut pas être utilisée avec IBM Cloudant.",
         ja: "この機能はIBM Cloudantでは使用できません。",
         ko: "이 기능은 IBM Cloudant와 함께 사용할 수 없습니다.",
         ru: "Эта функция недоступна для IBM Cloudant.",
@@ -2209,6 +2494,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logCheckingConfigDone": {
         def: "Checking configuration done",
         es: "Verificación de configuración completada",
+        fr: "Vérification de la configuration terminée",
         ja: "設定の確認が完了しました",
         ko: "구성 확인 완료",
         ru: "Проверка конфигурации завершена",
@@ -2217,6 +2503,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logCheckingConfigFailed": {
         def: "Checking configuration failed",
         es: "La verificación de configuración falló",
+        fr: "Échec de la vérification de la configuration",
         ja: "設定の確認に失敗しました",
         ko: "구성 확인 실패",
         ru: "Проверка конфигурации не удалась",
@@ -2225,6 +2512,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logCheckingDbConfig": {
         def: "Checking database configuration",
         es: "Verificando la configuración de la base de datos",
+        fr: "Vérification de la configuration de la base",
         ja: "データベース設定を確認中",
         ko: "데이터베이스 구성 확인 중",
         ru: "Проверка конфигурации базы данных",
@@ -2233,6 +2521,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logCheckPassphraseFailed": {
         def: "ERROR: Failed to check passphrase with the remote server:\n${db}.",
         es: "ERROR: Error al comprobar la frase de contraseña con el servidor remoto: \n${db}.",
+        fr: "ERREUR : Échec de la vérification de la phrase secrète avec le serveur distant :\n${db}.",
         ja: "エラー: リモートサーバーとのパスフレーズ確認に失敗しました:\n${db}。",
         ko: "오류: 원격 서버와 패스프레이즈 확인에 실패했습니다: \n${db}.",
         ru: "ОШИБКА: Не удалось проверить пароль с удалённым сервером: db.",
@@ -2241,6 +2530,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logConfiguredDisabled": {
         def: "Configured synchronization mode: DISABLED",
         es: "Modo de sincronización configurado: DESACTIVADO",
+        fr: "Mode de synchronisation configuré : DÉSACTIVÉ",
         ja: "設定された同期モード: 無効",
         ko: "구성된 동기화 모드: 비활성화됨",
         ru: "Настроенный режим синхронизации: ОТКЛЮЧЕН",
@@ -2249,6 +2539,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logConfiguredLiveSync": {
         def: "Configured synchronization mode: LiveSync",
         es: "Modo de sincronización configurado: Sincronización en Vivo",
+        fr: "Mode de synchronisation configuré : LiveSync",
         ja: "設定された同期モード: LiveSync",
         ko: "구성된 동기화 모드: LiveSync",
         ru: "Настроенный режим синхронизации: LiveSync",
@@ -2257,6 +2548,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logConfiguredPeriodic": {
         def: "Configured synchronization mode: Periodic",
         es: "Modo de sincronización configurado: Periódico",
+        fr: "Mode de synchronisation configuré : Périodique",
         ja: "設定された同期モード: 定期",
         ko: "구성된 동기화 모드: 주기적",
         ru: "Настроенный режим синхронизации: Периодический",
@@ -2265,6 +2557,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logCouchDbConfigFail": {
         def: "CouchDB Configuration: ${title} failed",
         es: "Configuración de CouchDB: ${title} falló",
+        fr: "Configuration CouchDB : échec de ${title}",
         ja: "CouchDB設定: ${title} 失敗",
         ko: "CouchDB 구성: ${title} 실패",
         ru: "Конфигурация CouchDB: title не удалась",
@@ -2273,6 +2566,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logCouchDbConfigSet": {
         def: "CouchDB Configuration: ${title} -> Set ${key} to ${value}",
         es: "Configuración de CouchDB: ${title} -> Establecer ${key} en ${value}",
+        fr: "Configuration CouchDB : ${title} -> ${key} défini à ${value}",
         ja: "CouchDB設定: ${title} -> ${key}を${value}に設定",
         ko: "CouchDB 구성: ${title} -> ${key}를 ${value}로 설정",
         ru: "Конфигурация CouchDB: title -> Установить key в value",
@@ -2281,6 +2575,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logCouchDbConfigUpdated": {
         def: "CouchDB Configuration: ${title} successfully updated",
         es: "Configuración de CouchDB: ${title} actualizado correctamente",
+        fr: "Configuration CouchDB : ${title} mise à jour avec succès",
         ja: "CouchDB設定: ${title} 正常に更新されました",
         ko: "CouchDB 구성: ${title} 성공적으로 업데이트됨",
         ru: "Конфигурация CouchDB: title успешно обновлена",
@@ -2289,6 +2584,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logDatabaseConnected": {
         def: "Database connected",
         es: "Base de datos conectada",
+        fr: "Base de données connectée",
         ja: "データベースに接続しました",
         ko: "데이터베이스 연결됨",
         ru: "База данных подключена",
@@ -2297,6 +2593,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logEncryptionNoPassphrase": {
         def: "You cannot enable encryption without a passphrase",
         es: "No puedes habilitar el cifrado sin una frase de contraseña",
+        fr: "Impossible d'activer le chiffrement sans phrase secrète",
         ja: "パスフレーズなしでは暗号化を有効にできません",
         ko: "패스프레이즈 없이는 암호화를 활성화할 수 없습니다",
         ru: "Вы не можете включить шифрование без парольной фразы",
@@ -2305,6 +2602,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logEncryptionNoSupport": {
         def: "Your device does not support encryption.",
         es: "Tu dispositivo no admite el cifrado.",
+        fr: "Votre appareil ne prend pas en charge le chiffrement.",
         ja: "お使いのデバイスは暗号化をサポートしていません。",
         ko: "기기가 암호화를 지원하지 않습니다.",
         ru: "Ваше устройство не поддерживает шифрование.",
@@ -2313,6 +2611,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logErrorOccurred": {
         def: "An error occurred!!",
         es: "¡Ocurrió un error!",
+        fr: "Une erreur s'est produite !!",
         ja: "エラーが発生しました！！",
         ko: "오류가 발생했습니다!",
         ru: "Произошла ошибка!!",
@@ -2321,6 +2620,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logEstimatedSize": {
         def: "Estimated size: ${size}",
         es: "Tamaño estimado: ${size}",
+        fr: "Taille estimée : ${size}",
         ja: "推定サイズ: ${size}",
         ko: "예상 크기: ${size}",
         ru: "Примерный размер: size",
@@ -2329,6 +2629,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logPassphraseInvalid": {
         def: "Passphrase is not valid, please fix it.",
         es: "La frase de contraseña no es válida, por favor corrígela.",
+        fr: "La phrase secrète est invalide, veuillez la corriger.",
         ja: "パスフレーズが無効です、修正してください。",
         ko: "패스프레이즈가 유효하지 않습니다. 수정해 주세요.",
         ru: "Парольная фраза недействительна, пожалуйста, исправьте.",
@@ -2337,6 +2638,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logPassphraseNotCompatible": {
         def: "ERROR: Passphrase is not compatible with the remote server! Please check it again!",
         es: "ERROR: ¡La frase de contraseña no es compatible con el servidor remoto! ¡Por favor, revísala de nuevo!",
+        fr: "ERREUR : la phrase secrète n'est pas compatible avec le serveur distant ! Veuillez vérifier à nouveau !",
         ja: "エラー: パスフレーズがリモートサーバーと適合しません！再度確認してください！",
         ko: "오류: 패스프레이즈가 원격 서버와 호환되지 않습니다! 다시 확인해 주세요!",
         ru: "ОШИБКА: Парольная фраза несовместима с удалённым сервером!",
@@ -2345,6 +2647,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logRebuildNote": {
         def: "Syncing has been disabled, fetch and re-enabled if desired.",
         es: "La sincronización ha sido desactivada, obtén y vuelve a activar si lo deseas.",
+        fr: "La synchronisation a été désactivée, récupérez et réactivez si souhaité.",
         ja: "同期が無効になりました。必要に応じてフェッチして再有効化してください。",
         ko: "동기화가 비활성화되었습니다. 원하는 경우 가져오기 후 다시 활성화하세요.",
         ru: "Синхронизация отключена, загрузите и включите снова при желании.",
@@ -2353,6 +2656,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.logSelectAnyPreset": {
         def: "Select any preset.",
         es: "Selecciona cualquier preestablecido.",
+        fr: "Sélectionnez un préréglage.",
         ja: "プリセットを選択してください。",
         ko: "프리셋을 선택하세요.",
         ru: "Выберите любой пресет.",
@@ -2361,6 +2665,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgAreYouSureProceed": {
         def: "Are you sure to proceed?",
         es: "¿Estás seguro de proceder?",
+        fr: "Êtes-vous sûr de vouloir continuer ?",
         ja: "本当に続行しますか？",
         ko: "정말로 진행하시겠습니까?",
         ru: "Вы уверены, что хотите продолжить?",
@@ -2369,6 +2674,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgChangesNeedToBeApplied": {
         def: "Changes need to be applied!",
         es: "¡Los cambios deben aplicarse!",
+        fr: "Des modifications doivent être appliquées !",
         ja: "変更を適用する必要があります！",
         ko: "변경사항을 적용해야 합니다!",
         ru: "Изменения нужно применить!",
@@ -2377,6 +2683,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgConfigCheck": {
         def: "--Config check--",
         es: "--Verificación de configuración--",
+        fr: "--Vérification de la configuration--",
         ja: "--設定確認--",
         ko: "--구성 확인--",
         ru: "--Проверка конфигурации--",
@@ -2385,6 +2692,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgConfigCheckFailed": {
         def: "The configuration check has failed. Do you want to continue anyway?",
         es: "La verificación de configuración ha fallado. ¿Quieres continuar de todos modos?",
+        fr: "La vérification de la configuration a échoué. Voulez-vous continuer malgré tout ?",
         ja: "設定確認に失敗しました。それでも続行しますか？",
         ko: "구성 확인에 실패했습니다. 그래도 계속하시겠습니까?",
         ru: "Проверка конфигурации не удалась. Вы всё равно хотите продолжить?",
@@ -2393,6 +2701,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgConnectionCheck": {
         def: "--Connection check--",
         es: "--Verificación de conexión--",
+        fr: "--Vérification de la connexion--",
         ja: "--接続確認--",
         ko: "--연결 확인--",
         ru: "--Проверка подключения--",
@@ -2401,6 +2710,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgConnectionProxyNote": {
         def: "If you're having trouble with the Connection-check (even after checking config), please check your reverse proxy configuration.",
         es: "Si tienes problemas con la verificación de conexión (incluso después de verificar la configuración), por favor verifica la configuración de tu proxy reverso.",
+        fr: "Si vous rencontrez des problèmes de vérification de connexion (même après avoir vérifié la configuration), veuillez vérifier votre configuration de reverse proxy.",
         ja: "設定確認後も接続確認に問題がある場合は、リバースプロキシの設定を確認してください。",
         ko: "구성 확인 후에도 연결 확인에 문제가 있는 경우, 리버스 프록시 구성을 확인해 주세요.",
         ru: "Если у вас проблемы с проверкой подключения, проверьте конфигурацию обратного прокси.",
@@ -2409,6 +2719,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgCurrentOrigin": {
         def: "Current origin: ${origin}",
         es: "Origen actual: {origin}",
+        fr: "Origine actuelle : ${origin}",
         ja: "現在のオリジン: ${origin}",
         ko: "현재 원점: {origin}",
         ru: "Текущий origin: origin",
@@ -2417,6 +2728,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgDiscardConfirmation": {
         def: "Do you really want to discard existing settings and databases?",
         es: "¿Realmente deseas descartar las configuraciones y bases de datos existentes?",
+        fr: "Voulez-vous vraiment abandonner les paramètres et bases existants ?",
         ja: "本当に既存の設定とデータベースを破棄しますか？",
         ko: "정말로 기존 설정과 데이터베이스를 삭제하시겠습니까?",
         ru: "Вы действительно хотите отменить существующие настройки и базы данных?",
@@ -2425,6 +2737,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgDone": {
         def: "--Done--",
         es: "--Hecho--",
+        fr: "--Terminé--",
         ja: "--完了--",
         ko: "--완료--",
         ru: "--Готово--",
@@ -2433,6 +2746,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgEnableCors": {
         def: "Set httpd.enable_cors",
         es: "Configurar httpd.enable_cors",
+        fr: "Définir httpd.enable_cors",
         ja: "httpd.enable_corsを設定",
         ko: "httpd.enable_cors 설정",
         ru: "Установить httpd.enable_cors",
@@ -2440,6 +2754,7 @@ export const _allMessages = {
     },
     "obsidianLiveSyncSettingTab.msgEnableCorsChttpd": {
         def: "Set chttpd.enable_cors",
+        fr: "Définir chttpd.enable_cors",
         ja: "chttpd.enable_corsを設定",
         ru: "Установить chttpd.enable_cors",
         zh: "设置 chttpd.enable_cors",
@@ -2447,6 +2762,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgEnableEncryptionRecommendation": {
         def: "We recommend enabling End-To-End Encryption, and Path Obfuscation. Are you sure you want to continue without encryption?",
         es: "Recomendamos habilitar el cifrado de extremo a extremo y la obfuscación de ruta. ¿Estás seguro de querer continuar sin cifrado?",
+        fr: "Nous recommandons d'activer le chiffrement de bout en bout et l'obfuscation des chemins. Êtes-vous sûr de vouloir continuer sans chiffrement ?",
         ja: "エンドツーエンド暗号化とパス難読化を有効にすることをお勧めします。暗号化なしで続行してもよろしいですか？",
         ko: "종단간 암호화와 경로 난독화를 활성화하는 것을 권장합니다. 정말로 암호화 없이 계속하시겠습니까?",
         ru: "Мы рекомендуем включить сквозное шифрование. Вы уверены, что хотите продолжить без шифрования?",
@@ -2455,6 +2771,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgFetchConfigFromRemote": {
         def: "Do you want to fetch the config from the remote server?",
         es: "¿Quieres obtener la configuración del servidor remoto?",
+        fr: "Voulez-vous récupérer la configuration depuis le serveur distant ?",
         ja: "リモートサーバーから設定を取得しますか？",
         ko: "원격 서버에서 구성을 가져오시겠습니까?",
         ru: "Вы хотите загрузить конфигурацию с удалённого сервера?",
@@ -2463,6 +2780,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgGenerateSetupURI": {
         def: "All done! Do you want to generate a setup URI to set up other devices?",
         es: "¡Todo listo! ¿Quieres generar un URI de configuración para configurar otros dispositivos?",
+        fr: "Tout est prêt ! Voulez-vous générer une URI de configuration pour configurer d'autres appareils ?",
         ja: "完了！他のデバイスをセットアップするためのセットアップURIを生成しますか？",
         ko: "모든 작업이 완료되었습니다! 다른 기기를 설정하기 위해 Setup URI를 생성하시겠습니까?",
         ru: "Всё готово! Вы хотите сгенерировать Setup URI для настройки других устройств?",
@@ -2471,6 +2789,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgIfConfigNotPersistent": {
         def: "If the server configuration is not persistent (e.g., running on docker), the values here may change. Once you are able to connect, please update the settings in the server's local.ini.",
         es: "Si la configuración del servidor no es persistente (por ejemplo, ejecutándose en docker), los valores aquí pueden cambiar. Una vez que puedas conectarte, por favor actualiza las configuraciones en el local.ini del servidor.",
+        fr: "Si la configuration du serveur n'est pas persistante (par ex. fonctionnant sur Docker), les valeurs peuvent changer. Une fois la connexion établie, mettez à jour les paramètres dans le local.ini du serveur.",
         ja: "サーバー設定が永続的でない場合（例: Dockerで実行中）、ここの値は変更される可能性があります。接続できるようになったら、サーバーのlocal.iniの設定を更新してください。",
         ko: "서버 설정이 영구적으로 저장되지 않는 환경(예: Docker에서 실행 중)에서는 이곳의 값들이 변경될 수 있습니다. 연결이 가능해지면 서버의 local.ini 파일에서 설정을 수동으로 업데이트해 주세요.",
         ru: "Если конфигурация сервера непостоянна, значения здесь могут измениться.",
@@ -2479,6 +2798,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgInvalidPassphrase": {
         def: "Your encryption passphrase might be invalid. Are you sure you want to continue?",
         es: "Tu frase de contraseña de cifrado podría ser inválida. ¿Estás seguro de querer continuar?",
+        fr: "Votre phrase secrète de chiffrement peut être invalide. Êtes-vous sûr de vouloir continuer ?",
         ja: "暗号化パスフレーズが無効かもしれません。続行してもよろしいですか？",
         ko: "암호화 패스프레이즈가 유효하지 않을 수 있습니다. 정말로 계속하시겠습니까?",
         ru: "Ваша парольная фраза шифрования может быть недействительна.",
@@ -2487,6 +2807,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgNewVersionNote": {
         def: "Here due to an upgrade notification? Please review the version history. If you're satisfied, click the button. A new update will prompt this again.",
         es: "¿Aquí debido a una notificación de actualización? Por favor, revise el historial de versiones. Si está satisfecho, haga clic en el botón. Una nueva actualización volverá a mostrar esto.",
+        fr: "Arrivé ici suite à une notification de mise à jour ? Consultez l'historique des versions. Si vous êtes satisfait, cliquez sur le bouton. Une nouvelle mise à jour reproposera ceci.",
         ja: "アップグレード通知でここに来ましたか？バージョン履歴を確認してください。納得したらボタンをクリックしてください。新しい更新があると再度確認されます。",
         ko: "업그레이드 알림으로 여기에 오셨나요? 버전 기록을 검토해 주세요. 만족하신다면 버튼을 클릭하세요. 새로운 업데이트 시 다시 안내됩니다.",
         ru: "Вы пришли из-за уведомления об обновлении? Просмотрите историю версий.",
@@ -2495,6 +2816,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgNonHTTPSInfo": {
         def: "Configured as non-HTTPS URI. Be warned that this may not work on mobile devices.",
         es: "Configurado como URI que no es HTTPS. Ten en cuenta que esto puede no funcionar en dispositivos móviles.",
+        fr: "Configuré avec une URI non HTTPS. Attention, ceci peut ne pas fonctionner sur les appareils mobiles.",
         ja: "非HTTPS URIとして設定されています。モバイルデバイスでは動作しない可能性があります。",
         ko: "비 HTTPS URI로 구성되었습니다. 모바일 기기에서는 작동하지 않을 수 있으니 주의하세요.",
         ru: "Настроено как не-HTTPS URI. Это может не работать на мобильных устройствах.",
@@ -2503,6 +2825,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgNonHTTPSWarning": {
         def: "Cannot connect to non-HTTPS URI. Please update your config and try again.",
         es: "No se puede conectar a URI que no sean HTTPS. Por favor, actualiza tu configuración y vuelve a intentarlo.",
+        fr: "Connexion impossible à une URI non HTTPS. Mettez à jour votre configuration et réessayez.",
         ja: "非HTTPS URIに接続できません。設定を更新して再試行してください。",
         ko: "비 HTTPS URI에 연결할 수 없습니다. 구성을 업데이트하고 다시 시도해 주세요.",
         ru: "Не удаётся подключиться к не-HTTPS URI. Обновите конфигурацию.",
@@ -2511,6 +2834,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgNotice": {
         def: "---Notice---",
         es: "---Aviso---",
+        fr: "---Avis---",
         ja: "---お知らせ---",
         ko: "---공지사항---",
         ru: "---Уведомление---",
@@ -2519,6 +2843,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgObjectStorageWarning": {
         def: "WARNING: This feature is a Work In Progress, so please keep in mind the following:\n- Append only architecture. A rebuild is required to shrink the storage.\n- A bit fragile.\n- When first syncing, all history will be transferred from the remote. Be mindful of data caps and slow speeds.\n- Only differences are synced live.\n\nIf you run into any issues, or have ideas about this feature, please create a issue on GitHub.\nI appreciate you for your great dedication.",
         es: "ADVERTENCIA: Esta característica está en desarrollo, así que por favor ten en cuenta lo siguiente:\n- Arquitectura de solo anexado. Se requiere una reconstrucción para reducir el almacenamiento.\n- Un poco frágil.\n- Al sincronizar por primera vez, todo el historial será transferido desde el remoto. Ten en cuenta los límites de datos y las velocidades lentas.\n- Solo las diferencias se sincronizan en vivo.\n\nSi encuentras algún problema o tienes ideas sobre esta característica, por favor crea un issue en GitHub.\nAprecio mucho tu gran dedicación.",
+        fr: "AVERTISSEMENT : cette fonctionnalité est en cours de développement, gardez à l'esprit ce qui suit :\n- Architecture en ajout seul. Une reconstruction est nécessaire pour réduire le stockage.\n- Un peu fragile.\n- Lors de la première synchronisation, tout l'historique sera transféré depuis le distant. Attention aux limites de données et aux débits lents.\n- Seules les différences sont synchronisées en direct.\n\nSi vous rencontrez des problèmes ou avez des idées sur cette fonctionnalité, merci d'ouvrir un ticket sur GitHub.\nMerci pour votre grand dévouement.",
         ja: "警告: この機能は開発中です。以下の点にご注意ください：\n- 追記専用アーキテクチャ。ストレージを縮小するには再構築が必要です。\n- やや不安定です。\n- 初回同期時、すべての履歴がリモートから転送されます。データ制限と速度に注意してください。\n- ライブ同期は差分のみです。\n\n問題があれば、またはこの機能についてアイデアがあれば、GitHubにIssueを作成してください。\nご協力に感謝します。",
         ko: "⚠️ 주의: 이 기능은 아직 개발 중(WIP)입니다. 다음 사항을 유의해 주세요:\n- 추가 전용 구조(append-only)로 동작합니다. 저장 용량을 줄이려면 데이터 재구성이 필요합니다.\n- 기능이 다소 불안정할 수 있습니다.\n- 최초 동기화 시, 전체 히스토리가 원격 서버에서 전송됩니다. 데이터 용량 제한 및 느린 속도에 유의해 주세요.\n- 실시간 동기화는 변경된 부분만 처리됩니다.\n\n문제가 발생했거나 개선 아이디어가 있으시면 GitHub에 이슈를 등록해 주세요.\n기여에 깊이 감사드립니다.",
         ru: "ПРЕДУПРЕЖДЕНИЕ: Эта функция в разработке.",
@@ -2527,6 +2852,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgOriginCheck": {
         def: "Origin check: ${org}",
         es: "Verificación de origen: {org}",
+        fr: "Vérification d'origine : ${org}",
         ja: "オリジン確認: ${org}",
         ko: "원점 확인: {org}",
         ru: "Проверка origin: org",
@@ -2535,6 +2861,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgRebuildRequired": {
         def: "Rebuilding Databases are required to apply the changes.. Please select the method to apply the changes.\n\n<details>\n<summary>Legends</summary>\n\n| Symbol | Meaning |\n|: ------ :| ------- |\n| ⇔ | Up to Date |\n| ⇄ | Synchronise to balance |\n| ⇐,⇒ | Transfer to overwrite |\n| ⇠,⇢ | Transfer to overwrite from other side |\n\n</details>\n\n## ${OPTION_REBUILD_BOTH}\nAt a glance:  📄 ⇒¹ 💻 ⇒² 🛰️ ⇢ⁿ 💻 ⇄ⁿ⁺¹ 📄\nReconstruct both the local and remote databases using existing files from this device.\nThis causes a lockout other devices, and they need to perform fetching.\n## ${OPTION_FETCH}\nAt a glance: 📄 ⇄² 💻 ⇐¹ 🛰️ ⇔ 💻 ⇔ 📄\nInitialise the local database and reconstruct it using data fetched from the remote database.\nThis case includes the case which you have rebuilt the remote database.\n## ${OPTION_ONLY_SETTING}\nStore only the settings. **Caution: This may lead to data corruption**; database reconstruction is generally necessary.",
         es: "Es necesario reconstruir las bases de datos para aplicar los cambios. Por favor selecciona el método para aplicar los cambios.\n\n<details>\n<summary>Legendas</summary>\n\n| Símbolo | Significado |\n|: ------ :| ------- |\n| ⇔ | Actualizado |\n| ⇄ | Sincronizar para equilibrar |\n| ⇐,⇒ | Transferir para sobrescribir |\n| ⇠,⇢ | Transferir para sobrescribir desde otro lado |\n\n</details>\n\n## ${OPTION_REBUILD_BOTH}\nA simple vista:  📄 ⇒¹ 💻 ⇒² 🛰️ ⇢ⁿ 💻 ⇄ⁿ⁺¹ 📄\nReconstruir tanto la base de datos local como la remota utilizando los archivos existentes de este dispositivo.\nEsto bloquea a otros dispositivos, y necesitan realizar la obtención.\n## ${OPTION_FETCH}\nA simple vista: 📄 ⇄² 💻 ⇐¹ 🛰️ ⇔ 💻 ⇔ 📄\nInicializa la base de datos local y la reconstruye utilizando los datos obtenidos de la base de datos remota.\nEste caso incluye el caso en el que has reconstruido la base de datos remota.\n## ${OPTION_ONLY_SETTING}\nAlmacena solo la configuración. **Precaución: esto puede provocar corrupción de datos**; generalmente es necesario reconstruir la base de datos.",
+        fr: "La reconstruction des bases de données est nécessaire pour appliquer les changements. Veuillez sélectionner la méthode d'application.\n\n<details>\n<summary>Légende</summary>\n\n| Symbole | Signification |\n|: ------ :| ------- |\n| ⇔ | À jour |\n| ⇄ | Synchroniser pour équilibrer |\n| ⇐,⇒ | Transférer pour écraser |\n| ⇠,⇢ | Transférer pour écraser depuis l'autre côté |\n\n</details>\n\n## ${OPTION_REBUILD_BOTH}\nEn bref :  📄 ⇒¹ 💻 ⇒² 🛰️ ⇢ⁿ 💻 ⇄ⁿ⁺¹ 📄\nReconstruit les bases locale et distante à partir des fichiers existants de cet appareil.\nCeci provoque un verrouillage des autres appareils, qui devront effectuer une récupération.\n## ${OPTION_FETCH}\nEn bref : 📄 ⇄² 💻 ⇐¹ 🛰️ ⇔ 💻 ⇔ 📄\nInitialise la base locale et la reconstruit à partir des données récupérées depuis la base distante.\nCe cas inclut également celui où vous avez reconstruit la base distante.\n## ${OPTION_ONLY_SETTING}\nNe stocker que les paramètres. **Attention : cela peut entraîner une corruption des données** ; une reconstruction de la base est généralement nécessaire.",
         ja: "変更を適用するにはデータベースの再構築が必要です。変更を適用する方法を選択してください。\n\n<details>\n<summary>凡例</summary>\n\n| 記号 | 意味 |\n|: ------ :| ------- |\n| ⇔ | 最新 |\n| ⇄ | 同期してバランスを取る |\n| ⇐,⇒ | 上書きするため転送 |\n| ⇠,⇢ | 反対側から上書きするため転送 |\n\n</details>\n\n## ${OPTION_REBUILD_BOTH}\n概要: 📄 ⇒¹ 💻 ⇒² 🛰️ ⇢ⁿ 💻 ⇄ⁿ⁺¹ 📄\nこのデバイスの既存ファイルを使用してローカルとリモートの両方のデータベースを再構築します。\n他のデバイスはロックアウトされ、フェッチが必要です。\n## ${OPTION_FETCH}\n概要: 📄 ⇄² 💻 ⇐¹ 🛰️ ⇔ 💻 ⇔ 📄\nローカルデータベースを初期化し、リモートデータベースから取得したデータを使用して再構築します。\nリモートデータベースを再構築した場合も含まれます。\n## ${OPTION_ONLY_SETTING}\n設定のみを保存します。**注意: データ破損につながる可能性があります**。通常、データベースの再構築が必要です。",
         ko: "변경사항을 적용하려면 데이터베이스를 재구축해야 합니다. 아래 중 한 가지 방법을 선택해 주세요.\n\n<details>\n<summary>범례</summary>\n\n| 기호 | 의미 |\n|: ------ :| ------- |\n| ⇔ | 최신 상태 |\n| ⇄ | 동기화 균형 유지 |\n| ⇐,⇒ | 덮어쓰기 방식의 전송 |\n| ⇠,⇢ | 상대편에서 가져와 덮어쓰기 |\n\n</details>\n\n## ${OPTION_REBUILD_BOTH}\n개요: 📄 ⇒¹ 💻 ⇒² 🛰️ ⇢ⁿ 💻 ⇄ⁿ⁺¹ 📄\n이 기기의 기존 파일을 기반으로 로컬과 원격 데이터베이스를 모두 재구축합니다.\n이 과정에서 다른 기기는 일시적으로 접근이 제한되며, 가져오기 작업을 별도로 수행해야 합니다.\n\n## ${OPTION_FETCH}\n개요: 📄 ⇄² 💻 ⇐¹ 🛰️ ⇔ 💻 ⇔ 📄\n로컬 데이터베이스를 초기화한 후, 원격 데이터베이스에서 데이터를 가져와 재구축합니다.\n이는 원격 측에서 데이터베이스를 먼저 재구축한 경우에도 해당됩니다.\n\n## ${OPTION_ONLY_SETTING}\n설정만 저장합니다. **⚠️ 주의: 이 방법은 데이터 손상을 일으킬 수 있습니다.** 일반적으로는 전체 데이터베이스 재구축이 필요합니다.",
         ru: "Требуется перестроение баз данных для применения изменений.",
@@ -2543,6 +2870,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgSelectAndApplyPreset": {
         def: "Please select and apply any preset item to complete the wizard.",
         es: "Por favor, selecciona y aplica cualquier elemento preestablecido para completar el asistente.",
+        fr: "Veuillez sélectionner et appliquer un préréglage pour terminer l'assistant.",
         ja: "ウィザードを完了するには、プリセット項目を選択して適用してください。",
         ko: "마법사를 완료하려면 프리셋 항목을 선택하고 적용해 주세요.",
         ru: "Выберите и примените любой пресет для завершения мастера.",
@@ -2551,6 +2879,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgSetCorsCredentials": {
         def: "Set cors.credentials",
         es: "Configurar cors.credentials",
+        fr: "Définir cors.credentials",
         ja: "cors.credentialsを設定",
         ko: "cors.credentials 설정",
         ru: "Установить cors.credentials",
@@ -2559,6 +2888,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgSetCorsOrigins": {
         def: "Set cors.origins",
         es: "Configurar cors.origins",
+        fr: "Définir cors.origins",
         ja: "cors.originsを設定",
         ko: "cors.origins 설정",
         ru: "Установить cors.origins",
@@ -2567,6 +2897,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgSetMaxDocSize": {
         def: "Set couchdb.max_document_size",
         es: "Configurar couchdb.max_document_size",
+        fr: "Définir couchdb.max_document_size",
         ja: "couchdb.max_document_sizeを設定",
         ko: "couchdb.max_document_size 설정",
         ru: "Установить couchdb.max_document_size",
@@ -2575,6 +2906,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgSetMaxRequestSize": {
         def: "Set chttpd.max_http_request_size",
         es: "Configurar chttpd.max_http_request_size",
+        fr: "Définir chttpd.max_http_request_size",
         ja: "chttpd.max_http_request_sizeを設定",
         ko: "chttpd.max_http_request_size 설정",
         ru: "Установить chttpd.max_http_request_size",
@@ -2583,6 +2915,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgSetRequireValidUser": {
         def: "Set chttpd.require_valid_user = true",
         es: "Configurar chttpd.require_valid_user = true",
+        fr: "Définir chttpd.require_valid_user = true",
         ja: "chttpd.require_valid_user = trueを設定",
         ko: "chttpd.require_valid_user = true로 설정",
         ru: "Установить chttpd.require_valid_user = true",
@@ -2591,6 +2924,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgSetRequireValidUserAuth": {
         def: "Set chttpd_auth.require_valid_user = true",
         es: "Configurar chttpd_auth.require_valid_user = true",
+        fr: "Définir chttpd_auth.require_valid_user = true",
         ja: "chttpd_auth.require_valid_user = trueを設定",
         ko: "chttpd_auth.require_valid_user = true로 설정",
         ru: "Установить chttpd_auth.require_valid_user = true",
@@ -2599,6 +2933,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgSettingModified": {
         def: 'The setting "${setting}" was modified from another device. Click {HERE} to reload settings. Click elsewhere to ignore changes.',
         es: 'La configuración "${setting}" fue modificada desde otro dispositivo. Haz clic {HERE} para recargar la configuración. Haz clic en otro lugar para ignorar los cambios.',
+        fr: "Le paramètre « ${setting} » a été modifié depuis un autre appareil. Cliquez sur {HERE} pour recharger les paramètres. Cliquez ailleurs pour ignorer les modifications.",
         ja: '設定"${setting}"が別のデバイスから変更されました。{HERE}をクリックして設定を再読み込みしてください。変更を無視するには他の場所をクリックしてください。',
         ko: '"${setting}" 설정이 다른 기기에서 수정되었습니다. 설정을 다시 로드하려면 {HERE}를 클릭하세요. 변경사항을 무시하려면 다른 곳을 클릭하세요.',
         ru: "Настройка setting была изменена с другого устройства.",
@@ -2607,6 +2942,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgSettingsUnchangeableDuringSync": {
         def: 'These settings are unable to be changed during synchronization. Please disable all syncing in the "Sync Settings" to unlock.',
         es: 'Estas configuraciones no se pueden cambiar durante la sincronización. Por favor, deshabilita toda la sincronización en las "Configuraciones de Sincronización" para desbloquear.',
+        fr: "Ces paramètres ne peuvent pas être modifiés durant la synchronisation. Désactivez toute synchronisation dans « Paramètres de synchronisation » pour déverrouiller.",
         ja: 'これらの設定は同期中に変更できません。ロックを解除するには、"同期設定"ですべての同期を無効にしてください。',
         ko: '동기화 중에는 이 설정들을 변경할 수 없습니다. 잠금을 해제하려면 "동기화 설정"에서 모든 동기화를 비활성화해 주세요.',
         ru: "Эти настройки нельзя изменить во время синхронизации.",
@@ -2615,6 +2951,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.msgSetWwwAuth": {
         def: "Set httpd.WWW-Authenticate",
         es: "Configurar httpd.WWW-Authenticate",
+        fr: "Définir httpd.WWW-Authenticate",
         ja: "httpd.WWW-Authenticateを設定",
         ko: "httpd.WWW-Authenticate 설정",
         ru: "Установить httpd.WWW-Authenticate",
@@ -2623,6 +2960,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.nameApplySettings": {
         def: "Apply Settings",
         es: "Aplicar configuraciones",
+        fr: "Appliquer les paramètres",
         ja: "設定を適用",
         ko: "설정 적용",
         ru: "Применить настройки",
@@ -2631,6 +2969,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.nameConnectSetupURI": {
         def: "Connect with Setup URI",
         es: "Conectar con URI de configuración",
+        fr: "Se connecter avec une URI de configuration",
         ja: "セットアップURIで接続",
         ko: "Setup URI로 연결",
         ru: "Подключиться через Setup URI",
@@ -2639,6 +2978,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.nameCopySetupURI": {
         def: "Copy the current settings to a Setup URI",
         es: "Copiar la configuración actual a una URI de configuración",
+        fr: "Copier les paramètres actuels vers une URI de configuration",
         ja: "現在の設定をセットアップURIにコピー",
         ko: "현재 설정을 Setup URI로 복사",
         ru: "Копировать текущие настройки в Setup URI",
@@ -2647,6 +2987,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.nameDisableHiddenFileSync": {
         def: "Disable Hidden files sync",
         es: "Desactivar sincronización de archivos ocultos",
+        fr: "Désactiver la synchronisation des fichiers cachés",
         ja: "隠しファイル同期を無効化",
         ko: "숨김 파일 동기화 비활성화",
         ru: "Отключить синхронизацию скрытых файлов",
@@ -2655,6 +2996,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.nameDiscardSettings": {
         def: "Discard existing settings and databases",
         es: "Descartar configuraciones y bases de datos existentes",
+        fr: "Abandonner les paramètres et bases existants",
         ja: "既存の設定とデータベースを破棄",
         ko: "기존 설정 및 데이터베이스 삭제",
         ru: "Отменить существующие настройки и базы данных",
@@ -2663,6 +3005,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.nameEnableHiddenFileSync": {
         def: "Enable Hidden files sync",
         es: "Activar sincronización de archivos ocultos",
+        fr: "Activer la synchronisation des fichiers cachés",
         ja: "隠しファイル同期を有効化",
         ko: "숨김 파일 동기화 활성화",
         ru: "Включить синхронизацию скрытых файлов",
@@ -2671,6 +3014,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.nameEnableLiveSync": {
         def: "Enable LiveSync",
         es: "Activar LiveSync",
+        fr: "Activer LiveSync",
         ja: "LiveSyncを有効化",
         ko: "LiveSync 활성화",
         ru: "Включить LiveSync",
@@ -2679,6 +3023,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.nameHiddenFileSynchronization": {
         def: "Hidden file synchronization",
         es: "Sincronización de archivos ocultos",
+        fr: "Synchronisation des fichiers cachés",
         ja: "隠しファイル同期",
         ko: "숨김 파일 동기화",
         ru: "Синхронизация скрытых файлов",
@@ -2687,6 +3032,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.nameManualSetup": {
         def: "Manual Setup",
         es: "Configuración manual",
+        fr: "Configuration manuelle",
         ja: "手動セットアップ",
         ko: "수동 설정",
         ru: "Ручная настройка",
@@ -2695,6 +3041,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.nameTestConnection": {
         def: "Test Connection",
         es: "Probar conexión",
+        fr: "Tester la connexion",
         ja: "接続テスト",
         ko: "연결 테스트",
         ru: "Тест подключения",
@@ -2703,6 +3050,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.nameTestDatabaseConnection": {
         def: "Test Database Connection",
         es: "Probar Conexión de Base de Datos",
+        fr: "Tester la connexion à la base de données",
         ja: "データベース接続テスト",
         ko: "데이터베이스 연결 테스트",
         ru: "Тест подключения к базе данных",
@@ -2711,6 +3059,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.nameValidateDatabaseConfig": {
         def: "Validate Database Configuration",
         es: "Validar Configuración de la Base de Datos",
+        fr: "Valider la configuration de la base de données",
         ja: "データベース設定を検証",
         ko: "데이터베이스 구성 검증",
         ru: "Проверить конфигурацию базы данных",
@@ -2719,6 +3068,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.okAdminPrivileges": {
         def: "✔ You have administrator privileges.",
         es: "✔ Tienes privilegios de administrador.",
+        fr: "✔ Vous disposez des privilèges administrateur.",
         ja: "✔ 管理者権限があります。",
         ko: "✔ 관리자 권한이 있습니다.",
         ru: "✔ У вас есть права администратора.",
@@ -2727,6 +3077,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.okCorsCredentials": {
         def: "✔ cors.credentials is ok.",
         es: "✔ cors.credentials está correcto.",
+        fr: "✔ cors.credentials est correct.",
         ja: "✔ cors.credentialsは正常です。",
         ko: "✔ cors.credentials가 정상입니다.",
         ru: "✔ cors.credentials в порядке.",
@@ -2735,6 +3086,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.okCorsCredentialsForOrigin": {
         def: "CORS credentials OK",
         es: "CORS credenciales OK",
+        fr: "Identifiants CORS OK",
         ja: "CORS認証情報OK",
         ko: "CORS 자격 증명 정상",
         ru: "CORS учётные данные в порядке",
@@ -2743,6 +3095,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.okCorsOriginMatched": {
         def: "✔ CORS origin OK",
         es: "✔ Origen de CORS correcto",
+        fr: "✔ Origine CORS OK",
         ja: "✔ CORSオリジンOK",
         ko: "✔ CORS 원점 정상",
         ru: "✔ CORS origin в порядке",
@@ -2751,6 +3104,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.okCorsOrigins": {
         def: "✔ cors.origins is ok.",
         es: "✔ cors.origins está correcto.",
+        fr: "✔ cors.origins est correct.",
         ja: "✔ cors.originsは正常です。",
         ko: "✔ cors.origins가 정상입니다.",
         ru: "✔ cors.origins в порядке.",
@@ -2759,6 +3113,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.okEnableCors": {
         def: "✔ httpd.enable_cors is ok.",
         es: "✔ httpd.enable_cors está correcto.",
+        fr: "✔ httpd.enable_cors est correct.",
         ja: "✔ httpd.enable_corsは正常です。",
         ko: "✔ httpd.enable_cors가 정상입니다.",
         ru: "✔ httpd.enable_cors в порядке.",
@@ -2766,6 +3121,7 @@ export const _allMessages = {
     },
     "obsidianLiveSyncSettingTab.okEnableCorsChttpd": {
         def: "✔ chttpd.enable_cors is ok.",
+        fr: "✔ chttpd.enable_cors est correct.",
         ja: "✔ chttpd.enable_corsは正常です。",
         ru: "✔ chttpd.enable_cors в порядке.",
         zh: "✔ chttpd.enable_cors is ok.",
@@ -2773,6 +3129,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.okMaxDocumentSize": {
         def: "✔ couchdb.max_document_size is ok.",
         es: "✔ couchdb.max_document_size está correcto.",
+        fr: "✔ couchdb.max_document_size est correct.",
         ja: "✔ couchdb.max_document_sizeは正常です。",
         ko: "✔ couchdb.max_document_size가 정상입니다.",
         ru: "✔ couchdb.max_document_size в порядке.",
@@ -2781,6 +3138,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.okMaxRequestSize": {
         def: "✔ chttpd.max_http_request_size is ok.",
         es: "✔ chttpd.max_http_request_size está correcto.",
+        fr: "✔ chttpd.max_http_request_size est correct.",
         ja: "✔ chttpd.max_http_request_sizeは正常です。",
         ko: "✔ chttpd.max_http_request_size가 정상입니다.",
         ru: "✔ chttpd.max_http_request_size в порядке.",
@@ -2789,6 +3147,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.okRequireValidUser": {
         def: "✔ chttpd.require_valid_user is ok.",
         es: "✔ chttpd.require_valid_user está correcto.",
+        fr: "✔ chttpd.require_valid_user est correct.",
         ja: "✔ chttpd.require_valid_userは正常です。",
         ko: "✔ chttpd.require_valid_user가 정상입니다.",
         ru: "✔ chttpd.require_valid_user в порядке.",
@@ -2797,6 +3156,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.okRequireValidUserAuth": {
         def: "✔ chttpd_auth.require_valid_user is ok.",
         es: "✔ chttpd_auth.require_valid_user está correcto.",
+        fr: "✔ chttpd_auth.require_valid_user est correct.",
         ja: "✔ chttpd_auth.require_valid_userは正常です。",
         ko: "✔ chttpd_auth.require_valid_user가 정상입니다.",
         ru: "✔ chttpd_auth.require_valid_user в порядке.",
@@ -2805,6 +3165,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.okWwwAuth": {
         def: "✔ httpd.WWW-Authenticate is ok.",
         es: "✔ httpd.WWW-Authenticate está correcto.",
+        fr: "✔ httpd.WWW-Authenticate est correct.",
         ja: "✔ httpd.WWW-Authenticateは正常です。",
         ko: "✔ httpd.WWW-Authenticate가 정상입니다.",
         ru: "✔ httpd.WWW-Authenticate в порядке.",
@@ -2813,6 +3174,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.optionApply": {
         def: "Apply",
         es: "Aplicar",
+        fr: "Appliquer",
         ja: "適用",
         ko: "적용",
         ru: "Применить",
@@ -2821,6 +3183,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.optionCancel": {
         def: "Cancel",
         es: "Cancelar",
+        fr: "Annuler",
         ja: "キャンセル",
         ko: "취소",
         ru: "Отмена",
@@ -2829,6 +3192,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.optionCouchDB": {
         def: "CouchDB",
         es: "CouchDB",
+        fr: "CouchDB",
         ja: "CouchDB",
         ko: "CouchDB",
         ru: "CouchDB",
@@ -2837,6 +3201,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.optionDisableAllAutomatic": {
         def: "Disable all automatic",
         es: "Desactivar lo automático",
+        fr: "Désactiver toute automatisation",
         ja: "すべての自動を無効化",
         ko: "모든 자동 비활성화",
         ru: "Отключить всё автоматическое",
@@ -2845,6 +3210,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.optionFetchFromRemote": {
         def: "Fetch from Remote",
         es: "Obtener del remoto",
+        fr: "Récupérer depuis le distant",
         ja: "リモートからフェッチ",
         ko: "원격에서 가져오기",
         ru: "Загрузить с удалённого",
@@ -2853,6 +3219,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.optionHere": {
         def: "HERE",
         es: "AQUÍ",
+        fr: "ICI",
         ja: "ここ",
         ko: "여기",
         ru: "ЗДЕСЬ",
@@ -2861,6 +3228,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.optionLiveSync": {
         def: "LiveSync",
         es: "LiveSync",
+        fr: "LiveSync",
         ja: "LiveSync",
         ko: "LiveSync",
         ru: "LiveSync",
@@ -2869,6 +3237,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.optionMinioS3R2": {
         def: "Minio,S3,R2",
         es: "Minio,S3,R2",
+        fr: "Minio, S3, R2",
         ja: "Minio,S3,R2",
         ko: "Minio,S3,R2",
         ru: "Minio,S3,R2",
@@ -2877,6 +3246,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.optionOkReadEverything": {
         def: "OK, I have read everything.",
         es: "OK, he leído todo.",
+        fr: "OK, j'ai tout lu.",
         ja: "OK、すべて読みました。",
         ko: "네, 모든 것을 읽었습니다.",
         ru: "ОК, я всё прочитал.",
@@ -2885,6 +3255,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.optionOnEvents": {
         def: "On events",
         es: "En eventos",
+        fr: "Sur événements",
         ja: "イベント時",
         ko: "이벤트 시",
         ru: "По событиям",
@@ -2893,6 +3264,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.optionPeriodicAndEvents": {
         def: "Periodic and on events",
         es: "Periódico y en eventos",
+        fr: "Périodique et sur événements",
         ja: "定期およびイベント時",
         ko: "주기적 및 이벤트 시",
         ru: "Периодически и по событиям",
@@ -2901,6 +3273,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.optionPeriodicWithBatch": {
         def: "Periodic w/ batch",
         es: "Periódico con lote",
+        fr: "Périodique avec lot",
         ja: "バッチ付き定期",
         ko: "주기적 w/ 일괄",
         ru: "Периодически с пакетами",
@@ -2909,6 +3282,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.optionRebuildBoth": {
         def: "Rebuild Both from This Device",
         es: "Reconstructuir ambos desde este dispositivo",
+        fr: "Tout reconstruire depuis cet appareil",
         ja: "このデバイスから両方を再構築",
         ko: "이 기기에서 둘 다 재구축",
         ru: "Перестроить оба с этого устройства",
@@ -2917,6 +3291,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.optionSaveOnlySettings": {
         def: "(Danger) Save Only Settings",
         es: "(Peligro) Guardar solo configuración",
+        fr: "(Danger) N'enregistrer que les paramètres",
         ja: "(危険) 設定のみ保存",
         ko: "(위험) 설정만 저장",
         ru: "(Опасно) Сохранить только настройки",
@@ -2925,6 +3300,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.panelChangeLog": {
         def: "Change Log",
         es: "Registro de cambios",
+        fr: "Journal des modifications",
         ja: "変更履歴",
         ko: "변경 로그",
         ru: "История изменений",
@@ -2933,6 +3309,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.panelGeneralSettings": {
         def: "General Settings",
         es: "Configuraciones Generales",
+        fr: "Paramètres généraux",
         ja: "一般設定",
         ko: "일반 설정",
         ru: "Основные настройки",
@@ -2941,6 +3318,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.panelPrivacyEncryption": {
         def: "Privacy & Encryption",
         es: "Privacidad y Cifrado",
+        fr: "Confidentialité et chiffrement",
         ja: "プライバシーと暗号化",
         ko: "개인정보 보호 및 암호화",
         ru: "Конфиденциальность и шифрование",
@@ -2949,6 +3327,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.panelRemoteConfiguration": {
         def: "Remote Configuration",
         es: "Configuración remota",
+        fr: "Configuration distante",
         ja: "リモート設定",
         ko: "원격 구성",
         ru: "Удалённая конфигурация",
@@ -2957,6 +3336,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.panelSetup": {
         def: "Setup",
         es: "Configuración",
+        fr: "Configuration",
         ja: "セットアップ",
         ko: "설정",
         ru: "Настройка",
@@ -2964,12 +3344,14 @@ export const _allMessages = {
     },
     "obsidianLiveSyncSettingTab.serverVersion": {
         def: "Server info: ${info}",
+        fr: "Infos serveur : ${info}",
         ja: "サーバー情報: ${info}",
         ru: "Информация о сервере: info",
         zh: "服务器信息: ${info}",
     },
     "obsidianLiveSyncSettingTab.titleActiveRemoteServer": {
         def: "Active Remote Server",
+        fr: "Serveur distant actif",
         ja: "アクティブなリモートサーバー",
         ru: "Активный удалённый сервер",
         zh: "活动远程服务器",
@@ -2977,6 +3359,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleAppearance": {
         def: "Appearance",
         es: "Apariencia",
+        fr: "Apparence",
         ja: "外観",
         ko: "외관",
         ru: "Внешний вид",
@@ -2985,6 +3368,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleConflictResolution": {
         def: "Conflict resolution",
         es: "Resolución de conflictos",
+        fr: "Résolution des conflits",
         ja: "競合解決",
         ko: "충돌 해결",
         ru: "Разрешение конфликтов",
@@ -2993,6 +3377,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleCongratulations": {
         def: "Congratulations!",
         es: "¡Felicidades!",
+        fr: "Félicitations !",
         ja: "おめでとうございます！",
         ko: "축하합니다!",
         ru: "Поздравляем!",
@@ -3001,6 +3386,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleCouchDB": {
         def: "CouchDB",
         es: "CouchDB",
+        fr: "CouchDB",
         ja: "CouchDB",
         ko: "CouchDB",
         ru: "CouchDB",
@@ -3009,6 +3395,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleDeletionPropagation": {
         def: "Deletion Propagation",
         es: "Propagación de eliminación",
+        fr: "Propagation des suppressions",
         ja: "削除の伝播",
         ko: "삭제 전파",
         ru: "Распространение удалений",
@@ -3017,6 +3404,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleEncryptionNotEnabled": {
         def: "Encryption is not enabled",
         es: "El cifrado no está habilitado",
+        fr: "Le chiffrement n'est pas activé",
         ja: "暗号化が有効になっていません",
         ko: "암호화가 활성화되지 않음",
         ru: "Шифрование не включено",
@@ -3025,6 +3413,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleEncryptionPassphraseInvalid": {
         def: "Encryption Passphrase Invalid",
         es: "La frase de contraseña de cifrado es inválida",
+        fr: "Phrase secrète de chiffrement invalide",
         ja: "暗号化パスフレーズが無効です",
         ko: "암호화 패스프레이즈 유효하지 않음",
         ru: "Парольная фраза шифрования недействительна",
@@ -3033,6 +3422,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleExtraFeatures": {
         def: "Enable extra and advanced features",
         es: "Habilitar funciones extras y avanzadas",
+        fr: "Activer les fonctionnalités supplémentaires et avancées",
         ja: "追加および上級機能を有効化",
         ko: "추가 및 고급 기능 활성화",
         ru: "Включить дополнительные и расширенные функции",
@@ -3041,6 +3431,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleFetchConfig": {
         def: "Fetch Config",
         es: "Obtener configuración",
+        fr: "Récupérer la configuration",
         ja: "設定を取得",
         ko: "구성 가져오기",
         ru: "Загрузить конфигурацию",
@@ -3049,6 +3440,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleFetchConfigFromRemote": {
         def: "Fetch config from remote server",
         es: "Obtener configuración del servidor remoto",
+        fr: "Récupérer la configuration depuis le serveur distant",
         ja: "リモートサーバーから設定を取得",
         ko: "원격 서버에서 구성 가져오기",
         ru: "Загрузить конфигурацию с удалённого сервера",
@@ -3057,6 +3449,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleFetchSettings": {
         def: "Fetch Settings",
         es: "Obtener configuraciones",
+        fr: "Récupérer les paramètres",
         ja: "設定の取得",
         ko: "설정 가져오기",
         ru: "Загрузить настройки",
@@ -3065,6 +3458,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleHiddenFiles": {
         def: "Hidden Files",
         es: "Archivos ocultos",
+        fr: "Fichiers cachés",
         ja: "隠しファイル",
         ko: "숨김 파일",
         ru: "Скрытые файлы",
@@ -3073,6 +3467,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleLogging": {
         def: "Logging",
         es: "Registro",
+        fr: "Journalisation",
         ja: "ログ",
         ko: "로깅",
         ru: "Логирование",
@@ -3081,6 +3476,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleMinioS3R2": {
         def: "Minio,S3,R2",
         es: "Minio,S3,R2",
+        fr: "Minio, S3, R2",
         ja: "Minio,S3,R2",
         ko: "Minio,S3,R2",
         ru: "Minio,S3,R2",
@@ -3089,6 +3485,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleNotification": {
         def: "Notification",
         es: "Notificación",
+        fr: "Notification",
         ja: "通知",
         ko: "알림",
         ru: "Уведомления",
@@ -3097,6 +3494,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleOnlineTips": {
         def: "Online Tips",
         es: "Consejos en línea",
+        fr: "Conseils en ligne",
         ja: "オンラインヒント",
         ko: "온라인 팁",
         ru: "Онлайн советы",
@@ -3105,6 +3503,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleQuickSetup": {
         def: "Quick Setup",
         es: "Configuración rápida",
+        fr: "Configuration rapide",
         ja: "クイックセットアップ",
         ko: "빠른 설정",
         ru: "Быстрая настройка",
@@ -3113,6 +3512,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleRebuildRequired": {
         def: "Rebuild Required",
         es: "Reconstrucción necesaria",
+        fr: "Reconstruction requise",
         ja: "再構築が必要",
         ko: "재구축 필요",
         ru: "Требуется перестроение",
@@ -3121,6 +3521,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleRemoteConfigCheckFailed": {
         def: "Remote Configuration Check Failed",
         es: "La verificación de configuración remota falló",
+        fr: "Échec de la vérification de la configuration distante",
         ja: "リモート設定の確認に失敗",
         ko: "원격 구성 확인 실패",
         ru: "Проверка удалённой конфигурации не удалась",
@@ -3129,6 +3530,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleRemoteServer": {
         def: "Remote Server",
         es: "Servidor remoto",
+        fr: "Serveur distant",
         ja: "リモートサーバー",
         ko: "원격 서버",
         ru: "Удалённый сервер",
@@ -3137,6 +3539,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleReset": {
         def: "Reset",
         es: "Reiniciar",
+        fr: "Réinitialiser",
         ja: "リセット",
         ko: "리셋",
         ru: "Сброс",
@@ -3145,6 +3548,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleSetupOtherDevices": {
         def: "To setup other devices",
         es: "Para configurar otros dispositivos",
+        fr: "Pour configurer d'autres appareils",
         ja: "他のデバイスのセットアップ",
         ko: "다른 기기 설정",
         ru: "Для настройки других устройств",
@@ -3153,6 +3557,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleSynchronizationMethod": {
         def: "Synchronization Method",
         es: "Método de sincronización",
+        fr: "Méthode de synchronisation",
         ja: "同期方法",
         ko: "동기화 방법",
         ru: "Метод синхронизации",
@@ -3161,6 +3566,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleSynchronizationPreset": {
         def: "Synchronization Preset",
         es: "Preestablecimiento de sincronización",
+        fr: "Préréglage de synchronisation",
         ja: "同期プリセット",
         ko: "동기화 프리셋",
         ru: "Пресет синхронизации",
@@ -3169,6 +3575,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleSyncSettings": {
         def: "Sync Settings",
         es: "Configuraciones de Sincronización",
+        fr: "Paramètres de synchronisation",
         ja: "同期設定",
         ko: "동기화 설정",
         ru: "Настройки синхронизации",
@@ -3177,6 +3584,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleSyncSettingsViaMarkdown": {
         def: "Sync Settings via Markdown",
         es: "Configuración de sincronización a través de Markdown",
+        fr: "Synchroniser les paramètres via Markdown",
         ja: "Markdown経由で設定を同期",
         ko: "마크다운을 통한 동기화 설정",
         ru: "Синхронизация настроек через Markdown",
@@ -3185,6 +3593,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.titleUpdateThinning": {
         def: "Update Thinning",
         es: "Actualización de adelgazamiento",
+        fr: "Lissage des mises à jour",
         ja: "更新の間引き",
         ko: "업데이트 솎아내기",
         ru: "Оптимизация обновлений",
@@ -3193,6 +3602,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.warnCorsOriginUnmatched": {
         def: "⚠ CORS Origin is unmatched ${from}->${to}",
         es: "⚠ El origen de CORS no coincide: {from}->{to}",
+        fr: "⚠ L'origine CORS ne correspond pas ${from}->${to}",
         ja: "⚠ CORS Originが一致しません ${from}->${to}",
         ko: "⚠ CORS 원점이 일치하지 않습니다 {from}->{to}",
         ru: "⚠ CORS Origin не совпадает from->to",
@@ -3201,6 +3611,7 @@ export const _allMessages = {
     "obsidianLiveSyncSettingTab.warnNoAdmin": {
         def: "⚠ You do not have administrator privileges.",
         es: "⚠ No tienes privilegios de administrador.",
+        fr: "⚠ Vous n'avez pas les privilèges administrateur.",
         ja: "⚠ 管理者権限がありません。",
         ko: "⚠ 관리자 권한이 없습니다.",
         ru: "⚠ У вас нет прав администратора.",
@@ -3208,6 +3619,7 @@ export const _allMessages = {
     },
     "P2P.AskPassphraseForDecrypt": {
         def: "The remote peer shared the configuration. Please input the passphrase to decrypt the configuration.",
+        fr: "Le pair distant a partagé la configuration. Veuillez saisir la phrase secrète pour déchiffrer la configuration.",
         ja: "リモートピアから設定が共有されました。設定を復号するためのパスフレーズを入力してください。",
         ko: "원격 피어가 구성을 공유했습니다. 구성을 복호화하려면 패스프레이즈를 입력해 주세요.",
         ru: "Удалённое устройство предоставило конфигурацию. Введите пароль для расшифровки.",
@@ -3215,6 +3627,7 @@ export const _allMessages = {
     },
     "P2P.AskPassphraseForShare": {
         def: "The remote peer requested this device configuration. Please input the passphrase to share the configuration. You can ignore the request by cancelling this dialogue.",
+        fr: "Le pair distant a demandé la configuration de cet appareil. Veuillez saisir la phrase secrète pour partager la configuration. Vous pouvez ignorer la demande en annulant cette boîte de dialogue.",
         ja: "リモートピアからこのデバイスの設定が要求されました。設定を共有するためのパスフレーズを入力してください。このダイアログをキャンセルすることでリクエストを無視できます。",
         ko: "원격 피어가 이 기기의 구성을 요청했습니다. 구성을 공유하려면 패스프레이즈를 입력해 주세요. 이 대화상자를 취소하여 요청을 무시할 수 있습니다.",
         ru: "Удалённое устройство запрашивает эту конфигурацию. Введите пароль для передачи.",
@@ -3222,6 +3635,7 @@ export const _allMessages = {
     },
     "P2P.DisabledButNeed": {
         def: "%{title_p2p_sync} is disabled. Do you really want to enable it?",
+        fr: "%{title_p2p_sync} est désactivé. Voulez-vous vraiment l'activer ?",
         ja: "%{title_p2p_sync}は無効になっています。本当に有効にしますか？",
         ko: "%{title_p2p_sync}가 비활성화되어 있습니다. 정말로 활성화하시겠습니까?",
         ru: "title_p2p_sync отключён. Вы действительно хотите включить?",
@@ -3229,6 +3643,7 @@ export const _allMessages = {
     },
     "P2P.FailedToOpen": {
         def: "Failed to open P2P connection to the signalling server.",
+        fr: "Échec d'ouverture de la connexion P2P vers le serveur de signalisation.",
         ja: "シグナリングサーバーへのP2P接続を開けませんでした。",
         ko: "시그널링 서버에 P2P 연결을 열 수 없습니다.",
         ru: "Не удалось открыть P2P подключение к серверу сигнализации.",
@@ -3236,6 +3651,7 @@ export const _allMessages = {
     },
     "P2P.NoAutoSyncPeers": {
         def: "No auto-sync peers found. Please set peers on the %{long_p2p_sync} pane.",
+        fr: "Aucun pair de synchronisation automatique trouvé. Veuillez définir des pairs dans le panneau %{long_p2p_sync}.",
         ja: "自動同期ピアが見つかりません。%{long_p2p_sync}ペインでピアを設定してください。",
         ko: "자동 동기화 피어를 찾을 수 없습니다. %{long_p2p_sync} 창에서 피어를 설정해 주세요.",
         ru: "Автосинхронизируемые устройства не найдены.",
@@ -3243,6 +3659,7 @@ export const _allMessages = {
     },
     "P2P.NoKnownPeers": {
         def: "No peers has been detected, waiting incoming other peers...",
+        fr: "Aucun pair détecté, en attente d'autres pairs entrants...",
         ja: "ピアが検出されていません。他のピアからの接続を待機中...",
         ko: "피어가 감지되지 않았습니다. 다른 피어의 접속을 기다리고 있습니다...",
         ru: "Устройства не обнаружены, ожидаем другие устройства...",
@@ -3250,6 +3667,7 @@ export const _allMessages = {
     },
     "P2P.Note.description": {
         def: " This replicator allows us to synchronise our vault with other devices\nusing a peer-to-peer connection. We can use this to synchronise our vault with our other devices without using a cloud service.\nThis replicator is based on Trystero. It also uses a signalling server to establish a connection between devices. The signalling server is used to exchange connection information between devices. It does (or,should) not know or store any of our data.\n\nThe signalling server can be hosted by anyone. This is just a Nostr relay. For the sake of simplicity and checking the behaviour of the replicator, an instance of the signalling server is hosted by vrtmrz. You can use the experimental server provided by vrtmrz, or you can use any other server.\n\nBy the way, even if the signalling server does not store our data, it can see the connection information of some of our devices. Please be aware of this. Also, be cautious when using the server provided by someone else.",
+        fr: " Ce réplicateur permet de synchroniser notre coffre avec d'autres\nappareils via une connexion pair-à-pair. Nous pouvons l'utiliser pour synchroniser notre coffre avec nos autres appareils sans recourir à un service cloud.\nCe réplicateur est basé sur Trystero. Il utilise également un serveur de signalisation pour établir une connexion entre les appareils. Le serveur de signalisation sert à échanger les informations de connexion entre appareils. Il ne connaît (ou ne devrait connaître) ni ne stocke aucune de nos données.\n\nLe serveur de signalisation peut être hébergé par n'importe qui. Il s'agit simplement d'un relais Nostr. Par souci de simplicité et pour vérifier le comportement du réplicateur, une instance du serveur de signalisation est hébergée par vrtmrz. Vous pouvez utiliser le serveur expérimental fourni par vrtmrz, ou tout autre serveur.\n\nAu passage, même si le serveur de signalisation ne stocke pas nos données, il peut voir les informations de connexion de certains de nos appareils. Soyez-en conscient. Soyez également prudent avec un serveur fourni par quelqu'un d'autre.",
         ja: "このレプリケーターは、ピアツーピア接続を使用して、Vaultを他のデバイスと同期することができます。クラウドサービスを使用せずに、他のデバイスとVaultを同期することができます。\nこのレプリケーターはTrysteroをベースにしています。デバイス間の接続を確立するためにシグナリングサーバーを使用します。シグナリングサーバーはデバイス間で接続情報を交換するために使用されます。私たちのデータを知ったり保存したりすることはありません（または、そうあるべきではありません）。\n\nシグナリングサーバーは誰でもホストできます。これは単なるNostrリレーです。簡便さとレプリケーターの動作確認のために、vrtmrzがシグナリングサーバーのインスタンスをホストしています。vrtmrzが提供する実験用サーバーを使用することも、他のサーバーを使用することもできます。\n\nなお、シグナリングサーバーが私たちのデータを保存しなくても、一部のデバイスの接続情報を見ることができます。これにご注意ください。また、他の人が提供するサーバーを使用する場合は注意してください。",
         ko: "이 복제기는 피어 투 피어(P2P) 연결을 통해 다른 기기들과 볼트를 동기화할 수 있도록 합니다. 클라우드 서비스를 거치지 않고도 기기간 동기화를 구현할 수 있습니다.\n\n이 복제기는 Trystero를 기반으로 하며, 기기 간 연결을 설정하기 위해 시그널링 서버를 사용합니다. 시그널링 서버는 단순히 연결 정보를 교환하는 용도로만 사용되며, 사용자 데이터를 저장하거나 접근하지 않습니다 (또는 그래야만 합니다).\n\n시그널링 서버는 누구나 운영할 수 있으며, 이는 단순한 Nostr 릴레이입니다. 편의성과 복제기의 작동 확인을 위해 `vrtmrz`가 자체적으로 시그널링 서버 인스턴스를 운영 중입니다. 사용자는 `vrtmrz`가 제공하는 실험용 서버를 사용할 수도 있고, 별도로 자신만의 서버를 설정할 수도 있습니다.\n\n참고로, 시그널링 서버는 사용자 데이터를 저장하지 않더라도 일부 기기의 연결 정보는 볼 수 있습니다. 이 점을 유의해 주세요. 특히 타인이 운영하는 서버를 사용할 경우 주의가 필요합니다.",
         ru: "Этот репликатор позволяет синхронизировать хранилище с другими устройствами с использованием однорангового соединения.",
@@ -3257,6 +3675,7 @@ export const _allMessages = {
     },
     "P2P.Note.important_note": {
         def: "Peer-to-Peer Replicator.",
+        fr: "Réplicateur pair-à-pair.",
         ja: "ピアツーピアレプリケーターの実験的実装",
         ko: "피어 투 피어(P2P) 복제기의 실험적 구현입니다.",
         ru: "P2P репликатор.",
@@ -3264,6 +3683,7 @@ export const _allMessages = {
     },
     "P2P.Note.important_note_sub": {
         def: "This feature is still on the bleeding edge. Please be aware that ensure your data is backed up before using this feature. And, we would be so happy if you could contribute to the development of this feature.",
+        fr: "Cette fonctionnalité est encore en tout début de développement. Veillez à sauvegarder vos données avant de l'utiliser. Nous serions très heureux si vous contribuiez au développement de cette fonctionnalité.",
         ja: "この機能はまだ実験段階です。期待通りに動作しない可能性があることにご注意ください。さらに、バグ、セキュリティの問題、その他の問題がある可能性があります。この機能は自己責任でご使用ください。この機能の開発にご協力ください。",
         ko: "이 기능은 아직 실험 단계에 있습니다. 이 기능이 예상대로 작동하지 않을 수 있음을 알아주세요. 또한 버그, 보안 문제 및 기타 문제가 있을 수 있습니다. 이 기능을 사용할 때는 본인의 책임 하에 사용하세요. 이 기능의 개발에 기여해 주세요.",
         ru: "Эта функция всё ещё на стадии разработки. Пожалуйста, убедитесь, что ваши данные зарезервированы.",
@@ -3271,6 +3691,7 @@ export const _allMessages = {
     },
     "P2P.Note.Summary": {
         def: "What is this feature? (and some important notes, please read once)",
+        fr: "Qu'est-ce que cette fonctionnalité ? (et quelques notes importantes, à lire)",
         ja: "この機能について（重要な注意事項を含む、一度お読みください）",
         ko: "이 기능은 무엇인가요? (설명과 참고사항이 적혀있습니다. 한 번 읽어보세요!)",
         ru: "Что это за функция? (важные замечания)",
@@ -3278,6 +3699,7 @@ export const _allMessages = {
     },
     "P2P.NotEnabled": {
         def: "%{title_p2p_sync} is not enabled. We cannot open a new connection.",
+        fr: "%{title_p2p_sync} n'est pas activé. Nous ne pouvons pas ouvrir de nouvelle connexion.",
         ja: "%{title_p2p_sync}が有効になっていません。新しい接続を開くことができません。",
         ko: "%{title_p2p_sync}가 활성화되지 않았습니다. 새로운 연결을 열 수 없습니다.",
         ru: "title_p2p_sync не включён. Мы не можем открыть новое подключение.",
@@ -3285,6 +3707,7 @@ export const _allMessages = {
     },
     "P2P.P2PReplication": {
         def: "%{P2P} Replication",
+        fr: "Réplication %{P2P}",
         ja: "%{P2P}レプリケーション(複製)",
         ko: "%{P2P} 복제",
         ru: "P2P Репликация",
@@ -3292,6 +3715,7 @@ export const _allMessages = {
     },
     "P2P.PaneTitle": {
         def: "%{long_p2p_sync}",
+        fr: "%{long_p2p_sync}",
         ja: "%{long_p2p_sync}",
         ko: "%{long_p2p_sync}",
         ru: "long_p2p_sync",
@@ -3299,6 +3723,7 @@ export const _allMessages = {
     },
     "P2P.ReplicatorInstanceMissing": {
         def: "P2P Sync replicator is not found, possibly not have been configured or enabled.",
+        fr: "Le réplicateur Sync P2P est introuvable, peut-être non configuré ou non activé.",
         ja: "P2P同期レプリケーターが見つかりません。設定または有効化されていない可能性があります。",
         ko: "P2P 동기화 복제기를 찾을 수 없습니다. 구성되지 않았거나 활성화되지 않았을 수 있습니다.",
         ru: "P2P Sync репликатор не найден, возможно, не настроен.",
@@ -3306,6 +3731,7 @@ export const _allMessages = {
     },
     "P2P.SeemsOffline": {
         def: "Peer ${name} seems offline, skipped.",
+        fr: "Le pair ${name} semble hors ligne, ignoré.",
         ja: "ピア${name}はオフラインのようです。スキップしました。",
         ko: "피어 ${name}이(가) 오프라인인 것 같습니다. 건너뜁니다.",
         ru: "Устройство name офлайн, пропущено.",
@@ -3313,6 +3739,7 @@ export const _allMessages = {
     },
     "P2P.SyncAlreadyRunning": {
         def: "P2P Sync is already running.",
+        fr: "La Sync P2P est déjà en cours.",
         ja: "P2P同期はすでに実行中です。",
         ko: "P2P 동기화가 이미 실행 중입니다.",
         ru: "P2P Sync уже запущен.",
@@ -3320,6 +3747,7 @@ export const _allMessages = {
     },
     "P2P.SyncCompleted": {
         def: "P2P Sync completed.",
+        fr: "Sync P2P terminée.",
         ja: "P2P同期が完了しました。",
         ko: "P2P 동기화가 완료되었습니다.",
         ru: "P2P Sync завершён.",
@@ -3327,6 +3755,7 @@ export const _allMessages = {
     },
     "P2P.SyncStartedWith": {
         def: "P2P Sync with ${name} have been started.",
+        fr: "La Sync P2P avec ${name} a démarré.",
         ja: "${name}とのP2P同期を開始しました。",
         ko: "${name}과의 P2P 동기화가 시작되었습니다.",
         ru: "P2P Sync с name начат.",
@@ -3335,6 +3764,7 @@ export const _allMessages = {
     Passphrase: {
         def: "Passphrase",
         es: "Frase de contraseña",
+        fr: "Phrase secrète",
         ja: "パスフレーズ",
         ko: "패스프레이즈",
         ru: "Парольная фраза",
@@ -3343,6 +3773,7 @@ export const _allMessages = {
     "Passphrase of sensitive configuration items": {
         def: "Passphrase of sensitive configuration items",
         es: "Frase para elementos sensibles",
+        fr: "Phrase secrète des éléments de configuration sensibles",
         ja: "機密性の高い設定項目にパスフレーズを使用",
         ko: "민감한 구성 항목의 패스프레이즈",
         ru: "Парольная фраза для конфиденциальных настроек",
@@ -3351,6 +3782,7 @@ export const _allMessages = {
     password: {
         def: "password",
         es: "contraseña",
+        fr: "mot de passe",
         ja: "パスワード",
         ko: "비밀번호",
         ru: "пароль",
@@ -3359,6 +3791,7 @@ export const _allMessages = {
     Password: {
         def: "Password",
         es: "Contraseña",
+        fr: "Mot de passe",
         ja: "パスワード",
         ko: "비밀번호",
         ru: "Пароль",
@@ -3367,6 +3800,7 @@ export const _allMessages = {
     "Path Obfuscation": {
         def: "Path Obfuscation",
         es: "Ofuscación de rutas",
+        fr: "Obfuscation des chemins",
         ja: "パスの難読化",
         ko: "경로 난독화",
         ru: "Обфускация путей",
@@ -3375,6 +3809,7 @@ export const _allMessages = {
     "Per-file-saved customization sync": {
         def: "Per-file-saved customization sync",
         es: "Sincronización de personalización por archivo",
+        fr: "Synchronisation de personnalisation enregistrée par fichier",
         ja: "ファイルごとのカスタマイズ同期",
         ko: "파일별 저장 사용자 설정 동기화",
         ru: "Синхронизация настроек для каждого файла",
@@ -3383,6 +3818,7 @@ export const _allMessages = {
     "Periodic Sync interval": {
         def: "Periodic Sync interval",
         es: "Intervalo de sincronización periódica",
+        fr: "Intervalle de synchronisation périodique",
         ja: "定時同期の感覚",
         ko: "주기적 동기화 간격",
         ru: "Интервал периодической синхронизации",
@@ -3390,12 +3826,14 @@ export const _allMessages = {
     },
     "Prepare the 'report' to create an issue": {
         def: "Prepare the 'report' to create an issue",
+        fr: "Préparer le « rapport » pour créer un ticket",
         ru: "Подготовить «отчёт» для создания Issue",
         zh: "准备 '报告' 以创建问题单",
     },
     Presets: {
         def: "Presets",
         es: "Preconfiguraciones",
+        fr: "Préréglages",
         ja: "プリセット",
         ko: "프리셋",
         ru: "Пресеты",
@@ -3404,6 +3842,7 @@ export const _allMessages = {
     "Process small files in the foreground": {
         def: "Process small files in the foreground",
         es: "Procesar archivos pequeños en primer plano",
+        fr: "Traiter les petits fichiers au premier plan",
         ja: "小さいファイルを最前面で処理",
         ko: "포그라운드에서 작은 파일 처리",
         ru: "Обрабатывать маленькие файлы в основном потоке",
@@ -3411,11 +3850,13 @@ export const _allMessages = {
     },
     "Property Encryption": {
         def: "Property Encryption",
+        fr: "Chiffrement des propriétés",
         ru: "Шифрование свойств",
         zh: "属性加密",
     },
     "RedFlag.Fetch.Method.Desc": {
         def: "How do you want to fetch?\n- %{RedFlag.Fetch.Method.FetchSafer}.\n  **Low Traffic**, **High CPU**, **Low Risk**\n  Recommended if ...\n  - Files possibly inconsistent\n  - Files were not so much\n- %{RedFlag.Fetch.Method.FetchSmoother}.\n  **Low Traffic**, **Moderate CPU**, **Low to Moderate Risk**\n  Recommended if ...\n  - Files probably consistent\n  - You have a lot of files.\n- %{RedFlag.Fetch.Method.FetchTraditional}.\n  **High Traffic**, **Low CPU**, **Low to Moderate Risk**\n\n>[!INFO]- Details\n> ## %{RedFlag.Fetch.Method.FetchSafer}.\n> **Low Traffic**, **High CPU**, **Low Risk**\n> This option first creates a local database using existing local files before fetching data from the remote source.\n> If matching files exist both locally and remotely, only the differences between them will be transferred.\n> However, files present in both locations will initially be handled as conflicted files. They will be resolved automatically if they are not actually conflicted, but this process may take time.\n> This is generally the safest method, minimizing data loss risk.\n> ## %{RedFlag.Fetch.Method.FetchSmoother}.\n> **Low Traffic**, **Moderate CPU**, **Low to Moderate Risk** (depending operation)\n> This option first creates chunks from local files for the database, then fetches data. Consequently, only chunks missing locally are transferred. However, all metadata is taken from the remote source.\n> Local files are then compared against this metadata at launch. The content considered newer will overwrite the older one (by modified time). This outcome is then synchronised back to the remote database.\n> This is generally safe if local files are genuinely the latest timestamp. However, it can cause problems if a file has a newer timestamp but older content (like the initial `welcome.md`).\n> This uses less CPU and faster than \"%{RedFlag.Fetch.Method.FetchSafer}\", but it may lead to data loss if not used carefully.\n> ## %{RedFlag.Fetch.Method.FetchTraditional}.\n> **High Traffic**, **Low CPU**, **Low to Moderate Risk** (depending operation)\n> All things will be fetched from the remote.\n> Similar to the %{RedFlag.Fetch.Method.FetchSmoother}, but all chunks are fetched from the remote source.\n> This is the most traditional way to fetch, typically consuming the most network traffic and time. It also carries a similar risk of overwriting remote files to the '%{RedFlag.Fetch.Method.FetchSmoother}' option.\n> However, it is often considered the most stable method because it is the longest-established and most straightforward approach.",
+        fr: "Comment voulez-vous récupérer ?\n- %{RedFlag.Fetch.Method.FetchSafer}.\n  **Trafic faible**, **CPU élevé**, **Risque faible**\n  Recommandé si ...\n  - Fichiers possiblement incohérents\n  - Fichiers peu nombreux\n- %{RedFlag.Fetch.Method.FetchSmoother}.\n  **Trafic faible**, **CPU modéré**, **Risque faible à modéré**\n  Recommandé si ...\n  - Fichiers probablement cohérents\n  - Vous avez beaucoup de fichiers.\n- %{RedFlag.Fetch.Method.FetchTraditional}.\n  **Trafic élevé**, **CPU faible**, **Risque faible à modéré**\n\n>[!INFO]- Détails\n> ## %{RedFlag.Fetch.Method.FetchSafer}.\n> **Trafic faible**, **CPU élevé**, **Risque faible**\n> Cette option crée d'abord une base locale à partir des fichiers locaux existants avant de récupérer les données depuis la source distante.\n> Si des fichiers correspondants existent à la fois localement et à distance, seules les différences entre eux seront transférées.\n> Toutefois, les fichiers présents aux deux emplacements seront initialement traités comme en conflit. Ils seront résolus automatiquement s'ils ne le sont pas réellement, mais ce processus peut prendre du temps.\n> C'est généralement la méthode la plus sûre, minimisant le risque de perte de données.\n> ## %{RedFlag.Fetch.Method.FetchSmoother}.\n> **Trafic faible**, **CPU modéré**, **Risque faible à modéré** (selon l'opération)\n> Cette option crée d'abord des fragments à partir des fichiers locaux pour la base, puis récupère les données. Par conséquent, seuls les fragments manquants localement sont transférés. Cependant, toutes les métadonnées sont prises de la source distante.\n> Les fichiers locaux sont ensuite comparés à ces métadonnées au lancement. Le contenu considéré comme plus récent écrasera le plus ancien (selon la date de modification). Le résultat est ensuite synchronisé vers la base distante.\n> C'est généralement sûr si les fichiers locaux ont bien l'horodatage le plus récent. Cela peut toutefois poser problème si un fichier a un horodatage plus récent mais un contenu plus ancien (comme le `welcome.md` initial).\n> Cette méthode utilise moins de CPU et est plus rapide que « %{RedFlag.Fetch.Method.FetchSafer} », mais peut entraîner une perte de données si elle n'est pas utilisée avec précaution.\n> ## %{RedFlag.Fetch.Method.FetchTraditional}.\n> **Trafic élevé**, **CPU faible**, **Risque faible à modéré** (selon l'opération)\n> Tout sera récupéré depuis le distant.\n> Similaire à %{RedFlag.Fetch.Method.FetchSmoother}, mais tous les fragments sont récupérés depuis la source distante.\n> C'est la façon la plus traditionnelle de récupérer, consommant généralement le plus de trafic réseau et de temps. Elle comporte également un risque similaire d'écraser les fichiers distants à l'option « %{RedFlag.Fetch.Method.FetchSmoother} ».\n> Elle est toutefois souvent considérée comme la méthode la plus stable car c'est la plus ancienne et la plus directe.",
         ja: "どのようにフェッチしますか？\n- %{RedFlag.Fetch.Method.FetchSafer}\n  **低トラフィック**, **高CPU負荷**, **低リスク**\n  推奨条件...\n  - ファイルの整合性に不安がある\n  - ファイル数がそれほど多くない\n- %{RedFlag.Fetch.Method.FetchSmoother}\n  **低トラフィック**, **中程CPU負荷**, **低～中リスク**\n  推奨条件...\n  - ファイルがおそらく整合している\n  - ファイル数が多い\n- %{RedFlag.Fetch.Method.FetchTraditional}\n  **高トラフィック**, **低CPU負荷**, **低～中リスク**\n\n>[!INFO]- 詳細\n> ## %{RedFlag.Fetch.Method.FetchSafer}\n> **低トラフィック**, **高CPU負荷**, **低リスク**\n> このオプションは、リモートからデータをフェッチする前に、既存のローカルファイルを使用してローカルデータベースを作成します。\n> ローカルとリモートの両方に一致するファイルがある場合、差分のみが転送されます。\n> ただし、両方の場所に存在するファイルは最初は競合ファイルとして処理されます。実際に競合していなければ自動的に解決されますが、この処理には時間がかかる場合があります。\n> これは一般的に最も安全な方法で、データ損失のリスクを最小限に抑えます。\n> ## %{RedFlag.Fetch.Method.FetchSmoother}\n> **低トラフィック**, **中程CPU負荷**, **低～中リスク**（操作による）\n> このオプションは、最初にローカルファイルからデータベース用のチャンクを作成し、その後データをフェッチします。そのため、ローカルにないチャンクのみが転送されます。ただし、すべてのメタデータはリモートから取得されます。\n> ローカルファイルは起動時にこのメタデータと比較されます。新しいと判断されたコンテンツ（更新日時による）が古いものを上書きします。この結果はリモートデータベースに同期されます。\n> ローカルファイルが本当に最新のタイムスタンプであれば一般的に安全です。ただし、ファイルのタイムスタンプが新しくてもコンテンツが古い場合（初期の`welcome.md`など）は問題が発生する可能性があります。\n> これは\"%{RedFlag.Fetch.Method.FetchSafer}\"よりCPU使用量が少なく高速ですが、注意しないとデータ損失につながる可能性があります。\n> ## %{RedFlag.Fetch.Method.FetchTraditional}\n> **高トラフィック**, **低CPU負荷**, **低～中リスク**（操作による）\n> すべてのデータがリモートからフェッチされます。\n> %{RedFlag.Fetch.Method.FetchSmoother}と似ていますが、すべてのチャンクがリモートからフェッチされます。\n> これは最も従来のフェッチ方法で、通常最もネットワークトラフィックと時間を消費します。'%{RedFlag.Fetch.Method.FetchSmoother}'オプションと同様のリモートファイル上書きのリスクがあります。\n> ただし、最も歴史があり簡単なアプローチであるため、最も安定した方法と見なされることが多いです。",
         ko: "어떻게 가져오시겠습니까?\n- %{RedFlag.Fetch.Method.FetchSafer}. (권장)\n  **낮은 트래픽**, **높은 CPU**, **낮은 위험**\n- %{RedFlag.Fetch.Method.FetchSmoother}.\n  **낮은 트래픽**, **보통 CPU**, **낮음에서 보통 위험**\n- %{RedFlag.Fetch.Method.FetchTraditional}.\n  **높은 트래픽**, **낮은 CPU**, **낮음에서 보통 위험**\n\n>[!INFO]- 세부 사항\n> ## %{RedFlag.Fetch.Method.FetchSafer}. (권장)\n> **낮은 트래픽**, **높은 CPU**, **낮은 위험**\n> 이 옵션은 원격 소스에서 데이터를 가져오기 전에 기존 로컬 파일을 사용하여 로컬 데이터베이스를 먼저 생성합니다.\n> 로컬과 원격 모두에 일치하는 파일이 있으면 둘 사이의 차이점만 전송됩니다.\n> 하지만 두 위치 모두에 있는 파일은 초기에 충돌 파일로 처리됩니다. 실제로 충돌하지 않는다면 자동으로 해결되지만 이 과정은 시간이 걸릴 수 있습니다.\n> 이는 일반적으로 가장 안전한 방법으로 데이터 손실 위험을 최소화합니다.\n> ## %{RedFlag.Fetch.Method.FetchSmoother}.\n> **낮은 트래픽**, **보통 CPU**, **낮음에서 보통 위험** (작업에 따라)\n> 이 옵션은 먼저 로컬 파일에서 데이터베이스용 청크를 생성한 다음 데이터를 가져옵니다. 따라서 로컬에 없는 청크만 전송됩니다. 하지만 모든 메타데이터는 원격 소스에서 가져옵니다.\n> 그런 다음 로컬 파일이 시작 시 이 메타데이터와 비교됩니다. 더 새로운 것으로 간주되는 콘텐츠가 오래된 것을 덮어씁니다(수정 시간 기준). 이 결과는 원격 데이터베이스에 다시 동기화됩니다.\n> 로컬 파일이 실제로 최신 타임스탬프라면 일반적으로 안전합니다. 하지만 파일이 더 새로운 타임스탬프를 가지고 있지만 더 오래된 콘텐츠를 가지고 있다면(초기 `welcome.md`처럼) 문제가 발생할 수 있습니다.\n> 이는 \"%{RedFlag.Fetch.Method.FetchSafer}\"보다 CPU를 덜 사용하고 더 빠르지만 주의 깊게 사용하지 않으면 데이터 손실로 이어질 수 있습니다.\n> ## %{RedFlag.Fetch.Method.FetchTraditional}.\n> **높은 트래픽**, **낮은 CPU**, **낮음에서 보통 위험** (작업에 따라)\n> 모든 것이 원격에서 가져와집니다.\n> %{RedFlag.Fetch.Method.FetchSmoother}와 유사하지만 모든 청크가 원격 소스에서 가져와집니다.\n> 이는 가장 전통적인 가져오기 방법으로 일반적으로 가장 많은 네트워크 트래픽과 시간을 소모합니다. 또한 '%{RedFlag.Fetch.Method.FetchSmoother}' 옵션과 유사하게 원격 파일을 덮어쓸 위험이 있습니다.\n> 하지만 가장 오래되고 가장 직접적인 접근 방식이기 때문에 종종 가장 안정적인 방법으로 간주됩니다.",
         ru: "Как вы хотите загрузить?",
@@ -3423,6 +3864,7 @@ export const _allMessages = {
     },
     "RedFlag.Fetch.Method.FetchSafer": {
         def: "Create a local database once before fetching",
+        fr: "Créer une base locale avant de récupérer",
         ja: "フェッチ前にローカルデータベースを作成",
         ko: "가져오기 전에 로컬 데이터베이스를 한 번 생성",
         ru: "Создать локальную базу данных перед загрузкой",
@@ -3430,6 +3872,7 @@ export const _allMessages = {
     },
     "RedFlag.Fetch.Method.FetchSmoother": {
         def: "Create local file chunks before fetching",
+        fr: "Créer des fragments de fichiers locaux avant de récupérer",
         ja: "フェッチ前にローカルファイルチャンクを作成",
         ko: "가져오기 전에 로컬 파일 청크 생성",
         ru: "Создать локальные чанки перед загрузкой",
@@ -3437,6 +3880,7 @@ export const _allMessages = {
     },
     "RedFlag.Fetch.Method.FetchTraditional": {
         def: "Fetch everything from the remote",
+        fr: "Tout récupérer depuis le distant",
         ja: "リモートからすべてをフェッチ",
         ko: "원격에서 모든 것 가져오기",
         ru: "Загрузить всё с удалённого",
@@ -3444,6 +3888,7 @@ export const _allMessages = {
     },
     "RedFlag.Fetch.Method.Title": {
         def: "How do you want to fetch?",
+        fr: "Comment voulez-vous récupérer ?",
         ja: "どのようにフェッチしますか？",
         ko: "어떻게 가져오시겠습니까?",
         ru: "Как вы хотите загрузить?",
@@ -3451,24 +3896,28 @@ export const _allMessages = {
     },
     "RedFlag.FetchRemoteConfig.Buttons.Cancel": {
         def: "No, use local settings",
+        fr: "Non, utiliser les paramètres locaux",
         ja: "いいえ、ローカル設定を使用",
         ru: "Нет, использовать локальные настройки",
         zh: "No, use local settings",
     },
     "RedFlag.FetchRemoteConfig.Buttons.Fetch": {
         def: "Yes, fetch and apply remote settings",
+        fr: "Oui, récupérer et appliquer les paramètres distants",
         ja: "はい、リモート設定を取得して適用",
         ru: "Да, загрузить и применить удалённые настройки",
         zh: "Yes, fetch and apply remote settings",
     },
     "RedFlag.FetchRemoteConfig.Message": {
         def: "Do you want to fetch and apply remotely stored preference settings to the device?",
+        fr: "Voulez-vous récupérer et appliquer les préférences stockées à distance sur cet appareil ?",
         ja: "リモートに保存された設定を取得して、このデバイスに適用しますか？",
         ru: "Вы хотите загрузить и применить удалённые настройки?",
         zh: "Do you want to fetch and apply remotely stored preference settings to the device?",
     },
     "RedFlag.FetchRemoteConfig.Title": {
         def: "Fetch Remote Configuration",
+        fr: "Récupérer la configuration distante",
         ja: "リモート設定の取得",
         ru: "Загрузить удалённую конфигурацию",
         zh: "Fetch Remote Configuration",
@@ -3476,6 +3925,7 @@ export const _allMessages = {
     "Reducing the frequency with which on-disk changes are reflected into the DB": {
         def: "Reducing the frequency with which on-disk changes are reflected into the DB",
         es: "Reducir frecuencia de actualizaciones de disco a BD",
+        fr: "Réduire la fréquence à laquelle les modifications sur disque sont reflétées dans la base",
         ja: "ローカルでの変更がデータベースに反映される頻度を下げる(所定の回数まとめて同期する、逐一反映しない)",
         ko: "디스크 변경 사항이 데이터베이스에 반영되는 빈도를 줄입니다",
         ru: "Уменьшение частоты отражения изменений с диска в БД",
@@ -3484,6 +3934,7 @@ export const _allMessages = {
     Region: {
         def: "Region",
         es: "Región",
+        fr: "Région",
         ja: "リージョン",
         ko: "지역",
         ru: "Регион",
@@ -3492,6 +3943,7 @@ export const _allMessages = {
     "Remote server type": {
         def: "Remote server type",
         es: "Tipo de servidor remoto",
+        fr: "Type de serveur distant",
         ja: "リモートの種別",
         ko: "원격 서버 유형",
         ru: "Тип удалённого сервера",
@@ -3500,6 +3952,7 @@ export const _allMessages = {
     "Remote Type": {
         def: "Remote Type",
         es: "Tipo de remoto",
+        fr: "Type de distant",
         ja: "同期方式",
         ko: "원격 유형",
         ru: "Удалённый тип",
@@ -3507,6 +3960,7 @@ export const _allMessages = {
     },
     "Replicator.Dialogue.Locked.Action.Dismiss": {
         def: "Cancel for reconfirmation",
+        fr: "Annuler pour reconfirmer",
         ja: "再確認のためキャンセル",
         ko: "재확인을 위해 취소",
         ru: "Отмена для подтверждения",
@@ -3514,6 +3968,7 @@ export const _allMessages = {
     },
     "Replicator.Dialogue.Locked.Action.Fetch": {
         def: "Reset Synchronisation on This Device",
+        fr: "Réinitialiser la synchronisation sur cet appareil",
         ja: "このデバイスの同期をリセット",
         ko: "원격 데이터베이스에서 모든 것을 다시 가져오기",
         ru: "Сбросить синхронизацию на этом устройстве",
@@ -3521,6 +3976,7 @@ export const _allMessages = {
     },
     "Replicator.Dialogue.Locked.Action.Unlock": {
         def: "Unlock the remote database",
+        fr: "Déverrouiller la base distante",
         ja: "リモートデータベースのロックを解除",
         ko: "원격 데이터베이스 잠금 해제",
         ru: "Разблокировать удалённую базу данных",
@@ -3528,6 +3984,7 @@ export const _allMessages = {
     },
     "Replicator.Dialogue.Locked.Message": {
         def: "Remote database is locked. This is due to a rebuild on one of the terminals.\nThe device is therefore asked to withhold the connection to avoid database corruption.\n\nThere are three options that we can do:\n\n- %{Replicator.Dialogue.Locked.Action.Fetch}\n  The most preferred and reliable way. This will dispose the local database once, and reset all synchronisation information from the remote database again, In most case, we can perform this safely. However, it takes some time and should be done in stable network.\n- %{Replicator.Dialogue.Locked.Action.Unlock}\n  This method can only be used if we are already reliably synchronised by other replication methods. This does not simply mean that we have the same files. If you are not sure, you should avoid it.\n- %{Replicator.Dialogue.Locked.Action.Dismiss}\n    This will cancel the operation. And we will asked again on next request.\n",
+        fr: "La base distante est verrouillée. Ceci est dû à une reconstruction sur l'un des terminaux.\nL'appareil est donc prié de suspendre la connexion pour éviter la corruption de la base.\n\nTrois options sont possibles :\n\n- %{Replicator.Dialogue.Locked.Action.Fetch}\n  La méthode la plus recommandée et fiable. Elle supprime la base locale puis réinitialise toutes les informations de synchronisation depuis la base distante. Dans la plupart des cas, c'est sûr. Cela prend cependant du temps et devrait se faire sur un réseau stable.\n- %{Replicator.Dialogue.Locked.Action.Unlock}\n  Cette méthode ne peut être utilisée que si nous sommes déjà synchronisés de manière fiable par d'autres méthodes de réplication. Cela ne signifie pas simplement que nous avons les mêmes fichiers. Dans le doute, évitez.\n- %{Replicator.Dialogue.Locked.Action.Dismiss}\n    Ceci annule l'opération. Vous serez à nouveau interrogé à la prochaine requête.\n",
         ja: "リモートデータベースがロックされています。これはいずれかの端末での再構築が原因です。\nデータベースの破損を避けるため、このデバイスは接続を保留するよう求められています。\n\n3つのオプションがあります：\n\n- %{Replicator.Dialogue.Locked.Action.Fetch}\n  最も推奨される信頼性の高い方法です。ローカルデータベースを一度破棄し、リモートデータベースからすべての同期情報を再取得します。ほとんどの場合、これは安全に実行できます。ただし、時間がかかり、安定したネットワークで実行する必要があります。\n- %{Replicator.Dialogue.Locked.Action.Unlock}\n  この方法は、他のレプリケーション(複製)方法ですでに確実に同期されている場合のみ使用できます。単に同じファイルがあるという意味ではありません。確信がない場合は避けてください。\n- %{Replicator.Dialogue.Locked.Action.Dismiss}\n  操作をキャンセルします。次回のリクエスト時に再度確認されます。\n",
         ko: "원격 데이터베이스가 잠겨 있습니다. 이는 일부 터미널에서 데이터베이스를 재구축했기 때문입니다.\n따라서 현재 기기는 데이터베이스 손상을 방지하기 위해 연결을 일시적으로 보류해야 합니다.\n\n선택할 수 있는 세 가지 방법이 있습니다:\n\n- %{Replicator.Dialogue.Locked.Action.Fetch}\n  가장 권장되고 신뢰할 수 있는 방법입니다. 로컬 데이터베이스를 초기화한 뒤, 원격 데이터베이스의 전체 데이터를 다시 가져옵니다. 대부분의 경우 안전하게 수행할 수 있으나, 시간이 다소 걸리며 안정적인 네트워크 환경에서 진행해야 합니다.\n- %{Replicator.Dialogue.Locked.Action.Unlock}\n  이 방법은 다른 동기화 방식으로 이미 완전하고 안정적으로 동기화된 경우에만 사용할 수 있습니다. 단순히 파일이 같다는 의미가 아니므로, 확신이 없다면 사용을 피하는 것이 좋습니다.\n- %{Replicator.Dialogue.Locked.Action.Dismiss}\n  이번 작업을 취소하고, 다음 요청 시 다시 안내받습니다.\n",
         ru: "Удалённая база данных заблокирована. Это связано с перестроением на одном из устройств.",
@@ -3535,6 +3992,7 @@ export const _allMessages = {
     },
     "Replicator.Dialogue.Locked.Message.Fetch": {
         def: "Fetch all has been scheduled. Plug-in will be restarted to perform it.",
+        fr: "Tout récupérer a été planifié. Le plug-in sera redémarré pour l'exécuter.",
         ja: "全フェッチがスケジュールされました。プラグインは実行のために再起動されます。",
         ko: "모든 것 가져오기가 예약되었습니다. 이를 수행하기 위해 플러그인이 재시작됩니다.",
         ru: "Загрузка всего запланирована. Плагин будет перезапущен.",
@@ -3542,6 +4000,7 @@ export const _allMessages = {
     },
     "Replicator.Dialogue.Locked.Message.Unlocked": {
         def: "The remote database has been unlocked. Please retry the operation.",
+        fr: "La base distante a été déverrouillée. Veuillez réessayer l'opération.",
         ja: "リモートデータベースのロックが解除されました。操作を再試行してください。",
         ko: "원격 데이터베이스 잠금이 해제되었습니다. 작업을 다시 시도해 주세요.",
         ru: "Удалённая база данных разблокирована. Повторите операцию.",
@@ -3549,6 +4008,7 @@ export const _allMessages = {
     },
     "Replicator.Dialogue.Locked.Title": {
         def: "Locked",
+        fr: "Verrouillée",
         ja: "ロック中",
         ko: "잠김",
         ru: "Заблокировано",
@@ -3556,6 +4016,7 @@ export const _allMessages = {
     },
     "Replicator.Message.Cleaned": {
         def: "Database cleaning up is in process. replication has been cancelled",
+        fr: "Nettoyage de la base en cours. La réplication a été annulée",
         ja: "データベースのクリーナップ中です。レプリケーション(複製)はキャンセルされました。",
         ko: "데이터베이스 정리가 진행 중입니다. 복제가 취소되었습니다",
         ru: "Очистка базы данных в процессе. Репликация отменена",
@@ -3563,6 +4024,7 @@ export const _allMessages = {
     },
     "Replicator.Message.InitialiseFatalError": {
         def: "No replicator is available, this is the fatal error.",
+        fr: "Aucun réplicateur disponible, il s'agit d'une erreur fatale.",
         ja: "レプリケーターが利用できません。これは致命的なエラーです。",
         ko: "사용 가능한 복제기가 없습니다. 치명적인 오류입니다.",
         ru: "Репликатор недоступен, это фатальная ошибка.",
@@ -3570,6 +4032,7 @@ export const _allMessages = {
     },
     "Replicator.Message.Pending": {
         def: "Some file events are pending. Replication has been cancelled.",
+        fr: "Des événements de fichier sont en attente. La réplication a été annulée.",
         ja: "ファイルイベントが保留中です。レプリケーション(複製)はキャンセルされました。",
         ko: "일부 파일 이벤트가 대기 중입니다. 복제가 취소되었습니다.",
         ru: "Некоторые события файлов ожидают. Репликация отменена.",
@@ -3577,6 +4040,7 @@ export const _allMessages = {
     },
     "Replicator.Message.SomeModuleFailed": {
         def: "Replication has been cancelled by some module failure",
+        fr: "La réplication a été annulée suite à l'échec d'un module",
         ja: "一部のモジュールの失敗によりレプリケーション(複製)がキャンセルされました。",
         ko: "일부 모듈 실패로 복제가 취소되었습니다",
         ru: "Репликация отменена из-за сбоя модуля",
@@ -3584,6 +4048,7 @@ export const _allMessages = {
     },
     "Replicator.Message.VersionUpFlash": {
         def: "An update has been detected. Please open the Settings dialogue and check the Change Log. Replication has been cancelled.",
+        fr: "Une mise à jour a été détectée. Veuillez ouvrir la boîte de dialogue des paramètres et consulter le journal des modifications. La réplication a été annulée.",
         ja: "更新が検出されました。設定ダイアログを開いて変更ログを確認してください。レプリケーション(複製)はキャンセルされました。",
         ko: "설정을 열고 메시지를 확인해 주세요. 복제가 취소되었습니다.",
         ru: "Обновление обнаружено. Откройте настройки и проверьте историю изменений.",
@@ -3592,6 +4057,7 @@ export const _allMessages = {
     "Requires restart of Obsidian": {
         def: "Requires restart of Obsidian",
         es: "Requiere reiniciar Obsidian",
+        fr: "Nécessite un redémarrage d'Obsidian",
         ja: "Obsidianの再起動が必要です",
         ko: "Obsidian 재시작 필요",
         ru: "Требуется перезапуск Obsidian",
@@ -3600,6 +4066,7 @@ export const _allMessages = {
     "Requires restart of Obsidian.": {
         def: "Requires restart of Obsidian.",
         es: "Requiere reiniciar Obsidian",
+        fr: "Nécessite un redémarrage d'Obsidian.",
         ja: "Obsidianの再起動が必要です。",
         ko: "Obsidian 재시작이 필요합니다.",
         ru: "Требуется перезапуск Obsidian.",
@@ -3607,31 +4074,37 @@ export const _allMessages = {
     },
     "Rerun Onboarding Wizard": {
         def: "Rerun Onboarding Wizard",
+        fr: "Relancer l'assistant d'intégration",
         ru: "Перезапустить мастер настройки",
         zh: "重新运行引导向导",
     },
     "Rerun the onboarding wizard to set up Self-hosted LiveSync again.": {
         def: "Rerun the onboarding wizard to set up Self-hosted LiveSync again.",
+        fr: "Relancer l'assistant d'intégration pour reconfigurer Self-hosted LiveSync.",
         ru: "Перезапустить мастер настройки для повторной настройки Self-hosted LiveSync.",
         zh: "重新运行引导向导以再次设置 Self-hosted LiveSync。",
     },
     "Rerun Wizard": {
         def: "Rerun Wizard",
+        fr: "Relancer l'assistant",
         ru: "Перезапустить мастер",
         zh: "重新运行向导",
     },
     "Reset notification threshold and check the remote database usage": {
         def: "Reset notification threshold and check the remote database usage",
+        fr: "Réinitialiser le seuil de notification et vérifier l'utilisation de la base distante",
         ru: "Сбросить порог уведомления и проверить использование удалённой базы данных",
         zh: "重置通知阈值并检查远程数据库使用情况",
     },
     "Reset the remote storage size threshold and check the remote storage size again.": {
         def: "Reset the remote storage size threshold and check the remote storage size again.",
+        fr: "Réinitialiser le seuil de taille du stockage distant et vérifier à nouveau la taille du stockage distant.",
         ru: "Сбросить порог размера удалённого хранилища и проверить размер хранилища снова.",
         zh: "重置远程存储大小阈值并再次检查远程存储大小。",
     },
     "Run Doctor": {
         def: "Run Doctor",
+        fr: "Lancer le Docteur",
         ru: "Запустить диагностику",
         zh: "立即诊断",
     },
@@ -3639,6 +4112,7 @@ export const _allMessages = {
         {
             def: "Save settings to a markdown file. You will be notified when new settings arrive. You can set different files by the platform.",
             es: "Guardar configuración en archivo markdown. Se notificarán nuevos ajustes. Puede definir diferentes archivos por plataforma",
+            fr: "Enregistrer les paramètres dans un fichier markdown. Vous serez notifié à l'arrivée de nouveaux paramètres. Vous pouvez définir des fichiers différents selon la plateforme.",
             ja: "Markdownファイルに設定を保存します。新しい設定が到着すると通知されます。プラットフォームごとに異なるファイルを設定できます。",
             ko: "설정을 마크다운 파일에 저장합니다. 새로운 설정이 도착하면 알림을 받게 됩니다. 플랫폼별로 다른 파일을 설정할 수 있습니다.",
             ru: "Save settings to a markdown file. You will be notified when new settings arrive. You can set different files by the platform.",
@@ -3647,6 +4121,7 @@ export const _allMessages = {
     "Saving will be performed forcefully after this number of seconds.": {
         def: "Saving will be performed forcefully after this number of seconds.",
         es: "Guardado forzado tras esta cantidad de segundos",
+        fr: "L'enregistrement sera forcé au bout de ce nombre de secondes.",
         ja: "この秒数後に強制的に保存されます。",
         ko: "이 시간(초) 후에 강제로 저장이 수행됩니다.",
         ru: "Сохранение будет принудительно выполнено после этого количества секунд.",
@@ -3655,6 +4130,7 @@ export const _allMessages = {
     "Scan changes on customization sync": {
         def: "Scan changes on customization sync",
         es: "Escanear cambios en sincronización de personalización",
+        fr: "Analyser les modifications de synchronisation de personnalisation",
         ja: "カスタマイズされた同期時に、変更をスキャンする",
         ko: "사용자 설정 동기화 시 변경 사항 검색",
         ru: "Сканировать изменения при синхронизации настроек",
@@ -3663,6 +4139,7 @@ export const _allMessages = {
     "Scan customization automatically": {
         def: "Scan customization automatically",
         es: "Escanear personalización automáticamente",
+        fr: "Analyser automatiquement la personnalisation",
         ja: "自動的にカスタマイズをスキャン",
         ko: "사용자 설정 자동 검색",
         ru: "Сканировать настройки автоматически",
@@ -3671,6 +4148,7 @@ export const _allMessages = {
     "Scan customization before replicating.": {
         def: "Scan customization before replicating.",
         es: "Escanear personalización antes de replicar",
+        fr: "Analyser la personnalisation avant de répliquer.",
         ja: "レプリケーション(複製)前に、カスタマイズをスキャン",
         ko: "복제하기 전에 사용자 설정을 검색합니다.",
         ru: "Сканировать настройки перед репликацией.",
@@ -3679,6 +4157,7 @@ export const _allMessages = {
     "Scan customization every 1 minute.": {
         def: "Scan customization every 1 minute.",
         es: "Escanear personalización cada 1 minuto",
+        fr: "Analyser la personnalisation toutes les 1 minute.",
         ja: "カスタマイズのスキャンを1分ごとに行う",
         ko: "1분마다 사용자 설정을 검색합니다.",
         ru: "Сканировать настройки каждую минуту.",
@@ -3687,6 +4166,7 @@ export const _allMessages = {
     "Scan customization periodically": {
         def: "Scan customization periodically",
         es: "Escanear personalización periódicamente",
+        fr: "Analyser la personnalisation périodiquement",
         ja: "定期的にカスタマイズをスキャン",
         ko: "주기적으로 사용자 설정 검색",
         ru: "Сканировать настройки периодически",
@@ -3695,6 +4175,7 @@ export const _allMessages = {
     "Scan for hidden files before replication": {
         def: "Scan for hidden files before replication",
         es: "Escanear archivos ocultos antes de replicar",
+        fr: "Analyser les fichiers cachés avant réplication",
         ja: "レプリケーション(複製)開始前に、隠しファイルのスキャンを行う",
         ko: "복제 전 숨겨진 파일 검색",
         ru: "Сканировать скрытые файлы перед репликацией",
@@ -3703,6 +4184,7 @@ export const _allMessages = {
     "Scan hidden files periodically": {
         def: "Scan hidden files periodically",
         es: "Escanear archivos ocultos periódicamente",
+        fr: "Analyser les fichiers cachés périodiquement",
         ja: "定期的に隠しファイルのスキャンを行う",
         ko: "주기적으로 숨겨진 파일 검색",
         ru: "Сканировать скрытые файлы периодически",
@@ -3711,6 +4193,7 @@ export const _allMessages = {
     "Seconds, 0 to disable": {
         def: "Seconds, 0 to disable",
         es: "Segundos, 0 para desactivar",
+        fr: "Secondes, 0 pour désactiver",
         ja: "秒数、0で無効",
         ko: "초 단위, 0으로 설정하면 비활성화",
         ru: "Секунд, 0 для отключения",
@@ -3719,6 +4202,7 @@ export const _allMessages = {
     "Seconds. Saving to the local database will be delayed until this value after we stop typing or saving.": {
         def: "Seconds. Saving to the local database will be delayed until this value after we stop typing or saving.",
         es: "Segundos. Guardado en BD local se retrasará hasta este valor tras dejar de escribir/guardar",
+        fr: "Secondes. L'enregistrement dans la base locale sera différé de cette valeur après l'arrêt de la frappe ou de l'enregistrement.",
         ja: "秒。入力や保存を停止してからこの値の間、ローカルデータベースへの保存が遅延されます。",
         ko: "초 단위입니다. 타이핑이나 저장을 중단한 후 이 시간동안 로컬 데이터베이스 저장이 지연됩니다.",
         ru: "Секунды. Сохранение в локальную базу данных будет отложено.",
@@ -3727,6 +4211,7 @@ export const _allMessages = {
     "Secret Key": {
         def: "Secret Key",
         es: "Clave secreta",
+        fr: "Clé secrète",
         ja: "シークレットキー",
         ko: "시크릿 키",
         ru: "Секретный ключ",
@@ -3735,6 +4220,7 @@ export const _allMessages = {
     "Server URI": {
         def: "Server URI",
         es: "URI del servidor",
+        fr: "URI du serveur",
         ja: "URI",
         ko: "서버 URI",
         ru: "URI сервера",
@@ -3742,6 +4228,7 @@ export const _allMessages = {
     },
     "Setting.GenerateKeyPair.Desc": {
         def: 'We have generated a key pair!\n\nNote: This key pair will never be shown again. Please save it in a safe place. If you have lost it, you need to generate a new key pair.\nNote 2: The public key is in spki format, and the Private key is in pkcs8 format. For the sake of convenience, newlines are converted to `\\n` in public key.\nNote 3: The public key should be configured in the remote database, and the private key should be configured in local devices.\n\n>[!FOR YOUR EYES ONLY]-\n> <div class="sls-keypair">\n>\n> ### Public Key\n> ```\n${public_key}\n> ```\n>\n> ### Private Key\n> ```\n${private_key}\n> ```\n>\n> </div>\n\n>[!Both for copying]-\n>\n> <div class="sls-keypair">\n>\n> ```\n${public_key}\n${private_key}\n> ```\n>\n> </div>\n\n',
+        fr: 'Nous avons généré une paire de clés !\n\nNote : cette paire de clés ne sera plus jamais affichée. Veuillez la conserver dans un endroit sûr. Si vous la perdez, vous devrez générer une nouvelle paire.\nNote 2 : la clé publique est au format spki, et la clé privée au format pkcs8. Pour plus de commodité, les retours à la ligne sont convertis en `\\n` dans la clé publique.\nNote 3 : la clé publique doit être configurée dans la base distante, et la clé privée sur les appareils locaux.\n\n>[!POUR VOS YEUX SEULEMENT]-\n> <div class="sls-keypair">\n>\n> ### Clé publique\n> ```\n${public_key}\n> ```\n>\n> ### Clé privée\n> ```\n${private_key}\n> ```\n>\n> </div>\n\n>[!Les deux pour copier]-\n>\n> <div class="sls-keypair">\n>\n> ```\n${public_key}\n${private_key}\n> ```\n>\n> </div>\n\n',
         ja: 'キーペアを生成しました！\n\n注意: このキーペアは再度表示されません。安全な場所に保存してください。紛失した場合は、新しいキーペアを生成する必要があります。\n注意2: 公開鍵はspki形式、秘密鍵はpkcs8形式です。利便性のため、公開鍵の改行は`\\n`に変換されています。\n注意3: 公開鍵はリモートデータベースに、秘密鍵はローカルデバイスに設定してください。\n\n>[!FOR YOUR EYES ONLY]-\n> <div class="sls-keypair">\n>\n> ### 公開鍵\n> ```\n${public_key}\n> ```\n>\n> ### 秘密鍵\n> ```\n${private_key}\n> ```\n>\n> </div>\n\n>[!Both for copying]-\n>\n> <div class="sls-keypair">\n>\n> ```\n${public_key}\n${private_key}\n> ```\n>\n> </div>\n\n',
         ko: '키 페어를 생성했습니다!\n\n참고: 이 키 페어는 다시 표시되지 않습니다. 안전한 곳에 저장해 주세요. 분실하면 새 키 페어를 생성해야 합니다.\n참고 2: 공개 키는 spki 형식이고, 개인 키는 pkcs8 형식입니다. 편의상 공개 키의 줄 바꿈은 `\\n`으로 변환됩니다.\n참고 3: 공개 키는 원격 데이터베이스에서 구성되어야 하고, 개인 키는 로컬 기기에서 구성되어야 합니다.\n\n>[!FOR YOUR EYES ONLY]-\n> <div class="sls-keypair">\n>\n> ### 공개 키\n> ```\n${public_key}\n> ```\n>\n> ### 개인 키\n> ```\n${private_key}\n> ```\n>\n> </div>\n\n>[!Both for copying]-\n>\n> <div class="sls-keypair">\n>\n> ```\n${public_key}\n${private_key}\n> ```\n>\n> </div>\n\n\n',
         ru: "Мы сгенерировали пару ключей!",
@@ -3749,6 +4236,7 @@ export const _allMessages = {
     },
     "Setting.GenerateKeyPair.Title": {
         def: "New key pair has been generated!",
+        fr: "Une nouvelle paire de clés a été générée !",
         ja: "新しいキーペアが生成されました！",
         ko: "새 키 페어가 생성되었습니다!",
         ru: "Новая пара ключей сгенерирована!",
@@ -3756,6 +4244,7 @@ export const _allMessages = {
     },
     "Setting.TroubleShooting": {
         def: "TroubleShooting",
+        fr: "Dépannage",
         ja: "トラブルシューティング",
         ko: "문제 해결",
         ru: "Устранение неполадок",
@@ -3763,6 +4252,7 @@ export const _allMessages = {
     },
     "Setting.TroubleShooting.Doctor": {
         def: "Setting Doctor",
+        fr: "Docteur des paramètres",
         ja: "設定診断ツール",
         ko: "설정 진단 마법사",
         ru: "Диагностика настроек",
@@ -3770,6 +4260,7 @@ export const _allMessages = {
     },
     "Setting.TroubleShooting.Doctor.Desc": {
         def: "Detects non optimal settings. (Same as during migration)",
+        fr: "Détecte les paramètres non optimaux. (Identique à la migration)",
         ja: "最適でない設定を検出します。（マイグレーション時と同じ）",
         ko: "최적화되지 않은 설정을 감지합니다. (데이터 구조 전환 시와 동일)",
         ru: "Обнаруживает неоптимальные настройки.",
@@ -3777,18 +4268,21 @@ export const _allMessages = {
     },
     "Setting.TroubleShooting.ScanBrokenFiles": {
         def: "Scan for broken files",
+        fr: "Analyser les fichiers corrompus",
         ja: "破損ファイルのスキャン",
         ru: "Сканировать повреждённые файлы",
         zh: "扫描损坏或异常的文件",
     },
     "Setting.TroubleShooting.ScanBrokenFiles.Desc": {
         def: "Scans for files that are not stored correctly in the database.",
+        fr: "Analyse les fichiers qui ne sont pas stockés correctement dans la base.",
         ja: "データベースに正しく保存されていないファイルをスキャンします。",
         ru: "Сканирует файлы, которые неправильно хранятся в базе данных.",
         zh: "扫描数据库中未正确存储的文件。",
     },
     "SettingTab.Message.AskRebuild": {
         def: "Your changes require fetching from the remote database. Do you want to proceed?",
+        fr: "Vos modifications nécessitent une récupération depuis la base distante. Voulez-vous continuer ?",
         ja: "変更にはリモートデータベースからのフェッチが必要です。続行しますか？",
         ko: "변경 사항을 적용하려면 원격 데이터베이스에서 가져와야 합니다. 계속 진행하시겠습니까?",
         ru: "Ваши изменения требуют загрузки из удалённой базы данных. Хотите продолжить?",
@@ -3796,102 +4290,119 @@ export const _allMessages = {
     },
     "Setup.Apply.Buttons.ApplyAndFetch": {
         def: "Apply and Fetch",
+        fr: "Appliquer et récupérer",
         ja: "適用してフェッチ",
         ru: "Применить и загрузить",
         zh: "Apply and Fetch",
     },
     "Setup.Apply.Buttons.ApplyAndMerge": {
         def: "Apply and Merge",
+        fr: "Appliquer et fusionner",
         ja: "適用してマージ",
         ru: "Применить и объединить",
         zh: "Apply and Merge",
     },
     "Setup.Apply.Buttons.ApplyAndRebuild": {
         def: "Apply and Rebuild",
+        fr: "Appliquer et reconstruire",
         ja: "適用して再構築",
         ru: "Применить и перестроить",
         zh: "Apply and Rebuild",
     },
     "Setup.Apply.Buttons.Cancel": {
         def: "Discard and Cancel",
+        fr: "Abandonner et annuler",
         ja: "破棄してキャンセル",
         ru: "Отменить и отменить",
         zh: "Discard and Cancel",
     },
     "Setup.Apply.Buttons.OnlyApply": {
         def: "Only Apply",
+        fr: "Appliquer seulement",
         ja: "適用のみ",
         ru: "Только применить",
         zh: "Only Apply",
     },
     "Setup.Apply.Message": {
         def: "The new configuration is ready. Let us proceed to apply it.\nThere are several ways to apply this:\n\n- Apply and Fetch\n  Configure this device as a new client. After applying, synchronise from the remote server.\n- Apply and Merge\n  Configure on a device that already has the file. It processes the local files and transfers the differences. Conflicts may arise.\n- Apply and Rebuild\n  Rebuild the remote using local files. This is typically done if the server becomes corrupted or we wish to start from scratch.\n  Other devices will be locked and required to re-fetch.\n- Only Apply\n  Apply only. Conflicts may arise if a rebuild is required.",
+        fr: "La nouvelle configuration est prête. Procédons à son application.\nPlusieurs manières de l'appliquer :\n\n- Appliquer et récupérer\n  Configurer cet appareil comme nouveau client. Après application, synchroniser depuis le serveur distant.\n- Appliquer et fusionner\n  Configurer sur un appareil qui possède déjà les fichiers. Traite les fichiers locaux et transfère les différences. Des conflits peuvent apparaître.\n- Appliquer et reconstruire\n  Reconstruire le distant à partir des fichiers locaux. Typiquement effectué si le serveur est corrompu ou si l'on souhaite repartir de zéro.\n  Les autres appareils seront verrouillés et devront refaire une récupération.\n- Appliquer seulement\n  Appliquer uniquement. Des conflits peuvent apparaître si une reconstruction est nécessaire.",
         ja: "新しい設定の準備ができました。適用に進みましょう。\n適用方法はいくつかあります：\n\n- 適用してフェッチ\n  このデバイスを新しいクライアントとして設定します。適用後、リモートサーバーから同期します。\n- 適用してマージ\n  既にファイルがあるデバイスで設定します。ローカルファイルを処理し、差分を転送します。競合が発生する場合があります。\n- 適用して再構築\n  ローカルファイルを使用してリモートを再構築します。これは通常、サーバーが破損した場合や最初からやり直したい場合に行います。\n  他のデバイスはロックされ、再フェッチが必要になります。\n- 適用のみ\n  適用のみを行います。再構築が必要な場合、競合が発生する可能性があります。",
         ru: "Новая конфигурация готова. Есть несколько способов применить её.",
         zh: "The new configuration is ready. Let us proceed to apply it.\nThere are several ways to apply this:\n\n- Apply and Fetch\n  Configure this device as a new client. After applying, synchronise from the remote server.\n- Apply and Merge\n  Configure on a device that already has the file. It processes the local files and transfers the differences. Conflicts may arise.\n- Apply and Rebuild\n  Rebuild the remote using local files. This is typically done if the server becomes corrupted or we wish to start from scratch.\n  Other devices will be locked and required to re-fetch.\n- Only Apply\n  Apply only. Conflicts may arise if a rebuild is required.",
     },
     "Setup.Apply.Title": {
         def: "Apply new configuration from the ${method}",
+        fr: "Appliquer la nouvelle configuration depuis ${method}",
         ja: "${method}からの新しい設定を適用",
         ru: "Применить новую конфигурацию из method",
         zh: "Apply new configuration from the ${method}",
     },
     "Setup.Apply.WarningRebuildRecommended": {
         def: "NOTE: after adjusting the settings, it has been determined that a rebuild is required; Just Import is not recommended.",
+        fr: "NOTE : après ajustement des paramètres, il a été déterminé qu'une reconstruction est requise ; un simple import n'est pas recommandé.",
         ja: "注意: 設定の調整後、再構築が必要と判断されました。インポートのみは推奨されません。",
         ru: "ПРИМЕЧАНИЕ: после настройки изменений определено, что требуется перестроение.",
         zh: "NOTE: after adjusting the settings, it has been determined that a rebuild is required; Just Import is not recommended.",
     },
     "Setup.Doctor.Buttons.No": {
         def: "No, please use the settings in the URI as is",
+        fr: "Non, utiliser les paramètres de l'URI tels quels",
         ja: "いいえ、URIの設定をそのまま使用",
         ru: "Нет, использовать настройки из URI как есть",
         zh: "No, please use the settings in the URI as is",
     },
     "Setup.Doctor.Buttons.Yes": {
         def: "Yes, please consult the doctor",
+        fr: "Oui, consulter le docteur",
         ja: "はい、診断ツールに相談する",
         ru: "Да, пожалуйста, запустить диагностику",
         zh: "Yes, please consult the doctor",
     },
     "Setup.Doctor.Message": {
         def: "Self-hosted LiveSync has gradually become longer in history and some recommended settings have changed.\n\nNow, setup is a very good time to do this.\n\nDo you want to run Doctor to check if the imported settings are optimal compared to the latest state?",
+        fr: "Self-hosted LiveSync s'est progressivement étoffé et certains paramètres recommandés ont évolué.\n\nLa configuration est un bon moment pour le faire.\n\nVoulez-vous lancer le Docteur pour vérifier si les paramètres importés sont optimaux par rapport au dernier état ?",
         ja: "Self-hosted LiveSyncは徐々に歴史が長くなり、一部の推奨設定が変更されています。\n\nセットアップは、これを行う非常に良い機会です。\n\nインポートされた設定が最新の状態と比較して最適かどうかを確認するために、診断ツールを実行しますか？",
         ru: "Self-hosted LiveSync постепенно набрал историю и некоторые рекомендуемые настройки изменились.",
         zh: "Self-hosted LiveSync has gradually become longer in history and some recommended settings have changed.\n\nNow, setup is a very good time to do this.\n\nDo you want to run Doctor to check if the imported settings are optimal compared to the latest state?",
     },
     "Setup.Doctor.Title": {
         def: "Do you want to consult the doctor?",
+        fr: "Voulez-vous consulter le docteur ?",
         ja: "診断ツールに相談しますか？",
         ru: "Хотите запустить диагностику?",
         zh: "Do you want to consult the doctor?",
     },
     "Setup.FetchRemoteConf.Buttons.Fetch": {
         def: "Yes, please fetch the configuration",
+        fr: "Oui, récupérer la configuration",
         ja: "はい、設定を取得",
         ru: "Да, загрузить конфигурацию",
         zh: "Yes, please fetch the configuration",
     },
     "Setup.FetchRemoteConf.Buttons.Skip": {
         def: "No, please use the settings in the URI",
+        fr: "Non, utiliser les paramètres de l'URI",
         ja: "いいえ、URIの設定を使用",
         ru: "Нет, использовать настройки из URI",
         zh: "No, please use the settings in the URI",
     },
     "Setup.FetchRemoteConf.Message": {
         def: "If we have already synchronised once with another device, the remote database stores the suitable configuration values between the synchronised devices. The plug-in would like to retrieve them for robust configuration.\n\nHowever, we have to make sure the one thing. Are we currently in a situation where we can access the network safely and retrieve the settings?\n\nNote: Mostly, you are safe to do this, that your remote database is hosted with a SSL certificate, and your network is not compromised.",
+        fr: "Si nous avons déjà synchronisé une fois avec un autre appareil, la base distante stocke les valeurs de configuration adaptées entre les appareils synchronisés. Le plug-in souhaiterait les récupérer pour une configuration robuste.\n\nMais il faut s'assurer d'une chose. Sommes-nous actuellement dans une situation où nous pouvons accéder au réseau en toute sécurité et récupérer les paramètres ?\n\nNote : le plus souvent, c'est sûr si votre base distante est hébergée avec un certificat SSL et si votre réseau n'est pas compromis.",
         ja: "既に他のデバイスと同期したことがある場合、リモートデータベースには同期されたデバイス間の適切な設定値が保存されています。プラグインは堅牢な設定のためにそれらを取得したいと考えています。\n\nただし、1つ確認が必要です。現在、ネットワークに安全にアクセスして設定を取得できる状況ですか？\n\n注意: リモートデータベースがSSL証明書でホストされており、ネットワークが侵害されていなければ、ほとんどの場合安全に実行できます。",
         ru: "Если мы уже синхронизировались с другим устройством, удалённая база данных хранит подходящие значения конфигурации.",
         zh: "If we have already synchronised once with another device, the remote database stores the suitable configuration values between the synchronised devices. The plug-in would like to retrieve them for robust configuration.\n\nHowever, we have to make sure the one thing. Are we currently in a situation where we can access the network safely and retrieve the settings?\n\nNote: Mostly, you are safe to do this, that your remote database is hosted with a SSL certificate, and your network is not compromised.",
     },
     "Setup.FetchRemoteConf.Title": {
         def: "Fetch configuration from remote database?",
+        fr: "Récupérer la configuration depuis la base distante ?",
         ja: "リモートデータベースから設定を取得しますか？",
         ru: "Загрузить конфигурацию с удалённой базы данных?",
         zh: "Fetch configuration from remote database?",
     },
     "Setup.QRCode": {
         def: 'We have generated a QR code to transfer the settings. Please scan the QR code with your phone or other device.\nNote: The QR code is not encrypted, so be careful to open this.\n\n>[!FOR YOUR EYES ONLY]-\n> <div class="sls-qr">${qr_image}</div>',
+        fr: "Nous avons généré un QR code pour transférer les paramètres. Scannez-le avec votre téléphone ou un autre appareil.\nNote : le QR code n'est pas chiffré, soyez prudent en l'affichant.\n\n>[!POUR VOS YEUX SEULEMENT]-\n> <div class=\"sls-qr\">${qr_image}</div>",
         ja: '設定を転送するためのQRコードを生成しました。スマートフォンや他のデバイスでQRコードをスキャンしてください。\n注意: QRコードは暗号化されていないため、開く際は注意してください。\n\n>[!FOR YOUR EYES ONLY]-\n> <div class="sls-qr">${qr_image}</div>',
         ko: '설정을 전송하기 위한 QR 코드를 생성했습니다. 휴대폰이나 다른 기기로 QR 코드를 스캔해 주세요.\n참고: QR 코드는 암호화되지 않았으므로 열 때 주의하세요.\n\n>[!FOR YOUR EYES ONLY]-\n> <div class="sls-qr">${qr_image}</div>',
         ru: "Мы сгенерировали QR-код для передачи настроек. Отсканируйте QR-код телефоном.",
@@ -3899,6 +4410,7 @@ export const _allMessages = {
     },
     "Setup.ShowQRCode": {
         def: "Show QR code",
+        fr: "Afficher le QR code",
         ja: "QRコードを表示",
         ko: "QR 코드 표시",
         ru: "Показать QR код",
@@ -3906,6 +4418,7 @@ export const _allMessages = {
     },
     "Setup.ShowQRCode.Desc": {
         def: "Show QR code to transfer the settings.",
+        fr: "Afficher le QR code pour transférer les paramètres.",
         ja: "設定を転送するためのQRコードを表示します。",
         ko: "설정을 전송하기 위한 QR 코드를 표시합니다.",
         ru: "Показать QR код для передачи настроек.",
@@ -3914,6 +4427,7 @@ export const _allMessages = {
     "Should we keep folders that don't have any files inside?": {
         def: "Should we keep folders that don't have any files inside?",
         es: "¿Mantener carpetas vacías?",
+        fr: "Conserver les dossiers ne contenant aucun fichier ?",
         ja: "中にファイルがないフォルダーを保持しますか？",
         ko: "내부에 파일이 없는 폴더를 유지하시겠습니까?",
         ru: "Сохранять папки без файлов?",
@@ -3922,6 +4436,7 @@ export const _allMessages = {
     "Should we only check for conflicts when a file is opened?": {
         def: "Should we only check for conflicts when a file is opened?",
         es: "¿Solo comprobar conflictos al abrir archivo?",
+        fr: "Ne vérifier les conflits qu'à l'ouverture d'un fichier ?",
         ja: "ファイルを開いたときのみ競合をチェックしますか？",
         ko: "파일을 열 때만 충돌을 확인하시겠습니까?",
         ru: "Проверять конфликты только при открытии файла?",
@@ -3930,6 +4445,7 @@ export const _allMessages = {
     "Should we prompt you about conflicting files when a file is opened?": {
         def: "Should we prompt you about conflicting files when a file is opened?",
         es: "¿Notificar sobre conflictos al abrir archivo?",
+        fr: "Vous demander au sujet des fichiers en conflit à l'ouverture d'un fichier ?",
         ja: "ファイルを開いたときに競合ファイルについて確認を求めますか？",
         ko: "파일을 열 때 충돌하는 파일에 대해 알림을 표시하시겠습니까?",
         ru: "Спрашивать о конфликтующих файлах при открытии файла?",
@@ -3938,6 +4454,7 @@ export const _allMessages = {
     "Should we prompt you for every single merge, even if we can safely merge automatcially?": {
         def: "Should we prompt you for every single merge, even if we can safely merge automatcially?",
         es: "¿Preguntar en cada fusión aunque sea automática?",
+        fr: "Vous demander pour chaque fusion, même si nous pouvons fusionner automatiquement en toute sécurité ?",
         ja: "自動的に安全にマージできる場合でも、すべてのマージについて確認を求めますか？",
         ko: "안전하게 자동 병합할 수 있는 경우에도 모든 병합에 대해 알림을 받으시겠습니까?",
         ru: "Спрашивать о каждом слиянии, даже если мы можем безопасно слить автоматически?",
@@ -3946,6 +4463,7 @@ export const _allMessages = {
     "Show only notifications": {
         def: "Show only notifications",
         es: "Mostrar solo notificaciones",
+        fr: "N'afficher que les notifications",
         ja: "通知のみ表示",
         ko: "알림만 표시",
         ru: "Показывать только уведомления",
@@ -3954,6 +4472,7 @@ export const _allMessages = {
     "Show status as icons only": {
         def: "Show status as icons only",
         es: "Mostrar estado solo con íconos",
+        fr: "N'afficher le statut que sous forme d'icônes",
         ja: "ステータス表示をアイコンのみにする",
         ko: "아이콘으로만 상태 표시",
         ru: "Показывать статус только иконками",
@@ -3961,12 +4480,14 @@ export const _allMessages = {
     },
     "Show status icon instead of file warnings banner": {
         def: "Show status icon instead of file warnings banner",
+        fr: "Afficher l'icône de statut au lieu de la bannière d'avertissements",
         ru: "Показывать иконку статуса вместо предупреждения о файлах",
         zh: "显示状态图标，而非文件警告横幅",
     },
     "Show status inside the editor": {
         def: "Show status inside the editor",
         es: "Mostrar estado dentro del editor",
+        fr: "Afficher le statut dans l'éditeur",
         ja: "ステータスをエディタ内に表示",
         ko: "편집기 내부에 상태 표시",
         ru: "Показывать статус внутри редактора",
@@ -3975,6 +4496,7 @@ export const _allMessages = {
     "Show status on the status bar": {
         def: "Show status on the status bar",
         es: "Mostrar estado en la barra de estado",
+        fr: "Afficher le statut dans la barre d'état",
         ja: "ステータスバーに、ステータスを表示",
         ko: "상태 바에 상태 표시",
         ru: "Показывать статус в строке состояния",
@@ -3983,6 +4505,7 @@ export const _allMessages = {
     "Show verbose log. Please enable if you report an issue.": {
         def: "Show verbose log. Please enable if you report an issue.",
         es: "Mostrar registro detallado. Actívelo si reporta un problema.",
+        fr: "Afficher un journal verbeux. À activer si vous signalez un problème.",
         ja: "エラー以外の詳細ログ項目も表示する。問題が発生した場合は有効にしてください。",
         ko: "자세한 로그를 표시합니다. 문제를 신고하는 경우 활성화해 주세요.",
         ru: "Показывать подробный лог. Пожалуйста, включите при сообщении о проблеме.",
@@ -3991,6 +4514,7 @@ export const _allMessages = {
     "Starts synchronisation when a file is saved.": {
         def: "Starts synchronisation when a file is saved.",
         es: "Inicia sincronización al guardar un archivo",
+        fr: "Démarre la synchronisation à l'enregistrement d'un fichier.",
         ja: "ファイルが保存されたときに同期を開始します。",
         ko: "파일이 저장될 때 동기화를 시작합니다.",
         ru: "Запускать синхронизацию при сохранении файла.",
@@ -3999,6 +4523,7 @@ export const _allMessages = {
     "Stop reflecting database changes to storage files.": {
         def: "Stop reflecting database changes to storage files.",
         es: "Dejar de reflejar cambios de BD en archivos",
+        fr: "Arrêter de répercuter les modifications de la base vers les fichiers de stockage.",
         ja: "データベースの変更をストレージファイルに反映させない",
         ko: "데이터베이스 변경 사항을 스토리지 파일에 반영하는 것을 중단합니다.",
         ru: "Остановить отражение изменений базы данных в файлы хранилища.",
@@ -4007,6 +4532,7 @@ export const _allMessages = {
     "Stop watching for file changes.": {
         def: "Stop watching for file changes.",
         es: "Dejar de monitorear cambios en archivos",
+        fr: "Arrêter la surveillance des modifications de fichiers.",
         ja: "監視の停止",
         ko: "파일 변경 사항 감시를 중단합니다.",
         ru: "Остановить отслеживание изменений файлов.",
@@ -4015,6 +4541,7 @@ export const _allMessages = {
     "Suppress notification of hidden files change": {
         def: "Suppress notification of hidden files change",
         es: "Suprimir notificaciones de cambios en archivos ocultos",
+        fr: "Supprimer les notifications de modification des fichiers cachés",
         ja: "隠しファイルの変更通知を抑制",
         ko: "숨겨진 파일 변경 알림 억제",
         ru: "Подавлять уведомления об изменении скрытых файлов",
@@ -4023,6 +4550,7 @@ export const _allMessages = {
     "Suspend database reflecting": {
         def: "Suspend database reflecting",
         es: "Suspender reflejo de base de datos",
+        fr: "Suspendre la répercussion dans la base",
         ja: "データベース反映の一時停止",
         ko: "데이터베이스 반영 일시 중단",
         ru: "Приостановить отражение базы данных",
@@ -4031,6 +4559,7 @@ export const _allMessages = {
     "Suspend file watching": {
         def: "Suspend file watching",
         es: "Suspender monitorización de archivos",
+        fr: "Suspendre la surveillance des fichiers",
         ja: "監視の一時停止",
         ko: "파일 감시 일시 중단",
         ru: "Приостановить отслеживание файлов",
@@ -4039,6 +4568,7 @@ export const _allMessages = {
     "Sync after merging file": {
         def: "Sync after merging file",
         es: "Sincronizar tras fusionar archivo",
+        fr: "Synchroniser après fusion d'un fichier",
         ja: "ファイルがマージ(統合)された時に同期",
         ko: "파일 병합 후 동기화",
         ru: "Синхронизировать после слияния файла",
@@ -4047,6 +4577,7 @@ export const _allMessages = {
     "Sync automatically after merging files": {
         def: "Sync automatically after merging files",
         es: "Sincronizar automáticamente tras fusionar archivos",
+        fr: "Synchroniser automatiquement après fusion des fichiers",
         ja: "ファイルのマージ後に自動的に同期",
         ko: "파일 병합 후 자동으로 동기화",
         ru: "Синхронизировать автоматически после слияния файлов",
@@ -4055,6 +4586,7 @@ export const _allMessages = {
     "Sync Mode": {
         def: "Sync Mode",
         es: "Modo de sincronización",
+        fr: "Mode de synchronisation",
         ja: "同期モード",
         ko: "동기화 모드",
         ru: "Режим синхронизации",
@@ -4063,6 +4595,7 @@ export const _allMessages = {
     "Sync on Editor Save": {
         def: "Sync on Editor Save",
         es: "Sincronizar al guardar en editor",
+        fr: "Synchroniser à l'enregistrement dans l'éditeur",
         ja: "エディタでの保存時に、同期されます",
         ko: "편집기 저장 시 동기화",
         ru: "Синхронизация при сохранении в редакторе",
@@ -4071,6 +4604,7 @@ export const _allMessages = {
     "Sync on File Open": {
         def: "Sync on File Open",
         es: "Sincronizar al abrir archivo",
+        fr: "Synchroniser à l'ouverture d'un fichier",
         ja: "ファイルを開いた時に同期",
         ko: "파일 열기 시 동기화",
         ru: "Синхронизация при открытии файла",
@@ -4079,6 +4613,7 @@ export const _allMessages = {
     "Sync on Save": {
         def: "Sync on Save",
         es: "Sincronizar al guardar",
+        fr: "Synchroniser à l'enregistrement",
         ja: "保存時に同期",
         ko: "저장 시 동기화",
         ru: "Синхронизация при сохранении",
@@ -4087,6 +4622,7 @@ export const _allMessages = {
     "Sync on Startup": {
         def: "Sync on Startup",
         es: "Sincronizar al iniciar",
+        fr: "Synchroniser au démarrage",
         ja: "起動時同期",
         ko: "시작 시 동기화",
         ru: "Синхронизация при запуске",
@@ -4096,6 +4632,7 @@ export const _allMessages = {
         {
             def: "Testing only - Resolve file conflicts by syncing newer copies of the file, this can overwrite modified files. Be Warned.",
             es: "Solo pruebas - Resolver conflictos sincronizando copias nuevas (puede sobrescribir modificaciones)",
+            fr: "Test uniquement - Résout les conflits de fichiers en synchronisant les copies plus récentes, ce qui peut écraser des fichiers modifiés. Prudence.",
             ja: "テスト用 - ファイルの新しいコピーを同期してファイル競合を解決します。これにより変更されたファイルが上書きされる可能性があります。注意してください。",
             ko: "테스트 전용 - 파일의 새로운 사본을 동기화하여 파일 충돌을 해결하며, 수정된 파일을 덮어쓸 수 있습니다. 주의하세요.",
             ru: "Только для тестирования - разрешать конфликты файлов синхронизацией новых копий.",
@@ -4104,6 +4641,7 @@ export const _allMessages = {
     "The delay for consecutive on-demand fetches": {
         def: "The delay for consecutive on-demand fetches",
         es: "Retraso entre obtenciones consecutivas",
+        fr: "Le délai entre récupérations consécutives à la demande",
         ja: "連続したオンデマンドフェッチの遅延",
         ko: "연속 청크 요청 간 대기 시간",
         ru: "Задержка для последовательных запросов по требованию",
@@ -4112,6 +4650,7 @@ export const _allMessages = {
     "The Hash algorithm for chunk IDs": {
         def: "The Hash algorithm for chunk IDs",
         es: "Algoritmo hash para IDs de chunks",
+        fr: "L'algorithme de hachage pour les identifiants de fragments",
         ja: "チャンクIDのハッシュアルゴリズム",
         ko: "청크 ID용 해시 알고리즘",
         ru: "Хэш-алгоритм для ID чанков",
@@ -4121,6 +4660,7 @@ export const _allMessages = {
         {
             def: "The maximum duration for which chunks can be incubated within the document. Chunks exceeding this period will graduate to independent chunks.",
             es: "Duración máxima para incubar chunks. Excedentes se independizan",
+            fr: "La durée maximale pendant laquelle les fragments peuvent être incubés dans le document. Les fragments dépassant cette période seront promus en fragments indépendants.",
             ja: "ドキュメント内でチャンクを保持できる最大期間。この期間を超えたチャンクは独立したチャンクに昇格します。",
             ko: "변경 기록이 문서에 함께 보관될 수 있는 최대 시간입니다. 초과 시 문서에서 분리되어 개별로 저장됩니다.",
             ru: "The maximum duration for which chunks can be incubated within the document. Chunks exceeding this period will graduate to independent chunks.",
@@ -4130,6 +4670,7 @@ export const _allMessages = {
         {
             def: "The maximum number of chunks that can be incubated within the document. Chunks exceeding this number will immediately graduate to independent chunks.",
             es: "Número máximo de chunks que pueden incubarse en el documento. Excedentes se independizan",
+            fr: "Le nombre maximum de fragments pouvant être incubés dans le document. Les fragments dépassant ce nombre seront immédiatement promus en fragments indépendants.",
             ja: "ドキュメント内で保持できるチャンクの最大数。この数を超えたチャンクは即座に独立したチャンクに昇格します。",
             ko: "문서 안에 임시로 보관할 수 있는 변경 기록의 최대 개수입니다. 이 수를 초과하면 즉시 독립된 청크로 분리되어 저장됩니다.",
             ru: "The maximum number of chunks that can be incubated within the document. Chunks exceeding this number will immediately graduate to independent chunks.",
@@ -4139,6 +4680,7 @@ export const _allMessages = {
         {
             def: "The maximum total size of chunks that can be incubated within the document. Chunks exceeding this size will immediately graduate to independent chunks.",
             es: "Tamaño total máximo de chunks incubados. Excedentes se independizan",
+            fr: "La taille totale maximale des fragments pouvant être incubés dans le document. Les fragments dépassant cette taille seront immédiatement promus en fragments indépendants.",
             ja: "ドキュメント内で保持できるチャンクの最大合計サイズ。このサイズを超えたチャンクは即座に独立したチャンクに昇格します。",
             ko: "문서 안에 임시로 보관할 수 있는 변경 기록의 전체 크기 제한입니다. 초과 시 자동으로 분리됩니다.",
             ru: "The maximum total size of chunks that can be incubated within the document. Chunks exceeding this size will immediately graduate to independent chunks.",
@@ -4146,12 +4688,14 @@ export const _allMessages = {
         },
     "The minimum interval for automatic synchronisation on event.": {
         def: "The minimum interval for automatic synchronisation on event.",
+        fr: "L'intervalle minimum pour la synchronisation automatique sur événement.",
         ru: "Минимальный интервал автоматической синхронизации по событию.",
         zh: "基于事件自动同步的最小间隔。",
     },
     "This passphrase will not be copied to another device. It will be set to `Default` until you configure it again.": {
         def: "This passphrase will not be copied to another device. It will be set to `Default` until you configure it again.",
         es: "Esta frase no se copia a otros dispositivos. Usará `Default` hasta reconfigurar",
+        fr: "Cette phrase secrète ne sera pas copiée vers un autre appareil. Elle sera définie à `Default` jusqu'à ce que vous la configuriez à nouveau.",
         ja: "このパスフレーズは他のデバイスにコピーされません。再度設定するまで`Default`に設定されます。",
         ko: "이 패스프레이즈는 다른 기기로 복사되지 않습니다. 다시 구성할 때까지 `기본값`으로 설정됩니다.",
         ru: "This passphrase will not be copied to another device. It will be set to `Default` until you configure it again.",
@@ -4159,6 +4703,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Action.Dismiss": {
         def: "Dismiss",
+        fr: "Ignorer",
         ja: "無視",
         ko: "무시",
         ru: "Отмена",
@@ -4166,6 +4711,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Action.UseConfigured": {
         def: "Use configured settings",
+        fr: "Utiliser les paramètres configurés",
         ja: "設定済みの設定を使用",
         ko: "구성된 설정 사용",
         ru: "Использовать настроенные параметры",
@@ -4173,6 +4719,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Action.UseMine": {
         def: "Update remote database settings",
+        fr: "Mettre à jour les paramètres de la base distante",
         ja: "リモートデータベースの設定を更新",
         ko: "원격 데이터베이스 설정 업데이트",
         ru: "Обновить настройки удалённой базы данных",
@@ -4180,6 +4727,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Action.UseMineAcceptIncompatible": {
         def: "Update remote database settings but keep as is",
+        fr: "Mettre à jour la base distante mais garder en l'état",
         ja: "リモートデータベースの設定を更新するがそのまま維持",
         ko: "원격 데이터베이스 설정 업데이트하지만 그대로 유지",
         ru: "Обновить настройки, но оставить как есть",
@@ -4187,6 +4735,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Action.UseMineWithRebuild": {
         def: "Update remote database settings and rebuild again",
+        fr: "Mettre à jour la base distante et reconstruire",
         ja: "リモートデータベースの設定を更新して再構築",
         ko: "원격 데이터베이스 설정 업데이트하고 다시 재구축",
         ru: "Обновить настройки и перестроить снова",
@@ -4194,6 +4743,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Action.UseRemote": {
         def: "Apply settings to this device",
+        fr: "Appliquer les paramètres à cet appareil",
         ja: "このデバイスに設定を適用",
         ko: "이 기기에 설정 적용",
         ru: "Применить настройки к этому устройству",
@@ -4201,6 +4751,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Action.UseRemoteAcceptIncompatible": {
         def: "Apply settings to this device, but and ignore incompatibility",
+        fr: "Appliquer à cet appareil, mais ignorer l'incompatibilité",
         ja: "このデバイスに設定を適用し、非互換性を無視",
         ko: "이 기기에 설정 적용하지만 호환성 문제 무시",
         ru: "Применить настройки, но игнорировать несовместимость",
@@ -4208,6 +4759,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Action.UseRemoteWithRebuild": {
         def: "Apply settings to this device, and fetch again",
+        fr: "Appliquer à cet appareil et récupérer à nouveau",
         ja: "このデバイスに設定を適用し、再フェッチ",
         ko: "이 기기에 설정 적용하고 다시 가져오기",
         ru: "Применить настройки и загрузить снова",
@@ -4215,6 +4767,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Message.Main": {
         def: "\nThe settings in the remote database are as follows. These values are configured by other devices, which are synchronised with this device at least once.\n\nIf you want to use these settings, please select %{TweakMismatchResolve.Action.UseConfigured}.\nIf you want to keep the settings of this device, please select %{TweakMismatchResolve.Action.Dismiss}.\n\n${table}\n\n>[!TIP]\n> If you want to synchronise all settings, please use `Sync settings via markdown` after applying minimal configuration with this feature.\n\n${additionalMessage}",
+        fr: "\nLes paramètres de la base distante sont les suivants. Ces valeurs sont configurées par d'autres appareils, synchronisés au moins une fois avec celui-ci.\n\nPour utiliser ces paramètres, sélectionnez %{TweakMismatchResolve.Action.UseConfigured}.\nPour conserver les paramètres de cet appareil, sélectionnez %{TweakMismatchResolve.Action.Dismiss}.\n\n${table}\n\n>[!ASTUCE]\n> Pour synchroniser tous les paramètres, utilisez « Synchroniser les paramètres via markdown » après application de la configuration minimale avec cette fonctionnalité.\n\n${additionalMessage}",
         ja: "\nリモートデータベースの設定は以下の通りです。これらの値は、このデバイスと少なくとも1回同期された他のデバイスによって設定されています。\n\nこれらの設定を使用する場合は、%{TweakMismatchResolve.Action.UseConfigured}を選択してください。\nこのデバイスの設定を維持する場合は、%{TweakMismatchResolve.Action.Dismiss}を選択してください。\n\n${table}\n\n>[!TIP]\n> すべての設定を同期したい場合は、この機能で最小限の設定を適用した後、`Sync settings via markdown`を使用してください。\n\n${additionalMessage}",
         ko: "\n원격 데이터베이스의 설정은 다음과 같습니다. 이 값들은 이 기기와 최소 한 번 동기화된 다른 기기에서 구성된 것입니다.\n\n이 설정을 사용하려면 %{TweakMismatchResolve.Action.UseConfigured}를 선택해 주세요.\n이 기기의 설정을 유지하려면 %{TweakMismatchResolve.Action.Dismiss}를 선택해 주세요.\n\n${table}\n\n>[!TIP]\n> 모든 설정을 동기화하려면 이 기능으로 최소 구성을 적용한 후 `마크다운을 통한 설정 동기화`를 사용해 주세요.\n\n${additionalMessage}",
         ru: "Настройки в удалённой базе данных следующие. Эти значения настроены другими устройствами.",
@@ -4222,6 +4775,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Message.MainTweakResolving": {
         def: "Your configuration has not been matched with the one on the remote server.\n\nFollowing configuration should be matched:\n\n${table}\n\nLet us know your decision.\n\n${additionalMessage}",
+        fr: "Votre configuration ne correspond pas à celle du serveur distant.\n\nLa configuration suivante devrait correspondre :\n\n${table}\n\nFaites-nous part de votre décision.\n\n${additionalMessage}",
         ja: "設定がリモートサーバーの設定と一致しません。\n\n以下の設定が一致している必要があります：\n\n${table}\n\n判断をお知らせください。\n\n${additionalMessage}",
         ko: "구성이 원격 서버의 것과 일치하지 않습니다.\n\n다음 구성이 일치해야 합니다:\n\n${table}\n\n결정을 알려주세요.\n\n${additionalMessage}",
         ru: "Ваша конфигурация не совпадает с удалённым сервером.",
@@ -4229,6 +4783,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Message.UseRemote.WarningRebuildRecommended": {
         def: "\n>[!NOTICE]\n> Some changes are compatible but may consume extra storage and transfer volumes. A rebuild is recommended. However, a rebuild may not be performed at present, but may be implemented in future maintenance.\n> ***Please ensure that you have time and are connected to a stable network to apply!***",
+        fr: "\n>[!AVIS]\n> Certains changements sont compatibles mais peuvent consommer du stockage et du trafic supplémentaires. Une reconstruction est recommandée. Cependant, elle peut ne pas être effectuée maintenant, mais pourra l'être lors d'une maintenance future.\n> ***Assurez-vous d'avoir du temps et une connexion stable pour appliquer !***",
         ja: "\n>[!NOTICE]\n> 一部の変更は互換性がありますが、追加のストレージと転送量を消費する可能性があります。再構築をお勧めします。ただし、再構築は現時点では実行されない場合がありますが、将来のメンテナンスで実装される可能性があります。\n> ***適用には時間と安定したネットワーク接続が必要です！***",
         ko: "\n>[!NOTICE]\n> 일부 변경사항은 호환 가능하지만 추가 스토리지 및 전송량을 소모할 수 있습니다. 재구축을 권장합니다. 하지만 현재 재구축을 수행하지 않더라도 향후 유지보수에서 구현될 수 있습니다.\n> ***시간적 여유가 있고 안정적인 네트워크에 연결된 상태에서 적용해 주세요!***",
         ru: "Некоторые изменения совместимы, но могут потребовать дополнительного хранилища. Рекомендуется перестроение.",
@@ -4236,6 +4791,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Message.UseRemote.WarningRebuildRequired": {
         def: "\n>[!WARNING]\n> Some remote configurations are not compatible with the local database of this device. Rebuilding the local database will be required.\n> ***Please ensure that you have time and are connected to a stable network to apply!***",
+        fr: "\n>[!AVERTISSEMENT]\n> Certaines configurations distantes ne sont pas compatibles avec la base locale de cet appareil. Une reconstruction de la base locale sera requise.\n> ***Assurez-vous d'avoir du temps et une connexion stable pour appliquer !***",
         ja: "\n>[!WARNING]\n> 一部のリモート設定はこのデバイスのローカルデータベースと互換性がありません。ローカルデータベースの再構築が必要です。\n> ***適用には時間と安定したネットワーク接続が必要です！***",
         ko: "\n>[!WARNING]\n> 일부 원격 구성이 이 기기의 로컬 데이터베이스와 호환되지 않습니다. 로컬 데이터베이스 재구축이 필요합니다.\n> ***시간적 여유가 있고 안정적인 네트워크에 연결된 상태에서 적용해 주세요!***",
         ru: "Некоторые удалённые конфигурации несовместимы с локальной базой данных. Требуется перестроение.",
@@ -4243,6 +4799,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Message.WarningIncompatibleRebuildRecommended": {
         def: "\n>[!NOTICE]\n> We have detected that some of the values are different to make incompatible the local database with the remote database.\n> Some changes are compatible but may consume extra storage and transfer volumes. A rebuild is recommended. However, a rebuild may not be performed at present, but may be implemented in future maintenance.\n> If you want to rebuild, it takes a few minutes or more. **Make sure it is safe to perform it now.**",
+        fr: "\n>[!AVIS]\n> Nous avons détecté que certaines valeurs diffèrent et rendent la base locale incompatible avec la base distante.\n> Certains changements sont compatibles mais peuvent consommer du stockage et du trafic supplémentaires. Une reconstruction est recommandée. Cependant, elle peut ne pas être effectuée maintenant, mais pourra l'être lors d'une maintenance future.\n> Si vous souhaitez reconstruire, cela prend quelques minutes ou plus. **Assurez-vous qu'il est sûr de le faire maintenant.**",
         ja: "\n>[!NOTICE]\n> ローカルデータベースとリモートデータベースの非互換性を引き起こす値の違いが検出されました。\n> 一部の変更は互換性がありますが、追加のストレージと転送量を消費する可能性があります。再構築をお勧めします。ただし、再構築は現時点では実行されない場合がありますが、将来のメンテナンスで実装される可能性があります。\n> 再構築を行う場合は数分以上かかります。**今実行しても安全か確認してください。**",
         ko: "\n>[!NOTICE]\n> 로컬 데이터베이스와 원격 데이터베이스가 호환되지 않도록 만드는 값들이 다른 것을 감지했습니다.\n> 일부 변경사항은 호환 가능하지만 추가 스토리지 및 전송량을 소모할 수 있습니다. 재구축을 권장합니다. 하지만 현재 재구축을 수행하지 않더라도 향후 유지보수에서 구현될 수 있습니다.\n> 재구축을 원한다면 몇 분 이상 소요됩니다. **지금 수행해도 안전한지 확인해 주세요.**",
         ru: "Обнаружены значения, несовместимые с удалённой базой данных. Рекомендуется перестроение.",
@@ -4250,6 +4807,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Message.WarningIncompatibleRebuildRequired": {
         def: "\n>[!WARNING]\n> We have detected that some of the values are different to make incompatible the local database with the remote database.\n> Either local or remote rebuilds are required. Both of them takes a few minutes or more. **Make sure it is safe to perform it now.**",
+        fr: "\n>[!AVERTISSEMENT]\n> Nous avons détecté que certaines valeurs diffèrent et rendent la base locale incompatible avec la base distante.\n> Une reconstruction locale ou distante est nécessaire. L'une comme l'autre prend quelques minutes ou plus. **Assurez-vous qu'il est sûr de le faire maintenant.**",
         ja: "\n>[!WARNING]\n> ローカルデータベースとリモートデータベースの非互換性を引き起こす値の違いが検出されました。\n> ローカルまたはリモートの再構築が必要です。どちらも数分以上かかります。**今実行しても安全か確認してください。**",
         ko: "\n>[!WARNING]\n> 로컬 데이터베이스와 원격 데이터베이스가 호환되지 않도록 만드는 값들이 다른 것을 감지했습니다.\n> 로컬 또는 원격 재구축이 필요합니다. 둘 다 몇 분 이상 소요됩니다. **지금 수행해도 안전한지 확인해 주세요.**",
         ru: "Обнаружены значения, несовместимые с удалённой базой данных. Требуется перестроение.",
@@ -4257,6 +4815,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Table": {
         def: "| Value name | This device | On Remote |\n|: --- |: ---- :|: ---- :|\n${rows}\n\n",
+        fr: "| Nom de la valeur | Cet appareil | Sur le distant |\n|: --- |: ---- :|: ---- :|\n${rows}\n\n",
         ja: "| 値の名前 | このデバイス | リモート |\n|: --- |: ---- :|: ---- :|\n${rows}\n\n",
         ko: "| 값 이름 | 이 기기 | 원격 |\n|: --- |: ---- :|: ---- :|\n${rows}\n\n",
         ru: "| Имя значения | Это устройство | На удалённом |\n|: --- |: ---- :|: ---- :|",
@@ -4264,6 +4823,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Table.Row": {
         def: "| ${name} | ${self} | ${remote} |",
+        fr: "| ${name} | ${self} | ${remote} |",
         ja: "| ${name} | ${self} | ${remote} |",
         ko: "| ${name} | ${self} | ${remote} |",
         ru: "| name | self | remote |",
@@ -4271,6 +4831,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Title": {
         def: "Configuration Mismatch Detected",
+        fr: "Incohérence de configuration détectée",
         ja: "設定の不一致が検出されました",
         ko: "구성 불일치 감지",
         ru: "Обнаружено несоответствие конфигурации",
@@ -4278,6 +4839,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Title.TweakResolving": {
         def: "Configuration Mismatch Detected",
+        fr: "Incohérence de configuration détectée",
         ja: "設定の不一致が検出されました",
         ko: "구성 불일치 감지",
         ru: "Обнаружено несоответствие конфигурации",
@@ -4285,6 +4847,7 @@ export const _allMessages = {
     },
     "TweakMismatchResolve.Title.UseRemoteConfig": {
         def: "Use Remote Configuration",
+        fr: "Utiliser la configuration distante",
         ja: "リモート設定を使用",
         ko: "원격 구성 사용",
         ru: "Использовать удалённую конфигурацию",
@@ -4293,6 +4856,7 @@ export const _allMessages = {
     "Unique name between all synchronized devices. To edit this setting, please disable customization sync once.": {
         def: "Unique name between all synchronized devices. To edit this setting, please disable customization sync once.",
         es: "Nombre único entre dispositivos sincronizados. Para editarlo, desactive sincronización de personalización",
+        fr: "Nom unique parmi tous les appareils synchronisés. Pour modifier ce paramètre, désactivez d'abord la synchronisation de personnalisation.",
         ja: "同期するすべての端末間で重複しない(一意の)名前。この設定を変更する場合、カスタマイズ同期を無効にしてください。",
         ko: "모든 동기화된 기기 간 고유 이름입니다. 이 설정을 편집하려면 사용자 설정 동기화를 한 번 비활성화해 주세요.",
         ru: "Уникальное имя между всеми синхронизируемыми устройствами.",
@@ -4301,6 +4865,7 @@ export const _allMessages = {
     "Use Custom HTTP Handler": {
         def: "Use Custom HTTP Handler",
         es: "Usar manejador HTTP personalizado",
+        fr: "Utiliser un gestionnaire HTTP personnalisé",
         ja: "カスタムHTTPハンドラーの利用",
         ko: "커스텀 HTTP 핸들러 사용",
         ru: "Использовать пользовательский HTTP обработчик",
@@ -4309,6 +4874,7 @@ export const _allMessages = {
     "Use dynamic iteration count": {
         def: "Use dynamic iteration count",
         es: "Usar conteo de iteraciones dinámico",
+        fr: "Utiliser un compteur d'itérations dynamique",
         ja: "動的な繰り返し回数",
         ko: "동적 반복 횟수 사용",
         ru: "Использовать динамическое количество итераций",
@@ -4317,6 +4883,7 @@ export const _allMessages = {
     "Use Segmented-splitter": {
         def: "Use Segmented-splitter",
         es: "Usar divisor segmentado",
+        fr: "Utiliser le découpeur segmenté",
         ja: "セグメント分割を使用",
         ko: "의미 기반 분할 사용",
         ru: "Использовать сегментный разделитель",
@@ -4325,6 +4892,7 @@ export const _allMessages = {
     "Use splitting-limit-capped chunk splitter": {
         def: "Use splitting-limit-capped chunk splitter",
         es: "Usar divisor de chunks con límite",
+        fr: "Utiliser le découpeur de fragments plafonné",
         ja: "分割制限付きチャンク分割を使用",
         ko: "분할 제한 상한 청크 분할기 사용",
         ru: "Использовать разделитель чанков с ограничением",
@@ -4333,6 +4901,7 @@ export const _allMessages = {
     "Use the trash bin": {
         def: "Use the trash bin",
         es: "Usar papelera",
+        fr: "Utiliser la corbeille",
         ja: "ゴミ箱を使用",
         ko: "휴지통 사용",
         ru: "Использовать корзину",
@@ -4341,6 +4910,7 @@ export const _allMessages = {
     "Use timeouts instead of heartbeats": {
         def: "Use timeouts instead of heartbeats",
         es: "Usar timeouts en lugar de latidos",
+        fr: "Utiliser des délais d'attente au lieu de battements",
         ja: "ハートビートの代わりにタイムアウトを使用",
         ko: "하트비트 대신 타임아웃 사용",
         ru: "Использовать таймауты вместо пульса",
@@ -4349,6 +4919,7 @@ export const _allMessages = {
     username: {
         def: "username",
         es: "nombre de usuario",
+        fr: "nom d'utilisateur",
         ja: "ユーザー名",
         ko: "사용자명",
         ru: "имя пользователя",
@@ -4357,6 +4928,7 @@ export const _allMessages = {
     Username: {
         def: "Username",
         es: "Usuario",
+        fr: "Nom d'utilisateur",
         ja: "ユーザー名",
         ko: "사용자명",
         ru: "Имя пользователя",
@@ -4365,6 +4937,7 @@ export const _allMessages = {
     "Verbose Log": {
         def: "Verbose Log",
         es: "Registro detallado",
+        fr: "Journal verbeux",
         ja: "エラー以外のログ項目",
         ko: "자세한 로그",
         ru: "Подробный лог",
@@ -4374,6 +4947,7 @@ export const _allMessages = {
         {
             def: "Warning! This will have a serious impact on performance. And the logs will not be synchronised under the default name. Please be careful with logs; they often contain your confidential information.",
             es: "¡Advertencia! Impacta rendimiento. Los logs no se sincronizan con nombre predeterminado. Contienen información confidencial",
+            fr: "Attention ! Ceci aura un impact important sur les performances. De plus, les journaux ne seront pas synchronisés sous le nom par défaut. Soyez prudent avec les journaux ; ils contiennent souvent des informations confidentielles.",
             ja: "警告！これはパフォーマンスに重大な影響を与えます。また、ログはデフォルト名では同期されません。ログには機密情報が含まれることが多いため、注意してください。",
             ko: "경고! 이는 성능에 심각한 영향을 미칩니다. 로그는 기본 이름으로 동기화되지 않습니다. 로그에는 종종 기밀 정보가 포함되어 있으므로 주의해 주세요.",
             ru: "Warning! This will have a serious impact on performance. And the logs will not be synchronised under the default name. Please be careful with logs; they often contain your confidential information.",
@@ -4382,6 +4956,7 @@ export const _allMessages = {
     "When you save a file in the editor, start a sync automatically": {
         def: "When you save a file in the editor, start a sync automatically",
         es: "Iniciar sincronización automática al guardar en editor",
+        fr: "À l'enregistrement d'un fichier dans l'éditeur, démarrer automatiquement une synchronisation",
         ja: "エディタでファイルを保存すると、自動的に同期を開始します",
         ko: "편집기에서 파일을 저장할 때 자동으로 동기화를 시작합니다",
         ru: "Когда вы сохраняете файл в редакторе, автоматически запускать синхронизацию",
@@ -4390,6 +4965,7 @@ export const _allMessages = {
     "Write credentials in the file": {
         def: "Write credentials in the file",
         es: "Escribir credenciales en archivo",
+        fr: "Écrire les identifiants dans le fichier",
         ja: "認証情報のファイル内保存",
         ko: "파일에 자격 증명 저장",
         ru: "Записывать учётные данные в файл",
@@ -4398,6 +4974,7 @@ export const _allMessages = {
     "Write logs into the file": {
         def: "Write logs into the file",
         es: "Escribir logs en archivo",
+        fr: "Écrire les journaux dans le fichier",
         ja: "ファイルにログを記録",
         ko: "파일에 로그 기록",
         ru: "Записывать логи в файл",
@@ -4405,6 +4982,9 @@ export const _allMessages = {
     },
     "Compute revisions for chunks (Previous behaviour)": {
         es: "Calcular revisiones para chunks (comportamiento anterior)",
+    },
+    "lang-fr": {
+        fr: "Français",
     },
     "(Not recommended) If set, credentials will be stored in the file": {
         ru: "(Не рекомендуется) Если установлено, учётные данные будут сохранены в файле",
