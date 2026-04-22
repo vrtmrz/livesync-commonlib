@@ -1,23 +1,54 @@
+import { getLanguage } from "@/deps";
 import type { AllMessageKeys, I18N_LANGS } from "./rosetta";
 import { allMessages } from "./rosetta";
 import type { TaggedType } from "./types";
-export let currentLang: I18N_LANGS = "";
+
+const obsidianLangMap: Record<string, I18N_LANGS> = {
+    de: "de",
+    es: "es",
+    ja: "ja",
+    ko: "ko",
+    ru: "ru",
+    zh: "zh",
+    "zh-cn": "zh",
+    "zh-hans": "zh",
+    "zh-tw": "zh-tw",
+    "zh-hk": "zh-tw",
+    "zh-mo": "zh-tw",
+    "zh-hant": "zh-tw",
+};
+
+function resolveLanguage(lang: I18N_LANGS): I18N_LANGS {
+    if (lang !== "") return lang;
+    const obsidianLanguage = getLanguage().toLowerCase();
+    return obsidianLangMap[obsidianLanguage] ?? "def";
+}
+
+export let currentLang: I18N_LANGS = resolveLanguage("");
 const missingTranslations = [] as string[];
+let __onMissingTranslations = (key: string) => console.warn(key);
+const msgCache = new Map<string, string>();
+
+export function getResolvedLang(lang: I18N_LANGS = currentLang): I18N_LANGS {
+    return resolveLanguage(lang);
+}
+
+export function isAutoDisplayLanguage(lang: I18N_LANGS): boolean {
+    return lang === "";
+}
 
 export function __getMissingTranslations() {
     return missingTranslations;
 }
 
-let __onMissingTranslations = (key: string) => console.warn(key);
 export function __onMissingTranslation(callback: (key: string) => void) {
     __onMissingTranslations = callback;
 }
 
-const msgCache = new Map<string, string>();
-
 export function setLang(lang: I18N_LANGS) {
-    if (lang === currentLang) return;
-    currentLang = lang;
+    const resolvedLang = resolveLanguage(lang);
+    if (resolvedLang === currentLang) return;
+    currentLang = resolvedLang;
     msgCache.clear();
 }
 
@@ -25,11 +56,8 @@ function _getMessage(key: string, lang: I18N_LANGS) {
     if (key.trim() == "") return key;
 
     const msgs = allMessages[key] ?? undefined;
-
-    if (lang == "") {
-        lang = "def";
-    }
-    let msg = msgs?.[lang];
+    const resolvedLang = resolveLanguage(lang);
+    let msg = msgs?.[resolvedLang];
 
     if (!msg) {
         if (missingTranslations.indexOf(key) === -1) {
@@ -48,12 +76,6 @@ function getMessage(key: string) {
     return msg;
 }
 
-/**
- * Translate message to each locale
- * @param message {string} Message to translate
- * @param lang {I18N_LANGS} (Optional) Language. If supplied, this result cannot be cached. Do not use this in tight loop.
- * @returns Translated message
- */
 export function $t(message: string, lang?: I18N_LANGS) {
     if (lang !== undefined) {
         return _getMessage(message, lang);
@@ -61,12 +83,6 @@ export function $t(message: string, lang?: I18N_LANGS) {
     return getMessage(message);
 }
 
-/**
- * TagFunction to Automatically translate.
- * @param strings
- * @param values
- * @returns
- */
 export function $f(strings: TemplateStringsArray, ...values: string[]) {
     let result = "";
     for (let i = 0; i < values.length; i++) {
@@ -76,13 +92,6 @@ export function $f(strings: TemplateStringsArray, ...values: string[]) {
     return result;
 }
 
-/**
- * Translate message to each locale and replace placeholders.
- * @param key {string} Message identifier.
- * @param params {Record<string, string>} Parameters to replace placeholders.
- * @param lang {I18N_LANGS} (Optional) Language.
- * @returns Translated and formatted message.
- */
 export function $msg<T extends AllMessageKeys>(
     key: T,
     params: Record<string, string> = {},

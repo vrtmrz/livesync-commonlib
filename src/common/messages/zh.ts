@@ -1,4 +1,1 @@
-import zh from "../messagesJson/zh.json";
-export const PartialMessages = {
-    zh,
-} as const;
+import zh from "../messagesJson/zh.json";export const PartialMessages = {    zh,} as const;

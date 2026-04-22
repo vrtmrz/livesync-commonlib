@@ -1,4 +1,1 @@
-import ja from "../messagesJson/ja.json";
-export const PartialMessages = {
-    ja,
-} as const;
+import ja from "../messagesJson/ja.json";export const PartialMessages = {    ja,} as const;
