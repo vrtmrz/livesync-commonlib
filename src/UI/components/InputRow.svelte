@@ -1,12 +1,15 @@
 <script lang="ts">
+    import { translateIfAvailable as translate } from "../../common/i18n.ts";
+
     type Props = {
         label: string;
         children?: () => any;
     };
     const { label, children }: Props = $props();
+    const translatedLabel = $derived.by(() => translate(label));
 </script>
 
 <label class="row"
-    ><span>{label}</span>
+    ><span>{translatedLabel}</span>
     {@render children?.()}
 </label>

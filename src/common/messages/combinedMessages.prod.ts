@@ -4290,6 +4290,22 @@ export const _allMessages = {
         ru: "Использовать удалённую конфигурацию",
         zh: "Use Remote Configuration",
     },
+    "Ui.Common.Signal.Caution": {
+        def: "CAUTION",
+        zh: "注意",
+    },
+    "Ui.Common.Signal.Danger": {
+        def: "DANGER",
+        zh: "危险",
+    },
+    "Ui.Common.Signal.Notice": {
+        def: "NOTICE",
+        zh: "提示",
+    },
+    "Ui.Common.Signal.Warning": {
+        def: "WARNING",
+        zh: "警告",
+    },
     "Ui.Settings.Advanced.LocalDatabaseTweak": {
         def: "Local Database Tweak",
         zh: "本地数据库调整",

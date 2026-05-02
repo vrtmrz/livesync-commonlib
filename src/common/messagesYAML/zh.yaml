@@ -1092,6 +1092,12 @@ TweakMismatchResolve:
     TweakResolving: Configuration Mismatch Detected
     UseRemoteConfig: Use Remote Configuration
 Ui:
+  Common:
+    Signal:
+      Caution: 注意
+      Danger: 危险
+      Notice: 提示
+      Warning: 警告
   Settings:
     Common:
       Analyse: 分析
