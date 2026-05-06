@@ -132,6 +132,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     maxTotalLengthInEden: 1024,
     maxAgeInEden: 10,
     disableCheckingConfigMismatch: false,
+    useAutoConfig: false,
     displayLanguage: "",
     /**
      * @deprecated

@@ -764,6 +764,8 @@ obsidianLiveSyncSettingTab:
   optionPeriodicAndEvents: Periodic and on events
   optionPeriodicWithBatch: Periodic w/ batch
   optionRebuildBoth: Rebuild Both from This Device
+  autoConfigByRemote: Auto Configure by Remote Database
+  autoConfigByRemoteDesc: Automatically fetch and apply shared efficiency settings from the remote database.
   optionSaveOnlySettings: (Danger) Save Only Settings
   panelChangeLog: Change Log
   panelGeneralSettings: General Settings
@@ -1321,3 +1323,9 @@ Warning! This will have a serious impact on performance. And the logs will not b
 When you save a file in the editor, start a sync automatically: When you save a file in the editor, start a sync automatically
 Write credentials in the file: Write credentials in the file
 Write logs into the file: Write logs into the file
+SharedConfig:
+  promptRemoteFoundTitle: Remote Configuration Found
+  promptRemoteFoundDesc: A shared configuration was found on the remote database. Do you want to apply it to your device and enable Auto Configuration?
+  promptNoRemoteTitle: No Remote Configuration Found
+  promptNoRemoteDesc: No shared configuration was found on the remote database. Do you want to upload your current efficiency settings as the master shared configuration?
+

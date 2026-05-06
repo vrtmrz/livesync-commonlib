@@ -1,6 +1,7 @@
 import type { DocumentID } from "./db.type";
 
 export const VERSIONING_DOCID = "obsydian_livesync_version" as DocumentID;
+export const SHARED_CONFIG_DOCID = "hls_shared_config" as DocumentID;
 export const MILESTONE_DOCID = "_local/obsydian_livesync_milestone" as DocumentID;
 export const NODEINFO_DOCID = "_local/obsydian_livesync_nodeinfo" as DocumentID;
 
@@ -14,6 +15,7 @@ export const EntryTypes = {
     CHUNK: "leaf",
     CHUNK_PACK: "chunkpack",
     VERSION_INFO: "versioninfo",
+    SHARED_CONFIG: "shared_config",
     SYNC_INFO: "syncinfo",
     SYNC_PARAMETERS: "sync-parameters",
     MILESTONE_INFO: "milestoneinfo",

@@ -43,6 +43,7 @@ import {
     NoteTypes,
     SYNCINFO_ID,
     VERSIONING_DOCID,
+    SHARED_CONFIG_DOCID,
 } from "./models/db.const.ts";
 import {
     AUTO_MERGED,
@@ -231,6 +232,7 @@ export {
     LEAVE_TO_SUBSEQUENT,
     TIME_ARGUMENT_INFINITY,
     VERSIONING_DOCID,
+    SHARED_CONFIG_DOCID,
     MILESTONE_DOCID,
     NODEINFO_DOCID,
 };

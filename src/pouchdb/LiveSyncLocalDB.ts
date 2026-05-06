@@ -3,6 +3,7 @@ import {
     type EntryLeaf,
     type Credential,
     VERSIONING_DOCID,
+    SHARED_CONFIG_DOCID,
     type RemoteDBSettings,
     type DocumentID,
     type FilePathWithPrefix,
@@ -412,6 +413,7 @@ export class LiveSyncLocalDB {
             for await (const f of target) {
                 if (f.startsWith("_")) continue;
                 if (f == VERSIONING_DOCID) continue;
+                if (f == SHARED_CONFIG_DOCID) continue;
                 yield f;
             }
         }

@@ -873,6 +873,10 @@ interface RemoteDBTweakSettings {
      * (Note: Mismatched settings can lead to inappropriate de-duplication, leading to storage wastage and increased traffic).
      */
     disableCheckingConfigMismatch: boolean;
+    /**
+     * Indicates whether to use auto-configuration for the remote database settings.
+     */
+    useAutoConfig: boolean;
 }
 
 /**
@@ -1054,3 +1058,14 @@ export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & 
 export interface HasSettings<T extends Partial<ObsidianLiveSyncSettings>> {
     settings: T;
 }
+
+export const AutoConfigSyncableKeys = [
+    "hashAlg",
+    "chunkSplitterVersion",
+    "enableChunkSplitterV2",
+    "useSegmenter",
+    "minimumChunkSize",
+    "customChunkSize",
+] as const;
+
+export type AutoConfigSyncableKey = (typeof AutoConfigSyncableKeys)[number];

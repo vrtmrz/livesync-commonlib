@@ -17,7 +17,7 @@ export const MARK_LOG_NETWORK_ERROR = "\u{200b}"; // u+200B is a zero-width spac
  * @returns A log function that can be used to log messages with the specified service name and APIService.
  */
 export function createInstanceLogFunction(serviceName: string, APIService?: IAPIService) {
-    const logFunc = APIService?.addLog.bind(APIService) ?? Logger;
+    const logFunc = APIService?.addLog?.bind(APIService) ?? Logger;
     return (msg: any, level: LOG_LEVEL = LOG_LEVEL_INFO, key: string = "") => {
         const isError = msg instanceof Error;
         if (isError && level <= LOG_LEVEL_VERBOSE) {

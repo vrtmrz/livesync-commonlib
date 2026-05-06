@@ -570,6 +570,8 @@ obsidianLiveSyncSettingTab:
   optionPeriodicAndEvents: 定期およびイベント時
   optionPeriodicWithBatch: バッチ付き定期
   optionRebuildBoth: このデバイスから両方を再構築
+  autoConfigByRemote: Remote Databaseによる設定の自動構成
+  autoConfigByRemoteDesc: 自動的にRemote Databaseから構成（効率化設定のみ）を取得して設定します。
   optionSaveOnlySettings: (危険) 設定のみ保存
   panelChangeLog: 変更履歴
   panelGeneralSettings: 一般設定
@@ -951,3 +953,9 @@ Warning! This will have a serious impact on performance. And the logs will not b
 When you save a file in the editor, start a sync automatically: エディタでファイルを保存すると、自動的に同期を開始します
 Write credentials in the file: 認証情報のファイル内保存
 Write logs into the file: ファイルにログを記録
+SharedConfig:
+  promptRemoteFoundTitle: リモート構成を検出しました
+  promptRemoteFoundDesc: Remote Database上に共有構成が見つかりました。これらの設定をこのデバイスに適用し、自動構成を有効にしますか？
+  promptNoRemoteTitle: リモート構成が見つかりません
+  promptNoRemoteDesc: Remote Database上に共有構成が見つかりませんでした。あなたの現在の効率化設定をマスターの共有構成としてアップロードしますか？
+

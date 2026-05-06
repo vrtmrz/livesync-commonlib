@@ -243,6 +243,10 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
     disableCheckingConfigMismatch: {
         name: "Do not check configuration mismatch before replication",
     },
+    useAutoConfig: {
+        name: "Auto Configure by Remote Database",
+        desc: "Automatically fetch and apply shared efficiency settings from the remote database",
+    },
     usePluginSync: {
         name: "Enable customization sync",
     },
