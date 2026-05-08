@@ -5961,6 +5961,960 @@ export const _allMessages = {
         ru: "Записывать логи в файл",
         zh: "将日志写入文件",
     },
+    "Customization Sync (Beta3)": {
+        "def": "Customization Sync (Beta3)",
+        "es": "Customization Sync (Beta3)",
+        "ja": "Customization Sync (Beta3)",
+        "ko": "Customization Sync (Beta3)",
+        "ru": "Customization Sync (Beta3)",
+        "zh": "Customization Sync (Beta3)",
+        "zw-th": "Customization Sync (Beta3)"
+    },
+    "Document History": {
+        "def": "Document History",
+        "es": "Document History",
+        "ja": "Document History",
+        "ko": "Document History",
+        "ru": "Document History",
+        "zh": "Document History",
+        "zw-th": "Document History"
+    },
+    "Hide completely": {
+        "def": "Hide completely",
+        "es": "Hide completely",
+        "ja": "Hide completely",
+        "ko": "Hide completely",
+        "ru": "Hide completely",
+        "zh": "Hide completely",
+        "zw-th": "Hide completely"
+    },
+    "Highlight diff": {
+        "def": "Highlight diff",
+        "es": "Highlight diff",
+        "ja": "Highlight diff",
+        "ko": "Highlight diff",
+        "ru": "Highlight diff",
+        "zh": "Highlight diff",
+        "zw-th": "Highlight diff"
+    },
+    "Pick a file to resolve conflict": {
+        "def": "Pick a file to resolve conflict",
+        "es": "Pick a file to resolve conflict",
+        "ja": "Pick a file to resolve conflict",
+        "ko": "Pick a file to resolve conflict",
+        "ru": "Pick a file to resolve conflict",
+        "zh": "Pick a file to resolve conflict",
+        "zw-th": "Pick a file to resolve conflict"
+    },
+    "Pick a file to show history": {
+        "def": "Pick a file to show history",
+        "es": "Pick a file to show history",
+        "ja": "Pick a file to show history",
+        "ko": "Pick a file to show history",
+        "ru": "Pick a file to show history",
+        "zh": "Pick a file to show history",
+        "zw-th": "Pick a file to show history"
+    },
+    "Resolve all conflicted files": {
+        "def": "Resolve all conflicted files",
+        "es": "Resolve all conflicted files",
+        "ja": "Resolve all conflicted files",
+        "ko": "Resolve all conflicted files",
+        "ru": "Resolve all conflicted files",
+        "zh": "Resolve all conflicted files",
+        "zw-th": "Resolve all conflicted files"
+    },
+    "Show full banner": {
+        "def": "Show full banner",
+        "es": "Show full banner",
+        "ja": "Show full banner",
+        "ko": "Show full banner",
+        "ru": "Show full banner",
+        "zh": "Show full banner",
+        "zw-th": "Show full banner"
+    },
+    "Show history": {
+        "def": "Show history",
+        "es": "Show history",
+        "ja": "Show history",
+        "ko": "Show history",
+        "ru": "Show history",
+        "zh": "Show history",
+        "zw-th": "Show history"
+    },
+    "Show icon only": {
+        "def": "Show icon only",
+        "es": "Show icon only",
+        "ja": "Show icon only",
+        "ko": "Show icon only",
+        "ru": "Show icon only",
+        "zh": "Show icon only",
+        "zw-th": "Show icon only"
+    },
+    "Ui.ConflictResolver.FileToResolve": {
+        "def": "File To Resolve",
+        "es": "File To Resolve",
+        "ja": "File To Resolve",
+        "ko": "File To Resolve",
+        "ru": "File To Resolve",
+        "zh": "File To Resolve",
+        "zw-th": "File To Resolve"
+    },
+    "Ui.History.FileToView": {
+        "def": "File To View",
+        "es": "File To View",
+        "ja": "File To View",
+        "ko": "File To View",
+        "ru": "File To View",
+        "zh": "File To View",
+        "zw-th": "File To View"
+    },
+    "Ui.Settings.Common.Analyse": {
+        "def": "Analyse",
+        "es": "Analyse",
+        "ja": "Analyse",
+        "ko": "Analyse",
+        "ru": "Analyse",
+        "zh": "Analyse",
+        "zw-th": "Analyse"
+    },
+    "Ui.Settings.Common.Back": {
+        "def": "Back",
+        "es": "Back",
+        "ja": "Back",
+        "ko": "Back",
+        "ru": "Back",
+        "zh": "Back",
+        "zw-th": "Back"
+    },
+    "Ui.Settings.Common.Check": {
+        "def": "Check",
+        "es": "Check",
+        "ja": "Check",
+        "ko": "Check",
+        "ru": "Check",
+        "zh": "Check",
+        "zw-th": "Check"
+    },
+    "Ui.Settings.Common.Configure": {
+        "def": "Configure",
+        "es": "Configure",
+        "ja": "Configure",
+        "ko": "Configure",
+        "ru": "Configure",
+        "zh": "Configure",
+        "zw-th": "Configure"
+    },
+    "Ui.Settings.Common.Delete": {
+        "def": "Delete",
+        "es": "Delete",
+        "ja": "Delete",
+        "ko": "Delete",
+        "ru": "Delete",
+        "zh": "Delete",
+        "zw-th": "Delete"
+    },
+    "Ui.Settings.Common.Lock": {
+        "def": "Lock",
+        "es": "Lock",
+        "ja": "Lock",
+        "ko": "Lock",
+        "ru": "Lock",
+        "zh": "Lock",
+        "zw-th": "Lock"
+    },
+    "Ui.Settings.Common.Open": {
+        "def": "Open",
+        "es": "Open",
+        "ja": "Open",
+        "ko": "Open",
+        "ru": "Open",
+        "zh": "Open",
+        "zw-th": "Open"
+    },
+    "Ui.Settings.Common.Perform": {
+        "def": "Perform",
+        "es": "Perform",
+        "ja": "Perform",
+        "ko": "Perform",
+        "ru": "Perform",
+        "zh": "Perform",
+        "zw-th": "Perform"
+    },
+    "Ui.Settings.Common.ResetAll": {
+        "def": "Reset all",
+        "es": "Reset all",
+        "ja": "Reset all",
+        "ko": "Reset all",
+        "ru": "Reset all",
+        "zh": "Reset all",
+        "zw-th": "Reset all"
+    },
+    "Ui.Settings.Common.ResolveAll": {
+        "def": "Resolve All",
+        "es": "Resolve All",
+        "ja": "Resolve All",
+        "ko": "Resolve All",
+        "ru": "Resolve All",
+        "zh": "Resolve All",
+        "zw-th": "Resolve All"
+    },
+    "Ui.Settings.Common.Send": {
+        "def": "Send",
+        "es": "Send",
+        "ja": "Send",
+        "ko": "Send",
+        "ru": "Send",
+        "zh": "Send",
+        "zw-th": "Send"
+    },
+    "Ui.Settings.Common.VerifyAll": {
+        "def": "Verify all",
+        "es": "Verify all",
+        "ja": "Verify all",
+        "ko": "Verify all",
+        "ru": "Verify all",
+        "zh": "Verify all",
+        "zw-th": "Verify all"
+    },
+    "Ui.Settings.CustomizationSync.WarnChangeDeviceName": {
+        "def": "Warn Change Device Name",
+        "es": "Warn Change Device Name",
+        "ja": "Warn Change Device Name",
+        "ko": "Warn Change Device Name",
+        "ru": "Warn Change Device Name",
+        "zh": "Warn Change Device Name",
+        "zw-th": "Warn Change Device Name"
+    },
+    "Ui.Settings.CustomizationSync.WarnSetDeviceName": {
+        "def": "Warn Set Device Name",
+        "es": "Warn Set Device Name",
+        "ja": "Warn Set Device Name",
+        "ko": "Warn Set Device Name",
+        "ru": "Warn Set Device Name",
+        "zh": "Warn Set Device Name",
+        "zw-th": "Warn Set Device Name"
+    },
+    "Ui.Settings.Hatch.CopyIssueReport": {
+        "def": "Copy Report to clipboard",
+        "es": "Copy Report to clipboard",
+        "ja": "Copy Report to clipboard",
+        "ko": "Copy Report to clipboard",
+        "ru": "Copy Report to clipboard",
+        "zh": "Copy Report to clipboard",
+        "zw-th": "Copy Report to clipboard"
+    },
+    "Ui.Settings.Hatch.DatabaseLabel": {
+        "def": "Database Label",
+        "es": "Database Label",
+        "ja": "Database Label",
+        "ko": "Database Label",
+        "ru": "Database Label",
+        "zh": "Database Label",
+        "zw-th": "Database Label"
+    },
+    "Ui.Settings.Hatch.DatabaseToStorage": {
+        "def": "Database -> Storage",
+        "es": "Database -> Storage",
+        "ja": "Database -> Storage",
+        "ko": "Database -> Storage",
+        "ru": "Database -> Storage",
+        "zh": "Database -> Storage",
+        "zw-th": "Database -> Storage"
+    },
+    "Ui.Settings.Hatch.GeneratedReport": {
+        "def": "Generated Report",
+        "es": "Generated Report",
+        "ja": "Generated Report",
+        "ko": "Generated Report",
+        "ru": "Generated Report",
+        "zh": "Generated Report",
+        "zw-th": "Generated Report"
+    },
+    "Ui.Settings.Hatch.Missing": {
+        "def": "Missing",
+        "es": "Missing",
+        "ja": "Missing",
+        "ko": "Missing",
+        "ru": "Missing",
+        "zh": "Missing",
+        "zw-th": "Missing"
+    },
+    "Ui.Settings.Hatch.ModifiedSize": {
+        "def": "Modified Size",
+        "es": "Modified Size",
+        "ja": "Modified Size",
+        "ko": "Modified Size",
+        "ru": "Modified Size",
+        "zh": "Modified Size",
+        "zw-th": "Modified Size"
+    },
+    "Ui.Settings.Hatch.ModifiedSizeActual": {
+        "def": "Modified Size Actual",
+        "es": "Modified Size Actual",
+        "ja": "Modified Size Actual",
+        "ko": "Modified Size Actual",
+        "ru": "Modified Size Actual",
+        "zh": "Modified Size Actual",
+        "zw-th": "Modified Size Actual"
+    },
+    "Ui.Settings.Hatch.RecreateAll": {
+        "def": "Recreate all",
+        "es": "Recreate all",
+        "ja": "Recreate all",
+        "ko": "Recreate all",
+        "ru": "Recreate all",
+        "zh": "Recreate all",
+        "zw-th": "Recreate all"
+    },
+    "Ui.Settings.Hatch.RunDoctor": {
+        "def": "Run Doctor",
+        "es": "Run Doctor",
+        "ja": "Run Doctor",
+        "ko": "Run Doctor",
+        "ru": "Run Doctor",
+        "zh": "Run Doctor",
+        "zw-th": "Run Doctor"
+    },
+    "Ui.Settings.Hatch.ScanBrokenFiles": {
+        "def": "Scan for Broken files",
+        "es": "Scan for Broken files",
+        "ja": "Scan for Broken files",
+        "ko": "Scan for Broken files",
+        "ru": "Scan for Broken files",
+        "zh": "Scan for Broken files",
+        "zw-th": "Scan for Broken files"
+    },
+    "Ui.Settings.Hatch.ShowHistory": {
+        "def": "Show history",
+        "es": "Show history",
+        "ja": "Show history",
+        "ko": "Show history",
+        "ru": "Show history",
+        "zh": "Show history",
+        "zw-th": "Show history"
+    },
+    "Ui.Settings.Hatch.StorageLabel": {
+        "def": "Storage Label",
+        "es": "Storage Label",
+        "ja": "Storage Label",
+        "ko": "Storage Label",
+        "ru": "Storage Label",
+        "zh": "Storage Label",
+        "zw-th": "Storage Label"
+    },
+    "Ui.Settings.Hatch.StorageToDatabase": {
+        "def": "Storage -> Database",
+        "es": "Storage -> Database",
+        "ja": "Storage -> Database",
+        "ko": "Storage -> Database",
+        "ru": "Storage -> Database",
+        "zh": "Storage -> Database",
+        "zw-th": "Storage -> Database"
+    },
+    "Ui.Settings.Maintenance.GarbageCollection": {
+        "def": "Garbage Collection V3 (Beta)",
+        "es": "Garbage Collection V3 (Beta)",
+        "ja": "Garbage Collection V3 (Beta)",
+        "ko": "Garbage Collection V3 (Beta)",
+        "ru": "Garbage Collection V3 (Beta)",
+        "zh": "Garbage Collection V3 (Beta)",
+        "zw-th": "Garbage Collection V3 (Beta)"
+    },
+    "Ui.Settings.Maintenance.GarbageCollectionAction": {
+        "def": "Perform Garbage Collection",
+        "es": "Perform Garbage Collection",
+        "ja": "Perform Garbage Collection",
+        "ko": "Perform Garbage Collection",
+        "ru": "Perform Garbage Collection",
+        "zh": "Perform Garbage Collection",
+        "zw-th": "Perform Garbage Collection"
+    },
+    "Ui.Settings.Maintenance.RebuildingOperations": {
+        "def": "Rebuilding Operations (Remote Only)",
+        "es": "Rebuilding Operations (Remote Only)",
+        "ja": "Rebuilding Operations (Remote Only)",
+        "ko": "Rebuilding Operations (Remote Only)",
+        "ru": "Rebuilding Operations (Remote Only)",
+        "zh": "Rebuilding Operations (Remote Only)",
+        "zw-th": "Rebuilding Operations (Remote Only)"
+    },
+    "Ui.Settings.Maintenance.ResetReceived": {
+        "def": "Reset received",
+        "es": "Reset received",
+        "ja": "Reset received",
+        "ko": "Reset received",
+        "ru": "Reset received",
+        "zh": "Reset received",
+        "zw-th": "Reset received"
+    },
+    "Ui.Settings.Maintenance.ResetSentHistory": {
+        "def": "Reset sent history",
+        "es": "Reset sent history",
+        "ja": "Reset sent history",
+        "ko": "Reset sent history",
+        "ru": "Reset sent history",
+        "zh": "Reset sent history",
+        "zw-th": "Reset sent history"
+    },
+    "Ui.Settings.Maintenance.ScheduleAndRestart": {
+        "def": "Schedule and Restart",
+        "es": "Schedule and Restart",
+        "ja": "Schedule and Restart",
+        "ko": "Schedule and Restart",
+        "ru": "Schedule and Restart",
+        "zh": "Schedule and Restart",
+        "zw-th": "Schedule and Restart"
+    },
+    "Ui.Settings.Maintenance.SendChunks": {
+        "def": "Send chunks",
+        "es": "Send chunks",
+        "ja": "Send chunks",
+        "ko": "Send chunks",
+        "ru": "Send chunks",
+        "zh": "Send chunks",
+        "zw-th": "Send chunks"
+    },
+    "Ui.Settings.Maintenance.WarningLockedReadyAction": {
+        "def": "Warning Locked Ready Action",
+        "es": "Warning Locked Ready Action",
+        "ja": "Warning Locked Ready Action",
+        "ko": "Warning Locked Ready Action",
+        "ru": "Warning Locked Ready Action",
+        "zh": "Warning Locked Ready Action",
+        "zw-th": "Warning Locked Ready Action"
+    },
+    "Ui.Settings.Maintenance.WarningLockedReadyText": {
+        "def": "Warning Locked Ready Text",
+        "es": "Warning Locked Ready Text",
+        "ja": "Warning Locked Ready Text",
+        "ko": "Warning Locked Ready Text",
+        "ru": "Warning Locked Ready Text",
+        "zh": "Warning Locked Ready Text",
+        "zw-th": "Warning Locked Ready Text"
+    },
+    "Ui.Settings.Maintenance.WarningLockedResolveAction": {
+        "def": "Warning Locked Resolve Action",
+        "es": "Warning Locked Resolve Action",
+        "ja": "Warning Locked Resolve Action",
+        "ko": "Warning Locked Resolve Action",
+        "ru": "Warning Locked Resolve Action",
+        "zh": "Warning Locked Resolve Action",
+        "zw-th": "Warning Locked Resolve Action"
+    },
+    "Ui.Settings.Maintenance.WarningLockedResolveText": {
+        "def": "Warning Locked Resolve Text",
+        "es": "Warning Locked Resolve Text",
+        "ja": "Warning Locked Resolve Text",
+        "ko": "Warning Locked Resolve Text",
+        "ru": "Warning Locked Resolve Text",
+        "zh": "Warning Locked Resolve Text",
+        "zw-th": "Warning Locked Resolve Text"
+    },
+    "Ui.Settings.Maintenance.WriteRedFlagAndRestart": {
+        "def": "Flag and restart",
+        "es": "Flag and restart",
+        "ja": "Flag and restart",
+        "ko": "Flag and restart",
+        "ru": "Flag and restart",
+        "zh": "Flag and restart",
+        "zw-th": "Flag and restart"
+    },
+    "Ui.Settings.Patches.CurrentAdapter": {
+        "def": "Current Adapter",
+        "es": "Current Adapter",
+        "ja": "Current Adapter",
+        "ko": "Current Adapter",
+        "ru": "Current Adapter",
+        "zh": "Current Adapter",
+        "zw-th": "Current Adapter"
+    },
+    "Ui.Settings.Patches.IndexedDbWarning": {
+        "def": "Indexed Db Warning",
+        "es": "Indexed Db Warning",
+        "ja": "Indexed Db Warning",
+        "ko": "Indexed Db Warning",
+        "ru": "Indexed Db Warning",
+        "zh": "Indexed Db Warning",
+        "zw-th": "Indexed Db Warning"
+    },
+    "Ui.Settings.Patches.MigratingToIdb": {
+        "def": "Migrating To Idb",
+        "es": "Migrating To Idb",
+        "ja": "Migrating To Idb",
+        "ko": "Migrating To Idb",
+        "ru": "Migrating To Idb",
+        "zh": "Migrating To Idb",
+        "zw-th": "Migrating To Idb"
+    },
+    "Ui.Settings.Patches.MigratingToIndexedDb": {
+        "def": "Migrating To Indexed Db",
+        "es": "Migrating To Indexed Db",
+        "ja": "Migrating To Indexed Db",
+        "ko": "Migrating To Indexed Db",
+        "ru": "Migrating To Indexed Db",
+        "zh": "Migrating To Indexed Db",
+        "zw-th": "Migrating To Indexed Db"
+    },
+    "Ui.Settings.Patches.MigrationIdbCompleted": {
+        "def": "Migration Idb Completed",
+        "es": "Migration Idb Completed",
+        "ja": "Migration Idb Completed",
+        "ko": "Migration Idb Completed",
+        "ru": "Migration Idb Completed",
+        "zh": "Migration Idb Completed",
+        "zw-th": "Migration Idb Completed"
+    },
+    "Ui.Settings.Patches.MigrationIdbCompletedFollowUp": {
+        "def": "Migration Idb Completed Follow Up",
+        "es": "Migration Idb Completed Follow Up",
+        "ja": "Migration Idb Completed Follow Up",
+        "ko": "Migration Idb Completed Follow Up",
+        "ru": "Migration Idb Completed Follow Up",
+        "zh": "Migration Idb Completed Follow Up",
+        "zw-th": "Migration Idb Completed Follow Up"
+    },
+    "Ui.Settings.Patches.MigrationIndexedDbCompleted": {
+        "def": "Migration Indexed Db Completed",
+        "es": "Migration Indexed Db Completed",
+        "ja": "Migration Indexed Db Completed",
+        "ko": "Migration Indexed Db Completed",
+        "ru": "Migration Indexed Db Completed",
+        "zh": "Migration Indexed Db Completed",
+        "zw-th": "Migration Indexed Db Completed"
+    },
+    "Ui.Settings.Patches.MigrationIndexedDbCompletedFollowUp": {
+        "def": "Migration Indexed Db Completed Follow Up",
+        "es": "Migration Indexed Db Completed Follow Up",
+        "ja": "Migration Indexed Db Completed Follow Up",
+        "ko": "Migration Indexed Db Completed Follow Up",
+        "ru": "Migration Indexed Db Completed Follow Up",
+        "zh": "Migration Indexed Db Completed Follow Up",
+        "zw-th": "Migration Indexed Db Completed Follow Up"
+    },
+    "Ui.Settings.Patches.MigrationWarning": {
+        "def": "Migration Warning",
+        "es": "Migration Warning",
+        "ja": "Migration Warning",
+        "ko": "Migration Warning",
+        "ru": "Migration Warning",
+        "zh": "Migration Warning",
+        "zw-th": "Migration Warning"
+    },
+    "Ui.Settings.Patches.OperationToIdb": {
+        "def": "Operation To Idb",
+        "es": "Operation To Idb",
+        "ja": "Operation To Idb",
+        "ko": "Operation To Idb",
+        "ru": "Operation To Idb",
+        "zh": "Operation To Idb",
+        "zw-th": "Operation To Idb"
+    },
+    "Ui.Settings.Patches.OperationToIndexedDb": {
+        "def": "Operation To Indexed Db",
+        "es": "Operation To Indexed Db",
+        "ja": "Operation To Indexed Db",
+        "ko": "Operation To Indexed Db",
+        "ru": "Operation To Indexed Db",
+        "zh": "Operation To Indexed Db",
+        "zw-th": "Operation To Indexed Db"
+    },
+    "Ui.Settings.Patches.RemediationChanged": {
+        "def": "Remediation Changed",
+        "es": "Remediation Changed",
+        "ja": "Remediation Changed",
+        "ko": "Remediation Changed",
+        "ru": "Remediation Changed",
+        "zh": "Remediation Changed",
+        "zw-th": "Remediation Changed"
+    },
+    "Ui.Settings.Patches.RemediationNoLimit": {
+        "def": "Remediation No Limit",
+        "es": "Remediation No Limit",
+        "ja": "Remediation No Limit",
+        "ko": "Remediation No Limit",
+        "ru": "Remediation No Limit",
+        "zh": "Remediation No Limit",
+        "zw-th": "Remediation No Limit"
+    },
+    "Ui.Settings.Patches.RemediationRestartLater": {
+        "def": "Remediation Restart Later",
+        "es": "Remediation Restart Later",
+        "ja": "Remediation Restart Later",
+        "ko": "Remediation Restart Later",
+        "ru": "Remediation Restart Later",
+        "zh": "Remediation Restart Later",
+        "zw-th": "Remediation Restart Later"
+    },
+    "Ui.Settings.Patches.RemediationRestartMessage": {
+        "def": "Remediation Restart Message",
+        "es": "Remediation Restart Message",
+        "ja": "Remediation Restart Message",
+        "ko": "Remediation Restart Message",
+        "ru": "Remediation Restart Message",
+        "zh": "Remediation Restart Message",
+        "zw-th": "Remediation Restart Message"
+    },
+    "Ui.Settings.Patches.RemediationRestartNow": {
+        "def": "Remediation Restart Now",
+        "es": "Remediation Restart Now",
+        "ja": "Remediation Restart Now",
+        "ko": "Remediation Restart Now",
+        "ru": "Remediation Restart Now",
+        "zh": "Remediation Restart Now",
+        "zw-th": "Remediation Restart Now"
+    },
+    "Ui.Settings.Patches.RemediationRestarting": {
+        "def": "Remediation Restarting",
+        "es": "Remediation Restarting",
+        "ja": "Remediation Restarting",
+        "ko": "Remediation Restarting",
+        "ru": "Remediation Restarting",
+        "zh": "Remediation Restarting",
+        "zw-th": "Remediation Restarting"
+    },
+    "Ui.Settings.Patches.RemediationSuffixChanged": {
+        "def": "Remediation Suffix Changed",
+        "es": "Remediation Suffix Changed",
+        "ja": "Remediation Suffix Changed",
+        "ko": "Remediation Suffix Changed",
+        "ru": "Remediation Suffix Changed",
+        "zh": "Remediation Suffix Changed",
+        "zw-th": "Remediation Suffix Changed"
+    },
+    "Ui.Settings.Patches.RemediationWithValue": {
+        "def": "Remediation With Value",
+        "es": "Remediation With Value",
+        "ja": "Remediation With Value",
+        "ko": "Remediation With Value",
+        "ru": "Remediation With Value",
+        "zh": "Remediation With Value",
+        "zw-th": "Remediation With Value"
+    },
+    "Ui.Settings.Patches.SwitchToIDB": {
+        "def": "Switch To IDB",
+        "es": "Switch To IDB",
+        "ja": "Switch To IDB",
+        "ko": "Switch To IDB",
+        "ru": "Switch To IDB",
+        "zh": "Switch To IDB",
+        "zw-th": "Switch To IDB"
+    },
+    "Ui.Settings.Patches.SwitchToIndexedDb": {
+        "def": "Switch To Indexed Db",
+        "es": "Switch To Indexed Db",
+        "ja": "Switch To Indexed Db",
+        "ko": "Switch To Indexed Db",
+        "ru": "Switch To Indexed Db",
+        "zh": "Switch To Indexed Db",
+        "zw-th": "Switch To Indexed Db"
+    },
+    "Ui.Settings.PowerUsers.ConnectionTweakDesc": {
+        "def": "Connection Tweak Desc",
+        "es": "Connection Tweak Desc",
+        "ja": "Connection Tweak Desc",
+        "ko": "Connection Tweak Desc",
+        "ru": "Connection Tweak Desc",
+        "zh": "Connection Tweak Desc",
+        "zw-th": "Connection Tweak Desc"
+    },
+    "Ui.Settings.PowerUsers.Default": {
+        "def": "Default",
+        "es": "Default",
+        "ja": "Default",
+        "ko": "Default",
+        "ru": "Default",
+        "zh": "Default",
+        "zw-th": "Default"
+    },
+    "Ui.Settings.PowerUsers.PromptPassphraseEveryLaunch": {
+        "def": "Ask a passphrase at every launch",
+        "es": "Ask a passphrase at every launch",
+        "ja": "Ask a passphrase at every launch",
+        "ko": "Ask a passphrase at every launch",
+        "ru": "Ask a passphrase at every launch",
+        "zh": "Ask a passphrase at every launch",
+        "zw-th": "Ask a passphrase at every launch"
+    },
+    "Ui.Settings.PowerUsers.UseCustomPassphrase": {
+        "def": "Use a custom passphrase",
+        "es": "Use a custom passphrase",
+        "ja": "Use a custom passphrase",
+        "ko": "Use a custom passphrase",
+        "ru": "Use a custom passphrase",
+        "zh": "Use a custom passphrase",
+        "zw-th": "Use a custom passphrase"
+    },
+    "Ui.Settings.Remote.Activate": {
+        "def": "Activate",
+        "es": "Activate",
+        "ja": "Activate",
+        "ko": "Activate",
+        "ru": "Activate",
+        "zh": "Activate",
+        "zw-th": "Activate"
+    },
+    "Ui.Settings.Remote.ActiveSuffix": {
+        "def": "Active Suffix",
+        "es": "Active Suffix",
+        "ja": "Active Suffix",
+        "ko": "Active Suffix",
+        "ru": "Active Suffix",
+        "zh": "Active Suffix",
+        "zw-th": "Active Suffix"
+    },
+    "Ui.Settings.Remote.AddConnection": {
+        "def": "Add Connection",
+        "es": "Add Connection",
+        "ja": "Add Connection",
+        "ko": "Add Connection",
+        "ru": "Add Connection",
+        "zh": "Add Connection",
+        "zw-th": "Add Connection"
+    },
+    "Ui.Settings.Remote.AddRemoteDefaultName": {
+        "def": "Add Remote Default Name",
+        "es": "Add Remote Default Name",
+        "ja": "Add Remote Default Name",
+        "ko": "Add Remote Default Name",
+        "ru": "Add Remote Default Name",
+        "zh": "Add Remote Default Name",
+        "zw-th": "Add Remote Default Name"
+    },
+    "Ui.Settings.Remote.ConfigureAndChangeRemote": {
+        "def": "Configure And Change Remote",
+        "es": "Configure And Change Remote",
+        "ja": "Configure And Change Remote",
+        "ko": "Configure And Change Remote",
+        "ru": "Configure And Change Remote",
+        "zh": "Configure And Change Remote",
+        "zw-th": "Configure And Change Remote"
+    },
+    "Ui.Settings.Remote.DeleteRemoteConfirm": {
+        "def": "Delete Remote Confirm",
+        "es": "Delete Remote Confirm",
+        "ja": "Delete Remote Confirm",
+        "ko": "Delete Remote Confirm",
+        "ru": "Delete Remote Confirm",
+        "zh": "Delete Remote Confirm",
+        "zw-th": "Delete Remote Confirm"
+    },
+    "Ui.Settings.Remote.DeleteRemoteTitle": {
+        "def": "Delete Remote Title",
+        "es": "Delete Remote Title",
+        "ja": "Delete Remote Title",
+        "ko": "Delete Remote Title",
+        "ru": "Delete Remote Title",
+        "zh": "Delete Remote Title",
+        "zw-th": "Delete Remote Title"
+    },
+    "Ui.Settings.Remote.DisplayName": {
+        "def": "Display Name",
+        "es": "Display Name",
+        "ja": "Display Name",
+        "ko": "Display Name",
+        "ru": "Display Name",
+        "zh": "Display Name",
+        "zw-th": "Display Name"
+    },
+    "Ui.Settings.Remote.DuplicateRemote": {
+        "def": "Duplicate Remote",
+        "es": "Duplicate Remote",
+        "ja": "Duplicate Remote",
+        "ko": "Duplicate Remote",
+        "ru": "Duplicate Remote",
+        "zh": "Duplicate Remote",
+        "zw-th": "Duplicate Remote"
+    },
+    "Ui.Settings.Remote.DuplicateRemoteSuffix": {
+        "def": "Duplicate Remote Suffix",
+        "es": "Duplicate Remote Suffix",
+        "ja": "Duplicate Remote Suffix",
+        "ko": "Duplicate Remote Suffix",
+        "ru": "Duplicate Remote Suffix",
+        "zh": "Duplicate Remote Suffix",
+        "zw-th": "Duplicate Remote Suffix"
+    },
+    "Ui.Settings.Remote.Export": {
+        "def": "Export",
+        "es": "Export",
+        "ja": "Export",
+        "ko": "Export",
+        "ru": "Export",
+        "zh": "Export",
+        "zw-th": "Export"
+    },
+    "Ui.Settings.Remote.FetchRemoteSettings": {
+        "def": "Fetch Remote Settings",
+        "es": "Fetch Remote Settings",
+        "ja": "Fetch Remote Settings",
+        "ko": "Fetch Remote Settings",
+        "ru": "Fetch Remote Settings",
+        "zh": "Fetch Remote Settings",
+        "zw-th": "Fetch Remote Settings"
+    },
+    "Ui.Settings.Remote.ImportConnection": {
+        "def": "Import Connection",
+        "es": "Import Connection",
+        "ja": "Import Connection",
+        "ko": "Import Connection",
+        "ru": "Import Connection",
+        "zh": "Import Connection",
+        "zw-th": "Import Connection"
+    },
+    "Ui.Settings.Remote.ImportConnectionPrompt": {
+        "def": "Import Connection Prompt",
+        "es": "Import Connection Prompt",
+        "ja": "Import Connection Prompt",
+        "ko": "Import Connection Prompt",
+        "ru": "Import Connection Prompt",
+        "zh": "Import Connection Prompt",
+        "zw-th": "Import Connection Prompt"
+    },
+    "Ui.Settings.Remote.ImportedCouchDb": {
+        "def": "Imported Couch Db",
+        "es": "Imported Couch Db",
+        "ja": "Imported Couch Db",
+        "ko": "Imported Couch Db",
+        "ru": "Imported Couch Db",
+        "zh": "Imported Couch Db",
+        "zw-th": "Imported Couch Db"
+    },
+    "Ui.Settings.Remote.ImportedRemote": {
+        "def": "Imported Remote",
+        "es": "Imported Remote",
+        "ja": "Imported Remote",
+        "ko": "Imported Remote",
+        "ru": "Imported Remote",
+        "zh": "Imported Remote",
+        "zw-th": "Imported Remote"
+    },
+    "Ui.Settings.Remote.MoreActions": {
+        "def": "More Actions",
+        "es": "More Actions",
+        "ja": "More Actions",
+        "ko": "More Actions",
+        "ru": "More Actions",
+        "zh": "More Actions",
+        "zw-th": "More Actions"
+    },
+    "Ui.Settings.Remote.RemoteConfigurationPrefix": {
+        "def": "Remote Configuration Prefix",
+        "es": "Remote Configuration Prefix",
+        "ja": "Remote Configuration Prefix",
+        "ko": "Remote Configuration Prefix",
+        "ru": "Remote Configuration Prefix",
+        "zh": "Remote Configuration Prefix",
+        "zw-th": "Remote Configuration Prefix"
+    },
+    "Ui.Settings.Remote.RemoteName": {
+        "def": "Remote Name",
+        "es": "Remote Name",
+        "ja": "Remote Name",
+        "ko": "Remote Name",
+        "ru": "Remote Name",
+        "zh": "Remote Name",
+        "zw-th": "Remote Name"
+    },
+    "Ui.Settings.Remote.RemoteNameCouchDb": {
+        "def": "Remote Name Couch Db",
+        "es": "Remote Name Couch Db",
+        "ja": "Remote Name Couch Db",
+        "ko": "Remote Name Couch Db",
+        "ru": "Remote Name Couch Db",
+        "zh": "Remote Name Couch Db",
+        "zw-th": "Remote Name Couch Db"
+    },
+    "Ui.Settings.Remote.RemoteNameP2P": {
+        "def": "Remote Name P2P",
+        "es": "Remote Name P2P",
+        "ja": "Remote Name P2P",
+        "ko": "Remote Name P2P",
+        "ru": "Remote Name P2P",
+        "zh": "Remote Name P2P",
+        "zw-th": "Remote Name P2P"
+    },
+    "Ui.Settings.Remote.RemoteNameS3": {
+        "def": "Remote Name S3",
+        "es": "Remote Name S3",
+        "ja": "Remote Name S3",
+        "ko": "Remote Name S3",
+        "ru": "Remote Name S3",
+        "zh": "Remote Name S3",
+        "zw-th": "Remote Name S3"
+    },
+    "Ui.Settings.Remote.Rename": {
+        "def": "Rename",
+        "es": "Rename",
+        "ja": "Rename",
+        "ko": "Rename",
+        "ru": "Rename",
+        "zh": "Rename",
+        "zw-th": "Rename"
+    },
+    "Ui.Settings.Selector.CrossPlatform": {
+        "def": "Cross-platform",
+        "es": "Cross-platform",
+        "ja": "Cross-platform",
+        "ko": "Cross-platform",
+        "ru": "Cross-platform",
+        "zh": "Cross-platform",
+        "zw-th": "Cross-platform"
+    },
+    "Ui.Settings.Selector.Default": {
+        "def": "Default",
+        "es": "Default",
+        "ja": "Default",
+        "ko": "Default",
+        "ru": "Default",
+        "zh": "Default",
+        "zw-th": "Default"
+    },
+    "Ui.Settings.Setup.RerunWizardButton": {
+        "def": "Rerun Wizard Button",
+        "es": "Rerun Wizard Button",
+        "ja": "Rerun Wizard Button",
+        "ko": "Rerun Wizard Button",
+        "ru": "Rerun Wizard Button",
+        "zh": "Rerun Wizard Button",
+        "zw-th": "Rerun Wizard Button"
+    },
+    "Ui.Settings.SyncSettings.Fetch": {
+        "def": "Fetch",
+        "es": "Fetch",
+        "ja": "Fetch",
+        "ko": "Fetch",
+        "ru": "Fetch",
+        "zh": "Fetch",
+        "zw-th": "Fetch"
+    },
+    "Ui.Settings.SyncSettings.Merge": {
+        "def": "Merge",
+        "es": "Merge",
+        "ja": "Merge",
+        "ko": "Merge",
+        "ru": "Merge",
+        "zh": "Merge",
+        "zw-th": "Merge"
+    },
+    "Ui.Settings.SyncSettings.Overwrite": {
+        "def": "Overwrite",
+        "es": "Overwrite",
+        "ja": "Overwrite",
+        "ko": "Overwrite",
+        "ru": "Overwrite",
+        "zh": "Overwrite",
+        "zw-th": "Overwrite"
+    },
+    "obsidianLiveSyncSettingTab.logServerConfigurationCheck": {
+        "def": "Log Server Configuration Check",
+        "es": "Log Server Configuration Check",
+        "ja": "Log Server Configuration Check",
+        "ko": "Log Server Configuration Check",
+        "ru": "Log Server Configuration Check",
+        "zh": "Log Server Configuration Check",
+        "zw-th": "Log Server Configuration Check"
+    },
     "Compute revisions for chunks (Previous behaviour)": {
         es: "Calcular revisiones para chunks (comportamiento anterior)",
     },
