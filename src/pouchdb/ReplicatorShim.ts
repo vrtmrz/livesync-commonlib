@@ -4,9 +4,14 @@ import { LOG_LEVEL_VERBOSE } from "../common/types";
 
 export type SomeDocument<T extends object> = PouchDB.Core.ExistingDocument<T> & PouchDB.Core.ChangesMeta;
 
+/**
+ * Minimal subset of the PouchDB public API required by {@link replicateShim}.
+ * Both a real `PouchDB.Database` and an {@link RpcPouchDBProxy} satisfy this
+ * interface, allowing replication across an RPC transport.
+ */
 export type PouchDBShim<T extends object> = {
     info: () => Promise<PouchDB.Core.DatabaseInfo>;
-    changes: (options: PouchDB.Core.ChangesOptions) => Promise<PouchDB.Core.ChangesResponse<T>>;
+    changes: (options: PouchDB.Core.ChangesOptions) => PromiseLike<PouchDB.Core.ChangesResponse<T>>;
     revsDiff: (diff: PouchDB.Core.RevisionDiffOptions) => Promise<PouchDB.Core.RevisionDiffResponse>;
     bulkDocs: (
         docs: PouchDB.Core.PostDocument<any>[],
@@ -18,6 +23,8 @@ export type PouchDBShim<T extends object> = {
 };
 
 type CompatibleDatabase<T extends object> = PouchDB.Database<SomeDocument<T>> | PouchDBShim<SomeDocument<T>>;
+
+/** Upserts a document by `id`, calling `func` to produce the updated version. */
 export async function upsert<V extends object, T extends SomeDocument<V> = SomeDocument<V>>(
     db: CompatibleDatabase<object>,
     id: string,
@@ -33,21 +40,14 @@ export async function upsert<V extends object, T extends SomeDocument<V> = SomeD
         throw new Error("Failed to update");
     } catch (ex: any) {
         if (ex.name === "not_found") {
-            const result = await db.put(
-                func({
-                    _id: id,
-                } as T),
-                {}
-            );
+            const seed = func({ _id: id } as T);
+            const result = await db.put(seed, {});
             if (result && result.ok) {
-                return func({
-                    _id: id,
-                } as T);
+                return seed;
             }
             throw new Error("Failed to insert");
-        } else {
-            throw ex;
         }
+        throw ex;
     }
 }
 
@@ -74,6 +74,53 @@ export type ShimReplicationProgressReportFunc<T extends object> = (
     progress: SomeDocument<T>[],
     progressInfo: ProgressInfo
 ) => Promise<void>;
+
+/** Parse the numeric part of a PouchDB sequence value (`"42-xyz"` → `42`). */
+function parseSeq(seq: string | number): number {
+    return parseInt(String(seq).split("-")[0], 10);
+}
+
+/**
+ * Build the `{docId: [rev, ...]}` map required by `revsDiff` from a changes
+ * feed result set, merging revisions when the same document appears multiple
+ * times in a batch.
+ */
+function buildRevsDiffParam(changesResults: PouchDB.Core.ChangesResponseChange<object>[]): Record<string, string[]> {
+    const param: Record<string, string[]> = {};
+    for (const { id, changes } of changesResults) {
+        param[id] = [...(param[id] ?? []), ...changes.map((c) => c.rev)];
+    }
+    return param;
+}
+
+/**
+ * Sort fetched documents in ascending sequence order so that consumers receive
+ * them in the same order they were written to the source.
+ */
+function sortBySeq<T extends { _id: string }>(
+    docs: T[],
+    changesResults: PouchDB.Core.ChangesResponseChange<object>[]
+): T[] {
+    const maxSeqById = new Map<string, number>();
+    for (const { id, seq } of changesResults) {
+        maxSeqById.set(id, Math.max(maxSeqById.get(id) ?? 0, parseSeq(seq)));
+    }
+    return docs.slice().sort((a, b) => (maxSeqById.get(a._id) ?? 0) - (maxSeqById.get(b._id) ?? 0));
+}
+
+/**
+ * Replicate documents from `sourceDB` into `targetDB` using a CouchDB-style
+ * checkpoint protocol.
+ *
+ * Both parameters accept either a real `PouchDB.Database` or any object
+ * implementing {@link PouchDBShim} — including {@link RpcPouchDBProxy} — so
+ * replication can span an RPC transport boundary.
+ *
+ * @param targetDB  Destination database (usually local).
+ * @param sourceDB  Source database (may be remote / RPC-backed).
+ * @param progress  Called after each batch with the written documents.
+ * @param option    Replication options (live mode, batch size, abort signal).
+ */
 export async function replicateShim<T extends CompatibleDatabase<V>, U extends CompatibleDatabase<V>, V extends object>(
     targetDB: T,
     sourceDB: U,
@@ -81,170 +128,94 @@ export async function replicateShim<T extends CompatibleDatabase<V>, U extends C
     option: ShimReplicationOption = {}
 ) {
     try {
-        // Retrieve target (usually local) info (and check if the local is accessible and for the database name)
-        const targetDBInfo = await targetDB.info();
+        const [targetDBInfo, sourceDBInfo] = await Promise.all([targetDB.info(), sourceDB.info()]);
+        const maxNumSeq = parseSeq(sourceDBInfo.update_seq);
 
-        // Retrieve source (Usually remote) info (and check if the remote is accessible)
-        const sourceDBInfo = await sourceDB.info();
-
-        const sourceMaxSeq = sourceDBInfo.update_seq;
-        const maxNumSeq = Number.parseInt(`${sourceMaxSeq}`.split("-")[0]);
-
-        // Replication to the database should be serialized.
         await serialized(`replication-${targetDBInfo.db_name}-${sourceDBInfo.db_name}`, async () => {
-            const syncHeaderMsg = `Replication from ${sourceDBInfo.db_name} to ${targetDBInfo.db_name}
-Source: ${sourceDBInfo.db_name} (${sourceDBInfo.update_seq})
-Target: ${targetDBInfo.db_name} (${targetDBInfo.update_seq})`;
-            Logger(syncHeaderMsg, LOG_LEVEL_VERBOSE);
-            // Checkpoint retrieval
-            // The checkpoint is a document that stores the last sequence number that has been replicated.
-            // We can track the changes efficiently by using the checkpoint.
-            // It stores `mark` on the source, and actual sequence number for the target.
-            // (it is a bit confusing. However, usually, the target is the local database and it can be updated faster and less traffic).
-            const targetDBName = targetDBInfo.db_name;
-            const sourceDBName = sourceDBInfo.db_name;
-
-            // Update the `mark` on the target database.
-            // Ambiguous name, but, indeed, it just only for detecting the either or both databases have been rebuilt.
-            // Therefore, It does not have to be a time stamp, but it must not be repeated even if we do not having knowledge.
-            // It should be lost when the source has been rebuilt. Hence, `since` on the target database will be reset (by reading a different checkpoint document).
-            const sourceCheckpointID = `_local/replication-checkpoint-mark-${targetDBName}-${sourceDBName}`;
-            const sourceCheckpointData = await upsert<{ mark: string }>(sourceDB, sourceCheckpointID, (doc) => {
-                const previousMark: string = doc.mark ?? new Date().getTime().toString();
-                const mark = option.rewind ? new Date().getTime().toString() : previousMark;
-                return {
-                    ...doc,
-                    mark: mark,
-                };
-            });
             Logger(
-                `Replication from ${sourceDBName} to ${targetDBName} with mark ${sourceCheckpointData.mark}`,
+                `Replication ${sourceDBInfo.db_name} (${sourceDBInfo.update_seq}) → ${targetDBInfo.db_name} (${targetDBInfo.update_seq})`,
                 LOG_LEVEL_VERBOSE
             );
 
-            const mark = sourceCheckpointData.mark;
-            // (For the sake for avoiding troubles connected to the same name destination database, previous document needs to be kept as documentation of `mark` differences).
-            const targetCheckpointID = `_local/replication-checkpoint-${targetDBName}-${mark}`;
-            const targetCheckpointData = await upsert<{ since: string | number }>(
-                targetDB,
-                targetCheckpointID,
-                (doc) => {
-                    return {
-                        ...doc,
-                        since: doc.since ?? "",
-                    };
-                }
-            );
+            // --- Checkpoint: source-side mark ---------------------------------
+            // A `mark` stored on the source detects when it has been rebuilt.
+            // If the mark changes, `since` is reset to the beginning.
+            const { db_name: targetName } = targetDBInfo;
+            const { db_name: sourceName } = sourceDBInfo;
+            const sourceCheckpointID = `_local/replication-checkpoint-mark-${targetName}-${sourceName}`;
+            const { mark } = await upsert<{ mark: string }>(sourceDB, sourceCheckpointID, (doc) => ({
+                ...doc,
+                mark: option.rewind ? String(Date.now()) : (doc.mark ?? String(Date.now())),
+            }));
+            Logger(`Replication mark: ${mark}`, LOG_LEVEL_VERBOSE);
 
-            let since = targetCheckpointData.since;
-            Logger(`Replication from ${sourceDBName} to ${targetDBName} / since ${since}`, LOG_LEVEL_VERBOSE);
-            const batch_size = option.batch_size ?? 33; // Default batch size is 33, probably works well on trystero.
-            do {
-                // Fetch changes from the source database.
-                const changes = await sourceDB.changes({
-                    since,
-                    style: "all_docs",
-                    limit: batch_size,
-                });
-                // If there is no changes, then we can break the loop.
+            // --- Checkpoint: target-side since --------------------------------
+            const targetCheckpointID = `_local/replication-checkpoint-${targetName}-${mark}`;
+            const checkpoint = await upsert<{ since: string | number }>(targetDB, targetCheckpointID, (doc) => ({
+                ...doc,
+                since: doc.since ?? "",
+            }));
+            let since = checkpoint.since;
+            Logger(`Starting from seq ${since}`, LOG_LEVEL_VERBOSE);
+
+            const batchSize = option.batch_size ?? 33;
+
+            // --- Batch replication loop ---------------------------------------
+            while (true) {
+                const changes = await sourceDB.changes({ since, style: "all_docs", limit: batchSize });
+
                 if (changes.results.length === 0) break;
-                // If the replication has been aborted, we should break the loop.
                 if (option.controller?.signal?.aborted) break;
 
                 const changesResults = changes.results;
+                const revsDiffParam = buildRevsDiffParam(changesResults);
+                const diff = await targetDB.revsDiff(revsDiffParam);
 
-                // Check the missing revisions on the target database.
-                const diffCheckParamA = changesResults.map((e) => [e.id, e.changes.map((e) => e.rev)] as const);
-                const diffCheckParam = diffCheckParamA.reduce(
-                    (acc, [id, revs]) => {
-                        return {
-                            ...acc,
-                            [id]: [...(acc[id] ?? []), ...revs],
-                        };
-                    },
-                    {} as { [key: string]: string[] }
-                );
-                const diff = await targetDB.revsDiff(diffCheckParam);
-                const diffEntries = Object.entries(diff);
-                const missing = diffEntries
-                    .filter((e) => e[1].missing !== undefined)
-                    .map((e) => [e[0], e[1].missing] as [string, string[]]);
-                const request = missing.map(([id, revs]) => revs.map((rev) => ({ id, rev }))).flat();
-                // Fetch missing docs from the source database.
-                if (request.length !== 0) {
-                    // If some docs are missing (in the range), we should fetch them from the source database.
-                    const docs = await sourceDB.bulkGet({ docs: request, revs: true });
-                    // write missing docs to the target database.
-                    const fetchedMissingDocs = docs.results
-                        .map((e) => e.docs)
-                        .flat()
-                        .filter((e) => "ok" in e)
-                        .map((e) => e.ok);
+                // Collect {id, rev} pairs for revisions the target is missing.
+                const missingRequests = Object.entries(diff)
+                    .filter(([, entry]) => entry.missing !== undefined)
+                    .flatMap(([id, entry]) => entry.missing!.map((rev) => ({ id, rev })));
 
-                    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-                    const _ = await targetDB.bulkDocs(fetchedMissingDocs, { new_edits: false });
-                    // new_edits = false: means that we aimed to write the docs as they are, even if they are conflicted.
-                    // Hence, we can resolve the conflicts.
-                    // await delay(25); // Delay for a while to avoid the rate limit.
-                    // Run the progress function.
-                    const changedTargetDocs = await targetDB.bulkGet({
-                        docs: [...new Set(changesResults.map((e) => ({ id: e.id })))],
-                    });
-                    const fetchDocs = changedTargetDocs.results
-                        .map((e) => e.docs)
-                        .flat()
-                        .filter((e) => "ok" in e)
-                        .map((e) => e.ok);
-                    const docWithSeq = fetchDocs.map((e) => ({
-                        doc: e,
-                        seq: Math.max.apply(undefined, [
-                            changesResults
-                                .filter((e2) => e2.id === e._id)
-                                .map((e2) => `${e2.seq}`.split("-")[0])
-                                .map((e2) => parseInt(e2))
-                                .reduce((a, b) => Math.max(a, b), 0),
-                            0,
-                        ]),
-                    }));
-                    // const compareRevs = (a: string, b: string) => Number.parseInt(a.split("-")[0]) - Number.parseInt(b.split("-")[0]);
-                    // const orderedDocs = docs2process.sort((a, b) => compareRevs(a._rev, b._rev));
-                    const processedDocs = docWithSeq.sort((a, b) => a.seq - b.seq).map((e) => e.doc);
-                    // const maxSeq = changes.results.map(e => e.seq).reduce((prev, seq) => {
-                    //     const prevNum = `${prev}`.split("-")[0];
-                    //     const seqNum = `${seq}`.split("-")[0];
-                    //     if (prevNum < seqNum) {
-                    //         return seq;
-                    //     }
-                    //     return prev;
-                    // }
-                    //     , "");
-                    const allSecs = Number.parseInt(`${changes.last_seq}`.split("-")[0]);
+                if (missingRequests.length > 0) {
+                    const bulkGetResult = await sourceDB.bulkGet({ docs: missingRequests, revs: true });
+                    const fetchedDocs = bulkGetResult.results
+                        .flatMap((r) => r.docs)
+                        .filter((d) => "ok" in d)
+                        .map((d) => d.ok);
+
+                    await targetDB.bulkDocs(fetchedDocs, { new_edits: false });
+
+                    // Re-fetch the written docs from target to pass to the progress callback
+                    // in the order they were sequenced in the source.
+                    const uniqueIds = [...new Set(changesResults.map((c) => c.id))];
+                    const refreshResult = await targetDB.bulkGet({ docs: uniqueIds.map((id) => ({ id })) });
+                    const refreshedDocs = refreshResult.results
+                        .flatMap((r) => r.docs)
+                        .filter((d) => "ok" in d)
+                        .map((d) => d.ok);
+
+                    const orderedDocs = sortBySeq(refreshedDocs, changesResults);
+                    const lastSeqNum = parseSeq(changes.last_seq);
+
                     try {
-                        await progress(processedDocs, {
-                            lastSeq: allSecs,
-                            maxSeqInBatch: maxNumSeq,
-                        }); // Report the progress.
+                        await progress(orderedDocs, { lastSeq: lastSeqNum, maxSeqInBatch: maxNumSeq });
                     } catch (ex) {
-                        Logger(`Failed to process the progress on shim-replication`);
+                        Logger(`Progress callback failed during shim-replication`, LOG_LEVEL_VERBOSE);
                         Logger(ex, LOG_LEVEL_VERBOSE);
                     }
-                    since = changes.last_seq;
-                } else {
-                    // Update checkpoint
-                    since = changes.last_seq;
                 }
-                await upsert<{ since: string | number }>(targetDB, targetCheckpointID, (doc) => {
-                    return {
-                        ...doc,
-                        since: since,
-                    };
-                });
-            } while (true);
+
+                since = changes.last_seq;
+                await upsert<{ since: string | number }>(targetDB, targetCheckpointID, (doc) => ({
+                    ...doc,
+                    since,
+                }));
+            }
         });
     } catch (ex) {
-        Logger(`Failed to replicate the database`, LOG_LEVEL_VERBOSE);
+        Logger(`Replication failed`, LOG_LEVEL_VERBOSE);
         Logger(ex, LOG_LEVEL_VERBOSE);
         throw ex;
     }
-    Logger(`Replication has been completed`, LOG_LEVEL_VERBOSE);
+    Logger(`Replication completed`, LOG_LEVEL_VERBOSE);
 }
