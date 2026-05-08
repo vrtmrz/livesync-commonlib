@@ -1,1 +1,118 @@
-{}
+{
+  Ui:
+    {
+      SetupWizard:
+        {
+          Common:
+            {
+              Back: Zurück,
+              Cancel: Abbrechen,
+              ProceedSelectOption: Bitte wählen Sie eine Option
+            },
+          Intro:
+            {
+              Title: Einrichtungsassistent,
+              Guidance: Willkommen! Lassen Sie uns LiveSync einrichten. Sind Sie neu bei
+                LiveSync oder haben Sie bereits einen Remote-Server
+                konfiguriert?,
+              Question: Was beschreibt Ihre Situation?,
+              NewOption: Ich bin neu bei LiveSync,
+              NewOptionDesc: LiveSync zum ersten Mal einrichten,
+              ExistingOption: Ich habe bereits einen konfigurierten Server,
+              ExistingOptionDesc: Mit einem bestehenden LiveSync-Server verbinden,
+              ProceedNew: Neu einrichten,
+              ProceedExisting: Mit Bestehendem verbinden
+            },
+          OutroNewUser:
+            {
+              Title: Einrichtung abgeschlossen,
+              GuidancePrimary: Ihre LiveSync-Konfiguration wurde eingerichtet. Die
+                Einstellungen werden beim Schließen dieses Dialogs angewendet.,
+              Important: "Wichtig:",
+              GuidanceWarning: "Dies überschreibt vorhandene Dateien, wenn der Remote-Tresor
+                Daten enthält. Stellen Sie sicher, dass Sie einen leeren Tresor
+                verwenden oder über Backups verfügen.",
+              Question: "Bereit, die Konfiguration anzuwenden?",
+              Proceed: Anwenden und neu starten
+            },
+          OutroExisting:
+            {
+              Guidance: "Die Einrichtung ist abgeschlossen. Die Remote-Daten werden nach dem
+                Neustart abgerufen. Klicken Sie auf die Schaltfläche unten, um
+                neu zu starten und die Synchronisation zu beginnen.",
+              Title: "Einrichtung abgeschlossen: Vorbereitung zum Abrufen der
+                Synchronisationsdaten",
+              Question: "Klicken Sie auf die Schaltfläche unten, um neu zu starten und zur
+                Bestätigung des Datenabrufs fortzufahren.",
+              Proceed: Neu starten und Daten abrufen
+            },
+          SetupRemote:
+            {
+              Title: Remote-Server einrichten,
+              Guidance: "Wählen Sie den Typ des Remote-Servers, den Sie verwenden möchten:",
+              CouchDbOptionDesc: Verwenden Sie Ihre eigene CouchDB-Instanz für die
+                vollständige Kontrolle über Ihren Sync-Server,
+              BucketOption: LiveSync-Bucket,
+              BucketOptionDesc: Verwenden Sie den mitgelieferten Bucket-Server des
+                LiveSync-Begleitdienstes,
+              P2POption: Peer-to-peer (Experimentell),
+              P2POptionDesc: Direkte Synchronisation zwischen Geräten ohne zentralen Server,
+              ProceedCouchDb: CouchDB einrichten,
+              ProceedBucket: Bucket einrichten,
+              ProceedP2P: P2P einrichten,
+              CouchDbOption: CouchDB
+            },
+          OutroAskUserMode:
+            {
+              Title: Wie werden Sie dieses Gerät verwenden?,
+              Guidance: "Wählen Sie, wie dieses Gerät mit LiveSync verwendet wird. Dies
+                beeinflusst das anfängliche Synchronisationsverhalten.",
+              Question: "Wählen Sie den Modus für dieses Gerät:",
+              NewOption: Als neues Gerät einrichten,
+              NewOptionDesc: Mit einem neuen Tresor beginnen. Remote-Dateien werden nach der
+                Einrichtung abgerufen.,
+              ExistingOption: Dieses Gerät hat vorhandene Daten,
+              ExistingOptionDesc: "Lokale Dateien mit den Remote-Dateien zusammenführen.
+                Verwenden Sie dies, wenn Sie bereits Notizen in diesem Tresor
+                haben.",
+              CompatibleOption: Kompatibilitätsmodus verwenden,
+              CompatibleOptionDesc: "Verwenden Sie dies, wenn der Remote-Server mit einer
+                älteren Version von LiveSync eingerichtet wurde. Einige
+                Funktionen können eingeschränkt sein.",
+              ProceedNext: Weiter,
+              ProceedApplySettings: Einstellungen anwenden
+            },
+          SelectNew:
+            {
+              Title: Neue Verbindung einrichten,
+              Guidance: "Wählen Sie, wie Sie Ihre neue LiveSync-Verbindung konfigurieren
+                möchten.",
+              Question: "Konfigurationsmethode wählen:",
+              SetupUriOption: Setup-URI verwenden,
+              SetupUriOptionDesc: Konfiguration aus einem vom Server bereitgestellten
+                Setup-URI importieren,
+              ManualOption: Manuell konfigurieren,
+              ManualOptionDesc: Serverdetails und Anmeldedaten selbst eingeben,
+              ProceedSetupUri: Setup-URI verwenden,
+              ProceedManual: Manuell konfigurieren
+            },
+          SelectExisting:
+            {
+              Title: Mit bestehendem Server verbinden,
+              Guidance: "Wählen Sie, wie Sie sich mit Ihrem bestehenden LiveSync-Server
+                verbinden möchten.",
+              Question: "Verbindungsmethode wählen:",
+              SetupUriOption: Setup-URI verwenden,
+              SetupUriOptionDesc: Konfiguration aus einem vom Server bereitgestellten
+                Setup-URI importieren,
+              QrOption: QR-Code scannen,
+              QrOptionDesc: QR-Code von einem bereits konfigurierten Gerät scannen,
+              ManualOption: Manuell konfigurieren,
+              ManualOptionDesc: Serverdetails und Anmeldedaten selbst eingeben,
+              ProceedSetupUri: Setup-URI verwenden,
+              ProceedManual: Manuell konfigurieren,
+              ProceedQr: QR-Code scannen
+            }
+        }
+    }
+}

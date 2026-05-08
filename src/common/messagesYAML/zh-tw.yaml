@@ -1,1 +1,92 @@
-{}
+{
+  Ui:
+    {
+      SetupWizard:
+        {
+          Common: { Back: 返回, Cancel: 取消, ProceedSelectOption: 請選擇一個選項 },
+          Intro:
+            {
+              Title: 設定精靈,
+              Guidance: 歡迎！讓我們設定 LiveSync。您是 LiveSync 新用戶，還是已經設定遠端伺服器？,
+              Question: 您的情況是？,
+              NewOption: 我是 LiveSync 新用戶,
+              NewOptionDesc: 首次設定 LiveSync,
+              ExistingOption: 我已經設定好伺服器,
+              ExistingOptionDesc: 連線到現有的 LiveSync 伺服器,
+              ProceedNew: 新建設定,
+              ProceedExisting: 連線到現有伺服器
+            },
+          OutroNewUser:
+            {
+              Title: 設定完成,
+              GuidancePrimary: 您的 LiveSync 設定已完成。關閉此對話方塊後將套用設定。,
+              Important: 重要提示：,
+              GuidanceWarning: 如果遠端保險庫中有資料，這將覆蓋現有檔案。請確保您使用的是空保險庫或已做好備份。,
+              Question: 準備好套用設定了嗎？,
+              Proceed: 套用並重新啟動
+            },
+          OutroExisting:
+            {
+              Guidance: 設定已完成。重新啟動後將取得遠端資料。點擊下方按鈕重新啟動並開始同步。,
+              Title: 設定完成：準備取得同步資料,
+              Question: 請點擊下方按鈕重新啟動並進入資料取得確認。,
+              Proceed: 重新啟動並取得資料
+            },
+          SetupRemote:
+            {
+              Title: 設定遠端伺服器,
+              Guidance: 選擇您要使用的遠端伺服器類型：,
+              CouchDbOptionDesc: 使用您自己的 CouchDB 執行個體，完全控制同步伺服器,
+              BucketOption: LiveSync 儲存桶,
+              BucketOptionDesc: 使用 LiveSync 配套服務內建的儲存桶伺服器,
+              P2POption: 點對點（實驗性）,
+              P2POptionDesc: 無需中央伺服器，直接在裝置之間同步,
+              ProceedCouchDb: 設定 CouchDB,
+              ProceedBucket: 設定儲存桶,
+              ProceedP2P: 設定 P2P,
+              CouchDbOption: CouchDB
+            },
+          OutroAskUserMode:
+            {
+              Title: 您將如何使用此裝置？,
+              Guidance: 選擇此裝置在 LiveSync 中的使用方式。這會影響初始同步行為。,
+              Question: 選擇此裝置的模式：,
+              NewOption: 設定為新裝置,
+              NewOptionDesc: 從新的保險庫開始。設定後將取得遠端檔案。,
+              ExistingOption: 此裝置已有資料,
+              ExistingOptionDesc: 將本機檔案與遠端合併。如果此保險庫中已有筆記，請使用此選項。,
+              CompatibleOption: 使用相容模式,
+              CompatibleOptionDesc: 如果遠端是使用舊版 LiveSync 設定的，請使用此選項。某些功能可能受限。,
+              ProceedNext: 繼續,
+              ProceedApplySettings: 套用設定
+            },
+          SelectNew:
+            {
+              Title: 設定新連線,
+              Guidance: 選擇您想如何設定新的 LiveSync 連線。,
+              Question: 選擇設定方式：,
+              SetupUriOption: 使用設定 URI,
+              SetupUriOptionDesc: 從伺服器提供的設定 URI 匯入設定,
+              ManualOption: 手動設定,
+              ManualOptionDesc: 自行輸入伺服器詳細資料和憑證,
+              ProceedSetupUri: 使用設定 URI,
+              ProceedManual: 手動設定
+            },
+          SelectExisting:
+            {
+              Title: 連線到現有伺服器,
+              Guidance: 選擇如何連線到您現有的 LiveSync 伺服器。,
+              Question: 選擇連線方式：,
+              SetupUriOption: 使用設定 URI,
+              SetupUriOptionDesc: 從伺服器提供的設定 URI 匯入設定,
+              QrOption: 掃描 QR 碼,
+              QrOptionDesc: 從已設定的裝置掃描 QR 碼,
+              ManualOption: 手動設定,
+              ManualOptionDesc: 自行輸入伺服器詳細資料和憑證,
+              ProceedSetupUri: 使用設定 URI,
+              ProceedManual: 手動設定,
+              ProceedQr: 掃描 QR 碼
+            }
+        }
+    }
+}

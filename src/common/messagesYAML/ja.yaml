@@ -951,3 +951,108 @@ Warning! This will have a serious impact on performance. And the logs will not b
 When you save a file in the editor, start a sync automatically: エディタでファイルを保存すると、自動的に同期を開始します
 Write credentials in the file: 認証情報のファイル内保存
 Write logs into the file: ファイルにログを記録
+"":
+  Analyse database usage: データベース使用状況を分析
+  Analyse database usage and generate a TSV report for diagnosis yourself:
+    " You can paste the generated report with any spreadsheet you like":
+      "": データベース使用状況を分析し、自分で診断できるよう TSV レポートを生成します。生成したレポートは任意のスプレッドシートに貼り付けて確認できます。
+  Check: 確認
+  Copy Report to clipboard: レポートをクリップボードにコピー
+  If enabled, the ⛔ icon will be shown inside the status instead of the file warnings banner:
+    " No details will be shown":
+      "": 有効にすると、ファイル警告バナーの代わりにステータス内へ ⛔ アイコンのみを表示します。詳細は表示されません。
+  lang_def: デフォルト
+  Minimum interval for syncing: 同期間隔の最小値
+  obsidianLiveSyncSettingTab:
+    optionCouchDB: CouchDB サーバー
+    optionLiveSync: LiveSync 同期
+    optionMinioS3R2: MinIO、S3、R2
+    titleCouchDB: CouchDB サーバー
+    titleMinioS3R2: MinIO、S3、R2
+  Prepare the 'report' to create an issue: Issue 作成用の「レポート」を準備
+  Rerun Onboarding Wizard: オンボーディングウィザードを再実行
+  Rerun the onboarding wizard to set up Self-hosted LiveSync again:
+    "": オンボーディングウィザードを再実行して、Self-hosted LiveSync をもう一度設定します。
+  Rerun Wizard: ウィザードを再実行
+  Reset notification threshold and check the remote database usage: 通知しきい値をリセットしてリモートデータベース使用量を確認
+  Reset the remote storage size threshold and check the remote storage size again:
+    "": リモートストレージ容量のしきい値をリセットし、リモートストレージ容量を再確認します。
+  Run Doctor: 診断を実行
+  Show status icon instead of file warnings banner: ファイル警告バナーの代わりにステータスアイコンを表示
+  The minimum interval for automatic synchronisation on event:
+    "": イベント発生時の自動同期における最小間隔です。
+Ui:
+  SetupWizard:
+    Common:
+      Back: 戻る
+      Cancel: キャンセル
+      ProceedSelectOption: オプションを選択してください
+    Intro:
+      Title: セットアップウィザード
+      Guidance: ようこそ！LiveSync をセットアップしましょう。LiveSync の新規ユーザーですか、それともリモートサーバーはすでに設定済みですか？
+      Question: 当てはまるのはどれですか？
+      NewOption: LiveSync の新規ユーザーです
+      NewOptionDesc: LiveSync を初めてセットアップする
+      ExistingOption: サーバーはすでに設定済みです
+      ExistingOptionDesc: 既存の LiveSync サーバーに接続する
+      ProceedNew: 新規セットアップ
+      ProceedExisting: 既存サーバーに接続
+    OutroNewUser:
+      Title: セットアップ完了
+      GuidancePrimary: LiveSync の設定が完了しました。このダイアログを閉じると設定が適用されます。
+      Important: 重要：
+      GuidanceWarning: リモートボールトにデータがある場合、既存のファイルが上書きされます。空のボールトを使用しているか、バックアップがあることを確認してください。
+      Question: 設定を適用する準備はできましたか？
+      Proceed: 適用して再起動
+    OutroExisting:
+      Guidance: セットアップが完了しました。再起動後にリモートデータが取得されます。下のボタンをクリックして再起動し、同期を開始してください。
+      Title: セットアップ完了：同期データの取得準備中
+      Question: 下のボタンをクリックして再起動し、データ取得の確認に進んでください。
+      Proceed: 再起動してデータを取得
+    SetupRemote:
+      Title: リモートサーバーのセットアップ
+      Guidance: 使用するリモートサーバーの種類を選択してください：
+      CouchDbOptionDesc: ご自身の CouchDB インスタンスを使用して、同期サーバーを完全に制御
+      BucketOption: LiveSync バケット
+      BucketOptionDesc: LiveSync コンパニオンサービスに同梱されているバケットサーバーを使用
+      P2POption: ピアツーピア（実験的）
+      P2POptionDesc: 中央サーバーなしでデバイス間を直接同期
+      ProceedCouchDb: CouchDB をセットアップ
+      ProceedBucket: バケットをセットアップ
+      ProceedP2P: P2P をセットアップ
+      CouchDbOption: CouchDB
+    OutroAskUserMode:
+      Title: このデバイスをどのように使用しますか？
+      Guidance: このデバイスの LiveSync での使用方法を選択してください。初期同期動作に影響します。
+      Question: このデバイスのモードを選択：
+      NewOption: 新しいデバイスとしてセットアップ
+      NewOptionDesc: 新しいボールトで開始します。セットアップ後にリモートファイルが取得されます。
+      ExistingOption: このデバイスには既存データがあります
+      ExistingOptionDesc: ローカルファイルをリモートとマージします。このボールトにすでにメモがある場合はこちらを選択してください。
+      CompatibleOption: 互換モードを使用
+      CompatibleOptionDesc: リモートが旧バージョンの LiveSync でセットアップされている場合はこちらを選択してください。一部の機能が制限される場合があります。
+      ProceedNext: 続行
+      ProceedApplySettings: 設定を適用
+    SelectNew:
+      Title: 新しい接続をセットアップ
+      Guidance: 新しい LiveSync 接続の設定方法を選択してください。
+      Question: 設定方法を選択：
+      SetupUriOption: セットアップ URI を使用
+      SetupUriOptionDesc: サーバーから提供されるセットアップ URI から設定をインポート
+      ManualOption: 手動で設定
+      ManualOptionDesc: サーバーの詳細と認証情報を自分で入力
+      ProceedSetupUri: セットアップ URI を使用
+      ProceedManual: 手動で設定
+    SelectExisting:
+      Title: 既存サーバーに接続
+      Guidance: 既存の LiveSync サーバーへの接続方法を選択してください。
+      Question: 接続方法を選択：
+      SetupUriOption: セットアップ URI を使用
+      SetupUriOptionDesc: サーバーから提供されるセットアップ URI から設定をインポート
+      QrOption: QR コードをスキャン
+      QrOptionDesc: 設定済みのデバイスから QR コードをスキャン
+      ManualOption: 手動で設定
+      ManualOptionDesc: サーバーの詳細と認証情報を自分で入力
+      ProceedSetupUri: セットアップ URI を使用
+      ProceedManual: 手動で設定
+      ProceedQr: QR コードをスキャン

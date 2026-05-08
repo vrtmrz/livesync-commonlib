@@ -1106,3 +1106,78 @@ Warning! This will have a serious impact on performance. And the logs will not b
 When you save a file in the editor, start a sync automatically: 当您在编辑器中保存文件时,自动开始同步
 Write credentials in the file: 将凭据写入文件
 Write logs into the file: 将日志写入文件
+Ui:
+  SetupWizard:
+    Common:
+      Back: 返回
+      Cancel: 取消
+      ProceedSelectOption: 请选择一个选项
+    Intro:
+      Title: 设置向导
+      Guidance: 欢迎！让我们设置 LiveSync。您是 LiveSync 新用户，还是已经配置了远程服务器？
+      Question: 您的情况是？
+      NewOption: 我是 LiveSync 新用户
+      NewOptionDesc: 首次设置 LiveSync
+      ExistingOption: 我已经配置了服务器
+      ExistingOptionDesc: 连接到现有的 LiveSync 服务器
+      ProceedNew: 新建设置
+      ProceedExisting: 连接到现有服务器
+    OutroNewUser:
+      Title: 设置完成
+      GuidancePrimary: 您的 LiveSync 配置已设置完成。关闭此对话框后将应用设置。
+      Important: 重要提示：
+      GuidanceWarning: 如果远程保险库中有数据，这将覆盖现有文件。请确保您使用的是空保险库或已做好备份。
+      Question: 准备好应用配置了吗？
+      Proceed: 应用并重启
+    OutroExisting:
+      Guidance: 设置已完成。重启后将获取远程数据。点击下方按钮重启并开始同步。
+      Title: 设置完成：准备获取同步数据
+      Question: 请点击下方按钮重启并进入数据获取确认。
+      Proceed: 重启并获取数据
+    SetupRemote:
+      Title: 设置远程服务器
+      Guidance: 选择您要使用的远程服务器类型：
+      CouchDbOptionDesc: 使用您自己的 CouchDB 实例，完全控制同步服务器
+      BucketOption: LiveSync 存储桶
+      BucketOptionDesc: 使用 LiveSync 配套服务内置的存储桶服务器
+      P2POption: 点对点（实验性）
+      P2POptionDesc: 无需中央服务器，直接在设备之间同步
+      ProceedCouchDb: 设置 CouchDB
+      ProceedBucket: 设置存储桶
+      ProceedP2P: 设置 P2P
+      CouchDbOption: CouchDB
+    OutroAskUserMode:
+      Title: 您将如何使用此设备？
+      Guidance: 选择此设备在 LiveSync 中的使用方式。这会影响初始同步行为。
+      Question: 选择此设备的模式：
+      NewOption: 设置为新设备
+      NewOptionDesc: 从新的保险库开始。设置后将获取远程文件。
+      ExistingOption: 此设备已有数据
+      ExistingOptionDesc: 将本地文件与远程合并。如果此保险库中已有笔记，请使用此选项。
+      CompatibleOption: 使用兼容模式
+      CompatibleOptionDesc: 如果远程是使用旧版 LiveSync 设置的，请使用此选项。某些功能可能受限。
+      ProceedNext: 继续
+      ProceedApplySettings: 应用设置
+    SelectNew:
+      Title: 设置新连接
+      Guidance: 选择您想如何配置新的 LiveSync 连接。
+      Question: 选择配置方式：
+      SetupUriOption: 使用设置 URI
+      SetupUriOptionDesc: 从服务器提供的设置 URI 导入配置
+      ManualOption: 手动配置
+      ManualOptionDesc: 自行输入服务器详细信息和凭据
+      ProceedSetupUri: 使用设置 URI
+      ProceedManual: 手动配置
+    SelectExisting:
+      Title: 连接到现有服务器
+      Guidance: 选择如何连接到您现有的 LiveSync 服务器。
+      Question: 选择连接方式：
+      SetupUriOption: 使用设置 URI
+      SetupUriOptionDesc: 从服务器提供的设置 URI 导入配置
+      QrOption: 扫描二维码
+      QrOptionDesc: 从已配置的设备扫描二维码
+      ManualOption: 手动配置
+      ManualOptionDesc: 自行输入服务器详细信息和凭据
+      ProceedSetupUri: 使用设置 URI
+      ProceedManual: 手动配置
+      ProceedQr: 扫描二维码
