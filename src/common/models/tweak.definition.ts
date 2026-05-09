@@ -1,4 +1,4 @@
-import { ChunkAlgorithms, E2EEAlgorithms } from "./setting.const";
+import { ChunkAlgorithms, E2EEAlgorithms, HashAlgorithms } from "./setting.const";
 import type { ObsidianLiveSyncSettings } from "./setting.type";
 import { DEFAULT_SETTINGS } from "./setting.const.defaults";
 
@@ -88,3 +88,26 @@ export const TweakValuesTemplate = { ...TweakValuesRecommendedTemplate, ...Tweak
 export type TweakValues = typeof TweakValuesTemplate;
 
 export const DEVICE_ID_PREFERRED = "PREFERRED";
+
+/**
+ * Efficiency-affecting settings that can be automatically reconciled between devices and remote.
+ * These settings affect chunk generation efficiency but do NOT require a database rebuild to change.
+ */
+export const AutoConfigEfficiencyTemplate: Partial<ObsidianLiveSyncSettings> = {
+    hashAlg: HashAlgorithms.XXHASH64,
+    chunkSplitterVersion: ChunkAlgorithms.RabinKarp,
+    enableChunkSplitterV2: false,
+    useSegmenter: false,
+    minimumChunkSize: 20,
+    customChunkSize: 0,
+    longLineThreshold: 250,
+    useEden: false,
+    maxChunksInEden: 10,
+    maxTotalLengthInEden: 1024,
+    maxAgeInEden: 10,
+};
+
+/**
+ * Keys that are managed by auto-config efficiency reconciliation.
+ */
+export const AutoConfigEfficiencyKeys = Object.keys(AutoConfigEfficiencyTemplate) as (keyof ObsidianLiveSyncSettings)[];

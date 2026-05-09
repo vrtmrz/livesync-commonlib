@@ -1,5 +1,10 @@
 import { ChunkAlgorithms, CURRENT_SETTING_VERSION, E2EEAlgorithms, REMOTE_COUCHDB } from "./setting.const";
-import { AutoAccepting, type ObsidianLiveSyncSettings, type P2PSyncSetting } from "./setting.type";
+import {
+    AutoAccepting,
+    TWEAK_OVERWRITE_STRATEGY_ACCEPT_REMOTE,
+    type ObsidianLiveSyncSettings,
+    type P2PSyncSetting,
+} from "./setting.type";
 import type { CustomRegExpSourceList } from "./shared.type.util";
 
 export const P2P_DEFAULT_SETTINGS: P2PSyncSetting = {
@@ -179,4 +184,5 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     syncInternalFileOverwritePatterns: "" as CustomRegExpSourceList<",">,
     useOnlyLocalChunk: false,
     maxMTimeForReflectEvents: 0,
+    tweakOverwriteStrategy: TWEAK_OVERWRITE_STRATEGY_ACCEPT_REMOTE,
 };

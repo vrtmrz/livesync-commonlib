@@ -453,6 +453,15 @@ interface DataOnSettings {
     doctorProcessedVersion: string;
 }
 
+export const TWEAK_OVERWRITE_STRATEGY_ACCEPT_REMOTE = 0 as const;
+export const TWEAK_OVERWRITE_STRATEGY_ASK = 1 as const;
+export const TWEAK_OVERWRITE_STRATEGY_OVERWRITE_REMOTE = 127 as const;
+
+export type TweakOverwriteStrategy =
+    | typeof TWEAK_OVERWRITE_STRATEGY_ACCEPT_REMOTE
+    | typeof TWEAK_OVERWRITE_STRATEGY_ASK
+    | typeof TWEAK_OVERWRITE_STRATEGY_OVERWRITE_REMOTE;
+
 /**
  * Interface representing the settings for a safety valve mechanism.
  */
@@ -476,6 +485,14 @@ interface SafetyValveSettings {
      * Maximum file modification time applied to reflected file events
      */
     maxMTimeForReflectEvents: number;
+
+    /**
+     * Strategy for reconciling efficiency-affecting tweak settings with the remote database.
+     * - 0: Accept remote settings (default — remote wins)
+     * - 1: Ask the user when local and remote efficiency settings differ
+     * - 127: This device is the master — overwrite remote settings unconditionally
+     */
+    tweakOverwriteStrategy: TweakOverwriteStrategy;
 }
 
 /**

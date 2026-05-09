@@ -32,6 +32,9 @@ export const EVENT_ON_UNRESOLVED_ERROR = "on-unresolved-error";
 
 export const EVENT_REQUEST_CHECK_REMOTE_SIZE = "request-check-remote-size";
 
+export const EVENT_AUTO_CONFIG_KEYS_CHANGED = "auto-config-keys-changed";
+export const EVENT_SETTINGS_IMPORTED = "settings-imported";
+
 // export const EVENT_FILE_CHANGED = "file-changed";
 
 declare global {
@@ -54,5 +57,7 @@ declare global {
         [EVENT_PLATFORM_UNLOADED]: undefined;
         [EVENT_ON_UNRESOLVED_ERROR]: undefined;
         [EVENT_REQUEST_CHECK_REMOTE_SIZE]: undefined;
+        [EVENT_AUTO_CONFIG_KEYS_CHANGED]: (keyof ObsidianLiveSyncSettings)[];
+        [EVENT_SETTINGS_IMPORTED]: undefined;
     }
 }
