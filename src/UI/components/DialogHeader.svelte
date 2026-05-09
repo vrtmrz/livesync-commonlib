@@ -1,5 +1,6 @@
 <script lang="ts">
     import { onMount, tick } from "svelte";
+    import { translateIfAvailable } from "@lib/common/i18n";
     import { getDialogContext } from "../svelteDialog.ts";
 
     type Props = {
@@ -8,24 +9,26 @@
         children?: () => unknown;
     };
     let { title = $bindable(), subtitle, children }: Props = $props();
+    const displayTitle = $derived.by(() => translateIfAvailable(title));
+    const displaySubtitle = $derived.by(() => (subtitle ? translateIfAvailable(subtitle) : ""));
 
     $effect(() => {
-        if (title) {
-            context.setTitle(`${title}${subtitle ? ` - ${subtitle}` : ""}`);
+        if (displayTitle) {
+            context.setTitle(`${displayTitle}${displaySubtitle ? ` - ${displaySubtitle}` : ""}`);
         }
     });
     const context = getDialogContext();
     onMount(async () => {
-        context.setTitle(`${title}${subtitle ? ` - ${subtitle}` : ""}`);
+        context.setTitle(`${displayTitle}${displaySubtitle ? ` - ${displaySubtitle}` : ""}`);
         await tick();
         document.querySelector(".modal")?.scrollTo(0, 0);
     });
 </script>
 
 <div class="dialog-header">
-    <h2>{title}</h2>
-    {#if subtitle}
-        <h4>{subtitle}</h4>
+    <h2>{displayTitle}</h2>
+    {#if displaySubtitle}
+        <h4>{displaySubtitle}</h4>
     {/if}
 </div>
 

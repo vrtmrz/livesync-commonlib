@@ -1,5 +1,6 @@
 <script lang="ts">
     import { getContext } from "svelte";
+    import { translateIfAvailable } from "@lib/common/i18n";
 
     type Props = {
         title: string;
@@ -22,13 +23,14 @@
         children,
     }: Props = $props();
     const actualGroup = group ?? definedGroupContext;
+    const displayTitle = $derived.by(() => translateIfAvailable(title));
 </script>
 
 <div class="option-container {value === selectedValue ? 'selected' : ''}">
     <label>
         <div class="choice-row">
             <input type="radio" bind:group={value} name={actualGroup} value={selectedValue} />
-            <span class="choice-title">{title}</span>
+            <span class="choice-title">{displayTitle}</span>
         </div>
         <div class="choice-notes">
             {#if value === selectedValue && noteOnSelected}

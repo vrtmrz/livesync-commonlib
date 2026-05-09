@@ -1,13 +1,13 @@
 <script lang="ts">
     import { setContext } from "svelte";
-    import { $t as t } from "@lib/common/i18n";
+    import { translateIfAvailable } from "@lib/common/i18n";
 
     type Props = {
         children?: () => any;
         message?: string;
     };
     const { children, message }: Props = $props();
-    const translatedMessage = $derived.by(() => (message ? t(message) : ""));
+    const translatedMessage = $derived.by(() => (message ? translateIfAvailable(message) : ""));
 </script>
 
 <div class="question-container">
