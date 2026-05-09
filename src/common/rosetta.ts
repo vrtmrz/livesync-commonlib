@@ -66,6 +66,7 @@ import { Logger } from "./logger.ts";
 import { _allMessages, type MessageKeys } from "./messages/combinedMessages.dev"; // This sloppy-imports are used to replace the messages with the combined messages.
 const expandedMessage = {
     ...expandKeywords(_allMessages, "def"),
+    ...expandKeywords(_allMessages, "de"),
     ...expandKeywords(_allMessages, "es"),
     ...expandKeywords(_allMessages, "fr"),
     ...expandKeywords(_allMessages, "ja"),

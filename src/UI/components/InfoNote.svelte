@@ -1,6 +1,8 @@
 <script lang="ts">
+    import { translateIfAvailable } from "@lib/common/i18n";
     type Props = {
         title?: string;
+        message?: string;
         children?: () => any;
         cssClass?: string;
         warning?: boolean;
@@ -10,6 +12,7 @@
     };
     const {
         title,
+        message,
         children,
         cssClass,
         warning: isWarning,
@@ -28,11 +31,14 @@
             return "";
         }
     });
+    const displayTitle = $derived.by(() => (title ? translateIfAvailable(title) : ""));
+    const displayMessage = $derived.by(() => (message ? translateIfAvailable(message) : ""));
 </script>
 
 {#if visible === undefined || visible === true}
     <div class={(cssClass ?? "") + " " + derivedCssClass}>
-        {#if title}<h3>{title}</h3>{/if}
+        {#if displayTitle}<h3>{displayTitle}</h3>{/if}
+        {#if displayMessage}<p>{displayMessage}</p>{/if}
         {@render children?.()}
     </div>
 {/if}

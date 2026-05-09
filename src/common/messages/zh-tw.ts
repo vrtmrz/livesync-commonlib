@@ -1,4 +1,4 @@
-import zwTh from "../messagesJson/zh-tw.json";
+import zhTw from "../messagesJson/zh-tw.json";
 export const PartialMessages = {
-    "zw-th": zwTh,
+    "zh-tw": zhTw,
 } as const;
