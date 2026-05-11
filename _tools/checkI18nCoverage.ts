@@ -36,17 +36,22 @@ const report = Object.fromEntries(
     [...localeData.entries()].map(([locale, data]) => {
         const keys = new Set(Object.keys(data));
         const missing = baseKeys.filter((key) => !keys.has(key));
-        const identicalToEnglish = baseKeys.filter((key) => keys.has(key) && locale !== baseLocale && data[key] === base[key]);
+        const identicalToEnglish = baseKeys.filter(
+            (key) => keys.has(key) && locale !== baseLocale && data[key] === base[key]
+        );
         const translated = baseKeys.length - missing.length;
-        return [locale, {
-            totalBaseKeys: baseKeys.length,
-            translatedKeys: translated,
-            missingKeys: missing.length,
-            identicalToEnglishCount: identicalToEnglish.length,
-            coverage: `${translated}/${baseKeys.length}`,
-            missing,
-            identicalToEnglish,
-        }];
+        return [
+            locale,
+            {
+                totalBaseKeys: baseKeys.length,
+                translatedKeys: translated,
+                missingKeys: missing.length,
+                identicalToEnglishCount: identicalToEnglish.length,
+                coverage: `${translated}/${baseKeys.length}`,
+                missing,
+                identicalToEnglish,
+            },
+        ];
     })
 );
 
