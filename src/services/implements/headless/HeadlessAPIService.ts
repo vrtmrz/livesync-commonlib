@@ -7,31 +7,42 @@ import type { Confirm } from "@lib/interfaces/Confirm";
 import module from "node:crypto";
 declare const MANIFEST_VERSION: string | undefined;
 // declare const PACKAGE_VERSION: string | undefined;
+/**
+ * Headless implementation of Confirm that returns sensible defaults instead
+ * of throwing. Dialogs are logged to stderr so the prompts are visible in
+ * service logs, and the default/conservative action is taken automatically.
+ */
 export class HeadlessConfirm implements Confirm {
     askYesNo(message: string): Promise<"yes" | "no"> {
-        throw new Error("Method not implemented.");
+        console.error(`[Headless] ${message} → no`);
+        return Promise.resolve("no");
     }
     askString(title: string, key: string, placeholder: string, isPassword?: boolean): Promise<string | false> {
-        throw new Error("Method not implemented.");
+        console.error(`[Headless] String input required: ${title} → declined`);
+        return Promise.resolve(false);
     }
     askYesNoDialog(
         message: string,
         opt: { title?: string; defaultOption?: "Yes" | "No"; timeout?: number }
     ): Promise<"yes" | "no"> {
-        throw new Error("Method not implemented.");
+        const result = opt.defaultOption === "Yes" ? "yes" as const : "no" as const;
+        console.error(`[Headless] ${opt.title ?? "Confirm"}: ${message} → ${result}`);
+        return Promise.resolve(result);
     }
     askSelectString(message: string, items: string[]): Promise<string> {
-        throw new Error("Method not implemented.");
+        console.error(`[Headless] ${message} → ${items[0]}`);
+        return Promise.resolve(items[0]);
     }
     askSelectStringDialogue<T extends readonly string[]>(
         message: string,
         buttons: T,
         opt: { title?: string; defaultAction: T[number]; timeout?: number }
     ): Promise<T[number] | false> {
-        throw new Error("Method not implemented.");
+        console.error(`[Headless] ${opt.title ?? "Confirm"}: ${message} → ${String(opt.defaultAction)}`);
+        return Promise.resolve(opt.defaultAction);
     }
     askInPopup(key: string, dialogText: string, anchorCallback: (anchor: HTMLAnchorElement) => void): void {
-        throw new Error("Method not implemented.");
+        console.error(`[Headless] Popup (${key}): ${dialogText}`);
     }
     confirmWithMessage(
         title: string,
@@ -40,7 +51,8 @@ export class HeadlessConfirm implements Confirm {
         defaultAction: (typeof buttons)[number],
         timeout?: number
     ): Promise<(typeof buttons)[number] | false> {
-        throw new Error("Method not implemented.");
+        console.error(`[Headless] ${title}: ${contentMd} → ${defaultAction}`);
+        return Promise.resolve(defaultAction);
     }
 }
 export class HeadlessAPIService<T extends ServiceContext> extends InjectableAPIService<T> {
