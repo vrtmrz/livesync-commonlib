@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { translateIfAvailable as translate } from "../../common/i18n.ts";
+
     type Props = {
         children?: () => any;
         important?: boolean;
@@ -8,11 +10,12 @@
     const cssClass = $derived.by(() => {
         return important ? "guidance important" : "guidance";
     });
+    const translatedTitle = $derived.by(() => (title ? translate(title) : ""));
 </script>
 
 <div class={cssClass}>
-    {#if title}
-        <h3>{title}</h3>
+    {#if translatedTitle}
+        <h3>{translatedTitle}</h3>
     {/if}
     {@render children?.()}
 </div>
