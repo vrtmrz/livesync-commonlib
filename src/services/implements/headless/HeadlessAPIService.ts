@@ -25,7 +25,7 @@ export class HeadlessConfirm implements Confirm {
         message: string,
         opt: { title?: string; defaultOption?: "Yes" | "No"; timeout?: number }
     ): Promise<"yes" | "no"> {
-        const result = opt.defaultOption === "Yes" ? "yes" as const : "no" as const;
+        const result = opt.defaultOption === "Yes" ? ("yes" as const) : ("no" as const);
         console.error(`[Headless] ${opt.title ?? "Confirm"}: ${message} → ${result}`);
         return Promise.resolve(result);
     }
