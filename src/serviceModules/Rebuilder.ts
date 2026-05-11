@@ -1,6 +1,7 @@
 import { FlagFilesHumanReadable } from "@lib/common/models/redflag.const";
 import { REMOTE_MINIO } from "@lib/common/models/setting.const";
 import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
+import { generateUserHashSalt } from "@lib/common/utils";
 import type { IFileHandler } from "@lib/interfaces/FileHandler";
 import type { APIService } from "@lib/services/base/APIService";
 import type { AppLifecycleService } from "@lib/services/base/AppLifecycleService";
@@ -135,6 +136,12 @@ Please enable them from the settings screen after setup is complete.`,
     async rebuildEverything() {
         await this.setting.suspendExtraSync();
         // await this.askUseNewAdapter();
+        // Generate userHashSalt if not set — migration path for existing vaults rebuilding for the first time.
+        const currentSettings = this.setting.currentSettings();
+        if (!currentSettings.userHashSalt) {
+            const salt = generateUserHashSalt();
+            await this.setting.applyPartial({ userHashSalt: salt });
+        }
         await this.setting.applyPartial({
             isConfigured: true,
             notifyThresholdOfRemoteStorageSize: DEFAULT_SETTINGS.notifyThresholdOfRemoteStorageSize,

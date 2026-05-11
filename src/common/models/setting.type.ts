@@ -696,6 +696,13 @@ interface ChunkSettings {
      * The version of the chunk splitter to use.
      */
     chunkSplitterVersion: ChunkSplitterVersion;
+
+    /**
+     * User-specific salt for hashing chunk IDs (32-character hex string, 16 random bytes).
+     * When set, chunk IDs are derived from this salt instead of the passphrase,
+     * so that changing the passphrase does not invalidate existing chunks.
+     */
+    userHashSalt: string;
 }
 
 /**

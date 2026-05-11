@@ -179,4 +179,5 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     syncInternalFileOverwritePatterns: "" as CustomRegExpSourceList<",">,
     useOnlyLocalChunk: false,
     maxMTimeForReflectEvents: 0,
+    userHashSalt: "",
 };

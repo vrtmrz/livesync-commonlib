@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { encodeSettingsToQRCodeData, decodeSettingsFromQRCodeData } from "@lib/API/processSetting";
+import {
+    encodeSettingsToQRCodeData,
+    decodeSettingsFromQRCodeData,
+    encodeSettingsToSetupURI,
+    decodeSettingsFromSetupURI,
+} from "@lib/API/processSetting";
 import { DEFAULT_SETTINGS } from "@lib/common/types";
 import type { RemoteConfiguration } from "@lib/common/models/setting.type";
 
@@ -77,5 +82,61 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
         expect(decodedSettings.encrypt).toBe(originalSettings.encrypt);
         expect(decodedSettings.passphrase).toBe(originalSettings.passphrase);
         expect(decodedSettings.usePathObfuscation).toBe(originalSettings.usePathObfuscation);
+    });
+
+    it("should preserve userHashSalt through setup URI encode/decode", async () => {
+        const originalSettings = {
+            ...DEFAULT_SETTINGS,
+            userHashSalt: "00112233445566778899aabbccddeeff",
+            remoteConfigurations: {
+                "legacy-couchdb": {
+                    id: "legacy-couchdb",
+                    name: "CouchDB Remote",
+                    uri: "sls+http://user:password@localhost:5984/?db=vault",
+                    isEncrypted: false,
+                } satisfies RemoteConfiguration,
+            },
+            activeConfigurationId: "legacy-couchdb",
+        };
+
+        const passphrase = "setup-passphrase";
+        const uri = await encodeSettingsToSetupURI(originalSettings, passphrase, [], false);
+        const decoded = await decodeSettingsFromSetupURI(uri, passphrase);
+
+        expect(decoded).not.toBe(false);
+        if (decoded === false) throw new Error("Decoding setup URI failed");
+
+        expect(decoded.userHashSalt).toBe(originalSettings.userHashSalt);
+        expect(decoded.remoteConfigurations).toEqual(originalSettings.remoteConfigurations);
+        expect(decoded.activeConfigurationId).toBe(originalSettings.activeConfigurationId);
+    });
+
+    it("should erase necessary secure fields in setup URI payload", async () => {
+        const originalSettings = {
+            ...DEFAULT_SETTINGS,
+            encryptedPassphrase: "should-be-erased",
+            encryptedCouchDBConnection: "should-be-erased",
+            configPassphraseStore: "LOCALSTORAGE" as const,
+        };
+
+        const uri = await encodeSettingsToSetupURI(originalSettings, "pass", [], false);
+        const decoded = await decodeSettingsFromSetupURI(uri, "pass");
+
+        expect(decoded).not.toBe(false);
+        if (decoded === false) throw new Error("Decoding setup URI failed");
+
+        expect(decoded.encryptedPassphrase).toBe("");
+        expect(decoded.encryptedCouchDBConnection).toBe("");
+        expect(decoded.configPassphraseStore).toBe("");
+    });
+
+    it("should reject decoding setup URI with wrong passphrase", async () => {
+        const originalSettings = {
+            ...DEFAULT_SETTINGS,
+            userHashSalt: "00112233445566778899aabbccddeeff",
+        };
+
+        const uri = await encodeSettingsToSetupURI(originalSettings, "correct-pass", [], false);
+        await expect(decodeSettingsFromSetupURI(uri, "wrong-pass")).rejects.toBeTruthy();
     });
 });

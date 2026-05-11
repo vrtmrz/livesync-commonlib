@@ -821,3 +821,13 @@ export function displayRev(rev: string) {
     const [number, hash] = rev.split("-");
     return `${number}-${hash.substring(0, 6)}`;
 }
+
+/**
+ * Generates a userHashSalt for the Chunk ID namespace.
+ * Creates a 16-byte random value and returns it as a 32-character hex string.
+ * @returns A 32-character hex string representing the userHashSalt
+ */
+export function generateUserHashSalt(): string {
+    const bytes = crypto.getRandomValues(new Uint8Array(16));
+    return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+}

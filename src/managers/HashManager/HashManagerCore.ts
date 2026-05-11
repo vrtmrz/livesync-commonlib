@@ -74,9 +74,16 @@ export abstract class HashManagerCore {
         }
         const settings = this.options.settingService.currentSettings();
         this.useEncryption = settings.encrypt ?? false;
-        const passphrase = settings.passphrase || "";
-        const usingLetters = ~~((passphrase.length / 4) * 3);
-        const passphraseForHash = SALT_OF_ID + passphrase.substring(0, usingLetters);
+        // Configured hash seed source enables us to change the passphrase for avoid local rebuilding
+        const hashSeedSource =
+            settings.userHashSalt && settings.userHashSalt.length > 0
+                ? settings.userHashSalt
+                : (() => {
+                      const passphrase = settings.passphrase || "";
+                      const usingLetters = ~~((passphrase.length / 4) * 3);
+                      return passphrase.substring(0, usingLetters);
+                  })();
+        const passphraseForHash = SALT_OF_ID + hashSeedSource;
         this.hashedPassphrase = fallbackMixedHashEach(passphraseForHash);
         this.hashedPassphrase32 = mixedHash(passphraseForHash, SEED_MURMURHASH)[0];
     }

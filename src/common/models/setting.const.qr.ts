@@ -163,4 +163,5 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     networkWarningStyle: 156,
     remoteConfigurations: 157,
     activeConfigurationId: 158,
+    userHashSalt: 159,
 } as const;

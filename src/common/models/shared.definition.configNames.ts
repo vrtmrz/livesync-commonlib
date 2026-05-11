@@ -128,6 +128,12 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         name: "Chunk Splitter",
         desc: "Now we can choose how to split the chunks; V3 is the most efficient. If you have troubled, please make this Default or Legacy.",
     },
+    userHashSalt: {
+        name: "Chunk ID Namespace Salt",
+        desc: "Internal value shared across devices to keep chunk IDs consistent.",
+        isHidden: true,
+        isAdvanced: true,
+    },
     E2EEAlgorithm: {
         name: "End-to-End Encryption Algorithm",
         desc: "Please use V2, V1 is deprecated and will be removed in the future, It was not a very appropriate algorithm. Only for compatibility V1 is kept.",

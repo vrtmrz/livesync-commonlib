@@ -22,6 +22,7 @@ export const TweakValuesShouldMatchedTemplate: Partial<ObsidianLiveSyncSettings>
     useSegmenter: false,
     E2EEAlgorithm: E2EEAlgorithms.V2,
     chunkSplitterVersion: ChunkAlgorithms.RabinKarp,
+    userHashSalt: "",
 };
 
 type TweakKeys = keyof TweakValues;
@@ -33,7 +34,7 @@ export const IncompatibleChanges: TweakKeys[] = [
     "handleFilenameCaseSensitive",
 ] as const;
 
-export const CompatibleButLossyChanges: TweakKeys[] = ["hashAlg"];
+export const CompatibleButLossyChanges: TweakKeys[] = ["hashAlg", "userHashSalt"];
 
 type IncompatibleRecommendationPatterns<T extends TweakKeys> = {
     key: T;
@@ -82,6 +83,7 @@ export const TweakValuesDefault: Partial<ObsidianLiveSyncSettings> = {
     usePluginSyncV2: false,
     E2EEAlgorithm: DEFAULT_SETTINGS.E2EEAlgorithm,
     chunkSplitterVersion: DEFAULT_SETTINGS.chunkSplitterVersion,
+    userHashSalt: "",
 };
 
 export const TweakValuesTemplate = { ...TweakValuesRecommendedTemplate, ...TweakValuesShouldMatchedTemplate };

@@ -4,12 +4,13 @@ import { DEFAULT_SETTINGS, HashAlgorithms, type HashAlgorithm, type RemoteDBSett
 import { HashEncryptedPrefix } from "./HashManagerCore.ts";
 import type { SettingService } from "@lib/services/base/SettingService.ts";
 
-const generateSettings = (hashAlg: HashAlgorithm, passphrase?: string) =>
+const generateSettings = (hashAlg: HashAlgorithm, passphrase?: string, userHashSalt: string = "") =>
     ({
         ...DEFAULT_SETTINGS,
         hashAlg,
         encrypt: passphrase !== undefined,
         passphrase,
+        userHashSalt,
     }) as RemoteDBSettings;
 
 const CompatibilityPlain = {
@@ -164,6 +165,43 @@ describe("HashManager", () => {
                 await expect(manager.initialise()).resolves.toBeTruthy();
                 expect(manager.manager).toBeDefined();
             }
+        });
+    });
+
+    describe("userHashSalt", () => {
+        it("should prioritise userHashSalt over passphrase for hash seed", async () => {
+            const hashAlg = HashAlgorithms.XXHASH64;
+            const salt = "00112233445566778899aabbccddeeff";
+
+            const managerA = generateHashManager(generateSettings(hashAlg, "passphrase-A", salt));
+            const managerB = generateHashManager(generateSettings(hashAlg, "passphrase-B", salt));
+            await managerA.initialise();
+            await managerB.initialise();
+
+            const piece = "same-piece";
+            const hashA = await managerA.computeHash(piece);
+            const hashB = await managerB.computeHash(piece);
+
+            expect(hashA).toBe(hashB);
+        });
+
+        it("should produce different hashes for different userHashSalt values", async () => {
+            const hashAlg = HashAlgorithms.XXHASH64;
+
+            const managerA = generateHashManager(
+                generateSettings(hashAlg, "same-passphrase", "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+            );
+            const managerB = generateHashManager(
+                generateSettings(hashAlg, "same-passphrase", "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+            );
+            await managerA.initialise();
+            await managerB.initialise();
+
+            const piece = "same-piece";
+            const hashA = await managerA.computeHash(piece);
+            const hashB = await managerB.computeHash(piece);
+
+            expect(hashA).not.toBe(hashB);
         });
     });
 });
