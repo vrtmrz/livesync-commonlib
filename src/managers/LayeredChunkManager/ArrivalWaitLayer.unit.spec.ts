@@ -147,17 +147,19 @@ describe("ArrivalWaitLayer", () => {
     });
 
     it("should timeout and return false after default timeout", async () => {
+        vi.useFakeTimers();
         const ids = ["chunk-1" as DocumentID];
         const nextFn = vi.fn();
 
-        const startTime = Date.now();
-        const result = await arrivalWaitLayer.read(ids, { timeout: 100 }, nextFn);
-        const elapsed = Date.now() - startTime;
+        const promise = arrivalWaitLayer.read(ids, { timeout: 100 }, nextFn);
+
+        await vi.advanceTimersByTimeAsync(100);
+
+        const result = await promise;
 
         expect(result).toEqual([false]);
-        expect(elapsed).toBeGreaterThanOrEqual(100);
-        expect(elapsed).toBeLessThan(200); // Should not be too much longer
         expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
+        vi.useRealTimers();
     });
 
     it("should handle multiple chunks waiting simultaneously", async () => {

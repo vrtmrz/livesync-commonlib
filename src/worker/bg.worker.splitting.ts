@@ -41,9 +41,13 @@ export async function processSplit(data: SplitArguments) {
 
     const func = data.splitVersion == 3 ? splitPiecesRabinKarp : data.splitVersion == 2 ? splitPieces2V2 : splitPieces2;
     const gen = await func(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter);
-    const postBack = getMainThreadPostBack(key);
+    // Rename to `emit` to avoid shadowing the module-level `postBack` import from bg.common.ts.
+    // When esbuild bundles this worker inline (?worker&inline), both variables may be minified to the
+    // same short identifier, causing the closure inside getMainThreadPostBack to call itself
+    // recursively instead of calling bg.common.postBack, resulting in "Maximum call stack size exceeded".
+    const emit = getMainThreadPostBack(key);
     for await (const v of gen()) {
-        postBack(v);
+        emit(v);
     }
-    postBack(END_OF_DATA);
+    emit(END_OF_DATA);
 }

@@ -1,6 +1,6 @@
 // Foreground part of offloaded encryptions
 
-import { startWorker, tasks } from "./bgWorker.ts";
+import { startWorker, removeTask } from "./bgWorker.ts";
 import { type EncryptHKDFProcessItem } from "./universalTypes.ts";
 import { type EncryptProcessItem } from "./universalTypes.ts";
 import { type EncryptHKDFArguments } from "./universalTypes.ts";
@@ -51,5 +51,5 @@ export function handleTaskEncrypt(process: EncryptProcessItem | EncryptHKDFProce
             task.reject(new Error("Unknown error in background encryption"));
         }
     }
-    tasks.delete(key);
+    removeTask(key);
 }

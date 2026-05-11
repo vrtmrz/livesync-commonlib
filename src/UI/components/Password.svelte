@@ -1,4 +1,6 @@
 <script lang="ts">
+    import { translateIfAvailable as translate } from "../../common/i18n.ts";
+
     type Props = {
         value: string;
         name?: string;
@@ -15,12 +17,13 @@
     }: Props = $props();
     let showPassword = $state(false);
     const type = $derived.by(() => (showPassword ? "text" : "password"));
+    const translatedPlaceholder = $derived.by(() => translate(placeholder));
 </script>
 
 <input
     {type}
     {name}
-    {placeholder}
+    placeholder={translatedPlaceholder}
     bind:value
     {disabled}
     {required}

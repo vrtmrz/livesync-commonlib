@@ -83,6 +83,17 @@ export function $t(message: string, lang?: I18N_LANGS) {
     return getMessage(message);
 }
 
+export function translateIfAvailable(message: string, lang?: I18N_LANGS) {
+    if (message.trim() == "" || allMessages[message] === undefined) return message;
+    return $t(message, lang);
+}
+
+/**
+ * TagFunction to Automatically translate.
+ * @param strings
+ * @param values
+ * @returns
+ */
 export function $f(strings: TemplateStringsArray, ...values: string[]) {
     let result = "";
     for (let i = 0; i < values.length; i++) {

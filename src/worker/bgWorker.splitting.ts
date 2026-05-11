@@ -1,7 +1,7 @@
 // Foreground part of Content-Splitter
 
 import { LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
-import { startWorker } from "./bgWorker.ts";
+import { startWorker, removeTask } from "./bgWorker.ts";
 import { type SplitProcessItem } from "./universalTypes";
 
 const SYMBOL_USED = Symbol("used");
@@ -96,6 +96,27 @@ export function _splitPieces2Worker(
 }
 
 /**
+ * Aborts all in-flight split tasks identified by the given keys.
+ * Called when the background worker that owned these tasks has crashed, so the streams
+ * will never receive any more data and must be torn down to unblock callers.
+ * @param keys The task keys to abort.
+ * @param error The error to report to each stream.
+ */
+export function abortSplitTasks(keys: number[], error: Error): void {
+    for (const key of keys) {
+        responseBuf.delete(key);
+        writerPromise = writerPromise.then(async () => {
+            const writer = writers.get(key);
+            if (writer) {
+                await writer.abort(error);
+                writers.delete(key);
+            }
+            workerStreams.delete(key);
+        });
+    }
+}
+
+/**
  * Handles the splitting callback from the worker.
  * @param process the splitting process item
  * @param data the data received from the worker
@@ -148,6 +169,11 @@ export function handleTaskSplit(process: SplitProcessItem, data: any) {
                 throw new Error(`Invalid writer for key ${key} in background splitting`);
             }
             await writer.write(result === SYMBOL_END_OF_DATA ? null : result);
+            if (result === SYMBOL_END_OF_DATA) {
+                // Task is complete; clean up the task map and the worker's key tracking.
+                removeTask(key);
+                responseBuf.delete(key);
+            }
         });
     }
 }

@@ -17,7 +17,10 @@ import { createInstanceLogFunction } from "../lib/logUtils";
 import { isCloudantURI } from "../../pouchdb/utils_couchdb";
 import { decryptString, encryptString } from "../../encryption/stringEncryption";
 import { setLang } from "../../common/i18n";
-import { migrateLegacyRemoteConfigurationsInPlace } from "@lib/serviceFeatures/remoteConfig";
+import {
+    activateRemoteConfiguration,
+    migrateLegacyRemoteConfigurationsInPlace,
+} from "@lib/serviceFeatures/remoteConfig";
 import { ConnectionStringParser } from "@lib/common/ConnectionString";
 
 export interface SettingServiceDependencies {
@@ -522,6 +525,19 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         await this.adjustSettings(this.settings);
         const shouldPersistMigratedRemoteConfigurations =
             !hadRemoteConfigurations && Object.keys(this.settings.remoteConfigurations ?? {}).length > 0;
+
+        // Keep runtime legacy fields in sync with the active remote configuration.
+        // Replication and status checks still consume these fields.
+        const activeConfigurationId = this.settings.activeConfigurationId;
+        if (activeConfigurationId && this.settings.remoteConfigurations?.[activeConfigurationId]) {
+            const activated = activateRemoteConfiguration(this.settings, activeConfigurationId);
+            if (!activated) {
+                this._log(
+                    `Failed to activate the selected remote configuration: ${activeConfigurationId}`,
+                    LOG_LEVEL_NOTICE
+                );
+            }
+        }
 
         const lsKey =
             "obsidian-live-sync-vaultanddevicename-" +

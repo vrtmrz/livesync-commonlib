@@ -45,6 +45,71 @@ describe("ConnectionStringParser CouchDB JWT", () => {
     });
 });
 
+describe("ConnectionStringParser CouchDB credentials round-trip", () => {
+    it("should preserve username and password through serialize/parse", () => {
+        const uri = ConnectionStringParser.serialize({
+            type: "couchdb",
+            settings: {
+                couchDB_URI: "https://example.com",
+                couchDB_USER: "user-name",
+                couchDB_PASSWORD: "p@ss:word!",
+                couchDB_DBNAME: "vault",
+                couchDB_CustomHeaders: "",
+                useJWT: false,
+                jwtAlgorithm: "",
+                jwtKey: "",
+                jwtKid: "",
+                jwtSub: "",
+                jwtExpDuration: 5,
+                useRequestAPI: false,
+            },
+        });
+
+        expect(uri.startsWith("sls+https://")).toBe(true);
+
+        const parsed = ConnectionStringParser.parse(uri);
+        if (parsed.type !== "couchdb") {
+            throw new Error("Expected couchdb type");
+        }
+
+        expect(parsed.settings.couchDB_URI).toBe("https://example.com");
+        expect(parsed.settings.couchDB_USER).toBe("user-name");
+        expect(parsed.settings.couchDB_PASSWORD).toBe("p@ss:word!");
+        expect(parsed.settings.couchDB_DBNAME).toBe("vault");
+    });
+
+    it("should preserve credentials for the http (insecure) variant too", () => {
+        const uri = ConnectionStringParser.serialize({
+            type: "couchdb",
+            settings: {
+                couchDB_URI: "http://127.0.0.1:5984",
+                couchDB_USER: "admin",
+                couchDB_PASSWORD: "secret",
+                couchDB_DBNAME: "vault",
+                couchDB_CustomHeaders: "",
+                useJWT: false,
+                jwtAlgorithm: "",
+                jwtKey: "",
+                jwtKid: "",
+                jwtSub: "",
+                jwtExpDuration: 5,
+                useRequestAPI: false,
+            },
+        });
+
+        expect(uri.startsWith("sls+http://")).toBe(true);
+
+        const parsed = ConnectionStringParser.parse(uri);
+        if (parsed.type !== "couchdb") {
+            throw new Error("Expected couchdb type");
+        }
+
+        expect(parsed.settings.couchDB_URI).toBe("http://127.0.0.1:5984");
+        expect(parsed.settings.couchDB_USER).toBe("admin");
+        expect(parsed.settings.couchDB_PASSWORD).toBe("secret");
+    });
+});
+
 describe("ConnectionStringParser P2P", () => {
     it("should serialize and parse P2P settings including enabled and TURN fields", () => {
         const uri = ConnectionStringParser.serialize({

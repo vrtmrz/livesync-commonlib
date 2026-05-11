@@ -324,7 +324,7 @@ export async function purgeChunksRemote(setting: CouchDBConnection, docs: { id: 
         const buffer = makeChunkedArrayFromArray(docs);
         for (const chunkedPayload of buffer) {
             const rets = await _requestToCouchDBFetch(
-                `${setting.couchDB_URI}/${setting.couchDB_DBNAME}`,
+                `${setting.couchDB_URI.replace(/\/+$/, "")}/${setting.couchDB_DBNAME}`,
                 setting.couchDB_USER,
                 setting.couchDB_PASSWORD,
                 "_purge",

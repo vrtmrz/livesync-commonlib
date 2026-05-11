@@ -432,10 +432,10 @@ export async function performFullScan(
 
     async function runAll<T>(procedureName: string, objects: T[], callback: (arg: T) => Promise<void>) {
         if (objects.length === 0) {
-            log(`${procedureName}: Nothing to do`);
+            log(`${procedureName}: Nothing to do`, LOG_LEVEL_VERBOSE);
             return;
         }
-        log(procedureName);
+        log(`${procedureName} (Total: ${objects.length})`);
         if (!host.services.database.localDatabase.isReady) throw Error("Database is not ready!");
         let success = 0;
         let failed = 0;
