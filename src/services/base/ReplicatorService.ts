@@ -84,10 +84,28 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         if (!setting) {
             this._activeReplicator = undefined;
             this._replicatorType = undefined;
-            this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
-            return false;
+            // Settings may not be available yet during early lifecycle.
+            // Do not treat this as a fatal initialisation failure.
+            this._unresolvedErrorManager.clearError(message);
+            return true;
         }
         const replicatorType = setting.remoteType;
+        const hasReplicatorConfig =
+            (replicatorType === RemoteTypes.REMOTE_COUCHDB &&
+                !!setting.couchDB_URI?.trim() &&
+                !!setting.couchDB_DBNAME?.trim()) ||
+            (replicatorType === RemoteTypes.REMOTE_MINIO &&
+                !!setting.endpoint?.trim() &&
+                !!setting.bucket?.trim());
+
+        if (!hasReplicatorConfig) {
+            this._activeReplicator = undefined;
+            this._replicatorType = undefined;
+            this._unresolvedErrorManager.clearError(message);
+            this._log("No remote replicator configuration found. Skipping replicator initialisation.");
+            return true;
+        }
+
         if (replicatorType === this._replicatorType && this._activeReplicator) {
             // No need to change the replicator.
             this._unresolvedErrorManager.clearError(message);

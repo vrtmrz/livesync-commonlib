@@ -39,7 +39,14 @@ export async function upsert<V extends object, T extends SomeDocument<V> = SomeD
         }
         throw new Error("Failed to update");
     } catch (ex: any) {
-        if (ex.name === "not_found") {
+        // RPC-forwarded PouchDB not-found errors may arrive without `name`
+        // and only carry `message`/`reason` as "missing".
+        const isNotFound =
+            ex?.name === "not_found" ||
+            ex?.reason === "missing" ||
+            ex?.message === "missing" ||
+            ex?.message === "not_found";
+        if (isNotFound) {
             const seed = func({ _id: id } as T);
             const result = await db.put(seed, {});
             if (result && result.ok) {
