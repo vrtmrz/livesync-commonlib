@@ -1,6 +1,6 @@
 import { readFile } from "fs/promises";
 import { join, resolve } from "path";
-import { glob } from "glob";
+import { glob } from "tinyglobby";
 import { parse } from "yaml";
 import { objectToDotted } from "./messagelib.ts";
 
