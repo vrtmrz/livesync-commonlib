@@ -249,7 +249,6 @@ export class TrysteroReplicatorP2PServer {
         Logger(`Advertisement from ${peerId}`, LOG_LEVEL_VERBOSE);
         if (peerId === this.serverPeerId) return;
         if (data.peerId === this.serverPeerId) return;
-        if (data.name === this.deviceInfo.name) return;
         if (data.peerId !== peerId) return;
         this._knownAdvertisements.set(peerId, data);
         void this.dispatchConnectionStatus();
