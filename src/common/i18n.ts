@@ -1,4 +1,5 @@
-import { getLanguage } from "@/deps";
+// Avoid using Obsidian's native function for CLIs.
+import { getLanguage } from "./coreEnvFunctions";
 import type { AllMessageKeys, I18N_LANGS } from "./rosetta";
 import { allMessages } from "./rosetta";
 import type { TaggedType } from "./types";
