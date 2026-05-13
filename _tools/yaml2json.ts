@@ -3,7 +3,7 @@
 import { readFile, writeFile } from "fs/promises";
 import { join, resolve } from "path";
 import { parse } from "yaml";
-import { glob } from "glob";
+import { glob } from "tinyglobby";
 import { objectToDotted } from "./messagelib";
 const __dirname = import.meta.dirname;
 
