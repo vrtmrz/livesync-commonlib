@@ -94,9 +94,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
             (replicatorType === RemoteTypes.REMOTE_COUCHDB &&
                 !!setting.couchDB_URI?.trim() &&
                 !!setting.couchDB_DBNAME?.trim()) ||
-            (replicatorType === RemoteTypes.REMOTE_MINIO &&
-                !!setting.endpoint?.trim() &&
-                !!setting.bucket?.trim());
+            (replicatorType === RemoteTypes.REMOTE_MINIO && !!setting.endpoint?.trim() && !!setting.bucket?.trim());
 
         if (!hasReplicatorConfig) {
             this._activeReplicator = undefined;
