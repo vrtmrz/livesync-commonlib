@@ -1,3 +1,4 @@
+import type PouchDB from "pouchdb-core";
 import {
     type EntryDoc,
     type EntryMilestoneInfo,
@@ -1140,8 +1141,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             async () => await this.getReplicationPBKDF2Salt(settings)
         );
     }
-    async _ensureConnection<T extends DatabaseEntry>(settings: RemoteDBSettings) {
-        const ret = await this.connectRemoteCouchDBWithSetting(settings, this.isMobile(), false, true);
+    async _ensureConnection<T extends DatabaseEntry>(
+        settings: RemoteDBSettings,
+        performSetup: boolean = false
+    ): Promise<PouchDB.Database<T>> {
+        const ret = await this.connectRemoteCouchDBWithSetting(settings, this.isMobile(), performSetup, true);
         if (typeof ret === "string") {
             throw new Error(`${$msg("liveSyncReplicator.couldNotConnectToServer")}:${ret}`);
         }
@@ -1184,7 +1188,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         doc: T,
         db?: PouchDB.Database<T>
     ): Promise<PouchDB.Core.Response> {
-        const connDB = db ?? (await this._ensureConnection(settings));
+        // The `putRemoteDocument` function may be called to update the salt,
+        // so we cannot skip the setup phase.
+        const connDB = db ?? (await this._ensureConnection(settings, true));
         return await connDB.put(doc);
     }
 
