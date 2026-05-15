@@ -56,6 +56,7 @@ export interface IAPIService {
     isMobile(): boolean;
 
     showWindow(type: string): Promise<void>;
+    showWindowOnRight?(type: string): Promise<void>;
 
     getAppID(): string;
 

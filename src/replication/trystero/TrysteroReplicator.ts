@@ -1,3 +1,4 @@
+import type PouchDB from "pouchdb-core";
 import { TweakValuesShouldMatchedTemplate, type EntryDoc, type ObsidianLiveSyncSettings } from "../../common/types";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
 import { replicateShim, type PouchDBShim, type ProgressInfo } from "../../pouchdb/ReplicatorShim";
@@ -753,7 +754,7 @@ export class TrysteroReplicator {
                 .map((e) => e.trim())
                 .filter((e) => e);
             if (peers.length == 0) {
-                Logger($msg("P2P.NoAutoSyncPeers"), logLevel);
+                Logger($msg("P2P.NoAutoSyncPeers"), LOG_LEVEL_NOTICE);
                 return Promise.resolve(false);
             }
 

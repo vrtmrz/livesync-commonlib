@@ -31,11 +31,20 @@ import type { Advertisement } from "./types";
 
 export interface LiveSyncTrysteroReplicatorEnv extends LiveSyncReplicatorEnv {
     services: IServiceHub;
+    /**
+     * Injected by the host platform (e.g. Obsidian) to show a UI for peer selection.
+     * When not set, openReplication falls back to replicateFromCommand (CLI-safe).
+     */
+    openReplicationUI?: (showResult: boolean) => Promise<boolean | void>;
 }
 
 export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     private _p2pHost?: P2PHost;
     private _replicator?: TrysteroReplicator;
+
+    get openReplicationUI() {
+        return this.env.openReplicationUI;
+    }
 
     get rawReplicator() {
         return this._replicator;
@@ -198,12 +207,18 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         showResult: boolean,
         _ignoreCleanLock: boolean
     ): Promise<void | boolean> {
+        // If a UI handler was injected (e.g. Obsidian modal), use it.
+        if (this.openReplicationUI) {
+            return this.openReplicationUI(showResult);
+        }
+        // Fallback: CLI or headless environment — run non-interactive replication.
         const logLevel = showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
+
+        await this.makeSureOpened();
         if (!this._replicator) {
             Logger($msg("P2P.ReplicatorInstanceMissing"), logLevel);
             return false;
         }
-        await this._replicator.makeSureOpened();
         await this._replicator.replicateFromCommand(showResult);
     }
 
@@ -260,7 +275,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         const confirm = this.env.services.UI.confirm;
         if (!confirm) {
             Logger("Cannot find confirm instance.", logLevel);
-            return Promise.reject("Cannot find confirm instance.");
+            return Promise.reject(new Error("Cannot find confirm instance."));
         }
         let result;
         while (!result) {
@@ -269,7 +284,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
                     result = await func();
                     if (result) break;
                 } catch (e) {
-                    Logger("Error: " + e, logLevel);
+                    Logger(`Error: ${e instanceof Error ? e.message : String(e)}`, logLevel);
                     result = false;
                 }
                 await delay(1000);
