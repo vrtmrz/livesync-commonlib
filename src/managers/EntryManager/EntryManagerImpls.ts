@@ -156,7 +156,8 @@ export async function putDBEntry(
     host: NecessaryServicesInterfaces<"path" | "setting", any>,
     managers: NecessaryManagers<"localDatabase" | "chunkManager" | "hashManager" | "splitter">,
     note: SavingEntry,
-    onlyChunks?: boolean
+    onlyChunks?: boolean,
+    conflictBaseRev?: string
 ) {
     const { localDatabase, chunkManager, splitter } = managers;
 
@@ -207,14 +208,18 @@ export async function putDBEntry(
 
         return (
             (await serialized("file:" + filename, async () => {
-                try {
-                    const old = await localDatabase.get(newDoc._id);
-                    newDoc._rev = old._rev;
-                } catch (ex: any) {
-                    if (isErrorOfMissingDoc(ex)) {
-                        // NO OP/
-                    } else {
-                        throw ex;
+                if (conflictBaseRev) {
+                    newDoc._rev = conflictBaseRev;
+                } else {
+                    try {
+                        const old = await localDatabase.get(newDoc._id);
+                        newDoc._rev = old._rev;
+                    } catch (ex: any) {
+                        if (isErrorOfMissingDoc(ex)) {
+                            // NO OP/
+                        } else {
+                            throw ex;
+                        }
                     }
                 }
                 const r = await localDatabase.put<PlainEntry | NewEntry>(newDoc, { force: true });
