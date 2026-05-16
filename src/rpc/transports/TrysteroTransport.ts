@@ -107,8 +107,28 @@ export function attachAdvertisement(
  * Options forwarded to the `RpcRoom` constructor when creating a room through
  * the high-level helpers (`serveTrysteroDB`, `connectTrysteroDBClient`, or by
  * calling `joinTrysteroRoom` and then constructing `RpcRoom` manually).
+ *
+ * Trystero internally chunks at ~16 348 bytes (16 KiB minus a 36-byte header).
+ * Setting `maxWirePayloadBytes` above that threshold causes double-chunking.
+ * The Trystero-appropriate default is therefore **15 360 bytes** (15 KiB),
+ * which leaves ~1 KiB of headroom for the JSON wrapper overhead.
+ *
+ * Trystero uses WebRTC SCTP data channels which guarantee delivery and order,
+ * so missing-chunk retransmission virtually never triggers.  `chunkMissingRetryMs`
+ * can safely be lowered from the generic default of 350 ms to **150 ms**.
  */
-export type TrysteroRoomOptions = Pick<RpcRoomOptions, "canAcceptRequest" | "onProtocolWarning">;
+export type TrysteroRoomOptions = Pick<RpcRoomOptions, "canAcceptRequest" | "onProtocolWarning"> & {
+    maxWirePayloadBytes?: number;
+    chunkMissingRetryMs?: number;
+};
+
+/** Trystero-appropriate defaults for `RpcRoom`. */
+export const TRYSTERO_RPC_DEFAULTS = {
+    /** Stay below Trystero's internal ~16 348-byte chunk boundary. */
+    maxWirePayloadBytes: 15 * 1024,
+    /** SCTP guarantees delivery; retransmission is a last-resort safety net. */
+    chunkMissingRetryMs: 150,
+} as const;
 
 // ---------------------------------------------------------------------------
 // Low-level: wrap an already-joined Trystero Room
@@ -299,7 +319,7 @@ export function serveTrysteroDB(
     options?: TrysteroRoomOptions
 ): TrysteroDBServerHandle {
     const roomHandle = joinTrysteroRoom(settings);
-    const rpcRoom = new RpcRoom({ transport: roomHandle.transport, ...options });
+    const rpcRoom = new RpcRoom({ ...TRYSTERO_RPC_DEFAULTS, transport: roomHandle.transport, ...options });
     exposeDB(rpcRoom, db, ns);
 
     return {
@@ -355,7 +375,7 @@ export function connectTrysteroDBClient(
     options?: TrysteroRoomOptions
 ): TrysteroDBClientHandle {
     const roomHandle = joinTrysteroRoom(settings);
-    const rpcRoom = new RpcRoom({ transport: roomHandle.transport, ...options });
+    const rpcRoom = new RpcRoom({ ...TRYSTERO_RPC_DEFAULTS, transport: roomHandle.transport, ...options });
     const proxy = new RpcPouchDBProxy(rpcRoom.session(serverPeerId), dbName, ns);
 
     return {

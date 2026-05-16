@@ -37,6 +37,14 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
     abstract showWindow(type: string): Promise<void>;
 
     /**
+     * Show a window on the right sidebar when supported.
+     * Platforms that do not support sidebars can fall back to showWindow.
+     */
+    showWindowOnRight(type: string): Promise<void> {
+        return this.showWindow(type);
+    }
+
+    /**
      * returns App ID. In Obsidian, it is vault ID.
      */
     abstract getAppID(): string;
