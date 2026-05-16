@@ -92,11 +92,13 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     }
 
     async open() {
-        if (this._replicator && this._p2pHost?.isServing) {
+        if (!this.env.services.setting.currentSettings().P2P_Enabled) {
+            Logger($msg("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
+            // Nothing to do.
             return;
         }
-        if (!this.env.services.setting.currentSettings().P2P_Enabled) {
-            // Nothing to do.
+        if (this._replicator && this._p2pHost?.isServing) {
+            Logger("P2P replicator is already open.");
             return;
         }
         try {
