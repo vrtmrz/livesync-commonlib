@@ -14,6 +14,9 @@ export type OpenReplicationUIFactory = (
     replicator: LiveSyncTrysteroReplicator
 ) => (showResult: boolean) => Promise<boolean | void>;
 
+/** Same shape as OpenReplicationUIFactory, used for the rebuild/replicateAllFromServer flow. */
+export type OpenRebuildUIFactory = OpenReplicationUIFactory;
+
 /**
  * ServiceFeature: P2P Replicator integration and lifecycle management.
  * Registers a LiveSyncTrysteroReplicator instance as the active replicator when P2P is enabled in settings,
@@ -23,7 +26,8 @@ export type OpenReplicationUIFactory = (
 
 export function useP2PReplicatorFeature(
     host: NecessaryServices<"API" | "setting" | "replicator" | "appLifecycle" | "databaseEvents", never>,
-    openReplicationUIFactory?: OpenReplicationUIFactory
+    openReplicationUIFactory?: OpenReplicationUIFactory,
+    openRebuildUIFactory?: OpenRebuildUIFactory
 ): UseP2PReplicatorResult {
     // Replicator instance should be single and shared across the plug-in.
     let replicator: LiveSyncTrysteroReplicator = new LiveSyncTrysteroReplicator({
@@ -31,6 +35,9 @@ export function useP2PReplicatorFeature(
     });
     if (openReplicationUIFactory) {
         replicator.env.openReplicationUI = openReplicationUIFactory(replicator);
+    }
+    if (openRebuildUIFactory) {
+        replicator.env.openRebuildUI = openRebuildUIFactory(replicator);
     }
     const activeReplicator = {
         get replicator() {
@@ -51,6 +58,9 @@ export function useP2PReplicatorFeature(
             const newReplicator = new LiveSyncTrysteroReplicator({ services: host.services as unknown as IServiceHub });
             if (openReplicationUIFactory) {
                 newReplicator.env.openReplicationUI = openReplicationUIFactory(newReplicator);
+            }
+            if (openRebuildUIFactory) {
+                newReplicator.env.openRebuildUI = openRebuildUIFactory(newReplicator);
             }
             replicator = newReplicator; // Update the replicator reference for lifecycle handlers
             return replicator;
@@ -87,7 +97,11 @@ export function useP2PReplicatorFeature(
     // Suspend extra sync handler
     host.services.setting.suspendExtraSync.addHandler(() => {
         const s = host.services.setting.currentSettings();
-        s.P2P_Enabled = false;
+        // When P2P is the primary remote type, do not disable P2P_Enabled —
+        // the rebuild/fetch flows depend on it to replicate from a peer.
+        if (s.remoteType !== REMOTE_P2P) {
+            s.P2P_Enabled = false;
+        }
         s.P2P_AutoAccepting = AutoAccepting.NONE;
         s.P2P_AutoBroadcast = false;
         s.P2P_AutoStart = false;

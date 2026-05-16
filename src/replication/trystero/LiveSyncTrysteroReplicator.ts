@@ -36,6 +36,11 @@ export interface LiveSyncTrysteroReplicatorEnv extends LiveSyncReplicatorEnv {
      * When not set, openReplication falls back to replicateFromCommand (CLI-safe).
      */
     openReplicationUI?: (showResult: boolean) => Promise<boolean | void>;
+    /**
+     * Injected by the host platform to show a UI for selecting a peer to rebuild from.
+     * When not set, replicateAllFromServer falls back to the headless selectPeer dialog.
+     */
+    openRebuildUI?: (showResult: boolean) => Promise<boolean | void>;
 }
 
 export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
@@ -189,6 +194,14 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         return await this._replicator.sync(peerId, showNotice);
     }
 
+    setOnSetup() {
+        this._replicator?.setOnSetup();
+    }
+
+    clearOnSetup() {
+        this._replicator?.clearOnSetup();
+    }
+
     async makeDecision(decision: AcceptanceDecision) {
         await this._replicator?.server?.makeDecision(decision);
     }
@@ -309,13 +322,20 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             return this.replicateAllFromServer(setting, showingNotice);
         }
         await this.open();
-        await eventHub.waitFor(EVENT_P2P_CONNECTED);
 
-        const peerFrom = setting.P2P_RebuildFrom;
         if (!this._replicator) {
             Logger("Failed to get replicator instance.", logLevel);
             return false;
         }
+
+        // If a rebuild UI handler was injected (e.g. Obsidian modal), use it.
+        if (this.env.openRebuildUI) {
+            return (await this.env.openRebuildUI(showingNotice ?? false)) !== false;
+        }
+
+        // Fallback: headless peer-selection flow (CLI / non-Obsidian).
+        await eventHub.waitFor(EVENT_P2P_CONNECTED);
+        const peerFrom = setting.P2P_RebuildFrom;
         this._replicator.setOnSetup();
         try {
             const r = await this.tryUntilSuccess(

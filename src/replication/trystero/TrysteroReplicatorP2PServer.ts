@@ -30,6 +30,7 @@ import { $msg } from "../../common/i18n";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock_v2";
 import { Computed } from "octagonal-wheels/dataobject/Computed";
 import { RpcRoom, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
+import { TRYSTERO_RPC_DEFAULTS } from "@lib/rpc/transports/TrysteroTransport";
 import { toRpcMethodName } from "./rpcCompat";
 
 export type PeerInfo = Advertisement & {
@@ -413,6 +414,7 @@ You can chose as follows:
         };
         this._rpcRoom?.close();
         this._rpcRoom = new RpcRoom({
+            ...TRYSTERO_RPC_DEFAULTS,
             transport,
             canAcceptRequest: async (peerId, method) => {
                 if (method === toRpcMethodName("!reqAuth")) return true;
