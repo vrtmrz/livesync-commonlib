@@ -2,6 +2,7 @@ import { type Diff, diff_match_patch, DIFF_DELETE, DIFF_INSERT, DIFF_EQUAL } fro
 import { readString, decodeBinary } from "octagonal-wheels/binary";
 import { Logger, LOG_LEVEL_VERBOSE, LOG_LEVEL_INFO } from "octagonal-wheels/common/logger";
 import {
+    type DocumentID,
     type EntryDoc,
     type FilePathWithPrefix,
     type diff_result_leaf,
@@ -41,6 +42,13 @@ type UserActionRequired = {
 
 export type AutoMergeResult = Promise<AutoMergeOutcomeOK | AutoMergeCanBeDoneByDeletingRev | UserActionRequired>;
 
+type RevisionHistory = {
+    _revisions?: {
+        start: number;
+        ids: string[];
+    };
+};
+
 export interface ConflictManagerOptions {
     entryManager: EntryManager;
     pathService: IPathService;
@@ -53,6 +61,51 @@ export class ConflictManager {
     }
     get database(): PouchDB.Database<EntryDoc> {
         return this.options.database;
+    }
+
+    private revisionHistoryToChain(doc: RevisionHistory): string[] {
+        const revisions = doc._revisions;
+        if (!revisions) return [];
+        return revisions.ids.map((id, index) => `${revisions.start - index}-${id}`);
+    }
+
+    private async getRevisionChain(id: DocumentID, rev: string): Promise<string[]> {
+        try {
+            const doc = await this.database.get<EntryDoc & RevisionHistory>(id, { rev, revs: true });
+            return this.revisionHistoryToChain(doc);
+        } catch (ex) {
+            Logger(`Could not load revision chain for ${id}@${rev}`, LOG_LEVEL_VERBOSE);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            return [];
+        }
+    }
+
+    async findCommonAncestorRevById(id: DocumentID, currentRev: string, conflictedRev: string): Promise<string> {
+        if (!currentRev || !conflictedRev) return "";
+        const [currentChain, conflictedChain] = await Promise.all([
+            this.getRevisionChain(id, currentRev),
+            this.getRevisionChain(id, conflictedRev),
+        ]);
+        if (currentChain.length == 0 || conflictedChain.length == 0) return "";
+
+        const conflictedRevs = new Set(conflictedChain);
+        for (const rev of currentChain) {
+            if (rev == currentRev || rev == conflictedRev) continue;
+            if (!conflictedRevs.has(rev)) continue;
+            try {
+                await this.database.get<EntryDoc>(id, { rev });
+                return rev;
+            } catch (ex) {
+                Logger(`Common ancestor ${id}@${rev} is not available`, LOG_LEVEL_VERBOSE);
+                Logger(ex, LOG_LEVEL_VERBOSE);
+            }
+        }
+        return "";
+    }
+
+    async findCommonAncestorRev(path: FilePathWithPrefix, currentRev: string, conflictedRev: string): Promise<string> {
+        const id = await this.options.pathService.path2id(path);
+        return await this.findCommonAncestorRevById(id, currentRev, conflictedRev);
     }
 
     async getConflictedDoc(path: FilePathWithPrefix, rev: string): Promise<false | diff_result_leaf> {
@@ -325,15 +378,7 @@ export class ConflictManager {
     }
     async tryAutoMergeSensibly(path: FilePathWithPrefix, test: LoadedEntry, conflicts: string[]) {
         const conflictedRev = conflicts[0];
-        const conflictedRevNo = Number(conflictedRev.split("-")[0]);
-        //Search
-        const revFrom = await this.database.get<EntryDoc>(await this.options.pathService.path2id(path), {
-            revs_info: true,
-        });
-        const commonBase =
-            (revFrom._revs_info || []).filter(
-                (e) => e.status == "available" && Number(e.rev.split("-")[0]) < conflictedRevNo
-            )?.[0]?.rev ?? "";
+        const commonBase = await this.findCommonAncestorRev(path, test._rev!, conflictedRev);
         let p = undefined;
         if (commonBase) {
             if (isSensibleMargeApplicable(path)) {

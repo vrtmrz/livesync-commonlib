@@ -40,6 +40,11 @@ function createTestDoc(id: string, data: string, mtime: number = Date.now(), cti
 const i2p = (id: DocumentID): FilePathWithPrefix => id as unknown as FilePathWithPrefix;
 const p2i = (path: FilePathWithPrefix | string): DocumentID => path as unknown as DocumentID;
 function unused(v: any) {}
+
+function revHash(rev: string) {
+    return rev.split("-").slice(1).join("-");
+}
+
 /**
  * Helper function to create a conflicted document in PouchDB
  */
@@ -638,6 +643,56 @@ describe("ConflictManager", () => {
             // Should return UserActionRequired because changes conflict
             expect(result).toHaveProperty("leftRev");
             expect(result).toHaveProperty("rightRev");
+        });
+
+        it("should use the real common ancestor before auto-merging stale branch edits", async () => {
+            const path = "stale-phone.md" as FilePathWithPrefix;
+            const baseData = "A\nB\nC\n";
+            const desktopData1 = "A\nB\nC\nDesktop-only 1\n";
+            const desktopData2 = "A\nB\nC\nDesktop-only 1\nDesktop-only 2\n";
+            const phoneData = "A\nPhone edit\nB\nC\n";
+
+            const baseResult = await db.put(createTestDoc(path, baseData, 1000));
+            const desktopResult1 = await db.put({
+                ...createTestDoc(path, desktopData1, 2000),
+                _rev: baseResult.rev,
+            });
+            const desktopResult2 = await db.put({
+                ...createTestDoc(path, desktopData2, 3000),
+                _rev: desktopResult1.rev,
+            });
+            unused(desktopResult2);
+
+            await (db.bulkDocs as any)(
+                [
+                    {
+                        ...createTestDoc(path, phoneData, 2500),
+                        _rev: "3-000000phoneleaf",
+                        _revisions: {
+                            start: 3,
+                            ids: ["000000phoneleaf", "000000phoneparent", revHash(baseResult.rev)],
+                        },
+                    },
+                ],
+                { new_edits: false }
+            );
+
+            const currentDoc = await db.get(path, { conflicts: true });
+            const conflicts = currentDoc._conflicts ?? [];
+            expect(conflicts.length).toBeGreaterThan(0);
+            const conflictedRev = conflicts[0];
+            const commonBase = await conflictManager.findCommonAncestorRev(path, currentDoc._rev, conflictedRev);
+            expect(commonBase).toBe(baseResult.rev);
+
+            const result = await conflictManager.tryAutoMerge(path, true);
+            if ("result" in result) {
+                expect(result.result).toContain("Desktop-only 1");
+                expect(result.result).toContain("Desktop-only 2");
+                expect(result.result).toContain("Phone edit");
+            } else {
+                expect(result).toHaveProperty("leftRev");
+                expect(result).toHaveProperty("rightRev");
+            }
         });
 
         it("should auto-merge using object merge when isObjectMargeApplicable applies", async () => {
