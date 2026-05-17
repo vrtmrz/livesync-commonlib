@@ -16,3 +16,12 @@ export function setGetLanguage(func: typeof ObsidianGetLanguage) {
 export function getLanguage() {
     return _getLanguage();
 }
+
+// Compatibility for globalThis across different environments (browser, Node.js, etc.)
+export const compatGlobal = (
+    typeof window !== "undefined"
+        ? window
+        : // compatibility for CLIs, tests, and other non-browser environments.
+          // eslint-disable-next-line obsidianmd/no-global-this
+          globalThis
+) as typeof window;

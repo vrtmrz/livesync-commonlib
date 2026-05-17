@@ -18,8 +18,10 @@ import { isCloudantURI } from "../../pouchdb/utils_couchdb";
 import { decryptString, encryptString } from "../../encryption/stringEncryption";
 import { setLang } from "../../common/i18n";
 import {
+    activateP2PRemoteConfiguration,
     activateRemoteConfiguration,
     migrateLegacyRemoteConfigurationsInPlace,
+    migrateP2PActiveRemoteConfigurationIdInPlace,
 } from "@lib/serviceFeatures/remoteConfig";
 import { ConnectionStringParser } from "@lib/common/ConnectionString";
 
@@ -523,8 +525,9 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         setLang(this.settings.displayLanguage);
 
         await this.adjustSettings(this.settings);
-        const shouldPersistMigratedRemoteConfigurations =
+        const migratedLegacyRemoteConfigurations =
             !hadRemoteConfigurations && Object.keys(this.settings.remoteConfigurations ?? {}).length > 0;
+        const migratedP2PActiveRemoteConfiguration = migrateP2PActiveRemoteConfigurationIdInPlace(this.settings);
 
         // Keep runtime legacy fields in sync with the active remote configuration.
         // Replication and status checks still consume these fields.
@@ -534,6 +537,17 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             if (!activated) {
                 this._log(
                     `Failed to activate the selected remote configuration: ${activeConfigurationId}`,
+                    LOG_LEVEL_NOTICE
+                );
+            }
+        }
+
+        const p2pActiveConfigurationId = this.settings.P2P_ActiveRemoteConfigurationId;
+        if (p2pActiveConfigurationId && this.settings.remoteConfigurations?.[p2pActiveConfigurationId]) {
+            const activatedP2P = activateP2PRemoteConfiguration(this.settings, p2pActiveConfigurationId);
+            if (!activatedP2P) {
+                this._log(
+                    `Failed to activate the selected P2P remote configuration: ${p2pActiveConfigurationId}`,
                     LOG_LEVEL_NOTICE
                 );
             }
@@ -565,7 +579,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             }
         }
 
-        if (shouldPersistMigratedRemoteConfigurations) {
+        if (migratedLegacyRemoteConfigurations || migratedP2PActiveRemoteConfiguration) {
             await this.saveSettingData();
         }
 
@@ -578,7 +592,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     private tryDecodeJson(encoded: string | false): object | false {
         try {
             if (!encoded) return false;
-            return JSON.parse(encoded);
+            return JSON.parse(encoded) as object;
         } catch {
             return false;
         }

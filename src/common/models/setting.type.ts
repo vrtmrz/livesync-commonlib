@@ -1006,6 +1006,12 @@ export interface RemoteConfigurations {
      * The ID of the currently active remote configuration.
      */
     activeConfigurationId: string;
+
+    /**
+     * The ID of the active remote configuration dedicated for P2P features.
+     * If empty, P2P features should request explicit selection from the user.
+     */
+    P2P_ActiveRemoteConfigurationId: string;
 }
 interface ObsidianLiveSyncSettings_PluginSetting
     extends

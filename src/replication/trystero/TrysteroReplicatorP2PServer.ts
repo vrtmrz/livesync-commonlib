@@ -32,6 +32,7 @@ import { Computed } from "octagonal-wheels/dataobject/Computed";
 import { RpcRoom, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
 import { TRYSTERO_RPC_DEFAULTS } from "@lib/rpc/transports/TrysteroTransport";
 import { toRpcMethodName } from "./rpcCompat";
+import { compatGlobal } from "@lib/common/coreEnvFunctions";
 
 export type PeerInfo = Advertisement & {
     isAccepted: boolean | undefined;
@@ -51,6 +52,7 @@ export type P2PServerInfo = {
     isConnected: boolean;
     knownAdvertisements: PeerInfo[];
     serverPeerId: string;
+    roomId: string;
 };
 export const EVENT_SERVER_STATUS = "p2p-server-status";
 export const EVENT_MAKE_DECISION = "make-decision-p2p-peer";
@@ -82,6 +84,7 @@ export class TrysteroReplicatorP2PServer {
     _env: ReplicatorHostEnv;
     _room?: Room;
     _serverPeerId: string;
+    _activeRoomId: string = "";
     ___send?: ActionSender<Payload>;
     assignedFunctions = new Map<string, (...args: any[]) => any>();
     clients: Map<string, TrysteroReplicatorP2PClient> = new Map();
@@ -142,6 +145,7 @@ export class TrysteroReplicatorP2PServer {
             isConnected: this.isServing,
             knownAdvertisements: ads,
             serverPeerId: this.serverPeerId,
+            roomId: this._activeRoomId,
         });
     }
 
@@ -461,7 +465,7 @@ You can chose as follows:
         this._bindingObjects.forEach((b) => {
             this.serveObject(b);
         });
-        await this.sendAdvertisement();
+        await Promise.resolve(this.sendAdvertisement());
         // this.startAdvertisementBroadcast();
     }
 
@@ -477,7 +481,7 @@ You can chose as follows:
         const turnServers = this.settings.P2P_turnServers.split(",")
             .map((e) => e.trim())
             .filter((e) => e.length > 0);
-        const rtcPolyfill = (globalThis as any).RTCPeerConnection;
+        const rtcPolyfill = compatGlobal?.RTCPeerConnection;
 
         const options = {
             relayUrls: relays,
@@ -496,8 +500,10 @@ You can chose as follows:
                       ]
                     : [],
         } satisfies BaseRoomConfig & RelayConfig;
-        const room = joinRoom(options, this.settings.P2P_roomID);
+        const roomId = this.settings.P2P_roomID;
+        const room = joinRoom(options, roomId);
         await this.setRoom(room);
+        this._activeRoomId = roomId;
         this.onAfterJoinRoom();
         void this.dispatchConnectionStatus();
         await this.startService(bindings);
@@ -565,6 +571,7 @@ You can chose as follows:
             peer.close();
         }
         await this.ensureLeaved();
+        this._activeRoomId = "";
         this._knownAdvertisements.clear();
         await this.dispatchConnectionStatus();
     }
