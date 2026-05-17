@@ -100,6 +100,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     permitEmptyPassphrase: false,
     remoteConfigurations: {},
     activeConfigurationId: "",
+    P2P_ActiveRemoteConfigurationId: "",
     useIndexedDBAdapter: false,
     useTimeouts: false,
     writeLogToTheFile: false,

@@ -41,8 +41,15 @@ export function addP2PEventHandlers(instance: P2PReplicatorLike) {
     eventHub.onEvent(EVENT_PLATFORM_UNLOADED, () => {
         void instance.close();
     });
-    eventHub.onEvent(EVENT_SETTING_SAVED, async (_settings: P2PSyncSetting) => {
-        await instance.open();
+    eventHub.onEvent(EVENT_SETTING_SAVED, async (settings: P2PSyncSetting) => {
+        const isOpen = instance.isServing ?? instance.server?.isServing ?? false;
+        if (settings.P2P_Enabled && settings.P2P_AutoStart) {
+            await instance.open();
+            return;
+        }
+        if (isOpen) {
+            await instance.close();
+        }
     });
 }
 
