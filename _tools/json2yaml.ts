@@ -8,7 +8,7 @@ const __dirname = import.meta.dirname;
 
 const targetDir = resolve(join(__dirname, "../src/common/messagesJson/"));
 console.log(`Target directory: ${targetDir}`);
-const files = await glob(`${targetDir}/*.json`);
+const files = await glob(`*.json`, { expandDirectories: false, absolute: true, cwd: targetDir });
 for (const file of files) {
     const filePath = resolve(file);
     console.log(`Processing file: ${filePath}`);
