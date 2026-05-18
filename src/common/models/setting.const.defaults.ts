@@ -133,6 +133,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     maxTotalLengthInEden: 1024,
     maxAgeInEden: 10,
     disableCheckingConfigMismatch: false,
+    autoAcceptCompatibleTweak: undefined,
     displayLanguage: "",
     /**
      * @deprecated
@@ -180,4 +181,5 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     syncInternalFileOverwritePatterns: "" as CustomRegExpSourceList<",">,
     useOnlyLocalChunk: false,
     maxMTimeForReflectEvents: 0,
+    tweakModified: undefined,
 };

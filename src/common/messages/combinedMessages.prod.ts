@@ -2028,7 +2028,7 @@ export const _allMessages = {
         zh: "无法连接到远程数据库：${d}",
     },
     "liveSyncReplicator.couldNotConnectToServer": {
-        def: "Could not connect to server.",
+        def: "The connection to the remote has been prevented, or failed.",
         es: "No se pudo conectar al servidor.",
         fr: "Connexion au serveur impossible.",
         ja: "サーバーに接続できませんでした。",
@@ -2080,6 +2080,9 @@ export const _allMessages = {
         ko: "이 기기를 '해결됨'으로 표시합니다.",
         ru: "Отметить это устройство как «разрешённое».",
         zh: "将此设备标记为“已解决”",
+    },
+    "liveSyncReplicator.mismatchedTweakDetected": {
+        def: "Some mismatches have been detected in the configuration between devices. Running a manual replication will attempt to resolve this issue.",
     },
     "liveSyncReplicator.oneShotSyncBegin": {
         def: "OneShot Sync begin... (${syncMode})",
@@ -7129,6 +7132,9 @@ export const _allMessages = {
         ko: "전송 조정",
         ru: "Настройки передачи",
     },
+    "TweakMismatchResolve.Action.DisableAutoAcceptCompatible": {
+        def: "Disable auto-accept",
+    },
     "TweakMismatchResolve.Action.Dismiss": {
         def: "Dismiss",
         fr: "Ignorer",
@@ -7136,6 +7142,9 @@ export const _allMessages = {
         ko: "무시",
         ru: "Отмена",
         zh: "Dismiss",
+    },
+    "TweakMismatchResolve.Action.EnableAutoAcceptCompatible": {
+        def: "Enable auto-accept",
     },
     "TweakMismatchResolve.Action.UseConfigured": {
         def: "Use configured settings",
@@ -7193,6 +7202,9 @@ export const _allMessages = {
         ru: "Применить настройки и загрузить снова",
         zh: "Apply settings to this device, and fetch again",
     },
+    "TweakMismatchResolve.Message.AutoAcceptCompatibleUndefined": {
+        def: "\nIt appears that the settings differ for each device. You can now automatically apply compatible changes to these configurations.\nWould you like to enable this `auto-accept` setting?",
+    },
     "TweakMismatchResolve.Message.Main": {
         def: "\nThe settings in the remote database are as follows. These values are configured by other devices, which are synchronised with this device at least once.\n\nIf you want to use these settings, please select %{TweakMismatchResolve.Action.UseConfigured}.\nIf you want to keep the settings of this device, please select %{TweakMismatchResolve.Action.Dismiss}.\n\n${table}\n\n>[!TIP]\n> If you want to synchronise all settings, please use `Sync settings via markdown` after applying minimal configuration with this feature.\n\n${additionalMessage}",
         fr: "\nLes paramètres de la base distante sont les suivants. Ces valeurs sont configurées par d'autres appareils, synchronisés au moins une fois avec celui-ci.\n\nPour utiliser ces paramètres, sélectionnez %{TweakMismatchResolve.Action.UseConfigured}.\nPour conserver les paramètres de cet appareil, sélectionnez %{TweakMismatchResolve.Action.Dismiss}.\n\n${table}\n\n>[!ASTUCE]\n> Pour synchroniser tous les paramètres, utilisez « Synchroniser les paramètres via markdown » après application de la configuration minimale avec cette fonctionnalité.\n\n${additionalMessage}",
@@ -7208,6 +7220,12 @@ export const _allMessages = {
         ko: "구성이 원격 서버의 것과 일치하지 않습니다.\n\n다음 구성이 일치해야 합니다:\n\n${table}\n\n결정을 알려주세요.\n\n${additionalMessage}",
         ru: "Ваша конфигурация не совпадает с удалённым сервером.",
         zh: "Your configuration has not been matched with the one on the remote server.\n\nFollowing configuration should be matched:\n\n${table}\n\nLet us know your decision.\n\n${additionalMessage}",
+    },
+    "TweakMismatchResolve.Message.mineUpdated": {
+        def: "The device configuration have been adjusted.",
+    },
+    "TweakMismatchResolve.Message.remoteUpdated": {
+        def: "The configuration stored remotely has been updated.",
     },
     "TweakMismatchResolve.Message.UseRemote.WarningRebuildRecommended": {
         def: "\n>[!NOTICE]\n> Some changes are compatible but may consume extra storage and transfer volumes. A rebuild is recommended. However, a rebuild may not be performed at present, but may be implemented in future maintenance.\n> ***Please ensure that you have time and are connected to a stable network to apply!***",
@@ -7264,6 +7282,9 @@ export const _allMessages = {
         ko: "구성 불일치 감지",
         ru: "Обнаружено несоответствие конфигурации",
         zh: "Configuration Mismatch Detected",
+    },
+    "TweakMismatchResolve.Title.AutoAcceptCompatible": {
+        def: "Auto-Accept Available",
     },
     "TweakMismatchResolve.Title.TweakResolving": {
         def: "Configuration Mismatch Detected",

@@ -33,7 +33,7 @@ export const IncompatibleChanges: TweakKeys[] = [
     "handleFilenameCaseSensitive",
 ] as const;
 
-export const CompatibleButLossyChanges: TweakKeys[] = ["hashAlg"];
+export const CompatibleButLossyChanges: TweakKeys[] = ["hashAlg", "customChunkSize", "chunkSplitterVersion"] as const;
 
 type IncompatibleRecommendationPatterns<T extends TweakKeys> = {
     key: T;
@@ -82,9 +82,14 @@ export const TweakValuesDefault: Partial<ObsidianLiveSyncSettings> = {
     usePluginSyncV2: false,
     E2EEAlgorithm: DEFAULT_SETTINGS.E2EEAlgorithm,
     chunkSplitterVersion: DEFAULT_SETTINGS.chunkSplitterVersion,
+    tweakModified: DEFAULT_SETTINGS.tweakModified,
 };
 
-export const TweakValuesTemplate = { ...TweakValuesRecommendedTemplate, ...TweakValuesShouldMatchedTemplate };
+export const TweakValuesTemplate = {
+    ...TweakValuesRecommendedTemplate,
+    ...TweakValuesShouldMatchedTemplate,
+    tweakModified: 0,
+};
 export type TweakValues = typeof TweakValuesTemplate;
 
 export const DEVICE_ID_PREFERRED = "PREFERRED";

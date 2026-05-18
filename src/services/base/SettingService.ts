@@ -54,6 +54,8 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     // Load setting from the runtime storage.
     protected abstract loadData(): Promise<ObsidianLiveSyncSettings | undefined>;
 
+    private _lastPersistedSettings?: ObsidianLiveSyncSettings;
+
     _log: ReturnType<typeof createInstanceLogFunction>;
     constructor(context: T, dependencies: SettingServiceDependencies) {
         super(context);
@@ -161,12 +163,19 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
      */
     async saveSettingData() {
         this.saveDeviceAndVaultName();
+        const previousSettings = this._lastPersistedSettings ?? this.cloneSettings(this.settings);
         const settings = {
             ...this.settings,
             remoteConfigurations: Object.fromEntries(
                 Object.entries(this.settings.remoteConfigurations || {}).map(([id, config]) => [id, { ...config }])
             ),
         };
+        const hookResults = await this.onBeforeSaveSettingData(settings, previousSettings);
+        for (const patch of hookResults) {
+            if (patch instanceof Error || !patch) continue;
+            Object.assign(settings, patch);
+            Object.assign(this.settings, patch);
+        }
         settings.deviceAndVaultName = "";
         if (settings.P2P_DevicePeerName && settings.P2P_DevicePeerName.trim() !== "") {
             this._log("Saving device peer name to small config");
@@ -226,6 +235,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             await this.encryptRemoteConfigurationUris(settings);
         }
         await this.saveData(settings);
+        this._lastPersistedSettings = this.cloneSettings(this.settings);
         void this.onSettingSaved(settings);
     }
 
@@ -330,6 +340,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     readonly onSettingLoaded = handlers<ISettingService>().dispatchParallel("onSettingLoaded");
     readonly onSettingChanged = handlers<ISettingService>().dispatchParallel("onSettingChanged");
     readonly onSettingSaved = handlers<ISettingService>().dispatchParallel("onSettingSaved");
+    readonly onBeforeSaveSettingData = handlers<ISettingService>().dispatchParallel("onBeforeSaveSettingData");
 
     /**
      * Get the current settings.
@@ -583,6 +594,8 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             await this.saveSettingData();
         }
 
+        this._lastPersistedSettings = this.cloneSettings(this.settings);
+
         // this.core.ignoreFiles = this.settings.ignoreFiles.split(",").map(e => e.trim());
         // eventHub.emitEvent(EVENT_REQUEST_RELOAD_SETTING_TAB);
         const dispatch = this.settings;
@@ -596,5 +609,14 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         } catch {
             return false;
         }
+    }
+
+    private cloneSettings(settings: ObsidianLiveSyncSettings): ObsidianLiveSyncSettings {
+        return {
+            ...settings,
+            remoteConfigurations: Object.fromEntries(
+                Object.entries(settings.remoteConfigurations || {}).map(([id, config]) => [id, { ...config }])
+            ),
+        };
     }
 }

@@ -865,10 +865,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             } else if (ensure == "OK") {
                 // NO OP: FOR NARROWING TYPE
             } else if (ensure[0] == "MISMATCHED") {
-                Logger(
-                    `Configuration mismatching between the clients has been detected. This can be harmful or extra capacity consumption. We have to make these value unified. When replication is initiated manually via the command palette or ribbon, a dialogue box will open to address this.`,
-                    LOG_LEVEL_NOTICE
-                );
+                Logger($msg("liveSyncReplicator.mismatchedTweakDetected"), LOG_LEVEL_NOTICE);
                 this.tweakSettingsMismatched = true;
                 this.preferredTweakValue = ensure[1];
                 return false;

@@ -316,7 +316,7 @@ liveSyncReplicator:
     Could not connect to ${uri} : ${name}
     (${db})
   couldNotConnectToRemoteDb: "Could not connect to remote database: ${d}"
-  couldNotConnectToServer: Could not connect to server.
+  couldNotConnectToServer: The connection to the remote has been prevented, or failed.
   couldNotConnectToURI: Could not connect to ${uri}:${dbRet}
   couldNotMarkResolveRemoteDb: Could not mark resolve remote database.
   liveSyncBegin: LiveSync begin...
@@ -333,6 +333,7 @@ liveSyncReplicator:
   replicationInProgress: Replication is already in progress
   retryLowerBatchSize: Retry with lower batch size:${batch_size}/${batches_limit}
   unlockRemoteDb: Unlock remote database to prevent data corruption
+  mismatchedTweakDetected: Some mismatches have been detected in the configuration between devices. Running a manual replication will attempt to resolve this issue.
 liveSyncSetting:
   errorNoSuchSettingItem: "No such setting item: ${key}"
   originalValue: "Original: ${value}"
@@ -1497,7 +1498,15 @@ TweakMismatchResolve:
     UseRemote: Apply settings to this device
     UseRemoteAcceptIncompatible: Apply settings to this device, but and ignore incompatibility
     UseRemoteWithRebuild: Apply settings to this device, and fetch again
+    EnableAutoAcceptCompatible: Enable auto-accept
+    DisableAutoAcceptCompatible: Disable auto-accept
   Message:
+    AutoAcceptCompatibleUndefined: >-
+
+      It appears that the settings differ for each device.
+      You can now automatically apply compatible changes to these configurations.
+
+      Would you like to enable this `auto-accept` setting?
     Main: >-
       
       The settings in the remote database are as follows. These values are
@@ -1574,6 +1583,8 @@ TweakMismatchResolve:
 
       > Either local or remote rebuilds are required. Both of them takes a few
       minutes or more. **Make sure it is safe to perform it now.**
+    remoteUpdated: The configuration stored remotely has been updated.
+    mineUpdated: The device configuration have been adjusted.
   Table:
     _value: |+
       | Value name | This device | On Remote |
@@ -1585,6 +1596,7 @@ TweakMismatchResolve:
     _value: Configuration Mismatch Detected
     TweakResolving: Configuration Mismatch Detected
     UseRemoteConfig: Use Remote Configuration
+    AutoAcceptCompatible: Auto-Accept Available
 Unique name between all synchronized devices. To edit this setting, please disable customization sync once.:
   Unique name between all synchronized devices. To edit this setting, please
   disable customization sync once.
