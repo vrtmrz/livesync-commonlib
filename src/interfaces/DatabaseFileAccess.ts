@@ -3,8 +3,14 @@ import type { FilePathWithPrefix, LoadedEntry, MetaEntry, UXFileInfo, UXFileInfo
 export interface DatabaseFileAccess {
     delete: (file: UXFileInfoStub | FilePathWithPrefix, rev?: string) => Promise<boolean>;
     store: (file: UXFileInfo, force?: boolean, skipCheck?: boolean) => Promise<boolean>;
+    storeAsConflictedRevision: (file: UXFileInfo, currentRev: string, skipCheck?: boolean) => Promise<boolean>;
     storeContent(path: FilePathWithPrefix, content: string): Promise<boolean>;
     createChunks: (file: UXFileInfo, force?: boolean, skipCheck?: boolean) => Promise<boolean>;
+    hasContentInRevisionHistory: (
+        file: UXFileInfoStub | FilePathWithPrefix,
+        content: string | string[] | Blob | ArrayBuffer,
+        currentRev?: string
+    ) => Promise<boolean>;
     fetch: (
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,
