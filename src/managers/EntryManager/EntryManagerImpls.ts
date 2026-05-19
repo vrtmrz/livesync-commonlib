@@ -1,3 +1,4 @@
+import type PouchDB from "pouchdb-core";
 import { Logger, LOG_LEVEL_VERBOSE, LOG_LEVEL_NOTICE } from "octagonal-wheels/common/logger";
 import {
     type SavingEntry,
@@ -288,7 +289,8 @@ export async function getDBEntryMetaByPath(
         } else {
             obj = await localDatabase.get(id);
         }
-        const deleted = (obj as any)?.deleted ?? obj._deleted ?? undefined;
+        const deleted: boolean | undefined =
+            (obj as unknown as { deleted?: boolean })?.deleted ?? obj._deleted ?? undefined;
         if (!includeDeleted && deleted) return false;
         if (obj.type && obj.type == "leaf") {
             //do nothing for leaf;
@@ -317,6 +319,8 @@ export async function getDBEntryMetaByPath(
                 children: children,
                 datatype: type,
                 deleted: deleted,
+                _revisions: obj?._revisions ?? undefined,
+                _revs_info: obj?._revs_info ?? undefined,
                 type: type,
                 eden: "eden" in obj ? obj.eden : {},
             };
