@@ -432,7 +432,11 @@ export async function performFullScan(
     const initProcess: Promise<void>[] = [];
     type FileWithDoc = { file: UXFileInfoStub; doc: MetaEntry };
     type ProcedureParameter = FileWithDoc | FilePathWithPrefixLC;
-    async function runAll<T extends ProcedureParameter>(procedureName: string, objects: T[], callback: (arg: T) => Promise<void>) {
+    async function runAll<T extends ProcedureParameter>(
+        procedureName: string,
+        objects: T[],
+        callback: (arg: T) => Promise<void>
+    ) {
         if (objects.length === 0) {
             log(`${procedureName}: Nothing to do`, LOG_LEVEL_VERBOSE);
             return;
@@ -450,7 +454,8 @@ export async function performFullScan(
                     return true;
                 } catch (ex) {
                     log(`Error while ${procedureName}`, LOG_LEVEL_NOTICE);
-                    const parameterDetails = typeof e === "string"? e : `file:${e.file.path}, doc:${getPathFromEntry(host, e.doc)}`;
+                    const parameterDetails =
+                        typeof e === "string" ? e : `file:${e.file.path}, doc:${getPathFromEntry(host, e.doc)}`;
                     log(`Parameter: ${parameterDetails}`, LOG_LEVEL_INFO);
                     log(ex, LOG_LEVEL_VERBOSE);
                     return false;
