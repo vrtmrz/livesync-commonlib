@@ -136,7 +136,6 @@ export class LiveSyncLocalDB {
     }
 
     async initializeDatabase(): Promise<boolean> {
-        await this._prepareHashFunctions();
         if (this.localDatabase != null) {
             this.localDatabase.removeAllListeners();
             await this.localDatabase.close();
@@ -169,8 +168,6 @@ export class LiveSyncLocalDB {
             // return false;
         }
         this._log("Opening Database...");
-        this._log("Database info", LOG_LEVEL_VERBOSE);
-        this._log(JSON.stringify(await this.localDatabase.info(), null, 2), LOG_LEVEL_VERBOSE);
         await this.managers.initialise();
         this.localDatabase.on("close", () => {
             this._log("Database closed.");
