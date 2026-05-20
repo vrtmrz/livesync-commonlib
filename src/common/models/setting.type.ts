@@ -816,6 +816,12 @@ interface DataOnRemoteDBSettings {
      * VersionUp flash message which is shown when some incompatible changes are made during the update.
      */
     versionUpFlash: string;
+
+    /**
+     * Unix timestamp (ms) of the latest tweak update.
+     * Used to determine which side has newer tweak values.
+     */
+    tweakModified: number | undefined;
 }
 
 /**
@@ -873,6 +879,12 @@ interface RemoteDBTweakSettings {
      * (Note: Mismatched settings can lead to inappropriate de-duplication, leading to storage wastage and increased traffic).
      */
     disableCheckingConfigMismatch: boolean;
+
+    /**
+     * Automatically accepts compatible-but-lossy tweak mismatches.
+     * If undefined, the feature is not configured yet.
+     */
+    autoAcceptCompatibleTweak: boolean | undefined;
 }
 
 /**

@@ -224,4 +224,15 @@ describe("SettingService", () => {
         expect(service.currentSettings().P2P_roomID).toBe("123-456-789-abc");
         expect(service.currentSettings().P2P_ActiveRemoteConfigurationId).toBe("p2p");
     });
+
+    it("saveSettingData should apply patches from onBeforeSaveSettingData handlers", async () => {
+        const service = createService();
+
+        (service.onBeforeSaveSettingData as any).addHandler(async () => ({ tweakModified: 100 }), 10);
+        (service.onBeforeSaveSettingData as any).addHandler(async () => ({ tweakModified: 200 }), 20);
+
+        await service.saveSettingData();
+
+        expect(service.lastSavedSetting?.tweakModified).toBe(200);
+    });
 });

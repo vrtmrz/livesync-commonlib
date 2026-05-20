@@ -305,6 +305,11 @@ export interface ISettingService {
 
     saveDeviceAndVaultName(): void;
 
+    onBeforeSaveSettingData(
+        nextSettings: ObsidianLiveSyncSettings,
+        previousSettings: ObsidianLiveSyncSettings
+    ): Promise<(Partial<ObsidianLiveSyncSettings> | void)[]>;
+
     saveSettingData(): Promise<void>;
 
     currentSettings(): ObsidianLiveSyncSettings;
