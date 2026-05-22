@@ -83,38 +83,6 @@ async function logRtcFailureStats(instanceId: string, peer: RTCPeerConnection) {
     }
 }
 
-function notifyConnectionStatus(instanceId: string, status: DiagRTCConnectionStatus) {
-    if (status.connectionState === "connected") {
-        totalSuccessfulConnections += 1;
-    }
-    if (status.connectionState === "failed") {
-        totalFailedConnections += 1;
-    }
-    if (status.connectionState === "new") {
-        totalNewConnections += 1;
-    }
-    if (status.connectionState === "closed") {
-        totalClosedConnections += 1;
-    }
-    if (status.connectionState === "closed" || status.connectionState === "failed") {
-        RTCConnectionStatuses.delete(instanceId);
-    } else {
-        RTCConnectionStatuses.set(instanceId, status);
-    }
-    for (const subscriber of connectionStatusSubscribers) {
-        try {
-            subscriber({
-                totalNewConnections: totalNewConnections,
-                totalFailedConnections,
-                totalSuccessfulConnections,
-                totalClosedConnections,
-                details: Object.fromEntries(RTCConnectionStatuses),
-            });
-        } catch {
-            // Ignore errors in subscribers to avoid breaking the main logic.
-        }
-    }
-}
 export function subscribeConnectionStatus(callback: (status: DiagRTCStats) => void) {
     connectionStatusSubscribers.push(callback);
     return () => {
@@ -137,14 +105,54 @@ export function createDiagRTCPeerConnectionConstructor(): DiagRTCPeerConnectionC
         private readonly __instanceId: string;
         private __failureStatsLogged = false;
 
+        private _previousConnectionState: RTCPeerConnection["connectionState"] | undefined = undefined;
+        notifyConnectionStatus(instanceId: string, status: DiagRTCConnectionStatus) {
+            if (this._previousConnectionState != status.connectionState) {
+                if (status.connectionState === "connected") {
+                    totalSuccessfulConnections += 1;
+                }
+                if (status.connectionState === "failed") {
+                    totalFailedConnections += 1;
+                }
+                if (status.connectionState === "new") {
+                    totalNewConnections += 1;
+                }
+                if (status.connectionState === "closed") {
+                    totalClosedConnections += 1;
+                }
+                this._previousConnectionState = status.connectionState;
+                for (const subscriber of connectionStatusSubscribers) {
+                    try {
+                        subscriber({
+                            totalNewConnections: totalNewConnections,
+                            totalFailedConnections,
+                            totalSuccessfulConnections,
+                            totalClosedConnections,
+                            details: Object.fromEntries(RTCConnectionStatuses),
+                        });
+                    } catch {
+                        // Ignore errors in subscribers to avoid breaking the main logic.
+                    }
+                }
+            }
+            if (status.connectionState === "closed" || status.connectionState === "failed") {
+                RTCConnectionStatuses.delete(instanceId);
+            } else {
+                RTCConnectionStatuses.set(instanceId, status);
+            }
+        }
         constructor(configuration?: RTCConfiguration) {
             super(configuration);
             rtcInstanceCounter += 1;
             this.__instanceId = `rtc-${rtcInstanceCounter}`;
             logRtcProgress(this.__instanceId, "created", this);
+            // this.notifyConnectionStatus(this.__instanceId, {
+            //     connectionState: this.connectionState,
+            //     iceConnectionState: this.iceConnectionState,
+            // });
             this.addEventListener("connectionstatechange", () => {
                 logRtcProgress(this.__instanceId, "connectionstatechange", this);
-                notifyConnectionStatus(this.__instanceId, {
+                this.notifyConnectionStatus(this.__instanceId, {
                     connectionState: this.connectionState,
                     iceConnectionState: this.iceConnectionState,
                 });
@@ -158,7 +166,7 @@ export function createDiagRTCPeerConnectionConstructor(): DiagRTCPeerConnectionC
             });
             this.addEventListener("iceconnectionstatechange", () => {
                 logRtcProgress(this.__instanceId, "iceconnectionstatechange", this);
-                notifyConnectionStatus(this.__instanceId, {
+                this.notifyConnectionStatus(this.__instanceId, {
                     connectionState: this.connectionState,
                     iceConnectionState: this.iceConnectionState,
                 });
