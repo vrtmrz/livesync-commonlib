@@ -272,7 +272,7 @@ export class TrysteroReplicator {
             },
             onProgressAcknowledged: async (fromPeerId: string, info: ProgressInfo) => {
                 try {
-                    await this.onProgressAcknowledged(fromPeerId, info);
+                    await Promise.resolve(this.onProgressAcknowledged(fromPeerId, info));
                 } catch (e) {
                     Logger("Error while acknowledging the progress", LOG_LEVEL_VERBOSE);
                     Logger(e, LOG_LEVEL_VERBOSE);
@@ -776,6 +776,8 @@ export class TrysteroReplicator {
     }
 
     disconnectFromServer() {
+        // Trystero does not provide typings for getRelaySockets.
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
         const connections = getRelaySockets() as Record<string, { close: () => void; onclose: (() => void) | null }>;
         const sockets = Object.entries(connections);
         pauseRelayReconnection();

@@ -90,8 +90,8 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             get confirm() {
                 return services.API.confirm;
             },
-            processReplicatedDocs: async (docs: any[]) => {
-                await services.replication.parseSynchroniseResult(docs as any);
+            processReplicatedDocs: async (docs: Parameters<typeof services.replication.parseSynchroniseResult>[0]) => {
+                await services.replication.parseSynchroniseResult(docs);
             },
         };
     }
@@ -108,8 +108,8 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         }
         try {
             const env = this._buildEnv();
-            const host = new P2PHost(env as any);
-            const replicator = new TrysteroReplicator(env as any, host);
+            const host = new P2PHost(env);
+            const replicator = new TrysteroReplicator(env, host);
             this._p2pHost = host;
             this._replicator = replicator;
             await replicator.open();

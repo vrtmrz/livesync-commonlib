@@ -1,5 +1,5 @@
-import { joinRoom, selfId, type BaseRoomConfig, type RelayConfig, type Room } from "@trystero-p2p/nostr";
-import { mixedHash } from "octagonal-wheels/hash/purejs";
+import type PouchDB from "pouchdb-core";
+import { joinRoom, selfId, type Room } from "@trystero-p2p/nostr";
 import { RpcRoom } from "../RpcRoom";
 import { exposeDB } from "../pouchdb/RpcPouchDBServer";
 import { RpcPouchDBProxy } from "../pouchdb/RpcPouchDBProxy";
@@ -7,6 +7,8 @@ import type { RpcRoomOptions, RpcWireMessage, TransportAdapter } from "../types"
 //TODO: following imports should be moved to a separated module, to make this module as a library.
 import type { P2PConnectionInfo } from "@lib/common/models/setting.type";
 import { ConnectionStringParser } from "@lib/common/ConnectionString";
+import { compatGlobal } from "@lib/common/coreEnvFunctions";
+import { generateJoinRoomOptions } from "./trysteroUtils";
 
 /** Action name used on the Trystero room for the RPC channel. */
 const RPC_ACTION_NAME = "rpc2";
@@ -208,39 +210,14 @@ export type TrysteroRoomHandle = {
  * Trystero, matching the convention used by `TrysteroReplicatorP2PServer`.
  */
 export function joinTrysteroRoom(settings: P2PConnectionInfo): TrysteroRoomHandle {
-    const passphraseNumbers = mixedHash(settings.P2P_passphrase, 0);
-    const passphrase = passphraseNumbers[0].toString(36) + passphraseNumbers[1].toString(36);
+    const options = generateJoinRoomOptions(settings);
 
-    const relays = settings.P2P_relays.split(",")
-        .map((e) => e.trim())
-        .filter((e) => e.length > 0);
-
-    const turnServers = settings.P2P_turnServers.split(",")
-        .map((e) => e.trim())
-        .filter((e) => e.length > 0);
-
-    const rtcPolyfill = (globalThis as any).RTCPeerConnection;
-
-    const options = {
-        relayUrls: relays,
-        appId: settings.P2P_AppID || "self-hosted-livesync",
-        password: passphrase,
-        manualRelayReconnection: true,
-        ...(typeof rtcPolyfill === "function" ? { rtcPolyfill } : {}),
-        ...(turnServers.length > 0
-            ? {
-                  turnConfig: [
-                      {
-                          urls: turnServers,
-                          username: settings.P2P_turnUsername,
-                          credential: settings.P2P_turnCredential,
-                      },
-                  ],
-              }
-            : {}),
-    } satisfies BaseRoomConfig & RelayConfig;
-
-    const room = joinRoom(options, settings.P2P_roomID);
+    const room = joinRoom(options, settings.P2P_roomID, {
+        handshakeTimeoutMs: 30000,
+        onJoinError(error) {
+            console.error("Failed to join Trystero room:", error);
+        },
+    });
     const currentPeerId = selfId;
 
     return {
@@ -421,7 +398,7 @@ export async function collectTrysteroAdvertisements(
     const adHandle = roomHandle.advertise(name, platform);
     // Broadcast our presence immediately so others know we are here too.
     await adHandle.sendAdvertisement();
-    await new Promise<void>((resolve) => setTimeout(resolve, timeoutMs));
+    await new Promise<void>((resolve) => compatGlobal.setTimeout(resolve, timeoutMs));
     const peers = [...adHandle.peers.values()];
     adHandle.stop();
     await roomHandle.leave();
