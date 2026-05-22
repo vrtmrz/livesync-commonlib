@@ -286,7 +286,7 @@ describe("joinTrysteroRoom", () => {
     it("splits comma-separated relay URLs into an array", () => {
         joinTrysteroRoom(BASE_SETTINGS);
         const [opts] = mockJoinRoom.mock.calls[0] as [any, string];
-        expect(opts.relayUrls).toEqual(["wss://relay1.example.com", "wss://relay2.example.com"]);
+        expect(opts.relayConfig.urls).toEqual(["wss://relay1.example.com", "wss://relay2.example.com"]);
     });
 
     it("passes roomID as the second argument to joinRoom", () => {
@@ -387,7 +387,7 @@ describe("joinTrysteroRoomFromUrl", () => {
     it("passes relays from the query string to joinRoom", () => {
         joinTrysteroRoomFromUrl("sls+p2p://room-x?relays=wss%3A%2F%2Fr.example.com");
         const [opts] = mockJoinRoom.mock.calls[0] as [any, string];
-        expect(opts.relayUrls).toEqual(["wss://r.example.com"]);
+        expect(opts.relayConfig.urls).toEqual(["wss://r.example.com"]);
     });
 
     it("throws when given a non-p2p sls:// URL", () => {
