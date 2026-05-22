@@ -22,6 +22,7 @@ export const P2P_DEFAULT_SETTINGS: P2PSyncSetting = {
     P2P_turnServers: "",
     P2P_turnUsername: "",
     P2P_turnCredential: "",
+    P2P_useDiagRTC: false,
 } as const;
 
 export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {

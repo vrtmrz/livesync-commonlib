@@ -2,6 +2,7 @@ import type { BaseRoomConfig, RelayConfig } from "@trystero-p2p/nostr";
 import type { P2PConnectionInfo } from "@lib/common/models/setting.type";
 import { mixedHash } from "octagonal-wheels/hash/purejs";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
+import { createDiagRTCPeerConnectionConstructor } from "./DiagRTCPeerConnections";
 export function generateJoinRoomOptions(settings: P2PConnectionInfo): BaseRoomConfig {
     const passphraseNumbers = mixedHash(settings.P2P_passphrase, 0);
     const passphrase = passphraseNumbers[0].toString(36) + passphraseNumbers[1].toString(36);
@@ -23,7 +24,9 @@ export function generateJoinRoomOptions(settings: P2PConnectionInfo): BaseRoomCo
         password: passphrase,
         relayConfig: relayConfig,
     };
-    if (typeof compatGlobal.RTCPeerConnection !== "undefined") {
+    if (settings.P2P_useDiagRTC) {
+        options.rtcPolyfill = createDiagRTCPeerConnectionConstructor();
+    } else if (typeof compatGlobal.RTCPeerConnection !== "undefined") {
         options.rtcPolyfill = compatGlobal.RTCPeerConnection;
     }
     if (turnServers.length > 0) {

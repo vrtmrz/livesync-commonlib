@@ -25,6 +25,7 @@ import { RpcRoom, type JsonLike, type RpcWireMessage, type TransportAdapter } fr
 import { TRYSTERO_RPC_DEFAULTS } from "@lib/rpc/transports/TrysteroTransport";
 import { toRpcMethodName } from "./rpcCompat";
 import { generateJoinRoomOptions } from "@lib/rpc/transports/trysteroUtils";
+import { subscribeConnectionStatus, type DiagRTCStats } from "@lib/rpc/transports/DiagRTCPeerConnections";
 
 export type PeerInfo = Advertisement & {
     isAccepted: boolean | undefined;
@@ -45,6 +46,7 @@ export type P2PServerInfo = {
     knownAdvertisements: PeerInfo[];
     serverPeerId: string;
     roomId: string;
+    diag: DiagRTCStats;
 };
 export const EVENT_SERVER_STATUS = "p2p-server-status";
 export const EVENT_MAKE_DECISION = "make-decision-p2p-peer";
@@ -82,6 +84,14 @@ export class TrysteroReplicatorP2PServer {
     clients: Map<string, TrysteroReplicatorP2PClient> = new Map();
     _bindingObjects: BindableObject<any>[] = [];
     _rpcRoom?: RpcRoom;
+    _peerConnectionEventCleanup: () => void = () => {};
+    _diagStats: DiagRTCStats = {
+        totalNewConnections: 0,
+        totalFailedConnections: 0,
+        totalSuccessfulConnections: 0,
+        totalClosedConnections: 0,
+        details: {},
+    };
 
     get isDisposed() {
         return !this._room;
@@ -138,6 +148,7 @@ export class TrysteroReplicatorP2PServer {
             knownAdvertisements: ads,
             serverPeerId: this.serverPeerId,
             roomId: this._activeRoomId,
+            diag: this._diagStats,
         });
     }
 
@@ -485,12 +496,19 @@ You can chose as follows:
         }
         const options = generateJoinRoomOptions(this.settings);
         const roomId = this.settings.P2P_roomID;
+        if (this._peerConnectionEventCleanup) {
+            this._peerConnectionEventCleanup();
+        }
+        this._peerConnectionEventCleanup = subscribeConnectionStatus((status) => {
+            // Subscribe for statics
+            this._diagStats = status;
+            void this.dispatchConnectionStatus();
+        });
         const room = joinRoom(options, roomId, {
             handshakeTimeoutMs: 30000,
             onJoinError: (error) => {
-                Logger("Failed to join Trystero room", LOG_LEVEL_NOTICE);
+                Logger("Some peer Failed to join Trystero room");
                 Logger(error, LOG_LEVEL_VERBOSE);
-                void this.shutdown();
             },
         });
         await this.setRoom(room);
@@ -569,6 +587,9 @@ You can chose as follows:
         await this.ensureLeaved();
         this._activeRoomId = "";
         this._knownAdvertisements.clear();
+        if (this._peerConnectionEventCleanup) {
+            this._peerConnectionEventCleanup();
+        }
         await this.dispatchConnectionStatus();
     }
 
