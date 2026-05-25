@@ -1,6 +1,7 @@
 import { writeFileSync } from "fs";
 
-import { allMessages, SUPPORTED_I18N_LANGS, type I18N_LANGS } from "../src/common/rosetta";
+import { SUPPORTED_I18N_LANGS, type I18N_LANGS } from "../src/common/rosetta";
+import { allMessages } from "../src/common/messages/combinedMessages.dev.ts";
 
 import path from "path";
 const thisFileDir = __dirname;
