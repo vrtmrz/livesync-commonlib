@@ -164,4 +164,7 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     remoteConfigurations: 157,
     activeConfigurationId: 158,
     P2P_ActiveRemoteConfigurationId: 159,
+    autoAcceptCompatibleTweak: 160,
+    tweakModified: -1,
+    P2P_useDiagRTC: -1, // Do not encode into the QR Code.
 } as const;

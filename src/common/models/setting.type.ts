@@ -593,6 +593,11 @@ export interface P2PConnectionInfo {
      * The TURN credential (password, secret, etc...) for the P2P connection.
      */
     P2P_turnCredential: string;
+
+    /**
+     * Use Diagnostic Wrapper for RTCPeerConnection to collect statistics.
+     */
+    P2P_useDiagRTC?: boolean;
 }
 export interface P2PSyncSetting extends P2PConnectionInfo {
     P2P_AutoAccepting: AutoAccepting;

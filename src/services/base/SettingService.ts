@@ -3,6 +3,7 @@ import {
     DEFAULT_SETTINGS,
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_URGENT,
+    LOG_LEVEL_VERBOSE,
     SALT_OF_PASSPHRASE,
     SETTING_KEY_P2P_DEVICE_NAME,
     type BucketSyncSetting,
@@ -91,7 +92,11 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         if ("workingPassphrase" in settings) delete settings.workingPassphrase;
         // Splitter configurations have been replaced with chunkSplitterVersion.
         if (settings.chunkSplitterVersion == "") {
+            // Migration
+            // eslint-disable-next-line @typescript-eslint/no-deprecated
             if (settings.enableChunkSplitterV2) {
+                // Migration
+                // eslint-disable-next-line @typescript-eslint/no-deprecated
                 if (settings.useSegmenter) {
                     settings.chunkSplitterVersion = "v2-segmenter";
                 } else {
@@ -357,8 +362,9 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             const updated = updateFn(this.settings);
             this.settings = updated;
         } catch (ex) {
-            this._log("Error in update function: " + ex, LOG_LEVEL_URGENT);
-            return Promise.reject(ex);
+            this._log("Error in update function: ", LOG_LEVEL_URGENT);
+            this._log(ex, LOG_LEVEL_VERBOSE);
+            return Promise.reject(ex instanceof Error ? ex : new Error(String(ex)));
         }
         if (saveImmediately) {
             return this.saveSettingData();
@@ -372,8 +378,9 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                 ...partial,
             });
         } catch (ex) {
-            this._log("Error in applying external settings: " + ex, LOG_LEVEL_URGENT);
-            return Promise.reject(ex);
+            this._log("Error in applying external settings: ", LOG_LEVEL_URGENT);
+            this._log(ex, LOG_LEVEL_VERBOSE);
+            return Promise.reject(ex instanceof Error ? ex : new Error(String(ex)));
         }
         if (saveImmediately) {
             return this.saveSettingData();
@@ -384,8 +391,9 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         try {
             this.settings = { ...this.settings, ...partial };
         } catch (ex) {
-            this._log("Error in applying partial settings: " + ex, LOG_LEVEL_URGENT);
-            return Promise.reject(ex);
+            this._log("Error in applying partial settings: ", LOG_LEVEL_URGENT);
+            this._log(ex, LOG_LEVEL_VERBOSE);
+            return Promise.reject(ex instanceof Error ? ex : new Error(String(ex)));
         }
         if (saveImmediately) {
             return this.saveSettingData();
@@ -419,7 +427,8 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                 return dec;
             }
         } catch (ex) {
-            this._log(`Failed to decrypt configuration item: ${ex}`, LOG_LEVEL_NOTICE);
+            this._log(`Failed to decrypt configuration item`, LOG_LEVEL_NOTICE);
+            this._log(ex, LOG_LEVEL_VERBOSE);
         }
         return false;
     }
@@ -515,7 +524,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     }
 
     async loadSettings(): Promise<void> {
-        const settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData()) as ObsidianLiveSyncSettings;
+        const settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
         const hadRemoteConfigurations = Object.keys(settings.remoteConfigurations ?? {}).length > 0;
 
         if (typeof settings.isConfigured == "undefined") {
@@ -538,7 +547,10 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         await this.adjustSettings(this.settings);
         const migratedLegacyRemoteConfigurations =
             !hadRemoteConfigurations && Object.keys(this.settings.remoteConfigurations ?? {}).length > 0;
-        const migratedP2PActiveRemoteConfiguration = migrateP2PActiveRemoteConfigurationIdInPlace(this.settings);
+        // Run this compatibility migration only when legacy remotes were migrated in this load.
+        // This prevents repeatedly overriding an intentionally empty P2P active remote selection.
+        const migratedP2PActiveRemoteConfiguration =
+            migratedLegacyRemoteConfigurations && migrateP2PActiveRemoteConfigurationIdInPlace(this.settings);
 
         // Keep runtime legacy fields in sync with the active remote configuration.
         // Replication and status checks still consume these fields.
@@ -550,6 +562,11 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                     `Failed to activate the selected remote configuration: ${activeConfigurationId}`,
                     LOG_LEVEL_NOTICE
                 );
+            } else {
+                this._log(
+                    `Active remote configuration '${activeConfigurationId}' has been activated.`,
+                    LOG_LEVEL_VERBOSE
+                );
             }
         }
 
@@ -560,6 +577,11 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                 this._log(
                     `Failed to activate the selected P2P remote configuration: ${p2pActiveConfigurationId}`,
                     LOG_LEVEL_NOTICE
+                );
+            } else {
+                this._log(
+                    `P2P active remote configuration '${p2pActiveConfigurationId}' has been activated.`,
+                    LOG_LEVEL_VERBOSE
                 );
             }
         }
