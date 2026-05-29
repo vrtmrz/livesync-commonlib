@@ -173,7 +173,10 @@ export function SvelteDialogMixIn<TBase extends Constructor<IModalBase>>(TBase: 
 }
 
 export abstract class SvelteDialogManagerBase<T extends ServiceContext> {
-    abstract openSvelteDialog<T, U>(component: ComponentHasResult<T, U>, initialData?: U): Promise<T | undefined>;
+    abstract openSvelteDialog<T, U extends T = T>(
+        component: ComponentHasResult<T, U>,
+        initialData?: U
+    ): Promise<T | undefined>;
 
     protected _context: T;
     protected _dependents: SvelteDialogManagerDependencies<T>;
@@ -189,10 +192,10 @@ export abstract class SvelteDialogManagerBase<T extends ServiceContext> {
         this._context = c;
         this._dependents = dependents;
     }
-    async open<T, U>(component: ComponentHasResult<T, U>, initialData?: U): Promise<T | undefined> {
+    async open<T, U extends T = T>(component: ComponentHasResult<T, U>, initialData?: U): Promise<T | undefined> {
         return await this.openSvelteDialog<T, U>(component, initialData);
     }
-    async openWithExplicitCancel<T, U>(component: ComponentHasResult<T, U>, initialData?: U): Promise<T> {
+    async openWithExplicitCancel<T, U extends T = T>(component: ComponentHasResult<T, U>, initialData?: U): Promise<T> {
         for (let i = 0; i < 10; i++) {
             const ret = await this.openSvelteDialog<T, U>(component, initialData);
             if (ret !== undefined) {
