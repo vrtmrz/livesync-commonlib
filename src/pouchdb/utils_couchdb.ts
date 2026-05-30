@@ -1,4 +1,4 @@
-import { _fetch } from "../common/coreEnvFunctions.ts";
+import { _fetch, compatGlobal } from "../common/coreEnvFunctions.ts";
 import { writeString } from "../string_and_binary/convert.ts";
 
 export const isValidRemoteCouchDBURI = (uri: string): boolean => {
@@ -25,7 +25,7 @@ export const _requestToCouchDBFetch = async (
     method?: string
 ) => {
     const utf8str = String.fromCharCode.apply(null, [...writeString(`${username}:${password}`)]);
-    const encoded = globalThis.btoa(utf8str);
+    const encoded = compatGlobal.btoa(utf8str);
     const authHeader = "Basic " + encoded;
     const transformedHeaders: Record<string, string> = {
         authorization: authHeader,

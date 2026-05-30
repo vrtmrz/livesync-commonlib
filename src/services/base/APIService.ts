@@ -4,7 +4,7 @@ import type { IAPIService, ICommandCompat } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import type { Confirm } from "../../interfaces/Confirm";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
-import { _fetch } from "../../common/coreEnvFunctions";
+import { _fetch, compatGlobal } from "../../common/coreEnvFunctions";
 /**
  * The APIService provides methods for interacting with the plug-in's API,
  */
@@ -103,7 +103,7 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
     responseCount = reactiveSource(0);
 
     get isOnline() {
-        if ("navigator" in globalThis) {
+        if ("navigator" in compatGlobal) {
             return navigator.onLine;
         }
         return true;
@@ -121,11 +121,11 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
     abstract addStatusBarItem(): HTMLElement | undefined;
 
     setInterval(handler: () => void, timeout: number): number {
-        return globalThis.setInterval(handler, timeout) as unknown as number;
+        return compatGlobal.setInterval(handler, timeout) as unknown as number;
     }
 
     clearInterval(timerId: number): void {
-        globalThis.clearInterval(timerId);
+        compatGlobal.clearInterval(timerId);
     }
 
     /**
