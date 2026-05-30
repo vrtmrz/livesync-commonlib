@@ -8,7 +8,7 @@
         subtitle?: string;
         children?: () => unknown;
     };
-    let { title = $bindable(), subtitle, children }: Props = $props();
+    let { title = $bindable(), subtitle }: Props = $props();
     const context = getDialogContext();
     const translatedTitle = $derived.by(() => translate(title));
     const translatedSubtitle = $derived.by(() => (subtitle ? translate(subtitle) : ""));
