@@ -121,7 +121,7 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
     abstract addStatusBarItem(): HTMLElement | undefined;
 
     setInterval(handler: () => void, timeout: number): number {
-        return compatGlobal.setInterval(handler, timeout) as unknown as number;
+        return compatGlobal.setInterval(handler, timeout);
     }
 
     clearInterval(timerId: number): void {

@@ -102,11 +102,13 @@ function initialiseWorkers() {
         { length: maxConcurrency },
         () =>
             ({
+                // WorkerX is an imported inline worker.
                 // @ts-ignore
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-call
                 worker: WorkerX() as Worker,
                 processing: 0,
                 taskKeys: new Set<number>(),
-            }) as WorkerInstance
+            }) satisfies WorkerInstance
     );
 }
 
