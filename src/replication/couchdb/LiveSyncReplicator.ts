@@ -203,7 +203,6 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         return await manager.getPBKDF2Salt(refresh);
     }
 
-    // eslint-disable-next-line require-await
     async migrate(from: number, to: number): Promise<boolean> {
         Logger(`Database updated from ${from} to ${to}`, LOG_LEVEL_NOTICE);
         // no op now,

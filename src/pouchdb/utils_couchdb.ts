@@ -1,3 +1,4 @@
+import { _fetch } from "../common/coreEnvFunctions.ts";
 import { writeString } from "../string_and_binary/convert.ts";
 
 export const isValidRemoteCouchDBURI = (uri: string): boolean => {
@@ -38,5 +39,5 @@ export const _requestToCouchDBFetch = async (
         contentType: "application/json",
         body: JSON.stringify(body),
     };
-    return await fetch(uri, requestParam);
+    return await _fetch(uri, requestParam);
 };
