@@ -108,7 +108,7 @@ export async function path2id_base(
     }
 
     let x = filename;
-    if (x.startsWith("_")) x = ("/" + x);
+    if (x.startsWith("_")) x = "/" + x;
 
     if (!obfuscatePassphrase) {
         return (newPrefix + x) as DocumentID;
