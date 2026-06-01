@@ -237,7 +237,7 @@ export type DoctorOptions = {
 };
 
 export type DoctorResult = {
-    settings: DoctorCheckSettings;
+    settings: ObsidianLiveSyncSettings;
     shouldRebuild: boolean;
     shouldRebuildLocal: boolean;
     isModified: boolean;
@@ -248,7 +248,7 @@ export type HasConfirm = {
 
 export async function performDoctorConsultation(
     env: HasConfirm,
-    settings: DoctorCheckSettings,
+    settings: ObsidianLiveSyncSettings,
     {
         localRebuild = RebuildOptions.ConfirmIfRequired,
         remoteRebuild = RebuildOptions.ConfirmIfRequired,

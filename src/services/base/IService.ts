@@ -256,7 +256,7 @@ export interface IAppLifecycleService {
     onSettingLoaded(): Promise<boolean>;
     onLoaded(): Promise<boolean>;
     onScanningStartupIssues(): Promise<boolean>;
-    onAppUnload(): Promise<void>;
+    onAppUnload(): Promise<undefined[]>;
     onBeforeUnload(): Promise<boolean>;
     onUnload(): Promise<boolean>;
     onSuspending(): Promise<boolean>;

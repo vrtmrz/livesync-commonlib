@@ -1,6 +1,5 @@
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger";
-
 /**
  * A function type that can be used as a handler.
  */
@@ -606,70 +605,85 @@ export function lazyBindableFunction<TFunc extends (...args: any[]) => any>(name
 
 // === Helpers === (handlers<T> function) ===
 
-type FunctionKeys<T> = {
-    [K in keyof T]: T[K] extends (...args: any[]) => any ? K : never;
-}[keyof T];
+type FunctionKeys<T> = Extract<
+    {
+        [K in keyof T]: T[K] extends (...args: any[]) => any ? K : never;
+    }[keyof T],
+    string
+>;
 
-export function handlers<T extends Record<keyof T, (...args: any[]) => any>>() {
+export function handlers<T extends object>() {
     return {
         /**
          * Create a handler that invokes all added handler functions sequentially until one returns false.
          * @param name
          * @returns
          */
-        all<K extends FunctionKeys<T>>(name: K): BooleanMultipleHandlerFunction<T[K]> {
-            return allFunction<T[K]>(String(name));
+        all<K extends FunctionKeys<T>>(
+            name: K
+        ): BooleanMultipleHandlerFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>> {
+            return allFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>>(String(name));
         },
         /**
          * Create a handler that invokes all added handler functions in parallel and returns true only if all return true.
          * @param name
          * @returns
          */
-        allParallel<K extends FunctionKeys<T>>(name: K): BooleanMultipleHandlerFunction<T[K]> {
-            return allParallelFunction<T[K]>(String(name));
+        allParallel<K extends FunctionKeys<T>>(
+            name: K
+        ): BooleanMultipleHandlerFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>> {
+            return allParallelFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>>(String(name));
         },
         /**
          * Create a handler that invokes all added handler functions sequentially until one returns false.
          * @param name
          * @returns
          */
-        bailFirstFailure<K extends FunctionKeys<T>>(name: K): BooleanMultipleHandlerFunction<T[K]> {
-            return bailFirstFailureFunction<T[K]>(String(name));
+        bailFirstFailure<K extends FunctionKeys<T>>(
+            name: K
+        ): BooleanMultipleHandlerFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>> {
+            return bailFirstFailureFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>>(String(name));
         },
         /**
          * Create a handler that invokes all added handler functions sequentially until one returns true.
          * @param name
          * @returns
          */
-        anySuccess<K extends FunctionKeys<T>>(name: K): BooleanMultipleHandlerFunction<T[K]> {
-            return anySuccessFunction<T[K]>(String(name));
+        anySuccess<K extends FunctionKeys<T>>(
+            name: K
+        ): BooleanMultipleHandlerFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>> {
+            return anySuccessFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>>(String(name));
         },
         /**
          * Create a handler that invokes all added handler functions sequentially until one returns a non-falsy value.
          * @param name
          * @returns
          */
-        firstResult<K extends FunctionKeys<T>>(name: K): MultipleHandlerFunction<T[K]> {
-            return firstResultFunction<T[K]>(String(name));
+        firstResult<K extends FunctionKeys<T>>(
+            name: K
+        ): MultipleHandlerFunction<Extract<T[K], (...args: any[]) => Promise<any>>> {
+            return firstResultFunction<Extract<T[K], (...args: any[]) => Promise<any>>>(String(name));
         },
         /**
          * Create a handler that invokes all added handler functions in parallel.
          * @param name
          * @returns
          */
-        dispatchParallel<K extends FunctionKeys<T>>(name: K): CollectiveHandlerFunction<T[K]> {
-            return dispatchParallelFunction<T[K]>(String(name));
+        dispatchParallel<K extends FunctionKeys<T>>(
+            name: K
+        ): CollectiveHandlerFunction<Extract<T[K], (...args: any[]) => Promise<any[]>>> {
+            return dispatchParallelFunction<Extract<T[K], (...args: any[]) => Promise<any[]>>>(String(name));
         },
         /**
          * Create a binder handler that can assign a single handler function.
          * @param name
          * @returns
          */
-        binder<K extends FunctionKeys<T>>(name: K): HandlerFunction<T[K]> {
-            return bindableFunction<T[K]>(String(name));
+        binder<K extends FunctionKeys<T>>(name: K): HandlerFunction<Extract<T[K], (...args: any[]) => any>> {
+            return bindableFunction<Extract<T[K], (...args: any[]) => any>>(String(name));
         },
-        lazyBinder<K extends FunctionKeys<T>>(name: K): LazyHandlerFunction<T[K]> {
-            return lazyBindableFunction<T[K]>(String(name));
+        lazyBinder<K extends FunctionKeys<T>>(name: K): LazyHandlerFunction<Extract<T[K], (...args: any[]) => any>> {
+            return lazyBindableFunction<Extract<T[K], (...args: any[]) => any>>(String(name));
         },
     };
 }
