@@ -329,7 +329,7 @@ export class AllHandler<T extends any[]> extends BooleanHandlerBase<T> {
                 }
             } catch (error) {
                 // On error, consider it as failure
-                Logger(`AllHandler ${this._name} treated error as failure: ${error}`, LOG_LEVEL_VERBOSE);
+                Logger(`AllHandler ${this._name} treated error as failure!`, LOG_LEVEL_VERBOSE);
                 Logger(error, LOG_LEVEL_VERBOSE);
                 return false;
             }
@@ -354,7 +354,8 @@ export class ParallelAllHandler<T extends any[]> extends BooleanHandlerBase<T> {
                 return result;
             } catch (error) {
                 // On error, consider it as failure
-                Logger(`ParallelAllHandler ${this._name} treated error as failure: ${error}`, LOG_LEVEL_VERBOSE);
+                Logger(`ParallelAllHandler ${this._name} treated error as failure!`, LOG_LEVEL_VERBOSE);
+                Logger(error, LOG_LEVEL_VERBOSE);
                 return false;
             }
         });
@@ -382,7 +383,8 @@ export class AnySuccessHandler<T extends any[]> extends BooleanHandlerBase<T> {
                 }
             } catch (error) {
                 // Ignore errors for 'first success' handler
-                Logger(`FirstSuccessHandler ${this._name} ignored error: ${error}`, LOG_LEVEL_VERBOSE);
+                Logger(`FirstSuccessHandler ${this._name} ignored error!`, LOG_LEVEL_VERBOSE);
+                Logger(error, LOG_LEVEL_VERBOSE);
             }
         }
         return false;
@@ -407,7 +409,8 @@ export class FirstResultHandler<T extends any[], U> extends MultiBinder<BooleanH
                     return result;
                 }
             } catch (error) {
-                Logger(`FirstResultHandler ${this._name} ignored error: ${error}`, LOG_LEVEL_VERBOSE);
+                Logger(`FirstResultHandler ${this._name} ignored error!`, LOG_LEVEL_VERBOSE);
+                Logger(error, LOG_LEVEL_VERBOSE);
             }
         }
         return false;
@@ -528,6 +531,8 @@ function getMultipleBound<T extends BooleanMultiBinderInstance<any>>(
 function getMultipleBound<T extends MultiBinderInstance<any, any>>(handler: T): MultipleHandlerFunction<T["invoke"]>;
 function getMultipleBound<T extends DispatchHandler<any, any>>(handler: T): CollectiveHandlerFunction<T["dispatch"]>;
 function getMultipleBound<T extends MultiBinderInstance<any, any> | DispatchHandler<any, any>>(handler: T) {
+    // Now we bind these methods.
+    // eslint-disable-next-line @typescript-eslint/unbound-method
     const _handler = "invoke" in handler ? handler.invoke : handler.dispatch;
     const __handler = _handler.bind(handler);
     const func = (...args: Parameters<typeof __handler>): ReturnType<typeof __handler> => {
@@ -605,7 +610,7 @@ type FunctionKeys<T> = {
     [K in keyof T]: T[K] extends (...args: any[]) => any ? K : never;
 }[keyof T];
 
-export function handlers<T extends Record<keyof T, ((...args: any[]) => any) | any>>() {
+export function handlers<T extends Record<keyof T, (...args: any[]) => any>>() {
     return {
         /**
          * Create a handler that invokes all added handler functions sequentially until one returns false.

@@ -259,7 +259,7 @@ Please enable them from the settings screen after setup is complete.`,
         if (settings.maxMTimeForReflectEvents > 0) {
             const date = new Date(settings.maxMTimeForReflectEvents);
 
-            const ask = `Your settings restrict file reflection times to no later than ${date}.
+            const ask = `Your settings restrict file reflection times to no later than ${date.toLocaleString()}.
 
 **This is a recovery configuration.**
 

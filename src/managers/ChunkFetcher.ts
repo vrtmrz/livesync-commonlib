@@ -142,7 +142,8 @@ export class ChunkFetcher {
                     );
                 }
             } catch (error) {
-                Logger(`An error occurred while storing fetched chunks: ${error}`, LOG_LEVEL_VERBOSE);
+                Logger(`An error occurred while storing fetched chunks!`, LOG_LEVEL_VERBOSE);
+                Logger(error, LOG_LEVEL_VERBOSE);
             } finally {
                 // Emitting fetched chunks and missing IDs regardless of write success (just only refetch will be triggered).
                 for (const chunk of chunks) {

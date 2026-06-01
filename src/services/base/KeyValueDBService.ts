@@ -148,7 +148,7 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
                     count
                 );
                 return ret
-                    .map((e) => e.toString())
+                    .map((e) => (typeof e === "string" ? e : JSON.stringify(e)).toString())
                     .filter((e) => e.startsWith(prefix))
                     .map((e) => e.substring(prefix.length));
             },

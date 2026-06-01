@@ -2,6 +2,7 @@
     import { onMount, tick } from "svelte";
     import { translateIfAvailable as translate } from "../../common/i18n.ts";
     import { getDialogContext } from "../svelteDialog.ts";
+    import { _activeDocument } from "../../common/coreEnvFunctions.ts";
 
     type Props = {
         title: string;
@@ -22,7 +23,7 @@
     onMount(async () => {
         context.setTitle(modalTitle);
         await tick();
-        document.querySelector(".modal")?.scrollTo(0, 0);
+        _activeDocument.querySelector(".modal")?.scrollTo(0, 0);
     });
 </script>
 

@@ -36,7 +36,8 @@ async function tryDecryption(trials: (() => Promise<string>)[]): Promise<string>
         try {
             return await trial();
         } catch (error) {
-            Logger(`Decryption trial failed: ${error}`, LOG_LEVEL_VERBOSE);
+            Logger(`Decryption trial failed!`, LOG_LEVEL_VERBOSE);
+            Logger(error, LOG_LEVEL_VERBOSE);
         }
     }
     throw new Error("All decryption trials failed");
@@ -74,7 +75,8 @@ export async function tryDecryptString(encrypted: string, passphrase: string | f
     try {
         return await decryptString(encrypted, passphrase as string);
     } catch (error) {
-        Logger(`Decryption failed: ${error}`, LOG_LEVEL_VERBOSE);
+        Logger(`Decryption failed!`, LOG_LEVEL_VERBOSE);
+        Logger(error, LOG_LEVEL_VERBOSE);
         return false;
     }
 }

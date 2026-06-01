@@ -1,4 +1,4 @@
-import { LOG_LEVEL_NOTICE } from "../common/logger";
+import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type LOG_LEVEL } from "../common/logger";
 import { ConnectionStringParser } from "../common/ConnectionString";
 import type { ObsidianLiveSyncSettings, RemoteConfiguration, RemoteDBSettings } from "../common/models/setting.type";
 import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "../common/models/setting.const";
@@ -12,7 +12,7 @@ export type RemoteConfigHost = NecessaryServices<
 
 export function migrateLegacyRemoteConfigurationsInPlace(
     settings: ObsidianLiveSyncSettings,
-    log?: (message: string) => void
+    log?: (message: string, level?: LOG_LEVEL) => void
 ): boolean {
     const hasText = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
 
@@ -54,7 +54,8 @@ export function migrateLegacyRemoteConfigurationsInPlace(
                 isEncrypted: false,
             };
         } catch (e) {
-            log?.(`Failed to migrate ${candidate.type} configuration: ${e}`);
+            log?.(`Failed to migrate ${candidate.type} configuration!`);
+            log?.(e as string, LOG_LEVEL_VERBOSE);
         }
     }
 
@@ -269,7 +270,12 @@ export async function commandReplicateWithSpecificRemote(host: RemoteConfigHost)
                     await host.services.replication.replicate(true);
                 }
             } catch (e) {
-                host.services.API.addLog(`Failed to parse remote: ${e}`, LOG_LEVEL_NOTICE, "remote-config");
+                host.services.API.addLog(
+                    `Failed to parse remote! Detailed information is available in verbose logs.`,
+                    LOG_LEVEL_NOTICE,
+                    "remote-config"
+                );
+                host.services.API.addLog(e, LOG_LEVEL_VERBOSE, "remote-config");
             }
         }
     }
@@ -283,7 +289,12 @@ export function useRemoteConfigurationMigration(host: RemoteConfigHost) {
         try {
             await migrateToMultipleRemoteConfigurations(host);
         } catch (e) {
-            host.services.API.addLog(`Migration failed: ${e}`, LOG_LEVEL_NOTICE, "remote-config");
+            host.services.API.addLog(
+                `Migration failed! Detailed information is available in verbose logs.`,
+                LOG_LEVEL_NOTICE,
+                "remote-config"
+            );
+            host.services.API.addLog(e, LOG_LEVEL_VERBOSE, "remote-config");
         }
         return true;
     });

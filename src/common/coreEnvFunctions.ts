@@ -40,3 +40,6 @@ export type CompatIntervalHandle = ReturnType<typeof setInterval> | number;
  * @returns {Promise<Response>} A Promise that resolves to the Response to that request, whether it is successful or not.
  */
 export const _fetch = compatGlobal.fetch.bind(compatGlobal);
+
+export const _activeDocument =
+    "activeDocument" in compatGlobal ? compatGlobal.activeDocument : (compatGlobal as typeof window).document;

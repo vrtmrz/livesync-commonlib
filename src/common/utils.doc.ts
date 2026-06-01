@@ -1,8 +1,8 @@
-/// <reference types="vitest/importMeta" />
-
 // utilities for (CouchDB) documents
 // There may be a few redundant or duplicated functions during the migration,
 // but for the most part, the code in this file should be correct as things stand.
+
+import type { MetaEntry } from "./models/db.type";
 
 /**
  * Checks if the error is effectively a 404 error from CouchDB or PouchDB.
@@ -19,4 +19,16 @@ export function isNotFoundError(ex: unknown): boolean {
         return true;
     }
     return false;
+}
+
+function isEntryWithPath(entry: unknown): entry is MetaEntry {
+    if (!entry || typeof entry !== "object") return false;
+    return "path" in entry && typeof entry.path === "string";
+}
+
+export function tryGetFilePath(entry: unknown): string | undefined {
+    if (isEntryWithPath(entry)) {
+        return entry.path;
+    }
+    return undefined;
 }
