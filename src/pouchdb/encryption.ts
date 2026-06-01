@@ -324,7 +324,7 @@ async function incomingEncryptV1(
 ): Promise<EntryLeaf | AnyEntry> {
     const saveDoc = {
         ...doc,
-    } as EntryLeaf | AnyEntry;
+    } satisfies EntryLeaf | AnyEntry;
 
     if (isEncryptedChunkEntry(saveDoc) || isSyncInfoEntry(saveDoc)) {
         try {

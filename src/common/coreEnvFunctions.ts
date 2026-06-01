@@ -26,6 +26,9 @@ export const compatGlobal = (
           globalThis
 ) as typeof window;
 
+export type CompatTimeoutHandle = ReturnType<typeof setTimeout> | number;
+export type CompatIntervalHandle = ReturnType<typeof setInterval> | number;
+
 /**
  * A wrapper around the global fetch function to ensure compatibility across different environments.
  * In Obsidian, they recommend using their own requestUrl for better performance and reliability.

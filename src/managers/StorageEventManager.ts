@@ -24,13 +24,13 @@ import type { SettingService } from "@lib/services/base/SettingService.ts";
 import type { FileProcessingService } from "@lib/services/base/FileProcessingService.ts";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import type { IStorageEventManagerAdapter } from "./adapters";
-import { compatGlobal } from "@lib/common/coreEnvFunctions";
+import { compatGlobal, type CompatTimeoutHandle } from "@lib/common/coreEnvFunctions";
 
 type WaitInfo = {
     since: number;
     type: FileEventType;
     canProceed: PromiseWithResolvers<boolean>;
-    timerHandler: ReturnType<typeof compatGlobal.setTimeout>;
+    timerHandler: CompatTimeoutHandle;
     event: FileEventItem;
 };
 const TYPE_SENTINEL_FLUSH = "SENTINEL_FLUSH";

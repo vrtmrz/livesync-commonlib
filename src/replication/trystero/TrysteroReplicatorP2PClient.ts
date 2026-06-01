@@ -51,7 +51,7 @@ export class TrysteroReplicatorP2PClient {
             if (!room) {
                 throw new Error("Not connected to any room");
             }
-            return (await room.session(this._connectedPeerId).call(toRpcMethodName(type), args as any, timeout)) as U;
+            return (await room.session(this._connectedPeerId).call(toRpcMethodName(type), args, timeout)) as U;
         };
     }
     async invokeRemoteFunction<T extends any[], U>(type: string, args: T, timeout = DEFAULT_RPC_TIMEOUT) {
@@ -59,7 +59,7 @@ export class TrysteroReplicatorP2PClient {
         if (!room) {
             throw new Error("Not connected to any room");
         }
-        return (await room.session(this._connectedPeerId).call(toRpcMethodName(type), args as any, timeout)) as U;
+        return (await room.session(this._connectedPeerId).call(toRpcMethodName(type), args, timeout)) as U;
     }
     bindRemoteObjectFunctions<T extends BindableObject<any>, U extends keyof T>(key: U, timeout = DEFAULT_RPC_TIMEOUT) {
         type F = T[U];

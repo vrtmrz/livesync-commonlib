@@ -699,7 +699,7 @@ export abstract class JournalSyncAbstract {
                 LOG_LEVEL_VERBOSE
             );
             await this.db.bulkDocs<EntryDoc>(saveDocs, { new_edits: false });
-            await this.processReplication(saveDocs as PouchDB.Core.ExistingDocument<EntryDoc>[]);
+            await this.processReplication(saveDocs satisfies PouchDB.Core.ExistingDocument<EntryDoc>[]);
             await this.updateCheckPointInfo((info) => ({
                 ...info,
                 knownIDs: setAllItems(
