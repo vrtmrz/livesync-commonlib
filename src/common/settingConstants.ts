@@ -53,10 +53,10 @@ export type AllSettingItemKey = AllStringItemKey | AllNumericItemKey | AllBoolea
 export type ValueOf<T extends AllSettingItemKey> = T extends AllStringItemKey
     ? string
     : T extends AllNumericItemKey
-    ? number
-    : T extends AllBooleanItemKey
-    ? boolean
-    : AllSettings[T];
+      ? number
+      : T extends AllBooleanItemKey
+        ? boolean
+        : AllSettings[T];
 
 export const SettingInformation: Partial<Record<keyof AllSettings, ConfigurationItem>> = {
     liveSync: {
