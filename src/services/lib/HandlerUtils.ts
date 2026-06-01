@@ -417,7 +417,7 @@ export class FirstResultHandler<T extends any[], U> extends MultiBinder<BooleanH
 /**
  * A function type that can be used as a handler with assignable functionality.
  */
-export interface HandlerFunction<TFunc extends (...args: any[]) => any | Promise<any>> {
+export interface HandlerFunction<TFunc extends (...args: any[]) => U | Promise<U>, U = any> {
     /**
      * Invokes the handler function with the provided arguments.
      */
@@ -434,7 +434,7 @@ export interface HandlerFunction<TFunc extends (...args: any[]) => any | Promise
 /**
  * A function type that can be used as a handler with assignable functionality.
  */
-export interface LazyHandlerFunction<TFunc extends (...args: any[]) => any | Promise<any>> {
+export interface LazyHandlerFunction<TFunc extends (...args: any[]) => U | Promise<U>, U = any> {
     /**
      * Invokes the handler function with the provided arguments.
      */
@@ -451,7 +451,7 @@ export interface LazyHandlerFunction<TFunc extends (...args: any[]) => any | Pro
 /**
  * A function type that can be used as a multiple handler with add/remove functionality.
  */
-export interface MultipleHandlerFunction<TFunc extends (...args: any[]) => any | Promise<any>> {
+export interface MultipleHandlerFunction<TFunc extends (...args: any[]) => U | Promise<U>, U = any> {
     /**
      * Invokes the handler function with the provided arguments.
      */
@@ -473,14 +473,14 @@ export interface MultipleHandlerFunction<TFunc extends (...args: any[]) => any |
 /**
  * A function type that can be used as a value-collecting handler with add/remove functionality.
  */
-export type CollectorFunction<TFunc extends (...args: any[]) => any | Promise<any>> = (
+export type CollectorFunction<TFunc extends (...args: any[]) => U | Promise<U>, U = any> = (
     ...args: Parameters<TFunc>
-) => Promise<Awaited<ReturnType<TFunc>>[number]>;
+) => Promise<Awaited<U>>;
 
 /**
  * A Handler function type that can have multiple handlers added or removed, and collects their results into an array.
  */
-export interface CollectiveHandlerFunction<TFunc extends (...args: any[]) => any[] | Promise<any[]>> {
+export interface CollectiveHandlerFunction<TFunc extends (...args: any[]) => U[] | Promise<U[]>, U = any> {
     /**
      * Invokes the handler function with the provided arguments.
      */

@@ -10,11 +10,11 @@ type ExtractPropertiesByType<T, U> = {
     [K in keyof T as T[K] extends U ? K : never]: T[K] extends U ? K : never;
 };
 
-export type FilterStringKeys<T> = keyof ExtractPropertiesByType<T, string | (string | undefined)>;
+export type FilterStringKeys<T> = keyof ExtractPropertiesByType<T, string | undefined>;
 
-export type FilterBooleanKeys<T> = keyof ExtractPropertiesByType<T, boolean | (boolean | undefined)>;
+export type FilterBooleanKeys<T> = keyof ExtractPropertiesByType<T, boolean | undefined>;
 
-export type FilterNumberKeys<T> = keyof ExtractPropertiesByType<T, number | (number | undefined)>;
+export type FilterNumberKeys<T> = keyof ExtractPropertiesByType<T, number | undefined>;
 
 import type { FilePath, FilePathWithPrefixLC, FilePathWithPrefix, DocumentID } from "./models/db.type.ts";
 
@@ -53,10 +53,10 @@ export type AllSettingItemKey = AllStringItemKey | AllNumericItemKey | AllBoolea
 export type ValueOf<T extends AllSettingItemKey> = T extends AllStringItemKey
     ? string
     : T extends AllNumericItemKey
-      ? number
-      : T extends AllBooleanItemKey
-        ? boolean
-        : AllSettings[T];
+    ? number
+    : T extends AllBooleanItemKey
+    ? boolean
+    : AllSettings[T];
 
 export const SettingInformation: Partial<Record<keyof AllSettings, ConfigurationItem>> = {
     liveSync: {

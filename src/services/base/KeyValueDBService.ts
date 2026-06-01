@@ -145,7 +145,7 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
             keys: async (
                 from: string | undefined,
                 to: string | undefined,
-                count?: number | undefined
+                count?: number
             ): Promise<string[]> => {
                 const ret = await getDB().keys(
                     IDBKeyRange.bound(`${prefix}${from || ""}`, `${prefix}${to || ""}`),
