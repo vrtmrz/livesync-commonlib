@@ -473,7 +473,14 @@ export function getConfiguredFunctionsForEncryption(
     // If unless specified algorithm is ForceV1, then use HKDF decryption for forward compatibility.
     const outgoing = (doc: EntryDoc) =>
         algorithm !== E2EEAlgorithms.ForceV1
-            ? outgoingDecryptHKDF(doc, migrationDecrypt, decryptedCache, passphrase, useDynamicIterationCount, getPBKDF2Salt)
+            ? outgoingDecryptHKDF(
+                  doc,
+                  migrationDecrypt,
+                  decryptedCache,
+                  passphrase,
+                  useDynamicIterationCount,
+                  getPBKDF2Salt
+              )
             : outgoingDecryptV1(doc, migrationDecrypt, decryptedCache, passphrase, useDynamicIterationCount);
     return {
         incoming,

@@ -1,8 +1,8 @@
-import { PouchDB } from './pouchdb-browser';
-import { _fetch } from '../common/coreEnvFunctions';
-import { LOG_LEVEL_VERBOSE, Logger } from 'octagonal-wheels/common/logger';
-import type { EntryDoc } from '../common/models/db.definition';
-import type { AnyEntry, EntryLeaf } from '../common/models/db.type';
+import { PouchDB } from "./pouchdb-browser";
+import { _fetch } from "../common/coreEnvFunctions";
+import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
+import type { EntryDoc } from "../common/models/db.definition";
+import type { AnyEntry, EntryLeaf } from "../common/models/db.type";
 
 // Type definition for each line from the CouchDB _changes API (feed=continuous).
 interface CouchChangeLine {
@@ -20,10 +20,7 @@ interface AnyDecryptedDoc {
     _id: string;
 }
 
-
-function generatePouchDBWriteStream(
-    downloadToDB: PouchDB.Database,
-    decryptFunction: (doc: any) => Promise<any>) {
+function generatePouchDBWriteStream(downloadToDB: PouchDB.Database, decryptFunction: (doc: any) => Promise<any>) {
     let batchBuffer: AnyDecryptedDoc[] = [];
     let currentBatchSizeBytes = 0;
 
@@ -42,7 +39,7 @@ function generatePouchDBWriteStream(
             flushPromise = downloadToDB.bulkDocs(batchBuffer, { new_edits: false });
             await flushPromise;
         } catch (error) {
-            Logger('Error bulk writing to PouchDB:', LOG_LEVEL_VERBOSE);
+            Logger("Error bulk writing to PouchDB:", LOG_LEVEL_VERBOSE);
             Logger(error, LOG_LEVEL_VERBOSE);
             throw error; // Propagate the error to be handled by the caller.
         } finally {
@@ -67,7 +64,7 @@ function generatePouchDBWriteStream(
                     await flushToDB();
                 }
             } catch (error) {
-                Logger('Error processing document stream:', LOG_LEVEL_VERBOSE);
+                Logger("Error processing document stream:", LOG_LEVEL_VERBOSE);
                 throw error;
             }
         },
@@ -80,7 +77,7 @@ function generatePouchDBWriteStream(
             Logger(`Stream aborted: ${reason}`, LOG_LEVEL_VERBOSE);
             batchBuffer = [];
             currentBatchSizeBytes = 0;
-        }
+        },
     });
 }
 
@@ -91,14 +88,13 @@ function setParamsToURL(url: URL, params: Record<string, string>) {
     return url;
 }
 
-
 export type FetchChangesForInitialSyncProgress = {
     totalFetched: number; // Total number of changes fetched from CouchDB (including those without doc bodies).
     totalValidFetched: number; // Total number of changes with valid doc bodies fetched and processed.
     targetSeq: number | string; // The target sequence ID that we aim to reach for initial sync completion.
     docsToFetch: number; // Total number of documents that need to be fetched based on the pending count from CouchDB.
     totalBytes: number; // Total bytes fetched so far.
-}
+};
 /**
  * Fetches initial data from CouchDB as a stream and writes it into PouchDB.
  * @param downloadToDB PouchDB instance.
@@ -111,81 +107,81 @@ export async function fetchChangesForInitialSync(
     remoteDbUrl: string,
     authHeader: string,
     decryptFunction: (doc: EntryDoc) => Promise<AnyEntry | EntryLeaf>,
-    since: number | string = '0',
+    since: number | string = "0",
     onProgress?: (progress: FetchChangesForInitialSyncProgress) => void
 ): Promise<void> {
-
     let totalFetched = 0;
     let totalValidFetched = 0;
     const changesBaseParams = {
-        feed: 'continuous',
-        include_docs: 'true',
-        style: 'all_docs',
-        conflicts: 'true',
-        revs: 'true',
+        feed: "continuous",
+        include_docs: "true",
+        style: "all_docs",
+        conflicts: "true",
+        revs: "true",
         since: since.toString(),
     } as const;
     const fetchHeaders = {
-        'Accept': 'application/json',
-        'Authorization': authHeader,
+        Accept: "application/json",
+        Authorization: authHeader,
     };
 
     const fetchURL = setParamsToURL(new URL(`${remoteDbUrl}/_changes`), {
         ...changesBaseParams,
-        limit: '1',
+        limit: "1",
     });
 
     const infoRes = await _fetch(fetchURL.toString(), {
-        headers: fetchHeaders
+        headers: fetchHeaders,
     });
     const infoSource = await infoRes.text();
-    const infoLines = infoSource.trim().split('\n').filter(line => line.trim() !== '');
+    const infoLines = infoSource
+        .trim()
+        .split("\n")
+        .filter((line) => line.trim() !== "");
     const lastLine = infoLines[infoLines.length - 1];
     if (!lastLine) {
-        throw new Error('Failed to fetch changes from CouchDB. No data received.');
+        throw new Error("Failed to fetch changes from CouchDB. No data received.");
     }
     const info = JSON.parse(lastLine) as { update_seq: number | string; pending?: number };
     const pendingDocs = info.pending || 0;
     const docsToFetch = pendingDocs + 1; // +1 to include the change we just fetched for getting the target sequence.
 
     const targetSeq = info.update_seq;
-    Logger(`Starting initial synchronization. Current sequence: ${since}, Target sequence: ${targetSeq}, Total documents to fetch: ${docsToFetch}.`);
+    Logger(
+        `Starting initial synchronization. Current sequence: ${since}, Target sequence: ${targetSeq}, Total documents to fetch: ${docsToFetch}.`
+    );
     const controller = new AbortController();
     const url = setParamsToURL(new URL(`${remoteDbUrl}/_changes`), {
-        ...changesBaseParams
+        ...changesBaseParams,
     });
     const response = await _fetch(url.toString(), {
-        method: 'GET',
+        method: "GET",
         headers: fetchHeaders,
-        signal: controller.signal
+        signal: controller.signal,
     });
 
-
     if (!response.body) {
-        throw new Error('ReadableStream is not supported by this browser.');
+        throw new Error("ReadableStream is not supported by this browser.");
     }
 
     const sizeCaptureStream = new TransformStream({
         transform(chunk, controller) {
-            const chunkSize = chunk.length || (chunk.byteLength || 0);
+            const chunkSize = chunk.length || chunk.byteLength || 0;
             totalBytes += chunkSize;
             controller.enqueue(chunk);
-        }
+        },
     });
     // Convert the byte stream into a text stream.
-    const reader =
-        response.body
-            .pipeThrough(sizeCaptureStream)
-            .pipeThrough(new TextDecoderStream())
-            .getReader();
+    const reader = response.body.pipeThrough(sizeCaptureStream).pipeThrough(new TextDecoderStream()).getReader();
     const writeDocStream = generatePouchDBWriteStream(downloadToDB, decryptFunction);
     const writer = writeDocStream.getWriter();
-    let buffer = '';
+    let buffer = "";
     let lastProgress = 0;
     let lastReportTime = Date.now();
     let totalBytes = 0;
     const reportProgress = () => {
-        if (totalFetched - lastProgress < 25) { // Report progress for every 25 changes fetched to avoid excessive updates.
+        if (totalFetched - lastProgress < 25) {
+            // Report progress for every 25 changes fetched to avoid excessive updates.
             // However, if it's been more than 2 seconds since the last report, we should report progress regardless to keep the UI responsive.
             if (Date.now() - lastReportTime < 2000) {
                 return;
@@ -200,7 +196,7 @@ export async function fetchChangesForInitialSync(
             docsToFetch,
             totalBytes,
         });
-    }
+    };
     try {
         while (true) {
             // Read a chunk from the network.
@@ -230,10 +226,10 @@ export async function fetchChangesForInitialSync(
             }
 
             buffer += value;
-            const lines = buffer.split('\n');
+            const lines = buffer.split("\n");
 
             // The final line is often incomplete, so carry it over to the next buffer.
-            buffer = lines.pop() || '';
+            buffer = lines.pop() || "";
 
             for (const line of lines) {
                 if (!line.trim()) continue; // Skip empty lines (for example, CouchDB heartbeats).
@@ -248,7 +244,9 @@ export async function fetchChangesForInitialSync(
                     }
                     reportProgress();
                     if (totalFetched >= docsToFetch) {
-                        Logger(`All documents fetched. Stopping the stream and writing remaining documents to PouchDB...`);
+                        Logger(
+                            `All documents fetched. Stopping the stream and writing remaining documents to PouchDB...`
+                        );
 
                         // Write any remaining documents to PouchDB before exiting.
                         await writer.close(); // Close the writer to ensure all documents are flushed to PouchDB.
@@ -265,14 +263,16 @@ export async function fetchChangesForInitialSync(
             // backpressure is automatically handled by awaiting the writer.write() calls, which will pause reading from the network until the current document is processed and written to PouchDB.
             // This ensures that we do not read too much data into memory at once, and we can handle large datasets without running into memory issues.
         }
-        Logger('Initial data synchronisation via stream has completed.');
+        Logger("Initial data synchronisation via stream has completed.");
         reportProgress();
     } catch (error) {
-        if (error instanceof DOMException && error.name === 'AbortError') {
-            Logger('Stream has been aborted as the target sequence has been reached. Finalising the synchronising process...');
+        if (error instanceof DOMException && error.name === "AbortError") {
+            Logger(
+                "Stream has been aborted as the target sequence has been reached. Finalising the synchronising process..."
+            );
             return; // Exit gracefully without treating this as an error.
         }
-        Logger('An error occurred during synchronisation:', LOG_LEVEL_VERBOSE);
+        Logger("An error occurred during synchronisation:", LOG_LEVEL_VERBOSE);
         Logger(error, LOG_LEVEL_VERBOSE);
         throw error;
     } finally {
