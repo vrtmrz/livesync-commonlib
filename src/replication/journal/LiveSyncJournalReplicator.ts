@@ -298,7 +298,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             }
             remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = extractObject(TweakValuesTemplate, {
                 ...setting,
-            }) as TweakValues;
+            }) satisfies TweakValues;
             Logger(`tweak values on the remote database have been cleared`, LOG_LEVEL_VERBOSE);
             await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone);
         } catch (ex) {
