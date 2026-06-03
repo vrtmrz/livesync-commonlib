@@ -25,6 +25,7 @@ To see details, please refer to the LICENSES file on each repository.
 const LANG_DE = "de";
 const LANG_ES = "es";
 const LANG_FR = "fr";
+const LANG_HE = "he";
 const LANG_JA = "ja";
 const LANG_RU = "ru";
 const LANG_ZH = "zh";
@@ -39,6 +40,7 @@ export const SUPPORTED_I18N_LANGS = [
     LANG_DE,
     LANG_ES,
     LANG_FR,
+    LANG_HE,
     LANG_JA,
     LANG_KO,
     LANG_RU,
@@ -52,6 +54,7 @@ export type I18N_LANGS =
     | typeof LANG_DE
     | typeof LANG_ES
     | typeof LANG_FR
+    | typeof LANG_HE
     | typeof LANG_JA
     | typeof LANG_KO
     | typeof LANG_RU

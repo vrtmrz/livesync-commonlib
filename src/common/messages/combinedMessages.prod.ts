@@ -1884,6 +1884,10 @@ export const allMessages = {
         "ru": "Français",
         "zh": "Français"
     },
+    "lang-he": {
+        def: "Hebrew",
+        he: "עברית",
+    },
     "lang-ja": {
         "def": "日本語",
         "es": "Japonés",
