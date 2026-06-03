@@ -59,23 +59,13 @@ export type I18N_LANGS =
     | typeof LANG_ZH_TW
     | "";
 
-type MESSAGE = { [key in I18N_LANGS]?: string };
+export type MESSAGE = { [key in I18N_LANGS]?: string };
 
 import { Logger } from "./logger.ts";
 // deno-lint-ignore no-sloppy-imports
-import { _allMessages, type MessageKeys } from "./messages/combinedMessages.dev"; // This sloppy-imports are used to replace the messages with the combined messages.
-const expandedMessage = {
-    ...expandKeywords(_allMessages, "def"),
-    ...expandKeywords(_allMessages, "es"),
-    ...expandKeywords(_allMessages, "fr"),
-    ...expandKeywords(_allMessages, "ja"),
-    ...expandKeywords(_allMessages, "ko"),
-    ...expandKeywords(_allMessages, "ru"),
-    ...expandKeywords(_allMessages, "zh"),
-    ...expandKeywords(_allMessages, "zh-tw"),
-};
+import { type MessageKeys } from "./messages/combinedMessages.dev"; // This sloppy-imports are used to replace the messages with the combined messages.
 
-function expandKeywords<T extends Record<string, U>, U extends Record<string, string>>(
+export function expandKeywords<T extends Record<string, U>, U extends Record<string, string>>(
     message: T,
     lang: I18N_LANGS,
     recurseLimit = 10
@@ -96,20 +86,13 @@ function expandKeywords<T extends Record<string, U>, U extends Record<string, st
     // - checkfailed: `%{check} failed`
     // If in this case `checkfailed` may `Some procedure checking failed`.
     // And, it can compress the rosetta stone: the message table.
-    const keywords = Object.entries(message)
-        .map(([key, value]) => [key, value[lang]])
-        // Use all messages as keywords, but traditional keyword prefix should be trimmed.
-        .map(([key, value]) => [`${key.startsWith("K.") ? key.substring("K.".length) : key}`, value])
-        .map(
-            ([key, value]) =>
-                [
-                    [`%{${key}}`, value],
-                    // [`%{${key}.upper}`, [value[0].toLocaleUpperCase(langCode) + value.substring(1)]],
-                    // [`%{${key}.lower}`, [value[0].toLocaleLowerCase(langCode) + value.substring(1)]],
-                ] as [key: string, value: string][]
-        )
-        .flat()
-        .sort((a, b) => (a[1]?.length ?? 0) - (b[1]?.length ?? 0));
+    const keywordMap = new Map<string, string>();
+    for (const [key, value] of Object.entries(message)) {
+        const messageValue = value[lang];
+        if (typeof messageValue !== "string") continue;
+        const normalizedKey = key.startsWith("K.") ? key.substring("K.".length) : key;
+        keywordMap.set(`%{${normalizedKey}}`, messageValue);
+    }
 
     const ret = {
         ...message,
@@ -117,11 +100,11 @@ function expandKeywords<T extends Record<string, U>, U extends Record<string, st
     let isChanged = false;
     for (const key of Object.keys(message)) {
         if (!(lang in ret[key])) continue;
-        for (const [keyword, replacement] of keywords) {
-            if (ret[key][lang].includes(keyword)) {
-                ret[key][lang] = ret[key][lang].split(keyword).join(replacement);
-                isChanged = true;
-            }
+        if (!ret[key][lang].includes("%{")) continue;
+        const replaced = ret[key][lang].replace(/%\{[^}]+\}/g, (token) => keywordMap.get(token) ?? token);
+        if (replaced !== ret[key][lang]) {
+            ret[key][lang] = replaced;
+            isChanged = true;
         }
     }
     if (isChanged) return expandKeywords(ret, lang, recurseLimit--) as T;
@@ -129,5 +112,4 @@ function expandKeywords<T extends Record<string, U>, U extends Record<string, st
     return ret as T;
 }
 
-export const allMessages = expandedMessage as { [key: string]: MESSAGE };
 export type AllMessageKeys = MessageKeys;

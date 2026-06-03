@@ -1,7 +1,7 @@
 // Avoid using Obsidian's native function for CLIs.
 import { getLanguage } from "./coreEnvFunctions";
 import type { AllMessageKeys, I18N_LANGS } from "./rosetta";
-import { allMessages } from "./rosetta";
+import { allMessages } from "./messages/combinedMessages.dev.ts";
 import type { TaggedType } from "./types";
 
 const obsidianLangMap: Record<string, I18N_LANGS> = {
