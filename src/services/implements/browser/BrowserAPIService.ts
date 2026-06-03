@@ -49,7 +49,7 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
         this.activateWindow(type);
 
         if (!this.windowInstances.has(type)) {
-            panel.innerHTML = "";
+            panel.replaceChildren();
 
             const leaf = this.createLeafShim(type, panel);
             const view = factory(leaf);

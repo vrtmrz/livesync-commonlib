@@ -3,6 +3,7 @@ import { DEFAULT_SETTINGS, REMOTE_COUCHDB } from "@lib/common/types";
 import { SettingService } from "./SettingService";
 import { ServiceContext } from "./ServiceBase";
 import type { ObsidianLiveSyncSettings } from "@lib/common/types";
+import { ConnectionStringParser } from "@lib/common/ConnectionString";
 
 class TestSettingService extends SettingService<ServiceContext> {
     lastSavedSetting?: ObsidianLiveSyncSettings;
@@ -172,5 +173,66 @@ describe("SettingService", () => {
 
         expect(decrypted.remoteConfigurations.r1.uri).toBe(plainURI);
         expect(decrypted.remoteConfigurations.r1.isEncrypted).toBe(false);
+    });
+
+    it("loadSettings should apply P2P active remote fields without overwriting remoteType", async () => {
+        const service = createService();
+        const couchURI = ConnectionStringParser.serialize({
+            type: "couchdb",
+            settings: {
+                ...DEFAULT_SETTINGS,
+                couchDB_URI: "http://localhost:5984",
+                couchDB_USER: "user",
+                couchDB_PASSWORD: "password",
+                couchDB_DBNAME: "vault",
+            },
+        });
+        const p2pURI = ConnectionStringParser.serialize({
+            type: "p2p",
+            settings: {
+                ...DEFAULT_SETTINGS,
+                P2P_roomID: "123-456-789-abc",
+                P2P_passphrase: "passphrase",
+                P2P_relays: "wss://exp-relay.vrtmrz.net/",
+            },
+        });
+
+        vi.spyOn(service as any, "loadData").mockResolvedValue({
+            ...DEFAULT_SETTINGS,
+            remoteType: REMOTE_COUCHDB,
+            remoteConfigurations: {
+                couch: {
+                    id: "couch",
+                    name: "CouchDB",
+                    uri: couchURI,
+                    isEncrypted: false,
+                },
+                p2p: {
+                    id: "p2p",
+                    name: "P2P",
+                    uri: p2pURI,
+                    isEncrypted: false,
+                },
+            },
+            activeConfigurationId: "couch",
+            P2P_ActiveRemoteConfigurationId: "p2p",
+        } as ObsidianLiveSyncSettings);
+
+        await service.loadSettings();
+
+        expect(service.currentSettings().remoteType).toBe(REMOTE_COUCHDB);
+        expect(service.currentSettings().P2P_roomID).toBe("123-456-789-abc");
+        expect(service.currentSettings().P2P_ActiveRemoteConfigurationId).toBe("p2p");
+    });
+
+    it("saveSettingData should apply patches from onBeforeSaveSettingData handlers", async () => {
+        const service = createService();
+
+        (service.onBeforeSaveSettingData as any).addHandler(async () => ({ tweakModified: 100 }), 10);
+        (service.onBeforeSaveSettingData as any).addHandler(async () => ({ tweakModified: 200 }), 20);
+
+        await service.saveSettingData();
+
+        expect(service.lastSavedSetting?.tweakModified).toBe(200);
     });
 });

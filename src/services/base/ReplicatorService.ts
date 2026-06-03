@@ -69,7 +69,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     private async disposeReplicator() {
         this._log("Detect database reset, closing active replicator if exists.");
         if (this._activeReplicator) {
-            await this._activeReplicator.closeReplication();
+            await Promise.resolve(this._activeReplicator.closeReplication());
         }
         // To flush e2ee salts, device id, and other information kept in the replicator instance, to avoid potential database corruption after reset.
 
@@ -84,10 +84,29 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         if (!setting) {
             this._activeReplicator = undefined;
             this._replicatorType = undefined;
-            this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
-            return false;
+            // Settings may not be available yet during early lifecycle.
+            // Do not treat this as a fatal initialisation failure.
+            this._unresolvedErrorManager.clearError(message);
+            return true;
         }
         const replicatorType = setting.remoteType;
+        const isCouchDBConfigured =
+            replicatorType === RemoteTypes.REMOTE_COUCHDB &&
+            !!setting.couchDB_URI?.trim() &&
+            !!setting.couchDB_DBNAME?.trim();
+        const isMinioConfigured =
+            replicatorType === RemoteTypes.REMOTE_MINIO && !!setting.endpoint?.trim() && !!setting.bucket?.trim();
+        const isP2PEnabled = replicatorType === RemoteTypes.REMOTE_P2P && setting.P2P_Enabled;
+        const hasReplicatorConfig = isCouchDBConfigured || isMinioConfigured || isP2PEnabled;
+
+        if (!hasReplicatorConfig) {
+            this._activeReplicator = undefined;
+            this._replicatorType = undefined;
+            this._unresolvedErrorManager.clearError(message);
+            this._log("No remote replicator configuration found. Skipping replicator initialisation.");
+            return true;
+        }
+
         if (replicatorType === this._replicatorType && this._activeReplicator) {
             // No need to change the replicator.
             this._unresolvedErrorManager.clearError(message);
@@ -102,7 +121,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
             }
             // Check existing replicator and close it if exists.
             if (this._activeReplicator) {
-                await this._activeReplicator.closeReplication();
+                await Promise.resolve(this._activeReplicator.closeReplication());
                 this._log("Active replicator closed", LOG_LEVEL_VERBOSE);
             }
             this._activeReplicator = newReplicator;

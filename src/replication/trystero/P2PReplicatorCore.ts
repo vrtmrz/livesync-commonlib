@@ -80,7 +80,11 @@ export function useP2PReplicator(
     // Suspend extra sync handler
     host.services.setting.suspendExtraSync.addHandler(() => {
         const s = host.services.setting.currentSettings();
-        s.P2P_Enabled = false;
+        // When P2P is the primary remote type, do not disable P2P_Enabled —
+        // the rebuild/fetch flows depend on it to replicate from a peer.
+        if (s.remoteType !== REMOTE_P2P) {
+            s.P2P_Enabled = false;
+        }
         s.P2P_AutoAccepting = AutoAccepting.NONE;
         s.P2P_AutoBroadcast = false;
         s.P2P_AutoStart = false;

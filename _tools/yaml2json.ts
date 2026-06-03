@@ -3,16 +3,15 @@
 import { readFile, writeFile } from "fs/promises";
 import { join, resolve } from "path";
 import { parse } from "yaml";
-import { glob } from "glob";
+import { glob } from "tinyglobby";
 import { objectToDotted } from "./messagelib";
 const __dirname = import.meta.dirname;
 
 const targetDir = resolve(join(__dirname, "../src/common/messagesYAML/"));
 console.log(`Target directory: ${targetDir}`);
-const files = await glob(`${targetDir}/*.yaml`);
+const files = await glob(`*.yaml`, { expandDirectories: false, absolute: true, cwd: targetDir });
 for (const file of files) {
     const filePath = resolve(file);
-    console.log(`Processing file: ${filePath}`);
     const content = await readFile(filePath, "utf-8");
     const jsonDataSrc = parse(content);
     const jsonDataD2 = objectToDotted(jsonDataSrc);

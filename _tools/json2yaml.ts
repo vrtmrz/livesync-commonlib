@@ -2,13 +2,13 @@
 import { readFile, writeFile } from "fs/promises";
 import { join, resolve } from "path";
 import { stringify } from "yaml";
-import { glob } from "glob";
+import { glob } from "tinyglobby";
 import { dottedToObject } from "./messagelib";
 const __dirname = import.meta.dirname;
 
 const targetDir = resolve(join(__dirname, "../src/common/messagesJson/"));
 console.log(`Target directory: ${targetDir}`);
-const files = await glob(`${targetDir}/*.json`);
+const files = await glob(`*.json`, { expandDirectories: false, absolute: true, cwd: targetDir });
 for (const file of files) {
     const filePath = resolve(file);
     console.log(`Processing file: ${filePath}`);

@@ -518,8 +518,8 @@ export class LiveSyncLocalDB {
     async deleteDBEntry(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
         return await this.managers.entryManager.deleteDBEntry(path, opt);
     }
-    async putDBEntry(note: SavingEntry, onlyChunks?: boolean) {
-        return await this.managers.entryManager.putDBEntry(note, onlyChunks);
+    async putDBEntry(note: SavingEntry, onlyChunks?: boolean, conflictBaseRev?: string) {
+        return await this.managers.entryManager.putDBEntry(note, onlyChunks, conflictBaseRev);
     }
 
     async getConflictedDoc(path: FilePathWithPrefix, rev: string): Promise<false | diff_result_leaf> {

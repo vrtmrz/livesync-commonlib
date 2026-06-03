@@ -1,3 +1,4 @@
+import type PouchDB from "pouchdb-core";
 import { TweakValuesShouldMatchedTemplate, type EntryDoc, type ObsidianLiveSyncSettings } from "../../common/types";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
 import { replicateShim, type PouchDBShim, type ProgressInfo } from "../../pouchdb/ReplicatorShim";
@@ -271,7 +272,7 @@ export class TrysteroReplicator {
             },
             onProgressAcknowledged: async (fromPeerId: string, info: ProgressInfo) => {
                 try {
-                    await this.onProgressAcknowledged(fromPeerId, info);
+                    await Promise.resolve(this.onProgressAcknowledged(fromPeerId, info));
                 } catch (e) {
                     Logger("Error while acknowledging the progress", LOG_LEVEL_VERBOSE);
                     Logger(e, LOG_LEVEL_VERBOSE);
@@ -321,22 +322,22 @@ export class TrysteroReplicator {
         }
     }
 
-    async selectPeer() {
-        if (!this.server) return false;
-        const knownPeers = this.server.knownAdvertisements;
-        if (knownPeers.length === 0) {
-            Logger("No known peers", LOG_LEVEL_VERBOSE);
-            return false;
-        }
+    // async selectPeer() {
+    //     if (!this.server) return false;
+    //     const knownPeers = this.server.knownAdvertisements;
+    //     if (knownPeers.length === 0) {
+    //         Logger("No known peers", LOG_LEVEL_VERBOSE);
+    //         return false;
+    //     }
 
-        const peers = [...Object.entries(knownPeers)].map(([peerId, info]) => {
-            return `${info.peerId}\u2001: (${info.name})`;
-        });
+    //     const peers = [...Object.entries(knownPeers)].map(([peerId, info]) => {
+    //         return `${info.peerId}\u2001: (${info.name})`;
+    //     });
 
-        const selectedPeer = await this.confirm.askSelectString("Select a peer to replicate", peers);
-        if (selectedPeer) return selectedPeer.split("\u2001")[0];
-        return false;
-    }
+    //     const selectedPeer = await this.confirm.askSelectString("Select a peer to replicate", peers);
+    //     if (selectedPeer) return selectedPeer.split("\u2001")[0];
+    //     return false;
+    // }
 
     lastSeq = "" as string | number;
     async requestSynchroniseToPeer(
@@ -455,27 +456,27 @@ export class TrysteroReplicator {
     }
 
     _replicateToPeers = new Set<string>();
-    async replicateTo() {
-        await this.makeSureOpened();
-        const remotePeer = await this.selectPeer();
-        if (!remotePeer) {
-            Logger("No peer selected", LOG_LEVEL_VERBOSE);
-            return;
-        }
-        Logger(`P2P Replicating to ${remotePeer}`, LOG_LEVEL_INFO);
-        try {
-            if (this._replicateToPeers.has(remotePeer)) {
-                Logger(`Replication to ${remotePeer} is already in progress`, LOG_LEVEL_VERBOSE);
-                return;
-            }
-            this._replicateToPeers.add(remotePeer);
-            this.dispatchStatus();
-            return await this.requestSynchroniseToPeer(remotePeer);
-        } finally {
-            this._replicateToPeers.delete(remotePeer);
-            this.dispatchStatus();
-        }
-    }
+    // async replicateTo() {
+    //     await this.makeSureOpened();
+    //     const remotePeer = await this.selectPeer();
+    //     if (!remotePeer) {
+    //         Logger("No peer selected", LOG_LEVEL_VERBOSE);
+    //         return;
+    //     }
+    //     Logger(`P2P Replicating to ${remotePeer}`, LOG_LEVEL_INFO);
+    //     try {
+    //         if (this._replicateToPeers.has(remotePeer)) {
+    //             Logger(`Replication to ${remotePeer} is already in progress`, LOG_LEVEL_VERBOSE);
+    //             return;
+    //         }
+    //         this._replicateToPeers.add(remotePeer);
+    //         this.dispatchStatus();
+    //         return await this.requestSynchroniseToPeer(remotePeer);
+    //     } finally {
+    //         this._replicateToPeers.delete(remotePeer);
+    //         this.dispatchStatus();
+    //     }
+    // }
 
     _replicateFromPeers = new Set<string>();
 
@@ -753,7 +754,7 @@ export class TrysteroReplicator {
                 .map((e) => e.trim())
                 .filter((e) => e);
             if (peers.length == 0) {
-                Logger($msg("P2P.NoAutoSyncPeers"), logLevel);
+                Logger($msg("P2P.NoAutoSyncPeers"), LOG_LEVEL_NOTICE);
                 return Promise.resolve(false);
             }
 
@@ -775,6 +776,8 @@ export class TrysteroReplicator {
     }
 
     disconnectFromServer() {
+        // Trystero does not provide typings for getRelaySockets.
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
         const connections = getRelaySockets() as Record<string, { close: () => void; onclose: (() => void) | null }>;
         const sockets = Object.entries(connections);
         pauseRelayReconnection();

@@ -1,5 +1,4 @@
 import { Logger, LOG_LEVEL_NOTICE } from "octagonal-wheels/common/logger";
-import { REMOTE_P2P } from "../../common/types";
 import type { NecessaryServices } from "../../interfaces/ServiceModule";
 import type { UseP2PReplicatorResult } from "./UseP2PReplicatorResult";
 
@@ -30,30 +29,30 @@ export function useP2PReplicatorCommands(
             void replicator.close();
         },
     });
-    host.services.API.addCommand({
-        id: "replicate-now-by-p2p",
-        name: "Replicate now by P2P",
-        checkCallback: (isChecking: boolean) => {
-            if (!replicator) return false;
-            const settings = host.services.setting.currentSettings();
-            if (isChecking) {
-                if (settings.remoteType == REMOTE_P2P) return false;
-                return replicator.server?.isServing ?? false;
-            }
-            void replicator.replicateFromCommand(false);
-        },
-    });
-    host.services.API.addCommand({
-        id: "force-replicate-now-by-p2p",
-        name: "P2P Sync: Select peer to replicate with",
-        checkCallback: (isChecking: boolean) => {
-            if (!replicator) return false;
-            const settings = host.services.setting.currentSettings();
-            if (isChecking) {
-                if (settings.remoteType == REMOTE_P2P) return false;
-                return replicator.server?.isServing ?? false;
-            }
-            void replicator.rawReplicator?.replicateTo();
-        },
-    });
+    // host.services.API.addCommand({
+    //     id: "replicate-now-by-p2p",
+    //     name: "Replicate now by P2P",
+    //     checkCallback: (isChecking: boolean) => {
+    //         if (!replicator) return false;
+    //         const settings = host.services.setting.currentSettings();
+    //         if (isChecking) {
+    //             if (settings.remoteType == REMOTE_P2P) return false;
+    //             return replicator.server?.isServing ?? false;
+    //         }
+    //         void replicator.replicateFromCommand(false);
+    //     },
+    // });
+    // host.services.API.addCommand({
+    //     id: "force-replicate-now-by-p2p",
+    //     name: "P2P Sync: Select peer to replicate with",
+    //     checkCallback: (isChecking: boolean) => {
+    //         if (!replicator) return false;
+    //         const settings = host.services.setting.currentSettings();
+    //         if (isChecking) {
+    //             if (settings.remoteType == REMOTE_P2P) return false;
+    //             return replicator.server?.isServing ?? false;
+    //         }
+    //         void replicator.rawReplicator?.replicateTo();
+    //     },
+    // });
 }

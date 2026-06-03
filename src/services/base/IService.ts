@@ -56,6 +56,7 @@ export interface IAPIService {
     isMobile(): boolean;
 
     showWindow(type: string): Promise<void>;
+    showWindowOnRight?(type: string): Promise<void>;
 
     getAppID(): string;
 
@@ -303,6 +304,11 @@ export interface ISettingService {
     setDeviceAndVaultName(name: string): void;
 
     saveDeviceAndVaultName(): void;
+
+    onBeforeSaveSettingData(
+        nextSettings: ObsidianLiveSyncSettings,
+        previousSettings: ObsidianLiveSyncSettings
+    ): Promise<(Partial<ObsidianLiveSyncSettings> | void)[]>;
 
     saveSettingData(): Promise<void>;
 
