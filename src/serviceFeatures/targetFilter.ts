@@ -79,13 +79,13 @@ export function isAcceptedByLocalDBFactory(
     const database = host.services.database;
     const databaseEvents = host.services.databaseEvents;
 
-    let isReady = promiseWithResolvers();
+    let isReady = promiseWithResolvers<void>();
     databaseEvents.onDatabaseHasReady.addHandler(() => {
         isReady.resolve();
         return Promise.resolve(true);
     });
     databaseEvents.onUnloadDatabase.addHandler(() => {
-        isReady = promiseWithResolvers();
+        isReady = promiseWithResolvers<void>();
         return Promise.resolve(true);
     });
     return async (file: string | UXFileInfoStub): Promise<boolean> => {

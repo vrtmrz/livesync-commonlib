@@ -342,9 +342,9 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
      * @param mode The optional feature to enable.
      */
     readonly enableOptionalFeature = handlers<ISettingService>().all("enableOptionalFeature");
-    readonly onSettingLoaded = handlers<ISettingService>().dispatchParallel("onSettingLoaded");
-    readonly onSettingChanged = handlers<ISettingService>().dispatchParallel("onSettingChanged");
-    readonly onSettingSaved = handlers<ISettingService>().dispatchParallel("onSettingSaved");
+    readonly onSettingLoaded = handlers<ISettingService>().allParallel("onSettingLoaded");
+    readonly onSettingChanged = handlers<ISettingService>().allParallel("onSettingChanged");
+    readonly onSettingSaved = handlers<ISettingService>().allParallel("onSettingSaved");
     readonly onBeforeSaveSettingData = handlers<ISettingService>().dispatchParallel("onBeforeSaveSettingData");
 
     /**

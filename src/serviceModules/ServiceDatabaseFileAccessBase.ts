@@ -355,7 +355,7 @@ export class ServiceDatabaseFileAccessBase
         if (skipCheck && !(await this.checkIsTargetFile(meta.path))) {
             return false;
         }
-        const doc = await this.database.localDatabase.getDBEntryFromMeta(meta as LoadedEntry, false, waitForReady);
+        const doc = await this.database.localDatabase.getDBEntryFromMeta(meta, false, waitForReady);
         if (doc === false) {
             return false;
         }

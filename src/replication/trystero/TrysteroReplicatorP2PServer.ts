@@ -25,10 +25,7 @@ import { RpcRoom, type JsonLike, type RpcWireMessage, type TransportAdapter } fr
 import { TRYSTERO_RPC_DEFAULTS } from "@lib/rpc/transports/TrysteroTransport";
 import { toRpcMethodName } from "./rpcCompat";
 import { generateJoinRoomOptions } from "@lib/rpc/transports/trysteroUtils";
-import {
-    subscribeConnectionStatus,
-    subscribeFailureDiagnosis,
-} from "@lib/rpc/transports/DiagRTCPeerConnections";
+import { subscribeConnectionStatus, subscribeFailureDiagnosis } from "@lib/rpc/transports/DiagRTCPeerConnections";
 import { type DiagRTCStats } from "@lib/rpc/transports/DiagRTCPeerConnections.types";
 
 export type PeerInfo = Advertisement & {

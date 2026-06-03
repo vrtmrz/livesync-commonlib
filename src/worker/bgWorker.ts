@@ -102,11 +102,13 @@ function initialiseWorkers() {
         { length: maxConcurrency },
         () =>
             ({
+                // WorkerX is an imported inline worker.
                 // @ts-ignore
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-call
                 worker: WorkerX() as Worker,
                 processing: 0,
                 taskKeys: new Set<number>(),
-            }) as WorkerInstance
+            }) satisfies WorkerInstance
     );
 }
 
@@ -133,7 +135,10 @@ export function initialiseWorkerModule() {
             } else if (process.type === "encryptHKDF" || process.type === "decryptHKDF") {
                 handleTaskEncrypt(process, data);
             } else {
-                info("Invalid response type" + process);
+                info(
+                    "Invalid response type" +
+                        (typeof process.type === "string" ? process.type : JSON.stringify(process))
+                );
             }
         };
         inst.worker.onerror = (ev) => {

@@ -8,6 +8,7 @@ import {
     writeString,
     tryConvertBase64ToArrayBuffer,
 } from "octagonal-wheels/binary";
+import { compatGlobal } from "../common/coreEnvFunctions";
 export {
     arrayBufferToBase64,
     base64ToArrayBuffer,
@@ -21,7 +22,7 @@ export async function arrayBufferToBase64Single(buffer: Uint8Array<ArrayBuffer> 
         return await arrayBufferToBase64SingleInternal(buffer);
     } catch (ex) {
         // In Node.js/CLI, FileReader is unavailable. Use Buffer as a runtime fallback.
-        const maybeBuffer = (globalThis as any)?.Buffer;
+        const maybeBuffer = compatGlobal?.Buffer;
         if (typeof maybeBuffer?.from === "function") {
             const view = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
             return maybeBuffer.from(view.buffer, view.byteOffset, view.byteLength).toString("base64");

@@ -11,6 +11,7 @@ import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../../common/logger
 import { P2PLogCollector } from "./P2PLogCollector";
 import { addP2PEventHandlers } from "./addP2PEventHandlers";
 import type { P2PPaneParams } from "./UseP2PReplicatorResult";
+import { compatGlobal } from "@lib/common/coreEnvFunctions";
 
 export type P2PViewFactory = (leaf: any) => any;
 
@@ -58,7 +59,7 @@ export function useP2PReplicator(
     host.services.appLifecycle.onResumed.addHandler(() => {
         const settings = host.services.setting.currentSettings();
         if (settings.P2P_Enabled && settings.P2P_AutoStart) {
-            setTimeout(() => void replicator.open(), 100);
+            compatGlobal.setTimeout(() => void replicator.open(), 100);
         }
         return Promise.resolve(true);
     });

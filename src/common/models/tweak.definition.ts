@@ -22,7 +22,7 @@ export const TweakValuesShouldMatchedTemplate: Partial<ObsidianLiveSyncSettings>
     useSegmenter: false,
     E2EEAlgorithm: E2EEAlgorithms.V2,
     chunkSplitterVersion: ChunkAlgorithms.RabinKarp,
-};
+} satisfies Partial<ObsidianLiveSyncSettings>;
 
 type TweakKeys = keyof TweakValues;
 
@@ -77,19 +77,19 @@ export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> =
     doNotUseFixedRevisionForChunks: false,
     E2EEAlgorithm: E2EEAlgorithms.V2,
     chunkSplitterVersion: ChunkAlgorithms.RabinKarp,
-};
+} satisfies Partial<ObsidianLiveSyncSettings>;
 export const TweakValuesDefault: Partial<ObsidianLiveSyncSettings> = {
     usePluginSyncV2: false,
     E2EEAlgorithm: DEFAULT_SETTINGS.E2EEAlgorithm,
     chunkSplitterVersion: DEFAULT_SETTINGS.chunkSplitterVersion,
     tweakModified: DEFAULT_SETTINGS.tweakModified,
-};
+} satisfies Partial<ObsidianLiveSyncSettings>;
 
 export const TweakValuesTemplate = {
     ...TweakValuesRecommendedTemplate,
     ...TweakValuesShouldMatchedTemplate,
     tweakModified: 0,
-};
-export type TweakValues = typeof TweakValuesTemplate;
+} satisfies Partial<ObsidianLiveSyncSettings>;
+export type TweakValues = Partial<typeof TweakValuesTemplate>;
 
 export const DEVICE_ID_PREFERRED = "PREFERRED";

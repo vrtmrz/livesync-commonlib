@@ -51,10 +51,11 @@ export type { SimpleStore };
 
 export { sizeToHumanReadable } from "octagonal-wheels/number";
 import { compatGlobal } from "./coreEnvFunctions";
+import { ensureError } from "./utils.object.ts";
 
 export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T> {
     return new Promise((res, rej) => {
-        p.then(res).catch((ex) => (isErrorOfMissingDoc(ex) ? res(def) : rej(ex)));
+        p.then(res).catch((ex) => (isErrorOfMissingDoc(ex) ? res(def) : rej(ensureError(ex))));
     });
 }
 

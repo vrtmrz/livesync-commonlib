@@ -2,6 +2,7 @@ import { type PromiseWithResolvers, promiseWithResolvers } from "octagonal-wheel
 import type { DocumentID, EntryLeaf } from "../../common/types";
 import type { IReadLayer } from "./ChunkLayerInterfaces";
 import type { ChunkReadOptions } from "./types.ts";
+import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
 
 /**
  * Arrival wait layer - emits events for fetcher, and waits for chunks to arrive
@@ -41,13 +42,13 @@ export class ArrivalWaitLayer implements IReadLayer {
 
     private withTimeout<T>(proc: Promise<T>, timeout: number, onTimedOut: () => T): Promise<T> {
         return new Promise((resolve, reject) => {
-            const timer = setTimeout(() => {
+            const timer = compatGlobal.setTimeout(() => {
                 resolve(onTimedOut());
             }, timeout);
             proc.then(resolve)
                 .catch(reject)
                 .finally(() => {
-                    clearTimeout(timer);
+                    compatGlobal.clearTimeout(timer);
                 });
         });
     }

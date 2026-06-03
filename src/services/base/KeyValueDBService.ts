@@ -142,17 +142,13 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
             delete: async (key: string): Promise<void> => {
                 await getDB().del(`${prefix}${key}`);
             },
-            keys: async (
-                from: string | undefined,
-                to: string | undefined,
-                count?: number | undefined
-            ): Promise<string[]> => {
+            keys: async (from: string | undefined, to: string | undefined, count?: number): Promise<string[]> => {
                 const ret = await getDB().keys(
                     IDBKeyRange.bound(`${prefix}${from || ""}`, `${prefix}${to || ""}`),
                     count
                 );
                 return ret
-                    .map((e) => e.toString())
+                    .map((e) => (typeof e === "string" ? e : JSON.stringify(e)).toString())
                     .filter((e) => e.startsWith(prefix))
                     .map((e) => e.substring(prefix.length));
             },

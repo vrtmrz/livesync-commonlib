@@ -85,7 +85,7 @@ export class ControlService<T extends ServiceContext = ServiceContext>
     private async _onLiveSyncUnload(): Promise<void> {
         eventHub.emitEvent(EVENT_PLUGIN_UNLOADED);
         await this.services.appLifecycleService.onBeforeUnload();
-        await this.services.appLifecycleService.onAppUnload();
+        await Promise.resolve(this.services.appLifecycleService.onAppUnload());
         cancelAllPeriodicTask();
         cancelAllTasks();
         stopAllRunningProcessors();

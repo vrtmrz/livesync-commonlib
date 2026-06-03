@@ -5,6 +5,7 @@ import type { NecessaryServices } from "../../interfaces/ServiceModule";
 import { LiveSyncTrysteroReplicator } from "./LiveSyncTrysteroReplicator";
 import { type UseP2PReplicatorResult } from "./UseP2PReplicatorResult";
 import { addP2PEventHandlers } from "./addP2PEventHandlers";
+import { compatGlobal } from "@lib/common/coreEnvFunctions";
 
 /**
  * Factory type: given a replicator instance, returns the openReplicationUI callback for that instance.
@@ -89,7 +90,7 @@ export function useP2PReplicatorFeature(
     host.services.appLifecycle.onResumed.addHandler(() => {
         const settings = host.services.setting.currentSettings();
         if (settings.P2P_Enabled && settings.P2P_AutoStart) {
-            window.setTimeout(() => void replicator?.open(), 100);
+            compatGlobal.setTimeout(() => void replicator?.open(), 100);
         }
         return Promise.resolve(true);
     });

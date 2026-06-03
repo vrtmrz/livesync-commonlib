@@ -27,6 +27,7 @@ import type { SettingService } from "@lib/services/base/SettingService.ts";
 import type { VaultService } from "@lib/services/base/VaultService.ts";
 import { getStoragePathFromUXFileInfo } from "@lib/common/typeUtils";
 import { EVEN } from "../common/models/shared.const.symbols";
+import { tryGetFilePath } from "../common/utils.doc";
 
 export interface ServiceFileHandlerDependencies {
     API: APIService;
@@ -100,7 +101,7 @@ export abstract class ServiceFileHandlerBase
     ): Promise<boolean> {
         const file = await this.infoToStub(info);
         if (file == null) {
-            this._log(`File ${info} is not exist on the storage`, LOG_LEVEL_VERBOSE);
+            this._log(`File ${tryGetFilePath(info)} is not exist on the storage`, LOG_LEVEL_VERBOSE);
             return false;
         }
         // const file = item.args.file;
@@ -177,7 +178,7 @@ export abstract class ServiceFileHandlerBase
     async deleteFileFromDB(info: UXFileInfoStub | UXInternalFileInfoStub | FilePath): Promise<boolean> {
         const file = await this.infoToStub(info);
         if (file == null) {
-            this._log(`File ${info} is not exist on the storage`, LOG_LEVEL_VERBOSE);
+            this._log(`File ${tryGetFilePath(info)} is not exist on the storage`, LOG_LEVEL_VERBOSE);
             return false;
         }
         // const file = item.args.file;
@@ -236,7 +237,7 @@ export abstract class ServiceFileHandlerBase
     ): Promise<boolean> {
         const file = await this.infoToStub(info);
         if (file == null) {
-            this._log(`File ${info} is not exist on the storage`, LOG_LEVEL_VERBOSE);
+            this._log(`File ${tryGetFilePath(info)} is not exist on the storage`, LOG_LEVEL_VERBOSE);
             return false;
         }
         const docEntry = await this.db.fetchEntryMeta(file, rev, true);
@@ -419,7 +420,7 @@ export abstract class ServiceFileHandlerBase
                     // this should be handled on the other module.
                     return false;
                 default:
-                    this._log(`Unsupported event type: ${type}`, LOG_LEVEL_VERBOSE);
+                    this._log(`Unsupported event type: ${type as string}`, LOG_LEVEL_VERBOSE);
                     return false;
             }
         });

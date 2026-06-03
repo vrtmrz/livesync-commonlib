@@ -74,6 +74,7 @@ const charNewLine = "\n".charCodeAt(0);
 const segmenter =
     "Segmenter" in Intl
         ? wrapByDefault(
+              // @ts-ignore We have checked Intl existence above.
               // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return
               () => new Intl.Segmenter(navigator.language, { granularity: "sentence" }),
               (err) => {

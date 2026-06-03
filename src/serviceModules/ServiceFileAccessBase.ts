@@ -314,7 +314,7 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
         const xFile = typeof file === "string" ? await this.vaultAccess.getAbstractFileByPath(file) : file;
         if (xFile === null) return false;
         if (this.vaultAccess.isFolder(xFile)) return false;
-        return this.vaultAccess.recentlyTouched(xFile as any);
+        return this.vaultAccess.recentlyTouched(xFile);
     }
     clearTouched(): void {
         this.vaultAccess.clearTouched();
