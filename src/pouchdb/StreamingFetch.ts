@@ -1,4 +1,3 @@
-import { PouchDB } from "./pouchdb-browser";
 import { _fetch } from "../common/coreEnvFunctions";
 import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
 import type { EntryDoc } from "../common/models/db.definition";
