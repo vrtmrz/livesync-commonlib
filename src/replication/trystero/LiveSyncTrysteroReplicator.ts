@@ -91,6 +91,14 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
                 return services.API.confirm;
             },
             processReplicatedDocs: async (docs: Parameters<typeof services.replication.parseSynchroniseResult>[0]) => {
+                const settings = services.setting.currentSettings();
+                if (settings.suspendParseReplicationResult) {
+                    const docLength = docs.length;
+                    if (docLength > 0) {
+                        Logger(`P2P sync, but parseReplicationResult is suspended. Ignoring ${docLength} documents.`, LOG_LEVEL_VERBOSE);
+                    }
+                    return;
+                }
                 await services.replication.parseSynchroniseResult(docs);
             },
         };

@@ -700,7 +700,7 @@ export abstract class JournalSyncAbstract {
             );
             await this.db.bulkDocs<EntryDoc>(saveDocs, { new_edits: false });
             // Only process if parsing is not suspended.
-            const writeDoc = !this.env.services.setting.currentSettings();
+            const writeDoc = !(this.env.services.setting.currentSettings().suspendParseReplicationResult);
             if (writeDoc) {
                 await this.processReplication(saveDocs satisfies PouchDB.Core.ExistingDocument<EntryDoc>[]);
             } else {

@@ -228,10 +228,10 @@ Please enable them from the settings screen after setup is complete.`,
         });
         await this.setting.suspendExtraSync();
     }
-    async suspendReflectingDatabase() {
+    async suspendReflectingDatabase(ignoreMinIO: boolean = false) {
         const settings = this.setting.currentSettings();
         if (settings.doNotSuspendOnFetching) return;
-        if (settings.remoteType == REMOTE_MINIO) return;
+        if (!ignoreMinIO && settings.remoteType == REMOTE_MINIO) return;
         this._log(
             `Suspending reflection: Database and storage changes will not be reflected in each other until completely finished the fetching.`,
             LOG_LEVEL_NOTICE
@@ -242,10 +242,10 @@ Please enable them from the settings screen after setup is complete.`,
         });
         await this.setting.saveSettingData();
     }
-    async resumeReflectingDatabase() {
+    async resumeReflectingDatabase(ignoreMinIO: boolean = false) {
         const settings = this.setting.currentSettings();
         if (settings.doNotSuspendOnFetching) return;
-        if (settings.remoteType == REMOTE_MINIO) return;
+        if (!ignoreMinIO && settings.remoteType == REMOTE_MINIO) return;
         this._log(`Database and storage reflection has been resumed!`, LOG_LEVEL_NOTICE);
         await this.setting.applyPartial({
             suspendParseReplicationResult: false,
@@ -290,7 +290,8 @@ Are you sure you wish to proceed?`;
                 return;
             }
         }
-        await this.suspendReflectingDatabase();
+        // If autoResume is disabled, do not suspend reflection even for Minio.
+        await this.suspendReflectingDatabase(!autoResume);
         await this.control.applySettings();
         await this.resetLocalDatabase();
         await delay(1000);
@@ -381,14 +382,25 @@ Are you sure you wish to proceed?`;
 
         await this.replication.markResolved();
         if (autoResume) {
-            await this.resumeReflectingDatabase();
+            await this.resumeReflectingDatabase(true);
         }
     }
 
-    async finishRebuild() {
-        await this.resumeReflectingDatabase();
+    /**
+     * Finish rebuild process with resuming the reflection.
+     * 
+     * @param ignoreMinIO Whether to ignore minio for resuming the reflection.
+     */
+    async finishRebuild(ignoreMinIO: boolean = true) {
+        await this.resumeReflectingDatabase(ignoreMinIO);
     }
 
+    /**
+     * Fetch local database with making all chunks.
+     * This is a wrapper for {@link fetchLocal} with makeLocalChunkBeforeSync = true.
+     * 
+     * @returns 
+     */
     async fetchLocalWithRebuild() {
         return await this.fetchLocal(true);
     }
