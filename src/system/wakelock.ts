@@ -3,7 +3,8 @@
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
 
-const globalWakeLock = ("navigator" in compatGlobal) && ("wakeLock" in compatGlobal.navigator) ? compatGlobal.navigator.wakeLock : undefined;
+const globalWakeLock =
+    "navigator" in compatGlobal && "wakeLock" in compatGlobal.navigator ? compatGlobal.navigator.wakeLock : undefined;
 
 /**
  * Run callback with screen wake lock held.
@@ -35,12 +36,15 @@ export async function withWakeLock<T>(callback: () => Promise<T>): Promise<T> {
             Logger(`Wake lock acquired`, LOG_LEVEL_VERBOSE);
 
             // By passing signal, it will be automatically released when abort() is called
-            lock.addEventListener("release", () => {
-                Logger(`Wake lock released by system`, LOG_LEVEL_VERBOSE);
-                lock = undefined;
-            }, { signal });
+            lock.addEventListener(
+                "release",
+                () => {
+                    Logger(`Wake lock released by system`, LOG_LEVEL_VERBOSE);
+                    lock = undefined;
+                },
+                { signal }
+            );
             return lock;
-
         } catch (e) {
             Logger(`Failed to acquire wake lock`, LOG_LEVEL_VERBOSE);
             Logger(e, LOG_LEVEL_VERBOSE);

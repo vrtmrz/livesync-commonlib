@@ -95,7 +95,10 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
                 if (settings.suspendParseReplicationResult) {
                     const docLength = docs.length;
                     if (docLength > 0) {
-                        Logger(`P2P sync, but parseReplicationResult is suspended. Ignoring ${docLength} documents.`, LOG_LEVEL_VERBOSE);
+                        Logger(
+                            `P2P sync, but parseReplicationResult is suspended. Ignoring ${docLength} documents.`,
+                            LOG_LEVEL_VERBOSE
+                        );
                     }
                     return;
                 }

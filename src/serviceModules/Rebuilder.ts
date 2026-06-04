@@ -388,7 +388,7 @@ Are you sure you wish to proceed?`;
 
     /**
      * Finish rebuild process with resuming the reflection.
-     * 
+     *
      * @param ignoreMinIO Whether to ignore minio for resuming the reflection.
      */
     async finishRebuild(ignoreMinIO: boolean = true) {
@@ -398,8 +398,8 @@ Are you sure you wish to proceed?`;
     /**
      * Fetch local database with making all chunks.
      * This is a wrapper for {@link fetchLocal} with makeLocalChunkBeforeSync = true.
-     * 
-     * @returns 
+     *
+     * @returns
      */
     async fetchLocalWithRebuild() {
         return await this.fetchLocal(true);
