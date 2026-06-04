@@ -131,6 +131,10 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         name: "Sync on Editor Save",
         desc: "When you save a file in the editor, start a sync automatically",
     },
+    keepReplicationActiveInBackground: {
+        name: "Keep replication active in the background",
+        desc: "Desktop only; uses more battery and network.",
+    },
     syncOnFileOpen: {
         name: "Sync on File Open",
         desc: "Forces the file to be synced when opened.",

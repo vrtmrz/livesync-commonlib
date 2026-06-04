@@ -120,6 +120,14 @@ interface SyncMethodSettings {
     syncOnEditorSave: boolean;
 
     /**
+     * Desktop only, opt-in. Keep replication running while the window is hidden or minimised,
+     * instead of suspending it until the window becomes visible again. The trigger is
+     * document.hidden, not window focus. Applies to the background-capable sync modes (LiveSync
+     * and Periodic). Ignored on mobile. Default false.
+     */
+    keepReplicationActiveInBackground: boolean;
+
+    /**
      * The minimum delay between synchronisation operations (in milliseconds).
      * If the operation is triggered before this delay, the operation will be delayed until the delay is over, and executed as a single operation.
      */
