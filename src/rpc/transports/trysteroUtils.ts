@@ -30,13 +30,17 @@ export function generateJoinRoomOptions(settings: P2PConnectionInfo): BaseRoomCo
         options.rtcPolyfill = compatGlobal.RTCPeerConnection;
     }
     if (turnServers.length > 0) {
-        options.turnConfig = [
-            {
-                urls: turnServers,
-                username: settings.P2P_turnUsername,
-                credential: settings.P2P_turnCredential,
-            },
-        ];
+        if (turnServers[0] === "disabled" || turnServers[0] === "none") {
+            options.turnConfig = [];
+        } else {
+            options.turnConfig = [
+                {
+                    urls: turnServers,
+                    username: settings.P2P_turnUsername,
+                    credential: settings.P2P_turnCredential,
+                },
+            ];
+        }
     }
     return options;
 }
