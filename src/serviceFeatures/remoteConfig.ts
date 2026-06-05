@@ -1,4 +1,4 @@
-import { LOG_LEVEL_NOTICE } from "../common/logger";
+import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type LOG_LEVEL } from "../common/logger";
 import { ConnectionStringParser } from "../common/ConnectionString";
 import type { ObsidianLiveSyncSettings, RemoteConfiguration, RemoteDBSettings } from "../common/models/setting.type";
 import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "../common/models/setting.const";
@@ -12,7 +12,7 @@ export type RemoteConfigHost = NecessaryServices<
 
 export function migrateLegacyRemoteConfigurationsInPlace(
     settings: ObsidianLiveSyncSettings,
-    log?: (message: string) => void
+    log?: (message: string, level?: LOG_LEVEL) => void
 ): boolean {
     const hasText = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
 
@@ -54,7 +54,8 @@ export function migrateLegacyRemoteConfigurationsInPlace(
                 isEncrypted: false,
             };
         } catch (e) {
-            log?.(`Failed to migrate ${candidate.type} configuration: ${e}`);
+            log?.(`Failed to migrate ${candidate.type} configuration!`);
+            log?.(e as string, LOG_LEVEL_VERBOSE);
         }
     }
 
@@ -70,6 +71,44 @@ export function migrateLegacyRemoteConfigurationsInPlace(
               ? "legacy-p2p"
               : "legacy-couchdb";
     settings.activeConfigurationId = settings.remoteConfigurations[preferredId] ? preferredId : createdIds[0];
+    return true;
+}
+
+/**
+ * Generate a unique ID for a new remote configuration.
+ * @returns A unique string identifier.
+ */
+export function createRemoteConfigurationId(): string {
+    return `remote-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+/**
+ * Keep compatibility for users who were already using P2P as their main active remote.
+ */
+export function migrateP2PActiveRemoteConfigurationIdInPlace(settings: ObsidianLiveSyncSettings): boolean {
+    if ((settings.P2P_ActiveRemoteConfigurationId ?? "").trim() !== "") {
+        return false;
+    }
+    const activeId = settings.activeConfigurationId;
+    if (!activeId) {
+        return false;
+    }
+    const config = settings.remoteConfigurations?.[activeId];
+    if (!config) {
+        return false;
+    }
+    if (settings.remoteType !== REMOTE_P2P) {
+        return false;
+    }
+    try {
+        const parsed = ConnectionStringParser.parse(config.uri);
+        if (parsed.type !== "p2p") {
+            return false;
+        }
+    } catch {
+        return false;
+    }
+    settings.P2P_ActiveRemoteConfigurationId = activeId;
     return true;
 }
 
@@ -116,6 +155,32 @@ export function activateRemoteConfiguration(
             settings.remoteType = REMOTE_P2P;
             Object.assign(settings, parsed.settings);
         }
+        return settings;
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Apply a dedicated P2P remote configuration onto runtime P2P-related fields,
+ * while keeping the current `remoteType` unchanged.
+ */
+export function activateP2PRemoteConfiguration(
+    settings: ObsidianLiveSyncSettings,
+    id: string
+): ObsidianLiveSyncSettings | false {
+    const config = settings.remoteConfigurations?.[id];
+    if (!config) return false;
+
+    try {
+        const parsed = ConnectionStringParser.parse(config.uri);
+        if (parsed.type !== "p2p") {
+            return false;
+        }
+        const currentRemoteType = settings.remoteType;
+        settings.P2P_ActiveRemoteConfigurationId = id;
+        Object.assign(settings, parsed.settings);
+        settings.remoteType = currentRemoteType;
         return settings;
     } catch {
         return false;
@@ -205,7 +270,12 @@ export async function commandReplicateWithSpecificRemote(host: RemoteConfigHost)
                     await host.services.replication.replicate(true);
                 }
             } catch (e) {
-                host.services.API.addLog(`Failed to parse remote: ${e}`, LOG_LEVEL_NOTICE, "remote-config");
+                host.services.API.addLog(
+                    `Failed to parse remote! Detailed information is available in verbose logs.`,
+                    LOG_LEVEL_NOTICE,
+                    "remote-config"
+                );
+                host.services.API.addLog(e, LOG_LEVEL_VERBOSE, "remote-config");
             }
         }
     }
@@ -219,7 +289,12 @@ export function useRemoteConfigurationMigration(host: RemoteConfigHost) {
         try {
             await migrateToMultipleRemoteConfigurations(host);
         } catch (e) {
-            host.services.API.addLog(`Migration failed: ${e}`, LOG_LEVEL_NOTICE, "remote-config");
+            host.services.API.addLog(
+                `Migration failed! Detailed information is available in verbose logs.`,
+                LOG_LEVEL_NOTICE,
+                "remote-config"
+            );
+            host.services.API.addLog(e, LOG_LEVEL_VERBOSE, "remote-config");
         }
         return true;
     });

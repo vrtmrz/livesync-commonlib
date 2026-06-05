@@ -74,7 +74,8 @@ export class DatabaseReadLayer implements IReadLayer {
                 throw error;
             }
             // For other errors, treat as database read failure
-            Logger(`Database read error: ${error}`, LOG_LEVEL_VERBOSE);
+            Logger(`Database read error!`, LOG_LEVEL_VERBOSE);
+            Logger(error, LOG_LEVEL_VERBOSE);
             return ids.map(() => false);
         }
 

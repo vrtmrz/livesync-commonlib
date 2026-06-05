@@ -2,8 +2,15 @@ import { describe, it, expect, beforeAll, vi } from "vitest";
 
 import {
     collectDeletedFiles,
+    ExtraOnLocal,
+    ExtraOnRemote,
+    FullScanModes,
+    normaliseFullScanOptions,
+    getFilePairState,
     getPathFromEntry,
+    resolveFilePairAction,
     syncFileBetweenDBandStorage,
+    synchroniseAllFilesBetweenDBandStorage,
     canProceedScan,
     convertCase,
     collectFilesOnStorage,
@@ -734,7 +741,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         await syncFileBetweenDBandStorage(host, logger, file, doc);
 
-        expect(dbToStorageMock).toHaveBeenCalled();
+        expect(dbToStorageMock).toHaveBeenCalledWith(doc, "test.md", false);
     });
 
     it("should do nothing when files are equal", async () => {
@@ -824,10 +831,11 @@ describe("syncFileBetweenDBandStorage", () => {
 
         await expect(syncFileBetweenDBandStorage(host, logger, file, undefined!)).rejects.toThrow();
     });
-    it("should handle if file cannot be found in storage", async () => {
+    it("should not require refetching file stub from storage", async () => {
         const storeFileToDBMock = vi.fn();
         const dbToStorageMock = vi.fn();
         const getPathMock = vi.fn().mockReturnValue("test.md");
+        const compareFileFreshnessMock = vi.fn().mockReturnValue(EVEN);
 
         const host = {
             services: {
@@ -835,7 +843,7 @@ describe("syncFileBetweenDBandStorage", () => {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
                 path: {
-                    compareFileFreshness: vi.fn().mockReturnValue(EVEN),
+                    compareFileFreshness: compareFileFreshnessMock,
                     getPath: getPathMock,
                 },
                 setting: {
@@ -862,7 +870,8 @@ describe("syncFileBetweenDBandStorage", () => {
             path: "test.md",
             size: 100,
         } as MetaEntry;
-        await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).rejects.toThrow();
+        await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).resolves.toBeUndefined();
+        expect(compareFileFreshnessMock).toHaveBeenCalledWith(file, doc);
     });
     it("should handle if storage file is too large", async () => {
         const storeFileToDBMock = vi.fn();
@@ -1063,6 +1072,588 @@ describe("syncStorageAndDatabase", () => {
     });
 });
 
+describe("getFilePairState", () => {
+    it("should classify storage-only pairs", () => {
+        const result = getFilePairState({
+            file: { path: "local.md", stat: { size: 10, mtime: 100 } } as UXFileInfoStub,
+            doc: undefined,
+        });
+
+        expect(result).toBe("storage-only");
+    });
+
+    it("should classify deleted database pairs that exist on both sides", () => {
+        const result = getFilePairState({
+            file: { path: "local.md", stat: { size: 10, mtime: 100 } } as UXFileInfoStub,
+            doc: { path: "local.md", mtime: 50, deleted: true } as MetaEntry,
+        });
+
+        expect(result).toBe("both-db-deleted");
+    });
+
+    it("should classify database-only pairs", () => {
+        const result = getFilePairState({
+            file: undefined,
+            doc: { path: "remote.md", mtime: 50, deleted: false } as MetaEntry,
+        });
+
+        expect(result).toBe("db-only");
+    });
+
+    it("should classify deleted database-only pairs", () => {
+        const result = getFilePairState({
+            file: undefined,
+            doc: { path: "remote.md", mtime: 50, _deleted: true } as MetaEntry,
+        });
+
+        expect(result).toBe("db-only-deleted");
+    });
+
+    it("should throw when pair is corrupted", () => {
+        expect(() => getFilePairState({ file: undefined, doc: undefined } as any)).toThrow("Corrupted file pair");
+    });
+});
+
+describe("resolveFilePairAction", () => {
+    const states = ["storage-only", "db-only", "db-only-deleted", "both", "both-db-deleted"] as const;
+    const modes = [FullScanModes.DB_APPLY, FullScanModes.NEWER_WINS] as const;
+    const extraOnRemoteValues = [undefined, ExtraOnRemote.DELETE_LOCAL_MISSING] as const;
+    const extraOnLocalValues = [
+        undefined,
+        ExtraOnLocal.DELETE_DB_DELETED,
+        ExtraOnLocal.DELETE_DB_MISSING,
+        ExtraOnLocal.APPEND_STORAGE_ONLY,
+    ] as const;
+
+    function expectedAction(
+        state: (typeof states)[number],
+        mode: (typeof modes)[number],
+        extraOnRemote: (typeof extraOnRemoteValues)[number],
+        extraOnLocal: (typeof extraOnLocalValues)[number]
+    ) {
+        const deleteWhenRemoteMissing =
+            extraOnRemote === ExtraOnRemote.DELETE_LOCAL_MISSING || extraOnLocal === ExtraOnLocal.DELETE_DB_MISSING;
+        const deleteWhenRemoteDeleted =
+            extraOnRemote === ExtraOnRemote.DELETE_LOCAL_MISSING ||
+            extraOnLocal === ExtraOnLocal.DELETE_DB_DELETED ||
+            extraOnLocal === ExtraOnLocal.DELETE_DB_MISSING;
+
+        if (mode === FullScanModes.DB_APPLY) {
+            if (state === "both" || state === "db-only") return "update-storage";
+            if (state === "storage-only") return deleteWhenRemoteMissing ? "delete-local" : "skip";
+            if (state === "both-db-deleted") return deleteWhenRemoteDeleted ? "delete-local" : "skip";
+            return "skip";
+        }
+
+        if (state === "both") return "sync-newer";
+        if (state === "storage-only") return deleteWhenRemoteMissing ? "delete-local" : "update-db";
+        if (state === "db-only") return "update-storage";
+        if (state === "both-db-deleted") {
+            if (deleteWhenRemoteDeleted) return "delete-local";
+            return extraOnLocal === ExtraOnLocal.APPEND_STORAGE_ONLY ? "update-db" : "skip";
+        }
+        return "skip";
+    }
+
+    for (const mode of modes) {
+        for (const state of states) {
+            for (const extraOnRemote of extraOnRemoteValues) {
+                for (const extraOnLocal of extraOnLocalValues) {
+                    it(`should resolve mode=${mode}, state=${state}, remote=${extraOnRemote ?? "none"}, local=${extraOnLocal ?? "none"}`, () => {
+                        const result = resolveFilePairAction(state, {
+                            mode,
+                            extraOnRemote,
+                            extraOnLocal,
+                        });
+
+                        expect(result).toBe(expectedAction(state, mode, extraOnRemote, extraOnLocal));
+                    });
+                }
+            }
+        }
+    }
+});
+
+describe("normaliseFullScanOptions", () => {
+    it("should default to newer-wins and inherit object options", () => {
+        const options = normaliseFullScanOptions({
+            showingNotice: true,
+            extraOnLocal: ExtraOnLocal.DELETE_DB_MISSING,
+        });
+
+        expect(options.mode).toBe(FullScanModes.NEWER_WINS);
+        expect(options.showingNotice).toBe(true);
+        expect(options.extraOnLocal).toBe(ExtraOnLocal.DELETE_DB_MISSING);
+    });
+
+    it("should map boolean arguments into options", () => {
+        const options = normaliseFullScanOptions(true, true);
+
+        expect(options.mode).toBe(FullScanModes.NEWER_WINS);
+        expect(options.showingNotice).toBe(true);
+        expect(options.ignoreSuspending).toBe(true);
+    });
+});
+
+describe("synchroniseAllFilesBetweenDBandStorage", () => {
+    let logger: LogFunction;
+
+    beforeAll(() => {
+        logger = createLogger("TestLogger");
+    });
+
+    it("should process mixed file-set actions in db-apply mode", async () => {
+        const deleteMock = vi.fn().mockResolvedValue(undefined);
+        const dbToStorageMock = vi.fn().mockResolvedValue(true);
+
+        const storageFiles = [
+            { path: "local-only.md", stat: { size: 10, mtime: 20 } },
+            { path: "both.md", stat: { size: 11, mtime: 21 } },
+            { path: "both-deleted.md", stat: { size: 12, mtime: 22 } },
+        ];
+
+        async function* mockFindAllNormalDocs() {
+            yield { _id: "d1", path: "both.md", size: 11, mtime: 10, type: "newnote", children: [] };
+            yield { _id: "d2", path: "db-only.md", size: 13, mtime: 10, type: "newnote", children: [] };
+            yield {
+                _id: "d3",
+                path: "both-deleted.md",
+                size: 12,
+                mtime: 10,
+                deleted: true,
+                type: "newnote",
+                children: [],
+            };
+            yield {
+                _id: "d4",
+                path: "db-only-deleted.md",
+                size: 12,
+                mtime: 10,
+                _deleted: true,
+                type: "newnote",
+                children: [],
+            };
+        }
+
+        const host = {
+            services: {
+                setting: {
+                    currentSettings: () => ({
+                        handleFilenameCaseSensitive: true,
+                    }),
+                },
+                vault: {
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                    isValidPath: vi.fn().mockReturnValue(true),
+                    isFileSizeTooLarge: vi.fn().mockReturnValue(false),
+                },
+                path: {
+                    getPath: vi.fn((doc: any) => doc.path),
+                },
+                fileProcessing: {},
+                database: {
+                    localDatabase: {
+                        findAllNormalDocs: vi.fn().mockReturnValue(mockFindAllNormalDocs()),
+                    },
+                },
+                keyValueDB: {},
+            },
+            serviceModules: {
+                storageAccess: {
+                    getFiles: vi.fn().mockResolvedValue(storageFiles),
+                    delete: deleteMock,
+                },
+                fileHandler: {
+                    dbToStorage: dbToStorageMock,
+                    storeFileToDB: vi.fn(),
+                },
+            },
+        } as any;
+
+        await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+            mode: FullScanModes.DB_APPLY,
+            extraOnRemote: ExtraOnRemote.DELETE_LOCAL_MISSING,
+        });
+
+        expect(deleteMock).toHaveBeenCalledTimes(2);
+        expect(deleteMock).toHaveBeenCalledWith("local-only.md", true);
+        expect(deleteMock).toHaveBeenCalledWith("both-deleted.md", true);
+        expect(dbToStorageMock).toHaveBeenCalledTimes(2);
+        expect(dbToStorageMock).toHaveBeenCalledWith("both.md", null, true);
+        expect(dbToStorageMock).toHaveBeenCalledWith("db-only.md", null, true);
+    });
+
+    it("should continue even if one pair processing fails", async () => {
+        const xLogger = vi.fn(logger);
+        const deleteMock = vi.fn().mockRejectedValueOnce(new Error("delete failed")).mockResolvedValueOnce(undefined);
+        const dbToStorageMock = vi.fn().mockResolvedValue(true);
+
+        const storageFiles = [
+            { path: "local-only.md", stat: { size: 10, mtime: 20 } },
+            { path: "both-deleted.md", stat: { size: 12, mtime: 22 } },
+        ];
+
+        async function* mockFindAllNormalDocs() {
+            yield {
+                _id: "d3",
+                path: "both-deleted.md",
+                size: 12,
+                mtime: 10,
+                deleted: true,
+                type: "newnote",
+                children: [],
+            };
+            yield { _id: "d2", path: "db-only.md", size: 13, mtime: 10, type: "newnote", children: [] };
+        }
+
+        const host = {
+            services: {
+                setting: {
+                    currentSettings: () => ({
+                        handleFilenameCaseSensitive: true,
+                    }),
+                },
+                vault: {
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                    isValidPath: vi.fn().mockReturnValue(true),
+                    isFileSizeTooLarge: vi.fn().mockReturnValue(false),
+                },
+                path: {
+                    getPath: vi.fn((doc: any) => doc.path),
+                },
+                fileProcessing: {},
+                database: {
+                    localDatabase: {
+                        findAllNormalDocs: vi.fn().mockReturnValue(mockFindAllNormalDocs()),
+                    },
+                },
+                keyValueDB: {},
+            },
+            serviceModules: {
+                storageAccess: {
+                    getFiles: vi.fn().mockResolvedValue(storageFiles),
+                    delete: deleteMock,
+                },
+                fileHandler: {
+                    dbToStorage: dbToStorageMock,
+                    storeFileToDB: vi.fn(),
+                },
+            },
+        } as any;
+
+        await expect(
+            synchroniseAllFilesBetweenDBandStorage(host, xLogger, {} as any, {
+                mode: FullScanModes.DB_APPLY,
+                extraOnRemote: ExtraOnRemote.DELETE_LOCAL_MISSING,
+            })
+        ).resolves.not.toThrow();
+
+        expect(dbToStorageMock).toHaveBeenCalledWith("db-only.md", null, true);
+        expect(xLogger).toHaveBeenCalledWith(expect.stringContaining("Error processing"), LOG_LEVEL_NOTICE);
+    });
+
+    it("should skip conflicted entries before delete-local action", async () => {
+        const deleteMock = vi.fn().mockResolvedValue(undefined);
+
+        const storageFiles = [{ path: "both-deleted.md", stat: { size: 12, mtime: 22 } }];
+
+        async function* mockFindAllNormalDocs() {
+            yield {
+                _id: "d3",
+                path: "both-deleted.md",
+                size: 12,
+                mtime: 10,
+                deleted: true,
+                _conflicts: ["conflicted-rev"],
+                type: "newnote",
+                children: [],
+            };
+        }
+
+        const host = {
+            services: {
+                setting: {
+                    currentSettings: () => ({
+                        handleFilenameCaseSensitive: true,
+                    }),
+                },
+                vault: {
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                    isValidPath: vi.fn().mockReturnValue(true),
+                    isFileSizeTooLarge: vi.fn().mockReturnValue(false),
+                },
+                path: {
+                    getPath: vi.fn((doc: any) => doc.path),
+                },
+                fileProcessing: {},
+                database: {
+                    localDatabase: {
+                        findAllNormalDocs: vi.fn().mockReturnValue(mockFindAllNormalDocs()),
+                    },
+                },
+                keyValueDB: {},
+            },
+            serviceModules: {
+                storageAccess: {
+                    getFiles: vi.fn().mockResolvedValue(storageFiles),
+                    delete: deleteMock,
+                },
+                fileHandler: {
+                    dbToStorage: vi.fn().mockResolvedValue(true),
+                    storeFileToDB: vi.fn(),
+                },
+            },
+        } as any;
+
+        await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+            mode: FullScanModes.DB_APPLY,
+            extraOnRemote: ExtraOnRemote.DELETE_LOCAL_MISSING,
+        });
+
+        expect(deleteMock).not.toHaveBeenCalled();
+    });
+
+    it("should skip oversize entries inside mixed newer-wins file-set", async () => {
+        const storeFileToDBMock = vi.fn();
+        const dbToStorageMock = vi.fn().mockResolvedValue(true);
+
+        const storageFiles = [
+            { path: "storage-too-large.md", stat: { size: 5000, mtime: 20 } },
+            { path: "both-too-large.md", stat: { size: 5000, mtime: 20 } },
+            { path: "both-normal.md", stat: { size: 100, mtime: 20 } },
+        ];
+
+        async function* mockFindAllNormalDocs() {
+            yield { _id: "d1", path: "db-too-large.md", size: 5000, mtime: 10, type: "newnote", children: [] };
+            yield { _id: "d2", path: "both-too-large.md", size: 100, mtime: 10, type: "newnote", children: [] };
+            yield { _id: "d3", path: "both-normal.md", size: 50, mtime: 10, type: "newnote", children: [] };
+        }
+
+        const host = {
+            services: {
+                setting: {
+                    currentSettings: () => ({
+                        handleFilenameCaseSensitive: true,
+                    }),
+                },
+                vault: {
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                    isValidPath: vi.fn().mockReturnValue(true),
+                    isFileSizeTooLarge: vi.fn((size: number) => size > 1000),
+                },
+                path: {
+                    getPath: vi.fn((doc: any) => doc.path),
+                    compareFileFreshness: vi.fn((file: UXFileInfoStub) =>
+                        file.path === "both-normal.md" ? BASE_IS_NEW : EVEN
+                    ),
+                },
+                fileProcessing: {},
+                database: {
+                    localDatabase: {
+                        findAllNormalDocs: vi.fn().mockReturnValue(mockFindAllNormalDocs()),
+                    },
+                },
+                keyValueDB: {},
+            },
+            serviceModules: {
+                storageAccess: {
+                    getFiles: vi.fn().mockResolvedValue(storageFiles),
+                    getFileStub: vi.fn((path: string) => storageFiles.find((e) => e.path === path)),
+                    delete: vi.fn(),
+                },
+                fileHandler: {
+                    dbToStorage: dbToStorageMock,
+                    storeFileToDB: storeFileToDBMock,
+                },
+            },
+        } as any;
+
+        await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+            mode: FullScanModes.NEWER_WINS,
+        });
+
+        expect(storeFileToDBMock).toHaveBeenCalledTimes(1);
+        expect(storeFileToDBMock).toHaveBeenCalledWith(expect.objectContaining({ path: "both-normal.md" }));
+        expect(storeFileToDBMock).not.toHaveBeenCalledWith(expect.objectContaining({ path: "storage-too-large.md" }));
+        expect(dbToStorageMock).not.toHaveBeenCalledWith("db-too-large.md", null, true);
+    });
+
+    it("should treat db-only entry as offline local deletion when last seen mtime is newer", async () => {
+        const deleteFileFromDBMock = vi.fn().mockResolvedValue(true);
+        const dbToStorageMock = vi.fn().mockResolvedValue(true);
+
+        async function* mockFindAllNormalDocs() {
+            yield { _id: "d1", path: "gone.md", size: 100, mtime: 10000, type: "newnote", children: [] };
+        }
+
+        const host = {
+            services: {
+                setting: {
+                    currentSettings: () => ({
+                        handleFilenameCaseSensitive: true,
+                    }),
+                },
+                vault: {
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                    isValidPath: vi.fn().mockReturnValue(true),
+                    isFileSizeTooLarge: vi.fn().mockReturnValue(false),
+                },
+                path: {
+                    getPath: vi.fn((doc: any) => doc.path),
+                },
+                fileProcessing: {},
+                database: {
+                    localDatabase: {
+                        findAllNormalDocs: vi.fn().mockReturnValue(mockFindAllNormalDocs()),
+                    },
+                },
+                keyValueDB: {
+                    kvDB: {
+                        get: vi.fn().mockResolvedValue({ "gone.md": 20000 }),
+                        set: vi.fn().mockResolvedValue(undefined),
+                    },
+                },
+            },
+            serviceModules: {
+                storageAccess: {
+                    getFiles: vi.fn().mockResolvedValue([]),
+                    delete: vi.fn(),
+                },
+                fileHandler: {
+                    dbToStorage: dbToStorageMock,
+                    storeFileToDB: vi.fn(),
+                    deleteFileFromDB: deleteFileFromDBMock,
+                },
+            },
+        } as any;
+
+        await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+            mode: FullScanModes.NEWER_WINS,
+        });
+
+        expect(deleteFileFromDBMock).toHaveBeenCalledWith("gone.md");
+        expect(dbToStorageMock).not.toHaveBeenCalled();
+    });
+
+    it("should keep db-only entry when database mtime is newer than last seen", async () => {
+        const deleteFileFromDBMock = vi.fn().mockResolvedValue(true);
+        const dbToStorageMock = vi.fn().mockResolvedValue(true);
+
+        async function* mockFindAllNormalDocs() {
+            yield { _id: "d1", path: "remote-new.md", size: 100, mtime: 50000, type: "newnote", children: [] };
+        }
+
+        const host = {
+            services: {
+                setting: {
+                    currentSettings: () => ({
+                        handleFilenameCaseSensitive: true,
+                    }),
+                },
+                vault: {
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                    isValidPath: vi.fn().mockReturnValue(true),
+                    isFileSizeTooLarge: vi.fn().mockReturnValue(false),
+                },
+                path: {
+                    getPath: vi.fn((doc: any) => doc.path),
+                },
+                fileProcessing: {},
+                database: {
+                    localDatabase: {
+                        findAllNormalDocs: vi.fn().mockReturnValue(mockFindAllNormalDocs()),
+                    },
+                },
+                keyValueDB: {
+                    kvDB: {
+                        get: vi.fn().mockResolvedValue({ "remote-new.md": 10000 }),
+                        set: vi.fn().mockResolvedValue(undefined),
+                    },
+                },
+            },
+            serviceModules: {
+                storageAccess: {
+                    getFiles: vi.fn().mockResolvedValue([]),
+                    delete: vi.fn(),
+                },
+                fileHandler: {
+                    dbToStorage: dbToStorageMock,
+                    storeFileToDB: vi.fn(),
+                    deleteFileFromDB: deleteFileFromDBMock,
+                },
+            },
+        } as any;
+
+        await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+            mode: FullScanModes.NEWER_WINS,
+        });
+
+        expect(dbToStorageMock).toHaveBeenCalledWith("remote-new.md", null, true);
+        expect(deleteFileFromDBMock).not.toHaveBeenCalled();
+    });
+
+    it("should persist file status map after deferred save", async () => {
+        vi.useFakeTimers();
+        const kvDBSetMock = vi.fn().mockResolvedValue(undefined);
+
+        try {
+            async function* mockFindAllNormalDocs() {
+                // no db docs
+            }
+
+            const host = {
+                services: {
+                    setting: {
+                        currentSettings: () => ({
+                            handleFilenameCaseSensitive: true,
+                        }),
+                    },
+                    vault: {
+                        isTargetFile: vi.fn().mockResolvedValue(true),
+                        isValidPath: vi.fn().mockReturnValue(true),
+                        isFileSizeTooLarge: vi.fn().mockReturnValue(false),
+                    },
+                    path: {
+                        getPath: vi.fn((doc: any) => doc.path),
+                    },
+                    fileProcessing: {},
+                    database: {
+                        localDatabase: {
+                            findAllNormalDocs: vi.fn().mockReturnValue(mockFindAllNormalDocs()),
+                        },
+                    },
+                    keyValueDB: {
+                        kvDB: {
+                            get: vi.fn().mockResolvedValue({}),
+                            set: kvDBSetMock,
+                        },
+                    },
+                },
+                serviceModules: {
+                    storageAccess: {
+                        getFiles: vi.fn().mockResolvedValue([{ path: "local.md", stat: { size: 10, mtime: 123 } }]),
+                        delete: vi.fn(),
+                    },
+                    fileHandler: {
+                        dbToStorage: vi.fn().mockResolvedValue(true),
+                        storeFileToDB: vi.fn().mockResolvedValue(true),
+                        deleteFileFromDB: vi.fn().mockResolvedValue(true),
+                    },
+                },
+            } as any;
+
+            await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+                mode: FullScanModes.NEWER_WINS,
+            });
+
+            await vi.advanceTimersByTimeAsync(1100);
+            expect(kvDBSetMock).toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+});
+
 describe("performFullScan", () => {
     let logger: LogFunction;
 
@@ -1162,6 +1753,83 @@ describe("performFullScan", () => {
         } as any;
 
         const result = await performFullScan(host, logger, errorManager as any, false, false);
+
+        expect(result).toBe(true);
+        expect(host.serviceModules.storageAccess.restoreState).toHaveBeenCalled();
+    });
+
+    it("should accept the options object form", async () => {
+        const errorManager = {
+            showError: vi.fn(),
+            clearError: vi.fn(),
+        };
+
+        async function* mockFindAllDocs() {
+            // Empty
+        }
+
+        async function* mockFindAllNormalDocs() {
+            yield {
+                _id: "doc1",
+                path: "file1.md",
+                size: 100,
+                type: "newnote",
+            };
+            await Promise.resolve();
+        }
+
+        const host = {
+            services: {
+                setting: {
+                    currentSettings: () => ({
+                        isConfigured: true,
+                        suspendFileWatching: false,
+                        maxMTimeForReflectEvents: 0,
+                        handleFilenameCaseSensitive: true,
+                        automaticallyDeleteMetadataOfDeletedFiles: 0,
+                    }),
+                },
+                keyValueDB: {
+                    kvDB: {
+                        get: vi.fn().mockResolvedValue(true),
+                        set: vi.fn(),
+                    },
+                },
+                vault: {
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                    isValidPath: vi.fn().mockReturnValue(true),
+                    isFileSizeTooLarge: vi.fn().mockReturnValue(false),
+                },
+                database: {
+                    localDatabase: {
+                        findAllDocs: vi.fn().mockReturnValue(mockFindAllDocs()),
+                        findAllNormalDocs: vi.fn().mockReturnValue(mockFindAllNormalDocs()),
+                        isReady: true,
+                    },
+                },
+                path: {
+                    getPath: vi.fn((doc: any) => doc.path),
+                    compareFileFreshness: vi.fn().mockReturnValue(EVEN),
+                },
+                fileProcessing: {},
+            },
+            serviceModules: {
+                storageAccess: {
+                    getFiles: vi.fn().mockReturnValue([{ path: "file1.md", stat: { size: 100, mtime: 100 } }]),
+                    restoreState: vi.fn(),
+                    getFileStub: vi.fn().mockResolvedValue({ path: "file1.md", stat: { size: 100, mtime: 100 } }),
+                },
+                fileHandler: {
+                    storeFileToDB: vi.fn(),
+                    dbToStorage: vi.fn(),
+                },
+            },
+        } as any;
+
+        const result = await performFullScan(host, logger, errorManager as any, {
+            mode: FullScanModes.NEWER_WINS,
+            showingNotice: true,
+        });
 
         expect(result).toBe(true);
         expect(host.serviceModules.storageAccess.restoreState).toHaveBeenCalled();

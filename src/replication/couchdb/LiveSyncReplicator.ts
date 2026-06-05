@@ -1,3 +1,4 @@
+import type PouchDB from "pouchdb-core";
 import {
     type EntryDoc,
     type EntryMilestoneInfo,
@@ -202,7 +203,6 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         return await manager.getPBKDF2Salt(refresh);
     }
 
-    // eslint-disable-next-line require-await
     async migrate(from: number, to: number): Promise<boolean> {
         Logger(`Database updated from ${from} to ${to}`, LOG_LEVEL_NOTICE);
         // no op now,
@@ -864,10 +864,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             } else if (ensure == "OK") {
                 // NO OP: FOR NARROWING TYPE
             } else if (ensure[0] == "MISMATCHED") {
-                Logger(
-                    `Configuration mismatching between the clients has been detected. This can be harmful or extra capacity consumption. We have to make these value unified. When replication is initiated manually via the command palette or ribbon, a dialogue box will open to address this.`,
-                    LOG_LEVEL_NOTICE
-                );
+                Logger($msg("liveSyncReplicator.mismatchedTweakDetected"), LOG_LEVEL_NOTICE);
                 this.tweakSettingsMismatched = true;
                 this.preferredTweakValue = ensure[1];
                 return false;
@@ -1140,8 +1137,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             async () => await this.getReplicationPBKDF2Salt(settings)
         );
     }
-    async _ensureConnection<T extends DatabaseEntry>(settings: RemoteDBSettings) {
-        const ret = await this.connectRemoteCouchDBWithSetting(settings, this.isMobile(), false, true);
+    async _ensureConnection<T extends DatabaseEntry>(
+        settings: RemoteDBSettings,
+        performSetup: boolean = false
+    ): Promise<PouchDB.Database<T>> {
+        const ret = await this.connectRemoteCouchDBWithSetting(settings, this.isMobile(), performSetup, true);
         if (typeof ret === "string") {
             throw new Error(`${$msg("liveSyncReplicator.couldNotConnectToServer")}:${ret}`);
         }
@@ -1184,7 +1184,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         doc: T,
         db?: PouchDB.Database<T>
     ): Promise<PouchDB.Core.Response> {
-        const connDB = db ?? (await this._ensureConnection(settings));
+        // The `putRemoteDocument` function may be called to update the salt,
+        // so we cannot skip the setup phase.
+        const connDB = db ?? (await this._ensureConnection(settings, true));
         return await connDB.put(doc);
     }
 

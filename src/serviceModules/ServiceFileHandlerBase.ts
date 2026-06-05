@@ -27,6 +27,7 @@ import type { SettingService } from "@lib/services/base/SettingService.ts";
 import type { VaultService } from "@lib/services/base/VaultService.ts";
 import { getStoragePathFromUXFileInfo } from "@lib/common/typeUtils";
 import { EVEN } from "../common/models/shared.const.symbols";
+import { tryGetFilePath } from "../common/utils.doc";
 
 export interface ServiceFileHandlerDependencies {
     API: APIService;
@@ -100,7 +101,7 @@ export abstract class ServiceFileHandlerBase
     ): Promise<boolean> {
         const file = await this.infoToStub(info);
         if (file == null) {
-            this._log(`File ${info} is not exist on the storage`, LOG_LEVEL_VERBOSE);
+            this._log(`File ${tryGetFilePath(info)} is not exist on the storage`, LOG_LEVEL_VERBOSE);
             return false;
         }
         // const file = item.args.file;
@@ -177,7 +178,7 @@ export abstract class ServiceFileHandlerBase
     async deleteFileFromDB(info: UXFileInfoStub | UXInternalFileInfoStub | FilePath): Promise<boolean> {
         const file = await this.infoToStub(info);
         if (file == null) {
-            this._log(`File ${info} is not exist on the storage`, LOG_LEVEL_VERBOSE);
+            this._log(`File ${tryGetFilePath(info)} is not exist on the storage`, LOG_LEVEL_VERBOSE);
             return false;
         }
         // const file = item.args.file;
@@ -236,7 +237,7 @@ export abstract class ServiceFileHandlerBase
     ): Promise<boolean> {
         const file = await this.infoToStub(info);
         if (file == null) {
-            this._log(`File ${info} is not exist on the storage`, LOG_LEVEL_VERBOSE);
+            this._log(`File ${tryGetFilePath(info)} is not exist on the storage`, LOG_LEVEL_VERBOSE);
             return false;
         }
         const docEntry = await this.db.fetchEntryMeta(file, rev, true);
@@ -292,6 +293,9 @@ export abstract class ServiceFileHandlerBase
             return true;
         }
         if (!existOnDB && existOnStorage) {
+            if (!force && (await this.preserveUnsyncedStorageAsConflict(path, existDoc, docEntry))) {
+                return true;
+            }
             // Deletion has been Transferred. Storage files will be deleted.
             // Note: If the folder becomes empty, the folder will be deleted if not configured to keep it.
             // And it does not care actually deleted.
@@ -349,6 +353,9 @@ export abstract class ServiceFileHandlerBase
                 this._log(`File ${docRead.path} is not changed`, LOG_LEVEL_VERBOSE);
                 return true;
             }
+            if (await this.preserveUnsyncedStorageAsConflict(path, existDoc, docEntry, docData)) {
+                return true;
+            }
             // Let's apply the changes.
         } else {
             this._log(
@@ -361,6 +368,32 @@ export abstract class ServiceFileHandlerBase
         await this.storage.touched(path);
         this.storage.triggerFileEvent(mode, path);
         return ret;
+    }
+
+    private async preserveUnsyncedStorageAsConflict(
+        path: FilePathWithPrefix,
+        existDoc: UXFileInfoStub,
+        incomingEntry: MetaEntry,
+        incomingContent?: string | string[] | Blob | ArrayBuffer
+    ): Promise<boolean> {
+        const readFile = await this.readFileFromStub(existDoc);
+        if (incomingContent && (await isDocContentSame(incomingContent, readFile.body))) {
+            return false;
+        }
+        if (!incomingEntry._rev) {
+            return false;
+        }
+        if (await this.db.hasContentInRevisionHistory(path, readFile.body, incomingEntry._rev)) {
+            return false;
+        }
+        const stored = await this.db.storeAsConflictedRevision(readFile, incomingEntry._rev, true);
+        if (!stored) {
+            this._log(`Prevented overwriting unsynchronised local changes for ${path}`, LOG_LEVEL_NOTICE);
+            return true;
+        }
+        this._log(`Preserved unsynchronised local changes as a conflict for ${path}`, LOG_LEVEL_NOTICE);
+        await this.conflict.queueCheckFor(path);
+        return true;
     }
 
     private async _anyHandlerProcessesFileEvent(item: FileEventItem): Promise<boolean> {
@@ -387,7 +420,7 @@ export abstract class ServiceFileHandlerBase
                     // this should be handled on the other module.
                     return false;
                 default:
-                    this._log(`Unsupported event type: ${type}`, LOG_LEVEL_VERBOSE);
+                    this._log(`Unsupported event type: ${type as string}`, LOG_LEVEL_VERBOSE);
                     return false;
             }
         });

@@ -31,11 +31,25 @@ import type { Advertisement } from "./types";
 
 export interface LiveSyncTrysteroReplicatorEnv extends LiveSyncReplicatorEnv {
     services: IServiceHub;
+    /**
+     * Injected by the host platform (e.g. Obsidian) to show a UI for peer selection.
+     * When not set, openReplication falls back to replicateFromCommand (CLI-safe).
+     */
+    openReplicationUI?: (showResult: boolean) => Promise<boolean | void>;
+    /**
+     * Injected by the host platform to show a UI for selecting a peer to rebuild from.
+     * When not set, replicateAllFromServer falls back to the headless selectPeer dialog.
+     */
+    openRebuildUI?: (showResult: boolean) => Promise<boolean | void>;
 }
 
 export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     private _p2pHost?: P2PHost;
     private _replicator?: TrysteroReplicator;
+
+    get openReplicationUI() {
+        return this.env.openReplicationUI;
+    }
 
     get rawReplicator() {
         return this._replicator;
@@ -76,24 +90,37 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             get confirm() {
                 return services.API.confirm;
             },
-            processReplicatedDocs: async (docs: any[]) => {
-                await services.replication.parseSynchroniseResult(docs as any);
+            processReplicatedDocs: async (docs: Parameters<typeof services.replication.parseSynchroniseResult>[0]) => {
+                const settings = services.setting.currentSettings();
+                if (settings.suspendParseReplicationResult) {
+                    const docLength = docs.length;
+                    if (docLength > 0) {
+                        Logger(
+                            `P2P sync, but parseReplicationResult is suspended. Ignoring ${docLength} documents.`,
+                            LOG_LEVEL_VERBOSE
+                        );
+                    }
+                    return;
+                }
+                await services.replication.parseSynchroniseResult(docs);
             },
         };
     }
 
     async open() {
-        if (this._replicator && this._p2pHost?.isServing) {
+        if (!this.env.services.setting.currentSettings().P2P_Enabled) {
+            Logger($msg("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
+            // Nothing to do.
             return;
         }
-        if (!this.env.services.setting.currentSettings().P2P_Enabled) {
-            // Nothing to do.
+        if (this._replicator && this._p2pHost?.isServing) {
+            Logger("P2P replicator is already open.");
             return;
         }
         try {
             const env = this._buildEnv();
-            const host = new P2PHost(env as any);
-            const replicator = new TrysteroReplicator(env as any, host);
+            const host = new P2PHost(env);
+            const replicator = new TrysteroReplicator(env, host);
             this._p2pHost = host;
             this._replicator = replicator;
             await replicator.open();
@@ -178,6 +205,14 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         return await this._replicator.sync(peerId, showNotice);
     }
 
+    setOnSetup() {
+        this._replicator?.setOnSetup();
+    }
+
+    clearOnSetup() {
+        this._replicator?.clearOnSetup();
+    }
+
     async makeDecision(decision: AcceptanceDecision) {
         await this._replicator?.server?.makeDecision(decision);
     }
@@ -198,12 +233,18 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         showResult: boolean,
         _ignoreCleanLock: boolean
     ): Promise<void | boolean> {
+        // If a UI handler was injected (e.g. Obsidian modal), use it.
+        if (this.openReplicationUI) {
+            return this.openReplicationUI(showResult);
+        }
+        // Fallback: CLI or headless environment — run non-interactive replication.
         const logLevel = showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
+
+        await this.makeSureOpened();
         if (!this._replicator) {
             Logger($msg("P2P.ReplicatorInstanceMissing"), logLevel);
             return false;
         }
-        await this._replicator.makeSureOpened();
         await this._replicator.replicateFromCommand(showResult);
     }
 
@@ -260,7 +301,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         const confirm = this.env.services.UI.confirm;
         if (!confirm) {
             Logger("Cannot find confirm instance.", logLevel);
-            return Promise.reject("Cannot find confirm instance.");
+            return Promise.reject(new Error("Cannot find confirm instance."));
         }
         let result;
         while (!result) {
@@ -269,7 +310,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
                     result = await func();
                     if (result) break;
                 } catch (e) {
-                    Logger("Error: " + e, logLevel);
+                    Logger(`Error: ${e instanceof Error ? e.message : String(e)}`, logLevel);
                     result = false;
                 }
                 await delay(1000);
@@ -292,13 +333,20 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             return this.replicateAllFromServer(setting, showingNotice);
         }
         await this.open();
-        await eventHub.waitFor(EVENT_P2P_CONNECTED);
 
-        const peerFrom = setting.P2P_RebuildFrom;
         if (!this._replicator) {
             Logger("Failed to get replicator instance.", logLevel);
             return false;
         }
+
+        // If a rebuild UI handler was injected (e.g. Obsidian modal), use it.
+        if (this.env.openRebuildUI) {
+            return (await this.env.openRebuildUI(showingNotice ?? false)) !== false;
+        }
+
+        // Fallback: headless peer-selection flow (CLI / non-Obsidian).
+        await eventHub.waitFor(EVENT_P2P_CONNECTED);
+        const peerFrom = setting.P2P_RebuildFrom;
         this._replicator.setOnSetup();
         try {
             const r = await this.tryUntilSuccess(

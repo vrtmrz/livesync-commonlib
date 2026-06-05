@@ -59,7 +59,7 @@ export class DatabaseWriteLayer implements IWriteLayer {
             if (error instanceof LiveSyncError) {
                 throw error;
             }
-            throw new LiveSyncError(`Database write layer error: ${error}`, { status: 500, cause: error as Error });
+            throw new LiveSyncError(`Database write layer error!`, { status: 500, cause: error as Error });
         }
     }
 }

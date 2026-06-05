@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { translateIfAvailable } from "@lib/common/i18n";
+    import { translateIfAvailable as translate } from "../../common/i18n.ts";
 
     type Props = {
         title: string;
@@ -10,12 +10,12 @@
     };
 
     let { title, value = $bindable(), noteOnSelected, noteOnUnselected, children }: Props = $props();
-    const displayTitle = $derived.by(() => translateIfAvailable(title));
+    const translatedTitle = $derived.by(() => translate(title));
 </script>
 
 <label class="choice-row">
     <input type="checkbox" bind:checked={value} />
-    <span class="choice-title">{displayTitle}</span>
+    <span class="choice-title">{translatedTitle}</span>
 </label>
 <div class="choice-notes">
     <!-- TODO Highlight selected option -->

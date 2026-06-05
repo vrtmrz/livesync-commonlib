@@ -1,6 +1,6 @@
 import { writeFileSync } from "fs";
 
-import { _allMessages as allMessages } from "../src/common/messages/combinedMessages.prod.ts";
+import { allMessages } from "../src/common/messages/combinedMessages.prod.ts";
 const __dirname = import.meta.dirname;
 import path from "path";
 const thisFileDir = __dirname;

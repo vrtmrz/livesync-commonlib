@@ -1,16 +1,16 @@
 <script lang="ts">
-    import { translateIfAvailable } from "@lib/common/i18n";
+    import { translateIfAvailable as translate } from "../../common/i18n.ts";
 
     type Props = {
         title?: string;
         children?: () => any;
     };
     const { children, title }: Props = $props();
-    const displayTitle = $derived.by(() => (title ? translateIfAvailable(title) : ""));
+    const translatedTitle = $derived.by(() => (title ? translate(title) : ""));
 </script>
 
 <details>
-    <summary>{displayTitle}</summary>
+    <summary>{translatedTitle}</summary>
     <div class="sub-section">
         {@render children?.()}
     </div>

@@ -1,6 +1,5 @@
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger";
-
 /**
  * A function type that can be used as a handler.
  */
@@ -329,7 +328,7 @@ export class AllHandler<T extends any[]> extends BooleanHandlerBase<T> {
                 }
             } catch (error) {
                 // On error, consider it as failure
-                Logger(`AllHandler ${this._name} treated error as failure: ${error}`, LOG_LEVEL_VERBOSE);
+                Logger(`AllHandler ${this._name} treated error as failure!`, LOG_LEVEL_VERBOSE);
                 Logger(error, LOG_LEVEL_VERBOSE);
                 return false;
             }
@@ -354,7 +353,8 @@ export class ParallelAllHandler<T extends any[]> extends BooleanHandlerBase<T> {
                 return result;
             } catch (error) {
                 // On error, consider it as failure
-                Logger(`ParallelAllHandler ${this._name} treated error as failure: ${error}`, LOG_LEVEL_VERBOSE);
+                Logger(`ParallelAllHandler ${this._name} treated error as failure!`, LOG_LEVEL_VERBOSE);
+                Logger(error, LOG_LEVEL_VERBOSE);
                 return false;
             }
         });
@@ -382,7 +382,8 @@ export class AnySuccessHandler<T extends any[]> extends BooleanHandlerBase<T> {
                 }
             } catch (error) {
                 // Ignore errors for 'first success' handler
-                Logger(`FirstSuccessHandler ${this._name} ignored error: ${error}`, LOG_LEVEL_VERBOSE);
+                Logger(`FirstSuccessHandler ${this._name} ignored error!`, LOG_LEVEL_VERBOSE);
+                Logger(error, LOG_LEVEL_VERBOSE);
             }
         }
         return false;
@@ -407,7 +408,8 @@ export class FirstResultHandler<T extends any[], U> extends MultiBinder<BooleanH
                     return result;
                 }
             } catch (error) {
-                Logger(`FirstResultHandler ${this._name} ignored error: ${error}`, LOG_LEVEL_VERBOSE);
+                Logger(`FirstResultHandler ${this._name} ignored error!`, LOG_LEVEL_VERBOSE);
+                Logger(error, LOG_LEVEL_VERBOSE);
             }
         }
         return false;
@@ -417,7 +419,7 @@ export class FirstResultHandler<T extends any[], U> extends MultiBinder<BooleanH
 /**
  * A function type that can be used as a handler with assignable functionality.
  */
-export interface HandlerFunction<TFunc extends (...args: any[]) => any | Promise<any>> {
+export interface HandlerFunction<TFunc extends (...args: any[]) => U | Promise<U>, U = any> {
     /**
      * Invokes the handler function with the provided arguments.
      */
@@ -434,7 +436,7 @@ export interface HandlerFunction<TFunc extends (...args: any[]) => any | Promise
 /**
  * A function type that can be used as a handler with assignable functionality.
  */
-export interface LazyHandlerFunction<TFunc extends (...args: any[]) => any | Promise<any>> {
+export interface LazyHandlerFunction<TFunc extends (...args: any[]) => U | Promise<U>, U = any> {
     /**
      * Invokes the handler function with the provided arguments.
      */
@@ -451,7 +453,7 @@ export interface LazyHandlerFunction<TFunc extends (...args: any[]) => any | Pro
 /**
  * A function type that can be used as a multiple handler with add/remove functionality.
  */
-export interface MultipleHandlerFunction<TFunc extends (...args: any[]) => any | Promise<any>> {
+export interface MultipleHandlerFunction<TFunc extends (...args: any[]) => U | Promise<U>, U = any> {
     /**
      * Invokes the handler function with the provided arguments.
      */
@@ -473,14 +475,14 @@ export interface MultipleHandlerFunction<TFunc extends (...args: any[]) => any |
 /**
  * A function type that can be used as a value-collecting handler with add/remove functionality.
  */
-export type CollectorFunction<TFunc extends (...args: any[]) => any | Promise<any>> = (
+export type CollectorFunction<TFunc extends (...args: any[]) => U | Promise<U>, U = any> = (
     ...args: Parameters<TFunc>
-) => Promise<Awaited<ReturnType<TFunc>>[number]>;
+) => Promise<Awaited<U>>;
 
 /**
  * A Handler function type that can have multiple handlers added or removed, and collects their results into an array.
  */
-export interface CollectiveHandlerFunction<TFunc extends (...args: any[]) => any[] | Promise<any[]>> {
+export interface CollectiveHandlerFunction<TFunc extends (...args: any[]) => U[] | Promise<U[]>, U = any> {
     /**
      * Invokes the handler function with the provided arguments.
      */
@@ -528,6 +530,8 @@ function getMultipleBound<T extends BooleanMultiBinderInstance<any>>(
 function getMultipleBound<T extends MultiBinderInstance<any, any>>(handler: T): MultipleHandlerFunction<T["invoke"]>;
 function getMultipleBound<T extends DispatchHandler<any, any>>(handler: T): CollectiveHandlerFunction<T["dispatch"]>;
 function getMultipleBound<T extends MultiBinderInstance<any, any> | DispatchHandler<any, any>>(handler: T) {
+    // Now we bind these methods.
+    // eslint-disable-next-line @typescript-eslint/unbound-method
     const _handler = "invoke" in handler ? handler.invoke : handler.dispatch;
     const __handler = _handler.bind(handler);
     const func = (...args: Parameters<typeof __handler>): ReturnType<typeof __handler> => {
@@ -601,70 +605,85 @@ export function lazyBindableFunction<TFunc extends (...args: any[]) => any>(name
 
 // === Helpers === (handlers<T> function) ===
 
-type FunctionKeys<T> = {
-    [K in keyof T]: T[K] extends (...args: any[]) => any ? K : never;
-}[keyof T];
+type FunctionKeys<T> = Extract<
+    {
+        [K in keyof T]: T[K] extends (...args: any[]) => any ? K : never;
+    }[keyof T],
+    string
+>;
 
-export function handlers<T extends Record<keyof T, ((...args: any[]) => any) | any>>() {
+export function handlers<T extends object>() {
     return {
         /**
          * Create a handler that invokes all added handler functions sequentially until one returns false.
          * @param name
          * @returns
          */
-        all<K extends FunctionKeys<T>>(name: K): BooleanMultipleHandlerFunction<T[K]> {
-            return allFunction<T[K]>(String(name));
+        all<K extends FunctionKeys<T>>(
+            name: K
+        ): BooleanMultipleHandlerFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>> {
+            return allFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>>(String(name));
         },
         /**
          * Create a handler that invokes all added handler functions in parallel and returns true only if all return true.
          * @param name
          * @returns
          */
-        allParallel<K extends FunctionKeys<T>>(name: K): BooleanMultipleHandlerFunction<T[K]> {
-            return allParallelFunction<T[K]>(String(name));
+        allParallel<K extends FunctionKeys<T>>(
+            name: K
+        ): BooleanMultipleHandlerFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>> {
+            return allParallelFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>>(String(name));
         },
         /**
          * Create a handler that invokes all added handler functions sequentially until one returns false.
          * @param name
          * @returns
          */
-        bailFirstFailure<K extends FunctionKeys<T>>(name: K): BooleanMultipleHandlerFunction<T[K]> {
-            return bailFirstFailureFunction<T[K]>(String(name));
+        bailFirstFailure<K extends FunctionKeys<T>>(
+            name: K
+        ): BooleanMultipleHandlerFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>> {
+            return bailFirstFailureFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>>(String(name));
         },
         /**
          * Create a handler that invokes all added handler functions sequentially until one returns true.
          * @param name
          * @returns
          */
-        anySuccess<K extends FunctionKeys<T>>(name: K): BooleanMultipleHandlerFunction<T[K]> {
-            return anySuccessFunction<T[K]>(String(name));
+        anySuccess<K extends FunctionKeys<T>>(
+            name: K
+        ): BooleanMultipleHandlerFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>> {
+            return anySuccessFunction<Extract<T[K], (...args: any[]) => Promise<boolean>>>(String(name));
         },
         /**
          * Create a handler that invokes all added handler functions sequentially until one returns a non-falsy value.
          * @param name
          * @returns
          */
-        firstResult<K extends FunctionKeys<T>>(name: K): MultipleHandlerFunction<T[K]> {
-            return firstResultFunction<T[K]>(String(name));
+        firstResult<K extends FunctionKeys<T>>(
+            name: K
+        ): MultipleHandlerFunction<Extract<T[K], (...args: any[]) => Promise<any>>> {
+            return firstResultFunction<Extract<T[K], (...args: any[]) => Promise<any>>>(String(name));
         },
         /**
          * Create a handler that invokes all added handler functions in parallel.
          * @param name
          * @returns
          */
-        dispatchParallel<K extends FunctionKeys<T>>(name: K): CollectiveHandlerFunction<T[K]> {
-            return dispatchParallelFunction<T[K]>(String(name));
+        dispatchParallel<K extends FunctionKeys<T>>(
+            name: K
+        ): CollectiveHandlerFunction<Extract<T[K], (...args: any[]) => Promise<any[]>>> {
+            return dispatchParallelFunction<Extract<T[K], (...args: any[]) => Promise<any[]>>>(String(name));
         },
         /**
          * Create a binder handler that can assign a single handler function.
          * @param name
          * @returns
          */
-        binder<K extends FunctionKeys<T>>(name: K): HandlerFunction<T[K]> {
-            return bindableFunction<T[K]>(String(name));
+        binder<K extends FunctionKeys<T>>(name: K): HandlerFunction<Extract<T[K], (...args: any[]) => any>> {
+            return bindableFunction<Extract<T[K], (...args: any[]) => any>>(String(name));
         },
-        lazyBinder<K extends FunctionKeys<T>>(name: K): LazyHandlerFunction<T[K]> {
-            return lazyBindableFunction<T[K]>(String(name));
+        lazyBinder<K extends FunctionKeys<T>>(name: K): LazyHandlerFunction<Extract<T[K], (...args: any[]) => any>> {
+            return lazyBindableFunction<Extract<T[K], (...args: any[]) => any>>(String(name));
         },
     };
 }

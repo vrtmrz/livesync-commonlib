@@ -1,34 +1,36 @@
 <script lang="ts">
     import { onMount, tick } from "svelte";
-    import { translateIfAvailable } from "@lib/common/i18n";
+    import { translateIfAvailable as translate } from "../../common/i18n.ts";
     import { getDialogContext } from "../svelteDialog.ts";
+    import { _activeDocument } from "../../common/coreEnvFunctions.ts";
 
     type Props = {
         title: string;
         subtitle?: string;
         children?: () => unknown;
     };
-    let { title = $bindable(), subtitle, children }: Props = $props();
-    const displayTitle = $derived.by(() => translateIfAvailable(title));
-    const displaySubtitle = $derived.by(() => (subtitle ? translateIfAvailable(subtitle) : ""));
+    let { title = $bindable(), subtitle }: Props = $props();
+    const context = getDialogContext();
+    const translatedTitle = $derived.by(() => translate(title));
+    const translatedSubtitle = $derived.by(() => (subtitle ? translate(subtitle) : ""));
+    const modalTitle = $derived.by(() => `${translatedTitle}${translatedSubtitle ? ` - ${translatedSubtitle}` : ""}`);
 
     $effect(() => {
-        if (displayTitle) {
-            context.setTitle(`${displayTitle}${displaySubtitle ? ` - ${displaySubtitle}` : ""}`);
+        if (translatedTitle) {
+            context.setTitle(modalTitle);
         }
     });
-    const context = getDialogContext();
     onMount(async () => {
-        context.setTitle(`${displayTitle}${displaySubtitle ? ` - ${displaySubtitle}` : ""}`);
+        context.setTitle(modalTitle);
         await tick();
-        document.querySelector(".modal")?.scrollTo(0, 0);
+        _activeDocument.querySelector(".modal")?.scrollTo(0, 0);
     });
 </script>
 
 <div class="dialog-header">
-    <h2>{displayTitle}</h2>
-    {#if displaySubtitle}
-        <h4>{displaySubtitle}</h4>
+    <h2>{translatedTitle}</h2>
+    {#if translatedSubtitle}
+        <h4>{translatedSubtitle}</h4>
     {/if}
 </div>
 

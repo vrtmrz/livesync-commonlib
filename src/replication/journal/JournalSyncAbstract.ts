@@ -699,7 +699,18 @@ export abstract class JournalSyncAbstract {
                 LOG_LEVEL_VERBOSE
             );
             await this.db.bulkDocs<EntryDoc>(saveDocs, { new_edits: false });
-            await this.processReplication(saveDocs as PouchDB.Core.ExistingDocument<EntryDoc>[]);
+            // Only process if parsing is not suspended.
+            const writeDoc = !this.env.services.setting.currentSettings().suspendParseReplicationResult;
+            if (writeDoc) {
+                await this.processReplication(saveDocs satisfies PouchDB.Core.ExistingDocument<EntryDoc>[]);
+            } else {
+                if (saveDocs.length > 0) {
+                    Logger(
+                        `Skipping processing replication for ${saveDocs.length} docs as it is suspended.`,
+                        LOG_LEVEL_VERBOSE
+                    );
+                }
+            }
             await this.updateCheckPointInfo((info) => ({
                 ...info,
                 knownIDs: setAllItems(

@@ -10,19 +10,20 @@ import {
     TweakValuesTemplate,
     type TweakValues,
     type NodeData,
-} from "../../common/types.ts";
-import { Logger } from "../../common/logger.ts";
+} from "@lib/common/types.ts";
+import { Logger } from "@lib/common/logger.ts";
 
 import { JournalSyncMinio } from "./objectstore/JournalSyncMinio.ts";
 
 import { LiveSyncAbstractReplicator, type RemoteDBStatus } from "../LiveSyncAbstractReplicator.ts";
-import { ensureRemoteIsCompatible, type ENSURE_DB_RESULT } from "../../pouchdb/LiveSyncDBFunctions.ts";
+import { ensureRemoteIsCompatible, type ENSURE_DB_RESULT } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import type { CheckPointInfo } from "./JournalSyncTypes.ts";
-import { fireAndForget, type SimpleStore } from "../../common/utils.ts";
+import { fireAndForget, type SimpleStore } from "@lib/common/utils.ts";
 
-import { extractObject } from "../../common/utils.ts";
+import { extractObject } from "@lib/common/utils.ts";
 import { clearHandlers } from "../SyncParamsHandler.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
+import { $msg } from "@lib/common/i18n.ts";
 
 const MILSTONE_DOCID = "_00000000-milestone.json";
 
@@ -101,7 +102,6 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         });
     }
 
-    // eslint-disable-next-line require-await
     async migrate(from: number, to: number): Promise<boolean> {
         Logger(`Database updated from ${from} to ${to}`, LOG_LEVEL_NOTICE);
         // no op now,
@@ -172,10 +172,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             } else if (ensure == "OK") {
                 /* NO OP FOR NARROWING */
             } else if (ensure[0] == "MISMATCHED") {
-                Logger(
-                    `Configuration mismatching between the clients has been detected. This can be harmful or extra capacity consumption. We have to make these value unified. When replication is initiated manually via the command palette or ribbon, a dialogue box will open to address this.`,
-                    LOG_LEVEL_NOTICE
-                );
+                Logger($msg("liveSyncReplicator.mismatchedTweakDetected"), LOG_LEVEL_NOTICE);
                 this.tweakSettingsMismatched = true;
                 this.preferredTweakValue = ensure[1];
                 return false;
@@ -183,7 +180,6 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         }
         return true;
     }
-    // eslint-disable-next-line require-await
     async fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]> {
         return Promise.resolve([]);
     }
@@ -300,7 +296,9 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             if (!remoteMilestone) {
                 throw new Error("Missing remote milestone");
             }
-            remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = extractObject(TweakValuesTemplate, { ...setting });
+            remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = extractObject(TweakValuesTemplate, {
+                ...setting,
+            }) satisfies TweakValues;
             Logger(`tweak values on the remote database have been cleared`, LOG_LEVEL_VERBOSE);
             await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone);
         } catch (ex) {

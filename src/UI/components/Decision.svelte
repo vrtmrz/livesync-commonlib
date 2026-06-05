@@ -1,6 +1,6 @@
 <script lang="ts">
+    import { translateIfAvailable as translate } from "../../common/i18n.ts";
     import { fireAndForget } from "octagonal-wheels/promises";
-    import { translateIfAvailable } from "@lib/common/i18n";
 
     type Props = {
         title: string;
@@ -11,7 +11,7 @@
         disabled?: boolean;
     };
     let { title, commit, additionalClasses, important, disabled = $bindable(), destructive }: Props = $props();
-    const displayTitle = $derived.by(() => translateIfAvailable(title));
+    const translatedTitle = $derived.by(() => translate(title));
     function onclick() {
         fireAndForget(async () => commit());
     }
@@ -20,5 +20,5 @@
 <button
     class="button {additionalClasses} {important ? 'mod-cta' : ''} {destructive ? 'mod-destructive' : ''}"
     {onclick}
-    {disabled}>{displayTitle}</button
+    {disabled}>{translatedTitle}</button
 >

@@ -104,11 +104,11 @@ export async function path2id_base(
     let filename = `${filenameSrc}`;
     const newPrefix = obfuscatePassphrase ? PREFIX_OBFUSCATED : "";
     if (caseInsensitive) {
-        filename = filename.toLowerCase() as FilePathWithPrefix;
+        filename = filename.toLowerCase();
     }
 
     let x = filename;
-    if (x.startsWith("_")) x = ("/" + x) as FilePathWithPrefix;
+    if (x.startsWith("_")) x = "/" + x;
 
     if (!obfuscatePassphrase) {
         return (newPrefix + x) as DocumentID;

@@ -2,11 +2,13 @@ import { PartialMessages as def } from "./def.ts";
 import { PartialMessages as de } from "./de.ts";
 import { PartialMessages as es } from "./es.ts";
 import { PartialMessages as fr } from "./fr.ts";
+import { PartialMessages as he } from "./he.ts";
 import { PartialMessages as ja } from "./ja.ts";
 import { PartialMessages as ko } from "./ko.ts";
 import { PartialMessages as ru } from "./ru.ts";
 import { PartialMessages as zh } from "./zh.ts";
 import { PartialMessages as zhTw } from "./zh-tw.ts";
+import { expandKeywords, type MESSAGE } from "../rosetta.ts";
 
 type MessageKeys = keyof typeof def.def;
 
@@ -15,6 +17,7 @@ const messages = {
     ...de,
     ...es,
     ...fr,
+    ...he,
     ...ja,
     ...ko,
     ...ru,
@@ -36,4 +39,16 @@ const _allMessages = w.reduce(
     {} as Record<string, Record<string, string>>
 ) as Record<MessageKeys, { [key: string]: string }>;
 
-export { _allMessages, type MessageKeys };
+const expandedMessage = {
+    ...expandKeywords(_allMessages, "def"),
+    ...expandKeywords(_allMessages, "es"),
+    ...expandKeywords(_allMessages, "fr"),
+    ...expandKeywords(_allMessages, "ja"),
+    ...expandKeywords(_allMessages, "ko"),
+    ...expandKeywords(_allMessages, "ru"),
+    ...expandKeywords(_allMessages, "zh"),
+    ...expandKeywords(_allMessages, "zh-tw"),
+};
+
+export const allMessages = expandedMessage as { [key: string]: MESSAGE };
+export { type MessageKeys };

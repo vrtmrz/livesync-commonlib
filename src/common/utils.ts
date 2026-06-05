@@ -50,10 +50,12 @@ import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "./models/shared.const.symbols.
 export type { SimpleStore };
 
 export { sizeToHumanReadable } from "octagonal-wheels/number";
+import { compatGlobal } from "./coreEnvFunctions";
+import { ensureError } from "./utils.object.ts";
 
 export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T> {
     return new Promise((res, rej) => {
-        p.then(res).catch((ex) => (isErrorOfMissingDoc(ex) ? res(def) : rej(ex)));
+        p.then(res).catch((ex) => (isErrorOfMissingDoc(ex) ? res(def) : rej(ensureError(ex))));
     });
 }
 
@@ -126,7 +128,7 @@ export function readContent(doc: LoadedEntry) {
     }
 }
 
-const isIndexDBCmpExist = typeof globalThis?.indexedDB?.cmp !== "undefined";
+const isIndexDBCmpExist = typeof compatGlobal?.indexedDB?.cmp !== "undefined";
 
 export async function isDocContentSame(
     docA: string | string[] | Blob | ArrayBuffer,
@@ -136,7 +138,7 @@ export async function isDocContentSame(
     const blob2 = createBlob(docB);
     if (blob1.size != blob2.size) return false;
     if (isIndexDBCmpExist) {
-        return globalThis.indexedDB.cmp(await blob1.arrayBuffer(), await blob2.arrayBuffer()) === 0;
+        return compatGlobal.indexedDB.cmp(await blob1.arrayBuffer(), await blob2.arrayBuffer()) === 0;
     }
     const checkQuantum = 10000;
     const length = blob1.size;
@@ -348,9 +350,9 @@ export function unescapeNewLineFromString(str: string) {
     return p;
 }
 
-export function escapeMarkdownValue(value: any) {
+export function escapeMarkdownValue<T>(value: T): T {
     if (typeof value === "string") {
-        return replaceAllPairs(value, ["|", "\\|"], ["`", "\\`"]);
+        return replaceAllPairs(value, ["|", "\\|"], ["`", "\\`"]) as unknown as T;
     } else {
         return value;
     }
@@ -384,7 +386,7 @@ export async function wrapException<T>(func: () => Promise<Awaited<T>>): Promise
         if (ex instanceof Error) {
             return ex;
         }
-        return new Error(ex);
+        return new Error(String(ex));
     }
 }
 
@@ -412,8 +414,8 @@ export function toRanges(sorted: number[]) {
     return ranges.join(",");
 }
 
-const previousValues = new Map<string, any>();
-export function isDirty(key: string, value: any) {
+const previousValues = new Map<string, unknown>();
+export function isDirty(key: string, value: unknown) {
     const prev = previousValues.get(key);
     if (prev === value) return false;
     previousValues.set(key, value);
@@ -430,9 +432,9 @@ export function isObjectMargeApplicable(path: string) {
     return false;
 }
 
-export function tryParseJSON(str: string, fallbackValue?: any) {
+export function tryParseJSON<T extends object>(str: string, fallbackValue?: T): T | undefined {
     try {
-        return JSON.parse(str);
+        return JSON.parse(str) as T;
     } catch {
         return fallbackValue;
     }
@@ -798,8 +800,9 @@ export function pickP2PSyncSettings(setting: Partial<ObsidianLiveSyncSettings> &
 export function wrapByDefault<T, U>(func: () => T, onError: (err: Error) => U): T | U {
     try {
         return func();
-    } catch (ex: any) {
-        return onError(ex);
+    } catch (ex) {
+        const error = ex instanceof Error ? ex : new Error(String(ex));
+        return onError(error);
     }
 }
 
@@ -820,4 +823,35 @@ export function compareMTime(
 export function displayRev(rev: string) {
     const [number, hash] = rev.split("-");
     return `${number}-${hash.substring(0, 6)}`;
+}
+
+/**
+ * Generate a random P2P Room ID in the format `123-456-789-abc`.
+ */
+export function generateP2PRoomId(): string {
+    const randomValues = new Uint16Array(4);
+    crypto.getRandomValues(randomValues);
+    const MAX_UINT16 = 65536;
+    const a = Math.floor((randomValues[0] / MAX_UINT16) * 1000);
+    const b = Math.floor((randomValues[1] / MAX_UINT16) * 1000);
+    const c = Math.floor((randomValues[2] / MAX_UINT16) * 1000);
+    const dRange = 36 * 36 * 36;
+    const d = Math.floor((randomValues[3] / MAX_UINT16) * dRange);
+    return `${a.toString().padStart(3, "0")}-${b.toString().padStart(3, "0")}-${c
+        .toString()
+        .padStart(3, "0")}-${d.toString(36).padStart(3, "0")}`;
+}
+
+/**
+ * Extract the stable suffix (last segment) from a Room ID.
+ */
+export function extractP2PRoomSuffix(roomId: string): string {
+    const trimmed = roomId.trim();
+    if (trimmed === "") return "";
+    const parts = trimmed
+        .split("-")
+        .map((e) => e.trim())
+        .filter((e) => e);
+    if (parts.length === 0) return "";
+    return parts[parts.length - 1] ?? "";
 }

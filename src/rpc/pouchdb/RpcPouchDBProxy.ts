@@ -1,3 +1,8 @@
+// This module defines RpcPouchDBProxy, a PouchDB-compatible proxy.
+// Now this implementation is a sample and for Node.js environment. Hence,
+// eslint rules are disabled for CIs. I will refactor this module or move to a
+// separate file.
+// eslint-disable-next-line import/no-nodejs-modules
 import EventEmitter from "events";
 import { RpcError } from "../errors";
 import type { RpcSession } from "../RpcSession";

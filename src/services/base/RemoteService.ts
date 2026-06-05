@@ -1,7 +1,13 @@
 import type { CouchDBCredentials, EntryDoc } from "@lib/common/types";
 import type { IRemoteService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
-import { LOG_LEVEL_DEBUG, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type LOG_LEVEL } from "@lib/common/types";
+import {
+    LOG_LEVEL_DEBUG,
+    LOG_LEVEL_INFO,
+    LOG_LEVEL_NOTICE,
+    LOG_LEVEL_VERBOSE,
+    type LOG_LEVEL,
+} from "@lib/common/types";
 import { replicationFilter } from "@lib/pouchdb/compress";
 import { disableEncryption, enableEncryption } from "@lib/pouchdb/encryption";
 import { isCloudantURI, isValidRemoteCouchDBURI } from "@lib/pouchdb/utils_couchdb";
@@ -148,13 +154,16 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
             adapter: "http",
             auth: "username" in auth ? auth : undefined,
             skip_setup: !performSetup,
-            fetch: async (url: string | Request, opts?: RequestInit) => {
+            fetch: async (requestSrc: string | Request, opts?: RequestInit) => {
+                const url = new URL(typeof requestSrc === "string" ? requestSrc : requestSrc.url);
                 const authHeader = await this._authHeader.getAuthorizationHeader(auth);
                 let size = "";
                 const localURL = url.toString().substring(uri.length);
                 const method = opts?.method ?? "GET";
                 if (opts?.body) {
-                    const opts_length = opts.body.toString().length;
+                    const bodyLength =
+                        typeof opts.body === "string" ? opts.body.length : JSON.stringify(opts.body).length;
+                    const opts_length = isNaN(bodyLength) ? 0 : bodyLength;
                     if (opts_length > 1000 * 1000 * 10) {
                         // over 10MB
                         if (isCloudantURI(uri)) {
@@ -213,7 +222,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                         // }
                         // this.clearErrors();
                         const response = await this.performFetch(
-                            url,
+                            requestSrc,
                             { ...opts, headers },
                             useRequestAPI ? FetchMethod.native : FetchMethod.webCompat
                         );
@@ -231,7 +240,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                             //     ...opts,
                             //     headers,
                             // });
-                            const resp2 = await this.performFetch(url, { ...opts, headers }, FetchMethod.native);
+                            const resp2 = await this.performFetch(requestSrc, { ...opts, headers }, FetchMethod.native);
                             if (resp2.status / 100 == 2) {
                                 this.showError(
                                     "The request was successful by API. But the native fetch API failed! Please check CORS settings on the remote database!. While this condition, you cannot enable LiveSync",
@@ -249,7 +258,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                 } catch (ex: any) {
                     this._log(`HTTP:${method}${size} to:${localURL} -> failed`, LOG_LEVEL_VERBOSE);
                     const msg = ex instanceof Error ? `${ex?.name}:${ex?.message}` : ex?.toString();
-                    this.showError(`${MARK_LOG_NETWORK_ERROR}Network Error: Failed to fetch: ${msg}`); // Do not show notice, due to throwing below
+                    this.showError(`${MARK_LOG_NETWORK_ERROR}Network Error: Failed to fetch: ${msg}`, LOG_LEVEL_INFO); // Do not show notice, due to throwing below
                     this._log(ex, LOG_LEVEL_VERBOSE);
                     // limit only in bulk_docs.
                     if (url.toString().indexOf("_bulk_docs") !== -1) {

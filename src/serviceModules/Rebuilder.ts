@@ -1,5 +1,5 @@
 import { FlagFilesHumanReadable } from "@lib/common/models/redflag.const";
-import { REMOTE_MINIO } from "@lib/common/models/setting.const";
+import { REMOTE_COUCHDB, REMOTE_MINIO } from "@lib/common/models/setting.const";
 import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
 import type { IFileHandler } from "@lib/interfaces/FileHandler";
 import type { APIService } from "@lib/services/base/APIService";
@@ -20,6 +20,10 @@ import { eventHub } from "@lib/hub/hub";
 import { EVENT_DATABASE_REBUILT } from "@lib/events/coreEvents";
 import { ServiceModuleBase } from "@lib/serviceModules/ServiceModuleBase";
 import type { ControlService } from "../services/base/ControlService";
+import { fetchChangesForInitialSync } from "@lib/pouchdb/StreamingFetch";
+import { getConfiguredFunctionsForEncryption } from "@lib/pouchdb/encryption";
+import { AuthorizationHeaderGenerator, generateCredentialObject } from "@lib/replication/httplib";
+import { sizeToHumanReadable } from "octagonal-wheels/number";
 
 export interface ServiceRebuilderDependencies {
     appLifecycle: AppLifecycleService;
@@ -164,6 +168,10 @@ Please enable them from the settings screen after setup is complete.`,
         return this.fetchLocal(makeLocalChunkBeforeSync, preventMakeLocalFilesBeforeSync);
     }
 
+    $fetchLocalDBFast(autoResume: boolean): Promise<void> {
+        return this.fetchLocalDBFast(autoResume);
+    }
+
     async scheduleRebuild(): Promise<void> {
         try {
             await this.storageAccess.writeFileAuto(FlagFilesHumanReadable.REBUILD_ALL, "");
@@ -220,10 +228,10 @@ Please enable them from the settings screen after setup is complete.`,
         });
         await this.setting.suspendExtraSync();
     }
-    async suspendReflectingDatabase() {
+    async suspendReflectingDatabase(ignoreMinIO: boolean = false) {
         const settings = this.setting.currentSettings();
         if (settings.doNotSuspendOnFetching) return;
-        if (settings.remoteType == REMOTE_MINIO) return;
+        if (!ignoreMinIO && settings.remoteType == REMOTE_MINIO) return;
         this._log(
             `Suspending reflection: Database and storage changes will not be reflected in each other until completely finished the fetching.`,
             LOG_LEVEL_NOTICE
@@ -234,10 +242,10 @@ Please enable them from the settings screen after setup is complete.`,
         });
         await this.setting.saveSettingData();
     }
-    async resumeReflectingDatabase() {
+    async resumeReflectingDatabase(ignoreMinIO: boolean = false) {
         const settings = this.setting.currentSettings();
         if (settings.doNotSuspendOnFetching) return;
-        if (settings.remoteType == REMOTE_MINIO) return;
+        if (!ignoreMinIO && settings.remoteType == REMOTE_MINIO) return;
         this._log(`Database and storage reflection has been resumed!`, LOG_LEVEL_NOTICE);
         await this.setting.applyPartial({
             suspendParseReplicationResult: false,
@@ -248,7 +256,7 @@ Please enable them from the settings screen after setup is complete.`,
         await this.setting.saveSettingData();
     }
 
-    async fetchLocal(makeLocalChunkBeforeSync?: boolean, preventMakeLocalFilesBeforeSync?: boolean) {
+    async fetchLocal(makeLocalChunkBeforeSync?: boolean, preventMakeLocalFilesBeforeSync?: boolean, autoResume = true) {
         await this.setting.suspendExtraSync();
         // await this.askUseNewAdapter();
         await this.setting.applyPartial({
@@ -259,7 +267,7 @@ Please enable them from the settings screen after setup is complete.`,
         if (settings.maxMTimeForReflectEvents > 0) {
             const date = new Date(settings.maxMTimeForReflectEvents);
 
-            const ask = `Your settings restrict file reflection times to no later than ${date}.
+            const ask = `Your settings restrict file reflection times to no later than ${date.toLocaleString()}.
 
 **This is a recovery configuration.**
 
@@ -282,7 +290,8 @@ Are you sure you wish to proceed?`;
                 return;
             }
         }
-        await this.suspendReflectingDatabase();
+        // If autoResume is disabled, do not suspend reflection even for Minio.
+        await this.suspendReflectingDatabase(!autoResume);
         await this.control.applySettings();
         await this.resetLocalDatabase();
         await delay(1000);
@@ -304,11 +313,94 @@ Are you sure you wish to proceed?`;
         await this.replication.replicateAllFromRemote(true);
         await delay(1000);
         await this.replication.replicateAllFromRemote(true);
-        await this.resumeReflectingDatabase();
-        await this.informOptionalFeatures();
-        // No longer enable
-        // await this.askUsingOptionalFeature({ enableFetch: true });
+        if (autoResume) {
+            await this.finishRebuild();
+        }
     }
+
+    async fetchLocalDBFast(autoResume: boolean) {
+        await this.setting.suspendExtraSync();
+        await this.setting.applyPartial({
+            isConfigured: true,
+            notifyThresholdOfRemoteStorageSize: DEFAULT_SETTINGS.notifyThresholdOfRemoteStorageSize,
+        });
+        const settings = this.setting.currentSettings();
+        if (settings.remoteType !== REMOTE_COUCHDB) {
+            this._log(
+                "Fast database fetch is available only for CouchDB remote. Falling back to standard fetch.",
+                LOG_LEVEL_NOTICE
+            );
+            await this.fetchLocal(false, true, autoResume);
+            return;
+        }
+
+        await this.suspendReflectingDatabase();
+        await this.control.applySettings();
+        await this.resetLocalDatabase();
+        await delay(1000);
+        await this.database.openDatabase({
+            databaseEvents: this.databaseEvents,
+            replicator: this.replicator,
+        });
+        this.appLifecycle.markIsReady();
+
+        const localDB = this.database.localDatabase.localDatabase;
+        const replicator = this.replicator.getActiveReplicator() ?? (await this.replicator.getNewReplicator());
+        if (!replicator) {
+            throw new Error("No active replicator found for fast fetch.");
+        }
+        const salt = () => replicator.getReplicationPBKDF2Salt(settings);
+        const enc = getConfiguredFunctionsForEncryption(
+            settings.passphrase,
+            false,
+            false,
+            salt,
+            settings.E2EEAlgorithm
+        );
+
+        const authHeader = await new AuthorizationHeaderGenerator().getAuthorizationHeader(
+            generateCredentialObject(settings)
+        );
+        const remote =
+            settings.couchDB_URI.replace(/\/+$/, "") +
+            (settings.couchDB_DBNAME == "" ? "" : "/" + settings.couchDB_DBNAME);
+
+        await fetchChangesForInitialSync(localDB, remote, authHeader, enc.outgoing, "0", (progress) => {
+            this._log(
+                `Fast fetch progress: ${progress.totalValidFetched} / ${progress.docsToFetch}\nTotal bytes fetched: ${sizeToHumanReadable(progress.totalBytes)}`,
+                LOG_LEVEL_NOTICE,
+                "fetch-init-progress"
+            );
+        });
+
+        const allDocs = await localDB.allDocs({ include_docs: false });
+        this._log(
+            `Fast database fetch completed. Total documents in local database: ${allDocs.total_rows}`,
+            LOG_LEVEL_NOTICE,
+            "fetch-init-complete"
+        );
+
+        await this.replication.markResolved();
+        if (autoResume) {
+            await this.resumeReflectingDatabase(true);
+        }
+    }
+
+    /**
+     * Finish rebuild process with resuming the reflection.
+     *
+     * @param ignoreMinIO Whether to ignore minio for resuming the reflection.
+     */
+    async finishRebuild(ignoreMinIO: boolean = true) {
+        await this.resumeReflectingDatabase(ignoreMinIO);
+    }
+
+    /**
+     * Fetch local database with making all chunks.
+     * This is a wrapper for {@link fetchLocal} with makeLocalChunkBeforeSync = true.
+     *
+     * @returns
+     */
     async fetchLocalWithRebuild() {
         return await this.fetchLocal(true);
     }

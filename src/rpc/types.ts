@@ -89,7 +89,7 @@ export type RpcRoomOptions = {
     onProtocolWarning?: (message: string, peerId?: string) => void;
 };
 
-export type RpcMethodHandler = (peerId: string, ...args: JsonLike[]) => JsonLike | Promise<JsonLike>;
+export type RpcMethodHandler<T extends JsonLike[], U> = (peerId: string, ...args: T) => U | Promise<U>;
 
 export type RpcRegisterOptions = {
     serial?: boolean;

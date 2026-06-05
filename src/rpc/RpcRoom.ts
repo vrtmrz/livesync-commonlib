@@ -1,3 +1,4 @@
+import { compatGlobal } from "../common/coreEnvFunctions";
 import { IncomingChunkBuffer, estimateBytes, splitIntoChunks } from "./chunking";
 import { asRpcErrorShape, RpcError } from "./errors";
 import { RpcSession } from "./RpcSession";
@@ -15,15 +16,15 @@ import {
 type PendingInvocation = {
     resolve: (value: JsonLike) => void;
     reject: (reason?: unknown) => void;
-    timeoutHandle?: ReturnType<typeof setTimeout>;
+    timeoutHandle?: number;
 };
 
 type InboundCallContext = {
     cancelled: boolean;
 };
 
-type RegisteredMethod = {
-    handler: RpcMethodHandler;
+type RegisteredMethod<T extends JsonLike[], U> = {
+    handler: RpcMethodHandler<T, U>;
     serial: boolean;
     queue: Promise<void>;
 };
@@ -45,11 +46,11 @@ export class RpcRoom {
     private options: Required<Pick<RpcRoomOptions, "maxWirePayloadBytes" | "chunkMissingRetryMs">> & RpcRoomOptions;
     private pending = new Map<string, PendingInvocation>();
     private inboundCalls = new Map<string, InboundCallContext>();
-    private methods = new Map<string, RegisteredMethod>();
+    private methods = new Map<string, RegisteredMethod<any, any>>();
     private sessions = new Map<string, RpcSession>();
     private outgoingChunkMap = new Map<string, OutgoingChunkState>();
     private incomingChunkMap = new Map<string, IncomingChunkBuffer>();
-    private incomingChunkTimers = new Map<string, ReturnType<typeof setTimeout>>();
+    private incomingChunkTimers = new Map<string, number>();
     private peerVersion = new Map<string, { major: number; minor: number }>();
     private disposer: (() => void) | undefined;
 
@@ -88,7 +89,7 @@ export class RpcRoom {
         this.sessions.clear();
         this.outgoingChunkMap.clear();
         this.incomingChunkMap.clear();
-        this.incomingChunkTimers.forEach((h) => clearTimeout(h));
+        this.incomingChunkTimers.forEach((h) => compatGlobal.clearTimeout(h));
         this.incomingChunkTimers.clear();
     }
 
@@ -100,7 +101,11 @@ export class RpcRoom {
         return s;
     }
 
-    register(method: string, handler: RpcMethodHandler, options: RpcRegisterOptions = {}) {
+    register<T extends JsonLike[], U>(
+        method: string,
+        handler: RpcMethodHandler<T, U>,
+        options: RpcRegisterOptions = {}
+    ) {
         if (!validNamespacedMethod(method)) {
             throw new RpcError("PROTOCOL_ERROR", `Method must be namespaced: ${method}`);
         }
@@ -119,7 +124,7 @@ export class RpcRoom {
         const p = new Promise<JsonLike>((resolve, reject) => {
             const pending: PendingInvocation = { resolve, reject };
             if (timeoutMs > 0) {
-                pending.timeoutHandle = setTimeout(() => {
+                pending.timeoutHandle = compatGlobal.setTimeout(() => {
                     this.pending.delete(requestId);
                     reject(new RpcError("TIMEOUT", `RPC timed out: ${method}`));
                 }, timeoutMs);
@@ -169,8 +174,8 @@ export class RpcRoom {
 
     private scheduleMissingAck(streamId: string, peerId: string) {
         const existing = this.incomingChunkTimers.get(streamId);
-        if (existing) clearTimeout(existing);
-        const handle = setTimeout(() => {
+        if (existing) compatGlobal.clearTimeout(existing);
+        const handle = compatGlobal.setTimeout(() => {
             const state = this.incomingChunkMap.get(streamId);
             if (!state || state.isComplete()) return;
             const missing = state.missingIndices();
@@ -194,7 +199,7 @@ export class RpcRoom {
             this.scheduleMissingAck(message.streamId, peerId);
             if (state.isComplete()) {
                 const timer = this.incomingChunkTimers.get(message.streamId);
-                if (timer) clearTimeout(timer);
+                if (timer) compatGlobal.clearTimeout(timer);
                 this.incomingChunkTimers.delete(message.streamId);
                 this.incomingChunkMap.delete(message.streamId);
                 await this.options.transport.send(
@@ -255,7 +260,7 @@ export class RpcRoom {
             const pending = this.pending.get(envelope.requestId);
             if (!pending) return;
             this.pending.delete(envelope.requestId);
-            if (pending.timeoutHandle) clearTimeout(pending.timeoutHandle);
+            if (pending.timeoutHandle) compatGlobal.clearTimeout(pending.timeoutHandle);
             if (envelope.ok) {
                 pending.resolve(envelope.data);
             } else {
@@ -312,7 +317,7 @@ export class RpcRoom {
                 if (ctx.cancelled) {
                     throw new RpcError("CANCELLED", "Invocation cancelled");
                 }
-                const data = await method.handler(peerId, ...envelope.args);
+                const data = (await method.handler(peerId, ...envelope.args)) as JsonLike;
                 if (ctx.cancelled) {
                     throw new RpcError("CANCELLED", "Invocation cancelled");
                 }
