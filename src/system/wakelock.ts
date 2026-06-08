@@ -55,7 +55,7 @@ export async function withWakeLock<T>(callback: () => Promise<T>): Promise<T> {
         // Re-acquire when the screen becomes active again
         if (compatGlobal.document.visibilityState === "visible" && !lock) {
             Logger(`Document became visible, re-acquiring wake lock`, LOG_LEVEL_VERBOSE);
-            requestLock();
+            void requestLock();
         }
     };
 
@@ -80,7 +80,7 @@ export async function withWakeLock<T>(callback: () => Promise<T>): Promise<T> {
             try {
                 await lock.release();
                 Logger(`Wake lock released manually`, LOG_LEVEL_VERBOSE);
-            } catch (e) {
+            } catch {
                 Logger(`Failed to release wake lock`, LOG_LEVEL_VERBOSE);
             }
         }

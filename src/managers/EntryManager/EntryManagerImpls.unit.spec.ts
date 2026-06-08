@@ -180,6 +180,35 @@ describe("EntryManagerImpls", () => {
             expect(isTargetFile(host, "ignored/file.md")).toBe(false);
             expect(isTargetFile(host, "normal/file.md")).toBe(true);
         });
+
+        it("should return false for hidden files when syncInternalFiles is false", () => {
+            const services = createMockServices({
+                syncInternalFiles: false,
+            });
+            const host = createHost(services.mockSettingService);
+            expect(isTargetFile(host, ".hidden.md")).toBe(false);
+            expect(isTargetFile(host, ".obsidian/workspace.json")).toBe(false);
+            expect(isTargetFile(host, "i:.hidden.md")).toBe(false);
+            expect(isTargetFile(host, ".trash/deleted-file.md")).toBe(false);
+        });
+
+        it("should return true for hidden files when syncInternalFiles is true", () => {
+            const services = createMockServices({
+                syncInternalFiles: true,
+            });
+            const host = createHost(services.mockSettingService);
+            expect(isTargetFile(host, ".hidden.md")).toBe(true);
+            expect(isTargetFile(host, ".obsidian/workspace.json")).toBe(true);
+            expect(isTargetFile(host, "i:.hidden.md")).toBe(true);
+        });
+
+        it("should return true for customisation sync files even when syncInternalFiles is false", () => {
+            const services = createMockServices({
+                syncInternalFiles: false,
+            });
+            const host = createHost(services.mockSettingService);
+            expect(isTargetFile(host, "ix:device/CONFIG/app.json.md")).toBe(true);
+        });
     });
 
     describe("prepareChunk", () => {
