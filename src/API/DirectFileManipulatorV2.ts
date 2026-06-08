@@ -139,6 +139,16 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
             database: this.getBoundDatabaseService(() => this.options),
         });
 
+        // Keep API handlers safe by default before init starts.
+        // Some code paths log during database bootstrap, and handler binders throw if unassigned.
+        const api = this.services.API as any;
+        if (typeof api?.addLog?.setHandler === "function") {
+            api.addLog.setHandler(() => {});
+        }
+        if (typeof api?.getSystemVaultName?.setHandler === "function") {
+            api.getSystemVaultName.setHandler(() => "livesync-headless");
+        }
+
         // (this.services.setting as InjectableSettingService<ServiceContext>).currentSettings.setHandler(
         //     getSettings.bind(this)
         // );
