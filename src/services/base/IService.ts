@@ -49,12 +49,14 @@ export interface ICommandCompat {
 
 export interface IAPIService {
     getCustomFetchHandler(): FetchHttpHandler;
+    addStatusBarItem(): HTMLElement | undefined;
 
     addLog(message: any, level: LOG_LEVEL, key?: string): void;
 
     isMobile(): boolean;
 
     showWindow(type: string): Promise<void>;
+    showWindowOnRight?(type: string): Promise<void>;
 
     getAppID(): string;
 
@@ -75,6 +77,9 @@ export interface IAPIService {
     isOnline: boolean;
     webCompatFetch(url: string | Request, opts?: RequestInit): Promise<Response>;
     nativeFetch(url: string | Request, opts?: RequestInit): Promise<Response>;
+    setInterval(handler: () => void, timeout: number): number;
+    clearInterval(timerId: number): void;
+    getSystemConfigDir(): string;
 }
 export interface IPathService {
     id2path(id: DocumentID, entry?: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
@@ -134,6 +139,7 @@ export interface IDatabaseEventService {
 }
 export interface IKeyValueDBService {
     openSimpleStore<T>(kind: string): SimpleStore<T>;
+    simpleStore: SimpleStore<any>;
 }
 export interface IFileProcessingService {
     processFileEvent(item: FileEventItem): Promise<boolean>;
@@ -250,7 +256,7 @@ export interface IAppLifecycleService {
     onSettingLoaded(): Promise<boolean>;
     onLoaded(): Promise<boolean>;
     onScanningStartupIssues(): Promise<boolean>;
-    onAppUnload(): Promise<void>;
+    onAppUnload(): Promise<undefined[]>;
     onBeforeUnload(): Promise<boolean>;
     onUnload(): Promise<boolean>;
     onSuspending(): Promise<boolean>;
@@ -299,6 +305,11 @@ export interface ISettingService {
 
     saveDeviceAndVaultName(): void;
 
+    onBeforeSaveSettingData(
+        nextSettings: ObsidianLiveSyncSettings,
+        previousSettings: ObsidianLiveSyncSettings
+    ): Promise<(Partial<ObsidianLiveSyncSettings> | void)[]>;
+
     saveSettingData(): Promise<void>;
 
     currentSettings(): ObsidianLiveSyncSettings;
@@ -307,6 +318,7 @@ export interface ISettingService {
         updateFn: (current: ObsidianLiveSyncSettings) => ObsidianLiveSyncSettings,
         saveImmediately?: boolean
     ): Promise<void>;
+    applyExternalSettings(partial: Partial<ObsidianLiveSyncSettings>, saveImmediately?: boolean): Promise<void>;
     applyPartial(partial: Partial<ObsidianLiveSyncSettings>, saveImmediately?: boolean): Promise<void>;
 
     onSettingLoaded(settings: ObsidianLiveSyncSettings): Promise<boolean>;
@@ -346,6 +358,8 @@ export interface IVaultService {
 
     isTargetFile(file: string | UXFileInfoStub): Promise<boolean>;
 
+    isTargetFileInExtra(file: string | UXFileInfoStub): Promise<boolean>;
+
     isFileSizeTooLarge(size: number): boolean;
 
     getActiveFilePath(): FilePath | undefined;
@@ -353,6 +367,7 @@ export interface IVaultService {
     isStorageInsensitive(): boolean;
 
     shouldCheckCaseInsensitively(): boolean;
+
     isValidPath(path: string): boolean;
 }
 export interface ITestService {
@@ -407,4 +422,5 @@ export interface IControlService {
     onReady(): Promise<boolean>;
     onUnload(): Promise<void>;
     hasUnloaded(): boolean;
+    activated: Promise<boolean>;
 }

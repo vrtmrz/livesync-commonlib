@@ -66,7 +66,17 @@ export function splitPieces2WorkerRabinKarp(
     filename?: string,
     useSegmenter?: boolean
 ) {
-    return splitPiecesRabinKarp(dataSrc, pieceSize, plainSplit, minimumChunkSize, filename, useSegmenter ?? false);
+    return async function* () {
+        const splitter = await splitPiecesRabinKarp(
+            dataSrc,
+            pieceSize,
+            plainSplit,
+            minimumChunkSize,
+            filename,
+            useSegmenter ?? false
+        );
+        yield* splitter();
+    };
 }
 
 export function encryptWorker(input: string, passphrase: string, autoCalculateIterations: boolean): Promise<string> {
@@ -97,8 +107,8 @@ export function startWorker(data: Omit<EncryptHKDFArguments, "key">): EncryptHKD
 export function startWorker(data: Omit<EncryptArguments, "key">): EncryptProcessItem;
 export function startWorker(data: Omit<SplitArguments, "key">): SplitProcessItem;
 export function startWorker(data: Omit<EncryptArguments | SplitArguments | EncryptHKDFArguments, "key">): ProcessItem {
-    const task = promiseWithResolvers<string | null>();
-    task.resolve();
+    const task = promiseWithResolvers<string>();
+    task.resolve("");
     return {
         task: task,
         key: 0,
@@ -110,3 +120,5 @@ export function startWorker(data: Omit<EncryptArguments | SplitArguments | Encry
 }
 
 export const tasks = new Map<number, ProcessItem>();
+
+export function initialiseWorkerModule() {}

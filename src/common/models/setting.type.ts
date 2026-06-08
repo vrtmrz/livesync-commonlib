@@ -593,6 +593,11 @@ export interface P2PConnectionInfo {
      * The TURN credential (password, secret, etc...) for the P2P connection.
      */
     P2P_turnCredential: string;
+
+    /**
+     * Use Diagnostic Wrapper for RTCPeerConnection to collect statistics.
+     */
+    P2P_useDiagRTC?: boolean;
 }
 export interface P2PSyncSetting extends P2PConnectionInfo {
     P2P_AutoAccepting: AutoAccepting;
@@ -816,6 +821,12 @@ interface DataOnRemoteDBSettings {
      * VersionUp flash message which is shown when some incompatible changes are made during the update.
      */
     versionUpFlash: string;
+
+    /**
+     * Unix timestamp (ms) of the latest tweak update.
+     * Used to determine which side has newer tweak values.
+     */
+    tweakModified: number | undefined;
 }
 
 /**
@@ -873,6 +884,12 @@ interface RemoteDBTweakSettings {
      * (Note: Mismatched settings can lead to inappropriate de-duplication, leading to storage wastage and increased traffic).
      */
     disableCheckingConfigMismatch: boolean;
+
+    /**
+     * Automatically accepts compatible-but-lossy tweak mismatches.
+     * If undefined, the feature is not configured yet.
+     */
+    autoAcceptCompatibleTweak: boolean | undefined;
 }
 
 /**
@@ -975,6 +992,44 @@ interface DeletedFileMetadataSettings {
     automaticallyDeleteMetadataOfDeletedFiles: number;
 }
 
+/**
+ * Represents a single remote configuration.
+ */
+export interface RemoteConfiguration {
+    /**
+     * Unique identifier for this configuration.
+     */
+    id: string;
+    /**
+     * Display name for the configuration.
+     */
+    name: string;
+    /**
+     * The connection string (URI) for the remote.
+     * This may be an encrypted string if configPassphraseStore is set.
+     */
+    uri: string;
+    /**
+     * Indicates whether this configuration is encrypted.
+     */
+    isEncrypted: boolean;
+}
+export interface RemoteConfigurations {
+    /**
+     * The list of remote configurations.
+     */
+    remoteConfigurations: Record<string, RemoteConfiguration>;
+    /**
+     * The ID of the currently active remote configuration.
+     */
+    activeConfigurationId: string;
+
+    /**
+     * The ID of the active remote configuration dedicated for P2P features.
+     * If empty, P2P features should request explicit selection from the user.
+     */
+    P2P_ActiveRemoteConfigurationId: string;
+}
 interface ObsidianLiveSyncSettings_PluginSetting
     extends
         SyncMethodSettings,
@@ -992,7 +1047,8 @@ interface ObsidianLiveSyncSettings_PluginSetting
         DebugModeSettings,
         SettingSyncSettings,
         SafetyValveSettings,
-        DataOnSettings {}
+        DataOnSettings,
+        RemoteConfigurations {}
 
 export type RemoteDBSettings = CouchDBConnection &
     BucketSyncSetting &
@@ -1013,7 +1069,8 @@ export type RemoteDBSettings = CouchDBConnection &
     ConflictHandlingSettings &
     EdgeCaseHandlingSettings &
     DeletedFileMetadataSettings &
-    P2PSyncSetting;
+    P2PSyncSetting &
+    RemoteConfigurations;
 
 export type ObsidianLiveSyncSettings = ObsidianLiveSyncSettings_PluginSetting & RemoteDBSettings & LocalDBSettings;
 

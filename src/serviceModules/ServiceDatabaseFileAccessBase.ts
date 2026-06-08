@@ -83,6 +83,14 @@ export class ServiceDatabaseFileAccessBase
     async store(file: UXFileInfo, force: boolean = false, skipCheck?: boolean): Promise<boolean> {
         return await this.__store(file, force, skipCheck, false);
     }
+    async storeAsConflictedRevision(file: UXFileInfo, currentRev: string, skipCheck?: boolean): Promise<boolean> {
+        const conflictBaseRev = await this.getParentRev(file, currentRev);
+        if (!conflictBaseRev) {
+            this._log(`Could not find parent revision for ${file.path} (${currentRev})`, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+        return await this.__store(file, true, skipCheck, false, conflictBaseRev);
+    }
     async storeContent(path: FilePathWithPrefix, content: string): Promise<boolean> {
         const blob = createTextBlob(content);
         const bytes = (await blob.arrayBuffer()).byteLength;
@@ -106,7 +114,8 @@ export class ServiceDatabaseFileAccessBase
         file: UXFileInfo,
         force: boolean = false,
         skipCheck?: boolean,
-        onlyChunks?: boolean
+        onlyChunks?: boolean,
+        conflictBaseRev?: string
     ): Promise<boolean> {
         if (!skipCheck) {
             if (!(await this.checkIsTargetFile(file))) {
@@ -170,6 +179,9 @@ export class ServiceDatabaseFileAccessBase
         //upsert should locked
         const msg = `STORAGE -> DB (${datatype}) `;
         const isNotChanged = await serialized("file-" + fullPath, async () => {
+            if (conflictBaseRev) {
+                return false;
+            }
             if (force) {
                 this._log(msg + "Force writing " + fullPath, LOG_LEVEL_VERBOSE);
                 return false;
@@ -211,12 +223,67 @@ export class ServiceDatabaseFileAccessBase
             this._log(msg + " Skip " + fullPath, LOG_LEVEL_VERBOSE);
             return true;
         }
-        const ret = await this.database.localDatabase.putDBEntry(d, onlyChunks);
+        const ret = await this.database.localDatabase.putDBEntry(d, onlyChunks, conflictBaseRev);
         if (ret !== false) {
             this._log(msg + fullPath);
             eventHub.emitEvent(EVENT_FILE_SAVED);
         }
         return ret != false;
+    }
+
+    private async getParentRev(file: UXFileInfoStub | FilePathWithPrefix, rev: string): Promise<string | false> {
+        const filename = getDatabasePathFromUXFileInfo(file);
+        try {
+            const doc = await this.database.localDatabase.getDBEntryMeta(filename, { rev, revs: true }, true);
+            if (doc === false) {
+                return false;
+            }
+            const revisions = (doc as { _revisions?: { start: number; ids: string[] } })._revisions;
+            if (!revisions || revisions.ids.length < 2) {
+                return false;
+            }
+            return `${revisions.start - 1}-${revisions.ids[1]}`;
+        } catch (ex) {
+            this._log(`Could not read revision history for ${filename} (${rev})`, LOG_LEVEL_VERBOSE);
+            this._log(ex, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+    }
+
+    async hasContentInRevisionHistory(
+        file: UXFileInfoStub | FilePathWithPrefix,
+        content: string | string[] | Blob | ArrayBuffer,
+        currentRev?: string
+    ): Promise<boolean> {
+        if (!(await this.checkIsTargetFile(file))) {
+            return true;
+        }
+        const filename = getDatabasePathFromUXFileInfo(file);
+        try {
+            const doc = await this.database.localDatabase.getDBEntryMeta(
+                filename,
+                { rev: currentRev, revs_info: true },
+                true
+            );
+            if (doc === false) {
+                return false;
+            }
+            const revisions = (doc as LoadedEntry & { _revs_info?: { rev: string; status: string }[] })._revs_info;
+            const availableRevs = new Set((revisions || []).filter((e) => e.status === "available").map((e) => e.rev));
+            if (currentRev) {
+                availableRevs.add(currentRev);
+            }
+            for (const rev of availableRevs) {
+                const entry = await this.database.localDatabase.getDBEntry(filename, { rev }, false, true, true);
+                if (entry !== false && (await isDocContentSame(readContent(entry), content))) {
+                    return true;
+                }
+            }
+        } catch (ex) {
+            this._log(`Could not check revision history for ${filename}`, LOG_LEVEL_VERBOSE);
+            this._log(ex, LOG_LEVEL_VERBOSE);
+        }
+        return false;
     }
 
     async getConflictedRevs(file: UXFileInfoStub | FilePathWithPrefix): Promise<string[]> {
@@ -288,7 +355,7 @@ export class ServiceDatabaseFileAccessBase
         if (skipCheck && !(await this.checkIsTargetFile(meta.path))) {
             return false;
         }
-        const doc = await this.database.localDatabase.getDBEntryFromMeta(meta as LoadedEntry, false, waitForReady);
+        const doc = await this.database.localDatabase.getDBEntryFromMeta(meta, false, waitForReady);
         if (doc === false) {
             return false;
         }

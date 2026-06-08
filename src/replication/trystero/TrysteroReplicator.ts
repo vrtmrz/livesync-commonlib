@@ -1,3 +1,4 @@
+import type PouchDB from "pouchdb-core";
 import { TweakValuesShouldMatchedTemplate, type EntryDoc, type ObsidianLiveSyncSettings } from "../../common/types";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
 import { replicateShim, type PouchDBShim, type ProgressInfo } from "../../pouchdb/ReplicatorShim";
@@ -6,17 +7,13 @@ import { type Advertisement, type ReplicatorHostEnv } from "./types";
 import { TrysteroConnection } from "./TrysteroReplicatorP2PConnection";
 import { scheduleOnceIfDuplicated, serialized, skipIfDuplicated } from "octagonal-wheels/concurrency/lock_v2";
 import { delay, fireAndForget } from "octagonal-wheels/promises";
-import {
-    EVENT_P2P_REPLICATOR_PROGRESS,
-    EVENT_P2P_REPLICATOR_STATUS,
-    type TrysteroReplicatorP2PServer,
-} from "./TrysteroReplicatorP2PServer";
+import { EVENT_P2P_REPLICATOR_PROGRESS, EVENT_P2P_REPLICATOR_STATUS, P2PHost } from "./TrysteroReplicatorP2PServer";
 import { eventHub } from "../../hub/hub";
 import { encryptWithEphemeralSalt, decryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
 import { $msg } from "../../common/i18n";
 import { sha1 } from "octagonal-wheels/hash/purejs";
 import { isObjectDifferent } from "octagonal-wheels/object";
-import { getRelaySockets, pauseRelayReconnection, resumeRelayReconnection } from "trystero/nostr";
+import { getRelaySockets, pauseRelayReconnection, resumeRelayReconnection } from "@trystero-p2p/nostr";
 
 async function encrypt(data: string, passphrase: string) {
     return await encryptWithEphemeralSalt(data, passphrase, true);
@@ -90,7 +87,7 @@ async function getHashedStringWithCurrentTime(source: string) {
 export class TrysteroReplicator {
     _env: ReplicatorHostEnv;
 
-    server?: TrysteroReplicatorP2PServer;
+    server?: P2PHost;
     replicationStatus() {
         return {};
     }
@@ -111,8 +108,12 @@ export class TrysteroReplicator {
         return this._env.confirm;
     }
 
-    constructor(env: ReplicatorHostEnv) {
+    constructor(env: ReplicatorHostEnv, server?: P2PHost) {
         this._env = env;
+        if (server) {
+            this.server = server;
+            return;
+        }
         try {
             if (!this.settings.P2P_Enabled) {
                 Logger("P2P is not enabled", LOG_LEVEL_VERBOSE);
@@ -217,7 +218,8 @@ export class TrysteroReplicator {
                 if (this._onSetup) {
                     return { error: new Error("The setup is in progress") };
                 }
-                return await this.replicateFrom(fromPeerId);
+                const result = await this.replicateFrom(fromPeerId);
+                return result;
             },
             "!reqAuth": async (fromPeerId: string) => {
                 return await this.server?.isAcceptablePeer(fromPeerId);
@@ -270,7 +272,7 @@ export class TrysteroReplicator {
             },
             onProgressAcknowledged: async (fromPeerId: string, info: ProgressInfo) => {
                 try {
-                    await this.onProgressAcknowledged(fromPeerId, info);
+                    await Promise.resolve(this.onProgressAcknowledged(fromPeerId, info));
                 } catch (e) {
                     Logger("Error while acknowledging the progress", LOG_LEVEL_VERBOSE);
                     Logger(e, LOG_LEVEL_VERBOSE);
@@ -320,31 +322,37 @@ export class TrysteroReplicator {
         }
     }
 
-    async selectPeer() {
-        if (!this.server) return false;
-        const knownPeers = this.server.knownAdvertisements;
-        if (knownPeers.length === 0) {
-            Logger("No known peers", LOG_LEVEL_VERBOSE);
-            return false;
-        }
+    // async selectPeer() {
+    //     if (!this.server) return false;
+    //     const knownPeers = this.server.knownAdvertisements;
+    //     if (knownPeers.length === 0) {
+    //         Logger("No known peers", LOG_LEVEL_VERBOSE);
+    //         return false;
+    //     }
 
-        const peers = [...Object.entries(knownPeers)].map(([peerId, info]) => {
-            return `${info.peerId}\u2001: (${info.name})`;
-        });
+    //     const peers = [...Object.entries(knownPeers)].map(([peerId, info]) => {
+    //         return `${info.peerId}\u2001: (${info.name})`;
+    //     });
 
-        const selectedPeer = await this.confirm.askSelectString("Select a peer to replicate", peers);
-        if (selectedPeer) return selectedPeer.split("\u2001")[0];
-        return false;
-    }
+    //     const selectedPeer = await this.confirm.askSelectString("Select a peer to replicate", peers);
+    //     if (selectedPeer) return selectedPeer.split("\u2001")[0];
+    //     return false;
+    // }
 
     lastSeq = "" as string | number;
     async requestSynchroniseToPeer(
         peerId: string
-    ): Promise<ReturnType<ReturnType<typeof this.getCommands>["reqSync"]>> {
+    ): Promise<Awaited<ReturnType<ReturnType<typeof this.getCommands>["reqSync"]>>> {
         await delay(25);
         if (!this.server) throw new Error("Server is not available");
+        // Logger(`P2P requesting remote sync from ${peerId}`, LOG_LEVEL_NOTICE, "p2p-replicator");
         const conn = this.server.getConnection(peerId);
-        return await conn.invokeRemoteFunction("reqSync", [this.server.serverPeerId], 0);
+        const result = await conn.invokeRemoteFunction<
+            [string],
+            Awaited<ReturnType<ReturnType<typeof this.getCommands>["reqSync"]>>
+        >("reqSync", [this.server.serverPeerId], 0);
+        // Logger(`P2P remote sync request returned from ${peerId}`, LOG_LEVEL_NOTICE, "p2p-replicator");
+        return result;
     }
 
     async requestSynchroniseToAllAvailablePeers() {
@@ -444,30 +452,31 @@ export class TrysteroReplicator {
             Logger("Error while syncing from the remote", logLevel, "p2p-replicator");
             Logger(res.error, LOG_LEVEL_VERBOSE);
         }
+        // Logger(`P2P sync finished with ${remotePeer}`, LOG_LEVEL_NOTICE, "p2p-replicator");
     }
 
     _replicateToPeers = new Set<string>();
-    async replicateTo() {
-        await this.makeSureOpened();
-        const remotePeer = await this.selectPeer();
-        if (!remotePeer) {
-            Logger("No peer selected", LOG_LEVEL_VERBOSE);
-            return;
-        }
-        Logger(`P2P Replicating to ${remotePeer}`, LOG_LEVEL_INFO);
-        try {
-            if (this._replicateToPeers.has(remotePeer)) {
-                Logger(`Replication to ${remotePeer} is already in progress`, LOG_LEVEL_VERBOSE);
-                return;
-            }
-            this._replicateToPeers.add(remotePeer);
-            this.dispatchStatus();
-            return await this.requestSynchroniseToPeer(remotePeer);
-        } finally {
-            this._replicateToPeers.delete(remotePeer);
-            this.dispatchStatus();
-        }
-    }
+    // async replicateTo() {
+    //     await this.makeSureOpened();
+    //     const remotePeer = await this.selectPeer();
+    //     if (!remotePeer) {
+    //         Logger("No peer selected", LOG_LEVEL_VERBOSE);
+    //         return;
+    //     }
+    //     Logger(`P2P Replicating to ${remotePeer}`, LOG_LEVEL_INFO);
+    //     try {
+    //         if (this._replicateToPeers.has(remotePeer)) {
+    //             Logger(`Replication to ${remotePeer} is already in progress`, LOG_LEVEL_VERBOSE);
+    //             return;
+    //         }
+    //         this._replicateToPeers.add(remotePeer);
+    //         this.dispatchStatus();
+    //         return await this.requestSynchroniseToPeer(remotePeer);
+    //     } finally {
+    //         this._replicateToPeers.delete(remotePeer);
+    //         this.dispatchStatus();
+    //     }
+    // }
 
     _replicateFromPeers = new Set<string>();
 
@@ -523,12 +532,12 @@ export class TrysteroReplicator {
     acknowledgeProgress(remotePeerId: string, info?: ProgressInfo) {
         if (!this.server) return;
         const connection = this.server.getConnection(remotePeerId);
-        try {
-            void connection.invokeRemoteFunction("onProgressAcknowledged", [this.server.serverPeerId, info], 500);
-        } catch (ex) {
-            Logger("Error while acknowledging the progress", LOG_LEVEL_VERBOSE);
-            Logger(ex, LOG_LEVEL_VERBOSE);
-        }
+        void connection
+            .invokeRemoteFunction("onProgressAcknowledged", [this.server.serverPeerId, info], 500)
+            .catch((ex) => {
+                Logger("Error while acknowledging the progress", LOG_LEVEL_VERBOSE);
+                Logger(ex, LOG_LEVEL_VERBOSE);
+            });
     }
     async replicateFrom(remotePeer: string, showNotice: boolean = false, fromStart = false) {
         const logLevel = showNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
@@ -557,6 +566,21 @@ export class TrysteroReplicator {
             }
             const connection = this.server.getConnection(remotePeer);
             const remoteDB = connection.remoteDB;
+            Logger(`P2P replicateFrom preparing remote DB info for ${remotePeer}`, LOG_LEVEL_VERBOSE, "p2p-replicator");
+            const remoteDBInfo = await remoteDB.info();
+            Logger(
+                `P2P replicateFrom remote DB info for ${remotePeer}: ${remoteDBInfo.db_name} seq=${remoteDBInfo.update_seq}`,
+                LOG_LEVEL_VERBOSE,
+                "p2p-replicator"
+            );
+            const localDBInfo = await this.db.info();
+            Logger(
+                `P2P replicateFrom local DB info for ${remotePeer}: ${localDBInfo.db_name} seq=${localDBInfo.update_seq}`,
+                LOG_LEVEL_VERBOSE,
+                "p2p-replicator"
+            );
+            Logger(`P2P replicateFrom entering replicateShim for ${remotePeer}`, LOG_LEVEL_VERBOSE, "p2p-replicator");
+            // const batchSize = 8;
             await replicateShim(
                 this.db,
                 remoteDB as PouchDBShim<any>,
@@ -571,8 +595,9 @@ export class TrysteroReplicator {
                         "p2p-replicator"
                     );
                 },
-                { live: false, rewind: fromStart }
+                { live: false, rewind: fromStart /*, batch_size: batchSize */ }
             );
+            Logger(`P2P replicateFrom replicateShim returned for ${remotePeer}`, LOG_LEVEL_VERBOSE, "p2p-replicator");
             void this.acknowledgeProgress(remotePeer, undefined);
             Logger(`P2P Replication from ${remotePeer} has been completed`, logLevel, "p2p-replicator");
         } catch (e) {
@@ -714,7 +739,6 @@ export class TrysteroReplicator {
             "Some mismatched configuration have been detected... Please check settings for efficient replication.",
             LOG_LEVEL_NOTICE
         );
-
         return true;
     }
 
@@ -730,7 +754,7 @@ export class TrysteroReplicator {
                 .map((e) => e.trim())
                 .filter((e) => e);
             if (peers.length == 0) {
-                Logger($msg("P2P.NoAutoSyncPeers"), logLevel);
+                Logger($msg("P2P.NoAutoSyncPeers"), LOG_LEVEL_NOTICE);
                 return Promise.resolve(false);
             }
 
@@ -752,7 +776,9 @@ export class TrysteroReplicator {
     }
 
     disconnectFromServer() {
-        const connections = getRelaySockets();
+        // Trystero does not provide typings for getRelaySockets.
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-call
+        const connections = getRelaySockets() as Record<string, { close: () => void; onclose: (() => void) | null }>;
         const sockets = Object.entries(connections);
         pauseRelayReconnection();
         sockets.forEach(([, s]) => {

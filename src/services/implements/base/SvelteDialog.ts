@@ -4,6 +4,7 @@ import type { ReplicatorService } from "@lib/services/base/ReplicatorService";
 import type { Confirm } from "@/lib/src/interfaces/Confirm";
 import { getContext, mount, setContext, unmount, type Component } from "svelte";
 import { LOG_LEVEL_NOTICE, Logger } from "@/lib/src/common/logger";
+import { $msg } from "@/lib/src/common/i18n";
 import { fireAndForget, promiseWithResolvers, type PromiseWithResolvers } from "octagonal-wheels/promises";
 import { eventHub } from "@/lib/src/hub/hub";
 import { EVENT_PLUGIN_UNLOADED } from "@/lib/src/events/coreEvents";
@@ -95,7 +96,7 @@ export function SvelteDialogMixIn<TBase extends Constructor<IModalBase>>(TBase: 
         component!: ComponentHasResult<T, U>;
         result?: T;
         initialData?: U;
-        title: string = "Obsidian LiveSync - Setup Wizard";
+        title: string = "Self-hosted LiveSync - Setup Wizard";
 
         initDialog(
             context: C,
@@ -172,7 +173,7 @@ export function SvelteDialogMixIn<TBase extends Constructor<IModalBase>>(TBase: 
 }
 
 export abstract class SvelteDialogManagerBase<T extends ServiceContext> {
-    abstract openSvelteDialog<T, U>(component: ComponentHasResult<T, U>, initialData?: U): Promise<T | undefined>;
+    abstract openSvelteDialog<T, U = T>(component: ComponentHasResult<T, U>, initialData?: U): Promise<T | undefined>;
 
     protected _context: T;
     protected _dependents: SvelteDialogManagerDependencies<T>;
@@ -188,10 +189,10 @@ export abstract class SvelteDialogManagerBase<T extends ServiceContext> {
         this._context = c;
         this._dependents = dependents;
     }
-    async open<T, U>(component: ComponentHasResult<T, U>, initialData?: U): Promise<T | undefined> {
+    async open<T, U = T>(component: ComponentHasResult<T, U>, initialData?: U): Promise<T | undefined> {
         return await this.openSvelteDialog<T, U>(component, initialData);
     }
-    async openWithExplicitCancel<T, U>(component: ComponentHasResult<T, U>, initialData?: U): Promise<T> {
+    async openWithExplicitCancel<T, U = T>(component: ComponentHasResult<T, U>, initialData?: U): Promise<T> {
         for (let i = 0; i < 10; i++) {
             const ret = await this.openSvelteDialog<T, U>(component, initialData);
             if (ret !== undefined) {
@@ -200,7 +201,7 @@ export abstract class SvelteDialogManagerBase<T extends ServiceContext> {
             if (this.dependents.control.hasUnloaded()) {
                 throw new Error("Operation cancelled due to app shutdown.");
             }
-            Logger("Please select 'Cancel' explicitly to cancel this operation.", LOG_LEVEL_NOTICE);
+            Logger($msg("Please select 'Cancel' explicitly to cancel this operation."), LOG_LEVEL_NOTICE);
         }
         throw new Error("Operation Forcibly cancelled by user.");
     }

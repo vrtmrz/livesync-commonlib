@@ -7,7 +7,7 @@ import WorkerX from "./bg.worker.ts?worker&inline";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 import { info, LOG_KIND_ERROR } from "octagonal-wheels/common/logger.js";
 import { encryptionOnWorker, encryptionHKDFOnWorker, handleTaskEncrypt } from "./bgWorker.encryption.ts";
-import { _splitPieces2Worker, handleTaskSplit } from "./bgWorker.splitting.ts";
+import { _splitPieces2Worker, handleTaskSplit, abortSplitTasks } from "./bgWorker.splitting.ts";
 import type {
     EncryptArguments,
     EncryptHKDFArguments,
@@ -21,6 +21,8 @@ import type {
 export type WorkerInstance = {
     worker: Worker;
     processing: number;
+    /** Keys of tasks currently dispatched to this worker instance. */
+    taskKeys: Set<number>;
 };
 
 export function splitPieces2Worker(
@@ -79,6 +81,20 @@ export function decryptHKDFWorker(
 }
 
 export const tasks = new Map<number, ProcessItem>();
+/** Reverse map: task key → the worker instance it was dispatched to. */
+const taskWorkerMap = new Map<number, WorkerInstance>();
+
+/**
+ * Remove a completed (or aborted) task from both the tasks map and its worker's taskKeys set.
+ */
+export function removeTask(key: number): void {
+    tasks.delete(key);
+    const inst = taskWorkerMap.get(key);
+    if (inst) {
+        inst.taskKeys.delete(key);
+        taskWorkerMap.delete(key);
+    }
+}
 
 function initialiseWorkers() {
     const maxConcurrency = ~~((navigator.hardwareConcurrency || 8) / 2);
@@ -86,10 +102,13 @@ function initialiseWorkers() {
         { length: maxConcurrency },
         () =>
             ({
+                // WorkerX is an imported inline worker.
                 // @ts-ignore
+                // eslint-disable-next-line @typescript-eslint/no-unsafe-call
                 worker: WorkerX() as Worker,
                 processing: 0,
-            }) as WorkerInstance
+                taskKeys: new Set<number>(),
+            }) satisfies WorkerInstance
     );
 }
 
@@ -116,12 +135,32 @@ export function initialiseWorkerModule() {
             } else if (process.type === "encryptHKDF" || process.type === "decryptHKDF") {
                 handleTaskEncrypt(process, data);
             } else {
-                info("Invalid response type" + process);
+                info(
+                    "Invalid response type" +
+                        (typeof process.type === "string" ? process.type : JSON.stringify(process))
+                );
             }
         };
-        inst.worker.onerror = () => {
+        inst.worker.onerror = (ev) => {
             inst.worker.terminate();
             workers.splice(workers.indexOf(inst), 1);
+            // Clean up all tasks that were assigned to this worker.
+            const crashError = new Error(`Background worker crashed: ${ev?.message ?? "unknown error"}`);
+            const splitKeys: number[] = [];
+            for (const key of inst.taskKeys) {
+                const process = tasks.get(key);
+                if (!process) continue;
+                tasks.delete(key);
+                if (process.type === "split") {
+                    splitKeys.push(key);
+                } else if ("task" in process) {
+                    process.task.reject(crashError);
+                }
+            }
+            inst.taskKeys.clear();
+            if (splitKeys.length > 0) {
+                abortSplitTasks(splitKeys, crashError);
+            }
         };
     }
 
@@ -158,6 +197,8 @@ export function startWorker(data: Omit<EncryptArguments | SplitArguments | Encry
         },
     };
     tasks.set(_key, item);
+    inst.taskKeys.add(_key);
+    taskWorkerMap.set(_key, inst);
     inst.processing++;
     inst.worker.postMessage({
         data: { ...data, key: _key },

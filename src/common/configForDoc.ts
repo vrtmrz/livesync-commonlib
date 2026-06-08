@@ -67,15 +67,20 @@ export type RuleForType<T> = T extends number
         ? BooleanRule
         : never;
 
-type OriginalSettings = Partial<ObsidianLiveSyncSettings>;
+// Doctor will not check the settings that are complicated objects like remoteConfigurations, and the rules for these settings should be defined separately if needed.
+type DoctorCheckSettings = Omit<
+    Partial<ObsidianLiveSyncSettings>,
+    "remoteConfigurations" | "pluginSyncExtendedSetting"
+>;
 
 // Strongly typed regulation mapping
 export type DoctorRegulation = {
     version: string;
     rules: {
-        [P in keyof OriginalSettings]: RuleForType<OriginalSettings[P]>;
+        [P in keyof DoctorCheckSettings]: RuleForType<DoctorCheckSettings[P]>;
     };
 };
+
 export const DoctorRegulationV0_24_16: DoctorRegulation = {
     version: "0.24.16",
     rules: {
@@ -191,10 +196,10 @@ export function checkUnsuitableValues(
     };
     for (const key in regulation.rules) {
         if (!regulation.rules.hasOwnProperty(key)) continue;
-        const rule = regulation.rules[key as keyof OriginalSettings];
+        const rule = regulation.rules[key as keyof DoctorCheckSettings];
         if (!rule) continue;
 
-        const value = setting[key as keyof OriginalSettings];
+        const value = setting[key as keyof DoctorCheckSettings];
         if (rule.value === value) {
             Logger(`Rule satisfied: ${key} is ${value}`);
             continue;
@@ -212,7 +217,7 @@ export function checkUnsuitableValues(
             continue;
         }
         //@ts-ignore
-        result.rules[key as keyof OriginalSettings] = rule;
+        result.rules[key as keyof DoctorCheckSettings] = rule;
         Logger(`Rule violation: ${key} is ${value} but should be ${rule.value}`);
     }
     return result;
@@ -303,10 +308,10 @@ export async function performDoctorConsultation(
             };
         }
         if (msg != OPT_YES) return getResult();
-        const issueItems = Object.entries(r.rules) as [keyof ObsidianLiveSyncSettings, RuleForType<any>][];
+        const issueItems = Object.entries(r.rules) as [keyof DoctorCheckSettings, RuleForType<any>][];
         Logger(`${issueItems.length} Issue(s) found `, LOG_LEVEL_VERBOSE);
         let idx = 0;
-        const applySettings = {} as Partial<ObsidianLiveSyncSettings>;
+        const applySettings = {} as Partial<DoctorCheckSettings>;
         const OPT_FIX = `${$msg("Doctor.Button.Fix")}` as const;
         const OPT_SKIP = `${$msg("Doctor.Button.Skip")}` as const;
         const OPTION_FIX_WITHOUT_REBUILD = `${$msg("Doctor.Button.FixButNoRebuild")}` as const;

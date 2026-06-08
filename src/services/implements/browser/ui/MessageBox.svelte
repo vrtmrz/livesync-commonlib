@@ -1,22 +1,26 @@
 <script lang="ts">
+    import { renderMessageMarkdown } from "./renderMessageMarkdown";
+
     type Props = {
         title: string;
         message: string;
         buttons: string[];
         commit: (button: string) => void;
     };
-    const { title, message, buttons, commit }: Props = $props();
+    let { title, message, buttons, commit }: Props = $props();
+    const renderedMessage = $derived(renderMessageMarkdown(message));
 
     function handleEsc(event: KeyboardEvent) {
         if (event.key === "Escape") {
             commit("");
         }
     }
+    
 </script>
 
 <popup>
     <header>{title}</header>
-    <article><div class="msg">{message}</div></article>
+    <article><div class="msg">{@html renderedMessage}</div></article>
     <div class="buttons">
         {#each buttons as button}
             <button onclick={() => commit(button)}>{button}</button>
@@ -61,7 +65,46 @@
         overflow-y: auto;
     }
     popup article .msg {
-        white-space: pre-wrap;
+        width: 100%;
+        line-height: 1.5;
+        overflow-wrap: anywhere;
+    }
+    popup article .msg :global(:first-child) {
+        margin-top: 0;
+    }
+    popup article .msg :global(:last-child) {
+        margin-bottom: 0;
+    }
+    popup article .msg :global(pre) {
+        overflow-x: auto;
+        padding: 0.75em;
+        border-radius: 4px;
+        background: var(--background-secondary);
+    }
+    popup article .msg :global(code) {
+        font-family: var(--font-monospace);
+    }
+    popup article .msg :global(blockquote) {
+        margin: 0;
+        padding-left: 1em;
+        border-left: 3px solid var(--background-modifier-border);
+        color: var(--text-muted);
+    }
+    popup article .msg :global(ul),
+    popup article .msg :global(ol) {
+        padding-left: 1.5em;
+    }
+    popup article .msg :global(table) {
+        width: 100%;
+        border-collapse: collapse;
+    }
+    popup article .msg :global(th),
+    popup article .msg :global(td) {
+        padding: 0.4em 0.6em;
+        border: 1px solid var(--background-modifier-border);
+    }
+    popup article .msg :global(a) {
+        color: var(--text-accent);
     }
     popup .buttons {
         border-top: 1px solid var(--background-primary-alt);

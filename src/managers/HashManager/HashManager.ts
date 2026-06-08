@@ -88,8 +88,9 @@ export class HashManager extends HashManagerCore {
      * @param piece The string to be hashed
      * @returns The hash value (returned as a Promise)
      */
-    override computeHash(piece: string): Promise<string> {
-        return this.manager.computeHash(piece);
+    override async computeHash(piece: string): Promise<string> {
+        // await this.initialise();
+        return await this.manager.computeHash(piece);
     }
 
     /**

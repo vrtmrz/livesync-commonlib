@@ -27,6 +27,7 @@ import type { SettingService } from "@lib/services/base/SettingService.ts";
 import type { VaultService } from "@lib/services/base/VaultService.ts";
 import { getStoragePathFromUXFileInfo } from "@lib/common/typeUtils";
 import { EVEN } from "../common/models/shared.const.symbols";
+import { tryGetFilePath } from "../common/utils.doc";
 
 export interface ServiceFileHandlerDependencies {
     API: APIService;
@@ -58,8 +59,8 @@ export abstract class ServiceFileHandlerBase
         this.path = services.path;
         this.setting = services.setting;
         this.vault = services.vault;
-        services.fileProcessing.processFileEvent.addHandler(this._anyHandlerProcessesFileEvent.bind(this));
-        services.replication.processSynchroniseResult.addHandler(this._anyProcessReplicatedDoc.bind(this));
+        services.fileProcessing.processFileEvent.addHandler(this._anyHandlerProcessesFileEvent.bind(this), 100);
+        services.replication.processSynchroniseResult.addHandler(this._anyProcessReplicatedDoc.bind(this), 100);
     }
     get db() {
         return this.databaseFileAccess;
@@ -85,15 +86,22 @@ export abstract class ServiceFileHandlerBase
         }
         return readFile;
     }
+    private async infoToStub<T extends UXFileInfoStub | UXFileInfo | UXInternalFileInfoStub>(
+        info: null | T | FilePathWithPrefix | FilePath
+    ): Promise<T | UXFileInfoStub | null> {
+        if (info == null) return null;
+        const file = typeof info === "string" ? await this.storage.getFileStub(info) : info;
+        return file;
+    }
 
     async storeFileToDB(
         info: UXFileInfoStub | UXFileInfo | UXInternalFileInfoStub | FilePathWithPrefix,
         force: boolean = false,
         onlyChunks: boolean = false
     ): Promise<boolean> {
-        const file = typeof info === "string" ? this.storage.getFileStub(info) : info;
+        const file = await this.infoToStub(info);
         if (file == null) {
-            this._log(`File ${info} is not exist on the storage`, LOG_LEVEL_VERBOSE);
+            this._log(`File ${tryGetFilePath(info)} is not exist on the storage`, LOG_LEVEL_VERBOSE);
             return false;
         }
         // const file = item.args.file;
@@ -168,9 +176,9 @@ export abstract class ServiceFileHandlerBase
     }
 
     async deleteFileFromDB(info: UXFileInfoStub | UXInternalFileInfoStub | FilePath): Promise<boolean> {
-        const file = typeof info === "string" ? this.storage.getFileStub(info) : info;
+        const file = await this.infoToStub(info);
         if (file == null) {
-            this._log(`File ${info} is not exist on the storage`, LOG_LEVEL_VERBOSE);
+            this._log(`File ${tryGetFilePath(info)} is not exist on the storage`, LOG_LEVEL_VERBOSE);
             return false;
         }
         // const file = item.args.file;
@@ -227,9 +235,9 @@ export abstract class ServiceFileHandlerBase
         rev: string,
         force?: boolean
     ): Promise<boolean> {
-        const file = typeof info === "string" ? this.storage.getFileStub(info) : info;
+        const file = await this.infoToStub(info);
         if (file == null) {
-            this._log(`File ${info} is not exist on the storage`, LOG_LEVEL_VERBOSE);
+            this._log(`File ${tryGetFilePath(info)} is not exist on the storage`, LOG_LEVEL_VERBOSE);
             return false;
         }
         const docEntry = await this.db.fetchEntryMeta(file, rev, true);
@@ -245,7 +253,7 @@ export abstract class ServiceFileHandlerBase
         info: UXFileInfoStub | UXFileInfo | FilePath | null,
         force?: boolean
     ): Promise<boolean> {
-        const file = typeof info === "string" ? this.storage.getFileStub(info) : info;
+        const file = await this.infoToStub(info);
         const mode = file == null ? "create" : "modify";
         const pathFromEntryInfo = typeof entryInfo === "string" ? entryInfo : this.getPath(entryInfo);
         const docEntry = await this.db.fetchEntryMeta(pathFromEntryInfo, undefined, true);
@@ -270,7 +278,7 @@ export abstract class ServiceFileHandlerBase
         }
 
         // 2. Check if the file is already exist on the storage.
-        const existDoc = this.storage.getStub(path);
+        const existDoc = await this.storage.getStub(path);
         if (existDoc && existDoc.isFolder) {
             this._log(`Folder ${path} is already exist on the storage as a folder`, LOG_LEVEL_VERBOSE);
             // We can do nothing, and other modules should also nothing to do.
@@ -285,6 +293,9 @@ export abstract class ServiceFileHandlerBase
             return true;
         }
         if (!existOnDB && existOnStorage) {
+            if (!force && !settings.writeDocumentsIfConflicted && (await this.preserveUnsyncedStorageAsConflict(path, existDoc, docEntry))) {
+                return true;
+            }
             // Deletion has been Transferred. Storage files will be deleted.
             // Note: If the folder becomes empty, the folder will be deleted if not configured to keep it.
             // And it does not care actually deleted.
@@ -342,6 +353,9 @@ export abstract class ServiceFileHandlerBase
                 this._log(`File ${docRead.path} is not changed`, LOG_LEVEL_VERBOSE);
                 return true;
             }
+            if (!force && !settings.writeDocumentsIfConflicted && (await this.preserveUnsyncedStorageAsConflict(path, existDoc, docEntry, docData))) {
+                return true;
+            }
             // Let's apply the changes.
         } else {
             this._log(
@@ -354,6 +368,32 @@ export abstract class ServiceFileHandlerBase
         await this.storage.touched(path);
         this.storage.triggerFileEvent(mode, path);
         return ret;
+    }
+
+    private async preserveUnsyncedStorageAsConflict(
+        path: FilePathWithPrefix,
+        existDoc: UXFileInfoStub,
+        incomingEntry: MetaEntry,
+        incomingContent?: string | string[] | Blob | ArrayBuffer
+    ): Promise<boolean> {
+        const readFile = await this.readFileFromStub(existDoc);
+        if (incomingContent && (await isDocContentSame(incomingContent, readFile.body))) {
+            return false;
+        }
+        if (!incomingEntry._rev) {
+            return false;
+        }
+        if (await this.db.hasContentInRevisionHistory(path, readFile.body, incomingEntry._rev)) {
+            return false;
+        }
+        const stored = await this.db.storeAsConflictedRevision(readFile, incomingEntry._rev, true);
+        if (!stored) {
+            this._log(`Prevented overwriting unsynchronised local changes for ${path}`, LOG_LEVEL_NOTICE);
+            return true;
+        }
+        this._log(`Preserved unsynchronised local changes as a conflict for ${path}`, LOG_LEVEL_NOTICE);
+        await this.conflict.queueCheckFor(path);
+        return true;
     }
 
     private async _anyHandlerProcessesFileEvent(item: FileEventItem): Promise<boolean> {
@@ -380,7 +420,7 @@ export abstract class ServiceFileHandlerBase
                     // this should be handled on the other module.
                     return false;
                 default:
-                    this._log(`Unsupported event type: ${type}`, LOG_LEVEL_VERBOSE);
+                    this._log(`Unsupported event type: ${type as string}`, LOG_LEVEL_VERBOSE);
                     return false;
             }
         });
@@ -402,7 +442,7 @@ export abstract class ServiceFileHandlerBase
             }
             const path = this.getPath(entry);
 
-            const targetFile = this.storage.getStub(this.getPathWithoutPrefix(entry));
+            const targetFile = await this.storage.getStub(this.getPathWithoutPrefix(entry));
             if (targetFile && targetFile.isFolder) {
                 this._log(`${path} is already exist as the folder`);
                 // Nothing to do and other modules should also nothing to do.
@@ -430,7 +470,7 @@ export abstract class ServiceFileHandlerBase
         const semaphore = Semaphore(10);
 
         let processed = 0;
-        const filesStorageSrc = this.storage.getFiles();
+        const filesStorageSrc = await this.storage.getFiles();
         const incProcessed = () => {
             processed++;
             if (processed % 25 == 0)

@@ -8,6 +8,7 @@ import { ExtraSuffixIndexedDB } from "@lib/common/models/shared.const.ts";
 import { $msg } from "@lib/common/i18n.ts";
 import type { SettingService } from "./SettingService";
 import type { APIService } from "./APIService";
+import type { ObsidianLiveSyncSettings } from "../../common/models/setting.type";
 
 export type DatabaseServiceDependencies = {
     path: IPathService;
@@ -52,19 +53,37 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
         return this._localDatabase;
     }
 
+    protected modifyDatabaseOptions(
+        settings: ObsidianLiveSyncSettings,
+        name: string,
+        options: PouchDB.Configuration.DatabaseConfiguration
+    ): {
+        name: string;
+        options: PouchDB.Configuration.DatabaseConfiguration;
+    } {
+        const optionPass = { ...options };
+        if (settings.useIndexedDBAdapter) {
+            optionPass.adapter = "indexeddb";
+            //@ts-ignore :missing def
+            optionPass.purged_infos_limit = 1;
+            return {
+                name: name + ExtraSuffixIndexedDB,
+                options: optionPass,
+            };
+        }
+        return {
+            name: name,
+            options: optionPass,
+        };
+    }
+
     createPouchDBInstance<T extends object>(
         name?: string,
         options?: PouchDB.Configuration.DatabaseConfiguration
     ): PouchDB.Database<T> {
         const settings = this.services.setting.currentSettings();
-        const optionPass = options ?? {};
-        if (settings.useIndexedDBAdapter) {
-            optionPass.adapter = "indexeddb";
-            //@ts-ignore :missing def
-            optionPass.purged_infos_limit = 1;
-            return new PouchDB(name + ExtraSuffixIndexedDB, optionPass);
-        }
-        return new PouchDB(name, optionPass);
+        const optionPass = this.modifyDatabaseOptions(settings, name ?? "", options ?? {});
+        return new PouchDB(optionPass.name, optionPass.options);
     }
 
     async openDatabase(params: openDatabaseParameters): Promise<boolean> {

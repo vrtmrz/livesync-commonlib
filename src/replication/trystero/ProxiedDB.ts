@@ -1,3 +1,4 @@
+import type PouchDB from "pouchdb-core";
 import { type ReplicatorHostEnv } from "./types";
 
 export function createHostingDB(env: ReplicatorHostEnv) {
@@ -13,7 +14,7 @@ export function createHostingDB(env: ReplicatorHostEnv) {
         get: (id: string, options?: PouchDB.Core.GetOptions) => db.get(id, options),
         _stopHosting: () => {
             // To make sure that the hosting DB is not used anymore
-            db = undefined as any;
+            db = undefined!;
         },
     };
     return hostingDB;

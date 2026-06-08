@@ -324,7 +324,7 @@ async function incomingEncryptV1(
 ): Promise<EntryLeaf | AnyEntry> {
     const saveDoc = {
         ...doc,
-    } as EntryLeaf | AnyEntry;
+    } satisfies EntryLeaf | AnyEntry;
 
     if (isEncryptedChunkEntry(saveDoc) || isSyncInfoEntry(saveDoc)) {
         try {
@@ -455,6 +455,39 @@ export let preprocessIncoming: (doc: EntryDoc) => Promise<EntryDoc> = async (doc
     return await Promise.resolve(doc);
 };
 
+export function getConfiguredFunctionsForEncryption(
+    passphrase: string,
+    useDynamicIterationCount: boolean,
+    migrationDecrypt: boolean,
+    getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>,
+    algorithm: E2EEAlgorithm
+): {
+    incoming: (doc: AnyEntry | EntryLeaf) => Promise<AnyEntry | EntryLeaf>;
+    outgoing: (doc: EntryDoc) => Promise<AnyEntry | EntryLeaf>;
+} {
+    const decryptedCache = new Map();
+    const incoming = (doc: AnyEntry | EntryLeaf) =>
+        algorithm === E2EEAlgorithms.V2
+            ? incomingEncryptHKDF(doc, passphrase, useDynamicIterationCount, getPBKDF2Salt)
+            : incomingEncryptV1(doc, passphrase, useDynamicIterationCount);
+    // If unless specified algorithm is ForceV1, then use HKDF decryption for forward compatibility.
+    const outgoing = (doc: EntryDoc) =>
+        algorithm !== E2EEAlgorithms.ForceV1
+            ? outgoingDecryptHKDF(
+                  doc,
+                  migrationDecrypt,
+                  decryptedCache,
+                  passphrase,
+                  useDynamicIterationCount,
+                  getPBKDF2Salt
+              )
+            : outgoingDecryptV1(doc, migrationDecrypt, decryptedCache, passphrase, useDynamicIterationCount);
+    return {
+        incoming,
+        outgoing,
+    };
+}
+
 export const enableEncryption = (
     db: PouchDB.Database<EntryDoc>,
     passphrase: string,
@@ -463,19 +496,13 @@ export const enableEncryption = (
     getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>,
     algorithm: E2EEAlgorithm
 ) => {
-    const decrypted = new Map();
-
-    const incoming = (doc: AnyEntry | EntryLeaf) =>
-        algorithm === E2EEAlgorithms.V2
-            ? incomingEncryptHKDF(doc, passphrase, useDynamicIterationCount, getPBKDF2Salt)
-            : incomingEncryptV1(doc, passphrase, useDynamicIterationCount);
-    // If unless specified algorithm is ForceV1, then use HKDF decryption for forward compatibility.
-    const outgoing = (doc: EntryDoc) =>
-        algorithm !== E2EEAlgorithms.ForceV1
-            ? outgoingDecryptHKDF(doc, migrationDecrypt, decrypted, passphrase, useDynamicIterationCount, getPBKDF2Salt)
-            : outgoingDecryptV1(doc, migrationDecrypt, decrypted, passphrase, useDynamicIterationCount);
-    preprocessOutgoing = incoming;
-    preprocessIncoming = outgoing;
+    const { incoming, outgoing } = getConfiguredFunctionsForEncryption(
+        passphrase,
+        useDynamicIterationCount,
+        migrationDecrypt,
+        getPBKDF2Salt,
+        algorithm
+    );
     //@ts-ignore
     db.transform({
         incoming,

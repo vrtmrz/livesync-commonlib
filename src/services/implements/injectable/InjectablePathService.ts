@@ -14,7 +14,7 @@ export function compareFileFreshnessGeneric(
     const modifiedBase = "stat" in baseFile ? (baseFile?.stat?.mtime ?? 0) : (baseFile?.mtime ?? 0);
     const modifiedTarget = "stat" in checkTarget ? (checkTarget?.stat?.mtime ?? 0) : (checkTarget?.mtime ?? 0);
 
-    if (modifiedBase && modifiedTarget) {
+    if (!modifiedBase && !modifiedTarget) {
         return EVEN;
     }
     return compareMTime(modifiedBase, modifiedTarget);

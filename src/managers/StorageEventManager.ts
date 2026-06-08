@@ -24,12 +24,13 @@ import type { SettingService } from "@lib/services/base/SettingService.ts";
 import type { FileProcessingService } from "@lib/services/base/FileProcessingService.ts";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import type { IStorageEventManagerAdapter } from "./adapters";
+import { compatGlobal, type CompatTimeoutHandle } from "@lib/common/coreEnvFunctions";
 
 type WaitInfo = {
     since: number;
     type: FileEventType;
     canProceed: PromiseWithResolvers<boolean>;
-    timerHandler: ReturnType<typeof setTimeout>;
+    timerHandler: CompatTimeoutHandle;
     event: FileEventItem;
 };
 const TYPE_SENTINEL_FLUSH = "SENTINEL_FLUSH";
@@ -293,7 +294,7 @@ export abstract class StorageEventManagerBase<
         const waitInfo = this._waitingMap.get(key);
         if (waitInfo) {
             waitInfo.canProceed.resolve(true);
-            clearTimeout(waitInfo.timerHandler);
+            compatGlobal.clearTimeout(waitInfo.timerHandler);
             this._waitingMap.delete(key);
         }
         this.triggerTakeSnapshot();
@@ -305,7 +306,7 @@ export abstract class StorageEventManagerBase<
         const waitInfo = this._waitingMap.get(key);
         if (waitInfo) {
             waitInfo.canProceed.resolve(false);
-            clearTimeout(waitInfo.timerHandler);
+            compatGlobal.clearTimeout(waitInfo.timerHandler);
             this._waitingMap.delete(key);
         }
         this.triggerTakeSnapshot();
@@ -351,7 +352,7 @@ export abstract class StorageEventManagerBase<
             type: event.type,
             event: event,
             canProceed: resolver,
-            timerHandler: setTimeout(() => {
+            timerHandler: compatGlobal.setTimeout(() => {
                 this._log(`Processing ${key}: Batch save timeout reached: ${event.type}`, LOG_LEVEL_DEBUG);
                 this._proceedWaiting(key);
             }, nextDelay),

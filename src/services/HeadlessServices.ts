@@ -48,13 +48,13 @@ type HeadlessUIServiceDependencies<T extends ServiceContext = ServiceContext> = 
     control: IControlService;
 };
 
-class HeadlessUIService extends UIService<ServiceContext> {
+class HeadlessUIService<T extends ServiceContext> extends UIService<T> {
     override get dialogToCopy(): never {
         throw new Error("Method not implemented.");
     }
-    constructor(context: ServiceContext, dependents: HeadlessUIServiceDependencies<ServiceContext>) {
+    constructor(context: T, dependents: HeadlessUIServiceDependencies<T>) {
         const headlessConfirm = dependents.APIService.confirm;
-        const headlessSvelteDialogManager = new HeadlessSvelteDialogManager<ServiceContext>(context, {
+        const headlessSvelteDialogManager = new HeadlessSvelteDialogManager<T>(context, {
             confirm: headlessConfirm,
             appLifecycle: dependents.appLifecycle,
             config: dependents.config,
@@ -70,23 +70,22 @@ class HeadlessUIService extends UIService<ServiceContext> {
 }
 type Constructor<T> = new (...args: any[]) => T;
 
-export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
+export class HeadlessServiceHub<T extends ServiceContext> extends InjectableServiceHub<T> {
     constructor(
-        _context?: ServiceContext,
+        _context?: T,
         overrideServiceConstructor: {
-            database?: Constructor<DatabaseService<ServiceContext>>;
+            database?: Constructor<DatabaseService<T>>;
         } = {}
     ) {
-        const context = _context ?? new ServiceContext();
-
-        const API = new HeadlessAPIService(context);
+        const context = (_context ?? new ServiceContext()) as T;
+        const API = new HeadlessAPIService<T>(context);
         const conflict = new InjectableConflictService(context);
         const fileProcessing = new InjectableFileProcessingService(context);
 
         const setting = new InjectableSettingService(context, {
             APIService: API,
         });
-        const appLifecycle = new HeadlessAppLifecycleService(context, {
+        const appLifecycle = new HeadlessAppLifecycleService<T>(context, {
             settingService: setting,
         });
         const remote = new InjectableRemoteService(context, {
@@ -104,12 +103,13 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
         const path = new PathServiceCompat(context, {
             settingService: setting,
         });
-        const database = new (overrideServiceConstructor.database ?? HeadlessDatabaseService)(context, {
+        const database = new (overrideServiceConstructor.database ?? HeadlessDatabaseService<T>)(context, {
+            API: API,
             path: path,
             vault: vault,
             setting: setting,
         });
-        const config = new ConfigServiceBrowserCompat<ServiceContext>(context, {
+        const config = new ConfigServiceBrowserCompat<T>(context, {
             settingService: setting,
             APIService: API,
         });
@@ -140,7 +140,7 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
             APIService: API,
             replicatorService: replicator,
         });
-        const ui = new HeadlessUIService(context, {
+        const ui = new HeadlessUIService<T>(context, {
             appLifecycle,
             config,
             replicator,
@@ -167,7 +167,7 @@ export class HeadlessServiceHub extends InjectableServiceHub<ServiceContext> {
             config: config,
             keyValueDB: keyValueDB,
             control: control,
-        } satisfies Required<ServiceInstances<ServiceContext>>;
+        } satisfies Required<ServiceInstances<T>>;
 
         super(context, serviceInstancesToInit);
     }

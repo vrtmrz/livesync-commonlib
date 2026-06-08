@@ -92,8 +92,8 @@ export class ConflictManager {
         if (baseLeaf == false || leftLeaf == false || rightLeaf == false) {
             return false;
         }
-        if (leftLeaf.deleted && rightLeaf.deleted) {
-            // Both are deleted
+        if (leftLeaf.deleted || rightLeaf.deleted) {
+            // Either one is deleted
             return false;
         }
         // diff between base and each revision
@@ -276,8 +276,8 @@ export class ConflictManager {
                 );
                 return false;
             }
-            if (leftLeaf.deleted && rightLeaf.deleted) {
-                Logger(`Both are deleted`, LOG_LEVEL_VERBOSE);
+            if (leftLeaf.deleted || rightLeaf.deleted) {
+                Logger(`Either is deleted`, LOG_LEVEL_VERBOSE);
                 return false;
             }
             const baseObj = { data: tryParseJSON(baseLeaf.data, {}) } as Record<string | number | symbol, any>;
@@ -377,6 +377,17 @@ export class ConflictManager {
         if (!test._conflicts) return { ok: NOT_CONFLICTED };
         if (test._conflicts.length == 0) return { ok: NOT_CONFLICTED };
         const conflicts = test._conflicts.sort((a, b) => Number(a.split("-")[0]) - Number(b.split("-")[0]));
+        // Resolve identical conflict leaves without creating a new revision.
+        const leftLeaf = await this.getConflictedDoc(path, test._rev!);
+        const rightLeaf = await this.getConflictedDoc(path, conflicts[0]);
+        if (
+            leftLeaf !== false &&
+            rightLeaf !== false &&
+            leftLeaf.data == rightLeaf.data &&
+            leftLeaf.deleted == rightLeaf.deleted
+        ) {
+            return { leftRev: test._rev!, rightRev: conflicts[0], leftLeaf, rightLeaf };
+        }
         if ((isSensibleMargeApplicable(path) || isObjectMargeApplicable(path)) && enableMarkdownAutoMerge) {
             const autoMergeResult = await this.tryAutoMergeSensibly(path, test, conflicts);
             if (autoMergeResult !== false) {
@@ -384,8 +395,6 @@ export class ConflictManager {
             }
         }
         // should be one or more conflicts;
-        const leftLeaf = await this.getConflictedDoc(path, test._rev!);
-        const rightLeaf = await this.getConflictedDoc(path, conflicts[0]);
         return { leftRev: test._rev!, rightRev: conflicts[0], leftLeaf, rightLeaf };
     }
 }

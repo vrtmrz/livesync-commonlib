@@ -116,7 +116,7 @@ export class EntryManager {
         return await moveDBEntryByPath(this.serviceHost, this, from, to, overwrite);
     }
 
-    async putDBEntry(note: SavingEntry, onlyChunks?: boolean) {
-        return await putDBEntry(this.serviceHost, this, note, onlyChunks);
+    async putDBEntry(note: SavingEntry, onlyChunks?: boolean, conflictBaseRev?: string) {
+        return await putDBEntry(this.serviceHost, this, note, onlyChunks, conflictBaseRev);
     }
 }

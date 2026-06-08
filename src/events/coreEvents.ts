@@ -14,6 +14,7 @@ export const EVENT_LOG_ADDED = "log-added";
 
 export const EVENT_REQUEST_OPEN_SETUP_URI = "request-open-setup-uri";
 export const EVENT_REQUEST_COPY_SETUP_URI = "request-copy-setup-uri";
+export const EVENT_REQUEST_SHOW_SETUP_QR = "request-show-setup-qr";
 
 export const EVENT_REQUEST_RELOAD_SETTING_TAB = "reload-setting-tab";
 
@@ -23,6 +24,8 @@ export const EVENT_FILE_CHANGED = "event-file-changed";
 export const EVENT_DOCUMENT_STUB_CREATED = "document-stub-created";
 
 export const EVENT_REQUEST_OPEN_P2P_SETTINGS = "request-open-p2p-settings";
+export const EVENT_REQUEST_OPEN_P2P = "request-open-p2p";
+export const EVENT_REQUEST_CLOSE_P2P = "request-close-p2p";
 export const EVENT_PLATFORM_UNLOADED = "platform-unloaded";
 
 export const EVENT_ON_UNRESOLVED_ERROR = "on-unresolved-error";
@@ -45,6 +48,9 @@ declare global {
 
         [EVENT_DATABASE_REBUILT]: undefined;
         [EVENT_REQUEST_OPEN_P2P_SETTINGS]: undefined;
+        [EVENT_REQUEST_SHOW_SETUP_QR]: undefined;
+        [EVENT_REQUEST_OPEN_P2P]: undefined;
+        [EVENT_REQUEST_CLOSE_P2P]: undefined;
         [EVENT_PLATFORM_UNLOADED]: undefined;
         [EVENT_ON_UNRESOLVED_ERROR]: undefined;
         [EVENT_REQUEST_CHECK_REMOTE_SIZE]: undefined;

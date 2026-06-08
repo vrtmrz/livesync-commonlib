@@ -29,7 +29,7 @@ import { shareRunningResult } from "octagonal-wheels/concurrency/lock";
 import { wrappedDeflate } from "../../pouchdb/compress.ts";
 import { wrappedInflate } from "../../pouchdb/compress.ts";
 import { type CheckPointInfo, CheckPointInfoDefault } from "./JournalSyncTypes.ts";
-import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicator.ts";
+import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 import { Trench } from "octagonal-wheels/memory/memutil";
 import { Notifier } from "octagonal-wheels/concurrency/processor";
 
@@ -194,9 +194,22 @@ export abstract class JournalSyncAbstract {
         const old: any = (await this.store.get(checkPointKey)) || {};
         const items = ["knownIDs", "sentIDs", "receivedFiles", "sentFiles"];
         for (const key of items) {
-            if (key in old && typeof Array.isArray(old[key])) {
-                old[key] = new Set(old[key]);
+            if (!(key in old)) {
+                continue;
             }
+            const value = old[key];
+            if (value instanceof Set) {
+                continue;
+            }
+            if (Array.isArray(value)) {
+                old[key] = new Set(value);
+                continue;
+            }
+            if (value && typeof value === "object") {
+                old[key] = new Set(Object.keys(value));
+                continue;
+            }
+            old[key] = new Set<string>();
         }
         this._currentCheckPointInfo = { ...CheckPointInfoDefault, ...old };
         return this._currentCheckPointInfo;
@@ -207,6 +220,72 @@ export abstract class JournalSyncAbstract {
     }
     async resetCheckpointInfo() {
         await this.updateCheckPointInfo((info) => ({ ...CheckPointInfoDefault }));
+        clearHandlers();
+    }
+
+    private getJournalEpochFromSyncParams(params: SyncParameters): string {
+        return `${params.protocolVersion}:${params.pbkdf2salt}`;
+    }
+
+    // Side-effect preflight: update checkpoint state.
+    // Connectivity gates call this before compatibility checks so send/receive paths stay pure.
+    async ensureCheckpointCachesAreFresh(): Promise<void> {
+        let journalEpoch = "";
+        try {
+            const params = await this.getSyncParameters();
+            journalEpoch = this.getJournalEpochFromSyncParams(params);
+        } catch {
+            // If we cannot fetch sync parameters yet, keep the current checkpoint state.
+            return;
+        }
+
+        const current = await this.getCheckpointInfo();
+        if (current.journalEpoch === journalEpoch) {
+            return;
+        }
+
+        // Epoch changed (or first observed on migrated devices).
+        // Use sentFiles to determine whether the remote was wiped:
+        //   - No sent history          → fresh device or empty state; save epoch, keep caches.
+        //   - File still on remote     → epoch changed without a wipe (e.g. protocol bump or
+        //                                first run after upgrade); save epoch, keep caches.
+        //   - File gone from remote    → wipe confirmed; save epoch, reset caches.
+        // sentFiles names are timestamp-based (e.g. "1712345678900-docs.jsonl.gz") and
+        // virtually never collide across separate remote lifetimes.
+        const lastSentFile = [...current.sentFiles].sort().pop();
+
+        if (!lastSentFile) {
+            // No send history: cannot confirm wipe; just record the epoch.
+            await this.updateCheckPointInfo((info) => ({ ...info, journalEpoch }));
+            return;
+        }
+
+        let remoteWipeConfirmed: boolean;
+        try {
+            // listFiles uses S3 StartAfter (exclusive), so slice off the last char to land
+            // just before the target key, then check if the returned entry matches exactly.
+            const probe = await this.listFiles(lastSentFile.slice(0, -1), 1);
+            remoteWipeConfirmed = probe[0] !== lastSentFile;
+        } catch {
+            remoteWipeConfirmed = true;
+        }
+
+        if (!remoteWipeConfirmed) {
+            // Remote files are intact: no wipe occurred. Save epoch and preserve caches.
+            await this.updateCheckPointInfo((info) => ({ ...info, journalEpoch }));
+            Logger(`Journal epoch changed (remote files still present). Epoch updated; caches kept.`, LOG_LEVEL_NOTICE);
+            return;
+        }
+
+        Logger(`Journal epoch changed and remote wipe confirmed. Clearing dedupe caches.`, LOG_LEVEL_NOTICE);
+        await this.updateCheckPointInfo((info) => ({
+            ...info,
+            journalEpoch,
+            knownIDs: new Set<string>(),
+            sentIDs: new Set<string>(),
+            receivedFiles: new Set<string>(),
+            sentFiles: new Set<string>(),
+        }));
         clearHandlers();
     }
 
@@ -305,7 +384,6 @@ export abstract class JournalSyncAbstract {
         const from = override || checkPointInfo.lastLocalSeq;
         Logger(`Journal reading from seq:${from}`, LOG_LEVEL_VERBOSE);
         let knownKeyCount = 0;
-        let sendKeyCount = 0;
         const allChangesTask = this.db.changes({
             live: false,
             since: override || from,
@@ -316,28 +394,18 @@ export abstract class JournalSyncAbstract {
             // conflicts: true,
             attachments: false,
             style: "all_docs",
-            filter: (doc: EntryDoc) => {
-                const key = this.getDocKey(doc);
-                if (this._currentCheckPointInfo.knownIDs.has(key)) {
-                    knownKeyCount++;
-                    return false;
-                }
-                if (this._currentCheckPointInfo.sentIDs.has(key)) {
-                    knownKeyCount++;
-                    return false;
-                }
-                sendKeyCount++;
-                return true;
-            },
+            // NOTE: Do NOT add a filter function here that tests the winning-revision doc.
+            // With style:"all_docs", each change entry can carry multiple leaf revisions
+            // (e.g. the winner plus a newly-created tombstone for a resolved conflict).
+            // A filter based on the winner's key would incorrectly suppress the entire entry
+            // even when one of the other leaf revisions (e.g. the tombstone) has never been
+            // sent.  Per-revision deduplication is handled correctly by the second filter
+            // applied after bulkGet below.
         });
         const allChanges = await allChangesTask;
         if (allChanges.results.length == 0) {
             return { changes: [], hasNext: false, packLastSeq: allChanges.last_seq };
         }
-        Logger(
-            `${sendKeyCount} items possibly needs to be sent (${knownKeyCount} keys has been received before)`,
-            LOG_LEVEL_DEBUG
-        );
         const bd = await this.db.bulkGet({
             docs: allChanges.results.map((e) => e.changes.map((change) => ({ id: e.id, rev: change.rev }))).flat(),
             revs: true,
@@ -362,6 +430,10 @@ export abstract class JournalSyncAbstract {
                 }
                 return true;
             }) as (EntryDoc & PouchDB.Core.GetMeta)[];
+        Logger(
+            `Checked ${allChanges.results.length} changed entries, selected ${docChanges.length} docs (${knownKeyCount} keys already known)`,
+            LOG_LEVEL_DEBUG
+        );
         return { changes: docChanges, hasNext, packLastSeq };
     }
 
@@ -472,7 +544,10 @@ export abstract class JournalSyncAbstract {
                     const { changes, hasNext, packLastSeq } = await this._createJournalPack(currentLastSeq);
                     const currentSeq = (packLastSeq as number) - startSeq;
                     if (changes.length == 0) {
-                        isFinished = true;
+                        Logger(
+                            `Packing Journal: No sendable docs in this batch (${currentSeq} / ${seqToProcess}); continuing while there are newer changes.`,
+                            LOG_LEVEL_VERBOSE
+                        );
                     } else {
                         Logger(`Packing Journal: ${currentSeq} / ${seqToProcess}`, logLevel, MSG_KEY);
                         // this.updateInfo({ maxPushSeq: max, sent: currentLastSeq as number, lastSyncPushSeq: startSeq })
@@ -624,7 +699,18 @@ export abstract class JournalSyncAbstract {
                 LOG_LEVEL_VERBOSE
             );
             await this.db.bulkDocs<EntryDoc>(saveDocs, { new_edits: false });
-            await this.processReplication(saveDocs as PouchDB.Core.ExistingDocument<EntryDoc>[]);
+            // Only process if parsing is not suspended.
+            const writeDoc = !this.env.services.setting.currentSettings().suspendParseReplicationResult;
+            if (writeDoc) {
+                await this.processReplication(saveDocs satisfies PouchDB.Core.ExistingDocument<EntryDoc>[]);
+            } else {
+                if (saveDocs.length > 0) {
+                    Logger(
+                        `Skipping processing replication for ${saveDocs.length} docs as it is suspended.`,
+                        LOG_LEVEL_VERBOSE
+                    );
+                }
+            }
             await this.updateCheckPointInfo((info) => ({
                 ...info,
                 knownIDs: setAllItems(
@@ -681,7 +767,8 @@ export abstract class JournalSyncAbstract {
                     Logger(`${TASK_TITLE} Something went wrong on processing queue ${key}.`, LOG_LEVEL_NOTICE);
                     return false;
                 }
-                const decompressed = await wrappedInflate(value, { consume: true });
+                const compressed = new Uint8Array(value);
+                const decompressed = await wrappedInflate(compressed, { consume: true });
                 if (decompressed.length == 0) {
                     await commit();
                     downloaded++;

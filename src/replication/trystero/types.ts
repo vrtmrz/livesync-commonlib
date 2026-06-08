@@ -7,6 +7,7 @@ export type DIRECTION_REQUEST = typeof DIRECTION_REQUEST;
 export const DIRECTION_RESPONSE = "response";
 export type DIRECTION_RESPONSE = typeof DIRECTION_RESPONSE;
 export const DEFAULT_RPC_TIMEOUT = 30000;
+export const BULK_GET_RPC_TIMEOUT = 40000;
 
 export type NonPrivateMethodKeys<T> = {
     [K in keyof T]: K extends `_${string}`

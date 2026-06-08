@@ -44,15 +44,15 @@ export interface StorageAccess {
     triggerFileEvent(event: string, path: string): void;
     triggerHiddenFile(path: string): Promise<void>;
 
-    getFileStub(path: string): UXFileInfoStub | null;
+    getFileStub(path: string): Promise<UXFileInfoStub | null>;
     readStubContent(stub: UXFileInfoStub): Promise<UXFileInfo | false>;
-    getStub(path: string): UXFileInfoStub | UXFolderInfo | null;
+    getStub(path: string): Promise<UXFileInfoStub | UXFolderInfo | null>;
 
-    getFiles(): UXFileInfoStub[];
-    getFileNames(): FilePathWithPrefix[];
+    getFiles(): Promise<UXFileInfoStub[]>;
+    getFileNames(): Promise<FilePathWithPrefix[]>;
 
     touched(file: UXFileInfoStub | FilePathWithPrefix): Promise<void>;
-    recentlyTouched(file: UXFileInfoStub | FilePathWithPrefix): boolean;
+    recentlyTouched(file: UXFileInfoStub | FilePathWithPrefix): Promise<boolean>;
     clearTouched(): void;
 
     // -- Low-Level

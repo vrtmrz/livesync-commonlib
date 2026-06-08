@@ -1,6 +1,4 @@
 <script lang="ts">
-    import { setContext } from "svelte";
-
     type Props = {
         children?: () => any;
     };

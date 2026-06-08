@@ -22,6 +22,7 @@ export const P2P_DEFAULT_SETTINGS: P2PSyncSetting = {
     P2P_turnServers: "",
     P2P_turnUsername: "",
     P2P_turnCredential: "",
+    P2P_useDiagRTC: false,
 } as const;
 
 export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
@@ -98,6 +99,9 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     encryptedPassphrase: "",
     encryptedCouchDBConnection: "",
     permitEmptyPassphrase: false,
+    remoteConfigurations: {},
+    activeConfigurationId: "",
+    P2P_ActiveRemoteConfigurationId: "",
     useIndexedDBAdapter: false,
     useTimeouts: false,
     writeLogToTheFile: false,
@@ -130,6 +134,7 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     maxTotalLengthInEden: 1024,
     maxAgeInEden: 10,
     disableCheckingConfigMismatch: false,
+    autoAcceptCompatibleTweak: undefined,
     displayLanguage: "",
     /**
      * @deprecated
@@ -177,4 +182,5 @@ export const DEFAULT_SETTINGS: ObsidianLiveSyncSettings = {
     syncInternalFileOverwritePatterns: "" as CustomRegExpSourceList<",">,
     useOnlyLocalChunk: false,
     maxMTimeForReflectEvents: 0,
+    tweakModified: undefined,
 };

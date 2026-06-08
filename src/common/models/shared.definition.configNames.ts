@@ -171,6 +171,16 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         desc: "If enabled, the plugin will not attempt to connect to the remote database even if the chunk was not found locally.",
         isAdvanced: true,
     },
+    autoAcceptCompatibleTweak: {
+        name: "Auto-accept compatible tweak mismatches",
+        desc: "Automatically accepts mismatches that are compatible but potentially lossy by comparing tweak modification times.",
+        isAdvanced: true,
+    },
+    tweakModified: {
+        name: "Last tweak modified timestamp",
+        desc: "Internal timestamp for resolving compatible tweak mismatches.",
+        isAdvanced: true,
+    },
 };
 
 /**

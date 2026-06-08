@@ -1,5 +1,5 @@
+import type PouchDB from "pouchdb-core";
 import { unique } from "octagonal-wheels/collection";
-import { throttle } from "octagonal-wheels/function";
 import { withConcurrency } from "octagonal-wheels/iterable/map";
 import {
     LOG_LEVEL_DEBUG,
@@ -16,13 +16,14 @@ import {
     type LOG_LEVEL,
 } from "@lib/common/types";
 
-import { isAnyNote } from "@lib/common/utils";
+import { compareMTime, isAnyNote } from "@lib/common/utils";
 import { stripAllPrefixes } from "@lib/string_and_binary/path";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { eventHub } from "@lib/hub/hub";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
+import { compatGlobal } from "../common/coreEnvFunctions";
 
 /**
  * Collect deleted files that have expired according to retention policy.
@@ -98,14 +99,6 @@ export async function syncFileBetweenDBandStorage(
     if (!doc) {
         throw new Error(`Missing doc:${docPath}`);
     }
-    if ("path" in file) {
-        const w = host.serviceModules.storageAccess.getFileStub(docPath);
-        if (w) {
-            file = w;
-        } else {
-            throw new Error(`Missing file:${docPath}`);
-        }
-    }
 
     // const settings = host.services.setting.currentSettings();
     const compareResult = host.services.path.compareFileFreshness(file, doc);
@@ -124,7 +117,7 @@ export async function syncFileBetweenDBandStorage(
         case TARGET_IS_NEW:
             if (!host.services.vault.isFileSizeTooLarge(doc.size)) {
                 log("STORAGE <- DB :" + docPath);
-                if (await host.serviceModules.fileHandler.dbToStorage(doc, stripAllPrefixes(docPath), true)) {
+                if (await host.serviceModules.fileHandler.dbToStorage(doc, stripAllPrefixes(docPath), false)) {
                     eventHub.emitEvent("event-file-changed", {
                         file: file.path,
                         automated: true,
@@ -208,7 +201,7 @@ export async function collectFilesOnStorage(
     log: LogFunction
 ) {
     log("Collecting local files on the storage", LOG_LEVEL_VERBOSE);
-    const filesStorageSrc = host.serviceModules.storageAccess.getFiles();
+    const filesStorageSrc = await host.serviceModules.storageAccess.getFiles();
 
     const _filesStorage: UXFileInfoStub[] = [];
 
@@ -346,6 +339,365 @@ export async function syncStorageAndDatabase(
     }
 }
 
+export const FullScanModes = {
+    // SAFE: "safe",
+    DB_APPLY: "db-apply",
+    NEWER_WINS: "newer-wins",
+    // STORAGE_ONLY: "local-only",
+} as const;
+
+export const ExtraOnRemote = {
+    /**
+     * Delete database entries if they are missing on storage.
+     */
+    DELETE_LOCAL_MISSING: "delete-local-missing",
+    /**
+     * Apply changes from database to storage.
+     */
+    // APPEND_DB_ONLY: "append-db-only",
+} as const;
+export const ExtraOnLocal = {
+    /**
+     * Delete local files if they were deleted on database.
+     */
+    DELETE_DB_DELETED: "delete-db-deleted",
+    /**
+     * Delete local files if they are missing on database or were deleted on database.
+     */
+    DELETE_DB_MISSING: "delete-db-missing",
+    /**
+     * Merge local files to database
+     */
+    APPEND_STORAGE_ONLY: "append-storage-only",
+} as const;
+
+export interface FullScanOptions {
+    mode: FullScanMode;
+    extraOnLocal?: (typeof ExtraOnLocal)[keyof typeof ExtraOnLocal];
+    extraOnRemote?: (typeof ExtraOnRemote)[keyof typeof ExtraOnRemote];
+    omitEvents?: boolean;
+    showingNotice?: boolean;
+    ignoreSuspending?: boolean;
+}
+
+export type FullScanMode = (typeof FullScanModes)[keyof typeof FullScanModes];
+type FilePair =
+    | { file: UXFileInfoStub; doc: MetaEntry }
+    | { file: undefined; doc: MetaEntry }
+    | { file: UXFileInfoStub; doc: undefined };
+type FilePairState = "storage-only" | "db-only" | "db-only-deleted" | "both" | "both-db-deleted";
+
+type FilePairAction = "update-db" | "update-storage" | "sync-newer" | "delete-local" | "delete-db" | "skip";
+
+function isDeletedEntry(entry: MetaEntry): boolean {
+    return entry.deleted || entry._deleted || false;
+}
+
+export function getFilePairState(pair: FilePair): FilePairState {
+    const { file, doc } = pair;
+    if (file && doc) {
+        return isDeletedEntry(doc) ? "both-db-deleted" : "both";
+    }
+    if (file) {
+        return "storage-only";
+    }
+    if (doc) {
+        return isDeletedEntry(doc) ? "db-only-deleted" : "db-only";
+    }
+    throw new Error("Corrupted file pair");
+}
+
+function shouldDeleteLocalWhenRemoteMissing(options: FullScanOptions): boolean {
+    return (
+        options.extraOnRemote === ExtraOnRemote.DELETE_LOCAL_MISSING ||
+        options.extraOnLocal === ExtraOnLocal.DELETE_DB_MISSING
+    );
+}
+
+function shouldDeleteLocalWhenRemoteDeleted(options: FullScanOptions): boolean {
+    return (
+        options.extraOnRemote === ExtraOnRemote.DELETE_LOCAL_MISSING ||
+        options.extraOnLocal === ExtraOnLocal.DELETE_DB_DELETED ||
+        options.extraOnLocal === ExtraOnLocal.DELETE_DB_MISSING
+    );
+}
+
+/**
+ * Determine the action to be taken for a file pair based on its state and the selected scan options.
+ */
+export function resolveFilePairAction(state: FilePairState, options: FullScanOptions): FilePairAction {
+    switch (options.mode) {
+        case FullScanModes.DB_APPLY:
+            switch (state) {
+                case "both":
+                case "db-only":
+                    return "update-storage";
+                case "storage-only":
+                    return shouldDeleteLocalWhenRemoteMissing(options) ? "delete-local" : "skip";
+                case "both-db-deleted":
+                    return shouldDeleteLocalWhenRemoteDeleted(options) ? "delete-local" : "skip";
+                case "db-only-deleted":
+                    return "skip";
+            }
+            break;
+        case FullScanModes.NEWER_WINS:
+            switch (state) {
+                case "both":
+                    return "sync-newer";
+                case "storage-only":
+                    return shouldDeleteLocalWhenRemoteMissing(options) ? "delete-local" : "update-db";
+                case "db-only":
+                    return "update-storage";
+                case "both-db-deleted":
+                    if (shouldDeleteLocalWhenRemoteDeleted(options)) {
+                        return "delete-local";
+                    }
+                    return options.extraOnLocal === ExtraOnLocal.APPEND_STORAGE_ONLY ? "update-db" : "skip";
+                case "db-only-deleted":
+                    return "skip";
+            }
+            break;
+    }
+    return "skip";
+}
+
+/**
+ * Process a single file pair based on the determined action from the file pair state and scan options.
+ */
+async function processFilePair(
+    host: NecessaryServices<"setting" | "vault" | "path" | "keyValueDB", "storageAccess" | "fileHandler">,
+    log: LogFunction,
+    pair: FilePair,
+    options: FullScanOptions
+) {
+    const { file, doc } = pair;
+    const canonicalPath = doc ? getPathFromEntry(host, doc) : file?.path;
+    if (!canonicalPath) {
+        throw new Error("Corrupted file pair");
+    }
+    const path = canonicalPath;
+    const fileMapKey = convertCase(host.services.setting.currentSettings(), canonicalPath);
+
+    if (file) {
+        updateFileMTimeInMap(host, fileMapKey, file.stat.mtime);
+    }
+
+    if (doc && (doc._conflicts?.length ?? 0) > 0) {
+        log(`SKIP ${options.mode}: ${path} has conflicts`, LOG_LEVEL_INFO);
+        return true;
+    }
+    const state = getFilePairState(pair);
+    let action = resolveFilePairAction(state, options);
+
+    // If the file existed locally on a previous run and is now missing while DB-only,
+    // treat it as an offline local deletion when local mtime is not older than DB mtime.
+    if (options.mode === FullScanModes.NEWER_WINS && state === "db-only" && doc) {
+        const lastSeenMTime = getFileMTimeFromMap(fileMapKey);
+        if (lastSeenMTime !== undefined) {
+            const recency = compareMTime(lastSeenMTime, doc.mtime);
+            if (recency === BASE_IS_NEW || recency === EVEN) {
+                action = "delete-db";
+                log(`NEWER_WINS: Treating missing local file as deletion (${path})`, LOG_LEVEL_VERBOSE);
+            }
+        }
+    }
+
+    try {
+        switch (action) {
+            case "update-db":
+                if (!file) {
+                    throw new Error(`Missing storage file for ${path}`);
+                }
+                await updateToDatabase(host, log, LOG_LEVEL_INFO, file);
+                return true;
+            case "update-storage":
+                if (!doc) {
+                    throw new Error(`Missing database entry for ${path}`);
+                }
+                await updateToStorage(host, log, LOG_LEVEL_INFO, doc);
+                updateFileMTimeInMap(host, fileMapKey, doc.mtime);
+                return true;
+            case "sync-newer":
+                if (!file || !doc) {
+                    throw new Error(`Cannot compare freshness for ${path}`);
+                }
+                await syncStorageAndDatabase(host, log, file, LOG_LEVEL_INFO, doc);
+                updateFileMTimeInMap(host, fileMapKey, Math.max(file.stat.mtime, doc.mtime));
+                return true;
+            case "delete-local":
+                if (!file) {
+                    log(`DELETE LOCAL: ${path} is already absent from storage`, LOG_LEVEL_VERBOSE);
+                    return true;
+                }
+                log(`DELETE LOCAL: ${file.path}`, LOG_LEVEL_INFO);
+                await host.serviceModules.storageAccess.delete(file.path, true);
+                fileMaps.delete(fileMapKey);
+                saveFileStatus(host);
+                return true;
+            case "delete-db":
+                if (!doc) {
+                    throw new Error(`Missing database entry for ${path}`);
+                }
+                log(`DELETE DATABASE: ${path}`, LOG_LEVEL_INFO);
+                await host.serviceModules.fileHandler.deleteFileFromDB(stripAllPrefixes(path));
+                fileMaps.delete(fileMapKey);
+                saveFileStatus(host);
+                return true;
+            case "skip":
+                log(`SKIP ${options.mode}: ${path} (${state})`, LOG_LEVEL_VERBOSE);
+                return true;
+        }
+    } catch (ex) {
+        log(`Error processing ${path} with action ${action}`, LOG_LEVEL_NOTICE);
+        log(ex, LOG_LEVEL_VERBOSE);
+        return false;
+    }
+}
+/**
+ * Synchronise all files between database and storage based on the selected mode and options.
+ * @param host Core
+ * @param log Logging function
+ * @param errorManager Error manager
+ * @param options Full scan options
+ */
+export async function synchroniseAllFilesBetweenDBandStorage(
+    host: NecessaryServices<
+        "setting" | "vault" | "path" | "fileProcessing" | "database" | "keyValueDB",
+        "storageAccess" | "fileHandler"
+    >,
+    log: LogFunction,
+    errorManager: UnresolvedErrorManager,
+    options: FullScanOptions
+) {
+    const settings = host.services.setting.currentSettings();
+    const showingNotice = options.showingNotice ?? false;
+    await loadFileStatus(host);
+    const { storageFileNameMap, storageFileNameCI2CS } = await collectFilesOnStorage(host, settings, log);
+    const { databaseFileNameMap, databaseFileNameCI2CS } = await collectDatabaseFiles(
+        host,
+        settings,
+        log,
+        showingNotice
+    );
+
+    const pairs: FilePair[] = [];
+    for (const fileNameLC of unique([
+        ...Object.keys(storageFileNameCI2CS),
+        ...Object.keys(databaseFileNameCI2CS),
+    ] as FilePathWithPrefixLC[])) {
+        const fileName = fileNameLC in storageFileNameCI2CS ? storageFileNameCI2CS[fileNameLC] : undefined;
+        const file = fileName ? storageFileNameMap[fileName] : undefined;
+        const databaseName = fileNameLC in databaseFileNameCI2CS ? databaseFileNameCI2CS[fileNameLC] : undefined;
+        const doc = databaseName ? databaseFileNameMap[databaseName] : undefined;
+        const pair: FilePair = { file, doc } as FilePair;
+        pairs.push(pair);
+    }
+
+    log(`Total files to synchronise: ${pairs.length}`, LOG_LEVEL_VERBOSE, "syncAll");
+    let successCount = 0;
+    let processedCount = 0;
+    for await (const result of withConcurrency(
+        pairs,
+        async (e) => {
+            try {
+                return await processFilePair(host, log, e, options);
+            } catch (ex) {
+                log(`Error while synchronising files`, LOG_LEVEL_NOTICE);
+                log(ex, LOG_LEVEL_VERBOSE);
+                return false;
+            }
+        },
+        10
+    )) {
+        processedCount++;
+        if (result) {
+            successCount++;
+        }
+        if (processedCount % 25 === 0) {
+            log(
+                `Processing: ${processedCount}/${pairs.length}`,
+                showingNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
+                "syncAll"
+            );
+        }
+    }
+    log(
+        `Synchronisation completed: ${successCount}/${processedCount} files processed successfully`,
+        showingNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
+        "syncAll"
+    );
+    saveFileStatus(host, true);
+    return successCount === processedCount;
+}
+
+export function normaliseFullScanOptions(
+    showingNoticeOrOptions: Partial<FullScanOptions> | boolean | undefined,
+    ignoreSuspending: boolean = false
+): FullScanOptions {
+    if (typeof showingNoticeOrOptions === "object") {
+        return {
+            mode: FullScanModes.NEWER_WINS,
+            ...showingNoticeOrOptions,
+        };
+    }
+    return {
+        mode: FullScanModes.NEWER_WINS,
+        showingNotice: showingNoticeOrOptions ?? false,
+        ignoreSuspending,
+    };
+}
+// In-memory map to track file modification times for offline scanning.
+let fileMaps = new Map<string, number>();
+// Load file modification times from the key-value database into the in-memory map.
+async function loadFileStatus(host: NecessaryServices<"keyValueDB", never>) {
+    const kvDB = host.services.keyValueDB.kvDB as
+        | { get?: <T = unknown>(key: string) => Promise<T | undefined> }
+        | undefined;
+    if (!kvDB?.get) {
+        fileMaps = new Map();
+        return;
+    }
+    const mapItems = (await kvDB.get<Record<string, number>>("fileStatusMap")) || {};
+    fileMaps = new Map(Object.entries(mapItems));
+}
+// Save the current state of file modification times from the in-memory map to the key-value database.
+async function _saveFileStatus(host: NecessaryServices<"keyValueDB", never>) {
+    const kvDB = host.services.keyValueDB.kvDB as
+        | { set?: (key: string, value: unknown) => Promise<unknown> }
+        | undefined;
+    if (!kvDB?.set) {
+        return;
+    }
+    await kvDB.set("fileStatusMap", Object.fromEntries(fileMaps));
+}
+
+let saveFileStatusTimeout: number | null = null;
+// Schedule saving file status with throttling to prevent excessive writes and CPU usage.
+function saveFileStatus(host: NecessaryServices<"keyValueDB", never>, immediate = false) {
+    if (immediate) {
+        if (saveFileStatusTimeout !== null) compatGlobal.clearTimeout(saveFileStatusTimeout);
+        saveFileStatusTimeout = compatGlobal.setTimeout(() => {
+            saveFileStatusTimeout = null;
+            void _saveFileStatus(host);
+        }, 0);
+        return;
+    }
+
+    if (saveFileStatusTimeout === null) {
+        saveFileStatusTimeout = compatGlobal.setTimeout(() => {
+            saveFileStatusTimeout = null;
+            void _saveFileStatus(host);
+        }, 1000);
+    }
+}
+function updateFileMTimeInMap(host: NecessaryServices<"keyValueDB", never>, key: string, mtime: number) {
+    fileMaps.set(key, mtime);
+    saveFileStatus(host);
+}
+function getFileMTimeFromMap(key: string): number | undefined {
+    return fileMaps.get(key);
+}
+
 /**
  * Perform a full scan and synchronisation between database and storage.
  * @param host Services container
@@ -362,17 +714,37 @@ export async function performFullScan(
     >,
     log: LogFunction,
     errorManager: UnresolvedErrorManager,
-    showingNotice: boolean = false,
+    options?: Partial<FullScanOptions>
+): Promise<boolean>;
+export async function performFullScan(
+    host: NecessaryServices<
+        "setting" | "vault" | "path" | "fileProcessing" | "database" | "keyValueDB",
+        "storageAccess" | "fileHandler"
+    >,
+    log: LogFunction,
+    errorManager: UnresolvedErrorManager,
+    showingNotice?: boolean,
+    ignoreSuspending?: boolean
+): Promise<boolean>;
+export async function performFullScan(
+    host: NecessaryServices<
+        "setting" | "vault" | "path" | "fileProcessing" | "database" | "keyValueDB",
+        "storageAccess" | "fileHandler"
+    >,
+    log: LogFunction,
+    errorManager: UnresolvedErrorManager,
+    showingNoticeOrOptions: Partial<FullScanOptions> | boolean = false,
     ignoreSuspending: boolean = false
 ): Promise<boolean> {
-    if (!canProceedScan(host, errorManager, log, showingNotice, ignoreSuspending)) {
+    const options = normaliseFullScanOptions(showingNoticeOrOptions, ignoreSuspending);
+    const showingNotice = options.showingNotice ?? false;
+    const shouldIgnoreSuspending = options.ignoreSuspending ?? false;
+
+    if (!canProceedScan(host, errorManager, log, showingNotice, shouldIgnoreSuspending)) {
         return false;
     }
-
     log("Opening the key-value database", LOG_LEVEL_VERBOSE);
     const isInitialized = (await host.services.keyValueDB.kvDB.get("initialized")) || false;
-
-    const settings = host.services.setting.currentSettings();
 
     if (showingNotice) {
         log("Initializing", LOG_LEVEL_NOTICE, "syncAll");
@@ -385,111 +757,7 @@ export async function performFullScan(
     log("Initialize and checking database files");
     log("Checking deleted files");
     await collectDeletedFiles(host, log);
-
-    const { storageFileNameMap, storageFileNames, storageFileNameCI2CS } = await collectFilesOnStorage(
-        host,
-        settings,
-        log
-    );
-    const { databaseFileNameMap, databaseFileNames, databaseFileNameCI2CS } = await collectDatabaseFiles(
-        host,
-        settings,
-        log,
-        showingNotice
-    );
-
-    const allFiles = unique([
-        ...Object.keys(databaseFileNameCI2CS),
-        ...Object.keys(storageFileNameCI2CS),
-    ]) as FilePathWithPrefixLC[];
-
-    log(`Total files in the database: ${databaseFileNames.length}`, LOG_LEVEL_VERBOSE, "syncAll");
-    log(`Total files in the storage: ${storageFileNames.length}`, LOG_LEVEL_VERBOSE, "syncAll");
-    log(`Total files: ${allFiles.length}`, LOG_LEVEL_VERBOSE, "syncAll");
-
-    const filesExistOnlyInStorage = allFiles.filter((e) => !databaseFileNameCI2CS[e]);
-    const filesExistOnlyInDatabase = allFiles.filter((e) => !storageFileNameCI2CS[e]);
-    const filesExistBoth = allFiles.filter((e) => databaseFileNameCI2CS[e] && storageFileNameCI2CS[e]);
-    const fileMap = filesExistBoth.map((path) => {
-        const file = storageFileNameMap[storageFileNameCI2CS[path]];
-        const doc = databaseFileNameMap[databaseFileNameCI2CS[path]];
-        return { file, doc };
-    });
-    log(`Files exist only in storage: ${filesExistOnlyInStorage.length}`, LOG_LEVEL_VERBOSE, "syncAll");
-    log(`Files exist only in database: ${filesExistOnlyInDatabase.length}`, LOG_LEVEL_VERBOSE, "syncAll");
-    log(`Files exist both in storage and database: ${filesExistBoth.length}`, LOG_LEVEL_VERBOSE, "syncAll");
-
-    log("Synchronising...");
-    const processStatus: Record<string, string> = {};
-    const logLevel = showingNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
-    const updateLog = throttle((key: string, msg: string) => {
-        processStatus[key] = msg;
-        const logMsg = Object.values(processStatus).join("\n");
-        log(logMsg, logLevel, "syncAll");
-    }, 25);
-
-    const initProcess: Promise<void>[] = [];
-
-    async function runAll<T>(procedureName: string, objects: T[], callback: (arg: T) => Promise<void>) {
-        if (objects.length === 0) {
-            log(`${procedureName}: Nothing to do`);
-            return;
-        }
-        log(procedureName);
-        if (!host.services.database.localDatabase.isReady) throw Error("Database is not ready!");
-        let success = 0;
-        let failed = 0;
-        let total = 0;
-        for await (const result of withConcurrency(
-            objects,
-            async (e) => {
-                try {
-                    await callback(e);
-                    return true;
-                } catch (ex) {
-                    log(`Error while ${procedureName}`, LOG_LEVEL_NOTICE);
-                    log(ex, LOG_LEVEL_VERBOSE);
-                    return false;
-                }
-            },
-            10
-        )) {
-            if (result) {
-                success++;
-            } else {
-                failed++;
-            }
-            total++;
-            const msg = `${procedureName}: DONE:${success}, FAILED:${failed}, LAST:${objects.length - total}`;
-            updateLog(procedureName, msg);
-        }
-        const msg = `${procedureName} All done: DONE:${success}, FAILED:${failed}`;
-        updateLog(procedureName, msg);
-    }
-
-    initProcess.push(
-        runAll("UPDATE DATABASE", filesExistOnlyInStorage, async (e: FilePathWithPrefixLC) => {
-            // Exists in storage but not in database.
-            const file = storageFileNameMap[storageFileNameCI2CS[e]];
-            await updateToDatabase(host, log, logLevel, file);
-        })
-    );
-
-    initProcess.push(
-        runAll("UPDATE STORAGE", filesExistOnlyInDatabase, async (e: FilePathWithPrefixLC) => {
-            const w = databaseFileNameMap[databaseFileNameCI2CS[e]];
-            // Exists in database but not in storage.
-            await updateToStorage(host, log, logLevel, w);
-        })
-    );
-
-    initProcess.push(
-        runAll("SYNC DATABASE AND STORAGE", fileMap, async (e: { file: UXFileInfoStub; doc: MetaEntry }) => {
-            const { file, doc } = e;
-            await syncStorageAndDatabase(host, log, file, logLevel, doc);
-        })
-    );
-    await Promise.all(initProcess);
+    await synchroniseAllFilesBetweenDBandStorage(host, log, errorManager, options);
 
     log("Initialized, NOW TRACKING!");
     if (!isInitialized) {
@@ -499,56 +767,6 @@ export async function performFullScan(
         log("Initialize done!", LOG_LEVEL_NOTICE, "syncAll");
     }
     return true;
-}
-
-/**
- * Initialise the database and trigger a full vault scan.
- * @param host Services container
- * @param log Logging function
- * @param errorManager Error manager
- * @param showingNotice Whether to show notices during initialisation
- * @param reopenDatabase Whether to reopen the database connection
- * @param ignoreSuspending Whether to ignore suspension settings
- * @returns True if initialisation succeeded
- */
-export async function prepareDatabaseForUse(
-    host: NecessaryServices<
-        "appLifecycle" | "setting" | "vault" | "path" | "database" | "databaseEvents" | "fileProcessing" | "replicator",
-        never
-    >,
-    log: LogFunction,
-    errorManager: UnresolvedErrorManager,
-    showingNotice: boolean = false,
-    reopenDatabase: boolean = true,
-    ignoreSuspending: boolean = false
-): Promise<boolean> {
-    const appLifecycle = host.services.appLifecycle;
-    appLifecycle.resetIsReady();
-
-    if (
-        !reopenDatabase ||
-        (await host.services.database.openDatabase({
-            databaseEvents: host.services.databaseEvents,
-            replicator: host.services.replicator,
-        }))
-    ) {
-        if (host.services.database.localDatabase.isReady) {
-            await host.services.vault.scanVault(showingNotice, ignoreSuspending);
-        }
-        const ERR_INITIALISATION_FAILED = `Initializing database has been failed on some module!`;
-        if (!(await host.services.databaseEvents.onDatabaseInitialised(showingNotice))) {
-            errorManager.showError(ERR_INITIALISATION_FAILED, LOG_LEVEL_NOTICE);
-            return false;
-        }
-        errorManager.clearError(ERR_INITIALISATION_FAILED);
-        appLifecycle.markIsReady();
-        // Run queued event once.
-        await host.services.fileProcessing.commitPendingFileEvents();
-        return true;
-    } else {
-        appLifecycle.resetIsReady();
-        return false;
-    }
 }
 
 /**
@@ -578,17 +796,6 @@ export function useOfflineScanner(
     const handleScanVault = async (showingNotice?: boolean, ignoreSuspending: boolean = false): Promise<boolean> => {
         return await performFullScan(host, log, errorManager, showingNotice, ignoreSuspending);
     };
-
-    // Handler for database initialisation
-    const initialiseDatabaseHandler = async (
-        showingNotice: boolean = false,
-        reopenDatabase: boolean = true,
-        ignoreSuspending: boolean = false
-    ): Promise<boolean> => {
-        return await prepareDatabaseForUse(host, log, errorManager, showingNotice, reopenDatabase, ignoreSuspending);
-    };
-
     // Bind handlers to lifecycle events
-    host.services.databaseEvents.initialiseDatabase.addHandler(initialiseDatabaseHandler);
     host.services.vault.scanVault.addHandler(handleScanVault);
 }

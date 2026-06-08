@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf } from "../common/typ
 import { type ChunkManager } from "./ChunkManager.ts";
 
 import type { IReplicatorService, ISettingService } from "../services/base/IService.ts";
+import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
 
 export const EVENT_MISSING_CHUNKS = "missingChunks";
 export const EVENT_MISSING_CHUNK_REMOTE = "missingChunkRemote";
@@ -52,7 +53,7 @@ export class ChunkFetcher {
     onEvent(ids: DocumentID[]): void {
         this.queue = unique([...this.queue, ...ids]);
         if (this.canRequestMore()) {
-            setTimeout(() => void this.requestMissingChunks(), 1);
+            compatGlobal.setTimeout(() => void this.requestMissingChunks(), 1);
         }
     }
 
@@ -141,7 +142,8 @@ export class ChunkFetcher {
                     );
                 }
             } catch (error) {
-                Logger(`An error occurred while storing fetched chunks: ${error}`, LOG_LEVEL_VERBOSE);
+                Logger(`An error occurred while storing fetched chunks!`, LOG_LEVEL_VERBOSE);
+                Logger(error, LOG_LEVEL_VERBOSE);
             } finally {
                 // Emitting fetched chunks and missing IDs regardless of write success (just only refetch will be triggered).
                 for (const chunk of chunks) {
@@ -158,7 +160,7 @@ export class ChunkFetcher {
             if (this.queue.length > 0) {
                 // If there are remaining items in the queue, trigger the next process.
                 // Use setTimeout to release the call stack once.
-                setTimeout(() => void this.requestMissingChunks(), 0);
+                compatGlobal.setTimeout(() => void this.requestMissingChunks(), 0);
             }
         }
     }

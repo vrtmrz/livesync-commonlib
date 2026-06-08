@@ -139,7 +139,7 @@ export class JWTTokenGenerator {
             return {
                 ...params,
                 token: `${buff}.${token}`,
-            } as PreparedJWT;
+            } satisfies PreparedJWT;
         },
     });
 

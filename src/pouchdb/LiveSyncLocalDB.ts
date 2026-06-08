@@ -525,8 +525,8 @@ export class LiveSyncLocalDB {
     ): Promise<boolean> {
         return await this.managers.entryManager.moveDBEntry(from, to, overwrite);
     }
-    async putDBEntry(note: SavingEntry, onlyChunks?: boolean) {
-        return await this.managers.entryManager.putDBEntry(note, onlyChunks);
+    async putDBEntry(note: SavingEntry, onlyChunks?: boolean, conflictBaseRev?: string) {
+        return await this.managers.entryManager.putDBEntry(note, onlyChunks, conflictBaseRev);
     }
 
     async getConflictedDoc(path: FilePathWithPrefix, rev: string): Promise<false | diff_result_leaf> {

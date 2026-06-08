@@ -11,8 +11,19 @@ import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
  * @param settings settings to encode
  */
 export function encodeSettingsToQRCodeData(settings: ObsidianLiveSyncSettings) {
-    const settingArr = [];
     const fullIndexes = Object.entries(KeyIndexOfSettings) as [keyof ObsidianLiveSyncSettings, number][];
+
+    // Find the maximum index to properly size the array
+    let maxIndex = 0;
+    for (const [, index] of fullIndexes) {
+        if (index >= 0 && index > maxIndex) {
+            maxIndex = index;
+        }
+    }
+
+    // Create a dense array with proper size
+    const settingArr = new Array(maxIndex + 1).fill(undefined);
+
     for (const [settingKey, index] of fullIndexes) {
         const settingValue = settings[settingKey];
         if (index < 0) {
@@ -33,6 +44,10 @@ export function decodeSettingsFromQRCodeData(qr: string): ObsidianLiveSyncSettin
     const settingArr = decodeAnyArray(qr);
     const fullIndexes = Object.entries(KeyIndexOfSettings) as [keyof ObsidianLiveSyncSettings, number][];
     const newSettings = { ...DEFAULT_SETTINGS } as ObsidianLiveSyncSettings;
+
+    // Diagnostic: track which settings are missing due to array size
+    const skippedSettings: string[] = [];
+
     for (const [settingKey, index] of fullIndexes) {
         if (index < 0) {
             // This setting should be ignored.
@@ -40,12 +55,22 @@ export function decodeSettingsFromQRCodeData(qr: string): ObsidianLiveSyncSettin
         }
         if (index >= settingArr.length) {
             // Possibly a new setting added.
+            skippedSettings.push(`${settingKey} (index ${index})`);
             continue;
         }
         const settingValue = settingArr[index];
         //@ts-ignore
         newSettings[settingKey] = settingValue;
     }
+
+    // Log warning if critical settings were skipped
+    if (skippedSettings.length > 0) {
+        Logger(
+            `Warning: ${skippedSettings.length} settings were skipped during QR decode (array length: ${settingArr.length}): ${skippedSettings.slice(0, 5).join(", ")}${skippedSettings.length > 5 ? "..." : ""}`,
+            LOG_LEVEL_VERBOSE
+        );
+    }
+
     return newSettings;
 }
 
@@ -54,29 +79,56 @@ export const enum OutputFormat {
     ASCII = 1,
 }
 
+const AGGREGATOR_URL = "https://vrtmrz.github.io/obsidian-livesync/aggregator.html";
+
+export interface SplitQRCodeData {
+    total: number;
+    parts: string[];
+}
+
 /**
  * Encode setting string to QR code in specified format
  * @param settingString Setting string to encode
  * @param format Output format
  */
-export function encodeQR(settingString: string, format: OutputFormat) {
-    const qr = qrcode(0, "L");
+export function encodeQR(settingString: string, format: OutputFormat): string | SplitQRCodeData {
+    const tryEncode = (data: string) => {
+        const qr = qrcode(0, "L");
+        qr.addData(data);
+        qr.make();
+        if (format === OutputFormat.SVG) {
+            return qr.createSvgTag(3);
+        } else if (format === OutputFormat.ASCII) {
+            return qr.createASCII(3);
+        }
+        return "";
+    };
+
     const uri = `${configURIBaseQR}${encodeURIComponent(settingString)}`;
     try {
-        qr.addData(uri);
-        qr.make();
+        return tryEncode(uri);
     } catch (ex) {
-        Logger(`Failed to encode QR Code (${(ex as any)?.message || String(ex)})`, LOG_LEVEL_NOTICE);
+        // Fallback to aggregator
+        Logger(`QR Code size exceeded, switching to aggregator mode`, LOG_LEVEL_NOTICE);
         Logger(ex, LOG_LEVEL_VERBOSE);
-        return "";
-    }
+        const id = Math.random().toString(36).substring(2, 10);
+        const data = encodeURIComponent(settingString);
+        const chunkSize = 2000; // Safe data amount per QR code (QR Version 40, L, Binary can hold up to ~2953 bytes)
+        const total = Math.ceil(data.length / chunkSize);
+        const parts: string[] = [];
 
-    if (format === OutputFormat.SVG) {
-        return qr.createSvgTag(3);
-    } else if (format === OutputFormat.ASCII) {
-        return qr.createASCII(3);
+        for (let i = 0; i < total; i++) {
+            const chunk = data.substring(i * chunkSize, (i + 1) * chunkSize);
+            const partUri = `${AGGREGATOR_URL}#id=${id}&n=${total}&i=${i}&d=${chunk}`;
+            try {
+                parts.push(tryEncode(partUri));
+            } catch (ex2) {
+                Logger(`Failed to encode split QR Code (${(ex2 as any)?.message || String(ex2)})`, LOG_LEVEL_NOTICE);
+                return "";
+            }
+        }
+        return { total, parts };
     }
-    return "";
 }
 
 type ErasureProperties = keyof ObsidianLiveSyncSettings;

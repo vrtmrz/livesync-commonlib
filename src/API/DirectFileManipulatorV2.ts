@@ -109,7 +109,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     liveSyncLocalDB: LiveSyncLocalDB;
     options: DirectFileManipulatorOptions;
     ready = promiseWithResolvers<void>();
-    services: HeadlessServiceHub;
+    services: HeadlessServiceHub<ServiceContext>;
     public async init() {
         await this.services.appLifecycle.onReady();
         await this.liveSyncLocalDB.initializeDatabase();
@@ -203,7 +203,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         }
     }
     async getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
-        const server = `${setting.couchDB_URI}/${setting.couchDB_DBNAME}`;
+        const server = `${setting.couchDB_URI.replace(/\/+$/, "")}/${setting.couchDB_DBNAME}`;
         const manager = createSyncParamsHanderForServer(server, {
             put: (params: SyncParameters) => this.putSyncParameters(setting, params),
             get: () => this.getSyncParameters(setting),

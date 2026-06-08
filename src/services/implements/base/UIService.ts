@@ -11,13 +11,19 @@ export type UIServiceDependencies<T extends ServiceContext = ServiceContext> = {
     APIService: IAPIService;
 };
 
+type DialogResult = "ok" | "cancel";
+type DialogParams = {
+    title: string;
+    dataToCopy: string;
+};
+
 export abstract class UIService<T extends ServiceContext = ServiceContext>
     extends ServiceBase<T>
     implements IUIService
 {
     private _dialogManager: SvelteDialogManagerBase<T>;
     protected _APIService: IAPIService;
-    abstract get dialogToCopy(): ComponentHasResult<"ok" | "cancel", { title: string; dataToCopy: string }>;
+    abstract get dialogToCopy(): ComponentHasResult<DialogResult, DialogParams>;
     constructor(context: T, dependents: UIServiceDependencies<T>) {
         super(context);
         this._dialogManager = dependents.dialogManager;
@@ -32,7 +38,7 @@ export abstract class UIService<T extends ServiceContext = ServiceContext>
             title: title,
             dataToCopy: value,
         };
-        const result = await this._dialogManager.open(this.dialogToCopy, param);
+        const result = await this._dialogManager.open<DialogResult, DialogParams>(this.dialogToCopy, param);
         if (result !== "ok") {
             return false;
         }
