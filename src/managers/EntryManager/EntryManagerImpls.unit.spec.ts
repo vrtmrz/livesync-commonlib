@@ -10,6 +10,7 @@ import {
     getDBEntryFromMeta,
     getDBEntryByPath,
     deleteDBEntryByPath,
+    moveDBEntryByPath,
     canUseOnDemandChunking,
     isLegacyNote,
 } from "./EntryManagerImpls";
@@ -615,6 +616,47 @@ describe("EntryManagerImpls", () => {
             );
 
             expect(result).toBe(false);
+        });
+    });
+
+    describe("moveDBEntryByPath", () => {
+        it("should move a file to a new path", async () => {
+            const from = "inbox/test.md" as FilePathWithPrefix;
+            const to = "toto/test.md" as FilePathWithPrefix;
+            const entry = createSavingEntry("inbox/test.md", "Move me", from);
+            const host = createHost(mockSettingService, mockPathService);
+
+            await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
+
+            const moved = await moveDBEntryByPath(host, { localDatabase: db }, from, to, false);
+            expect(moved).toBe(true);
+
+            const sourceMeta = await getDBEntryMetaByPath(host, { localDatabase: db }, from);
+            expect(sourceMeta).toBe(false);
+
+            const destMeta = await getDBEntryMetaByPath(host, { localDatabase: db }, to);
+            expect(destMeta).not.toBe(false);
+            if (destMeta !== false) {
+                expect(destMeta.path).toBe(to);
+                expect(destMeta.deleted).not.toBe(true);
+            }
+        });
+
+        it("should return false when destination exists and overwrite is false", async () => {
+            const from = "inbox/test.md" as FilePathWithPrefix;
+            const to = "toto/test.md" as FilePathWithPrefix;
+            const sourceEntry = createSavingEntry("inbox/test.md", "Source", from);
+            const destinationEntry = createSavingEntry("toto/test.md", "Destination", to);
+            const host = createHost(mockSettingService, mockPathService);
+
+            await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, sourceEntry);
+            await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, destinationEntry);
+
+            const moved = await moveDBEntryByPath(host, { localDatabase: db }, from, to, false);
+            expect(moved).toBe(false);
+
+            const sourceMeta = await getDBEntryMetaByPath(host, { localDatabase: db }, from);
+            expect(sourceMeta).not.toBe(false);
         });
     });
 
