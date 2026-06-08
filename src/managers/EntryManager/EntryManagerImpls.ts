@@ -630,3 +630,106 @@ export async function deleteDBEntryByPath(
         throw ex;
     }
 }
+
+export async function moveDBEntryByPath(
+    host: NecessaryServicesInterfaces<"path" | "setting", any>,
+    { localDatabase }: NecessaryManagers<"localDatabase">,
+    from: FilePathWithPrefix | FilePath,
+    to: FilePathWithPrefix | FilePath,
+    overwrite = false
+): Promise<boolean> {
+    if (!isTargetFile(host, from) || !isTargetFile(host, to)) {
+        return false;
+    }
+    const sourceId = await host.services.path.path2id(from);
+    const destinationId = await host.services.path.path2id(to);
+
+    // Case-only renames may map to the same ID depending on path settings.
+    if (sourceId === destinationId) {
+        try {
+            return (
+                (await serialized("file:" + from, async () => {
+                    const sourceObj = await localDatabase.get(sourceId);
+                    if (sourceObj.type === "leaf") return false;
+                    if ((sourceObj as any).deleted || sourceObj._deleted) return false;
+                    const updated = {
+                        ...sourceObj,
+                        path: to,
+                        mtime: Date.now(),
+                    } as EntryDocResponse;
+                    const r = await localDatabase.put(updated, { force: true });
+                    return !!r.ok;
+                })) ?? false
+            );
+        } catch (ex: any) {
+            if (isErrorOfMissingDoc(ex)) return false;
+            throw ex;
+        }
+    }
+
+    const lockKey = `move:${[String(from), String(to)].sort().join("::")}`;
+    try {
+        return (
+            (await serialized(lockKey, async () => {
+                const sourceObj = await localDatabase.get(sourceId);
+                if (sourceObj.type === "leaf") return false;
+                if ((sourceObj as any).deleted || sourceObj._deleted) return false;
+
+                let destinationObj: EntryDocResponse | false = false;
+                try {
+                    destinationObj = await localDatabase.get(destinationId);
+                } catch (ex: any) {
+                    if (!isErrorOfMissingDoc(ex)) throw ex;
+                }
+                if (destinationObj && !overwrite) {
+                    return false;
+                }
+
+                // Move by writing only metadata at the new path while reusing the same chunk ids.
+                const newDoc: PlainEntry | NewEntry = {
+                    _id: destinationId,
+                    path: to,
+                    ctime: sourceObj.ctime,
+                    mtime: Date.now(),
+                    size: sourceObj.size,
+                    type: sourceObj.type as "plain" | "newnote",
+                    children: "children" in sourceObj ? [...sourceObj.children] : [],
+                    eden: "eden" in sourceObj ? sourceObj.eden : {},
+                };
+                if (destinationObj && destinationObj._rev) {
+                    newDoc._rev = destinationObj._rev;
+                }
+
+                const putNew = await localDatabase.put(newDoc, { force: true });
+                if (!putNew.ok) {
+                    return false;
+                }
+
+                const settings = host.services.setting.currentSettings();
+                const sourceDeleted = { ...sourceObj } as EntryDocResponse;
+                if (!sourceDeleted.type || sourceDeleted.type === "notes") {
+                    sourceDeleted._deleted = true;
+                } else {
+                    sourceDeleted.deleted = true;
+                    sourceDeleted.mtime = Date.now();
+                    if (settings.deleteMetadataOfDeletedFiles) {
+                        sourceDeleted._deleted = true;
+                    }
+                }
+
+                const putDeleted = await localDatabase.put(sourceDeleted, { force: true });
+                if (!putDeleted.ok) {
+                    return false;
+                }
+
+                Logger(`Entry moved: ${from} -> ${to}`, LOG_LEVEL_VERBOSE);
+                return true;
+            })) ?? false
+        );
+    } catch (ex: any) {
+        if (isErrorOfMissingDoc(ex)) {
+            return false;
+        }
+        throw ex;
+    }
+}

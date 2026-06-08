@@ -374,6 +374,22 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
             return false;
         }
     }
+
+    async move(from: string, to: string, overwrite = false) {
+        Logger(`MOVE: START: ${from} -> ${to}`, LOG_LEVEL_VERBOSE);
+        const ret = await this.liveSyncLocalDB.moveDBEntry(
+            from as FilePathWithPrefix,
+            to as FilePathWithPrefix,
+            overwrite
+        );
+        if (ret) {
+            Logger(`MOVE: DONE: ${from} -> ${to}`, LOG_LEVEL_INFO);
+            return true;
+        } else {
+            Logger(`MOVE: FAILED: ${from} -> ${to}`, LOG_LEVEL_INFO);
+            return false;
+        }
+    }
     // Untested
     async *enumerate(_cond: EnumerateConditions) {
         //TODO

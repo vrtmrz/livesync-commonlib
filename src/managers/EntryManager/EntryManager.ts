@@ -18,6 +18,7 @@ import {
     getDBEntryFromMeta,
     getDBEntryMetaByPath,
     isTargetFile,
+    moveDBEntryByPath,
     prepareChunk,
     putDBEntry,
 } from "./EntryManagerImpls";
@@ -105,6 +106,14 @@ export class EntryManager {
 
     async deleteDBEntry(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
         return await deleteDBEntryByPath(this.serviceHost, this, path, opt);
+    }
+
+    async moveDBEntry(
+        from: FilePathWithPrefix | FilePath,
+        to: FilePathWithPrefix | FilePath,
+        overwrite = false
+    ): Promise<boolean> {
+        return await moveDBEntryByPath(this.serviceHost, this, from, to, overwrite);
     }
 
     async putDBEntry(note: SavingEntry, onlyChunks?: boolean) {
