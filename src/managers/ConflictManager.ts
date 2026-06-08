@@ -92,8 +92,8 @@ export class ConflictManager {
         if (baseLeaf == false || leftLeaf == false || rightLeaf == false) {
             return false;
         }
-        if (leftLeaf.deleted && rightLeaf.deleted) {
-            // Both are deleted
+        if (leftLeaf.deleted || rightLeaf.deleted) {
+            // Either one is deleted
             return false;
         }
         // diff between base and each revision
@@ -276,8 +276,8 @@ export class ConflictManager {
                 );
                 return false;
             }
-            if (leftLeaf.deleted && rightLeaf.deleted) {
-                Logger(`Both are deleted`, LOG_LEVEL_VERBOSE);
+            if (leftLeaf.deleted || rightLeaf.deleted) {
+                Logger(`Either is deleted`, LOG_LEVEL_VERBOSE);
                 return false;
             }
             const baseObj = { data: tryParseJSON(baseLeaf.data, {}) } as Record<string | number | symbol, any>;

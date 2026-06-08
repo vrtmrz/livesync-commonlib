@@ -245,6 +245,41 @@ describe("ConflictManager", () => {
             expect(result).toBe(false);
         });
 
+        it("should return false when only one revision is deleted", async () => {
+            const path = "test-doc" as FilePathWithPrefix;
+
+            // Create base version with actual content
+            const baseDoc = createTestDoc(path, "base data", 1000);
+            const baseResult = await db.put(baseDoc);
+
+            // Create two conflicting versions (not deleted)
+            const doc1 = { ...createTestDoc(path, "version1", 2000), _rev: baseResult.rev };
+            const result1 = await db.put(doc1);
+
+            const doc2 = {
+                ...createTestDoc(path, "version2", 2100),
+                _rev: baseResult.rev.split("-")[0] + "-conflict",
+            };
+            await db.put(doc2, { force: true } as any);
+
+            const currentDoc = await db.get(path, { conflicts: true });
+            const conflictedRev = currentDoc._conflicts?.[0] || "";
+
+            // Now delete only the conflicted revision by updating the entry manager mock
+            mockEntryManager.getDBEntry = vi.fn(async (p: FilePathWithPrefix, opt?: any) => {
+                const doc = await db.get(p2i(p), opt);
+                if (opt && opt.rev === conflictedRev) {
+                    return { ...doc, _deleted: true, deleted: true } as LoadedEntry;
+                }
+                return doc as LoadedEntry;
+            });
+
+            const result = await conflictManager.mergeSensibly(path, baseResult.rev, result1.rev, conflictedRev);
+
+            expect(result).toBe(false);
+        });
+
+
         it("should merge non-conflicting changes", async () => {
             const path = "test-doc" as FilePathWithPrefix;
             const baseData = "line1\nline2\nline3\n";
@@ -391,6 +426,41 @@ describe("ConflictManager", () => {
 
             expect(result).toBe(false);
         });
+
+        it("should return false when only one revision is deleted", async () => {
+            const path = "test.json" as FilePathWithPrefix;
+
+            // Create base version
+            const baseDoc = createTestDoc(path, JSON.stringify({ key: "base" }), 1000);
+            const baseResult = await db.put(baseDoc);
+
+            // Create two conflicting versions
+            const doc1 = { ...createTestDoc(path, JSON.stringify({ key: "v1" }), 2000), _rev: baseResult.rev };
+            const result1 = await db.put(doc1);
+            unused(result1);
+            const doc2 = {
+                ...createTestDoc(path, JSON.stringify({ key: "v2" }), 2100),
+                _rev: baseResult.rev.split("-")[0] + "-conflict",
+            };
+            await db.put(doc2, { force: true } as any);
+
+            const currentDoc = await db.get(path, { conflicts: true });
+            const conflictedRev = currentDoc._conflicts?.[0] || "";
+
+            // Now make the entry manager return a deleted version for the conflicted revision
+            mockEntryManager.getDBEntry = vi.fn(async (p: FilePathWithPrefix, opt?: any) => {
+                const doc = await db.get(p2i(p), opt);
+                if (opt && opt.rev === conflictedRev) {
+                    return { ...doc, _deleted: true, deleted: true } as LoadedEntry;
+                }
+                return doc as LoadedEntry;
+            });
+
+            const result = await conflictManager.mergeObject(path, baseResult.rev, result1.rev, conflictedRev);
+
+            expect(result).toBe(false);
+        });
+
 
         it("should merge non-conflicting object changes", async () => {
             const path = "test.json" as FilePathWithPrefix;
