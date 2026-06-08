@@ -672,19 +672,23 @@ async function _saveFileStatus(host: NecessaryServices<"keyValueDB", never>) {
 }
 
 let saveFileStatusTimeout: number | null = null;
-// Schedule saving file status with debouncing to prevent excessive writes during rapid changes.
+// Schedule saving file status with throttling to prevent excessive writes and CPU usage.
 function saveFileStatus(host: NecessaryServices<"keyValueDB", never>, immediate = false) {
-    if (saveFileStatusTimeout !== null) {
-        compatGlobal.clearTimeout(saveFileStatusTimeout);
+    if (immediate) {
+        if (saveFileStatusTimeout !== null) compatGlobal.clearTimeout(saveFileStatusTimeout);
+        saveFileStatusTimeout = compatGlobal.setTimeout(() => {
+            saveFileStatusTimeout = null;
+            void _saveFileStatus(host);
+        }, 0);
+        return;
     }
-    saveFileStatusTimeout = compatGlobal.setTimeout(
-        () => {
-            void _saveFileStatus(host).then(() => {
-                saveFileStatusTimeout = null;
-            });
-        },
-        immediate ? 0 : 1000
-    );
+
+    if (saveFileStatusTimeout === null) {
+        saveFileStatusTimeout = compatGlobal.setTimeout(() => {
+            saveFileStatusTimeout = null;
+            void _saveFileStatus(host);
+        }, 1000);
+    }
 }
 function updateFileMTimeInMap(host: NecessaryServices<"keyValueDB", never>, key: string, mtime: number) {
     fileMaps.set(key, mtime);
