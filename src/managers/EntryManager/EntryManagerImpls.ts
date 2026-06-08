@@ -247,6 +247,11 @@ export function isTargetFile(host: NecessaryServicesInterfaces<"setting", any>, 
     if (file.includes(":")) {
         return false;
     }
+    if (!settings.syncInternalFiles) {
+        if (file.startsWith(".")) {
+            return false;
+        }
+    }
     if (settings.syncOnlyRegEx) {
         const syncOnly = getFileRegExp(settings, "syncOnlyRegEx");
         if (syncOnly.length > 0 && !syncOnly.some((e) => e.test(file))) return false;
