@@ -246,6 +246,20 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         return this.settings;
     }
     async close() {
+        const control = (this.services as any).control;
+        if (control) {
+            try {
+                if (typeof control.hasUnloaded === "function" && control.hasUnloaded()) {
+                    return;
+                }
+                if (typeof control.onUnload === "function") {
+                    await control.onUnload();
+                    return;
+                }
+            } catch {
+                // Fall back to direct database shutdown for compatibility.
+            }
+        }
         await this.liveSyncLocalDB.close();
         return this.liveSyncLocalDB.onunload();
     }
