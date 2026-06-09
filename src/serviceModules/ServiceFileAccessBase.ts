@@ -22,8 +22,8 @@ import type { SettingService } from "@lib/services/base/SettingService";
 import type { FileAccessBase, ExtractFile, ExtractFolder } from "@lib/serviceModules/FileAccessBase";
 import type { IFileSystemAdapter } from "@lib/serviceModules/adapters";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export interface StorageAccessBaseDependencies<TAdapter extends IFileSystemAdapter<any, any, any, any>> {
-    // eslint-disable-line @typescript-eslint/no-explicit-any
     API: APIService;
     appLifecycle: AppLifecycleService;
     fileProcessing: FileProcessingService;

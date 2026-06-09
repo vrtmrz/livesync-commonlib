@@ -156,8 +156,8 @@ export class RpcPouchDBProxy extends EventEmitter {
             onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null
         ) => promise.then(onfulfilled, onrejected);
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         changesEmitter.catch = <TResult = never>(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | null
         ) => promise.catch(onrejected);
 

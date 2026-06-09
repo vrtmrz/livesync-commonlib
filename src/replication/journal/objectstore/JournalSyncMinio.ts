@@ -39,8 +39,8 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         });
         const bucketCustomHeaders = this.customHeaders;
         this._instance.middlewareStack.add(
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             (next, context) => (args: any) => {
-                // eslint-disable-line @typescript-eslint/no-explicit-any
                 bucketCustomHeaders.forEach(([key, value]) => {
                     if (key && value) {
                         args.request.headers[key] = value;
@@ -61,8 +61,8 @@ export class JournalSyncMinio extends JournalSyncAbstract {
             applyMd5BodyChecksumMiddleware({
                 md5: Md5,
                 base64Encoder: (data: Uint8Array) => arrayBufferToBase64Sync(data.buffer),
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 streamHasher: (hashConstructor, stream: any) => {
-                    // eslint-disable-line @typescript-eslint/no-explicit-any
                     const result = promiseWithResolver<Uint8Array>();
                     const hash = new hashConstructor();
                     stream.on("data", (chunk: SourceData) => {

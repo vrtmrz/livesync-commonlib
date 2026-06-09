@@ -577,8 +577,8 @@ export abstract class StorageEventManagerBase<
     /**
      * Platform-agnostic event handlers
      */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     protected watchEditorChange(editor: any, info: any) {
-        // eslint-disable-line @typescript-eslint/no-explicit-any
         if (!("path" in info)) {
             return;
         }
@@ -604,7 +604,7 @@ export abstract class StorageEventManagerBase<
         };
         void this.appendQueue([fi]);
     }
-
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     protected watchVaultCreate(file: any, ctx?: any) {
         // eslint-disable-line @typescript-eslint/no-explicit-any
         if (this.adapter.typeGuard.isFolder(file)) return;
@@ -615,7 +615,7 @@ export abstract class StorageEventManagerBase<
         const fileInfo = this.adapter.converter.toFileInfo(file);
         void this.appendQueue([{ type: "CREATE", file: fileInfo }], ctx);
     }
-
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     protected watchVaultChange(file: any, ctx?: any) {
         // eslint-disable-line @typescript-eslint/no-explicit-any
         if (this.adapter.typeGuard.isFolder(file)) return;
@@ -626,7 +626,7 @@ export abstract class StorageEventManagerBase<
         const fileInfo = this.adapter.converter.toFileInfo(file);
         void this.appendQueue([{ type: "CHANGED", file: fileInfo }], ctx);
     }
-
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     protected watchVaultDelete(file: any, ctx?: any) {
         // eslint-disable-line @typescript-eslint/no-explicit-any
         if (this.adapter.typeGuard.isFolder(file)) return;
@@ -637,7 +637,7 @@ export abstract class StorageEventManagerBase<
         const fileInfo = this.adapter.converter.toFileInfo(file, true);
         void this.appendQueue([{ type: "DELETE", file: fileInfo }], ctx);
     }
-
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     protected watchVaultRename(file: any, oldPath: string, ctx?: any) {
         // eslint-disable-line @typescript-eslint/no-explicit-any
         if (this.adapter.typeGuard.isFile(file)) {

@@ -51,8 +51,8 @@ export type ExtractStat<T> = T extends IFileSystemAdapter<any, any, any, infer S
  *
  * @template TAdapter - The file system adapter type, which determines all native file types
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export class FileAccessBase<TAdapter extends IFileSystemAdapter<any, any, any, any>> {
-    // eslint-disable-line @typescript-eslint/no-explicit-any
     protected storageAccessManager: IStorageAccessManager;
     protected vaultService: IVaultService;
     protected settingService: ISettingService;
@@ -244,8 +244,8 @@ export class FileAccessBase<TAdapter extends IFileSystemAdapter<any, any, any, a
         }
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     trigger(name: string, ...data: any[]) {
-        // eslint-disable-line @typescript-eslint/no-explicit-any
         return this.adapter.vault.trigger(name, ...data);
     }
 
