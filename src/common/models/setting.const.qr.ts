@@ -55,6 +55,7 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     syncOnStart: 51,
     syncOnFileOpen: 52,
     syncOnEditorSave: 53,
+    keepReplicationActiveInBackground: -1, // Desktop-only local preference; do not encode into the QR Code.
     syncMinimumInterval: 54,
     showVerboseLog: 55,
     lessInformationInLog: 56,
