@@ -4,7 +4,7 @@ import type { UXDataWriteOptions } from "@lib/common/types.ts";
  * Vault adapter interface
  * High-level file operations that interact with the vault layer
  */
-export interface IVaultAdapter<TNativeFile = any> {
+export interface IVaultAdapter<TNativeFile = unknown> {
     /**
      * Read a file as text
      */
@@ -43,15 +43,16 @@ export interface IVaultAdapter<TNativeFile = any> {
     /**
      * Delete a file or folder
      */
-    delete(file: any, force?: boolean): Promise<void>;
+    delete(file: unknown, force?: boolean): Promise<void>;
 
     /**
      * Move a file or folder to trash
      */
-    trash(file: any, force?: boolean): Promise<void>;
+    trash(file: unknown, force?: boolean): Promise<void>;
 
     /**
      * Trigger an event in the vault
      */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     trigger(name: string, ...data: any[]): any;
 }

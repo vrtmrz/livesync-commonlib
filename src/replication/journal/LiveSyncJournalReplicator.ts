@@ -215,7 +215,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         const defInitPoint: EntryMilestoneInfo = {
             _id: MILSTONE_DOCID as DocumentID,
             type: "milestoneinfo",
-            created: (new Date() as any) / 1,
+            created: Date.now(),
             locked: locked,
             cleaned: lockByClean,
             accepted_nodes: [this.nodeid],
@@ -243,7 +243,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         const defInitPoint: EntryMilestoneInfo = {
             _id: MILSTONE_DOCID as DocumentID,
             type: "milestoneinfo",
-            created: (new Date() as any) / 1,
+            created: Date.now(),
             locked: false,
             accepted_nodes: [this.nodeid],
             node_chunk_info: { [this.nodeid]: currentVersionRange },

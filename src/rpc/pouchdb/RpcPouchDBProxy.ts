@@ -6,14 +6,15 @@
 import EventEmitter from "events";
 import { RpcError } from "../errors";
 import type { RpcSession } from "../RpcSession";
+import type { JsonLike } from "../types";
 
 /** No-op ActiveTasks stub required by pouchdb-replication for progress tracking. */
 const noopActiveTasks = {
-    add: (_task: object): any => null,
-    get: (_id: any): any => null,
-    update: (_id: any, _update: object): void => {},
-    remove: (_id: any, _err?: Error): void => {},
-    list: (): any[] => [],
+    add: (_task: object): unknown => null,
+    get: (_id: unknown): unknown => null,
+    update: (_id: unknown, _update: object): void => {},
+    remove: (_id: unknown, _err?: Error): void => {},
+    list: (): unknown[] => [],
 };
 
 /**
@@ -67,17 +68,21 @@ export class RpcPouchDBProxy extends EventEmitter {
      * so that callers (e.g. pouchdb-checkpointer) can use `err.status` /
      * `err.name` as expected.
      */
-    private async callDB<T>(method: string, args: unknown[] = []): Promise<T> {
+    private async callDB<T>(method: string, args: JsonLike[] = []): Promise<T> {
         try {
-            return await this.session.call<T>(`${this.ns}.${method}`, args as any);
-        } catch (err: any) {
+            return await this.session.call<T>(`${this.ns}.${method}`, args);
+        } catch (err: unknown) {
             if (err instanceof RpcError && err.code === "REMOTE_ERROR") {
-                const d = err.details as any;
+                const d = err.details as Record<string, unknown> | undefined;
                 if (d?.name || d?.status) {
-                    const pouchErr = new Error(err.message) as any;
-                    if (d.name) pouchErr.name = d.name;
-                    if (d.status) pouchErr.status = d.status;
-                    if (d.reason) pouchErr.reason = d.reason;
+                    const pouchErr = new Error(err.message) as Error & {
+                        name?: string;
+                        status?: number;
+                        reason?: string;
+                    };
+                    if (d.name) pouchErr.name = typeof d.name === "string" ? d.name : String(d.name); // eslint-disable-line @typescript-eslint/no-base-to-string
+                    if (d.status) pouchErr.status = Number(d.status);
+                    if (d.reason) pouchErr.reason = typeof d.reason === "string" ? d.reason : String(d.reason); // eslint-disable-line @typescript-eslint/no-base-to-string
                     throw pouchErr;
                 }
             }
@@ -105,69 +110,90 @@ export class RpcPouchDBProxy extends EventEmitter {
      * (`live: false`).
      */
     changes(opts: PouchDB.Core.ChangesOptions): PouchDB.Core.Changes<object> {
-        const emitter = new EventEmitter() as any;
+        const emitter = new EventEmitter();
         let cancelled = false;
 
-        const promise = this.callDB<any>("changes", [{ ...opts, live: false }]).then((info) => {
-            if (cancelled) return info as PouchDB.Core.ChangesResponse<object>;
+        const promise = this.callDB<{ results?: unknown[] }>("changes", [
+            { ...opts, live: false } as unknown as JsonLike,
+        ]).then((info) => {
+            if (cancelled) return info as unknown as PouchDB.Core.ChangesResponse<object>;
             for (const change of info.results ?? []) {
                 if (cancelled) break;
                 emitter.emit("change", change);
             }
             if (!cancelled) emitter.emit("complete", info);
-            return info as PouchDB.Core.ChangesResponse<object>;
+            return info as unknown as PouchDB.Core.ChangesResponse<object>;
         });
 
         promise.catch((err: unknown) => {
             if (!cancelled) emitter.emit("error", err);
         });
 
-        emitter.cancel = () => {
+        const changesEmitter = emitter as unknown as PouchDB.Core.Changes<object> & {
+            cancel: () => void;
+            then: <TResult1 = PouchDB.Core.ChangesResponse<object>, TResult2 = never>(
+                onfulfilled?:
+                    | ((value: PouchDB.Core.ChangesResponse<object>) => TResult1 | PromiseLike<TResult1>)
+                    | null,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null
+            ) => Promise<TResult1 | TResult2>;
+            catch: <TResult = never>(
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | null
+            ) => Promise<PouchDB.Core.ChangesResponse<object> | TResult>;
+        };
+
+        changesEmitter.cancel = () => {
             cancelled = true;
             emitter.removeAllListeners();
         };
 
         // Make the emitter thenable so it can be used with `await`.
-        emitter.then = <R>(
-            onfulfilled?: (v: PouchDB.Core.ChangesResponse<object>) => R | PromiseLike<R>,
-            onrejected?: (e: any) => R | PromiseLike<R>
+        changesEmitter.then = <TResult1 = PouchDB.Core.ChangesResponse<object>, TResult2 = never>(
+            onfulfilled?: ((value: PouchDB.Core.ChangesResponse<object>) => TResult1 | PromiseLike<TResult1>) | null,
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            onrejected?: ((reason: any) => TResult2 | PromiseLike<TResult2>) | null
         ) => promise.then(onfulfilled, onrejected);
 
-        emitter.catch = <R>(onrejected?: (e: any) => R | PromiseLike<R>) => promise.catch(onrejected);
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        changesEmitter.catch = <TResult = never>(
+            onrejected?: ((reason: any) => TResult | PromiseLike<TResult>) | null
+        ) => promise.catch(onrejected);
 
-        return emitter as PouchDB.Core.Changes<object>;
+        return changesEmitter;
     }
 
     get<T extends object>(
         id: string,
         opts?: PouchDB.Core.GetOptions
     ): Promise<T & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta> {
-        return this.callDB("get", [id, opts ?? {}]);
+        return this.callDB("get", [id, (opts ?? {}) as unknown as JsonLike]);
     }
 
     put<T extends object>(
         doc: PouchDB.Core.PutDocument<T>,
         opts?: PouchDB.Core.PutOptions
     ): Promise<PouchDB.Core.Response> {
-        return this.callDB("put", [doc, opts ?? {}]);
+        return this.callDB("put", [doc as unknown as JsonLike, (opts ?? {}) as unknown as JsonLike]);
     }
 
     bulkGet<T extends object>(opts: PouchDB.Core.BulkGetOptions): Promise<PouchDB.Core.BulkGetResponse<T>> {
-        return this.callDB("bulkGet", [opts]);
+        return this.callDB("bulkGet", [opts as unknown as JsonLike]);
     }
 
     bulkDocs<T extends object>(
         docs: PouchDB.Core.PostDocument<T>[] | { docs: PouchDB.Core.PostDocument<T>[]; new_edits?: boolean },
         opts?: PouchDB.Core.BulkDocsOptions
     ): Promise<(PouchDB.Core.Response | PouchDB.Core.Error)[]> {
-        return this.callDB("bulkDocs", [docs, opts ?? {}]);
+        return this.callDB("bulkDocs", [docs as unknown as JsonLike, (opts ?? {}) as unknown as JsonLike]);
     }
 
     revsDiff(diff: PouchDB.Core.RevisionDiffOptions): Promise<PouchDB.Core.RevisionDiffResponse> {
-        return this.callDB("revsDiff", [diff]);
+        return this.callDB("revsDiff", [diff as unknown as JsonLike]);
     }
 
     allDocs<T extends object>(opts?: PouchDB.Core.AllDocsOptions): Promise<PouchDB.Core.AllDocsResponse<T>> {
-        return this.callDB("allDocs", [opts ?? {}]);
+        return this.callDB("allDocs", [(opts ?? {}) as unknown as JsonLike]);
     }
 }

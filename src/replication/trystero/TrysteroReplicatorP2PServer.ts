@@ -81,8 +81,10 @@ export class TrysteroReplicatorP2PServer {
     _serverPeerId: string;
     _activeRoomId: string = "";
     ___send?: ActionSender<Payload>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     assignedFunctions = new Map<string, (...args: any[]) => any>();
     clients: Map<string, TrysteroReplicatorP2PClient> = new Map();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     _bindingObjects: BindableObject<any>[] = [];
     _rpcRoom?: RpcRoom;
 
@@ -489,6 +491,7 @@ You can chose as follows:
         void this.dispatchConnectionStatus();
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async startService(bindings: BindableObject<any>[] = []) {
         if (!this.isEnabled) {
             Logger($msg("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
@@ -503,6 +506,7 @@ You can chose as follows:
         // this.startAdvertisementBroadcast();
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async start(bindings: BindableObject<any>[] = []) {
         await this.shutdown();
         if (!this.settings.P2P_Enabled) {

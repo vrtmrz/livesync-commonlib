@@ -121,9 +121,12 @@ export function abortSplitTasks(keys: number[], error: Error): void {
  * @param process the splitting process item
  * @param data the data received from the worker
  */
-export function handleTaskSplit(process: SplitProcessItem, data: any) {
+export function handleTaskSplit(
+    process: SplitProcessItem,
+    data: { key: number; seq?: number; result?: string | null; error?: unknown }
+) {
     // Data key means the unique identifier for the splitting task
-    const key = data.key as number;
+    const key = data.key;
 
     if (!("result" in data)) {
         responseBuf.delete(key);
@@ -134,6 +137,7 @@ export function handleTaskSplit(process: SplitProcessItem, data: any) {
                 await writer.abort(reportError);
             }
         });
+        return;
     }
     let thisBuf = responseBuf.get(key);
     if (!thisBuf) {
@@ -141,8 +145,8 @@ export function handleTaskSplit(process: SplitProcessItem, data: any) {
         responseBuf.set(key, thisBuf);
     }
 
-    const seq = data.seq as number;
-    thisBuf.set(seq, data.result === null ? SYMBOL_END_OF_DATA : data.result);
+    const seq = data.seq!;
+    thisBuf.set(seq, data.result === null ? SYMBOL_END_OF_DATA : data.result!);
     responseBuf.set(key, thisBuf);
 
     const keys = Array.from(thisBuf.keys()).sort((a, b) => a - b);

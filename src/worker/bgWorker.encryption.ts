@@ -39,11 +39,14 @@ export function encryptionHKDFOnWorker(data: Omit<EncryptHKDFArguments, "key">) 
  * @param process The process item associated with the task.
  * @param data The data to be processed.
  */
-export function handleTaskEncrypt(process: EncryptProcessItem | EncryptHKDFProcessItem, data: any) {
-    const key = data.key as number;
+export function handleTaskEncrypt(
+    process: EncryptProcessItem | EncryptHKDFProcessItem,
+    data: { key: number; result?: string; error?: unknown }
+) {
+    const key = data.key;
     const task = process.task;
     if ("result" in data) {
-        task.resolve(data.result);
+        task.resolve(data.result!);
     } else {
         if (data.error) {
             task.reject(data.error);

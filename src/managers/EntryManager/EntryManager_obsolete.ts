@@ -129,7 +129,7 @@ export class EntryManager_old {
             } else {
                 obj = await this.localDatabase.get(id);
             }
-            const deleted = (obj as any)?.deleted ?? obj._deleted ?? undefined;
+            const deleted = ("deleted" in obj ? obj.deleted : undefined) ?? obj._deleted ?? undefined;
             if (!includeDeleted && deleted) return false;
             if (obj.type && obj.type == "leaf") {
                 //do nothing for leaf;
@@ -163,7 +163,7 @@ export class EntryManager_old {
                 };
                 return doc;
             }
-        } catch (ex: any) {
+        } catch (ex: unknown) {
             if (isErrorOfMissingDoc(ex)) {
                 return false;
             }
@@ -301,7 +301,7 @@ export class EntryManager_old {
                     Logger(doc);
                 }
                 return doc;
-            } catch (ex: any) {
+            } catch (ex: unknown) {
                 if (isErrorOfMissingDoc(ex)) {
                     Logger(
                         `Missing document content!, could not read ${dispFilename}(${meta._id.substring(0, 8)}) from database.`,
@@ -369,7 +369,7 @@ export class EntryManager_old {
                     }
                 })) ?? false
             );
-        } catch (ex: any) {
+        } catch (ex: unknown) {
             if (isErrorOfMissingDoc(ex)) {
                 return false;
             }
@@ -527,7 +527,7 @@ export class EntryManager_old {
                     try {
                         const old = await this.localDatabase.get(newDoc._id);
                         newDoc._rev = old._rev;
-                    } catch (ex: any) {
+                    } catch (ex: unknown) {
                         if (isErrorOfMissingDoc(ex)) {
                             // NO OP/
                         } else {

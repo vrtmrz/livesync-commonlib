@@ -52,6 +52,7 @@ export type { SimpleStore };
 export { sizeToHumanReadable } from "octagonal-wheels/number";
 import { compatGlobal } from "./coreEnvFunctions";
 import { ensureError } from "./utils.object.ts";
+import { LiveSyncError } from "./LSError.ts";
 
 export function resolveWithIgnoreKnownError<T>(p: Promise<T>, def: T): Promise<T> {
     return new Promise((res, rej) => {
@@ -182,22 +183,6 @@ export function memorizeFuncWithLRUCache<T, U>(func: (key: T) => U) {
         if (isExists) return cache.get(key);
         const value = func(key);
         cache.set(key, value);
-        return value;
-    };
-}
-
-export function memorizeFuncWithLRUCacheMulti<T extends Array<any>, U>(func: (...keys: T) => U) {
-    const cache = new LRUCache<string, U>(100, 100000, true);
-    return (keys: T) => {
-        const theKey = keys
-            .map((e) =>
-                typeof e == "string" || typeof e == "number" || typeof e == "boolean" ? e.toString() : JSON.stringify(e)
-            )
-            .join("-");
-        const isExists = cache.has(theKey);
-        if (isExists) return cache.get(theKey);
-        const value = func(...keys);
-        cache.set(theKey, value);
         return value;
     };
 }
@@ -382,11 +367,11 @@ export function timeDeltaToHumanReadable(delta: number) {
 export async function wrapException<T>(func: () => Promise<Awaited<T>>): Promise<Awaited<T> | Error> {
     try {
         return await func();
-    } catch (ex: any) {
+    } catch (ex: unknown) {
         if (ex instanceof Error) {
             return ex;
         }
-        return new Error(String(ex));
+        return LiveSyncError.fromError(ex);
     }
 }
 
@@ -444,16 +429,18 @@ const MARK_OPERATOR = `\u{0001}`;
 const MARK_DELETED = `${MARK_OPERATOR}__DELETED`;
 const MARK_ISARRAY = `${MARK_OPERATOR}__ARRAY`;
 const MARK_SWAPPED = `${MARK_OPERATOR}__SWAP`;
-
-function unorderedArrayToObject(obj: Array<any>) {
-    return obj.map((e) => ({ [e.id as string]: e })).reduce((p, c) => ({ ...p, ...c }), {});
+interface ObjectWithID {
+    id: string;
 }
-function objectToUnorderedArray(obj: object) {
+function unorderedArrayToObject<T extends ObjectWithID>(obj: Array<T>) {
+    return obj.map((e) => ({ [e.id]: e })).reduce((p, c) => ({ ...p, ...c }), {});
+}
+function objectToUnorderedArray<T extends ObjectWithID>(obj: Record<string, T>) {
     const entries = Object.entries(obj);
     if (entries.some((e) => e[0] != e[1]?.id)) throw new Error("Item looks like not unordered array");
     return entries.map((e) => e[1]);
 }
-function generatePatchUnorderedArray(from: Array<any>, to: Array<any>) {
+function generatePatchUnorderedArray<T extends ObjectWithID>(from: Array<T>, to: Array<T>) {
     if (from.every((e) => typeof e == "object" && "id" in e) && to.every((e) => typeof e == "object" && "id" in e)) {
         const fObj = unorderedArrayToObject(from);
         const tObj = unorderedArrayToObject(to);
@@ -468,12 +455,12 @@ function generatePatchUnorderedArray(from: Array<any>, to: Array<any>) {
 }
 
 export function generatePatchObj(
-    from: Record<string | number | symbol, any>,
-    to: Record<string | number | symbol, any>
+    from: Record<string | number | symbol, unknown>,
+    to: Record<string | number | symbol, unknown>
 ) {
     const entries = Object.entries(from);
-    const tempMap = new Map<string | number | symbol, any>(entries);
-    const ret = {} as Record<string | number | symbol, any>;
+    const tempMap = new Map<string | number | symbol, unknown>(entries);
+    const ret = {} as Record<string | number | symbol, unknown>;
     const newEntries = Object.entries(to);
     for (const [key, value] of newEntries) {
         if (!tempMap.has(key)) {
@@ -499,7 +486,10 @@ export function generatePatchObj(
                     !Array.isArray(v) &&
                     !Array.isArray(value)
                 ) {
-                    const wk = generatePatchObj(v, value);
+                    const wk = generatePatchObj(
+                        v as Record<string | number | symbol, unknown>,
+                        value as Record<string | number | symbol, unknown>
+                    );
                     if (Object.keys(wk).length > 0) ret[key] = wk;
                 } else if (
                     typeof v == "object" &&
@@ -529,7 +519,10 @@ export function generatePatchObj(
     return ret;
 }
 
-export function applyPatch(from: Record<string | number | symbol, any>, patch: Record<string | number | symbol, any>) {
+export function applyPatch(
+    from: Record<string | number | symbol, unknown>,
+    patch: Record<string | number | symbol, unknown>
+) {
     const ret = from;
     const patches = Object.entries(patch);
     for (const [key, value] of patches) {
@@ -551,16 +544,22 @@ export function applyPatch(from: Record<string | number | symbol, any>, patch: R
                 if (!Array.isArray(ret[key])) {
                     throw new Error("Patch target type is mismatched (array to something)");
                 }
-                const orgArrayObject = unorderedArrayToObject(ret[key]);
-                const appliedObject = applyPatch(orgArrayObject, value[MARK_ISARRAY]);
-                const appliedArray = objectToUnorderedArray(appliedObject);
+                const orgArrayObject = unorderedArrayToObject(ret[key] as Array<ObjectWithID>);
+                const appliedObject = applyPatch(
+                    orgArrayObject,
+                    value[MARK_ISARRAY] as Record<string | number | symbol, unknown>
+                );
+                const appliedArray = objectToUnorderedArray(appliedObject as Record<string, ObjectWithID>);
                 ret[key] = [...appliedArray];
             } else {
                 if (!(key in ret)) {
                     ret[key] = value;
                     continue;
                 }
-                ret[key] = applyPatch(ret[key], value);
+                ret[key] = applyPatch(
+                    ret[key] as Record<string | number | symbol, unknown>,
+                    value as Record<string | number | symbol, unknown>
+                );
             }
         } else {
             ret[key] = value;
@@ -570,11 +569,11 @@ export function applyPatch(from: Record<string | number | symbol, any>, patch: R
 }
 
 export function mergeObject(
-    objA: Record<string | number | symbol, any> | [any],
-    objB: Record<string | number | symbol, any> | [any]
+    objA: Record<string | number | symbol, unknown> | [unknown],
+    objB: Record<string | number | symbol, unknown> | [unknown]
 ) {
     const newEntries = Object.entries(objB);
-    const ret: any = { ...objA };
+    const ret: Record<string | number | symbol, unknown> = { ...objA };
     if (typeof objA !== typeof objB || Array.isArray(objA) !== Array.isArray(objB)) {
         return objB;
     }
@@ -587,7 +586,11 @@ export function mergeObject(
                 ret[key] = v;
             } else {
                 if (typeof v == "object" && typeof value == "object" && !Array.isArray(v) && !Array.isArray(value)) {
-                    ret[key] = mergeObject(v, value);
+                    // TODO: Null handling
+                    ret[key] = mergeObject(
+                        v as Record<string | number | symbol, unknown>,
+                        value as Record<string | number | symbol, unknown>
+                    );
                 } else if (
                     typeof v == "object" &&
                     typeof value == "object" &&
@@ -610,14 +613,17 @@ export function mergeObject(
     return retSorted;
 }
 
-export function flattenObject(obj: Record<string | number | symbol, any>, path: string[] = []): [string, any][] {
+export function flattenObject(
+    obj: Record<string | number | symbol, unknown>,
+    path: string[] = []
+): [string, unknown][] {
     if (typeof obj != "object") return [[path.join("."), obj]];
     if (obj === null) return [[path.join("."), null]];
     if (Array.isArray(obj)) return [[path.join("."), JSON.stringify(obj)]];
     const e = Object.entries(obj);
     const ret = [];
     for (const [key, value] of e) {
-        const p = flattenObject(value, [...path, key]);
+        const p = flattenObject(value as Record<string | number | symbol, unknown>, [...path, key]);
         ret.push(...p);
     }
     return ret;

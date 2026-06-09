@@ -1,3 +1,4 @@
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 class Context<T extends Record<string | number | symbol, any> = object> {
     _data: Partial<T> = {};
     children: WeakRef<Context<T>>[] = [];
@@ -46,11 +47,13 @@ class Context<T extends Record<string | number | symbol, any> = object> {
         }
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     spawnContext<V extends Record<string, any>>(data?: V) {
         const child = new Context<V & T>(this, data as Partial<V & T>);
         this.children.push(new WeakRef(child));
         return child;
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     _disposeChild(child: Context<any>) {
         this.children = this.children.filter((wr) => wr.deref() === child);
         // Clean up empty children
@@ -62,9 +65,11 @@ class Context<T extends Record<string | number | symbol, any> = object> {
 }
 
 const rootContext = new Context<object>();
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function getContext<T extends U, U extends Record<string, any> = object>(data?: T) {
     return rootContext.spawnContext<T>(data);
 }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function getIndependentContext<T extends U, U extends Record<string, any> = object>(data?: T) {
     return new Context<T>(undefined, data);
 }

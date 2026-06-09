@@ -11,7 +11,7 @@ export interface ChangeManagerOptions {
     database: PouchDB.Database;
 }
 
-export type ChangeManagerCallback = (change: PouchDB.Core.ChangesResponseChange<any>) => void | Promise<void>;
+export type ChangeManagerCallback = (change: PouchDB.Core.ChangesResponseChange<object>) => void | Promise<void>;
 
 /**
  * Manages and dispatches changes from a PouchDB database to registered callbacks.

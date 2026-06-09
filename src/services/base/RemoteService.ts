@@ -255,9 +255,9 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                         }
                         throw ex;
                     }
-                } catch (ex: any) {
+                } catch (ex: unknown) {
                     this._log(`HTTP:${method}${size} to:${localURL} -> failed`, LOG_LEVEL_VERBOSE);
-                    const msg = ex instanceof Error ? `${ex?.name}:${ex?.message}` : ex?.toString();
+                    const msg = ex instanceof Error ? `${ex.name}:${ex.message}` : String(ex);
                     this.showError(`${MARK_LOG_NETWORK_ERROR}Network Error: Failed to fetch: ${msg}`, LOG_LEVEL_INFO); // Do not show notice, due to throwing below
                     this._log(ex, LOG_LEVEL_VERBOSE);
                     // limit only in bulk_docs.
@@ -285,8 +285,8 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
         try {
             const info = await db.info();
             return { db: db, info: info };
-        } catch (ex: any) {
-            const msg = `${ex?.name}:${ex?.message}`;
+        } catch (ex: unknown) {
+            const msg = ex instanceof Error ? `${ex.name}:${ex.message}` : String(ex);
             this._log(ex, LOG_LEVEL_VERBOSE);
             return msg;
         }

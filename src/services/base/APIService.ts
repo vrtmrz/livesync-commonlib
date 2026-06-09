@@ -23,7 +23,7 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
      * @param level The log level.
      * @param key The log key.
      */
-    abstract addLog(message: any, level: LOG_LEVEL, key: string): void;
+    abstract addLog(message: unknown, level: LOG_LEVEL, key: string): void;
 
     /**
      * Check if the app is running on a mobile device.
@@ -78,6 +78,7 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
      * @param type
      * @param factory
      */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     abstract registerWindow(type: string, factory: (leaf: any) => any): void;
 
     /**
@@ -86,6 +87,7 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
      * @param title
      * @param callback
      */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     abstract addRibbonIcon(icon: string, title: string, callback: (evt: MouseEvent) => any): HTMLElement;
 
     /**
@@ -93,6 +95,7 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
      * @param action The action string for the protocol.
      * @param handler The handler function for the protocol.
      */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     abstract registerProtocolHandler(action: string, handler: (params: Record<string, string>) => any): void;
 
     /**

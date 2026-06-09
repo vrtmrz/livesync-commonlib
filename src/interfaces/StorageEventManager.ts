@@ -12,7 +12,7 @@ export type FileEvent = {
 export abstract class StorageEventManager {
     abstract beginWatch(): Promise<void>;
 
-    abstract appendQueue(items: FileEvent[], ctx?: any): Promise<void>;
+    abstract appendQueue(items: FileEvent[], ctx?: unknown): Promise<void>;
 
     abstract isWaiting(filename: FilePath): boolean;
     abstract waitForIdle(): Promise<void>;

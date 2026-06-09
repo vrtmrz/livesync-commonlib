@@ -40,6 +40,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         const bucketCustomHeaders = this.customHeaders;
         this._instance.middlewareStack.add(
             (next, context) => (args: any) => {
+                // eslint-disable-line @typescript-eslint/no-explicit-any
                 bucketCustomHeaders.forEach(([key, value]) => {
                     if (key && value) {
                         args.request.headers[key] = value;
@@ -61,6 +62,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
                 md5: Md5,
                 base64Encoder: (data: Uint8Array) => arrayBufferToBase64Sync(data.buffer),
                 streamHasher: (hashConstructor, stream: any) => {
+                    // eslint-disable-line @typescript-eslint/no-explicit-any
                     const result = promiseWithResolver<Uint8Array>();
                     const hash = new hashConstructor();
                     stream.on("data", (chunk: SourceData) => {
@@ -135,7 +137,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         return true;
     }
 
-    async uploadJson(key: string, body: any) {
+    async uploadJson(key: string, body: unknown) {
         try {
             return await this.uploadFile(key, new Blob([JSON.stringify(body)]), "application/json");
         } catch (ex) {
@@ -223,7 +225,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         try {
             await client.send(cmd);
             return true;
-        } catch (ex: any) {
+        } catch (ex: unknown) {
             Logger(`Could not connected to the remote bucket`, LOG_LEVEL_NOTICE);
             Logger(ex, LOG_LEVEL_VERBOSE);
             return false;
@@ -237,7 +239,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
             return {
                 estimatedSize: objects.Contents.reduce((acc, e) => acc + (e.Size || 0), 0),
             };
-        } catch (ex: any) {
+        } catch (ex: unknown) {
             Logger(`Could not get status of the remote bucket`, LOG_LEVEL_NOTICE);
             Logger(ex, LOG_LEVEL_VERBOSE);
             return false;

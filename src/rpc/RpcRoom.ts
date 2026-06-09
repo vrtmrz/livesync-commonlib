@@ -46,6 +46,7 @@ export class RpcRoom {
     private options: Required<Pick<RpcRoomOptions, "maxWirePayloadBytes" | "chunkMissingRetryMs">> & RpcRoomOptions;
     private pending = new Map<string, PendingInvocation>();
     private inboundCalls = new Map<string, InboundCallContext>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     private methods = new Map<string, RegisteredMethod<any, any>>();
     private sessions = new Map<string, RpcSession>();
     private outgoingChunkMap = new Map<string, OutgoingChunkState>();

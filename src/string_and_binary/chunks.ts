@@ -324,14 +324,14 @@ function* stringGenerator(sources: string[]) {
         yield str;
     }
 }
-export async function collectGenAll(strGen: AsyncGenerator<string, any, unknown> | Generator<string>) {
+export async function collectGenAll(strGen: AsyncGenerator<string, unknown, unknown> | Generator<string>) {
     const ret = [] as string[];
     for await (const str of strGen) {
         ret.push(str);
     }
     return ret;
 }
-export async function concatGeneratedAll(strGen: AsyncGenerator<string, any, unknown> | Generator<string>) {
+export async function concatGeneratedAll(strGen: AsyncGenerator<string, unknown, unknown> | Generator<string>) {
     return (await collectGenAll(strGen)).join("");
 }
 

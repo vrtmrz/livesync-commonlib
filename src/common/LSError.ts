@@ -84,6 +84,7 @@ export class LiveSyncError extends Error implements ErrorWithCause {
      * @example
      * LiveSyncError.isCausedBy(someSyncParamsFetchError, SyncParamsNotFoundError); // Returns true if the error is caused by SyncParamsNotFoundError; this is usually represented as SyncParamsFetchError at the uppermost layer.
      */
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     static isCausedBy<T extends LiveSyncError>(error: unknown, errorClass: new (...args: any[]) => T): boolean {
         if (!error) {
             return false;
@@ -106,7 +107,7 @@ export class LiveSyncError extends Error implements ErrorWithCause {
      * @param error The error to wrap.
      * @returns A new instance of the error class with the original error's message and stack trace.
      */
-    static fromError<T extends typeof LiveSyncError>(this: T, error: any): InstanceType<T> {
+    static fromError<T extends typeof LiveSyncError>(this: T, error: unknown): InstanceType<T> {
         if (error instanceof this) {
             return error as InstanceType<T>;
         }

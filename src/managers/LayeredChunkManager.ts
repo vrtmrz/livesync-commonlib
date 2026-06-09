@@ -45,6 +45,7 @@ export class LayeredChunkManager {
 
     addListener<K extends keyof ChunkManagerEventMap>(
         type: K,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         listener: (this: LayeredChunkManager, ev: ChunkManagerEventMap[K]) => any,
         options?: boolean | AddEventListenerOptions
     ): () => void {
@@ -235,8 +236,15 @@ export class LayeredChunkManager {
     }
 
     // Helper methods
-    private isChunkDoc(doc: any): doc is EntryLeaf {
-        return doc && typeof doc._id === "string" && doc.type === "leaf";
+    private isChunkDoc(doc: unknown): doc is EntryLeaf {
+        return (
+            typeof doc === "object" &&
+            doc !== null &&
+            "_id" in doc &&
+            typeof (doc satisfies { _id: unknown })._id === "string" &&
+            "type" in doc &&
+            (doc satisfies { type: unknown }).type === "leaf"
+        );
     }
 
     // Event handlers

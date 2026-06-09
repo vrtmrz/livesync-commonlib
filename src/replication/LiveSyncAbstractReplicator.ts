@@ -29,7 +29,7 @@ export interface LiveSyncReplicatorEnv {
 }
 
 export type RemoteDBStatus = {
-    [key: string]: any;
+    [key: string]: unknown;
     estimatedSize?: number;
 };
 

@@ -14,11 +14,11 @@ export type PouchDBShim<T extends object> = {
     changes: (options: PouchDB.Core.ChangesOptions) => PromiseLike<PouchDB.Core.ChangesResponse<T>>;
     revsDiff: (diff: PouchDB.Core.RevisionDiffOptions) => Promise<PouchDB.Core.RevisionDiffResponse>;
     bulkDocs: (
-        docs: PouchDB.Core.PostDocument<any>[],
+        docs: PouchDB.Core.PostDocument<object>[],
         options?: PouchDB.Core.BulkDocsOptions
     ) => Promise<(PouchDB.Core.Response | PouchDB.Core.Error)[]>;
     bulkGet: (options: PouchDB.Core.BulkGetOptions) => Promise<PouchDB.Core.BulkGetResponse<T>>;
-    put: (doc: PouchDB.Core.PutDocument<any>, options?: PouchDB.Core.PutOptions) => Promise<PouchDB.Core.Response>;
+    put: (doc: PouchDB.Core.PutDocument<object>, options?: PouchDB.Core.PutOptions) => Promise<PouchDB.Core.Response>;
     get: (id: string, options?: PouchDB.Core.GetOptions) => Promise<T & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta>;
 };
 
@@ -38,14 +38,15 @@ export async function upsert<V extends object, T extends SomeDocument<V> = SomeD
             return updated;
         }
         throw new Error("Failed to update");
-    } catch (ex: any) {
+    } catch (ex: unknown) {
         // RPC-forwarded PouchDB not-found errors may arrive without `name`
         // and only carry `message`/`reason` as "missing".
+        const err = ex as { name?: string; reason?: string; message?: string } | undefined;
         const isNotFound =
-            ex?.name === "not_found" ||
-            ex?.reason === "missing" ||
-            ex?.message === "missing" ||
-            ex?.message === "not_found";
+            err?.name === "not_found" ||
+            err?.reason === "missing" ||
+            err?.message === "missing" ||
+            err?.message === "not_found";
         if (isNotFound) {
             const seed = func({ _id: id } as T);
             const result = await db.put(seed, {});

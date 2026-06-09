@@ -408,7 +408,7 @@ export class TrysteroReplicator {
             this.lastSeq = change.seq;
             await this.notifyProgress();
         });
-        const closeChanges = (reason: any) => {
+        const closeChanges = (reason: unknown) => {
             if (reason) {
                 if (reason instanceof Error) {
                     Logger(`Error while broadcasting the changes`, LOG_LEVEL_INFO);
@@ -583,6 +583,7 @@ export class TrysteroReplicator {
             // const batchSize = 8;
             await replicateShim(
                 this.db,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
                 remoteDB as PouchDBShim<any>,
                 async (docs, info) => {
                     await this._env.processReplicatedDocs(docs as Array<PouchDB.Core.ExistingDocument<EntryDoc>>);

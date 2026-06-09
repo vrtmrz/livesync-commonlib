@@ -76,7 +76,7 @@ function createSyncParamsHandler({ put, get, create }: CreateSyncParamsHanderOpt
                 try {
                     syncParams = await get();
                     Logger(`Fetched synchronisation parameters`, LOG_LEVEL_INFO);
-                } catch (ex: any) {
+                } catch (ex: unknown) {
                     if (LiveSyncError.isCausedBy(ex, SyncParamsNotFoundError)) {
                         // Expected error; we will create new synchronisation parameters.
                         Logger(`Synchronisation parameters not found, creating new ones`, LOG_LEVEL_INFO);
@@ -138,7 +138,7 @@ function createSyncParamsHandler({ put, get, create }: CreateSyncParamsHanderOpt
                 syncParams.pbkdf2saltDecoded = decodedSalt;
             }
             return syncParams;
-        } catch (ex: any) {
+        } catch (ex: unknown) {
             Logger(`Failed to fetch synchronisation parameters`, LOG_LEVEL_INFO);
             Logger(ex, LOG_LEVEL_VERBOSE);
             // To retry fetching synchronisation parameters in the next call.

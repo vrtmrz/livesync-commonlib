@@ -73,9 +73,9 @@ type EventParamArray<T extends {}> =
     | ["active"]
     | ["complete", PouchDB.Replication.SyncResultComplete<T>]
     | ["complete", PouchDB.Replication.ReplicationResultComplete<T>]
-    | ["error", any]
-    | ["denied", any]
-    | ["paused", any]
+    | ["error", unknown]
+    | ["denied", unknown]
+    | ["paused", unknown]
     | ["finally"];
 
 async function* genReplication(
@@ -284,14 +284,14 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         Logger("Replication completed", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, showResult ? "sync" : "");
         this.terminateSync();
     }
-    replicationDenied(e: any) {
+    replicationDenied(e: unknown) {
         this.syncStatus = "ERRORED";
         this.updateInfo();
         this.terminateSync();
         Logger("Replication denied", LOG_LEVEL_NOTICE, "sync");
         Logger(e, LOG_LEVEL_VERBOSE);
     }
-    replicationErrored(e: any) {
+    replicationErrored(e: unknown) {
         this.syncStatus = "ERRORED";
         this.terminateSync();
         this.updateInfo();
@@ -379,7 +379,12 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         this.replicationErrored(e);
                         Logger("Replication stopped.", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "sync");
                         if (this.env.services.remote.hadLastPostFailedBySize) {
-                            if (e && e?.status == 413) {
+                            if (
+                                e &&
+                                typeof e === "object" &&
+                                "status" in e &&
+                                (e as Record<string, unknown>).status === 413
+                            ) {
                                 Logger(
                                     `Something went wrong during synchronisation. Please check the log!`,
                                     LOG_LEVEL_NOTICE
@@ -507,8 +512,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         // To create salt
         await this.checkReplicationConnectivity(setting, false, false, false, false);
         Logger(`Bulk sending chunks to remote database...`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
-        const remoteMilestone = await remoteDB.get(MILESTONE_DOCID);
-        const remoteID = (remoteMilestone as any)?.created;
+        const remoteMilestone = (await remoteDB.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
+        const remoteID = remoteMilestone?.created;
         const localDB = this.rawDatabase;
         const te = new TextEncoder();
         Logger(
@@ -612,7 +617,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return true;
         };
 
-        const tasks = [] as Promise<any>[];
+        const tasks = [] as Promise<boolean>[];
         do {
             const nowSendChunks = await trench.dequeue<
                 {
@@ -1032,7 +1037,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const defInitPoint: EntryMilestoneInfo = {
             _id: MILESTONE_DOCID,
             type: "milestoneinfo",
-            created: (new Date() as any) / 1,
+            created: Date.now(),
             locked: locked,
             cleaned: lockByClean,
             accepted_nodes: [this.nodeid],
@@ -1073,7 +1078,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const defInitPoint: EntryMilestoneInfo = {
             _id: MILESTONE_DOCID,
             type: "milestoneinfo",
-            created: (new Date() as any) / 1,
+            created: Date.now(),
             locked: false,
             accepted_nodes: [this.nodeid],
             node_info: {},
@@ -1164,8 +1169,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         try {
             const connDB = db ?? (await this._ensureConnection(settings));
             return await connDB.get(id);
-        } catch (ex: any) {
-            if ("status" in ex && ex.status == 404) {
+        } catch (ex: unknown) {
+            if (ex && typeof ex === "object" && "status" in ex && (ex as Record<string, unknown>).status == 404) {
                 return false;
             }
             throw ex;
@@ -1201,7 +1206,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return false;
         }
         const remoteChunks = await ret.db.allDocs({ keys: missingChunks, include_docs: true });
-        if (remoteChunks.rows.some((e: any) => "error" in e)) {
+        if (remoteChunks.rows.some((e) => "error" in e)) {
             Logger(
                 `Some chunks are not exists both on remote and local database.`,
                 showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
@@ -1210,15 +1215,15 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             Logger(`Missing chunks: ${missingChunks.join(",")}`, LOG_LEVEL_VERBOSE);
             Logger(
                 `Error chunks: ${remoteChunks.rows
-                    .filter((e: any) => "error" in e)
-                    .map((e: any) => e.key)
+                    .filter((e) => "error" in e)
+                    .map((e) => e.key)
                     .join(",")}`,
                 LOG_LEVEL_VERBOSE
             );
             return false;
         }
 
-        const remoteChunkItems = remoteChunks.rows.map((e: any) => e.doc as EntryLeaf);
+        const remoteChunkItems = remoteChunks.rows.map((e) => (e as { doc?: unknown }).doc as EntryLeaf);
         return remoteChunkItems;
     }
 
@@ -1342,10 +1347,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             Logger($msg("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return false;
         }
-        const info = await dbRet.db.info();
+        const info = (await dbRet.db.info()) as PouchDB.Core.DatabaseInfo & { sizes?: { file?: number } };
         return {
             ...info,
-            estimatedSize: (info as any)?.sizes?.file || 0,
+            estimatedSize: info.sizes?.file || 0,
         };
     }
 

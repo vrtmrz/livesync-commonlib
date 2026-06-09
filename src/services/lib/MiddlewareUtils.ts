@@ -14,16 +14,16 @@
 
 export interface MiddlewareContext<TResult> {
     next: () => Promise<TResult>;
-    state: Record<string, any>;
+    state: Record<string, unknown>;
 }
 
-type TargetFunc<TArgs extends any[], TResult> = (...args: TArgs) => Promise<TResult>;
-type MiddlewareFunc<TArgs extends any[], TResult> = (
+type TargetFunc<TArgs extends unknown[], TResult> = (...args: TArgs) => Promise<TResult>;
+type MiddlewareFunc<TArgs extends unknown[], TResult> = (
     ctx: MiddlewareContext<TResult>,
     ...args: TArgs
 ) => Promise<TResult>;
 
-export class MiddlewareManager<TArgs extends any[], TResult> {
+export class MiddlewareManager<TArgs extends unknown[], TResult> {
     private middlewares: { func: MiddlewareFunc<TArgs, TResult>; priority: number; index: number }[] = [];
     // Middleware is executed in order of priority (lower numbers run first).
     // If two middlewares have the same priority, they are executed in the order they were added.
@@ -73,7 +73,7 @@ export class MiddlewareManager<TArgs extends any[], TResult> {
         }
         const sortedMiddlewares = this.sortMiddlewares();
         const composed = (...args: TArgs): Promise<TResult> => {
-            const state: Record<string, any> = {}; // state for each execution
+            const state: Record<string, unknown> = {}; // state for each execution
             let index = -1;
             const dispatch = async (i: number): Promise<TResult> => {
                 if (i <= index) throw new Error("next() called multiple times");
@@ -106,9 +106,11 @@ export class MiddlewareManager<TArgs extends any[], TResult> {
 }
 
 type FunctionKeys<T> = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [K in keyof T]: T[K] extends (...args: any[]) => any ? K : never;
 }[keyof T];
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function middlewares<T extends Record<keyof T, (...args: any[]) => any>>() {
     return {
         useMiddleware<K extends FunctionKeys<T>>(key: K) {

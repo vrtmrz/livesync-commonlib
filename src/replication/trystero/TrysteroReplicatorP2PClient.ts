@@ -32,6 +32,7 @@ export class TrysteroReplicatorP2PClient {
         } as PouchDBShim<EntryDoc>;
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     _sendRPC(type: string, args: any[], timeout = DEFAULT_RPC_TIMEOUT) {
         const room = this._server?.rpcRoom;
         if (!room) {
@@ -41,10 +42,11 @@ export class TrysteroReplicatorP2PClient {
         return session.call(toRpcMethodName(type), args, timeout);
     }
 
-    __onResponse(_data: any) {
+    __onResponse(_data: unknown) {
         // Responses are now handled by RpcRoom.
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     bindRemoteFunction<T extends any[], U>(type: string, timeout = DEFAULT_RPC_TIMEOUT) {
         return async (...args: T) => {
             const room = this._server?.rpcRoom;
@@ -54,6 +56,7 @@ export class TrysteroReplicatorP2PClient {
             return (await room.session(this._connectedPeerId).call(toRpcMethodName(type), args, timeout)) as U;
         };
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async invokeRemoteFunction<T extends any[], U>(type: string, args: T, timeout = DEFAULT_RPC_TIMEOUT) {
         const room = this._server?.rpcRoom;
         if (!room) {
@@ -61,6 +64,7 @@ export class TrysteroReplicatorP2PClient {
         }
         return (await room.session(this._connectedPeerId).call(toRpcMethodName(type), args, timeout)) as U;
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     bindRemoteObjectFunctions<T extends BindableObject<any>, U extends keyof T>(key: U, timeout = DEFAULT_RPC_TIMEOUT) {
         type F = T[U];
         type P = Parameters<T[U]>;
@@ -70,11 +74,10 @@ export class TrysteroReplicatorP2PClient {
             if (!room) {
                 throw new Error("Not connected to any room");
             }
-            return await room
-                .session(this._connectedPeerId)
-                .call(toRpcMethodName(key.toString()), args as any, timeout);
+            return await room.session(this._connectedPeerId).call(toRpcMethodName(key.toString()), args, timeout);
         };
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     async invokeRemoteObjectFunction<T extends BindableObject<any>, U extends NonPrivateMethodKeys<T>>(
         key: U,
         args: Parameters<T[U]>,
@@ -84,7 +87,7 @@ export class TrysteroReplicatorP2PClient {
         if (!room) {
             throw new Error("Not connected to any room");
         }
-        return await room.session(this._connectedPeerId).call(toRpcMethodName(key.toString()), args as any, timeout);
+        return await room.session(this._connectedPeerId).call(toRpcMethodName(key.toString()), args, timeout);
     }
 
     close() {

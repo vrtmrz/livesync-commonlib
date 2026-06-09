@@ -28,22 +28,22 @@ export interface FileAccessBaseDependencies {
 /**
  * Type helper to extract the abstract file type from a file system adapter
  */
-export type ExtractAbstractFile<T> = T extends IFileSystemAdapter<infer A, any, any, any> ? A : never;
+export type ExtractAbstractFile<T> = T extends IFileSystemAdapter<infer A, any, any, any> ? A : never; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 /**
  * Type helper to extract the file type from a file system adapter
  */
-export type ExtractFile<T> = T extends IFileSystemAdapter<any, infer F, any, any> ? F : never;
+export type ExtractFile<T> = T extends IFileSystemAdapter<any, infer F, any, any> ? F : never; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 /**
  * Type helper to extract the folder type from a file system adapter
  */
-export type ExtractFolder<T> = T extends IFileSystemAdapter<any, any, infer D, any> ? D : never;
+export type ExtractFolder<T> = T extends IFileSystemAdapter<any, any, infer D, any> ? D : never; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 /**
  * Type helper to extract the stat type from a file system adapter
  */
-export type ExtractStat<T> = T extends IFileSystemAdapter<any, any, any, infer S> ? S : never;
+export type ExtractStat<T> = T extends IFileSystemAdapter<any, any, any, infer S> ? S : never; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 /**
  * Base class for file access operations
@@ -52,6 +52,7 @@ export type ExtractStat<T> = T extends IFileSystemAdapter<any, any, any, infer S
  * @template TAdapter - The file system adapter type, which determines all native file types
  */
 export class FileAccessBase<TAdapter extends IFileSystemAdapter<any, any, any, any>> {
+    // eslint-disable-line @typescript-eslint/no-explicit-any
     protected storageAccessManager: IStorageAccessManager;
     protected vaultService: IVaultService;
     protected settingService: ISettingService;
@@ -244,6 +245,7 @@ export class FileAccessBase<TAdapter extends IFileSystemAdapter<any, any, any, a
     }
 
     trigger(name: string, ...data: any[]) {
+        // eslint-disable-line @typescript-eslint/no-explicit-any
         return this.adapter.vault.trigger(name, ...data);
     }
 
@@ -295,8 +297,13 @@ export class FileAccessBase<TAdapter extends IFileSystemAdapter<any, any, any, a
             c += v;
             try {
                 await this.adapter.storage.mkdir(c);
-            } catch (ex: any) {
-                if (ex?.message == "Folder already exists.") {
+            } catch (ex: unknown) {
+                if (
+                    ex &&
+                    typeof ex === "object" &&
+                    "message" in ex &&
+                    (ex as Record<string, unknown>).message === "Folder already exists."
+                ) {
                     // Skip if already exists.
                 } else {
                     this._log("Folder Create Error");
@@ -314,7 +321,7 @@ export class FileAccessBase<TAdapter extends IFileSystemAdapter<any, any, any, a
     }
 
     recentlyTouched(file: ExtractFile<TAdapter> | UXFileInfoStub | FileWithFileStat) {
-        const path = (file as any).path as FilePath;
+        const path = (file as { path: FilePath }).path;
         return this.storageAccessManager.recentlyTouched({ ...file, path });
     }
     clearTouched() {

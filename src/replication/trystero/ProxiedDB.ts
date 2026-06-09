@@ -7,9 +7,11 @@ export function createHostingDB(env: ReplicatorHostEnv) {
         info: () => db.info(),
         changes: (options: PouchDB.Core.ChangesOptions) => db.changes(options),
         revsDiff: (diff: PouchDB.Core.RevisionDiffOptions) => db.revsDiff(diff),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         bulkDocs: (docs: PouchDB.Core.PostDocument<any>[], options?: PouchDB.Core.BulkDocsOptions) =>
             db.bulkDocs(docs, options),
         bulkGet: (options: PouchDB.Core.BulkGetOptions) => db.bulkGet(options),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         put: (doc: PouchDB.Core.PutDocument<any>, options?: PouchDB.Core.PutOptions) => db.put(doc, options),
         get: (id: string, options?: PouchDB.Core.GetOptions) => db.get(id, options),
         _stopHosting: () => {

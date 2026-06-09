@@ -1,7 +1,9 @@
 import { LOG_LEVEL_DEBUG, Logger } from "octagonal-wheels/common/logger";
 
 type InstanceHaveOnBindFunction = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     onBindFunction: (core: any, services: any) => void;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } & Record<string, any>;
 
 export function __$checkInstanceBinding<T extends InstanceHaveOnBindFunction>(instance: T) {

@@ -14,12 +14,14 @@ export type NonPrivateMethodKeys<T> = {
         ? never
         : K extends `constructor`
           ? never
-          : T[K] extends (...args: any[]) => any
+          : // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            T[K] extends (...args: any[]) => any
             ? K
             : never;
 }[keyof T];
 
 export type BindableObject<T> = {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     [k in NonPrivateMethodKeys<T>]: (...args: any[]) => any;
 };
 
@@ -40,13 +42,16 @@ export type Request = {
     type: string;
     direction: DIRECTION_REQUEST;
     seq: number;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     args: any[];
 };
 export type Response = {
     type: string;
     direction: DIRECTION_RESPONSE;
     seq: number;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     data?: any;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     error?: any;
 };
 
@@ -93,6 +98,7 @@ export interface ReplicatorHost {
 export interface ReplicatorHostEnv extends ReplicatorHost {
     settings: P2PSyncSetting;
     db: PouchDB.Database<EntryDoc>;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     simpleStore: SimpleStore<any>;
 
     processReplicatedDocs(docs: Array<PouchDB.Core.ExistingDocument<EntryDoc>>): void | Promise<void>;

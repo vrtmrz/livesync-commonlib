@@ -4,6 +4,7 @@ export type RemoteConfigurationResult =
     | { type: "couchdb"; settings: CouchDBConnection }
     | { type: "s3"; settings: BucketSyncSetting }
     | { type: "p2p"; settings: P2PConnectionInfo }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     | { type: "webdav"; settings: any }; // TODO: Define WebDAV settings
 
 // `sls+xxx://` is a non-special scheme per the WHATWG URL spec, which means
@@ -89,7 +90,7 @@ export class ConnectionStringParser {
             couchDB_DBNAME: url.searchParams.get("db") || "",
             couchDB_CustomHeaders: url.searchParams.get("headers") || "",
             useJWT: url.searchParams.get("useJWT") === "true",
-            jwtAlgorithm: (url.searchParams.get("jwtAlg") as any) || "",
+            jwtAlgorithm: (url.searchParams.get("jwtAlg") as CouchDBConnection["jwtAlgorithm"]) || "",
             jwtKey: url.searchParams.get("jwtKey") || "",
             jwtKid: url.searchParams.get("jwtKid") || "",
             jwtSub: url.searchParams.get("jwtSub") || "",

@@ -1,6 +1,6 @@
 import type { IServiceHub } from "@lib/services/base/IService";
 import { Logger, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
-import { AutoAccepting, REMOTE_P2P } from "../../common/types";
+import { AutoAccepting, REMOTE_P2P, type RemoteDBSettings } from "../../common/types";
 import type { NecessaryServices } from "../../interfaces/ServiceModule";
 import { LiveSyncTrysteroReplicator } from "./LiveSyncTrysteroReplicator";
 import { type UseP2PReplicatorResult } from "./UseP2PReplicatorResult";
@@ -46,7 +46,7 @@ export function useP2PReplicatorFeature(
         },
     };
     addP2PEventHandlers(activeReplicator.replicator);
-    host.services.replicator.getNewReplicator.addHandler(async (settingOverride: Partial<any> = {}) => {
+    host.services.replicator.getNewReplicator.addHandler(async (settingOverride: Partial<RemoteDBSettings> = {}) => {
         const settings = { ...host.services.setting.currentSettings(), ...settingOverride };
         if (settings.remoteType == REMOTE_P2P) {
             const existingReplicator = replicator;

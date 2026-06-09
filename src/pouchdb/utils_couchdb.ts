@@ -12,8 +12,8 @@ export function isCloudantURI(uri: string): boolean {
     return false;
 }
 
-export function isErrorOfMissingDoc(ex: any) {
-    return (ex && ex?.status) == 404;
+export function isErrorOfMissingDoc(ex: unknown) {
+    return (ex && typeof ex === "object" && "status" in ex && (ex as { status?: number }).status) == 404;
 }
 
 export const _requestToCouchDBFetch = async (
@@ -21,7 +21,7 @@ export const _requestToCouchDBFetch = async (
     username: string,
     password: string,
     path?: string,
-    body?: any,
+    body?: unknown,
     method?: string
 ) => {
     const utf8str = String.fromCharCode.apply(null, [...writeString(`${username}:${password}`)]);

@@ -49,12 +49,12 @@ export interface StorageEventManagerBaseDependencies {
 /**
  * Type helper to extract the file type from a storage event manager adapter
  */
-export type ExtractFile<T> = T extends IStorageEventManagerAdapter<infer F, any> ? F : never;
+export type ExtractFile<T> = T extends IStorageEventManagerAdapter<infer F, any> ? F : never; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 /**
  * Type helper to extract the folder type from a storage event manager adapter
  */
-export type ExtractFolder<T> = T extends IStorageEventManagerAdapter<any, infer D> ? D : never;
+export type ExtractFolder<T> = T extends IStorageEventManagerAdapter<any, infer D> ? D : never; // eslint-disable-line @typescript-eslint/no-explicit-any
 
 /**
  * Base class for storage event management
@@ -63,7 +63,7 @@ export type ExtractFolder<T> = T extends IStorageEventManagerAdapter<any, infer 
  * @template TAdapter - The storage event manager adapter type
  */
 export abstract class StorageEventManagerBase<
-    TAdapter extends IStorageEventManagerAdapter<any, any>,
+    TAdapter extends IStorageEventManagerAdapter<any, any>, // eslint-disable-line @typescript-eslint/no-explicit-any
 > extends StorageEventManager {
     _log: ReturnType<typeof createInstanceLogFunction>;
     protected setting: SettingService;
@@ -145,7 +145,7 @@ export abstract class StorageEventManagerBase<
         this.snapShotRestored = this._restoreFromSnapshot();
         return this.snapShotRestored;
     }
-    async appendQueue(params: FileEvent[], ctx?: any) {
+    async appendQueue(params: FileEvent[], ctx?: unknown) {
         const settings = this.settings;
         if (!settings.isConfigured) return;
         if (settings.suspendFileWatching) return;
@@ -512,7 +512,7 @@ export abstract class StorageEventManagerBase<
         return isWaitingForTimeout(`storage-event-manager-batchsave-${filename}`);
     }
 
-    protected async handleFileEvent(queue: FileEventItem): Promise<any> {
+    protected async handleFileEvent(queue: FileEventItem): Promise<void> {
         const file = queue.args.file;
         const lockKey = `handleFile:${file.path}`;
         const ret = await serialized(lockKey, async () => {
@@ -578,6 +578,7 @@ export abstract class StorageEventManagerBase<
      * Platform-agnostic event handlers
      */
     protected watchEditorChange(editor: any, info: any) {
+        // eslint-disable-line @typescript-eslint/no-explicit-any
         if (!("path" in info)) {
             return;
         }
@@ -605,6 +606,7 @@ export abstract class StorageEventManagerBase<
     }
 
     protected watchVaultCreate(file: any, ctx?: any) {
+        // eslint-disable-line @typescript-eslint/no-explicit-any
         if (this.adapter.typeGuard.isFolder(file)) return;
         const path = (file as { path: string }).path as FilePath;
         if (this.storageAccess.isFileProcessing(path)) {
@@ -615,6 +617,7 @@ export abstract class StorageEventManagerBase<
     }
 
     protected watchVaultChange(file: any, ctx?: any) {
+        // eslint-disable-line @typescript-eslint/no-explicit-any
         if (this.adapter.typeGuard.isFolder(file)) return;
         const path = (file as { path: string }).path as FilePath;
         if (this.storageAccess.isFileProcessing(path)) {
@@ -625,6 +628,7 @@ export abstract class StorageEventManagerBase<
     }
 
     protected watchVaultDelete(file: any, ctx?: any) {
+        // eslint-disable-line @typescript-eslint/no-explicit-any
         if (this.adapter.typeGuard.isFolder(file)) return;
         const path = (file as { path: string }).path as FilePath;
         if (this.storageAccess.isFileProcessing(path)) {
@@ -635,6 +639,7 @@ export abstract class StorageEventManagerBase<
     }
 
     protected watchVaultRename(file: any, oldPath: string, ctx?: any) {
+        // eslint-disable-line @typescript-eslint/no-explicit-any
         if (this.adapter.typeGuard.isFile(file)) {
             const fileInfo = this.adapter.converter.toFileInfo(file);
             void this.appendQueue(

@@ -2,7 +2,7 @@ import type { FilePath, FilePathWithPrefix, MetaEntry } from "@lib/common/models
 import type { UXFileInfo, UXFileInfoStub, UXInternalFileInfoStub } from "@lib/common/models/fileaccess.type";
 
 export interface IFileHandler {
-    readFileFromStub(file: UXFileInfoStub | UXFileInfo): Promise<any>;
+    readFileFromStub(file: UXFileInfoStub | UXFileInfo): Promise<unknown>;
 
     storeFileToDB(
         info: UXFileInfoStub | UXFileInfo | UXInternalFileInfoStub | FilePathWithPrefix,

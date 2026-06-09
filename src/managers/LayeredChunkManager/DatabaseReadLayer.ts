@@ -1,6 +1,6 @@
 import { Logger, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 import { LiveSyncError } from "../../common/LSError";
-import type { EntryLeaf, DocumentID } from "../../common/types";
+import type { EntryLeaf, DocumentID, EntryDoc } from "../../common/types";
 import type { IReadLayer } from "./ChunkLayerInterfaces";
 import type { ChunkReadOptions } from "./types.ts";
 
@@ -9,31 +9,40 @@ import type { ChunkReadOptions } from "./types.ts";
  */
 
 export class DatabaseReadLayer implements IReadLayer {
-    constructor(private database: PouchDB.Database<any>) {}
+    constructor(private database: PouchDB.Database<EntryDoc>) {}
 
-    private isChunkDoc(doc: any): doc is EntryLeaf {
-        return doc && typeof doc._id === "string" && doc.type === "leaf";
+    private isChunkDoc(doc: unknown): doc is EntryLeaf {
+        return (
+            !!doc &&
+            typeof doc === "object" &&
+            "_id" in doc &&
+            typeof (doc as Record<string, unknown>)._id === "string" &&
+            "type" in doc &&
+            (doc as Record<string, unknown>).type === "leaf"
+        );
     }
 
-    private getError(error: any) {
+    private getError(error: unknown) {
         if (error instanceof Error) {
             return error;
         }
-        if ("error" in error && error.error instanceof Error) {
+        if (error && typeof error === "object" && "error" in error && error.error instanceof Error) {
             return error.error;
         }
         return undefined;
     }
 
-    private isMissingError(error: any): boolean {
-        if ("status" in error && error.status === 404) {
-            return true;
-        }
-        if ("error" in error && error.error === "not_found") {
-            return true;
-        }
-        if ("error" in error) {
-            return this.isMissingError(error.error);
+    private isMissingError(error: unknown): boolean {
+        if (error && typeof error === "object") {
+            if ("status" in error && error.status === 404) {
+                return true;
+            }
+            if ("error" in error && error.error === "not_found") {
+                return true;
+            }
+            if ("error" in error) {
+                return this.isMissingError(error.error);
+            }
         }
         return false;
     }

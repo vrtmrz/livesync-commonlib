@@ -8,13 +8,13 @@ import type { InjectableServiceHub } from "../../services/InjectableServices";
 export interface P2PReplicatorBase {
     storeP2PStatusLine: ReactiveSource<string>;
     settings: P2PSyncSetting;
-    _log(msg: any, level?: LOG_LEVEL): void;
-    _notice(msg: any, key?: string): void;
+    _log(msg: unknown, level?: LOG_LEVEL): void;
+    _notice(msg: unknown, key?: string): void;
 
     getSettings(): P2PSyncSetting;
     getDB: () => PouchDB.Database<EntryDoc>;
     confirm: Confirm;
-    simpleStore(): SimpleStore<any>;
+    simpleStore(): SimpleStore<unknown>;
     handleReplicatedDocuments(docs: EntryDoc[]): Promise<boolean>;
     init(): Promise<this>;
 

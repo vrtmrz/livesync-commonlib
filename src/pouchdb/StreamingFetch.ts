@@ -8,19 +8,15 @@ interface CouchChangeLine {
     seq: number | string;
     id: string;
     changes: Array<{ rev: string }>;
-    doc?: any; // include_docs=true includes the full document body.
+    doc?: EntryDoc; // include_docs=true includes the full document body.
     deleted?: boolean;
 }
 
-interface AnyDoc {
-    _id: string;
-}
-interface AnyDecryptedDoc {
-    _id: string;
-}
-
-function generatePouchDBWriteStream(downloadToDB: PouchDB.Database, decryptFunction: (doc: any) => Promise<any>) {
-    let batchBuffer: AnyDecryptedDoc[] = [];
+function generatePouchDBWriteStream(
+    downloadToDB: PouchDB.Database,
+    decryptFunction: (doc: EntryDoc) => Promise<AnyEntry | EntryLeaf>
+) {
+    let batchBuffer: (AnyEntry | EntryLeaf)[] = [];
     let currentBatchSizeBytes = 0;
 
     const BATCH_ITEM_LIMIT = 100;
@@ -48,7 +44,7 @@ function generatePouchDBWriteStream(downloadToDB: PouchDB.Database, decryptFunct
             flushPromise = null;
         }
     };
-    return new WritableStream<AnyDoc>({
+    return new WritableStream<EntryDoc>({
         async write(chunk) {
             try {
                 // 1. Decrypt the document

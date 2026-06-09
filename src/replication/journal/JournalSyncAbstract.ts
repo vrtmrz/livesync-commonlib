@@ -191,7 +191,7 @@ export abstract class JournalSyncAbstract {
     _currentCheckPointInfo = { ...CheckPointInfoDefault };
     async getCheckpointInfo(): Promise<CheckPointInfo> {
         const checkPointKey = `bucketsync-checkpoint-${this.hash}` as DocumentID;
-        const old: any = (await this.store.get(checkPointKey)) || {};
+        const old = ((await this.store.get(checkPointKey)) || {}) as Record<string, unknown>;
         const items = ["knownIDs", "sentIDs", "receivedFiles", "sentFiles"];
         for (const key of items) {
             if (!(key in old)) {
@@ -291,7 +291,7 @@ export abstract class JournalSyncAbstract {
 
     abstract resetBucket(): Promise<boolean>;
 
-    abstract uploadJson<T>(key: string, body: any): Promise<T | boolean>;
+    abstract uploadJson<T>(key: string, body: unknown): Promise<T | boolean>;
     abstract downloadJson<T>(key: string): Promise<T | false>;
 
     abstract uploadFile(key: string, blob: Blob, mime: string): Promise<boolean>;
@@ -416,8 +416,8 @@ export abstract class JournalSyncAbstract {
         const docs = bd.results.map((e) => e.docs).flat();
         // Thinning out the docs.
         const docChanges = docs
-            .filter((e) => "ok" in e)
-            .map((e) => (e as any).ok)
+            .filter((e): e is { ok: PouchDB.Core.ExistingDocument<EntryDoc> } => "ok" in e)
+            .map((e) => e.ok)
             .filter((doc: EntryDoc) => {
                 const key = this.getDocKey(doc);
                 if (this._currentCheckPointInfo.knownIDs.has(key)) {
@@ -649,7 +649,7 @@ export abstract class JournalSyncAbstract {
             // Chunks always have the same content, hence revision comparisons are unnecessary
             try {
                 const e1 = (await this.db.allDocs({ include_docs: true, keys: [...chunks.map((e) => e._id)] })).rows;
-                const e2 = e1.map((e) => (e as any).id ?? undefined);
+                const e2 = e1.map((e) => ("id" in e ? e.id : undefined));
                 const existChunks = new Set(e2.filter((e) => e !== undefined));
                 const saveChunks = chunks
                     .filter((e) => !existChunks.has(e._id))

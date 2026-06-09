@@ -1,5 +1,5 @@
 import { LiveSyncError } from "../../common/LSError";
-import type { EntryLeaf, DocumentID } from "../../common/types";
+import type { EntryLeaf, DocumentID, EntryDoc } from "../../common/types";
 import type { IWriteLayer } from "./ChunkLayerInterfaces";
 import type { ChunkWriteOptions, WriteResult } from "./types.ts";
 
@@ -8,7 +8,8 @@ import type { ChunkWriteOptions, WriteResult } from "./types.ts";
  */
 
 export class DatabaseWriteLayer implements IWriteLayer {
-    constructor(private database: PouchDB.Database<any>) {}
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    constructor(private database: PouchDB.Database<EntryDoc>) {}
 
     async write(
         chunks: EntryLeaf[],

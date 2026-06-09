@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import type { ConfigService } from "@lib/services/base/ConfigService";
 import type { AppLifecycleService } from "@lib/services/base/AppLifecycleService";
 import type { ReplicatorService } from "@lib/services/base/ReplicatorService";

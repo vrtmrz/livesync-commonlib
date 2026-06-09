@@ -187,15 +187,24 @@ export function startWorker(data: Omit<SplitArguments, "key">): SplitProcessItem
 export function startWorker(data: Omit<EncryptArguments | SplitArguments | EncryptHKDFArguments, "key">): ProcessItem {
     const _key = key++;
     const inst = nextWorker();
-    const promise = promiseWithResolver<any>();
-    const item: ProcessItem = {
-        key: _key,
-        task: promise,
-        type: data.type,
-        finalize: () => {
-            inst.processing--;
-        },
-    };
+    const promise = promiseWithResolver<string>();
+    const item: ProcessItem =
+        data.type === "split"
+            ? {
+                  key: _key,
+                  type: data.type,
+                  finalize: () => {
+                      inst.processing--;
+                  },
+              }
+            : {
+                  key: _key,
+                  task: promise,
+                  type: data.type,
+                  finalize: () => {
+                      inst.processing--;
+                  },
+              };
     tasks.set(_key, item);
     inst.taskKeys.add(_key);
     taskWorkerMap.set(_key, inst);

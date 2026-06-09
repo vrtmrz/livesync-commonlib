@@ -4,12 +4,12 @@ import type { FilePath } from "@lib/common/types";
  * Event handlers for storage events
  */
 export interface IStorageEventWatchHandlers {
-    onCreate: (file: any, ctx?: any) => void;
-    onChange: (file: any, ctx?: any) => void;
-    onDelete: (file: any, ctx?: any) => void;
-    onRename: (file: any, oldPath: string, ctx?: any) => void;
+    onCreate: (file: unknown, ctx?: unknown) => void;
+    onChange: (file: unknown, ctx?: unknown) => void;
+    onDelete: (file: unknown, ctx?: unknown) => void;
+    onRename: (file: unknown, oldPath: string, ctx?: unknown) => void;
     onRaw: (path: FilePath) => void;
-    onEditorChange?: (editor: any, info: any) => void;
+    onEditorChange?: (editor: unknown, info: unknown) => void;
 }
 
 /**

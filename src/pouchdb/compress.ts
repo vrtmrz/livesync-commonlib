@@ -70,7 +70,9 @@ export async function decompressDoc(doc: EntryDoc) {
     }
     return doc;
 }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function wrapFflateFunc<T, U>(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     func: (data: T, opts: U, cb: fflate.FlateCallback) => any
 ): (data: T, opts: U) => Promise<Uint8Array<ArrayBuffer>> {
     return (data: T, opts: U) => {

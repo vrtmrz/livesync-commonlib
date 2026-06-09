@@ -67,6 +67,8 @@ export type RuleForType<T> = T extends number
         ? BooleanRule
         : never;
 
+export type AnyRule = NumberRuleExact | NumberRuleRange | StringRule | StringRangeRule | BooleanRule;
+
 // Doctor will not check the settings that are complicated objects like remoteConfigurations, and the rules for these settings should be defined separately if needed.
 type DoctorCheckSettings = Omit<
     Partial<ObsidianLiveSyncSettings>,
@@ -308,7 +310,7 @@ export async function performDoctorConsultation(
             };
         }
         if (msg != OPT_YES) return getResult();
-        const issueItems = Object.entries(r.rules) as [keyof DoctorCheckSettings, RuleForType<any>][];
+        const issueItems = Object.entries(r.rules) as [keyof DoctorCheckSettings, AnyRule][];
         Logger(`${issueItems.length} Issue(s) found `, LOG_LEVEL_VERBOSE);
         let idx = 0;
         const applySettings = {} as Partial<DoctorCheckSettings>;

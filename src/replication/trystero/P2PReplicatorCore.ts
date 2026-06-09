@@ -1,7 +1,7 @@
 /**
  * Obsoleted: separated into non-UI things and UI things.
  */
-import { AutoAccepting, REMOTE_P2P } from "../../common/types";
+import { AutoAccepting, REMOTE_P2P, type RemoteDBSettings } from "../../common/types";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import { EVENT_REQUEST_OPEN_P2P } from "../../events/coreEvents";
 import { eventHub } from "../../hub/hub";
@@ -12,7 +12,9 @@ import { P2PLogCollector } from "./P2PLogCollector";
 import { addP2PEventHandlers } from "./addP2PEventHandlers";
 import type { P2PPaneParams } from "./UseP2PReplicatorResult";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
+import type { IServiceHub } from "../../services/base/IService";
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 export type P2PViewFactory = (leaf: any) => any;
 
 /**
@@ -40,7 +42,7 @@ export function useP2PReplicator(
     >,
     viewTypeAndFactory?: [viewType: string, factory: P2PViewFactory]
 ): P2PPaneParams {
-    const env: LiveSyncTrysteroReplicatorEnv = { services: host.services as any };
+    const env: LiveSyncTrysteroReplicatorEnv = { services: host.services as unknown as IServiceHub };
     let replicator = new LiveSyncTrysteroReplicator(env);
     const activeReplicator = {
         get instance() {
@@ -95,7 +97,7 @@ export function useP2PReplicator(
     });
 
     // New replicator factory
-    host.services.replicator.getNewReplicator.addHandler(async (settingOverride: Partial<any> = {}) => {
+    host.services.replicator.getNewReplicator.addHandler(async (settingOverride: Partial<RemoteDBSettings> = {}) => {
         const settings = { ...host.services.setting.currentSettings(), ...settingOverride };
         if (settings.remoteType == REMOTE_P2P) {
             // Returning replicator instance directly here
@@ -106,7 +108,7 @@ export function useP2PReplicator(
                 Logger(`Error closing existing p2p replicator`);
                 Logger(e, LOG_LEVEL_VERBOSE);
             }
-            const newReplicator = new LiveSyncTrysteroReplicator({ services: host.services as any });
+            const newReplicator = new LiveSyncTrysteroReplicator({ services: host.services as unknown as IServiceHub });
             replicator = newReplicator; // Update the replicator reference for lifecycle handlers
             return Promise.resolve(replicator);
         }

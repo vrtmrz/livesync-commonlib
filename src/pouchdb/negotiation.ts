@@ -32,7 +32,7 @@ export const checkRemoteVersion = async (
         // setPBKDF2Salt(salt);
         if (version == barrier) return true;
         return false;
-    } catch (ex: any) {
+    } catch (ex: unknown) {
         if (isErrorOfMissingDoc(ex)) {
             if (await bumpRemoteVersion(db)) {
                 return true;
@@ -65,7 +65,7 @@ export const checkSyncInfo = async (db: PouchDB.Database): Promise<boolean> => {
         console.log(syncinfo);
         // if we could decrypt the doc, it must be ok.
         return true;
-    } catch (ex: any) {
+    } catch (ex: unknown) {
         if (isErrorOfMissingDoc(ex)) {
             const randomStrSrc = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ";
             const temp = [...Array(30)]
@@ -120,7 +120,7 @@ export async function countCompromisedChunks(db: PouchDB.Database): Promise<numb
         const task2 = db.find(SELECTOR_COMPROMISED_CHUNK_2);
         const [result1, result2] = await Promise.all([task1, task2]);
         return result1.docs.length + result2.docs.length;
-    } catch (ex: any) {
+    } catch (ex: unknown) {
         Logger(`Error counting compromised chunks!`, LOG_LEVEL_INFO);
         Logger(ex, LOG_LEVEL_VERBOSE);
         return false;
