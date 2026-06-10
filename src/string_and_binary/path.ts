@@ -3,7 +3,7 @@ import { getWebCrypto } from "@lib/mods.ts";
 import type { AnyEntry, DocumentID, EntryHasPath, FilePath, FilePathWithPrefix } from "@lib/common/models/db.type";
 import { FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3, PREFIXMD_LOGFILE, FLAGMD_REDFLAG2_HR, FLAGMD_REDFLAG3_HR, PREFIXMD_LOGFILE_UC } from "@lib/common/models/redflag.const";
 import { PREFIX_OBFUSCATED } from "@lib/common/models/shared.const.behabiour";
-import { memorizeFuncWithLRUCache } from "@lib/common/utils.ts";
+import { memorizeFuncWithLRUCache } from "@lib/common/utils.misc.ts";
 import { uint8ArrayToHexString, writeString } from "./convert.ts";
 import { unique } from "octagonal-wheels/collection.js";
 // --- path utilities
