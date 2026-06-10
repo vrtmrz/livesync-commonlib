@@ -1,6 +1,6 @@
 import { serialized } from "octagonal-wheels/concurrency/lock";
-import { Logger } from "../common/logger";
-import { LOG_LEVEL_VERBOSE } from "../common/types";
+import { Logger } from "@lib/common/logger";
+import { LOG_LEVEL_VERBOSE } from "@lib/common/types";
 
 export type SomeDocument<T extends object> = PouchDB.Core.ExistingDocument<T> & PouchDB.Core.ChangesMeta;
 

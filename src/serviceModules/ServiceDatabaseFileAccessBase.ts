@@ -17,7 +17,7 @@ import type { VaultService } from "@lib/services/base/VaultService";
 import { shouldBeIgnored, isPlainText, stripAllPrefixes } from "@lib/string_and_binary/path";
 import { LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 import { serialized } from "octagonal-wheels/concurrency/lock_v2";
-import { ServiceModuleBase } from "@lib/serviceModules/ServiceModuleBase";
+import { ServiceModuleBase } from "./ServiceModuleBase";
 import { eventHub } from "@lib/hub/hub";
 import { EVENT_FILE_SAVED } from "@lib/events/coreEvents";
 import { getDatabasePathFromUXFileInfo, getStoragePathFromUXFileInfo, isInternalMetadata } from "@lib/common/typeUtils";

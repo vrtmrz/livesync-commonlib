@@ -6,8 +6,8 @@ import type {
     JWTPayload,
     PreparedJWT,
     RemoteDBSettings,
-} from "../common/types";
-import { arrayBufferToBase64Single, writeString } from "../string_and_binary/convert";
+} from "@lib/common/types";
+import { arrayBufferToBase64Single, writeString } from "@lib/string_and_binary/convert";
 import { Computed } from "octagonal-wheels/dataobject/Computed";
 
 /**

@@ -15,7 +15,7 @@ import { shouldBeIgnored, stripAllPrefixes } from "@lib/string_and_binary/path";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { eventHub } from "@lib/hub/hub";
 import type { IFileHandler } from "@lib/interfaces/FileHandler.ts";
-import { ServiceModuleBase } from "@lib/serviceModules/ServiceModuleBase";
+import { ServiceModuleBase } from "./ServiceModuleBase";
 import type { APIService } from "@lib/services/base/APIService.ts";
 import type { DatabaseFileAccess } from "@lib/interfaces/DatabaseFileAccess.ts";
 import type { StorageAccess } from "@lib/interfaces/StorageAccess.ts";
@@ -26,8 +26,8 @@ import type { PathService } from "@lib/services/base/PathService.ts";
 import type { SettingService } from "@lib/services/base/SettingService.ts";
 import type { VaultService } from "@lib/services/base/VaultService.ts";
 import { getStoragePathFromUXFileInfo } from "@lib/common/typeUtils";
-import { EVEN } from "../common/models/shared.const.symbols";
-import { tryGetFilePath } from "../common/utils.doc";
+import { EVEN } from "@lib/common/models/shared.const.symbols";
+import { tryGetFilePath } from "@lib/common/utils.doc";
 
 export interface ServiceFileHandlerDependencies {
     API: APIService;

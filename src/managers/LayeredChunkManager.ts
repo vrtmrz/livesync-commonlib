@@ -1,8 +1,8 @@
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 import type { DocumentID, EntryDoc, EntryLeaf } from "@lib/common/types.ts";
-import type { ChangeManager } from "@lib/managers/ChangeManager.ts";
-import { EVENT_MISSING_CHUNK_REMOTE, EVENT_MISSING_CHUNKS, EVENT_CHUNK_FETCHED } from "@lib/managers/ChunkFetcher.ts";
+import type { ChangeManager, ChangeManagerCallback } from "./ChangeManager.ts";
+import { EVENT_MISSING_CHUNK_REMOTE, EVENT_MISSING_CHUNKS, EVENT_CHUNK_FETCHED } from "./ChunkFetcher.ts";
 import { DatabaseReadLayer } from "./LayeredChunkManager/DatabaseReadLayer.ts";
 import { CacheLayer } from "./LayeredChunkManager/CacheLayer.ts";
 import { ArrivalWaitLayer } from "./LayeredChunkManager/ArrivalWaitLayer.ts";
@@ -104,7 +104,7 @@ export class LayeredChunkManager {
         ];
 
         // Set up change listener
-        this.offChangeHandler = this.changeManager.addCallback(this.onChangeHandler);
+        this.offChangeHandler = this.changeManager.addCallback(this.onChangeHandler as ChangeManagerCallback);
         this.addListener(EVENT_CHUNK_FETCHED, this.onChunkArrivedHandler, { signal: this.abort.signal });
         this.addListener(EVENT_MISSING_CHUNK_REMOTE, this.onMissingChunkRemoteHandler, { signal: this.abort.signal });
 

@@ -1,9 +1,9 @@
-import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type LOG_LEVEL } from "../common/logger";
-import { ConnectionStringParser } from "../common/ConnectionString";
-import type { ObsidianLiveSyncSettings, RemoteConfiguration, RemoteDBSettings } from "../common/models/setting.type";
-import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "../common/models/setting.const";
-import type { NecessaryServices } from "../interfaces/ServiceModule";
-import { createInstanceLogFunction } from "../services/lib/logUtils";
+import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type LOG_LEVEL } from "@lib/common/logger";
+import { ConnectionStringParser } from "@lib/common/ConnectionString";
+import type { ObsidianLiveSyncSettings, RemoteConfiguration, RemoteDBSettings } from "@lib/common/models/setting.type";
+import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
+import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
+import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 
 export type RemoteConfigHost = NecessaryServices<
     "setting" | "UI" | "replication" | "control" | "appLifecycle" | "API",

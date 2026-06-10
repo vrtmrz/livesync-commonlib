@@ -7,12 +7,12 @@ import {
     NODEINFO_DOCID,
     type TweakValues,
     type NodeData,
-} from "../common/types.ts";
+} from "@lib/common/types.ts";
 
-import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
-import { resolveWithIgnoreKnownError } from "../common/utils.ts";
-import { arrayBufferToBase64Single } from "../string_and_binary/convert.ts";
-import type { IServiceHub } from "../services/base/IService.ts";
+import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
+import { resolveWithIgnoreKnownError } from "@lib/common/utils.ts";
+import { arrayBufferToBase64Single } from "@lib/string_and_binary/convert.ts";
+import type { IServiceHub } from "@lib/services/base/IService.ts";
 
 export type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<boolean> | boolean;
 export type ReplicationStat = {

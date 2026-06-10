@@ -1,7 +1,7 @@
-import type { DatabaseFileAccess } from "@lib/interfaces/DatabaseFileAccess";
-import type { Rebuilder } from "@lib/interfaces/DatabaseRebuilder";
-import type { IFileHandler } from "@lib/interfaces/FileHandler";
-import type { StorageAccess } from "@lib/interfaces/StorageAccess";
+import type { DatabaseFileAccess } from "./DatabaseFileAccess";
+import type { Rebuilder } from "./DatabaseRebuilder";
+import type { IFileHandler } from "./FileHandler";
+import type { StorageAccess } from "./StorageAccess";
 import type { LogFunction } from "@lib/services/lib/logUtils";
 import type { ServiceHub } from "@lib/services/ServiceHub";
 import type { IServiceHub } from "@lib/services/base/IService";

@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { DialogHostProps } from "../services/implements/base/SvelteDialog";
+    import type { DialogHostProps } from "@lib/services/implements/base/SvelteDialog";
     import { type DialogSvelteComponentBaseProps } from "./svelteDialog";
     // type Props = DialogSvelteComponentBaseProps & {
     //     /**

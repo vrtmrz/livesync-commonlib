@@ -1,7 +1,7 @@
-import { AppLifecycleService } from "../../base/AppLifecycleService";
-import type { IAppLifecycleService } from "../../base/IService";
-import type { ServiceContext } from "../../base/ServiceBase";
-import { handlers } from "../../lib/HandlerUtils";
+import { AppLifecycleService } from "@lib/services/base/AppLifecycleService";
+import type { IAppLifecycleService } from "@lib/services/base/IService";
+import type { ServiceContext } from "@lib/services/base/ServiceBase";
+import { handlers } from "@lib/services/lib/HandlerUtils";
 
 export abstract class AppLifecycleServiceBase<T extends ServiceContext> extends AppLifecycleService<T> {
     askRestart = handlers<IAppLifecycleService>().binder("askRestart");

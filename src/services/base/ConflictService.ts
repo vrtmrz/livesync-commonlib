@@ -1,8 +1,8 @@
 import type { FilePathWithPrefix, MISSING_OR_ERROR, AUTO_MERGED } from "@lib/common/types";
 import { handlers } from "@lib/services/lib/HandlerUtils";
-import type { IConflictService } from "@lib/services/base/IService";
-import { ServiceBase } from "@lib/services/base/ServiceBase";
-import type { ServiceContext } from "@lib/services/base/ServiceBase";
+import type { IConflictService } from "./IService";
+import { ServiceBase } from "./ServiceBase";
+import type { ServiceContext } from "./ServiceBase";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 
 /**

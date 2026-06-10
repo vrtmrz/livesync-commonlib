@@ -16,9 +16,9 @@ import type {
 } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
-import { createInstanceLogFunction, MARK_LOG_NETWORK_ERROR, type LogFunction } from "../lib/logUtils";
-import { $msg } from "../../common/i18n";
-import type { LiveSyncAbstractReplicator } from "../../replication/LiveSyncAbstractReplicator";
+import { createInstanceLogFunction, MARK_LOG_NETWORK_ERROR, type LogFunction } from "@lib/services/lib/logUtils";
+import { $msg } from "@lib/common/i18n";
+import type { LiveSyncAbstractReplicator } from "@lib/replication/LiveSyncAbstractReplicator";
 import { UnresolvedErrorManager } from "./UnresolvedErrorManager";
 import type { AppLifecycleService } from "./AppLifecycleService";
 import { isLockAcquired, shareRunningResult } from "octagonal-wheels/concurrency/lock";

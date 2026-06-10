@@ -9,8 +9,8 @@ import type {
 } from "@lib/common/types";
 import type { IPathService, ISettingService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
-import { addPrefix, id2path_base, path2id_base } from "../../string_and_binary/path";
-import { isInternalMetadata, stripInternalMetadataPrefix } from "../../common/typeUtils";
+import { addPrefix, id2path_base, path2id_base } from "@lib/string_and_binary/path";
+import { isInternalMetadata, stripInternalMetadataPrefix } from "@lib/common/typeUtils";
 import type { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 
 export interface PathServiceDependencies {

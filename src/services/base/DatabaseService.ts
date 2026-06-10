@@ -1,14 +1,14 @@
 import type { IDatabaseService, IPathService, IVaultService, openDatabaseParameters } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB";
-import { handlers } from "../lib/HandlerUtils";
+import { handlers } from "@lib/services/lib/HandlerUtils";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils.ts";
 import { PouchDB } from "@lib/pouchdb/pouchdb-browser.ts";
 import { ExtraSuffixIndexedDB } from "@lib/common/models/shared.const.ts";
 import { $msg } from "@lib/common/i18n.ts";
 import type { SettingService } from "./SettingService";
 import type { APIService } from "./APIService";
-import type { ObsidianLiveSyncSettings } from "../../common/models/setting.type";
+import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 
 export type DatabaseServiceDependencies = {
     path: IPathService;

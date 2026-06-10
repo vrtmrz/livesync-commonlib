@@ -2,9 +2,9 @@ import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import type { LOG_LEVEL } from "@lib/common/logger";
 import type { IAPIService, ICommandCompat } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
-import type { Confirm } from "../../interfaces/Confirm";
+import type { Confirm } from "@lib/interfaces/Confirm";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
-import { _fetch, compatGlobal } from "../../common/coreEnvFunctions";
+import { _fetch, compatGlobal } from "@lib/common/coreEnvFunctions";
 /**
  * The APIService provides methods for interacting with the plug-in's API,
  */

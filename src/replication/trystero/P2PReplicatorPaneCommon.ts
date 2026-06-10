@@ -1,4 +1,4 @@
-import type { InjectableServiceHub } from "../../services/InjectableServices.ts";
+import type { InjectableServiceHub } from "@lib/services/InjectableServices.ts";
 
 export const EVENT_P2P_PEER_SHOW_EXTRA_MENU = "p2p-peer-show-extra-menu";
 

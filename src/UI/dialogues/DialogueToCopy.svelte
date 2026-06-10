@@ -1,12 +1,12 @@
 <script lang="ts">
     import { onMount } from "svelte";
-    import type { GuestDialogProps } from "../svelteDialog.ts";
-    import DialogHeader from "../components/DialogHeader.svelte";
-    import Instruction from "../components/Instruction.svelte";
-    import InputRow from "../components/InputRow.svelte";
-    import Decision from "../components/Decision.svelte";
-    import UserDecisions from "../components/UserDecisions.svelte";
-    import InfoNote from "../components/InfoNote.svelte";
+    import type { GuestDialogProps } from "@lib/UI/svelteDialog.ts";
+    import DialogHeader from "@lib/UI/components/DialogHeader.svelte";
+    import Instruction from "@lib/UI/components/Instruction.svelte";
+    import InputRow from "@lib/UI/components/InputRow.svelte";
+    import Decision from "@lib/UI/components/Decision.svelte";
+    import UserDecisions from "@lib/UI/components/UserDecisions.svelte";
+    import InfoNote from "@lib/UI/components/InfoNote.svelte";
     const TYPE_OK = "ok";
     type ResultType = typeof TYPE_OK;
     type Options = {

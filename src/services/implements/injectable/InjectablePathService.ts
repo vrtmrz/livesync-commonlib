@@ -1,6 +1,6 @@
 import type { UXFileInfo, AnyEntry, UXFileInfoStub, FilePathWithPrefix } from "@lib/common/types";
-import { PathService } from "../../base/PathService";
-import type { ServiceContext } from "../../base/ServiceBase";
+import { PathService } from "@lib/services/base/PathService";
+import type { ServiceContext } from "@lib/services/base/ServiceBase";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import { compareMTime } from "@lib/common/utils";
 export function compareFileFreshnessGeneric(

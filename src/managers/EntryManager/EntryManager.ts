@@ -6,12 +6,12 @@ import {
     REMOTE_COUCHDB,
     type SavingEntry,
     type MetaEntry,
-} from "../../common/types";
-import type { ChunkManager } from "../ChunkManager";
-import type { ContentSplitter } from "../../ContentSplitter/ContentSplitters";
-import type { HashManager } from "../HashManager/HashManager";
-import type { GeneratedChunk } from "../../pouchdb/LiveSyncLocalDB";
-import type { IPathService, ISettingService } from "../../services/base/IService";
+} from "@lib/common/types";
+import type { ChunkManager } from "@lib/managers/ChunkManager";
+import type { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters";
+import type { HashManager } from "@lib/managers/HashManager/HashManager";
+import type { GeneratedChunk } from "@lib/pouchdb/LiveSyncLocalDB";
+import type { IPathService, ISettingService } from "@lib/services/base/IService";
 import {
     deleteDBEntryByPath,
     getDBEntryByPath,

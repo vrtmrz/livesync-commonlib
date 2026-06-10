@@ -23,9 +23,9 @@ import {
     type NoteEntry,
 } from "@lib/common/types";
 import type { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters";
-import type { HashManager } from "../HashManager/HashManager";
-import type { LayeredChunkManager as ChunkManager } from "../LayeredChunkManager";
-import type { ChunkWriteOptions } from "../LayeredChunkManager/types";
+import type { HashManager } from "@lib/managers/HashManager/HashManager";
+import type { LayeredChunkManager as ChunkManager } from "@lib/managers/LayeredChunkManager";
+import type { ChunkWriteOptions } from "@lib/managers/LayeredChunkManager/types";
 import { serialized } from "octagonal-wheels/concurrency/lock";
 import { createTextBlob, getFileRegExp, isTextBlob } from "@lib/common/utils";
 import type { NecessaryServicesInterfaces } from "@lib/interfaces/ServiceModule";

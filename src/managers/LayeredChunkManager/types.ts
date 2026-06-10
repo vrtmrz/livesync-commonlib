@@ -1,8 +1,8 @@
 import type { EntryDoc } from "@lib/common/models/db.definition";
 import type { DocumentID, EntryLeaf } from "@lib/common/models/db.type";
 import type { ISettingService } from "@lib/services/base/IService";
-import type { ChangeManager } from "../ChangeManager";
-import type { EVENT_CHUNK_FETCHED, EVENT_MISSING_CHUNK_REMOTE, EVENT_MISSING_CHUNKS } from "../ChunkFetcher";
+import type { ChangeManager } from "@lib/managers/ChangeManager";
+import type { EVENT_CHUNK_FETCHED, EVENT_MISSING_CHUNK_REMOTE, EVENT_MISSING_CHUNKS } from "@lib/managers/ChunkFetcher";
 
 export type ChunkManagerOptions = {
     database: PouchDB.Database<EntryDoc>;

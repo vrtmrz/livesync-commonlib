@@ -1,8 +1,8 @@
 <script lang="ts">
     import { onMount, tick } from "svelte";
-    import { translateIfAvailable as translate } from "../../common/i18n.ts";
-    import { getDialogContext } from "../svelteDialog.ts";
-    import { _activeDocument } from "../../common/coreEnvFunctions.ts";
+    import { translateIfAvailable as translate } from "@lib/common/i18n.ts";
+    import { getDialogContext } from "@lib/UI/svelteDialog.ts";
+    import { _activeDocument } from "@lib/common/coreEnvFunctions.ts";
 
     type Props = {
         title: string;

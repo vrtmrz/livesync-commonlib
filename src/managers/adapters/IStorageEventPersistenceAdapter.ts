@@ -1,5 +1,5 @@
 import type { FileEventItem } from "@lib/common/types";
-import type { FileEventItemSentinel } from "../StorageEventManager";
+import type { FileEventItemSentinel } from "@lib/managers/StorageEventManager";
 
 /**
  * Adapter interface for snapshot persistence operations

@@ -1,4 +1,4 @@
-import fr from "../messagesJson/fr.json";
+import fr from "@lib/common/messagesJson/fr.json";
 export const PartialMessages = {
     fr,
 } as const;

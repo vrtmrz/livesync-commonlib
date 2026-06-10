@@ -1,4 +1,4 @@
-import { LOG_LEVEL_INFO, Logger } from "../common/logger";
+import { LOG_LEVEL_INFO, Logger } from "@lib/common/logger";
 import {
     LOG_LEVEL_VERBOSE,
     SYNCINFO_ID,
@@ -6,8 +6,8 @@ import {
     VERSIONING_DOCID,
     type EntryVersionInfo,
     type SyncInfo,
-} from "../common/types";
-import { resolveWithIgnoreKnownError } from "../common/utils";
+} from "@lib/common/types";
+import { resolveWithIgnoreKnownError } from "@lib/common/utils";
 import { isErrorOfMissingDoc } from "./utils_couchdb";
 
 export const checkRemoteVersion = async (

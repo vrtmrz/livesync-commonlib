@@ -12,10 +12,10 @@ import { replicationFilter } from "@lib/pouchdb/compress";
 import { disableEncryption, enableEncryption } from "@lib/pouchdb/encryption";
 import { isCloudantURI, isValidRemoteCouchDBURI } from "@lib/pouchdb/utils_couchdb";
 import { AuthorizationHeaderGenerator } from "@lib/replication/httplib";
-import type { APIService } from "@lib/services/base/APIService";
-import type { AppLifecycleService } from "@lib/services/base/AppLifecycleService";
-import type { SettingService } from "@lib/services/base/SettingService";
-import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
+import type { APIService } from "./APIService";
+import type { AppLifecycleService } from "./AppLifecycleService";
+import type { SettingService } from "./SettingService";
+import { UnresolvedErrorManager } from "./UnresolvedErrorManager";
 import { createInstanceLogFunction, MARK_LOG_NETWORK_ERROR, type LogFunction } from "@lib/services/lib/logUtils";
 import { PouchDB } from "@lib/pouchdb/pouchdb-browser.ts";
 export interface RemoteServiceDependencies {

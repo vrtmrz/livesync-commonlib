@@ -1,6 +1,6 @@
 // Foreground part of Content-Splitter
 
-import { LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
+import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
 import { startWorker, removeTask } from "./bgWorker.ts";
 import { type SplitProcessItem } from "./universalTypes";
 

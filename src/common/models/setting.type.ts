@@ -8,7 +8,7 @@ import type {
     MODE_SHINY,
     RemoteTypes,
 } from "./setting.const";
-import type { I18N_LANGS } from "../rosetta";
+import type { I18N_LANGS } from "@lib/common/rosetta";
 import type { CustomRegExpSourceList } from "./shared.type.util";
 import type { JWTAlgorithm } from "./auth.type";
 

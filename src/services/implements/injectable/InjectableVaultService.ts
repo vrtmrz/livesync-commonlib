@@ -1,8 +1,8 @@
 import { isValidFilenameInWidows } from "@lib/string_and_binary/path";
-import type { IVaultService } from "../../base/IService";
-import type { ServiceContext } from "../../base/ServiceBase";
-import { VaultService } from "../../base/VaultService";
-import { handlers } from "../../lib/HandlerUtils";
+import type { IVaultService } from "@lib/services/base/IService";
+import type { ServiceContext } from "@lib/services/base/ServiceBase";
+import { VaultService } from "@lib/services/base/VaultService";
+import { handlers } from "@lib/services/lib/HandlerUtils";
 
 export abstract class InjectableVaultService<T extends ServiceContext> extends VaultService<T> {
     // scanVault = handlers<IVaultService>().binder("scanVault");

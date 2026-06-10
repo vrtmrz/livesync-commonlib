@@ -1,4 +1,4 @@
-import type { IConfigService } from "@lib/services/base/IService";
+import type { IConfigService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 
 export abstract class ConfigService<T extends ServiceContext = ServiceContext>

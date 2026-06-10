@@ -5,7 +5,7 @@ import {
     LOG_LEVEL_VERBOSE,
     Logger,
 } from "octagonal-wheels/common/logger";
-import type { IAPIService } from "../base/IService";
+import type { IAPIService } from "@lib/services/base/IService";
 export const MARK_LOG_SEPARATOR = "\u{200A}";
 export const MARK_LOG_NETWORK_ERROR = "\u{200b}"; // u+200B is a zero-width space, which is used to tag logs as network errors for filtering purposes.
 

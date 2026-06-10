@@ -2,8 +2,8 @@
  * Content-Splitter for Self-hosted LiveSync.
  * Splits content into manageable chunks for efficient storage and synchronisation.
  */
-import { type FilePathWithPrefix } from "../common/types.ts";
-import type { ISettingService } from "../services/base/IService.ts";
+import { type FilePathWithPrefix } from "@lib/common/types.ts";
+import type { ISettingService } from "@lib/services/base/IService.ts";
 
 /**
  * ContentSplitter interface for splitting content into chunks.

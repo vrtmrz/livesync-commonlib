@@ -1,5 +1,5 @@
-import { _fetch, compatGlobal } from "../common/coreEnvFunctions.ts";
-import { writeString } from "../string_and_binary/convert.ts";
+import { _fetch, compatGlobal } from "@lib/common/coreEnvFunctions.ts";
+import { writeString } from "@lib/string_and_binary/convert.ts";
 
 export const isValidRemoteCouchDBURI = (uri: string): boolean => {
     if (uri.startsWith("https://")) return true;

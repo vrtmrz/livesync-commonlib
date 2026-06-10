@@ -18,8 +18,8 @@ import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/log
 import { delay } from "octagonal-wheels/promises";
 import { eventHub } from "@lib/hub/hub";
 import { EVENT_DATABASE_REBUILT } from "@lib/events/coreEvents";
-import { ServiceModuleBase } from "@lib/serviceModules/ServiceModuleBase";
-import type { ControlService } from "../services/base/ControlService";
+import { ServiceModuleBase } from "./ServiceModuleBase";
+import type { ControlService } from "@lib/services/base/ControlService";
 import { fetchChangesForInitialSync } from "@lib/pouchdb/StreamingFetch";
 import { getConfiguredFunctionsForEncryption } from "@lib/pouchdb/encryption";
 import { AuthorizationHeaderGenerator, generateCredentialObject } from "@lib/replication/httplib";

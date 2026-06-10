@@ -11,7 +11,7 @@ import { eventHub } from "@/lib/src/hub/hub";
 import { EVENT_PLUGIN_UNLOADED } from "@/lib/src/events/coreEvents";
 
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
-import type { IControlService } from "../../base/IService";
+import type { IControlService } from "@lib/services/base/IService";
 
 export type SvelteDialogManagerDependencies<T extends ServiceContext = ServiceContext> = {
     appLifecycle: AppLifecycleService<T>;

@@ -1,9 +1,9 @@
-import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../common/logger";
-import type { CouchDBConnection, EntryLeaf } from "../common/types";
+import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
+import type { CouchDBConnection, EntryLeaf } from "@lib/common/types";
 import { QueueProcessor } from "octagonal-wheels/concurrency/processor";
-import { arrayToChunkedArray, sizeToHumanReadable } from "../common/utils";
+import { arrayToChunkedArray, sizeToHumanReadable } from "@lib/common/utils";
 import { serialized } from "octagonal-wheels/concurrency/lock";
-import { _requestToCouchDBFetch } from "./utils_couchdb";
+import { _requestToCouchDBFetch, isErrorOfMissingDoc } from "./utils_couchdb";
 
 export async function purgeUnreferencedChunks(
     db: PouchDB.Database,
@@ -244,7 +244,10 @@ export async function collectChunks(db: PouchDB.Database, type: "INUSE" | "DANGL
     const docs = (await db.allDocs({ keys: ids })).rows;
     const items = docs
         .filter((e) => !("error" in e))
-        .map((e) => ({ id: e.id, rev: (e as { value: { rev: string } }).value.rev }));
+        .map((e) => ({
+            id: (e as unknown as { id: string }).id,
+            rev: (e as unknown as { value: { rev: string } }).value.rev,
+        }));
     return items;
 }
 async function prepareChunkDesignDoc(db: PouchDB.Database) {
@@ -279,7 +282,7 @@ async function prepareChunkDesignDoc(db: PouchDB.Database) {
             updateDDoc = true;
         }
     } catch (ex: unknown) {
-        if (ex.status == 404) {
+        if (isErrorOfMissingDoc(ex)) {
             // NO OP
             updateDDoc = true;
         } else {

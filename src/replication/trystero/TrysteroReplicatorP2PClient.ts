@@ -1,5 +1,5 @@
-import type { EntryDoc } from "../../common/types";
-import type { PouchDBShim } from "../../pouchdb/ReplicatorShim";
+import type { EntryDoc } from "@lib/common/types";
+import type { PouchDBShim } from "@lib/pouchdb/ReplicatorShim";
 import type { TrysteroReplicatorP2PServer } from "./TrysteroReplicatorP2PServer";
 import { BULK_GET_RPC_TIMEOUT, DEFAULT_RPC_TIMEOUT, type BindableObject, type NonPrivateMethodKeys } from "./types";
 import { toRpcMethodName } from "./rpcCompat";

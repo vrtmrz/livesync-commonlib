@@ -9,7 +9,7 @@ import {
     decryptWithEphemeralSalt,
     HKDF_SALTED_ENCRYPTED_PREFIX,
 } from "octagonal-wheels/encryption/hkdf";
-import { LOG_LEVEL_VERBOSE, Logger } from "../common/logger";
+import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger";
 /**
  * Encrypts a string using a passphrase, unless the string is already encrypted.
  *

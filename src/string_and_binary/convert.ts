@@ -8,7 +8,7 @@ import {
     writeString,
     tryConvertBase64ToArrayBuffer,
 } from "octagonal-wheels/binary";
-import { compatGlobal } from "../common/coreEnvFunctions";
+import { compatGlobal } from "@lib/common/coreEnvFunctions";
 export {
     arrayBufferToBase64,
     base64ToArrayBuffer,

@@ -1,4 +1,4 @@
-import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../common/logger";
+import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import {
     type EntryDoc,
     type AnyEntry,
@@ -9,11 +9,11 @@ import {
     type E2EEAlgorithm,
     E2EEAlgorithms,
     isMetaEntry,
-} from "../common/types";
-import { isEncryptedChunkEntry, isSyncInfoEntry, isObfuscatedEntry } from "../common/utils";
+} from "@lib/common/types";
+import { isEncryptedChunkEntry, isSyncInfoEntry, isObfuscatedEntry } from "@lib/common/utils";
 import { isPathProbablyObfuscated, obfuscatePath } from "octagonal-wheels/encryption/encryption";
 // import { encryptHKDF, decryptHKDF } from "../encryption/encryptHKDF.ts";
-import { getPath } from "../string_and_binary/path.ts";
+import { getPath } from "@lib/string_and_binary/path.ts";
 import { encryptWorker, decryptWorker, encryptHKDFWorker, decryptHKDFWorker } from "@lib/worker/bgWorker.ts";
 
 export const encrypt = encryptWorker;
@@ -249,7 +249,7 @@ async function outgoingDecryptHKDF(
             try {
                 const metadata = await decryptMetaWithHKDF(path, passphrase, pbkdf2salt);
                 for (const key of Object.keys(metadata)) {
-                    (loadDoc as Record<string, unknown>)[key] = metadata[key as keyof EncryptProps];
+                    (loadDoc as unknown as Record<string, unknown>)[key] = metadata[key as keyof EncryptProps];
                 }
             } catch (ex) {
                 Logger(`${DECRYPTION_HKDF_FAILED} on Path`, LOG_LEVEL_NOTICE);
@@ -388,8 +388,8 @@ async function outgoingDecryptV1(
                 loadDoc.data = await decrypt(loadDoc.data, passphrase, useDynamicIterationCount);
                 delete (loadDoc as EncryptedDocument<AnyEntry | EntryLeaf>).e_;
             } else if ("e_" in loadDoc) {
-                (loadDoc as EntryLeaf).data = await decrypt(
-                    (loadDoc as EntryLeaf).data,
+                (loadDoc as unknown as EntryLeaf).data = await decrypt(
+                    (loadDoc as unknown as EntryLeaf).data,
                     passphrase,
                     useDynamicIterationCount
                 );

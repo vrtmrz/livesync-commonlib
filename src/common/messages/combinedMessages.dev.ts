@@ -7,7 +7,7 @@ import { PartialMessages as ko } from "./ko.ts";
 import { PartialMessages as ru } from "./ru.ts";
 import { PartialMessages as zh } from "./zh.ts";
 import { PartialMessages as zhTw } from "./zh-tw.ts";
-import { expandKeywords, type MESSAGE } from "../rosetta.ts";
+import { expandKeywords, type MESSAGE } from "@lib/common/rosetta.ts";
 
 type MessageKeys = keyof typeof def.def;
 

@@ -1,5 +1,5 @@
 import { FallbackWeakRef } from "octagonal-wheels/common/polyfill";
-import type { DocumentID, EntryLeaf } from "../../common/types";
+import type { DocumentID, EntryLeaf } from "@lib/common/types";
 import type { IReadLayer, IWriteLayer } from "./ChunkLayerInterfaces";
 import type { ChunkReadOptions, ChunkWriteOptions, WriteResult } from "./types.ts";
 

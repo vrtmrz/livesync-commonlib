@@ -3,7 +3,7 @@ import { handlers } from "@lib/services/lib/HandlerUtils";
 import type { IReplicatorService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import type { SettingService } from "./SettingService";
-import { createInstanceLogFunction } from "../lib/logUtils";
+import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import type { AppLifecycleService } from "./AppLifecycleService";
 import { UnresolvedErrorManager } from "./UnresolvedErrorManager";
 import { $msg } from "@lib/common/i18n";
@@ -11,7 +11,7 @@ import { yieldMicrotask } from "octagonal-wheels/promises";
 import type { DatabaseEventService } from "./DatabaseEventService";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { RemoteTypes } from "@lib/common/types";
-import { DEFAULT_REPLICATION_STATICS } from "../../common/models/shared.definition";
+import { DEFAULT_REPLICATION_STATICS } from "@lib/common/models/shared.definition";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 
 export interface ReplicatorServiceDependencies {

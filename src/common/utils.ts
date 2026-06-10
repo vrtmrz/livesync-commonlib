@@ -1,7 +1,7 @@
 import { LRUCache } from "octagonal-wheels/memory/LRUCache";
-import { isPlainText } from "../string_and_binary/path.ts";
+import { isPlainText } from "@lib/string_and_binary/path.ts";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
-import { arrayBufferToBase64Single, decodeBinary, writeString } from "../string_and_binary/convert.ts";
+import { arrayBufferToBase64Single, decodeBinary, writeString } from "@lib/string_and_binary/convert.ts";
 import {
     type AnyEntry,
     type DatabaseEntry,
@@ -24,7 +24,7 @@ import {
     type CouchDBConnection,
     type EncryptionSettings,
 } from "./types.ts";
-import { isErrorOfMissingDoc } from "../pouchdb/utils_couchdb.ts";
+import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import { replaceAll, replaceAllPairs } from "octagonal-wheels/string";
 export { replaceAll, replaceAllPairs };
 import { concatUInt8Array } from "octagonal-wheels/binary";

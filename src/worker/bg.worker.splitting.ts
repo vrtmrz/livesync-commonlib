@@ -1,7 +1,7 @@
 /// <reference lib="webworker" />
 // Background part of Worker-offloaded content-splitting function
 
-import { splitPiecesRabinKarp, splitPieces2V2, splitPieces2 } from "../string_and_binary/chunks.ts";
+import { splitPiecesRabinKarp, splitPieces2V2, splitPieces2 } from "@lib/string_and_binary/chunks.ts";
 import { postBack } from "./bg.common.ts";
 import { END_OF_DATA } from "./universalTypes.ts";
 import type { SplitArguments } from "./universalTypes.ts";

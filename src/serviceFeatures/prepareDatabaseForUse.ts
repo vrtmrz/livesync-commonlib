@@ -1,7 +1,7 @@
 import { LOG_LEVEL_NOTICE } from "octagonal-wheels/common/logger";
-import type { NecessaryServices } from "../interfaces/ServiceModule";
-import { UnresolvedErrorManager } from "../services/base/UnresolvedErrorManager";
-import { createInstanceLogFunction, type LogFunction } from "../services/lib/logUtils";
+import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
+import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
+import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 
 /**
  * Initialise the database and trigger a full vault scan.
