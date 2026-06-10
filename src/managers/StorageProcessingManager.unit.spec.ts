@@ -1,8 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { StorageAccessManager } from "./StorageProcessingManager.ts";
 import type { UXFileInfoStub, FileWithFileStat, FileWithStatAsProp } from "@lib/common/models/fileaccess.type";
-import type { FilePath, FilePathWithPrefix } from "../common/types.ts";
-
+import type { FilePath, FilePathWithPrefix } from "@lib/common/models/db.type";
 describe("StorageAccessManager", () => {
     let storageAccessManager: StorageAccessManager;
 

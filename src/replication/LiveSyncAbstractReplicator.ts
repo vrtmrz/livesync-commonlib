@@ -1,14 +1,9 @@
-import {
-    type EntryDoc,
-    type DatabaseConnectingStatus,
-    type RemoteDBSettings,
-    type EntryLeaf,
-    type EntryNodeInfo,
-    NODEINFO_DOCID,
-    type TweakValues,
-    type NodeData,
-} from "@lib/common/types.ts";
-
+import type { EntryDoc, EntryNodeInfo, NodeData } from "@lib/common/models/db.definition";
+import type { DatabaseConnectingStatus } from "@lib/common/models/shared.definition";
+import type { RemoteDBSettings } from "@lib/common/models/setting.type";
+import type { EntryLeaf } from "@lib/common/models/db.type";
+import { NODEINFO_DOCID } from "@lib/common/models/db.const";
+import type { TweakValues } from "@lib/common/models/tweak.definition";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
 import { resolveWithIgnoreKnownError } from "@lib/common/utils.ts";
 import { arrayBufferToBase64Single } from "@lib/string_and_binary/convert.ts";

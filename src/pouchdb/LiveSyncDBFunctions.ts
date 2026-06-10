@@ -1,16 +1,9 @@
-import {
-    type EntryDoc,
-    type EntryMilestoneInfo,
-    MILESTONE_DOCID as MILESTONE_DOC_ID,
-    type RemoteDBSettings,
-    type ChunkVersionRange,
-    TweakValuesShouldMatchedTemplate,
-    TweakValuesTemplate,
-    type TweakValues,
-    DEVICE_ID_PREFERRED,
-    TweakValuesDefault,
-    type DeviceInfo,
-} from "@lib/common/types.ts";
+import type { EntryDoc, EntryMilestoneInfo, DeviceInfo } from "@lib/common/models/db.definition";
+import { MILESTONE_DOCID } from "@lib/common/models/db.const";
+import type { RemoteDBSettings } from "@lib/common/models/setting.type";
+import type { ChunkVersionRange } from "@lib/common/models/db.type";
+import type { TweakValues } from "@lib/common/models/tweak.definition";
+import { TweakValuesShouldMatchedTemplate, TweakValuesTemplate, DEVICE_ID_PREFERRED, TweakValuesDefault } from "@lib/common/models/tweak.definition";
 import { extractObject, isObjectDifferent, resolveWithIgnoreKnownError } from "@lib/common/utils.ts";
 
 // This interface is expected to be unnecessary because of the change in dependency direction
@@ -46,7 +39,7 @@ export async function ensureRemoteIsCompatible(
 ): Promise<ENSURE_DB_RESULT> {
     const now = Date.now();
     const baseMilestone: EntryMilestoneInfo = {
-        _id: MILESTONE_DOC_ID,
+        _id: MILESTONE_DOCID,
         type: "milestoneinfo",
         created: Date.now(),
         locked: false,
@@ -177,7 +170,7 @@ export async function ensureDatabaseIsCompatible(
     nodeDeviceInfo: DeviceInfo
 ): Promise<ENSURE_DB_RESULT> {
     const remoteMilestone = await resolveWithIgnoreKnownError<EntryMilestoneInfo | false>(
-        db.get(MILESTONE_DOC_ID),
+        db.get(MILESTONE_DOCID),
         false
     );
     const ret = await ensureRemoteIsCompatible(

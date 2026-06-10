@@ -1,27 +1,9 @@
 import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 import { serialized } from "octagonal-wheels/concurrency/lock_v2";
-import {
-    type EntryDoc,
-    type DocumentID,
-    type EntryHasPath,
-    type FilePathWithPrefix,
-    type FilePath,
-    IDPrefixes,
-    type LoadedEntry,
-    type EntryDocResponse,
-    type EntryBase,
-    type MetaEntry,
-    type NoteEntry,
-    type EntryLeaf,
-    RemoteTypes,
-    LEAF_WAIT_TIMEOUT,
-    LEAF_WAIT_TIMEOUT_SEQUENTIAL_REPLICATOR,
-    LEAF_WAIT_ONLY_REMOTE,
-    type SavingEntry,
-    type PlainEntry,
-    type NewEntry,
-    REMOTE_COUCHDB,
-} from "@lib/common/types.ts";
+import type { EntryDoc, EntryDocResponse } from "@lib/common/models/db.definition";
+import type { DocumentID, EntryHasPath, FilePathWithPrefix, FilePath, LoadedEntry, EntryBase, MetaEntry, NoteEntry, EntryLeaf, SavingEntry, PlainEntry, NewEntry } from "@lib/common/models/db.type";
+import { IDPrefixes, LEAF_WAIT_TIMEOUT, LEAF_WAIT_TIMEOUT_SEQUENTIAL_REPLICATOR, LEAF_WAIT_ONLY_REMOTE } from "@lib/common/models/shared.const.behabiour";
+import { RemoteTypes, REMOTE_COUCHDB } from "@lib/common/models/setting.const";
 import { getFileRegExp, createTextBlob, isTextBlob } from "@lib/common/utils.ts";
 import type { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters.ts";
 import type { GeneratedChunk } from "@lib/pouchdb/LiveSyncLocalDB.ts";

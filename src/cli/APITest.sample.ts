@@ -1,8 +1,7 @@
 import { DirectFileManipulator } from "../API/DirectFileManipulator.ts";
 import type { DirectFileManipulatorOptions } from "../API/DirectFileManipulator.ts";
 import { createTextBlob } from "../common/utils.ts";
-import type { FilePathWithPrefix } from "../common/types.ts";
-
+import type { FilePathWithPrefix } from "@lib/common/models/db.type";
 // Sample configuration
 const opt: DirectFileManipulatorOptions = {
     url: "http://localhost:5984/",

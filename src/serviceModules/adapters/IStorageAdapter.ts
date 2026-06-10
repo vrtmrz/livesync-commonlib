@@ -1,4 +1,4 @@
-import type { UXDataWriteOptions, UXStat } from "@lib/common/types.ts";
+import type { UXDataWriteOptions, UXStat } from "@lib/common/models/fileaccess.type";
 
 /**
  * Storage adapter interface

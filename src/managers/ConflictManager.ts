@@ -1,15 +1,10 @@
 import { type Diff, diff_match_patch, DIFF_DELETE, DIFF_INSERT, DIFF_EQUAL } from "diff-match-patch";
 import { readString, decodeBinary } from "octagonal-wheels/binary";
 import { Logger, LOG_LEVEL_VERBOSE, LOG_LEVEL_INFO } from "octagonal-wheels/common/logger";
-import {
-    type EntryDoc,
-    type FilePathWithPrefix,
-    type diff_result_leaf,
-    type LoadedEntry,
-    MISSING_OR_ERROR,
-    NOT_CONFLICTED,
-    type DIFF_CHECK_RESULT_AUTO,
-} from "@lib/common/types.ts";
+import type { EntryDoc } from "@lib/common/models/db.definition";
+import type { FilePathWithPrefix, LoadedEntry } from "@lib/common/models/db.type";
+import type { diff_result_leaf, DIFF_CHECK_RESULT_AUTO } from "@lib/common/models/diff.definition";
+import { MISSING_OR_ERROR, NOT_CONFLICTED } from "@lib/common/models/shared.const.symbols";
 import {
     getDocData,
     tryParseJSON,

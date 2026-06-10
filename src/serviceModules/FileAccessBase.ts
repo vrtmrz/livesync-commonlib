@@ -1,5 +1,6 @@
 import { isPlainText } from "@lib/string_and_binary/path.ts";
-import type { FilePath, UXDataWriteOptions, UXFileInfoStub, UXFolderInfo } from "@lib/common/types.ts";
+import type { FilePath } from "@lib/common/models/db.type";
+import type { UXDataWriteOptions, UXFileInfoStub, UXFolderInfo } from "@lib/common/models/fileaccess.type";
 import { createBinaryBlob, isDocContentSame } from "@lib/common/utils.ts";
 import type { IStorageAccessManager } from "@lib/interfaces/StorageAccess.ts";
 import type { IAPIService, IPathService, ISettingService, IVaultService } from "@lib/services/base/IService.ts";

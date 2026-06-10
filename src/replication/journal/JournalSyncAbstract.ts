@@ -1,19 +1,10 @@
-import {
-    type DocumentID,
-    type EntryDoc,
-    LOG_LEVEL_INFO,
-    LOG_LEVEL_NOTICE,
-    LOG_LEVEL_VERBOSE,
-    LOG_LEVEL_DEBUG,
-    type EntryLeaf,
-    type SyncParameters,
-    DEFAULT_SYNC_PARAMETERS,
-    ProtocolVersions,
-    DOCID_JOURNAL_SYNC_PARAMETERS,
-    type BucketSyncSetting,
-    E2EEAlgorithms,
-    type RemoteDBSettings,
-} from "@lib/common/types.ts";
+import type { DocumentID, EntryLeaf } from "@lib/common/models/db.type";
+import type { EntryDoc } from "@lib/common/models/db.definition";
+import type { SyncParameters } from "@lib/common/models/sync.definition";
+import { DEFAULT_SYNC_PARAMETERS, ProtocolVersions, DOCID_JOURNAL_SYNC_PARAMETERS } from "@lib/common/models/sync.definition";
+import type { BucketSyncSetting, RemoteDBSettings } from "@lib/common/models/setting.type";
+import { E2EEAlgorithms } from "@lib/common/models/setting.const";
+import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, LOG_LEVEL_DEBUG } from "@lib/common/logger";
 import { Logger } from "@lib/common/logger.ts";
 import type { ReplicationCallback, ReplicationStat } from "@lib/replication/LiveSyncAbstractReplicator.ts";
 import {

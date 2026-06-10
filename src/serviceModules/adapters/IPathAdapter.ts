@@ -1,4 +1,4 @@
-import type { FilePath } from "@lib/common/types.ts";
+import type { FilePath } from "@lib/common/models/db.type";
 
 /**
  * Path operations adapter interface

@@ -1,4 +1,5 @@
-import type { FilePath, UXStat } from "@lib/common/types.ts";
+import type { FilePath } from "@lib/common/models/db.type";
+import type { UXStat } from "@lib/common/models/fileaccess.type";
 import type { IPathAdapter } from "./IPathAdapter.ts";
 import type { ITypeGuardAdapter } from "./ITypeGuardAdapter.ts";
 import type { IConversionAdapter } from "./IConversionAdapter.ts";

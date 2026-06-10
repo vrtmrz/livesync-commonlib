@@ -1,6 +1,7 @@
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
-import type { DocumentID, EntryDoc, EntryLeaf } from "@lib/common/types.ts";
+import type { DocumentID, EntryLeaf } from "@lib/common/models/db.type";
+import type { EntryDoc } from "@lib/common/models/db.definition";
 import type { ChangeManager, ChangeManagerCallback } from "./ChangeManager.ts";
 import { EVENT_MISSING_CHUNK_REMOTE, EVENT_MISSING_CHUNKS, EVENT_CHUNK_FETCHED } from "./ChunkFetcher.ts";
 import { DatabaseReadLayer } from "./LayeredChunkManager/DatabaseReadLayer.ts";

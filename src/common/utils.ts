@@ -2,28 +2,11 @@ import { LRUCache } from "octagonal-wheels/memory/LRUCache";
 import { isPlainText } from "@lib/string_and_binary/path.ts";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { arrayBufferToBase64Single, decodeBinary, writeString } from "@lib/string_and_binary/convert.ts";
-import {
-    type AnyEntry,
-    type DatabaseEntry,
-    type EntryLeaf,
-    PREFIX_ENCRYPTED_CHUNK,
-    PREFIX_OBFUSCATED,
-    SYNCINFO_ID,
-    type SyncInfo,
-    type LoadedEntry,
-    type SavingEntry,
-    type NewEntry,
-    type PlainEntry,
-    type CustomRegExpSource,
-    type ParsedCustomRegExp,
-    type CustomRegExpSourceList,
-    type ObsidianLiveSyncSettings,
-    type RemoteDBSettings,
-    type P2PConnectionInfo,
-    type BucketSyncSetting,
-    type CouchDBConnection,
-    type EncryptionSettings,
-} from "./types.ts";
+import type { AnyEntry, DatabaseEntry, EntryLeaf, SyncInfo, LoadedEntry, SavingEntry, NewEntry, PlainEntry } from "@lib/common/models/db.type";
+import { PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED } from "@lib/common/models/shared.const.behabiour";
+import { SYNCINFO_ID } from "@lib/common/models/db.const";
+import type { CustomRegExpSource, ParsedCustomRegExp, CustomRegExpSourceList } from "@lib/common/models/shared.type.util";
+import type { ObsidianLiveSyncSettings, RemoteDBSettings, P2PConnectionInfo, BucketSyncSetting, CouchDBConnection, EncryptionSettings } from "@lib/common/models/setting.type";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import { replaceAll, replaceAllPairs } from "octagonal-wheels/string";
 export { replaceAll, replaceAllPairs };

@@ -1,4 +1,4 @@
-import type { UXDataWriteOptions } from "@lib/common/types.ts";
+import type { UXDataWriteOptions } from "@lib/common/models/fileaccess.type";
 
 /**
  * Vault adapter interface

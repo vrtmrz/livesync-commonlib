@@ -3,8 +3,7 @@ import { applyMd5BodyChecksumMiddleware } from "@smithy/middleware-apply-body-ch
 import { Md5 } from "@smithy/md5-js";
 
 import { ConfiguredRetryStrategy } from "@smithy/util-retry";
-
-import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/types.ts";
+import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { Logger } from "@lib/common/logger.ts";
 import { JournalSyncAbstract } from "@lib/replication/journal/JournalSyncAbstract.ts";
 import type { RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";

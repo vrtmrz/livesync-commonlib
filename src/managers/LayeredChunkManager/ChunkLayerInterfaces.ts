@@ -1,4 +1,4 @@
-import type { DocumentID, EntryLeaf } from "@lib/common/types.ts";
+import type { DocumentID, EntryLeaf } from "@lib/common/models/db.type";
 import type { ChunkReadOptions, ChunkWriteOptions, WriteResult } from "./types.ts";
 
 /**

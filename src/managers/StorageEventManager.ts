@@ -1,18 +1,10 @@
 import { shouldBeIgnored } from "@lib/string_and_binary/path.ts";
-import {
-    DEFAULT_SETTINGS,
-    LOG_LEVEL_DEBUG,
-    LOG_LEVEL_INFO,
-    LOG_LEVEL_NOTICE,
-    LOG_LEVEL_VERBOSE,
-    type FileEventType,
-    type FilePath,
-    type UXFileInfoStub,
-    type UXFolderInfo,
-    type UXInternalFileInfoStub,
-} from "@lib/common/types.ts";
+import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
+import type { FileEventType, UXFileInfoStub, UXFolderInfo, UXInternalFileInfoStub } from "@lib/common/models/fileaccess.type";
+import type { FilePath } from "@lib/common/models/db.type";
+import { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { delay, fireAndForget, throttle } from "@lib/common/utils.ts";
-import { type FileEventItem } from "@lib/common/types.ts";
+import type { FileEventItem } from "@lib/common/models/fileaccess.type";
 import { serialized, skipIfDuplicated } from "octagonal-wheels/concurrency/lock";
 import { isWaitingForTimeout } from "octagonal-wheels/concurrency/task";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";

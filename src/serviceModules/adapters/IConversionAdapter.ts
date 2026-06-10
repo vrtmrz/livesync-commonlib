@@ -1,4 +1,4 @@
-import type { UXFileInfoStub, UXFolderInfo } from "@lib/common/types.ts";
+import type { UXFileInfoStub, UXFolderInfo } from "@lib/common/models/fileaccess.type";
 
 /**
  * Conversion adapter interface

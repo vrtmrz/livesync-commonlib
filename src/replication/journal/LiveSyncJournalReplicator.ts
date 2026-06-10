@@ -1,16 +1,9 @@
-import {
-    type EntryMilestoneInfo,
-    type RemoteDBSettings,
-    type EntryLeaf,
-    LOG_LEVEL_NOTICE,
-    type ChunkVersionRange,
-    type DocumentID,
-    LOG_LEVEL_VERBOSE,
-    DEVICE_ID_PREFERRED,
-    TweakValuesTemplate,
-    type TweakValues,
-    type NodeData,
-} from "@lib/common/types.ts";
+import type { EntryMilestoneInfo, NodeData } from "@lib/common/models/db.definition";
+import type { RemoteDBSettings } from "@lib/common/models/setting.type";
+import type { EntryLeaf, ChunkVersionRange, DocumentID } from "@lib/common/models/db.type";
+import type { TweakValues } from "@lib/common/models/tweak.definition";
+import { DEVICE_ID_PREFERRED, TweakValuesTemplate } from "@lib/common/models/tweak.definition";
+import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { Logger } from "@lib/common/logger.ts";
 
 import { JournalSyncMinio } from "./objectstore/JournalSyncMinio.ts";

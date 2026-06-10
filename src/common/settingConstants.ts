@@ -1,11 +1,8 @@
 import { $t } from "./i18n.ts";
-import {
-    DEFAULT_SETTINGS,
-    configurationNames,
-    type ConfigurationItem,
-    type ObsidianLiveSyncSettings,
-} from "./types.ts";
-
+import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
+import type { ConfigurationItem } from "@lib/common/models/shared.definition.configNames";
+import { configurationNames } from "@lib/common/models/shared.definition.configNames";
+import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 type ExtractPropertiesByType<T, U> = {
     [K in keyof T as T[K] extends U ? K : never]: T[K] extends U ? K : never;
 };

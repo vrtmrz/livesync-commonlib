@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { HashManager } from "./HashManager.ts";
-import { DEFAULT_SETTINGS, HashAlgorithms, type HashAlgorithm, type RemoteDBSettings } from "@lib/common/types.ts";
+import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
+import { HashAlgorithms } from "@lib/common/models/setting.const";
+import type { HashAlgorithm, RemoteDBSettings } from "@lib/common/models/setting.type";
 import { HashEncryptedPrefix } from "./HashManagerCore.ts";
 import type { SettingService } from "@lib/services/base/SettingService.ts";
 

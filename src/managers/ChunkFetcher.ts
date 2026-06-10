@@ -1,8 +1,8 @@
 import { delay } from "octagonal-wheels/promises";
 import { unique } from "octagonal-wheels/collection";
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
-import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf } from "@lib/common/types.ts";
-
+import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
+import type { DocumentID, EntryLeaf } from "@lib/common/models/db.type";
 import { type ChunkManager } from "./ChunkManager.ts";
 
 import type { IReplicatorService, ISettingService } from "@lib/services/base/IService.ts";

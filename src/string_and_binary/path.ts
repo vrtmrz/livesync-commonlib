@@ -1,20 +1,8 @@
 import { minimatch, type MinimatchOptions } from "minimatch";
 import { getWebCrypto } from "@lib/mods.ts";
-import {
-    type AnyEntry,
-    type DocumentID,
-    type EntryHasPath,
-    type FilePath,
-    type FilePathWithPrefix,
-    FLAGMD_REDFLAG,
-    FLAGMD_REDFLAG2,
-    FLAGMD_REDFLAG3,
-    PREFIX_OBFUSCATED,
-    PREFIXMD_LOGFILE,
-    FLAGMD_REDFLAG2_HR,
-    FLAGMD_REDFLAG3_HR,
-    PREFIXMD_LOGFILE_UC,
-} from "@lib/common/types.ts";
+import type { AnyEntry, DocumentID, EntryHasPath, FilePath, FilePathWithPrefix } from "@lib/common/models/db.type";
+import { FLAGMD_REDFLAG, FLAGMD_REDFLAG2, FLAGMD_REDFLAG3, PREFIXMD_LOGFILE, FLAGMD_REDFLAG2_HR, FLAGMD_REDFLAG3_HR, PREFIXMD_LOGFILE_UC } from "@lib/common/models/redflag.const";
+import { PREFIX_OBFUSCATED } from "@lib/common/models/shared.const.behabiour";
 import { memorizeFuncWithLRUCache } from "@lib/common/utils.ts";
 import { uint8ArrayToHexString, writeString } from "./convert.ts";
 import { unique } from "octagonal-wheels/collection.js";

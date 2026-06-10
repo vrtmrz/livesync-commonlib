@@ -1,29 +1,15 @@
 import type PouchDB from "pouchdb-core";
-import {
-    type EntryDoc,
-    type EntryMilestoneInfo,
-    VER,
-    MILESTONE_DOCID,
-    type ChunkVersionRange,
-    type RemoteDBSettings,
-    type EntryLeaf,
-    REPLICATION_BUSY_TIMEOUT,
-    LOG_LEVEL_INFO,
-    LOG_LEVEL_NOTICE,
-    LOG_LEVEL_VERBOSE,
-    DEVICE_ID_PREFERRED,
-    TweakValuesTemplate,
-    type DocumentID,
-    type TweakValues,
-    type CouchDBCredentials,
-    type SyncParameters,
-    type DatabaseEntry,
-    DOCID_SYNC_PARAMETERS,
-    DEFAULT_SYNC_PARAMETERS,
-    ProtocolVersions,
-    type NodeData,
-    type DeviceInfo,
-} from "@lib/common/types.ts";
+import type { EntryDoc, EntryMilestoneInfo, NodeData, DeviceInfo } from "@lib/common/models/db.definition";
+import { VER, REPLICATION_BUSY_TIMEOUT } from "@lib/common/models/shared.const.behabiour";
+import { MILESTONE_DOCID } from "@lib/common/models/db.const";
+import type { ChunkVersionRange, EntryLeaf, DocumentID, DatabaseEntry } from "@lib/common/models/db.type";
+import type { RemoteDBSettings } from "@lib/common/models/setting.type";
+import type { TweakValues } from "@lib/common/models/tweak.definition";
+import { DEVICE_ID_PREFERRED, TweakValuesTemplate } from "@lib/common/models/tweak.definition";
+import type { CouchDBCredentials } from "@lib/common/models/auth.type";
+import type { SyncParameters } from "@lib/common/models/sync.definition";
+import { DOCID_SYNC_PARAMETERS, DEFAULT_SYNC_PARAMETERS, ProtocolVersions } from "@lib/common/models/sync.definition";
+import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import {
     resolveWithIgnoreKnownError,
     globalConcurrencyController,

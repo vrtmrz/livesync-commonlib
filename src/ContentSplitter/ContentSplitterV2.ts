@@ -1,4 +1,4 @@
-import { ChunkAlgorithms } from "@lib/common/types.ts";
+import { ChunkAlgorithms } from "@lib/common/models/setting.const";
 import { splitPieces2V2 } from "@lib/string_and_binary/chunks.ts";
 import { splitPieces2WorkerV2 } from "@lib/worker/bgWorker.ts";
 import type { ContentSplitterOptions, SplitOptions } from "./ContentSplitter.ts";

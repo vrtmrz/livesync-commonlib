@@ -1,6 +1,5 @@
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
-import type { LOG_LEVEL } from "@lib/common/types.ts";
-
+import type { LOG_LEVEL } from "@lib/common/logger";
 export type LockStats = {
     pending: string[];
     running: string[];

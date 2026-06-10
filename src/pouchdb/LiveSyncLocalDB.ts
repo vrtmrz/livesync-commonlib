@@ -1,21 +1,11 @@
-import {
-    type EntryDoc,
-    type EntryLeaf,
-    type Credential,
-    VERSIONING_DOCID,
-    type RemoteDBSettings,
-    type DocumentID,
-    type FilePathWithPrefix,
-    type FilePath,
-    type DatabaseEntry,
-    LOG_LEVEL_NOTICE,
-    LOG_LEVEL_VERBOSE,
-    type LoadedEntry,
-    type MetaEntry,
-    type SavingEntry,
-    type diff_result_leaf,
-    SuffixDatabaseName,
-} from "@lib/common/types.ts";
+import type { EntryDoc } from "@lib/common/models/db.definition";
+import type { EntryLeaf, DocumentID, FilePathWithPrefix, FilePath, DatabaseEntry, LoadedEntry, MetaEntry, SavingEntry } from "@lib/common/models/db.type";
+import type { Credential } from "@lib/common/models/auth.type";
+import { VERSIONING_DOCID } from "@lib/common/models/db.const";
+import type { RemoteDBSettings } from "@lib/common/models/setting.type";
+import type { diff_result_leaf } from "@lib/common/models/diff.definition";
+import { SuffixDatabaseName } from "@lib/common/models/shared.const";
+import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { Logger } from "@lib/common/logger.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 

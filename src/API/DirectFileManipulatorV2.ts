@@ -1,27 +1,10 @@
-/**
- * The API for manipulating files stored in the CouchDB by Self-hosted LiveSync or its families.
- */
-import {
-    type DocumentID,
-    type FilePathWithPrefix,
-    type EntryHasPath,
-    type FilePath,
-    type EntryDoc,
-    type NewEntry,
-    type PlainEntry,
-    type LoadedEntry,
-    DEFAULT_SETTINGS,
-    type HashAlgorithm,
-    type RemoteDBSettings,
-    type ChunkSplitterVersion,
-    type SyncParameters,
-    DEFAULT_SYNC_PARAMETERS,
-    ProtocolVersions,
-    DOCID_SYNC_PARAMETERS,
-    type E2EEAlgorithm,
-    E2EEAlgorithms,
-} from "../common/types.ts";
-
+import type { DocumentID, FilePathWithPrefix, EntryHasPath, FilePath, NewEntry, PlainEntry, LoadedEntry } from "@lib/common/models/db.type";
+import type { EntryDoc } from "@lib/common/models/db.definition";
+import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
+import type { HashAlgorithm, RemoteDBSettings, ChunkSplitterVersion, E2EEAlgorithm } from "@lib/common/models/setting.type";
+import type { SyncParameters } from "@lib/common/models/sync.definition";
+import { DEFAULT_SYNC_PARAMETERS, ProtocolVersions, DOCID_SYNC_PARAMETERS } from "@lib/common/models/sync.definition";
+import { E2EEAlgorithms } from "@lib/common/models/setting.const";
 import { PouchDB } from "../pouchdb/pouchdb-http.ts";
 import { LiveSyncLocalDB, type LiveSyncLocalDBEnv } from "../pouchdb/LiveSyncLocalDB.ts";
 import { isErrorOfMissingDoc } from "../pouchdb/utils_couchdb.ts";
