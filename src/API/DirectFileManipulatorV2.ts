@@ -1,7 +1,20 @@
-import type { DocumentID, FilePathWithPrefix, EntryHasPath, FilePath, NewEntry, PlainEntry, LoadedEntry } from "@lib/common/models/db.type";
+import type {
+    DocumentID,
+    FilePathWithPrefix,
+    EntryHasPath,
+    FilePath,
+    NewEntry,
+    PlainEntry,
+    LoadedEntry,
+} from "@lib/common/models/db.type";
 import type { EntryDoc } from "@lib/common/models/db.definition";
 import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
-import type { HashAlgorithm, RemoteDBSettings, ChunkSplitterVersion, E2EEAlgorithm } from "@lib/common/models/setting.type";
+import type {
+    HashAlgorithm,
+    RemoteDBSettings,
+    ChunkSplitterVersion,
+    E2EEAlgorithm,
+} from "@lib/common/models/setting.type";
 import type { SyncParameters } from "@lib/common/models/sync.definition";
 import { DEFAULT_SYNC_PARAMETERS, ProtocolVersions, DOCID_SYNC_PARAMETERS } from "@lib/common/models/sync.definition";
 import { E2EEAlgorithms } from "@lib/common/models/setting.const";
@@ -19,7 +32,7 @@ import {
     LOG_LEVEL_VERBOSE,
     Logger,
 } from "octagonal-wheels/common/logger";
-import { createBlob, determineTypeFromBlob } from "../common/utils.ts";
+import { createBlob, determineTypeFromBlob } from "@lib/common/utils.database.ts";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 import {
     createSyncParamsHanderForServer,

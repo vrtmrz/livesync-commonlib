@@ -4,8 +4,7 @@ function isTextBlob(blob: Blob) {
 
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
 import { arrayBufferToBase64Single, readString } from "./convert.ts";
-import { wrapByDefault } from "@lib/common/utils.ts";
-
+import { wrapByDefault } from "@lib/common/utils.concurrency.ts";
 /// Chunk utilities
 function* pickPiece(leftData: string[], minimumChunkSize: number): Generator<string> {
     let buffer = "";

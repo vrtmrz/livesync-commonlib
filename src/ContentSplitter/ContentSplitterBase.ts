@@ -1,7 +1,7 @@
 import { MAX_DOC_SIZE_BIN } from "@lib/common/models/shared.const.behabiour";
 import { ChunkAlgorithms } from "@lib/common/models/setting.const";
 import type { SavingEntry } from "@lib/common/models/db.type";
-import { createTextBlob } from "@lib/common/utils.ts";
+import { createTextBlob } from "@lib/common/utils.database.ts";
 import { shouldSplitAsPlainText } from "@lib/string_and_binary/path.ts";
 import { type ContentSplitterOptions, type SplitOptions, MAX_CHUNKS_SIZE_ON_UI } from "./ContentSplitter.ts";
 

@@ -1,5 +1,14 @@
 import type { EntryDoc } from "@lib/common/models/db.definition";
-import type { EntryLeaf, DocumentID, FilePathWithPrefix, FilePath, DatabaseEntry, LoadedEntry, MetaEntry, SavingEntry } from "@lib/common/models/db.type";
+import type {
+    EntryLeaf,
+    DocumentID,
+    FilePathWithPrefix,
+    FilePath,
+    DatabaseEntry,
+    LoadedEntry,
+    MetaEntry,
+    SavingEntry,
+} from "@lib/common/models/db.type";
 import type { Credential } from "@lib/common/models/auth.type";
 import { VERSIONING_DOCID } from "@lib/common/models/db.const";
 import type { RemoteDBSettings } from "@lib/common/models/setting.type";

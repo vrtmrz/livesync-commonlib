@@ -1,4 +1,8 @@
-import type { CustomRegExpSource, ParsedCustomRegExp, CustomRegExpSourceList } from "@lib/common/models/shared.type.util";
+import type {
+    CustomRegExpSource,
+    ParsedCustomRegExp,
+    CustomRegExpSourceList,
+} from "@lib/common/models/shared.type.util";
 import type { ObsidianLiveSyncSettings, RemoteDBSettings } from "@lib/common/models/setting.type";
 
 /***

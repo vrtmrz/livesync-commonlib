@@ -27,7 +27,7 @@ import { LayeredChunkManager } from "../LayeredChunkManager";
 import { HashManager } from "../HashManager/HashManager";
 import type { IPathService, ISettingService } from "@lib/services/base/IService";
 import { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters";
-import { createTextBlob, isDocContentSame } from "@lib/common/utils";
+import { createTextBlob, isDocContentSame } from "@lib/common/utils.database";
 import type { NecessaryServicesInterfaces } from "@lib/interfaces/ServiceModule";
 import type { WriteResult } from "../LayeredChunkManager/types";
 import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";

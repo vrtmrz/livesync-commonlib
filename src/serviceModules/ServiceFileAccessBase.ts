@@ -16,7 +16,9 @@ import type { IStorageAccessManager, StorageAccess } from "@lib/interfaces/Stora
 import type { AppLifecycleService } from "@lib/services/base/AppLifecycleService";
 import type { FileProcessingService } from "@lib/services/base/FileProcessingService";
 import { StorageEventManager } from "@lib/interfaces/StorageEventManager.ts";
-import { createBlob, fireAndForget, type CustomRegExp } from "@lib/common/utils";
+import { createBlob } from "@lib/common/utils.database";
+import type { CustomRegExp } from "@lib/common/utils.regexp";
+import { fireAndForget } from "@lib/common/utils";
 import type { VaultService } from "@lib/services/base/VaultService";
 import type { SettingService } from "@lib/services/base/SettingService";
 import type { FileAccessBase, ExtractFile, ExtractFolder } from "./FileAccessBase";

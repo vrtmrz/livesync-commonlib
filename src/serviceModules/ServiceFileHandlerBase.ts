@@ -10,7 +10,7 @@ import type {
     UXFileInfoStub,
     UXInternalFileInfoStub,
 } from "@lib/common/types";
-import { getDocDataAsArray, isDocContentSame, readAsBlob, readContent } from "@lib/common/utils";
+import { getDocDataAsArray, isDocContentSame, readAsBlob, readContent } from "@lib/common/utils.database";
 import { shouldBeIgnored, stripAllPrefixes } from "@lib/string_and_binary/path";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { eventHub } from "@lib/hub/hub";

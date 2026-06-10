@@ -5,15 +5,15 @@ import type { EntryDoc } from "@lib/common/models/db.definition";
 import type { FilePathWithPrefix, LoadedEntry } from "@lib/common/models/db.type";
 import type { diff_result_leaf, DIFF_CHECK_RESULT_AUTO } from "@lib/common/models/diff.definition";
 import { MISSING_OR_ERROR, NOT_CONFLICTED } from "@lib/common/models/shared.const.symbols";
+import { getDocData } from "@lib/common/utils.database.ts";
+import { tryParseJSON } from "@lib/common/utils.misc.ts";
 import {
-    getDocData,
-    tryParseJSON,
     generatePatchObj,
     flattenObject,
     applyPatch,
     isSensibleMargeApplicable,
     isObjectMargeApplicable,
-} from "@lib/common/utils.ts";
+} from "@lib/common/utils.patch.ts";
 import type { EntryManager } from "./EntryManager/EntryManager.ts";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import type { IPathService } from "@lib/services/base/IService.ts";

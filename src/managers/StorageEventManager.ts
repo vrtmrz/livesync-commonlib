@@ -1,6 +1,11 @@
 import { shouldBeIgnored } from "@lib/string_and_binary/path.ts";
 import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
-import type { FileEventType, UXFileInfoStub, UXFolderInfo, UXInternalFileInfoStub } from "@lib/common/models/fileaccess.type";
+import type {
+    FileEventType,
+    UXFileInfoStub,
+    UXFolderInfo,
+    UXInternalFileInfoStub,
+} from "@lib/common/models/fileaccess.type";
 import type { FilePath } from "@lib/common/models/db.type";
 import { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { delay, fireAndForget, throttle } from "@lib/common/utils.ts";

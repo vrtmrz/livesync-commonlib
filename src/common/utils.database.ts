@@ -1,6 +1,15 @@
 import { isPlainText } from "@lib/string_and_binary/path.ts";
 import { arrayBufferToBase64Single, decodeBinary, writeString } from "@lib/string_and_binary/convert.ts";
-import type { AnyEntry, DatabaseEntry, EntryLeaf, SyncInfo, LoadedEntry, SavingEntry, NewEntry, PlainEntry } from "@lib/common/models/db.type";
+import type {
+    AnyEntry,
+    DatabaseEntry,
+    EntryLeaf,
+    SyncInfo,
+    LoadedEntry,
+    SavingEntry,
+    NewEntry,
+    PlainEntry,
+} from "@lib/common/models/db.type";
 import { PREFIX_ENCRYPTED_CHUNK, PREFIX_OBFUSCATED } from "@lib/common/models/shared.const.behabiour";
 import { SYNCINFO_ID } from "@lib/common/models/db.const";
 import { concatUInt8Array } from "octagonal-wheels/binary";

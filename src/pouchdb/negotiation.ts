@@ -7,7 +7,7 @@ import {
     type EntryVersionInfo,
     type SyncInfo,
 } from "@lib/common/types";
-import { resolveWithIgnoreKnownError } from "@lib/common/utils";
+import { resolveWithIgnoreKnownError } from "@lib/common/utils.concurrency";
 import { isErrorOfMissingDoc } from "./utils_couchdb";
 
 export const checkRemoteVersion = async (

@@ -1,4 +1,10 @@
-import type { ObsidianLiveSyncSettings, P2PConnectionInfo, BucketSyncSetting, CouchDBConnection, EncryptionSettings } from "@lib/common/models/setting.type";
+import type {
+    ObsidianLiveSyncSettings,
+    P2PConnectionInfo,
+    BucketSyncSetting,
+    CouchDBConnection,
+    EncryptionSettings,
+} from "@lib/common/models/setting.type";
 
 /**
  * Copies properties from the source object to the target object only if they exist in the target.

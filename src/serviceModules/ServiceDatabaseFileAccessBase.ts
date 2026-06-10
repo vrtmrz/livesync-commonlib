@@ -21,7 +21,13 @@ import { ServiceModuleBase } from "./ServiceModuleBase";
 import { eventHub } from "@lib/hub/hub";
 import { EVENT_FILE_SAVED } from "@lib/events/coreEvents";
 import { getDatabasePathFromUXFileInfo, getStoragePathFromUXFileInfo, isInternalMetadata } from "@lib/common/typeUtils";
-import { createBlob, createTextBlob, determineTypeFromBlob, isDocContentSame, readContent } from "@lib/common/utils";
+import {
+    createBlob,
+    createTextBlob,
+    determineTypeFromBlob,
+    isDocContentSame,
+    readContent,
+} from "@lib/common/utils.database";
 import { ICHeader } from "@lib/common/models/fileaccess.const";
 
 export interface ServiceDatabaseFileAccessDependencies {

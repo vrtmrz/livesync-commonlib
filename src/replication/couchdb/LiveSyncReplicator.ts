@@ -13,12 +13,10 @@ import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common
 import {
     resolveWithIgnoreKnownError,
     globalConcurrencyController,
-    extractObject,
     wrapException,
-    sizeToHumanReadable,
-    arrayToChunkedArray,
-    parseHeaderValues,
-} from "@lib/common/utils.ts";
+} from "@lib/common/utils.concurrency.ts";
+import { parseHeaderValues } from "@lib/common/utils.misc.ts";
+import { extractObject, sizeToHumanReadable, arrayToChunkedArray } from "@lib/common/utils.ts";
 import { Logger } from "@lib/common/logger.ts";
 import { checkRemoteVersion, countCompromisedChunks } from "@lib/pouchdb/negotiation.ts";
 import { preprocessOutgoing } from "@lib/pouchdb/encryption.ts";

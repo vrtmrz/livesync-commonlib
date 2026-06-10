@@ -15,8 +15,7 @@ import {
     type ObsidianLiveSyncSettings,
     type LOG_LEVEL,
 } from "@lib/common/types";
-
-import { compareMTime, isAnyNote } from "@lib/common/utils";
+import { compareMTime, isAnyNote } from "@lib/common/utils.database";
 import { stripAllPrefixes } from "@lib/string_and_binary/path";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
