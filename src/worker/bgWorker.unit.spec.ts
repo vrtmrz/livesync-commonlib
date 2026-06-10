@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import * as bgWorker from "./bgWorker.ts";
 
 const hoisted = vi.hoisted(() => {
     const createdWorkers: Array<{
@@ -33,26 +34,20 @@ vi.mock("./bg.worker.ts?worker&inline", () => ({
     default: hoisted.workerFactory,
 }));
 
-vi.mock("./bgWorker.splitting.ts", () => ({
-    _splitPieces2Worker: vi.fn(),
-    handleTaskSplit: hoisted.handleTaskSplit,
-    abortSplitTasks: hoisted.abortSplitTasks,
-}));
-
-vi.mock("./bgWorker.encryption.ts", () => ({
-    encryptionOnWorker: vi.fn(),
-    encryptionHKDFOnWorker: vi.fn(),
-    handleTaskEncrypt: hoisted.handleTaskEncrypt,
-}));
-
 describe("bgWorker", () => {
-    beforeEach(() => {
+    beforeEach(async () => {
         vi.resetModules();
         hoisted.createdWorkers.length = 0;
         hoisted.abortSplitTasks.mockReset();
         hoisted.handleTaskSplit.mockReset();
         hoisted.handleTaskEncrypt.mockReset();
         hoisted.workerFactory.mockClear();
+
+        const freshBgWorker = await import("./bgWorker.ts");
+        // Spy on internal module calls on the fresh module instance
+        vi.spyOn(freshBgWorker._internal, "abortSplitTasks").mockImplementation(hoisted.abortSplitTasks);
+        vi.spyOn(freshBgWorker._internal, "handleTaskSplit").mockImplementation(hoisted.handleTaskSplit);
+        vi.spyOn(freshBgWorker._internal, "handleTaskEncrypt").mockImplementation(hoisted.handleTaskEncrypt);
     });
 
     afterEach(async () => {
