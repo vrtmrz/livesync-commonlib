@@ -5,7 +5,7 @@ import type { IAPIService, ICommandCompat } from "../../base/IService";
 import { handlers } from "../../lib/HandlerUtils";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import { BrowserConfirm } from "./BrowserConfirm";
-import { LOG_LEVEL_VERBOSE } from "@/lib/src/common/logger";
+import { LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 export declare const PACKAGE_VERSION: string;
 export declare const MANIFEST_VERSION: string;
 

@@ -1,7 +1,7 @@
 import { type ComponentHasResult, SvelteDialogManagerBase, SvelteDialogMixIn } from "../base/SvelteDialog.ts";
 import type { ServiceContext } from "@lib/services/base/ServiceBase.ts";
 import type { SvelteDialogManagerDependencies } from "../base/SvelteDialog";
-import DialogHost from "@/lib/src/UI/DialogHost.svelte";
+import DialogHost from "@lib/UI/DialogHost.svelte";
 export type DialogMessageProps = Record<string, any>;
 
 export class ShimModal {

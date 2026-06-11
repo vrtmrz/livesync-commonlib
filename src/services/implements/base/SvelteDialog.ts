@@ -2,13 +2,13 @@
 import type { ConfigService } from "@lib/services/base/ConfigService";
 import type { AppLifecycleService } from "@lib/services/base/AppLifecycleService";
 import type { ReplicatorService } from "@lib/services/base/ReplicatorService";
-import type { Confirm } from "@/lib/src/interfaces/Confirm";
+import type { Confirm } from "@lib/interfaces/Confirm";
 import { getContext, mount, setContext, unmount, type Component } from "svelte";
-import { LOG_LEVEL_NOTICE, Logger } from "@/lib/src/common/logger";
-import { $msg } from "@/lib/src/common/i18n";
+import { LOG_LEVEL_NOTICE, Logger } from "@lib/common/logger";
+import { $msg } from "@lib/common/i18n";
 import { fireAndForget, promiseWithResolvers, type PromiseWithResolvers } from "octagonal-wheels/promises";
-import { eventHub } from "@/lib/src/hub/hub";
-import { EVENT_PLUGIN_UNLOADED } from "@/lib/src/events/coreEvents";
+import { eventHub } from "@lib/hub/hub";
+import { EVENT_PLUGIN_UNLOADED } from "@lib/events/coreEvents";
 
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
 import type { IControlService } from "@lib/services/base/IService";

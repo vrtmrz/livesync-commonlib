@@ -39,7 +39,7 @@ export interface DatabaseEntry {
 /**
  * Represents the base structure for an entry that represents a file.
  */
-export type EntryBase = {
+export interface EntryBase {
     /**
      * The creation time of the file.
      */
@@ -56,7 +56,7 @@ export type EntryBase = {
      * Deleted flag.
      */
     deleted?: boolean;
-};
+}
 
 export type EdenChunk = {
     data: string;
@@ -67,105 +67,139 @@ export type EntryWithEden = {
     eden: Record<DocumentID, EdenChunk>;
 };
 
-export type NoteEntry = DatabaseEntry &
-    EntryBase &
-    EntryWithEden & {
-        /**
-         * The path of the file.
-         */
-        path: FilePathWithPrefix;
-        /**
-         * Contents of the file.
-         */
-        data: string | string[];
-        /**
-         * The type of the entry.
-         */
-        type: EntryTypes["NOTE_LEGACY"];
-    };
+/**
+ * Represents the common fields for all database entries representing physical files.
+ */
+export interface FileEntryBase extends DatabaseEntry, EntryBase, EntryWithEden {
+    /**
+     * The path of the file.
+     */
+    path: FilePathWithPrefix;
+}
 
-export type NewEntry = DatabaseEntry &
-    EntryBase &
-    EntryWithEden & {
-        /**
-         * The path of the file.
-         */
-        path: FilePathWithPrefix;
-        /**
-         * Chunk IDs indicating the contents of the file.
-         */
-        children: string[];
-        /**
-         * The type of the entry.
-         */
-        type: EntryTypes["NOTE_BINARY"];
-    };
-export type PlainEntry = DatabaseEntry &
-    EntryBase &
-    EntryWithEden & {
-        /**
-         * The path of the file.
-         */
-        path: FilePathWithPrefix;
-        /**
-         * Chunk IDs indicating the contents of the file.
-         */
-        children: string[];
-        /**
-         * The type of the entry.
-         */
-        type: EntryTypes["NOTE_PLAIN"];
-    };
-
-export type InternalFileEntry = DatabaseEntry &
-    NewEntry &
-    EntryBase & {
-        deleted?: boolean;
-        // type: "newnote";
-    };
-
-export type AnyEntry = NoteEntry | NewEntry | PlainEntry | InternalFileEntry;
-
-export type LoadedEntry = AnyEntry & {
-    data: string | string[];
-    datatype: EntryTypeNotes;
-};
-export type SavingEntry = AnyEntry & {
-    data: Blob;
-    datatype: EntryTypeNotes;
-};
-
-export type MetaEntry = AnyEntry & {
+/**
+ * Represents an entry that contains children (chunk IDs).
+ */
+export interface EntryWithChildren {
+    /**
+     * Chunk IDs indicating the contents of the file.
+     */
     children: string[];
-    // datatype: "plain" | "newnote";
-};
+}
 
-export type EntryLeaf = DatabaseEntry & {
+/**
+ * Represents an entry that contains content data.
+ */
+export interface EntryWithData<T = string | string[] | Blob> {
+    /**
+     * Contents / payload of the entry.
+     */
+    data: T;
+}
+
+/**
+ * Represents an entry that contains document body text.
+ */
+export type EntryWithBody = EntryWithData<string | string[]>;
+
+/**
+ * Represents an entry that contains a binary Blob.
+ */
+export type EntryWithBlob = EntryWithData<Blob>;
+
+/**
+ * Represents a legacy note entry where file content is stored directly in the metadata.
+ */
+export interface NoteEntry extends FileEntryBase, EntryWithBody {
+    /**
+     * The type of the entry.
+     */
+    type: EntryTypes["NOTE_LEGACY"];
+}
+
+/**
+ * Represents a chunk-split binary file entry.
+ */
+export interface NewEntry extends FileEntryBase, EntryWithChildren {
+    /**
+     * The type of the entry.
+     */
+    type: EntryTypes["NOTE_BINARY"];
+}
+
+/**
+ * Represents a chunk-split plain text file entry.
+ */
+export interface PlainEntry extends FileEntryBase, EntryWithChildren {
+    /**
+     * The type of the entry.
+     */
+    type: EntryTypes["NOTE_PLAIN"];
+}
+
+/**
+ * Represents a customization / configuration file entry.
+ * @deprecated Use NewEntry or PlainEntry directly.
+ */
+export type InternalFileEntry = NewEntry;
+
+/**
+ * Represents any file-related database entry.
+ */
+export type AnyEntry = NoteEntry | NewEntry | PlainEntry;
+
+/**
+ * Represents a file entry after its contents have been loaded and assembled.
+ */
+export type LoadedEntry = AnyEntry &
+    EntryWithBody & {
+        datatype: EntryTypeNotes;
+    };
+
+/**
+ * Represents a file entry prepared for saving.
+ */
+export type SavingEntry = AnyEntry &
+    EntryWithBlob & {
+        datatype: EntryTypeNotes;
+    };
+
+/**
+ * Represents a metadata entry (chunked file entry) without full content.
+ */
+export type MetaEntry = NewEntry | PlainEntry;
+
+/**
+ * Represents a leaf (chunk) document in the database.
+ */
+export interface EntryLeaf extends DatabaseEntry, EntryWithData<string> {
     type: EntryTypes["CHUNK"];
-    data: string;
     isCorrupted?: boolean;
-    // received?: boolean;
-};
+}
 
-export type EntryChunkPack = DatabaseEntry & {
+/**
+ * Represents a chunk pack document.
+ */
+export interface EntryChunkPack extends DatabaseEntry, EntryWithData<string> {
     type: EntryTypes["CHUNK_PACK"];
-    data: string; //Record<string, string>;
-};
+}
 
 export interface EntryVersionInfo extends DatabaseEntry {
     type: EntryTypes["VERSION_INFO"];
     version: number;
 }
+
 export interface EntryHasPath {
     path: FilePathWithPrefix | FilePath;
 }
+
 export interface ChunkVersionRange {
-    min: number; //lower compatible chunk format version
-    max: number; //maximum compatible chunk format version.
-    current: number; //current chunk version.
+    min: number; // lower compatible chunk format version
+    max: number; // maximum compatible chunk format version.
+    current: number; // current chunk version.
 }
-export interface SyncInfo extends DatabaseEntry {
+
+export interface SyncInfo extends DatabaseEntry, EntryWithData<string> {
     _id: typeof SYNCINFO_ID;
     type: EntryTypes["SYNC_INFO"];
-    data: string;
 }

@@ -139,7 +139,7 @@ describe("isAcceptedByLocalDB", () => {
     });
 });
 import { isAcceptedByIgnoreFilesFactory } from "./targetFilter";
-import type { UXFileInfoStub } from "@/lib/src/common/types";
+import type { UXFileInfoStub } from "@lib/common/types";
 describe("isAcceptedByIgnoreFiles", () => {
     const vaultFileMap = {
         "a.md": "", // ignored

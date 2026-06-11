@@ -7,12 +7,8 @@ import type {
     EntryLeaf,
     EntryTypes,
     EntryVersionInfo,
-    InternalFileEntry,
     LoadedEntry,
     MetaEntry,
-    NewEntry,
-    NoteEntry,
-    PlainEntry,
 } from "./db.type";
 import type { TweakValues } from "./tweak.definition";
 
@@ -61,7 +57,7 @@ export interface EntryNodeInfo extends DatabaseEntry {
     v20220607?: boolean;
 }
 
-export type EntryBody = NoteEntry | NewEntry | PlainEntry | InternalFileEntry;
+export type EntryBody = AnyEntry;
 
 export type EntryDoc =
     | EntryBody
