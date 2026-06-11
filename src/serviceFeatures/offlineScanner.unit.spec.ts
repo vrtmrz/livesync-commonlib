@@ -24,9 +24,10 @@ import {
 import { prepareDatabaseForUse } from "./prepareDatabaseForUse";
 import { type LogFunction, createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
-import type { MetaEntry, UXFileInfoStub, FilePathWithPrefix, ObsidianLiveSyncSettings } from "@lib/common/types";
-import { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE } from "@lib/common/types";
-
+import type { MetaEntry, FilePathWithPrefix } from "@lib/common/models/db.type";
+import type { UXFileInfoStub } from "@lib/common/models/fileaccess.type";
+import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
+import { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE } from "@lib/common/logger";
 const APIServiceMock = {
     addLog(message: string, level?: any) {
         console.log(`${message}`);

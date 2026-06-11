@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ServiceFileAccessBase } from "./ServiceFileAccessBase";
-import type { FilePathWithPrefix } from "../common/types";
-
+import type { FilePathWithPrefix } from "@lib/common/models/db.type";
 type MockFolder = {
     kind: "folder";
     path: string;

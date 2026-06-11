@@ -2,8 +2,7 @@
 import { getLanguage } from "./coreEnvFunctions";
 import type { AllMessageKeys, I18N_LANGS } from "./rosetta";
 import { allMessages } from "./messages/combinedMessages.dev.ts";
-import type { TaggedType } from "./types";
-
+import type { TaggedType } from "@lib/common/models/shared.type.util";
 const obsidianLangMap: Record<string, I18N_LANGS> = {
     de: "de",
     es: "es",

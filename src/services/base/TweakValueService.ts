@@ -1,4 +1,5 @@
-import type { RemoteDBSettings, TweakValues } from "@lib/common/types";
+import type { RemoteDBSettings } from "@lib/common/models/setting.type";
+import type { TweakValues } from "@lib/common/models/tweak.definition";
 import type { ITweakValueService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 

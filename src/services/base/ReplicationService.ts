@@ -1,10 +1,6 @@
-import {
-    LOG_LEVEL_INFO,
-    LOG_LEVEL_NOTICE,
-    LOG_LEVEL_VERBOSE,
-    type LOG_LEVEL,
-    type ObsidianLiveSyncSettings,
-} from "@lib/common/types";
+import type { LOG_LEVEL } from "@lib/common/logger";
+import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
+import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 import { handlers } from "@lib/services/lib/HandlerUtils";
 import type {
     IAPIService,

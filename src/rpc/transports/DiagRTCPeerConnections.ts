@@ -1,7 +1,7 @@
 // A wrapper around RTCPeerConnection to collect statistics for diagnostics.
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger";
-import { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO } from "@lib/common/types";
+import { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO } from "@lib/common/logger";
 import type {
     DiagRTCConnectionStatus,
     DiagRTCStats,

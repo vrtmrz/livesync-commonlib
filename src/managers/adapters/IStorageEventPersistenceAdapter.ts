@@ -1,4 +1,4 @@
-import type { FileEventItem } from "@lib/common/types";
+import type { FileEventItem } from "@lib/common/models/fileaccess.type";
 import type { FileEventItemSentinel } from "@lib/managers/StorageEventManager";
 
 /**

@@ -1,6 +1,6 @@
 // P2P replicator helper functions
 import { eventHub, EVENT_DATABASE_REBUILT, EVENT_PLATFORM_UNLOADED, EVENT_SETTING_SAVED } from "@/common/events";
-import type { P2PSyncSetting } from "@lib/common/types";
+import type { P2PSyncSetting } from "@lib/common/models/setting.type";
 import type { LiveSyncTrysteroReplicator } from "./LiveSyncTrysteroReplicator";
 import { EVENT_ADVERTISEMENT_RECEIVED, EVENT_DEVICE_LEAVED, EVENT_REQUEST_STATUS } from "./TrysteroReplicatorP2PServer";
 import type { Advertisement } from "./types";

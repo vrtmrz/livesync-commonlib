@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { EVEN } from "@lib/common/models/shared.const.symbols";
-import type { MetaEntry, UXFileInfo, UXFileInfoStub } from "@lib/common/types";
+import type { MetaEntry } from "@lib/common/models/db.type";
+import type { UXFileInfo, UXFileInfoStub } from "@lib/common/models/fileaccess.type";
 import { createTextBlob } from "@lib/common/utils.database";
 import { ServiceFileHandlerBase, type ServiceFileHandlerDependencies } from "./ServiceFileHandlerBase";
 

@@ -13,16 +13,12 @@ import {
     canUseOnDemandChunking,
     isLegacyNote,
 } from "./EntryManagerImpls";
-import type {
-    DocumentID,
-    EntryDoc,
-    FilePathWithPrefix,
-    LoadedEntry,
-    SavingEntry,
-    ObsidianLiveSyncSettings,
-    NewEntry,
-} from "@lib/common/types";
-import { DEFAULT_SETTINGS, REMOTE_COUCHDB, IDPrefixes, ChunkAlgorithms } from "@lib/common/types";
+import type { DocumentID, FilePathWithPrefix, LoadedEntry, SavingEntry, NewEntry } from "@lib/common/models/db.type";
+import type { EntryDoc } from "@lib/common/models/db.definition";
+import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
+import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
+import { REMOTE_COUCHDB, ChunkAlgorithms } from "@lib/common/models/setting.const";
+import { IDPrefixes } from "@lib/common/models/shared.const.behabiour";
 import { LayeredChunkManager } from "../LayeredChunkManager";
 import { HashManager } from "../HashManager/HashManager";
 import type { IPathService, ISettingService } from "@lib/services/base/IService";

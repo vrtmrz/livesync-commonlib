@@ -1,7 +1,7 @@
 import { stripAllPrefixes } from "@lib/string_and_binary/path";
 import type { DocumentID, FilePath, FilePathWithPrefix } from "./models/db.type";
 import { CHeader, ICHeader, ICHeaderLength, ICXHeader, PSCHeader } from "./models/fileaccess.const";
-import type { UXFileInfoStub } from "./types";
+import type { UXFileInfoStub } from "@lib/common/models/fileaccess.type";
 
 /**
  * returns is internal chunk of file

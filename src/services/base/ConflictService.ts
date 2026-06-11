@@ -1,4 +1,5 @@
-import type { FilePathWithPrefix, MISSING_OR_ERROR, AUTO_MERGED } from "@lib/common/types";
+import type { FilePathWithPrefix } from "@lib/common/models/db.type";
+import type { MISSING_OR_ERROR, AUTO_MERGED } from "@lib/common/models/shared.const.symbols";
 import { handlers } from "@lib/services/lib/HandlerUtils";
 import type { IConflictService } from "./IService";
 import { ServiceBase } from "./ServiceBase";

@@ -13,14 +13,15 @@ import type {
     IStorageEventConverterAdapter,
     IStorageEventWatchHandlers,
 } from "./adapters";
-import type { FileEventItem } from "@lib/common/types";
-import type { FilePath, UXFileInfoStub, UXInternalFileInfoStub } from "@lib/common/types";
+import type { FileEventItem } from "@lib/common/models/fileaccess.type";
+import type { FilePath } from "@lib/common/models/db.type";
+import type { UXFileInfoStub, UXInternalFileInfoStub } from "@lib/common/models/fileaccess.type";
 import type { IStorageAccessManager } from "@lib/interfaces/StorageAccess";
 import type { IAPIService, IVaultService } from "@lib/services/base/IService";
 import type { SettingService } from "@lib/services/base/SettingService";
 import type { FileProcessingService } from "@lib/services/base/FileProcessingService";
-import { DEFAULT_SETTINGS, FlagFilesHumanReadable } from "@lib/common/types";
-
+import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
+import { FlagFilesHumanReadable } from "@lib/common/models/redflag.const";
 // Mock file types
 interface MockFile {
     path: string;

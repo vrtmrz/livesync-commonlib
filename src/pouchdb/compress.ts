@@ -4,7 +4,7 @@ import {
     arrayBufferToBase64Single,
     base64ToArrayBuffer,
 } from "@lib/string_and_binary/convert";
-import type { EntryDoc } from "@lib/common/types";
+import type { EntryDoc } from "@lib/common/models/db.definition";
 
 export async function _compressText(text: string) {
     const converted = tryConvertBase64ToArrayBuffer(text);

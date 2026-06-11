@@ -1,4 +1,5 @@
-import type { FilePath, UXFileInfoStub, UXInternalFileInfoStub } from "@lib/common/types";
+import type { FilePath } from "@lib/common/models/db.type";
+import type { UXFileInfoStub, UXInternalFileInfoStub } from "@lib/common/models/fileaccess.type";
 
 /**
  * Adapter interface for converting platform-specific file types to UX types

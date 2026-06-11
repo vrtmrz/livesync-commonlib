@@ -1,5 +1,5 @@
 import { sizeToHumanReadable } from "octagonal-wheels/number";
-import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/types";
+import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";

@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS, REMOTE_COUCHDB } from "@lib/common/types";
+import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
+import { REMOTE_COUCHDB } from "@lib/common/models/setting.const";
 import { SettingService } from "./SettingService";
 import { ServiceContext } from "./ServiceBase";
-import type { ObsidianLiveSyncSettings } from "@lib/common/types";
+import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 import { ConnectionStringParser } from "@lib/common/ConnectionString";
 
 class TestSettingService extends SettingService<ServiceContext> {

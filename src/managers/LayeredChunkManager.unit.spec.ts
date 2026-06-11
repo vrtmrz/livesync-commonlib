@@ -2,7 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import { LayeredChunkManager } from "./LayeredChunkManager";
-import type { DocumentID, EntryLeaf, EntryDoc } from "@lib/common/types";
+import type { DocumentID, EntryLeaf } from "@lib/common/models/db.type";
+import type { EntryDoc } from "@lib/common/models/db.definition";
 import type { ChunkManagerOptions } from "./LayeredChunkManager/types";
 import { EVENT_MISSING_CHUNKS, EVENT_MISSING_CHUNK_REMOTE } from "@lib/managers/ChunkFetcher";
 

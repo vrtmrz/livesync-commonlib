@@ -2,25 +2,20 @@ import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import { type LOG_LEVEL } from "octagonal-wheels/common/logger";
 import type {
     AnyEntry,
-    AUTO_MERGED,
-    CouchDBCredentials,
-    diff_result,
     DocumentID,
-    EntryDoc,
     EntryHasPath,
-    FileEventItem,
     FilePath,
     FilePathWithPrefix,
     LoadedEntry,
     MetaEntry,
-    MISSING_OR_ERROR,
-    ObsidianLiveSyncSettings,
-    RemoteDBSettings,
-    TweakValues,
-    UXFileInfo,
-    UXFileInfoStub,
-} from "@lib/common/types";
-
+} from "@lib/common/models/db.type";
+import type { AUTO_MERGED, MISSING_OR_ERROR } from "@lib/common/models/shared.const.symbols";
+import type { CouchDBCredentials } from "@lib/common/models/auth.type";
+import type { diff_result } from "@lib/common/models/diff.definition";
+import type { EntryDoc } from "@lib/common/models/db.definition";
+import type { FileEventItem, UXFileInfo, UXFileInfoStub } from "@lib/common/models/fileaccess.type";
+import type { ObsidianLiveSyncSettings, RemoteDBSettings } from "@lib/common/models/setting.type";
+import type { TweakValues } from "@lib/common/models/tweak.definition";
 import type { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB";
 import type { LiveSyncAbstractReplicator } from "@lib/replication/LiveSyncAbstractReplicator";
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";

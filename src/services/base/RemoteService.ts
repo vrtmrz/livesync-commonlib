@@ -1,13 +1,9 @@
-import type { CouchDBCredentials, EntryDoc } from "@lib/common/types";
+import type { CouchDBCredentials } from "@lib/common/models/auth.type";
+import type { EntryDoc } from "@lib/common/models/db.definition";
 import type { IRemoteService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
-import {
-    LOG_LEVEL_DEBUG,
-    LOG_LEVEL_INFO,
-    LOG_LEVEL_NOTICE,
-    LOG_LEVEL_VERBOSE,
-    type LOG_LEVEL,
-} from "@lib/common/types";
+import type { LOG_LEVEL } from "@lib/common/logger";
+import { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { replicationFilter } from "@lib/pouchdb/compress";
 import { disableEncryption, enableEncryption } from "@lib/pouchdb/encryption";
 import { isCloudantURI, isValidRemoteCouchDBURI } from "@lib/pouchdb/utils_couchdb";

@@ -1,4 +1,4 @@
-import type { EntryLeaf, DocumentID } from "@lib/common/types";
+import type { EntryLeaf, DocumentID } from "@lib/common/models/db.type";
 import type { IWriteLayer } from "./ChunkLayerInterfaces";
 import type { ChunkWriteOptions, WriteResult } from "./types.ts";
 

@@ -1,4 +1,4 @@
-import type { FilePath } from "@lib/common/types";
+import type { FilePath } from "@lib/common/models/db.type";
 import type { IAPIService, ISettingService, IVaultService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { handlers } from "@lib/services/lib/HandlerUtils";

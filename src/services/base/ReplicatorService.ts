@@ -10,7 +10,7 @@ import { $msg } from "@lib/common/i18n";
 import { yieldMicrotask } from "octagonal-wheels/promises";
 import type { DatabaseEventService } from "./DatabaseEventService";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
-import { RemoteTypes } from "@lib/common/types";
+import { RemoteTypes } from "@lib/common/models/setting.const";
 import { DEFAULT_REPLICATION_STATICS } from "@lib/common/models/shared.definition";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 

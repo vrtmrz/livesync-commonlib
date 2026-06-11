@@ -5,8 +5,8 @@ import type {
     JWTParams,
     JWTPayload,
     PreparedJWT,
-    RemoteDBSettings,
-} from "@lib/common/types";
+} from "@lib/common/models/auth.type";
+import type { RemoteDBSettings } from "@lib/common/models/setting.type";
 import { arrayBufferToBase64Single, writeString } from "@lib/string_and_binary/convert";
 import { Computed } from "octagonal-wheels/dataobject/Computed";
 

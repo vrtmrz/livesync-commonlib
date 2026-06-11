@@ -1,15 +1,12 @@
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 import { serialized } from "octagonal-wheels/concurrency/lock";
+import type { AnyEntry, FilePath, FilePathWithPrefix, MetaEntry } from "@lib/common/models/db.type";
 import type {
-    AnyEntry,
     FileEventItem,
-    FilePath,
-    FilePathWithPrefix,
-    MetaEntry,
     UXFileInfo,
     UXFileInfoStub,
     UXInternalFileInfoStub,
-} from "@lib/common/types";
+} from "@lib/common/models/fileaccess.type";
 import { getDocDataAsArray, isDocContentSame, readAsBlob, readContent } from "@lib/common/utils.database";
 import { shouldBeIgnored, stripAllPrefixes } from "@lib/string_and_binary/path";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";

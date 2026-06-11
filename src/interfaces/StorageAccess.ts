@@ -1,12 +1,11 @@
+import type { FilePath, FilePathWithPrefix } from "@lib/common/models/db.type";
 import type {
-    FilePath,
-    FilePathWithPrefix,
     UXDataWriteOptions,
     UXFileInfo,
     UXFileInfoStub,
     UXFolderInfo,
     UXStat,
-} from "@lib/common/types";
+} from "@lib/common/models/fileaccess.type";
 import type { CustomRegExp } from "@lib/common/utils.regexp";
 import type { FileWithFileStat, FileWithStatAsProp } from "@lib/common/models/fileaccess.type";
 export interface IStorageAccessManager {

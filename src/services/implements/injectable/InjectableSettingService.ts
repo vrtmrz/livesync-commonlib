@@ -4,7 +4,7 @@ import { SettingService, type SettingServiceDependencies } from "@lib/services/b
 import { EVENT_REQUEST_RELOAD_SETTING_TAB } from "@/common/events";
 
 import { eventHub } from "@lib/hub/hub";
-import type { ObsidianLiveSyncSettings } from "@lib/common/types";
+import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 import { handlers } from "@lib/services/lib/HandlerUtils";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 

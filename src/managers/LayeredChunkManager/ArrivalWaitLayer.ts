@@ -1,5 +1,5 @@
 import { type PromiseWithResolvers, promiseWithResolvers } from "octagonal-wheels/promises";
-import type { DocumentID, EntryLeaf } from "@lib/common/types";
+import type { DocumentID, EntryLeaf } from "@lib/common/models/db.type";
 import type { IReadLayer } from "./ChunkLayerInterfaces";
 import type { ChunkReadOptions } from "./types.ts";
 import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";

@@ -1,12 +1,5 @@
-import type {
-    DocumentID,
-    EntryHasPath,
-    FilePathWithPrefix,
-    FilePath,
-    AnyEntry,
-    UXFileInfo,
-    UXFileInfoStub,
-} from "@lib/common/types";
+import type { DocumentID, EntryHasPath, FilePathWithPrefix, FilePath, AnyEntry } from "@lib/common/models/db.type";
+import type { UXFileInfo, UXFileInfoStub } from "@lib/common/models/fileaccess.type";
 import type { IPathService, ISettingService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { addPrefix, id2path_base, path2id_base } from "@lib/string_and_binary/path";

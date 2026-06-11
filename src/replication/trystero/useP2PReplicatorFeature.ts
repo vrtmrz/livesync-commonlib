@@ -1,6 +1,8 @@
 import type { IServiceHub } from "@lib/services/base/IService";
 import { Logger, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
-import { AutoAccepting, REMOTE_P2P, type RemoteDBSettings } from "@lib/common/types";
+import type { RemoteDBSettings } from "@lib/common/models/setting.type";
+import { AutoAccepting } from "@lib/common/models/setting.type";
+import { REMOTE_P2P } from "@lib/common/models/setting.const";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { LiveSyncTrysteroReplicator } from "./LiveSyncTrysteroReplicator";
 import { type UseP2PReplicatorResult } from "./UseP2PReplicatorResult";

@@ -1,27 +1,27 @@
 import type PouchDB from "pouchdb-core";
 import { Logger, LOG_LEVEL_VERBOSE, LOG_LEVEL_NOTICE } from "octagonal-wheels/common/logger";
+import type {
+    SavingEntry,
+    EntryLeaf,
+    DocumentID,
+    NewEntry,
+    PlainEntry,
+    EntryBase,
+    FilePath,
+    FilePathWithPrefix,
+    LoadedEntry,
+    MetaEntry,
+    NoteEntry,
+} from "@lib/common/models/db.type";
+import type { EntryDoc, EntryDocResponse } from "@lib/common/models/db.definition";
 import {
-    type SavingEntry,
-    type EntryLeaf,
-    type DocumentID,
-    type EntryDoc,
-    type NewEntry,
-    type PlainEntry,
     IDPrefixes,
-    type EntryBase,
-    type EntryDocResponse,
-    type FilePath,
-    type FilePathWithPrefix,
-    type LoadedEntry,
-    REMOTE_COUCHDB,
-    type ObsidianLiveSyncSettings,
-    type MetaEntry,
     LEAF_WAIT_ONLY_REMOTE,
     LEAF_WAIT_TIMEOUT,
     LEAF_WAIT_TIMEOUT_SEQUENTIAL_REPLICATOR,
-    RemoteTypes,
-    type NoteEntry,
-} from "@lib/common/types";
+} from "@lib/common/models/shared.const.behabiour";
+import { REMOTE_COUCHDB, RemoteTypes } from "@lib/common/models/setting.const";
+import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 import type { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters";
 import type { HashManager } from "@lib/managers/HashManager/HashManager";
 import type { LayeredChunkManager as ChunkManager } from "@lib/managers/LayeredChunkManager";

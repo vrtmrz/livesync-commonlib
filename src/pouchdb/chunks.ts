@@ -1,5 +1,6 @@
 import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
-import type { CouchDBConnection, EntryLeaf } from "@lib/common/types";
+import type { CouchDBConnection } from "@lib/common/models/setting.type";
+import type { EntryLeaf } from "@lib/common/models/db.type";
 import { QueueProcessor } from "octagonal-wheels/concurrency/processor";
 import { arrayToChunkedArray, sizeToHumanReadable } from "@lib/common/utils";
 import { serialized } from "octagonal-wheels/concurrency/lock";

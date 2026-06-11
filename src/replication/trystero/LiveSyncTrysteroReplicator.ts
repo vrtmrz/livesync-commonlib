@@ -1,16 +1,12 @@
 import { eventHub } from "@lib/hub/hub";
 import { Logger } from "@lib/common/logger";
-import {
-    type RemoteDBSettings,
-    type EntryLeaf,
-    type TweakValues,
-    LOG_LEVEL_NOTICE,
-    LOG_LEVEL_INFO,
-    LOG_LEVEL_VERBOSE,
-    type LOG_LEVEL,
-    type NodeData,
-    SETTING_KEY_P2P_DEVICE_NAME,
-} from "@lib/common/types";
+import type { RemoteDBSettings } from "@lib/common/models/setting.type";
+import type { EntryLeaf } from "@lib/common/models/db.type";
+import type { TweakValues } from "@lib/common/models/tweak.definition";
+import type { LOG_LEVEL } from "@lib/common/logger";
+import { LOG_LEVEL_NOTICE, LOG_LEVEL_INFO, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
+import type { NodeData } from "@lib/common/models/db.definition";
+import { SETTING_KEY_P2P_DEVICE_NAME } from "@lib/common/models/shared.const";
 import {
     LiveSyncAbstractReplicator,
     type LiveSyncReplicatorEnv,

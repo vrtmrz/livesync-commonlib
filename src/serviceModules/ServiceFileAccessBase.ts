@@ -1,15 +1,13 @@
 // import { TFile, TFolder, type ListedFiles } from "@/deps.ts";
 import { LOG_LEVEL_INFO, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
+import type { FilePath, FilePathWithPrefix } from "@lib/common/models/db.type";
 import type {
-    FilePath,
-    FilePathWithPrefix,
     UXDataWriteOptions,
     UXFileInfo,
     UXFileInfoStub,
     UXFolderInfo,
     UXStat,
-} from "@lib/common/types";
-
+} from "@lib/common/models/fileaccess.type";
 import { ServiceModuleBase } from "./ServiceModuleBase";
 import type { APIService } from "@lib/services/base/APIService";
 import type { IStorageAccessManager, StorageAccess } from "@lib/interfaces/StorageAccess.ts";

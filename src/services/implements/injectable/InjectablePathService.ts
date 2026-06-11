@@ -1,4 +1,5 @@
-import type { UXFileInfo, AnyEntry, UXFileInfoStub, FilePathWithPrefix } from "@lib/common/types";
+import type { UXFileInfo, UXFileInfoStub } from "@lib/common/models/fileaccess.type";
+import type { AnyEntry, FilePathWithPrefix } from "@lib/common/models/db.type";
 import { PathService } from "@lib/services/base/PathService";
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";

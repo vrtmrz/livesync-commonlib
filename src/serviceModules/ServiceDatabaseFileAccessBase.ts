@@ -1,13 +1,12 @@
+import type { UXFileInfoStub, UXFileInfo } from "@lib/common/models/fileaccess.type";
 import type {
-    UXFileInfoStub,
     FilePathWithPrefix,
-    UXFileInfo,
     DocumentID,
     SavingEntry,
     MetaEntry,
     LoadedEntry,
     FilePath,
-} from "@lib/common/types";
+} from "@lib/common/models/db.type";
 import type { DatabaseFileAccess } from "@lib/interfaces/DatabaseFileAccess";
 import type { StorageAccess } from "@lib/interfaces/StorageAccess";
 import type { APIService } from "@lib/services/base/APIService";

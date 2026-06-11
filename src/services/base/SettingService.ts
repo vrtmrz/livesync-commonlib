@@ -1,16 +1,14 @@
-import {
-    ChunkAlgorithmNames,
-    DEFAULT_SETTINGS,
-    LOG_LEVEL_NOTICE,
-    LOG_LEVEL_URGENT,
-    LOG_LEVEL_VERBOSE,
-    SALT_OF_PASSPHRASE,
-    SETTING_KEY_P2P_DEVICE_NAME,
-    type BucketSyncSetting,
-    type ConfigPassphraseStore,
-    type CouchDBConnection,
-    type ObsidianLiveSyncSettings,
-} from "@lib/common/types";
+import { ChunkAlgorithmNames } from "@lib/common/models/setting.const";
+import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
+import { LOG_LEVEL_NOTICE, LOG_LEVEL_URGENT, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
+import { SALT_OF_PASSPHRASE } from "@lib/common/models/shared.const.behabiour";
+import { SETTING_KEY_P2P_DEVICE_NAME } from "@lib/common/models/shared.const";
+import type {
+    BucketSyncSetting,
+    ConfigPassphraseStore,
+    CouchDBConnection,
+    ObsidianLiveSyncSettings,
+} from "@lib/common/models/setting.type";
 import { handlers } from "@lib/services/lib/HandlerUtils";
 import type { IAPIService, ISettingService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";

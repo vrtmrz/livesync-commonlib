@@ -1,4 +1,5 @@
-import { LOG_LEVEL_DEBUG, LOG_LEVEL_VERBOSE, type UXFileInfoStub } from "@lib/common/types";
+import { LOG_LEVEL_DEBUG, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
+import type { UXFileInfoStub } from "@lib/common/models/fileaccess.type";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 import { getStoragePathFromUXFileInfo } from "@lib/common/typeUtils";
 import { isAcceptedAll } from "@lib/string_and_binary/path";

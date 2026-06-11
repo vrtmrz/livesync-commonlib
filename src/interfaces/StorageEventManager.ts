@@ -1,5 +1,5 @@
-import type { FileEventType, FilePath, UXFileInfoStub, UXInternalFileInfoStub } from "@lib/common/types";
-
+import type { FileEventType, UXFileInfoStub, UXInternalFileInfoStub } from "@lib/common/models/fileaccess.type";
+import type { FilePath } from "@lib/common/models/db.type";
 export type FileEvent = {
     type: FileEventType;
     file: UXFileInfoStub | UXInternalFileInfoStub;

@@ -1,12 +1,8 @@
 import { LOG_LEVEL_INFO, Logger } from "@lib/common/logger";
-import {
-    LOG_LEVEL_VERBOSE,
-    SYNCINFO_ID,
-    VER,
-    VERSIONING_DOCID,
-    type EntryVersionInfo,
-    type SyncInfo,
-} from "@lib/common/types";
+import { LOG_LEVEL_VERBOSE } from "@lib/common/logger";
+import { SYNCINFO_ID, VERSIONING_DOCID } from "@lib/common/models/db.const";
+import { VER } from "@lib/common/models/shared.const.behabiour";
+import type { EntryVersionInfo, SyncInfo } from "@lib/common/models/db.type";
 import { resolveWithIgnoreKnownError } from "@lib/common/utils.concurrency";
 import { isErrorOfMissingDoc } from "./utils_couchdb";
 

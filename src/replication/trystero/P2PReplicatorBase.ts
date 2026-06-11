@@ -1,7 +1,8 @@
 import type { LOG_LEVEL } from "octagonal-wheels/common/logger";
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
 import type { ReactiveSource } from "octagonal-wheels/dataobject/reactive_v2";
-import type { P2PSyncSetting, EntryDoc } from "@lib/common/types";
+import type { P2PSyncSetting } from "@lib/common/models/setting.type";
+import type { EntryDoc } from "@lib/common/models/db.definition";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import type { InjectableServiceHub } from "@lib/services/InjectableServices";
 

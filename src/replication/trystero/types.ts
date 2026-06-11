@@ -1,4 +1,5 @@
-import type { P2PSyncSetting, EntryDoc } from "@lib/common/types";
+import type { P2PSyncSetting } from "@lib/common/models/setting.type";
+import type { EntryDoc } from "@lib/common/models/db.definition";
 import type { SimpleStore } from "@lib/common/utils";
 import type { Confirm } from "@lib/interfaces/Confirm";
 

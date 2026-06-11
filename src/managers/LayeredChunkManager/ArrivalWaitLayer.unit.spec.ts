@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import { ArrivalWaitLayer } from "./ArrivalWaitLayer";
-import type { DocumentID, EntryLeaf } from "@lib/common/types";
+import type { DocumentID, EntryLeaf } from "@lib/common/models/db.type";
 
 function createMockLeaf(id: string, data: string = `data-${id}`): EntryLeaf {
     return {

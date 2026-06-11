@@ -1,5 +1,7 @@
 import type PouchDB from "pouchdb-core";
-import { TweakValuesShouldMatchedTemplate, type EntryDoc, type ObsidianLiveSyncSettings } from "@lib/common/types";
+import { TweakValuesShouldMatchedTemplate } from "@lib/common/models/tweak.definition";
+import type { EntryDoc } from "@lib/common/models/db.definition";
+import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
 import { replicateShim, type PouchDBShim, type ProgressInfo } from "@lib/pouchdb/ReplicatorShim";
 import type { Confirm } from "@lib/interfaces/Confirm";

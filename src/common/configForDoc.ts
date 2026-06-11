@@ -3,7 +3,8 @@ import { isCloudantURI } from "@lib/pouchdb/utils_couchdb";
 import { $msg } from "./i18n";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "./logger";
 import { getConfName, type AllSettingItemKey } from "./settingConstants";
-import { ChunkAlgorithmNames, E2EEAlgorithmNames, E2EEAlgorithms, type ObsidianLiveSyncSettings } from "./types";
+import { ChunkAlgorithmNames, E2EEAlgorithmNames, E2EEAlgorithms } from "@lib/common/models/setting.const";
+import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 
 enum ConditionType {
     PLATFORM_CASE_INSENSITIVE = "platform-case-insensitive",

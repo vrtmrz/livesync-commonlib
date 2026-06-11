@@ -1,5 +1,6 @@
 import { LiveSyncError } from "@lib/common/LSError";
-import type { EntryLeaf, DocumentID, EntryDoc } from "@lib/common/types";
+import type { EntryLeaf, DocumentID } from "@lib/common/models/db.type";
+import type { EntryDoc } from "@lib/common/models/db.definition";
 import type { IWriteLayer } from "./ChunkLayerInterfaces";
 import type { ChunkWriteOptions, WriteResult } from "./types.ts";
 

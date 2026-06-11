@@ -1,4 +1,4 @@
-import type { FilePath } from "@lib/common/types";
+import type { FilePath } from "@lib/common/models/db.type";
 
 /**
  * Event handlers for storage events

@@ -3,15 +3,9 @@ import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import { ConflictManager } from "./ConflictManager";
 import type { ConflictManagerOptions } from "./ConflictManager";
-import type {
-    DocumentID,
-    EntryDoc,
-    FilePathWithPrefix,
-    // diff_result_leaf,
-    LoadedEntry,
-    // SavingEntry,
-} from "../common/types";
-import { MISSING_OR_ERROR, NOT_CONFLICTED } from "../common/types";
+import type { DocumentID, FilePathWithPrefix, LoadedEntry } from "@lib/common/models/db.type";
+import type { EntryDoc } from "@lib/common/models/db.definition";
+import { MISSING_OR_ERROR, NOT_CONFLICTED } from "@lib/common/models/shared.const.symbols";
 import type { EntryManager } from "./EntryManager/EntryManager";
 import type { IPathService } from "../services/base/IService";
 

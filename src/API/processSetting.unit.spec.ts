@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { encodeSettingsToQRCodeData, decodeSettingsFromQRCodeData } from "@lib/API/processSetting";
-import { DEFAULT_SETTINGS } from "@lib/common/types";
+import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
 import type { RemoteConfiguration } from "@lib/common/models/setting.type";
 
 describe("QR Codec Round-Trip Test with Real Data", () => {

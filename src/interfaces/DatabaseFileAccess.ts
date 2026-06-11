@@ -1,4 +1,5 @@
-import type { FilePathWithPrefix, LoadedEntry, MetaEntry, UXFileInfo, UXFileInfoStub } from "@lib/common/types";
+import type { FilePathWithPrefix, LoadedEntry, MetaEntry } from "@lib/common/models/db.type";
+import type { UXFileInfo, UXFileInfoStub } from "@lib/common/models/fileaccess.type";
 
 export interface DatabaseFileAccess {
     delete: (file: UXFileInfoStub | FilePathWithPrefix, rev?: string) => Promise<boolean>;

@@ -1,5 +1,5 @@
-import type { FilePathWithPrefix, ObsidianLiveSyncSettings } from "@lib/common/types";
-
+import type { FilePathWithPrefix } from "@lib/common/models/db.type";
+import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 export const EVENT_LAYOUT_READY = "layout-ready";
 export const EVENT_PLUGIN_LOADED = "plugin-loaded";
 export const EVENT_PLUGIN_UNLOADED = "plugin-unloaded";

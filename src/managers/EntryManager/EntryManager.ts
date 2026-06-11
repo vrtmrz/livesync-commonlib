@@ -1,12 +1,6 @@
-import {
-    type FilePathWithPrefix,
-    type FilePath,
-    type LoadedEntry,
-    type EntryDoc,
-    REMOTE_COUCHDB,
-    type SavingEntry,
-    type MetaEntry,
-} from "@lib/common/types";
+import type { FilePathWithPrefix, FilePath, LoadedEntry, SavingEntry, MetaEntry } from "@lib/common/models/db.type";
+import type { EntryDoc } from "@lib/common/models/db.definition";
+import { REMOTE_COUCHDB } from "@lib/common/models/setting.const";
 import type { ChunkManager } from "@lib/managers/ChunkManager";
 import type { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters";
 import type { HashManager } from "@lib/managers/HashManager/HashManager";

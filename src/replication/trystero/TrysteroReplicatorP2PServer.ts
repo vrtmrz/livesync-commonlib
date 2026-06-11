@@ -1,5 +1,6 @@
 import { type ActionSender, type Room, selfId, joinRoom } from "@trystero-p2p/nostr";
-import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } from "@lib/common/types";
+import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE } from "@lib/common/logger";
+import type { P2PSyncSetting } from "@lib/common/models/setting.type";
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger";
 import {
     DIRECTION_RESPONSE,

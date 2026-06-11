@@ -3,7 +3,7 @@ import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import { DatabaseWriteLayer } from "./DatabaseWriteLayer";
 import { LiveSyncError } from "../../common/LSError";
-import type { DocumentID, EntryLeaf } from "../../common/types";
+import type { DocumentID, EntryLeaf } from "@lib/common/models/db.type";
 import type { WriteResult } from "./types.ts";
 
 // Set up PouchDB with memory adapter

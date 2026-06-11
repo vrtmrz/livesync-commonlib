@@ -1,4 +1,5 @@
-import { LOG_LEVEL_VERBOSE, type EntryDoc } from "@lib/common/types";
+import { LOG_LEVEL_VERBOSE } from "@lib/common/logger";
+import type { EntryDoc } from "@lib/common/models/db.definition";
 import { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters.ts";
 import { ChangeManager } from "./ChangeManager.ts";
 import { ChunkFetcher } from "./ChunkFetcher.ts";

@@ -3,8 +3,7 @@ import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import { DatabaseReadLayer } from "./DatabaseReadLayer";
 import { LiveSyncError } from "../../common/LSError";
-import type { DocumentID, EntryLeaf } from "../../common/types";
-
+import type { DocumentID, EntryLeaf } from "@lib/common/models/db.type";
 // Set up PouchDB with memory adapter
 PouchDB.plugin(MemoryAdapter);
 let dbCounter = 0;

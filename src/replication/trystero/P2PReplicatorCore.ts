@@ -1,7 +1,6 @@
-/**
- * Obsoleted: separated into non-UI things and UI things.
- */
-import { AutoAccepting, REMOTE_P2P, type RemoteDBSettings } from "@lib/common/types";
+import type { RemoteDBSettings } from "@lib/common/models/setting.type";
+import { AutoAccepting } from "@lib/common/models/setting.type";
+import { REMOTE_P2P } from "@lib/common/models/setting.const";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import { EVENT_REQUEST_OPEN_P2P } from "@lib/events/coreEvents";
 import { eventHub } from "@lib/hub/hub";

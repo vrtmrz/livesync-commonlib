@@ -8,7 +8,8 @@ import type {
     IStorageAdapter,
     IVaultAdapter,
 } from "./adapters";
-import type { FilePath, UXDataWriteOptions, UXFileInfoStub, UXFolderInfo, UXStat } from "@lib/common/types";
+import type { FilePath } from "@lib/common/models/db.type";
+import type { UXDataWriteOptions, UXFileInfoStub, UXFolderInfo, UXStat } from "@lib/common/models/fileaccess.type";
 import { compareFileFreshnessGeneric } from "../services/implements/injectable/InjectablePathService";
 
 // Mock file types

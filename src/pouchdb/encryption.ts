@@ -1,15 +1,9 @@
 import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
-import {
-    type EntryDoc,
-    type AnyEntry,
-    type EntryLeaf,
-    type FilePathWithPrefix,
-    type DocumentID,
-    type EntryWithEden,
-    type E2EEAlgorithm,
-    E2EEAlgorithms,
-    isMetaEntry,
-} from "@lib/common/types";
+import type { EntryDoc } from "@lib/common/models/db.definition";
+import { isMetaEntry } from "@lib/common/models/db.definition";
+import type { AnyEntry, EntryLeaf, FilePathWithPrefix, DocumentID, EntryWithEden } from "@lib/common/models/db.type";
+import type { E2EEAlgorithm } from "@lib/common/models/setting.type";
+import { E2EEAlgorithms } from "@lib/common/models/setting.const";
 import { isEncryptedChunkEntry, isSyncInfoEntry, isObfuscatedEntry } from "@lib/common/utils.database";
 import { isPathProbablyObfuscated, obfuscatePath } from "octagonal-wheels/encryption/encryption";
 // import { encryptHKDF, decryptHKDF } from "../encryption/encryptHKDF.ts";

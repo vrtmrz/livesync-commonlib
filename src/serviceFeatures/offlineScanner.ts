@@ -1,20 +1,13 @@
 import type PouchDB from "pouchdb-core";
 import { unique } from "octagonal-wheels/collection";
 import { withConcurrency } from "octagonal-wheels/iterable/map";
-import {
-    LOG_LEVEL_DEBUG,
-    LOG_LEVEL_INFO,
-    LOG_LEVEL_NOTICE,
-    LOG_LEVEL_VERBOSE,
-    type EntryDoc,
-    type FilePathWithPrefix,
-    type FilePathWithPrefixLC,
-    type MetaEntry,
-    isMetaEntry,
-    type UXFileInfoStub,
-    type ObsidianLiveSyncSettings,
-    type LOG_LEVEL,
-} from "@lib/common/types";
+import type { LOG_LEVEL } from "@lib/common/logger";
+import { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
+import type { EntryDoc } from "@lib/common/models/db.definition";
+import { isMetaEntry } from "@lib/common/models/db.definition";
+import type { FilePathWithPrefix, FilePathWithPrefixLC, MetaEntry } from "@lib/common/models/db.type";
+import type { UXFileInfoStub } from "@lib/common/models/fileaccess.type";
+import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 import { compareMTime, isAnyNote } from "@lib/common/utils.database";
 import { stripAllPrefixes } from "@lib/string_and_binary/path";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";

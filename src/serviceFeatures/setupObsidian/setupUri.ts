@@ -1,4 +1,5 @@
-import { LOG_LEVEL_NOTICE, type ObsidianLiveSyncSettings } from "@lib/common/types";
+import { LOG_LEVEL_NOTICE } from "@lib/common/logger";
+import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 import type { LogFunction } from "@lib/services/lib/logUtils";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import { encodeSettingsToSetupURI } from "@lib/API/processSetting";
