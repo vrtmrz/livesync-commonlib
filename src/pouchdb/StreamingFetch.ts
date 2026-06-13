@@ -94,6 +94,33 @@ export type FetchChangesForInitialSyncProgress = {
     docsToFetch: number; // Total number of documents that need to be fetched based on the pending count from CouchDB.
     totalBytes: number; // Total bytes fetched so far.
 };
+
+/**
+ * Type of the sequence ID used by CouchDB, which can be a number or a string depending on the database configuration and version.
+ */
+type DBSequence = number | string;
+type DatabaseSyncStatus = {
+    update_seq?: DBSequence;
+    last_seq?: DBSequence;
+    pending?: number;
+};
+
+function reachedTargetSequence(seq: DBSequence | undefined, targetSeq: DBSequence | undefined): boolean {
+    if (seq === undefined || targetSeq === undefined) return false;
+    const seqStr = seq.toString();
+    const targetSeqStr = targetSeq.toString();
+    if (seqStr === targetSeqStr) return true;
+
+    // CouchDB sequence IDs are typically formatted as "seq_num-opaque_hash" (e.g. "5-g1AAA...") or just integers (e.g. 5).
+    const seqNum = parseInt(seqStr.split("-")[0], 10);
+    const targetSeqNum = parseInt(targetSeqStr.split("-")[0], 10);
+    if (!isNaN(seqNum) && !isNaN(targetSeqNum)) {
+        return seqNum >= targetSeqNum;
+    }
+    return false;
+}
+
+
 /**
  * Fetches initial data from CouchDB as a stream and writes it into PouchDB.
  * @param downloadToDB PouchDB instance.
@@ -118,14 +145,32 @@ export async function fetchChangesForInitialSync(
         conflicts: "true",
         revs: "true",
         since: since.toString(),
+        heartbeat: "30000",
     } as const;
     const fetchHeaders = {
         Accept: "application/json",
         Authorization: authHeader,
     };
 
+    // 1. Fetch database info to get the actual final sequence ID (targetSeq)
+    let targetSeq: DBSequence | undefined = undefined;
+    try {
+        const dbInfoRes = await _fetch(remoteDbUrl, {
+            headers: fetchHeaders,
+        });
+        if (dbInfoRes.ok) {
+            const dbInfo = await dbInfoRes.json();
+            targetSeq = dbInfo.update_seq;
+        }
+    } catch (e) {
+        Logger("Failed to fetch database info for target sequence:", LOG_LEVEL_VERBOSE);
+        Logger(e, LOG_LEVEL_VERBOSE);
+    }
+
+    // 2. Fetch changes status with limit=1 and feed=normal to get the pending count without blocking
     const fetchURL = setParamsToURL(new URL(`${remoteDbUrl}/_changes`), {
         ...changesBaseParams,
+        feed: "normal",
         limit: "1",
     });
 
@@ -133,21 +178,42 @@ export async function fetchChangesForInitialSync(
         headers: fetchHeaders,
     });
     const infoSource = await infoRes.text();
-    const infoLines = infoSource
-        .trim()
-        .split("\n")
-        .filter((line) => line.trim() !== "");
-    const lastLine = infoLines[infoLines.length - 1];
-    if (!lastLine) {
+    const infoSourceTrimmed = infoSource.trim();
+    if (!infoSourceTrimmed) {
         throw new Error("Failed to fetch changes from CouchDB. No data received.");
     }
-    const info = JSON.parse(lastLine) as { update_seq: number | string; pending?: number };
+
+    let info: DatabaseSyncStatus;
+    if (infoSourceTrimmed.startsWith("{") && infoSourceTrimmed.endsWith("}")) {
+        try {
+            info = JSON.parse(infoSourceTrimmed) as DatabaseSyncStatus;
+        } catch {
+            const infoLines = infoSourceTrimmed.split("\n").filter((line) => line.trim() !== "");
+            const lastLine = infoLines[infoLines.length - 1];
+            info = JSON.parse(lastLine) as DatabaseSyncStatus;
+        }
+    } else {
+        const infoLines = infoSourceTrimmed.split("\n").filter((line) => line.trim() !== "");
+        const lastLine = infoLines[infoLines.length - 1];
+        info = JSON.parse(lastLine) as DatabaseSyncStatus;
+    }
     const pendingDocs = info.pending || 0;
     const docsToFetch = pendingDocs + 1; // +1 to include the change we just fetched for getting the target sequence.
 
-    const targetSeq = info.update_seq;
+    // If targetSeq was not fetched successfully from the database info, fallback to the info response
+    if (targetSeq === undefined) {
+        targetSeq = info.last_seq || info.update_seq || (info as any).seq;
+    }
+
+    const finalTargetSeq = targetSeq ?? "";
+
+    if (reachedTargetSequence(since, finalTargetSeq)) {
+        Logger("Already at the target sequence. Initial data synchronisation is complete.");
+        return;
+    }
+
     Logger(
-        `Starting initial synchronization. Current sequence: ${since}, Target sequence: ${targetSeq}, Total documents to fetch: ${docsToFetch}.`
+        `Starting initial synchronisation. Current sequence: ${since}, Target sequence: ${finalTargetSeq}, Total documents to fetch: ${docsToFetch}.`
     );
     const controller = new AbortController();
     const url = setParamsToURL(new URL(`${remoteDbUrl}/_changes`), {
@@ -191,7 +257,7 @@ export async function fetchChangesForInitialSync(
         onProgress?.({
             totalFetched,
             totalValidFetched,
-            targetSeq,
+            targetSeq: finalTargetSeq,
             docsToFetch,
             totalBytes,
         });
@@ -242,7 +308,7 @@ export async function fetchChangesForInitialSync(
                         totalValidFetched++;
                     }
                     reportProgress();
-                    if (totalFetched >= docsToFetch) {
+                    if (totalFetched >= docsToFetch || reachedTargetSequence(parsed.seq, finalTargetSeq)) {
                         Logger(
                             `All documents fetched. Stopping the stream and writing remaining documents to PouchDB...`
                         );
