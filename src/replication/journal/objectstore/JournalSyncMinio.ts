@@ -49,7 +49,8 @@ export class JournalSyncMinio extends JournalSyncAbstract {
             },
             {
                 name: "addBucketCustomHeadersMiddleware",
-                step: "build",
+                step: "finalizeRequest",
+                priority: "low",
             }
         );
         const arrayBufferToBase64Sync = (buffer: ArrayBufferLike) => {
