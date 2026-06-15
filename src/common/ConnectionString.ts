@@ -43,7 +43,7 @@ export class ConnectionStringParser {
         if (subscheme === "p2p") {
             return {
                 type: "p2p",
-                settings: this.parseP2P(new URL(uriString)),
+                settings: this.parseP2P(uriString),
             };
         }
 
@@ -150,34 +150,59 @@ export class ConnectionStringParser {
         return withSlsScheme(newUrl, "s3");
     }
 
-    private static parseP2P(url: URL): P2PConnectionInfo {
+    private static parseP2P(uriString: string): P2PConnectionInfo {
+        const match = uriString.match(/^sls\+p2p:\/\/([^?#]+)(?:\?([^#]*))?(?:#(.*))?$/);
+        if (!match) {
+            throw new Error(`Invalid P2P URI: ${uriString}`);
+        }
+        const authority = match[1];
+        const queryString = match[2] || "";
+
+        let userinfo = "";
+        let host = authority;
+        const lastAtIndex = authority.lastIndexOf("@");
+        if (lastAtIndex !== -1) {
+            userinfo = authority.slice(0, lastAtIndex);
+            host = authority.slice(lastAtIndex + 1);
+        }
+
+        let password = "";
+        if (userinfo) {
+            const colonIndex = userinfo.indexOf(":");
+            if (colonIndex !== -1) {
+                password = userinfo.slice(colonIndex + 1);
+            }
+        }
+
+        const searchParams = new URLSearchParams(queryString);
         return {
-            P2P_Enabled: url.searchParams.get("enabled") !== "false",
-            P2P_roomID: decodeURIComponent(url.host),
-            P2P_passphrase: decodeURIComponent(url.password),
-            P2P_relays: url.searchParams.get("relays") || "",
-            P2P_AppID: url.searchParams.get("appId") || "self-hosted-livesync",
-            P2P_AutoStart: url.searchParams.get("autoStart") === "true",
-            P2P_AutoBroadcast: url.searchParams.get("autoBroadcast") === "true",
-            P2P_turnServers: url.searchParams.get("turnServers") || "",
-            P2P_turnUsername: url.searchParams.get("turnUser") || "",
-            P2P_turnCredential: url.searchParams.get("turnPass") || "",
+            P2P_Enabled: searchParams.get("enabled") !== "false",
+            P2P_roomID: decodeURIComponent(host),
+            P2P_passphrase: decodeURIComponent(password),
+            P2P_relays: searchParams.get("relays") || "",
+            P2P_AppID: searchParams.get("appId") || "self-hosted-livesync",
+            P2P_AutoStart: searchParams.get("autoStart") === "true",
+            P2P_AutoBroadcast: searchParams.get("autoBroadcast") === "true",
+            P2P_turnServers: searchParams.get("turnServers") || "",
+            P2P_turnUsername: searchParams.get("turnUser") || "",
+            P2P_turnCredential: searchParams.get("turnPass") || "",
         };
     }
 
     private static serializeP2P(settings: P2PConnectionInfo): string {
-        // P2P uses the non-special `sls+p2p:` scheme directly, because the room
-        // ID may contain characters that a special-scheme URL host disallows.
-        const newUrl = new URL(`sls+p2p://${encodeURIComponent(settings.P2P_roomID)}`);
-        newUrl.password = encodeURIComponent(settings.P2P_passphrase);
-        if (!settings.P2P_Enabled) newUrl.searchParams.set("enabled", "false");
-        newUrl.searchParams.set("relays", settings.P2P_relays);
-        newUrl.searchParams.set("appId", settings.P2P_AppID);
-        if (settings.P2P_AutoStart) newUrl.searchParams.set("autoStart", "true");
-        if (settings.P2P_AutoBroadcast) newUrl.searchParams.set("autoBroadcast", "true");
-        if (settings.P2P_turnServers) newUrl.searchParams.set("turnServers", settings.P2P_turnServers);
-        if (settings.P2P_turnUsername) newUrl.searchParams.set("turnUser", settings.P2P_turnUsername);
-        if (settings.P2P_turnCredential) newUrl.searchParams.set("turnPass", settings.P2P_turnCredential);
-        return newUrl.toString();
+        const searchParams = new URLSearchParams();
+        if (!settings.P2P_Enabled) searchParams.set("enabled", "false");
+        searchParams.set("relays", settings.P2P_relays);
+        searchParams.set("appId", settings.P2P_AppID);
+        if (settings.P2P_AutoStart) searchParams.set("autoStart", "true");
+        if (settings.P2P_AutoBroadcast) searchParams.set("autoBroadcast", "true");
+        if (settings.P2P_turnServers) searchParams.set("turnServers", settings.P2P_turnServers);
+        if (settings.P2P_turnUsername) searchParams.set("turnUser", settings.P2P_turnUsername);
+        if (settings.P2P_turnCredential) searchParams.set("turnPass", settings.P2P_turnCredential);
+
+        const credentials = settings.P2P_passphrase ? `:${encodeURIComponent(settings.P2P_passphrase)}@` : "";
+        const host = encodeURIComponent(settings.P2P_roomID);
+        const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+        return `sls+p2p://${credentials}${host}${query}`;
     }
 }

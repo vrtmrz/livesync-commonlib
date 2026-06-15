@@ -154,6 +154,66 @@ describe("ConnectionStringParser P2P", () => {
         expect(parsed.settings.P2P_turnUsername).toBe("turn-user");
         expect(parsed.settings.P2P_turnCredential).toBe("turn-pass");
     });
+
+    it("should handle edge case characters in room ID and passphrase", () => {
+        const settings = {
+            P2P_Enabled: true,
+            P2P_roomID: "My_P2P-Room@123",
+            P2P_passphrase: "p@ss:word!",
+            P2P_relays: "wss://relay.example",
+            P2P_AppID: "self-hosted-livesync",
+            P2P_AutoStart: false,
+            P2P_AutoBroadcast: false,
+            P2P_turnServers: "",
+            P2P_turnUsername: "",
+            P2P_turnCredential: "",
+        };
+
+        const uri = ConnectionStringParser.serialize({
+            type: "p2p",
+            settings,
+        });
+
+        expect(uri).toContain("sls+p2p://:p%40ss%3Aword!@My_P2P-Room%40123");
+
+        const parsed = ConnectionStringParser.parse(uri);
+        if (parsed.type !== "p2p") {
+            throw new Error("Expected p2p type");
+        }
+
+        expect(parsed.settings.P2P_roomID).toBe("My_P2P-Room@123");
+        expect(parsed.settings.P2P_passphrase).toBe("p@ss:word!");
+    });
+
+    it("should handle empty passphrase", () => {
+        const settings = {
+            P2P_Enabled: true,
+            P2P_roomID: "room-simple",
+            P2P_passphrase: "",
+            P2P_relays: "wss://relay.example",
+            P2P_AppID: "self-hosted-livesync",
+            P2P_AutoStart: false,
+            P2P_AutoBroadcast: false,
+            P2P_turnServers: "",
+            P2P_turnUsername: "",
+            P2P_turnCredential: "",
+        };
+
+        const uri = ConnectionStringParser.serialize({
+            type: "p2p",
+            settings,
+        });
+
+        expect(uri).toBe("sls+p2p://room-simple?relays=wss%3A%2F%2Frelay.example&appId=self-hosted-livesync");
+
+        const parsed = ConnectionStringParser.parse(uri);
+        if (parsed.type !== "p2p") {
+            throw new Error("Expected p2p type");
+        }
+
+        expect(parsed.settings.P2P_roomID).toBe("room-simple");
+        expect(parsed.settings.P2P_passphrase).toBe("");
+    });
 });
 
 describe("ConnectionStringParser S3", () => {
