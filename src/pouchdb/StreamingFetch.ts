@@ -120,7 +120,6 @@ function reachedTargetSequence(seq: DBSequence | undefined, targetSeq: DBSequenc
     return false;
 }
 
-
 /**
  * Fetches initial data from CouchDB as a stream and writes it into PouchDB.
  * @param downloadToDB PouchDB instance.

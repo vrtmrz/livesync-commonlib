@@ -83,18 +83,12 @@ describe("StreamingFetch - fetchChangesForInitialSync integration", () => {
         // 3. Verify documents in local database
         const localDocs = await localDB.allDocs({ include_docs: true });
         expect(localDocs.rows.length).toBe(3);
-        expect(localDocs.rows.map(r => r.id).sort()).toEqual(["doc1", "doc2", "doc3"]);
+        expect(localDocs.rows.map((r) => r.id).sort()).toEqual(["doc1", "doc2", "doc3"]);
     });
 
     it("should handle empty database gracefully", async () => {
         // Perform streaming fetch on empty database
-        await fetchChangesForInitialSync(
-            localDB,
-            remoteDbUrl,
-            authHeader,
-            (doc) => Promise.resolve(doc as any),
-            "0"
-        );
+        await fetchChangesForInitialSync(localDB, remoteDbUrl, authHeader, (doc) => Promise.resolve(doc as any), "0");
 
         const localDocs = await localDB.allDocs();
         expect(localDocs.rows.length).toBe(0);
@@ -104,7 +98,7 @@ describe("StreamingFetch - fetchChangesForInitialSync integration", () => {
         // 1. Populate remote database
         const docs = [{ _id: "doc1", type: "plain", data: "hello" }];
         await remoteDB.bulkDocs(docs);
-        
+
         // Get the latest sequence
         const info: any = await remoteDB.info();
         const latestSeq = info.update_seq;
