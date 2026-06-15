@@ -293,7 +293,11 @@ export abstract class ServiceFileHandlerBase
             return true;
         }
         if (!existOnDB && existOnStorage) {
-            if (!force && !settings.writeDocumentsIfConflicted && (await this.preserveUnsyncedStorageAsConflict(path, existDoc, docEntry))) {
+            if (
+                !force &&
+                !settings.writeDocumentsIfConflicted &&
+                (await this.preserveUnsyncedStorageAsConflict(path, existDoc, docEntry))
+            ) {
                 return true;
             }
             // Deletion has been Transferred. Storage files will be deleted.
@@ -353,7 +357,11 @@ export abstract class ServiceFileHandlerBase
                 this._log(`File ${docRead.path} is not changed`, LOG_LEVEL_VERBOSE);
                 return true;
             }
-            if (!force && !settings.writeDocumentsIfConflicted && (await this.preserveUnsyncedStorageAsConflict(path, existDoc, docEntry, docData))) {
+            if (
+                !force &&
+                !settings.writeDocumentsIfConflicted &&
+                (await this.preserveUnsyncedStorageAsConflict(path, existDoc, docEntry, docData))
+            ) {
                 return true;
             }
             // Let's apply the changes.

@@ -3,6 +3,8 @@ import type { DocumentID, EntryLeaf } from "../../common/types";
 import type { IReadLayer } from "./ChunkLayerInterfaces";
 import type { ChunkReadOptions } from "./types.ts";
 import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
+import type { IReplicatorService } from "@lib/services/base/IService.ts";
+import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
 
 /**
  * Arrival wait layer - emits events for fetcher, and waits for chunks to arrive
@@ -17,12 +19,42 @@ export class ArrivalWaitLayer implements IReadLayer {
     >();
     private readonly DEFAULT_TIMEOUT = 15000;
     private readonly eventEmitter: (eventName: string, data: DocumentID[]) => void;
+    private replicatorService?: IReplicatorService;
+    private disposers: (() => void)[] = [];
 
-    constructor(eventEmitter: (eventName: string, data: DocumentID[]) => void) {
+    constructor(eventEmitter: (eventName: string, data: DocumentID[]) => void, replicatorService?: IReplicatorService) {
         this.eventEmitter = eventEmitter;
+        this.replicatorService = replicatorService;
+
+        if (this.replicatorService) {
+            // Listen to the online activity status reactively. If online activity
+            // (replication or active fetching) becomes inactive, immediately time out
+            // and resolve any pending chunk wait promises to false. This prevents
+            // UI hangs during network loss or pause.
+            const listener = () => {
+                if (!this.replicatorService!.isOnlineActivityActive.value) {
+                    if (this.waitingMap.size > 0) {
+                        Logger(
+                            `Online activity is inactive. Timing out ${this.waitingMap.size} waiting chunks immediately.`,
+                            LOG_LEVEL_VERBOSE
+                        );
+                        this.clearWaiting();
+                    }
+                }
+            };
+            this.replicatorService.isOnlineActivityActive.onChanged(listener);
+            this.disposers.push(() => {
+                this.replicatorService!.isOnlineActivityActive.offChanged(listener);
+            });
+        }
     }
 
     private enqueueWaiting(id: DocumentID, timeout: number): Promise<EntryLeaf | false> {
+        // If online activity is already inactive, return false immediately to avoid waiting.
+        if (this.replicatorService && !this.replicatorService.isOnlineActivityActive.value) {
+            return Promise.resolve(false);
+        }
+
         const previous = this.waitingMap.get(id);
         if (previous) {
             return previous.resolver.promise;
@@ -114,6 +146,10 @@ export class ArrivalWaitLayer implements IReadLayer {
 
     tearDown(): void {
         this.clearWaiting();
+        for (const dispose of this.disposers) {
+            dispose();
+        }
+        this.disposers = [];
     }
     /**
      * Get count of waiting chunks

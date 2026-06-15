@@ -7,7 +7,13 @@ import { ConflictManager } from "../managers/ConflictManager.ts";
 import { EntryManager } from "../managers/EntryManager/EntryManager.ts";
 import { HashManager } from "../managers/HashManager/HashManager.ts";
 import type { APIService } from "../services/base/APIService.ts";
-import type { IDatabaseService, IPathService, IReplicatorService, ISettingService } from "../services/base/IService.ts";
+import type {
+    IDatabaseService,
+    IPathService,
+    IReplicatorService,
+    IReplicationService,
+    ISettingService,
+} from "../services/base/IService.ts";
 import { createInstanceLogFunction, type LogFunction } from "../services/lib/logUtils.ts";
 
 export interface LiveSyncManagersOptions<TSettingService extends ISettingService = ISettingService> {
@@ -16,11 +22,13 @@ export interface LiveSyncManagersOptions<TSettingService extends ISettingService
     settingService: TSettingService;
     pathService: IPathService;
     replicatorService: IReplicatorService;
+    replicationService: IReplicationService;
     APIService: APIService;
 }
 export class LiveSyncManagers {
     protected _pathService: IPathService;
     protected _replicatorService: IReplicatorService;
+    protected _replicationService: IReplicationService;
     protected _settingService: ISettingService;
     protected _APIService: APIService;
 
@@ -39,6 +47,7 @@ export class LiveSyncManagers {
         this._APIService = options.APIService;
         this._pathService = options.pathService;
         this._replicatorService = options.replicatorService;
+        this._replicationService = options.replicationService;
         this._settingService = options.settingService;
         this.log = createInstanceLogFunction("LiveSyncManagers", this._APIService);
         const { changeManager, hashManager, splitter, chunkManager, chunkFetcher, entryManager, conflictManager } =
@@ -90,6 +99,9 @@ export class LiveSyncManagers {
             changeManager: changeManager,
             database,
             settingService: this.options.settingService,
+            replicatorService: this._replicatorService,
+            replicationService: this._replicationService,
+            APIService: this._APIService,
         });
         const chunkFetcher = new ChunkFetcher({
             chunkManager: chunkManager,

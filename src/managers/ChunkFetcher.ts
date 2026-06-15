@@ -52,6 +52,7 @@ export class ChunkFetcher {
 
     onEvent(ids: DocumentID[]): void {
         this.queue = unique([...this.queue, ...ids]);
+        this.options.replicatorService.activeFetchCount.value = this.currentProcessing + this.queue.length;
         if (this.canRequestMore()) {
             compatGlobal.setTimeout(() => void this.requestMissingChunks(), 1);
         }
@@ -79,7 +80,9 @@ export class ChunkFetcher {
         try {
             // Logger(`Requesting missing chunks: ${this.queue.join(", ")}`);
             this.currentProcessing++;
+            this.options.replicatorService.activeFetchCount.value = this.currentProcessing + this.queue.length;
             const requestIDs = this.queue.splice(0, BATCH_SIZE);
+            this.options.replicatorService.activeFetchCount.value = this.currentProcessing + this.queue.length;
             const now = Date.now();
             const timeSinceLastRequest = now - this.previousRequestTime;
             this.previousRequestTime = now;
@@ -156,6 +159,7 @@ export class ChunkFetcher {
             // The queue is cleared after requesting.
         } finally {
             this.currentProcessing--;
+            this.options.replicatorService.activeFetchCount.value = this.currentProcessing + this.queue.length;
             this.previousRequestTime = Date.now();
             if (this.queue.length > 0) {
                 // If there are remaining items in the queue, trigger the next process.

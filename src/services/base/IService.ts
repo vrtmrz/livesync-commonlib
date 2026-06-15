@@ -104,6 +104,7 @@ export interface IPathService {
 export interface openDatabaseParameters {
     replicator: ReplicatorService;
     databaseEvents: DatabaseEventService;
+    replication: IReplicationService;
 }
 export interface IDatabaseService {
     localDatabase: LiveSyncLocalDB;
@@ -164,6 +165,9 @@ export interface IReplicatorService {
 
     getActiveReplicator(): LiveSyncAbstractReplicator | undefined;
     replicationStatics: ReactiveSource<ReplicationStatics>;
+    activeFetchCount: ReactiveSource<number>;
+    isReplicatingActive: ReactiveSource<boolean>;
+    isOnlineActivityActive: ReactiveSource<boolean>;
 }
 export interface IReplicationService {
     processSynchroniseResult(doc: MetaEntry): Promise<boolean>;

@@ -54,7 +54,10 @@ export interface LiveSyncLocalDBEnv {
     // $$getReplicator: () => LiveSyncAbstractReplicator;
     // getSettings(): RemoteDBSettings;
     // managers: LiveSyncManagers;
-    services: Pick<IServiceHub, "API" | "database" | "databaseEvents" | "replicator" | "setting" | "path">;
+    services: Pick<
+        IServiceHub,
+        "API" | "database" | "databaseEvents" | "replicator" | "setting" | "path" | "replication"
+    >;
 }
 
 export function getNoFromRev(rev: string) {
@@ -157,6 +160,7 @@ export class LiveSyncLocalDB {
             APIService: this.env.services.API as APIService,
             pathService: this.env.services.path,
             replicatorService: this.env.services.replicator,
+            replicationService: this.env.services.replication,
             settingService: this.env.services.setting,
             databaseService: this.env.services.database,
         });

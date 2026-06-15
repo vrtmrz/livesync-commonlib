@@ -298,6 +298,7 @@ Are you sure you wish to proceed?`;
         await this.database.openDatabase({
             databaseEvents: this.databaseEvents,
             replicator: this.replicator,
+            replication: this.replication,
         });
         // this.core.isReady = true;
         this.appLifecycle.markIsReady();
@@ -341,6 +342,7 @@ Are you sure you wish to proceed?`;
         await this.database.openDatabase({
             databaseEvents: this.databaseEvents,
             replicator: this.replicator,
+            replication: this.replication,
         });
         this.appLifecycle.markIsReady();
 

@@ -12,7 +12,7 @@ import type { DatabaseEventService } from "./DatabaseEventService";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { RemoteTypes } from "@lib/common/types";
 import { DEFAULT_REPLICATION_STATICS } from "../../common/models/shared.definition";
-import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
+import { reactive, reactiveSource } from "octagonal-wheels/dataobject/reactive";
 
 export interface ReplicatorServiceDependencies {
     settingService: SettingService;
@@ -176,4 +176,26 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     }
 
     replicationStatics = reactiveSource({ ...DEFAULT_REPLICATION_STATICS });
+    activeFetchCount = reactiveSource(0);
+
+    isReplicatingTransferring = reactive(() => {
+        const syncStatus = this.replicationStatics.value.syncStatus;
+        return ["CONNECTED", "STARTED", "JOURNAL_SEND", "JOURNAL_RECEIVE"].includes(syncStatus);
+    });
+
+    isReplicatingActive = reactive(() => {
+        const isTransferring = this.isReplicatingTransferring.value;
+        const isApplying = (this._activeReplicator?.env.services.replication?.replicationResultCount.value ?? 0) > 0;
+        return isTransferring || isApplying;
+    });
+
+    isOnlineActivityActive = reactive(() => {
+        const isOnline = this._activeReplicator?.env.services.API?.isOnline ?? true;
+        if (!isOnline) {
+            return false;
+        }
+        const isReplicating = this.isReplicatingActive.value;
+        const isFetching = this.activeFetchCount.value > 0;
+        return isReplicating || isFetching;
+    });
 }

@@ -16,7 +16,15 @@ import { createInstanceLogFunction, type LogFunction } from "../services/lib/log
 
 export async function prepareDatabaseForUse(
     host: NecessaryServices<
-        "appLifecycle" | "setting" | "vault" | "path" | "database" | "databaseEvents" | "fileProcessing" | "replicator",
+        | "appLifecycle"
+        | "setting"
+        | "vault"
+        | "path"
+        | "database"
+        | "databaseEvents"
+        | "fileProcessing"
+        | "replicator"
+        | "replication",
         never
     >,
     log: LogFunction,
@@ -33,6 +41,7 @@ export async function prepareDatabaseForUse(
         (await host.services.database.openDatabase({
             databaseEvents: host.services.databaseEvents,
             replicator: host.services.replicator,
+            replication: host.services.replication,
         }))
     ) {
         if (host.services.database.localDatabase.isReady) {
@@ -69,7 +78,8 @@ export function usePrepareDatabaseForUse(
         | "database"
         | "databaseEvents"
         | "fileProcessing"
-        | "replicator",
+        | "replicator"
+        | "replication",
         never
     >
 ) {

@@ -16,7 +16,6 @@ import {
     REMOTE_COUCHDB,
     type ObsidianLiveSyncSettings,
     type MetaEntry,
-    LEAF_WAIT_ONLY_REMOTE,
     LEAF_WAIT_TIMEOUT,
     LEAF_WAIT_TIMEOUT_SEQUENTIAL_REPLICATOR,
     RemoteTypes,
@@ -394,37 +393,48 @@ function canFetchRemotely(settings: ObsidianLiveSyncSettings) {
     return true;
 }
 /**
- * Decide how to retrieve chunks based on settings and waitForReady flag.
- * When waitForReady is true, it will wait for a certain time to retrieve chunks from the remote source if they are not available locally, depending on the settings.
+ * Decide how to retrieve chunks based on settings and the online activity state.
+ * Previously, the 'waitForReady' parameter determined if we should wait for chunk retrieval.
+ * Now, we always request chunk retrieval and rely on the reactive 'ArrivalWaitLayer'
+ * to abort immediately if there is no active replication or ongoing fetch activity.
+ * This prevents unnecessary user-interface freezes while allowing a robust wait
+ * when chunks are actually arriving or when replication is active.
  */
-function computeChunkRetrievalMethod(waitForReady: boolean, settings: ObsidianLiveSyncSettings) {
-    const isOnDemandFetchEnabled = canFetchRemotely(settings);
-    const isSequentialReplicator = settings.remoteType === RemoteTypes.REMOTE_MINIO;
-    if (!waitForReady) {
-        // if waitForReady=false, basically, we should respond immediately.
-        // However, while on-demand chunking is enabled, we do not have chunks on local database until they are fetched from the remote source.
-        if (isOnDemandFetchEnabled) {
-            return {
-                timeout: LEAF_WAIT_ONLY_REMOTE,
-                preventRemoteRequest: false,
-            };
-        }
+function computeChunkRetrievalMethod(
+    waitForReady: boolean,
+    settings: ObsidianLiveSyncSettings,
+    chunkManager: ChunkManager
+) {
+    // If the device is not online, fail fast immediately by returning a 0 timeout.
+    const isOnline = chunkManager.options.APIService?.isOnline ?? true;
+    if (!isOnline) {
         return {
             timeout: 0,
             preventRemoteRequest: true,
         };
     }
-    // if waitForReady=true, we can wait for a certain time to retrieve chunks from the remote source if they are not available locally, depending on the settings.
-    if (isSequentialReplicator) {
-        // if sequential replicator is used, we can wait longer because chunks will be corrected incrementally, so the chance to get chunks from local database will increase over time while waiting.
+
+    const isOnDemandFetchEnabled = canFetchRemotely(settings);
+    const isSequentialReplicator = settings.remoteType === RemoteTypes.REMOTE_MINIO;
+
+    // We wait if on-demand fetching is enabled, or if replication is currently active.
+    // The reactive abort mechanism will terminate the wait if online activity stops.
+    const isReplicatingActive = chunkManager.isReplicatingActive?.() ?? false;
+    const shouldWait = isOnDemandFetchEnabled || isReplicatingActive;
+
+    if (!shouldWait) {
         return {
-            timeout: LEAF_WAIT_TIMEOUT_SEQUENTIAL_REPLICATOR,
-            preventRemoteRequest: true, // Sequential replicator may not use on-demand fetching
+            timeout: 0,
+            preventRemoteRequest: true,
         };
     }
-    // on-demand fetch behaviour.
+
+    // Determine the timeout based on the remote storage type.
+    // Sequential replicators (like MinIO) use a shorter timeout.
+    const timeout = isSequentialReplicator ? LEAF_WAIT_TIMEOUT_SEQUENTIAL_REPLICATOR : LEAF_WAIT_TIMEOUT;
+
     return {
-        timeout: LEAF_WAIT_TIMEOUT,
+        timeout: timeout,
         preventRemoteRequest: !isOnDemandFetchEnabled,
     };
 }
@@ -479,7 +489,7 @@ async function respondEntryFromMeta(
         //     : isNetworkEnabled
         //         ? LEAF_WAIT_ONLY_REMOTE
         //         : 0;
-        const { timeout, preventRemoteRequest } = computeChunkRetrievalMethod(waitForReady, settings);
+        const { timeout, preventRemoteRequest } = computeChunkRetrievalMethod(waitForReady, settings, chunkManager);
 
         const childrenKeys = [...meta.children] as DocumentID[];
         const chunks = await chunkManager.read(

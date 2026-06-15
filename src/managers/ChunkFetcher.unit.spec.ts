@@ -55,6 +55,7 @@ describe("ChunkFetcher", () => {
         // Mock ReplicatorService
         mockReplicatorService = {
             getActiveReplicator: vi.fn(),
+            activeFetchCount: { value: 0 },
         } as any;
 
         const options: ChunkFetcherOptions = {

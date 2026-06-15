@@ -279,7 +279,6 @@ describe("ConflictManager", () => {
             expect(result).toBe(false);
         });
 
-
         it("should merge non-conflicting changes", async () => {
             const path = "test-doc" as FilePathWithPrefix;
             const baseData = "line1\nline2\nline3\n";
@@ -460,7 +459,6 @@ describe("ConflictManager", () => {
 
             expect(result).toBe(false);
         });
-
 
         it("should merge non-conflicting object changes", async () => {
             const path = "test.json" as FilePathWithPrefix;

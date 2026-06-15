@@ -1,6 +1,11 @@
 import type { EntryDoc } from "@lib/common/models/db.definition";
 import type { DocumentID, EntryLeaf } from "@lib/common/models/db.type";
-import type { ISettingService } from "@lib/services/base/IService";
+import type {
+    ISettingService,
+    IReplicatorService,
+    IReplicationService,
+    IAPIService,
+} from "@lib/services/base/IService";
 import type { ChangeManager } from "../ChangeManager";
 import type { EVENT_CHUNK_FETCHED, EVENT_MISSING_CHUNK_REMOTE, EVENT_MISSING_CHUNKS } from "../ChunkFetcher";
 
@@ -9,6 +14,9 @@ export type ChunkManagerOptions = {
     changeManager: ChangeManager<EntryDoc>;
     // maxCacheSize?: number; // Maximum cache size
     settingService: ISettingService;
+    replicatorService?: IReplicatorService;
+    replicationService?: IReplicationService;
+    APIService?: IAPIService;
 };
 export type ChunkReadOptions = {
     skipCache?: boolean; // Skip cache when reading

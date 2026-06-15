@@ -22,7 +22,7 @@ import { unique } from "octagonal-wheels/collection";
  * Now uses a middleware layer architecture for read and write operations.
  */
 export class LayeredChunkManager {
-    protected options: ChunkManagerOptions;
+    readonly options: ChunkManagerOptions;
     protected eventTarget: EventTarget = new EventTarget();
 
     // Middleware layers
@@ -88,7 +88,7 @@ export class LayeredChunkManager {
             if (eventName === "missingChunks") {
                 this.emitEvent(EVENT_MISSING_CHUNKS, data);
             }
-        });
+        }, this.options.replicatorService);
 
         // Build read layers pipeline: Cache → Database → ArrivalWait
         // Cache layer implements IReadLayer interface
@@ -235,6 +235,14 @@ export class LayeredChunkManager {
     }
 
     // Helper methods
+    isReplicatingActive(): boolean {
+        return this.options.replicatorService?.isReplicatingActive.value ?? false;
+    }
+
+    isOnlineActivityActive(): boolean {
+        return this.options.replicatorService?.isOnlineActivityActive.value ?? false;
+    }
+
     private isChunkDoc(doc: any): doc is EntryLeaf {
         return doc && typeof doc._id === "string" && doc.type === "leaf";
     }
