@@ -1,6 +1,8 @@
 import { promiseWithResolver, type PromiseWithResolvers } from "octagonal-wheels/promises";
 import { mount } from "svelte";
 import MenuView from "./ui/MenuView.svelte";
+import { _activeDocument } from "@lib/common/coreEnvFunctions.ts";
+
 export class MenuItem {
     type = "item";
     title = "";
@@ -39,7 +41,7 @@ export class Menu {
     }
     waitingForClose?: PromiseWithResolvers<void>;
     showAtPosition(pos: { x: number; y: number }) {
-        const el = document.createElement("div");
+        const el = _activeDocument.createElement("div");
         if (this.waitingForClose) {
             this.waitingForClose.resolve();
         }
@@ -56,7 +58,7 @@ export class Menu {
                 y: pos.y,
             },
         });
-        document.body.appendChild(el);
+        _activeDocument.body.appendChild(el);
         void this.waitingForClose.promise.finally(() => {
             el.remove();
         });

@@ -6,6 +6,8 @@ import { handlers } from "@lib/services/lib/HandlerUtils";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import { BrowserConfirm } from "./BrowserConfirm";
 import { LOG_LEVEL_VERBOSE } from "@lib/common/logger";
+import { _activeDocument } from "@lib/common/coreEnvFunctions.ts";
+
 export declare const PACKAGE_VERSION: string;
 export declare const MANIFEST_VERSION: string;
 
@@ -92,31 +94,31 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
     }
 
     private ensureLogPanel(): HTMLDivElement {
-        if (this.logPanel && document.body.contains(this.logPanel)) {
+        if (this.logPanel && _activeDocument.body.contains(this.logPanel)) {
             return this.logPanel;
         }
 
-        let panel = document.getElementById("livesync-log-panel") as HTMLDivElement | null;
-        let viewport = document.getElementById("livesync-log-viewport") as HTMLDivElement | null;
+        let panel = _activeDocument.getElementById("livesync-log-panel") as HTMLDivElement | null;
+        let viewport = _activeDocument.getElementById("livesync-log-viewport") as HTMLDivElement | null;
 
         if (!panel) {
             // Very sample log panel implementation, just for development and debugging purpose. It will be improved later, and maybe even support some features like log level filtering.
-            panel = document.createElement("div");
+            panel = _activeDocument.createElement("div");
             panel.id = "livesync-log-panel";
 
-            const header = document.createElement("div");
+            const header = _activeDocument.createElement("div");
             header.textContent = "LiveSync Logs";
             header.className = "livesync-log-header";
 
-            viewport = document.createElement("div");
+            viewport = _activeDocument.createElement("div");
             viewport.id = "livesync-log-viewport";
 
             panel.appendChild(header);
             panel.appendChild(viewport);
-            document.body.appendChild(panel);
+            _activeDocument.body.appendChild(panel);
         }
 
-        document.body.classList.add("livesync-log-visible");
+        _activeDocument.body.classList.add("livesync-log-visible");
 
         this.logPanel = panel;
         this.logViewport = viewport;
@@ -149,7 +151,7 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
             return;
         }
 
-        const line = document.createElement("div");
+        const line = _activeDocument.createElement("div");
         line.textContent = this.formatLogLine(message, level, key);
         line.className = "livesync-log-line";
 
@@ -163,15 +165,15 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
     }
 
     private ensureCommandBar(): HTMLDivElement {
-        if (this.commandBar && document.body.contains(this.commandBar)) {
+        if (this.commandBar && _activeDocument.body.contains(this.commandBar)) {
             return this.commandBar;
         }
         // Very sample implementation, just for development and debugging purpose. It will be improved later.
-        let host = document.getElementById("livesync-command-bar") as HTMLDivElement | null;
+        let host = _activeDocument.getElementById("livesync-command-bar") as HTMLDivElement | null;
         if (!host) {
-            host = document.createElement("div");
+            host = _activeDocument.createElement("div");
             host.id = "livesync-command-bar";
-            document.body.appendChild(host);
+            _activeDocument.body.appendChild(host);
         }
 
         this.commandBar = host;
@@ -179,29 +181,29 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
     }
 
     private ensureWindowHost(): HTMLDivElement {
-        if (this.windowRoot && document.body.contains(this.windowRoot)) {
+        if (this.windowRoot && _activeDocument.body.contains(this.windowRoot)) {
             return this.windowRoot;
         }
         // Very sample implementation, just for development and debugging purpose. It will be improved later.
-        let root = document.getElementById("livesync-window-root") as HTMLDivElement | null;
+        let root = _activeDocument.getElementById("livesync-window-root") as HTMLDivElement | null;
         if (!root) {
-            root = document.createElement("div");
+            root = _activeDocument.createElement("div");
             root.id = "livesync-window-root";
 
-            const tabs = document.createElement("div");
+            const tabs = _activeDocument.createElement("div");
             tabs.id = "livesync-window-tabs";
 
-            const body = document.createElement("div");
+            const body = _activeDocument.createElement("div");
             body.id = "livesync-window-body";
 
             root.appendChild(tabs);
             root.appendChild(body);
-            document.body.appendChild(root);
+            _activeDocument.body.appendChild(root);
         }
 
         this.windowRoot = root;
-        this.windowTabs = document.getElementById("livesync-window-tabs") as HTMLDivElement;
-        this.windowBody = document.getElementById("livesync-window-body") as HTMLDivElement;
+        this.windowTabs = _activeDocument.getElementById("livesync-window-tabs") as HTMLDivElement;
+        this.windowBody = _activeDocument.getElementById("livesync-window-body") as HTMLDivElement;
         return root;
     }
 
@@ -212,7 +214,7 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
             return existing;
         }
         // Very sample implementation, just for development and debugging purpose. It will be improved later.
-        const tab = document.createElement("button");
+        const tab = _activeDocument.createElement("button");
         tab.type = "button";
         tab.dataset.windowTab = type;
         tab.textContent = type;
@@ -232,7 +234,7 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
             return existing;
         }
         // Very sample implementation, just for development and debugging purpose. It will be improved later.
-        const panel = document.createElement("div");
+        const panel = _activeDocument.createElement("div");
         panel.dataset.windowPanel = type;
         panel.className = "livesync-window-panel";
 
@@ -324,7 +326,7 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
         let button = this.commandButtons.get(key);
 
         if (!button) {
-            button = document.createElement("button");
+            button = _activeDocument.createElement("button");
             button.type = "button";
             button.className = "livesync-command-button";
             bar.appendChild(button);
@@ -341,7 +343,7 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
         return command;
     }
     addRibbonIcon(icon: string, title: string, callback: (evt: MouseEvent) => any): HTMLElement {
-        return document.createElement("div");
+        return _activeDocument.createElement("div");
     }
     registerWindow(type: string, factory: (leaf: any) => any): void {
         this.windowFactories.set(type, factory);

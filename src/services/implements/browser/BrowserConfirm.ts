@@ -6,6 +6,7 @@ import TextInputBox from "./ui/TextInputBox.svelte";
 import { mount } from "svelte";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
+import { _activeDocument } from "@lib/common/coreEnvFunctions.ts";
 
 function displayMessageBox<T, U extends string[]>(
     message: string,
@@ -13,7 +14,7 @@ function displayMessageBox<T, U extends string[]>(
     title: string,
     commit: (ret: U[number]) => T
 ): Promise<T> {
-    const el = document.createElement("div");
+    const el = _activeDocument.createElement("div");
     const p = promiseWithResolvers<T>();
     mount(MessageBox, {
         target: el,
@@ -27,7 +28,7 @@ function displayMessageBox<T, U extends string[]>(
             },
         },
     });
-    document.body.appendChild(el);
+    _activeDocument.body.appendChild(el);
     void p.promise.finally(() => {
         el.remove();
     });
@@ -39,7 +40,7 @@ function promptForInput(
     placeholder: string,
     isPassword?: boolean
 ): Promise<string | false> {
-    const el = document.createElement("div");
+    const el = _activeDocument.createElement("div");
     const p = promiseWithResolvers<string | false>();
     mount(TextInputBox, {
         target: el,
@@ -53,7 +54,7 @@ function promptForInput(
             },
         },
     });
-    document.body.appendChild(el);
+    _activeDocument.body.appendChild(el);
     void p.promise.finally(() => {
         el.remove();
     });

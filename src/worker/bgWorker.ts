@@ -17,6 +17,7 @@ import type {
     SplitArguments,
     SplitProcessItem,
 } from "./universalTypes.ts";
+import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
 
 export type WorkerInstance = {
     worker: Worker;
@@ -97,7 +98,7 @@ export function removeTask(key: number): void {
 }
 
 function initialiseWorkers() {
-    const maxConcurrency = ~~((navigator.hardwareConcurrency || 8) / 2);
+    const maxConcurrency = ~~((compatGlobal.navigator.hardwareConcurrency || 8) / 2);
     return Array.from(
         { length: maxConcurrency },
         () =>

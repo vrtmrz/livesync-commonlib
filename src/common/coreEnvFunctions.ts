@@ -110,4 +110,3 @@ if (typeof SVGElement !== "undefined") {
         };
     }
 }
-

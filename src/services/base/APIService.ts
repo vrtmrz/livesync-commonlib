@@ -104,7 +104,7 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
 
     get isOnline() {
         if ("navigator" in compatGlobal) {
-            return navigator.onLine;
+            return compatGlobal.navigator.onLine;
         }
         return true;
     }

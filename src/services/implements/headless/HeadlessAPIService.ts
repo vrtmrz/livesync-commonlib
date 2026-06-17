@@ -5,6 +5,8 @@ import type { ICommandCompat } from "@lib/services/base/IService";
 import type { Confirm } from "@lib/interfaces/Confirm";
 // const module = await import("node:crypto");
 import module from "node:crypto";
+import { _activeDocument } from "@lib/common/coreEnvFunctions.ts";
+
 declare const MANIFEST_VERSION: string | undefined;
 // declare const PACKAGE_VERSION: string | undefined;
 /**
@@ -98,7 +100,7 @@ export class HeadlessAPIService<T extends ServiceContext> extends InjectableAPIS
         return command;
     }
     addRibbonIcon(icon: string, title: string, callback: (evt: MouseEvent) => any): HTMLElement {
-        return document?.createElement("div") || ({} as HTMLElement);
+        return _activeDocument?.createElement("div") || ({} as HTMLElement);
     }
     registerWindow(type: string, factory: (leaf: any) => any): void {
         // In a browser environment, window registration might not be applicable.

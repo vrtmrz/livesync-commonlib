@@ -5,6 +5,7 @@ function isTextBlob(blob: Blob) {
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
 import { arrayBufferToBase64Single, readString } from "./convert.ts";
 import { wrapByDefault } from "@lib/common/utils.ts";
+import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
 
 /// Chunk utilities
 function* pickPiece(leftData: string[], minimumChunkSize: number): Generator<string> {
@@ -76,7 +77,7 @@ const segmenter =
         ? wrapByDefault(
               // @ts-ignore We have checked Intl existence above.
               // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return
-              () => new Intl.Segmenter(navigator.language, { granularity: "sentence" }),
+              () => new Intl.Segmenter(compatGlobal.navigator.language, { granularity: "sentence" }),
               (err) => {
                   Logger(`Failed to create Intl.Segmenter: ${err.message}`, LOG_LEVEL_VERBOSE);
                   return undefined;

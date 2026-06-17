@@ -9,6 +9,7 @@ import type {
 } from "@lib/common/types";
 import { arrayBufferToBase64Single, writeString } from "@lib/string_and_binary/convert";
 import { Computed } from "octagonal-wheels/dataobject/Computed";
+import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
 
 /**
  * Generates a credential object based on the provided settings.
@@ -70,7 +71,7 @@ export class JWTTokenGenerator {
             if (key == "") {
                 throw new Error("JWT key is empty");
             }
-            const binaryDerString = window.atob(key);
+            const binaryDerString = compatGlobal.atob(key);
             const binaryDer = new Uint8Array(binaryDerString.length);
             for (let i = 0; i < binaryDerString.length; i++) {
                 binaryDer[i] = binaryDerString.charCodeAt(i);
@@ -85,7 +86,7 @@ export class JWTTokenGenerator {
                 .replace(/-----END [^-]+-----/, "")
                 .replace(/\s+/g, "");
             // const pem = key.replace(/\s/g, "");
-            const binaryDerString = window.atob(pem);
+            const binaryDerString = compatGlobal.atob(pem);
             const binaryDer = new Uint8Array(binaryDerString.length);
             for (let i = 0; i < binaryDerString.length; i++) {
                 binaryDer[i] = binaryDerString.charCodeAt(i);

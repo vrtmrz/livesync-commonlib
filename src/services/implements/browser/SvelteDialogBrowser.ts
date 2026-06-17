@@ -6,6 +6,8 @@ import {
 import type { ServiceContext } from "@lib/services/base/ServiceBase.ts";
 import type { SvelteDialogManagerDependencies } from "@lib/services/implements/base/SvelteDialog";
 import DialogHost from "@lib/UI/DialogHost.svelte";
+import { _activeDocument } from "@lib/common/coreEnvFunctions.ts";
+
 export type DialogMessageProps = Record<string, any>;
 
 export class ShimModal {
@@ -15,13 +17,13 @@ export class ShimModal {
     isOpen: boolean = false;
     baseEl: HTMLElement;
     constructor() {
-        const baseEl = document.createElement("popup");
+        const baseEl = _activeDocument.createElement("popup");
         this.baseEl = baseEl;
-        this.contentEl = document.createElement("div");
+        this.contentEl = _activeDocument.createElement("div");
         this.contentEl.className = "modal-content";
-        this.titleEl = document.createElement("div");
+        this.titleEl = _activeDocument.createElement("div");
         this.titleEl.className = "modal-title";
-        this.modalEl = document.createElement("div");
+        this.modalEl = _activeDocument.createElement("div");
         this.modalEl.className = "modal";
         this.modalEl.setCssStyles({ display: "none" });
         this.modalEl.appendChild(this.titleEl);
@@ -32,7 +34,7 @@ export class ShimModal {
         this.isOpen = true;
         this.modalEl.setCssStyles({ display: "block" });
         if (!this.baseEl.parentElement) {
-            document.body.appendChild(this.baseEl);
+            _activeDocument.body.appendChild(this.baseEl);
         }
         this.onOpen();
     }

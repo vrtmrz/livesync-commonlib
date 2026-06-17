@@ -49,6 +49,7 @@ import { HeadlessServiceHub } from "@lib/services/HeadlessServices.ts";
 import { HeadlessDatabaseService } from "@lib/services/implements/headless/HeadlessDatabaseService.ts";
 import { ServiceContext } from "@lib/services/base/ServiceBase.ts";
 import type { InjectableSettingService } from "@lib/services/implements/injectable/InjectableSettingService.ts";
+import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
 
 export type DirectFileManipulatorOptions = {
     url: string;
@@ -478,7 +479,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                     Logger(`WATCH: CONNECTION HAS BEEN CLOSED, RECONNECTING...`, LEVEL_INFO, "watch");
                     this.watching = false;
                     this.changes = undefined;
-                    setTimeout(() => {
+                    compatGlobal.setTimeout(() => {
                         this.beginWatch(callback, checkIsInterested);
                     }, 10000);
                 } else {
