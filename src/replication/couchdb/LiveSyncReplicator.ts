@@ -114,7 +114,7 @@ async function* genReplication(
 
     try {
         while (!inbox.isDisposed && !signal.aborted) {
-            const r = await inbox.pick(undefined, [abortPromise.promise] as Promise<typeof abortSymbol>[]);
+            const r = await inbox.pick(undefined, [abortPromise.promise]);
             if (r === NOT_AVAILABLE) {
                 break;
             }

@@ -17,7 +17,7 @@ for (const file of files) {
     const jsonDataD2 = objectToDotted(jsonDataSrc);
     const jsonData = Object.fromEntries(
         Object.entries(jsonDataD2)
-            .map(([key, value]) => [key.endsWith("._value") ? key.slice(0, -7) : key, value] as [string, any])
+            .map(([key, value]) => [key.endsWith("._value") ? key.slice(0, -7) : key, value])
             .sort(([keyA], [keyB]) => keyA.localeCompare(keyB))
     );
     const yamlData = JSON.stringify(jsonData, null, 4) + "\n";

@@ -24,7 +24,7 @@ const messages = {
 };
 const w = Object.entries(messages)
     .map(([lang, messageDefs]) =>
-        Object.entries(messageDefs).map(([key, value]) => [key, [lang, value] as [string, string]] as const)
+        Object.entries(messageDefs).map(([key, value]) => [key, [lang, value]] as const)
     )
     .flat();
 
