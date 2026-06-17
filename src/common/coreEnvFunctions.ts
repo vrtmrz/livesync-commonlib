@@ -43,3 +43,71 @@ export const _fetch = compatGlobal.fetch.bind(compatGlobal);
 
 export const _activeDocument =
     "activeDocument" in compatGlobal ? compatGlobal.activeDocument : (compatGlobal as typeof window).document;
+
+// Polyfill HTMLElement and SVGElement with setCssStyles and setCssProps for non-Obsidian environments (e.g. webapp, webpeer)
+if (typeof HTMLElement !== "undefined") {
+    if (!HTMLElement.prototype.setCssStyles) {
+        HTMLElement.prototype.setCssStyles = function (styles: Partial<CSSStyleDeclaration>) {
+            for (const [key, value] of Object.entries(styles)) {
+                if (value === undefined || value === null) {
+                    this.style.removeProperty(key);
+                    const camelKey = key.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+                    if (camelKey !== key) {
+                        (this.style as any)[camelKey] = "";
+                    }
+                } else {
+                    if (key in this.style) {
+                        (this.style as any)[key] = value;
+                    } else {
+                        this.style.setProperty(key, value as unknown as string);
+                    }
+                }
+            }
+        };
+    }
+    if (!HTMLElement.prototype.setCssProps) {
+        HTMLElement.prototype.setCssProps = function (props: Record<string, string>) {
+            for (const [key, value] of Object.entries(props)) {
+                if (value === undefined || value === null) {
+                    this.style.removeProperty(key);
+                } else {
+                    this.style.setProperty(key, value);
+                }
+            }
+        };
+    }
+}
+
+if (typeof SVGElement !== "undefined") {
+    if (!SVGElement.prototype.setCssStyles) {
+        SVGElement.prototype.setCssStyles = function (styles: Partial<CSSStyleDeclaration>) {
+            for (const [key, value] of Object.entries(styles)) {
+                if (value === undefined || value === null) {
+                    this.style.removeProperty(key);
+                    const camelKey = key.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
+                    if (camelKey !== key) {
+                        (this.style as any)[camelKey] = "";
+                    }
+                } else {
+                    if (key in this.style) {
+                        (this.style as any)[key] = value;
+                    } else {
+                        this.style.setProperty(key, value as unknown as string);
+                    }
+                }
+            }
+        };
+    }
+    if (!SVGElement.prototype.setCssProps) {
+        SVGElement.prototype.setCssProps = function (props: Record<string, string>) {
+            for (const [key, value] of Object.entries(props)) {
+                if (value === undefined || value === null) {
+                    this.style.removeProperty(key);
+                } else {
+                    this.style.setProperty(key, value);
+                }
+            }
+        };
+    }
+}
+
