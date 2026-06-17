@@ -1,4 +1,4 @@
-import { compatGlobal } from "../common/coreEnvFunctions";
+import { compatGlobal } from "@lib/common/coreEnvFunctions";
 import { IncomingChunkBuffer, estimateBytes, splitIntoChunks } from "./chunking";
 import { asRpcErrorShape, RpcError } from "./errors";
 import { RpcSession } from "./RpcSession";

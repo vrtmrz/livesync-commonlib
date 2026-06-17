@@ -1,7 +1,7 @@
-import { _fetch } from "../common/coreEnvFunctions";
+import { _fetch } from "@lib/common/coreEnvFunctions";
 import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
-import type { EntryDoc } from "../common/models/db.definition";
-import type { AnyEntry, EntryLeaf } from "../common/models/db.type";
+import type { EntryDoc } from "@lib/common/models/db.definition";
+import type { AnyEntry, EntryLeaf } from "@lib/common/models/db.type";
 
 // Type definition for each line from the CouchDB _changes API (feed=continuous).
 interface CouchChangeLine {

@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { Menu, MenuItem, MenuSeparator } from "../Menu";
+    import type { Menu, MenuItem, MenuSeparator } from "@lib/services/implements/browser/Menu";
     import MenuItemView from "./MenuItemView.svelte";
     import MenuSeparatorView from "./MenuSeparatorView.svelte";
 

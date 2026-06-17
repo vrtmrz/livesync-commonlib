@@ -21,17 +21,17 @@ import {
     type PlainEntry,
     type NewEntry,
     REMOTE_COUCHDB,
-} from "../../common/types.ts";
-import { getFileRegExp, createTextBlob, isTextBlob } from "../../common/utils.ts";
-import type { ContentSplitter } from "../../ContentSplitter/ContentSplitters.ts";
-import type { GeneratedChunk } from "../../pouchdb/LiveSyncLocalDB.ts";
-import { isErrorOfMissingDoc } from "../../pouchdb/utils_couchdb.ts";
-import { stripAllPrefixes } from "../../string_and_binary/path.ts";
-import type { ChunkFetcher } from "../ChunkFetcher.ts";
-import type { ChunkManager } from "../ChunkManager.ts";
-import type { HashManager } from "../HashManager/HashManager.ts";
-import type { IPathService, ISettingService } from "../../services/base/IService.ts";
-import type { ChunkWriteOptions } from "../LayeredChunkManager/types.ts";
+} from "@lib/common/types.ts";
+import { getFileRegExp, createTextBlob, isTextBlob } from "@lib/common/utils.ts";
+import type { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters.ts";
+import type { GeneratedChunk } from "@lib/pouchdb/LiveSyncLocalDB.ts";
+import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
+import { stripAllPrefixes } from "@lib/string_and_binary/path.ts";
+import type { ChunkFetcher } from "@lib/managers/ChunkFetcher.ts";
+import type { ChunkManager } from "@lib/managers/ChunkManager.ts";
+import type { HashManager } from "@lib/managers/HashManager/HashManager.ts";
+import type { IPathService, ISettingService } from "@lib/services/base/IService.ts";
+import type { ChunkWriteOptions } from "@lib/managers/LayeredChunkManager/types.ts";
 
 export interface EntryManagerOptions {
     hashManager: HashManager;

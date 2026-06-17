@@ -1,7 +1,7 @@
 import type { FilePath } from "@lib/common/types";
 import type { IAPIService, ISettingService, IVaultService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
-import { handlers } from "../lib/HandlerUtils";
+import { handlers } from "@lib/services/lib/HandlerUtils";
 
 export interface VaultServiceDependencies {
     settingService: ISettingService;

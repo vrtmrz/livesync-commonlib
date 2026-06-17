@@ -1,6 +1,6 @@
 import { eventHub, EVENT_ON_UNRESOLVED_ERROR } from "@/common/events";
 import { type LOG_LEVEL, LEVEL_NOTICE, LEVEL_INFO } from "octagonal-wheels/common/logger";
-import { createInstanceLogFunction } from "../lib/logUtils";
+import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import type { AppLifecycleService } from "./AppLifecycleService";
 
 export class UnresolvedErrorManager {

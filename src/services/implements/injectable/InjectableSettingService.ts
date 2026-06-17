@@ -1,11 +1,11 @@
 import { EVENT_SETTING_SAVED } from "@lib/events/coreEvents";
-import type { ServiceContext } from "../../base/ServiceBase";
-import { SettingService, type SettingServiceDependencies } from "../../base/SettingService";
+import type { ServiceContext } from "@lib/services/base/ServiceBase";
+import { SettingService, type SettingServiceDependencies } from "@lib/services/base/SettingService";
 import { EVENT_REQUEST_RELOAD_SETTING_TAB } from "@/common/events";
 
 import { eventHub } from "@lib/hub/hub";
 import type { ObsidianLiveSyncSettings } from "@lib/common/types";
-import { handlers } from "../../lib/HandlerUtils";
+import { handlers } from "@lib/services/lib/HandlerUtils";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 
 export class InjectableSettingService<T extends ServiceContext> extends SettingService<T> {

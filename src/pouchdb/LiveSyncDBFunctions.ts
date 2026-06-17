@@ -10,8 +10,8 @@ import {
     DEVICE_ID_PREFERRED,
     TweakValuesDefault,
     type DeviceInfo,
-} from "../common/types.ts";
-import { extractObject, isObjectDifferent, resolveWithIgnoreKnownError } from "../common/utils.ts";
+} from "@lib/common/types.ts";
+import { extractObject, isObjectDifferent, resolveWithIgnoreKnownError } from "@lib/common/utils.ts";
 
 // This interface is expected to be unnecessary because of the change in dependency direction
 

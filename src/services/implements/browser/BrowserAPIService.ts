@@ -1,11 +1,11 @@
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
 import { InjectableAPIService } from "@lib/services/implements/injectable/InjectableAPIService";
 import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
-import type { IAPIService, ICommandCompat } from "../../base/IService";
-import { handlers } from "../../lib/HandlerUtils";
+import type { IAPIService, ICommandCompat } from "@lib/services/base/IService";
+import { handlers } from "@lib/services/lib/HandlerUtils";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import { BrowserConfirm } from "./BrowserConfirm";
-import { LOG_LEVEL_VERBOSE } from "@/lib/src/common/logger";
+import { LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 export declare const PACKAGE_VERSION: string;
 export declare const MANIFEST_VERSION: string;
 

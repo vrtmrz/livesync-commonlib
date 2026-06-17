@@ -3,10 +3,10 @@
 //
 // The Security Seed (represented as PBKDF2 Salt in logs) derives the encryption key for replication, so it should be stored on the server prior to synchronisation.
 import { createPBKDF2Salt } from "octagonal-wheels/encryption/hkdf";
-import { LOG_LEVEL_INFO, LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
-import type { SyncParameters } from "../common/types.ts";
-import { arrayBufferToBase64Single, base64ToArrayBufferInternalBrowser } from "../string_and_binary/convert.ts";
-import { LiveSyncError } from "../common/LSError.ts";
+import { LOG_LEVEL_INFO, LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
+import type { SyncParameters } from "@lib/common/types.ts";
+import { arrayBufferToBase64Single, base64ToArrayBufferInternalBrowser } from "@lib/string_and_binary/convert.ts";
+import { LiveSyncError } from "@lib/common/LSError.ts";
 
 /**
  * Creates a SyncParamsHandler for managing synchronisation parameters.

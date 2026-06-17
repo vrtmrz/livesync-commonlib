@@ -4,13 +4,13 @@ import { Md5 } from "@smithy/md5-js";
 
 import { ConfiguredRetryStrategy } from "@smithy/util-retry";
 
-import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../../../common/types.ts";
-import { Logger } from "../../../common/logger.ts";
-import { JournalSyncAbstract } from "../JournalSyncAbstract.ts";
-import type { RemoteDBStatus } from "../../LiveSyncAbstractReplicator.ts";
+import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/types.ts";
+import { Logger } from "@lib/common/logger.ts";
+import { JournalSyncAbstract } from "@lib/replication/journal/JournalSyncAbstract.ts";
+import type { RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";
 import { promiseWithResolver } from "octagonal-wheels/promises";
 import type { SourceData } from "@smithy/types";
-import { clearHandlers } from "../../SyncParamsHandler.ts";
+import { clearHandlers } from "@lib/replication/SyncParamsHandler.ts";
 
 export class JournalSyncMinio extends JournalSyncAbstract {
     _instance?: S3;

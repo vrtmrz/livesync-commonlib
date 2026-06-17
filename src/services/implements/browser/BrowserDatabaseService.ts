@@ -1,5 +1,5 @@
-import type { ServiceContext } from "../../base/ServiceBase";
-import { KeyValueDBService } from "../../base/KeyValueDBService";
+import type { ServiceContext } from "@lib/services/base/ServiceBase";
+import { KeyValueDBService } from "@lib/services/base/KeyValueDBService";
 import { DatabaseService } from "@lib/services/base/DatabaseService.ts";
 
 export class BrowserDatabaseService<T extends ServiceContext> extends DatabaseService<T> {}

@@ -1,9 +1,9 @@
 import type PouchDB from "pouchdb-core";
 import { joinRoom, selfId, type Room } from "@trystero-p2p/nostr";
-import { RpcRoom } from "../RpcRoom";
-import { exposeDB } from "../pouchdb/RpcPouchDBServer";
-import { RpcPouchDBProxy } from "../pouchdb/RpcPouchDBProxy";
-import type { RpcRoomOptions, RpcWireMessage, TransportAdapter } from "../types";
+import { RpcRoom } from "@lib/rpc/RpcRoom";
+import { exposeDB } from "@lib/rpc/pouchdb/RpcPouchDBServer";
+import { RpcPouchDBProxy } from "@lib/rpc/pouchdb/RpcPouchDBProxy";
+import type { RpcRoomOptions, RpcWireMessage, TransportAdapter } from "@lib/rpc/types";
 //TODO: following imports should be moved to a separated module, to make this module as a library.
 import type { P2PConnectionInfo } from "@lib/common/models/setting.type";
 import { ConnectionStringParser } from "@lib/common/ConnectionString";

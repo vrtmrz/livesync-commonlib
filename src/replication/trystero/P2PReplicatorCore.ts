@@ -1,13 +1,13 @@
 /**
  * Obsoleted: separated into non-UI things and UI things.
  */
-import { AutoAccepting, REMOTE_P2P } from "../../common/types";
+import { AutoAccepting, REMOTE_P2P } from "@lib/common/types";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
-import { EVENT_REQUEST_OPEN_P2P } from "../../events/coreEvents";
-import { eventHub } from "../../hub/hub";
+import { EVENT_REQUEST_OPEN_P2P } from "@lib/events/coreEvents";
+import { eventHub } from "@lib/hub/hub";
 import { LiveSyncTrysteroReplicator, type LiveSyncTrysteroReplicatorEnv } from "./LiveSyncTrysteroReplicator";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
-import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../../common/logger";
+import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { P2PLogCollector } from "./P2PLogCollector";
 import { addP2PEventHandlers } from "./addP2PEventHandlers";
 import type { P2PPaneParams } from "./UseP2PReplicatorResult";

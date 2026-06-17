@@ -13,9 +13,9 @@ import {
     type BucketSyncSetting,
     E2EEAlgorithms,
     type RemoteDBSettings,
-} from "../../common/types.ts";
-import { Logger } from "../../common/logger.ts";
-import type { ReplicationCallback, ReplicationStat } from "../LiveSyncAbstractReplicator.ts";
+} from "@lib/common/types.ts";
+import { Logger } from "@lib/common/logger.ts";
+import type { ReplicationCallback, ReplicationStat } from "@lib/replication/LiveSyncAbstractReplicator.ts";
 import {
     type SimpleStore,
     concatUInt8Array,
@@ -24,10 +24,10 @@ import {
     parseHeaderValues,
     setAllItems,
     unescapeNewLineFromString,
-} from "../../common/utils.ts";
+} from "@lib/common/utils.ts";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock";
-import { wrappedDeflate } from "../../pouchdb/compress.ts";
-import { wrappedInflate } from "../../pouchdb/compress.ts";
+import { wrappedDeflate } from "@lib/pouchdb/compress.ts";
+import { wrappedInflate } from "@lib/pouchdb/compress.ts";
 import { type CheckPointInfo, CheckPointInfoDefault } from "./JournalSyncTypes.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 import { Trench } from "octagonal-wheels/memory/memutil";
@@ -39,9 +39,9 @@ import {
     SyncParamsFetchError,
     SyncParamsNotFoundError,
     SyncParamsUpdateError,
-} from "../SyncParamsHandler.ts";
-import { eventHub } from "../../hub/hub.ts";
-import { REMOTE_CHUNK_FETCHED } from "../../pouchdb/LiveSyncLocalDB.ts";
+} from "@lib/replication/SyncParamsHandler.ts";
+import { eventHub } from "@lib/hub/hub.ts";
+import { REMOTE_CHUNK_FETCHED } from "@lib/pouchdb/LiveSyncLocalDB.ts";
 import { decryptBinary, encryptBinary } from "octagonal-wheels/encryption/encryption";
 import {
     encryptBinary as encryptBinaryHKDF,

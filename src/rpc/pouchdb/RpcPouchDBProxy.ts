@@ -4,8 +4,8 @@
 // separate file.
 // eslint-disable-next-line import/no-nodejs-modules
 import EventEmitter from "events";
-import { RpcError } from "../errors";
-import type { RpcSession } from "../RpcSession";
+import { RpcError } from "@lib/rpc/errors";
+import type { RpcSession } from "@lib/rpc/RpcSession";
 
 /** No-op ActiveTasks stub required by pouchdb-replication for progress tracking. */
 const noopActiveTasks = {

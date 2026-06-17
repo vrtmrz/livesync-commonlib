@@ -10,10 +10,10 @@ import type {
     // diff_result_leaf,
     LoadedEntry,
     // SavingEntry,
-} from "../common/types";
-import { MISSING_OR_ERROR, NOT_CONFLICTED } from "../common/types";
+} from "@lib/common/types";
+import { MISSING_OR_ERROR, NOT_CONFLICTED } from "@lib/common/types";
 import type { EntryManager } from "./EntryManager/EntryManager";
-import type { IPathService } from "../services/base/IService";
+import type { IPathService } from "@lib/services/base/IService";
 
 // Set up PouchDB with memory adapter
 PouchDB.plugin(MemoryAdapter);

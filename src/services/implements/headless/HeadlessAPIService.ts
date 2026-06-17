@@ -1,7 +1,7 @@
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
 import { InjectableAPIService } from "@lib/services/implements/injectable/InjectableAPIService";
 import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
-import type { ICommandCompat } from "../../base/IService";
+import type { ICommandCompat } from "@lib/services/base/IService";
 import type { Confirm } from "@lib/interfaces/Confirm";
 // const module = await import("node:crypto");
 import module from "node:crypto";

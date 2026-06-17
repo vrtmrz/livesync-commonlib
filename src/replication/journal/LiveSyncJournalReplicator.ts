@@ -15,13 +15,13 @@ import { Logger } from "@lib/common/logger.ts";
 
 import { JournalSyncMinio } from "./objectstore/JournalSyncMinio.ts";
 
-import { LiveSyncAbstractReplicator, type RemoteDBStatus } from "../LiveSyncAbstractReplicator.ts";
+import { LiveSyncAbstractReplicator, type RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";
 import { ensureRemoteIsCompatible, type ENSURE_DB_RESULT } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import type { CheckPointInfo } from "./JournalSyncTypes.ts";
 import { fireAndForget, type SimpleStore } from "@lib/common/utils.ts";
 
 import { extractObject } from "@lib/common/utils.ts";
-import { clearHandlers } from "../SyncParamsHandler.ts";
+import { clearHandlers } from "@lib/replication/SyncParamsHandler.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 import { $msg } from "@lib/common/i18n.ts";
 

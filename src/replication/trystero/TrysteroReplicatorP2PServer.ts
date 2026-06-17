@@ -1,6 +1,6 @@
 import { type ActionSender, type Room, selfId, joinRoom } from "@trystero-p2p/nostr";
-import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } from "../../common/types";
-import { LOG_LEVEL_VERBOSE, Logger } from "../../common/logger";
+import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } from "@lib/common/types";
+import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger";
 import {
     DIRECTION_RESPONSE,
     type ReplicatorHostEnv,
@@ -13,12 +13,12 @@ import {
     type Advertisement,
     type BindableObject,
 } from "./types";
-import { StoredMapLike } from "../../dataobject/StoredMap";
+import { StoredMapLike } from "@lib/dataobject/StoredMap";
 import { TrysteroReplicatorP2PClient } from "./TrysteroReplicatorP2PClient";
-import { eventHub } from "../../hub/hub";
+import { eventHub } from "@lib/hub/hub";
 import { createHostingDB } from "./ProxiedDB";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
-import { $msg } from "../../common/i18n";
+import { $msg } from "@lib/common/i18n";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock_v2";
 import { Computed } from "octagonal-wheels/dataobject/Computed";
 import { RpcRoom, type JsonLike, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";

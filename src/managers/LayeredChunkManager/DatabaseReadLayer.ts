@@ -1,6 +1,6 @@
 import { Logger, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
-import { LiveSyncError } from "../../common/LSError";
-import type { EntryLeaf, DocumentID } from "../../common/types";
+import { LiveSyncError } from "@lib/common/LSError";
+import type { EntryLeaf, DocumentID } from "@lib/common/types";
 import type { IReadLayer } from "./ChunkLayerInterfaces";
 import type { ChunkReadOptions } from "./types.ts";
 

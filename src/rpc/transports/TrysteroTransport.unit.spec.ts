@@ -121,8 +121,8 @@ import {
     serveTrysteroDB,
     wrapTrysteroRoom,
 } from "./TrysteroTransport";
-import { RpcRoom } from "../RpcRoom";
-import { RpcPouchDBProxy } from "../pouchdb/RpcPouchDBProxy";
+import { RpcRoom } from "@lib/rpc/RpcRoom";
+import { RpcPouchDBProxy } from "@lib/rpc/pouchdb/RpcPouchDBProxy";
 
 // ---------------------------------------------------------------------------
 // Helpers

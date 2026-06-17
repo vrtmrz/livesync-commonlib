@@ -1,9 +1,9 @@
 import type { LOG_LEVEL } from "octagonal-wheels/common/logger";
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
 import type { ReactiveSource } from "octagonal-wheels/dataobject/reactive_v2";
-import type { P2PSyncSetting, EntryDoc } from "../../common/types";
-import type { Confirm } from "../../interfaces/Confirm";
-import type { InjectableServiceHub } from "../../services/InjectableServices";
+import type { P2PSyncSetting, EntryDoc } from "@lib/common/types";
+import type { Confirm } from "@lib/interfaces/Confirm";
+import type { InjectableServiceHub } from "@lib/services/InjectableServices";
 
 export interface P2PReplicatorBase {
     storeP2PStatusLine: ReactiveSource<string>;

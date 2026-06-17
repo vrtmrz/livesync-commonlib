@@ -1,13 +1,13 @@
 import type { SimpleStore } from "@lib/common/utils";
 import type { IKeyValueDBService, IVaultService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
-import type { KeyValueDatabase } from "../../interfaces/KeyValueDatabase";
+import type { KeyValueDatabase } from "@lib/interfaces/KeyValueDatabase";
 import { OpenKeyValueDatabase } from "@/common/KeyValueDB";
 import { delay, yieldMicrotask } from "octagonal-wheels/promises";
-import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../../common/logger";
-import { createInstanceLogFunction } from "../lib/logUtils";
-import type { InjectableDatabaseEventService } from "../implements/injectable/InjectableDatabaseEventService";
-import type { AppLifecycleServiceBase } from "../implements/injectable/InjectableAppLifecycleService";
+import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
+import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
+import type { InjectableDatabaseEventService } from "@lib/services/implements/injectable/InjectableDatabaseEventService";
+import type { AppLifecycleServiceBase } from "@lib/services/implements/injectable/InjectableAppLifecycleService";
 
 export interface KeyValueDBDependencies<T extends ServiceContext = ServiceContext> {
     databaseEvents: InjectableDatabaseEventService<T>;

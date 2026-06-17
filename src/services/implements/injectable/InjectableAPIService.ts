@@ -1,7 +1,7 @@
-import { APIService } from "../../base/APIService";
-import type { IAPIService } from "../../base/IService";
-import type { ServiceContext } from "../../base/ServiceBase";
-import { handlers } from "../../lib/HandlerUtils";
+import { APIService } from "@lib/services/base/APIService";
+import type { IAPIService } from "@lib/services/base/IService";
+import type { ServiceContext } from "@lib/services/base/ServiceBase";
+import { handlers } from "@lib/services/lib/HandlerUtils";
 
 export abstract class InjectableAPIService<T extends ServiceContext> extends APIService<T> {
     addLog = handlers<IAPIService>().binder("addLog");

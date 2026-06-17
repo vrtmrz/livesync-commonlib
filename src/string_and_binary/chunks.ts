@@ -2,9 +2,9 @@ function isTextBlob(blob: Blob) {
     return blob.type === "text/plain";
 }
 
-import { LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
+import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
 import { arrayBufferToBase64Single, readString } from "./convert.ts";
-import { wrapByDefault } from "../common/utils.ts";
+import { wrapByDefault } from "@lib/common/utils.ts";
 
 /// Chunk utilities
 function* pickPiece(leftData: string[], minimumChunkSize: number): Generator<string> {

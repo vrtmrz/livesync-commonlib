@@ -23,7 +23,7 @@ import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { eventHub } from "@lib/hub/hub";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
-import { compatGlobal } from "../common/coreEnvFunctions";
+import { compatGlobal } from "@lib/common/coreEnvFunctions";
 
 /**
  * Collect deleted files that have expired according to retention policy.

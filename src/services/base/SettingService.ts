@@ -14,10 +14,10 @@ import {
 import { handlers } from "@lib/services/lib/HandlerUtils";
 import type { IAPIService, ISettingService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
-import { createInstanceLogFunction } from "../lib/logUtils";
-import { isCloudantURI } from "../../pouchdb/utils_couchdb";
-import { decryptString, encryptString } from "../../encryption/stringEncryption";
-import { setLang } from "../../common/i18n";
+import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
+import { isCloudantURI } from "@lib/pouchdb/utils_couchdb";
+import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
+import { setLang } from "@lib/common/i18n";
 import {
     activateP2PRemoteConfiguration,
     activateRemoteConfiguration,

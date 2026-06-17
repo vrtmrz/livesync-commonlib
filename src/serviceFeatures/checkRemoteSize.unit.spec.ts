@@ -7,9 +7,9 @@ import {
     useCheckRemoteSize,
 } from "./checkRemoteSize";
 import { type LogFunction, createInstanceLogFunction } from "@lib/services/lib/logUtils";
-import { $msg } from "../common/i18n";
-import { eventHub } from "../hub/hub";
-import { EVENT_REQUEST_CHECK_REMOTE_SIZE } from "../events/coreEvents";
+import { $msg } from "@lib/common/i18n";
+import { eventHub } from "@lib/hub/hub";
+import { EVENT_REQUEST_CHECK_REMOTE_SIZE } from "@lib/events/coreEvents";
 
 const APIServiceMock = {
     addLog(message: string, level?: any) {

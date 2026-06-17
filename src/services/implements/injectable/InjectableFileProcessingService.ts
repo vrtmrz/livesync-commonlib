@@ -1,4 +1,4 @@
-import { FileProcessingService } from "../../base/FileProcessingService";
-import type { ServiceContext } from "../../base/ServiceBase";
+import { FileProcessingService } from "@lib/services/base/FileProcessingService";
+import type { ServiceContext } from "@lib/services/base/ServiceBase";
 
 export class InjectableFileProcessingService<T extends ServiceContext> extends FileProcessingService<T> {}

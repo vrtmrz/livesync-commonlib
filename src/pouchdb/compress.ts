@@ -3,8 +3,8 @@ import {
     tryConvertBase64ToArrayBuffer,
     arrayBufferToBase64Single,
     base64ToArrayBuffer,
-} from "../string_and_binary/convert";
-import type { EntryDoc } from "../common/types";
+} from "@lib/string_and_binary/convert";
+import type { EntryDoc } from "@lib/common/types";
 
 export async function _compressText(text: string) {
     const converted = tryConvertBase64ToArrayBuffer(text);

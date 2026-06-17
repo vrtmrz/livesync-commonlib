@@ -20,14 +20,14 @@ import {
     DOCID_SYNC_PARAMETERS,
     type E2EEAlgorithm,
     E2EEAlgorithms,
-} from "../common/types.ts";
+} from "@lib/common/types.ts";
 
-import { PouchDB } from "../pouchdb/pouchdb-http.ts";
-import { LiveSyncLocalDB, type LiveSyncLocalDBEnv } from "../pouchdb/LiveSyncLocalDB.ts";
-import { isErrorOfMissingDoc } from "../pouchdb/utils_couchdb.ts";
-import { replicationFilter } from "../pouchdb/compress.ts";
-import { disableEncryption } from "../pouchdb/encryption.ts";
-import { enableEncryption } from "../pouchdb/encryption.ts";
+import { PouchDB } from "@lib/pouchdb/pouchdb-http.ts";
+import { LiveSyncLocalDB, type LiveSyncLocalDBEnv } from "@lib/pouchdb/LiveSyncLocalDB.ts";
+import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
+import { replicationFilter } from "@lib/pouchdb/compress.ts";
+import { disableEncryption } from "@lib/pouchdb/encryption.ts";
+import { enableEncryption } from "@lib/pouchdb/encryption.ts";
 import {
     LEVEL_INFO,
     LEVEL_VERBOSE,
@@ -36,19 +36,19 @@ import {
     LOG_LEVEL_VERBOSE,
     Logger,
 } from "octagonal-wheels/common/logger";
-import { createBlob, determineTypeFromBlob } from "../common/utils.ts";
+import { createBlob, determineTypeFromBlob } from "@lib/common/utils.ts";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 import {
     createSyncParamsHanderForServer,
     SyncParamsFetchError,
     SyncParamsNotFoundError,
     SyncParamsUpdateError,
-} from "../replication/SyncParamsHandler.ts";
+} from "@lib/replication/SyncParamsHandler.ts";
 
-import { HeadlessServiceHub } from "../services/HeadlessServices.ts";
-import { HeadlessDatabaseService } from "../services/implements/headless/HeadlessDatabaseService.ts";
-import { ServiceContext } from "../services/base/ServiceBase.ts";
-import type { InjectableSettingService } from "../services/implements/injectable/InjectableSettingService.ts";
+import { HeadlessServiceHub } from "@lib/services/HeadlessServices.ts";
+import { HeadlessDatabaseService } from "@lib/services/implements/headless/HeadlessDatabaseService.ts";
+import { ServiceContext } from "@lib/services/base/ServiceBase.ts";
+import type { InjectableSettingService } from "@lib/services/implements/injectable/InjectableSettingService.ts";
 
 export type DirectFileManipulatorOptions = {
     url: string;

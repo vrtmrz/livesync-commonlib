@@ -1,6 +1,6 @@
-import type { P2PSyncSetting, EntryDoc } from "../../common/types";
-import type { SimpleStore } from "../../common/utils";
-import type { Confirm } from "../../interfaces/Confirm";
+import type { P2PSyncSetting, EntryDoc } from "@lib/common/types";
+import type { SimpleStore } from "@lib/common/utils";
+import type { Confirm } from "@lib/interfaces/Confirm";
 
 export const DIRECTION_REQUEST = "request";
 export type DIRECTION_REQUEST = typeof DIRECTION_REQUEST;

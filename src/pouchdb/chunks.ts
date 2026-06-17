@@ -1,7 +1,7 @@
-import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "../common/logger";
-import type { CouchDBConnection, EntryLeaf } from "../common/types";
+import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
+import type { CouchDBConnection, EntryLeaf } from "@lib/common/types";
 import { QueueProcessor } from "octagonal-wheels/concurrency/processor";
-import { arrayToChunkedArray, sizeToHumanReadable } from "../common/utils";
+import { arrayToChunkedArray, sizeToHumanReadable } from "@lib/common/utils";
 import { serialized } from "octagonal-wheels/concurrency/lock";
 import { _requestToCouchDBFetch } from "./utils_couchdb";
 

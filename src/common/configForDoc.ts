@@ -1,5 +1,5 @@
-import type { Confirm } from "../interfaces/Confirm";
-import { isCloudantURI } from "../pouchdb/utils_couchdb";
+import type { Confirm } from "@lib/interfaces/Confirm";
+import { isCloudantURI } from "@lib/pouchdb/utils_couchdb";
 import { $msg } from "./i18n";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "./logger";
 import { getConfName, type AllSettingItemKey } from "./settingConstants";

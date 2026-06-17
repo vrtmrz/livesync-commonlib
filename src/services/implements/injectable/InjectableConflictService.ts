@@ -1,7 +1,7 @@
-import { ConflictService } from "../../base/ConflictService";
-import type { IConflictService } from "../../base/IService";
-import type { ServiceContext } from "../../base/ServiceBase";
-import { handlers } from "../../lib/HandlerUtils";
+import { ConflictService } from "@lib/services/base/ConflictService";
+import type { IConflictService } from "@lib/services/base/IService";
+import type { ServiceContext } from "@lib/services/base/ServiceBase";
+import { handlers } from "@lib/services/lib/HandlerUtils";
 
 export class InjectableConflictService<T extends ServiceContext> extends ConflictService<T> {
     queueCheckForIfOpen = handlers<IConflictService>().binder("queueCheckForIfOpen");

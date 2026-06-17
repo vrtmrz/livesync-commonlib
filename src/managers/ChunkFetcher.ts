@@ -1,11 +1,11 @@
 import { delay } from "octagonal-wheels/promises";
 import { unique } from "octagonal-wheels/collection";
-import { LOG_LEVEL_VERBOSE, Logger } from "../common/logger.ts";
-import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf } from "../common/types.ts";
+import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
+import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf } from "@lib/common/types.ts";
 
 import { type ChunkManager } from "./ChunkManager.ts";
 
-import type { IReplicatorService, ISettingService } from "../services/base/IService.ts";
+import type { IReplicatorService, ISettingService } from "@lib/services/base/IService.ts";
 import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
 
 export const EVENT_MISSING_CHUNKS = "missingChunks";

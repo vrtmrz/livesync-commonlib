@@ -1,8 +1,13 @@
 import qrcode from "qrcode-generator";
-import { configURIBase, configURIBaseQR } from "../common/types";
+import { configURIBase, configURIBaseQR } from "@lib/common/types";
 import { decodeAnyArray, encodeAnyArray } from "octagonal-wheels/object";
-import { DEFAULT_SETTINGS, KeyIndexOfSettings, LOG_LEVEL_NOTICE, type ObsidianLiveSyncSettings } from "../common/types";
-import { decryptString, encryptString } from "../encryption/stringEncryption";
+import {
+    DEFAULT_SETTINGS,
+    KeyIndexOfSettings,
+    LOG_LEVEL_NOTICE,
+    type ObsidianLiveSyncSettings,
+} from "@lib/common/types";
+import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
 import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
 
 /**

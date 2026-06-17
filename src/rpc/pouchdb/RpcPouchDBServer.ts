@@ -1,5 +1,5 @@
-import { RpcError } from "../errors";
-import type { RpcRoom } from "../RpcRoom";
+import { RpcError } from "@lib/rpc/errors";
+import type { RpcRoom } from "@lib/rpc/RpcRoom";
 
 /**
  * Wraps a PouchDB operation so that PouchDB-specific error properties

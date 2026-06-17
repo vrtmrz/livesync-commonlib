@@ -2,10 +2,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import replication from "pouchdb-replication";
-import { RpcRoom, RpcError, type RpcWireMessage, type TransportAdapter } from "../index";
+import { RpcRoom, RpcError, type RpcWireMessage, type TransportAdapter } from "@lib/rpc/index";
 import { exposeDB } from "./RpcPouchDBServer";
 import { RpcPouchDBProxy } from "./RpcPouchDBProxy";
-import { replicateShim } from "../../pouchdb/ReplicatorShim";
+import { replicateShim } from "@lib/pouchdb/ReplicatorShim";
 
 PouchDB.plugin(MemoryAdapter);
 PouchDB.plugin(replication);

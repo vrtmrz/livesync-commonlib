@@ -1,9 +1,9 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { ChunkFetcher, EVENT_MISSING_CHUNKS, EVENT_CHUNK_FETCHED, EVENT_MISSING_CHUNK_REMOTE } from "./ChunkFetcher";
 import type { ChunkFetcherOptions } from "./ChunkFetcher";
-import type { DocumentID, EntryLeaf } from "../common/types";
+import type { DocumentID, EntryLeaf } from "@lib/common/types";
 import type { ChunkManager } from "./ChunkManager";
-import type { IReplicatorService, ISettingService } from "../services/base/IService";
+import type { IReplicatorService, ISettingService } from "@lib/services/base/IService";
 
 function createMockLeaf(id: string, data: string = `data-${id}`): EntryLeaf {
     return {

@@ -1,4 +1,4 @@
-import type { FilePathWithPrefix, ObsidianLiveSyncSettings } from "../common/types";
+import type { FilePathWithPrefix, ObsidianLiveSyncSettings } from "@lib/common/types";
 
 export const EVENT_LAYOUT_READY = "layout-ready";
 export const EVENT_PLUGIN_LOADED = "plugin-loaded";

@@ -1,7 +1,7 @@
 // Foreground part of Worker-off-loaded functions
 
 import { promiseWithResolver } from "octagonal-wheels/promises.js";
-import { eventHub } from "../hub/hub.ts";
+import { eventHub } from "@lib/hub/hub.ts";
 //@ts-ignore
 import WorkerX from "./bg.worker.ts?worker&inline";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";

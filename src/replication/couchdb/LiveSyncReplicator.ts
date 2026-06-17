@@ -23,7 +23,7 @@ import {
     ProtocolVersions,
     type NodeData,
     type DeviceInfo,
-} from "../../common/types.ts";
+} from "@lib/common/types.ts";
 import {
     resolveWithIgnoreKnownError,
     globalConcurrencyController,
@@ -32,31 +32,31 @@ import {
     sizeToHumanReadable,
     arrayToChunkedArray,
     parseHeaderValues,
-} from "../../common/utils.ts";
-import { Logger } from "../../common/logger.ts";
-import { checkRemoteVersion, countCompromisedChunks } from "../../pouchdb/negotiation.ts";
-import { preprocessOutgoing } from "../../pouchdb/encryption.ts";
+} from "@lib/common/utils.ts";
+import { Logger } from "@lib/common/logger.ts";
+import { checkRemoteVersion, countCompromisedChunks } from "@lib/pouchdb/negotiation.ts";
+import { preprocessOutgoing } from "@lib/pouchdb/encryption.ts";
 
-import { ensureDatabaseIsCompatible } from "../../pouchdb/LiveSyncDBFunctions.ts";
+import { ensureDatabaseIsCompatible } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import {
     LiveSyncAbstractReplicator,
     type LiveSyncReplicatorEnv,
     type RemoteDBStatus,
-} from "../LiveSyncAbstractReplicator.ts";
+} from "@lib/replication/LiveSyncAbstractReplicator.ts";
 import { serialized, shareRunningResult } from "octagonal-wheels/concurrency/lock";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { Trench } from "octagonal-wheels/memory/memutil";
 import { promiseWithResolver } from "octagonal-wheels/promises";
 import { Inbox, NOT_AVAILABLE } from "octagonal-wheels/bureau/Inbox";
-import { $msg } from "../../common/i18n.ts";
+import { $msg } from "@lib/common/i18n.ts";
 import {
     clearHandlers,
     createSyncParamsHanderForServer,
     SyncParamsFetchError,
     SyncParamsNotFoundError,
     SyncParamsUpdateError,
-} from "../SyncParamsHandler.ts";
-import type { ServiceHub } from "../../services/ServiceHub.ts";
+} from "@lib/replication/SyncParamsHandler.ts";
+import type { ServiceHub } from "@lib/services/ServiceHub.ts";
 
 const currentVersionRange: ChunkVersionRange = {
     min: 0,

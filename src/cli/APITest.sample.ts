@@ -1,7 +1,7 @@
-import { DirectFileManipulator } from "../API/DirectFileManipulator.ts";
-import type { DirectFileManipulatorOptions } from "../API/DirectFileManipulator.ts";
-import { createTextBlob } from "../common/utils.ts";
-import type { FilePathWithPrefix } from "../common/types.ts";
+import { DirectFileManipulator } from "@lib/API/DirectFileManipulator.ts";
+import type { DirectFileManipulatorOptions } from "@lib/API/DirectFileManipulator.ts";
+import { createTextBlob } from "@lib/common/utils.ts";
+import type { FilePathWithPrefix } from "@lib/common/types.ts";
 
 // Sample configuration
 const opt: DirectFileManipulatorOptions = {

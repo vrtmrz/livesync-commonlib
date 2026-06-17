@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import { DatabaseReadLayer } from "./DatabaseReadLayer";
-import { LiveSyncError } from "../../common/LSError";
-import type { DocumentID, EntryLeaf } from "../../common/types";
+import { LiveSyncError } from "@lib/common/LSError";
+import type { DocumentID, EntryLeaf } from "@lib/common/types";
 
 // Set up PouchDB with memory adapter
 PouchDB.plugin(MemoryAdapter);

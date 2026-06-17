@@ -14,9 +14,9 @@ import type { AppLifecycleServiceBase } from "./InjectableAppLifecycleService";
 import type { InjectableTweakValueService } from "./InjectableTweakValueService";
 import type { InjectableVaultService } from "./InjectableVaultService";
 import type { InjectableTestService } from "./InjectableTestService";
-import type { PathService } from "../../base/PathService";
+import type { PathService } from "@lib/services/base/PathService";
 import type { DatabaseService } from "@lib/services/base/DatabaseService.ts";
-import type { SettingService } from "../../base/SettingService";
+import type { SettingService } from "@lib/services/base/SettingService";
 
 export type InjectableServiceInstances<T extends ServiceContext> = ServiceInstances<T> & {
     API?: InjectableAPIService<T>;

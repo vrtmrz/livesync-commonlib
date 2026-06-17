@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from "vitest";
 // import { FallbackWeakRef } from "octagonal-wheels/common/polyfill";
 import { CacheLayer } from "./CacheLayer";
-import type { DocumentID, EntryLeaf } from "../../common/types";
+import type { DocumentID, EntryLeaf } from "@lib/common/types";
 import type { ChunkReadOptions, ChunkWriteOptions } from "./types.ts";
 
 /**

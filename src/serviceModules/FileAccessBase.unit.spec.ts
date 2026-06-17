@@ -9,7 +9,7 @@ import type {
     IVaultAdapter,
 } from "./adapters";
 import type { FilePath, UXDataWriteOptions, UXFileInfoStub, UXFolderInfo, UXStat } from "@lib/common/types";
-import { compareFileFreshnessGeneric } from "../services/implements/injectable/InjectablePathService";
+import { compareFileFreshnessGeneric } from "@lib/services/implements/injectable/InjectablePathService";
 
 // Mock file types
 interface MockFile {

@@ -1,14 +1,19 @@
-import { LOG_LEVEL_VERBOSE, type EntryDoc } from "../common/types";
-import { ContentSplitter } from "../ContentSplitter/ContentSplitters.ts";
-import { ChangeManager } from "../managers/ChangeManager.ts";
-import { ChunkFetcher } from "../managers/ChunkFetcher.ts";
-import { ChunkManager } from "../managers/ChunkManager.ts";
-import { ConflictManager } from "../managers/ConflictManager.ts";
-import { EntryManager } from "../managers/EntryManager/EntryManager.ts";
-import { HashManager } from "../managers/HashManager/HashManager.ts";
-import type { APIService } from "../services/base/APIService.ts";
-import type { IDatabaseService, IPathService, IReplicatorService, ISettingService } from "../services/base/IService.ts";
-import { createInstanceLogFunction, type LogFunction } from "../services/lib/logUtils.ts";
+import { LOG_LEVEL_VERBOSE, type EntryDoc } from "@lib/common/types";
+import { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters.ts";
+import { ChangeManager } from "@lib/managers/ChangeManager.ts";
+import { ChunkFetcher } from "@lib/managers/ChunkFetcher.ts";
+import { ChunkManager } from "@lib/managers/ChunkManager.ts";
+import { ConflictManager } from "@lib/managers/ConflictManager.ts";
+import { EntryManager } from "@lib/managers/EntryManager/EntryManager.ts";
+import { HashManager } from "@lib/managers/HashManager/HashManager.ts";
+import type { APIService } from "@lib/services/base/APIService.ts";
+import type {
+    IDatabaseService,
+    IPathService,
+    IReplicatorService,
+    ISettingService,
+} from "@lib/services/base/IService.ts";
+import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils.ts";
 
 export interface LiveSyncManagersOptions<TSettingService extends ISettingService = ISettingService> {
     database: PouchDB.Database<EntryDoc>;

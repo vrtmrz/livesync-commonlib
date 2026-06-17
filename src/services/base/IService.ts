@@ -19,14 +19,14 @@ import type {
     TweakValues,
     UXFileInfo,
     UXFileInfoStub,
-} from "../../common/types";
+} from "@lib/common/types";
 
-import type { LiveSyncLocalDB } from "../../pouchdb/LiveSyncLocalDB";
-import type { LiveSyncAbstractReplicator } from "../../replication/LiveSyncAbstractReplicator";
+import type { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB";
+import type { LiveSyncAbstractReplicator } from "@lib/replication/LiveSyncAbstractReplicator";
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
-import type { Confirm } from "../../interfaces/Confirm";
+import type { Confirm } from "@lib/interfaces/Confirm";
 import type { ReactiveSource } from "octagonal-wheels/dataobject/reactive";
-import type { ReplicationStatics } from "../../common/models/shared.definition";
+import type { ReplicationStatics } from "@lib/common/models/shared.definition";
 import type { ReplicatorService } from "./ReplicatorService";
 import type { DatabaseEventService } from "./DatabaseEventService";
 import type { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";

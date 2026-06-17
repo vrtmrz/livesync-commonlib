@@ -1,5 +1,5 @@
 <script lang="ts">
-    import type { MenuItem } from "../Menu";
+    import type { MenuItem } from "@lib/services/implements/browser/Menu";
 
     type Props = {
         item: MenuItem;

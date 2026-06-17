@@ -5,7 +5,7 @@ import type { ReplicatorService } from "@lib/services/base/ReplicatorService";
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
 import { BrowserSvelteDialogManager } from "./SvelteDialogBrowser";
 import DialogToCopy from "@lib/UI/dialogues/DialogueToCopy.svelte";
-import type { IAPIService, IControlService } from "../../base/IService";
+import type { IAPIService, IControlService } from "@lib/services/base/IService";
 
 export type BrowserUIServiceDependencies<T extends ServiceContext = ServiceContext> = {
     appLifecycle: AppLifecycleService<T>;

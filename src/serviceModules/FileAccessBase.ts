@@ -4,7 +4,7 @@ import { createBinaryBlob, isDocContentSame } from "@lib/common/utils.ts";
 import type { IStorageAccessManager } from "@lib/interfaces/StorageAccess.ts";
 import type { IAPIService, IPathService, ISettingService, IVaultService } from "@lib/services/base/IService.ts";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils.ts";
-import type { FileWithFileStat } from "../common/models/fileaccess.type";
+import type { FileWithFileStat } from "@lib/common/models/fileaccess.type";
 import type { IFileSystemAdapter } from "./adapters";
 
 export function toArrayBuffer(arr: Uint8Array<ArrayBuffer> | ArrayBuffer | DataView<ArrayBuffer>): ArrayBuffer {

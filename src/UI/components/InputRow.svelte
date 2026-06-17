@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { translateIfAvailable as translate } from "../../common/i18n.ts";
+    import { translateIfAvailable as translate } from "@lib/common/i18n.ts";
 
     type Props = {
         label: string;
