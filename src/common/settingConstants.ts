@@ -149,7 +149,7 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
     },
     trashInsteadDelete: {
         name: "Use the trash bin",
-        desc: "Move remotely deleted files to the trash, instead of deleting.",
+        desc: "Move remotely deleted files to the trash, instead of deleting. (This setting is ineffective from Obsidian v1.7.2 onwards, as deletion always respects your Obsidian preferences.)",
     },
     doNotDeleteFolder: {
         name: "Keep empty folder",
