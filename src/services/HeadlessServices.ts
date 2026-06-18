@@ -24,6 +24,7 @@ import type { DatabaseService } from "@lib/services/base/DatabaseService.ts";
 import { ControlService } from "./base/ControlService";
 import { InjectableSettingService } from "./implements/injectable/InjectableSettingService";
 import type { IControlService } from "./base/IService";
+import type { Constructor } from "@lib/common/utils.type";
 
 class HeadlessAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
     constructor(context: T, dependencies: AppLifecycleServiceDependencies) {
@@ -68,7 +69,7 @@ class HeadlessUIService<T extends ServiceContext> extends UIService<T> {
         });
     }
 }
-type Constructor<T> = new (...args: any[]) => T;
+// type Constructor<T> = new (...args: any[]) => T;
 
 export class HeadlessServiceHub<T extends ServiceContext> extends InjectableServiceHub<T> {
     constructor(

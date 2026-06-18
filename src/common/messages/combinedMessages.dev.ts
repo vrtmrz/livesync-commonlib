@@ -23,9 +23,7 @@ const messages = {
     ...zhTw,
 };
 const w = Object.entries(messages)
-    .map(([lang, messageDefs]) =>
-        Object.entries(messageDefs).map(([key, value]) => [key, [lang, value]] as const)
-    )
+    .map(([lang, messageDefs]) => Object.entries(messageDefs).map(([key, value]) => [key, [lang, value]] as const))
     .flat();
 
 const _allMessages = w.reduce(

@@ -1,7 +1,7 @@
 // Foreground part of offloaded encryptions
 
 import { startWorker, removeTask } from "./bgWorker.ts";
-import { type EncryptHKDFProcessItem } from "./universalTypes.ts";
+import { type EncryptHKDFProcessItem, type ResultPayload } from "./universalTypes.ts";
 import { type EncryptProcessItem } from "./universalTypes.ts";
 import { type EncryptHKDFArguments } from "./universalTypes.ts";
 import { type EncryptArguments } from "./universalTypes.ts";
@@ -39,8 +39,8 @@ export function encryptionHKDFOnWorker(data: Omit<EncryptHKDFArguments, "key">) 
  * @param process The process item associated with the task.
  * @param data The data to be processed.
  */
-export function handleTaskEncrypt(process: EncryptProcessItem | EncryptHKDFProcessItem, data: any) {
-    const key = data.key as number;
+export function handleTaskEncrypt(process: EncryptProcessItem | EncryptHKDFProcessItem, data: ResultPayload) {
+    const key = data.key;
     const task = process.task;
     if ("result" in data) {
         task.resolve(data.result);

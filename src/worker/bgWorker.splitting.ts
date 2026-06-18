@@ -2,7 +2,7 @@
 
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
 import { startWorker, removeTask } from "./bgWorker.ts";
-import { type SplitProcessItem } from "./universalTypes";
+import { type ResultPayloadWithSeq, type SplitProcessItem } from "./universalTypes";
 
 const SYMBOL_USED = Symbol("used");
 const SYMBOL_END_OF_DATA = Symbol("endOfData");
@@ -121,9 +121,9 @@ export function abortSplitTasks(keys: number[], error: Error): void {
  * @param process the splitting process item
  * @param data the data received from the worker
  */
-export function handleTaskSplit(process: SplitProcessItem, data: any) {
+export function handleTaskSplit(process: SplitProcessItem, data: ResultPayloadWithSeq) {
     // Data key means the unique identifier for the splitting task
-    const key = data.key as number;
+    const key = data.key;
 
     if (!("result" in data)) {
         responseBuf.delete(key);
@@ -134,6 +134,7 @@ export function handleTaskSplit(process: SplitProcessItem, data: any) {
                 await writer.abort(reportError);
             }
         });
+        return;
     }
     let thisBuf = responseBuf.get(key);
     if (!thisBuf) {
@@ -141,7 +142,7 @@ export function handleTaskSplit(process: SplitProcessItem, data: any) {
         responseBuf.set(key, thisBuf);
     }
 
-    const seq = data.seq as number;
+    const seq = data.seq;
     thisBuf.set(seq, data.result === null ? SYMBOL_END_OF_DATA : data.result);
     responseBuf.set(key, thisBuf);
 

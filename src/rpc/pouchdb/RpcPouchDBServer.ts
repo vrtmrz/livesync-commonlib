@@ -1,6 +1,7 @@
+import { LiveSyncError } from "@lib/common/LSError";
 import { RpcError } from "@lib/rpc/errors";
 import type { RpcRoom } from "@lib/rpc/RpcRoom";
-
+type ErrorLike = { name?: string; message?: string; reason?: string; error?: Error; status?: number };
 /**
  * Wraps a PouchDB operation so that PouchDB-specific error properties
  * (`status`, `name`, `reason`) survive the RPC serialisation boundary and
@@ -9,15 +10,16 @@ import type { RpcRoom } from "@lib/rpc/RpcRoom";
 async function runDB<T>(fn: () => Promise<T>): Promise<T> {
     try {
         return await fn();
-    } catch (err: any) {
+    } catch (e) {
+        const err = e as ErrorLike;
         if (err?.status || err?.name) {
             const details: Record<string, string | number> = {};
             if (err.status) details.status = err.status;
             if (err.name) details.name = err.name;
             if (err.reason) details.reason = err.reason;
-            throw new RpcError("REMOTE_ERROR", err.message ?? String(err), details);
+            throw new RpcError("REMOTE_ERROR", err.message ?? String(LiveSyncError.fromError(err)), details);
         }
-        throw err;
+        throw e;
     }
 }
 

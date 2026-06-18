@@ -46,6 +46,7 @@ export class RpcRoom {
     private options: Required<Pick<RpcRoomOptions, "maxWirePayloadBytes" | "chunkMissingRetryMs">> & RpcRoomOptions;
     private pending = new Map<string, PendingInvocation>();
     private inboundCalls = new Map<string, InboundCallContext>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- This is a generic type for method handlers, so we can't be more specific about the types here.
     private methods = new Map<string, RegisteredMethod<any, any>>();
     private sessions = new Map<string, RpcSession>();
     private outgoingChunkMap = new Map<string, OutgoingChunkState>();
@@ -101,6 +102,11 @@ export class RpcRoom {
         return s;
     }
 
+    register<T extends JsonLike[], U>(
+        method: string,
+        handler: RpcMethodHandler<T, U>,
+        options?: RpcRegisterOptions
+    ): void;
     register<T extends JsonLike[], U>(
         method: string,
         handler: RpcMethodHandler<T, U>,

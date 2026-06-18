@@ -1,7 +1,7 @@
 import type PouchDB from "pouchdb-core";
 import { TweakValuesShouldMatchedTemplate, type EntryDoc, type ObsidianLiveSyncSettings } from "@lib/common/types";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
-import { replicateShim, type PouchDBShim, type ProgressInfo } from "@lib/pouchdb/ReplicatorShim";
+import { replicateShim, type ProgressInfo } from "@lib/pouchdb/ReplicatorShim";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import { type Advertisement, type ReplicatorHostEnv } from "./types";
 import { TrysteroConnection } from "./TrysteroReplicatorP2PConnection";
@@ -408,7 +408,7 @@ export class TrysteroReplicator {
             this.lastSeq = change.seq;
             await this.notifyProgress();
         });
-        const closeChanges = (reason: any) => {
+        const closeChanges = (reason?: unknown) => {
             if (reason) {
                 if (reason instanceof Error) {
                     Logger(`Error while broadcasting the changes`, LOG_LEVEL_INFO);
@@ -583,7 +583,7 @@ export class TrysteroReplicator {
             // const batchSize = 8;
             await replicateShim(
                 this.db,
-                remoteDB as PouchDBShim<any>,
+                remoteDB,
                 async (docs, info) => {
                     await this._env.processReplicatedDocs(docs as Array<PouchDB.Core.ExistingDocument<EntryDoc>>);
                     void this.dispatchReplicationProgress(remotePeer, info);

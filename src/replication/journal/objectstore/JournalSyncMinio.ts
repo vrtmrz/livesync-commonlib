@@ -1,4 +1,11 @@
-import { DeleteObjectsCommand, GetObjectCommand, HeadBucketCommand, PutObjectCommand, S3 } from "@aws-sdk/client-s3";
+import {
+    DeleteObjectsCommand,
+    GetObjectCommand,
+    HeadBucketCommand,
+    PutObjectCommand,
+    S3,
+    type ServiceInputTypes,
+} from "@aws-sdk/client-s3";
 import { applyMd5BodyChecksumMiddleware } from "@smithy/middleware-apply-body-checksum";
 import { Md5 } from "@smithy/md5-js";
 
@@ -8,8 +15,8 @@ import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/types.ts";
 import { Logger } from "@lib/common/logger.ts";
 import { JournalSyncAbstract } from "@lib/replication/journal/JournalSyncAbstract.ts";
 import type { RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";
-import { promiseWithResolver } from "octagonal-wheels/promises";
-import type { SourceData } from "@smithy/types";
+import { promiseWithResolvers } from "octagonal-wheels/promises";
+import type { FinalizeHandlerArguments, SourceData } from "@smithy/types";
 import { clearHandlers } from "@lib/replication/SyncParamsHandler.ts";
 
 export class JournalSyncMinio extends JournalSyncAbstract {
@@ -39,10 +46,10 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         });
         const bucketCustomHeaders = this.customHeaders;
         this._instance.middlewareStack.add(
-            (next, context) => (args: any) => {
+            (next, context) => (args: FinalizeHandlerArguments<ServiceInputTypes>) => {
                 bucketCustomHeaders.forEach(([key, value]) => {
                     if (key && value) {
-                        args.request.headers[key] = value;
+                        (args.request as { headers: Record<string, string> }).headers[key] = value;
                     }
                 });
                 return next(args);
@@ -61,8 +68,8 @@ export class JournalSyncMinio extends JournalSyncAbstract {
             applyMd5BodyChecksumMiddleware({
                 md5: Md5,
                 base64Encoder: (data: Uint8Array) => arrayBufferToBase64Sync(data.buffer),
-                streamHasher: (hashConstructor, stream: any) => {
-                    const result = promiseWithResolver<Uint8Array>();
+                streamHasher: (hashConstructor, stream) => {
+                    const result = promiseWithResolvers<Uint8Array>();
                     const hash = new hashConstructor();
                     stream.on("data", (chunk: SourceData) => {
                         hash.update(chunk);
@@ -136,7 +143,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         return true;
     }
 
-    async uploadJson(key: string, body: any) {
+    async uploadJson<T>(key: string, body: T) {
         try {
             return await this.uploadFile(key, new Blob([JSON.stringify(body)]), "application/json");
         } catch (ex) {
@@ -224,7 +231,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
         try {
             await client.send(cmd);
             return true;
-        } catch (ex: any) {
+        } catch (ex) {
             Logger(`Could not connected to the remote bucket`, LOG_LEVEL_NOTICE);
             Logger(ex, LOG_LEVEL_VERBOSE);
             return false;
@@ -238,7 +245,7 @@ export class JournalSyncMinio extends JournalSyncAbstract {
             return {
                 estimatedSize: objects.Contents.reduce((acc, e) => acc + (e.Size || 0), 0),
             };
-        } catch (ex: any) {
+        } catch (ex) {
             Logger(`Could not get status of the remote bucket`, LOG_LEVEL_NOTICE);
             Logger(ex, LOG_LEVEL_VERBOSE);
             return false;

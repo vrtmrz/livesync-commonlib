@@ -280,9 +280,9 @@ export class ConflictManager {
                 Logger(`Either is deleted`, LOG_LEVEL_VERBOSE);
                 return false;
             }
-            const baseObj = { data: tryParseJSON(baseLeaf.data, {}) } as Record<string | number | symbol, any>;
-            const leftObj = { data: tryParseJSON(leftLeaf.data, {}) } as Record<string | number | symbol, any>;
-            const rightObj = { data: tryParseJSON(rightLeaf.data, {}) } as Record<string | number | symbol, any>;
+            const baseObj = { data: tryParseJSON(baseLeaf.data, {}) } as Record<string | number | symbol, unknown>;
+            const leftObj = { data: tryParseJSON(leftLeaf.data, {}) } as Record<string | number | symbol, unknown>;
+            const rightObj = { data: tryParseJSON(rightLeaf.data, {}) } as Record<string | number | symbol, unknown>;
 
             const diffLeft = generatePatchObj(baseObj, leftObj);
             const diffRight = generatePatchObj(baseObj, rightObj);

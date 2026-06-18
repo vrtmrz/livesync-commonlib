@@ -80,7 +80,7 @@ type EncryptProps = {
     mtime: number;
     ctime: number;
     size: number;
-    children?: any[];
+    children?: string[];
 };
 async function encryptMetaWithHKDF<T extends AnyEntry>(
     doc: T,
@@ -249,7 +249,7 @@ async function outgoingDecryptHKDF(
             try {
                 const metadata = await decryptMetaWithHKDF(path, passphrase, pbkdf2salt);
                 for (const key of Object.keys(metadata)) {
-                    (loadDoc as any)[key] = metadata[key as keyof EncryptProps];
+                    (loadDoc as unknown as Record<string, unknown>)[key] = metadata[key as keyof EncryptProps];
                 }
             } catch (ex) {
                 Logger(`${DECRYPTION_HKDF_FAILED} on Path`, LOG_LEVEL_NOTICE);
@@ -263,7 +263,7 @@ async function outgoingDecryptHKDF(
                 Logger(`${MESSAGE_FALLBACK_DECRYPT_FAILED} on Path`, LOG_LEVEL_NOTICE);
                 throw new Error(MESSAGE_FALLBACK_DECRYPT_FAILED);
             }
-            loadDoc.path = decryptedPath as unknown as FilePathWithPrefix;
+            loadDoc.path = decryptedPath as FilePathWithPrefix;
         }
     }
     let readEden: EntryWithEden["eden"] = {};
@@ -310,7 +310,7 @@ async function outgoingDecryptHKDF(
         }
     }
     if (edenDecrypted) {
-        (loadDoc as any).eden = readEden;
+        (loadDoc as unknown as Record<string, unknown>).eden = readEden;
     } else {
         // If Eden is not decrypted, NO OP.
     }
@@ -330,7 +330,7 @@ async function incomingEncryptV1(
         try {
             if (!("e_" in saveDoc)) {
                 saveDoc.data = await encrypt(saveDoc.data, passphrase, useDynamicIterationCount);
-                (saveDoc as any).e_ = true;
+                (saveDoc as unknown as Record<string, unknown>).e_ = true;
             }
         } catch (ex) {
             Logger("Encryption failed.", LOG_LEVEL_NOTICE);
@@ -386,10 +386,14 @@ async function outgoingDecryptV1(
         try {
             if (_isChunkOrSyncInfo) {
                 loadDoc.data = await decrypt(loadDoc.data, passphrase, useDynamicIterationCount);
-                delete (loadDoc as any).e_;
+                delete (loadDoc as unknown as Record<string, unknown>).e_;
             } else if ("e_" in loadDoc) {
-                (loadDoc as any).data = await decrypt((loadDoc as any).data, passphrase, useDynamicIterationCount);
-                delete (loadDoc as any).e_;
+                (loadDoc as unknown as Record<string, unknown>).data = await decrypt(
+                    (loadDoc as unknown as { data: string }).data,
+                    passphrase,
+                    useDynamicIterationCount
+                );
+                delete (loadDoc as unknown as Record<string, unknown>).e_;
             }
             if (_isObfuscatedEntry) {
                 const path = getPath(loadDoc);
@@ -429,8 +433,8 @@ async function outgoingDecryptV1(
                     if (migrationDecrypt) {
                         decrypted.set(loadDoc._id, true);
                     }
-                } catch (ex: any) {
-                    if (migrationDecrypt && ex.name == "SyntaxError") {
+                } catch (ex) {
+                    if (migrationDecrypt && ex instanceof SyntaxError) {
                         return loadDoc; // This logic will be removed in a while.
                     }
                     Logger("Decryption failed.", LOG_LEVEL_NOTICE);

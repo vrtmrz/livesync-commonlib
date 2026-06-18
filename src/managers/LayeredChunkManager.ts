@@ -45,7 +45,7 @@ export class LayeredChunkManager {
 
     addListener<K extends keyof ChunkManagerEventMap>(
         type: K,
-        listener: (this: LayeredChunkManager, ev: ChunkManagerEventMap[K]) => any,
+        listener: (this: LayeredChunkManager, ev: ChunkManagerEventMap[K]) => void,
         options?: boolean | AddEventListenerOptions
     ): () => void {
         const callback = (ev: CustomEvent<ChunkManagerEventMap[K]>) => {
@@ -235,8 +235,14 @@ export class LayeredChunkManager {
     }
 
     // Helper methods
-    private isChunkDoc(doc: any): doc is EntryLeaf {
-        return doc && typeof doc._id === "string" && doc.type === "leaf";
+    private isChunkDoc(doc: unknown): doc is EntryLeaf {
+        if (typeof doc !== "object" || doc === null) {
+            return false;
+        }
+        if ("_id" in doc && "type" in doc) {
+            return doc && typeof doc._id === "string" && doc.type === "leaf";
+        }
+        return false;
     }
 
     // Event handlers
@@ -245,7 +251,7 @@ export class LayeredChunkManager {
     }
     protected onChunkArrivedHandler = this.onChunkArrived.bind(this);
 
-    private onChange(change: PouchDB.Core.ChangesResponseChange<EntryLeaf>): void {
+    private onChange(change: PouchDB.Core.ChangesResponseChange<EntryDoc>): void {
         const doc = change.doc;
         if (!doc || !doc._id) {
             return;

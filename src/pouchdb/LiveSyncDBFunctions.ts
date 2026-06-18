@@ -48,7 +48,7 @@ export async function ensureRemoteIsCompatible(
     const baseMilestone: EntryMilestoneInfo = {
         _id: MILESTONE_DOC_ID,
         type: "milestoneinfo",
-        created: (new Date() as any) / 1,
+        created: now,
         locked: false,
         accepted_nodes: [deviceNodeID],
         node_chunk_info: { [deviceNodeID]: currentVersionRange },

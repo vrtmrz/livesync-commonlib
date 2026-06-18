@@ -53,11 +53,11 @@ if (typeof HTMLElement !== "undefined") {
                     this.style.removeProperty(key);
                     const camelKey = key.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
                     if (camelKey !== key) {
-                        (this.style as any)[camelKey] = "";
+                        (this.style as unknown as Record<string, string>)[camelKey] = "";
                     }
                 } else {
                     if (key in this.style) {
-                        (this.style as any)[key] = value;
+                        (this.style as unknown as Record<string, string>)[key] = value as unknown as string;
                     } else {
                         this.style.setProperty(key, value as unknown as string);
                     }
@@ -86,11 +86,11 @@ if (typeof SVGElement !== "undefined") {
                     this.style.removeProperty(key);
                     const camelKey = key.replace(/-([a-z])/g, (g) => g[1].toUpperCase());
                     if (camelKey !== key) {
-                        (this.style as any)[camelKey] = "";
+                        (this.style as unknown as Record<string, string>)[camelKey] = "";
                     }
                 } else {
                     if (key in this.style) {
-                        (this.style as any)[key] = value;
+                        (this.style as unknown as Record<string, string>)[key] = value as unknown as string;
                     } else {
                         this.style.setProperty(key, value as unknown as string);
                     }

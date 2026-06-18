@@ -391,8 +391,8 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         name: "Enable edge case treatment features",
     },
     enableDebugTools: {
-        name: "Enable Developers' Debug Tools.",
-        desc: "While enabled, it causes very performance impact but debugging replication testing and other features will be enabled. Please disable this if you have not read the source code. Requires restart of Obsidian.",
+        name: "Enable Developers' Debug Tools (If available).",
+        desc: "While enabled, it causes very performance impact but debugging replication testing and other features will be enabled. Please disable this if you have not read the source code. Requires restart of Obsidian. Sometimes there is no implementation.",
     },
     suppressNotifyHiddenFilesChange: {
         name: "Suppress notification of hidden files change",

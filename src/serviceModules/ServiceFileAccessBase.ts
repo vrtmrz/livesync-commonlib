@@ -21,7 +21,7 @@ import type { VaultService } from "@lib/services/base/VaultService";
 import type { SettingService } from "@lib/services/base/SettingService";
 import type { FileAccessBase, ExtractFile, ExtractFolder } from "@lib/serviceModules/FileAccessBase";
 import type { IFileSystemAdapter } from "@lib/serviceModules/adapters";
-
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- For type extraction.
 export interface StorageAccessBaseDependencies<TAdapter extends IFileSystemAdapter<any, any, any, any>> {
     API: APIService;
     appLifecycle: AppLifecycleService;
@@ -32,7 +32,7 @@ export interface StorageAccessBaseDependencies<TAdapter extends IFileSystemAdapt
     storageAccessManager: IStorageAccessManager;
     vaultAccess: FileAccessBase<TAdapter>;
 }
-
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- For type extraction.
 export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any, any, any>>
     extends ServiceModuleBase<StorageAccessBaseDependencies<TAdapter>>
     implements StorageAccess
@@ -341,7 +341,7 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
         if (this.vaultAccess.isFile(file)) {
             if (!(await this.vault.isTargetFile(filePath))) return;
         }
-        const dir = (file as any).parent as ExtractFolder<TAdapter> | null;
+        const dir = (file as { parent: ExtractFolder<TAdapter> | null }).parent;
         const settings = this.setting.currentSettings();
         if (settings.trashInsteadDelete) {
             await this.vaultAccess.trash(file, false);
@@ -350,7 +350,7 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
         }
         this._log(`xxx <- STORAGE (deleted) ${filePath}`);
         if (dir) {
-            this._log(`files: ${(dir as any)?.children?.length ?? "unknown"}`);
+            this._log(`files: ${(dir as { children?: unknown[] })?.children?.length ?? "unknown"}`);
             if ((dir?.children?.length ?? 0) === 0) {
                 if (!settings.doNotDeleteFolder) {
                     this._log(

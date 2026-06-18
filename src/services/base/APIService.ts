@@ -23,7 +23,7 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
      * @param level The log level.
      * @param key The log key.
      */
-    abstract addLog(message: any, level: LOG_LEVEL, key: string): void;
+    abstract addLog(message: unknown, level: LOG_LEVEL, key: string): void;
 
     /**
      * Check if the app is running on a mobile device.
@@ -78,7 +78,7 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
      * @param type
      * @param factory
      */
-    abstract registerWindow(type: string, factory: (leaf: any) => any): void;
+    abstract registerWindow<T>(type: string, factory: (leaf: T) => unknown): void;
 
     /**
      * Add a ribbon icon to the UI.
@@ -86,14 +86,14 @@ export abstract class APIService<T extends ServiceContext = ServiceContext>
      * @param title
      * @param callback
      */
-    abstract addRibbonIcon(icon: string, title: string, callback: (evt: MouseEvent) => any): HTMLElement;
+    abstract addRibbonIcon(icon: string, title: string, callback: (evt: MouseEvent) => unknown): HTMLElement;
 
     /**
      * Register a protocol handler.
      * @param action The action string for the protocol.
      * @param handler The handler function for the protocol.
      */
-    abstract registerProtocolHandler(action: string, handler: (params: Record<string, string>) => any): void;
+    abstract registerProtocolHandler(action: string, handler: (params: Record<string, string>) => unknown): void;
 
     /**
      * Get the basic UI component for showing a confirmation dialog to the user.

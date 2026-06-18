@@ -10,8 +10,11 @@ import type { IVaultAdapter } from "./IVaultAdapter.ts";
  * Composes all other adapters and provides platform-specific operations
  */
 export interface IFileSystemAdapter<
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- For type extraction.
     TNativeAbstractFile = any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- For type extraction.
     TNativeFile = any,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- For type extraction.
     TNativeFolder = any,
     TStat extends UXStat = UXStat,
 > {

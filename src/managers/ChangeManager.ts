@@ -8,10 +8,12 @@ export interface ChangeManagerOptions {
     /**
      * The PouchDB database instance to monitor for changes.
      */
-    database: PouchDB.Database;
+    database: PouchDB.Database<object>;
 }
 
-export type ChangeManagerCallback = (change: PouchDB.Core.ChangesResponseChange<any>) => void | Promise<void>;
+export type ChangeManagerCallback<T extends object = object> = (
+    change: PouchDB.Core.ChangesResponseChange<T>
+) => void | Promise<void>;
 
 /**
  * Manages and dispatches changes from a PouchDB database to registered callbacks.
@@ -37,21 +39,21 @@ export class ChangeManager<T extends object = object> {
     /**
      * A list of registered callbacks wrapped in WeakRefs to avoid memory leaks.
      */
-    _callbacks: FallbackWeakRef<ChangeManagerCallback>[] = [];
+    _callbacks: FallbackWeakRef<ChangeManagerCallback<T>>[] = [];
 
     /**
      * Registers a new callback to be invoked when a change occurs.
      *
      * @param callback - The callback function to register.
      */
-    addCallback(callback: ChangeManagerCallback): () => void {
+    addCallback(callback: ChangeManagerCallback<T>): () => void {
         const callbackHandler = new FallbackWeakRef(callback);
         this._callbacks.push(callbackHandler);
         return () => {
             this._callbacks = this._callbacks.filter((cb) => cb !== callbackHandler);
         };
     }
-    removeCallback(callback: ChangeManagerCallback): void {
+    removeCallback(callback: ChangeManagerCallback<T>): void {
         this._callbacks = this._callbacks.filter((cb) => cb.deref() !== callback);
     }
 

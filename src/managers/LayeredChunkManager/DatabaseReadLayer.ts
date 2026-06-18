@@ -1,6 +1,6 @@
 import { Logger, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 import { LiveSyncError } from "@lib/common/LSError";
-import type { EntryLeaf, DocumentID } from "@lib/common/types";
+import type { EntryLeaf, DocumentID, EntryDoc } from "@lib/common/types";
 import type { IReadLayer } from "./ChunkLayerInterfaces";
 import type { ChunkReadOptions } from "./types.ts";
 
@@ -9,23 +9,26 @@ import type { ChunkReadOptions } from "./types.ts";
  */
 
 export class DatabaseReadLayer implements IReadLayer {
-    constructor(private database: PouchDB.Database<any>) {}
+    constructor(private database: PouchDB.Database<EntryDoc>) {}
 
-    private isChunkDoc(doc: any): doc is EntryLeaf {
+    private isChunkDoc(doc: EntryDoc): doc is EntryLeaf {
         return doc && typeof doc._id === "string" && doc.type === "leaf";
     }
 
-    private getError(error: any) {
+    private getError(error: unknown): Error | undefined {
         if (error instanceof Error) {
             return error;
         }
-        if ("error" in error && error.error instanceof Error) {
+        if (typeof error === "object" && error !== null && "error" in error && error.error instanceof Error) {
             return error.error;
         }
         return undefined;
     }
 
-    private isMissingError(error: any): boolean {
+    private isMissingError(error: unknown): boolean {
+        if (typeof error !== "object" || error === null) {
+            return false;
+        }
         if ("status" in error && error.status === 404) {
             return true;
         }

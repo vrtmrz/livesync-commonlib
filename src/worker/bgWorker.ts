@@ -1,6 +1,6 @@
 // Foreground part of Worker-off-loaded functions
 
-import { promiseWithResolver } from "octagonal-wheels/promises.js";
+import { promiseWithResolvers } from "octagonal-wheels/promises.js";
 import { eventHub } from "@lib/hub/hub.ts";
 //@ts-ignore
 import WorkerX from "./bg.worker.ts?worker&inline";
@@ -188,7 +188,7 @@ export function startWorker(data: Omit<SplitArguments, "key">): SplitProcessItem
 export function startWorker(data: Omit<EncryptArguments | SplitArguments | EncryptHKDFArguments, "key">): ProcessItem {
     const _key = key++;
     const inst = nextWorker();
-    const promise = promiseWithResolver<any>();
+    const promise = promiseWithResolvers<string>();
     const item: ProcessItem = {
         key: _key,
         task: promise,

@@ -211,15 +211,11 @@ export async function collectFilesOnStorage(
         }
     }
 
-    const storageFileNameMap = Object.fromEntries(
-        _filesStorage.map((e) => [e.path, e])
-    );
+    const storageFileNameMap = Object.fromEntries(_filesStorage.map((e) => [e.path, e]));
 
     const storageFileNames = Object.keys(storageFileNameMap) as FilePathWithPrefix[];
 
-    const storageFileNameCapsPair = storageFileNames.map(
-        (e) => [e, convertCase(settings, e)]
-    );
+    const storageFileNameCapsPair = storageFileNames.map((e) => [e, convertCase(settings, e)]);
 
     const storageFileNameCI2CS = Object.fromEntries(storageFileNameCapsPair.map((e) => [e[1], e[0]])) as Record<
         FilePathWithPrefixLC,
@@ -257,13 +253,9 @@ export async function collectDatabaseFiles(
         }
     }
 
-    const databaseFileNameMap = Object.fromEntries(
-        _DBEntries.map((e) => [getPathFromEntry(host, e), e])
-    );
+    const databaseFileNameMap = Object.fromEntries(_DBEntries.map((e) => [getPathFromEntry(host, e), e]));
     const databaseFileNames = Object.keys(databaseFileNameMap) as FilePathWithPrefix[];
-    const databaseFileNameCapsPair = databaseFileNames.map(
-        (e) => [e, convertCase(settings, e)]
-    );
+    const databaseFileNameCapsPair = databaseFileNames.map((e) => [e, convertCase(settings, e)]);
     const databaseFileNameCI2CS = Object.fromEntries(databaseFileNameCapsPair.map((e) => [e[1], e[0]])) as Record<
         FilePathWithPrefix,
         FilePathWithPrefixLC

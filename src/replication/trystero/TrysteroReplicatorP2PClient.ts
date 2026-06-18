@@ -1,14 +1,20 @@
-import type { EntryDoc } from "@lib/common/types";
-import type { PouchDBShim } from "@lib/pouchdb/ReplicatorShim";
+import type { PouchDBShim, SomeDocument } from "@lib/pouchdb/ReplicatorShim";
 import type { TrysteroReplicatorP2PServer } from "./TrysteroReplicatorP2PServer";
-import { BULK_GET_RPC_TIMEOUT, DEFAULT_RPC_TIMEOUT, type BindableObject, type NonPrivateMethodKeys } from "./types";
+import {
+    BULK_GET_RPC_TIMEOUT,
+    DEFAULT_RPC_TIMEOUT,
+    type BindableObject,
+    type NonPrivateMethodKeys,
+    type Response,
+} from "./types";
 import { toRpcMethodName } from "./rpcCompat";
+import type { JsonLike } from "@/lib/src/rpc";
 
 export class TrysteroReplicatorP2PClient {
     _server: TrysteroReplicatorP2PServer;
 
     _connectedPeerId: string;
-    _remoteDB: PouchDBShim<EntryDoc>;
+    _remoteDB: PouchDBShim<SomeDocument<object>>;
 
     get remoteDB() {
         return this._remoteDB;
@@ -29,10 +35,10 @@ export class TrysteroReplicatorP2PClient {
             bulkGet: this.bindRemoteFunction("bulkGet", BULK_GET_RPC_TIMEOUT),
             put: this.bindRemoteFunction("put"),
             get: this.bindRemoteFunction("get"),
-        } as PouchDBShim<EntryDoc>;
+        } as PouchDBShim<SomeDocument<object>>;
     }
 
-    _sendRPC(type: string, args: any[], timeout = DEFAULT_RPC_TIMEOUT) {
+    _sendRPC(type: string, args: JsonLike[], timeout = DEFAULT_RPC_TIMEOUT) {
         const room = this._server?.rpcRoom;
         if (!room) {
             throw new Error("Not connected to any room");
@@ -41,26 +47,31 @@ export class TrysteroReplicatorP2PClient {
         return session.call(toRpcMethodName(type), args, timeout);
     }
 
-    __onResponse(_data: any) {
+    __onResponse(_data: Response) {
         // Responses are now handled by RpcRoom.
     }
 
-    bindRemoteFunction<T extends any[], U>(type: string, timeout = DEFAULT_RPC_TIMEOUT) {
+    bindRemoteFunction<T extends unknown[], U>(type: string, timeout = DEFAULT_RPC_TIMEOUT) {
         return async (...args: T) => {
             const room = this._server?.rpcRoom;
             if (!room) {
                 throw new Error("Not connected to any room");
             }
-            return (await room.session(this._connectedPeerId).call(toRpcMethodName(type), args, timeout)) as U;
+            return (await room
+                .session(this._connectedPeerId)
+                .call(toRpcMethodName(type), args as JsonLike[], timeout)) as U;
         };
     }
-    async invokeRemoteFunction<T extends any[], U>(type: string, args: T, timeout = DEFAULT_RPC_TIMEOUT) {
+    async invokeRemoteFunction<T extends unknown[], U>(type: string, args: T, timeout = DEFAULT_RPC_TIMEOUT) {
         const room = this._server?.rpcRoom;
         if (!room) {
             throw new Error("Not connected to any room");
         }
-        return (await room.session(this._connectedPeerId).call(toRpcMethodName(type), args, timeout)) as U;
+        return (await room
+            .session(this._connectedPeerId)
+            .call(toRpcMethodName(type), args as JsonLike[], timeout)) as U;
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- This is a generic function binder, so we can't be more specific about the types here.
     bindRemoteObjectFunctions<T extends BindableObject<any>, U extends keyof T>(key: U, timeout = DEFAULT_RPC_TIMEOUT) {
         type F = T[U];
         type P = Parameters<T[U]>;
@@ -72,9 +83,10 @@ export class TrysteroReplicatorP2PClient {
             }
             return await room
                 .session(this._connectedPeerId)
-                .call(toRpcMethodName(key.toString()), args as any, timeout);
+                .call(toRpcMethodName(key.toString()), args as JsonLike[], timeout);
         };
     }
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- This is a generic function binder, so we can't be more specific about the types here.
     async invokeRemoteObjectFunction<T extends BindableObject<any>, U extends NonPrivateMethodKeys<T>>(
         key: U,
         args: Parameters<T[U]>,
@@ -84,7 +96,9 @@ export class TrysteroReplicatorP2PClient {
         if (!room) {
             throw new Error("Not connected to any room");
         }
-        return await room.session(this._connectedPeerId).call(toRpcMethodName(key.toString()), args as any, timeout);
+        return await room
+            .session(this._connectedPeerId)
+            .call(toRpcMethodName(key.toString()), args as JsonLike[], timeout);
     }
 
     close() {

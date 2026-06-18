@@ -3,21 +3,21 @@ import type { FilePath } from "@lib/common/types";
 /**
  * Event handlers for storage events
  */
-export interface IStorageEventWatchHandlers {
-    onCreate: (file: any, ctx?: any) => void;
-    onChange: (file: any, ctx?: any) => void;
-    onDelete: (file: any, ctx?: any) => void;
-    onRename: (file: any, oldPath: string, ctx?: any) => void;
+export interface IStorageEventWatchHandlers<TFile = unknown, TCtx = unknown> {
+    onCreate: (file: TFile, ctx?: TCtx) => void;
+    onChange: (file: TFile, ctx?: TCtx) => void;
+    onDelete: (file: TFile, ctx?: TCtx) => void;
+    onRename: (file: TFile, oldPath: string, ctx?: TCtx) => void;
     onRaw: (path: FilePath) => void;
-    onEditorChange?: (editor: any, info: any) => void;
+    onEditorChange?: <TEditor = unknown, TInfo = unknown>(editor: TEditor, info: TInfo) => void;
 }
 
 /**
  * Adapter interface for watching vault/storage events
  */
-export interface IStorageEventWatchAdapter {
+export interface IStorageEventWatchAdapter<TFile = unknown, TCtx = unknown> {
     /**
      * Begin watching for storage events
      */
-    beginWatch(handlers: IStorageEventWatchHandlers): Promise<void>;
+    beginWatch(handlers: IStorageEventWatchHandlers<TFile, TCtx>): Promise<void>;
 }

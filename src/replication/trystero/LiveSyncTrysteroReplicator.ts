@@ -26,11 +26,11 @@ import {
 } from "./TrysteroReplicatorP2PServer";
 import { $msg } from "@lib/common/i18n";
 import { delay } from "octagonal-wheels/promises";
-import type { IServiceHub } from "@lib/services/base/IService";
+
 import type { Advertisement } from "./types";
 
 export interface LiveSyncTrysteroReplicatorEnv extends LiveSyncReplicatorEnv {
-    services: IServiceHub;
+    // services: IServiceHub;
     /**
      * Injected by the host platform (e.g. Obsidian) to show a UI for peer selection.
      * When not set, openReplication falls back to replicateFromCommand (CLI-safe).

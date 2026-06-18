@@ -19,7 +19,7 @@
         closeDialog,
         setResult,
         getInitialData,
-    } as DialogSvelteComponentBaseProps;
+    } satisfies DialogSvelteComponentBaseProps<any,any>
 
     // Call the onSetupContext function to setup the dialog context
     onSetupContext?.(contextProps);

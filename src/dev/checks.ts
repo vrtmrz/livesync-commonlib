@@ -1,15 +1,16 @@
 import { LOG_LEVEL_DEBUG, Logger } from "octagonal-wheels/common/logger";
 
-type InstanceHaveOnBindFunction = {
-    onBindFunction: (core: any, services: any) => void;
-} & Record<string, any>;
+interface InstanceHaveOnBindFunction<T> {
+    onBindFunction: (...params: T[]) => void;
+}
 
-export function __$checkInstanceBinding<T extends InstanceHaveOnBindFunction>(instance: T) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- We want to allow any parameters for onBindFunction.
+export function __$checkInstanceBinding<T extends InstanceHaveOnBindFunction<any>>(instance: T) {
     const thisName = instance.constructor.name;
     const functions = [] as string[];
     for (const key of Object.getOwnPropertyNames(Object.getPrototypeOf(instance))) {
         if (key.startsWith("_") && !key.startsWith("__")) {
-            const method = instance[key];
+            const method = (instance as unknown as Record<string, unknown>)[key];
             if (typeof method === "function") {
                 // console.warn(`${thisName}.${key}`);
                 functions.push(`${thisName}.${key}`);

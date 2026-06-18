@@ -18,6 +18,7 @@ import type { SettingService } from "@lib/services/base/SettingService";
 import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
 import { createInstanceLogFunction, MARK_LOG_NETWORK_ERROR, type LogFunction } from "@lib/services/lib/logUtils";
 import { PouchDB } from "@lib/pouchdb/pouchdb-browser.ts";
+import { LiveSyncError } from "@lib/common/LSError";
 export interface RemoteServiceDependencies {
     APIService: APIService;
     appLifecycle: AppLifecycleService;
@@ -255,7 +256,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                         }
                         throw ex;
                     }
-                } catch (ex: any) {
+                } catch (ex) {
                     this._log(`HTTP:${method}${size} to:${localURL} -> failed`, LOG_LEVEL_VERBOSE);
                     const msg = ex instanceof Error ? `${ex?.name}:${ex?.message}` : ex?.toString();
                     this.showError(`${MARK_LOG_NETWORK_ERROR}Network Error: Failed to fetch: ${msg}`, LOG_LEVEL_INFO); // Do not show notice, due to throwing below
@@ -285,8 +286,9 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
         try {
             const info = await db.info();
             return { db: db, info: info };
-        } catch (ex: any) {
-            const msg = `${ex?.name}:${ex?.message}`;
+        } catch (ex) {
+            const exMsg = ex instanceof Error ? ex : LiveSyncError.fromError(ex);
+            const msg = `${exMsg.name}:${exMsg.message}`;
             this._log(ex, LOG_LEVEL_VERBOSE);
             return msg;
         }

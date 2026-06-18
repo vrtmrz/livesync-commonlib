@@ -186,7 +186,7 @@ export function memorizeFuncWithLRUCache<T, U>(func: (key: T) => U) {
     };
 }
 
-export function memorizeFuncWithLRUCacheMulti<T extends Array<any>, U>(func: (...keys: T) => U) {
+export function memorizeFuncWithLRUCacheMulti<T extends unknown[], U>(func: (...keys: T) => U) {
     const cache = new LRUCache<string, U>(100, 100000, true);
     return (keys: T) => {
         const theKey = keys
@@ -382,7 +382,7 @@ export function timeDeltaToHumanReadable(delta: number) {
 export async function wrapException<T>(func: () => Promise<Awaited<T>>): Promise<Awaited<T> | Error> {
     try {
         return await func();
-    } catch (ex: any) {
+    } catch (ex) {
         if (ex instanceof Error) {
             return ex;
         }
@@ -610,7 +610,13 @@ export function mergeObject(
     return retSorted;
 }
 
-export function flattenObject(obj: Record<string | number | symbol, any>, path: string[] = []): [string, any][] {
+type Primitive = string | number | symbol;
+type FlattenValue = Primitive | null | undefined;
+
+export function flattenObject<T extends Record<Primitive, FlattenValue>>(
+    obj: T | FlattenValue,
+    path: string[] = []
+): [string, FlattenValue][] {
     if (typeof obj != "object") return [[path.join("."), obj]];
     if (obj === null) return [[path.join("."), null]];
     if (Array.isArray(obj)) return [[path.join("."), JSON.stringify(obj)]];

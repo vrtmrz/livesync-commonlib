@@ -6,14 +6,15 @@
 import EventEmitter from "events";
 import { RpcError } from "@lib/rpc/errors";
 import type { RpcSession } from "@lib/rpc/RpcSession";
+import type { JsonLike } from "@lib/rpc/types";
 
 /** No-op ActiveTasks stub required by pouchdb-replication for progress tracking. */
 const noopActiveTasks = {
-    add: (_task: object): any => null,
-    get: (_id: any): any => null,
-    update: (_id: any, _update: object): void => {},
-    remove: (_id: any, _err?: Error): void => {},
-    list: (): any[] => [],
+    add: (_task: object): unknown => null,
+    get: (_id: unknown): unknown => null,
+    update: (_id: unknown, _update: object): void => {},
+    remove: (_id: unknown, _err?: Error): void => {},
+    list: (): unknown[] => [],
 };
 
 /**
@@ -69,12 +70,12 @@ export class RpcPouchDBProxy extends EventEmitter {
      */
     private async callDB<T>(method: string, args: unknown[] = []): Promise<T> {
         try {
-            return await this.session.call<T>(`${this.ns}.${method}`, args as any);
-        } catch (err: any) {
+            return await this.session.call<T>(`${this.ns}.${method}`, args as JsonLike[]);
+        } catch (err) {
             if (err instanceof RpcError && err.code === "REMOTE_ERROR") {
-                const d = err.details as any;
+                const d = err.details as unknown as { status?: number; name?: string; reason?: string };
                 if (d?.name || d?.status) {
-                    const pouchErr = new Error(err.message) as any;
+                    const pouchErr = new Error(err.message) as Error & PouchDB.Core.Error;
                     if (d.name) pouchErr.name = d.name;
                     if (d.status) pouchErr.status = d.status;
                     if (d.reason) pouchErr.reason = d.reason;

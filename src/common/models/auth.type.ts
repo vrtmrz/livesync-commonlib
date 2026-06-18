@@ -30,7 +30,7 @@ export interface JWTPayload {
     exp: number;
     iss?: string;
     iat: number;
-    [key: string]: any;
+    [key: string]: unknown;
 }
 export interface JWTParams {
     header: JWTHeader;

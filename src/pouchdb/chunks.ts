@@ -1,9 +1,10 @@
 import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
-import type { CouchDBConnection, EntryLeaf } from "@lib/common/types";
+import type { CouchDBConnection, DocumentID, EntryDoc, EntryLeaf } from "@lib/common/types";
 import { QueueProcessor } from "octagonal-wheels/concurrency/processor";
 import { arrayToChunkedArray, sizeToHumanReadable } from "@lib/common/utils";
 import { serialized } from "octagonal-wheels/concurrency/lock";
 import { _requestToCouchDBFetch } from "./utils_couchdb";
+import { isNotFoundError } from "@/lib/src/common/utils.doc";
 
 export async function purgeUnreferencedChunks(
     db: PouchDB.Database,
@@ -14,7 +15,7 @@ export async function purgeUnreferencedChunks(
     const info = await db.info();
     let resultCount = 0;
     const getSize = function (info: PouchDB.Core.DatabaseInfo, key: "active" | "external" | "file") {
-        return Number.parseInt((info as any)?.sizes?.[key] ?? 0);
+        return Number.parseInt((info as unknown as { sizes?: Record<string, string> })?.sizes?.[key] ?? "0", 10);
     };
     const keySuffix = connSetting ? "-remote" : "-local";
     Logger(`${dryRun ? "Counting" : "Cleaning"} ${connSetting ? "remote" : "local"} database`, LOG_LEVEL_NOTICE);
@@ -110,8 +111,11 @@ export function transferChunks(
         .pipeTo(
             new QueueProcessor(
                 async (chunkIds) => {
-                    const docs = await dbFrom.allDocs({ keys: chunkIds, include_docs: true });
-                    const filteredDocs = docs.rows.filter((e) => !("error" in e)).map((e: any) => e.doc as EntryLeaf);
+                    const docs = (await dbFrom.allDocs({
+                        keys: chunkIds,
+                        include_docs: true,
+                    })) as PouchDB.Core.AllDocsResponse<EntryLeaf>;
+                    const filteredDocs = docs.rows.filter((e) => !("error" in e)).map((e) => e.doc as EntryLeaf);
                     return filteredDocs;
                 },
                 {
@@ -177,13 +181,16 @@ export async function purgeChunksLocal(db: PouchDB.Database, docs: { id: string;
             const batchDocsBackup = arrayToChunkedArray(docs, 100);
             let total = { ok: 0, exist: 0, error: 0 };
             for (const docsInBatch of batchDocsBackup) {
-                const backupDocsFrom = await db.allDocs({ keys: docsInBatch.map((e) => e.id), include_docs: true });
+                const backupDocsFrom = (await db.allDocs({
+                    keys: docsInBatch.map((e) => e.id),
+                    include_docs: true,
+                })) as PouchDB.Core.AllDocsResponse<EntryLeaf>;
                 const backupDocs = backupDocsFrom.rows
                     .filter((e) => "doc" in e)
                     .map((e) => {
-                        const chunk = { ...(e as any).doc };
+                        const chunk = { ...e.doc };
                         delete chunk._rev;
-                        chunk._id = `_local/${chunk._id}`;
+                        chunk._id = `_local/${chunk._id}` as DocumentID;
                         return chunk;
                     });
                 const ret = await db.bulkDocs(backupDocs);
@@ -239,18 +246,18 @@ export async function collectChunks(db: PouchDB.Database, type: "INUSE" | "DANGL
 
     const rowF = type == "ALL" ? rows : rows.filter((e) => (type == "DANGLING" ? e.value == 0 : e.value != 0));
     const ids = rowF.flatMap((e) => e.key);
-    const docs = (await db.allDocs({ keys: ids })).rows;
-    const items = docs.filter((e) => !("error" in e)).map((e: any) => ({ id: e.id, rev: e.value.rev }));
+    const docs = (await db.allDocs({ keys: ids })).rows as { id: string; value: { rev: string }; error?: string }[];
+    const items = docs.filter((e) => !("error" in e)).map((e) => ({ id: e.id, rev: e.value.rev }));
     return items;
 }
 async function prepareChunkDesignDoc(db: PouchDB.Database) {
     const chunkDesignDoc = {
         _id: "_design/chunks",
-        _rev: undefined as any,
+        _rev: undefined as string | undefined,
         ver: 2,
         views: {
             collectDangling: {
-                map: function (doc: any) {
+                map: function (doc: EntryDoc) {
                     if (doc._id.startsWith("h:")) {
                         //@ts-ignore
                         emit([doc._id], 0);
@@ -273,8 +280,8 @@ async function prepareChunkDesignDoc(db: PouchDB.Database) {
             chunkDesignDoc._rev = old._rev;
             updateDDoc = true;
         }
-    } catch (ex: any) {
-        if (ex.status == 404) {
+    } catch (ex) {
+        if (isNotFoundError(ex)) {
             // NO OP
             updateDDoc = true;
         } else {
@@ -287,7 +294,7 @@ async function prepareChunkDesignDoc(db: PouchDB.Database) {
         if (updateDDoc) {
             await db.put<typeof chunkDesignDoc>(chunkDesignDoc);
         }
-    } catch (ex: any) {
+    } catch (ex) {
         // NO OP.
         Logger(`Failed to make design document for operating chunks`);
         Logger(ex, LOG_LEVEL_VERBOSE);
