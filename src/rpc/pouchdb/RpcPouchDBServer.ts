@@ -38,17 +38,18 @@ async function runDB<T>(fn: () => Promise<T>): Promise<T> {
  * @param ns    Method namespace prefix (default: `'pdb'`).
  */
 export function exposeDB(room: RpcRoom, db: PouchDB.Database<object>, ns = "pdb"): void {
-    room.register(`${ns}.info`, () => runDB(() => db.info() as Promise<any>));
+    room.register(`${ns}.info`, () => runDB(() => db.info() as Promise<unknown>));
 
-    room.register(`${ns}.id`, () => runDB(() => (db as any).id() as unknown as Promise<string> as Promise<any>));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- PouchDB's `id()` is not typed
+    room.register(`${ns}.id`, () => runDB(() => (db as any).id() as unknown as Promise<string> as Promise<unknown>));
 
     // The changes feed is always served as a one-shot snapshot.  Live feeds
     // would require a push channel and are not supported over RPC.
     room.register(`${ns}.changes`, (_peerId, opts) =>
         runDB(
             () =>
-                new Promise<any>((resolve, reject) => {
-                    const feed = db.changes({ ...(opts as any), live: false });
+                new Promise<unknown>((resolve, reject) => {
+                    const feed = db.changes({ ...(opts as object), live: false });
                     void feed.on("complete", resolve);
                     void feed.on("error", reject);
                 })
@@ -56,22 +57,27 @@ export function exposeDB(room: RpcRoom, db: PouchDB.Database<object>, ns = "pdb"
     );
 
     room.register(`${ns}.get`, (_peerId, id, opts) =>
-        runDB(() => db.get<unknown>(id as string, (opts ?? {}) as any) as Promise<any>)
+        runDB(() => db.get<unknown>(id as string, (opts ?? {}) as object) as Promise<unknown>)
     );
 
     room.register(`${ns}.put`, (_peerId, doc, opts) =>
-        runDB(() => db.put(doc as any, (opts ?? {}) as any) as Promise<any>)
+        runDB(() => db.put(doc as object, (opts ?? {}) as object) as Promise<unknown>)
     );
 
-    room.register(`${ns}.bulkGet`, (_peerId, opts) => runDB(() => db.bulkGet(opts as any) as Promise<any>));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- wrongly typed in @types/pouchdb (incorrect overload signatures)
+    room.register(`${ns}.bulkGet`, (_peerId, opts) => runDB(() => db.bulkGet(opts as any) as Promise<unknown>));
 
     // `req` may be either a document array or `{docs, new_edits}` object —
     // both forms are accepted by PouchDB's public `bulkDocs` method.
     room.register(`${ns}.bulkDocs`, (_peerId, req, opts) =>
-        runDB(() => db.bulkDocs(req as any, (opts ?? {}) as any) as Promise<any>)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- wrongly typed in @types/pouchdb (incorrect overload signatures)
+        runDB(() => db.bulkDocs(req as any, (opts ?? {}) as object) as Promise<unknown>)
     );
 
-    room.register(`${ns}.revsDiff`, (_peerId, diff) => runDB(() => db.revsDiff(diff as any) as Promise<any>));
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- wrongly typed in @types/pouchdb (incorrect overload signatures)
+    room.register(`${ns}.revsDiff`, (_peerId, diff) => runDB(() => db.revsDiff(diff as any) as Promise<unknown>));
 
-    room.register(`${ns}.allDocs`, (_peerId, opts) => runDB(() => db.allDocs((opts ?? {}) as any) as Promise<any>));
+    room.register(`${ns}.allDocs`, (_peerId, opts) =>
+        runDB(() => db.allDocs((opts ?? {}) as object) as Promise<unknown>)
+    );
 }

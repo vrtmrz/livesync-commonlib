@@ -2,7 +2,7 @@
 // Now this implementation is a sample and for Node.js environment. Hence,
 // eslint rules are disabled for CIs. I will refactor this module or move to a
 // separate file.
-// eslint-disable-next-line import/no-nodejs-modules
+// eslint-disable-next-line import/no-nodejs-modules -- This module is only used in Node.js contexts (e.g. CLI, Electron main process).
 import EventEmitter from "events";
 import { RpcError } from "@lib/rpc/errors";
 import type { RpcSession } from "@lib/rpc/RpcSession";
@@ -106,10 +106,12 @@ export class RpcPouchDBProxy extends EventEmitter {
      * (`live: false`).
      */
     changes(opts: PouchDB.Core.ChangesOptions): PouchDB.Core.Changes<object> {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- this may not happened on Obsidian.
         const emitter = new EventEmitter() as any;
         let cancelled = false;
 
-        const promise = this.callDB<any>("changes", [{ ...opts, live: false }]).then((info) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- wrongly typed in @types/pouchdb (missing some overload signatures)
+        const promise = this.callDB("changes", [{ ...opts, live: false }]).then((info: any) => {
             if (cancelled) return info as PouchDB.Core.ChangesResponse<object>;
             for (const change of info.results ?? []) {
                 if (cancelled) break;
@@ -131,10 +133,10 @@ export class RpcPouchDBProxy extends EventEmitter {
         // Make the emitter thenable so it can be used with `await`.
         emitter.then = <R>(
             onfulfilled?: (v: PouchDB.Core.ChangesResponse<object>) => R | PromiseLike<R>,
-            onrejected?: (e: any) => R | PromiseLike<R>
+            onrejected?: (e: unknown) => R | PromiseLike<R>
         ) => promise.then(onfulfilled, onrejected);
 
-        emitter.catch = <R>(onrejected?: (e: any) => R | PromiseLike<R>) => promise.catch(onrejected);
+        emitter.catch = <R>(onrejected?: (e: unknown) => R | PromiseLike<R>) => promise.catch(onrejected);
 
         return emitter as PouchDB.Core.Changes<object>;
     }

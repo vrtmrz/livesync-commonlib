@@ -27,9 +27,9 @@ type CompatibleDatabase<T extends object> = PouchDB.Database<SomeDocument<T>> | 
 type ErrorLike = { name?: string; message?: string; reason?: string; error?: unknown };
 
 /** Upserts a document by `id`, calling `func` to produce the updated version. */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any -- We want to operate on arbitrary document shapes here.
 export async function upsert<
     V extends object,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- We want to operate on arbitrary document shapes here.
     TDB extends CompatibleDatabase<object> = CompatibleDatabase<any>,
     T extends SomeDocument<V> = SomeDocument<V>,
 >(db: TDB, id: string, func: (doc: T) => T): Promise<T> {
