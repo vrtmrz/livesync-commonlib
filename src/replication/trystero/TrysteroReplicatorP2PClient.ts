@@ -8,7 +8,7 @@ import {
     type Response,
 } from "./types";
 import { toRpcMethodName } from "./rpcCompat";
-import type { JsonLike } from "@/lib/src/rpc";
+import type { JsonLike } from "@lib/rpc";
 
 export class TrysteroReplicatorP2PClient {
     _server: TrysteroReplicatorP2PServer;

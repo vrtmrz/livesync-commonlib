@@ -4,7 +4,7 @@ import { QueueProcessor } from "octagonal-wheels/concurrency/processor";
 import { arrayToChunkedArray, sizeToHumanReadable } from "@lib/common/utils";
 import { serialized } from "octagonal-wheels/concurrency/lock";
 import { _requestToCouchDBFetch } from "./utils_couchdb";
-import { isNotFoundError } from "@/lib/src/common/utils.doc";
+import { isNotFoundError } from "@lib/common/utils.doc";
 
 export async function purgeUnreferencedChunks(
     db: PouchDB.Database,
