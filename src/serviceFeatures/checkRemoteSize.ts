@@ -12,7 +12,7 @@ import { eventHub } from "@lib/hub/hub";
  * @returns true if the check is passed or user has configured the notification, false to block subsequent processes. (always true).
  */
 export function onNotifyRemoteSizeNotConfiguredFactory(
-    host: NecessaryServices<"appLifecycle" | "API" | "setting", any>,
+    host: NecessaryServices<"appLifecycle" | "API" | "setting", never>,
     log: ReturnType<typeof createInstanceLogFunction>
 ) {
     return async () => {

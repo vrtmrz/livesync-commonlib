@@ -1,10 +1,11 @@
+import type { JWTAlgorithm } from "@lib/common/models/auth.type";
 import type { CouchDBConnection, BucketSyncSetting, P2PConnectionInfo } from "./models/setting.type";
 
 export type RemoteConfigurationResult =
     | { type: "couchdb"; settings: CouchDBConnection }
     | { type: "s3"; settings: BucketSyncSetting }
     | { type: "p2p"; settings: P2PConnectionInfo }
-    | { type: "webdav"; settings: any }; // TODO: Define WebDAV settings
+    | { type: "webdav"; settings: never }; // TODO: Define WebDAV settings
 
 // `sls+xxx://` is a non-special scheme per the WHATWG URL spec, which means
 // `URL.host`, `URL.username`, and `URL.password` cannot be read or written.
@@ -89,7 +90,7 @@ export class ConnectionStringParser {
             couchDB_DBNAME: url.searchParams.get("db") || "",
             couchDB_CustomHeaders: url.searchParams.get("headers") || "",
             useJWT: url.searchParams.get("useJWT") === "true",
-            jwtAlgorithm: (url.searchParams.get("jwtAlg") as any) || "",
+            jwtAlgorithm: (url.searchParams.get("jwtAlg") as JWTAlgorithm) || "",
             jwtKey: url.searchParams.get("jwtKey") || "",
             jwtKid: url.searchParams.get("jwtKid") || "",
             jwtSub: url.searchParams.get("jwtSub") || "",

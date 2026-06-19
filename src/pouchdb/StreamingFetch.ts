@@ -8,18 +8,21 @@ interface CouchChangeLine {
     seq: number | string;
     id: string;
     changes: Array<{ rev: string }>;
-    doc?: any; // include_docs=true includes the full document body.
+    doc?: EntryDoc; // include_docs=true includes the full document body.
     deleted?: boolean;
 }
 
-interface AnyDoc {
-    _id: string;
-}
+// interface AnyDoc {
+//     _id: string;
+// }
 interface AnyDecryptedDoc {
     _id: string;
 }
 
-function generatePouchDBWriteStream(downloadToDB: PouchDB.Database, decryptFunction: (doc: any) => Promise<any>) {
+function generatePouchDBWriteStream(
+    downloadToDB: PouchDB.Database,
+    decryptFunction: (doc: EntryDoc) => Promise<AnyEntry | EntryLeaf>
+) {
     let batchBuffer: AnyDecryptedDoc[] = [];
     let currentBatchSizeBytes = 0;
 
@@ -48,7 +51,7 @@ function generatePouchDBWriteStream(downloadToDB: PouchDB.Database, decryptFunct
             flushPromise = null;
         }
     };
-    return new WritableStream<AnyDoc>({
+    return new WritableStream<EntryDoc>({
         async write(chunk) {
             try {
                 // 1. Decrypt the document
@@ -201,7 +204,7 @@ export async function fetchChangesForInitialSync(
 
     // If targetSeq was not fetched successfully from the database info, fallback to the info response
     if (targetSeq === undefined) {
-        targetSeq = info.last_seq || info.update_seq || (info as any).seq;
+        targetSeq = info.last_seq || info.update_seq || (info as { seq?: string | number }).seq;
     }
 
     const finalTargetSeq = targetSeq ?? "";

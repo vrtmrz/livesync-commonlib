@@ -71,7 +71,7 @@ export async function decompressDoc(doc: EntryDoc) {
     return doc;
 }
 export function wrapFflateFunc<T, U>(
-    func: (data: T, opts: U, cb: fflate.FlateCallback) => any
+    func: (data: T, opts: U, cb: fflate.FlateCallback) => unknown
 ): (data: T, opts: U) => Promise<Uint8Array<ArrayBuffer>> {
     return (data: T, opts: U) => {
         return new Promise<Uint8Array<ArrayBuffer>>((res, rej) => {

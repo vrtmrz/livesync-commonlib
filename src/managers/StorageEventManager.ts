@@ -49,11 +49,13 @@ export interface StorageEventManagerBaseDependencies {
 /**
  * Type helper to extract the file type from a storage event manager adapter
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- This is a type helper for type extraction. Not actually interested to TFolder.
 export type ExtractFile<T> = T extends IStorageEventManagerAdapter<infer F, any> ? F : never;
 
 /**
  * Type helper to extract the folder type from a storage event manager adapter
  */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- This is a type helper for type extraction. Not actually interested to TFile.
 export type ExtractFolder<T> = T extends IStorageEventManagerAdapter<any, infer D> ? D : never;
 
 /**
@@ -63,6 +65,7 @@ export type ExtractFolder<T> = T extends IStorageEventManagerAdapter<any, infer 
  * @template TAdapter - The storage event manager adapter type
  */
 export abstract class StorageEventManagerBase<
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- For type extraction.
     TAdapter extends IStorageEventManagerAdapter<any, any>,
 > extends StorageEventManager {
     _log: ReturnType<typeof createInstanceLogFunction>;
@@ -145,7 +148,7 @@ export abstract class StorageEventManagerBase<
         this.snapShotRestored = this._restoreFromSnapshot();
         return this.snapShotRestored;
     }
-    async appendQueue(params: FileEvent[], ctx?: any) {
+    async appendQueue(params: FileEvent[], ctx?: unknown) {
         const settings = this.settings;
         if (!settings.isConfigured) return;
         if (settings.suspendFileWatching) return;
@@ -512,10 +515,10 @@ export abstract class StorageEventManagerBase<
         return isWaitingForTimeout(`storage-event-manager-batchsave-${filename}`);
     }
 
-    protected async handleFileEvent(queue: FileEventItem): Promise<any> {
+    protected async handleFileEvent(queue: FileEventItem): Promise<void> {
         const file = queue.args.file;
         const lockKey = `handleFile:${file.path}`;
-        const ret = await serialized(lockKey, async () => {
+        await serialized(lockKey, async () => {
             if (queue.cancelled) {
                 this._log(`File event cancelled before processing: ${file.path}`, LOG_LEVEL_INFO);
                 return;
@@ -551,7 +554,7 @@ export abstract class StorageEventManagerBase<
             }
         });
         this.updateStatus();
-        return ret;
+        return;
     }
 
     protected cancelRelativeEvent(item: FileEventItem): void {
@@ -577,16 +580,22 @@ export abstract class StorageEventManagerBase<
     /**
      * Platform-agnostic event handlers
      */
-    protected watchEditorChange(editor: any, info: any) {
+    protected watchEditorChange<TEditor = unknown, TInfo = unknown>(editor: TEditor, info: TInfo) {
+        if (typeof info !== "object" || info === null) {
+            return;
+        }
         if (!("path" in info)) {
             return;
         }
         if (!this.shouldBatchSave) {
             return;
         }
+        if (!("file" in info)) {
+            return;
+        }
         const file = info?.file;
         if (!file) return;
-        const path = this.adapter.typeGuard.isFile(file) ? file.path : info.path;
+        const path = this.adapter.typeGuard.isFile(file) ? (file as { path?: string }).path : info.path;
         if (!path) return;
 
         if (this.storageAccess.isFileProcessing(path as FilePath)) {
@@ -595,7 +604,7 @@ export abstract class StorageEventManagerBase<
         if (!this.isWaiting(path as FilePath)) {
             return;
         }
-        const data = info?.data as string;
+        const data = (info as { data?: string })?.data as string;
         const fi: FileEvent = {
             type: "CHANGED",
             file: this.adapter.converter.toFileInfo(file),
@@ -604,7 +613,7 @@ export abstract class StorageEventManagerBase<
         void this.appendQueue([fi]);
     }
 
-    protected watchVaultCreate(file: any, ctx?: any) {
+    protected watchVaultCreate<TFile = unknown, TCtx = unknown>(file: TFile, ctx?: TCtx) {
         if (this.adapter.typeGuard.isFolder(file)) return;
         const path = (file as { path: string }).path as FilePath;
         if (this.storageAccess.isFileProcessing(path)) {
@@ -614,7 +623,7 @@ export abstract class StorageEventManagerBase<
         void this.appendQueue([{ type: "CREATE", file: fileInfo }], ctx);
     }
 
-    protected watchVaultChange(file: any, ctx?: any) {
+    protected watchVaultChange<TFile = unknown, TCtx = unknown>(file: TFile, ctx?: TCtx) {
         if (this.adapter.typeGuard.isFolder(file)) return;
         const path = (file as { path: string }).path as FilePath;
         if (this.storageAccess.isFileProcessing(path)) {
@@ -624,7 +633,7 @@ export abstract class StorageEventManagerBase<
         void this.appendQueue([{ type: "CHANGED", file: fileInfo }], ctx);
     }
 
-    protected watchVaultDelete(file: any, ctx?: any) {
+    protected watchVaultDelete<TFile = unknown, TCtx = unknown>(file: TFile, ctx?: TCtx) {
         if (this.adapter.typeGuard.isFolder(file)) return;
         const path = (file as { path: string }).path as FilePath;
         if (this.storageAccess.isFileProcessing(path)) {
@@ -634,7 +643,7 @@ export abstract class StorageEventManagerBase<
         void this.appendQueue([{ type: "DELETE", file: fileInfo }], ctx);
     }
 
-    protected watchVaultRename(file: any, oldPath: string, ctx?: any) {
+    protected watchVaultRename<TFile = unknown, TCtx = unknown>(file: TFile, oldPath: string, ctx?: TCtx) {
         if (this.adapter.typeGuard.isFile(file)) {
             const fileInfo = this.adapter.converter.toFileInfo(file);
             void this.appendQueue(

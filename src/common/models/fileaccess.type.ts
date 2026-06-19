@@ -59,7 +59,7 @@ export type FileEventArgs = {
     file: UXFileInfoStub | UXInternalFileInfoStub;
     cache?: CacheData;
     oldPath?: string;
-    ctx?: any;
+    ctx?: unknown;
 };
 export type FileEventItem = {
     type: FileEventType;

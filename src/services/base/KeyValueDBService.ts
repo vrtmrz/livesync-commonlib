@@ -23,7 +23,7 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
     implements IKeyValueDBService
 {
     private _kvDB: KeyValueDatabase | undefined;
-    private _simpleStore: SimpleStore<any> | undefined;
+    private _simpleStore: SimpleStore<unknown> | undefined;
     get simpleStore() {
         if (!this._simpleStore) {
             throw new Error("SimpleStore is not initialized yet");
@@ -108,7 +108,7 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
         if (!(await this.openKeyValueDB())) {
             return false;
         }
-        this._simpleStore = this.openSimpleStore<any>("os");
+        this._simpleStore = this.openSimpleStore<unknown>("os");
         return Promise.resolve(true);
     }
 
@@ -136,7 +136,7 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
             get: async (key: string): Promise<T> => {
                 return await getDB().get(`${prefix}${key}`);
             },
-            set: async (key: string, value: any): Promise<void> => {
+            set: async (key: string, value: unknown): Promise<void> => {
                 await getDB().set(`${prefix}${key}`, value);
             },
             delete: async (key: string): Promise<void> => {

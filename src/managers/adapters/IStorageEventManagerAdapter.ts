@@ -13,7 +13,7 @@ import type { IStorageEventConverterAdapter } from "./IStorageEventConverterAdap
 export interface IStorageEventManagerAdapter<TFile, TFolder> {
     readonly typeGuard: IStorageEventTypeGuardAdapter<TFile, TFolder>;
     readonly persistence: IStorageEventPersistenceAdapter;
-    readonly watch: IStorageEventWatchAdapter;
+    readonly watch: IStorageEventWatchAdapter<TFile, unknown>;
     readonly status: IStorageEventStatusAdapter;
     readonly converter: IStorageEventConverterAdapter<TFile>;
 }

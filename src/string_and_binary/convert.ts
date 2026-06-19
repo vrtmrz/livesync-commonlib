@@ -38,6 +38,6 @@ export function versionNumberString2Number(version: string): number {
     return version // "1.23.45"
         .split(".") // 1  23  45
         .reverse() // 45  23  1
-        .map((e, i) => ((e as any) / 1) * 1000 ** i) // 45 23000 1000000
+        .map((e, i) => (Number(e) || 0) * 1000 ** i) // 45 23000 1000000
         .reduce((prev, current) => prev + current, 0); // 1023045
 }

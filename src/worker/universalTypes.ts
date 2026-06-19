@@ -47,3 +47,21 @@ export type ProcessItem = SplitProcessItem | EncryptProcessItem | EncryptHKDFPro
 
 export const END_OF_DATA = null;
 export type END_OF_DATA = typeof END_OF_DATA;
+
+export type ResultPayloadBase = {
+    key: number;
+};
+export type ResultPayloadWithResult = ResultPayloadBase & {
+    result: string;
+};
+export type ResultPayloadWithError = ResultPayloadBase & {
+    error: unknown;
+};
+export type ResultPayload = ResultPayloadWithResult | ResultPayloadWithError;
+export type ResultPayloadWithSeqBase = ResultPayload & {
+    seq: number;
+};
+export type ResultPayloadPiece = ResultPayloadWithSeqBase & {
+    result: string | END_OF_DATA;
+};
+export type ResultPayloadWithSeq = ResultPayloadPiece | ResultPayloadWithError;

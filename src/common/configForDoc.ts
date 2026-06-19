@@ -308,7 +308,10 @@ export async function performDoctorConsultation(
             };
         }
         if (msg != OPT_YES) return getResult();
-        const issueItems = Object.entries(r.rules) as [keyof DoctorCheckSettings, RuleForType<any>][];
+        const issueItems = Object.entries(r.rules) as [
+            keyof DoctorCheckSettings,
+            RuleForType<keyof DoctorCheckSettings>,
+        ][];
         Logger(`${issueItems.length} Issue(s) found `, LOG_LEVEL_VERBOSE);
         let idx = 0;
         const applySettings = {} as Partial<DoctorCheckSettings>;

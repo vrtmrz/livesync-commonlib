@@ -8,10 +8,10 @@ export interface IStorageEventTypeGuardAdapter<TFile, TFolder> {
     /**
      * Check if the given item is a file
      */
-    isFile(file: any): file is TFile;
+    isFile(file: unknown): file is TFile;
 
     /**
      * Check if the given item is a folder
      */
-    isFolder(item: any): item is TFolder;
+    isFolder(item: unknown): item is TFolder;
 }

@@ -2,18 +2,19 @@
 // Now this implementation is a sample and for Node.js environment. Hence,
 // eslint rules are disabled for CIs. I will refactor this module or move to a
 // separate file.
-// eslint-disable-next-line import/no-nodejs-modules
+// eslint-disable-next-line import/no-nodejs-modules -- This module is only used in Node.js contexts (e.g. CLI, Electron main process).
 import EventEmitter from "events";
 import { RpcError } from "@lib/rpc/errors";
 import type { RpcSession } from "@lib/rpc/RpcSession";
+import type { JsonLike } from "@lib/rpc/types";
 
 /** No-op ActiveTasks stub required by pouchdb-replication for progress tracking. */
 const noopActiveTasks = {
-    add: (_task: object): any => null,
-    get: (_id: any): any => null,
-    update: (_id: any, _update: object): void => {},
-    remove: (_id: any, _err?: Error): void => {},
-    list: (): any[] => [],
+    add: (_task: object): unknown => null,
+    get: (_id: unknown): unknown => null,
+    update: (_id: unknown, _update: object): void => {},
+    remove: (_id: unknown, _err?: Error): void => {},
+    list: (): unknown[] => [],
 };
 
 /**
@@ -69,12 +70,12 @@ export class RpcPouchDBProxy extends EventEmitter {
      */
     private async callDB<T>(method: string, args: unknown[] = []): Promise<T> {
         try {
-            return await this.session.call<T>(`${this.ns}.${method}`, args as any);
-        } catch (err: any) {
+            return await this.session.call<T>(`${this.ns}.${method}`, args as JsonLike[]);
+        } catch (err) {
             if (err instanceof RpcError && err.code === "REMOTE_ERROR") {
-                const d = err.details as any;
+                const d = err.details as unknown as { status?: number; name?: string; reason?: string };
                 if (d?.name || d?.status) {
-                    const pouchErr = new Error(err.message) as any;
+                    const pouchErr = new Error(err.message) as Error & PouchDB.Core.Error;
                     if (d.name) pouchErr.name = d.name;
                     if (d.status) pouchErr.status = d.status;
                     if (d.reason) pouchErr.reason = d.reason;
@@ -105,10 +106,12 @@ export class RpcPouchDBProxy extends EventEmitter {
      * (`live: false`).
      */
     changes(opts: PouchDB.Core.ChangesOptions): PouchDB.Core.Changes<object> {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- this may not happened on Obsidian.
         const emitter = new EventEmitter() as any;
         let cancelled = false;
 
-        const promise = this.callDB<any>("changes", [{ ...opts, live: false }]).then((info) => {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- wrongly typed in @types/pouchdb (missing some overload signatures)
+        const promise = this.callDB("changes", [{ ...opts, live: false }]).then((info: any) => {
             if (cancelled) return info as PouchDB.Core.ChangesResponse<object>;
             for (const change of info.results ?? []) {
                 if (cancelled) break;
@@ -130,10 +133,10 @@ export class RpcPouchDBProxy extends EventEmitter {
         // Make the emitter thenable so it can be used with `await`.
         emitter.then = <R>(
             onfulfilled?: (v: PouchDB.Core.ChangesResponse<object>) => R | PromiseLike<R>,
-            onrejected?: (e: any) => R | PromiseLike<R>
+            onrejected?: (e: unknown) => R | PromiseLike<R>
         ) => promise.then(onfulfilled, onrejected);
 
-        emitter.catch = <R>(onrejected?: (e: any) => R | PromiseLike<R>) => promise.catch(onrejected);
+        emitter.catch = <R>(onrejected?: (e: unknown) => R | PromiseLike<R>) => promise.catch(onrejected);
 
         return emitter as PouchDB.Core.Changes<object>;
     }

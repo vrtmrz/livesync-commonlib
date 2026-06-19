@@ -1,3 +1,4 @@
+import type { JsonLike } from "@lib/rpc";
 import type { P2PSyncSetting, EntryDoc } from "@lib/common/types";
 import type { SimpleStore } from "@lib/common/utils";
 import type { Confirm } from "@lib/interfaces/Confirm";
@@ -9,18 +10,21 @@ export type DIRECTION_RESPONSE = typeof DIRECTION_RESPONSE;
 export const DEFAULT_RPC_TIMEOUT = 30000;
 export const BULK_GET_RPC_TIMEOUT = 40000;
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- This is a generic type for objects that can have their methods served over RPC, so we can't be more specific about the types here.
+export type BindableFunction = (...args: any[]) => any;
 export type NonPrivateMethodKeys<T> = {
     [K in keyof T]: K extends `_${string}`
         ? never
         : K extends `constructor`
           ? never
-          : T[K] extends (...args: any[]) => any
+          : T[K] extends BindableFunction
             ? K
             : never;
 }[keyof T];
 
-export type BindableObject<T> = {
-    [k in NonPrivateMethodKeys<T>]: (...args: any[]) => any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- This is a generic type for objects that can have their methods served over RPC, so we can't be more specific about the types here.
+export type BindableObject<T = any> = {
+    [k in NonPrivateMethodKeys<T>]: T[k] extends BindableFunction ? T[k] : never;
 };
 
 export type ConnectionInfo = {
@@ -36,18 +40,18 @@ export class ResponsePreventedError extends Error {
     }
 }
 
-export type Request = {
+export type Request<T = JsonLike[]> = {
     type: string;
     direction: DIRECTION_REQUEST;
     seq: number;
-    args: any[];
+    args: T;
 };
-export type Response = {
+export type Response<T = JsonLike> = {
     type: string;
     direction: DIRECTION_RESPONSE;
     seq: number;
-    data?: any;
-    error?: any;
+    data?: T;
+    error?: JsonLike;
 };
 
 export type DeviceInfo = {
@@ -93,7 +97,7 @@ export interface ReplicatorHost {
 export interface ReplicatorHostEnv extends ReplicatorHost {
     settings: P2PSyncSetting;
     db: PouchDB.Database<EntryDoc>;
-    simpleStore: SimpleStore<any>;
+    simpleStore: SimpleStore<unknown>;
 
     processReplicatedDocs(docs: Array<PouchDB.Core.ExistingDocument<EntryDoc>>): void | Promise<void>;
 }

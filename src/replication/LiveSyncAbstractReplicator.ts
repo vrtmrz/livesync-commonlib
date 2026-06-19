@@ -12,7 +12,8 @@ import {
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
 import { resolveWithIgnoreKnownError } from "@lib/common/utils.ts";
 import { arrayBufferToBase64Single } from "@lib/string_and_binary/convert.ts";
-import type { IServiceHub } from "@lib/services/base/IService.ts";
+import type { RequiredServices } from "@lib/interfaces/ServiceModule";
+// import type { IServiceHub } from "@lib/services/base/IService.ts";
 
 export type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<boolean> | boolean;
 export type ReplicationStat = {
@@ -25,11 +26,24 @@ export type ReplicationStat = {
     syncStatus: DatabaseConnectingStatus;
 };
 export interface LiveSyncReplicatorEnv {
-    services: IServiceHub;
+    services: RequiredServices<
+        | "API"
+        | "appLifecycle"
+        | "setting"
+        | "vault"
+        | "database"
+        | "databaseEvents"
+        | "keyValueDB"
+        | "replication"
+        | "config"
+        | "UI"
+        | "replicator"
+        | "remote"
+    >;
 }
 
 export type RemoteDBStatus = {
-    [key: string]: any;
+    [key: string]: unknown;
     estimatedSize?: number;
 };
 
