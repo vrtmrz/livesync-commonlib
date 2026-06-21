@@ -178,8 +178,27 @@ export abstract class ServiceFileHandlerBase
     async deleteFileFromDB(info: UXFileInfoStub | UXInternalFileInfoStub | FilePath): Promise<boolean> {
         const file = await this.infoToStub(info);
         if (file == null) {
-            this._log(`File ${tryGetFilePath(info)} is not exist on the storage`, LOG_LEVEL_VERBOSE);
-            return false;
+            // infoToStub -> getFileStub stats the storage, but in the offline-scanner
+            // `delete-db` path the file is by definition already gone from storage, so the
+            // stub is always null and the delete silently no-ops (returns false). No
+            // tombstone ever reaches the database and the next scan resurrects the file.
+            // Fall back to a path-based database delete, the same approach the CLI `rm`
+            // command uses (databaseFileAccess.delete accepts a bare path).
+            const path = typeof info === "string" ? info : tryGetFilePath(info);
+            if (path === undefined) {
+                this._log(`File ${tryGetFilePath(info)} is not exist on the storage`, LOG_LEVEL_VERBOSE);
+                return false;
+            }
+            const entryByPath = await this.db.fetchEntry(path as FilePathWithPrefix, undefined, true, true);
+            if (!entryByPath || entryByPath.deleted || entryByPath._deleted) {
+                this._log(
+                    `File ${path} is not exist on the storage nor the database (or already deleted)`,
+                    LOG_LEVEL_VERBOSE
+                );
+                return false;
+            }
+            this._log(`File ${path} is missing on storage; deleting from the database by path`, LOG_LEVEL_INFO);
+            return await this.db.delete(path as FilePathWithPrefix);
         }
         // const file = item.args.file;
         if (file.isInternal) {

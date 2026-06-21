@@ -526,15 +526,29 @@ async function processFilePair(
                 fileMaps.delete(fileMapKey);
                 saveFileStatus(host);
                 return true;
-            case "delete-db":
+            case "delete-db": {
                 if (!doc) {
                     throw new Error(`Missing database entry for ${path}`);
                 }
                 log(`DELETE DATABASE: ${path}`, LOG_LEVEL_INFO);
-                await host.serviceModules.fileHandler.deleteFileFromDB(stripAllPrefixes(path));
-                fileMaps.delete(fileMapKey);
-                saveFileStatus(host);
+                // deleteFileFromDB returns false when nothing was deleted, but the return
+                // value was ignored and the fileStatusMap last-seen entry was wiped
+                // regardless. The next scan then classified the doc as database-only with
+                // no last-seen record -> update-storage -> the deleted file was resurrected
+                // from the database. Only clear the last-seen record when the database
+                // delete actually succeeded.
+                const dbDeleted = await host.serviceModules.fileHandler.deleteFileFromDB(stripAllPrefixes(path));
+                if (dbDeleted) {
+                    fileMaps.delete(fileMapKey);
+                    saveFileStatus(host);
+                } else {
+                    log(
+                        `DELETE DATABASE did not delete ${path}; keeping last-seen record to avoid resurrecting the file`,
+                        LOG_LEVEL_NOTICE
+                    );
+                }
                 return true;
+            }
             case "skip":
                 log(`SKIP ${options.mode}: ${path} (${state})`, LOG_LEVEL_VERBOSE);
                 return true;
