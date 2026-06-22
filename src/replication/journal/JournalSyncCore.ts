@@ -19,19 +19,15 @@ import type { ReplicationCallback, ReplicationStat } from "@lib/replication/Live
 import {
     type SimpleStore,
     concatUInt8Array,
-    delay,
     escapeNewLineFromString,
-    parseHeaderValues,
     setAllItems,
     unescapeNewLineFromString,
 } from "@lib/common/utils.ts";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock";
-import { wrappedDeflate } from "@lib/pouchdb/compress.ts";
-import { wrappedInflate } from "@lib/pouchdb/compress.ts";
+import { wrappedDeflate, wrappedInflate } from "@lib/pouchdb/compress.ts";
 import { type CheckPointInfo, CheckPointInfoDefault } from "./JournalSyncTypes.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
-import { Trench } from "octagonal-wheels/memory/memutil";
-import { Notifier } from "octagonal-wheels/concurrency/processor";
+import type { IJournalStorage } from "./objectstore/JournalStorageAdapter.ts";
 
 import {
     clearHandlers,
@@ -47,6 +43,7 @@ import {
     encryptBinary as encryptBinaryHKDF,
     decryptBinary as decryptBinaryHKDF,
 } from "octagonal-wheels/encryption/hkdf";
+
 const RECORD_SPLIT = `\n`;
 const UNIT_SPLIT = `\u001f`;
 type ProcessingEntry = PouchDB.Core.PutDocument<EntryDoc> & PouchDB.Core.GetMeta;
@@ -61,55 +58,24 @@ function serializeDoc(doc: EntryDoc): Uint8Array {
     return te.encode(JSON.stringify(doc) + RECORD_SPLIT);
 }
 
-export abstract class JournalSyncAbstract {
+export class JournalSyncCore {
     _settings: BucketSyncSetting;
-    get id() {
-        return this._settings.accessKey;
-    }
-    get key() {
-        return this._settings.secretKey;
-    }
-    get bucket() {
-        return this._settings.bucket;
-    }
-    get endpoint() {
-        return this._settings.endpoint;
-    }
-    get prefix() {
-        return this._settings.bucketPrefix;
-    }
-    get region() {
-        return this._settings.region;
-    }
-    get forcePathStyle() {
-        return this._settings.forcePathStyle;
-    }
+    storage: IJournalStorage;
+
     get db() {
         return this.env.services.database.localDatabase.localDatabase;
     }
 
-    /**
-     * Return current (environmental) settings, not the instance settings.
-     */
     get currentSettings() {
         return this.env.services.setting.currentSettings();
     }
+
     hash = "";
     processReplication: ReplicationCallback;
     batchSize = 100;
     env: LiveSyncJournalReplicatorEnv;
     store: SimpleStore<CheckPointInfo>;
-    get useCustomRequestHandler() {
-        return this._settings.useCustomRequestHandler;
-    }
-    get customHeaders(): [string, string][] {
-        return this._settings.bucketCustomHeaders.length == 0
-            ? []
-            : Object.entries(parseHeaderValues(this._settings.bucketCustomHeaders));
-    }
     requestedStop = false;
-    trench: Trench;
-    notifier = new Notifier();
 
     getInitialSyncParameters(): Promise<SyncParameters> {
         return Promise.resolve({
@@ -121,19 +87,22 @@ export abstract class JournalSyncAbstract {
 
     async getSyncParameters(): Promise<SyncParameters> {
         try {
-            const downloadedSyncParams = await this.downloadJson<SyncParameters>(DOCID_JOURNAL_SYNC_PARAMETERS);
-            if (!downloadedSyncParams) {
+            const downloadedData = await this.storage.download(DOCID_JOURNAL_SYNC_PARAMETERS, true);
+            if (!downloadedData) {
                 throw new SyncParamsNotFoundError(`Missing sync parameters`);
             }
+            const downloadedSyncParams = JSON.parse(new TextDecoder().decode(downloadedData)) as SyncParameters;
             return downloadedSyncParams;
         } catch (ex) {
             Logger(`Could not retrieve remote sync parameters`, LOG_LEVEL_INFO);
             throw SyncParamsFetchError.fromError(ex);
         }
     }
+
     async putSyncParameters(params: SyncParameters): Promise<boolean> {
         try {
-            if (await this.uploadJson(DOCID_JOURNAL_SYNC_PARAMETERS, params)) {
+            const data = new TextEncoder().encode(JSON.stringify(params));
+            if (await this.storage.upload(DOCID_JOURNAL_SYNC_PARAMETERS, data, "application/json")) {
                 return true;
             }
             throw new SyncParamsUpdateError(`Could not store remote sync parameters`);
@@ -149,21 +118,54 @@ export abstract class JournalSyncAbstract {
             encodeURI([settings.endpoint, `${settings.bucket}${settings.bucketPrefix}`, settings.region].join())
         );
     }
-    constructor(settings: BucketSyncSetting, store: SimpleStore<CheckPointInfo>, env: LiveSyncJournalReplicatorEnv) {
+
+    constructor(
+        settings: BucketSyncSetting,
+        store: SimpleStore<CheckPointInfo>,
+        env: LiveSyncJournalReplicatorEnv,
+        storage: IJournalStorage
+    ) {
         this._settings = settings;
         this.env = env;
-        this.processReplication = async (docs) => await env.services.replication.parseSynchroniseResult(docs);
+        this.processReplication = async (docs: PouchDB.Core.ExistingDocument<EntryDoc>[]) =>
+            await env.services.replication.parseSynchroniseResult(docs);
         this.store = store;
         this.hash = this.getHash(settings);
-        this.trench = new Trench(store);
+        this.storage = storage;
         clearHandlers();
     }
+
+    async downloadJson<T>(key: string): Promise<T | false> {
+        try {
+            const data = await this.storage.download(key, true);
+            if (!data) return false;
+            return JSON.parse(new TextDecoder().decode(data)) as T;
+        } catch (ex) {
+            Logger(`Could not download json ${key}`);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+    }
+
+    async uploadJson<T>(key: string, body: T): Promise<boolean> {
+        try {
+            const data = new TextEncoder().encode(JSON.stringify(body));
+            return await this.storage.upload(key, data, "application/json");
+        } catch (ex) {
+            Logger(`Could not upload json ${key}`);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+    }
+
     applyNewConfig(settings: BucketSyncSetting, store: SimpleStore<CheckPointInfo>, env: LiveSyncJournalReplicatorEnv) {
         this._settings = settings;
         this.env = env;
-        this.processReplication = async (docs) => await env.services.replication.parseSynchroniseResult(docs);
+        this.processReplication = async (docs: PouchDB.Core.ExistingDocument<EntryDoc>[]) =>
+            await env.services.replication.parseSynchroniseResult(docs);
         this.store = store;
         this.hash = this.getHash(settings);
+        this.storage.applyNewConfig(settings);
         clearHandlers();
     }
 
@@ -179,6 +181,7 @@ export abstract class JournalSyncAbstract {
             syncStatus: info.syncStatus ?? old.syncStatus,
         };
     }
+
     async updateCheckPointInfo(func: (infoFrom: CheckPointInfo) => CheckPointInfo) {
         const checkPointKey = `bucketsync-checkpoint-${this.hash}` as DocumentID;
         const old = await this.getCheckpointInfo();
@@ -214,10 +217,11 @@ export abstract class JournalSyncAbstract {
         this._currentCheckPointInfo = { ...CheckPointInfoDefault, ...old };
         return this._currentCheckPointInfo;
     }
-    async resetAllCaches() {
-        await this.trench.eraseAllPermanences();
+
+    resetAllCaches(): void {
         clearHandlers();
     }
+
     async resetCheckpointInfo() {
         await this.updateCheckPointInfo((info) => ({ ...CheckPointInfoDefault }));
         clearHandlers();
@@ -227,15 +231,12 @@ export abstract class JournalSyncAbstract {
         return `${params.protocolVersion}:${params.pbkdf2salt}`;
     }
 
-    // Side-effect preflight: update checkpoint state.
-    // Connectivity gates call this before compatibility checks so send/receive paths stay pure.
     async ensureCheckpointCachesAreFresh(): Promise<void> {
         let journalEpoch = "";
         try {
             const params = await this.getSyncParameters();
             journalEpoch = this.getJournalEpochFromSyncParams(params);
         } catch {
-            // If we cannot fetch sync parameters yet, keep the current checkpoint state.
             return;
         }
 
@@ -243,6 +244,8 @@ export abstract class JournalSyncAbstract {
         if (current.journalEpoch === journalEpoch) {
             return;
         }
+
+        const lastSentFile = [...current.sentFiles].sort().pop();
 
         // Epoch changed (or first observed on migrated devices).
         // Use sentFiles to determine whether the remote was wiped:
@@ -252,8 +255,6 @@ export abstract class JournalSyncAbstract {
         //   - File gone from remote    → wipe confirmed; save epoch, reset caches.
         // sentFiles names are timestamp-based (e.g. "1712345678900-docs.jsonl.gz") and
         // virtually never collide across separate remote lifetimes.
-        const lastSentFile = [...current.sentFiles].sort().pop();
-
         if (!lastSentFile) {
             // No send history: cannot confirm wipe; just record the epoch.
             await this.updateCheckPointInfo((info) => ({ ...info, journalEpoch }));
@@ -264,7 +265,7 @@ export abstract class JournalSyncAbstract {
         try {
             // listFiles uses S3 StartAfter (exclusive), so slice off the last char to land
             // just before the target key, then check if the returned entry matches exactly.
-            const probe = await this.listFiles(lastSentFile.slice(0, -1), 1);
+            const probe = await this.storage.listFiles(lastSentFile.slice(0, -1), 1);
             remoteWipeConfirmed = probe[0] !== lastSentFile;
         } catch {
             remoteWipeConfirmed = true;
@@ -289,18 +290,41 @@ export abstract class JournalSyncAbstract {
         clearHandlers();
     }
 
-    abstract resetBucket(): Promise<boolean>;
+    async isAvailable(): Promise<boolean> {
+        return await this.storage.isAvailable();
+    }
 
-    abstract uploadJson<T>(key: string, body: T): Promise<boolean>;
-    abstract downloadJson<T>(key: string): Promise<T | false>;
+    async resetBucket(): Promise<boolean> {
+        let files = [] as string[];
+        try {
+            do {
+                files = await this.storage.listFiles("", 100);
+                if (files.length == 0) {
+                    break;
+                }
+                await this.storage.deleteFiles(files);
+            } while (files.length != 0);
+            clearHandlers();
+        } catch (ex) {
+            Logger(`WARNING! Could not delete files.`, LOG_LEVEL_NOTICE, "reset-bucket");
+            Logger(ex, LOG_LEVEL_VERBOSE);
+        }
 
-    abstract uploadFile(key: string, blob: Blob, mime: string): Promise<boolean>;
-    abstract downloadFile(key: string): Promise<Uint8Array | false>;
-    abstract listFiles(from: string, limit?: number): Promise<string[]>;
-    abstract isAvailable(): Promise<boolean>;
+        const journals = await this._getRemoteJournals();
+        if (journals.length == 0) {
+            Logger("Nothing to delete!", LOG_LEVEL_NOTICE);
+            return true;
+        }
+        await this.storage.deleteFiles(journals);
+        Logger(`${journals.length} items has been deleted!`, LOG_LEVEL_NOTICE);
+        await this.resetCheckpointInfo();
+        return true;
+    }
+
     getRemoteKey(): string {
         return this.getHash(this._settings);
     }
+
     async getReplicationPBKDF2Salt(refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
         const server = this.getRemoteKey();
         const manager = createSyncParamsHanderForServer(server, {
@@ -310,11 +334,12 @@ export abstract class JournalSyncAbstract {
         });
         return await manager.getPBKDF2Salt(refresh);
     }
+
     isEncryptionPrevented(fileName: string): boolean {
-        // Prevent encryption for some files
         if (fileName.endsWith(DOCID_JOURNAL_SYNC_PARAMETERS)) return true;
         return false;
     }
+
     private async decryptDataV2(
         encrypted: Uint8Array<ArrayBuffer>,
         set: RemoteDBSettings
@@ -322,6 +347,7 @@ export abstract class JournalSyncAbstract {
         const salt = await this.getReplicationPBKDF2Salt();
         return await decryptBinaryHKDF(encrypted, set.passphrase, salt);
     }
+
     private async decryptDataV1(
         encrypted: Uint8Array<ArrayBuffer>,
         set: RemoteDBSettings
@@ -332,6 +358,7 @@ export abstract class JournalSyncAbstract {
             set.useDynamicIterationCount
         )) as Uint8Array<ArrayBuffer>;
     }
+
     async decryptDownloaded(
         key: string,
         encrypted: Uint8Array<ArrayBuffer>,
@@ -343,7 +370,6 @@ export abstract class JournalSyncAbstract {
                 return u;
             }
             if (set.E2EEAlgorithm === E2EEAlgorithms.ForceV1) {
-                // If forced to V1, do not try V2 decryption, just do V1 and throw error if fails
                 return await this.decryptDataV1(u, set);
             }
             const decrypted = await this.decryptDataV2(u, set);
@@ -362,6 +388,7 @@ export abstract class JournalSyncAbstract {
             }
         }
     }
+
     async encryptForUpload(
         key: string,
         data: Uint8Array<ArrayBuffer>,
@@ -379,6 +406,13 @@ export abstract class JournalSyncAbstract {
         }
     }
 
+    getDocKey(doc: EntryDoc) {
+        if (doc && doc._id.startsWith("h:")) {
+            return doc._id;
+        }
+        return doc._id + "-" + doc._rev;
+    }
+
     async _createJournalPack(override?: number | string) {
         const checkPointInfo = await this.getCheckpointInfo();
         const from = override || checkPointInfo.lastLocalSeq;
@@ -387,11 +421,9 @@ export abstract class JournalSyncAbstract {
         const allChangesTask = this.db.changes({
             live: false,
             since: override || from,
-            // include_docs: true,
             conflicts: true,
             limit: this.batchSize,
             return_docs: true,
-            // conflicts: true,
             attachments: false,
             style: "all_docs",
             // NOTE: Do NOT add a filter function here that tests the winning-revision doc.
@@ -414,10 +446,10 @@ export abstract class JournalSyncAbstract {
         const dbInfo = await this.db.info();
         const hasNext = packLastSeq < dbInfo.update_seq;
         const docs = bd.results.map((e) => e.docs).flat();
-        // Thinning out the docs.
+
         const docChanges = docs
             .filter((e) => "ok" in e)
-            .map((e) => e.ok)
+            .map((e) => e.ok as EntryDoc)
             .filter((doc) => {
                 const key = this.getDocKey(doc);
                 if (this._currentCheckPointInfo.knownIDs.has(key)) {
@@ -437,196 +469,143 @@ export abstract class JournalSyncAbstract {
         return { changes: docChanges, hasNext, packLastSeq };
     }
 
-    getDocKey(doc: EntryDoc) {
-        if (doc && doc._id.startsWith("h:")) {
-            // When leaf, we do not think about revisions.
-            return doc._id;
-        }
-        return doc._id + "-" + doc._rev;
-    }
-    async uploadQueued(showMessage = false, wrapUp = false) {
-        return await shareRunningResult("upload_queue", async () => {
-            const MSG_KEY = "send_journal";
-            const TASK_TITLE = "Uploading journal:";
-            const logLevel = showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
-
-            let uploaded = 0;
-            do {
-                const queued = await this.trench.dequeuePermanentWithCommit<Uint8Array<ArrayBuffer>>(`upload_queue`);
-
-                if (!queued) {
-                    if (this.isPacking) {
-                        Logger(
-                            `${TASK_TITLE} Queue run out, but process is running. wait for the next.`,
-                            LOG_LEVEL_VERBOSE
-                        );
-                        await Promise.race([this.notifier.nextNotify, delay(3000)]);
-                        continue;
-                    }
-                    if (uploaded) {
-                        Logger(`${TASK_TITLE}: ${uploaded} files have been uploaded!`, logLevel, MSG_KEY);
-                    } else {
-                        if (!wrapUp) Logger(`No files needs to be uploaded!`, logLevel, MSG_KEY);
-                    }
-                    return true;
+    private _createSendReadableStream(startSeq: number, logLevel: any, MSG_KEY: string) {
+        let currentLastSeq = startSeq;
+        return new ReadableStream({
+            pull: async (controller) => {
+                if (this.requestedStop) {
+                    Logger("Packing Journal : Stop requested", logLevel, MSG_KEY);
+                    controller.close();
+                    return;
                 }
-                const { key, value, commit, cancel, cancelCount, pendingItems } = queued;
-                this.updateInfo({ sent: uploaded, maxPushSeq: pendingItems + uploaded, lastSyncPushSeq: 1 });
-                Logger(
-                    `${TASK_TITLE} ${uploaded} / ${pendingItems + uploaded}${cancelCount != 0 ? `\nRETRY:${cancelCount}` : ""}`,
-                    logLevel,
-                    MSG_KEY
-                );
-                Logger(
-                    `${TASK_TITLE} ${key} ${cancelCount != 0 ? `TRY:${cancelCount}` : ""} ${pendingItems} left`,
-                    LOG_LEVEL_VERBOSE
-                );
-                if (cancelCount > 3) {
-                    Logger(`${TASK_TITLE} Something went wrong on processing queue ${key}.`, LOG_LEVEL_NOTICE);
-                    return false;
+                const { changes, hasNext, packLastSeq } = await this._createJournalPack(currentLastSeq);
+                if (changes.length > 0) {
+                    controller.enqueue({ changes, packLastSeq });
                 }
-                const sendTimeStamp = Date.now();
-
-                const filename = `${sendTimeStamp}-docs.jsonl.gz`;
-                const mime = "application/octet-stream";
-                const blob = new Blob([value], { type: mime });
-                try {
-                    const ret = await this.uploadFile(filename, blob, mime);
-                    if (!ret) {
-                        throw new Error("Could not send journalPack to the bucket");
-                    }
-                    await commit();
-                    uploaded++;
-                    await this.updateCheckPointInfo((info) => ({ ...info, sentFiles: info.sentFiles.add(filename) }));
-                    Logger(`${TASK_TITLE}: Uploaded ${key} as ${filename}`, LOG_LEVEL_INFO);
-                } catch (ex) {
-                    Logger(
-                        `${TASK_TITLE} Could not send journalPack to the bucket (${key} as ${filename})`,
-                        LOG_LEVEL_NOTICE
-                    );
-                    Logger(ex, LOG_LEVEL_VERBOSE);
-                    Logger(`${TASK_TITLE} Uploading ${key} cancelled for retry`, LOG_LEVEL_VERBOSE);
-                    cancel();
-                    await delay(1000); // Need Backoff?
-                    continue;
+                currentLastSeq = packLastSeq as number;
+                if (!hasNext) {
+                    controller.close();
                 }
-            } while (this.requestedStop == false);
+            },
         });
     }
-    isPacking = false;
-    async packAndCompress(showMessage = false) {
-        return await shareRunningResult("create_send_data", async () => {
-            try {
-                this.isPacking = true;
-                const MSG_KEY = "pack_journal";
-                const logLevel = showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
-                this.requestedStop = false;
-                const checkPointInfo = await this.getCheckpointInfo();
-                const max = (await this.db.info()).update_seq as number;
-                const sentIDs = checkPointInfo.sentIDs;
-                const maxOutBufLength = 250;
-                const maxBinarySize = 1024 * 1024 * 10;
-                let currentLastSeq = checkPointInfo.lastLocalSeq;
-                let binarySize = 0;
-                const outBuf = [] as Uint8Array[];
-                let isFinished = false;
-                const startSeq = checkPointInfo.lastLocalSeq as number;
-                const seqToProcess = max - startSeq;
 
-                Logger(`Packing Journal: Start sending`, logLevel, MSG_KEY);
-                do {
-                    if (this.requestedStop) {
-                        Logger("Packing Journal : Stop requested", logLevel, MSG_KEY);
-                        isFinished = true;
-                        break;
-                    }
+    private _createSendCompressTransformStream(startSeq: number, seqToProcess: number, logLevel: any, MSG_KEY: string) {
+        const maxOutBufLength = 250;
+        const maxBinarySize = 1024 * 1024 * 10;
+        let outBuf: Uint8Array[] = [];
+        let binarySize = 0;
+        let batchSentIDs: string[] = [];
+        let lastProcessedSeq = startSeq;
 
-                    const { changes, hasNext, packLastSeq } = await this._createJournalPack(currentLastSeq);
-                    const currentSeq = (packLastSeq as number) - startSeq;
-                    if (changes.length == 0) {
-                        Logger(
-                            `Packing Journal: No sendable docs in this batch (${currentSeq} / ${seqToProcess}); continuing while there are newer changes.`,
-                            LOG_LEVEL_VERBOSE
-                        );
-                    } else {
-                        Logger(`Packing Journal: ${currentSeq} / ${seqToProcess}`, logLevel, MSG_KEY);
-                        // this.updateInfo({ maxPushSeq: max, sent: currentLastSeq as number, lastSyncPushSeq: startSeq })
-                        for (const row of changes) {
-                            const serialized = serializeDoc(row);
-                            sentIDs.add(this.getDocKey(row));
-                            binarySize += serialized.length;
-                            outBuf.push(serialized);
-                            if (outBuf.length > maxOutBufLength || binarySize > maxBinarySize) {
-                                const sendBuf = concatUInt8Array(outBuf);
-                                const orgLen = sendBuf.byteLength;
-                                const bin = await wrappedDeflate(sendBuf, { consume: true, level: 8 });
-                                Logger(
-                                    `Packing Journal: Compressed ${orgLen} bytes to ${bin.byteLength} bytes (${orgLen != 0 ? Math.ceil((bin.byteLength / orgLen) * 100) : "--"}%)`,
-                                    LOG_LEVEL_VERBOSE
-                                );
-                                await this.trench.queuePermanent(`upload_queue`, bin);
-                                this.notifier.notify();
-                                outBuf.length = 0;
-                                binarySize = 0;
-                            }
-                        }
-                    }
-                    if (outBuf.length > 0) {
+        return new TransformStream({
+            transform: async (chunk, controller) => {
+                lastProcessedSeq = chunk.packLastSeq as number;
+                const currentSeq = lastProcessedSeq - startSeq;
+                Logger(`Packing Journal: ${currentSeq} / ${seqToProcess}`, logLevel, MSG_KEY);
+
+                for (const row of chunk.changes) {
+                    const serialized = serializeDoc(row);
+                    batchSentIDs.push(this.getDocKey(row));
+                    binarySize += serialized.length;
+                    outBuf.push(serialized);
+
+                    if (outBuf.length > maxOutBufLength || binarySize > maxBinarySize) {
                         const sendBuf = concatUInt8Array(outBuf);
-                        const orgLen = sendBuf.byteLength;
                         const bin = await wrappedDeflate(sendBuf, { consume: true, level: 8 });
-                        Logger(
-                            `Packing Journal: Compressed ${orgLen} bytes to ${bin.byteLength} bytes (${orgLen != 0 ? Math.ceil((bin.byteLength / orgLen) * 100) : "--"}%)`,
-                            LOG_LEVEL_VERBOSE
-                        );
-                        await this.trench.queuePermanent(`upload_queue`, bin);
-                        this.notifier.notify();
+                        controller.enqueue({ bin, packLastSeq: chunk.packLastSeq, sentIDs: [...batchSentIDs] });
+                        outBuf = [];
+                        binarySize = 0;
+                        batchSentIDs = [];
                     }
-                    await this.updateCheckPointInfo((info) => ({
-                        ...info,
-                        lastLocalSeq: packLastSeq,
-                        sentIDs,
-                    }));
-                    currentLastSeq = packLastSeq;
-                    if (!hasNext) {
-                        // End of the queue
-                        isFinished = true;
-                        break;
-                    }
-                } while (this.requestedStop == false && !isFinished);
+                }
+            },
+            flush: async (controller) => {
+                if (outBuf.length > 0) {
+                    const sendBuf = concatUInt8Array(outBuf);
+                    const bin = await wrappedDeflate(sendBuf, { consume: true, level: 8 });
+                    controller.enqueue({ bin, packLastSeq: lastProcessedSeq, sentIDs: [...batchSentIDs] });
+                }
+            },
+        });
+    }
+
+    private _createSendUploadWritableStream(max: number) {
+        let sentFilesCount = 0;
+        return new WritableStream({
+            write: async (chunk) => {
+                const sendTimeStamp = Date.now();
+                const filename = `${sendTimeStamp}-docs.jsonl.gz`;
+                const mime = "application/octet-stream";
+
+                const encryptedBin = await this.encryptForUpload(filename, chunk.bin, this.currentSettings);
+
+                const ret = await this.storage.upload(filename, encryptedBin, mime);
+                if (!ret) {
+                    throw new Error(`Could not send journalPack to the bucket (${filename})`);
+                }
+
+                sentFilesCount++;
+                this.updateInfo({
+                    sent: sentFilesCount,
+                    maxPushSeq: max,
+                    lastSyncPushSeq: chunk.packLastSeq as number,
+                });
+
+                await this.updateCheckPointInfo((info) => ({
+                    ...info,
+                    lastLocalSeq: chunk.packLastSeq,
+                    sentIDs: setAllItems(info.sentIDs, chunk.sentIDs),
+                    sentFiles: info.sentFiles.add(filename),
+                }));
+
+                Logger(`Uploading journal: Uploaded as ${filename}`, LOG_LEVEL_INFO);
+            },
+        });
+    }
+
+    async sendLocalJournal(showMessage = false) {
+        this.updateInfo({ syncStatus: "JOURNAL_SEND" });
+        return await shareRunningResult("send_journal_stream", async () => {
+            this.requestedStop = false;
+            const logLevel = showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
+            const MSG_KEY = "pack_journal";
+
+            const max = (await this.db.info()).update_seq as number;
+            const checkPointInfo = await this.getCheckpointInfo();
+            const startSeq = checkPointInfo.lastLocalSeq as number;
+            const seqToProcess = max - startSeq;
+
+            Logger(`Packing Journal: Start sending`, logLevel, MSG_KEY);
+
+            const readable = this._createSendReadableStream(startSeq, logLevel, MSG_KEY);
+            const transform = this._createSendCompressTransformStream(startSeq, seqToProcess, logLevel, MSG_KEY);
+            const writable = this._createSendUploadWritableStream(max);
+
+            try {
+                await readable.pipeThrough(transform).pipeTo(writable);
                 if (seqToProcess != 0) {
-                    Logger(`Packing Journal: Packaging ${seqToProcess}`, logLevel, MSG_KEY);
+                    Logger(`Packing Journal: Finished packaging ${seqToProcess}`, logLevel, MSG_KEY);
                 } else {
                     Logger(`Packing Journal: No journals to be packed!`, logLevel, MSG_KEY);
                 }
-                this.notifier.notify();
+                this.updateInfo({ syncStatus: "COMPLETED" });
                 return true;
-            } finally {
-                this.isPacking = false;
-                this.notifier.notify();
+            } catch (ex) {
+                Logger(`Packing Journal Error`, logLevel);
+                Logger(ex, LOG_LEVEL_VERBOSE);
+                this.updateInfo({ syncStatus: "ERRORED" });
+                return false;
             }
         });
     }
-    async sendLocalJournal(showMessage = false) {
-        this.updateInfo({ syncStatus: "JOURNAL_SEND" });
-        const results = await Promise.all([this.packAndCompress(showMessage), this.uploadQueued(showMessage)]);
-        if (results.every((e) => e)) {
-            // recap;
-            const r = await this.uploadQueued(showMessage, true);
-            if (r) {
-                this.updateInfo({ syncStatus: "COMPLETED" });
-                return true;
-            }
-        }
-        this.updateInfo({ syncStatus: "ERRORED" });
-        return false;
-    }
+
     async _getRemoteJournals() {
         const checkPointInfo = await this.getCheckpointInfo();
         const StartAfter = [...checkPointInfo.receivedFiles.keys()].sort((a, b) =>
             b.localeCompare(a, undefined, { numeric: true })
         )[0];
-        const files = (await this.listFiles(StartAfter)).filter((e) => !e.startsWith("_"));
+        const files = (await this.storage.listFiles(StartAfter)).filter((e) => !e.startsWith("_"));
         if (!files) return [];
         return files.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     }
@@ -645,6 +624,7 @@ export abstract class JournalSyncAbstract {
                     docs.push(e);
                 }
             });
+
             // Chunk saving.
             // Chunks always have the same content, hence revision comparisons are unnecessary
             try {
@@ -656,10 +636,11 @@ export abstract class JournalSyncAbstract {
                     .map((e) => ({ ...e, _rev: undefined }));
                 const ret = await this.db.bulkDocs<EntryDoc>(saveChunks, { new_edits: true });
                 const saveError = ret.filter((e) => "error" in e).map((e) => e.id);
-                // Send arrived notification.
+
                 saveChunks
                     .filter((e) => saveError.indexOf(e._id) === -1)
                     .forEach((doc) => eventHub.emitEvent(REMOTE_CHUNK_FETCHED, doc as EntryLeaf));
+
                 await this.updateCheckPointInfo((info) => ({
                     ...info,
                     knownIDs: setAllItems(
@@ -667,23 +648,17 @@ export abstract class JournalSyncAbstract {
                         chunks.map((e) => this.getDocKey(e))
                     ),
                 }));
-                Logger(
-                    `Saved ${ret.length} chunks in transferred ${chunks.length} chunks (Error:${saveError.length})`,
-                    LOG_LEVEL_VERBOSE
-                );
             } catch (ex) {
                 Logger(`Applying chunks failed`, LOG_LEVEL_INFO);
                 Logger(ex, LOG_LEVEL_VERBOSE);
             }
+
             // Docs saving.
             // Docs have different revisions, hence revision comparisons and merging are necessary.
             const params = docs.map((e) => [e._id, [e._rev]] as const);
             const docsRevs = params.reduce(
                 (acc, [id, revs]) => {
-                    return {
-                        ...acc,
-                        [id]: [...(acc[id] ?? []), ...revs],
-                    };
+                    return { ...acc, [id]: [...(acc[id] ?? []), ...revs] };
                 },
                 {} as { [key: string]: string[] }
             );
@@ -694,23 +669,14 @@ export abstract class JournalSyncAbstract {
                     "missing" in diffRevs[e._id] &&
                     (diffRevs[e._id].missing?.indexOf(e._rev) ?? 0) !== -1
             );
-            Logger(
-                `Applying ${saveDocs.length} docs (Total transferred:${docs.length}, docs:${allDocs.length})`,
-                LOG_LEVEL_VERBOSE
-            );
+
             await this.db.bulkDocs<EntryDoc>(saveDocs, { new_edits: false });
-            // Only process if parsing is not suspended.
+
             const writeDoc = !this.env.services.setting.currentSettings().suspendParseReplicationResult;
             if (writeDoc) {
                 await this.processReplication(saveDocs satisfies PouchDB.Core.ExistingDocument<EntryDoc>[]);
-            } else {
-                if (saveDocs.length > 0) {
-                    Logger(
-                        `Skipping processing replication for ${saveDocs.length} docs as it is suspended.`,
-                        LOG_LEVEL_VERBOSE
-                    );
-                }
             }
+
             await this.updateCheckPointInfo((info) => ({
                 ...info,
                 knownIDs: setAllItems(
@@ -718,6 +684,7 @@ export abstract class JournalSyncAbstract {
                     docs.map((e) => this.getDocKey(e))
                 ),
             }));
+
             applyTotal += saveDocs.length;
             wholeItems += docs.length;
             Logger(
@@ -732,167 +699,139 @@ export abstract class JournalSyncAbstract {
         }
     }
 
-    async processDownloadedJournals(showMessage = false, wrapUp = false) {
-        return await shareRunningResult("process_downloaded_journals", async () => {
-            const MSG_KEY = "send_journal";
-            const logLevel = showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
-            const TASK_TITLE = `Processing journal:`;
-            let downloaded = 0;
-            do {
-                const queued = await this.trench.dequeuePermanentWithCommit<Uint8Array<ArrayBuffer>>(`parse_file`);
-                if (!queued) {
-                    if (this.isDownloading) {
-                        Logger(
-                            `${TASK_TITLE} Queue run out, but process is running. wait for the next.`,
-                            LOG_LEVEL_VERBOSE
-                        );
-                        await Promise.race([this.notifier.nextNotify, delay(3000)]);
-                        continue;
-                    }
-                    if (downloaded) {
-                        Logger(`${TASK_TITLE} ${downloaded} files have been uploaded!`, logLevel, MSG_KEY);
-                    } else {
-                        if (!wrapUp) Logger(`${TASK_TITLE} No files needs to be processed!`, logLevel, MSG_KEY);
-                    }
-                    return true;
+    private _createReceiveReadableStream(files: string[]) {
+        return new ReadableStream({
+            pull: (controller) => {
+                if (this.requestedStop || files.length === 0) {
+                    controller.close();
+                    return;
                 }
-                const { key, value, commit, cancel, cancelCount, pendingItems } = queued;
-                this.updateInfo({ arrived: downloaded, maxPullSeq: pendingItems + downloaded, lastSyncPullSeq: 1 });
-                Logger(
-                    `${TASK_TITLE} ${downloaded} / ${pendingItems + downloaded}${cancelCount != 0 ? `\nRETRY:${cancelCount}` : ""}`,
-                    logLevel,
-                    "processjournal"
-                );
-                if (cancelCount > 3) {
-                    Logger(`${TASK_TITLE} Something went wrong on processing queue ${key}.`, LOG_LEVEL_NOTICE);
-                    return false;
+                const file = files.shift();
+                if (file) {
+                    controller.enqueue(file);
                 }
-                const compressed = new Uint8Array(value);
-                const decompressed = await wrappedInflate(compressed, { consume: true });
-                if (decompressed.length == 0) {
-                    await commit();
-                    downloaded++;
-                    Logger(`${TASK_TITLE}: ${key} has been processed`, LOG_LEVEL_INFO);
-                    continue;
-                }
-                let idxFrom = 0;
-                let idxTo = 0;
-                const d = new TextDecoder();
-                const result = [] as ProcessingEntry[];
-                do {
-                    idxTo = decompressed.indexOf(0x0a, idxFrom);
-                    if (idxTo == -1) {
-                        break;
-                    }
-                    const piece = decompressed.slice(idxFrom, idxTo);
-                    const strPiece = d.decode(piece);
-                    if (strPiece.startsWith("~")) {
-                        const [key, data] = strPiece.substring(1).split(UNIT_SPLIT);
-                        result.push({
-                            _id: key as DocumentID,
-                            data: unescapeNewLineFromString(data),
-                            type: "leaf",
-                            _rev: "", // It may ignored.
-                        });
-                    } else {
-                        result.push(JSON.parse(strPiece));
-                    }
-                    idxFrom = idxTo + 1;
-                } while (idxTo > 0);
-                try {
-                    if (await this.processDocuments(result)) {
-                        await commit();
-                        downloaded++;
-                        Logger(`${TASK_TITLE}: ${key} has been processed`, LOG_LEVEL_INFO);
-                    } else {
-                        throw new Error("Could not process downloaded journals");
-                    }
-                } catch (ex) {
-                    Logger(`${TASK_TITLE}: Could not process downloaded journals`, LOG_LEVEL_NOTICE);
-                    Logger(ex, LOG_LEVEL_VERBOSE);
-                    Logger(`${TASK_TITLE}: ${key} cancelled for retry`, LOG_LEVEL_VERBOSE);
-                    cancel();
-                    await delay(1000); // Need Backoff?
-                    continue;
-                }
-            } while (this.requestedStop == false);
-            return true;
+            },
         });
     }
 
-    isDownloading = false;
-    async downloadRemoteJournals(showMessage = false) {
-        return await shareRunningResult("downloadRemoteJournals", async () => {
-            try {
-                this.isDownloading = true;
-                const logLevel = showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
-                Logger("Receiving Journal: Getting list of remote journal", logLevel, "receivejournal");
-                const files = await this._getRemoteJournals();
-                if (files.length == 0) {
-                    Logger(`Receiving Journal: No journals needs to be downloaded`, logLevel, "receivejournal");
-                    return true;
+    private _createReceiveTransformStream(logLevel: any) {
+        let count = 0;
+        return new TransformStream({
+            transform: async (key: string, controller) => {
+                count++;
+                Logger(`Receiving Journal: ${count}`, logLevel, "receivejournal");
+
+                const checkPointInfo = await this.getCheckpointInfo();
+                if (checkPointInfo.sentFiles.has(key) || checkPointInfo.receivedFiles.has(key)) {
+                    Logger(`Receiving Journal: ${key} is already processed`, LOG_LEVEL_VERBOSE);
+                    await this.updateCheckPointInfo((info) => ({
+                        ...info,
+                        receivedFiles: info.receivedFiles.add(key),
+                    }));
+                    return; // Skip
                 }
-                let count = 0;
-                for (const key of files) {
-                    count++;
-                    Logger(`Receiving Journal: ${count} / ${files.length}`, logLevel, "receivejournal");
-                    if (this.requestedStop) {
-                        Logger(`Receiving canceled: ${key}`, logLevel);
-                        return false;
+
+                try {
+                    const encryptedData = await this.storage.download(key, true);
+                    if (encryptedData === false) {
+                        throw new Error("Download Error");
                     }
-                    if (this._currentCheckPointInfo.sentFiles.has(key)) {
-                        // If this device already sent it before, mark it as downloaded.
-                        Logger(`Receiving Journal: ${key} is own sent file`, LOG_LEVEL_VERBOSE);
-                        await this.updateCheckPointInfo((info) => ({
-                            ...info,
-                            receivedFiles: info.receivedFiles.add(key),
-                        }));
-                        continue;
+
+                    const data = await this.decryptDownloaded(
+                        key,
+                        encryptedData as Uint8Array<ArrayBuffer>,
+                        this.currentSettings
+                    );
+
+                    const decompressed = await wrappedInflate(new Uint8Array(data), { consume: true });
+                    if (decompressed.length == 0) {
+                        controller.enqueue({ key, docs: [] });
+                        return;
                     }
-                    try {
-                        const data = await this.downloadFile(key);
-                        if (data === false) {
-                            throw new Error("Download Error");
+
+                    let idxFrom = 0;
+                    let idxTo = 0;
+                    const d = new TextDecoder();
+                    const result = [] as ProcessingEntry[];
+                    do {
+                        idxTo = decompressed.indexOf(0x0a, idxFrom);
+                        if (idxTo == -1) break;
+                        const piece = decompressed.slice(idxFrom, idxTo);
+                        const strPiece = d.decode(piece);
+                        if (strPiece.startsWith("~")) {
+                            const [idPart, dataPart] = strPiece.substring(1).split(UNIT_SPLIT);
+                            result.push({
+                                _id: idPart as DocumentID,
+                                data: unescapeNewLineFromString(dataPart),
+                                type: "leaf",
+                                _rev: "",
+                            });
+                        } else {
+                            result.push(JSON.parse(strPiece));
                         }
-                        // Now it has been queued, so we can mark it
-                        await this.trench.queuePermanent("parse_file", data);
-                        await this.updateCheckPointInfo((info) => ({
-                            ...info,
-                            receivedFiles: info.receivedFiles.add(key),
-                        }));
-                        this.notifier.notify();
-                    } catch (ex) {
-                        Logger(`Could not download ${key}`, logLevel);
-                        Logger(ex, LOG_LEVEL_DEBUG);
-                        return false;
+                        idxFrom = idxTo + 1;
+                    } while (idxTo > 0);
+
+                    controller.enqueue({ key, docs: result });
+                } catch (ex) {
+                    controller.error(ex);
+                }
+            },
+        });
+    }
+
+    private _createReceiveWritableStream() {
+        let downloaded = 0;
+        return new WritableStream({
+            write: async (chunk) => {
+                const { key, docs } = chunk;
+                if (docs.length > 0) {
+                    const success = await this.processDocuments(docs);
+                    if (!success) {
+                        throw new Error(`Could not process downloaded journals for ${key}`);
                     }
                 }
-            } finally {
-                this.isDownloading = false;
-                this.notifier.notify();
-            }
-            this.notifier.notify();
-            return true;
+
+                await this.updateCheckPointInfo((info) => ({
+                    ...info,
+                    receivedFiles: info.receivedFiles.add(key),
+                }));
+                downloaded++;
+                this.updateInfo({ arrived: downloaded, maxPullSeq: downloaded, lastSyncPullSeq: downloaded });
+                Logger(`Processing journal: ${key} has been processed`, LOG_LEVEL_INFO);
+            },
         });
     }
 
     async receiveRemoteJournal(showMessage = false) {
         this.updateInfo({ syncStatus: "JOURNAL_RECEIVE" });
-        this.requestedStop = false;
-        const results = await Promise.all([
-            this.downloadRemoteJournals(showMessage),
-            this.processDownloadedJournals(showMessage),
-        ]);
-        if (results.every((e) => e)) {
-            // parse it again
-            const r = await this.processDownloadedJournals(showMessage, true);
-            if (r) {
+        return await shareRunningResult("receive_journal_stream", async () => {
+            this.requestedStop = false;
+            const logLevel = showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
+
+            Logger("Receiving Journal: Getting list of remote journal", logLevel, "receivejournal");
+            const files = await this._getRemoteJournals();
+            if (files.length == 0) {
+                Logger(`Receiving Journal: No journals needs to be downloaded`, logLevel, "receivejournal");
                 this.updateInfo({ syncStatus: "COMPLETED" });
                 return true;
             }
-        }
-        this.updateInfo({ syncStatus: "ERRORED" });
-        return false;
+
+            const readable = this._createReceiveReadableStream(files);
+            const transform = this._createReceiveTransformStream(logLevel);
+            const writable = this._createReceiveWritableStream();
+
+            try {
+                await readable.pipeThrough(transform).pipeTo(writable);
+                this.updateInfo({ syncStatus: "COMPLETED" });
+                return true;
+            } catch (ex) {
+                Logger(`Receive Journal Error`, logLevel);
+                Logger(ex, LOG_LEVEL_VERBOSE);
+                this.updateInfo({ syncStatus: "ERRORED" });
+                return false;
+            }
+        });
     }
 
     async sync(showResult = false) {

@@ -13,7 +13,8 @@ import {
 } from "@lib/common/types.ts";
 import { Logger } from "@lib/common/logger.ts";
 
-import { JournalSyncMinio } from "./objectstore/JournalSyncMinio.ts";
+import { JournalSyncCore } from "./JournalSyncCore.ts";
+import { MinioStorageAdapter } from "./objectstore/MinioStorageAdapter.ts";
 
 import { LiveSyncAbstractReplicator, type RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";
 import { ensureRemoteIsCompatible, type ENSURE_DB_RESULT } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
@@ -46,7 +47,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     get simpleStore() {
         return this.env.services.keyValueDB.simpleStore as SimpleStore<CheckPointInfo>;
     }
-    _client!: JournalSyncMinio;
+    _client!: JournalSyncCore;
 
     override async getReplicationPBKDF2Salt(
         setting: RemoteDBSettings,
@@ -59,10 +60,13 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         const settings = this.currentSettings;
         if (this._client) {
             this._client.applyNewConfig(settings, this.simpleStore, this.env);
-            // NO OP.
-            // this._client.requestStop();
         } else {
-            this._client = new JournalSyncMinio(settings, this.simpleStore, this.env);
+            this._client = new JournalSyncCore(
+                settings,
+                this.simpleStore,
+                this.env,
+                new MinioStorageAdapter(settings, this.env)
+            );
         }
         return this._client;
     }
@@ -263,7 +267,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
 
     async tryConnectRemote(setting: RemoteDBSettings, showResult: boolean = true): Promise<boolean> {
         const endpoint = setting.endpoint;
-        const testClient = new JournalSyncMinio(setting, this.simpleStore, this.env);
+        const testClient = new MinioStorageAdapter(setting, this.env);
         try {
             await testClient.listFiles("", 1);
             Logger(`Connected to ${endpoint} successfully!`, LOG_LEVEL_NOTICE);
@@ -322,7 +326,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus> {
-        const testClient = new JournalSyncMinio(setting, this.simpleStore, this.env);
+        const testClient = new MinioStorageAdapter(setting, this.env);
         return await testClient.getUsage();
     }
 
