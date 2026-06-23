@@ -25,6 +25,13 @@ import { getConfiguredFunctionsForEncryption } from "@lib/pouchdb/encryption";
 import { AuthorizationHeaderGenerator, generateCredentialObject } from "@lib/replication/httplib";
 import { sizeToHumanReadable } from "octagonal-wheels/number";
 
+const FAST_FETCH_CHECKPOINT_KEY = "fast-fetch-checkpoint";
+
+type FastFetchCheckpoint = {
+    remote: string;
+    sequence: number | string;
+};
+
 export interface ServiceRebuilderDependencies {
     appLifecycle: AppLifecycleService;
     API: APIService;
@@ -334,17 +341,47 @@ Are you sure you wish to proceed?`;
             return;
         }
 
+        const remote =
+            settings.couchDB_URI.replace(/\/+$/, "") +
+            (settings.couchDB_DBNAME == "" ? "" : "/" + settings.couchDB_DBNAME);
+        const checkpoint = this.getFastFetchCheckpoint(remote);
+
         await this.suspendReflectingDatabase();
         await this.control.applySettings();
-        await this.resetLocalDatabase();
-        await delay(1000);
+        let since = checkpoint?.sequence ?? "0";
+        if (checkpoint) {
+            this._log(
+                `Resuming fast database fetch from sequence: ${checkpoint.sequence}`,
+                LOG_LEVEL_NOTICE,
+                "fetch-init-resume"
+            );
+        } else {
+            await this.resetLocalDatabase();
+            await delay(1000);
+        }
         await this.database.openDatabase({
             databaseEvents: this.databaseEvents,
             replicator: this.replicator,
         });
         this.appLifecycle.markIsReady();
 
-        const localDB = this.database.localDatabase.localDatabase;
+        let localDB = this.database.localDatabase.localDatabase;
+        if (checkpoint && (await localDB.info()).doc_count == 0) {
+            this._log(
+                "Fast fetch checkpoint found, but the local database is empty. Starting from the beginning.",
+                LOG_LEVEL_NOTICE,
+                "fetch-init-resume"
+            );
+            this.clearFastFetchCheckpoint();
+            await this.resetLocalDatabase();
+            await delay(1000);
+            await this.database.openDatabase({
+                databaseEvents: this.databaseEvents,
+                replicator: this.replicator,
+            });
+            localDB = this.database.localDatabase.localDatabase;
+            since = "0";
+        }
         const replicator = this.replicator.getActiveReplicator() ?? (await this.replicator.getNewReplicator());
         if (!replicator) {
             throw new Error("No active replicator found for fast fetch.");
@@ -361,17 +398,22 @@ Are you sure you wish to proceed?`;
         const authHeader = await new AuthorizationHeaderGenerator().getAuthorizationHeader(
             generateCredentialObject(settings)
         );
-        const remote =
-            settings.couchDB_URI.replace(/\/+$/, "") +
-            (settings.couchDB_DBNAME == "" ? "" : "/" + settings.couchDB_DBNAME);
 
-        await fetchChangesForInitialSync(localDB, remote, authHeader, enc.outgoing, "0", (progress) => {
-            this._log(
-                `Fast fetch progress: ${progress.totalValidFetched} / ${progress.docsToFetch}\nTotal bytes fetched: ${sizeToHumanReadable(progress.totalBytes)}`,
-                LOG_LEVEL_NOTICE,
-                "fetch-init-progress"
-            );
-        });
+        await fetchChangesForInitialSync(
+            localDB,
+            remote,
+            authHeader,
+            enc.outgoing,
+            since,
+            (progress) => {
+                this._log(
+                    `Fast fetch progress: ${progress.totalValidFetched} / ${progress.docsToFetch}\nTotal bytes fetched: ${sizeToHumanReadable(progress.totalBytes)}`,
+                    LOG_LEVEL_NOTICE,
+                    "fetch-init-progress"
+                );
+            },
+            (sequence) => this.saveFastFetchCheckpoint(remote, sequence)
+        );
 
         const allDocs = await localDB.allDocs({ include_docs: false });
         this._log(
@@ -384,6 +426,7 @@ Are you sure you wish to proceed?`;
         if (autoResume) {
             await this.resumeReflectingDatabase(true);
         }
+        this.clearFastFetchCheckpoint();
     }
 
     /**
@@ -420,5 +463,32 @@ Are you sure you wish to proceed?`;
         await this.setting.applyPartial({ additionalSuffixOfDatabaseName: suffix });
         await this.database.resetDatabase();
         eventHub.emitEvent(EVENT_DATABASE_REBUILT);
+    }
+
+    private getFastFetchCheckpoint(remote: string): FastFetchCheckpoint | undefined {
+        const rawCheckpoint = this.setting.getSmallConfig(FAST_FETCH_CHECKPOINT_KEY);
+        if (!rawCheckpoint) return undefined;
+
+        try {
+            const checkpoint = JSON.parse(rawCheckpoint) as Partial<FastFetchCheckpoint>;
+            if (checkpoint.remote === remote && checkpoint.sequence !== undefined) {
+                return {
+                    remote,
+                    sequence: checkpoint.sequence,
+                };
+            }
+        } catch {
+            // Ignore invalid checkpoints and start cleanly.
+        }
+        this.clearFastFetchCheckpoint();
+        return undefined;
+    }
+
+    private saveFastFetchCheckpoint(remote: string, sequence: number | string) {
+        this.setting.setSmallConfig(FAST_FETCH_CHECKPOINT_KEY, JSON.stringify({ remote, sequence }));
+    }
+
+    private clearFastFetchCheckpoint() {
+        this.setting.deleteSmallConfig(FAST_FETCH_CHECKPOINT_KEY);
     }
 }

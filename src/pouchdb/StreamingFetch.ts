@@ -19,12 +19,16 @@ interface AnyDecryptedDoc {
     _id: string;
 }
 
+type DBSequence = number | string;
+
 function generatePouchDBWriteStream(
     downloadToDB: PouchDB.Database,
-    decryptFunction: (doc: EntryDoc) => Promise<AnyEntry | EntryLeaf>
+    decryptFunction: (doc: EntryDoc) => Promise<AnyEntry | EntryLeaf>,
+    onCheckpoint?: (sequence: DBSequence) => void | Promise<void>
 ) {
     let batchBuffer: AnyDecryptedDoc[] = [];
     let currentBatchSizeBytes = 0;
+    let batchLastSequence: DBSequence | undefined;
 
     const BATCH_ITEM_LIMIT = 100;
     const BATCH_SIZE_LIMIT = 2 * 1024 * 1024; // 2MB
@@ -40,6 +44,9 @@ function generatePouchDBWriteStream(
         try {
             flushPromise = downloadToDB.bulkDocs(batchBuffer, { new_edits: false });
             await flushPromise;
+            if (batchLastSequence !== undefined) {
+                await onCheckpoint?.(batchLastSequence);
+            }
         } catch (error) {
             Logger("Error bulk writing to PouchDB:", LOG_LEVEL_VERBOSE);
             Logger(error, LOG_LEVEL_VERBOSE);
@@ -48,18 +55,20 @@ function generatePouchDBWriteStream(
             // Clear the batch buffer and reset the size counter regardless of success or failure to avoid blocking the stream.
             batchBuffer = [];
             currentBatchSizeBytes = 0;
+            batchLastSequence = undefined;
             flushPromise = null;
         }
     };
-    return new WritableStream<EntryDoc>({
+    return new WritableStream<{ doc: EntryDoc; seq: DBSequence }>({
         async write(chunk) {
             try {
                 // 1. Decrypt the document
-                const decryptedDoc = await decryptFunction(chunk);
+                const decryptedDoc = await decryptFunction(chunk.doc);
 
                 // 2. Buffer the decrypted document
                 batchBuffer.push(decryptedDoc);
                 currentBatchSizeBytes += JSON.stringify(decryptedDoc).length;
+                batchLastSequence = chunk.seq;
 
                 // 3. Flush the batch if limits are exceeded
                 if (batchBuffer.length >= BATCH_ITEM_LIMIT || currentBatchSizeBytes >= BATCH_SIZE_LIMIT) {
@@ -98,10 +107,6 @@ export type FetchChangesForInitialSyncProgress = {
     totalBytes: number; // Total bytes fetched so far.
 };
 
-/**
- * Type of the sequence ID used by CouchDB, which can be a number or a string depending on the database configuration and version.
- */
-type DBSequence = number | string;
 type DatabaseSyncStatus = {
     update_seq?: DBSequence;
     last_seq?: DBSequence;
@@ -136,7 +141,8 @@ export async function fetchChangesForInitialSync(
     authHeader: string,
     decryptFunction: (doc: EntryDoc) => Promise<AnyEntry | EntryLeaf>,
     since: number | string = "0",
-    onProgress?: (progress: FetchChangesForInitialSyncProgress) => void
+    onProgress?: (progress: FetchChangesForInitialSyncProgress) => void,
+    onCheckpoint?: (sequence: DBSequence) => void | Promise<void>
 ): Promise<void> {
     let totalFetched = 0;
     let totalValidFetched = 0;
@@ -240,7 +246,7 @@ export async function fetchChangesForInitialSync(
     });
     // Convert the byte stream into a text stream.
     const reader = response.body.pipeThrough(sizeCaptureStream).pipeThrough(new TextDecoderStream()).getReader();
-    const writeDocStream = generatePouchDBWriteStream(downloadToDB, decryptFunction);
+    const writeDocStream = generatePouchDBWriteStream(downloadToDB, decryptFunction, onCheckpoint);
     const writer = writeDocStream.getWriter();
     let buffer = "";
     let lastProgress = 0;
@@ -279,8 +285,10 @@ export async function fetchChangesForInitialSync(
                         totalFetched++;
                         const parsed = JSON.parse(buffer) as CouchChangeLine;
                         if (parsed.doc) {
-                            await writer.write(parsed.doc);
+                            await writer.write({ doc: parsed.doc, seq: parsed.seq });
                             totalValidFetched++;
+                        } else {
+                            await onCheckpoint?.(parsed.seq);
                         }
                         reportProgress();
                     } catch (e) {
@@ -306,8 +314,10 @@ export async function fetchChangesForInitialSync(
                     // Add to the batch only when a document body exists.
                     totalFetched++;
                     if (parsed.doc) {
-                        await writer.write(parsed.doc);
+                        await writer.write({ doc: parsed.doc, seq: parsed.seq });
                         totalValidFetched++;
+                    } else {
+                        await onCheckpoint?.(parsed.seq);
                     }
                     reportProgress();
                     if (totalFetched >= docsToFetch || reachedTargetSequence(parsed.seq, finalTargetSeq)) {
