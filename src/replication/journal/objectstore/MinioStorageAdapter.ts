@@ -24,36 +24,6 @@ export class MinioStorageAdapter implements IJournalStorage {
     _settings: BucketSyncSetting;
     _env: LiveSyncJournalReplicatorEnv;
 
-    static isCompatible(connectionString: string): boolean {
-        return connectionString.startsWith("s3://") || connectionString.startsWith("minio://");
-    }
-
-    static parseConnectionString(connectionString: string): Partial<BucketSyncSetting> | false {
-        if (!this.isCompatible(connectionString)) return false;
-        try {
-            const url = new URL(connectionString);
-            const accessKey = decodeURIComponent(url.username);
-            const secretKey = decodeURIComponent(url.password);
-            const endpoint = url.protocol === "minio://" ? "http://" + url.host : "https://" + url.host;
-            const pathParts = url.pathname.split("/").filter((e) => e);
-            const bucket = pathParts[0] || "";
-            const bucketPrefix = pathParts.slice(1).join("/") + (pathParts.length > 1 ? "/" : "");
-            const region = url.searchParams.get("region") || "auto";
-            const forcePathStyle = url.searchParams.get("forcePathStyle") !== "false";
-            return {
-                accessKey,
-                secretKey,
-                endpoint,
-                bucket,
-                bucketPrefix,
-                region,
-                forcePathStyle,
-            };
-        } catch {
-            return false;
-        }
-    }
-
     constructor(settings: BucketSyncSetting, env: LiveSyncJournalReplicatorEnv) {
         this._settings = settings;
         this._env = env;

@@ -4,11 +4,11 @@ import type { BucketSyncSetting } from "@lib/common/types.ts";
 import type { LiveSyncJournalReplicatorEnv } from "@lib/replication/journal/LiveSyncJournalReplicatorEnv.ts";
 
 describe("MinioStorageAdapter Integration Tests", () => {
-    // Requires MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_BUCKET in env
-    const endpoint = process.env.MINIO_ENDPOINT;
-    const accessKey = process.env.MINIO_ACCESS_KEY;
-    const secretKey = process.env.MINIO_SECRET_KEY;
-    const bucket = process.env.MINIO_BUCKET || "test-bucket";
+    // Requires minioEndpoint, accessKey, secretKey, bucketName in env
+    const endpoint = process.env.minioEndpoint;
+    const accessKey = process.env.accessKey;
+    const secretKey = process.env.secretKey;
+    const bucket = process.env.bucketName || "test-bucket";
 
     const isIntegrationEnvironmentReady = !!(endpoint && accessKey && secretKey);
 
@@ -67,7 +67,7 @@ describe("MinioStorageAdapter Integration Tests", () => {
     it("skips tests if MinIO environment variables are not set", () => {
         if (!isIntegrationEnvironmentReady) {
             console.warn(
-                "Skipping MinioStorageAdapter integration tests. Please set MINIO_ENDPOINT, MINIO_ACCESS_KEY, MINIO_SECRET_KEY."
+                "Skipping MinioStorageAdapter integration tests. Please set minioEndpoint, accessKey, secretKey."
             );
         }
         expect(true).toBe(true);

@@ -14,6 +14,4 @@ import type { LiveSyncJournalReplicatorEnv } from "@lib/replication/journal/Live
 
 export interface IJournalStorageAdapterClass {
     new (settings: BucketSyncSetting, env: LiveSyncJournalReplicatorEnv): IJournalStorage;
-    isCompatible(connectionString: string): boolean;
-    parseConnectionString(connectionString: string): Partial<BucketSyncSetting> | false;
 }
