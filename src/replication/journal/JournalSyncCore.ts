@@ -13,6 +13,7 @@ import {
     type BucketSyncSetting,
     E2EEAlgorithms,
     type RemoteDBSettings,
+    type LOG_LEVEL,
 } from "@lib/common/types.ts";
 import { Logger } from "@lib/common/logger.ts";
 import type { ReplicationCallback, ReplicationStat } from "@lib/replication/LiveSyncAbstractReplicator.ts";
@@ -469,28 +470,38 @@ export class JournalSyncCore {
         return { changes: docChanges, hasNext, packLastSeq };
     }
 
-    private _createSendReadableStream(startSeq: number, logLevel: any, MSG_KEY: string) {
+    private _createSendReadableStream(startSeq: number, logLevel: LOG_LEVEL, MSG_KEY: string) {
         let currentLastSeq = startSeq;
         return new ReadableStream({
             pull: async (controller) => {
-                if (this.requestedStop) {
-                    Logger("Packing Journal : Stop requested", logLevel, MSG_KEY);
-                    controller.close();
-                    return;
-                }
-                const { changes, hasNext, packLastSeq } = await this._createJournalPack(currentLastSeq);
-                if (changes.length > 0) {
-                    controller.enqueue({ changes, packLastSeq });
-                }
-                currentLastSeq = packLastSeq as number;
-                if (!hasNext) {
-                    controller.close();
+                while (true) {
+                    if (this.requestedStop) {
+                        Logger("Packing Journal : Stop requested", logLevel, MSG_KEY);
+                        controller.close();
+                        return;
+                    }
+                    const { changes, hasNext, packLastSeq } = await this._createJournalPack(currentLastSeq);
+                    currentLastSeq = packLastSeq as number;
+                    if (changes.length > 0) {
+                        controller.enqueue({ changes, packLastSeq });
+                        return;
+                    }
+                    if (!hasNext) {
+                        controller.close();
+                        return;
+                    }
                 }
             },
         });
     }
 
-    private _createSendCompressTransformStream(startSeq: number, seqToProcess: number, logLevel: any, MSG_KEY: string) {
+    private _createSendCompressTransformStream(
+        startSeq: number,
+        seqToProcess: number,
+        logLevel: LOG_LEVEL,
+        MSG_KEY: string,
+        stats: { packedDocs: number }
+    ) {
         const maxOutBufLength = 250;
         const maxBinarySize = 1024 * 1024 * 10;
         let outBuf: Uint8Array[] = [];
@@ -509,6 +520,7 @@ export class JournalSyncCore {
                     batchSentIDs.push(this.getDocKey(row));
                     binarySize += serialized.length;
                     outBuf.push(serialized);
+                    stats.packedDocs++;
 
                     if (outBuf.length > maxOutBufLength || binarySize > maxBinarySize) {
                         const sendBuf = concatUInt8Array(outBuf);
@@ -530,7 +542,12 @@ export class JournalSyncCore {
         });
     }
 
-    private _createSendUploadWritableStream(max: number) {
+    private _createSendUploadWritableStream(
+        max: number,
+        logLevel: LOG_LEVEL,
+        MSG_KEY: string,
+        stats: { uploadedFiles: number }
+    ) {
         let sentFilesCount = 0;
         return new WritableStream({
             write: async (chunk) => {
@@ -546,6 +563,7 @@ export class JournalSyncCore {
                 }
 
                 sentFilesCount++;
+                stats.uploadedFiles++;
                 this.updateInfo({
                     sent: sentFilesCount,
                     maxPushSeq: max,
@@ -559,7 +577,7 @@ export class JournalSyncCore {
                     sentFiles: info.sentFiles.add(filename),
                 }));
 
-                Logger(`Uploading journal: Uploaded as ${filename}`, LOG_LEVEL_INFO);
+                Logger(`Uploading journal: ${sentFilesCount} / ...`, logLevel, MSG_KEY);
             },
         });
     }
@@ -578,14 +596,26 @@ export class JournalSyncCore {
 
             Logger(`Packing Journal: Start sending`, logLevel, MSG_KEY);
 
+            const stats = { packedDocs: 0, uploadedFiles: 0 };
             const readable = this._createSendReadableStream(startSeq, logLevel, MSG_KEY);
-            const transform = this._createSendCompressTransformStream(startSeq, seqToProcess, logLevel, MSG_KEY);
-            const writable = this._createSendUploadWritableStream(max);
+            const transform = this._createSendCompressTransformStream(startSeq, seqToProcess, logLevel, MSG_KEY, stats);
+            const writable = this._createSendUploadWritableStream(max, logLevel, `${MSG_KEY}_upload`, stats);
 
             try {
                 await readable.pipeThrough(transform).pipeTo(writable);
                 if (seqToProcess != 0) {
-                    Logger(`Packing Journal: Finished packaging ${seqToProcess}`, logLevel, MSG_KEY);
+                    Logger(
+                        `Packing Journal: Finished. Processed ${stats.packedDocs} doc(s) into ${stats.uploadedFiles} chunk(s)`,
+                        logLevel,
+                        MSG_KEY
+                    );
+                    if (stats.uploadedFiles > 0) {
+                        Logger(
+                            `Uploading journal: All ${stats.uploadedFiles} chunk(s) uploaded`,
+                            logLevel,
+                            `${MSG_KEY}_upload`
+                        );
+                    }
                 } else {
                     Logger(`Packing Journal: No journals to be packed!`, logLevel, MSG_KEY);
                 }
@@ -714,7 +744,7 @@ export class JournalSyncCore {
         });
     }
 
-    private _createReceiveTransformStream(logLevel: any) {
+    private _createReceiveTransformStream(logLevel: LOG_LEVEL) {
         let count = 0;
         return new TransformStream({
             transform: async (key: string, controller) => {
