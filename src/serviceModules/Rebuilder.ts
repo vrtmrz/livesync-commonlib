@@ -26,6 +26,7 @@ import { AuthorizationHeaderGenerator, generateCredentialObject } from "@lib/rep
 import { sizeToHumanReadable } from "octagonal-wheels/number";
 
 const FAST_FETCH_CHECKPOINT_KEY = "fast-fetch-checkpoint";
+const FAST_FETCH_RETRY_DELAYS = [2000, 5000, 10000, 20000];
 
 type FastFetchCheckpoint = {
     remote: string;
@@ -344,7 +345,7 @@ Are you sure you wish to proceed?`;
         const remote =
             settings.couchDB_URI.replace(/\/+$/, "") +
             (settings.couchDB_DBNAME == "" ? "" : "/" + settings.couchDB_DBNAME);
-        const checkpoint = this.getFastFetchCheckpoint(remote);
+        let checkpoint = this.getFastFetchCheckpoint(remote);
 
         await this.suspendReflectingDatabase();
         await this.control.applySettings();
@@ -399,21 +400,36 @@ Are you sure you wish to proceed?`;
             generateCredentialObject(settings)
         );
 
-        await fetchChangesForInitialSync(
-            localDB,
-            remote,
-            authHeader,
-            enc.outgoing,
-            since,
-            (progress) => {
-                this._log(
-                    `Fast fetch progress: ${progress.totalValidFetched} / ${progress.docsToFetch}\nTotal bytes fetched: ${sizeToHumanReadable(progress.totalBytes)}`,
-                    LOG_LEVEL_NOTICE,
-                    "fetch-init-progress"
+        for (let attempt = 0; ; attempt++) {
+            try {
+                await fetchChangesForInitialSync(
+                    localDB,
+                    remote,
+                    authHeader,
+                    enc.outgoing,
+                    since,
+                    (progress) => {
+                        this._log(
+                            `Fast fetch progress: ${progress.totalValidFetched} / ${progress.docsToFetch}\nTotal bytes fetched: ${sizeToHumanReadable(progress.totalBytes)}`,
+                            LOG_LEVEL_NOTICE,
+                            "fetch-init-progress"
+                        );
+                    },
+                    (sequence) => this.saveFastFetchCheckpoint(remote, sequence)
                 );
-            },
-            (sequence) => this.saveFastFetchCheckpoint(remote, sequence)
-        );
+                break;
+            } catch (ex) {
+                if (attempt >= FAST_FETCH_RETRY_DELAYS.length) throw ex;
+                checkpoint = this.getFastFetchCheckpoint(remote);
+                since = checkpoint?.sequence ?? since;
+                this._log(
+                    `Fast fetch interrupted. Retrying from sequence: ${since}`,
+                    LOG_LEVEL_NOTICE,
+                    "fetch-init-resume"
+                );
+                await delay(FAST_FETCH_RETRY_DELAYS[attempt]);
+            }
+        }
 
         const allDocs = await localDB.allDocs({ include_docs: false });
         this._log(
