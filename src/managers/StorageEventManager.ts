@@ -161,6 +161,9 @@ export abstract class StorageEventManagerBase<
             if (shouldBeIgnored(param.file.path)) {
                 continue;
             }
+            if (!settings.syncInternalFiles && param.file.path.startsWith(".")) {
+                continue;
+            }
             const atomicKey = [0, 0, 0, 0, 0, 0].map((e) => `${Math.floor(Math.random() * 100000)}`).join("-");
             const type = param.type;
             const file = param.file;

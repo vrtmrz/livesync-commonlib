@@ -645,6 +645,15 @@ describe("StorageEventManagerBase", () => {
             expect(enqueueSpy).not.toHaveBeenCalled();
         });
 
+        it("should skip hidden files before target filtering when internal file sync is disabled", async () => {
+            const enqueueSpy = vi.spyOn(manager, "enqueue");
+            const file = createMockFile(".git/objects/aa/example", "example");
+            await manager.testAppendQueue([{ type: "CREATE", file: adapter.converter.toFileInfo(file) }]);
+
+            expect(dependencies.vaultService.isTargetFile).not.toHaveBeenCalled();
+            expect(enqueueSpy).not.toHaveBeenCalled();
+        });
+
         it("should skip recently touched files on CREATE", async () => {
             vi.mocked(dependencies.storageAccessManager.recentlyTouched).mockReturnValue(true);
             const enqueueSpy = vi.spyOn(manager, "enqueue");
