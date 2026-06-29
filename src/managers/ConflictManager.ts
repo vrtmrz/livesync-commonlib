@@ -225,8 +225,13 @@ export class ConflictManager {
             }
             if (leftItem[0] == DIFF_DELETE) {
                 if (rightItem[0] == DIFF_EQUAL) {
-                    merged.push(leftItem);
-                    continue;
+                    if ((diffLeft[leftIdx] ?? [0, ""])[0] == DIFF_INSERT) {
+                        merged.push(leftItem);
+                        continue;
+                    } else {
+                        autoMerge = false;
+                        break LOOP_MERGE;
+                    }
                 } else {
                     //we cannot perform auto merge.
                     autoMerge = false;
@@ -235,8 +240,13 @@ export class ConflictManager {
             }
             if (rightItem[0] == DIFF_DELETE) {
                 if (leftItem[0] == DIFF_EQUAL) {
-                    merged.push(rightItem);
-                    continue;
+                    if ((diffRight[rightIdx] ?? [0, ""])[0] == DIFF_INSERT) {
+                        merged.push(rightItem);
+                        continue;
+                    } else {
+                        autoMerge = false;
+                        break LOOP_MERGE;
+                    }
                 } else {
                     //we cannot perform auto merge.
                     autoMerge = false;
