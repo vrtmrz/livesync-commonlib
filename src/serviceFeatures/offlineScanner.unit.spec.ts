@@ -1535,6 +1535,79 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
         expect(dbToStorageMock).not.toHaveBeenCalled();
     });
 
+    it("should keep the last-seen record when the database delete reports nothing was deleted", async () => {
+        // Regression guard: when deleteFileFromDB returns false (nothing was
+        // tombstoned), the delete-db path must not clear the file's last-seen
+        // record. Otherwise the next scan reclassifies the doc as database-only
+        // and resurrects the deleted file.
+        const deleteFileFromDBMock = vi.fn().mockResolvedValue(false);
+        const dbToStorageMock = vi.fn().mockResolvedValue(true);
+        const kvDBSetMock = vi.fn().mockResolvedValue(undefined);
+        const logSpy = vi.fn();
+
+        async function* mockFindAllNormalDocs() {
+            yield { _id: "d1", path: "gone.md", size: 100, mtime: 10000, type: "newnote", children: [] };
+        }
+
+        const host = {
+            services: {
+                setting: {
+                    currentSettings: () => ({
+                        handleFilenameCaseSensitive: true,
+                    }),
+                },
+                vault: {
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                    isValidPath: vi.fn().mockReturnValue(true),
+                    isFileSizeTooLarge: vi.fn().mockReturnValue(false),
+                },
+                path: {
+                    getPath: vi.fn((doc: any) => doc.path),
+                },
+                fileProcessing: {},
+                database: {
+                    localDatabase: {
+                        findAllNormalDocs: vi.fn().mockReturnValue(mockFindAllNormalDocs()),
+                    },
+                },
+                keyValueDB: {
+                    kvDB: {
+                        get: vi.fn().mockResolvedValue({ "gone.md": 20000 }),
+                        set: kvDBSetMock,
+                    },
+                },
+            },
+            serviceModules: {
+                storageAccess: {
+                    getFiles: vi.fn().mockResolvedValue([]),
+                    delete: vi.fn(),
+                },
+                fileHandler: {
+                    dbToStorage: dbToStorageMock,
+                    storeFileToDB: vi.fn(),
+                    deleteFileFromDB: deleteFileFromDBMock,
+                },
+            },
+        } as any;
+
+        await synchroniseAllFilesBetweenDBandStorage(host, logSpy as unknown as LogFunction, {} as any, {
+            mode: FullScanModes.NEWER_WINS,
+        });
+
+        expect(deleteFileFromDBMock).toHaveBeenCalledWith("gone.md");
+        // The no-op delete must be reported rather than silently dropping the record.
+        expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("keeping last-seen record"), LOG_LEVEL_NOTICE);
+        // The last-seen record for the still-present document must survive, so any
+        // persisted file-status map continues to include it.
+        for (const call of kvDBSetMock.mock.calls) {
+            if (call[0] === "fileStatusMap") {
+                expect(call[1]).toHaveProperty("gone.md");
+            }
+        }
+        // No resurrection: the file is not written back to storage.
+        expect(dbToStorageMock).not.toHaveBeenCalled();
+    });
+
     it("should keep db-only entry when database mtime is newer than last seen", async () => {
         const deleteFileFromDBMock = vi.fn().mockResolvedValue(true);
         const dbToStorageMock = vi.fn().mockResolvedValue(true);
