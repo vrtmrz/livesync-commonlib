@@ -252,6 +252,7 @@ export async function fetchChangesForInitialSync(
     let lastProgress = 0;
     let lastReportTime = Date.now();
     let totalBytes = 0;
+    let abortedAfterTargetReached = false;
     const reportProgress = () => {
         if (totalFetched - lastProgress < 25) {
             // Report progress for every 25 changes fetched to avoid excessive updates.
@@ -328,6 +329,7 @@ export async function fetchChangesForInitialSync(
                         // Write any remaining documents to PouchDB before exiting.
                         await writer.close(); // Close the writer to ensure all documents are flushed to PouchDB.
                         // Abort the fetch request to stop receiving more data.
+                        abortedAfterTargetReached = true;
                         controller.abort();
                         reportProgress();
                         return; // Exit the function gracefully.
@@ -343,7 +345,7 @@ export async function fetchChangesForInitialSync(
         Logger("Initial data synchronisation via stream has completed.");
         reportProgress();
     } catch (error) {
-        if (error instanceof DOMException && error.name === "AbortError") {
+        if (abortedAfterTargetReached && error instanceof DOMException && error.name === "AbortError") {
             Logger(
                 "Stream has been aborted as the target sequence has been reached. Finalising the synchronising process..."
             );
