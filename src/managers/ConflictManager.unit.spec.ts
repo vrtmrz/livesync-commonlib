@@ -347,6 +347,101 @@ describe("ConflictManager", () => {
             expect(result).toBe(false);
         });
 
+        it("should return false when only one side deletes a line", async () => {
+            const path = "test-doc" as FilePathWithPrefix;
+            const baseData = "line1\nline2\nline3\n";
+            const leftData = "line1\nline3\n";
+            const rightData = "line1\nline2\nline3 modified right\n";
+
+            const baseDoc = createTestDoc(path, baseData, 1000);
+            const baseResult = await db.put(baseDoc);
+
+            const leftDoc = { ...createTestDoc(path, leftData, 2000), _rev: baseResult.rev };
+            const leftResult = await db.put(leftDoc);
+            unused(leftResult);
+
+            const rightDoc = {
+                ...createTestDoc(path, rightData, 2100),
+                _rev: baseResult.rev.split("-")[0] + "-conflict",
+            };
+            await db.put(rightDoc, { force: true } as any);
+
+            const currentDoc = await db.get(path, { conflicts: true });
+            const conflictedRev = currentDoc._conflicts?.[0] || "";
+
+            const result = await conflictManager.mergeSensibly(path, baseResult.rev, currentDoc._rev, conflictedRev);
+
+            expect(result).toBe(false);
+        });
+
+        it("should merge when both sides delete the same line", async () => {
+            const path = "test-doc" as FilePathWithPrefix;
+            const baseData = "line1\nline2\nline3\n";
+            const bothData = "line1\nline3\n";
+
+            const baseDoc = createTestDoc(path, baseData, 1000);
+            const baseResult = await db.put(baseDoc);
+
+            const leftDoc = { ...createTestDoc(path, bothData, 2000), _rev: baseResult.rev };
+            const leftResult = await db.put(leftDoc);
+            unused(leftResult);
+
+            const rightDoc = {
+                ...createTestDoc(path, bothData, 2100),
+                _rev: baseResult.rev.split("-")[0] + "-conflict",
+            };
+            await db.put(rightDoc, { force: true } as any);
+
+            const currentDoc = await db.get(path, { conflicts: true });
+            const conflictedRev = currentDoc._conflicts?.[0] || "";
+
+            const result = await conflictManager.mergeSensibly(path, baseResult.rev, currentDoc._rev, conflictedRev);
+
+            expect(result).not.toBe(false);
+            if (result !== false) {
+                const mergedText = result
+                    .filter((e) => e[0] !== -1)
+                    .map((e) => e[1])
+                    .join("");
+                expect(mergedText).toBe(bothData);
+            }
+        });
+
+        it("should merge checkbox toggles on different consecutive markdown task lines", async () => {
+            const path = "test.md" as FilePathWithPrefix;
+            const baseData = "- [ ] A\n- [ ] B\n- [ ] C\n";
+            const leftData = "- [x] A\n- [ ] B\n- [ ] C\n";
+            const rightData = "- [ ] A\n- [x] B\n- [ ] C\n";
+            const expected = "- [x] A\n- [x] B\n- [ ] C\n";
+
+            const baseDoc = createTestDoc(path, baseData, 1000);
+            const baseResult = await db.put(baseDoc);
+
+            const leftDoc = { ...createTestDoc(path, leftData, 2000), _rev: baseResult.rev };
+            const leftResult = await db.put(leftDoc);
+            unused(leftResult);
+
+            const rightDoc = {
+                ...createTestDoc(path, rightData, 2100),
+                _rev: baseResult.rev.split("-")[0] + "-conflict",
+            };
+            await db.put(rightDoc, { force: true } as any);
+
+            const currentDoc = await db.get(path, { conflicts: true });
+            const conflictedRev = currentDoc._conflicts?.[0] || "";
+
+            const result = await conflictManager.mergeSensibly(path, baseResult.rev, currentDoc._rev, conflictedRev);
+
+            expect(result).not.toBe(false);
+            if (result !== false) {
+                const mergedText = result
+                    .filter((e) => e[0] !== -1)
+                    .map((e) => e[1])
+                    .join("");
+                expect(mergedText).toBe(expected);
+            }
+        });
+
         it("should merge when both sides add the same line", async () => {
             const path = "test-doc" as FilePathWithPrefix;
             const baseData = "line1\nline3\n";
