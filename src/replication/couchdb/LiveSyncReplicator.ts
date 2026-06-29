@@ -43,11 +43,10 @@ import {
     type LiveSyncReplicatorEnv,
     type RemoteDBStatus,
 } from "@lib/replication/LiveSyncAbstractReplicator.ts";
-import { serialized, shareRunningResult } from "octagonal-wheels/concurrency/lock";
+import { shareRunningResult } from "octagonal-wheels/concurrency/lock";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { Trench } from "octagonal-wheels/memory/memutil";
-import { promiseWithResolver } from "octagonal-wheels/promises";
-import { Inbox, NOT_AVAILABLE } from "octagonal-wheels/bureau/Inbox";
+import { StreamInbox } from "octagonal-wheels/bureau/StreamInbox";
 import { $msg } from "@lib/common/i18n.ts";
 import {
     clearHandlers,
@@ -82,18 +81,16 @@ async function* genReplication(
     s: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc>,
     signal: AbortSignal
 ) {
-    const inbox = new Inbox<EventParamArray<EntryDoc>>(10000);
+    const inbox = new StreamInbox<EventParamArray<EntryDoc>>({ capacity: 10000 });
     const push = function (e: EventParamArray<EntryDoc>) {
-        void serialized("replicationResult", async () => {
-            if (signal.aborted) {
-                return;
-            }
-            if (!inbox.isDisposed) {
-                await inbox.post(e);
-            } else {
-                Logger("Inbox is disposed", LOG_LEVEL_VERBOSE);
-            }
-        });
+        if (signal.aborted || inbox.isClosed) return;
+        if (inbox.post(e)) return;
+        Logger(`Replication event queue is full: ${e[0]}`, LOG_LEVEL_VERBOSE);
+        if (e[0] === "error" || e[0] === "denied") {
+            inbox.error(e[1]);
+        } else if (e[0] === "complete" || e[0] === "finally") {
+            inbox.close();
+        }
     };
 
     //@ts-ignore
@@ -105,20 +102,15 @@ async function* genReplication(
     void s.on("error", (err) => push(["error", err]));
     void s.on("paused", (err) => push(["paused", err]));
     void s.then(() => push(["finally"])).catch(() => push(["finally"]));
-    const abortSymbol = Symbol("abort");
-    const abortPromise = promiseWithResolver<typeof abortSymbol>();
-
-    signal.addEventListener("abort", () => {
-        abortPromise.resolve(abortSymbol);
-    });
+    const onAbort = () => inbox.close();
+    signal.addEventListener("abort", onAbort, { once: true });
 
     try {
-        while (!inbox.isDisposed && !signal.aborted) {
-            const r = await inbox.pick(undefined, [abortPromise.promise]);
-            if (r === NOT_AVAILABLE) {
-                break;
-            }
-            yield r;
+        const reader = inbox.readable.getReader();
+        while (!signal.aborted) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            yield value;
         }
     } catch (ex) {
         if (ex instanceof Error && ex.name == "AbortError") {
@@ -127,8 +119,9 @@ async function* genReplication(
             throw ex;
         }
     } finally {
+        signal.removeEventListener("abort", onAbort);
         s.cancel();
-        inbox.dispose();
+        inbox.close();
     }
 }
 
