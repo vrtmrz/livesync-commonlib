@@ -1,0 +1,46 @@
+name: Downstream CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  obsidian-livesync-unit-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout commonlib
+        uses: actions/checkout@v4
+        with:
+          path: livesync-commonlib
+
+      - name: Checkout obsidian-livesync
+        uses: actions/checkout@v4
+        with:
+          repository: vrtmrz/obsidian-livesync
+          path: obsidian-livesync
+          submodules: false
+
+      - name: Replace commonlib submodule
+        run: |
+          rm -rf obsidian-livesync/src/lib
+          cp -a livesync-commonlib obsidian-livesync/src/lib
+          rm -rf obsidian-livesync/src/lib/.git
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.x"
+          cache: npm
+          cache-dependency-path: obsidian-livesync/package-lock.json
+
+      - name: Install dependencies
+        working-directory: obsidian-livesync
+        run: npm ci
+
+      - name: Run unit tests
+        working-directory: obsidian-livesync
+        run: npm run test:unit
