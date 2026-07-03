@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
+import transform from "transform-pouch";
 import {
     createChunks,
     putDBEntry,
@@ -21,6 +22,7 @@ import type {
     SavingEntry,
     ObsidianLiveSyncSettings,
     NewEntry,
+    EntryHasPath,
 } from "@lib/common/types";
 import { DEFAULT_SETTINGS, REMOTE_COUCHDB, IDPrefixes, ChunkAlgorithms } from "@lib/common/types";
 import { LayeredChunkManager } from "@lib/managers/LayeredChunkManager";
@@ -31,9 +33,14 @@ import { createTextBlob, isDocContentSame } from "@lib/common/utils";
 import type { NecessaryServicesInterfaces } from "@lib/interfaces/ServiceModule";
 import type { WriteResult } from "@lib/managers/LayeredChunkManager/types";
 import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
+import { id2path_base, path2id_base } from "@lib/string_and_binary/path";
+import { disableEncryption, enableEncryption } from "@lib/pouchdb/encryption";
+import { E2EEAlgorithms } from "@lib/common/models/setting.const";
+
+vi.mock("@lib/worker/bgWorker.ts", () => import("@lib/worker/bgWorker.mock.ts"));
 
 // Set up PouchDB with memory adapter
-PouchDB.plugin(MemoryAdapter);
+PouchDB.plugin(MemoryAdapter).plugin(transform);
 let dbCounter = 0;
 
 /**
@@ -55,6 +62,32 @@ function createMockServices(settings: Partial<ObsidianLiveSyncSettings> = {}) {
         }),
         id2path: vi.fn((id: DocumentID) => {
             return id as unknown as FilePathWithPrefix;
+        }),
+    } as unknown as IPathService;
+
+    return { mockSettingService, mockPathService, fullSettings };
+}
+
+function createRealPathMockServices(settings: Partial<ObsidianLiveSyncSettings> = {}) {
+    const fullSettings = {
+        ...DEFAULT_SETTINGS,
+        ...settings,
+    } as ObsidianLiveSyncSettings;
+
+    const mockSettingService: ISettingService = {
+        currentSettings: vi.fn(() => fullSettings),
+    } as unknown as ISettingService;
+
+    const mockPathService: IPathService = {
+        path2id: vi.fn(async (path: FilePathWithPrefix | string) => {
+            return await path2id_base(
+                path as FilePathWithPrefix,
+                fullSettings.usePathObfuscation ? fullSettings.passphrase : "",
+                !fullSettings.handleFilenameCaseSensitive
+            );
+        }),
+        id2path: vi.fn((id: DocumentID, entry?: EntryHasPath) => {
+            return id2path_base(id, entry);
         }),
     } as unknown as IPathService;
 
@@ -756,6 +789,61 @@ describe("EntryManagerImpls", () => {
             });
         });
     });
+
+    it("loads CLI-style encrypted obfuscated entries with issue 986 settings", async () => {
+        const passphrase = "issue-986-passphrase";
+        const services = createRealPathMockServices({
+            encrypt: true,
+            passphrase,
+            usePathObfuscation: true,
+            usePluginSyncV2: true,
+            suspendParseReplicationResult: true,
+            customChunkSize: 60,
+            handleFilenameCaseSensitive: false,
+            doNotUseFixedRevisionForChunks: true,
+            hashAlg: "xxhash64",
+            chunkSplitterVersion: ChunkAlgorithms.RabinKarp,
+            E2EEAlgorithm: E2EEAlgorithms.V2,
+            enableCompression: false,
+            disableWorkerForGeneratingChunks: true,
+        });
+        const host = createHost(services.mockSettingService, services.mockPathService);
+        const salt = new TextEncoder().encode("issue-986-salt");
+        enableEncryption(
+            db as unknown as PouchDB.Database<EntryDoc>,
+            passphrase,
+            false,
+            false,
+            async () => salt,
+            E2EEAlgorithms.V2
+        );
+
+        try {
+            const path = "test/issue-986-cli-created-note.md" as FilePathWithPrefix;
+            const id = await services.mockPathService.path2id(path);
+            const content = `${getSeededRandomString("issue-986", 4096)}\n`;
+            const entry = createSavingEntry(id, content, path);
+
+            await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
+
+            const loaded = await getDBEntryByPath(
+                host,
+                { localDatabase: db, chunkManager },
+                path,
+                undefined,
+                false,
+                true
+            );
+            expect(loaded).not.toBe(false);
+            if (loaded !== false) {
+                expect(loaded.path).toBe(path);
+                expect(await isDocContentSame(createTextBlob(content), loaded.data)).toBe(true);
+            }
+        } finally {
+            disableEncryption();
+        }
+    });
+
     const splitters = [ChunkAlgorithms.RabinKarp, ChunkAlgorithms.V1, ChunkAlgorithms.V2, ChunkAlgorithms.V2Segmenter];
     const chunkSizeRatios = [0, 10, 100];
     const sizes2 = [1024, 1024 * 1024, 3 * 1024 * 1024, 10 * 1024 * 1024];
