@@ -5,6 +5,15 @@ import {
     type ConfigurationItem,
     type ObsidianLiveSyncSettings,
 } from "./types.ts";
+import {
+    createSettingDefinitions,
+    getExplicitSettingCommitGroup as getExplicitSettingCommitGroupFrom,
+    getSettingDefinitionFrom,
+    listExplicitSettingCommitGroups,
+    type SettingDefinition,
+    type SettingDefinitionMetadata,
+    type SettingStorageDomain,
+} from "./settings/setting.definition.repository.ts";
 
 type ExtractPropertiesByType<T, U> = {
     [K in keyof T as T[K] extends U ? K : never]: T[K] extends U ? K : never;
@@ -446,6 +455,133 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         desc: "Files with modification times greater than this value (in seconds since the Unix epoch) will not have their events reflected. Set to 0 to disable this limit.",
     },
 };
+const localStorageDomains: Record<keyof OnDialogSettings, SettingStorageDomain> = {
+    configPassphrase: "local",
+    preset: "ephemeral",
+    syncMode: "derived",
+    dummy: "ephemeral",
+    deviceAndVaultName: "local",
+};
+
+const repositoryMetadataOverrides: Partial<Record<AllSettingItemKey, SettingDefinitionMetadata>> = {
+    autoAcceptCompatibleTweak: {
+        name: configurationNames["autoAcceptCompatibleTweak"]?.name ?? "Auto-accept compatible tweak mismatches",
+        desc: configurationNames["autoAcceptCompatibleTweak"]?.desc,
+        isAdvanced: configurationNames["autoAcceptCompatibleTweak"]?.isAdvanced,
+        kind: "boolean",
+    },
+    chunkSplitterVersion: {
+        name: configurationNames["chunkSplitterVersion"]?.name ?? "Chunk Splitter",
+        desc: configurationNames["chunkSplitterVersion"]?.desc,
+        kind: "select",
+    },
+    E2EEAlgorithm: {
+        name: configurationNames["E2EEAlgorithm"]?.name ?? "E2EE Algorithm",
+        desc: configurationNames["E2EEAlgorithm"]?.desc,
+        kind: "select",
+    },
+    hashAlg: {
+        name: configurationNames["hashAlg"]?.name ?? "",
+        desc: configurationNames["hashAlg"]?.desc,
+        kind: "select",
+    },
+    displayLanguage: {
+        name: SettingInformation["displayLanguage"]?.name ?? "Display Language",
+        desc: SettingInformation["displayLanguage"]?.desc,
+        kind: "select",
+    },
+    preset: {
+        name: SettingInformation["preset"]?.name ?? "Preset",
+        desc: SettingInformation["preset"]?.desc,
+        kind: "select",
+    },
+    syncMode: {
+        name: SettingInformation["syncMode"]?.name ?? "Sync Mode",
+        desc: SettingInformation["syncMode"]?.desc,
+        kind: "select",
+    },
+    networkWarningStyle: {
+        name: SettingInformation["networkWarningStyle"]?.name ?? "Network warning style",
+        desc: SettingInformation["networkWarningStyle"]?.desc,
+        kind: "select",
+    },
+    ignoreFiles: {
+        name: SettingInformation["ignoreFiles"]?.name ?? "Ignore files",
+        desc: SettingInformation["ignoreFiles"]?.desc,
+        kind: "textarea",
+    },
+    configPassphrase: {
+        name: SettingInformation["configPassphrase"]?.name ?? "Passphrase of sensitive configuration items",
+        desc: SettingInformation["configPassphrase"]?.desc,
+        kind: "password",
+        commit: {
+            mode: "explicit",
+            group: "configuration-encryption",
+            applyKeys: ["configPassphrase", "configPassphraseStore"],
+        },
+    },
+    configPassphraseStore: {
+        name: SettingInformation["configPassphraseStore"]?.name ?? "Encrypting sensitive configuration items",
+        desc: SettingInformation["configPassphraseStore"]?.desc,
+        kind: "select",
+        commit: {
+            mode: "explicit",
+            group: "configuration-encryption",
+            applyKeys: ["configPassphrase", "configPassphraseStore"],
+        },
+    },
+    settingSyncFile: {
+        name: SettingInformation["settingSyncFile"]?.name ?? "Filename",
+        desc: SettingInformation["settingSyncFile"]?.desc,
+        commit: {
+            mode: "explicit",
+            group: "setting-sync-file",
+            applyKeys: ["settingSyncFile"],
+        },
+    },
+    additionalSuffixOfDatabaseName: {
+        name: SettingInformation["additionalSuffixOfDatabaseName"]?.name ?? "Database suffix",
+        desc: SettingInformation["additionalSuffixOfDatabaseName"]?.desc,
+        affects: ["reopens-local-database"],
+        commit: {
+            mode: "explicit",
+            group: "database-suffix",
+            applyKeys: ["additionalSuffixOfDatabaseName"],
+        },
+    },
+    maxMTimeForReflectEvents: {
+        name:
+            SettingInformation["maxMTimeForReflectEvents"]?.name ??
+            "Maximum file modification time for reflected file events",
+        desc: SettingInformation["maxMTimeForReflectEvents"]?.desc,
+        commit: {
+            mode: "explicit",
+            group: "remediation-reflect-events",
+            applyKeys: ["maxMTimeForReflectEvents"],
+        },
+    },
+};
+
+export const AllSettingDefinitions = createSettingDefinitions(
+    AllSettingDefault,
+    {
+        ...configurationNames,
+        ...SettingInformation,
+        ...repositoryMetadataOverrides,
+    },
+    (key) => localStorageDomains[key as keyof OnDialogSettings] ?? "persisted"
+) as SettingDefinition<AllSettingItemKey>[];
+
+export function getSettingDefinition(key: AllSettingItemKey): SettingDefinition<AllSettingItemKey> | undefined {
+    return getSettingDefinitionFrom(AllSettingDefinitions, key);
+}
+
+export const AllExplicitSettingCommitGroups = listExplicitSettingCommitGroups(AllSettingDefinitions);
+
+export function getExplicitSettingCommitGroup(group: string) {
+    return getExplicitSettingCommitGroupFrom(AllSettingDefinitions, group);
+}
+
 function translateInfo(infoSrc: ConfigurationItem | undefined | false) {
     if (!infoSrc) return false;
     const info = { ...infoSrc };

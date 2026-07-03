@@ -166,6 +166,24 @@ import {
     confName,
     confDesc,
 } from "./models/shared.definition.configNames.ts";
+export {
+    persistedSettingDefinitions,
+    getPersistedSettingDefinition,
+    createSettingDefinitions,
+    getSettingDefinitionFrom,
+    listExplicitSettingCommitGroups,
+    getExplicitSettingCommitGroup,
+    type SettingDefinition,
+    type SettingDefinitionMetadata,
+    type SettingStorageDomain,
+    type SettingValueKind,
+    type SettingCapability,
+    type SettingEffect,
+    type SettingCommitPolicy,
+    type ExplicitSettingCommitGroup,
+    type SettingEvaluationContext,
+    type SettingValidationResult,
+} from "./settings/setting.definition.repository.ts";
 import type {
     CustomRegExpSource,
     CustomRegExpSourceList,
