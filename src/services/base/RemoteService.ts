@@ -32,6 +32,10 @@ const FetchMethod = {
 
 type FetchMethod = (typeof FetchMethod)[keyof typeof FetchMethod];
 
+export function isSuccessfulHttpStatus(status: number): boolean {
+    return Math.floor(status / 100) === 2;
+}
+
 /**
  * The RemoteService provides methods for interacting with the remote database.
  */
@@ -234,17 +238,15 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                                 this._log("Failed to request by API.");
                                 throw ex;
                             }
-                            this._log(
-                                "Failed to fetch by native fetch API. Trying to fetch by API to get more information."
-                            );
+                            this._log("Failed to fetch by web compatible fetch. Trying to fetch by API.");
                             // const resp2 = await this.fetchByAPI(url.toString(), localURL, method, authHeader, {
                             //     ...opts,
                             //     headers,
                             // });
                             const resp2 = await this.performFetch(requestSrc, { ...opts, headers }, FetchMethod.native);
-                            if (resp2.status / 100 == 2) {
+                            if (isSuccessfulHttpStatus(resp2.status)) {
                                 this.showError(
-                                    "The request was successful by API. But the native fetch API failed! Please check CORS settings on the remote database!. While this condition, you cannot enable LiveSync",
+                                    "The request was successful by API. But the web compatible fetch failed! Please check CORS settings on the remote database. While this condition, you cannot enable LiveSync",
                                     LOG_LEVEL_NOTICE
                                 );
                                 return resp2;
