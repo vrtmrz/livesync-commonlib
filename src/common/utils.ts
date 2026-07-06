@@ -21,6 +21,7 @@ import {
     type RemoteDBSettings,
     type P2PConnectionInfo,
     type BucketSyncSetting,
+    type WebDAVSyncSetting,
     type CouchDBConnection,
     type EncryptionSettings,
 } from "./types.ts";
@@ -568,6 +569,12 @@ export function pickBucketSyncSettings(setting: ObsidianLiveSyncSettings): Bucke
         forcePathStyle: setting.forcePathStyle,
         useCustomRequestHandler: setting.useCustomRequestHandler,
         bucketCustomHeaders: setting.bucketCustomHeaders,
+    };
+}
+
+export function pickWebDAVSyncSettings(setting: ObsidianLiveSyncSettings): WebDAVSyncSetting {
+    return {
+        webDAVactiveConnectionURI: setting.webDAVactiveConnectionURI,
     };
 }
 

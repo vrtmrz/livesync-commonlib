@@ -1,5 +1,7 @@
 import type { RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";
-import type { BucketSyncSetting } from "@lib/common/types.ts";
+import type { BucketSyncSetting, WebDAVSyncSetting } from "@lib/common/types.ts";
+
+export type JournalStorageSetting = BucketSyncSetting | WebDAVSyncSetting;
 
 export interface IJournalStorage {
     upload(key: string, data: Uint8Array, mime: string): Promise<boolean>;
@@ -8,10 +10,10 @@ export interface IJournalStorage {
     deleteFiles(keys: string[]): Promise<boolean>;
     isAvailable(): Promise<boolean>;
     getUsage(): Promise<false | RemoteDBStatus>;
-    applyNewConfig(settings: BucketSyncSetting): void;
+    applyNewConfig(settings: JournalStorageSetting): void;
 }
 import type { LiveSyncJournalReplicatorEnv } from "@lib/replication/journal/LiveSyncJournalReplicatorEnv.ts";
 
 export interface IJournalStorageAdapterClass {
-    new (settings: BucketSyncSetting, env: LiveSyncJournalReplicatorEnv): IJournalStorage;
+    new (settings: JournalStorageSetting, env: LiveSyncJournalReplicatorEnv): IJournalStorage;
 }

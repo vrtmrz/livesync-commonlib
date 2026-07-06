@@ -258,3 +258,28 @@ describe("ConnectionStringParser S3", () => {
         expect(parsed.settings.forcePathStyle).toBe(false);
     });
 });
+
+describe("ConnectionStringParser WebDAV", () => {
+    it("should serialize and parse a WebDAV active connection URI", () => {
+        const uri = ConnectionStringParser.serialize({
+            type: "webdav",
+            settings: {
+                webDAVactiveConnectionURI:
+                    "sls+webdav://user:p%40ss@webdav.local:8080/dav/?prefix=vault%2F&headers=x-test%3A1&useProxy=true&insecure=true",
+            },
+        });
+
+        expect(uri).toContain("sls+webdav://");
+        expect(uri).toContain("prefix=vault%2F");
+        expect(uri).toContain("headers=x-test%3A1");
+        expect(uri).toContain("useProxy=true");
+        expect(uri).toContain("insecure=true");
+
+        const parsed = ConnectionStringParser.parse(uri);
+        if (parsed.type !== "webdav") {
+            throw new Error("Expected webdav type");
+        }
+
+        expect(parsed.settings.webDAVactiveConnectionURI).toBe(uri);
+    });
+});

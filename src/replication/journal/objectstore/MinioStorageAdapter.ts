@@ -15,7 +15,7 @@ import { promiseWithResolvers } from "octagonal-wheels/promises";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type BucketSyncSetting } from "@lib/common/types.ts";
 import { Logger } from "@lib/common/logger.ts";
 import type { RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";
-import type { IJournalStorage } from "./JournalStorageAdapter.ts";
+import type { IJournalStorage, JournalStorageSetting } from "./JournalStorageAdapter.ts";
 import { parseHeaderValues } from "@lib/common/utils.ts";
 import type { LiveSyncJournalReplicatorEnv } from "@lib/replication/journal/LiveSyncJournalReplicatorEnv.ts";
 
@@ -24,13 +24,13 @@ export class MinioStorageAdapter implements IJournalStorage {
     _settings: BucketSyncSetting;
     _env: LiveSyncJournalReplicatorEnv;
 
-    constructor(settings: BucketSyncSetting, env: LiveSyncJournalReplicatorEnv) {
-        this._settings = settings;
+    constructor(settings: JournalStorageSetting, env: LiveSyncJournalReplicatorEnv) {
+        this._settings = settings as BucketSyncSetting;
         this._env = env;
     }
 
-    applyNewConfig(settings: BucketSyncSetting): void {
-        this._settings = settings;
+    applyNewConfig(settings: JournalStorageSetting): void {
+        this._settings = settings as BucketSyncSetting;
         this._instance = undefined; // Force recreation
     }
 

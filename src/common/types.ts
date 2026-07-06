@@ -88,6 +88,7 @@ import {
     type RemoteType,
     type RemoteTypeSettings,
     type SYNC_MODE,
+    type WebDAVSyncSetting,
 } from "./models/setting.type.ts";
 import {
     ChunkAlgorithmNames,
@@ -99,7 +100,10 @@ import {
     REMOTE_COUCHDB,
     REMOTE_MINIO,
     REMOTE_P2P,
+    REMOTE_WEBDAV,
     RemoteTypes,
+    hasConfiguredRemote,
+    isJournalRemoteType,
     SETTING_VERSION_INITIAL,
     SETTING_VERSION_SUPPORT_CASE_INSENSITIVE,
     MODE_AUTOMATIC,
@@ -244,9 +248,19 @@ export { MODE_SELECTIVE, MODE_AUTOMATIC, MODE_PAUSED, MODE_SHINY, type SYNC_MODE
 export { type PluginSyncSettingEntry };
 
 export { SETTING_VERSION_INITIAL, SETTING_VERSION_SUPPORT_CASE_INSENSITIVE, CURRENT_SETTING_VERSION };
-export type { BucketSyncSetting, LocalDBSettings };
+export type { BucketSyncSetting, LocalDBSettings, WebDAVSyncSetting };
 
-export { RemoteTypes, REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P, type RemoteType, AutoAccepting };
+export {
+    RemoteTypes,
+    REMOTE_COUCHDB,
+    REMOTE_MINIO,
+    REMOTE_P2P,
+    REMOTE_WEBDAV,
+    hasConfiguredRemote,
+    isJournalRemoteType,
+    type RemoteType,
+    AutoAccepting,
+};
 export type { P2PConnectionInfo, P2PSyncSetting };
 
 export { P2P_DEFAULT_SETTINGS };

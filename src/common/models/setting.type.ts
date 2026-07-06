@@ -530,6 +530,16 @@ export interface BucketSyncSetting {
     forcePathStyle: boolean;
 }
 
+/**
+ * Represents the settings required to synchronise journal files with a WebDAV collection.
+ */
+export interface WebDAVSyncSetting {
+    /**
+     * The active WebDAV connection URI.
+     */
+    webDAVactiveConnectionURI: string;
+}
+
 export interface LocalDBSettings {
     /**
      * Indicates whether to use the IndexedDB adapter for the local database.
@@ -1060,6 +1070,7 @@ interface ObsidianLiveSyncSettings_PluginSetting
 
 export type RemoteDBSettings = CouchDBConnection &
     BucketSyncSetting &
+    WebDAVSyncSetting &
     RemoteTypeSettings &
     EncryptionSettings &
     ChunkSettings &

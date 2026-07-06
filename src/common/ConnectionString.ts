@@ -1,11 +1,11 @@
 import type { JWTAlgorithm } from "@lib/common/models/auth.type";
-import type { CouchDBConnection, BucketSyncSetting, P2PConnectionInfo } from "./models/setting.type";
+import type { CouchDBConnection, BucketSyncSetting, P2PConnectionInfo, WebDAVSyncSetting } from "./models/setting.type";
 
 export type RemoteConfigurationResult =
     | { type: "couchdb"; settings: CouchDBConnection }
     | { type: "s3"; settings: BucketSyncSetting }
     | { type: "p2p"; settings: P2PConnectionInfo }
-    | { type: "webdav"; settings: never }; // TODO: Define WebDAV settings
+    | { type: "webdav"; settings: WebDAVSyncSetting };
 
 // `sls+xxx://` is a non-special scheme per the WHATWG URL spec, which means
 // `URL.host`, `URL.username`, and `URL.password` cannot be read or written.
@@ -61,6 +61,11 @@ export class ConnectionStringParser {
                     type: "s3",
                     settings: this.parseS3(url),
                 };
+            case "webdav":
+                return {
+                    type: "webdav",
+                    settings: this.parseWebDAV(url),
+                };
             default:
                 throw new Error(`Unsupported protocol: sls+${subscheme}`);
         }
@@ -77,8 +82,10 @@ export class ConnectionStringParser {
                 return this.serializeS3(config.settings);
             case "p2p":
                 return this.serializeP2P(config.settings);
+            case "webdav":
+                return this.serializeWebDAV(config.settings);
             default:
-                throw new Error(`Unsupported type: ${config.type}`);
+                throw new Error(`Unsupported type`);
         }
     }
 
@@ -149,6 +156,20 @@ export class ConnectionStringParser {
         if (settings.useCustomRequestHandler) newUrl.searchParams.set("useProxy", "true");
         if (!settings.forcePathStyle) newUrl.searchParams.set("pathStyle", "false");
         return withSlsScheme(newUrl, "s3");
+    }
+
+    private static parseWebDAV(url: URL): WebDAVSyncSetting {
+        return {
+            webDAVactiveConnectionURI: withSlsScheme(url, "webdav"),
+        };
+    }
+
+    private static serializeWebDAV(settings: WebDAVSyncSetting): string {
+        const { url, subscheme } = parseSlsUri(settings.webDAVactiveConnectionURI);
+        if (subscheme !== "webdav") {
+            throw new Error(`Unsupported WebDAV URI: sls+${subscheme}`);
+        }
+        return withSlsScheme(url, "webdav");
     }
 
     private static parseP2P(uriString: string): P2PConnectionInfo {

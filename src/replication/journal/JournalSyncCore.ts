@@ -11,9 +11,11 @@ import {
     ProtocolVersions,
     DOCID_JOURNAL_SYNC_PARAMETERS,
     type BucketSyncSetting,
-    E2EEAlgorithms,
     type RemoteDBSettings,
+    type WebDAVSyncSetting,
+    E2EEAlgorithms,
     type LOG_LEVEL,
+    REMOTE_WEBDAV,
 } from "@lib/common/types.ts";
 import { Logger } from "@lib/common/logger.ts";
 import type { ReplicationCallback, ReplicationStat } from "@lib/replication/LiveSyncAbstractReplicator.ts";
@@ -48,6 +50,7 @@ import {
 const RECORD_SPLIT = `\n`;
 const UNIT_SPLIT = `\u001f`;
 type ProcessingEntry = PouchDB.Core.PutDocument<EntryDoc> & PouchDB.Core.GetMeta;
+type JournalSyncSetting = (BucketSyncSetting | WebDAVSyncSetting) & Partial<Pick<RemoteDBSettings, "remoteType">>;
 
 const te = new TextEncoder();
 function serializeDoc(doc: EntryDoc): Uint8Array {
@@ -60,7 +63,7 @@ function serializeDoc(doc: EntryDoc): Uint8Array {
 }
 
 export class JournalSyncCore {
-    _settings: BucketSyncSetting;
+    _settings: JournalSyncSetting;
     storage: IJournalStorage;
 
     get db() {
@@ -114,14 +117,20 @@ export class JournalSyncCore {
         }
     }
 
-    getHash(settings: BucketSyncSetting) {
+    getHash(settings: JournalSyncSetting) {
+        if (settings.remoteType === REMOTE_WEBDAV && "webDAVactiveConnectionURI" in settings) {
+            return btoa(encodeURI(settings.webDAVactiveConnectionURI));
+        }
+        if (!("endpoint" in settings)) {
+            return btoa(encodeURI(JSON.stringify(settings)));
+        }
         return btoa(
             encodeURI([settings.endpoint, `${settings.bucket}${settings.bucketPrefix}`, settings.region].join())
         );
     }
 
     constructor(
-        settings: BucketSyncSetting,
+        settings: JournalSyncSetting,
         store: SimpleStore<CheckPointInfo>,
         env: LiveSyncJournalReplicatorEnv,
         storage: IJournalStorage
@@ -159,7 +168,11 @@ export class JournalSyncCore {
         }
     }
 
-    applyNewConfig(settings: BucketSyncSetting, store: SimpleStore<CheckPointInfo>, env: LiveSyncJournalReplicatorEnv) {
+    applyNewConfig(
+        settings: JournalSyncSetting,
+        store: SimpleStore<CheckPointInfo>,
+        env: LiveSyncJournalReplicatorEnv
+    ) {
         this._settings = settings;
         this.env = env;
         this.processReplication = async (docs: PouchDB.Core.ExistingDocument<EntryDoc>[]) =>

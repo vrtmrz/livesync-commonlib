@@ -19,7 +19,7 @@ import {
     LEAF_WAIT_ONLY_REMOTE,
     LEAF_WAIT_TIMEOUT,
     LEAF_WAIT_TIMEOUT_SEQUENTIAL_REPLICATOR,
-    RemoteTypes,
+    isJournalRemoteType,
     type NoteEntry,
 } from "@lib/common/types";
 import type { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters";
@@ -388,7 +388,7 @@ function canFetchRemotely(settings: ObsidianLiveSyncSettings) {
     if (!canUseOnDemandChunking(settings)) {
         return false;
     }
-    if (settings.remoteType === RemoteTypes.REMOTE_MINIO) {
+    if (isJournalRemoteType(settings.remoteType)) {
         return false;
     }
     return true;
@@ -399,7 +399,7 @@ function canFetchRemotely(settings: ObsidianLiveSyncSettings) {
  */
 function computeChunkRetrievalMethod(waitForReady: boolean, settings: ObsidianLiveSyncSettings) {
     const isOnDemandFetchEnabled = canFetchRemotely(settings);
-    const isSequentialReplicator = settings.remoteType === RemoteTypes.REMOTE_MINIO;
+    const isSequentialReplicator = isJournalRemoteType(settings.remoteType);
     if (!waitForReady) {
         // if waitForReady=false, basically, we should respond immediately.
         // However, while on-demand chunking is enabled, we do not have chunks on local database until they are fetched from the remote source.

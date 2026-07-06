@@ -14,7 +14,12 @@ import {
 import { Logger } from "@lib/common/logger.ts";
 
 import { JournalSyncCore } from "./JournalSyncCore.ts";
-import { MinioStorageAdapter } from "./objectstore/MinioStorageAdapter.ts";
+import {
+    createJournalStorageAdapter,
+    getJournalRemoteDisplayName,
+    isJournalStorageAdapterCompatible,
+    testJournalStorageConnectivity,
+} from "./objectstore/JournalStorageAdapterFactory.ts";
 
 import { LiveSyncAbstractReplicator, type RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";
 import { ensureRemoteIsCompatible, type ENSURE_DB_RESULT } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
@@ -59,13 +64,22 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     setupJournalSyncClient() {
         const settings = this.currentSettings;
         if (this._client) {
-            this._client.applyNewConfig(settings, this.simpleStore, this.env);
+            if (isJournalStorageAdapterCompatible(this._client.storage, settings)) {
+                this._client.applyNewConfig(settings, this.simpleStore, this.env);
+            } else {
+                this._client = new JournalSyncCore(
+                    settings,
+                    this.simpleStore,
+                    this.env,
+                    createJournalStorageAdapter(settings, this.env)
+                );
+            }
         } else {
             this._client = new JournalSyncCore(
                 settings,
                 this.simpleStore,
                 this.env,
-                new MinioStorageAdapter(settings, this.env)
+                createJournalStorageAdapter(settings, this.env)
             );
         }
         return this._client;
@@ -266,12 +280,14 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async tryConnectRemote(setting: RemoteDBSettings, showResult: boolean = true): Promise<boolean> {
-        const endpoint = setting.endpoint;
-        const testClient = new MinioStorageAdapter(setting, this.env);
+        const endpoint = getJournalRemoteDisplayName(setting);
+        const testClient = createJournalStorageAdapter(setting, this.env);
         try {
-            await testClient.listFiles("", 1);
-            Logger(`Connected to ${endpoint} successfully!`, LOG_LEVEL_NOTICE);
-            return true;
+            const connected = await testJournalStorageConnectivity(testClient, setting);
+            if (connected) {
+                Logger(`Connected to ${endpoint} successfully!`, LOG_LEVEL_NOTICE);
+            }
+            return connected;
         } catch (ex) {
             Logger(`Error! Could not connected to ${endpoint}\n${(ex as Error).message}`, LOG_LEVEL_NOTICE);
             Logger(ex, LOG_LEVEL_NOTICE);
@@ -326,7 +342,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus> {
-        const testClient = new MinioStorageAdapter(setting, this.env);
+        const testClient = createJournalStorageAdapter(setting, this.env);
         return await testClient.getUsage();
     }
 

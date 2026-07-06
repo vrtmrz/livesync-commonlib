@@ -1,3 +1,5 @@
+import type { RemoteDBSettings } from "./setting.type.ts";
+
 export const SETTING_VERSION_INITIAL = 0;
 export const SETTING_VERSION_SUPPORT_CASE_INSENSITIVE = 10;
 export const CURRENT_SETTING_VERSION = SETTING_VERSION_SUPPORT_CASE_INSENSITIVE;
@@ -6,12 +8,33 @@ export const CURRENT_SETTING_VERSION = SETTING_VERSION_SUPPORT_CASE_INSENSITIVE;
 export const RemoteTypes = {
     REMOTE_COUCHDB: "",
     REMOTE_MINIO: "MINIO",
+    REMOTE_WEBDAV: "WEBDAV",
     REMOTE_P2P: "ONLY_P2P",
 } as const;
 export const REMOTE_COUCHDB = RemoteTypes.REMOTE_COUCHDB;
 export const REMOTE_MINIO = RemoteTypes.REMOTE_MINIO;
+export const REMOTE_WEBDAV = RemoteTypes.REMOTE_WEBDAV;
 //
 export const REMOTE_P2P = RemoteTypes.REMOTE_P2P;
+
+export function isJournalRemoteType(remoteType: string): boolean {
+    return remoteType === REMOTE_MINIO || remoteType === REMOTE_WEBDAV;
+}
+
+export function hasConfiguredRemote(settings: RemoteDBSettings): boolean {
+    switch (settings.remoteType) {
+        case REMOTE_COUCHDB:
+            return !!settings.couchDB_URI?.trim() && !!settings.couchDB_DBNAME?.trim();
+        case REMOTE_MINIO:
+            return !!settings.endpoint?.trim() && !!settings.bucket?.trim();
+        case REMOTE_WEBDAV:
+            return !!settings.webDAVactiveConnectionURI?.trim();
+        case REMOTE_P2P:
+            return settings.P2P_Enabled;
+        default:
+            return false;
+    }
+}
 
 export const E2EEAlgorithmNames = {
     "": "V1: Legacy",

@@ -10,6 +10,7 @@ import {
     type ConfigPassphraseStore,
     type CouchDBConnection,
     type ObsidianLiveSyncSettings,
+    type WebDAVSyncSetting,
 } from "@lib/common/types";
 import { handlers } from "@lib/services/lib/HandlerUtils";
 import type { IAPIService, ISettingService } from "./IService";
@@ -194,9 +195,10 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                 settings.couchDB_PASSWORD != "" ||
                 settings.couchDB_URI != "" ||
                 settings.couchDB_USER != "" ||
-                settings.couchDB_DBNAME
+                settings.couchDB_DBNAME ||
+                settings.webDAVactiveConnectionURI
             ) {
-                const connectionSetting: CouchDBConnection & BucketSyncSetting = {
+                const connectionSetting: CouchDBConnection & BucketSyncSetting & WebDAVSyncSetting = {
                     couchDB_DBNAME: settings.couchDB_DBNAME,
                     couchDB_PASSWORD: settings.couchDB_PASSWORD,
                     couchDB_URI: settings.couchDB_URI,
@@ -218,6 +220,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                     useRequestAPI: settings.useRequestAPI,
                     bucketPrefix: settings.bucketPrefix,
                     forcePathStyle: settings.forcePathStyle,
+                    webDAVactiveConnectionURI: settings.webDAVactiveConnectionURI,
                 };
                 settings.encryptedCouchDBConnection = await this.encryptConfigurationItem(
                     JSON.stringify(connectionSetting),
@@ -228,6 +231,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                 settings.couchDB_URI = "";
                 settings.couchDB_USER = "";
                 settings.accessKey = "";
+                settings.webDAVactiveConnectionURI = "";
                 settings.bucket = "";
                 settings.region = "";
                 settings.secretKey = "";
@@ -483,10 +487,11 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                     "endpoint",
                     "region",
                     "secretKey",
-                ] as (keyof CouchDBConnection | keyof BucketSyncSetting)[];
+                    "webDAVactiveConnectionURI",
+                ] as (keyof CouchDBConnection | keyof BucketSyncSetting | keyof WebDAVSyncSetting)[];
                 const decrypted = this.tryDecodeJson(
                     await this.decryptConfigurationItem(settings.encryptedCouchDBConnection, passphrase)
-                ) as CouchDBConnection & BucketSyncSetting;
+                ) as CouchDBConnection & BucketSyncSetting & WebDAVSyncSetting;
                 if (decrypted) {
                     for (const key of keys) {
                         if (key in decrypted) {

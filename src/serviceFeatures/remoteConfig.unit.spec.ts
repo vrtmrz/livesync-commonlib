@@ -4,7 +4,7 @@ import {
     migrateToMultipleRemoteConfigurations,
     activateRemoteConfiguration,
 } from "@lib/serviceFeatures/remoteConfig";
-import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
+import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P, REMOTE_WEBDAV } from "@lib/common/models/setting.const";
 import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 
 describe("Remote Configuration Migration", () => {
@@ -170,6 +170,30 @@ describe("Remote Configuration Activation", () => {
         expect(settings.couchDB_DBNAME).toBe("db");
         expect(settings.couchDB_USER).toBe("user");
         expect(settings.couchDB_PASSWORD).toBe("pass");
+    });
+
+    it("should activate a WebDAV remote configuration", () => {
+        const settings = {
+            remoteConfigurations: {
+                "target-remote": {
+                    id: "target-remote",
+                    name: "Target Remote",
+                    uri: "sls+webdav://user:pass@localhost:8080/dav?prefix=vault%2F&insecure=true",
+                    isEncrypted: false,
+                },
+            },
+            activeConfigurationId: "",
+            remoteType: REMOTE_COUCHDB,
+        } as any;
+
+        const result = activateRemoteConfiguration(settings, "target-remote");
+
+        expect(result).toBe(settings);
+        expect(settings.activeConfigurationId).toBe("target-remote");
+        expect(settings.remoteType).toBe(REMOTE_WEBDAV);
+        expect(settings.webDAVactiveConnectionURI).toBe(
+            "sls+webdav://user:pass@localhost:8080/dav?prefix=vault%2F&insecure=true"
+        );
     });
 
     it("should return false if configuration ID is not found", () => {

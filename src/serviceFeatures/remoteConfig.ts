@@ -1,7 +1,7 @@
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type LOG_LEVEL } from "@lib/common/logger";
 import { ConnectionStringParser } from "@lib/common/ConnectionString";
 import type { ObsidianLiveSyncSettings, RemoteConfiguration, RemoteDBSettings } from "@lib/common/models/setting.type";
-import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
+import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P, REMOTE_WEBDAV } from "@lib/common/models/setting.const";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 
@@ -150,6 +150,9 @@ export function activateRemoteConfiguration(
             Object.assign(settings, parsed.settings);
         } else if (parsed.type === "s3") {
             settings.remoteType = REMOTE_MINIO;
+            Object.assign(settings, parsed.settings);
+        } else if (parsed.type === "webdav") {
+            settings.remoteType = REMOTE_WEBDAV;
             Object.assign(settings, parsed.settings);
         } else if (parsed.type === "p2p") {
             settings.remoteType = REMOTE_P2P;

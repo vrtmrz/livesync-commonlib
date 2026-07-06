@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { REMOTE_COUCHDB } from "@lib/common/models/setting.const";
+import { REMOTE_COUCHDB, REMOTE_WEBDAV } from "@lib/common/models/setting.const";
 import { ServiceRebuilder } from "./Rebuilder";
 
 const fetchChangesForInitialSyncMock = vi.hoisted(() => vi.fn());
@@ -110,5 +110,27 @@ describe("ServiceRebuilder fast fetch retry", () => {
         expect(fetchChangesForInitialSyncMock).toHaveBeenCalledTimes(2);
         expect(fetchChangesForInitialSyncMock.mock.calls[0][4]).toBe("0");
         expect(fetchChangesForInitialSyncMock.mock.calls[1][4]).toBe("10-g1");
+    });
+
+    it("skips reflection suspension and resumption for WebDAV remotes", async () => {
+        const { rebuilder, services } = createRebuilder();
+        services.setting.currentSettings().remoteType = REMOTE_WEBDAV;
+
+        await rebuilder.suspendReflectingDatabase();
+        await rebuilder.resumeReflectingDatabase();
+
+        expect(services.setting.applyPartial).not.toHaveBeenCalledWith(
+            expect.objectContaining({
+                suspendParseReplicationResult: true,
+                suspendFileWatching: true,
+            })
+        );
+        expect(services.setting.applyPartial).not.toHaveBeenCalledWith(
+            expect.objectContaining({
+                suspendParseReplicationResult: false,
+                suspendFileWatching: false,
+            })
+        );
+        expect(services.vault.scanVault).not.toHaveBeenCalled();
     });
 });
