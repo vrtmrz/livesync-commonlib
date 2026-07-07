@@ -158,33 +158,36 @@ export class ConflictManager {
             const rightItem = diffRight[rightIdx] ?? [0, ""];
             leftIdx++;
             rightIdx++;
-            // when completely same, leave it .
+            // Same unchanged line on both sides: keep it once.
             if (leftItem[0] == DIFF_EQUAL && rightItem[0] == DIFF_EQUAL && leftItem[1] == rightItem[1]) {
                 merged.push(leftItem);
                 continue;
             }
             if (leftItem[0] == DIFF_DELETE && rightItem[0] == DIFF_DELETE && leftItem[1] == rightItem[1]) {
-                // when deleted evenly,
+                // Same deletion on both sides is safe. If only one side immediately inserts a replacement,
+                // this is a delete-vs-edit overlap and must remain a manual conflict.
                 const nextLeftIdx = leftIdx;
                 const nextRightIdx = rightIdx;
                 const [nextLeftItem, nextRightItem] = [
                     diffLeft[nextLeftIdx] ?? [0, ""],
                     diffRight[nextRightIdx] ?? [0, ""],
                 ];
-                if (
-                    nextLeftItem[0] == DIFF_INSERT &&
-                    nextRightItem[0] == DIFF_INSERT &&
-                    nextLeftItem[1] != nextRightItem[1]
-                ) {
-                    //but next line looks like different
+                const nextLeftIsInsert = nextLeftItem[0] == DIFF_INSERT;
+                const nextRightIsInsert = nextRightItem[0] == DIFF_INSERT;
+                if (nextLeftIsInsert != nextRightIsInsert) {
                     autoMerge = false;
                     break;
-                } else {
-                    merged.push(leftItem);
-                    continue;
                 }
+                if (nextLeftIsInsert && nextRightIsInsert && nextLeftItem[1] != nextRightItem[1]) {
+                    // Both sides replaced the same deleted line differently.
+                    autoMerge = false;
+                    break;
+                }
+                merged.push(leftItem);
+                continue;
             }
-            // when inserted evenly
+            // Insertions are additive. If both sides inserted different content at the same
+            // position, keep both in a deterministic mtime order.
             if (leftItem[0] == DIFF_INSERT && rightItem[0] == DIFF_INSERT) {
                 if (leftItem[1] == rightItem[1]) {
                     merged.push(leftItem);
@@ -202,7 +205,7 @@ export class ConflictManager {
                     }
                 }
             }
-            // when on inserting, index should be fixed again.
+            // A one-sided insertion does not consume the other side's current line.
             if (leftItem[0] == DIFF_INSERT) {
                 rightIdx--;
                 merged.push(leftItem);
@@ -213,7 +216,8 @@ export class ConflictManager {
                 merged.push(rightItem);
                 continue;
             }
-            // except insertion, the line should not be different.
+            // Apart from insertions, mismatched line contents mean the regions are no
+            // longer aligned enough for a safe automatic merge.
             if (rightItem[1] != leftItem[1]) {
                 //TODO: SHOULD BE PANIC.
                 Logger(
@@ -225,13 +229,10 @@ export class ConflictManager {
             }
             if (leftItem[0] == DIFF_DELETE) {
                 if (rightItem[0] == DIFF_EQUAL) {
-                    if ((diffLeft[leftIdx] ?? [0, ""])[0] == DIFF_INSERT) {
-                        merged.push(leftItem);
-                        continue;
-                    } else {
-                        autoMerge = false;
-                        break LOOP_MERGE;
-                    }
+                    // One side deleted a line the other side left unchanged. Prefer the
+                    // deletion; final content generation drops DIFF_DELETE entries.
+                    merged.push(leftItem);
+                    continue;
                 } else {
                     //we cannot perform auto merge.
                     autoMerge = false;
@@ -240,13 +241,9 @@ export class ConflictManager {
             }
             if (rightItem[0] == DIFF_DELETE) {
                 if (leftItem[0] == DIFF_EQUAL) {
-                    if ((diffRight[rightIdx] ?? [0, ""])[0] == DIFF_INSERT) {
-                        merged.push(rightItem);
-                        continue;
-                    } else {
-                        autoMerge = false;
-                        break LOOP_MERGE;
-                    }
+                    // Symmetric safe deletion.
+                    merged.push(rightItem);
+                    continue;
                 } else {
                     //we cannot perform auto merge.
                     autoMerge = false;

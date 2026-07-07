@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { EVEN } from "@lib/common/models/shared.const.symbols";
+import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import type { MetaEntry, UXFileInfo, UXFileInfoStub } from "@lib/common/types";
 import { createTextBlob } from "@lib/common/utils";
 import { ServiceFileHandlerBase, type ServiceFileHandlerDependencies } from "./ServiceFileHandlerBase";
@@ -39,7 +39,12 @@ function createStorageFile(path: string, body: string): UXFileInfo {
     } as UXFileInfo;
 }
 
-function createHandler(localBody: string, remoteBody: string, localContentIsKnown: boolean) {
+function createHandler(
+    localBody: string,
+    remoteBody: string,
+    localContentIsKnown: boolean,
+    freshness: typeof BASE_IS_NEW | typeof TARGET_IS_NEW | typeof EVEN = TARGET_IS_NEW
+) {
     const path = "note.md";
     const remoteMeta = createMeta(path, remoteBody);
     const remoteEntry = {
@@ -72,7 +77,7 @@ function createHandler(localBody: string, remoteBody: string, localContentIsKnow
     };
     const pathService = {
         getPath: vi.fn().mockImplementation((entry: MetaEntry) => entry.path),
-        compareFileFreshness: vi.fn().mockReturnValue(Symbol("target-is-new")),
+        compareFileFreshness: vi.fn().mockReturnValue(freshness),
         markChangesAreSame: vi.fn(),
     };
     const deps = {
@@ -103,7 +108,8 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
         const { handler, remoteMeta, storageStub, databaseFileAccess, storageAccess, conflict } = createHandler(
             "local unsynced",
             "remote update",
-            false
+            false,
+            BASE_IS_NEW
         );
 
         await expect(handler.dbToStorage(remoteMeta, storageStub)).resolves.toBe(true);
@@ -117,11 +123,12 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
         expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
     });
 
-    it.fails("applies a remote addition without conflict when local storage is an unmodified older copy (#994)", async () => {
+    it("applies a remote addition without conflict when local storage is an unmodified older copy (#994)", async () => {
         const { handler, remoteMeta, storageStub, databaseFileAccess, storageAccess, conflict } = createHandler(
             "existing synced content\n",
             "existing synced content\nnew desktop paragraph\n",
-            false
+            false,
+            TARGET_IS_NEW
         );
 
         await expect(handler.dbToStorage(remoteMeta, storageStub)).resolves.toBe(true);

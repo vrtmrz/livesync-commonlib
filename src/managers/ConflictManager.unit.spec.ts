@@ -347,7 +347,7 @@ describe("ConflictManager", () => {
             expect(result).toBe(false);
         });
 
-        it("should return false when only one side deletes a line", async () => {
+        it("should merge when one side deletes a line and the other changes a different line", async () => {
             const path = "test-doc" as FilePathWithPrefix;
             const baseData = "line1\nline2\nline3\n";
             const leftData = "line1\nline3\n";
@@ -371,10 +371,42 @@ describe("ConflictManager", () => {
 
             const result = await conflictManager.mergeSensibly(path, baseResult.rev, currentDoc._rev, conflictedRev);
 
+            expect(result).not.toBe(false);
+            if (result === false) return;
+            const mergedText = result
+                .filter((e) => e[0] !== -1)
+                .map((e) => e[1])
+                .join("");
+            expect(mergedText).toBe("line1\nline3 modified right\n");
+        });
+
+        it("should return false when one side deletes a line and the other changes the same line", async () => {
+            const path = "test-doc" as FilePathWithPrefix;
+            const baseData = "line1\nline2\nline3\n";
+            const leftData = "line1\nline3\n";
+            const rightData = "line1\nline2 modified right\nline3\n";
+
+            const baseDoc = createTestDoc(path, baseData, 1000);
+            const baseResult = await db.put(baseDoc);
+
+            const leftDoc = { ...createTestDoc(path, leftData, 2000), _rev: baseResult.rev };
+            await db.put(leftDoc);
+
+            const rightDoc = {
+                ...createTestDoc(path, rightData, 2100),
+                _rev: baseResult.rev.split("-")[0] + "-conflict",
+            };
+            await db.put(rightDoc, { force: true } as any);
+
+            const currentDoc = await db.get(path, { conflicts: true });
+            const conflictedRev = currentDoc._conflicts?.[0] || "";
+
+            const result = await conflictManager.mergeSensibly(path, baseResult.rev, currentDoc._rev, conflictedRev);
+
             expect(result).toBe(false);
         });
 
-        it.fails("should not reintroduce an unchanged line deleted on the other side (#993)", async () => {
+        it("should not reintroduce an unchanged line deleted on the other side (#993)", async () => {
             const path = "issue-993.md" as FilePathWithPrefix;
             const baseData = "intro\nold content\nshared\n";
             const leftData = "intro\nshared\n";
