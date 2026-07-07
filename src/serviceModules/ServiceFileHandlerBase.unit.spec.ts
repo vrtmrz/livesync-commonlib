@@ -141,6 +141,25 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
         });
     });
 
+    it("preserves unknown local storage content even when the incoming entry is newer", async () => {
+        const { handler, remoteMeta, storageStub, databaseFileAccess, storageAccess, conflict } = createHandler(
+            "mobile-only local edit\n",
+            "desktop-only remote edit\n",
+            false,
+            TARGET_IS_NEW
+        );
+
+        await expect(handler.dbToStorage(remoteMeta, storageStub)).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeAsConflictedRevision).toHaveBeenCalledWith(
+            expect.objectContaining({ path: "note.md" }),
+            "2-remote",
+            true
+        );
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
+        expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
+    });
+
     it("preserves unknown local storage content when freshness is ambiguous", async () => {
         const { handler, remoteMeta, storageStub, databaseFileAccess, storageAccess, conflict } = createHandler(
             "local edit in same timestamp window",

@@ -10,7 +10,7 @@ import type {
     UXFileInfoStub,
     UXInternalFileInfoStub,
 } from "@lib/common/types";
-import { getDocDataAsArray, isDocContentSame, readAsBlob, readContent } from "@lib/common/utils";
+import { createBlob, getDocDataAsArray, isDocContentSame, isTextBlob, readAsBlob, readContent } from "@lib/common/utils";
 import { shouldBeIgnored, stripAllPrefixes } from "@lib/string_and_binary/path";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { eventHub } from "@lib/hub/hub";
@@ -26,7 +26,7 @@ import type { PathService } from "@lib/services/base/PathService.ts";
 import type { SettingService } from "@lib/services/base/SettingService.ts";
 import type { VaultService } from "@lib/services/base/VaultService.ts";
 import { getStoragePathFromUXFileInfo } from "@lib/common/typeUtils";
-import { EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
+import { EVEN } from "@lib/common/models/shared.const.symbols";
 import { tryGetFilePath } from "@lib/common/utils.doc";
 
 export interface ServiceFileHandlerDependencies {
@@ -39,6 +39,20 @@ export interface ServiceFileHandlerDependencies {
     path: PathService;
     setting: SettingService;
     vault: VaultService;
+}
+
+async function isIncomingTextClearExtension(
+    incomingContent: string | string[] | Blob | ArrayBuffer,
+    localContent: string | string[] | Blob | ArrayBuffer
+): Promise<boolean> {
+    const incomingBlob = createBlob(incomingContent);
+    const localBlob = createBlob(localContent);
+    if (!isTextBlob(incomingBlob) || !isTextBlob(localBlob)) {
+        return false;
+    }
+    const incomingText = await incomingBlob.text();
+    const localText = await localBlob.text();
+    return incomingText.startsWith(localText) || incomingText.endsWith(localText);
 }
 
 export abstract class ServiceFileHandlerBase
@@ -380,7 +394,6 @@ export abstract class ServiceFileHandlerBase
             if (
                 !force &&
                 !settings.writeDocumentsIfConflicted &&
-                freshness !== TARGET_IS_NEW &&
                 (await this.preserveUnsyncedStorageAsConflict(path, existDoc, docEntry, docData))
             ) {
                 return true;
@@ -407,6 +420,9 @@ export abstract class ServiceFileHandlerBase
     ): Promise<boolean> {
         const readFile = await this.readFileFromStub(existDoc);
         if (incomingContent && (await isDocContentSame(incomingContent, readFile.body))) {
+            return false;
+        }
+        if (incomingContent && (await isIncomingTextClearExtension(incomingContent, readFile.body))) {
             return false;
         }
         if (!incomingEntry._rev) {
