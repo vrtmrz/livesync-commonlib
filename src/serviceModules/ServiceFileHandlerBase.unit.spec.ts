@@ -141,11 +141,31 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
         });
     });
 
+    it("preserves unknown local storage content when freshness is ambiguous", async () => {
+        const { handler, remoteMeta, storageStub, databaseFileAccess, storageAccess, conflict } = createHandler(
+            "local edit in same timestamp window",
+            "remote update in same timestamp window",
+            false,
+            EVEN
+        );
+
+        await expect(handler.dbToStorage(remoteMeta, storageStub)).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeAsConflictedRevision).toHaveBeenCalledWith(
+            expect.objectContaining({ path: "note.md" }),
+            "2-remote",
+            true
+        );
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
+        expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
+    });
+
     it("applies the remote revision when local storage content is already in database history", async () => {
         const { handler, remoteMeta, storageStub, databaseFileAccess, storageAccess, conflict } = createHandler(
             "known old revision",
             "remote update",
-            true
+            true,
+            EVEN
         );
 
         await expect(handler.dbToStorage(remoteMeta, storageStub)).resolves.toBe(true);

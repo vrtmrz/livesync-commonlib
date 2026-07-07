@@ -26,7 +26,7 @@ import type { PathService } from "@lib/services/base/PathService.ts";
 import type { SettingService } from "@lib/services/base/SettingService.ts";
 import type { VaultService } from "@lib/services/base/VaultService.ts";
 import { getStoragePathFromUXFileInfo } from "@lib/common/typeUtils";
-import { BASE_IS_NEW, EVEN } from "@lib/common/models/shared.const.symbols";
+import { EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import { tryGetFilePath } from "@lib/common/utils.doc";
 
 export interface ServiceFileHandlerDependencies {
@@ -380,7 +380,7 @@ export abstract class ServiceFileHandlerBase
             if (
                 !force &&
                 !settings.writeDocumentsIfConflicted &&
-                freshness === BASE_IS_NEW &&
+                freshness !== TARGET_IS_NEW &&
                 (await this.preserveUnsyncedStorageAsConflict(path, existDoc, docEntry, docData))
             ) {
                 return true;
