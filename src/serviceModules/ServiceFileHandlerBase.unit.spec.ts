@@ -117,6 +117,23 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
         expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
     });
 
+    it.fails("applies a remote addition without conflict when local storage is an unmodified older copy (#994)", async () => {
+        const { handler, remoteMeta, storageStub, databaseFileAccess, storageAccess, conflict } = createHandler(
+            "existing synced content\n",
+            "existing synced content\nnew desktop paragraph\n",
+            false
+        );
+
+        await expect(handler.dbToStorage(remoteMeta, storageStub)).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeAsConflictedRevision).not.toHaveBeenCalled();
+        expect(conflict.queueCheckFor).not.toHaveBeenCalled();
+        expect(storageAccess.writeFileAuto).toHaveBeenCalledWith("note.md", "existing synced content\nnew desktop paragraph\n", {
+            ctime: 1,
+            mtime: 2,
+        });
+    });
+
     it("applies the remote revision when local storage content is already in database history", async () => {
         const { handler, remoteMeta, storageStub, databaseFileAccess, storageAccess, conflict } = createHandler(
             "known old revision",
