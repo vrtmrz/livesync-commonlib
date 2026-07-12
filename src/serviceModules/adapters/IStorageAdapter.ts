@@ -1,3 +1,14 @@
+/**
+ * Focused compatibility views of the existing storage adapter.
+ *
+ * These interfaces allow internal consumers to depend on fewer operations while
+ * retaining the existing `UXStat`, `UXDataWriteOptions`, and method semantics.
+ * They are not a neutral or extraction-ready storage API. Their names, shared
+ * types, and behavioural contracts may change when the cross-platform contract
+ * is designed and stabilised.
+ *
+ * @packageDocumentation
+ */
 import type { UXDataWriteOptions, UXStat } from "@lib/common/types.ts";
 
 /** File and directory existence and metadata operations. */
@@ -45,7 +56,7 @@ export interface IStorageRemoveAccess {
 
 /**
  * Storage adapter interface
- * Low-level file system operations (adapter level)
+ * Backwards-compatible aggregate of the focused storage capability views.
  */
 export interface IStorageAdapter<TStat extends UXStat = UXStat>
     extends IStorageMetadataAccess<TStat>,
