@@ -6,6 +6,7 @@ import type {
     ITypeGuardAdapter,
     IConversionAdapter,
     IStorageAdapter,
+    IStorageBinaryReadAccess,
     IVaultAdapter,
 } from "./adapters";
 import type { FilePath, UXDataWriteOptions, UXFileInfoStub, UXFolderInfo, UXStat } from "@lib/common/types";
@@ -158,6 +159,20 @@ class MockStorageAdapter implements IStorageAdapter<MockStat> {
         return Promise.resolve({ files, folders });
     }
 }
+
+async function readBinaryLength(storage: IStorageBinaryReadAccess, path: string): Promise<number> {
+    return (await storage.readBinary(path)).byteLength;
+}
+
+describe("storage capabilities", () => {
+    it("accepts a binary-read-only consumer implementation", async () => {
+        const storage: IStorageBinaryReadAccess = {
+            readBinary: async () => new Uint8Array([1, 2, 3]).buffer,
+        };
+
+        await expect(readBinaryLength(storage, "binary.dat")).resolves.toBe(3);
+    });
+});
 
 class MockVaultAdapter implements IVaultAdapter<MockFile> {
     private mockFiles = new Map<string, MockFile>();
