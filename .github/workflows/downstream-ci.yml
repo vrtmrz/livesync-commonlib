@@ -41,6 +41,10 @@ jobs:
         working-directory: obsidian-livesync
         run: npm ci
 
+      - name: Run type checks
+        working-directory: obsidian-livesync
+        run: npm run tsc-check
+
       - name: Run unit tests
         working-directory: obsidian-livesync
         run: npm run test:unit
