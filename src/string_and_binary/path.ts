@@ -1,4 +1,4 @@
-import { minimatch, type MinimatchOptions } from "minimatch";
+import { Minimatch, type MinimatchOptions } from "minimatch";
 import { getWebCrypto } from "@lib/mods.ts";
 import {
     type AnyEntry,
@@ -196,6 +196,21 @@ export function shouldSplitAsPlainText(filename: string): boolean {
 }
 
 const matchOpts: MinimatchOptions = { platform: "linux", dot: true, flipNegate: true, nocase: true };
+const ignoreMatcherCache = new WeakMap<string[], Map<string, Minimatch>>();
+
+function matchesIgnorePattern(path: string, pattern: string, ignore: string[]): boolean {
+    let matchers = ignoreMatcherCache.get(ignore);
+    if (!matchers) {
+        matchers = new Map();
+        ignoreMatcherCache.set(ignore, matchers);
+    }
+    let matcher = matchers.get(pattern);
+    if (!matcher) {
+        matcher = new Minimatch(pattern, matchOpts);
+        matchers.set(pattern, matcher);
+    }
+    return matcher.match(path);
+}
 
 /**
  * returns whether the given path is accepted (not ignored) by the `.gitignore`.
@@ -215,14 +230,14 @@ export function isAccepted(path: string, ignore: string[]): boolean | undefined 
     for (const pattern of patterns) {
         if (pattern.endsWith("/")) {
             // If the path ends with `/` and matched to the path. we do not handle more patterns to negate the result.
-            if (minimatch(path, `${pattern}**`, matchOpts)) {
+            if (matchesIgnorePattern(path, `${pattern}**`, ignore)) {
                 return false;
             }
         }
         const newResult = pattern.startsWith("!");
         const matched =
-            minimatch(path, pattern, matchOpts) ||
-            (!pattern.endsWith("/") && minimatch(path, pattern + "/**", matchOpts));
+            matchesIgnorePattern(path, pattern, ignore) ||
+            (!pattern.endsWith("/") && matchesIgnorePattern(path, pattern + "/**", ignore));
 
         if (matched) {
             result = newResult;
