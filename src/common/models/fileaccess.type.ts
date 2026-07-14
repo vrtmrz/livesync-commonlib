@@ -54,7 +54,7 @@ export type UXDataWriteOptions = {
     mtime?: number;
 };
 export type CacheData = string | ArrayBuffer;
-export type FileEventType = "CREATE" | "DELETE" | "CHANGED" | "INTERNAL";
+export type FileEventType = "CREATE" | "DELETE" | "CHANGED" | "RENAME" | "INTERNAL";
 export type FileEventArgs = {
     file: UXFileInfoStub | UXInternalFileInfoStub;
     cache?: CacheData;

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { ServiceFileAccessBase } from "./ServiceFileAccessBase";
-import type { FilePathWithPrefix } from "@lib/common/types";
+import type { FilePath, FilePathWithPrefix } from "@lib/common/types";
 
 type MockFolder = {
     kind: "folder";
@@ -155,5 +155,52 @@ describe("ServiceFileAccessBase readFileAuto", () => {
         expect(result).toBe(expected);
         expect(vaultAccess.vaultReadAuto).toHaveBeenCalledTimes(1);
         expect(vaultAccess.vaultRead).not.toHaveBeenCalled();
+    });
+});
+
+describe("ServiceFileAccessBase renameFile", () => {
+    it("renames through the vault adapter and marks the target as touched", async () => {
+        const nativeFile = {
+            kind: "file",
+            path: "Calculus.md",
+            stat: { ctime: 1, mtime: 2, size: 4, type: "file" },
+        };
+        const vaultAccess = {
+            getAbstractFileByPath: vi.fn().mockResolvedValue(nativeFile),
+            isFile: vi.fn((item: unknown) => !!item && (item as { kind?: string }).kind === "file"),
+            vaultRename: vi.fn(async (file: typeof nativeFile, newPath: string) => {
+                file.path = newPath;
+                return file;
+            }),
+            nativeFileToUXFileInfoStub: vi.fn((file: typeof nativeFile) => ({
+                name: file.path.split("/").pop() ?? file.path,
+                path: file.path as FilePath,
+                stat: file.stat,
+            })),
+            touch: vi.fn().mockResolvedValue(undefined),
+        };
+        const service = new ServiceFileAccessBase<any>({
+            API: { addLog: vi.fn() } as any,
+            appLifecycle: { onFirstInitialise: { addHandler: vi.fn() } } as any,
+            fileProcessing: { commitPendingFileEvents: { addHandler: vi.fn() } } as any,
+            vault: { isTargetFile: vi.fn().mockResolvedValue(true) } as any,
+            setting: { currentSettings: vi.fn().mockReturnValue({}) } as any,
+            storageEventManager: {
+                beginWatch: vi.fn(),
+                appendQueue: vi.fn(),
+                isWaiting: vi.fn(),
+                waitForIdle: vi.fn(),
+                restoreState: vi.fn(),
+            } as any,
+            storageAccessManager: {} as any,
+            vaultAccess: vaultAccess as any,
+        });
+
+        await expect(
+            service.renameFile("Calculus.md" as FilePathWithPrefix, "calculus.md" as FilePathWithPrefix)
+        ).resolves.toEqual(expect.objectContaining({ path: "calculus.md" }));
+
+        expect(vaultAccess.vaultRename).toHaveBeenCalledWith(nativeFile, "calculus.md");
+        expect(vaultAccess.touch).toHaveBeenCalledWith("calculus.md");
     });
 });

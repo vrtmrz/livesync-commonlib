@@ -235,6 +235,13 @@ class MockVaultAdapter implements IVaultAdapter<MockFile> {
         return Promise.resolve(file);
     }
 
+    async rename(file: MockFile, newPath: string): Promise<void> {
+        this.mockFiles.delete(file.path);
+        file.path = newPath;
+        file.name = newPath.split("/").pop() || "";
+        this.mockFiles.set(newPath, file);
+    }
+
     async delete(file: any, force?: boolean): Promise<void> {
         // Mock implementation
     }
@@ -296,6 +303,14 @@ class MockFileSystemAdapter implements IFileSystemAdapter<MockAbstractFile, Mock
             }
         }
         return Promise.resolve(result);
+    }
+
+    async renameFile(file: MockFile, newPath: string): Promise<MockFile> {
+        const oldPath = file.path;
+        await this.vault.rename(file, newPath);
+        this.files.delete(oldPath);
+        this.files.set(newPath, file);
+        return file;
     }
 
     statFromNative(file: MockFile): Promise<MockStat> {
@@ -776,6 +791,22 @@ describe("FileAccessBase", () => {
             const data = new Uint8Array([1, 2, 3, 4]);
             const result = await fileAccess.vaultCreate("create.bin", data);
             expect(result.path).toBe("create.bin");
+        });
+
+        it("should rename a file and refresh the adapter lookup", async () => {
+            const file: MockFile = {
+                path: "Calculus.md",
+                name: "Calculus.md",
+                stat: { ctime: 0, mtime: 100, size: 4, type: "file" },
+                content: "body",
+            };
+            adapter.setMockFile(file.path, file);
+
+            const renamedFile = await fileAccess.vaultRename(file, "calculus.md");
+
+            expect(renamedFile.path).toBe("calculus.md");
+            await expect(adapter.getAbstractFileByPath("Calculus.md")).resolves.toBeNull();
+            await expect(adapter.getAbstractFileByPath("calculus.md")).resolves.toBe(renamedFile);
         });
     });
 
