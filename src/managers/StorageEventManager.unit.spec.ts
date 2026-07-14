@@ -446,14 +446,26 @@ describe("StorageEventManagerBase", () => {
     });
 
     describe("Event Handlers - Rename", () => {
-        it("should handle file rename event", async () => {
+        it("should enqueue a file rename as one event", async () => {
             const file = createMockFile("renamed.md", "renamed.md");
             const oldPath = "old.md";
+            const enqueueSpy = vi.spyOn(manager, "enqueue");
             manager.testWatchVaultRename(file, oldPath);
             // Wait for async appendQueue
-            await new Promise((resolve) => setTimeout(resolve, 10));
-            // Event should trigger onStorageFileEvent
+            await new Promise((resolve) => setTimeout(resolve, 30));
+
             expect(dependencies.fileProcessing.onStorageFileEvent).toHaveBeenCalled();
+            expect(enqueueSpy).toHaveBeenCalledTimes(1);
+            expect(enqueueSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: "RENAME",
+                    args: expect.objectContaining({
+                        oldPath,
+                        file: expect.objectContaining({ path: "renamed.md" }),
+                    }),
+                    skipBatchWait: true,
+                })
+            );
         });
 
         it("should handle folder rename event", () => {
@@ -681,6 +693,48 @@ describe("StorageEventManagerBase", () => {
             expect(enqueueSpy).not.toHaveBeenCalled();
         });
 
+        it("should turn a rename out of the target set into a delete", async () => {
+            vi.mocked(dependencies.vaultService.isTargetFile).mockImplementation(async (path) => path === "old.md");
+            const enqueueSpy = vi.spyOn(manager, "enqueue");
+            const file = createMockFile("excluded.txt", "excluded.txt");
+
+            await manager.testAppendQueue([
+                { type: "RENAME", file: adapter.converter.toFileInfo(file), oldPath: "old.md" },
+            ]);
+
+            expect(enqueueSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: "DELETE",
+                    args: expect.objectContaining({
+                        oldPath: undefined,
+                        file: expect.objectContaining({ path: "old.md", deleted: true }),
+                    }),
+                })
+            );
+        });
+
+        it("should turn a rename into the target set into a create", async () => {
+            vi.mocked(dependencies.vaultService.isTargetFile).mockImplementation(
+                async (path) => path === "included.md"
+            );
+            const enqueueSpy = vi.spyOn(manager, "enqueue");
+            const file = createMockFile("included.md", "included.md");
+
+            await manager.testAppendQueue([
+                { type: "RENAME", file: adapter.converter.toFileInfo(file), oldPath: "excluded.txt" },
+            ]);
+
+            expect(enqueueSpy).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    type: "CREATE",
+                    args: expect.objectContaining({
+                        oldPath: undefined,
+                        file: expect.objectContaining({ path: "included.md" }),
+                    }),
+                })
+            );
+        });
+
         it("should handle DELETE events", async () => {
             const file = createMockFile("delete.md", "delete.md");
             const enqueueSpy = vi.spyOn(manager, "enqueue");
@@ -776,7 +830,24 @@ describe("StorageEventManagerBase", () => {
             expect(buffered.some((item) => item.type === "SENTINEL_FLUSH")).toBe(true);
         });
 
-        it("should not add sentinel for non-DELETE events", () => {
+        it("should enqueue items and add sentinel for RENAME", () => {
+            const file = createMockFile("renamed.md", "renamed.md");
+            const item: FileEventItem = {
+                type: "RENAME",
+                args: {
+                    file: adapter.converter.toFileInfo(file),
+                    oldPath: "old.md",
+                },
+                key: "test-key",
+            };
+
+            manager["enqueue"](item);
+
+            const buffered = manager["bufferedQueuedItems"];
+            expect(buffered.some((item) => item.type === "SENTINEL_FLUSH")).toBe(true);
+        });
+
+        it("should not add sentinel for non-destructive events", () => {
             const file = createMockFile("test.md", "test.md");
             const item: FileEventItem = {
                 type: "CREATE",

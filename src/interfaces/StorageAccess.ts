@@ -24,6 +24,8 @@ export interface StorageAccess {
 
     deleteVaultItem(file: FilePathWithPrefix | UXFileInfoStub | UXFolderInfo): Promise<void>;
 
+    renameFile(file: UXFileInfoStub | FilePathWithPrefix, newPath: FilePathWithPrefix): Promise<UXFileInfoStub | null>;
+
     writeFileAuto(path: string, data: string | ArrayBuffer, opt?: UXDataWriteOptions): Promise<boolean>;
 
     readFileAuto(path: string): Promise<string | ArrayBuffer>;

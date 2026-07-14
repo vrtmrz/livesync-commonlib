@@ -41,6 +41,11 @@ export interface IVaultAdapter<TNativeFile = unknown, TNativeFolder = unknown> {
     createBinary(path: string, data: ArrayBuffer, options?: UXDataWriteOptions): Promise<TNativeFile>;
 
     /**
+     * Rename or move an existing file
+     */
+    rename(file: TNativeFile, newPath: string): Promise<void>;
+
+    /**
      * Delete a file or folder
      */
     delete(file: TNativeFile | TNativeFolder, force?: boolean): Promise<void>;

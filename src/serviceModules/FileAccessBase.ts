@@ -248,6 +248,10 @@ export class FileAccessBase<TAdapter extends IFileSystemAdapter<any, any, any, a
         }
     }
 
+    async vaultRename(file: ExtractFile<TAdapter>, newPath: string): Promise<ExtractFile<TAdapter>> {
+        return await this._writeOp(file, async () => await this.adapter.renameFile(file, newPath));
+    }
+
     trigger(name: string, ...data: unknown[]) {
         return this.adapter.vault.trigger(name, ...data);
     }

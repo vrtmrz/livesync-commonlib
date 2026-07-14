@@ -51,6 +51,11 @@ export interface IFileSystemAdapter<
     getFiles(): Promise<TNativeFile[]>;
 
     /**
+     * Rename a file and refresh any platform-specific caches
+     */
+    renameFile(file: TNativeFile, newPath: string): Promise<TNativeFile>;
+
+    /**
      * Get file statistics from a native file object
      */
     statFromNative(file: TNativeFile): Promise<UXStat>;

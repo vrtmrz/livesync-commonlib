@@ -158,31 +158,64 @@ export abstract class StorageEventManagerBase<
         this.fileProcessing.onStorageFileEvent();
         // Flag up to be reload
         for (const param of params) {
-            if (shouldBeIgnored(param.file.path)) {
-                continue;
-            }
-            if (!settings.syncInternalFiles && param.file.path.startsWith(".")) {
-                continue;
-            }
             const atomicKey = [0, 0, 0, 0, 0, 0].map((e) => `${Math.floor(Math.random() * 100000)}`).join("-");
-            const type = param.type;
-            const file = param.file;
+            let type = param.type;
+            let file = param.file;
             const oldPath = param.oldPath;
-            if (type !== "INTERNAL") {
-                const size = (file as UXFileInfoStub).stat.size;
-                if (this.vaultService.isFileSizeTooLarge(size) && (type == "CREATE" || type == "CHANGED")) {
-                    this._log(
-                        `The storage file has been changed but exceeds the maximum size. Skipping: ${param.file.path}`,
-                        LOG_LEVEL_NOTICE
-                    );
-                    continue;
-                }
-            }
+
             if (this.isFolder(file)) {
                 this._log(`Folder event skipped: ${file.path}`, LOG_LEVEL_VERBOSE);
                 continue;
             }
-            if (!(await this.vaultService.isTargetFile(file.path))) continue;
+
+            const isTargetPath = async (path: string): Promise<boolean> => {
+                if (shouldBeIgnored(path)) return false;
+                if (!settings.syncInternalFiles && path.startsWith(".")) return false;
+                return await this.vaultService.isTargetFile(path);
+            };
+
+            if (type === "RENAME") {
+                const renamedFile = file as UXFileInfoStub;
+                if (!oldPath || !this.isFile(file) || !renamedFile.stat) {
+                    this._log(`Invalid rename event skipped: ${file.path}`, LOG_LEVEL_VERBOSE);
+                    continue;
+                }
+                const oldPathIsTarget = await isTargetPath(oldPath);
+                let newPathIsTarget = await isTargetPath(file.path);
+                if (newPathIsTarget && this.vaultService.isFileSizeTooLarge(renamedFile.stat.size)) {
+                    this._log(
+                        `The storage file has been changed but exceeds the maximum size. Skipping: ${param.file.path}`,
+                        LOG_LEVEL_NOTICE
+                    );
+                    newPathIsTarget = false;
+                }
+                if (!oldPathIsTarget && !newPathIsTarget) {
+                    continue;
+                }
+                if (oldPathIsTarget && !newPathIsTarget) {
+                    type = "DELETE";
+                    file = {
+                        path: oldPath as FilePath,
+                        name: oldPath.split("/").pop() ?? file.name,
+                        stat: renamedFile.stat,
+                        deleted: true,
+                    };
+                } else if (!oldPathIsTarget && newPathIsTarget) {
+                    type = "CREATE";
+                }
+            } else {
+                if (!(await isTargetPath(file.path))) continue;
+                if (type !== "INTERNAL") {
+                    const size = (file as UXFileInfoStub).stat.size;
+                    if (this.vaultService.isFileSizeTooLarge(size) && (type == "CREATE" || type == "CHANGED")) {
+                        this._log(
+                            `The storage file has been changed but exceeds the maximum size. Skipping: ${param.file.path}`,
+                            LOG_LEVEL_NOTICE
+                        );
+                        continue;
+                    }
+                }
+            }
 
             // Stop cache using to prevent the corruption;
             // let cache: null | string | ArrayBuffer;
@@ -190,7 +223,7 @@ export abstract class StorageEventManagerBase<
             // if (file instanceof TFile && (type == "CREATE" || type == "CHANGED")) {
             // if (file instanceof TFile || !file.isFolder) {
             if (this.isFile(file)) {
-                if (type == "CREATE" || type == "CHANGED") {
+                if (type == "CREATE" || type == "CHANGED" || type == "RENAME") {
                     // Wait for a bit while to let the writer has marked `touched` at the file.
                     await delay(10);
                     if (
@@ -212,7 +245,7 @@ export abstract class StorageEventManagerBase<
                 type,
                 args: {
                     file: file,
-                    oldPath,
+                    oldPath: type === "RENAME" ? oldPath : undefined,
                     cache,
                     ctx,
                 },
@@ -226,8 +259,8 @@ export abstract class StorageEventManagerBase<
     protected bufferedQueuedItems = [] as (FileEventItem | FileEventItemSentinel)[];
 
     enqueue(newItem: FileEventItem) {
-        if (newItem.type == "DELETE") {
-            // If the sentinel pushed, the runQueuedEvents will wait for idle before processing delete.
+        if (newItem.type == "DELETE" || newItem.type == "RENAME") {
+            // If the sentinel pushed, the runQueuedEvents will wait for idle before processing delete or rename.
             this.bufferedQueuedItems.push({
                 type: TYPE_SENTINEL_FLUSH,
             });
@@ -652,16 +685,11 @@ export abstract class StorageEventManagerBase<
             void this.appendQueue(
                 [
                     {
-                        type: "DELETE",
-                        file: {
-                            path: oldPath as FilePath,
-                            name: fileInfo.name,
-                            stat: fileInfo.stat,
-                            deleted: true,
-                        },
+                        type: "RENAME",
+                        file: fileInfo,
+                        oldPath,
                         skipBatchWait: true,
                     },
-                    { type: "CREATE", file: fileInfo, skipBatchWait: true },
                 ],
                 ctx
             );

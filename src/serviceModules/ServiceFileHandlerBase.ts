@@ -10,7 +10,14 @@ import type {
     UXFileInfoStub,
     UXInternalFileInfoStub,
 } from "@lib/common/types";
-import { createBlob, getDocDataAsArray, isDocContentSame, isTextBlob, readAsBlob, readContent } from "@lib/common/utils";
+import {
+    createBlob,
+    getDocDataAsArray,
+    isDocContentSame,
+    isTextBlob,
+    readAsBlob,
+    readContent,
+} from "@lib/common/utils";
 import { shouldBeIgnored, stripAllPrefixes } from "@lib/string_and_binary/path";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import { eventHub } from "@lib/hub/hub";
@@ -53,6 +60,12 @@ async function isIncomingTextClearExtension(
     const incomingText = await incomingBlob.text();
     const localText = await localBlob.text();
     return incomingText.startsWith(localText) || incomingText.endsWith(localText);
+}
+
+async function serializedByKeys<T>(keys: readonly string[], callback: () => Promise<T>): Promise<T> {
+    const [key, ...remainingKeys] = keys;
+    if (key === undefined) return await callback();
+    return await serialized(key, () => serializedByKeys(remainingKeys, callback));
 }
 
 export abstract class ServiceFileHandlerBase
@@ -240,6 +253,37 @@ export abstract class ServiceFileHandlerBase
         return await this.db.delete(file);
     }
 
+    async renameFileInDB(info: UXFileInfoStub | UXFileInfo, oldPath: FilePath | FilePathWithPrefix): Promise<boolean> {
+        const newPath = getStoragePathFromUXFileInfo(info);
+        const [oldDocumentId, newDocumentId] = await Promise.all([
+            this.path.path2id(oldPath),
+            this.path.path2id(newPath),
+        ]);
+
+        if (oldDocumentId === newDocumentId) {
+            this._log(`Updating the stored path for case-only rename: ${oldPath} -> ${newPath}`, LOG_LEVEL_VERBOSE);
+            return await this.storeFileToDB(info, true);
+        }
+
+        const oldEntry = await this.db.fetchEntryMeta(oldPath, undefined, true);
+        if (!(await this.storeFileToDB(info, true))) {
+            this._log(`Failed to store rename target; preserving source in the database: ${oldPath}`, LOG_LEVEL_NOTICE);
+            return false;
+        }
+        if (!oldEntry || oldEntry.deleted || oldEntry._deleted) {
+            this._log(`Rename source is not present in the database: ${oldPath}`, LOG_LEVEL_VERBOSE);
+            return true;
+        }
+
+        const oldFile: UXFileInfoStub = {
+            path: oldPath,
+            name: oldPath.split("/").pop() ?? info.name,
+            stat: info.stat,
+            deleted: true,
+        };
+        return await this.deleteFileFromDB(oldFile);
+    }
+
     async deleteRevisionFromDB(
         info: UXFileInfoStub | FilePath | FilePathWithPrefix,
         rev: string
@@ -311,7 +355,7 @@ export abstract class ServiceFileHandlerBase
         }
 
         // 2. Check if the file is already exist on the storage.
-        const existDoc = await this.storage.getStub(path);
+        let existDoc = await this.storage.getStub(path);
         if (existDoc && existDoc.isFolder) {
             this._log(`Folder ${path} is already exist on the storage as a folder`, LOG_LEVEL_VERBOSE);
             // We can do nothing, and other modules should also nothing to do.
@@ -320,12 +364,11 @@ export abstract class ServiceFileHandlerBase
 
         // Check existence of both file and docEntry.
         const existOnDB = !(docEntry._deleted || docEntry.deleted || false);
-        const existOnStorage = existDoc != null;
-        if (!existOnDB && !existOnStorage) {
+        if (!existOnDB && !existDoc) {
             this._log(`File ${path} seems to be deleted, but already not on storage`, LOG_LEVEL_VERBOSE);
             return true;
         }
-        if (!existOnDB && existOnStorage) {
+        if (!existOnDB && existDoc) {
             if (
                 !force &&
                 !settings.writeDocumentsIfConflicted &&
@@ -338,6 +381,25 @@ export abstract class ServiceFileHandlerBase
             // And it does not care actually deleted.
             await this.storage.deleteVaultItem(path);
             return true;
+        }
+        if (existDoc && existDoc.path !== path) {
+            const [existingDocumentId, targetDocumentId] = await Promise.all([
+                this.path.path2id(existDoc.path),
+                this.path.path2id(path),
+            ]);
+            if (existingDocumentId !== targetDocumentId) {
+                this._log(
+                    `Refusing to overwrite ${existDoc.path} while applying the distinct path ${path}`,
+                    LOG_LEVEL_NOTICE
+                );
+                return false;
+            }
+            const renamedFile = await this.storage.renameFile(existDoc, path);
+            if (!renamedFile) {
+                this._log(`Could not apply the stored filename case: ${existDoc.path} -> ${path}`, LOG_LEVEL_NOTICE);
+                return false;
+            }
+            existDoc = renamedFile;
         }
         // Okay, the file is exist on the database. Let's check the file is exist on the storage.
         const docRead = await this.db.fetchEntryFromMeta(docEntry);
@@ -360,7 +422,7 @@ export abstract class ServiceFileHandlerBase
 
         const docData = readContent(docRead);
 
-        if (existOnStorage && !force) {
+        if (existDoc && !force) {
             // The file is exist on the storage. Let's check the difference between the file and the entry.
             // But, if force is true, then it should be updated.
             // Ok, we have to compare.
@@ -401,7 +463,7 @@ export abstract class ServiceFileHandlerBase
             // Let's apply the changes.
         } else {
             this._log(
-                `File ${docRead.path} ${existOnStorage ? "(new) " : ""} ${force ? " (forced)" : ""}`,
+                `File ${docRead.path} ${existDoc ? "(new) " : ""} ${force ? " (forced)" : ""}`,
                 LOG_LEVEL_VERBOSE
             );
         }
@@ -453,14 +515,25 @@ export abstract class ServiceFileHandlerBase
             this._log(`File ${path} should be ignored`, LOG_LEVEL_VERBOSE);
             return false;
         }
-        const lockKey = `processFileEvent-${path}`;
-        return await serialized(lockKey, async () => {
+        if (type === "RENAME" && !eventItem.oldPath) {
+            this._log(`Rename event for ${path} has no source path`, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+        const eventPaths = type === "RENAME" ? [path, eventItem.oldPath as FilePathWithPrefix] : [path];
+        const documentIds = await Promise.all(eventPaths.map((eventPath) => this.path.path2id(eventPath)));
+        const lockKeys = [...new Set(documentIds)].sort().map((documentId) => `processFileEvent-${documentId}`);
+        return await serializedByKeys(lockKeys, async () => {
             switch (type) {
                 case "CREATE":
                 case "CHANGED":
                     return await this.storeFileToDB(item.args.file);
                 case "DELETE":
                     return await this.deleteFileFromDB(item.args.file);
+                case "RENAME":
+                    return await this.renameFileInDB(
+                        item.args.file as UXFileInfoStub,
+                        item.args.oldPath as FilePathWithPrefix
+                    );
                 case "INTERNAL":
                     // this should be handled on the other module.
                     return false;
@@ -472,7 +545,7 @@ export abstract class ServiceFileHandlerBase
     }
 
     async _anyProcessReplicatedDoc(entry: MetaEntry): Promise<boolean> {
-        return await serialized(entry.path, async () => {
+        return await serialized(`processReplicatedDoc-${entry._id}`, async () => {
             if (!(await this.vault.isTargetFile(entry.path))) {
                 this._log(`File ${entry.path} is not the target file`, LOG_LEVEL_VERBOSE);
                 return false;

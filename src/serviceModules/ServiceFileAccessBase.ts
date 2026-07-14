@@ -131,6 +131,21 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
     async isExists(path: string): Promise<boolean> {
         return this.vaultAccess.isFile(await this.vaultAccess.getAbstractFileByPath(path));
     }
+    async renameFile(
+        file: UXFileInfoStub | FilePathWithPrefix,
+        newPath: FilePathWithPrefix
+    ): Promise<UXFileInfoStub | null> {
+        const oldPath = typeof file === "string" ? file : file.path;
+        const nativeFile = await this.vaultAccess.getAbstractFileByPath(oldPath);
+        if (!this.vaultAccess.isFile(nativeFile)) {
+            this._log(`Could not rename file (Possibly does not exist): ${oldPath}`, LOG_LEVEL_VERBOSE);
+            return null;
+        }
+        const renamedNativeFile = await this.vaultAccess.vaultRename(nativeFile, newPath);
+        const renamedFile = this.vaultAccess.nativeFileToUXFileInfoStub(renamedNativeFile);
+        await this.touched(renamedFile);
+        return renamedFile;
+    }
     async writeHiddenFileAuto(path: string, data: string | ArrayBuffer, opt?: UXDataWriteOptions): Promise<boolean> {
         try {
             await this.vaultAccess.adapterWrite(path, data, opt);

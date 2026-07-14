@@ -12,6 +12,8 @@ export interface IFileHandler {
 
     deleteFileFromDB(info: UXFileInfoStub | UXInternalFileInfoStub | FilePath): Promise<boolean>;
 
+    renameFileInDB(info: UXFileInfoStub | UXFileInfo, oldPath: FilePath | FilePathWithPrefix): Promise<boolean>;
+
     deleteRevisionFromDB(
         info: UXFileInfoStub | FilePath | FilePathWithPrefix,
         rev: string

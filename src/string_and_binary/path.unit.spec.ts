@@ -18,7 +18,24 @@ vi.mock("minimatch", async (importOriginal) => {
     };
 });
 
-import { isAccepted } from "./path";
+import type { FilePath } from "@lib/common/types";
+import { isAccepted, path2id_base } from "./path";
+
+describe("path2id_base path case", () => {
+    it("maps case variants to one document ID in case-insensitive mode", async () => {
+        const upperCasePath = await path2id_base("Calculus.md" as FilePath, false, true);
+        const lowerCasePath = await path2id_base("calculus.md" as FilePath, false, true);
+
+        expect(upperCasePath).toBe(lowerCasePath);
+    });
+
+    it("keeps case variants separate in case-sensitive mode", async () => {
+        const upperCasePath = await path2id_base("Calculus.md" as FilePath, false, false);
+        const lowerCasePath = await path2id_base("calculus.md" as FilePath, false, false);
+
+        expect(upperCasePath).not.toBe(lowerCasePath);
+    });
+});
 
 describe("isAccepted matcher cache", () => {
     beforeEach(() => {
