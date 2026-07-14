@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { $msg as msg } from "@lib/common/i18n.ts";
     type Props = {
         title: string;
         message: string;
@@ -54,8 +55,8 @@
     </article>
 
     <div class="buttons">
-        <button onclick={handleCommit}>OK</button>
-        <button onclick={handleCancel}>Cancel</button>
+        <button onclick={handleCommit}>{msg("OK")}</button>
+        <button onclick={handleCancel}>{msg("Cancel")}</button>
     </div>
 </popup>
 <div class="background" onclick={handleCancel} onkeydown={handleKey} role="none"></div>

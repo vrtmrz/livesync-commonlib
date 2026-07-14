@@ -55,10 +55,10 @@ describe("onNotifyRemoteSizeNotConfigured", () => {
         expect(result).toBe(true);
     });
 
-    const ANSWER_0 = $msg("moduleCheckRemoteSize.optionNoWarn");
-    const ANSWER_800 = $msg("moduleCheckRemoteSize.option800MB");
-    const ANSWER_2000 = $msg("moduleCheckRemoteSize.option2GB");
-    const ASK_ME_NEXT_TIME = $msg("moduleCheckRemoteSize.optionAskMeLater");
+    const ANSWER_0 = $msg("No, never warn please");
+    const ANSWER_800 = $msg("800MB (Cloudant, fly.io)");
+    const ANSWER_2000 = $msg("2GB (Standard)");
+    const ASK_ME_NEXT_TIME = $msg("Ask me later");
     const expectedResults = {
         [ANSWER_0]: 0,
         [ANSWER_800]: 800,
@@ -228,10 +228,10 @@ describe("onNotifyRemoteSizeExceed", () => {
 
     const testEstimatedSize = 1000 * 1024 * 1024; // 1000 MB
     const newMax = ~~(testEstimatedSize / 1024 / 1024) + 100; // Same calculation as in the handler
-    const ANSWER_ENLARGE_LIMIT = $msg("moduleCheckRemoteSize.optionIncreaseLimit", {
+    const ANSWER_ENLARGE_LIMIT = $msg("increase to ${newMax}MB", {
         newMax: newMax.toString(),
     });
-    const ANSWER_REBUILD = $msg("moduleCheckRemoteSize.optionRebuildAll");
+    const ANSWER_REBUILD = $msg("Rebuild Everything Now");
     const ANSWER_IGNORE = $msg("moduleCheckRemoteSize.optionDismiss");
     const expectedResults = {
         [ANSWER_ENLARGE_LIMIT]: {

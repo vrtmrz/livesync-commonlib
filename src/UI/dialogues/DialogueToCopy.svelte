@@ -7,6 +7,7 @@
     import Decision from "@lib/UI/components/Decision.svelte";
     import UserDecisions from "@lib/UI/components/UserDecisions.svelte";
     import InfoNote from "@lib/UI/components/InfoNote.svelte";
+    import { $msg as msg } from "@lib/common/i18n.ts";
     const TYPE_OK = "ok";
     type ResultType = typeof TYPE_OK;
     type Options = {
@@ -36,9 +37,9 @@
     }
 </script>
 
-<DialogHeader title="Your {title || 'Data'} is ready to be copied" />
+<DialogHeader title={msg("Your ${title} is ready to be copied", { title: title || msg("Data") })} />
 <Instruction>
-    <InputRow label={title || "Data to Copy"}>
+    <InputRow label={title || msg("Data to Copy")}>
         <textarea readonly rows="4">{dataToCopy}</textarea>
         <button onclick={() => copyToClipboard()}
             >{#if !copied}📋{:else}✔️{/if}
@@ -46,7 +47,7 @@
     </InputRow>
 </Instruction>
 <InfoNote visible={copied}>
-    Your {title || "data"} has been copied to the clipboard.
+    {msg("Your ${title} has been copied to the clipboard.", { title: title || msg("data") })}
 </InfoNote>
 <UserDecisions>
     <Decision title="OK" important={true} {commit} />

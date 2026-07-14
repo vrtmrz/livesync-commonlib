@@ -240,7 +240,7 @@ export class TrysteroReplicator {
                 const passphrase = await skipIfDuplicated(`getAllConfig-${fromPeerId}`, async () => {
                     return await this.confirm.askString(
                         "Passphrase required",
-                        $msg("P2P.AskPassphraseForShare"),
+                        $msg("The remote peer requested this device configuration. Please input the passphrase to share the configuration. You can ignore the request by cancelling this dialogue."),
                         "something you only know",
                         true
                     );
@@ -678,7 +678,7 @@ export class TrysteroReplicator {
         const encryptedConfig = await connection.invokeRemoteFunction("getAllConfig", [this.server.serverPeerId], 0);
         const passphrase = await this.confirm.askString(
             "Passphrase required",
-            $msg("P2P.AskPassphraseForDecrypt"),
+            $msg("The remote peer shared the configuration. Please input the passphrase to decrypt the configuration."),
             "something you only know",
             true
         );
@@ -746,7 +746,7 @@ export class TrysteroReplicator {
         const r = await skipIfDuplicated("replicateFromCommand", async () => {
             const logLevel = showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
             if (!this._env.settings.P2P_Enabled) {
-                Logger($msg("P2P.NotEnabled"), logLevel);
+                Logger($msg("%{title_p2p_sync} is not enabled. We cannot open a new connection."), logLevel);
                 return Promise.resolve(false);
             }
             // throw new Error("Method not implemented.");
@@ -754,24 +754,24 @@ export class TrysteroReplicator {
                 .map((e) => e.trim())
                 .filter((e) => e);
             if (peers.length == 0) {
-                Logger($msg("P2P.NoAutoSyncPeers"), LOG_LEVEL_NOTICE);
+                Logger($msg("No auto-sync peers found. Please set peers on the %{long_p2p_sync} pane."), LOG_LEVEL_NOTICE);
                 return Promise.resolve(false);
             }
 
             for (const peer of peers) {
                 const peerId = this.knownAdvertisements.find((e) => e.name == peer)?.peerId;
                 if (!peerId) {
-                    Logger($msg(`P2P.SeemsOffline`, { name: peer }), logLevel);
+                    Logger($msg("Peer ${name} seems offline, skipped.", { name: peer }), logLevel);
                 } else {
-                    Logger($msg(`P2P.SyncStartedWith`, { name: peer }), logLevel);
+                    Logger($msg("P2P Sync with ${name} have been started.", { name: peer }), logLevel);
                     await this.sync(peerId, showResult);
                 }
             }
-            Logger($msg("P2P.SyncCompleted"), logLevel);
+            Logger($msg("P2P Sync completed."), logLevel);
             return Promise.resolve(true);
         });
         if (r === null) {
-            Logger($msg("P2P.SyncAlreadyRunning"), LOG_LEVEL_NOTICE);
+            Logger($msg("P2P Sync is already running."), LOG_LEVEL_NOTICE);
         }
     }
 

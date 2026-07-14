@@ -91,7 +91,7 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
             await this._localDatabase.close();
         }
         const vaultName = this.services.vault.getVaultName();
-        this._log($msg("moduleLocalDatabase.logWaitingForReady"));
+        this._log($msg("Waiting for ready..."));
         const env = {
             services: {
                 ...this.services,

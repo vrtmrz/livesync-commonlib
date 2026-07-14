@@ -1,9 +1,18 @@
+" (Advanced)": " (Avancé)"
+" (Edge Case)": " (Cas particulier)"
+" (Power User)": " (Utilisateur avancé)"
+" Translation is available!": " Une traduction est disponible !"
+"---Notice---": ---Avis---
+--Config check--: --Vérification de la configuration--
+--Connection check--: --Vérification de la connexion--
+--Done--: --Terminé--
 (BETA) Always overwrite with a newer file: (BÊTA) Toujours écraser avec un fichier plus récent
 (Beta) Use ignore files: (Bêta) Utiliser les fichiers d'exclusion
+(Danger) Save Only Settings: (Danger) N'enregistrer que les paramètres
 (Days passed, 0 to disable automatic-deletion): (Jours écoulés, 0 pour désactiver la suppression automatique)
 (ex. Read chunks online) If this option is enabled, LiveSync reads chunks online directly instead of replicating them locally. Increasing Custom chunk size is recommended.:
-  (ex. Lire les fragments en ligne) Si cette option est activée, LiveSync lit les
-  fragments directement en ligne au lieu de les répliquer localement.
+  (ex. Lire les fragments en ligne) Si cette option est activée, LiveSync lit
+  les fragments directement en ligne au lieu de les répliquer localement.
   L'augmentation de la taille personnalisée des fragments est recommandée.
 (MB) If this is set, changes to local and remote files that are larger than this will be skipped. If the file becomes smaller again, a newer one will be used.:
   (Mo) Si cette valeur est définie, les modifications des fichiers locaux et
@@ -12,75 +21,157 @@
 (Mega chars): (Méga caractères)
 (Not recommended) If set, credentials will be stored in the file.: (Non recommandé) Si activé, les identifiants seront stockés dans le fichier.
 (Obsolete) Use an old adapter for compatibility: (Obsolète) Utiliser un ancien adaptateur pour la compatibilité
+"%{title_p2p_sync} is disabled. Do you really want to enable it?": "%{title_p2p_sync} est désactivé. Voulez-vous vraiment l'activer ?"
+"%{title_p2p_sync} is not enabled. We cannot open a new connection.":
+  "%{title_p2p_sync} n'est pas activé. Nous ne pouvons pas ouvrir de nouvelle
+  connexion."
+"| ${name} | ${self} | ${remote} |": "| ${name} | ${self} | ${remote} |"
+"⏹️ : Disabled": "⏹️ : Désactivé"
+⚠ CORS Origin is unmatched ${from}->${to}: ⚠ L'origine CORS ne correspond pas ${from}->${to}
+⚠ You do not have administrator privileges.: ⚠ Vous n'avez pas les privilèges administrateur.
+✔ chttpd_auth.require_valid_user is ok.: ✔ chttpd_auth.require_valid_user est correct.
+✔ chttpd.enable_cors is ok.: ✔ chttpd.enable_cors est correct.
+✔ chttpd.max_http_request_size is ok.: ✔ chttpd.max_http_request_size est correct.
+✔ chttpd.require_valid_user is ok.: ✔ chttpd.require_valid_user est correct.
+✔ CORS origin OK: ✔ Origine CORS OK
+✔ cors.credentials is ok.: ✔ cors.credentials est correct.
+✔ cors.origins is ok.: ✔ cors.origins est correct.
+✔ couchdb.max_document_size is ok.: ✔ couchdb.max_document_size est correct.
+✔ httpd.enable_cors is ok.: ✔ httpd.enable_cors est correct.
+✔ httpd.WWW-Authenticate is ok.: ✔ httpd.WWW-Authenticate est correct.
+✔ You have administrator privileges.: ✔ Vous disposez des privilèges administrateur.
+❗ Access forbidden.: ❗ Accès interdit.
+❗ chttpd_auth.require_valid_user is wrong.: ❗ chttpd_auth.require_valid_user est incorrect.
+❗ chttpd.enable_cors is wrong: ❗ chttpd.enable_cors est incorrect
+❗ chttpd.max_http_request_size is low): ❗ chttpd.max_http_request_size est trop bas)
+❗ chttpd.require_valid_user is wrong.: ❗ chttpd.require_valid_user est incorrect.
+❗ CORS is not allowing credentials: ❗ CORS n'autorise pas les identifiants
+❗ cors.credentials is wrong: ❗ cors.credentials est incorrect
+❗ cors.origins is wrong: ❗ cors.origins est incorrect
+❗ couchdb.max_document_size is low): ❗ couchdb.max_document_size est trop bas)
+❗ httpd.enable_cors is wrong: ❗ httpd.enable_cors est incorrect
+❗ httpd.WWW-Authenticate is missing: ❗ httpd.WWW-Authenticate est manquant
+"🔁 : Enabled": "🔁 : Activé"
+2GB (Standard): 2 Go (Standard)
+800MB (Cloudant, fly.io): 800 Mo (Cloudant, fly.io)
 Access Key: Clé d'accès
 Active Remote Configuration: Configuration distante active
+Additional safety scan completed: Analyse de sécurité supplémentaire terminée
+Additional safety scan has failed on a module: L'analyse de sécurité supplémentaire a échoué sur un module
+Additional safety scan...: Analyse de sécurité supplémentaire...
+All done! Do you want to generate a setup URI to set up other devices?:
+  Tout est prêt ! Voulez-vous générer une URI de configuration pour configurer
+  d'autres appareils ?
+Almost done!: Presque terminé !
 Always prompt merge conflicts: Toujours demander pour les conflits de fusion
+An error occurred!!: Une erreur s'est produite !!
+An update has been detected. Please open the Settings dialogue and check the Change Log. Replication has been cancelled.:
+  Une mise à jour a été détectée. Veuillez ouvrir la boîte de dialogue des
+  paramètres et consulter le journal des modifications. La réplication a été
+  annulée.
 Analyse: Analyser
 Analyse database usage: Analyser l'utilisation de la base de données
 Analyse database usage and generate a TSV report for diagnosis yourself. You can paste the generated report with any spreadsheet you like.:
   Analyser l'utilisation de la base de données et générer un rapport TSV pour un
   diagnostic personnel. Vous pouvez coller le rapport généré dans le tableur de
   votre choix.
+Appearance: Apparence
 Apply Latest Change if Conflicting: Appliquer la dernière modification en cas de conflit
 Apply preset configuration: Appliquer une configuration prédéfinie
+Apply settings to this device: Appliquer les paramètres à cet appareil
+Apply settings to this device, and fetch again: Appliquer à cet appareil et récupérer à nouveau
+Apply settings to this device, but and ignore incompatibility: Appliquer à cet appareil, mais ignorer l'incompatibilité
+Are you sure to proceed?: Êtes-vous sûr de vouloir continuer ?
+Ask me later: Me demander plus tard
+Attention! A local database rebuild is required to apply this!:
+  Attention ! Une reconstruction de la base locale est requise pour appliquer
+  ceci !
+Attention! A rebuild is required to apply this!: Attention ! Une reconstruction est requise pour appliquer ceci !
 Automatically Sync all files when opening Obsidian.: Synchroniser automatiquement tous les fichiers à l'ouverture d'Obsidian.
 Batch database update: Mise à jour groupée de la base de données
 Batch limit: Limite de lot
 Batch size: Taille de lot
 Batch size of on-demand fetching: Taille de lot pour la récupération à la demande
+Before LiveSync, start OneShot once...: Avant LiveSync, lancement d'un OneShot initial...
 Before v0.17.16, we used an old adapter for the local database. Now the new adapter is preferred. However, it needs local database rebuilding. Please disable this toggle when you have enough time. If leave it enabled, also while fetching from the remote database, you will be asked to disable this.:
   Avant la version v0.17.16, nous utilisions un ancien adaptateur pour la base
   de données locale. Le nouvel adaptateur est désormais recommandé. Cependant,
   il nécessite une reconstruction de la base locale. Veuillez désactiver cette
   option lorsque vous aurez suffisamment de temps. Si elle reste activée, il
-  vous sera également demandé de la désactiver lors de la récupération depuis
-  la base distante.
+  vous sera également demandé de la désactiver lors de la récupération depuis la
+  base distante.
+Broken files has been detected: Fichiers corrompus détectés
 Bucket Name: Nom du bucket
+Change Log: Journal des modifications
+Changes need to be applied!: Des modifications doivent être appliquées !
 Check: Vérifier
-cmdConfigSync:
-  showCustomizationSync: Afficher la synchronisation de personnalisation
+Check it later: Vérifier plus tard
+Checking configuration done: Vérification de la configuration terminée
+Checking configuration failed: Échec de la vérification de la configuration
+Checking database configuration: Vérification de la configuration de la base
+Checking storage sizes: Vérification des tailles de stockage
 Comma separated `.gitignore, .dockerignore`: Séparés par des virgules `.gitignore, .dockerignore`
 Compute revisions for chunks: Calculer les révisions pour les fragments
+"Configured synchronization mode: DISABLED": "Mode de synchronisation configuré : DÉSACTIVÉ"
+"Configured synchronization mode: LiveSync": "Mode de synchronisation configuré : LiveSync"
+"Configured synchronization mode: Periodic": "Mode de synchronisation configuré : Périodique"
+Confirmation: Confirmation
+Conflict resolution: Résolution des conflits
+Congratulations!: Félicitations !
+Connect with Setup URI: Se connecter avec une URI de configuration
 Copy Report to clipboard: Copier le rapport dans le presse-papiers
+Copy the current settings to a Setup URI: Copier les paramètres actuels vers une URI de configuration
+CORS credentials OK: Identifiants CORS OK
+"CouchDB Configuration: ${title} -> Set ${key} to ${value}": "Configuration CouchDB : ${title} -> ${key} défini à ${value}"
+"CouchDB Configuration: ${title} failed": "Configuration CouchDB : échec de ${title}"
+"CouchDB Configuration: ${title} successfully updated": "Configuration CouchDB : ${title} mise à jour avec succès"
+Could not connect to ${uri}:${dbRet}: Connexion impossible à ${uri}:${dbRet}
+"Could not connect to remote database: ${d}": "Connexion à la base distante impossible : ${d}"
+Could not mark resolve remote database.: Impossible de marquer la résolution de la base distante.
+"Current origin: ${origin}": "Origine actuelle : ${origin}"
 Data Compression: Compression des données
+Database cleaning up is in process. replication has been cancelled: Nettoyage de la base en cours. La réplication a été annulée
+Database connected: Base de données connectée
 Database Name: Nom de la base de données
 Database suffix: Suffixe de la base de données
 Delay conflict resolution of inactive files: Différer la résolution des conflits pour les fichiers inactifs
 Delay merge conflict prompt for inactive files.: Différer l'invite de conflit de fusion pour les fichiers inactifs.
 Delete old metadata of deleted files on start-up: Supprimer les anciennes métadonnées des fichiers effacés au démarrage
+Deletion Propagation: Propagation des suppressions
+Detects non optimal settings. (Same as during migration): Détecte les paramètres non optimaux. (Identique à la migration)
 Device name: Nom de l'appareil
 dialog:
-  yourLanguageAvailable:
-    _value: >-
-      Self-hosted LiveSync dispose d'une traduction pour votre langue, le
-      paramètre %{Display language} a donc été activé.
+  yourLanguageAvailable: >-
+    Self-hosted LiveSync dispose d'une traduction pour votre langue, le
+    paramètre %{Display language} a donc été activé.
 
 
-      Note : Tous les messages ne sont pas traduits. Nous attendons vos
-      contributions !
+    Note : Tous les messages ne sont pas traduits. Nous attendons vos
+    contributions !
 
-      Note 2 : Si vous créez un ticket, **veuillez revenir à %{lang-def}** puis
-      prendre des captures d'écran, messages et journaux. Cela peut être fait
-      dans la boîte de dialogue des paramètres.
+    Note 2 : Si vous créez un ticket, **veuillez revenir à %{lang-def}** puis
+    prendre des captures d'écran, messages et journaux. Cela peut être fait dans
+    la boîte de dialogue des paramètres.
 
-      Bonne utilisation !
-    btnRevertToDefault: Conserver %{lang-def}
-    Title: " Une traduction est disponible !"
+    Bonne utilisation !
+Disable: Désactiver
+Disable all automatic: Désactiver toute automatisation
+Disable Hidden files sync: Désactiver la synchronisation des fichiers cachés
 Disables logging, only shows notifications. Please disable if you report an issue.:
   Désactive la journalisation, n'affiche que les notifications. Veuillez
   désactiver si vous signalez un problème.
+Discard: Abandonner
+Discard existing settings and databases: Abandonner les paramètres et bases existants
 Display Language: Langue d'affichage
 Do not check configuration mismatch before replication: Ne pas vérifier les incohérences de configuration avant la réplication
 Do not keep metadata of deleted files.: Ne pas conserver les métadonnées des fichiers supprimés.
 Do not split chunks in the background: Ne pas fragmenter en arrière-plan
 Do not use internal API: Ne pas utiliser l'API interne
+Do you really want to discard existing settings and databases?: Voulez-vous vraiment abandonner les paramètres et bases existants ?
+Do you want to fetch the config from the remote server?: Voulez-vous récupérer la configuration depuis le serveur distant ?
 Doctor:
   Button:
-    DismissThisVersion: Non, et ne plus demander jusqu'à la prochaine version
-    Fix: Corriger
-    FixButNoRebuild: Corriger mais sans reconstruction
     No: Non
-    Skip: Laisser tel quel
     Yes: Oui
   Dialogue:
     Main: >-
@@ -100,7 +191,7 @@ Doctor:
 
       Voulez-vous commencer ?
     MainFix: |-
-
+      
       ## ${name}
 
       | Actuel | Idéal |
@@ -116,19 +207,6 @@ Doctor:
       ${note}
 
       Corriger à la valeur idéale ?
-    Title: Docteur Config Self-hosted LiveSync
-    TitleAlmostDone: Presque terminé !
-    TitleFix: Corriger le problème ${current}/${total}
-  Level:
-    Must: Obligatoire
-    Necessary: Nécessaire
-    Optional: Optionnel
-    Recommended: Recommandé
-  Message:
-    NoIssues: Aucun problème détecté !
-    RebuildLocalRequired: Attention ! Une reconstruction de la base locale est requise pour appliquer ceci !
-    RebuildRequired: Attention ! Une reconstruction est requise pour appliquer ceci !
-    SomeSkipped: Nous avons laissé certains problèmes en l'état. Dois-je vous demander à nouveau au prochain démarrage ?
   RULES:
     E2EE_V02500:
       REASON: Le chiffrement de bout en bout est désormais plus robuste et plus
@@ -140,10 +218,14 @@ Doctor:
         reconstructions ne sont pas requises et seront converties du nouveau
         transfert vers le nouveau format. Il est toutefois recommandé de
         reconstruire dans la mesure du possible.
+Enable: Activer
 Enable advanced features: Activer les fonctionnalités avancées
 Enable customization sync: Activer la synchronisation de personnalisation
 Enable Developers' Debug Tools.: Activer les outils de débogage pour développeurs.
 Enable edge case treatment features: Activer les fonctionnalités pour cas particuliers
+Enable extra and advanced features: Activer les fonctionnalités supplémentaires et avancées
+Enable Hidden files sync: Activer la synchronisation des fichiers cachés
+Enable LiveSync: Activer LiveSync
 Enable poweruser features: Activer les fonctionnalités pour utilisateurs avancés
 Enable this if your Object Storage doesn't support CORS: Activer ceci si votre stockage objet ne prend pas en charge CORS
 Enable this option to automatically apply the most recent change to documents even when it conflicts:
@@ -153,25 +235,48 @@ Encrypt contents on the remote database. If you use the plugin's synchronization
   Chiffrer le contenu sur la base de données distante. Si vous utilisez la
   fonction de synchronisation du plugin, l'activation est recommandée.
 Encrypting sensitive configuration items: Chiffrement des éléments de configuration sensibles
+Encryption is not enabled: Le chiffrement n'est pas activé
+Encryption Passphrase Invalid: Phrase secrète de chiffrement invalide
 Encryption phassphrase. If changed, you should overwrite the server's database with the new (encrypted) files.:
   Phrase secrète de chiffrement. Si modifiée, vous devriez écraser la base de
   données du serveur avec les nouveaux fichiers (chiffrés).
 End-to-End Encryption: Chiffrement de bout en bout
 Endpoint URL: URL du point de terminaison
 Enhance chunk size: Améliorer la taille des fragments
+"ERROR: Passphrase is not compatible with the remote server! Please check it again!":
+  "ERREUR : la phrase secrète n'est pas compatible avec le serveur distant !
+  Veuillez vérifier à nouveau !"
+"Estimated size: ${size}": "Taille estimée : ${size}"
+Fetch all has been scheduled. Plug-in will be restarted to perform it.: Tout récupérer a été planifié. Le plug-in sera redémarré pour l'exécuter.
 Fetch chunks on demand: Récupérer les fragments à la demande
+Fetch Config: Récupérer la configuration
 Fetch database with previous behaviour: Récupérer la base de données avec le comportement précédent
+Fetch from Remote: Récupérer depuis le distant
 Filename: Nom de fichier
+Fix issue ${current}/${total}: Corriger le problème ${current}/${total}
+Fix it: Corriger
+Fix it but no rebuild: Corriger mais sans reconstruction
 Forces the file to be synced when opened.: Force la synchronisation du fichier à son ouverture.
+General Settings: Paramètres généraux
 Handle files as Case-Sensitive: Gérer les fichiers en respectant la casse
+HERE: ICI
+Here due to an upgrade notification? Please review the version history. If you're satisfied, click the button. A new update will prompt this again.:
+  Arrivé ici suite à une notification de mise à jour ? Consultez l'historique
+  des versions. Si vous êtes satisfait, cliquez sur le bouton. Une nouvelle mise
+  à jour reproposera ceci.
+Hidden file synchronization: Synchronisation des fichiers cachés
+I already rebuilt the remote. Fetch from the remote: J'ai déjà reconstruit le distant. Récupérer depuis le distant
+I got it and updated.: J'ai compris et mis à jour.
+I have fixed it, and do not ask again: J'ai corrigé, et ne plus demander
+I will do it later: Je le ferai plus tard
 If disabled(toggled), chunks will be split on the UI thread (Previous behaviour).:
   Si désactivé, les fragments seront découpés sur le thread UI (comportement
   précédent).
 If enabled per-filed efficient customization sync will be used. We need a small migration when enabling this. And all devices should be updated to v0.23.18. Once we enabled this, we lost a compatibility with old versions.:
   Si activée, la synchronisation de personnalisation efficace par fichier sera
   utilisée. Une petite migration est nécessaire lors de l'activation. Tous les
-  appareils doivent être à jour en v0.23.18. Une fois cette option activée,
-  la compatibilité avec les anciennes versions est perdue.
+  appareils doivent être à jour en v0.23.18. Une fois cette option activée, la
+  compatibilité avec les anciennes versions est perdue.
 If enabled, chunks will be split into no more than 100 items. However, dedupe is slightly weaker.:
   Si activée, les fragments seront découpés en 100 éléments au maximum.
   Cependant, la déduplication est légèrement moins efficace.
@@ -182,27 +287,41 @@ If enabled, the ⛔ icon will be shown inside the status instead of the file war
   Si activée, l'icône ⛔ s'affichera dans le statut à la place de la bannière
   d'avertissements de fichiers. Aucun détail ne sera affiché.
 If enabled, the file under 1kb will be processed in the UI thread.: Si activée, les fichiers de moins de 1 Ko seront traités sur le thread UI.
-If enabled, the notification of hidden files change will be suppressed.: Si activée, les notifications de modifications des fichiers cachés seront supprimées.
+If enabled, the notification of hidden files change will be suppressed.:
+  Si activée, les notifications de modifications des fichiers cachés seront
+  supprimées.
+If the server configuration is not persistent (e.g., running on docker), the values here may change. Once you are able to connect, please update the settings in the server's local.ini.:
+  Si la configuration du serveur n'est pas persistante (par ex. fonctionnant sur
+  Docker), les valeurs peuvent changer. Une fois la connexion établie, mettez à
+  jour les paramètres dans le local.ini du serveur.
 If this enabled, all chunks will be stored with the revision made from its content. (Previous behaviour):
   Si activée, tous les fragments seront stockés avec la révision issue de leur
   contenu. (Comportement précédent)
-If this enabled, All files are handled as case-Sensitive (Previous behaviour).: Si activée, tous les fichiers sont gérés en respectant la casse (comportement précédent).
+If this enabled, All files are handled as case-Sensitive (Previous behaviour).:
+  Si activée, tous les fichiers sont gérés en respectant la casse (comportement
+  précédent).
 If this enabled, chunks will be split into semantically meaningful segments. Not all platforms support this feature.:
   Si activée, les fragments seront découpés en segments sémantiquement
   signifiants. Toutes les plateformes ne prennent pas en charge cette
   fonctionnalité.
 If this is set, changes to local files which are matched by the ignore files will be skipped. Remote changes are determined using local ignore files.:
   Si défini, les modifications des fichiers locaux correspondant aux fichiers
-  d'exclusion seront ignorées. Les changements distants sont déterminés à
-  l'aide des fichiers d'exclusion locaux.
+  d'exclusion seront ignorées. Les changements distants sont déterminés à l'aide
+  des fichiers d'exclusion locaux.
 If this option is enabled, PouchDB will hold the connection open for 60 seconds, and if no change arrives in that time, close and reopen the socket, instead of holding it open indefinitely. Useful when a proxy limits request duration but can increase resource usage.:
   Si cette option est activée, PouchDB maintiendra la connexion ouverte pendant
-  60 secondes, et si aucun changement n'arrive durant cette période, fermera
-  et rouvrira la socket au lieu de la garder ouverte indéfiniment. Utile
-  lorsqu'un proxy limite la durée des requêtes, mais peut augmenter
-  l'utilisation des ressources.
+  60 secondes, et si aucun changement n'arrive durant cette période, fermera et
+  rouvrira la socket au lieu de la garder ouverte indéfiniment. Utile lorsqu'un
+  proxy limite la durée des requêtes, mais peut augmenter l'utilisation des
+  ressources.
+If you're having trouble with the Connection-check (even after checking config), please check your reverse proxy configuration.:
+  Si vous rencontrez des problèmes de vérification de connexion (même après
+  avoir vérifié la configuration), veuillez vérifier votre configuration de
+  reverse proxy.
 Ignore files: Fichiers d'exclusion
+increase to ${newMax}MB: augmenter à ${newMax} Mo
 Incubate Chunks in Document: Incuber les fragments dans le document
+Insecure chunks found!: Fragments non sécurisés détectés !
 Interval (sec): Intervalle (sec)
 K:
   exp: Expérimental
@@ -212,7 +331,9 @@ K:
   ScanCustomization: Analyser la personnalisation
   short_p2p_sync: Sync P2P
   title_p2p_sync: Synchronisation pair-à-pair
+Keep %{lang-def}: Conserver %{lang-def}
 Keep empty folder: Conserver les dossiers vides
+Keep LiveSync disabled: Garder LiveSync désactivé
 lang_def: Par défaut
 lang-de: Deutsche
 lang-def: "%{lang_def}"
@@ -223,46 +344,34 @@ lang-ko: 한국어
 lang-ru: Русский
 lang-zh: 简体中文
 lang-zh-tw: 繁體中文
+Leave it as is: Laisser tel quel
+LiveSync: LiveSync
+LiveSync begin...: Démarrage de LiveSync...
 LiveSync could not handle multiple vaults which have same name without different prefix, This should be automatically configured.:
   LiveSync ne peut pas gérer plusieurs coffres portant le même nom sans préfixe
   distinct. Ceci devrait être configuré automatiquement.
+LiveSync has been updated, In case of breaking updates, all automatic synchronization has been temporarily disabled. Ensure that all devices are up to date before enabling.:
+  LiveSync a été mis à jour. En cas de mises à jour non rétrocompatibles, toute
+  synchronisation automatique a été temporairement désactivée. Assurez-vous que
+  tous les appareils sont à jour avant d'activer.
+LiveSync has updated, please read the changelog!: LiveSync a été mis à jour, veuillez lire le journal des modifications !
 liveSyncReplicator:
-  beforeLiveSync: Avant LiveSync, lancement d'un OneShot initial...
-  cantReplicateLowerValue: Impossible de répliquer une valeur inférieure.
-  checkingLastSyncPoint: Recherche du dernier point de synchronisation.
   couldNotConnectTo: |-
     Connexion impossible à ${uri} : ${name}
     (${db})
-  couldNotConnectToRemoteDb: "Connexion à la base distante impossible : ${d}"
-  couldNotConnectToServer: Connexion au serveur impossible.
-  couldNotConnectToURI: Connexion impossible à ${uri}:${dbRet}
-  couldNotMarkResolveRemoteDb: Impossible de marquer la résolution de la base distante.
-  liveSyncBegin: Démarrage de LiveSync...
-  lockRemoteDb: Verrouillage de la base distante pour éviter la corruption des données
-  markDeviceResolved: Marquer cet appareil comme « résolu ».
-  oneShotSyncBegin: Démarrage de la synchronisation OneShot... (${syncMode})
-  remoteDbCorrupted: La base distante est plus récente ou corrompue, assurez-vous
-    d'avoir installé la dernière version de self-hosted-livesync
-  remoteDbCreatedOrConnected: Base distante créée ou connectée
-  remoteDbDestroyed: Base distante détruite
-  remoteDbDestroyError: "Un problème est survenu lors de la destruction de la base distante :"
-  remoteDbMarkedResolved: La base distante a été marquée comme résolue.
-  replicationClosed: Réplication fermée
-  replicationInProgress: Une réplication est déjà en cours
-  retryLowerBatchSize: Nouvelle tentative avec une taille de lot réduite :${batch_size}/${batches_limit}
-  unlockRemoteDb: Déverrouillage de la base distante pour éviter la corruption des données
-liveSyncSetting:
-  errorNoSuchSettingItem: "Élément de paramètre inexistant : ${key}"
-  originalValue: "Original : ${value}"
-  valueShouldBeInRange: La valeur doit être ${min} < valeur < ${max}
 liveSyncSettings:
   btnApply: Appliquer
+Loading plugin...: Chargement du plugin...
+Lock remote database to prevent data corruption: Verrouillage de la base distante pour éviter la corruption des données
+Locked: Verrouillée
+Logging: Journalisation
 logPane:
   autoScroll: Défilement automatique
   logWindowOpened: Fenêtre des journaux ouverte
   pause: Pause
-  title: Journaux Self-hosted LiveSync
   wrap: Retour à la ligne
+Looking for the point last synchronized point.: Recherche du dernier point de synchronisation.
+Mark this device as 'resolved'.: Marquer cet appareil comme « résolu ».
 Maximum delay for batch database updating: Délai maximum pour la mise à jour groupée de la base
 Maximum file size: Taille maximale de fichier
 Maximum Incubating Chunk Size: Taille maximale des fragments en incubation
@@ -274,12 +383,6 @@ Memory cache size (by total items): Taille du cache mémoire (par nombre total d
 Minimum delay for batch database updating: Délai minimum pour la mise à jour groupée de la base
 Minimum interval for syncing: Intervalle minimum pour la synchronisation
 moduleCheckRemoteSize:
-  logCheckingStorageSizes: Vérification des tailles de stockage
-  logCurrentStorageSize: "Taille du stockage distant : ${measuredSize}"
-  logExceededWarning: "Taille du stockage distant : ${measuredSize} a dépassé ${notifySize}"
-  logThresholdEnlarged: Le seuil a été augmenté à ${size} Mo
-  msgConfirmRebuild: Cela peut prendre un certain temps. Voulez-vous vraiment
-    tout reconstruire maintenant ?
   msgDatabaseGrowing: |
     **Votre base de données grossit !** Pas d'inquiétude, nous pouvons y remédier dès maintenant, avant de manquer d'espace sur le stockage distant.
 
@@ -322,33 +425,11 @@ moduleCheckRemoteSize:
 
     Si la limite est atteinte, il nous sera proposé de l'augmenter étape par
     étape.
-  option2GB: 2 Go (Standard)
-  option800MB: 800 Mo (Cloudant, fly.io)
-  optionAskMeLater: Me demander plus tard
   optionDismiss: Ignorer
-  optionIncreaseLimit: augmenter à ${newMax} Mo
-  optionNoWarn: Non, ne jamais avertir
-  optionRebuildAll: Tout reconstruire maintenant
-  titleDatabaseSizeLimitExceeded: Taille du stockage distant au-delà de la limite
-  titleDatabaseSizeNotify: Configuration de la notification de taille de base
 moduleInputUIObsidian:
-  defaultTitleConfirmation: Confirmation
-  defaultTitleSelect: Sélection
   optionNo: Non
   optionYes: Oui
 moduleLiveSyncMain:
-  logAdditionalSafetyScan: Analyse de sécurité supplémentaire...
-  logLoadingPlugin: Chargement du plugin...
-  logPluginInitCancelled: L'initialisation du plugin a été annulée par un module
-  logPluginVersion: Self-hosted LiveSync v${manifestVersion} ${packageVersion}
-  logReadChangelog: LiveSync a été mis à jour, veuillez lire le journal des modifications !
-  logSafetyScanCompleted: Analyse de sécurité supplémentaire terminée
-  logSafetyScanFailed: L'analyse de sécurité supplémentaire a échoué sur un module
-  logUnloadingPlugin: Déchargement du plugin...
-  logVersionUpdate: LiveSync a été mis à jour. En cas de mises à jour non
-    rétrocompatibles, toute synchronisation automatique a été temporairement
-    désactivée. Assurez-vous que tous les appareils sont à jour avant
-    d'activer.
   msgScramEnabled: >
     Self-hosted LiveSync a été configuré pour ignorer certains événements.
     Est-ce correct ?
@@ -374,21 +455,12 @@ moduleLiveSyncMain:
     d'une récupération. Si le processus se termine anormalement, ils peuvent
     rester activés involontairement.
 
-    > Si vous n'êtes pas certain, vous pouvez relancer ces processus. Veillez
-    à sauvegarder votre coffre.
-  optionKeepLiveSyncDisabled: Garder LiveSync désactivé
-  optionResumeAndRestart: Reprendre et redémarrer Obsidian
-  titleScramEnabled: Mode Scram activé
-moduleLocalDatabase:
-  logWaitingForReady: En attente de disponibilité...
-moduleLog:
-  showLog: Afficher le journal
+    > Si vous n'êtes pas certain, vous pouvez relancer ces processus. Veillez à
+    sauvegarder votre coffre.
 moduleMigration:
   docUri: https://github.com/vrtmrz/obsidian-livesync/blob/main/README.md#how-to-use
   fix0256:
     buttons:
-      checkItLater: Vérifier plus tard
-      DismissForever: J'ai corrigé, et ne plus demander
       fix: Corriger
     message: >
       En raison d'un bug récent (en v0.25.6), certains fichiers peuvent ne pas
@@ -403,11 +475,11 @@ moduleMigration:
       ${files}
 
 
-      Ces fichiers ont un original de taille correspondante sur le stockage,
-      et sont probablement récupérables.
+      Ces fichiers ont un original de taille correspondante sur le stockage, et
+      sont probablement récupérables.
 
-      Nous pouvons les utiliser pour corriger la base, veuillez cliquer sur
-      le bouton « Corriger » ci-dessous pour les réparer.
+      Nous pouvons les utiliser pour corriger la base, veuillez cliquer sur le
+      bouton « Corriger » ci-dessous pour les réparer.
 
 
       ${messageUnrecoverable}
@@ -421,19 +493,13 @@ moduleMigration:
       ${filesNotRecoverable}
 
 
-      Ces fichiers ont des métadonnées incohérentes et ne peuvent être
-      corrigés sur cet appareil (le plus souvent, nous ne pouvons déterminer
-      lequel est correct).
+      Ces fichiers ont des métadonnées incohérentes et ne peuvent être corrigés
+      sur cet appareil (le plus souvent, nous ne pouvons déterminer lequel est
+      correct).
 
       Pour les restaurer, vérifiez vos autres appareils (par cette même
       fonction) ou restaurez-les manuellement depuis une sauvegarde.
-    title: Fichiers corrompus détectés
   insecureChunkExist:
-    buttons:
-      fetch: J'ai déjà reconstruit le distant. Récupérer depuis le distant
-      later: Je le ferai plus tard
-      rebuild: Tout reconstruire
-    laterMessage: Nous recommandons fortement de traiter ceci dès que possible !
     message: >
       Certains fragments ne sont pas stockés de façon sécurisée et ne sont pas
       chiffrés dans les bases.
@@ -445,40 +511,33 @@ moduleMigration:
       identifiants peu sûrs, **vous risquez d'exposer des données sensibles**.
 
 
-      Note : Veuillez mettre à jour Self-hosted LiveSync en v0.25.6 ou
-      supérieur sur tous vos appareils, et sauvegardez votre coffre avec soin.
+      Note : Veuillez mettre à jour Self-hosted LiveSync en v0.25.6 ou supérieur
+      sur tous vos appareils, et sauvegardez votre coffre avec soin.
 
       Note 2 : Tout reconstruire et Récupérer consomme un peu de temps et de
       bande passante, veuillez le faire hors des heures de pointe et avec une
       connexion réseau stable.
-    title: Fragments non sécurisés détectés !
-  logBulkSendCorrupted: L'envoi groupé de fragments a été activé, mais cette
-    fonctionnalité était corrompue. Désolé pour la gêne. Désactivée
-    automatiquement.
   logFetchRemoteTweakFailed: Échec de la récupération des valeurs d'ajustement distantes
-  logLocalDatabaseNotReady: Un problème est survenu ! La base locale n'est pas prête
   logMigratedSameBehaviour: Migration vers db:${current} avec le même comportement qu'auparavant
   logMigrationFailed: Migration échouée ou annulée de ${old} vers ${current}
   logRedflag2CreationFail: Échec de création de redflag2
   logRemoteTweakUnavailable: Impossible d'obtenir les valeurs d'ajustement distantes
-  logSetupCancelled: La configuration a été annulée, Self-hosted LiveSync attend votre configuration !
   msgFetchRemoteAgain: >-
     Comme vous le savez peut-être déjà, Self-hosted LiveSync a modifié son
     comportement par défaut et la structure de sa base de données.
 
 
-    Et, grâce à votre temps et vos efforts, la base distante semble déjà
-    avoir été migrée. Félicitations !
+    Et, grâce à votre temps et vos efforts, la base distante semble déjà avoir
+    été migrée. Félicitations !
 
 
     Cependant, il faut encore un peu plus. La configuration de cet appareil
-    n'est pas compatible avec la base distante. Nous devrons récupérer à
-    nouveau la base distante. Devons-nous récupérer depuis le distant
-    maintenant ?
+    n'est pas compatible avec la base distante. Nous devrons récupérer à nouveau
+    la base distante. Devons-nous récupérer depuis le distant maintenant ?
 
 
-    ___Note : Nous ne pouvons pas synchroniser tant que la configuration n'a
-    pas été modifiée et que la base n'a pas été récupérée à nouveau.___
+    ___Note : Nous ne pouvons pas synchroniser tant que la configuration n'a pas
+    été modifiée et que la base n'a pas été récupérée à nouveau.___
 
     ___Note 2 : Les fragments sont complètement immuables, nous ne pouvons
     récupérer que les métadonnées et les différences.___
@@ -487,10 +546,10 @@ moduleMigration:
     dans le processus de configuration.
 
 
-    Veuillez noter que chaque contenu de boîte de dialogue peut être copié
-    dans le presse-papiers. Si vous souhaitez vous y référer plus tard, vous
-    pouvez le coller dans une note d'Obsidian. Vous pouvez également le
-    traduire dans votre langue via un outil de traduction.
+    Veuillez noter que chaque contenu de boîte de dialogue peut être copié dans
+    le presse-papiers. Si vous souhaitez vous y référer plus tard, vous pouvez
+    le coller dans une note d'Obsidian. Vous pouvez également le traduire dans
+    votre langue via un outil de traduction.
 
 
     Tout d'abord, disposez-vous d'une **URI de configuration** ?
@@ -502,8 +561,8 @@ moduleMigration:
     Nous recommandons vivement de générer une URI de configuration et de
     l'utiliser.
 
-    Si vous ne connaissez pas, veuillez consulter la
-    [documentation](${URI_DOC}) (Désolé encore, mais c'est important).
+    Si vous ne connaissez pas, veuillez consulter la [documentation](${URI_DOC})
+    (Désolé encore, mais c'est important).
 
 
     Comment souhaitez-vous effectuer la configuration manuellement ?
@@ -525,38 +584,45 @@ moduleMigration:
     minutes, et nous recommandons de le faire quand vous avez le temps.___
 
 
-    - Si vous souhaitez conserver le comportement précédent, vous pouvez
-    ignorer ce processus via `${KEEP}`.
+    - Si vous souhaitez conserver le comportement précédent, vous pouvez ignorer
+    ce processus via `${KEEP}`.
 
-    - Si vous n'avez pas le temps, choisissez `${DISMISS}`. Vous serez invité
-    à nouveau plus tard.
+    - Si vous n'avez pas le temps, choisissez `${DISMISS}`. Vous serez invité à
+    nouveau plus tard.
 
     - Si vous avez reconstruit la base sur un autre appareil, sélectionnez
-    `${DISMISS}` et réessayez la synchronisation. Une différence étant
-    détectée, vous serez invité à nouveau.
+    `${DISMISS}` et réessayez la synchronisation. Une différence étant détectée,
+    vous serez invité à nouveau.
   optionAdjustRemote: Ajuster au distant
   optionDecideLater: Décider plus tard
   optionEnableBoth: Activer les deux
   optionEnableFilenameCaseInsensitive: "Activer seulement #1"
   optionEnableFixedRevisionForChunks: "Activer seulement #2"
-  optionHaveSetupUri: Oui, j'en ai une
   optionKeepPreviousBehaviour: Conserver le comportement précédent
-  optionManualSetup: Tout configurer manuellement
   optionNoAskAgain: Non, demandez à nouveau
-  optionNoSetupUri: Non, je n'en ai pas
-  optionRemindNextLaunch: Me rappeler au prochain lancement
-  optionSetupViaP2P: Utiliser %{short_p2p_sync} pour configurer
-  optionSetupWizard: Ouvrir l'assistant de configuration
   optionYesFetchAgain: Oui, récupérer à nouveau
   titleCaseSensitivity: Sensibilité à la casse
-  titleRecommendSetupUri: Recommandation d'utilisation de l'URI de configuration
   titleWelcome: Bienvenue dans Self-hosted LiveSync
-moduleObsidianMenu:
-  replicate: Répliquer
-Move remotely deleted files to the trash, instead of deleting.: Déplacer les fichiers supprimés à distance vers la corbeille, au lieu de les supprimer.
+Move remotely deleted files to the trash, instead of deleting.:
+  Déplacer les fichiers supprimés à distance vers la corbeille, au lieu de les
+  supprimer.
+Must: Obligatoire
+Necessary: Nécessaire
+New key pair has been generated!: Une nouvelle paire de clés a été générée !
+No auto-sync peers found. Please set peers on the %{long_p2p_sync} pane.:
+  Aucun pair de synchronisation automatique trouvé. Veuillez définir des pairs
+  dans le panneau %{long_p2p_sync}.
+No issues detected!: Aucun problème détecté !
+No peers has been detected, waiting incoming other peers...: Aucun pair détecté, en attente d'autres pairs entrants...
+No replicator is available, this is the fatal error.: Aucun réplicateur disponible, il s'agit d'une erreur fatale.
+"No such setting item: ${key}": "Élément de paramètre inexistant : ${key}"
+No, and do not ask again until the next release: Non, et ne plus demander jusqu'à la prochaine version
+No, I do not have: Non, je n'en ai pas
+No, never warn please: Non, ne jamais avertir
 Not all messages have been translated. And, please revert to "Default" when reporting errors.:
-  Tous les messages n'ont pas été traduits. Et veuillez revenir à « Par
-  défaut » lorsque vous signalez des erreurs.
+  Tous les messages n'ont pas été traduits. Et veuillez revenir à « Par défaut »
+  lorsque vous signalez des erreurs.
+Notification: Notification
 Notify all setting files: Notifier tous les fichiers de paramètres
 Notify customized: Notifier les personnalisations
 Notify when other device has newly customized.: Notifier lorsqu'un autre appareil a une nouvelle personnalisation.
@@ -569,11 +635,7 @@ obsidianLiveSyncSettingTab:
   btnApply: Appliquer
   btnCheck: Vérifier
   btnCopy: Copier
-  btnDisable: Désactiver
-  btnDiscard: Abandonner
-  btnEnable: Activer
   btnFix: Corriger
-  btnGotItAndUpdated: J'ai compris et mis à jour.
   btnNext: Suivant
   btnStart: Démarrer
   btnTest: Tester
@@ -581,97 +643,30 @@ obsidianLiveSyncSettingTab:
   buttonFetch: Récupérer
   buttonNext: Suivant
   defaultLanguage: Par défaut
-  descConnectSetupURI: Méthode recommandée pour configurer Self-hosted LiveSync
-    avec une URI de configuration.
-  descCopySetupURI: Parfait pour configurer un nouvel appareil !
-  descEnableLiveSync: N'activez ceci qu'après avoir configuré l'une des deux
-    options ci-dessus ou terminé toute la configuration manuellement.
-  descFetchConfigFromRemote: Récupérer les paramètres nécessaires depuis un serveur distant déjà configuré.
+  descFetchConfigFromRemote: Récupérer les paramètres nécessaires depuis un
+    serveur distant déjà configuré.
   descManualSetup: Non recommandé, mais utile si vous n'avez pas d'URI de configuration
   descTestDatabaseConnection: Ouvrir la connexion à la base de données. Si la base
     distante est introuvable et que vous avez l'autorisation de créer une base,
     elle sera créée.
   descValidateDatabaseConfig: Vérifie et corrige les problèmes potentiels de la configuration de la base.
-  errAccessForbidden: ❗ Accès interdit.
-  errCannotContinueTest: Impossible de poursuivre le test.
-  errCorsCredentials: ❗ cors.credentials est incorrect
-  errCorsNotAllowingCredentials: ❗ CORS n'autorise pas les identifiants
-  errCorsOrigins: ❗ cors.origins est incorrect
-  errEnableCors: ❗ httpd.enable_cors est incorrect
-  errEnableCorsChttpd: ❗ chttpd.enable_cors est incorrect
-  errMaxDocumentSize: ❗ couchdb.max_document_size est trop bas)
-  errMaxRequestSize: ❗ chttpd.max_http_request_size est trop bas)
-  errMissingWwwAuth: ❗ httpd.WWW-Authenticate est manquant
-  errRequireValidUser: ❗ chttpd.require_valid_user est incorrect.
-  errRequireValidUserAuth: ❗ chttpd_auth.require_valid_user est incorrect.
-  labelDisabled: "⏹️ : Désactivé"
-  labelEnabled: "🔁 : Activé"
-  levelAdvanced: " (Avancé)"
-  levelEdgeCase: " (Cas particulier)"
-  levelPowerUser: " (Utilisateur avancé)"
-  linkOpenInBrowser: Ouvrir dans le navigateur
-  linkPageTop: Haut de la page
-  linkTipsAndTroubleshooting: Conseils et dépannage
   linkTroubleshooting: /docs/troubleshooting.md
-  logCannotUseCloudant: Cette fonctionnalité ne peut pas être utilisée avec IBM Cloudant.
-  logCheckingConfigDone: Vérification de la configuration terminée
-  logCheckingConfigFailed: Échec de la vérification de la configuration
-  logCheckingDbConfig: Vérification de la configuration de la base
-  logCheckPassphraseFailed: |-
-    ERREUR : Échec de la vérification de la phrase secrète avec le serveur distant :
-    ${db}.
-  logConfiguredDisabled: "Mode de synchronisation configuré : DÉSACTIVÉ"
-  logConfiguredLiveSync: "Mode de synchronisation configuré : LiveSync"
-  logConfiguredPeriodic: "Mode de synchronisation configuré : Périodique"
-  logCouchDbConfigFail: "Configuration CouchDB : échec de ${title}"
-  logCouchDbConfigSet: "Configuration CouchDB : ${title} -> ${key} défini à ${value}"
-  logCouchDbConfigUpdated: "Configuration CouchDB : ${title} mise à jour avec succès"
-  logDatabaseConnected: Base de données connectée
-  logEncryptionNoPassphrase: Impossible d'activer le chiffrement sans phrase secrète
-  logEncryptionNoSupport: Votre appareil ne prend pas en charge le chiffrement.
-  logErrorOccurred: Une erreur s'est produite !!
-  logEstimatedSize: "Taille estimée : ${size}"
-  logPassphraseInvalid: La phrase secrète est invalide, veuillez la corriger.
-  logPassphraseNotCompatible: "ERREUR : la phrase secrète n'est pas compatible
-    avec le serveur distant ! Veuillez vérifier à nouveau !"
-  logRebuildNote: La synchronisation a été désactivée, récupérez et réactivez si souhaité.
-  logSelectAnyPreset: Sélectionnez un préréglage.
-  msgAreYouSureProceed: Êtes-vous sûr de vouloir continuer ?
-  msgChangesNeedToBeApplied: Des modifications doivent être appliquées !
-  msgConfigCheck: --Vérification de la configuration--
-  msgConfigCheckFailed: La vérification de la configuration a échoué. Voulez-vous continuer malgré tout ?
-  msgConnectionCheck: --Vérification de la connexion--
-  msgConnectionProxyNote: Si vous rencontrez des problèmes de vérification de
-    connexion (même après avoir vérifié la configuration), veuillez vérifier
-    votre configuration de reverse proxy.
-  msgCurrentOrigin: "Origine actuelle : ${origin}"
-  msgDiscardConfirmation: Voulez-vous vraiment abandonner les paramètres et bases existants ?
-  msgDone: --Terminé--
-  msgEnableCors: Définir httpd.enable_cors
-  msgEnableCorsChttpd: Définir chttpd.enable_cors
-  msgEnableEncryptionRecommendation: Nous recommandons d'activer le chiffrement
-    de bout en bout et l'obfuscation des chemins. Êtes-vous sûr de vouloir
-    continuer sans chiffrement ?
-  msgFetchConfigFromRemote: Voulez-vous récupérer la configuration depuis le serveur distant ?
-  msgGenerateSetupURI: Tout est prêt ! Voulez-vous générer une URI de configuration pour configurer d'autres appareils ?
-  msgIfConfigNotPersistent: Si la configuration du serveur n'est pas persistante
-    (par ex. fonctionnant sur Docker), les valeurs peuvent changer. Une fois la
-    connexion établie, mettez à jour les paramètres dans le local.ini du
-    serveur.
-  msgInvalidPassphrase: Votre phrase secrète de chiffrement peut être invalide.
-    Êtes-vous sûr de vouloir continuer ?
-  msgNewVersionNote: Arrivé ici suite à une notification de mise à jour ? Consultez
-    l'historique des versions. Si vous êtes satisfait, cliquez sur le bouton.
-    Une nouvelle mise à jour reproposera ceci.
-  msgNonHTTPSInfo: Configuré avec une URI non HTTPS. Attention, ceci peut ne pas fonctionner sur les appareils mobiles.
-  msgNonHTTPSWarning: Connexion impossible à une URI non HTTPS. Mettez à jour votre configuration et réessayez.
-  msgNotice: ---Avis---
-  msgObjectStorageWarning: >-
-    AVERTISSEMENT : cette fonctionnalité est en cours de développement, gardez
-    à l'esprit ce qui suit :
+  logCheckPassphraseFailed: >-
+    ERREUR : Échec de la vérification de la phrase secrète avec le serveur
+    distant :
 
-    - Architecture en ajout seul. Une reconstruction est nécessaire pour
-    réduire le stockage.
+    ${db}.
+  logPassphraseInvalid: La phrase secrète est invalide, veuillez la corriger.
+  msgNonHTTPSInfo: Configuré avec une URI non HTTPS. Attention, ceci peut ne pas
+    fonctionner sur les appareils mobiles.
+  msgNonHTTPSWarning: Connexion impossible à une URI non HTTPS. Mettez à jour
+    votre configuration et réessayez.
+  msgObjectStorageWarning: >-
+    AVERTISSEMENT : cette fonctionnalité est en cours de développement, gardez à
+    l'esprit ce qui suit :
+
+    - Architecture en ajout seul. Une reconstruction est nécessaire pour réduire
+    le stockage.
 
     - Un peu fragile.
 
@@ -681,11 +676,10 @@ obsidianLiveSyncSettingTab:
     - Seules les différences sont synchronisées en direct.
 
 
-    Si vous rencontrez des problèmes ou avez des idées sur cette
-    fonctionnalité, merci d'ouvrir un ticket sur GitHub.
+    Si vous rencontrez des problèmes ou avez des idées sur cette fonctionnalité,
+    merci d'ouvrir un ticket sur GitHub.
 
     Merci pour votre grand dévouement.
-  msgOriginCheck: "Vérification d'origine : ${org}"
   msgRebuildRequired: >-
     La reconstruction des bases de données est nécessaire pour appliquer les
     changements. Veuillez sélectionner la méthode d'application.
@@ -736,104 +730,43 @@ obsidianLiveSyncSettingTab:
     Ne stocker que les paramètres. **Attention : cela peut entraîner une
     corruption des données** ; une reconstruction de la base est généralement
     nécessaire.
-  msgSelectAndApplyPreset: Veuillez sélectionner et appliquer un préréglage pour terminer l'assistant.
-  msgSetCorsCredentials: Définir cors.credentials
-  msgSetCorsOrigins: Définir cors.origins
-  msgSetMaxDocSize: Définir couchdb.max_document_size
-  msgSetMaxRequestSize: Définir chttpd.max_http_request_size
-  msgSetRequireValidUser: Définir chttpd.require_valid_user = true
-  msgSetRequireValidUserAuth: Définir chttpd_auth.require_valid_user = true
-  msgSettingModified: Le paramètre « ${setting} » a été modifié depuis un autre
-    appareil. Cliquez sur {HERE} pour recharger les paramètres. Cliquez
-    ailleurs pour ignorer les modifications.
   msgSettingsUnchangeableDuringSync: Ces paramètres ne peuvent pas être modifiés
-    durant la synchronisation. Désactivez toute synchronisation dans
-    « Paramètres de synchronisation » pour déverrouiller.
-  msgSetWwwAuth: Définir httpd.WWW-Authenticate
+    durant la synchronisation. Désactivez toute synchronisation dans «
+    Paramètres de synchronisation » pour déverrouiller.
   nameApplySettings: Appliquer les paramètres
-  nameConnectSetupURI: Se connecter avec une URI de configuration
-  nameCopySetupURI: Copier les paramètres actuels vers une URI de configuration
-  nameDisableHiddenFileSync: Désactiver la synchronisation des fichiers cachés
-  nameDiscardSettings: Abandonner les paramètres et bases existants
-  nameEnableHiddenFileSync: Activer la synchronisation des fichiers cachés
-  nameEnableLiveSync: Activer LiveSync
-  nameHiddenFileSynchronization: Synchronisation des fichiers cachés
   nameManualSetup: Configuration manuelle
   nameTestConnection: Tester la connexion
   nameTestDatabaseConnection: Tester la connexion à la base de données
   nameValidateDatabaseConfig: Valider la configuration de la base de données
-  okAdminPrivileges: ✔ Vous disposez des privilèges administrateur.
-  okCorsCredentials: ✔ cors.credentials est correct.
-  okCorsCredentialsForOrigin: Identifiants CORS OK
-  okCorsOriginMatched: ✔ Origine CORS OK
-  okCorsOrigins: ✔ cors.origins est correct.
-  okEnableCors: ✔ httpd.enable_cors est correct.
-  okEnableCorsChttpd: ✔ chttpd.enable_cors est correct.
-  okMaxDocumentSize: ✔ couchdb.max_document_size est correct.
-  okMaxRequestSize: ✔ chttpd.max_http_request_size est correct.
-  okRequireValidUser: ✔ chttpd.require_valid_user est correct.
-  okRequireValidUserAuth: ✔ chttpd_auth.require_valid_user est correct.
-  okWwwAuth: ✔ httpd.WWW-Authenticate est correct.
   optionApply: Appliquer
   optionCancel: Annuler
   optionCouchDB: CouchDB
-  optionDisableAllAutomatic: Désactiver toute automatisation
-  optionFetchFromRemote: Récupérer depuis le distant
-  optionHere: ICI
-  optionLiveSync: LiveSync
   optionMinioS3R2: Minio, S3, R2
-  optionOkReadEverything: OK, j'ai tout lu.
-  optionOnEvents: Sur événements
-  optionPeriodicAndEvents: Périodique et sur événements
-  optionPeriodicWithBatch: Périodique avec lot
-  optionRebuildBoth: Tout reconstruire depuis cet appareil
-  optionSaveOnlySettings: (Danger) N'enregistrer que les paramètres
-  panelChangeLog: Journal des modifications
-  panelGeneralSettings: Paramètres généraux
   panelPrivacyEncryption: Confidentialité et chiffrement
-  panelRemoteConfiguration: Configuration distante
-  panelSetup: Configuration
-  serverVersion: "Infos serveur : ${info}"
   titleActiveRemoteServer: Serveur distant actif
-  titleAppearance: Apparence
-  titleConflictResolution: Résolution des conflits
-  titleCongratulations: Félicitations !
   titleCouchDB: CouchDB
-  titleDeletionPropagation: Propagation des suppressions
-  titleEncryptionNotEnabled: Le chiffrement n'est pas activé
-  titleEncryptionPassphraseInvalid: Phrase secrète de chiffrement invalide
-  titleExtraFeatures: Activer les fonctionnalités supplémentaires et avancées
-  titleFetchConfig: Récupérer la configuration
   titleFetchConfigFromRemote: Récupérer la configuration depuis le serveur distant
   titleFetchSettings: Récupérer les paramètres
   titleHiddenFiles: Fichiers cachés
-  titleLogging: Journalisation
   titleMinioS3R2: Minio, S3, R2
-  titleNotification: Notification
-  titleOnlineTips: Conseils en ligne
-  titleQuickSetup: Configuration rapide
-  titleRebuildRequired: Reconstruction requise
-  titleRemoteConfigCheckFailed: Échec de la vérification de la configuration distante
-  titleRemoteServer: Serveur distant
   titleReset: Réinitialiser
-  titleSetupOtherDevices: Pour configurer d'autres appareils
-  titleSynchronizationMethod: Méthode de synchronisation
-  titleSynchronizationPreset: Préréglage de synchronisation
-  titleSyncSettings: Paramètres de synchronisation
-  titleSyncSettingsViaMarkdown: Synchroniser les paramètres via Markdown
-  titleUpdateThinning: Lissage des mises à jour
-  warnCorsOriginUnmatched: ⚠ L'origine CORS ne correspond pas ${from}->${to}
-  warnNoAdmin: ⚠ Vous n'avez pas les privilèges administrateur.
+OK, I have read everything.: OK, j'ai tout lu.
+On events: Sur événements
+OneShot Sync begin... (${syncMode}): Démarrage de la synchronisation OneShot... (${syncMode})
+Online Tips: Conseils en ligne
+Only enable this after configuring either of the above two options or completing all configuration manually.:
+  N'activez ceci qu'après avoir configuré l'une des deux options ci-dessus ou
+  terminé toute la configuration manuellement.
+Open in browser: Ouvrir dans le navigateur
+Optional: Optionnel
+"Origin check: ${org}": "Vérification d'origine : ${org}"
+"Original: ${value}": "Original : ${value}"
+P2P Sync completed.: Sync P2P terminée.
+P2P Sync is already running.: La Sync P2P est déjà en cours.
+P2P Sync replicator is not found, possibly not have been configured or enabled.: Le réplicateur Sync P2P est introuvable, peut-être non configuré ou non activé.
+P2P Sync with ${name} have been started.: La Sync P2P avec ${name} a démarré.
 P2P:
-  AskPassphraseForDecrypt: Le pair distant a partagé la configuration. Veuillez
-    saisir la phrase secrète pour déchiffrer la configuration.
-  AskPassphraseForShare: Le pair distant a demandé la configuration de cet
-    appareil. Veuillez saisir la phrase secrète pour partager la configuration.
-    Vous pouvez ignorer la demande en annulant cette boîte de dialogue.
-  DisabledButNeed: "%{title_p2p_sync} est désactivé. Voulez-vous vraiment l'activer ?"
   FailedToOpen: Échec d'ouverture de la connexion P2P vers le serveur de signalisation.
-  NoAutoSyncPeers: Aucun pair de synchronisation automatique trouvé. Veuillez définir des pairs dans le panneau %{long_p2p_sync}.
-  NoKnownPeers: Aucun pair détecté, en attente d'autres pairs entrants...
   Note:
     description: >2-
        Ce réplicateur permet de synchroniser notre coffre avec d'autres
@@ -844,48 +777,55 @@ P2P:
       Ce réplicateur est basé sur Trystero. Il utilise également un serveur de
       signalisation pour établir une connexion entre les appareils. Le serveur
       de signalisation sert à échanger les informations de connexion entre
-      appareils. Il ne connaît (ou ne devrait connaître) ni ne stocke aucune
-      de nos données.
+      appareils. Il ne connaît (ou ne devrait connaître) ni ne stocke aucune de
+      nos données.
 
 
-      Le serveur de signalisation peut être hébergé par n'importe qui. Il
-      s'agit simplement d'un relais Nostr. Par souci de simplicité et pour
-      vérifier le comportement du réplicateur, une instance du serveur de
-      signalisation est hébergée par vrtmrz. Vous pouvez utiliser le serveur
-      expérimental fourni par vrtmrz, ou tout autre serveur.
+      Le serveur de signalisation peut être hébergé par n'importe qui. Il s'agit
+      simplement d'un relais Nostr. Par souci de simplicité et pour vérifier le
+      comportement du réplicateur, une instance du serveur de signalisation est
+      hébergée par vrtmrz. Vous pouvez utiliser le serveur expérimental fourni
+      par vrtmrz, ou tout autre serveur.
 
 
-      Au passage, même si le serveur de signalisation ne stocke pas nos
-      données, il peut voir les informations de connexion de certains de nos
-      appareils. Soyez-en conscient. Soyez également prudent avec un serveur
-      fourni par quelqu'un d'autre.
+      Au passage, même si le serveur de signalisation ne stocke pas nos données,
+      il peut voir les informations de connexion de certains de nos appareils.
+      Soyez-en conscient. Soyez également prudent avec un serveur fourni par
+      quelqu'un d'autre.
     important_note: Réplicateur pair-à-pair.
     important_note_sub: Cette fonctionnalité est encore en tout début de
-      développement. Veillez à sauvegarder vos données avant de l'utiliser.
-      Nous serions très heureux si vous contribuiez au développement de cette
+      développement. Veillez à sauvegarder vos données avant de l'utiliser. Nous
+      serions très heureux si vous contribuiez au développement de cette
       fonctionnalité.
-
-    Summary: Qu'est-ce que cette fonctionnalité ? (et quelques notes importantes, à lire)
-  NotEnabled: "%{title_p2p_sync} n'est pas activé. Nous ne pouvons pas ouvrir de nouvelle connexion."
-  P2PReplication: "Réplication %{P2P}"
+    Summary: Qu'est-ce que cette fonctionnalité ? (et quelques notes importantes, à
+      lire)
+  P2PReplication: Réplication %{P2P}
   PaneTitle: "%{long_p2p_sync}"
-  ReplicatorInstanceMissing: Le réplicateur Sync P2P est introuvable, peut-être
-    non configuré ou non activé.
-  SeemsOffline: Le pair ${name} semble hors ligne, ignoré.
-  SyncAlreadyRunning: La Sync P2P est déjà en cours.
-  SyncCompleted: Sync P2P terminée.
-  SyncStartedWith: La Sync P2P avec ${name} a démarré.
+Page Top: Haut de la page
 Passphrase: Phrase secrète
 Passphrase of sensitive configuration items: Phrase secrète des éléments de configuration sensibles
 password: mot de passe
 Password: Mot de passe
 Path Obfuscation: Obfuscation des chemins
+Peer ${name} seems offline, skipped.: Le pair ${name} semble hors ligne, ignoré.
 Per-file-saved customization sync: Synchronisation de personnalisation enregistrée par fichier
+Perfect for setting up a new device!: Parfait pour configurer un nouvel appareil !
+Periodic and on events: Périodique et sur événements
 Periodic Sync interval: Intervalle de synchronisation périodique
+Periodic w/ batch: Périodique avec lot
+Please select and apply any preset item to complete the wizard.: Veuillez sélectionner et appliquer un préréglage pour terminer l'assistant.
+Plugin initialisation was cancelled by a module: L'initialisation du plugin a été annulée par un module
 Prepare the 'report' to create an issue: Préparer le « rapport » pour créer un ticket
 Presets: Préréglages
 Process small files in the foreground: Traiter les petits fichiers au premier plan
 Property Encryption: Chiffrement des propriétés
+Quick Setup: Configuration rapide
+Rebuild Both from This Device: Tout reconstruire depuis cet appareil
+Rebuild Everything: Tout reconstruire
+Rebuild Everything Now: Tout reconstruire maintenant
+Rebuild Required: Reconstruction requise
+Recommendation to use Setup URI: Recommandation d'utilisation de l'URI de configuration
+Recommended: Recommandé
 RedFlag:
   Fetch:
     Method:
@@ -911,25 +851,24 @@ RedFlag:
 
         > **Trafic faible**, **CPU élevé**, **Risque faible**
 
-        > Cette option crée d'abord une base locale à partir des fichiers
-        locaux existants avant de récupérer les données depuis la source
-        distante.
+        > Cette option crée d'abord une base locale à partir des fichiers locaux
+        existants avant de récupérer les données depuis la source distante.
 
         > Si des fichiers correspondants existent à la fois localement et à
         distance, seules les différences entre eux seront transférées.
 
         > Toutefois, les fichiers présents aux deux emplacements seront
         initialement traités comme en conflit. Ils seront résolus
-        automatiquement s'ils ne le sont pas réellement, mais ce processus
-        peut prendre du temps.
+        automatiquement s'ils ne le sont pas réellement, mais ce processus peut
+        prendre du temps.
 
         > C'est généralement la méthode la plus sûre, minimisant le risque de
         perte de données.
 
         > ## %{RedFlag.Fetch.Method.FetchSmoother}.
 
-        > **Trafic faible**, **CPU modéré**, **Risque faible à modéré**
-        (selon l'opération)
+        > **Trafic faible**, **CPU modéré**, **Risque faible à modéré** (selon
+        l'opération)
 
         > Cette option crée d'abord des fragments à partir des fichiers locaux
         pour la base, puis récupère les données. Par conséquent, seuls les
@@ -941,19 +880,19 @@ RedFlag:
         ancien (selon la date de modification). Le résultat est ensuite
         synchronisé vers la base distante.
 
-        > C'est généralement sûr si les fichiers locaux ont bien l'horodatage
-        le plus récent. Cela peut toutefois poser problème si un fichier a un
+        > C'est généralement sûr si les fichiers locaux ont bien l'horodatage le
+        plus récent. Cela peut toutefois poser problème si un fichier a un
         horodatage plus récent mais un contenu plus ancien (comme le
         `welcome.md` initial).
 
-        > Cette méthode utilise moins de CPU et est plus rapide que
-        « %{RedFlag.Fetch.Method.FetchSafer} », mais peut entraîner une perte
-        de données si elle n'est pas utilisée avec précaution.
+        > Cette méthode utilise moins de CPU et est plus rapide que «
+        %{RedFlag.Fetch.Method.FetchSafer} », mais peut entraîner une perte de
+        données si elle n'est pas utilisée avec précaution.
 
         > ## %{RedFlag.Fetch.Method.FetchTraditional}.
 
-        > **Trafic élevé**, **CPU faible**, **Risque faible à modéré**
-        (selon l'opération)
+        > **Trafic élevé**, **CPU faible**, **Risque faible à modéré** (selon
+        l'opération)
 
         > Tout sera récupéré depuis le distant.
 
@@ -962,11 +901,11 @@ RedFlag:
 
         > C'est la façon la plus traditionnelle de récupérer, consommant
         généralement le plus de trafic réseau et de temps. Elle comporte
-        également un risque similaire d'écraser les fichiers distants à
-        l'option « %{RedFlag.Fetch.Method.FetchSmoother} ».
+        également un risque similaire d'écraser les fichiers distants à l'option
+        « %{RedFlag.Fetch.Method.FetchSmoother} ».
 
-        > Elle est toutefois souvent considérée comme la méthode la plus
-        stable car c'est la plus ancienne et la plus directe.
+        > Elle est toutefois souvent considérée comme la méthode la plus stable
+        car c'est la plus ancienne et la plus directe.
       FetchSafer: Créer une base locale avant de récupérer
       FetchSmoother: Créer des fragments de fichiers locaux avant de récupérer
       FetchTraditional: Tout récupérer depuis le distant
@@ -975,13 +914,32 @@ RedFlag:
     Buttons:
       Cancel: Non, utiliser les paramètres locaux
       Fetch: Oui, récupérer et appliquer les paramètres distants
-    Message: Voulez-vous récupérer et appliquer les préférences stockées à
-      distance sur cet appareil ?
+    Message: Voulez-vous récupérer et appliquer les préférences stockées à distance
+      sur cet appareil ?
     Title: Récupérer la configuration distante
-Reducing the frequency with which on-disk changes are reflected into the DB: Réduire la fréquence à laquelle les modifications sur disque sont reflétées dans la base
+Reducing the frequency with which on-disk changes are reflected into the DB:
+  Réduire la fréquence à laquelle les modifications sur disque sont reflétées
+  dans la base
 Region: Région
+Remind me at the next launch: Me rappeler au prochain lancement
+Remote Configuration: Configuration distante
+Remote Configuration Check Failed: Échec de la vérification de la configuration distante
+Remote Database Created or Connected: Base distante créée ou connectée
+Remote Database Destroyed: Base distante détruite
+Remote database has been marked resolved.: La base distante a été marquée comme résolue.
+Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed:
+  La base distante est plus récente ou corrompue, assurez-vous d'avoir installé
+  la dernière version de self-hosted-livesync
+Remote Server: Serveur distant
 Remote server type: Type de serveur distant
+Remote storage size exceeded the limit: Taille du stockage distant au-delà de la limite
+"Remote storage size: ${measuredSize}": "Taille du stockage distant : ${measuredSize}"
+"Remote storage size: ${measuredSize} exceeded ${notifySize}": "Taille du stockage distant : ${measuredSize} a dépassé ${notifySize}"
 Remote Type: Type de distant
+Replicate: Répliquer
+Replication closed: Réplication fermée
+Replication has been cancelled by some module failure: La réplication a été annulée suite à l'échec d'un module
+Replication is already in progress: Une réplication est déjà en cours
 Replicator:
   Dialogue:
     Locked:
@@ -989,49 +947,42 @@ Replicator:
         Dismiss: Annuler pour reconfirmer
         Fetch: Réinitialiser la synchronisation sur cet appareil
         Unlock: Déverrouiller la base distante
-      Message:
-        _value: >
-          La base distante est verrouillée. Ceci est dû à une reconstruction
-          sur l'un des terminaux.
+      Message: >
+        La base distante est verrouillée. Ceci est dû à une reconstruction sur
+        l'un des terminaux.
 
-          L'appareil est donc prié de suspendre la connexion pour éviter la
-          corruption de la base.
-
-
-          Trois options sont possibles :
+        L'appareil est donc prié de suspendre la connexion pour éviter la
+        corruption de la base.
 
 
-          - %{Replicator.Dialogue.Locked.Action.Fetch}
-            La méthode la plus recommandée et fiable. Elle supprime la base locale puis réinitialise toutes les informations de synchronisation depuis la base distante. Dans la plupart des cas, c'est sûr. Cela prend cependant du temps et devrait se faire sur un réseau stable.
-          - %{Replicator.Dialogue.Locked.Action.Unlock}
-            Cette méthode ne peut être utilisée que si nous sommes déjà synchronisés de manière fiable par d'autres méthodes de réplication. Cela ne signifie pas simplement que nous avons les mêmes fichiers. Dans le doute, évitez.
-          - %{Replicator.Dialogue.Locked.Action.Dismiss}
-              Ceci annule l'opération. Vous serez à nouveau interrogé à la prochaine requête.
-        Fetch: Tout récupérer a été planifié. Le plug-in sera redémarré pour l'exécuter.
-        Unlocked: La base distante a été déverrouillée. Veuillez réessayer l'opération.
-      Title: Verrouillée
-  Message:
-    Cleaned: Nettoyage de la base en cours. La réplication a été annulée
-    InitialiseFatalError: Aucun réplicateur disponible, il s'agit d'une erreur fatale.
-    Pending: Des événements de fichier sont en attente. La réplication a été annulée.
-    SomeModuleFailed: La réplication a été annulée suite à l'échec d'un module
-    VersionUpFlash: Une mise à jour a été détectée. Veuillez ouvrir la boîte de
-      dialogue des paramètres et consulter le journal des modifications. La
-      réplication a été annulée.
+        Trois options sont possibles :
+
+
+        - %{Replicator.Dialogue.Locked.Action.Fetch}
+          La méthode la plus recommandée et fiable. Elle supprime la base locale puis réinitialise toutes les informations de synchronisation depuis la base distante. Dans la plupart des cas, c'est sûr. Cela prend cependant du temps et devrait se faire sur un réseau stable.
+        - %{Replicator.Dialogue.Locked.Action.Unlock}
+          Cette méthode ne peut être utilisée que si nous sommes déjà synchronisés de manière fiable par d'autres méthodes de réplication. Cela ne signifie pas simplement que nous avons les mêmes fichiers. Dans le doute, évitez.
+        - %{Replicator.Dialogue.Locked.Action.Dismiss}
+            Ceci annule l'opération. Vous serez à nouveau interrogé à la prochaine requête.
 Requires restart of Obsidian: Nécessite un redémarrage d'Obsidian
 Requires restart of Obsidian.: Nécessite un redémarrage d'Obsidian.
 Rerun Onboarding Wizard: Relancer l'assistant d'intégration
 Rerun the onboarding wizard to set up Self-hosted LiveSync again.: Relancer l'assistant d'intégration pour reconfigurer Self-hosted LiveSync.
 Rerun Wizard: Relancer l'assistant
-Reset notification threshold and check the remote database usage: Réinitialiser le seuil de notification et vérifier l'utilisation de la base distante
+Reset notification threshold and check the remote database usage:
+  Réinitialiser le seuil de notification et vérifier l'utilisation de la base
+  distante
 Reset the remote storage size threshold and check the remote storage size again.:
-  Réinitialiser le seuil de taille du stockage distant et vérifier à nouveau
-  la taille du stockage distant.
+  Réinitialiser le seuil de taille du stockage distant et vérifier à nouveau la
+  taille du stockage distant.
+Resume and restart Obsidian: Reprendre et redémarrer Obsidian
+Retry with lower batch size:${batch_size}/${batches_limit}: Nouvelle tentative
+  avec une taille de lot réduite :${batch_size}/${batches_limit}
 Run Doctor: Lancer le Docteur
 Save settings to a markdown file. You will be notified when new settings arrive. You can set different files by the platform.:
   Enregistrer les paramètres dans un fichier markdown. Vous serez notifié à
-  l'arrivée de nouveaux paramètres. Vous pouvez définir des fichiers
-  différents selon la plateforme.
+  l'arrivée de nouveaux paramètres. Vous pouvez définir des fichiers différents
+  selon la plateforme.
 Saving will be performed forcefully after this number of seconds.: L'enregistrement sera forcé au bout de ce nombre de secondes.
 Scan changes on customization sync: Analyser les modifications de synchronisation de personnalisation
 Scan customization automatically: Analyser automatiquement la personnalisation
@@ -1040,12 +991,35 @@ Scan customization every 1 minute.: Analyser la personnalisation toutes les 1 mi
 Scan customization periodically: Analyser la personnalisation périodiquement
 Scan for hidden files before replication: Analyser les fichiers cachés avant réplication
 Scan hidden files periodically: Analyser les fichiers cachés périodiquement
+Scans for files that are not stored correctly in the database.: Analyse les fichiers qui ne sont pas stockés correctement dans la base.
+Scram Enabled: Mode Scram activé
 Seconds, 0 to disable: Secondes, 0 pour désactiver
 Seconds. Saving to the local database will be delayed until this value after we stop typing or saving.:
   Secondes. L'enregistrement dans la base locale sera différé de cette valeur
   après l'arrêt de la frappe ou de l'enregistrement.
 Secret Key: Clé secrète
+Select: Sélection
+Select any preset.: Sélectionnez un préréglage.
+Self-hosted LiveSync Config Doctor: Docteur Config Self-hosted LiveSync
+Self-hosted LiveSync Log: Journaux Self-hosted LiveSync
+Self-hosted LiveSync v${manifestVersion} ${packageVersion}: Self-hosted LiveSync v${manifestVersion} ${packageVersion}
+Send chunks in bulk has been enabled, however, this feature had been corrupted. Sorry for your inconvenience. Automatically disabled.:
+  L'envoi groupé de fragments a été activé, mais cette fonctionnalité était
+  corrompue. Désolé pour la gêne. Désactivée automatiquement.
+"Server info: ${info}": "Infos serveur : ${info}"
 Server URI: URI du serveur
+Set chttpd_auth.require_valid_user = true: Définir chttpd_auth.require_valid_user = true
+Set chttpd.enable_cors: Définir chttpd.enable_cors
+Set chttpd.max_http_request_size: Définir chttpd.max_http_request_size
+Set chttpd.require_valid_user = true: Définir chttpd.require_valid_user = true
+Set cors.credentials: Définir cors.credentials
+Set cors.origins: Définir cors.origins
+Set couchdb.max_document_size: Définir couchdb.max_document_size
+Set httpd.enable_cors: Définir httpd.enable_cors
+Set httpd.WWW-Authenticate: Définir httpd.WWW-Authenticate
+Set it up all manually: Tout configurer manuellement
+Setting Doctor: Docteur des paramètres
+Setting up database size notification: Configuration de la notification de taille de base
 Setting:
   GenerateKeyPair:
     Desc: >+
@@ -1053,15 +1027,15 @@ Setting:
 
 
       Note : cette paire de clés ne sera plus jamais affichée. Veuillez la
-      conserver dans un endroit sûr. Si vous la perdez, vous devrez générer
-      une nouvelle paire.
+      conserver dans un endroit sûr. Si vous la perdez, vous devrez générer une
+      nouvelle paire.
 
       Note 2 : la clé publique est au format spki, et la clé privée au format
       pkcs8. Pour plus de commodité, les retours à la ligne sont convertis en
       `\n` dans la clé publique.
 
-      Note 3 : la clé publique doit être configurée dans la base distante, et
-      la clé privée sur les appareils locaux.
+      Note 3 : la clé publique doit être configurée dans la base distante, et la
+      clé privée sur les appareils locaux.
 
 
       >[!POUR VOS YEUX SEULEMENT]-
@@ -1113,19 +1087,14 @@ Setting:
 
       > </div>
 
-    Title: Une nouvelle paire de clés a été générée !
   TroubleShooting:
-    _value: Dépannage
-    Doctor:
-      _value: Docteur des paramètres
-      Desc: Détecte les paramètres non optimaux. (Identique à la migration)
-    ScanBrokenFiles:
-      _value: Analyser les fichiers corrompus
-      Desc: Analyse les fichiers qui ne sont pas stockés correctement dans la base.
+    ScanBrokenFiles: Analyser les fichiers corrompus
 SettingTab:
   Message:
-    AskRebuild: Vos modifications nécessitent une récupération depuis la base distante. Voulez-vous continuer ?
+    AskRebuild: Vos modifications nécessitent une récupération depuis la base
+      distante. Voulez-vous continuer ?
 Setup:
+  _value: Configuration
   Apply:
     Buttons:
       ApplyAndFetch: Appliquer et récupérer
@@ -1173,22 +1142,22 @@ Setup:
       Skip: Non, utiliser les paramètres de l'URI
     Message: >-
       Si nous avons déjà synchronisé une fois avec un autre appareil, la base
-      distante stocke les valeurs de configuration adaptées entre les
-      appareils synchronisés. Le plug-in souhaiterait les récupérer pour une
-      configuration robuste.
+      distante stocke les valeurs de configuration adaptées entre les appareils
+      synchronisés. Le plug-in souhaiterait les récupérer pour une configuration
+      robuste.
 
 
       Mais il faut s'assurer d'une chose. Sommes-nous actuellement dans une
-      situation où nous pouvons accéder au réseau en toute sécurité et
-      récupérer les paramètres ?
+      situation où nous pouvons accéder au réseau en toute sécurité et récupérer
+      les paramètres ?
 
 
-      Note : le plus souvent, c'est sûr si votre base distante est hébergée
-      avec un certificat SSL et si votre réseau n'est pas compromis.
+      Note : le plus souvent, c'est sûr si votre base distante est hébergée avec
+      un certificat SSL et si votre réseau n'est pas compromis.
     Title: Récupérer la configuration depuis la base distante ?
   QRCode: >-
-    Nous avons généré un QR code pour transférer les paramètres. Scannez-le
-    avec votre téléphone ou un autre appareil.
+    Nous avons généré un QR code pour transférer les paramètres. Scannez-le avec
+    votre téléphone ou un autre appareil.
 
     Note : le QR code n'est pas chiffré, soyez prudent en l'affichant.
 
@@ -1196,23 +1165,28 @@ Setup:
     >[!POUR VOS YEUX SEULEMENT]-
 
     > <div class="sls-qr">${qr_image}</div>
-  ShowQRCode:
-    _value: Afficher le QR code
-    Desc: Afficher le QR code pour transférer les paramètres.
 Should we keep folders that don't have any files inside?: Conserver les dossiers ne contenant aucun fichier ?
 Should we only check for conflicts when a file is opened?: Ne vérifier les conflits qu'à l'ouverture d'un fichier ?
 Should we prompt you about conflicting files when a file is opened?: Vous demander au sujet des fichiers en conflit à l'ouverture d'un fichier ?
 Should we prompt you for every single merge, even if we can safely merge automatcially?:
   Vous demander pour chaque fusion, même si nous pouvons fusionner
   automatiquement en toute sécurité ?
+Show Customization sync: Afficher la synchronisation de personnalisation
+Show Log: Afficher le journal
 Show only notifications: N'afficher que les notifications
+Show QR code: Afficher le QR code
+Show QR code to transfer the settings.: Afficher le QR code pour transférer les paramètres.
 Show status as icons only: N'afficher le statut que sous forme d'icônes
 Show status icon instead of file warnings banner: Afficher l'icône de statut au lieu de la bannière d'avertissements
 Show status inside the editor: Afficher le statut dans l'éditeur
 Show status on the status bar: Afficher le statut dans la barre d'état
 Show verbose log. Please enable if you report an issue.: Afficher un journal verbeux. À activer si vous signalez un problème.
+Some file events are pending. Replication has been cancelled.: Des événements de fichier sont en attente. La réplication a été annulée.
+"Something happened on Remote Database Destroy:": "Un problème est survenu lors de la destruction de la base distante :"
+Something went wrong! The local database is not ready: Un problème est survenu ! La base locale n'est pas prête
 Starts synchronisation when a file is saved.: Démarre la synchronisation à l'enregistrement d'un fichier.
-Stop reflecting database changes to storage files.: Arrêter de répercuter les modifications de la base vers les fichiers de stockage.
+Stop reflecting database changes to storage files.: Arrêter de répercuter les
+  modifications de la base vers les fichiers de stockage.
 Stop watching for file changes.: Arrêter la surveillance des modifications de fichiers.
 Suppress notification of hidden files change: Supprimer les notifications de modification des fichiers cachés
 Suspend database reflecting: Suspendre la répercussion dans la base
@@ -1224,40 +1198,71 @@ Sync on Editor Save: Synchroniser à l'enregistrement dans l'éditeur
 Sync on File Open: Synchroniser à l'ouverture d'un fichier
 Sync on Save: Synchroniser à l'enregistrement
 Sync on Startup: Synchroniser au démarrage
+Sync Settings: Paramètres de synchronisation
+Sync Settings via Markdown: Synchroniser les paramètres via Markdown
+Synchronization Method: Méthode de synchronisation
+Synchronization Preset: Préréglage de synchronisation
+Syncing has been disabled, fetch and re-enabled if desired.: La synchronisation a été désactivée, récupérez et réactivez si souhaité.
+Take me into the setup wizard: Ouvrir l'assistant de configuration
 Testing only - Resolve file conflicts by syncing newer copies of the file, this can overwrite modified files. Be Warned.:
-  Test uniquement - Résout les conflits de fichiers en synchronisant les
-  copies plus récentes, ce qui peut écraser des fichiers modifiés. Prudence.
+  Test uniquement - Résout les conflits de fichiers en synchronisant les copies
+  plus récentes, ce qui peut écraser des fichiers modifiés. Prudence.
+The configuration check has failed. Do you want to continue anyway?:
+  La vérification de la configuration a échoué. Voulez-vous continuer malgré
+  tout ?
+The connection to the remote has been prevented, or failed.: Connexion au serveur impossible.
 The delay for consecutive on-demand fetches: Le délai entre récupérations consécutives à la demande
 The Hash algorithm for chunk IDs: L'algorithme de hachage pour les identifiants de fragments
 The maximum duration for which chunks can be incubated within the document. Chunks exceeding this period will graduate to independent chunks.:
-  La durée maximale pendant laquelle les fragments peuvent être incubés dans
-  le document. Les fragments dépassant cette période seront promus en
-  fragments indépendants.
+  La durée maximale pendant laquelle les fragments peuvent être incubés dans le
+  document. Les fragments dépassant cette période seront promus en fragments
+  indépendants.
 The maximum number of chunks that can be incubated within the document. Chunks exceeding this number will immediately graduate to independent chunks.:
   Le nombre maximum de fragments pouvant être incubés dans le document. Les
   fragments dépassant ce nombre seront immédiatement promus en fragments
   indépendants.
 The maximum total size of chunks that can be incubated within the document. Chunks exceeding this size will immediately graduate to independent chunks.:
-  La taille totale maximale des fragments pouvant être incubés dans le
-  document. Les fragments dépassant cette taille seront immédiatement promus
-  en fragments indépendants.
+  La taille totale maximale des fragments pouvant être incubés dans le document.
+  Les fragments dépassant cette taille seront immédiatement promus en fragments
+  indépendants.
 The minimum interval for automatic synchronisation on event.: L'intervalle minimum pour la synchronisation automatique sur événement.
+The remote database has been unlocked. Please retry the operation.: La base distante a été déverrouillée. Veuillez réessayer l'opération.
+The remote peer requested this device configuration. Please input the passphrase to share the configuration. You can ignore the request by cancelling this dialogue.:
+  Le pair distant a demandé la configuration de cet appareil. Veuillez saisir la
+  phrase secrète pour partager la configuration. Vous pouvez ignorer la demande
+  en annulant cette boîte de dialogue.
+The remote peer shared the configuration. Please input the passphrase to decrypt the configuration.:
+  Le pair distant a partagé la configuration. Veuillez saisir la phrase secrète
+  pour déchiffrer la configuration.
+The setting "${setting}" was modified from another device. Click {HERE} to reload settings. Click elsewhere to ignore changes.:
+  Le paramètre « ${setting} » a été modifié depuis un autre appareil. Cliquez
+  sur {HERE} pour recharger les paramètres. Cliquez ailleurs pour ignorer les
+  modifications.
+The setup has been cancelled, Self-hosted LiveSync waiting for your setup!:
+  La configuration a été annulée, Self-hosted LiveSync attend votre
+  configuration !
+The value should ${min} < value < ${max}: La valeur doit être ${min} < valeur < ${max}
+This feature cannot be used with IBM Cloudant.: Cette fonctionnalité ne peut pas être utilisée avec IBM Cloudant.
+This is the recommended method to set up Self-hosted LiveSync with a Setup URI.:
+  Méthode recommandée pour configurer Self-hosted LiveSync avec une URI de
+  configuration.
+This may take a bit of a long time. Do you really want to rebuild everything now?:
+  Cela peut prendre un certain temps. Voulez-vous vraiment tout reconstruire
+  maintenant ?
 This passphrase will not be copied to another device. It will be set to `Default` until you configure it again.:
   Cette phrase secrète ne sera pas copiée vers un autre appareil. Elle sera
   définie à `Default` jusqu'à ce que vous la configuriez à nouveau.
+Threshold has been enlarged to ${size}MB: Le seuil a été augmenté à ${size} Mo
+Tips and Troubleshooting: Conseils et dépannage
+To setup other devices: Pour configurer d'autres appareils
+TroubleShooting: Dépannage
 TweakMismatchResolve:
   Action:
     Dismiss: Ignorer
     UseConfigured: Utiliser les paramètres configurés
-    UseMine: Mettre à jour les paramètres de la base distante
-    UseMineAcceptIncompatible: Mettre à jour la base distante mais garder en l'état
-    UseMineWithRebuild: Mettre à jour la base distante et reconstruire
-    UseRemote: Appliquer les paramètres à cet appareil
-    UseRemoteAcceptIncompatible: Appliquer à cet appareil, mais ignorer l'incompatibilité
-    UseRemoteWithRebuild: Appliquer à cet appareil et récupérer à nouveau
   Message:
     Main: >-
-
+      
       Les paramètres de la base distante sont les suivants. Ces valeurs sont
       configurées par d'autres appareils, synchronisés au moins une fois avec
       celui-ci.
@@ -1276,8 +1281,8 @@ TweakMismatchResolve:
       >[!ASTUCE]
 
       > Pour synchroniser tous les paramètres, utilisez « Synchroniser les
-      paramètres via markdown » après application de la configuration
-      minimale avec cette fonctionnalité.
+      paramètres via markdown » après application de la configuration minimale
+      avec cette fonctionnalité.
 
 
       ${additionalMessage}
@@ -1293,66 +1298,71 @@ TweakMismatchResolve:
       ${additionalMessage}
     UseRemote:
       WarningRebuildRecommended: >-
-
+        
         >[!AVIS]
 
         > Certains changements sont compatibles mais peuvent consommer du
         stockage et du trafic supplémentaires. Une reconstruction est
-        recommandée. Cependant, elle peut ne pas être effectuée maintenant,
-        mais pourra l'être lors d'une maintenance future.
+        recommandée. Cependant, elle peut ne pas être effectuée maintenant, mais
+        pourra l'être lors d'une maintenance future.
 
         > ***Assurez-vous d'avoir du temps et une connexion stable pour
         appliquer !***
       WarningRebuildRequired: >-
-
+        
         >[!AVERTISSEMENT]
 
         > Certaines configurations distantes ne sont pas compatibles avec la
-        base locale de cet appareil. Une reconstruction de la base locale
-        sera requise.
+        base locale de cet appareil. Une reconstruction de la base locale sera
+        requise.
 
         > ***Assurez-vous d'avoir du temps et une connexion stable pour
         appliquer !***
     WarningIncompatibleRebuildRecommended: >-
-
+      
       >[!AVIS]
 
       > Nous avons détecté que certaines valeurs diffèrent et rendent la base
       locale incompatible avec la base distante.
 
-      > Certains changements sont compatibles mais peuvent consommer du
-      stockage et du trafic supplémentaires. Une reconstruction est
-      recommandée. Cependant, elle peut ne pas être effectuée maintenant, mais
-      pourra l'être lors d'une maintenance future.
+      > Certains changements sont compatibles mais peuvent consommer du stockage
+      et du trafic supplémentaires. Une reconstruction est recommandée.
+      Cependant, elle peut ne pas être effectuée maintenant, mais pourra l'être
+      lors d'une maintenance future.
 
       > Si vous souhaitez reconstruire, cela prend quelques minutes ou plus.
       **Assurez-vous qu'il est sûr de le faire maintenant.**
     WarningIncompatibleRebuildRequired: >-
-
+      
       >[!AVERTISSEMENT]
 
       > Nous avons détecté que certaines valeurs diffèrent et rendent la base
       locale incompatible avec la base distante.
 
       > Une reconstruction locale ou distante est nécessaire. L'une comme
-      l'autre prend quelques minutes ou plus. **Assurez-vous qu'il est sûr de
-      le faire maintenant.**
-  Table:
-    _value: |+
-      | Nom de la valeur | Cet appareil | Sur le distant |
-      |: --- |: ---- :|: ---- :|
-      ${rows}
+      l'autre prend quelques minutes ou plus. **Assurez-vous qu'il est sûr de le
+      faire maintenant.**
+  Table: |+
+    | Nom de la valeur | Cet appareil | Sur le distant |
+    |: --- |: ---- :|: ---- :|
+    ${rows}
 
-    Row: "| ${name} | ${self} | ${remote} |"
   Title:
     _value: Incohérence de configuration détectée
     TweakResolving: Incohérence de configuration détectée
-    UseRemoteConfig: Utiliser la configuration distante
 Unique name between all synchronized devices. To edit this setting, please disable customization sync once.:
-  Nom unique parmi tous les appareils synchronisés. Pour modifier ce
-  paramètre, désactivez d'abord la synchronisation de personnalisation.
+  Nom unique parmi tous les appareils synchronisés. Pour modifier ce paramètre,
+  désactivez d'abord la synchronisation de personnalisation.
+Unloading plugin...: Déchargement du plugin...
+Unlock remote database to prevent data corruption: Déverrouillage de la base distante pour éviter la corruption des données
+Update remote database settings: Mettre à jour les paramètres de la base distante
+Update remote database settings and rebuild again: Mettre à jour la base distante et reconstruire
+Update remote database settings but keep as is: Mettre à jour la base distante mais garder en l'état
+Update Thinning: Lissage des mises à jour
+Use %{short_p2p_sync} to set up: Utiliser %{short_p2p_sync} pour configurer
 Use Custom HTTP Handler: Utiliser un gestionnaire HTTP personnalisé
 Use dynamic iteration count: Utiliser un compteur d'itérations dynamique
+Use Remote Configuration: Utiliser la configuration distante
 Use Segmented-splitter: Utiliser le découpeur segmenté
 Use splitting-limit-capped chunk splitter: Utiliser le découpeur de fragments plafonné
 Use the trash bin: Utiliser la corbeille
@@ -1360,10 +1370,28 @@ Use timeouts instead of heartbeats: Utiliser des délais d'attente au lieu de ba
 username: nom d'utilisateur
 Username: Nom d'utilisateur
 Verbose Log: Journal verbeux
+Waiting for ready...: En attente de disponibilité...
 Warning! This will have a serious impact on performance. And the logs will not be synchronised under the default name. Please be careful with logs; they often contain your confidential information.:
   Attention ! Ceci aura un impact important sur les performances. De plus, les
-  journaux ne seront pas synchronisés sous le nom par défaut. Soyez prudent
-  avec les journaux ; ils contiennent souvent des informations confidentielles.
-When you save a file in the editor, start a sync automatically: À l'enregistrement d'un fichier dans l'éditeur, démarrer automatiquement une synchronisation
+  journaux ne seront pas synchronisés sous le nom par défaut. Soyez prudent avec
+  les journaux ; ils contiennent souvent des informations confidentielles.
+We can't replicate more lower value.: Impossible de répliquer une valeur inférieure.
+We could not continue the test.: Impossible de poursuivre le test.
+We left some issues as is. Shall I ask you again on next startup?:
+  Nous avons laissé certains problèmes en l'état. Dois-je vous demander à
+  nouveau au prochain démarrage ?
+We recommend enabling End-To-End Encryption, and Path Obfuscation. Are you sure you want to continue without encryption?:
+  Nous recommandons d'activer le chiffrement de bout en bout et l'obfuscation
+  des chemins. Êtes-vous sûr de vouloir continuer sans chiffrement ?
+We strongly recommend to treat this as soon as possible!: Nous recommandons fortement de traiter ceci dès que possible !
+When you save a file in the editor, start a sync automatically:
+  À l'enregistrement d'un fichier dans l'éditeur, démarrer automatiquement une
+  synchronisation
 Write credentials in the file: Écrire les identifiants dans le fichier
 Write logs into the file: Écrire les journaux dans le fichier
+Yes, I have: Oui, j'en ai une
+You cannot enable encryption without a passphrase: Impossible d'activer le chiffrement sans phrase secrète
+Your device does not support encryption.: Votre appareil ne prend pas en charge le chiffrement.
+Your encryption passphrase might be invalid. Are you sure you want to continue?:
+  Votre phrase secrète de chiffrement peut être invalide. Êtes-vous sûr de
+  vouloir continuer ?

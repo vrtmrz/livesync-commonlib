@@ -79,7 +79,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     }
 
     private async _initialiseReplicator() {
-        const message = $msg("Replicator.Message.InitialiseFatalError");
+        const message = $msg("No replicator is available, this is the fatal error.");
         const setting = this.settingService.currentSettings();
         if (!setting) {
             this._activeReplicator = undefined;

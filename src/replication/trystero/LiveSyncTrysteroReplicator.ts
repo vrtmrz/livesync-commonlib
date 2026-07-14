@@ -109,7 +109,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
 
     async open() {
         if (!this.env.services.setting.currentSettings().P2P_Enabled) {
-            Logger($msg("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
+            Logger($msg("%{title_p2p_sync} is not enabled. We cannot open a new connection."), LOG_LEVEL_NOTICE);
             // Nothing to do.
             return;
         }
@@ -242,7 +242,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
 
         await this.makeSureOpened();
         if (!this._replicator) {
-            Logger($msg("P2P.ReplicatorInstanceMissing"), logLevel);
+            Logger($msg("P2P Sync replicator is not found, possibly not have been configured or enabled."), logLevel);
             return false;
         }
         await this._replicator.replicateFromCommand(showResult);
@@ -266,7 +266,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         if (knownPeersOrg.length != 0) {
             knownPeers = knownPeersOrg;
         } else {
-            Logger($msg("P2P.NoKnownPeers"), logLevel);
+            Logger($msg("No peers has been detected, waiting incoming other peers..."), logLevel);
             await Promise.race([delay(5000), eventHub.waitFor(EVENT_ADVERTISEMENT_RECEIVED)]);
             knownPeers = r.server?.knownAdvertisements ?? [];
         }
@@ -323,8 +323,8 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         const logLevel = showingNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
         if (setting.P2P_Enabled == false) {
             const confirm = this.env.services.UI.confirm;
-            if ((await confirm.askYesNoDialog($msg("P2P.DisabledButNeed"), {})) != "yes") {
-                Logger($msg("P2P.NotEnabled"), logLevel);
+            if ((await confirm.askYesNoDialog($msg("%{title_p2p_sync} is disabled. Do you really want to enable it?"), {})) != "yes") {
+                Logger($msg("%{title_p2p_sync} is not enabled. We cannot open a new connection."), logLevel);
             }
             setting.P2P_Enabled = true;
             this.env.services.setting.currentSettings().P2P_Enabled = true;
