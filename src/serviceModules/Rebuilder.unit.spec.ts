@@ -35,6 +35,14 @@ function createRebuilder() {
         info: vi.fn(async () => ({ doc_count: 1 })),
         allDocs: vi.fn(async () => ({ total_rows: 1 })),
     };
+    const activityFinished = vi.fn();
+    const runBoundedRemoteActivity = vi.fn(async (task: () => unknown) => {
+        try {
+            return await task();
+        } finally {
+            activityFinished();
+        }
+    });
     const services = {
         API: {
             addLog: vi.fn(),
@@ -67,20 +75,33 @@ function createRebuilder() {
             openDatabase: vi.fn(async () => undefined),
             localDatabase: { localDatabase: localDB },
         },
-        databaseEvents: {},
+        databaseEvents: {
+            initialiseDatabase: vi.fn(async () => undefined),
+        },
         replicator: {
             getActiveReplicator: vi.fn(() => ({
                 getReplicationPBKDF2Salt: vi.fn(async () => "salt"),
+                tryResetRemoteDatabase: vi.fn(async () => undefined),
             })),
             getNewReplicator: vi.fn(),
+            runBoundedRemoteActivity,
         },
         replication: {
             markResolved: vi.fn(async () => undefined),
+            markLocked: vi.fn(async () => undefined),
+            replicateAllToRemote: vi.fn(async () => true),
+            replicateAllFromRemote: vi.fn(async () => true),
+            onBeforeReplicate: vi.fn(async () => true),
         },
         appLifecycle: {
             markIsReady: vi.fn(),
         },
-        UI: {},
+        UI: {
+            showMarkdownDialog: vi.fn(async () => "OK"),
+            confirm: {
+                askSelectStringDialogue: vi.fn(async () => "Cancel operation"),
+            },
+        },
         remote: {},
         storageAccess: {
             clearTouched: vi.fn(),
@@ -88,15 +109,23 @@ function createRebuilder() {
         vault: {
             scanVault: vi.fn(async () => undefined),
         },
-        fileHandler: {},
+        fileHandler: {
+            createAllChunks: vi.fn(async () => undefined),
+        },
     };
 
-    return { rebuilder: new ServiceRebuilder(services as any), services };
+    return {
+        rebuilder: new ServiceRebuilder(services as any),
+        services,
+        settings,
+        activityFinished,
+        runBoundedRemoteActivity,
+    };
 }
 
 describe("ServiceRebuilder fast fetch retry", () => {
     it("retries from the latest checkpoint after a transient fast fetch failure", async () => {
-        const { rebuilder } = createRebuilder();
+        const { rebuilder, runBoundedRemoteActivity } = createRebuilder();
 
         fetchChangesForInitialSyncMock
             .mockImplementationOnce(async (...args: any[]) => {
@@ -110,5 +139,94 @@ describe("ServiceRebuilder fast fetch retry", () => {
         expect(fetchChangesForInitialSyncMock).toHaveBeenCalledTimes(2);
         expect(fetchChangesForInitialSyncMock.mock.calls[0][4]).toBe("0");
         expect(fetchChangesForInitialSyncMock.mock.calls[1][4]).toBe("10-g1");
+        expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
+            label: "fast-fetch",
+        });
+    });
+
+    it("keeps reflection resumption and checkpoint removal inside a successful fast-fetch activity", async () => {
+        fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
+        const { rebuilder, services, activityFinished } = createRebuilder();
+
+        await rebuilder.$fetchLocalDBFast(true);
+
+        expect(services.vault.scanVault).toHaveBeenCalledWith(true);
+        expect(services.setting.deleteSmallConfig).toHaveBeenCalledWith("fast-fetch-checkpoint");
+        expect(services.vault.scanVault.mock.invocationCallOrder[0]).toBeLessThan(
+            services.setting.deleteSmallConfig.mock.invocationCallOrder[0]
+        );
+        expect(services.setting.deleteSmallConfig.mock.invocationCallOrder[0]).toBeLessThan(
+            activityFinished.mock.invocationCallOrder[0]
+        );
+    });
+});
+
+describe("ServiceRebuilder bounded remote activity", () => {
+    it("protects a remote rebuild but releases the activity before the completion dialogue", async () => {
+        const { rebuilder, services, activityFinished, runBoundedRemoteActivity } = createRebuilder();
+
+        await rebuilder.$rebuildRemote();
+
+        expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
+            label: "rebuild-remote",
+        });
+        expect(services.replication.replicateAllToRemote).toHaveBeenCalledTimes(2);
+        expect(services.replication.replicateAllToRemote.mock.invocationCallOrder[1]).toBeLessThan(
+            activityFinished.mock.invocationCallOrder[0]
+        );
+        expect(activityFinished.mock.invocationCallOrder[0]).toBeLessThan(
+            services.UI.showMarkdownDialog.mock.invocationCallOrder[0]
+        );
+    });
+
+    it("protects rebuilding both databases", async () => {
+        const { rebuilder, services, activityFinished, runBoundedRemoteActivity } = createRebuilder();
+
+        await rebuilder.$rebuildEverything();
+
+        expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
+            label: "rebuild-everything",
+        });
+        expect(services.databaseEvents.initialiseDatabase).toHaveBeenCalled();
+        expect(services.replication.replicateAllToRemote).toHaveBeenCalledTimes(2);
+        expect(services.replication.replicateAllToRemote.mock.invocationCallOrder[1]).toBeLessThan(
+            activityFinished.mock.invocationCallOrder[0]
+        );
+    });
+
+    it("protects a standard remote fetch through reflection resumption", async () => {
+        const { rebuilder, services, activityFinished, runBoundedRemoteActivity } = createRebuilder();
+
+        await rebuilder.$fetchLocal(false, true);
+
+        expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
+            label: "rebuild-fetch",
+        });
+        expect(services.replication.replicateAllFromRemote).toHaveBeenCalledTimes(2);
+        expect(services.vault.scanVault).toHaveBeenCalledWith(true);
+        expect(services.vault.scanVault.mock.invocationCallOrder[0]).toBeLessThan(
+            activityFinished.mock.invocationCallOrder[0]
+        );
+    });
+
+    it("does not start protected activity while waiting for restricted-fetch confirmation", async () => {
+        const { rebuilder, settings, runBoundedRemoteActivity } = createRebuilder();
+        settings.maxMTimeForReflectEvents = Date.now();
+
+        await rebuilder.$fetchLocal(false, true);
+
+        expect(runBoundedRemoteActivity).not.toHaveBeenCalled();
+    });
+
+    it("uses only the standard-fetch activity when fast fetch falls back", async () => {
+        const { rebuilder, settings, runBoundedRemoteActivity } = createRebuilder();
+        settings.remoteType = "MINIO";
+
+        await rebuilder.$fetchLocalDBFast(false);
+
+        expect(runBoundedRemoteActivity).toHaveBeenCalledTimes(1);
+        expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
+            label: "rebuild-fetch",
+        });
     });
 });

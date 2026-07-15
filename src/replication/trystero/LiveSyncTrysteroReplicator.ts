@@ -26,6 +26,7 @@ import {
 } from "./TrysteroReplicatorP2PServer";
 import { $msg } from "@lib/common/i18n";
 import { delay } from "octagonal-wheels/promises";
+import type { AsyncActivityOptions } from "@lib/interfaces/AsyncActivityRunner";
 
 import type { Advertisement } from "./types";
 
@@ -90,6 +91,8 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             get confirm() {
                 return services.API.confirm;
             },
+            runBoundedRemoteActivity: <T>(task: () => T | PromiseLike<T>, options?: AsyncActivityOptions) =>
+                services.replicator.runBoundedRemoteActivity(task, options),
             processReplicatedDocs: async (docs: Parameters<typeof services.replication.parseSynchroniseResult>[0]) => {
                 const settings = services.setting.currentSettings();
                 if (settings.suspendParseReplicationResult) {
@@ -174,17 +177,29 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     }
 
     async replicateFromCommand(showResult: boolean = false) {
-        await this._replicator?.replicateFromCommand(showResult);
+        const replicator = this._replicator;
+        if (!replicator) return;
+        await this.env.services.replicator.runBoundedRemoteActivity(() => replicator.replicateFromCommand(showResult), {
+            label: "replication",
+        });
     }
 
     async replicateFrom(peerId: string, showNotice: boolean = false) {
-        if (!this._replicator) throw new Error("P2P replicator is not open");
-        return await this._replicator.replicateFrom(peerId, showNotice);
+        const replicator = this._replicator;
+        if (!replicator) throw new Error("P2P replicator is not open");
+        return await this.env.services.replicator.runBoundedRemoteActivity(
+            () => replicator.replicateFrom(peerId, showNotice),
+            { label: "replication" }
+        );
     }
 
     async requestSynchroniseToPeer(peerId: string) {
-        if (!this._replicator) throw new Error("P2P replicator is not open");
-        return await this._replicator.requestSynchroniseToPeer(peerId);
+        const replicator = this._replicator;
+        if (!replicator) throw new Error("P2P replicator is not open");
+        return await this.env.services.replicator.runBoundedRemoteActivity(
+            () => replicator.requestSynchroniseToPeer(peerId),
+            { label: "replication" }
+        );
     }
 
     async getRemoteConfig(peerId: string) {

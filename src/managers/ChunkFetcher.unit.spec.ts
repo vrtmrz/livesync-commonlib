@@ -18,6 +18,7 @@ describe("ChunkFetcher", () => {
     let mockChunkManager: Partial<ChunkManager>;
     let mockSettingService: Partial<ISettingService>;
     let mockReplicatorService: Partial<IReplicatorService> & { getActiveReplicator: ReturnType<typeof vi.fn> };
+    let runBoundedRemoteActivity: ReturnType<typeof vi.fn>;
     let eventListeners: Map<string, ((...args: any[]) => void)[]>;
 
     beforeEach(() => {
@@ -53,8 +54,10 @@ describe("ChunkFetcher", () => {
         } as any;
 
         // Mock ReplicatorService
+        runBoundedRemoteActivity = vi.fn(async (task: () => unknown) => await task());
         mockReplicatorService = {
             getActiveReplicator: vi.fn(),
+            runBoundedRemoteActivity,
         } as any;
 
         const options: ChunkFetcherOptions = {
@@ -191,6 +194,21 @@ describe("ChunkFetcher", () => {
 
             expect(mockReplicatorService.getActiveReplicator).toHaveBeenCalled();
             expect(mockReplicator.fetchRemoteChunks).toHaveBeenCalledWith(["chunk-1"], false);
+        });
+
+        it("should run each remote chunk request through the bounded remote activity boundary", async () => {
+            const mockReplicator = {
+                fetchRemoteChunks: vi.fn().mockResolvedValue([createMockLeaf("chunk-1")]),
+            };
+            mockReplicatorService.getActiveReplicator.mockReturnValue(mockReplicator as any);
+            chunkFetcher.queue = ["chunk-1" as DocumentID];
+
+            await chunkFetcher.requestMissingChunks();
+
+            expect(runBoundedRemoteActivity).toHaveBeenCalledOnce();
+            expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
+                label: "chunk-fetch",
+            });
         });
 
         it("should handle no active replicator", async () => {

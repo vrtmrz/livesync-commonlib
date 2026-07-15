@@ -121,6 +121,13 @@ Please enable them from the settings screen after setup is complete.`,
     }
 
     async rebuildRemote() {
+        await this.replicator.runBoundedRemoteActivity(() => this.performRemoteRebuild(), {
+            label: "rebuild-remote",
+        });
+        await this.informOptionalFeatures();
+    }
+
+    private async performRemoteRebuild() {
         await this.setting.suspendExtraSync();
         await this.setting.applyPartial({
             isConfigured: true,
@@ -138,13 +145,19 @@ Please enable them from the settings screen after setup is complete.`,
         await this.replication.replicateAllToRemote(true);
         await delay(1000);
         await this.replication.replicateAllToRemote(true, true);
-        await this.informOptionalFeatures();
     }
     $rebuildRemote(): Promise<void> {
         return this.rebuildRemote();
     }
 
     async rebuildEverything() {
+        await this.replicator.runBoundedRemoteActivity(() => this.performRebuildEverything(), {
+            label: "rebuild-everything",
+        });
+        await this.informOptionalFeatures();
+    }
+
+    private async performRebuildEverything() {
         await this.setting.suspendExtraSync();
         // await this.askUseNewAdapter();
         await this.setting.applyPartial({
@@ -165,7 +178,6 @@ Please enable them from the settings screen after setup is complete.`,
         await this.replication.replicateAllToRemote(true);
         await delay(1000);
         await this.replication.replicateAllToRemote(true, true);
-        await this.informOptionalFeatures();
     }
 
     $rebuildEverything(): Promise<void> {
@@ -298,6 +310,17 @@ Are you sure you wish to proceed?`;
                 return;
             }
         }
+        await this.replicator.runBoundedRemoteActivity(
+            () => this.performFetchLocal(makeLocalChunkBeforeSync, preventMakeLocalFilesBeforeSync, autoResume),
+            { label: "rebuild-fetch" }
+        );
+    }
+
+    private async performFetchLocal(
+        makeLocalChunkBeforeSync?: boolean,
+        preventMakeLocalFilesBeforeSync?: boolean,
+        autoResume = true
+    ) {
         // If autoResume is disabled, do not suspend reflection even for Minio.
         await this.suspendReflectingDatabase(!autoResume);
         await this.control.applySettings();
@@ -342,6 +365,12 @@ Are you sure you wish to proceed?`;
             return;
         }
 
+        await this.replicator.runBoundedRemoteActivity(() => this.performFetchLocalDBFast(settings, autoResume), {
+            label: "fast-fetch",
+        });
+    }
+
+    private async performFetchLocalDBFast(settings: ReturnType<SettingService["currentSettings"]>, autoResume: boolean) {
         const remote =
             settings.couchDB_URI.replace(/\/+$/, "") +
             (settings.couchDB_DBNAME == "" ? "" : "/" + settings.couchDB_DBNAME);

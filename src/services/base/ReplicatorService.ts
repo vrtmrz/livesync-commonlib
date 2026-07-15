@@ -13,11 +13,17 @@ import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { RemoteTypes } from "@lib/common/types";
 import { DEFAULT_REPLICATION_STATICS } from "@lib/common/models/shared.definition";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
+import {
+    runWithOptionalActivity,
+    type AsyncActivityOptions,
+    type AsyncActivityRunner,
+} from "@lib/interfaces/AsyncActivityRunner.ts";
 
 export interface ReplicatorServiceDependencies {
     settingService: SettingService;
     appLifecycleService: AppLifecycleService;
     databaseEventService: DatabaseEventService;
+    activityRunner?: AsyncActivityRunner;
 }
 /**
  * The ReplicatorService provides methods for managing replication.
@@ -26,6 +32,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     extends ServiceBase<T>
     implements IReplicatorService
 {
+    readonly boundedRemoteActivityCount = reactiveSource(0);
     _log = createInstanceLogFunction("ReplicatorService");
 
     private settingService: SettingService;
@@ -49,6 +56,22 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         this.databaseEventService.onDatabaseInitialised.addHandler(this.reinitialiseReplicator.bind(this));
         this.databaseEventService.onDatabaseHasReady.addHandler(this.reinitialiseReplicator.bind(this));
         this.appLifecycleService.onSuspending.addHandler(this.suspendReplication.bind(this));
+    }
+
+    /**
+     * Runs one finite remote operation while exposing its lifetime to host policy and status UI.
+     * Continuous replication must not use this boundary.
+     */
+    async runBoundedRemoteActivity<TValue>(
+        task: () => TValue | PromiseLike<TValue>,
+        options?: AsyncActivityOptions
+    ): Promise<TValue> {
+        this.boundedRemoteActivityCount.value++;
+        try {
+            return await runWithOptionalActivity(this.dependencies.activityRunner, task, options);
+        } finally {
+            this.boundedRemoteActivityCount.value--;
+        }
     }
 
     private suspendReplication() {
