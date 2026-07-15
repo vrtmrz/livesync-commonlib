@@ -305,9 +305,10 @@ describe("LayeredChunkManager Integration Tests", () => {
 
         it("should handle chunk arrival events", async () => {
             const chunk = createMockLeaf("chunk-1");
+            const claim = chunkManager.deliveryCoordinator.claim([chunk._id], { stallTimeoutMs: 0 });
 
-            // Start reading (will wait for arrival)
-            const promise = chunkManager.read(["chunk-1" as DocumentID], { timeout: 1000 });
+            // Start reading while an observable producer owns the chunk.
+            const promise = chunkManager.read([chunk._id], { waitForDelivery: true });
 
             // Simulate chunk arrival via change event after a small delay
             setTimeout(() => {
@@ -329,19 +330,29 @@ describe("LayeredChunkManager Integration Tests", () => {
             expect(results).toHaveLength(1);
             expect(results[0]).not.toBe(false);
             expect((results[0] as EntryLeaf)._id).toBe("chunk-1");
+            claim.release();
         });
 
         it("should handle EVENT_MISSING_CHUNK_REMOTE", async () => {
-            // Start reading (will wait for arrival)
-            const promise = chunkManager.read(["chunk-1" as DocumentID], { timeout: 1000 });
+            const id = "chunk-1" as DocumentID;
+            const claim = chunkManager.deliveryCoordinator.claim([id], { stallTimeoutMs: 0 });
+            let resolveRequest!: () => void;
+            const requestDispatched = new Promise<void>((resolve) => {
+                resolveRequest = resolve;
+            });
+            const stopObservingRequest = chunkManager.addListener(EVENT_MISSING_CHUNKS, () => resolveRequest());
+            const promise = chunkManager.read([id], { waitForDelivery: true });
 
             // Emit missing chunk remote event
-            chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, "chunk-1" as DocumentID);
+            await requestDispatched;
+            chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, id);
 
             const results = await promise;
 
             expect(results).toHaveLength(1);
             expect(results[0]).toBe(false); // Should resolve to false
+            stopObservingRequest();
+            claim.release();
         });
 
         it("should remove event listeners via returned cleanup function", () => {
@@ -465,9 +476,10 @@ describe("LayeredChunkManager Integration Tests", () => {
 
         it("should handle chunk arrival during read wait", async () => {
             const chunk = createMockLeaf("chunk-1");
+            const claim = chunkManager.deliveryCoordinator.claim([chunk._id], { stallTimeoutMs: 0 });
 
-            // Start reading (will wait)
-            const readPromise = chunkManager.read(["chunk-1" as DocumentID], { timeout: 1000 });
+            // Start reading while an observable producer owns the chunk.
+            const readPromise = chunkManager.read([chunk._id], { waitForDelivery: true });
 
             // Simulate chunk arrival after a short delay
             setTimeout(() => {
@@ -487,6 +499,7 @@ describe("LayeredChunkManager Integration Tests", () => {
             expect(results).toHaveLength(1);
             expect(results[0]).not.toBe(false);
             expect((results[0] as EntryLeaf)._id).toBe("chunk-1");
+            claim.release();
         });
     });
 });

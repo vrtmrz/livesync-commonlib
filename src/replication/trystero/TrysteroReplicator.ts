@@ -108,9 +108,9 @@ export class TrysteroReplicator {
         return this._env.confirm;
     }
 
-    private async runBoundedRemoteActivity<T>(task: () => T | PromiseLike<T>): Promise<T> {
-        if (this._env.runBoundedRemoteActivity) {
-            return await this._env.runBoundedRemoteActivity(task, { label: "replication" });
+    private async runFiniteReplicationActivity<T>(task: () => T | PromiseLike<T>): Promise<T> {
+        if (this._env.runFiniteReplicationActivity) {
+            return await this._env.runFiniteReplicationActivity(task, { label: "replication" });
         }
         return await task();
     }
@@ -184,7 +184,7 @@ export class TrysteroReplicator {
     async onNewPeer(peer: Advertisement) {
         const peerName = peer.name;
         if (this.autoSyncPeers.some((e) => e.test(peerName))) {
-            await this.runBoundedRemoteActivity(() => this.sync(peer.peerId));
+            await this.runFiniteReplicationActivity(() => this.sync(peer.peerId));
         }
         if (this.autoWatchPeers.some((e) => e.test(peerName))) {
             this.watchPeer(peer.peerId);
@@ -225,7 +225,7 @@ export class TrysteroReplicator {
                 if (this._onSetup) {
                     return { error: new Error("The setup is in progress") };
                 }
-                const result = await this.runBoundedRemoteActivity(() => this.replicateFrom(fromPeerId));
+                const result = await this.runFiniteReplicationActivity(() => this.replicateFrom(fromPeerId));
                 return result;
             },
             "!reqAuth": async (fromPeerId: string) => {
@@ -671,7 +671,7 @@ export class TrysteroReplicator {
         if (this._watchingPeers.has(fromPeerId)) {
             Logger(`Progress notification from ${fromPeerId}`, LOG_LEVEL_VERBOSE);
             return await serialized(`onProgress-${fromPeerId}`, async () => {
-                return await this.runBoundedRemoteActivity(() => this.replicateFrom(fromPeerId));
+                return await this.runFiniteReplicationActivity(() => this.replicateFrom(fromPeerId));
             });
         }
         return false;

@@ -1,12 +1,14 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
-import { ArrivalWaitLayer } from "./ArrivalWaitLayer";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import type { DocumentID, EntryLeaf } from "@lib/common/types";
+import { ChunkDeliveryCoordinator, type ChunkDeliveryClaim } from "@lib/managers/ChunkDeliveryCoordinator";
+import { ArrivalWaitLayer } from "./ArrivalWaitLayer";
 
 function createMockLeaf(id: string, data: string = `data-${id}`): EntryLeaf {
     return {
         _id: id as DocumentID,
-        type: "leaf" as any,
-        data: data,
+        data,
+        type: "leaf",
     } as EntryLeaf;
 }
 
@@ -19,310 +21,244 @@ describe("ArrivalWaitLayer", () => {
         arrivalWaitLayer = new ArrivalWaitLayer(eventEmitter);
     });
 
-    it("should initialise with event emitter", () => {
-        expect(arrivalWaitLayer).toBeDefined();
+    it("initialises without a waiter", () => {
         expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
     });
 
-    it("should return false for empty ids array", async () => {
-        const nextFn = vi.fn();
-        const result = await arrivalWaitLayer.read([], {}, nextFn);
-
-        expect(result).toEqual([]);
-        expect(eventEmitter).not.toHaveBeenCalled();
-        expect(nextFn).not.toHaveBeenCalled();
-    });
-
-    it("should return false immediately when timeout is 0", async () => {
-        const ids = ["chunk-1" as DocumentID, "chunk-2" as DocumentID];
-        const nextFn = vi.fn();
-
-        const result = await arrivalWaitLayer.read(ids, { timeout: 0 }, nextFn);
-
-        expect(result).toEqual([false, false]);
-        expect(eventEmitter).not.toHaveBeenCalled();
-        expect(nextFn).not.toHaveBeenCalled();
-    });
-
-    it("should return false immediately when timeout is negative", async () => {
-        const ids = ["chunk-1" as DocumentID];
-        const nextFn = vi.fn();
-
-        const result = await arrivalWaitLayer.read(ids, { timeout: -1 }, nextFn);
-
-        expect(result).toEqual([false]);
+    it("returns immediately for an empty identifier list", async () => {
+        await expect(arrivalWaitLayer.read([], {}, vi.fn())).resolves.toEqual([]);
         expect(eventEmitter).not.toHaveBeenCalled();
     });
 
-    it("should emit missingChunks event when preventRemoteRequest is not set", async () => {
-        const ids = ["chunk-1" as DocumentID, "chunk-2" as DocumentID];
-        const nextFn = vi.fn();
+    it.each([{ waitForDelivery: false }, { timeout: 0 }, { timeout: -1 }])(
+        "returns immediately when delivery waiting is disabled by $waitForDelivery$timeout",
+        async (options) => {
+            await expect(arrivalWaitLayer.read(["chunk-1" as DocumentID], options, vi.fn())).resolves.toEqual([false]);
+            expect(eventEmitter).not.toHaveBeenCalled();
+        }
+    );
 
-        // Start waiting (do not await yet)
-        const promise = arrivalWaitLayer.read(ids, { timeout: 100 }, nextFn);
+    it.each([{}, { waitForDelivery: true }, { timeout: 1 }, { timeout: 60_000 }])(
+        "does not guess an arrival delay when no producer is observable with $timeout",
+        async (options) => {
+            const id = "chunk-1" as DocumentID;
 
-        // Event should be emitted immediately
-        expect(eventEmitter).toHaveBeenCalledWith("missingChunks", ids);
+            await expect(arrivalWaitLayer.read([id], options, vi.fn())).resolves.toEqual([false]);
 
-        // Clean up
-        await promise;
-    });
+            expect(eventEmitter).toHaveBeenCalledWith("missingChunks", [id]);
+            expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
+        }
+    );
 
-    it("should not emit missingChunks event when preventRemoteRequest is true", async () => {
-        const ids = ["chunk-1" as DocumentID];
-        const nextFn = vi.fn();
-
-        const promise = arrivalWaitLayer.read(ids, { timeout: 100, preventRemoteRequest: true }, nextFn);
+    it("does not dispatch a remote request when prevented", async () => {
+        await expect(
+            arrivalWaitLayer.read(
+                ["chunk-1" as DocumentID],
+                { preventRemoteRequest: true, waitForDelivery: true },
+                vi.fn()
+            )
+        ).resolves.toEqual([false]);
 
         expect(eventEmitter).not.toHaveBeenCalled();
-
-        // Clean up
-        await promise;
     });
 
-    it("should resolve with chunk when onChunkArrived is called", async () => {
-        const ids = ["chunk-1" as DocumentID];
-        const chunk = createMockLeaf("chunk-1");
-        const nextFn = vi.fn();
-
-        const promise = arrivalWaitLayer.read(ids, { timeout: 5000 }, nextFn);
-
-        // Simulate chunk arrival
-        arrivalWaitLayer.onChunkArrived(chunk);
-
-        const result = await promise;
-
-        expect(result).toEqual([chunk]);
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
-    });
-
-    it("should resolve with false when onChunkArrived is called with deleted chunk", async () => {
-        const ids = ["chunk-1" as DocumentID];
-        const chunk = {
-            ...createMockLeaf("chunk-1"),
-            _deleted: true,
-        };
-        const nextFn = vi.fn();
-
-        const promise = arrivalWaitLayer.read(ids, { timeout: 5000 }, nextFn);
-
-        // Simulate deleted chunk arrival
-        arrivalWaitLayer.onChunkArrived(chunk as EntryLeaf);
-
-        const result = await promise;
-
-        expect(result).toEqual([false]);
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
-    });
-
-    it("should resolve with false when onChunkArrived is called with deleted=true parameter", async () => {
-        const ids = ["chunk-1" as DocumentID];
-        const chunk = createMockLeaf("chunk-1");
-        const nextFn = vi.fn();
-
-        const promise = arrivalWaitLayer.read(ids, { timeout: 5000 }, nextFn);
-
-        // Simulate chunk arrival with deleted parameter
-        arrivalWaitLayer.onChunkArrived(chunk, true);
-
-        const result = await promise;
-
-        expect(result).toEqual([false]);
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
-    });
-
-    it("should resolve with false when onMissingChunk is called", async () => {
-        const ids = ["chunk-1" as DocumentID];
-        const nextFn = vi.fn();
-
-        const promise = arrivalWaitLayer.read(ids, { timeout: 5000 }, nextFn);
-
-        // Simulate missing chunk notification
-        arrivalWaitLayer.onMissingChunk("chunk-1" as DocumentID);
-
-        const result = await promise;
-
-        expect(result).toEqual([false]);
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
-    });
-
-    it("should timeout and return false after default timeout", async () => {
+    it("waits for a synchronously claimed on-demand delivery without a wall-clock deadline", async () => {
         vi.useFakeTimers();
-        const ids = ["chunk-1" as DocumentID];
-        const nextFn = vi.fn();
+        const coordinator = new ChunkDeliveryCoordinator();
+        let claim!: ChunkDeliveryClaim;
+        eventEmitter = vi.fn((_event: string, ids: DocumentID[]) => {
+            claim = coordinator.claim(ids, { stallTimeoutMs: 0 });
+        });
+        arrivalWaitLayer.tearDown();
+        arrivalWaitLayer = new ArrivalWaitLayer(eventEmitter, coordinator);
+        let settled = false;
 
-        const promise = arrivalWaitLayer.read(ids, { timeout: 100 }, nextFn);
+        const promise = arrivalWaitLayer.read(["chunk-1" as DocumentID], { waitForDelivery: true }, vi.fn());
+        void promise.then(() => {
+            settled = true;
+        });
+        await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
+        expect(settled).toBe(false);
 
-        await vi.advanceTimersByTimeAsync(100);
-
-        const result = await promise;
-
-        expect(result).toEqual([false]);
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
+        claim.release();
+        await expect(promise).resolves.toEqual([false]);
+        coordinator.dispose();
         vi.useRealTimers();
     });
 
-    it("should handle multiple chunks waiting simultaneously", async () => {
-        const ids = ["chunk-1" as DocumentID, "chunk-2" as DocumentID, "chunk-3" as DocumentID];
-        const chunk1 = createMockLeaf("chunk-1");
-        const chunk3 = createMockLeaf("chunk-3");
-        const nextFn = vi.fn();
-
-        const promise = arrivalWaitLayer.read(ids, { timeout: 5000 }, nextFn);
-
-        // Check waiting count
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(3);
-
-        // Resolve chunk-1 and chunk-3, let chunk-2 time out
-        arrivalWaitLayer.onChunkArrived(chunk1);
-        arrivalWaitLayer.onMissingChunk("chunk-2" as DocumentID);
-        arrivalWaitLayer.onChunkArrived(chunk3);
-
-        const result = await promise;
-
-        expect(result).toEqual([chunk1, false, chunk3]);
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
-    });
-
-    it("should reuse existing promise for duplicate id requests", async () => {
-        const id = "chunk-1" as DocumentID;
+    it("resolves with a chunk delivered by an active claim", async () => {
+        const coordinator = new ChunkDeliveryCoordinator();
+        let claim!: ChunkDeliveryClaim;
+        eventEmitter = vi.fn((_event: string, ids: DocumentID[]) => {
+            claim = coordinator.claim(ids, { stallTimeoutMs: 0 });
+        });
+        arrivalWaitLayer.tearDown();
+        arrivalWaitLayer = new ArrivalWaitLayer(eventEmitter, coordinator);
         const chunk = createMockLeaf("chunk-1");
-        const nextFn = vi.fn();
 
-        // Start first request
-        const promise1 = arrivalWaitLayer.read([id], { timeout: 5000 }, nextFn);
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(1);
-
-        // Start second request for the same id
-        const promise2 = arrivalWaitLayer.read([id], { timeout: 5000 }, nextFn);
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(1); // Should still be 1
-
-        // Resolve the chunk
+        const promise = arrivalWaitLayer.read([chunk._id], { waitForDelivery: true }, vi.fn());
         arrivalWaitLayer.onChunkArrived(chunk);
 
-        const result1 = await promise1;
-        const result2 = await promise2;
-
-        expect(result1).toEqual([chunk]);
-        expect(result2).toEqual([chunk]);
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
+        await expect(promise).resolves.toEqual([chunk]);
+        claim.release();
+        coordinator.dispose();
     });
 
-    it("should clear all waiting requests", async () => {
-        const ids = ["chunk-1" as DocumentID, "chunk-2" as DocumentID];
-        const nextFn = vi.fn();
+    it("resolves explicit remote absence while other activity remains", async () => {
+        const coordinator = new ChunkDeliveryCoordinator();
+        let claim!: ChunkDeliveryClaim;
+        eventEmitter = vi.fn((_event: string, ids: DocumentID[]) => {
+            claim = coordinator.claim(ids, { stallTimeoutMs: 0 });
+        });
+        arrivalWaitLayer.tearDown();
+        arrivalWaitLayer = new ArrivalWaitLayer(eventEmitter, coordinator);
+        const id = "chunk-1" as DocumentID;
 
-        // Start waiting with long timeout
-        const promise = arrivalWaitLayer.read(ids, { timeout: 5000 }, nextFn);
+        const promise = arrivalWaitLayer.read([id], { waitForDelivery: true }, vi.fn());
+        arrivalWaitLayer.onMissingChunk(id);
 
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(2);
+        await expect(promise).resolves.toEqual([false]);
+        claim.release();
+        coordinator.dispose();
+    });
 
-        // Clear waiting - should resolve all promises immediately
+    it("treats a deleted chunk arrival as unavailable", async () => {
+        const coordinator = new ChunkDeliveryCoordinator();
+        let claim!: ChunkDeliveryClaim;
+        eventEmitter = vi.fn((_event: string, ids: DocumentID[]) => {
+            claim = coordinator.claim(ids, { stallTimeoutMs: 0 });
+        });
+        arrivalWaitLayer.tearDown();
+        arrivalWaitLayer = new ArrivalWaitLayer(eventEmitter, coordinator);
+        const chunk = createMockLeaf("chunk-1");
+
+        const promise = arrivalWaitLayer.read([chunk._id], { waitForDelivery: true }, vi.fn());
+        arrivalWaitLayer.onChunkArrived(chunk, true);
+
+        await expect(promise).resolves.toEqual([false]);
+        claim.release();
+        coordinator.dispose();
+    });
+
+    it("rechecks local availability when observed finite replication completes", async () => {
+        const finiteActivity = reactiveSource(1);
+        const coordinator = new ChunkDeliveryCoordinator(finiteActivity);
+        const chunk = createMockLeaf("chunk-1");
+        const recheckAvailability = vi.fn().mockResolvedValue([chunk]);
+        arrivalWaitLayer.tearDown();
+        arrivalWaitLayer = new ArrivalWaitLayer(eventEmitter, coordinator, recheckAvailability);
+
+        const promise = arrivalWaitLayer.read(
+            [chunk._id],
+            { preventRemoteRequest: true, waitForDelivery: true },
+            vi.fn()
+        );
+        finiteActivity.value = 0;
+
+        await expect(promise).resolves.toEqual([chunk]);
+        expect(recheckAvailability).toHaveBeenCalledWith([chunk._id]);
+        coordinator.dispose();
+    });
+
+    it("settles unavailable after a finite producer completes and the local recheck misses", async () => {
+        const finiteActivity = reactiveSource(1);
+        const coordinator = new ChunkDeliveryCoordinator(finiteActivity);
+        const recheckAvailability = vi.fn().mockResolvedValue([false]);
+        arrivalWaitLayer.tearDown();
+        arrivalWaitLayer = new ArrivalWaitLayer(eventEmitter, coordinator, recheckAvailability);
+        const id = "chunk-1" as DocumentID;
+
+        const promise = arrivalWaitLayer.read([id], { preventRemoteRequest: true, waitForDelivery: true }, vi.fn());
+        finiteActivity.value = 0;
+
+        await expect(promise).resolves.toEqual([false]);
+        expect(recheckAvailability).toHaveBeenCalledWith([id]);
+        coordinator.dispose();
+    });
+
+    it("discards a stale recheck when finite replication starts again", async () => {
+        const finiteActivity = reactiveSource(1);
+        const coordinator = new ChunkDeliveryCoordinator(finiteActivity);
+        const chunk = createMockLeaf("chunk-1");
+        let resolveFirstRecheck!: (value: readonly (EntryLeaf | false)[]) => void;
+        const firstRecheck = new Promise<readonly (EntryLeaf | false)[]>((resolve) => {
+            resolveFirstRecheck = resolve;
+        });
+        const recheckAvailability = vi
+            .fn()
+            .mockImplementationOnce(() => firstRecheck)
+            .mockResolvedValueOnce([chunk]);
+        arrivalWaitLayer.tearDown();
+        arrivalWaitLayer = new ArrivalWaitLayer(eventEmitter, coordinator, recheckAvailability);
+        let settled = false;
+
+        const promise = arrivalWaitLayer.read(
+            [chunk._id],
+            { preventRemoteRequest: true, waitForDelivery: true },
+            vi.fn()
+        );
+        void promise.then(() => {
+            settled = true;
+        });
+        finiteActivity.value = 0;
+        await vi.waitFor(() => expect(recheckAvailability).toHaveBeenCalledOnce());
+
+        finiteActivity.value = 1;
+        resolveFirstRecheck([false]);
+        await Promise.resolve();
+        expect(settled).toBe(false);
+
+        finiteActivity.value = 0;
+        await expect(promise).resolves.toEqual([chunk]);
+        expect(recheckAvailability).toHaveBeenCalledTimes(2);
+        coordinator.dispose();
+    });
+
+    it("shares one waiter for concurrent reads of the same identifier", async () => {
+        const coordinator = new ChunkDeliveryCoordinator();
+        let claim: ChunkDeliveryClaim | undefined;
+        eventEmitter = vi.fn((_event: string, ids: DocumentID[]) => {
+            claim ??= coordinator.claim(ids, { stallTimeoutMs: 0 });
+        });
+        arrivalWaitLayer.tearDown();
+        arrivalWaitLayer = new ArrivalWaitLayer(eventEmitter, coordinator);
+        const chunk = createMockLeaf("chunk-1");
+
+        const first = arrivalWaitLayer.read([chunk._id], { waitForDelivery: true }, vi.fn());
+        const second = arrivalWaitLayer.read([chunk._id], { waitForDelivery: true }, vi.fn());
+        expect(arrivalWaitLayer.getWaitingCount()).toBe(1);
+
+        arrivalWaitLayer.onChunkArrived(chunk);
+        await expect(first).resolves.toEqual([chunk]);
+        await expect(second).resolves.toEqual([chunk]);
+        claim?.release();
+        coordinator.dispose();
+    });
+
+    it("clears every pending waiter during teardown", async () => {
+        const coordinator = new ChunkDeliveryCoordinator();
+        let claim!: ChunkDeliveryClaim;
+        eventEmitter = vi.fn((_event: string, ids: DocumentID[]) => {
+            claim = coordinator.claim(ids, { stallTimeoutMs: 0 });
+        });
+        arrivalWaitLayer.tearDown();
+        arrivalWaitLayer = new ArrivalWaitLayer(eventEmitter, coordinator);
+
+        const promise = arrivalWaitLayer.read(
+            ["chunk-1" as DocumentID, "chunk-2" as DocumentID],
+            { waitForDelivery: true },
+            vi.fn()
+        );
         arrivalWaitLayer.clearWaiting();
 
+        await expect(promise).resolves.toEqual([false, false]);
         expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
-
-        // The promises should resolve immediately with false
-        const result = await promise;
-        expect(result).toEqual([false, false]);
+        claim.release();
+        coordinator.dispose();
     });
 
-    it("should handle onChunkArrived for non-waiting chunk gracefully", () => {
-        const chunk = createMockLeaf("chunk-1");
-
-        // Call onChunkArrived without any waiting request
-        expect(() => {
-            arrivalWaitLayer.onChunkArrived(chunk);
-        }).not.toThrow();
-
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
-    });
-
-    it("should handle onMissingChunk for non-waiting chunk gracefully", () => {
-        // Call onMissingChunk without any waiting request
-        expect(() => {
-            arrivalWaitLayer.onMissingChunk("chunk-1" as DocumentID);
-        }).not.toThrow();
-
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
-    });
-
-    it("should use default timeout when timeout option is not provided", async () => {
-        const ids = ["chunk-1" as DocumentID];
-        const nextFn = vi.fn();
-
-        // Start waiting without timeout option (should use default 15000ms)
-        const promise = arrivalWaitLayer.read(ids, {}, nextFn);
-
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(1);
-
-        // Resolve immediately to avoid waiting for default timeout
-        arrivalWaitLayer.onMissingChunk("chunk-1" as DocumentID);
-
-        const result = await promise;
-        expect(result).toEqual([false]);
-    });
-
-    it("should handle chunk arrival before read completion", async () => {
-        const ids = ["chunk-1" as DocumentID];
-        const chunk = createMockLeaf("chunk-1");
-        const nextFn = vi.fn();
-
-        const promise = arrivalWaitLayer.read(ids, { timeout: 5000 }, nextFn);
-
-        // Arrive chunk almost immediately
-        setTimeout(() => {
-            arrivalWaitLayer.onChunkArrived(chunk);
-        }, 10);
-
-        const result = await promise;
-
-        expect(result).toEqual([chunk]);
-    });
-
-    it("should maintain correct waiting count during concurrent operations", async () => {
-        const nextFn = vi.fn();
-
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
-
-        // Start first request
-        const promise1 = arrivalWaitLayer.read(["chunk-1" as DocumentID], { timeout: 5000 }, nextFn);
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(1);
-
-        // Start second request
-        const promise2 = arrivalWaitLayer.read(["chunk-2" as DocumentID], { timeout: 5000 }, nextFn);
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(2);
-
-        // Resolve first
-        arrivalWaitLayer.onMissingChunk("chunk-1" as DocumentID);
-        await promise1;
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(1);
-
-        // Resolve second
-        arrivalWaitLayer.onMissingChunk("chunk-2" as DocumentID);
-        await promise2;
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
-    });
-
-    it("should handle timeout cleanup correctly", async () => {
-        const ids = ["chunk-1" as DocumentID];
-        const chunk = createMockLeaf("chunk-1");
-        const nextFn = vi.fn();
-
-        // Set a timeout and resolve before it expires
-        const promise = arrivalWaitLayer.read(ids, { timeout: 1000 }, nextFn);
-
-        // Resolve immediately
-        arrivalWaitLayer.onChunkArrived(chunk);
-
-        const result = await promise;
-
-        expect(result).toEqual([chunk]);
-
-        // Wait a bit to ensure timeout was cleared
-        await new Promise((resolve) => setTimeout(resolve, 100));
-
-        // Waiting count should still be 0
-        expect(arrivalWaitLayer.getWaitingCount()).toBe(0);
+    it("handles terminal events for identifiers without waiters", () => {
+        expect(() => arrivalWaitLayer.onChunkArrived(createMockLeaf("chunk-1"))).not.toThrow();
+        expect(() => arrivalWaitLayer.onMissingChunk("chunk-1" as DocumentID)).not.toThrow();
     });
 });

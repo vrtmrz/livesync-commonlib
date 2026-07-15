@@ -95,6 +95,7 @@ export class LiveSyncManagers {
             changeManager: changeManager,
             database,
             settingService: this.options.settingService,
+            finiteReplicationActivity: this.options.replicatorService.finiteReplicationActivityCount,
         });
         const chunkFetcher = new ChunkFetcher({
             chunkManager: chunkManager,

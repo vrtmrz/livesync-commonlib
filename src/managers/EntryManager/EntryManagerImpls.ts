@@ -16,9 +16,6 @@ import {
     REMOTE_COUCHDB,
     type ObsidianLiveSyncSettings,
     type MetaEntry,
-    LEAF_WAIT_ONLY_REMOTE,
-    LEAF_WAIT_TIMEOUT,
-    LEAF_WAIT_TIMEOUT_SEQUENTIAL_REPLICATOR,
     RemoteTypes,
     type NoteEntry,
 } from "@lib/common/types";
@@ -395,36 +392,29 @@ function canFetchRemotely(settings: ObsidianLiveSyncSettings) {
 }
 /**
  * Decide how to retrieve chunks based on settings and waitForReady flag.
- * When waitForReady is true, it will wait for a certain time to retrieve chunks from the remote source if they are not available locally, depending on the settings.
+ * `waitForReady` allows an already-observable finite delivery lifecycle to finish.
  */
-function computeChunkRetrievalMethod(waitForReady: boolean, settings: ObsidianLiveSyncSettings) {
+export function computeChunkRetrievalMethod(waitForReady: boolean, settings: ObsidianLiveSyncSettings) {
     const isOnDemandFetchEnabled = canFetchRemotely(settings);
-    const isSequentialReplicator = settings.remoteType === RemoteTypes.REMOTE_MINIO;
     if (!waitForReady) {
-        // if waitForReady=false, basically, we should respond immediately.
-        // However, while on-demand chunking is enabled, we do not have chunks on local database until they are fetched from the remote source.
+        // Normally this requests an immediate local result. CouchDB on-demand
+        // delivery is the exception because synchronous dispatch creates a
+        // producer claim which has a meaningful completion boundary.
         if (isOnDemandFetchEnabled) {
             return {
-                timeout: LEAF_WAIT_ONLY_REMOTE,
+                waitForDelivery: true,
                 preventRemoteRequest: false,
             };
         }
         return {
-            timeout: 0,
+            waitForDelivery: false,
             preventRemoteRequest: true,
         };
     }
-    // if waitForReady=true, we can wait for a certain time to retrieve chunks from the remote source if they are not available locally, depending on the settings.
-    if (isSequentialReplicator) {
-        // if sequential replicator is used, we can wait longer because chunks will be corrected incrementally, so the chance to get chunks from local database will increase over time while waiting.
-        return {
-            timeout: LEAF_WAIT_TIMEOUT_SEQUENTIAL_REPLICATOR,
-            preventRemoteRequest: true, // Sequential replicator may not use on-demand fetching
-        };
-    }
-    // on-demand fetch behaviour.
+    // Wait only for an already-observable finite replication, or for the
+    // per-identifier claim created by CouchDB on-demand fetching.
     return {
-        timeout: LEAF_WAIT_TIMEOUT,
+        waitForDelivery: true,
         preventRemoteRequest: !isOnDemandFetchEnabled,
     };
 }
@@ -469,24 +459,14 @@ async function respondEntryFromMeta(
             edenChunks = Object.fromEntries(chunks.map((e) => [e._id, e]));
         }
 
-        // const isChunksCorrectedIncrementally = settings.remoteType !== RemoteTypes.REMOTE_MINIO;
-        // const isNetworkEnabled = isOnDemandChunkEnabled(settings)
-        //     && settings.remoteType !== RemoteTypes.REMOTE_MINIO;
-        // const timeout = waitForReady
-        //     ? isChunksCorrectedIncrementally
-        //         ? LEAF_WAIT_TIMEOUT
-        //         : LEAF_WAIT_TIMEOUT_SEQUENTIAL_REPLICATOR
-        //     : isNetworkEnabled
-        //         ? LEAF_WAIT_ONLY_REMOTE
-        //         : 0;
-        const { timeout, preventRemoteRequest } = computeChunkRetrievalMethod(waitForReady, settings);
+        const { waitForDelivery, preventRemoteRequest } = computeChunkRetrievalMethod(waitForReady, settings);
 
         const childrenKeys = [...meta.children] as DocumentID[];
         const chunks = await chunkManager.read(
             childrenKeys,
             {
                 skipCache: false,
-                timeout: timeout,
+                waitForDelivery,
                 preventRemoteRequest: preventRemoteRequest,
             },
             edenChunks

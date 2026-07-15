@@ -16,6 +16,7 @@ import type {
     WriteResult,
 } from "./LayeredChunkManager/types.ts";
 import { unique } from "octagonal-wheels/collection";
+import { ChunkDeliveryCoordinator } from "./ChunkDeliveryCoordinator.ts";
 
 /**
  * ChunkManager class that manages chunk operations such as reading, writing, and caching.
@@ -27,9 +28,11 @@ export class LayeredChunkManager {
 
     // Middleware layers
     private cacheLayer: CacheLayer;
+    private databaseReadLayer: DatabaseReadLayer;
     private readLayers: IReadLayer[];
     private writeLayers: IWriteLayer[];
     private arrivalWaitLayer: ArrivalWaitLayer;
+    readonly deliveryCoordinator: ChunkDeliveryCoordinator;
 
     get changeManager(): ChangeManager<EntryDoc> {
         return this.options.changeManager;
@@ -82,17 +85,28 @@ export class LayeredChunkManager {
 
         // Initialize cache layer
         this.cacheLayer = new CacheLayer(maxCacheSize);
+        this.databaseReadLayer = new DatabaseReadLayer(this.database);
 
-        // Initialise arrival wait layer
-        this.arrivalWaitLayer = new ArrivalWaitLayer((eventName: string, data: DocumentID[]) => {
-            if (eventName === "missingChunks") {
-                this.emitEvent(EVENT_MISSING_CHUNKS, data);
-            }
-        });
+        // Initialise the shared arrival/fetch activity coordinator and wait layer.
+        this.deliveryCoordinator = new ChunkDeliveryCoordinator(options.finiteReplicationActivity);
+        this.arrivalWaitLayer = new ArrivalWaitLayer(
+            (eventName: string, data: DocumentID[]) => {
+                if (eventName === "missingChunks") {
+                    this.emitEvent(EVENT_MISSING_CHUNKS, data);
+                }
+            },
+            this.deliveryCoordinator,
+            (ids) =>
+                this.databaseReadLayer.read(
+                    [...ids],
+                    { preventRemoteRequest: true, skipCache: true, waitForDelivery: false },
+                    (remaining) => Promise.resolve(remaining.map(() => false))
+                )
+        );
 
         // Build read layers pipeline: Cache → Database → ArrivalWait
         // Cache layer implements IReadLayer interface
-        this.readLayers = [this.cacheLayer, new DatabaseReadLayer(this.database), this.arrivalWaitLayer];
+        this.readLayers = [this.cacheLayer, this.databaseReadLayer, this.arrivalWaitLayer];
 
         // Build write layers pipeline: HotPack → Database → Cache
         // Cache layer implements IWriteLayer interface at the end
@@ -119,6 +133,7 @@ export class LayeredChunkManager {
                 layer.tearDown();
             }
         }
+        this.deliveryCoordinator.dispose();
     }
 
     // Cache management methods (delegated to cacheLayer)

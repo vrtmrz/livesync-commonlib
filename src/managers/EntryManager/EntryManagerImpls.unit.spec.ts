@@ -11,6 +11,7 @@ import {
     getDBEntryByPath,
     deleteDBEntryByPath,
     canUseOnDemandChunking,
+    computeChunkRetrievalMethod,
     isLegacyNote,
 } from "./EntryManagerImpls";
 import type {
@@ -21,8 +22,16 @@ import type {
     SavingEntry,
     ObsidianLiveSyncSettings,
     NewEntry,
+    PlainEntry,
 } from "@lib/common/types";
-import { DEFAULT_SETTINGS, REMOTE_COUCHDB, IDPrefixes, ChunkAlgorithms } from "@lib/common/types";
+import {
+    DEFAULT_SETTINGS,
+    REMOTE_COUCHDB,
+    REMOTE_MINIO,
+    REMOTE_P2P,
+    IDPrefixes,
+    ChunkAlgorithms,
+} from "@lib/common/types";
 import { LayeredChunkManager } from "@lib/managers/LayeredChunkManager";
 import { HashManager } from "@lib/managers/HashManager/HashManager";
 import type { IPathService, ISettingService } from "@lib/services/base/IService";
@@ -323,6 +332,31 @@ describe("EntryManagerImpls", () => {
             }
         });
 
+        it("persists every referenced chunk before publishing its metadata", async () => {
+            const entry = createSavingEntry("ordered-entry", "Content which must exist before its metadata");
+            const host = createHost(mockSettingService, mockPathService);
+            const metadataPut = vi.fn(
+                async (doc: PouchDB.Core.PutDocument<PlainEntry | NewEntry>, options?: PouchDB.Core.PutOptions) => {
+                    if ("children" in doc) {
+                        for (const chunkID of doc.children) {
+                            await expect(db.get(chunkID)).resolves.toMatchObject({ _id: chunkID, type: "leaf" });
+                        }
+                    }
+                    return await db.put<PlainEntry | NewEntry>(doc, options);
+                }
+            );
+            const localDatabase = {
+                get: db.get.bind(db),
+                put: metadataPut,
+            } as unknown as PouchDB.Database<EntryDoc>;
+
+            await expect(
+                putDBEntry(host, { localDatabase, chunkManager, hashManager, splitter }, entry)
+            ).resolves.not.toBe(false);
+
+            expect(metadataPut).toHaveBeenCalledOnce();
+        });
+
         it("should save only chunks when onlyChunks is true", async () => {
             const entry = createSavingEntry("chunks-only", "Only chunks should be saved");
             const host = createHost(mockSettingService, mockPathService);
@@ -618,7 +652,7 @@ describe("EntryManagerImpls", () => {
         });
     });
 
-    describe("isOnDemandChunkEnabled", () => {
+    describe("remote chunk fetch capability", () => {
         it("should return true for CouchDB without useOnlyLocalChunk", () => {
             const settings = {
                 ...DEFAULT_SETTINGS,
@@ -648,6 +682,106 @@ describe("EntryManagerImpls", () => {
 
             expect(canUseOnDemandChunking(settings)).toBe(false);
         });
+    });
+
+    describe("computeChunkRetrievalMethod", () => {
+        it.each([
+            {
+                expected: { preventRemoteRequest: false, waitForDelivery: true },
+                remoteType: REMOTE_COUCHDB,
+                useOnlyLocalChunk: false,
+                waitForReady: false,
+            },
+            {
+                expected: { preventRemoteRequest: false, waitForDelivery: true },
+                remoteType: REMOTE_COUCHDB,
+                useOnlyLocalChunk: false,
+                waitForReady: true,
+            },
+            {
+                expected: { preventRemoteRequest: true, waitForDelivery: false },
+                remoteType: REMOTE_COUCHDB,
+                useOnlyLocalChunk: true,
+                waitForReady: false,
+            },
+            {
+                expected: { preventRemoteRequest: true, waitForDelivery: true },
+                remoteType: REMOTE_COUCHDB,
+                useOnlyLocalChunk: true,
+                waitForReady: true,
+            },
+            {
+                expected: { preventRemoteRequest: true, waitForDelivery: false },
+                remoteType: REMOTE_MINIO,
+                useOnlyLocalChunk: false,
+                waitForReady: false,
+            },
+            {
+                expected: { preventRemoteRequest: true, waitForDelivery: true },
+                remoteType: REMOTE_MINIO,
+                useOnlyLocalChunk: false,
+                waitForReady: true,
+            },
+            {
+                expected: { preventRemoteRequest: true, waitForDelivery: false },
+                remoteType: REMOTE_MINIO,
+                useOnlyLocalChunk: true,
+                waitForReady: false,
+            },
+            {
+                expected: { preventRemoteRequest: true, waitForDelivery: true },
+                remoteType: REMOTE_MINIO,
+                useOnlyLocalChunk: true,
+                waitForReady: true,
+            },
+            {
+                expected: { preventRemoteRequest: true, waitForDelivery: true },
+                remoteType: REMOTE_P2P,
+                useOnlyLocalChunk: false,
+                waitForReady: true,
+            },
+            {
+                expected: { preventRemoteRequest: true, waitForDelivery: false },
+                remoteType: REMOTE_P2P,
+                useOnlyLocalChunk: false,
+                waitForReady: false,
+            },
+            {
+                expected: { preventRemoteRequest: true, waitForDelivery: false },
+                remoteType: REMOTE_P2P,
+                useOnlyLocalChunk: true,
+                waitForReady: false,
+            },
+            {
+                expected: { preventRemoteRequest: true, waitForDelivery: true },
+                remoteType: REMOTE_P2P,
+                useOnlyLocalChunk: true,
+                waitForReady: true,
+            },
+        ])("returns $expected for $remoteType when waitForReady=$waitForReady", (testCase) => {
+            const settings = {
+                ...DEFAULT_SETTINGS,
+                remoteType: testCase.remoteType,
+                useOnlyLocalChunk: testCase.useOnlyLocalChunk,
+            } as ObsidianLiveSyncSettings;
+
+            expect(computeChunkRetrievalMethod(testCase.waitForReady, settings)).toEqual(testCase.expected);
+        });
+
+        it.each([false, true])(
+            "keeps direct CouchDB fallback available whether normal replication includes chunks or not when waitForReady=$waitForReady",
+            (waitForReady) => {
+                const base = {
+                    ...DEFAULT_SETTINGS,
+                    remoteType: REMOTE_COUCHDB,
+                    useOnlyLocalChunk: false,
+                } as ObsidianLiveSyncSettings;
+
+                expect(computeChunkRetrievalMethod(waitForReady, { ...base, readChunksOnline: true })).toEqual(
+                    computeChunkRetrievalMethod(waitForReady, { ...base, readChunksOnline: false })
+                );
+            }
+        );
     });
 
     describe("isNoteEntry", () => {

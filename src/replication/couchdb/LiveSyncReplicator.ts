@@ -893,7 +893,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             }
             const localDB = this.rawDatabase;
             Logger($msg("liveSyncReplicator.beforeLiveSync"));
-            if (await this.openOneShotReplication(setting, showResult, false, "pullOnly")) {
+            const caughtUp = await this.env.services.replicator.runFiniteReplicationActivity(
+                () => this.openOneShotReplication(setting, showResult, false, "pullOnly"),
+                { label: "replication" }
+            );
+            if (caughtUp) {
                 Logger($msg("liveSyncReplicator.liveSyncBegin"));
                 const ret = await this.checkReplicationConnectivity(setting, true, true, showResult);
                 if (ret === false) {

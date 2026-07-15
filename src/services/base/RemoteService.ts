@@ -93,42 +93,46 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
             ? this._APIService.nativeFetch.bind(this._APIService)
             : this._APIService.webCompatFetch.bind(this._APIService);
         this._APIService.requestCount.value = this._APIService.requestCount.value + 1;
-        const response = await fetchFunction(req, opts);
-        const method = opts?.method ?? "GET";
-        if (method == "POST" || method == "PUT") {
-            this.last_successful_post = response.ok;
-        } else {
-            this.last_successful_post = true;
-        }
-        const url = new URL(typeof req === "string" ? req : req.url);
-        const localURL = `${url.protocol}//${url.host}${url.pathname}`;
-        this._log(`[REQ] (${method}) ${localURL} -> ${response.status}`, LOG_LEVEL_DEBUG);
-        if (Math.floor(response.status / 100) !== 2) {
-            if (response.status == 404) {
-                if (method === "GET" && url.pathname.indexOf("/_local/") === -1) {
+        try {
+            const response = await fetchFunction(req, opts);
+            const method = opts?.method ?? "GET";
+            if (method == "POST" || method == "PUT") {
+                this.last_successful_post = response.ok;
+            } else {
+                this.last_successful_post = true;
+            }
+            const url = new URL(typeof req === "string" ? req : req.url);
+            const localURL = `${url.protocol}//${url.host}${url.pathname}`;
+            this._log(`[REQ] (${method}) ${localURL} -> ${response.status}`, LOG_LEVEL_DEBUG);
+            if (Math.floor(response.status / 100) !== 2) {
+                if (response.status == 404) {
+                    if (method === "GET" && url.pathname.indexOf("/_local/") === -1) {
+                        this._log(
+                            `Just checkpoint or some server information has been missing. The 404 error shown above is not an error.`,
+                            LOG_LEVEL_VERBOSE
+                        );
+                    }
+                } else {
+                    const r = response.clone();
                     this._log(
-                        `Just checkpoint or some server information has been missing. The 404 error shown above is not an error.`,
-                        LOG_LEVEL_VERBOSE
+                        `The request may have failed. The reason sent by the server: ${r.status}: ${r.statusText}`,
+                        LOG_LEVEL_NOTICE
                     );
+                    try {
+                        const result = await r.text();
+                        this._log(result, LOG_LEVEL_VERBOSE);
+                    } catch (_) {
+                        this._log("Could not fetch response body", LOG_LEVEL_VERBOSE);
+                        this._log(_, LOG_LEVEL_VERBOSE);
+                    }
                 }
             } else {
-                const r = response.clone();
-                this._log(
-                    `The request may have failed. The reason sent by the server: ${r.status}: ${r.statusText}`,
-                    LOG_LEVEL_NOTICE
-                );
-                try {
-                    const result = await r.text();
-                    this._log(result, LOG_LEVEL_VERBOSE);
-                } catch (_) {
-                    this._log("Could not fetch response body", LOG_LEVEL_VERBOSE);
-                    this._log(_, LOG_LEVEL_VERBOSE);
-                }
+                this.clearErrors();
             }
-        } else {
-            this.clearErrors();
+            return response;
+        } finally {
+            this._APIService.responseCount.value = this._APIService.responseCount.value + 1;
         }
-        return response;
     }
 
     async connect(
@@ -188,7 +192,6 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                         headers.append("authorization", authHeader);
                     }
                     try {
-                        this._APIService.requestCount.value = this._APIService.requestCount.value + 1;
                         // const response: Response = await (useRequestAPI
                         //     ? this.nativeFetch(url.toString(), { ...opts, headers })
                         //     : this.webCompatFetch(url, { ...opts, headers }));
@@ -267,8 +270,6 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                     }
                     this._log(ex);
                     throw ex;
-                } finally {
-                    this._APIService.responseCount.value = this._APIService.responseCount.value + 1;
                 }
                 // return await fetch(url, opts);
             },
