@@ -149,22 +149,24 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
 
     onReplicationFailed = handlers<IReplicationService>().bailFirstFailure("onReplicationFailed");
 
-    /**
-     * perform replication. The actual replication logic should be implemented in the handler of this event.
-     * @param showMessage
-     */
-    async performReplication(showMessage?: boolean): Promise<boolean | void> {
+    private async performReplicationRequest(showMessage?: boolean): Promise<boolean | void> {
         const activeReplicator = this.replicatorService.getActiveReplicator();
         if (!activeReplicator) {
             this._log(`No active replicator found`, showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
             return false;
         }
         const settings = this.settingService.currentSettings();
-        const ret = await activeReplicator.openReplication(settings, false, !!showMessage, false);
-        if (!ret) {
-            return await this.onReplicationFailed(showMessage);
-        }
-        return ret;
+        return await activeReplicator.openReplication(settings, false, !!showMessage, false);
+    }
+
+    /**
+     * Perform replication and handle a failed result.
+     * @param showMessage Whether to show replication progress messages.
+     */
+    async performReplication(showMessage?: boolean): Promise<boolean | void> {
+        const result = await this.performReplicationRequest(showMessage);
+        if (!result) return await this.onReplicationFailed(showMessage);
+        return result;
     }
 
     /**
@@ -175,7 +177,12 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
         try {
             const checkBeforeReplicate = await this.isReplicationReady(showMessage);
             if (!checkBeforeReplicate) return false;
-            return await this.performReplication(showMessage);
+            const result = await this.replicatorService.runBoundedRemoteActivity(
+                () => this.performReplicationRequest(showMessage),
+                { label: "replication" }
+            );
+            if (!result) return await this.onReplicationFailed(showMessage);
+            return result;
         } finally {
             this.previousReplicated = Date.now();
         }

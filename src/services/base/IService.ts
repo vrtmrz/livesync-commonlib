@@ -30,6 +30,7 @@ import type { ReplicationStatics } from "@lib/common/models/shared.definition";
 import type { ReplicatorService } from "./ReplicatorService";
 import type { DatabaseEventService } from "./DatabaseEventService";
 import type { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
+import type { AsyncActivityOptions } from "@lib/interfaces/AsyncActivityRunner.ts";
 
 declare global {
     interface OPTIONAL_SYNC_FEATURES {
@@ -167,6 +168,13 @@ export interface IReplicatorService {
 
     getActiveReplicator(): LiveSyncAbstractReplicator | undefined;
     replicationStatics: ReactiveSource<ReplicationStatics>;
+    /** Number of finite remote operations currently in progress. */
+    boundedRemoteActivityCount: ReactiveSource<number>;
+    /** Runs a finite remote operation within the host activity policy. */
+    runBoundedRemoteActivity<T>(
+        task: () => T | PromiseLike<T>,
+        options?: AsyncActivityOptions
+    ): Promise<T>;
 }
 export interface IReplicationService {
     processSynchroniseResult(doc: MetaEntry): Promise<boolean>;

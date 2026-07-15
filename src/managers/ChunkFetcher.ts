@@ -91,7 +91,10 @@ export class ChunkFetcher {
                 return;
             }
             // Request the replicator to fetch the missing chunks.
-            const fetched = await replicator.fetchRemoteChunks(requestIDs, false);
+            const fetched = await this.options.replicatorService.runBoundedRemoteActivity(
+                () => replicator.fetchRemoteChunks(requestIDs, false),
+                { label: "chunk-fetch" }
+            );
             if (!fetched) {
                 Logger(`No chunks were found for the following IDs: ${requestIDs.join(", ")}`);
                 for (const chunkID of requestIDs) {
