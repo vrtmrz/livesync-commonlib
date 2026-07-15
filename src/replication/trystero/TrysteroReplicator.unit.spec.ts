@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { TrysteroReplicator } from "./TrysteroReplicator";
 
 function createReplicator(settings: Record<string, unknown> = {}) {
-    const runBoundedRemoteActivity = vi.fn(async (task: () => unknown) => await task());
+    const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
     const replicator = new TrysteroReplicator(
         {
             settings: {
@@ -16,50 +16,50 @@ function createReplicator(settings: Record<string, unknown> = {}) {
             platform: "test",
             confirm: {},
             processReplicatedDocs: vi.fn(),
-            runBoundedRemoteActivity,
+            runFiniteReplicationActivity,
         } as any,
         {
             _knownAdvertisements: new Map(),
         } as any
     );
-    return { replicator, runBoundedRemoteActivity };
+    return { replicator, runFiniteReplicationActivity };
 }
 
 describe("TrysteroReplicator automatic remote activity", () => {
     it("tracks automatic synchronisation when a configured peer is discovered", async () => {
-        const { replicator, runBoundedRemoteActivity } = createReplicator({
+        const { replicator, runFiniteReplicationActivity } = createReplicator({
             P2P_AutoSyncPeers: "peer-a",
         });
         const sync = vi.spyOn(replicator, "sync").mockResolvedValue(undefined);
 
         await replicator.onNewPeer({ peerId: "peer-id", name: "peer-a", platform: "test" });
 
-        expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
+        expect(runFiniteReplicationActivity).toHaveBeenCalledWith(expect.any(Function), {
             label: "replication",
         });
         expect(sync).toHaveBeenCalledWith("peer-id");
     });
 
     it("tracks a pull requested by a remote peer", async () => {
-        const { replicator, runBoundedRemoteActivity } = createReplicator();
+        const { replicator, runFiniteReplicationActivity } = createReplicator();
         const replicateFrom = vi.spyOn(replicator, "replicateFrom").mockResolvedValue({ ok: true });
 
         await replicator.getCommands().reqSync("peer-id");
 
-        expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
+        expect(runFiniteReplicationActivity).toHaveBeenCalledWith(expect.any(Function), {
             label: "replication",
         });
         expect(replicateFrom).toHaveBeenCalledWith("peer-id");
     });
 
     it("tracks a watched pull after a peer reports progress", async () => {
-        const { replicator, runBoundedRemoteActivity } = createReplicator();
+        const { replicator, runFiniteReplicationActivity } = createReplicator();
         const replicateFrom = vi.spyOn(replicator, "replicateFrom").mockResolvedValue({ ok: true });
         replicator._watchingPeers.add("peer-id");
 
         await replicator.onUpdateDatabase("peer-id");
 
-        expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
+        expect(runFiniteReplicationActivity).toHaveBeenCalledWith(expect.any(Function), {
             label: "replication",
         });
         expect(replicateFrom).toHaveBeenCalledWith("peer-id");
@@ -69,7 +69,7 @@ describe("TrysteroReplicator automatic remote activity", () => {
         const { replicator } = createReplicator({
             P2P_AutoSyncPeers: "peer-a",
         });
-        (replicator as any)._env.runBoundedRemoteActivity = undefined;
+        (replicator as any)._env.runFiniteReplicationActivity = undefined;
         const sync = vi.spyOn(replicator, "sync").mockResolvedValue(undefined);
 
         await replicator.onNewPeer({ peerId: "peer-id", name: "peer-a", platform: "test" });

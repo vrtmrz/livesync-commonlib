@@ -3,16 +3,22 @@ import type { DocumentID, EntryLeaf } from "@lib/common/models/db.type";
 import type { ISettingService } from "@lib/services/base/IService";
 import type { ChangeManager } from "@lib/managers/ChangeManager";
 import type { EVENT_CHUNK_FETCHED, EVENT_MISSING_CHUNK_REMOTE, EVENT_MISSING_CHUNKS } from "@lib/managers/ChunkFetcher";
+import type { ActivityCountSource } from "@lib/managers/ChunkDeliveryCoordinator";
 
 export type ChunkManagerOptions = {
     database: PouchDB.Database<EntryDoc>;
     changeManager: ChangeManager<EntryDoc>;
     // maxCacheSize?: number; // Maximum cache size
     settingService: ISettingService;
+    /** Finite replication which may still deliver a requested chunk. */
+    finiteReplicationActivity?: ActivityCountSource;
 };
 export type ChunkReadOptions = {
     skipCache?: boolean; // Skip cache when reading
-    timeout?: number; // Timeout in milliseconds
+    /** Wait for an already-observable finite delivery lifecycle. */
+    waitForDelivery?: boolean;
+    /** @deprecated Use `waitForDelivery`. Positive values no longer represent an arrival duration. */
+    timeout?: number;
     preventRemoteRequest?: boolean; // Prevent dispatching missing chunk event
 };
 export type ChunkWriteOptions = {

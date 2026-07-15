@@ -2,82 +2,118 @@ import { type PromiseWithResolvers, promiseWithResolvers } from "octagonal-wheel
 import type { DocumentID, EntryLeaf } from "@lib/common/types";
 import type { IReadLayer } from "./ChunkLayerInterfaces";
 import type { ChunkReadOptions } from "./types.ts";
-import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
+import { ChunkDeliveryCoordinator } from "@lib/managers/ChunkDeliveryCoordinator.ts";
+import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
+
+export type ChunkAvailabilityRecheck = (ids: readonly DocumentID[]) => Promise<readonly (EntryLeaf | false)[]>;
 
 /**
- * Arrival wait layer - emits events for fetcher, and waits for chunks to arrive
+ * Waits only for a delivery lifecycle which is already observable when the
+ * local miss is handled. It does not guess at an arrival delay.
  */
-
 export class ArrivalWaitLayer implements IReadLayer {
-    private waitingMap = new Map<
+    private readonly waitingMap = new Map<
         DocumentID,
         {
             resolver: PromiseWithResolvers<EntryLeaf | false>;
+            observedActivity: boolean;
+            activityVersion: number;
         }
     >();
-    private readonly DEFAULT_TIMEOUT = 15000;
     private readonly eventEmitter: (eventName: string, data: DocumentID[]) => void;
+    private readonly deliveryCoordinator: ChunkDeliveryCoordinator;
+    private readonly ownsDeliveryCoordinator: boolean;
+    private readonly stopObservingActivity: () => void;
 
-    constructor(eventEmitter: (eventName: string, data: DocumentID[]) => void) {
+    constructor(
+        eventEmitter: (eventName: string, data: DocumentID[]) => void,
+        deliveryCoordinator?: ChunkDeliveryCoordinator,
+        private readonly recheckAvailability?: ChunkAvailabilityRecheck
+    ) {
         this.eventEmitter = eventEmitter;
+        this.deliveryCoordinator = deliveryCoordinator ?? new ChunkDeliveryCoordinator();
+        this.ownsDeliveryCoordinator = deliveryCoordinator === undefined;
+        this.stopObservingActivity = this.deliveryCoordinator.onChanged((ids) => this.refreshActivity(ids));
     }
 
-    private enqueueWaiting(id: DocumentID, timeout: number): Promise<EntryLeaf | false> {
+    private enqueueWaiting(id: DocumentID): Promise<EntryLeaf | false> {
         const previous = this.waitingMap.get(id);
-        if (previous) {
-            return previous.resolver.promise;
-        }
+        if (previous) return previous.resolver.promise;
 
         const resolver = promiseWithResolvers<EntryLeaf | false>();
-        this.waitingMap.set(id, { resolver });
-
-        return this.withTimeout(resolver.promise, timeout, () => {
-            const current = this.waitingMap.get(id);
-            if (current && current.resolver === resolver) {
-                this.waitingMap.delete(id);
-            }
-            return false;
-        });
+        this.waitingMap.set(id, { activityVersion: 0, observedActivity: false, resolver });
+        return resolver.promise;
     }
 
-    private withTimeout<T>(proc: Promise<T>, timeout: number, onTimedOut: () => T): Promise<T> {
-        return new Promise((resolve, reject) => {
-            const timer = compatGlobal.setTimeout(() => {
-                resolve(onTimedOut());
-            }, timeout);
-            proc.then(resolve)
-                .catch(reject)
-                .finally(() => {
-                    compatGlobal.clearTimeout(timer);
-                });
-        });
+    private settle(id: DocumentID, value: EntryLeaf | false): void {
+        const queue = this.waitingMap.get(id);
+        if (!queue) return;
+        this.waitingMap.delete(id);
+        queue.resolver.resolve(value);
     }
 
-    /**
-     * Handle chunk arrival (called when a chunk document arrives)
-     */
-    onChunkArrived(doc: EntryLeaf, deleted: boolean = false): void {
-        const id = doc._id;
-        if (this.waitingMap.has(id)) {
-            const queue = this.waitingMap.get(id)!;
-            this.waitingMap.delete(id);
-            if (doc._deleted || deleted) {
-                queue.resolver.resolve(false);
+    private async settleAfterObservedActivity(ids: readonly DocumentID[]): Promise<void> {
+        const candidates = ids.flatMap((id) => {
+            const queue = this.waitingMap.get(id);
+            if (!queue?.observedActivity || this.deliveryCoordinator.isActivityActiveFor(id)) return [];
+            const version = ++queue.activityVersion;
+            return [{ id, version }];
+        });
+        if (candidates.length === 0) return;
+
+        let results: readonly (EntryLeaf | false)[];
+        try {
+            results = this.recheckAvailability
+                ? await this.recheckAvailability(candidates.map(({ id }) => id))
+                : candidates.map(() => false);
+        } catch (error) {
+            Logger("Could not recheck chunk availability after finite delivery activity completed.", LOG_LEVEL_VERBOSE);
+            Logger(error, LOG_LEVEL_VERBOSE);
+            results = candidates.map(() => false);
+        }
+
+        for (let index = 0; index < candidates.length; index++) {
+            const { id, version } = candidates[index];
+            const queue = this.waitingMap.get(id);
+            if (!queue || queue.activityVersion !== version) continue;
+            const result = results[index] ?? false;
+            if (result) {
+                this.settle(id, result);
+            } else if (this.deliveryCoordinator.isActivityActiveFor(id)) {
+                this.refreshActivity([id]);
             } else {
-                queue.resolver.resolve(doc);
+                this.settle(id, false);
             }
         }
     }
 
-    /**
-     * Handle missing chunk (called when a chunk is confirmed missing)
-     */
-    onMissingChunk(id: DocumentID): void {
-        if (this.waitingMap.has(id)) {
-            const queue = this.waitingMap.get(id)!;
-            this.waitingMap.delete(id);
-            queue.resolver.resolve(false);
+    private refreshActivity(ids: readonly DocumentID[] = [...this.waitingMap.keys()]): void {
+        const completedActivityIds: DocumentID[] = [];
+        for (const id of ids) {
+            const queue = this.waitingMap.get(id);
+            if (!queue) continue;
+            if (this.deliveryCoordinator.isActivityActiveFor(id)) {
+                queue.observedActivity = true;
+                queue.activityVersion++;
+            } else if (queue.observedActivity) {
+                completedActivityIds.push(id);
+            } else {
+                this.settle(id, false);
+            }
         }
+        if (completedActivityIds.length > 0) {
+            void this.settleAfterObservedActivity(completedActivityIds);
+        }
+    }
+
+    /** Handle a chunk document becoming available. */
+    onChunkArrived(doc: EntryLeaf, deleted: boolean = false): void {
+        this.settle(doc._id, doc._deleted || deleted ? false : doc);
+    }
+
+    /** Handle an explicit remote-missing result. */
+    onMissingChunk(id: DocumentID): void {
+        this.settle(id, false);
     }
 
     async read(
@@ -85,39 +121,33 @@ export class ArrivalWaitLayer implements IReadLayer {
         options: ChunkReadOptions,
         next: (remaining: DocumentID[]) => Promise<(EntryLeaf | false)[]>
     ): Promise<(EntryLeaf | false)[]> {
-        const timeout = options.timeout ?? this.DEFAULT_TIMEOUT;
+        const waitForDelivery = options.waitForDelivery ?? (options.timeout === undefined || options.timeout > 0);
+        if (!waitForDelivery || ids.length === 0) return ids.map(() => false);
 
-        if (timeout <= 0 || ids.length === 0) {
-            return ids.map(() => false);
-        }
-
-        // Wait for chunks to arrive
-        const tasks = ids.map((id) => this.enqueueWaiting(id, timeout));
-
+        const tasks = ids.map((id) => this.enqueueWaiting(id));
         if (!options.preventRemoteRequest) {
+            // EventTarget dispatch is synchronous. ChunkFetcher claims the identifiers
+            // before this call returns, closing the scheduling gap without a timer.
             this.eventEmitter("missingChunks", ids);
         }
-
-        const results = await Promise.all(tasks);
-        return results;
+        this.refreshActivity(ids);
+        return await Promise.all(tasks);
     }
 
-    /**
-     * Clear all waiting requests
-     */
     clearWaiting(): void {
-        for (const [, queue] of this.waitingMap.entries()) {
-            queue.resolver.resolve(false);
+        for (const id of [...this.waitingMap.keys()]) {
+            this.settle(id, false);
         }
-        this.waitingMap.clear();
     }
 
     tearDown(): void {
+        this.stopObservingActivity();
         this.clearWaiting();
+        if (this.ownsDeliveryCoordinator) {
+            this.deliveryCoordinator.dispose();
+        }
     }
-    /**
-     * Get count of waiting chunks
-     */
+
     getWaitingCount(): number {
         return this.waitingMap.size;
     }

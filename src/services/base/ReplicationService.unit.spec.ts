@@ -7,7 +7,7 @@ class TestReplicationService extends ReplicationService<ServiceContext> {}
 describe("ReplicationService activity boundary", () => {
     const createDependencies = () => {
         const openReplication = vi.fn().mockResolvedValue(true);
-        const runBoundedRemoteActivity = vi.fn(async (task: () => unknown) => await task());
+        const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
         const getUnresolvedMessages = Object.assign(vi.fn().mockResolvedValue([]), {
             addHandler: vi.fn(),
         });
@@ -23,37 +23,37 @@ describe("ReplicationService activity boundary", () => {
             },
             replicatorService: {
                 getActiveReplicator: () => ({ openReplication }),
-                runBoundedRemoteActivity,
+                runFiniteReplicationActivity,
             },
             settingService: {
                 currentSettings: () => ({ versionUpFlash: "" }),
             },
         } as unknown as ReplicationServiceDependencies;
 
-        return { dependencies, openReplication, runBoundedRemoteActivity };
+        return { dependencies, openReplication, runFiniteReplicationActivity };
     };
 
     it("runs a ready one-shot replication through the bounded remote activity boundary", async () => {
-        const { dependencies, openReplication, runBoundedRemoteActivity } = createDependencies();
+        const { dependencies, openReplication, runFiniteReplicationActivity } = createDependencies();
         const service = new TestReplicationService(new ServiceContext(), dependencies);
 
         await expect(service.replicate(true)).resolves.toBe(true);
 
-        expect(runBoundedRemoteActivity).toHaveBeenCalledOnce();
-        expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
+        expect(runFiniteReplicationActivity).toHaveBeenCalledOnce();
+        expect(runFiniteReplicationActivity).toHaveBeenCalledWith(expect.any(Function), {
             label: "replication",
         });
         expect(openReplication).toHaveBeenCalledOnce();
     });
 
     it("does not start an activity while replication readiness checks fail", async () => {
-        const { dependencies, openReplication, runBoundedRemoteActivity } = createDependencies();
+        const { dependencies, openReplication, runFiniteReplicationActivity } = createDependencies();
         Object.assign(dependencies.APIService, { isOnline: false });
         const service = new TestReplicationService(new ServiceContext(), dependencies);
 
         await expect(service.replicate(true)).resolves.toBe(false);
 
-        expect(runBoundedRemoteActivity).not.toHaveBeenCalled();
+        expect(runFiniteReplicationActivity).not.toHaveBeenCalled();
         expect(openReplication).not.toHaveBeenCalled();
     });
 
@@ -61,7 +61,7 @@ describe("ReplicationService activity boundary", () => {
         const { dependencies, openReplication } = createDependencies();
         const calls: string[] = [];
         openReplication.mockResolvedValue(false);
-        (dependencies.replicatorService as any).runBoundedRemoteActivity = vi.fn(async (task: () => unknown) => {
+        (dependencies.replicatorService as any).runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => {
             calls.push("activity-started");
             try {
                 return await task();
@@ -81,7 +81,7 @@ describe("ReplicationService activity boundary", () => {
     });
 
     it("preserves failure handling for direct performReplication callers", async () => {
-        const { dependencies, openReplication, runBoundedRemoteActivity } = createDependencies();
+        const { dependencies, openReplication, runFiniteReplicationActivity } = createDependencies();
         openReplication.mockResolvedValue(false);
         const service = new TestReplicationService(new ServiceContext(), dependencies);
         const handleFailure = vi.fn(async () => false);
@@ -90,6 +90,6 @@ describe("ReplicationService activity boundary", () => {
         await expect(service.performReplication(true)).resolves.toBe(false);
 
         expect(handleFailure).toHaveBeenCalledWith(true);
-        expect(runBoundedRemoteActivity).not.toHaveBeenCalled();
+        expect(runFiniteReplicationActivity).not.toHaveBeenCalled();
     });
 });

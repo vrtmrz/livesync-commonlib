@@ -4,6 +4,8 @@ import type { ChunkFetcherOptions } from "./ChunkFetcher";
 import type { DocumentID, EntryLeaf } from "@lib/common/types";
 import type { ChunkManager } from "./ChunkManager";
 import type { IReplicatorService, ISettingService } from "@lib/services/base/IService";
+import { ChunkDeliveryCoordinator } from "./ChunkDeliveryCoordinator";
+import { delay, promiseWithResolvers } from "octagonal-wheels/promises";
 
 function createMockLeaf(id: string, data: string = `data-${id}`): EntryLeaf {
     return {
@@ -20,12 +22,14 @@ describe("ChunkFetcher", () => {
     let mockReplicatorService: Partial<IReplicatorService> & { getActiveReplicator: ReturnType<typeof vi.fn> };
     let runBoundedRemoteActivity: ReturnType<typeof vi.fn>;
     let eventListeners: Map<string, ((...args: any[]) => void)[]>;
+    let deliveryCoordinator: ChunkDeliveryCoordinator;
 
     beforeEach(() => {
         // Reset event listeners
         eventListeners = new Map();
 
         // Mock ChunkManager
+        deliveryCoordinator = new ChunkDeliveryCoordinator();
         mockChunkManager = {
             addListener: vi.fn((event: string, handler: (...args: any[]) => void, options?: any) => {
                 if (!eventListeners.has(event)) {
@@ -43,6 +47,7 @@ describe("ChunkFetcher", () => {
                 result: true,
                 processed: { written: 1 },
             }),
+            deliveryCoordinator,
         } as any;
 
         // Mock SettingService
@@ -71,6 +76,7 @@ describe("ChunkFetcher", () => {
 
     afterEach(() => {
         chunkFetcher.destroy();
+        deliveryCoordinator.dispose();
         vi.clearAllMocks();
     });
 
@@ -111,6 +117,17 @@ describe("ChunkFetcher", () => {
 
             expect(chunkFetcher.queue).toEqual([]);
             expect(abortSpy).toHaveBeenCalled();
+        });
+
+        it("should release queued delivery claims on destroy", () => {
+            const id = "chunk-1" as DocumentID;
+            chunkFetcher.currentProcessing = chunkFetcher.concurrency;
+            chunkFetcher.onEvent([id]);
+            expect(deliveryCoordinator.isActivityActiveFor(id)).toBe(true);
+
+            chunkFetcher.destroy();
+
+            expect(deliveryCoordinator.isActivityActiveFor(id)).toBe(false);
         });
     });
 
@@ -209,6 +226,65 @@ describe("ChunkFetcher", () => {
             expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
                 label: "chunk-fetch",
             });
+        });
+
+        it("should not start a remote chunk request before entering the activity boundary", async () => {
+            const activityMayStart = promiseWithResolvers<void>();
+            runBoundedRemoteActivity.mockImplementation(async (task: () => unknown) => {
+                await activityMayStart.promise;
+                return await task();
+            });
+            const mockReplicator = {
+                fetchRemoteChunks: vi.fn().mockResolvedValue([createMockLeaf("chunk-1")]),
+            };
+            mockReplicatorService.getActiveReplicator.mockReturnValue(mockReplicator as any);
+
+            chunkFetcher.onEvent(["chunk-1" as DocumentID]);
+            await delay(20);
+
+            expect(mockReplicator.fetchRemoteChunks).not.toHaveBeenCalled();
+
+            activityMayStart.resolve();
+            await vi.waitFor(() => expect(mockReplicator.fetchRemoteChunks).toHaveBeenCalledOnce());
+        });
+
+        it("should release queued claims when the activity runner rejects before entry", async () => {
+            const id = "chunk-1" as DocumentID;
+            runBoundedRemoteActivity.mockRejectedValue(new Error("activity unavailable"));
+            const mockReplicator = {
+                fetchRemoteChunks: vi.fn().mockResolvedValue([createMockLeaf(id)]),
+            };
+            mockReplicatorService.getActiveReplicator.mockReturnValue(mockReplicator as any);
+
+            chunkFetcher.onEvent([id]);
+            await vi.waitFor(() => expect(deliveryCoordinator.isActivityActiveFor(id)).toBe(false));
+
+            expect(chunkFetcher.queue).toEqual([]);
+            expect(mockReplicator.fetchRemoteChunks).not.toHaveBeenCalled();
+        });
+
+        it("should release queued claims when the activity runner never enters", async () => {
+            chunkFetcher.destroy();
+            chunkFetcher = new ChunkFetcher({
+                chunkManager: mockChunkManager as ChunkManager,
+                deliveryStallTimeoutMs: 20,
+                replicatorService: mockReplicatorService as IReplicatorService,
+                settingService: mockSettingService as ISettingService,
+            });
+            const id = "chunk-1" as DocumentID;
+            runBoundedRemoteActivity.mockImplementation(() => new Promise(() => undefined));
+            const mockReplicator = {
+                fetchRemoteChunks: vi.fn().mockResolvedValue([createMockLeaf(id)]),
+            };
+            mockReplicatorService.getActiveReplicator.mockReturnValue(mockReplicator as any);
+
+            chunkFetcher.onEvent([id]);
+            expect(deliveryCoordinator.isActivityActiveFor(id)).toBe(true);
+            await delay(40);
+
+            expect(deliveryCoordinator.isActivityActiveFor(id)).toBe(false);
+            expect(chunkFetcher.queue).toEqual([]);
+            expect(mockReplicator.fetchRemoteChunks).not.toHaveBeenCalled();
         });
 
         it("should handle no active replicator", async () => {

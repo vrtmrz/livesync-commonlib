@@ -170,11 +170,12 @@ export interface IReplicatorService {
     replicationStatics: ReactiveSource<ReplicationStatics>;
     /** Number of finite remote operations currently in progress. */
     boundedRemoteActivityCount: ReactiveSource<number>;
+    /** Number of finite replication operations which can still deliver database documents. */
+    finiteReplicationActivityCount: ReactiveSource<number>;
     /** Runs a finite remote operation within the host activity policy. */
-    runBoundedRemoteActivity<T>(
-        task: () => T | PromiseLike<T>,
-        options?: AsyncActivityOptions
-    ): Promise<T>;
+    runBoundedRemoteActivity<T>(task: () => T | PromiseLike<T>, options?: AsyncActivityOptions): Promise<T>;
+    /** Runs finite replication which may place documents in the local database. */
+    runFiniteReplicationActivity<T>(task: () => T | PromiseLike<T>, options?: AsyncActivityOptions): Promise<T>;
 }
 export interface IReplicationService {
     processSynchroniseResult(doc: MetaEntry): Promise<boolean>;

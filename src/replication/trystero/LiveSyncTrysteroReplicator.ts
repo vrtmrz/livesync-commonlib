@@ -91,8 +91,8 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             get confirm() {
                 return services.API.confirm;
             },
-            runBoundedRemoteActivity: <T>(task: () => T | PromiseLike<T>, options?: AsyncActivityOptions) =>
-                services.replicator.runBoundedRemoteActivity(task, options),
+            runFiniteReplicationActivity: <T>(task: () => T | PromiseLike<T>, options?: AsyncActivityOptions) =>
+                services.replicator.runFiniteReplicationActivity(task, options),
             processReplicatedDocs: async (docs: Parameters<typeof services.replication.parseSynchroniseResult>[0]) => {
                 const settings = services.setting.currentSettings();
                 if (settings.suspendParseReplicationResult) {
@@ -179,15 +179,16 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     async replicateFromCommand(showResult: boolean = false) {
         const replicator = this._replicator;
         if (!replicator) return;
-        await this.env.services.replicator.runBoundedRemoteActivity(() => replicator.replicateFromCommand(showResult), {
-            label: "replication",
-        });
+        await this.env.services.replicator.runFiniteReplicationActivity(
+            () => replicator.replicateFromCommand(showResult),
+            { label: "replication" }
+        );
     }
 
     async replicateFrom(peerId: string, showNotice: boolean = false) {
         const replicator = this._replicator;
         if (!replicator) throw new Error("P2P replicator is not open");
-        return await this.env.services.replicator.runBoundedRemoteActivity(
+        return await this.env.services.replicator.runFiniteReplicationActivity(
             () => replicator.replicateFrom(peerId, showNotice),
             { label: "replication" }
         );

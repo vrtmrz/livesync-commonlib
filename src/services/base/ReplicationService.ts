@@ -177,7 +177,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
         try {
             const checkBeforeReplicate = await this.isReplicationReady(showMessage);
             if (!checkBeforeReplicate) return false;
-            const result = await this.replicatorService.runBoundedRemoteActivity(
+            const result = await this.replicatorService.runFiniteReplicationActivity(
                 () => this.performReplicationRequest(showMessage),
                 { label: "replication" }
             );

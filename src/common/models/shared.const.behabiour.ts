@@ -6,7 +6,8 @@ export const MAX_DOC_SIZE_BIN = 102400; // 100kb
 export const VER = 12; // 12 Since 0.25.0, HKDF is used for encryption, so the version is changed to 12.
 
 export const RECENT_MODIFIED_DOCS_QTY = 30;
-export const LEAF_WAIT_TIMEOUT = 30000; // in synchronization, waiting missing leaf time out.
+// Deprecated arrival-delay values retained for source compatibility. Chunk reads now follow explicit delivery lifecycles.
+export const LEAF_WAIT_TIMEOUT = 30000;
 export const LEAF_WAIT_ONLY_REMOTE = 5000;
 export const LEAF_WAIT_TIMEOUT_SEQUENTIAL_REPLICATOR = 5000;
 export const REPLICATION_BUSY_TIMEOUT = 3000000;

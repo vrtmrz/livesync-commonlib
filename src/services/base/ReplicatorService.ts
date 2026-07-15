@@ -33,6 +33,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     implements IReplicatorService
 {
     readonly boundedRemoteActivityCount = reactiveSource(0);
+    readonly finiteReplicationActivityCount = reactiveSource(0);
     _log = createInstanceLogFunction("ReplicatorService");
 
     private settingService: SettingService;
@@ -66,10 +67,32 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         task: () => TValue | PromiseLike<TValue>,
         options?: AsyncActivityOptions
     ): Promise<TValue> {
+        return await this.runRemoteActivity(task, options, false);
+    }
+
+    /** Runs one finite replication and exposes its document-delivery lifetime. */
+    async runFiniteReplicationActivity<TValue>(
+        task: () => TValue | PromiseLike<TValue>,
+        options?: AsyncActivityOptions
+    ): Promise<TValue> {
+        return await this.runRemoteActivity(task, options, true);
+    }
+
+    private async runRemoteActivity<TValue>(
+        task: () => TValue | PromiseLike<TValue>,
+        options: AsyncActivityOptions | undefined,
+        isFiniteReplication: boolean
+    ): Promise<TValue> {
         this.boundedRemoteActivityCount.value++;
+        if (isFiniteReplication) {
+            this.finiteReplicationActivityCount.value++;
+        }
         try {
             return await runWithOptionalActivity(this.dependencies.activityRunner, task, options);
         } finally {
+            if (isFiniteReplication) {
+                this.finiteReplicationActivityCount.value--;
+            }
             this.boundedRemoteActivityCount.value--;
         }
     }

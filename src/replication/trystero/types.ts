@@ -99,7 +99,7 @@ export interface ReplicatorHostEnv extends ReplicatorHost {
     settings: P2PSyncSetting;
     db: PouchDB.Database<EntryDoc>;
     simpleStore: SimpleStore<unknown>;
-    runBoundedRemoteActivity?: AsyncActivityRunner["run"];
+    runFiniteReplicationActivity?: AsyncActivityRunner["run"];
 
     processReplicatedDocs(docs: Array<PouchDB.Core.ExistingDocument<EntryDoc>>): void | Promise<void>;
 }
