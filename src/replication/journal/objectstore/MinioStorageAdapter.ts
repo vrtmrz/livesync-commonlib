@@ -18,6 +18,7 @@ import type { RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator
 import type { IJournalStorage } from "./JournalStorageAdapter.ts";
 import { parseHeaderValues } from "@lib/common/utils.ts";
 import type { LiveSyncJournalReplicatorEnv } from "@lib/replication/journal/LiveSyncJournalReplicatorEnv.ts";
+import { runWithTrackedPhysicalRequest } from "@lib/services/lib/remoteActivity.ts";
 
 export class MinioStorageAdapter implements IJournalStorage {
     _instance?: S3;
@@ -27,6 +28,10 @@ export class MinioStorageAdapter implements IJournalStorage {
     constructor(settings: BucketSyncSetting, env: LiveSyncJournalReplicatorEnv) {
         this._settings = settings;
         this._env = env;
+    }
+
+    private async runTrackedRequest<T>(task: () => T | PromiseLike<T>): Promise<T> {
+        return await runWithTrackedPhysicalRequest(this._env.services.API, task);
     }
 
     applyNewConfig(settings: BucketSyncSetting): void {
@@ -121,7 +126,7 @@ export class MinioStorageAdapter implements IJournalStorage {
                 Body: data,
                 ContentType: mime,
             });
-            if (await client.send(cmd)) {
+            if (await this.runTrackedRequest(() => client.send(cmd))) {
                 return true;
             }
         } catch (ex) {
@@ -140,10 +145,13 @@ export class MinioStorageAdapter implements IJournalStorage {
         });
 
         try {
-            const r = await client.send(cmd);
-            if (r.Body) {
-                return new Uint8Array(await r.Body.transformToByteArray());
-            }
+            return await this.runTrackedRequest(async () => {
+                const r = await client.send(cmd);
+                if (r.Body) {
+                    return new Uint8Array(await r.Body.transformToByteArray());
+                }
+                return false;
+            });
         } catch (ex) {
             Logger(`Could not download ${key}`);
             Logger(ex, LOG_LEVEL_VERBOSE);
@@ -153,12 +161,14 @@ export class MinioStorageAdapter implements IJournalStorage {
 
     async listFiles(from: string, limit?: number): Promise<string[]> {
         const client = this._getClient();
-        const objects = await client.listObjectsV2({
-            Bucket: this._settings.bucket,
-            Prefix: this._settings.bucketPrefix,
-            StartAfter: `${this._settings.bucketPrefix || ""}${from || ""}`,
-            ...(limit ? { MaxKeys: limit } : {}),
-        });
+        const objects = await this.runTrackedRequest(() =>
+            client.listObjectsV2({
+                Bucket: this._settings.bucket,
+                Prefix: this._settings.bucketPrefix,
+                StartAfter: `${this._settings.bucketPrefix || ""}${from || ""}`,
+                ...(limit ? { MaxKeys: limit } : {}),
+            })
+        );
         if (!objects.Contents) return [];
         return objects.Contents.filter((e) => e.Key?.startsWith(this._settings.bucketPrefix)).map((e) =>
             e.Key?.substring(this._settings.bucketPrefix.length)
@@ -175,7 +185,7 @@ export class MinioStorageAdapter implements IJournalStorage {
                     Objects: keys.map((e) => ({ Key: `${this._settings.bucketPrefix}${e}` })),
                 },
             });
-            const r = await client.send(cmd);
+            const r = await this.runTrackedRequest(() => client.send(cmd));
             const { Deleted, Errors } = r;
             const deleteCount = Deleted?.length || 0;
             const errorCount = Errors?.length || 0;
@@ -196,7 +206,7 @@ export class MinioStorageAdapter implements IJournalStorage {
         const client = this._getClient();
         const cmd = new HeadBucketCommand({ Bucket: this._settings.bucket });
         try {
-            await client.send(cmd);
+            await this.runTrackedRequest(() => client.send(cmd));
             return true;
         } catch (ex) {
             Logger(`Could not connect to the remote bucket`, LOG_LEVEL_NOTICE);
@@ -208,7 +218,7 @@ export class MinioStorageAdapter implements IJournalStorage {
     async getUsage(): Promise<false | RemoteDBStatus> {
         const client = this._getClient();
         try {
-            const objects = await client.listObjectsV2({ Bucket: this._settings.bucket });
+            const objects = await this.runTrackedRequest(() => client.listObjectsV2({ Bucket: this._settings.bucket }));
             if (!objects.Contents) return {};
             return {
                 estimatedSize: objects.Contents.reduce((acc, e) => acc + (e.Size || 0), 0),
