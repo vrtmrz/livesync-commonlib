@@ -1,11 +1,21 @@
 name: Downstream CI
 
 on:
+  workflow_dispatch:
+    inputs:
+      downstream_ref:
+        description: Obsidian LiveSync branch, tag, or commit SHA to test
+        required: false
+        default: main
+        type: string
   pull_request:
   push:
     branches:
       - main
       - master
+
+permissions:
+  contents: read
 
 jobs:
   obsidian-livesync-unit-tests:
@@ -16,13 +26,28 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: livesync-commonlib
+          persist-credentials: false
 
       - name: Checkout obsidian-livesync
         uses: actions/checkout@v4
         with:
           repository: vrtmrz/obsidian-livesync
+          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.downstream_ref || 'main' }}
           path: obsidian-livesync
           submodules: false
+          persist-credentials: false
+
+      - name: Record checked-out revisions
+        env:
+          DOWNSTREAM_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.downstream_ref || 'main' }}
+        run: |
+          {
+            echo "### Downstream CI revisions"
+            echo
+            printf -- '- commonlib: `%s`\n' "$(git -C livesync-commonlib rev-parse HEAD)"
+            printf -- '- obsidian-livesync: `%s`\n' "$(git -C obsidian-livesync rev-parse HEAD)"
+            printf -- '- requested downstream ref: `%s`\n' "$DOWNSTREAM_REF"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Replace commonlib submodule
         run: |
