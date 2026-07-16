@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { MinioStorageAdapter } from "./MinioStorageAdapter.ts";
 import type { BucketSyncSetting } from "@lib/common/types.ts";
 import type { LiveSyncJournalReplicatorEnv } from "@lib/replication/journal/LiveSyncJournalReplicatorEnv.ts";
+import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 
 describe("MinioStorageAdapter Integration Tests", () => {
     // Requires minioEndpoint, accessKey, secretKey, bucketName in env
@@ -25,11 +26,16 @@ describe("MinioStorageAdapter Integration Tests", () => {
             bucketCustomHeaders: "",
         } as BucketSyncSetting;
 
+        const requestCount = reactiveSource(0);
+        const responseCount = reactiveSource(0);
+
         // Mock env
         const env = {
             services: {
                 API: {
                     getCustomFetchHandler: () => undefined,
+                    requestCount,
+                    responseCount,
                 },
             },
         } as unknown as LiveSyncJournalReplicatorEnv;
@@ -62,6 +68,8 @@ describe("MinioStorageAdapter Integration Tests", () => {
         // List again
         const filesAfterDelete = await adapter.listFiles("");
         expect(filesAfterDelete).not.toContain(testKey);
+        expect(requestCount.value).toBeGreaterThan(0);
+        expect(responseCount.value).toBe(requestCount.value);
     });
 
     it("skips tests if MinIO environment variables are not set", () => {

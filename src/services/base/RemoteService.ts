@@ -17,6 +17,7 @@ import type { AppLifecycleService } from "@lib/services/base/AppLifecycleService
 import type { SettingService } from "@lib/services/base/SettingService";
 import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
 import { createInstanceLogFunction, MARK_LOG_NETWORK_ERROR, type LogFunction } from "@lib/services/lib/logUtils";
+import { runWithTrackedPhysicalRequest } from "@lib/services/lib/remoteActivity.ts";
 import { PouchDB } from "@lib/pouchdb/pouchdb-browser.ts";
 import { LiveSyncError } from "@lib/common/LSError";
 export interface RemoteServiceDependencies {
@@ -92,8 +93,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
         const fetchFunction = useNativeFetch
             ? this._APIService.nativeFetch.bind(this._APIService)
             : this._APIService.webCompatFetch.bind(this._APIService);
-        this._APIService.requestCount.value = this._APIService.requestCount.value + 1;
-        try {
+        return await runWithTrackedPhysicalRequest(this._APIService, async () => {
             const response = await fetchFunction(req, opts);
             const method = opts?.method ?? "GET";
             if (method == "POST" || method == "PUT") {
@@ -130,9 +130,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                 this.clearErrors();
             }
             return response;
-        } finally {
-            this._APIService.responseCount.value = this._APIService.responseCount.value + 1;
-        }
+        });
     }
 
     async connect(
