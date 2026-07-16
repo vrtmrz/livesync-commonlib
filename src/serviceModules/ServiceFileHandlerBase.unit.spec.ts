@@ -268,6 +268,29 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
         expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
     });
 
+    it("preserves a file when the canonical path change also changes parent directory case", async () => {
+        const { handler, storageStub, databaseFileAccess, storageAccess } = createHandler(
+            "same body",
+            "same body",
+            false,
+            EVEN
+        );
+        const remoteMeta = createMeta("renamed/calculus.md", "same body");
+        const existingFile = {
+            ...storageStub,
+            name: "Calculus.md",
+            path: "Renamed/Calculus.md" as FilePath,
+        };
+        databaseFileAccess.fetchEntryMeta.mockResolvedValue(remoteMeta);
+        storageAccess.getStub.mockResolvedValue(existingFile);
+
+        await expect(handler.dbToStorage(remoteMeta, existingFile)).resolves.toBe(false);
+
+        expect(storageAccess.renameFile).not.toHaveBeenCalled();
+        expect(databaseFileAccess.fetchEntryFromMeta).not.toHaveBeenCalled();
+        expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
+    });
+
     it("stops remote reflection when the canonical filename case cannot be applied", async () => {
         const { handler, storageStub, databaseFileAccess, storageAccess } = createHandler(
             "same body",

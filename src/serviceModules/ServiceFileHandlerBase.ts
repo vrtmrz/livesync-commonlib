@@ -68,6 +68,11 @@ async function serializedByKeys<T>(keys: readonly string[], callback: () => Prom
     return await serialized(key, () => serializedByKeys(remainingKeys, callback));
 }
 
+function getParentPath(path: string): string {
+    const lastSeparator = path.lastIndexOf("/");
+    return lastSeparator < 0 ? "" : path.slice(0, lastSeparator);
+}
+
 export abstract class ServiceFileHandlerBase
     extends ServiceModuleBase<ServiceFileHandlerDependencies>
     implements IFileHandler
@@ -390,6 +395,13 @@ export abstract class ServiceFileHandlerBase
             if (existingDocumentId !== targetDocumentId) {
                 this._log(
                     `Refusing to overwrite ${existDoc.path} while applying the distinct path ${path}`,
+                    LOG_LEVEL_NOTICE
+                );
+                return false;
+            }
+            if (getParentPath(existDoc.path) !== getParentPath(path)) {
+                this._log(
+                    `Refusing to apply a filename case change across differently cased parent directories: ${existDoc.path} -> ${path}`,
                     LOG_LEVEL_NOTICE
                 );
                 return false;
