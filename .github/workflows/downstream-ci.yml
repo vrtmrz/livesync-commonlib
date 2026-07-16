@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       downstream_ref:
-        description: Obsidian LiveSync branch, tag, or commit SHA to test
+        description: Self-hosted LiveSync branch, tag, or commit SHA to test
         required: false
         default: main
         type: string
@@ -18,7 +18,8 @@ permissions:
   contents: read
 
 jobs:
-  obsidian-livesync-unit-tests:
+  self-hosted-livesync-unit-tests:
+    name: Self-hosted LiveSync unit tests
     runs-on: ubuntu-latest
 
     steps:
@@ -28,7 +29,7 @@ jobs:
           path: livesync-commonlib
           persist-credentials: false
 
-      - name: Checkout obsidian-livesync
+      - name: Checkout Self-hosted LiveSync
         uses: actions/checkout@v4
         with:
           repository: vrtmrz/obsidian-livesync
@@ -45,7 +46,7 @@ jobs:
             echo "### Downstream CI revisions"
             echo
             printf -- '- commonlib: `%s`\n' "$(git -C livesync-commonlib rev-parse HEAD)"
-            printf -- '- obsidian-livesync: `%s`\n' "$(git -C obsidian-livesync rev-parse HEAD)"
+            printf -- '- Self-hosted LiveSync: `%s`\n' "$(git -C obsidian-livesync rev-parse HEAD)"
             printf -- '- requested downstream ref: `%s`\n' "$DOWNSTREAM_REF"
           } >> "$GITHUB_STEP_SUMMARY"
 
