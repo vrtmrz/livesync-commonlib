@@ -112,10 +112,15 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     ready = promiseWithResolvers<void>();
     services: HeadlessServiceHub<ServiceContext>;
     public async init() {
-        await this.services.appLifecycle.onReady();
-        await this.liveSyncLocalDB.initializeDatabase();
-        this.ready.resolve();
-        this.liveSyncLocalDB.refreshSettings();
+        try {
+            await this.services.appLifecycle.onReady();
+            await this.liveSyncLocalDB.initializeDatabase();
+            this.ready.resolve();
+            this.liveSyncLocalDB.refreshSettings();
+        } catch (ex) {
+            this.ready.reject(ex instanceof Error ? ex : new Error(String(ex)));
+            throw ex;
+        }
     }
     getBoundDatabaseService(options: () => DirectFileManipulatorOptions) {
         const _option = options;
@@ -139,6 +144,16 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         this.services = new HeadlessServiceHub(context, {
             database: this.getBoundDatabaseService(() => this.options),
         });
+
+        // Keep API handlers safe by default before init starts.
+        // Some code paths log during database bootstrap, and handler binders throw if unassigned.
+        const api = this.services.API as any;
+        if (typeof api?.addLog?.setHandler === "function") {
+            api.addLog.setHandler(() => {});
+        }
+        if (typeof api?.getSystemVaultName?.setHandler === "function") {
+            api.getSystemVaultName.setHandler(() => "livesync-headless");
+        }
 
         // (this.services.setting as InjectableSettingService<ServiceContext>).currentSettings.setHandler(
         //     getSettings.bind(this)
@@ -232,6 +247,20 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         return this.settings;
     }
     async close() {
+        const control = (this.services as any).control;
+        if (control) {
+            try {
+                if (typeof control.hasUnloaded === "function" && control.hasUnloaded()) {
+                    return;
+                }
+                if (typeof control.onUnload === "function") {
+                    await control.onUnload();
+                    return;
+                }
+            } catch {
+                // Fall back to direct database shutdown for compatibility.
+            }
+        }
         await this.liveSyncLocalDB.close();
         return this.liveSyncLocalDB.onunload();
     }
@@ -372,6 +401,22 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
             return true;
         } else {
             Logger(`DELETE: FAILED: ${path}`, LOG_LEVEL_INFO);
+            return false;
+        }
+    }
+
+    async move(from: string, to: string, overwrite = false) {
+        Logger(`MOVE: START: ${from} -> ${to}`, LOG_LEVEL_VERBOSE);
+        const ret = await this.liveSyncLocalDB.moveDBEntry(
+            from as FilePathWithPrefix,
+            to as FilePathWithPrefix,
+            overwrite
+        );
+        if (ret) {
+            Logger(`MOVE: DONE: ${from} -> ${to}`, LOG_LEVEL_INFO);
+            return true;
+        } else {
+            Logger(`MOVE: FAILED: ${from} -> ${to}`, LOG_LEVEL_INFO);
             return false;
         }
     }
