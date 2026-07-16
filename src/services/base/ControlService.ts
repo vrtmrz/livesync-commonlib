@@ -102,7 +102,7 @@ export class ControlService<T extends ServiceContext = ServiceContext>
         }
         eventHub.emitEvent(EVENT_PLATFORM_UNLOADED);
         eventHub.offAll();
-        this._log($msg("moduleLiveSyncMain.logUnloadingPlugin"));
+        this._log($msg("Unloading plugin..."));
         return;
     }
 

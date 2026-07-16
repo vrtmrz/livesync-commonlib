@@ -277,12 +277,12 @@ export async function performDoctorConsultation(
     }
     const issues = Object.entries(r.rules);
     if (issues.length == 0) {
-        Logger($msg("Doctor.Message.NoIssues"), activateReason !== "updated" ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+        Logger($msg("No issues detected!"), activateReason !== "updated" ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
         return getResult();
     } else {
         const OPT_YES = `${$msg("Doctor.Button.Yes")}` as const;
         const OPT_NO = `${$msg("Doctor.Button.No")}` as const;
-        const OPT_DISMISS = `${$msg("Doctor.Button.DismissThisVersion")}` as const;
+        const OPT_DISMISS = `${$msg("No, and do not ask again until the next release")}` as const;
         // this._log(`Issues found in ${key}`, LOG_LEVEL_VERBOSE);
         const issues = Object.keys(r.rules)
             .map((key) => `- ${getConfName(key as AllSettingItemKey)}`)
@@ -291,7 +291,7 @@ export async function performDoctorConsultation(
             $msg("Doctor.Dialogue.Main", { activateReason, issues }),
             [OPT_YES, OPT_NO, OPT_DISMISS],
             {
-                title: $msg("Doctor.Dialogue.Title"),
+                title: $msg("Self-hosted LiveSync Config Doctor"),
                 defaultAction: OPT_YES,
             }
         );
@@ -315,16 +315,16 @@ export async function performDoctorConsultation(
         Logger(`${issueItems.length} Issue(s) found `, LOG_LEVEL_VERBOSE);
         let idx = 0;
         const applySettings = {} as Partial<DoctorCheckSettings>;
-        const OPT_FIX = `${$msg("Doctor.Button.Fix")}` as const;
-        const OPT_SKIP = `${$msg("Doctor.Button.Skip")}` as const;
-        const OPTION_FIX_WITHOUT_REBUILD = `${$msg("Doctor.Button.FixButNoRebuild")}` as const;
+        const OPT_FIX = `${$msg("Fix it")}` as const;
+        const OPT_SKIP = `${$msg("Leave it as is")}` as const;
+        const OPTION_FIX_WITHOUT_REBUILD = `${$msg("Fix it but no rebuild")}` as const;
         let skipped = 0;
         for (const [key, value] of issueItems) {
             const levelMap = {
-                [RuleLevel.Necessary]: $msg("Doctor.Level.Necessary"),
-                [RuleLevel.Recommended]: $msg("Doctor.Level.Recommended"),
-                [RuleLevel.Optional]: $msg("Doctor.Level.Optional"),
-                [RuleLevel.Must]: $msg("Doctor.Level.Must"),
+                [RuleLevel.Necessary]: $msg("Necessary"),
+                [RuleLevel.Recommended]: $msg("Recommended"),
+                [RuleLevel.Optional]: $msg("Optional"),
+                [RuleLevel.Must]: $msg("Must"),
             };
             const level = value.level ? levelMap[value.level] : "Unknown";
             const options = [OPT_FIX] as [typeof OPT_FIX | typeof OPT_SKIP | typeof OPTION_FIX_WITHOUT_REBUILD];
@@ -356,7 +356,7 @@ export async function performDoctorConsultation(
                 options.push(OPTION_FIX_WITHOUT_REBUILD);
             }
             options.push(OPT_SKIP);
-            const note = `${askRebuild ? $msg("Doctor.Message.RebuildRequired") : ""}${askRebuildLocal ? $msg("Doctor.Message.RebuildLocalRequired") : ""}`;
+            const note = `${askRebuild ? $msg("Attention! A rebuild is required to apply this!") : ""}${askRebuildLocal ? $msg("Attention! A local database rebuild is required to apply this!") : ""}`;
 
             const ret = await env.confirm.askSelectStringDialogue(
                 $msg("Doctor.Dialogue.MainFix", {
@@ -370,7 +370,7 @@ export async function performDoctorConsultation(
                 }),
                 options,
                 {
-                    title: $msg("Doctor.Dialogue.TitleFix", { current: `${++idx}`, total: `${issueItems.length}` }),
+                    title: $msg("Fix issue ${current}/${total}", { current: `${++idx}`, total: `${issueItems.length}` }),
                     defaultAction: OPT_FIX,
                 }
             );
@@ -398,8 +398,8 @@ export async function performDoctorConsultation(
             isModified = true;
         } else {
             if (
-                (await env.confirm.askYesNoDialog($msg("Doctor.Message.SomeSkipped"), {
-                    title: $msg("Doctor.Dialogue.TitleAlmostDone"),
+                (await env.confirm.askYesNoDialog($msg("We left some issues as is. Shall I ask you again on next startup?"), {
+                    title: $msg("Almost done!"),
                     defaultOption: "No",
                 })) == "no"
             ) {

@@ -176,7 +176,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             } else if (ensure == "OK") {
                 /* NO OP FOR NARROWING */
             } else if (ensure[0] == "MISMATCHED") {
-                Logger($msg("liveSyncReplicator.mismatchedTweakDetected"), LOG_LEVEL_NOTICE);
+                Logger($msg("Some mismatches have been detected in the configuration between devices. Running a manual replication will attempt to resolve this issue."), LOG_LEVEL_NOTICE);
                 this.tweakSettingsMismatched = true;
                 this.preferredTweakValue = ensure[1];
                 return false;

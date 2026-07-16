@@ -495,7 +495,7 @@ You can chose as follows:
 
     async startService(bindings: BindableObject[] = []) {
         if (!this.isEnabled) {
-            Logger($msg("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
+            Logger($msg("%{title_p2p_sync} is not enabled. We cannot open a new connection."), LOG_LEVEL_NOTICE);
             return;
         }
         const servingDB = createHostingDB(this._env);
@@ -510,7 +510,7 @@ You can chose as follows:
     async start(bindings: BindableObject[] = []) {
         await this.shutdown();
         if (!this.settings.P2P_Enabled) {
-            Logger($msg("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
+            Logger($msg("%{title_p2p_sync} is not enabled. We cannot open a new connection."), LOG_LEVEL_NOTICE);
             return;
         }
         const options = generateJoinRoomOptions(this.settings);

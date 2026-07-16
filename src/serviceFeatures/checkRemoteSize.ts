@@ -16,23 +16,23 @@ export function onNotifyRemoteSizeNotConfiguredFactory(
     log: ReturnType<typeof createInstanceLogFunction>
 ) {
     return async () => {
-        log($msg("moduleCheckRemoteSize.logCheckingStorageSizes"), LOG_LEVEL_VERBOSE);
+        log($msg("Checking storage sizes"), LOG_LEVEL_VERBOSE);
         const settings = host.services.setting.currentSettings();
         if (settings.notifyThresholdOfRemoteStorageSize >= 0) {
             return true;
         }
         const message = $msg("moduleCheckRemoteSize.msgSetDBCapacity");
-        const ANSWER_0 = $msg("moduleCheckRemoteSize.optionNoWarn");
-        const ANSWER_800 = $msg("moduleCheckRemoteSize.option800MB");
-        const ANSWER_2000 = $msg("moduleCheckRemoteSize.option2GB");
-        const ASK_ME_NEXT_TIME = $msg("moduleCheckRemoteSize.optionAskMeLater");
+        const ANSWER_0 = $msg("No, never warn please");
+        const ANSWER_800 = $msg("800MB (Cloudant, fly.io)");
+        const ANSWER_2000 = $msg("2GB (Standard)");
+        const ASK_ME_NEXT_TIME = $msg("Ask me later");
 
         const ret = await host.services.API.confirm.askSelectStringDialogue(
             message,
             [ANSWER_0, ANSWER_800, ANSWER_2000, ASK_ME_NEXT_TIME],
             {
                 defaultAction: ASK_ME_NEXT_TIME,
-                title: $msg("moduleCheckRemoteSize.titleDatabaseSizeNotify"),
+                title: $msg("Setting up database size notification"),
                 timeout: 40,
             }
         );
@@ -95,7 +95,7 @@ export function onNotifyRemoteSizeExceedFactory(
             const maxSize = settings.notifyThresholdOfRemoteStorageSize * 1024 * 1024;
             if (estimatedSize <= maxSize) {
                 log(
-                    $msg("moduleCheckRemoteSize.logCurrentStorageSize", {
+                    $msg("Remote storage size: ${measuredSize}", {
                         measuredSize: sizeToHumanReadable(estimatedSize),
                     }),
                     LOG_LEVEL_INFO
@@ -107,23 +107,23 @@ export function onNotifyRemoteSizeExceedFactory(
                 maxSize: sizeToHumanReadable(maxSize),
             });
             const newMax = ~~(estimatedSize / 1024 / 1024) + 100;
-            const ANSWER_ENLARGE_LIMIT = $msg("moduleCheckRemoteSize.optionIncreaseLimit", {
+            const ANSWER_ENLARGE_LIMIT = $msg("increase to ${newMax}MB", {
                 newMax: newMax.toString(),
             });
-            const ANSWER_REBUILD = $msg("moduleCheckRemoteSize.optionRebuildAll");
+            const ANSWER_REBUILD = $msg("Rebuild Everything Now");
             const ANSWER_IGNORE = $msg("moduleCheckRemoteSize.optionDismiss");
             const ret = await host.services.API.confirm.askSelectStringDialogue(
                 message,
                 [ANSWER_ENLARGE_LIMIT, ANSWER_REBUILD, ANSWER_IGNORE],
                 {
                     defaultAction: ANSWER_IGNORE,
-                    title: $msg("moduleCheckRemoteSize.titleDatabaseSizeLimitExceeded"),
+                    title: $msg("Remote storage size exceeded the limit"),
                     timeout: 60,
                 }
             );
             if (ret == ANSWER_REBUILD) {
                 const ret = await host.services.API.confirm.askYesNoDialog(
-                    $msg("moduleCheckRemoteSize.msgConfirmRebuild"),
+                    $msg("This may take a bit of a long time. Do you really want to rebuild everything now?"),
                     { defaultOption: "No" }
                 );
                 if (ret == "yes") {
@@ -142,7 +142,7 @@ export function onNotifyRemoteSizeExceedFactory(
             if (ret == ANSWER_ENLARGE_LIMIT) {
                 const newThreshold = ~~(estimatedSize / 1024 / 1024) + 100;
                 log(
-                    $msg("moduleCheckRemoteSize.logThresholdEnlarged", {
+                    $msg("Threshold has been enlarged to ${size}MB", {
                         size: newThreshold.toString(),
                     }),
                     LOG_LEVEL_NOTICE
@@ -157,7 +157,7 @@ export function onNotifyRemoteSizeExceedFactory(
             }
             // Dismiss or Close the dialog
             log(
-                $msg("moduleCheckRemoteSize.logExceededWarning", {
+                $msg("Remote storage size: ${measuredSize} exceeded ${notifySize}", {
                     measuredSize: sizeToHumanReadable(estimatedSize),
                     notifySize: sizeToHumanReadable(settings.notifyThresholdOfRemoteStorageSize * 1024 * 1024),
                 }),

@@ -1,91 +1,169 @@
+" (Advanced)": " (מתקדם)"
+" (Edge Case)": " (מקרה קצה)"
+" (Power User)": " (משתמש מתקדם)"
+" Translation is available!": " תרגום זמין!"
+"---Notice---": ---הודעה---
+--Config check--: --בדיקת תצורה--
+--Connection check--: --בדיקת חיבור--
+--Done--: --הסתיים--
 (BETA) Always overwrite with a newer file: (BETA) תמיד לדרוס עם קובץ חדש יותר
 (Beta) Use ignore files: (בטא) שימוש בקבצי התעלמות
+(Danger) Save Only Settings: (סכנה) שמור הגדרות בלבד
 (Days passed, 0 to disable automatic-deletion): (ימים שעברו; 0 לביטול מחיקה אוטומטית)
-(ex. Read chunks online) If this option is enabled, LiveSync reads chunks online directly instead of replicating them locally. Increasing Custom chunk size is recommended.: >-
-  (לדוגמה: קריאת נתחים אונליין) אם אפשרות זו מופעלת, LiveSync קורא נתחים ישירות
-  מהשרת מבלי לשכפל אותם מקומית. מומלץ להגדיל את גודל הנתח המותאם אישית.
+(ex. Read chunks online) If this option is enabled, LiveSync reads chunks online directly instead of replicating them locally. Increasing Custom chunk size is recommended.:
+  "(לדוגמה: קריאת נתחים אונליין) אם אפשרות זו מופעלת, LiveSync קורא נתחים ישירות
+  מהשרת מבלי לשכפל אותם מקומית. מומלץ להגדיל את גודל הנתח המותאם אישית."
 (MB) If this is set, changes to local and remote files that are larger than this will be skipped. If the file becomes smaller again, a newer one will be used.:
   (MB) אם ערך זה מוגדר, שינויים בקבצים מקומיים ומרוחקים הגדולים מגודל זה יידלגו.
   אם הקובץ יקטן שוב, ייעשה שימוש בגרסה החדשה יותר.
 (Mega chars): (מגה תווים)
 (Not recommended) If set, credentials will be stored in the file.: (לא מומלץ) אם מוגדר, פרטי הגישה יישמרו בקובץ.
 (Obsolete) Use an old adapter for compatibility: (מיושן) שימוש במתאם ישן לתאימות לאחור
+"%{title_p2p_sync} is disabled. Do you really want to enable it?": "%{title_p2p_sync} מנוטרל. האם אתה בטוח שברצונך להפעיל?"
+"%{title_p2p_sync} is not enabled. We cannot open a new connection.": "%{title_p2p_sync} אינו מופעל. לא ניתן לפתוח חיבור חדש."
+"| ${name} | ${self} | ${remote} |": "| ${name} | ${self} | ${remote} |"
+"⏹️ : Disabled": "⏹️ : מנוטרל"
+⚠ CORS Origin is unmatched ${from}->${to}: ⚠ CORS Origin אינו תואם ${from}->${to}
+⚠ You do not have administrator privileges.: ⚠ אין לך הרשאות מנהל.
+✔ chttpd_auth.require_valid_user is ok.: ✔ chttpd_auth.require_valid_user תקין.
+✔ chttpd.enable_cors is ok.: ✔ chttpd.enable_cors תקין.
+✔ chttpd.max_http_request_size is ok.: ✔ chttpd.max_http_request_size תקין.
+✔ chttpd.require_valid_user is ok.: ✔ chttpd.require_valid_user תקין.
+✔ CORS origin OK: ✔ CORS origin תקין
+✔ cors.credentials is ok.: ✔ cors.credentials תקין.
+✔ cors.origins is ok.: ✔ cors.origins תקין.
+✔ couchdb.max_document_size is ok.: ✔ couchdb.max_document_size תקין.
+✔ httpd.enable_cors is ok.: ✔ httpd.enable_cors תקין.
+✔ httpd.WWW-Authenticate is ok.: ✔ httpd.WWW-Authenticate תקין.
+✔ You have administrator privileges.: ✔ יש לך הרשאות מנהל.
+❗ Access forbidden.: ❗ גישה נדחתה.
+❗ chttpd_auth.require_valid_user is wrong.: ❗ chttpd_auth.require_valid_user שגוי.
+❗ chttpd.enable_cors is wrong: ❗ chttpd.enable_cors שגוי
+❗ chttpd.max_http_request_size is low): ❗ chttpd.max_http_request_size נמוך)
+❗ chttpd.require_valid_user is wrong.: ❗ chttpd.require_valid_user שגוי.
+❗ CORS is not allowing credentials: ❗ CORS אינו מאפשר פרטי גישה
+❗ cors.credentials is wrong: ❗ cors.credentials שגוי
+❗ cors.origins is wrong: ❗ cors.origins שגוי
+❗ couchdb.max_document_size is low): ❗ couchdb.max_document_size נמוך)
+❗ httpd.enable_cors is wrong: ❗ httpd.enable_cors שגוי
+❗ httpd.WWW-Authenticate is missing: ❗ httpd.WWW-Authenticate חסר
+"🔁 : Enabled": "🔁 : מופעל"
+2GB (Standard): 2GB (סטנדרטי)
+800MB (Cloudant, fly.io): 800MB (Cloudant, fly.io)
 Access Key: מפתח גישה
 Active Remote Configuration: תצורת שרת מרוחק פעיל
+Additional safety scan completed: סריקת הבטיחות הנוספת הושלמה
+Additional safety scan has failed on a module: סריקת הבטיחות הנוספת נכשלה במודול
+Additional safety scan...: סריקת בטיחות נוספת...
+All done! Do you want to generate a setup URI to set up other devices?: הכל מוכן! האם ברצונך לייצר Setup URI להגדרת מכשירים אחרים?
+Almost done!: כמעט סיימנו!
 Always prompt merge conflicts: תמיד להציג בקשת אישור לקונפליקטי מיזוג
+An error occurred!!: אירעה שגיאה!!
+An update has been detected. Please open the Settings dialogue and check the Change Log. Replication has been cancelled.: זוהה עדכון. אנא פתח את דיאלוג ההגדרות ובדוק את יומן השינויים. השכפול בוטל.
 Analyse: ניתוח
 Analyse database usage: ניתוח שימוש במסד נתונים
 Analyse database usage and generate a TSV report for diagnosis yourself. You can paste the generated report with any spreadsheet you like.:
   נתח שימוש במסד הנתונים וצור דו"ח TSV לאבחון עצמי. ניתן להדביק את הדו"ח שנוצר
   בכל גיליון אלקטרוני.
+Appearance: מראה
 Apply Latest Change if Conflicting: החל שינוי אחרון בעת קונפליקט
 Apply preset configuration: החל תצורה קבועה מראש
+Apply settings to this device: החל הגדרות על מכשיר זה
+Apply settings to this device, and fetch again: החל הגדרות על מכשיר זה ומשוך שוב
+Apply settings to this device, but and ignore incompatibility: החל הגדרות על מכשיר זה, אך התעלם מאי-תאימות
+Are you sure to proceed?: האם אתה בטוח שברצונך להמשיך?
+Ask me later: שאל מאוחר יותר
+Attention! A local database rebuild is required to apply this!: שים לב! נדרשת בנייה מחדש של מסד הנתונים המקומי כדי להחיל זאת!
+Attention! A rebuild is required to apply this!: שים לב! נדרשת בנייה מחדש כדי להחיל זאת!
 Automatically Sync all files when opening Obsidian.: סנכרן את כל הקבצים אוטומטית עם פתיחת Obsidian.
 Batch database update: עדכון אצווה למסד נתונים
 Batch limit: מגבלת אצווה
 Batch size: גודל אצווה
 Batch size of on-demand fetching: גודל אצווה במשיכה לפי דרישה
+Before LiveSync, start OneShot once...: לפני LiveSync, התחל OneShot פעם אחת...
 Before v0.17.16, we used an old adapter for the local database. Now the new adapter is preferred. However, it needs local database rebuilding. Please disable this toggle when you have enough time. If leave it enabled, also while fetching from the remote database, you will be asked to disable this.:
-  לפני גרסה 0.17.16, השתמשנו במתאם ישן למסד הנתונים המקומי. כעת המתאם החדש מועדף.
-  עם זאת, הדבר מצריך בנייה מחדש של מסד הנתונים המקומי. אנא כבה אפשרות זו כשיש לך
-  זמן פנוי. אם תשאיר אותה מופעלת, גם בעת משיכה ממסד הנתונים המרוחק, תתבקש לכבות אותה.
+  לפני גרסה 0.17.16, השתמשנו במתאם ישן למסד הנתונים המקומי. כעת המתאם החדש
+  מועדף. עם זאת, הדבר מצריך בנייה מחדש של מסד הנתונים המקומי. אנא כבה אפשרות זו
+  כשיש לך זמן פנוי. אם תשאיר אותה מופעלת, גם בעת משיכה ממסד הנתונים המרוחק,
+  תתבקש לכבות אותה.
+Broken files has been detected: זוהו קבצים פגומים
 Bucket Name: שם דלי (Bucket)
+Change Log: יומן שינויים
+Changes need to be applied!: יש להחיל שינויים!
 Check: בדוק
-cmdConfigSync:
-  showCustomizationSync: הצג סנכרון התאמה אישית
+Check it later: בדוק מאוחר יותר
+Checking configuration done: בדיקת התצורה הושלמה
+Checking configuration failed: בדיקת התצורה נכשלה
+Checking database configuration: בודק תצורת מסד נתונים
+Checking storage sizes: בודק גדלי אחסון
 Comma separated `.gitignore, .dockerignore`: רשימה מופרדת בפסיקים `.gitignore, .dockerignore`
 Compute revisions for chunks: חשב גרסאות לנתחים
+"Configured synchronization mode: DISABLED": "מצב סנכרון שהוגדר: מנוטרל"
+"Configured synchronization mode: LiveSync": "מצב סנכרון שהוגדר: LiveSync"
+"Configured synchronization mode: Periodic": "מצב סנכרון שהוגדר: תקופתי"
+Confirmation: אישור
+Conflict resolution: פתרון קונפליקטים
+Congratulations!: מזל טוב!
+Connect with Setup URI: התחבר עם Setup URI
 Copy Report to clipboard: העתק דו"ח ללוח
+Copy the current settings to a Setup URI: העתק הגדרות נוכחיות ל-Setup URI
+CORS credentials OK: CORS credentials תקין
+"CouchDB Configuration: ${title} -> Set ${key} to ${value}": "תצורת CouchDB: ${title} -> הגדר ${key} ל-${value}"
+"CouchDB Configuration: ${title} failed": "תצורת CouchDB: ${title} נכשלה"
+"CouchDB Configuration: ${title} successfully updated": "תצורת CouchDB: ${title} עודכנה בהצלחה"
+Could not connect to ${uri}:${dbRet}: לא ניתן להתחבר אל ${uri}:${dbRet}
+"Could not connect to remote database: ${d}": "לא ניתן להתחבר למסד הנתונים המרוחק: ${d}"
+Could not mark resolve remote database.: לא ניתן לסמן פתרון למסד הנתונים המרוחק.
+"Current origin: ${origin}": "מקור נוכחי: ${origin}"
 Data Compression: דחיסת נתונים
+Database cleaning up is in process. replication has been cancelled: ניקוי מסד הנתונים בתהליך. השכפול בוטל
+Database connected: מסד הנתונים מחובר
 Database Name: שם מסד נתונים
 Database suffix: סיומת מסד נתונים
 Delay conflict resolution of inactive files: עכב פתרון קונפליקטים לקבצים לא פעילים
 Delay merge conflict prompt for inactive files.: עכב הצגת בקשת מיזוג לקבצים לא פעילים.
 Delete old metadata of deleted files on start-up: מחק מטה-נתונים ישנים של קבצים שנמחקו בעת הפעלה
+Deletion Propagation: הפצת מחיקות
+Detects non optimal settings. (Same as during migration): מזהה הגדרות לא אופטימליות. (זהה לפעולה במהלך הגירה)
 Device name: שם מכשיר
 dialog:
-  yourLanguageAvailable:
-    _value: >-
-      ל-Self-hosted LiveSync יש תרגום לשפתך, ולכן הגדרת %{Display language} הופעלה.
+  yourLanguageAvailable: >-
+    ל-Self-hosted LiveSync יש תרגום לשפתך, ולכן הגדרת %{Display language}
+    הופעלה.
 
 
-      הערה: לא כל ההודעות מתורגמות. אנחנו ממתינים לתרומותיך!
+    הערה: לא כל ההודעות מתורגמות. אנחנו ממתינים לתרומותיך!
 
-      הערה 2: אם אתה פותח Issue, **אנא חזור ל-%{lang-def}** ואז צלם צילומי מסך,
-      הודעות ויומנים. ניתן לעשות זאת בדיאלוג ההגדרות.
+    הערה 2: אם אתה פותח Issue, **אנא חזור ל-%{lang-def}** ואז צלם צילומי מסך,
+    הודעות ויומנים. ניתן לעשות זאת בדיאלוג ההגדרות.
 
-      נקווה שתמצא/י את הפלאגין נוח לשימוש!
-    btnRevertToDefault: השאר %{lang-def}
-    Title: " תרגום זמין!"
-Disables logging, only shows notifications. Please disable if you report an issue.:
-  מכבה רישום יומן, מציג התראות בלבד. אנא כבה אם אתה מדווח על בעיה.
+    נקווה שתמצא/י את הפלאגין נוח לשימוש!
+Disable: נטרל
+Disable all automatic: נטרל את כל האוטומטי
+Disable Hidden files sync: נטרל סנכרון קבצים נסתרים
+Disables logging, only shows notifications. Please disable if you report an issue.: מכבה רישום יומן, מציג התראות בלבד. אנא כבה אם אתה מדווח על בעיה.
+Discard: ביטול שינויים
+Discard existing settings and databases: בטל הגדרות ומסדי נתונים קיימים
 Display Language: שפת תצוגה
 Do not check configuration mismatch before replication: אל תבדוק אי-התאמה בתצורה לפני שכפול
 Do not keep metadata of deleted files.: אל תשמור מטה-נתונים של קבצים שנמחקו.
 Do not split chunks in the background: אל תפצל נתחים ברקע
 Do not use internal API: אל תשתמש ב-API פנימי
+Do you really want to discard existing settings and databases?: האם אתה בטוח שברצונך לבטל הגדרות ומסדי נתונים קיימים?
+Do you want to fetch the config from the remote server?: האם ברצונך למשוך את התצורה מהשרת המרוחד?
 Doctor:
   Button:
-    DismissThisVersion: לא, ואל תשאל שוב עד לגרסה הבאה
-    Fix: תקן
-    FixButNoRebuild: תקן ללא בנייה מחדש
     No: לא
-    Skip: השאר כפי שהוא
     Yes: כן
   Dialogue:
-    Main: >-
+    Main: |-
       שלום! רופא התצורה הופעל בגלל ${activateReason}!
-
       ולמרבה הצער, זוהו תצורות שעשויות להיות בעייתיות.
-
       היה רגוע/ה. בואו נפתור אותן אחת אחת.
-
 
       לידיעתך מראש, נשאל אותך על הפריטים הבאים.
 
-
       ${issues}
-
 
       האם להתחיל?
     MainFix: |-
@@ -105,74 +183,95 @@ Doctor:
       ${note}
 
       לתקן לערך האידאלי?
-    Title: Self-hosted LiveSync Config Doctor
-    TitleAlmostDone: כמעט סיימנו!
-    TitleFix: תקן בעיה ${current}/${total}
-  Level:
-    Must: חובה
-    Necessary: נדרש
-    Optional: אופציונלי
-    Recommended: מומלץ
-  Message:
-    NoIssues: לא זוהו בעיות!
-    RebuildLocalRequired: שים לב! נדרשת בנייה מחדש של מסד הנתונים המקומי כדי להחיל זאת!
-    RebuildRequired: שים לב! נדרשת בנייה מחדש כדי להחיל זאת!
-    SomeSkipped: השארנו כמה בעיות כפי שהן. האם לשאול שוב בהפעלה הבאה?
   RULES:
     E2EE_V02500:
-      REASON: ההצפנה מקצה לקצה עודכנה לגרסה חזקה ומהירה יותר. בנוסף, בסקירת קוד
-        שנערכה מחדש הוסבר שההצפנה הקודמת נפרצת. יש להחיל זאת בהקדם האפשרי. מתנצלים
-        על אי הנוחות. שים לב שהגדרה זו אינה תואמת לאחור. כל המכשירים המסונכרנים
+      REASON: ההצפנה מקצה לקצה עודכנה לגרסה חזקה ומהירה יותר. בנוסף, בסקירת קוד שנערכה
+        מחדש הוסבר שההצפנה הקודמת נפרצת. יש להחיל זאת בהקדם האפשרי. מתנצלים על
+        אי הנוחות. שים לב שהגדרה זו אינה תואמת לאחור. כל המכשירים המסונכרנים
         חייבים להיות מעודכנים לגרסה 0.25.0 ומעלה. אין צורך בבנייה מחדש והנתונים
         יומרו בהדרגה לפורמט החדש, אך מומלץ לבנות מחדש בהזדמנות הראשונה.
+Enable: הפעל
 Enable advanced features: הפעל תכונות מתקדמות
 Enable customization sync: הפעל סנכרון התאמה אישית
 Enable Developers' Debug Tools.: הפעל כלי ניפוי באגים למפתחים.
 Enable edge case treatment features: הפעל תכונות לטיפול במקרי קצה
+Enable extra and advanced features: הפעל תכונות נוספות ומתקדמות
+Enable Hidden files sync: הפעל סנכרון קבצים נסתרים
+Enable LiveSync: הפעל LiveSync
 Enable poweruser features: הפעל תכונות למשתמש מתקדם
 Enable this if your Object Storage doesn't support CORS: הפעל אם אחסון האובייקטים שלך לא תומך ב-CORS
-Enable this option to automatically apply the most recent change to documents even when it conflicts:
-  הפעל אפשרות זו כדי להחיל אוטומטית את השינוי האחרון במסמכים גם כשיש קונפליקט
+Enable this option to automatically apply the most recent change to documents even when it conflicts: הפעל אפשרות זו כדי להחיל אוטומטית את השינוי האחרון במסמכים גם כשיש קונפליקט
 Encrypt contents on the remote database. If you use the plugin's synchronization feature, enabling this is recommended.:
-  הצפן תוכן במסד הנתונים המרוחק. אם אתה משתמש בתכונת הסנכרון של התוסף, מומלץ להפעיל זאת.
+  הצפן תוכן במסד הנתונים המרוחק. אם אתה משתמש בתכונת הסנכרון של התוסף, מומלץ
+  להפעיל זאת.
 Encrypting sensitive configuration items: הצפן פריטי תצורה רגישים
+Encryption is not enabled: ההצפנה אינה מופעלת
+Encryption Passphrase Invalid: ביטוי סיסמה להצפנה לא תקין
 Encryption phassphrase. If changed, you should overwrite the server's database with the new (encrypted) files.:
-  ביטוי סיסמה להצפנה. אם שונה, יש לדרוס את מסד הנתונים של השרת בקבצים החדשים (המוצפנים).
+  ביטוי סיסמה להצפנה. אם שונה, יש לדרוס את מסד הנתונים של השרת בקבצים החדשים
+  (המוצפנים).
 End-to-End Encryption: הצפנה מקצה לקצה
 Endpoint URL: כתובת נקודת קצה (Endpoint URL)
 Enhance chunk size: הגדל גודל נתח
+"ERROR: Passphrase is not compatible with the remote server! Please check it again!": "שגיאה: ביטוי הסיסמה אינו תואם לשרת המרוחד! אנא בדוק שוב!"
+"Estimated size: ${size}": "גודל משוער: ${size}"
+Fetch all has been scheduled. Plug-in will be restarted to perform it.: משיכה מלאה תוזמנה. הפלאגין יופעל מחדש לביצועה.
 Fetch chunks on demand: משוך נתחים לפי דרישה
+Fetch Config: משוך תצורה
 Fetch database with previous behaviour: משוך מסד נתונים עם התנהגות קודמת
+Fetch from Remote: משוך מהשרת המרוחד
 Filename: שם קובץ
+Fix issue ${current}/${total}: תקן בעיה ${current}/${total}
+Fix it: תקן
+Fix it but no rebuild: תקן ללא בנייה מחדש
 Forces the file to be synced when opened.: מכריח סנכרון הקובץ בעת פתיחתו.
+General Settings: הגדרות כלליות
 Handle files as Case-Sensitive: טפל בקבצים כתלויי רישיות
-If disabled(toggled), chunks will be split on the UI thread (Previous behaviour).:
-  אם מכובה, נתחים יפוצלו בשרשור ממשק המשתמש (התנהגות קודמת).
+HERE: כאן
+Here due to an upgrade notification? Please review the version history. If you're satisfied, click the button. A new update will prompt this again.:
+  הגעת כאן בשל הודעת שדרוג? אנא עיין בהיסטוריית הגרסאות. אם אתה מרוצה, לחץ על
+  הכפתור. עדכון חדש יציג זאת שוב.
+Hidden file synchronization: סנכרון קבצים נסתרים
+I already rebuilt the remote. Fetch from the remote: כבר בניתי מחדש את השרת המרוחק. משוך מהשרת המרוחד
+I got it and updated.: הבנתי ועדכנתי.
+I have fixed it, and do not ask again: תיקנתי, ואל תשאל שוב
+I will do it later: אטפל בזה מאוחר יותר
+If disabled(toggled), chunks will be split on the UI thread (Previous behaviour).: אם מכובה, נתחים יפוצלו בשרשור ממשק המשתמש (התנהגות קודמת).
 If enabled per-filed efficient customization sync will be used. We need a small migration when enabling this. And all devices should be updated to v0.23.18. Once we enabled this, we lost a compatibility with old versions.:
-  אם מופעל, ייעשה שימוש בסנכרון התאמה אישית יעיל לפי קובץ. נדרשת הגירה קטנה בעת ההפעלה.
-  כל המכשירים צריכים להיות מעודכנים לגרסה 0.23.18. לאחר ההפעלה, התאימות לגרסאות ישנות תיפגע.
+  אם מופעל, ייעשה שימוש בסנכרון התאמה אישית יעיל לפי קובץ. נדרשת הגירה קטנה בעת
+  ההפעלה. כל המכשירים צריכים להיות מעודכנים לגרסה 0.23.18. לאחר ההפעלה, התאימות
+  לגרסאות ישנות תיפגע.
 If enabled, chunks will be split into no more than 100 items. However, dedupe is slightly weaker.:
-  אם מופעל, נתחים יפוצלו לא ליותר מ-100 פריטים. עם זאת, ביטול כפילויות יהיה חלש מעט יותר.
+  אם מופעל, נתחים יפוצלו לא ליותר מ-100 פריטים. עם זאת, ביטול כפילויות יהיה חלש
+  מעט יותר.
 If enabled, newly created chunks are temporarily kept within the document, and graduated to become independent chunks once stabilised.:
-  אם מופעל, נתחים שנוצרו לאחרונה נשמרים זמנית בתוך המסמך, ומוסמכים לנתחים עצמאיים לאחר יציבות.
-If enabled, the ⛔ icon will be shown inside the status instead of the file warnings banner. No details will be shown.:
-  אם מופעל, אייקון ⛔ יוצג בסטטוס במקום פס האזהרות. לא יוצגו פרטים.
+  אם מופעל, נתחים שנוצרו לאחרונה נשמרים זמנית בתוך המסמך, ומוסמכים לנתחים
+  עצמאיים לאחר יציבות.
+If enabled, the ⛔ icon will be shown inside the status instead of the file warnings banner. No details will be shown.: אם מופעל, אייקון ⛔ יוצג בסטטוס במקום פס האזהרות. לא יוצגו פרטים.
 If enabled, the file under 1kb will be processed in the UI thread.: אם מופעל, קבצים קטנים מ-1KB יעובדו בשרשור ממשק המשתמש.
 If enabled, the notification of hidden files change will be suppressed.: אם מופעל, התראות על שינוי בקבצים נסתרים יודחקו.
-If this enabled, all chunks will be stored with the revision made from its content. (Previous behaviour):
-  אם מופעל, כל הנתחים יישמרו עם גרסה המבוססת על תוכנם. (התנהגות קודמת)
+If the server configuration is not persistent (e.g., running on docker), the values here may change. Once you are able to connect, please update the settings in the server's local.ini.:
+  אם תצורת השרת אינה קבועה (למשל, פועלת ב-docker), הערכים כאן עשויים להשתנות.
+  לאחר שתצליח להתחבר, אנא עדכן את ההגדרות ב-local.ini של השרת.
+If this enabled, all chunks will be stored with the revision made from its content. (Previous behaviour): אם מופעל, כל הנתחים יישמרו עם גרסה המבוססת על תוכנם. (התנהגות קודמת)
 If this enabled, All files are handled as case-Sensitive (Previous behaviour).: אם מופעל, כל הקבצים מטופלים כתלויי רישיות (התנהגות קודמת).
 If this enabled, chunks will be split into semantically meaningful segments. Not all platforms support this feature.:
-  אם מופעל, נתחים יפוצלו לחלקים עם משמעות סמנטית. לא כל הפלטפורמות תומכות בתכונה זו.
+  אם מופעל, נתחים יפוצלו לחלקים עם משמעות סמנטית. לא כל הפלטפורמות תומכות בתכונה
+  זו.
 If this is set, changes to local files which are matched by the ignore files will be skipped. Remote changes are determined using local ignore files.:
-  אם מוגדר, שינויים בקבצים מקומיים התואמים לקבצי ההתעלמות יידלגו. שינויים מרוחקים
-  נקבעים לפי קבצי ההתעלמות המקומיים.
+  אם מוגדר, שינויים בקבצים מקומיים התואמים לקבצי ההתעלמות יידלגו. שינויים
+  מרוחקים נקבעים לפי קבצי ההתעלמות המקומיים.
 If this option is enabled, PouchDB will hold the connection open for 60 seconds, and if no change arrives in that time, close and reopen the socket, instead of holding it open indefinitely. Useful when a proxy limits request duration but can increase resource usage.:
-  אם אפשרות זו מופעלת, PouchDB ישמור את החיבור פתוח ל-60 שניות, ואם אין שינוי בפרק
-  זמן זה, יסגור ויפתח מחדש את השקע, במקום להחזיק אותו פתוח ללא הגבלה. שימושי כשפרוקסי
-  מגביל משך בקשות, אך עשוי להגביר שימוש במשאבים.
+  אם אפשרות זו מופעלת, PouchDB ישמור את החיבור פתוח ל-60 שניות, ואם אין שינוי
+  בפרק זמן זה, יסגור ויפתח מחדש את השקע, במקום להחזיק אותו פתוח ללא הגבלה.
+  שימושי כשפרוקסי מגביל משך בקשות, אך עשוי להגביר שימוש במשאבים.
+If you're having trouble with the Connection-check (even after checking config), please check your reverse proxy configuration.:
+  אם אתה נתקל בבעיות עם בדיקת החיבור (גם לאחר בדיקת התצורה), אנא בדוק את הגדרות
+  ה-reverse proxy שלך.
 Ignore files: קבצי התעלמות
+increase to ${newMax}MB: הגדל ל-${newMax}MB
 Incubate Chunks in Document: בשל נתחים בתוך המסמך
+Insecure chunks found!: נמצאו נתחים לא מאובטחים!
 Interval (sec): מרווח (שניות)
 K:
   exp: ניסיוני
@@ -182,7 +281,9 @@ K:
   ScanCustomization: סרוק התאמה אישית
   short_p2p_sync: סנכרון P2P
   title_p2p_sync: סנכרון עמית-לעמית
+Keep %{lang-def}: השאר %{lang-def}
 Keep empty folder: שמור תיקייה ריקה
+Keep LiveSync disabled: השאר LiveSync מנוטרל
 lang_def: ברירת מחדל
 lang-de: Deutsche
 lang-def: "%{lang_def}"
@@ -194,46 +295,33 @@ lang-ko: 한국어
 lang-ru: Русский
 lang-zh: 简体中文
 lang-zh-tw: 繁體中文
+Leave it as is: השאר כפי שהוא
+LiveSync: LiveSync
+LiveSync begin...: LiveSync מתחיל...
 LiveSync could not handle multiple vaults which have same name without different prefix, This should be automatically configured.:
-  LiveSync אינו יכול לטפל במספר כספות עם אותו שם ללא קידומת שונה. הדבר אמור להיות
-  מוגדר אוטומטית.
+  LiveSync אינו יכול לטפל במספר כספות עם אותו שם ללא קידומת שונה. הדבר אמור
+  להיות מוגדר אוטומטית.
+LiveSync has been updated, In case of breaking updates, all automatic synchronization has been temporarily disabled. Ensure that all devices are up to date before enabling.:
+  LiveSync עודכן. במקרה של עדכונים משמעותיים, כל הסנכרון האוטומטי הושבת זמנית.
+  ודא שכל המכשירים מעודכנים לפני ההפעלה.
+LiveSync has updated, please read the changelog!: LiveSync עודכן, אנא קרא את יומן השינויים!
 liveSyncReplicator:
-  beforeLiveSync: לפני LiveSync, התחל OneShot פעם אחת...
-  cantReplicateLowerValue: לא ניתן לשכפל ערך נמוך יותר.
-  checkingLastSyncPoint: מחפש נקודת הסנכרון האחרונה.
   couldNotConnectTo: |-
     לא ניתן להתחבר אל ${uri} : ${name}
     (${db})
-  couldNotConnectToRemoteDb: "לא ניתן להתחבר למסד הנתונים המרוחק: ${d}"
-  couldNotConnectToServer: לא ניתן להתחבר לשרת.
-  couldNotConnectToURI: לא ניתן להתחבר אל ${uri}:${dbRet}
-  couldNotMarkResolveRemoteDb: לא ניתן לסמן פתרון למסד הנתונים המרוחק.
-  liveSyncBegin: LiveSync מתחיל...
-  lockRemoteDb: נועל מסד נתונים מרוחק למניעת פגיעה בנתונים
-  markDeviceResolved: סמן מכשיר זה כ'נפתר'.
-  oneShotSyncBegin: סנכרון OneShot מתחיל... (${syncMode})
-  remoteDbCorrupted: מסד הנתונים המרוחק חדש יותר או פגום, ודא שגרסת self-hosted-livesync
-    המותקנת היא העדכנית ביותר
-  remoteDbCreatedOrConnected: מסד הנתונים המרוחק נוצר או חובר
-  remoteDbDestroyed: מסד הנתונים המרוחק נהרס
-  remoteDbDestroyError: "אירעה שגיאה בהריסת מסד הנתונים המרוחק:"
-  remoteDbMarkedResolved: מסד הנתונים המרוחק סומן כנפתר.
-  replicationClosed: השכפול נסגר
-  replicationInProgress: שכפול כבר מתבצע
-  retryLowerBatchSize: מנסה שוב עם גודל אצווה קטן יותר:${batch_size}/${batches_limit}
-  unlockRemoteDb: מבטל נעילת מסד הנתונים המרוחק למניעת פגיעה בנתונים
-liveSyncSetting:
-  errorNoSuchSettingItem: "פריט הגדרה לא קיים: ${key}"
-  originalValue: "ערך מקורי: ${value}"
-  valueShouldBeInRange: הערך צריך להיות ${min} < ערך < ${max}
 liveSyncSettings:
   btnApply: החל
+Loading plugin...: טוען תוסף...
+Lock remote database to prevent data corruption: נועל מסד נתונים מרוחק למניעת פגיעה בנתונים
+Locked: נעול
+Logging: רישום יומן
 logPane:
   autoScroll: גלילה אוטומטית
   logWindowOpened: חלון יומן נפתח
   pause: השהה
-  title: יומן Self-hosted LiveSync
   wrap: גלישת שורות
+Looking for the point last synchronized point.: מחפש נקודת הסנכרון האחרונה.
+Mark this device as 'resolved'.: סמן מכשיר זה כ'נפתר'.
 Maximum delay for batch database updating: עיכוב מקסימלי לעדכון אצווה של מסד נתונים
 Maximum file size: גודל קובץ מקסימלי
 Maximum Incubating Chunk Size: גודל מקסימלי לנתח בבישול
@@ -245,11 +333,6 @@ Memory cache size (by total items): גודל מטמון זיכרון (לפי ס�
 Minimum delay for batch database updating: עיכוב מינימלי לעדכון אצווה של מסד נתונים
 Minimum interval for syncing: מרווח מינימלי לסנכרון
 moduleCheckRemoteSize:
-  logCheckingStorageSizes: בודק גדלי אחסון
-  logCurrentStorageSize: "גודל אחסון מרוחק: ${measuredSize}"
-  logExceededWarning: "גודל אחסון מרוחק: ${measuredSize} עלה על ${notifySize}"
-  logThresholdEnlarged: הסף הורחב ל-${size}MB
-  msgConfirmRebuild: פעולה זו עשויה לקחת זמן מה. האם אתה בטוח שברצונך לבנות מחדש עכשיו?
   msgDatabaseGrowing: |
     **מסד הנתונים שלך הולך וגדל!** אל תדאג, אנחנו יכולים לטפל בזה עכשיו. הזמן שנשאר עד לאזול המקום באחסון המרוחק.
 
@@ -268,8 +351,8 @@ moduleCheckRemoteSize:
     > [!WARNING]
     > אם תבנה מחדש, ודא שכל המכשירים מסונכרנים. הפלאגין ינסה למזג כמה שניתן.
   msgSetDBCapacity: >
-    ניתן להגדיר אזהרת קיבולת מקסימלית של מסד הנתונים, **כדי לנקוט פעולה לפני שנגמר המקום
-    באחסון המרוחד**.
+    ניתן להגדיר אזהרת קיבולת מקסימלית של מסד הנתונים, **כדי לנקוט פעולה לפני
+    שנגמר המקום באחסון המרוחד**.
 
     האם להפעיל זאת?
 
@@ -278,8 +361,8 @@ moduleCheckRemoteSize:
 
     > - 0: אל תזהיר על גודל האחסון.
 
-    >   מומלץ אם יש לך מספיק מקום באחסון המרוחד, בעיקר אם השרת הוא שלך. ניתן לבדוק את
-    גודל האחסון ולבנות מחדש ידנית.
+    >   מומלץ אם יש לך מספיק מקום באחסון המרוחד, בעיקר אם השרת הוא שלך. ניתן
+    לבדוק את גודל האחסון ולבנות מחדש ידנית.
 
     > - 800: הזהר אם גודל האחסון המרוחד עולה על 800MB.
 
@@ -289,31 +372,11 @@ moduleCheckRemoteSize:
 
 
     אם הגענו למגבלה, תתבקש להרחיב את הסף בהדרגה.
-  option2GB: 2GB (סטנדרטי)
-  option800MB: 800MB (Cloudant, fly.io)
-  optionAskMeLater: שאל מאוחר יותר
   optionDismiss: דחה
-  optionIncreaseLimit: הגדל ל-${newMax}MB
-  optionNoWarn: לא, אל תזהיר בכלל
-  optionRebuildAll: בנה הכל מחדש עכשיו
-  titleDatabaseSizeLimitExceeded: גודל האחסון המרוחד חרג מהמגבלה
-  titleDatabaseSizeNotify: הגדרת התראה על גודל מסד נתונים
 moduleInputUIObsidian:
-  defaultTitleConfirmation: אישור
-  defaultTitleSelect: בחר
   optionNo: לא
   optionYes: כן
 moduleLiveSyncMain:
-  logAdditionalSafetyScan: סריקת בטיחות נוספת...
-  logLoadingPlugin: טוען תוסף...
-  logPluginInitCancelled: אתחול התוסף בוטל על ידי מודול
-  logPluginVersion: Self-hosted LiveSync גרסה ${manifestVersion} ${packageVersion}
-  logReadChangelog: LiveSync עודכן, אנא קרא את יומן השינויים!
-  logSafetyScanCompleted: סריקת הבטיחות הנוספת הושלמה
-  logSafetyScanFailed: סריקת הבטיחות הנוספת נכשלה במודול
-  logUnloadingPlugin: מסיר תוסף...
-  logVersionUpdate: LiveSync עודכן. במקרה של עדכונים משמעותיים, כל הסנכרון האוטומטי
-    הושבת זמנית. ודא שכל המכשירים מעודכנים לפני ההפעלה.
   msgScramEnabled: >
     Self-hosted LiveSync הוגדר להתעלם מאירועים מסוימים. האם זה נכון?
 
@@ -332,27 +395,19 @@ moduleLiveSyncMain:
 
     > [!DETAILS]-
 
-    > דגלים אלה מוגדרים על ידי הפלאגין במהלך בנייה מחדש או משיכה. אם התהליך הסתיים
-    בצורה לא תקינה, ייתכן שהם נשארו כלא מכוון.
+    > דגלים אלה מוגדרים על ידי הפלאגין במהלך בנייה מחדש או משיכה. אם התהליך
+    הסתיים בצורה לא תקינה, ייתכן שהם נשארו כלא מכוון.
 
-    > אם אינך בטוח, ניתן לנסות להריץ מחדש את התהליכים. ודא שיש לך גיבוי של הכספת.
-  optionKeepLiveSyncDisabled: השאר LiveSync מנוטרל
-  optionResumeAndRestart: חדש והפעל מחדש את Obsidian
-  titleScramEnabled: מצב בלימה פעיל
-moduleLocalDatabase:
-  logWaitingForReady: ממתין לכשירות...
-moduleLog:
-  showLog: הצג יומן
+    > אם אינך בטוח, ניתן לנסות להריץ מחדש את התהליכים. ודא שיש לך גיבוי של
+    הכספת.
 moduleMigration:
   docUri: https://github.com/vrtmrz/obsidian-livesync/blob/main/README.md#how-to-use
   fix0256:
     buttons:
-      checkItLater: בדוק מאוחר יותר
-      DismissForever: תיקנתי, ואל תשאל שוב
       fix: תקן
     message: >
-      בשל באג אחרון (בגרסה 0.25.6), ייתכן שחלק מהקבצים לא נשמרו
-      כהלכה במסד הנתונים לסנכרון.
+      בשל באג אחרון (בגרסה 0.25.6), ייתכן שחלק מהקבצים לא נשמרו כהלכה במסד
+      הנתונים לסנכרון.
 
       סרקנו את הקבצים ומצאנו כאלה שיש לתקן.
 
@@ -379,57 +434,46 @@ moduleMigration:
       ${filesNotRecoverable}
 
 
-      לקבצים אלה יש מטה-נתונים לא עקביים, ולא ניתן לתקנם במכשיר זה
-      (לרוב לא ניתן לקבוע מה נכון). לשחזורם, אנא בדוק מכשירים אחרים שלך
-      (גם בתכונה זו) או שחזר ידנית מגיבוי.
-    title: זוהו קבצים פגומים
+      לקבצים אלה יש מטה-נתונים לא עקביים, ולא ניתן לתקנם במכשיר זה (לרוב לא ניתן
+      לקבוע מה נכון). לשחזורם, אנא בדוק מכשירים אחרים שלך (גם בתכונה זו) או שחזר
+      ידנית מגיבוי.
   insecureChunkExist:
-    buttons:
-      fetch: כבר בניתי מחדש את השרת המרוחק. משוך מהשרת המרוחד
-      later: אטפל בזה מאוחר יותר
-      rebuild: בנה הכל מחדש
-    laterMessage: אנו ממליצים בחום לטפל בזה בהקדם האפשרי!
     message: >
       חלק מהנתחים לא מאוחסנים בצורה מאובטחת ואינם מוצפנים במסד הנתונים.
 
       **אנא בנה מחדש את מסד הנתונים כדי לתקן בעיה זו**.
 
 
-      אם מסד הנתונים המרוחד אינו מוגדר עם SSL, או משתמש בפרטי גישה פחות מאובטחים,
-      **אתה בסיכון של חשיפת מידע רגיש**.
+      אם מסד הנתונים המרוחד אינו מוגדר עם SSL, או משתמש בפרטי גישה פחות
+      מאובטחים, **אתה בסיכון של חשיפת מידע רגיש**.
 
 
       הערה: אנא שדרג את Self-hosted LiveSync לגרסה 0.25.6 ומעלה על כל מכשיריך,
       וגבה את הכספת שלך.
 
-      הערה 2: בנייה מחדש ומשיכה דורשות זמן ותעבורת רשת. אנא עשה זאת בשעות שיא נמוך
-      וודא חיבור רשת יציב.
-    title: נמצאו נתחים לא מאובטחים!
-  logBulkSendCorrupted: שליחת נתחים באצווה הופעלה, אך תכונה זו הייתה פגועה. מתנצלים
-    על אי הנוחות. נוטרלה אוטומטית.
+      הערה 2: בנייה מחדש ומשיכה דורשות זמן ותעבורת רשת. אנא עשה זאת בשעות שיא
+      נמוך וודא חיבור רשת יציב.
   logFetchRemoteTweakFailed: נכשל במשיכת ערכי כיוונון מרוחקים
-  logLocalDatabaseNotReady: משהו השתבש! מסד הנתונים המקומי אינו מוכן
   logMigratedSameBehaviour: הוגר ל-db:${current} עם אותה התנהגות כמקודם
   logMigrationFailed: הגירה נכשלה או בוטלה מ-${old} ל-${current}
   logRedflag2CreationFail: יצירת redflag2 נכשלה
   logRemoteTweakUnavailable: לא ניתן לקבל ערכי כיוונון מרוחקים
-  logSetupCancelled: ההגדרה בוטלה, Self-hosted LiveSync ממתין להגדרתך!
   msgFetchRemoteAgain: >-
-    כפי שייתכן שכבר ידוע לך, Self-hosted LiveSync שינה את התנהגות ברירת המחדל ומבנה
-    מסד הנתונים.
+    כפי שייתכן שכבר ידוע לך, Self-hosted LiveSync שינה את התנהגות ברירת המחדל
+    ומבנה מסד הנתונים.
 
 
     ובזכות זמנך ומאמציך, מסד הנתונים המרוחד נראה כבר הוגר. ברכות!
 
 
-    עם זאת, נדרש עוד קצת. תצורת מכשיר זה אינה תואמת למסד הנתונים המרוחד.
-    נצטרך למשוך את מסד הנתונים המרוחד שוב. האם למשוך מהשרת המרוחד עכשיו?
+    עם זאת, נדרש עוד קצת. תצורת מכשיר זה אינה תואמת למסד הנתונים המרוחד. נצטרך
+    למשוך את מסד הנתונים המרוחד שוב. האם למשוך מהשרת המרוחד עכשיו?
 
 
     ___הערה: לא ניתן לסנכרן עד שהתצורה תשתנה ומסד הנתונים יימשך שוב.___
 
-    ___הערה 2: הנתחים הם בלתי-ניתנים לשינוי לחלוטין, ניתן למשוך רק את המטה-נתונים
-    וההפרש.___
+    ___הערה 2: הנתחים הם בלתי-ניתנים לשינוי לחלוטין, ניתן למשוך רק את
+    המטה-נתונים וההפרש.___
   msgInitialSetup: >-
     המכשיר שלך **טרם הוגדר**. אנחנו כאן לעזור לך בתהליך ההגדרה.
 
@@ -445,7 +489,8 @@ moduleMigration:
   msgRecommendSetupUri: >-
     אנו ממליצים בחום לייצר Setup URI ולהשתמש בו.
 
-    אם אין לך ידע בנושא, אנא עיין ב[תיעוד](${URI_DOC}) (מתנצלים שוב, אך זה חשוב).
+    אם אין לך ידע בנושא, אנא עיין ב[תיעוד](${URI_DOC}) (מתנצלים שוב, אך זה
+    חשוב).
 
 
     כיצד ברצונך להגדיר ידנית?
@@ -463,38 +508,42 @@ moduleMigration:
        נתחים הם בלתי-ניתנים לשינוי, מה שמאפשר גרסאות קבועות. שינוי זה ישפר את
        ביצועי שמירת הקבצים.
 
-    ___עם זאת, כדי להפעיל אחד מהשינויים הללו, יש לבנות מחדש גם את מסד הנתונים המרוחד
-    וגם את המקומי. תהליך זה לוקח כמה דקות, ואנו ממליצים לעשות זאת כשיש לך זמן פנוי.___
+    ___עם זאת, כדי להפעיל אחד מהשינויים הללו, יש לבנות מחדש גם את מסד הנתונים
+    המרוחד וגם את המקומי. תהליך זה לוקח כמה דקות, ואנו ממליצים לעשות זאת כשיש לך
+    זמן פנוי.___
 
 
-    - אם ברצונך לשמור את ההתנהגות הקודמת, ניתן לדלג על תהליך זה באמצעות `${KEEP}`.
+    - אם ברצונך לשמור את ההתנהגות הקודמת, ניתן לדלג על תהליך זה באמצעות
+    `${KEEP}`.
 
     - אם אין לך מספיק זמן, אנא בחר `${DISMISS}`. תקבל תזכורת בהמשך.
 
-    - אם בנית מחדש את מסד הנתונים במכשיר אחר, אנא בחר `${DISMISS}` ונסה לסנכרן שוב.
-    מאחר שזוהה הפרש, תקבל תזכורת שוב.
+    - אם בנית מחדש את מסד הנתונים במכשיר אחר, אנא בחר `${DISMISS}` ונסה לסנכרן
+    שוב. מאחר שזוהה הפרש, תקבל תזכורת שוב.
   optionAdjustRemote: התאם לשרת המרוחד
   optionDecideLater: החלט מאוחר יותר
   optionEnableBoth: הפעל את שניהם
   optionEnableFilenameCaseInsensitive: "הפעל רק #1"
   optionEnableFixedRevisionForChunks: "הפעל רק #2"
-  optionHaveSetupUri: כן, יש לי
   optionKeepPreviousBehaviour: שמור על התנהגות קודמת
-  optionManualSetup: הגדר הכל ידנית
   optionNoAskAgain: לא, אנא שאל שוב
-  optionNoSetupUri: לא, אין לי
-  optionRemindNextLaunch: הזכר לי בהפעלה הבאה
-  optionSetupViaP2P: השתמש ב-%{short_p2p_sync} להגדרה
-  optionSetupWizard: קח אותי לאשף ההגדרה
   optionYesFetchAgain: כן, משוך שוב
   titleCaseSensitivity: תלות רישיות
-  titleRecommendSetupUri: המלצה לשימוש ב-Setup URI
   titleWelcome: ברוך הבא ל-Self-hosted LiveSync
-moduleObsidianMenu:
-  replicate: שכפל
 Move remotely deleted files to the trash, instead of deleting.: העבר קבצים שנמחקו מרחוק לאשפה, במקום למחוק.
-Not all messages have been translated. And, please revert to "Default" when reporting errors.:
-  לא כל ההודעות תורגמו. בנוסף, אנא חזור ל"ברירת מחדל" בעת דיווח על שגיאות.
+Must: חובה
+Necessary: נדרש
+New key pair has been generated!: זוג מפתחות חדש נוצר!
+No auto-sync peers found. Please set peers on the %{long_p2p_sync} pane.: לא נמצאו עמיתים לסנכרון אוטומטי. אנא הגדר עמיתים בלוח %{long_p2p_sync}.
+No issues detected!: לא זוהו בעיות!
+No peers has been detected, waiting incoming other peers...: לא זוהו עמיתים, ממתין לעמיתים נכנסים...
+No replicator is available, this is the fatal error.: אין רפליקטור זמין, זוהי שגיאה קריטית.
+"No such setting item: ${key}": "פריט הגדרה לא קיים: ${key}"
+No, and do not ask again until the next release: לא, ואל תשאל שוב עד לגרסה הבאה
+No, I do not have: לא, אין לי
+No, never warn please: לא, אל תזהיר בכלל
+Not all messages have been translated. And, please revert to "Default" when reporting errors.: לא כל ההודעות תורגמו. בנוסף, אנא חזור ל"ברירת מחדל" בעת דיווח על שגיאות.
+Notification: התראה
 Notify all setting files: הודע על כל קבצי ההגדרות
 Notify customized: הודע על התאמות אישיות
 Notify when other device has newly customized.: הודע כאשר מכשיר אחר הוסיף התאמה אישית חדשה.
@@ -507,11 +556,7 @@ obsidianLiveSyncSettingTab:
   btnApply: החל
   btnCheck: בדוק
   btnCopy: העתק
-  btnDisable: נטרל
-  btnDiscard: ביטול שינויים
-  btnEnable: הפעל
   btnFix: תקן
-  btnGotItAndUpdated: הבנתי ועדכנתי.
   btnNext: הבא
   btnStart: התחל
   btnTest: בדוק
@@ -519,84 +564,18 @@ obsidianLiveSyncSettingTab:
   buttonFetch: משוך
   buttonNext: הבא
   defaultLanguage: ברירת מחדל
-  descConnectSetupURI: זוהי השיטה המומלצת להגדרת Self-hosted LiveSync עם Setup URI.
-  descCopySetupURI: מושלם להגדרת מכשיר חדש!
-  descEnableLiveSync: הפעל רק לאחר הגדרת אחת משתי האפשרויות לעיל, או לאחר השלמת כל
-    ההגדרות ידנית.
   descFetchConfigFromRemote: משוך הגדרות נדרשות מהשרת המרוחד שהוגדר כבר.
   descManualSetup: לא מומלץ, אך שימושי אם אין לך Setup URI
   descTestDatabaseConnection: פתח חיבור למסד נתונים. אם מסד הנתונים המרוחד לא נמצא
     ויש לך הרשאה ליצור אחד, הוא ייצור.
   descValidateDatabaseConfig: בודק ומתקן בעיות אפשריות בתצורת מסד הנתונים.
-  errAccessForbidden: ❗ גישה נדחתה.
-  errCannotContinueTest: לא ניתן להמשיך בבדיקה.
-  errCorsCredentials: ❗ cors.credentials שגוי
-  errCorsNotAllowingCredentials: ❗ CORS אינו מאפשר פרטי גישה
-  errCorsOrigins: ❗ cors.origins שגוי
-  errEnableCors: ❗ httpd.enable_cors שגוי
-  errEnableCorsChttpd: ❗ chttpd.enable_cors שגוי
-  errMaxDocumentSize: ❗ couchdb.max_document_size נמוך)
-  errMaxRequestSize: ❗ chttpd.max_http_request_size נמוך)
-  errMissingWwwAuth: ❗ httpd.WWW-Authenticate חסר
-  errRequireValidUser: ❗ chttpd.require_valid_user שגוי.
-  errRequireValidUserAuth: ❗ chttpd_auth.require_valid_user שגוי.
-  labelDisabled: "⏹️ : מנוטרל"
-  labelEnabled: "🔁 : מופעל"
-  levelAdvanced: " (מתקדם)"
-  levelEdgeCase: " (מקרה קצה)"
-  levelPowerUser: " (משתמש מתקדם)"
-  linkOpenInBrowser: פתח בדפדפן
-  linkPageTop: ראש העמוד
-  linkTipsAndTroubleshooting: טיפים ופתרון בעיות
   linkTroubleshooting: /docs/troubleshooting.md
-  logCannotUseCloudant: לא ניתן להשתמש בתכונה זו עם IBM Cloudant.
-  logCheckingConfigDone: בדיקת התצורה הושלמה
-  logCheckingConfigFailed: בדיקת התצורה נכשלה
-  logCheckingDbConfig: בודק תצורת מסד נתונים
   logCheckPassphraseFailed: |-
     שגיאה: בדיקת ביטוי הסיסמה עם השרת המרוחד נכשלה:
     ${db}.
-  logConfiguredDisabled: "מצב סנכרון שהוגדר: מנוטרל"
-  logConfiguredLiveSync: "מצב סנכרון שהוגדר: LiveSync"
-  logConfiguredPeriodic: "מצב סנכרון שהוגדר: תקופתי"
-  logCouchDbConfigFail: "תצורת CouchDB: ${title} נכשלה"
-  logCouchDbConfigSet: "תצורת CouchDB: ${title} -> הגדר ${key} ל-${value}"
-  logCouchDbConfigUpdated: "תצורת CouchDB: ${title} עודכנה בהצלחה"
-  logDatabaseConnected: מסד הנתונים מחובר
-  logEncryptionNoPassphrase: לא ניתן להפעיל הצפנה ללא ביטוי סיסמה
-  logEncryptionNoSupport: המכשיר שלך אינו תומך בהצפנה.
-  logErrorOccurred: אירעה שגיאה!!
-  logEstimatedSize: "גודל משוער: ${size}"
   logPassphraseInvalid: ביטוי הסיסמה אינו תקין, אנא תקן אותו.
-  logPassphraseNotCompatible: "שגיאה: ביטוי הסיסמה אינו תואם לשרת המרוחד! אנא בדוק שוב!"
-  logRebuildNote: הסנכרון הושבת, משוך והפעל מחדש אם רצוי.
-  logSelectAnyPreset: בחר קביעה מראש כלשהי.
-  msgAreYouSureProceed: האם אתה בטוח שברצונך להמשיך?
-  msgChangesNeedToBeApplied: יש להחיל שינויים!
-  msgConfigCheck: --בדיקת תצורה--
-  msgConfigCheckFailed: בדיקת התצורה נכשלה. האם ברצונך להמשיך בכל זאת?
-  msgConnectionCheck: --בדיקת חיבור--
-  msgConnectionProxyNote: אם אתה נתקל בבעיות עם בדיקת החיבור (גם לאחר בדיקת התצורה),
-    אנא בדוק את הגדרות ה-reverse proxy שלך.
-  msgCurrentOrigin: "מקור נוכחי: ${origin}"
-  msgDiscardConfirmation: האם אתה בטוח שברצונך לבטל הגדרות ומסדי נתונים קיימים?
-  msgDone: --הסתיים--
-  msgEnableCors: הגדר httpd.enable_cors
-  msgEnableCorsChttpd: הגדר chttpd.enable_cors
-  msgEnableEncryptionRecommendation: אנו ממליצים להפעיל הצפנה מקצה לקצה ואת ערפול
-    הנתיב. האם אתה בטוח שברצונך להמשיך ללא הצפנה?
-  msgFetchConfigFromRemote: האם ברצונך למשוך את התצורה מהשרת המרוחד?
-  msgGenerateSetupURI: הכל מוכן! האם ברצונך לייצר Setup URI להגדרת מכשירים אחרים?
-  msgIfConfigNotPersistent: אם תצורת השרת אינה קבועה (למשל, פועלת ב-docker), הערכים
-    כאן עשויים להשתנות. לאחר שתצליח להתחבר, אנא עדכן את ההגדרות ב-local.ini של השרת.
-  msgInvalidPassphrase: ביטוי הסיסמה להצפנה שלך עשוי להיות לא תקין. האם אתה בטוח
-    שברצונך להמשיך?
-  msgNewVersionNote: הגעת כאן בשל הודעת שדרוג? אנא עיין בהיסטוריית הגרסאות. אם אתה
-    מרוצה, לחץ על הכפתור. עדכון חדש יציג זאת שוב.
-  msgNonHTTPSInfo: מוגדר כ-URI שאינו HTTPS. שים לב שהדבר עשוי שלא לפעול על מכשירים
-    ניידים.
+  msgNonHTTPSInfo: מוגדר כ-URI שאינו HTTPS. שים לב שהדבר עשוי שלא לפעול על מכשירים ניידים.
   msgNonHTTPSWarning: לא ניתן להתחבר ל-URI שאינו HTTPS. אנא עדכן את התצורה ונסה שוב.
-  msgNotice: ---הודעה---
   msgObjectStorageWarning: >-
     אזהרה: תכונה זו בשלב פיתוח, לכן שים לב לנקודות הבאות:
 
@@ -604,7 +583,8 @@ obsidianLiveSyncSettingTab:
 
     - קצת רגיש.
 
-    - בסנכרון הראשון, כל ההיסטוריה תועבר מהשרת המרוחד. שים לב למגבלות נתונים ומהירות.
+    - בסנכרון הראשון, כל ההיסטוריה תועבר מהשרת המרוחד. שים לב למגבלות נתונים
+    ומהירות.
 
     - רק הפרשים מסונכרנים בזמן אמת.
 
@@ -612,7 +592,6 @@ obsidianLiveSyncSettingTab:
     אם נתקלת בבעיות, או שיש לך רעיונות לגבי תכונה זו, אנא פתח Issue ב-GitHub.
 
     אנחנו מעריכים את ההקדשה הגדולה שלך.
-  msgOriginCheck: "בדיקת מקור: ${org}"
   msgRebuildRequired: >-
     נדרשת בנייה מחדש של מסדי הנתונים כדי להחיל את השינויים. אנא בחר את השיטה.
 
@@ -642,7 +621,8 @@ obsidianLiveSyncSettingTab:
 
     במבט: 📄 ⇒¹ 💻 ⇒² 🛰️ ⇢ⁿ 💻 ⇄ⁿ⁺¹ 📄
 
-    בנה מחדש גם את מסד הנתונים המקומי וגם המרוחד תוך שימוש בקבצים קיימים ממכשיר זה.
+    בנה מחדש גם את מסד הנתונים המקומי וגם המרוחד תוך שימוש בקבצים קיימים ממכשיר
+    זה.
 
     פעולה זו תנעל מכשירים אחרים שיצטרכו לבצע משיכה.
 
@@ -650,8 +630,8 @@ obsidianLiveSyncSettingTab:
 
     במבט: 📄 ⇄² 💻 ⇐¹ 🛰️ ⇔ 💻 ⇔ 📄
 
-    אתחל את מסד הנתונים המקומי ובנה אותו מחדש תוך שימוש בנתונים שנמשכו ממסד הנתונים
-    המרוחד.
+    אתחל את מסד הנתונים המקומי ובנה אותו מחדש תוך שימוש בנתונים שנמשכו ממסד
+    הנתונים המרוחד.
 
     כולל את המקרה שבו בנית מחדש את מסד הנתונים המרוחד.
 
@@ -659,114 +639,53 @@ obsidianLiveSyncSettingTab:
 
     שמור רק את ההגדרות. **זהירות: עלול לגרום לפגיעה בנתונים**; בנייה מחדש של מסד
     הנתונים נדרשת בדרך כלל.
-  msgSelectAndApplyPreset: אנא בחר והחל פריט קבוע מראש כלשהו להשלמת האשף.
-  msgSetCorsCredentials: הגדר cors.credentials
-  msgSetCorsOrigins: הגדר cors.origins
-  msgSetMaxDocSize: הגדר couchdb.max_document_size
-  msgSetMaxRequestSize: הגדר chttpd.max_http_request_size
-  msgSetRequireValidUser: הגדר chttpd.require_valid_user = true
-  msgSetRequireValidUserAuth: הגדר chttpd_auth.require_valid_user = true
-  msgSettingModified: ההגדרה "${setting}" שונתה ממכשיר אחר. לחץ על {HERE} לטעינה
-    מחדש של ההגדרות. לחץ במקום אחר להתעלמות מהשינויים.
-  msgSettingsUnchangeableDuringSync: הגדרות אלה אינן ניתנות לשינוי במהלך סנכרון. אנא
-    נטרל את כל הסנכרון ב"הגדרות סנכרון" כדי לבטל נעילה.
-  msgSetWwwAuth: הגדר httpd.WWW-Authenticate
+  msgSettingsUnchangeableDuringSync: הגדרות אלה אינן ניתנות לשינוי במהלך סנכרון.
+    אנא נטרל את כל הסנכרון ב"הגדרות סנכרון" כדי לבטל נעילה.
   nameApplySettings: החל הגדרות
-  nameConnectSetupURI: התחבר עם Setup URI
-  nameCopySetupURI: העתק הגדרות נוכחיות ל-Setup URI
-  nameDisableHiddenFileSync: נטרל סנכרון קבצים נסתרים
-  nameDiscardSettings: בטל הגדרות ומסדי נתונים קיימים
-  nameEnableHiddenFileSync: הפעל סנכרון קבצים נסתרים
-  nameEnableLiveSync: הפעל LiveSync
-  nameHiddenFileSynchronization: סנכרון קבצים נסתרים
   nameManualSetup: הגדרה ידנית
   nameTestConnection: בדוק חיבור
   nameTestDatabaseConnection: בדוק חיבור למסד נתונים
   nameValidateDatabaseConfig: אמת תצורת מסד נתונים
-  okAdminPrivileges: ✔ יש לך הרשאות מנהל.
-  okCorsCredentials: ✔ cors.credentials תקין.
-  okCorsCredentialsForOrigin: CORS credentials תקין
-  okCorsOriginMatched: ✔ CORS origin תקין
-  okCorsOrigins: ✔ cors.origins תקין.
-  okEnableCors: ✔ httpd.enable_cors תקין.
-  okEnableCorsChttpd: ✔ chttpd.enable_cors תקין.
-  okMaxDocumentSize: ✔ couchdb.max_document_size תקין.
-  okMaxRequestSize: ✔ chttpd.max_http_request_size תקין.
-  okRequireValidUser: ✔ chttpd.require_valid_user תקין.
-  okRequireValidUserAuth: ✔ chttpd_auth.require_valid_user תקין.
-  okWwwAuth: ✔ httpd.WWW-Authenticate תקין.
   optionApply: החל
   optionCancel: ביטול
   optionCouchDB: CouchDB
-  optionDisableAllAutomatic: נטרל את כל האוטומטי
-  optionFetchFromRemote: משוך מהשרת המרוחד
-  optionHere: כאן
-  optionLiveSync: LiveSync
   optionMinioS3R2: Minio,S3,R2
-  optionOkReadEverything: בסדר, קראתי הכל.
-  optionOnEvents: על אירועים
-  optionPeriodicAndEvents: תקופתי ועל אירועים
-  optionPeriodicWithBatch: תקופתי עם אצווה
-  optionRebuildBoth: בנה שניהם מחדש ממכשיר זה
-  optionSaveOnlySettings: (סכנה) שמור הגדרות בלבד
-  panelChangeLog: יומן שינויים
-  panelGeneralSettings: הגדרות כלליות
   panelPrivacyEncryption: פרטיות והצפנה
-  panelRemoteConfiguration: תצורת שרת מרוחד
-  panelSetup: הגדרה
-  serverVersion: "פרטי שרת: ${info}"
   titleActiveRemoteServer: שרת מרוחד פעיל
-  titleAppearance: מראה
-  titleConflictResolution: פתרון קונפליקטים
-  titleCongratulations: מזל טוב!
   titleCouchDB: CouchDB
-  titleDeletionPropagation: הפצת מחיקות
-  titleEncryptionNotEnabled: ההצפנה אינה מופעלת
-  titleEncryptionPassphraseInvalid: ביטוי סיסמה להצפנה לא תקין
-  titleExtraFeatures: הפעל תכונות נוספות ומתקדמות
-  titleFetchConfig: משוך תצורה
   titleFetchConfigFromRemote: משוך תצורה מהשרת המרוחד
   titleFetchSettings: משוך הגדרות
   titleHiddenFiles: קבצים נסתרים
-  titleLogging: רישום יומן
   titleMinioS3R2: Minio,S3,R2
-  titleNotification: התראה
-  titleOnlineTips: טיפים אונליין
-  titleQuickSetup: הגדרה מהירה
-  titleRebuildRequired: נדרשת בנייה מחדש
-  titleRemoteConfigCheckFailed: בדיקת תצורת שרת מרוחד נכשלה
-  titleRemoteServer: שרת מרוחד
   titleReset: אתחול
-  titleSetupOtherDevices: להגדרת מכשירים אחרים
-  titleSynchronizationMethod: שיטת סנכרון
-  titleSynchronizationPreset: קבוע מראש לסנכרון
-  titleSyncSettings: הגדרות סנכרון
-  titleSyncSettingsViaMarkdown: סנכרון הגדרות דרך Markdown
-  titleUpdateThinning: דילול עדכונים
-  warnCorsOriginUnmatched: ⚠ CORS Origin אינו תואם ${from}->${to}
-  warnNoAdmin: ⚠ אין לך הרשאות מנהל.
+OK, I have read everything.: בסדר, קראתי הכל.
+On events: על אירועים
+OneShot Sync begin... (${syncMode}): סנכרון OneShot מתחיל... (${syncMode})
+Online Tips: טיפים אונליין
+Only enable this after configuring either of the above two options or completing all configuration manually.: הפעל רק לאחר הגדרת אחת משתי האפשרויות לעיל, או לאחר השלמת כל ההגדרות ידנית.
+Open in browser: פתח בדפדפן
+Optional: אופציונלי
+"Origin check: ${org}": "בדיקת מקור: ${org}"
+"Original: ${value}": "ערך מקורי: ${value}"
+P2P Sync completed.: סנכרון P2P הושלם.
+P2P Sync is already running.: סנכרון P2P כבר פועל.
+P2P Sync replicator is not found, possibly not have been configured or enabled.: רפליקטור סנכרון P2P לא נמצא, ייתכן שלא הוגדר או הופעל.
+P2P Sync with ${name} have been started.: סנכרון P2P עם ${name} התחיל.
 P2P:
-  AskPassphraseForDecrypt: העמית המרוחד שיתף את התצורה. אנא הזן את ביטוי הסיסמה
-    לפענוח התצורה.
-  AskPassphraseForShare: העמית המרוחד ביקש את תצורת מכשיר זה. אנא הזן את ביטוי
-    הסיסמה לשיתוף התצורה. ניתן להתעלם מהבקשה על ידי ביטול הדיאלוג.
-  DisabledButNeed: "%{title_p2p_sync} מנוטרל. האם אתה בטוח שברצונך להפעיל?"
   FailedToOpen: לא ניתן לפתוח חיבור P2P לשרת האותות.
-  NoAutoSyncPeers: לא נמצאו עמיתים לסנכרון אוטומטי. אנא הגדר עמיתים בלוח %{long_p2p_sync}.
-  NoKnownPeers: לא זוהו עמיתים, ממתין לעמיתים נכנסים...
   Note:
     description: >2-
-       רפליקטור זה מאפשר לסנכרן את הכספת עם מכשירים אחרים באמצעות חיבור עמית-לעמית.
-      ניתן להשתמש בזה לסנכרון הכספת עם מכשירים אחרים ללא שירות ענן.
+       רפליקטור זה מאפשר לסנכרן את הכספת עם מכשירים אחרים באמצעות חיבור
+      עמית-לעמית. ניתן להשתמש בזה לסנכרון הכספת עם מכשירים אחרים ללא שירות ענן.
 
-      רפליקטור זה מבוסס על Trystero. הוא משתמש גם בשרת אותות לביסוס חיבור בין מכשירים.
-      שרת האותות משמש להחלפת מידע חיבור בין מכשירים. הוא אינו (ולא אמור) לדעת או
-      לאחסן את הנתונים שלנו.
+      רפליקטור זה מבוסס על Trystero. הוא משתמש גם בשרת אותות לביסוס חיבור בין
+      מכשירים. שרת האותות משמש להחלפת מידע חיבור בין מכשירים. הוא אינו (ולא
+      אמור) לדעת או לאחסן את הנתונים שלנו.
 
 
-      שרת האותות יכול להיות מאוחסן על ידי כל אחד. זהו ממסר Nostr בלבד.
-      לצורך פשטות ובדיקת התנהגות הרפליקטור, vrtmrz מאחסן עותק של שרת האותות.
-      ניתן להשתמש בשרת הניסיוני של vrtmrz, או בכל שרת אחר.
+      שרת האותות יכול להיות מאוחסן על ידי כל אחד. זהו ממסר Nostr בלבד. לצורך
+      פשטות ובדיקת התנהגות הרפליקטור, vrtmrz מאחסן עותק של שרת האותות. ניתן
+      להשתמש בשרת הניסיוני של vrtmrz, או בכל שרת אחר.
 
 
       אגב, גם אם שרת האותות אינו מאחסן נתונים, הוא יכול לראות מידע חיבור של חלק
@@ -774,27 +693,34 @@ P2P:
     important_note: רפליקטור עמית-לעמית.
     important_note_sub: תכונה זו עדיין בשלב מתקדם. ודא שהנתונים שלך מגובים לפני
       השימוש. ונשמח אם תוכל לתרום לפיתוח תכונה זו.
-
     Summary: מהי תכונה זו? (ועוד הערות חשובות, נא לקרוא פעם אחת)
-  NotEnabled: "%{title_p2p_sync} אינו מופעל. לא ניתן לפתוח חיבור חדש."
-  P2PReplication: "שכפול %{P2P}"
+  P2PReplication: שכפול %{P2P}
   PaneTitle: "%{long_p2p_sync}"
-  ReplicatorInstanceMissing: רפליקטור סנכרון P2P לא נמצא, ייתכן שלא הוגדר או הופעל.
-  SeemsOffline: העמית ${name} נראה לא מחובר, מדלג.
-  SyncAlreadyRunning: סנכרון P2P כבר פועל.
-  SyncCompleted: סנכרון P2P הושלם.
-  SyncStartedWith: סנכרון P2P עם ${name} התחיל.
+Page Top: ראש העמוד
 Passphrase: ביטוי סיסמה
 Passphrase of sensitive configuration items: ביטוי סיסמה לפריטי תצורה רגישים
 password: סיסמה
 Password: סיסמה
 Path Obfuscation: ערפול נתיב
+Peer ${name} seems offline, skipped.: העמית ${name} נראה לא מחובר, מדלג.
 Per-file-saved customization sync: סנכרון התאמה אישית שנשמר לפי קובץ
+Perfect for setting up a new device!: מושלם להגדרת מכשיר חדש!
+Periodic and on events: תקופתי ועל אירועים
 Periodic Sync interval: מרווח סנכרון תקופתי
+Periodic w/ batch: תקופתי עם אצווה
+Please select and apply any preset item to complete the wizard.: אנא בחר והחל פריט קבוע מראש כלשהו להשלמת האשף.
+Plugin initialisation was cancelled by a module: אתחול התוסף בוטל על ידי מודול
 Prepare the 'report' to create an issue: הכן 'דו"ח' ליצירת Issue
 Presets: קביעות מראש
 Process small files in the foreground: עבד קבצים קטנים בחזית
 Property Encryption: הצפנת מאפיינים
+Quick Setup: הגדרה מהירה
+Rebuild Both from This Device: בנה שניהם מחדש ממכשיר זה
+Rebuild Everything: בנה הכל מחדש
+Rebuild Everything Now: בנה הכל מחדש עכשיו
+Rebuild Required: נדרשת בנייה מחדש
+Recommendation to use Setup URI: המלצה לשימוש ב-Setup URI
+Recommended: מומלץ
 RedFlag:
   Fetch:
     Method:
@@ -825,37 +751,43 @@ RedFlag:
 
         > אם קיימים קבצים תואמים גם מקומית וגם מרחוק, רק ההפרשים ביניהם יועברו.
 
-        > עם זאת, קבצים הקיימים בשני המקומות יטופלו תחילה כקבצים מתנגשים. הם ייפתרו
-        אוטומטית אם לא מתנגשים בפועל, אך תהליך זה עשוי לקחת זמן.
+        > עם זאת, קבצים הקיימים בשני המקומות יטופלו תחילה כקבצים מתנגשים. הם
+        ייפתרו אוטומטית אם לא מתנגשים בפועל, אך תהליך זה עשוי לקחת זמן.
 
         > זוהי בדרך כלל השיטה הבטוחה ביותר, ממזערת סיכון לאובדן נתונים.
 
         > ## %{RedFlag.Fetch.Method.FetchSmoother}.
 
-        > **תעבורה נמוכה**, **מעבד בינוני**, **סיכון נמוך עד בינוני** (תלוי בפעולה)
+        > **תעבורה נמוכה**, **מעבד בינוני**, **סיכון נמוך עד בינוני** (תלוי
+        בפעולה)
 
-        > אפשרות זו יוצרת תחילה נתחים מקבצים מקומיים למסד הנתונים, ואז מושכת נתונים.
-        כתוצאה מכך, רק נתחים חסרים מקומית מועברים. עם זאת, כל המטה-נתונים נלקחים
-        מהמקור המרוחד.
+        > אפשרות זו יוצרת תחילה נתחים מקבצים מקומיים למסד הנתונים, ואז מושכת
+        נתונים. כתוצאה מכך, רק נתחים חסרים מקומית מועברים. עם זאת, כל
+        המטה-נתונים נלקחים מהמקור המרוחד.
 
-        > קבצים מקומיים נבדקים לאחר מכן מול מטה-נתונים אלה בעת ההפעלה. התוכן שנחשב
-        חדש יותר ידרוס את הישן יותר (לפי זמן שינוי).
+        > קבצים מקומיים נבדקים לאחר מכן מול מטה-נתונים אלה בעת ההפעלה. התוכן
+        שנחשב חדש יותר ידרוס את הישן יותר (לפי זמן שינוי).
 
-        > בדרך כלל בטוח אם הקבצים המקומיים הם אכן חדשים ביותר. עם זאת, עלול לגרום
-        לבעיות אם לקובץ יש חותמת זמן חדשה יותר אך תוכן ישן יותר (כמו `welcome.md` ראשוני).
+        > בדרך כלל בטוח אם הקבצים המקומיים הם אכן חדשים ביותר. עם זאת, עלול
+        לגרום לבעיות אם לקובץ יש חותמת זמן חדשה יותר אך תוכן ישן יותר (כמו
+        `welcome.md` ראשוני).
 
-        > שיטה זו משתמשת בפחות מעבד ומהירה יותר מ-"%{RedFlag.Fetch.Method.FetchSafer}",
-        אך עלולה להוביל לאובדן נתונים אם לא משתמשים בה בזהירות.
+        > שיטה זו משתמשת בפחות מעבד ומהירה יותר
+        מ-"%{RedFlag.Fetch.Method.FetchSafer}", אך עלולה להוביל לאובדן נתונים אם
+        לא משתמשים בה בזהירות.
 
         > ## %{RedFlag.Fetch.Method.FetchTraditional}.
 
-        > **תעבורה גבוהה**, **מעבד נמוך**, **סיכון נמוך עד בינוני** (תלוי בפעולה)
+        > **תעבורה גבוהה**, **מעבד נמוך**, **סיכון נמוך עד בינוני** (תלוי
+        בפעולה)
 
         > הכל יימשך מהשרת המרוחד.
 
-        > דומה ל-%{RedFlag.Fetch.Method.FetchSmoother}, אך כל הנתחים נמשכים מהמקור המרוחד.
+        > דומה ל-%{RedFlag.Fetch.Method.FetchSmoother}, אך כל הנתחים נמשכים
+        מהמקור המרוחד.
 
-        > זוהי הדרך המסורתית ביותר למשיכה, צורכת בדרך כלל את רוב תעבורת הרשת והזמן.
+        > זוהי הדרך המסורתית ביותר למשיכה, צורכת בדרך כלל את רוב תעבורת הרשת
+        והזמן.
 
         > עם זאת, היא נחשבת לעתים קרובות לשיטה היציבה ביותר מכיוון שהיא הוותיקה
         והישירה ביותר.
@@ -871,8 +803,25 @@ RedFlag:
     Title: משוך תצורה מרוחקת
 Reducing the frequency with which on-disk changes are reflected into the DB: הפחת את תדירות השתקפות שינויים בדיסק למסד הנתונים
 Region: אזור
+Remind me at the next launch: הזכר לי בהפעלה הבאה
+Remote Configuration: תצורת שרת מרוחד
+Remote Configuration Check Failed: בדיקת תצורת שרת מרוחד נכשלה
+Remote Database Created or Connected: מסד הנתונים המרוחק נוצר או חובר
+Remote Database Destroyed: מסד הנתונים המרוחק נהרס
+Remote database has been marked resolved.: מסד הנתונים המרוחק סומן כנפתר.
+Remote database is newer or corrupted, make sure to latest version of self-hosted-livesync installed:
+  מסד הנתונים המרוחק חדש יותר או פגום, ודא שגרסת self-hosted-livesync המותקנת
+  היא העדכנית ביותר
+Remote Server: שרת מרוחד
 Remote server type: סוג שרת מרוחד
+Remote storage size exceeded the limit: גודל האחסון המרוחד חרג מהמגבלה
+"Remote storage size: ${measuredSize}": "גודל אחסון מרוחק: ${measuredSize}"
+"Remote storage size: ${measuredSize} exceeded ${notifySize}": "גודל אחסון מרוחק: ${measuredSize} עלה על ${notifySize}"
 Remote Type: סוג מרוחד
+Replicate: שכפל
+Replication closed: השכפול נסגר
+Replication has been cancelled by some module failure: השכפול בוטל בשל כשל במודול
+Replication is already in progress: שכפול כבר מתבצע
 Replicator:
   Dialogue:
     Locked:
@@ -880,43 +829,30 @@ Replicator:
         Dismiss: ביטול לאישור מחדש
         Fetch: אפס סנכרון במכשיר זה
         Unlock: בטל נעילת מסד הנתונים המרוחד
-      Message:
-        _value: >
-          מסד הנתונים המרוחד נעול. הסיבה היא בנייה מחדש באחד הטרמינלים.
+      Message: |
+        מסד הנתונים המרוחד נעול. הסיבה היא בנייה מחדש באחד הטרמינלים.
+        לכן המכשיר מתבקש להמנע מחיבור כדי למנוע פגיעה במסד הנתונים.
 
-          לכן המכשיר מתבקש להמנע מחיבור כדי למנוע פגיעה במסד הנתונים.
+        קיימות שלוש אפשרויות:
 
-
-          קיימות שלוש אפשרויות:
-
-
-          - %{Replicator.Dialogue.Locked.Action.Fetch}
-            הדרך המועדפת והאמינה ביותר. פעולה זו תמחק את מסד הנתונים המקומי פעם,
-            ותאפס את כל מידע הסנכרון ממסד הנתונים המרוחד מחדש. ברוב המקרים ניתן
-            לעשות זאת בבטחה. עם זאת, דורשת זמן ויש לבצע ברשת יציבה.
-          - %{Replicator.Dialogue.Locked.Action.Unlock}
-            ניתן להשתמש בשיטה זו רק אם כבר מסונכרנים באופן אמין בשיטות שכפול
-            אחרות. פשוט לא מספיק שיש אותם קבצים. אם אינך בטוח, הימנע מכך.
-          - %{Replicator.Dialogue.Locked.Action.Dismiss}
-              פעולה זו תבטל את הפעולה. תתבקש שוב בבקשה הבאה.
-        Fetch: משיכה מלאה תוזמנה. הפלאגין יופעל מחדש לביצועה.
-        Unlocked: מסד הנתונים המרוחד בוטל נעילתו. אנא נסה שוב את הפעולה.
-      Title: נעול
-  Message:
-    Cleaned: ניקוי מסד הנתונים בתהליך. השכפול בוטל
-    InitialiseFatalError: אין רפליקטור זמין, זוהי שגיאה קריטית.
-    Pending: חלק מאירועי הקבצים ממתינים. השכפול בוטל.
-    SomeModuleFailed: השכפול בוטל בשל כשל במודול
-    VersionUpFlash: זוהה עדכון. אנא פתח את דיאלוג ההגדרות ובדוק את יומן השינויים.
-      השכפול בוטל.
+        - %{Replicator.Dialogue.Locked.Action.Fetch}
+          הדרך המועדפת והאמינה ביותר. פעולה זו תמחק את מסד הנתונים המקומי פעם,
+          ותאפס את כל מידע הסנכרון ממסד הנתונים המרוחד מחדש. ברוב המקרים ניתן
+          לעשות זאת בבטחה. עם זאת, דורשת זמן ויש לבצע ברשת יציבה.
+        - %{Replicator.Dialogue.Locked.Action.Unlock}
+          ניתן להשתמש בשיטה זו רק אם כבר מסונכרנים באופן אמין בשיטות שכפול
+          אחרות. פשוט לא מספיק שיש אותם קבצים. אם אינך בטוח, הימנע מכך.
+        - %{Replicator.Dialogue.Locked.Action.Dismiss}
+            פעולה זו תבטל את הפעולה. תתבקש שוב בבקשה הבאה.
 Requires restart of Obsidian: דורש הפעלה מחדש של Obsidian
 Requires restart of Obsidian.: דורש הפעלה מחדש של Obsidian.
 Rerun Onboarding Wizard: הרץ שוב את אשף ההכוונה
 Rerun the onboarding wizard to set up Self-hosted LiveSync again.: הרץ שוב את אשף ההכוונה להגדרת Self-hosted LiveSync מחדש.
 Rerun Wizard: הרץ שוב את האשף
 Reset notification threshold and check the remote database usage: אפס סף התראה ובדוק שימוש במסד הנתונים המרוחד
-Reset the remote storage size threshold and check the remote storage size again.:
-  אפס את סף גודל האחסון המרוחד ובדוק שוב את גודל האחסון המרוחד.
+Reset the remote storage size threshold and check the remote storage size again.: אפס את סף גודל האחסון המרוחד ובדוק שוב את גודל האחסון המרוחד.
+Resume and restart Obsidian: חדש והפעל מחדש את Obsidian
+Retry with lower batch size:${batch_size}/${batches_limit}: מנסה שוב עם גודל אצווה קטן יותר:${batch_size}/${batches_limit}
 Run Doctor: הפעל Doctor
 Save settings to a markdown file. You will be notified when new settings arrive. You can set different files by the platform.:
   שמור הגדרות לקובץ Markdown. תיודע כשהגדרות חדשות יגיעו. ניתן להגדיר קבצים
@@ -929,11 +865,33 @@ Scan customization every 1 minute.: סרוק התאמה אישית כל דקה.
 Scan customization periodically: סרוק התאמה אישית תקופתית
 Scan for hidden files before replication: סרוק קבצים נסתרים לפני שכפול
 Scan hidden files periodically: סרוק קבצים נסתרים תקופתית
+Scans for files that are not stored correctly in the database.: סורק קבצים שלא נשמרו כהלכה במסד הנתונים.
+Scram Enabled: מצב בלימה פעיל
 Seconds, 0 to disable: שניות, 0 לביטול
-Seconds. Saving to the local database will be delayed until this value after we stop typing or saving.:
-  שניות. השמירה למסד הנתונים המקומי תתעכב בערך זה לאחר הפסקת הקלדה או שמירה.
+Seconds. Saving to the local database will be delayed until this value after we stop typing or saving.: שניות. השמירה למסד הנתונים המקומי תתעכב בערך זה לאחר הפסקת הקלדה או שמירה.
 Secret Key: מפתח סודי
+Select: בחר
+Select any preset.: בחר קביעה מראש כלשהי.
+Self-hosted LiveSync Config Doctor: Self-hosted LiveSync Config Doctor
+Self-hosted LiveSync Log: יומן Self-hosted LiveSync
+Self-hosted LiveSync v${manifestVersion} ${packageVersion}: Self-hosted LiveSync גרסה ${manifestVersion} ${packageVersion}
+Send chunks in bulk has been enabled, however, this feature had been corrupted. Sorry for your inconvenience. Automatically disabled.:
+  שליחת נתחים באצווה הופעלה, אך תכונה זו הייתה פגועה. מתנצלים על אי הנוחות.
+  נוטרלה אוטומטית.
+"Server info: ${info}": "פרטי שרת: ${info}"
 Server URI: כתובת שרת (URI)
+Set chttpd_auth.require_valid_user = true: הגדר chttpd_auth.require_valid_user = true
+Set chttpd.enable_cors: הגדר chttpd.enable_cors
+Set chttpd.max_http_request_size: הגדר chttpd.max_http_request_size
+Set chttpd.require_valid_user = true: הגדר chttpd.require_valid_user = true
+Set cors.credentials: הגדר cors.credentials
+Set cors.origins: הגדר cors.origins
+Set couchdb.max_document_size: הגדר couchdb.max_document_size
+Set httpd.enable_cors: הגדר httpd.enable_cors
+Set httpd.WWW-Authenticate: הגדר httpd.WWW-Authenticate
+Set it up all manually: הגדר הכל ידנית
+Setting Doctor: Doctor הגדרות
+Setting up database size notification: הגדרת התראה על גודל מסד נתונים
 Setting:
   GenerateKeyPair:
     Desc: >+
@@ -943,8 +901,8 @@ Setting:
       הערה: זוג מפתחות זה לא יוצג שוב. אנא שמור אותו במקום בטוח. אם אבד לך, יהיה
       צורך לייצר זוג מפתחות חדש.
 
-      הערה 2: המפתח הציבורי הוא בפורמט spki, והמפתח הפרטי הוא בפורמט pkcs8. לנוחות,
-      שורות חדשות ממוירות ל-`\n` במפתח הציבורי.
+      הערה 2: המפתח הציבורי הוא בפורמט spki, והמפתח הפרטי הוא בפורמט pkcs8.
+      לנוחות, שורות חדשות ממוירות ל-`\n` במפתח הציבורי.
 
       הערה 3: יש להגדיר את המפתח הציבורי במסד הנתונים המרוחד, ואת המפתח הפרטי
       במכשירים המקומיים.
@@ -999,19 +957,13 @@ Setting:
 
       > </div>
 
-    Title: זוג מפתחות חדש נוצר!
   TroubleShooting:
-    _value: פתרון בעיות
-    Doctor:
-      _value: Doctor הגדרות
-      Desc: מזהה הגדרות לא אופטימליות. (זהה לפעולה במהלך הגירה)
-    ScanBrokenFiles:
-      _value: סרוק קבצים פגומים
-      Desc: סורק קבצים שלא נשמרו כהלכה במסד הנתונים.
+    ScanBrokenFiles: סרוק קבצים פגומים
 SettingTab:
   Message:
     AskRebuild: השינויים שלך מצריכים משיכה ממסד הנתונים המרוחד. האם להמשיך?
 Setup:
+  _value: הגדרה
   Apply:
     Buttons:
       ApplyAndFetch: החל ומשוך
@@ -1019,11 +971,9 @@ Setup:
       ApplyAndRebuild: החל ובנה מחדש
       Cancel: בטל ובטל
       OnlyApply: החל בלבד
-    Message: >-
+    Message: |-
       התצורה החדשה מוכנה. בואו נמשיך להחיל אותה.
-
       ישנן מספר דרכים להחיל זאת:
-
 
       - החל ומשוך
         הגדר מכשיר זה כלקוח חדש. לאחר ההחלה, סנכרן מהשרת המרוחד.
@@ -1043,7 +993,8 @@ Setup:
       No: לא, אנא השתמש בהגדרות ה-URI כפי שהן
       Yes: כן, אנא יעץ ל-Doctor
     Message: >-
-      Self-hosted LiveSync הפך ארוך יותר בהיסטוריה שלו וחלק מההגדרות המומלצות השתנו.
+      Self-hosted LiveSync הפך ארוך יותר בהיסטוריה שלו וחלק מההגדרות המומלצות
+      השתנו.
 
 
       עכשיו, הגדרה היא זמן מצוין לכך.
@@ -1061,35 +1012,35 @@ Setup:
       מתאימים בין המכשירים המסונכרנים. הפלאגין ירצה לאחזר אותם לתצורה חזקה יותר.
 
 
-      עם זאת, עלינו לוודא דבר אחד. האם אנחנו כרגע במצב שבו ניתן לגשת לרשת
-      בבטחה ולאחזר את ההגדרות?
+      עם זאת, עלינו לוודא דבר אחד. האם אנחנו כרגע במצב שבו ניתן לגשת לרשת בבטחה
+      ולאחזר את ההגדרות?
 
-      הערה: ברוב המקרים, אתה בטוח לעשות זאת, כל עוד מסד הנתונים המרוחד שלך מאוחסן
-      עם תעודת SSL, ורשתך אינה פגומה.
+      הערה: ברוב המקרים, אתה בטוח לעשות זאת, כל עוד מסד הנתונים המרוחד שלך
+      מאוחסן עם תעודת SSL, ורשתך אינה פגומה.
     Title: אחזר תצורה ממסד הנתונים המרוחד?
-  QRCode: >-
+  QRCode: |-
     יצרנו קוד QR להעברת ההגדרות. אנא סרוק את קוד ה-QR עם הטלפון או מכשיר אחר.
-
     הערה: קוד ה-QR אינו מוצפן, אז היה זהיר בפתיחתו.
 
-
     >[!FOR YOUR EYES ONLY]-
-
     > <div class="sls-qr">${qr_image}</div>
-  ShowQRCode:
-    _value: הצג קוד QR
-    Desc: הצג קוד QR להעברת ההגדרות.
 Should we keep folders that don't have any files inside?: האם לשמור תיקיות שאין בהן קבצים?
 Should we only check for conflicts when a file is opened?: האם לבדוק קונפליקטים רק בעת פתיחת קובץ?
 Should we prompt you about conflicting files when a file is opened?: האם להציג בקשה לגבי קבצים מתנגשים בעת פתיחת קובץ?
-Should we prompt you for every single merge, even if we can safely merge automatcially?:
-  האם להציג בקשת אישור לכל מיזוג יחיד, גם אם ניתן למזג בבטחה אוטומטית?
+Should we prompt you for every single merge, even if we can safely merge automatcially?: האם להציג בקשת אישור לכל מיזוג יחיד, גם אם ניתן למזג בבטחה אוטומטית?
+Show Customization sync: הצג סנכרון התאמה אישית
+Show Log: הצג יומן
 Show only notifications: הצג התראות בלבד
+Show QR code: הצג קוד QR
+Show QR code to transfer the settings.: הצג קוד QR להעברת ההגדרות.
 Show status as icons only: הצג סטטוס כאייקונים בלבד
 Show status icon instead of file warnings banner: הצג אייקון סטטוס במקום פס אזהרות הקובץ
 Show status inside the editor: הצג סטטוס בתוך העורך
 Show status on the status bar: הצג סטטוס בשורת המצב
 Show verbose log. Please enable if you report an issue.: הצג יומן מפורט. אנא הפעל אם אתה מדווח על בעיה.
+Some file events are pending. Replication has been cancelled.: חלק מאירועי הקבצים ממתינים. השכפול בוטל.
+"Something happened on Remote Database Destroy:": "אירעה שגיאה בהריסת מסד הנתונים המרוחק:"
+Something went wrong! The local database is not ready: משהו השתבש! מסד הנתונים המקומי אינו מוכן
 Starts synchronisation when a file is saved.: מתחיל סנכרון כאשר קובץ נשמר.
 Stop reflecting database changes to storage files.: הפסק לשקף שינויי מסד נתונים לקבצי אחסון.
 Stop watching for file changes.: הפסק לעקוב אחר שינויי קבצים.
@@ -1103,9 +1054,17 @@ Sync on Editor Save: סנכרן בשמירת עורך
 Sync on File Open: סנכרן בפתיחת קובץ
 Sync on Save: סנכרן בשמירה
 Sync on Startup: סנכרן בהפעלה
+Sync Settings: הגדרות סנכרון
+Sync Settings via Markdown: סנכרון הגדרות דרך Markdown
+Synchronization Method: שיטת סנכרון
+Synchronization Preset: קבוע מראש לסנכרון
+Syncing has been disabled, fetch and re-enabled if desired.: הסנכרון הושבת, משוך והפעל מחדש אם רצוי.
+Take me into the setup wizard: קח אותי לאשף ההגדרה
 Testing only - Resolve file conflicts by syncing newer copies of the file, this can overwrite modified files. Be Warned.:
   לבדיקה בלבד - פתור קונפליקטי קבצים על ידי סנכרון עותקים חדשים יותר של הקובץ,
   פעולה זו עלולה לדרוס קבצים שונו. היה מוזהר.
+The configuration check has failed. Do you want to continue anyway?: בדיקת התצורה נכשלה. האם ברצונך להמשיך בכל זאת?
+The connection to the remote has been prevented, or failed.: לא ניתן להתחבר לשרת.
 The delay for consecutive on-demand fetches: העיכוב עבור משיכות לפי דרישה עוקבות
 The Hash algorithm for chunk IDs: אלגוריתם Hash עבור מזהי נתחים
 The maximum duration for which chunks can be incubated within the document. Chunks exceeding this period will graduate to independent chunks.:
@@ -1118,23 +1077,33 @@ The maximum total size of chunks that can be incubated within the document. Chun
   הגודל הכולל המקסימלי של נתחים שיכולים להישמר זמנית בתוך המסמך. נתחים שחורגים
   מגודל זה יהפכו מיד לנתחים עצמאיים.
 The minimum interval for automatic synchronisation on event.: מרווח הזמן המינימלי לסנכרון אוטומטי על אירוע.
-This passphrase will not be copied to another device. It will be set to `Default` until you configure it again.:
-  ביטוי סיסמה זה לא יועתק למכשיר אחר. הוא יוגדר ל-`Default` עד שתגדיר אותו שוב.
+The remote database has been unlocked. Please retry the operation.: מסד הנתונים המרוחד בוטל נעילתו. אנא נסה שוב את הפעולה.
+The remote peer requested this device configuration. Please input the passphrase to share the configuration. You can ignore the request by cancelling this dialogue.:
+  העמית המרוחד ביקש את תצורת מכשיר זה. אנא הזן את ביטוי הסיסמה לשיתוף התצורה.
+  ניתן להתעלם מהבקשה על ידי ביטול הדיאלוג.
+The remote peer shared the configuration. Please input the passphrase to decrypt the configuration.: העמית המרוחד שיתף את התצורה. אנא הזן את ביטוי הסיסמה לפענוח התצורה.
+The setting "${setting}" was modified from another device. Click {HERE} to reload settings. Click elsewhere to ignore changes.:
+  ההגדרה "${setting}" שונתה ממכשיר אחר. לחץ על {HERE} לטעינה מחדש של ההגדרות.
+  לחץ במקום אחר להתעלמות מהשינויים.
+The setup has been cancelled, Self-hosted LiveSync waiting for your setup!: ההגדרה בוטלה, Self-hosted LiveSync ממתין להגדרתך!
+The value should ${min} < value < ${max}: הערך צריך להיות ${min} < ערך < ${max}
+This feature cannot be used with IBM Cloudant.: לא ניתן להשתמש בתכונה זו עם IBM Cloudant.
+This is the recommended method to set up Self-hosted LiveSync with a Setup URI.: זוהי השיטה המומלצת להגדרת Self-hosted LiveSync עם Setup URI.
+This may take a bit of a long time. Do you really want to rebuild everything now?: פעולה זו עשויה לקחת זמן מה. האם אתה בטוח שברצונך לבנות מחדש עכשיו?
+This passphrase will not be copied to another device. It will be set to `Default` until you configure it again.: ביטוי סיסמה זה לא יועתק למכשיר אחר. הוא יוגדר ל-`Default` עד שתגדיר אותו שוב.
+Threshold has been enlarged to ${size}MB: הסף הורחב ל-${size}MB
+Tips and Troubleshooting: טיפים ופתרון בעיות
+To setup other devices: להגדרת מכשירים אחרים
+TroubleShooting: פתרון בעיות
 TweakMismatchResolve:
   Action:
     Dismiss: דחה
     UseConfigured: השתמש בהגדרות המוגדרות
-    UseMine: עדכן הגדרות מסד הנתונים המרוחד
-    UseMineAcceptIncompatible: עדכן הגדרות מסד הנתונים המרוחד אך השאר כפי שהוא
-    UseMineWithRebuild: עדכן הגדרות מסד הנתונים המרוחד ובנה מחדש
-    UseRemote: החל הגדרות על מכשיר זה
-    UseRemoteAcceptIncompatible: החל הגדרות על מכשיר זה, אך התעלם מאי-תאימות
-    UseRemoteWithRebuild: החל הגדרות על מכשיר זה ומשוך שוב
   Message:
     Main: >-
       
-      ההגדרות במסד הנתונים המרוחד הן כדלקמן. ערכים אלה הוגדרו על ידי מכשירים אחרים,
-      אשר סונכרנו עם מכשיר זה לפחות פעם אחת.
+      ההגדרות במסד הנתונים המרוחד הן כדלקמן. ערכים אלה הוגדרו על ידי מכשירים
+      אחרים, אשר סונכרנו עם מכשיר זה לפחות פעם אחת.
 
 
       אם ברצונך להשתמש בהגדרות אלה, אנא בחר
@@ -1169,52 +1138,61 @@ TweakMismatchResolve:
         
         >[!NOTICE]
 
-        > חלק מהשינויים תואמים אך עלולים לצרוך אחסון ותעבורה נוספים. מומלצת בנייה
-        מחדש. עם זאת, ייתכן שבנייה מחדש לא תתבצע כעת, אך תיושם בתחזוקה עתידית.
+        > חלק מהשינויים תואמים אך עלולים לצרוך אחסון ותעבורה נוספים. מומלצת
+        בנייה מחדש. עם זאת, ייתכן שבנייה מחדש לא תתבצע כעת, אך תיושם בתחזוקה
+        עתידית.
 
         > ***ודא שיש לך זמן ושאתה מחובר לרשת יציבה לפני ההחלה!***
       WarningRebuildRequired: >-
         
         >[!WARNING]
 
-        > חלק מהתצורות המרוחקות אינן תואמות למסד הנתונים המקומי של מכשיר זה. נדרשת
-        בנייה מחדש של מסד הנתונים המקומי.
+        > חלק מהתצורות המרוחקות אינן תואמות למסד הנתונים המקומי של מכשיר זה.
+        נדרשת בנייה מחדש של מסד הנתונים המקומי.
 
         > ***ודא שיש לך זמן ושאתה מחובר לרשת יציבה לפני ההחלה!***
     WarningIncompatibleRebuildRecommended: >-
       
       >[!NOTICE]
 
-      > זיהינו שחלק מהערכים שונים, מה שגורם לאי-תאימות בין מסד הנתונים המקומי למרוחד.
+      > זיהינו שחלק מהערכים שונים, מה שגורם לאי-תאימות בין מסד הנתונים המקומי
+      למרוחד.
 
-      > חלק מהשינויים תואמים אך עלולים לצרוך אחסון ותעבורה נוספים. מומלצת בנייה מחדש.
-      עם זאת, ייתכן שבנייה מחדש לא תתבצע כעת, אך תיושם בתחזוקה עתידית.
+      > חלק מהשינויים תואמים אך עלולים לצרוך אחסון ותעבורה נוספים. מומלצת בנייה
+      מחדש. עם זאת, ייתכן שבנייה מחדש לא תתבצע כעת, אך תיושם בתחזוקה עתידית.
 
-      > אם ברצונך לבנות מחדש, הדבר ייקח כמה דקות או יותר. **ודא שבטוח לבצע זאת עכשיו.**
+      > אם ברצונך לבנות מחדש, הדבר ייקח כמה דקות או יותר. **ודא שבטוח לבצע זאת
+      עכשיו.**
     WarningIncompatibleRebuildRequired: >-
       
       >[!WARNING]
 
-      > זיהינו שחלק מהערכים שונים, מה שגורם לאי-תאימות בין מסד הנתונים המקומי למרוחד.
+      > זיהינו שחלק מהערכים שונים, מה שגורם לאי-תאימות בין מסד הנתונים המקומי
+      למרוחד.
 
       > נדרשת בנייה מחדש של המסד המקומי או המרוחד. שניהם ייקחו כמה דקות או יותר.
       **ודא שבטוח לבצע זאת עכשיו.**
-  Table:
-    _value: |+
-      | שם ערך | מכשיר זה | מרוחד |
-      |: --- |: ---- :|: ---- :|
-      ${rows}
+  Table: |+
+    | שם ערך | מכשיר זה | מרוחד |
+    |: --- |: ---- :|: ---- :|
+    ${rows}
 
-    Row: "| ${name} | ${self} | ${remote} |"
   Title:
     _value: זוהתה אי-התאמה בתצורה
     TweakResolving: זוהתה אי-התאמה בתצורה
-    UseRemoteConfig: השתמש בתצורה המרוחקת
 Unique name between all synchronized devices. To edit this setting, please disable customization sync once.:
-  שם ייחודי בין כל המכשירים המסונכרנים. כדי לערוך הגדרה זו, אנא נטרל את
-  סנכרון ההתאמה האישית פעם אחת.
+  שם ייחודי בין כל המכשירים המסונכרנים. כדי לערוך הגדרה זו, אנא נטרל את סנכרון
+  ההתאמה האישית פעם אחת.
+Unloading plugin...: מסיר תוסף...
+Unlock remote database to prevent data corruption: מבטל נעילת מסד הנתונים המרוחק למניעת פגיעה בנתונים
+Update remote database settings: עדכן הגדרות מסד הנתונים המרוחד
+Update remote database settings and rebuild again: עדכן הגדרות מסד הנתונים המרוחד ובנה מחדש
+Update remote database settings but keep as is: עדכן הגדרות מסד הנתונים המרוחד אך השאר כפי שהוא
+Update Thinning: דילול עדכונים
+Use %{short_p2p_sync} to set up: השתמש ב-%{short_p2p_sync} להגדרה
 Use Custom HTTP Handler: השתמש ב-HTTP Handler מותאם אישית
 Use dynamic iteration count: השתמש בספירת איטרציות דינמית
+Use Remote Configuration: השתמש בתצורה המרוחקת
 Use Segmented-splitter: השתמש ב-Segmented-splitter
 Use splitting-limit-capped chunk splitter: השתמש ב-chunk splitter עם מגבלת פיצול
 Use the trash bin: השתמש בסל האשפה
@@ -1222,9 +1200,21 @@ Use timeouts instead of heartbeats: השתמש בפסק זמן במקום פעי
 username: שם משתמש
 Username: שם משתמש
 Verbose Log: יומן מפורט
+Waiting for ready...: ממתין לכשירות...
 Warning! This will have a serious impact on performance. And the logs will not be synchronised under the default name. Please be careful with logs; they often contain your confidential information.:
   אזהרה! לכך תהיה השפעה רצינית על הביצועים. בנוסף, היומנים לא יסונכרנו תחת השם
   ברירת המחדל. אנא היה זהיר עם יומנים; הם לרוב מכילים מידע סודי שלך.
+We can't replicate more lower value.: לא ניתן לשכפל ערך נמוך יותר.
+We could not continue the test.: לא ניתן להמשיך בבדיקה.
+We left some issues as is. Shall I ask you again on next startup?: השארנו כמה בעיות כפי שהן. האם לשאול שוב בהפעלה הבאה?
+We recommend enabling End-To-End Encryption, and Path Obfuscation. Are you sure you want to continue without encryption?:
+  אנו ממליצים להפעיל הצפנה מקצה לקצה ואת ערפול הנתיב. האם אתה בטוח שברצונך
+  להמשיך ללא הצפנה?
+We strongly recommend to treat this as soon as possible!: אנו ממליצים בחום לטפל בזה בהקדם האפשרי!
 When you save a file in the editor, start a sync automatically: כאשר אתה שומר קובץ בעורך, התחל סנכרון אוטומטית
 Write credentials in the file: כתוב פרטי גישה בקובץ
 Write logs into the file: כתוב יומנים לקובץ
+Yes, I have: כן, יש לי
+You cannot enable encryption without a passphrase: לא ניתן להפעיל הצפנה ללא ביטוי סיסמה
+Your device does not support encryption.: המכשיר שלך אינו תומך בהצפנה.
+Your encryption passphrase might be invalid. Are you sure you want to continue?: ביטוי הסיסמה להצפנה שלך עשוי להיות לא תקין. האם אתה בטוח שברצונך להמשיך?
