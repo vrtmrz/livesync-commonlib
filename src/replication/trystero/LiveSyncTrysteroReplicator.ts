@@ -1,4 +1,3 @@
-import { eventHub } from "@lib/hub/hub";
 import { Logger } from "@lib/common/logger";
 import {
     type RemoteDBSettings,
@@ -73,6 +72,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     private _buildEnv() {
         const services = this.env.services;
         return {
+            events: services.context.events,
             get settings() {
                 return services.setting.currentSettings();
             },
@@ -283,7 +283,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             knownPeers = knownPeersOrg;
         } else {
             Logger($msg("P2P.NoKnownPeers"), logLevel);
-            await Promise.race([delay(5000), eventHub.waitFor(EVENT_ADVERTISEMENT_RECEIVED)]);
+            await Promise.race([delay(5000), this.env.services.context.events.waitFor(EVENT_ADVERTISEMENT_RECEIVED)]);
             knownPeers = r.server?.knownAdvertisements ?? [];
         }
         const message =
@@ -301,7 +301,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             return false;
         }
         if (selected == "Refresh List") {
-            await Promise.race([delay(1000), eventHub.waitFor(EVENT_ADVERTISEMENT_RECEIVED)]);
+            await Promise.race([delay(1000), this.env.services.context.events.waitFor(EVENT_ADVERTISEMENT_RECEIVED)]);
             return this.selectPeer(settingPeerName, r, logLevel);
         }
         const selectedPeerName = selected.split("\u2001")[0];
@@ -361,7 +361,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         }
 
         // Fallback: headless peer-selection flow (CLI / non-Obsidian).
-        await eventHub.waitFor(EVENT_P2P_CONNECTED);
+        await this.env.services.context.events.waitFor(EVENT_P2P_CONNECTED);
         const peerFrom = setting.P2P_RebuildFrom;
         this._replicator.setOnSetup();
         try {

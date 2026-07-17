@@ -22,7 +22,7 @@ export interface ServiceModules {
      */
     rebuilder: Rebuilder;
 }
-export type RequiredServices<T extends keyof ServiceHub> = Pick<ServiceHub, T>;
+export type RequiredServices<T extends keyof ServiceHub> = Pick<ServiceHub, T | "context">;
 export type RequiredServiceModules<T extends keyof ServiceModules> = Pick<ServiceModules, T>;
 
 export type RequiredServicesInterfaces<T extends keyof IServiceHub> = Pick<IServiceHub, T>;

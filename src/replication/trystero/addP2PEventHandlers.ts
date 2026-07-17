@@ -1,5 +1,6 @@
 // P2P replicator helper functions
-import { eventHub, EVENT_DATABASE_REBUILT, EVENT_PLATFORM_UNLOADED, EVENT_SETTING_SAVED } from "@/common/events";
+import { EVENT_DATABASE_REBUILT, EVENT_PLATFORM_UNLOADED, EVENT_SETTING_SAVED } from "@lib/events/coreEvents";
+import type { LiveSyncEventHub } from "@lib/hub/hub";
 import type { P2PSyncSetting } from "@lib/common/types";
 import type { LiveSyncTrysteroReplicator } from "./LiveSyncTrysteroReplicator";
 import { EVENT_ADVERTISEMENT_RECEIVED, EVENT_DEVICE_LEAVED, EVENT_REQUEST_STATUS } from "./TrysteroReplicatorP2PServer";
@@ -24,24 +25,24 @@ export interface P2PReplicatorLike {
  * Add event handlers for P2P replication related events.
  * @param instance P2PReplicatorLike instance
  */
-export function addP2PEventHandlers(instance: P2PReplicatorLike) {
-    eventHub.onEvent(EVENT_ADVERTISEMENT_RECEIVED, (peer) => {
+export function addP2PEventHandlers(instance: P2PReplicatorLike, events: LiveSyncEventHub) {
+    events.onEvent(EVENT_ADVERTISEMENT_RECEIVED, (peer) => {
         void instance.onNewPeer(peer);
     });
     // I know that the correct spell is "left"... Miserable
-    eventHub.onEvent(EVENT_DEVICE_LEAVED, (peerId) => {
+    events.onEvent(EVENT_DEVICE_LEAVED, (peerId) => {
         instance.onPeerLeaved(peerId);
     });
-    eventHub.onEvent(EVENT_REQUEST_STATUS, () => {
+    events.onEvent(EVENT_REQUEST_STATUS, () => {
         instance.requestStatus();
     });
-    eventHub.onEvent(EVENT_DATABASE_REBUILT, async () => {
+    events.onEvent(EVENT_DATABASE_REBUILT, async () => {
         await instance.open();
     });
-    eventHub.onEvent(EVENT_PLATFORM_UNLOADED, () => {
+    events.onEvent(EVENT_PLATFORM_UNLOADED, () => {
         void instance.close();
     });
-    eventHub.onEvent(EVENT_SETTING_SAVED, async (settings: P2PSyncSetting) => {
+    events.onEvent(EVENT_SETTING_SAVED, async (settings: P2PSyncSetting) => {
         const isOpen = instance.isServing ?? instance.server?.isServing ?? false;
         if (settings.P2P_Enabled && settings.P2P_AutoStart) {
             await instance.open();

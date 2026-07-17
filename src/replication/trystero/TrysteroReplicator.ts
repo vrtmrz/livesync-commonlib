@@ -8,7 +8,6 @@ import { TrysteroConnection } from "./TrysteroReplicatorP2PConnection";
 import { scheduleOnceIfDuplicated, serialized, skipIfDuplicated } from "octagonal-wheels/concurrency/lock_v2";
 import { delay, fireAndForget } from "octagonal-wheels/promises";
 import { EVENT_P2P_REPLICATOR_PROGRESS, EVENT_P2P_REPLICATOR_STATUS, P2PHost } from "./TrysteroReplicatorP2PServer";
-import { eventHub } from "@lib/hub/hub";
 import { encryptWithEphemeralSalt, decryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
 import { $msg } from "@lib/common/i18n";
 import { sha1 } from "octagonal-wheels/hash/purejs";
@@ -373,7 +372,7 @@ export class TrysteroReplicator {
     }
 
     dispatchStatus() {
-        eventHub.emitEvent(EVENT_P2P_REPLICATOR_STATUS, {
+        this._env.events.emitEvent(EVENT_P2P_REPLICATOR_STATUS, {
             isBroadcasting: this._isBroadcasting,
             replicatingTo: [...this._replicateToPeers],
             replicatingFrom: [...this._replicateFromPeers],
@@ -509,7 +508,7 @@ export class TrysteroReplicator {
             };
         }
         // console.warn(`Own Progress ${peerId}`, stat);
-        eventHub.emitEvent(EVENT_P2P_REPLICATOR_PROGRESS, stat);
+        this._env.events.emitEvent(EVENT_P2P_REPLICATOR_PROGRESS, stat);
         return true;
     }
     onProgressAcknowledged(peerId: string, info?: ProgressInfo) {
@@ -532,7 +531,7 @@ export class TrysteroReplicator {
             };
         }
         // console.warn(`Progress acknowledged from ${peerId}`, ack);
-        eventHub.emitEvent(EVENT_P2P_REPLICATOR_PROGRESS, ack);
+        this._env.events.emitEvent(EVENT_P2P_REPLICATOR_PROGRESS, ack);
         return true;
     }
     // Sending the progress to the remote peer
