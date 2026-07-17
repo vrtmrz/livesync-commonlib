@@ -3,12 +3,13 @@
 import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 
-import { collectBoundaryFindings } from "./package-boundary.mjs";
+import { collectBoundaryFindings, collectDomPrototypeFindings } from "./package-boundary.mjs";
 
 const root = resolve(new URL("..", import.meta.url).pathname);
 const baselinePath = resolve(root, "_tools/package-boundary-baseline.json");
 const baseline = JSON.parse(await readFile(baselinePath, "utf8"));
 const actual = await collectBoundaryFindings(root);
+const prototypeFindings = await collectDomPrototypeFindings(root);
 
 const serialise = (finding) => `${finding.file}: ${finding.specifier}`;
 const expectedSet = new Set(baseline.forbiddenImports.map(serialise));
@@ -24,4 +25,9 @@ if (added.length > 0 || removed.length > 0) {
     process.exitCode = 1;
 } else {
     console.log(`Package boundary matches the ${actual.length}-import migration baseline.`);
+}
+
+if (prototypeFindings.length > 0) {
+    console.error(`Production modules access DOM prototypes:\n- ${prototypeFindings.join("\n- ")}`);
+    process.exitCode = 1;
 }

@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 
-import { extractImportSpecifiers, isForbiddenPackageImport } from "./package-boundary.mjs";
+import {
+    extractImportSpecifiers,
+    hasForbiddenDomPrototypeAccess,
+    isForbiddenPackageImport,
+} from "./package-boundary.mjs";
 
 test("extracts static, type-only, side-effect, export, and dynamic imports", () => {
     const source = `
@@ -37,4 +41,11 @@ test("rejects host aliases and Obsidian imports without rejecting package-local 
     assert.equal(isForbiddenPackageImport("obsidian/unsupported"), true);
     assert.equal(isForbiddenPackageImport("@lib/common/types"), false);
     assert.equal(isForbiddenPackageImport("octagonal-wheels/promises"), false);
+});
+
+test("rejects DOM prototype access in production modules", () => {
+    assert.equal(hasForbiddenDomPrototypeAccess("HTMLElement.prototype.example = () => undefined;"), true);
+    assert.equal(hasForbiddenDomPrototypeAccess("const prototype = SVGElement.prototype;"), true);
+    assert.equal(hasForbiddenDomPrototypeAccess("// HTMLElement.prototype.example = true;"), false);
+    assert.equal(hasForbiddenDomPrototypeAccess("element.style.display = 'none';"), false);
 });
