@@ -32,7 +32,7 @@ Review `package.json`, `package-lock.json`, the generated manifest, the tarball 
 
 ## Initial npm bootstrap
 
-The npm package must exist before Trusted Publishing can be configured. Bootstrap the first reviewed release candidate once from the exact merged release commit using an interactive npm session with 2FA:
+The npm package must exist before Trusted Publishing can be configured. Bootstrap the first reviewed release candidate once from the exact reviewed commit in the draft release pull request, using an interactive npm session with 2FA:
 
 ```bash
 npm ci
@@ -41,6 +41,8 @@ npm publish .package --tag next --access public
 ```
 
 Confirm the authenticated npm account, `@vrtmrz` scope ownership, package name, version, tarball checksum, packed contents, source commit, and target tag immediately before publication. Treat bootstrap publication as a separate user-authorised operation. npm may assign `latest` to the first published version even when `next` is requested; leave the immutable version in place and replace `latest` only after a stable release has passed consumer validation.
+
+Keep the release pull request in draft while the published artefact is validated in Self-hosted LiveSync. If validation succeeds, merge the exact reviewed commit. If validation fails, leave the published version immutable and prepare a new pre-release version.
 
 ## Trusted staged publishing
 
