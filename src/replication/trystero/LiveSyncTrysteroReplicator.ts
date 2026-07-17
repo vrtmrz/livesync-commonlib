@@ -23,7 +23,6 @@ import {
     type AcceptanceDecision,
     type RevokeAcceptanceDecision,
 } from "./TrysteroReplicatorP2PServer";
-import { $msg } from "@lib/common/i18n";
 import { delay } from "octagonal-wheels/promises";
 import type { AsyncActivityOptions } from "@lib/interfaces/AsyncActivityRunner";
 
@@ -73,6 +72,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         const services = this.env.services;
         return {
             events: services.context.events,
+            translate: services.context.translate,
             get settings() {
                 return services.setting.currentSettings();
             },
@@ -112,7 +112,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
 
     async open() {
         if (!this.env.services.setting.currentSettings().P2P_Enabled) {
-            Logger($msg("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
+            Logger(this.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
             // Nothing to do.
             return;
         }
@@ -258,7 +258,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
 
         await this.makeSureOpened();
         if (!this._replicator) {
-            Logger($msg("P2P.ReplicatorInstanceMissing"), logLevel);
+            Logger(this.translate("P2P.ReplicatorInstanceMissing"), logLevel);
             return false;
         }
         await this._replicator.replicateFromCommand(showResult);
@@ -282,7 +282,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         if (knownPeersOrg.length != 0) {
             knownPeers = knownPeersOrg;
         } else {
-            Logger($msg("P2P.NoKnownPeers"), logLevel);
+            Logger(this.translate("P2P.NoKnownPeers"), logLevel);
             await Promise.race([delay(5000), this.env.services.context.events.waitFor(EVENT_ADVERTISEMENT_RECEIVED)]);
             knownPeers = r.server?.knownAdvertisements ?? [];
         }
@@ -339,8 +339,8 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         const logLevel = showingNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
         if (setting.P2P_Enabled == false) {
             const confirm = this.env.services.UI.confirm;
-            if ((await confirm.askYesNoDialog($msg("P2P.DisabledButNeed"), {})) != "yes") {
-                Logger($msg("P2P.NotEnabled"), logLevel);
+            if ((await confirm.askYesNoDialog(this.translate("P2P.DisabledButNeed"), {})) != "yes") {
+                Logger(this.translate("P2P.NotEnabled"), logLevel);
             }
             setting.P2P_Enabled = true;
             this.env.services.setting.currentSettings().P2P_Enabled = true;

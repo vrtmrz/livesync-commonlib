@@ -18,7 +18,6 @@ import { StoredMapLike } from "@lib/dataobject/StoredMap";
 import { TrysteroReplicatorP2PClient } from "./TrysteroReplicatorP2PClient";
 import { createHostingDB } from "./ProxiedDB";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
-import { $msg } from "@lib/common/i18n";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock_v2";
 import { Computed } from "octagonal-wheels/dataobject/Computed";
 import { RpcRoom, type JsonLike, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
@@ -494,7 +493,7 @@ You can chose as follows:
 
     async startService(bindings: BindableObject[] = []) {
         if (!this.isEnabled) {
-            Logger($msg("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
+            Logger(this._env.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
             return;
         }
         const servingDB = createHostingDB(this._env);
@@ -509,7 +508,7 @@ You can chose as follows:
     async start(bindings: BindableObject[] = []) {
         await this.shutdown();
         if (!this.settings.P2P_Enabled) {
-            Logger($msg("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
+            Logger(this._env.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
             return;
         }
         const options = generateJoinRoomOptions(this.settings);

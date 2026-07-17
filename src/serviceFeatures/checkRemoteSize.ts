@@ -4,7 +4,6 @@ import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/l
 
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { EVENT_REQUEST_CHECK_REMOTE_SIZE } from "@lib/events/coreEvents";
-import { $msg } from "@lib/common/i18n";
 
 /**
  * Notify when checking remote storage size is not configured.
@@ -15,23 +14,24 @@ export function onNotifyRemoteSizeNotConfiguredFactory(
     log: ReturnType<typeof createInstanceLogFunction>
 ) {
     return async () => {
-        log($msg("moduleCheckRemoteSize.logCheckingStorageSizes"), LOG_LEVEL_VERBOSE);
+        const translate = host.services.context.translate;
+        log(translate("moduleCheckRemoteSize.logCheckingStorageSizes"), LOG_LEVEL_VERBOSE);
         const settings = host.services.setting.currentSettings();
         if (settings.notifyThresholdOfRemoteStorageSize >= 0) {
             return true;
         }
-        const message = $msg("moduleCheckRemoteSize.msgSetDBCapacity");
-        const ANSWER_0 = $msg("moduleCheckRemoteSize.optionNoWarn");
-        const ANSWER_800 = $msg("moduleCheckRemoteSize.option800MB");
-        const ANSWER_2000 = $msg("moduleCheckRemoteSize.option2GB");
-        const ASK_ME_NEXT_TIME = $msg("moduleCheckRemoteSize.optionAskMeLater");
+        const message = translate("moduleCheckRemoteSize.msgSetDBCapacity");
+        const ANSWER_0 = translate("moduleCheckRemoteSize.optionNoWarn");
+        const ANSWER_800 = translate("moduleCheckRemoteSize.option800MB");
+        const ANSWER_2000 = translate("moduleCheckRemoteSize.option2GB");
+        const ASK_ME_NEXT_TIME = translate("moduleCheckRemoteSize.optionAskMeLater");
 
         const ret = await host.services.API.confirm.askSelectStringDialogue(
             message,
             [ANSWER_0, ANSWER_800, ANSWER_2000, ASK_ME_NEXT_TIME],
             {
                 defaultAction: ASK_ME_NEXT_TIME,
-                title: $msg("moduleCheckRemoteSize.titleDatabaseSizeNotify"),
+                title: translate("moduleCheckRemoteSize.titleDatabaseSizeNotify"),
                 timeout: 40,
             }
         );
@@ -72,6 +72,7 @@ export function onNotifyRemoteSizeExceedFactory(
     log: ReturnType<typeof createInstanceLogFunction>
 ) {
     return async () => {
+        const translate = host.services.context.translate;
         const settings = host.services.setting.currentSettings();
         if (settings.notifyThresholdOfRemoteStorageSize <= 0) {
             log("User has chosen to not receive remote storage size exceed notification.", LOG_LEVEL_INFO);
@@ -94,35 +95,35 @@ export function onNotifyRemoteSizeExceedFactory(
             const maxSize = settings.notifyThresholdOfRemoteStorageSize * 1024 * 1024;
             if (estimatedSize <= maxSize) {
                 log(
-                    $msg("moduleCheckRemoteSize.logCurrentStorageSize", {
+                    translate("moduleCheckRemoteSize.logCurrentStorageSize", {
                         measuredSize: sizeToHumanReadable(estimatedSize),
                     }),
                     LOG_LEVEL_INFO
                 );
                 return true;
             }
-            const message = $msg("moduleCheckRemoteSize.msgDatabaseGrowing", {
+            const message = translate("moduleCheckRemoteSize.msgDatabaseGrowing", {
                 estimatedSize: sizeToHumanReadable(estimatedSize),
                 maxSize: sizeToHumanReadable(maxSize),
             });
             const newMax = ~~(estimatedSize / 1024 / 1024) + 100;
-            const ANSWER_ENLARGE_LIMIT = $msg("moduleCheckRemoteSize.optionIncreaseLimit", {
+            const ANSWER_ENLARGE_LIMIT = translate("moduleCheckRemoteSize.optionIncreaseLimit", {
                 newMax: newMax.toString(),
             });
-            const ANSWER_REBUILD = $msg("moduleCheckRemoteSize.optionRebuildAll");
-            const ANSWER_IGNORE = $msg("moduleCheckRemoteSize.optionDismiss");
+            const ANSWER_REBUILD = translate("moduleCheckRemoteSize.optionRebuildAll");
+            const ANSWER_IGNORE = translate("moduleCheckRemoteSize.optionDismiss");
             const ret = await host.services.API.confirm.askSelectStringDialogue(
                 message,
                 [ANSWER_ENLARGE_LIMIT, ANSWER_REBUILD, ANSWER_IGNORE],
                 {
                     defaultAction: ANSWER_IGNORE,
-                    title: $msg("moduleCheckRemoteSize.titleDatabaseSizeLimitExceeded"),
+                    title: translate("moduleCheckRemoteSize.titleDatabaseSizeLimitExceeded"),
                     timeout: 60,
                 }
             );
             if (ret == ANSWER_REBUILD) {
                 const ret = await host.services.API.confirm.askYesNoDialog(
-                    $msg("moduleCheckRemoteSize.msgConfirmRebuild"),
+                    translate("moduleCheckRemoteSize.msgConfirmRebuild"),
                     { defaultOption: "No" }
                 );
                 if (ret == "yes") {
@@ -141,7 +142,7 @@ export function onNotifyRemoteSizeExceedFactory(
             if (ret == ANSWER_ENLARGE_LIMIT) {
                 const newThreshold = ~~(estimatedSize / 1024 / 1024) + 100;
                 log(
-                    $msg("moduleCheckRemoteSize.logThresholdEnlarged", {
+                    translate("moduleCheckRemoteSize.logThresholdEnlarged", {
                         size: newThreshold.toString(),
                     }),
                     LOG_LEVEL_NOTICE
@@ -156,7 +157,7 @@ export function onNotifyRemoteSizeExceedFactory(
             }
             // Dismiss or Close the dialog
             log(
-                $msg("moduleCheckRemoteSize.logExceededWarning", {
+                translate("moduleCheckRemoteSize.logExceededWarning", {
                     measuredSize: sizeToHumanReadable(estimatedSize),
                     notifySize: sizeToHumanReadable(settings.notifyThresholdOfRemoteStorageSize * 1024 * 1024),
                 }),

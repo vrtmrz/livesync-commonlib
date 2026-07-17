@@ -17,7 +17,6 @@ import type {
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import { createInstanceLogFunction, MARK_LOG_NETWORK_ERROR, type LogFunction } from "@lib/services/lib/logUtils";
-import { $msg } from "@lib/common/i18n";
 import type { LiveSyncAbstractReplicator } from "@lib/replication/LiveSyncAbstractReplicator";
 import { UnresolvedErrorManager } from "./UnresolvedErrorManager";
 import type { AppLifecycleService } from "./AppLifecycleService";
@@ -113,17 +112,17 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
         const currentSettings = this.settingService.currentSettings();
 
         if (isLockAcquired("cleanup")) {
-            this._log($msg("Replicator.Message.Cleaned"), LOG_LEVEL_NOTICE);
+            this._log(this.context.translate("Replicator.Message.Cleaned"), LOG_LEVEL_NOTICE);
             return false;
         }
 
         if (currentSettings.versionUpFlash != "") {
-            this._log($msg("Replicator.Message.VersionUpFlash"), LOG_LEVEL_NOTICE);
+            this._log(this.context.translate("Replicator.Message.VersionUpFlash"), LOG_LEVEL_NOTICE);
             return false;
         }
 
         if (!(await this.fileProcessing.commitPendingFileEvents())) {
-            this.showError($msg("Replicator.Message.Pending"), LOG_LEVEL_NOTICE);
+            this.showError(this.context.translate("Replicator.Message.Pending"), LOG_LEVEL_NOTICE);
             return false;
         }
 
@@ -137,9 +136,9 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
                 .flat()
                 .some((e) => typeof e == "string" && e.indexOf(MARK_LOG_NETWORK_ERROR) !== -1);
             if (!hasNetworkError) {
-                this.showError($msg("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_NOTICE);
+                this.showError(this.context.translate("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_NOTICE);
             } else {
-                this._log($msg("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_INFO);
+                this._log(this.context.translate("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_INFO);
             }
             return false;
         }
@@ -240,7 +239,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
     ): Promise<boolean> {
         if (!this.appLifecycleService.isReady()) return false;
         if (!(await this.onBeforeReplicate(showingNotice))) {
-            this._log($msg("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_NOTICE);
+            this._log(this.context.translate("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_NOTICE);
             return false;
         }
         const currentSettings = this.settingService.currentSettings();

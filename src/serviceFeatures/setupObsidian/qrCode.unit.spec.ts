@@ -3,7 +3,6 @@ import { EVENT_REQUEST_SHOW_SETUP_QR } from "@lib/events/coreEvents";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
 import { encodeSetupSettingsAsQR, useSetupQRCodeFeature } from "./qrCode";
 import { encodeQR, encodeSettingsToQRCodeData } from "@lib/API/processSetting";
-import { $msg } from "@lib/common/i18n";
 
 vi.mock("@lib/API/processSetting", () => {
     return {
@@ -12,12 +11,6 @@ vi.mock("@lib/API/processSetting", () => {
         OutputFormat: {
             SVG: "svg",
         },
-    };
-});
-
-vi.mock("@lib/common/i18n", () => {
-    return {
-        $msg: vi.fn(() => "qr-message"),
     };
 });
 
@@ -31,6 +24,7 @@ describe("setupObsidian/qrCode", () => {
         const confirmWithMessage = vi.fn();
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: vi.fn(() => ({ any: "settings" })),
                 },
@@ -53,8 +47,10 @@ describe("setupObsidian/qrCode", () => {
 
     it("encodeSetupSettingsAsQR should show confirm dialog when QR is generated", async () => {
         const confirmWithMessage = vi.fn(() => true);
+        const translate = vi.fn(() => "qr-message");
         const host = {
             services: {
+                context: createServiceContext({ translate }),
                 setting: {
                     currentSettings: vi.fn(() => ({ any: "settings" })),
                 },
@@ -72,7 +68,7 @@ describe("setupObsidian/qrCode", () => {
         const result = await encodeSetupSettingsAsQR(host);
 
         expect(result).toBe("<svg/>");
-        expect($msg).toHaveBeenCalledWith("Setup.QRCode", { qr_image: "<svg/>" });
+        expect(translate).toHaveBeenCalledWith("Setup.QRCode", { qr_image: "<svg/>" });
         expect(confirmWithMessage).toHaveBeenCalledWith("Settings QR Code", "qr-message", ["OK"], "OK");
     });
 

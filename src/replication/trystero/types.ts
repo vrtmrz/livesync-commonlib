@@ -4,6 +4,7 @@ import type { SimpleStore } from "@lib/common/utils";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import type { AsyncActivityRunner } from "@lib/interfaces/AsyncActivityRunner";
 import type { LiveSyncEventHub } from "@lib/hub/hub";
+import type { MessageTranslator } from "@lib/services/base/MessageTranslator";
 
 export const DIRECTION_REQUEST = "request";
 export type DIRECTION_REQUEST = typeof DIRECTION_REQUEST;
@@ -99,6 +100,8 @@ export interface ReplicatorHost {
 export interface ReplicatorHostEnv extends ReplicatorHost {
     /** Event channel owned by the containing Commonlib service composition. */
     events: LiveSyncEventHub;
+    /** Message translation owned by the containing Commonlib service composition. */
+    translate: MessageTranslator;
     settings: P2PSyncSetting;
     db: PouchDB.Database<EntryDoc>;
     simpleStore: SimpleStore<unknown>;

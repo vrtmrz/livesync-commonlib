@@ -5,7 +5,6 @@ import { handlers } from "@lib/services/lib/HandlerUtils";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils.ts";
 import { PouchDB } from "@lib/pouchdb/pouchdb-browser.ts";
 import { ExtraSuffixIndexedDB } from "@lib/common/models/shared.const.ts";
-import { $msg } from "@lib/common/i18n.ts";
 import type { SettingService } from "./SettingService";
 import type { APIService } from "./APIService";
 import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
@@ -91,7 +90,7 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
             await this._localDatabase.close();
         }
         const vaultName = this.services.vault.getVaultName();
-        this._log($msg("moduleLocalDatabase.logWaitingForReady"));
+        this._log(this.context.translate("moduleLocalDatabase.logWaitingForReady"));
         const env = {
             services: {
                 context: this.context,

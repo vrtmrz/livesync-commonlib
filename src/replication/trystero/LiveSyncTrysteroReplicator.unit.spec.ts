@@ -5,9 +5,10 @@ import { createServiceContext } from "@lib/services/base/ServiceBase";
 describe("LiveSyncTrysteroReplicator host environment", () => {
     it("forwards raw P2P activity to the shared finite-replication owner", async () => {
         const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
+        const translate = vi.fn((key: string) => `translated:${key}`);
         const replicator = new LiveSyncTrysteroReplicator({
             services: {
-                context: createServiceContext(),
+                context: createServiceContext({ translate }),
                 replicator: { runFiniteReplicationActivity },
             },
         } as any);
@@ -15,8 +16,10 @@ describe("LiveSyncTrysteroReplicator host environment", () => {
         const task = vi.fn(() => "done");
 
         await expect(env.runFiniteReplicationActivity(task, { label: "replication" })).resolves.toBe("done");
+        expect(env.translate("P2P.NotEnabled")).toBe("translated:P2P.NotEnabled");
 
         expect(runFiniteReplicationActivity).toHaveBeenCalledWith(task, { label: "replication" });
+        expect(translate).toHaveBeenCalledWith("P2P.NotEnabled");
     });
 });
 
