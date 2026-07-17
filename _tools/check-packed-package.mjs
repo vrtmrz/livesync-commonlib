@@ -40,6 +40,10 @@ const packed = JSON.parse(
 assert.equal(packed.name, packageName);
 assert.ok(packed.size > 0, "The packed package must not be empty.");
 assert.ok(packed.files.every(({ path }) => !path.startsWith("src/")), "Source files must not be published.");
+assert.ok(
+    packed.files.every(({ path }) => !path.includes(".svelte")),
+    "Host-owned Svelte source and compiled components must not be published."
+);
 
 const tarballPath = resolve(artefactDirectory, packed.filename);
 await writeConsumerFile(

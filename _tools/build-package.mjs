@@ -4,8 +4,7 @@ import { execFileSync } from "node:child_process";
 import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 
-import { build, transform } from "esbuild";
-import { compile, preprocess } from "svelte/compiler";
+import { build } from "esbuild";
 
 const root = resolve(new URL("..", import.meta.url).pathname);
 const packageDirectory = resolve(root, ".package");
@@ -22,45 +21,6 @@ async function collectFiles(directory, predicate = () => true) {
         else if (entry.isFile() && predicate(path)) files.push(path);
     }
     return files;
-}
-
-async function compileSvelteComponents() {
-    const componentPaths = await collectFiles(sourceDirectory, (path) => path.endsWith(".svelte"));
-    for (const path of componentPaths) {
-        const source = await readFile(path, "utf8");
-        const preprocessed = await preprocess(
-            source,
-            {
-                script: async ({ attributes, content }) => {
-                    if (attributes.lang !== "ts") return;
-                    const result = await transform(content, {
-                        format: "esm",
-                        loader: "ts",
-                        sourcemap: false,
-                        target: "es2022",
-                    });
-                    return { code: result.code };
-                },
-            },
-            { filename: path }
-        );
-        const compiled = compile(preprocessed.code, {
-            css: "injected",
-            filename: path,
-            generate: "client",
-            preserveComments: false,
-        });
-        const relativePath = relative(sourceDirectory, path).split(sep).join("/");
-        const outputPath = resolve(outputDirectory, `${relativePath}.js`);
-        await mkdir(dirname(outputPath), { recursive: true });
-        await writeFile(outputPath, `${compiled.js.code}\n`);
-        await writeFile(
-            outputPath.replace(/\.js$/u, ".d.ts"),
-            'import type { Component } from "svelte";\n' +
-                "declare const component: Component<Record<string, unknown>>;\n" +
-                "export default component;\n"
-        );
-    }
 }
 
 async function compileTypeScriptModules() {
@@ -328,7 +288,6 @@ execFileSync(process.execPath, [resolve(root, "node_modules/typescript/bin/tsc")
     stdio: "inherit",
 });
 await compileTypeScriptModules();
-await compileSvelteComponents();
 await bundleInlineWorker();
 await bundleLanguageCatalogue();
 await copyStaticFiles();
