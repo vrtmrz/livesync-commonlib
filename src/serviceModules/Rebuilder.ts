@@ -16,7 +16,7 @@ import type { Rebuilder } from "@lib/interfaces/DatabaseRebuilder";
 import type { StorageAccess } from "@lib/interfaces/StorageAccess";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 import { delay } from "octagonal-wheels/promises";
-import { eventHub } from "@lib/hub/hub";
+import type { LiveSyncEventHub } from "@lib/hub/hub";
 import { EVENT_DATABASE_REBUILT } from "@lib/events/coreEvents";
 import { ServiceModuleBase } from "@lib/serviceModules/ServiceModuleBase";
 import type { ControlService } from "@lib/services/base/ControlService";
@@ -34,6 +34,7 @@ type FastFetchCheckpoint = {
 };
 
 export interface ServiceRebuilderDependencies {
+    events: LiveSyncEventHub;
     appLifecycle: AppLifecycleService;
     API: APIService;
     UI: UIService;
@@ -50,6 +51,7 @@ export interface ServiceRebuilderDependencies {
 }
 
 export class ServiceRebuilder extends ServiceModuleBase<ServiceRebuilderDependencies> implements Rebuilder {
+    private events: LiveSyncEventHub;
     private appLifecycle: AppLifecycleService;
     private API: APIService;
     private UI: UIService;
@@ -65,6 +67,7 @@ export class ServiceRebuilder extends ServiceModuleBase<ServiceRebuilderDependen
     private control: ControlService;
     constructor(services: ServiceRebuilderDependencies) {
         super(services);
+        this.events = services.events;
         this.appLifecycle = services.appLifecycle;
         this.API = services.API;
         this.UI = services.UI;
@@ -507,7 +510,7 @@ Are you sure you wish to proceed?`;
         const suffix = this.API.getAppID() || "";
         await this.setting.applyPartial({ additionalSuffixOfDatabaseName: suffix });
         await this.database.resetDatabase();
-        eventHub.emitEvent(EVENT_DATABASE_REBUILT);
+        this.events.emitEvent(EVENT_DATABASE_REBUILT);
     }
 
     private getFastFetchCheckpoint(remote: string): FastFetchCheckpoint | undefined {
