@@ -160,6 +160,14 @@ document.body.dataset.translation = createServiceContext().translate("message.ke
 `
 );
 await writeConsumerFile(
+    "browser-services.ts",
+    `import { BrowserServiceHub } from "${packageName}/compat/services/BrowserServices";
+
+(globalThis as typeof globalThis & { CommonlibBrowserServiceHub?: typeof BrowserServiceHub })
+    .CommonlibBrowserServiceHub = BrowserServiceHub;
+`
+);
+await writeConsumerFile(
     "browser-worker.ts",
     `export { initialiseWorkerModule, splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
 `
@@ -206,6 +214,24 @@ assert.ok(
 );
 assert.ok(contextBundle.outputFiles[0].contents.length < 20_000, "The context bundle has grown unexpectedly.");
 
+const browserServicesBundle = await build({
+    absWorkingDir: consumerDirectory,
+    bundle: true,
+    conditions: ["browser"],
+    entryPoints: [resolve(consumerDirectory, "browser-services.ts")],
+    external: ["crypto"],
+    format: "esm",
+    logLevel: "silent",
+    metafile: true,
+    platform: "browser",
+    write: false,
+});
+const browserServicesInputs = Object.keys(browserServicesBundle.metafile.inputs);
+assert.ok(
+    browserServicesInputs.every((path) => !path.includes("svelte")),
+    "Importing the browser service composition must not load a Svelte runtime or component."
+);
+
 const workerBundle = await build({
     absWorkingDir: consumerDirectory,
     bundle: true,
@@ -237,6 +263,7 @@ console.log(
             packedBytes: packed.size,
             unpackedBytes: packed.unpackedSize,
             contextBundleBytes: contextBundle.outputFiles[0].contents.length,
+            browserServicesBundleBytes: browserServicesBundle.outputFiles[0].contents.length,
             workerBundleBytes: workerBundle.outputFiles[0].contents.length,
         },
         null,
