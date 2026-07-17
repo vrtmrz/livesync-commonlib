@@ -220,7 +220,7 @@ async function writePackageManifest() {
         type: "module",
         license: sourceManifest.license,
         repository: sourceManifest.repository,
-        files: ["dist", "README.md", "LICENSE"],
+        files: ["dist", "docs", "README.md", "LICENSE"],
         sideEffects: [
             "./dist/pouchdb/pouchdb-browser.js",
             "./dist/pouchdb/pouchdb-http.js",
@@ -254,6 +254,9 @@ async function copyStaticFiles() {
         : resolve(root, "readme.md");
     await cp(readmePath, resolve(packageDirectory, "README.md"));
     await cp(resolve(root, "LICENSE"), resolve(packageDirectory, "LICENSE"));
+    await mkdir(resolve(packageDirectory, "docs"), { recursive: true });
+    await cp(resolve(root, "docs", "platform-storage.md"), resolve(packageDirectory, "docs", "platform-storage.md"));
+    await cp(resolve(root, "docs", "development.md"), resolve(packageDirectory, "docs", "development.md"));
 }
 
 async function validateOutput() {

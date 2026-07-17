@@ -41,6 +41,14 @@ assert.equal(packed.name, packageName);
 assert.ok(packed.size > 0, "The packed package must not be empty.");
 assert.ok(packed.files.every(({ path }) => !path.startsWith("src/")), "Source files must not be published.");
 assert.ok(
+    packed.files.some(({ path }) => path === "docs/platform-storage.md"),
+    "The platform storage guide must be included in the package."
+);
+assert.ok(
+    packed.files.some(({ path }) => path === "docs/development.md"),
+    "The developer guide linked from the README must be included in the package."
+);
+assert.ok(
     packed.files.every(({ path }) => !path.includes(".svelte")),
     "Host-owned Svelte source and compiled components must not be published."
 );
