@@ -66,7 +66,7 @@ export type MESSAGE = { [key in I18N_LANGS]?: string };
 
 import { Logger } from "./logger.ts";
 // deno-lint-ignore no-sloppy-imports
-import { type MessageKeys } from "./messages/combinedMessages.dev"; // This sloppy-imports are used to replace the messages with the combined messages.
+import type { MessageKeys } from "./messages/combinedMessages.dev"; // This sloppy-imports are used to replace the messages with the combined messages.
 
 export function expandKeywords<T extends Record<string, U>, U extends Record<string, string>>(
     message: T,
