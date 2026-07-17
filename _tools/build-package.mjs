@@ -216,10 +216,13 @@ async function writePackageManifest() {
         name: sourceManifest.name,
         version: sourceManifest.version,
         description: sourceManifest.description,
-        private: true,
         type: "module",
         license: sourceManifest.license,
         repository: sourceManifest.repository,
+        publishConfig: {
+            access: "public",
+            tag: "next",
+        },
         files: ["dist", "docs", "README.md", "LICENSE"],
         sideEffects: [
             "./dist/pouchdb/pouchdb-browser.js",
