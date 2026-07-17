@@ -29,7 +29,8 @@ export function createServiceContext(options: ServiceContextOptions = {}): Servi
 }
 
 export abstract class ServiceBase<T extends ServiceContext> {
-    protected context: T;
+    /** Context shared by the services which belong to this composition. */
+    readonly context: T;
     constructor(context: T) {
         this.context = context;
     }

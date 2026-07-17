@@ -3,6 +3,7 @@ import type { P2PSyncSetting, EntryDoc } from "@lib/common/types";
 import type { SimpleStore } from "@lib/common/utils";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import type { AsyncActivityRunner } from "@lib/interfaces/AsyncActivityRunner";
+import type { LiveSyncEventHub } from "@lib/hub/hub";
 
 export const DIRECTION_REQUEST = "request";
 export type DIRECTION_REQUEST = typeof DIRECTION_REQUEST;
@@ -96,6 +97,8 @@ export interface ReplicatorHost {
     confirm: Confirm;
 }
 export interface ReplicatorHostEnv extends ReplicatorHost {
+    /** Event channel owned by the containing Commonlib service composition. */
+    events: LiveSyncEventHub;
     settings: P2PSyncSetting;
     db: PouchDB.Database<EntryDoc>;
     simpleStore: SimpleStore<unknown>;

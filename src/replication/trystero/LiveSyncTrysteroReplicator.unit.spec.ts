@@ -1,11 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { LiveSyncTrysteroReplicator } from "./LiveSyncTrysteroReplicator";
+import { createServiceContext } from "@lib/services/base/ServiceBase";
 
 describe("LiveSyncTrysteroReplicator host environment", () => {
     it("forwards raw P2P activity to the shared finite-replication owner", async () => {
         const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
         const replicator = new LiveSyncTrysteroReplicator({
             services: {
+                context: createServiceContext(),
                 replicator: { runFiniteReplicationActivity },
             },
         } as any);
@@ -24,6 +26,7 @@ describe("LiveSyncTrysteroReplicator manual replication", () => {
         const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
         const replicator = new LiveSyncTrysteroReplicator({
             services: {
+                context: createServiceContext(),
                 replicator: { runFiniteReplicationActivity },
             },
         } as any);
@@ -42,6 +45,7 @@ describe("LiveSyncTrysteroReplicator manual replication", () => {
         const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
         const replicator = new LiveSyncTrysteroReplicator({
             services: {
+                context: createServiceContext(),
                 replicator: { runFiniteReplicationActivity },
             },
         } as any);
@@ -61,6 +65,7 @@ describe("LiveSyncTrysteroReplicator manual replication", () => {
         const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
         const replicator = new LiveSyncTrysteroReplicator({
             services: {
+                context: createServiceContext(),
                 replicator: { runBoundedRemoteActivity, runFiniteReplicationActivity },
             },
         } as any);
