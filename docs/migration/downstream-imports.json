@@ -15,6 +15,7 @@
     "common/models/redflag.const",
     "common/models/setting.const",
     "common/models/setting.const.defaults",
+    "common/models/setting.const.preferred",
     "common/models/setting.type",
     "common/models/shared.const",
     "common/models/shared.const.symbols",

@@ -1,6 +1,6 @@
 {
   "name": "@vrtmrz/livesync-commonlib",
-  "version": "0.1.0-package-proof.3",
+  "version": "0.1.0-package-proof.5",
   "description": "Shared data, storage, and replication primitives for Self-hosted LiveSync clients.",
   "private": true,
   "type": "module",
@@ -22,6 +22,11 @@
     "check:boundary": "node _tools/check-package-boundary.mjs",
     "check:package": "node _tools/check-packed-package.mjs",
     "check:types": "tsc --noEmit",
+    "i18n:bake": "npm run i18n:yaml2json && npm run i18n:bakejson && npm run i18n:format",
+    "i18n:bakejson": "tsx _tools/bakei18n.ts",
+    "i18n:format": "prettier --config .prettierrc.mjs --write --log-level error 'src/common/messagesJson/*.json' 'src/common/messages/*.ts'",
+    "i18n:json2yaml": "tsx _tools/json2yaml.ts",
+    "i18n:yaml2json": "tsx _tools/yaml2json.ts",
     "test": "vitest run",
     "test:boundary": "node --test _tools/check-package-boundary.test.mjs",
     "test:package": "npm run build:package && npm run check:package"
@@ -70,9 +75,13 @@
     "esbuild": "0.28.1",
     "esbuild-plugin-inline-worker": "^0.1.1",
     "fake-indexeddb": "^6.2.5",
+    "prettier": "3.8.1",
     "svelte": "5.56.3",
+    "tinyglobby": "^0.2.15",
+    "tsx": "^4.21.0",
     "typescript": "5.9.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.8",
+    "yaml": "^2.8.2"
   },
   "engines": {
     "node": ">=20"
