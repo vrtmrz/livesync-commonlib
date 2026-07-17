@@ -120,9 +120,11 @@ const before = {
 const contextApi = await import("${packageName}/context");
 const rootApi = await import("${packageName}");
 const workerApi = await import("${packageName}/compat/worker/bgWorker");
+const runtimeCompat = await import("${packageName}/compat/common/coreEnvFunctions");
 
 assert.equal(contextApi.createServiceContext().translate("message.key"), "message.key");
 assert.equal(typeof rootApi.DirectFileManipulator, "function");
+assert.equal(runtimeCompat.compatGlobal, globalThis);
 
 const piecesFactory = await workerApi.splitPieces2Worker(
     new Blob(["abcdef"], { type: "text/plain" }),
@@ -142,7 +144,7 @@ assert.deepEqual(
         svgProps: Object.hasOwn(FakeSVGElement.prototype, "setCssProps"),
     },
     before,
-    "Importing the package must not patch host DOM prototypes."
+    "Importing the package, including the compatibility module used by the CLI, must not patch host DOM prototypes."
 );
 `
 );
