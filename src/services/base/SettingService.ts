@@ -619,7 +619,6 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         this._lastPersistedSettings = this.cloneSettings(this.settings);
 
         // this.core.ignoreFiles = this.settings.ignoreFiles.split(",").map(e => e.trim());
-        // eventHub.emitEvent(EVENT_REQUEST_RELOAD_SETTING_TAB);
         const dispatch = this.settings;
         void this.onSettingLoaded(dispatch);
         void this.onSettingChanged(dispatch);
