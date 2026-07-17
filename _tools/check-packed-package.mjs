@@ -95,6 +95,7 @@ await writeConsumerFile(
     `import {
     createServiceContext,
     passthroughMessageTranslator,
+    type ServiceContextContract,
     type ServiceContextOptions,
 } from "${packageName}/context";
 import { DirectFileManipulator, type DirectFileManipulatorOptions } from "${packageName}";
@@ -106,6 +107,7 @@ import { splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
 
 const options: ServiceContextOptions = { translate: (key) => \`translated:\${key}\` };
 const context = createServiceContext(options);
+const contextContract: ServiceContextContract = context;
 const untranslated: string = passthroughMessageTranslator("message.key");
 const split = splitPieces2Worker(new Blob(["content"], { type: "text/plain" }), 4, false, 1);
 const directOptions = {} as DirectFileManipulatorOptions;
@@ -113,6 +115,7 @@ const directType: typeof DirectFileManipulator = DirectFileManipulator;
 const fileSystemAccessOptions = {} as CreateFileSystemAccessStorageOptions;
 const fileSystemAccessFactory: typeof createFileSystemAccessStorage = createFileSystemAccessStorage;
 void context;
+void contextContract;
 void untranslated;
 void split;
 void directOptions;
@@ -154,6 +157,9 @@ assert.equal(typeof nodeRuntime.fsPromises.readFile, "function");
 assert.equal(typeof nodeRuntime.path.join, "function");
 assert.equal(typeof nodeRuntime.readline.createInterface, "function");
 assert.equal(typeof nodeRuntime.fileURLToPath, "function");
+assert.ok(nodeRuntime.builtinModules.includes("fs"));
+assert.equal(nodeRuntime.isBuiltin("stream"), true);
+assert.equal(nodeRuntime.isBuiltin("node:stream"), true);
 assert.equal(typeof p2pFeatureApi.useP2PReplicatorFeature, "function");
 
 const piecesFactory = await workerApi.splitPieces2Worker(
