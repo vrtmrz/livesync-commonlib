@@ -40,7 +40,7 @@ function getErrorCause(error: unknown): unknown {
  */
 export class LiveSyncError extends Error implements ErrorWithCause {
     override name = this.constructor.name;
-    cause?: Error | object | string;
+    override cause?: Error | object | string;
     overrideStatus?: number;
     /**
      * Returns the HTTP status code associated with the error, if available.

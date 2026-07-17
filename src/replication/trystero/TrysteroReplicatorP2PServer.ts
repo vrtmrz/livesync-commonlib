@@ -445,7 +445,7 @@ You can chose as follows:
         const [sendRpc, arrivedRpc] = room.makeAction<RpcWireMessage>("rpc2");
         const transport: TransportAdapter = {
             send: (message, peerId) => {
-                return sendRpc(message, peerId).then(() => undefined);
+                return sendRpc(message, peerId).then((): void => undefined);
             },
             onMessage: (handler) => {
                 arrivedRpc((data, peerId) => {

@@ -78,7 +78,7 @@ const segmenter =
               // @ts-ignore We have checked Intl existence above.
               // eslint-disable-next-line @typescript-eslint/no-unsafe-call, @typescript-eslint/no-unsafe-return
               () => new Intl.Segmenter(compatGlobal.navigator.language, { granularity: "sentence" }),
-              (err) => {
+              (err: Error): undefined => {
                   Logger(`Failed to create Intl.Segmenter: ${err.message}`, LOG_LEVEL_VERBOSE);
                   return undefined;
               }
@@ -96,7 +96,7 @@ function* splitStringWithinLength(text: string, pieceSize: number) {
 }
 
 function* splitTextInSegment(text: string, pieceSize: number, minimumChunkSize: number) {
-    const segments = segmenter!.segment(text) as [{ segment: string }];
+    const segments = segmenter!.segment(text);
 
     let prev = "";
     let buf = "";

@@ -186,7 +186,7 @@ export function useTargetFilters(
     // 1. Duplication Check
     const _isAcceptedFilenameDuplication = isAcceptedInFilenameDuplicationFactory(
         {
-            services: { vault: services.vault, fileProcessing: services.fileProcessing },
+            services: { context: services.context, vault: services.vault, fileProcessing: services.fileProcessing },
             serviceModules: { storageAccess: serviceModules.storageAccess },
         },
         logger
@@ -195,7 +195,7 @@ export function useTargetFilters(
     // 2. Ignore File Check
     const _isAcceptedByIgnoreFiles = isAcceptedByIgnoreFilesFactory(
         {
-            services: { setting: services.setting, appLifecycle: services.appLifecycle },
+            services: { context: services.context, setting: services.setting, appLifecycle: services.appLifecycle },
             serviceModules: { storageAccess: serviceModules.storageAccess },
         },
         logger
@@ -204,7 +204,7 @@ export function useTargetFilters(
     // 3. Local DB Check
     const _isAcceptedByLocalDB = isAcceptedByLocalDBFactory(
         {
-            services: { database: services.database, databaseEvents: services.databaseEvents },
+            services: { context: services.context, database: services.database, databaseEvents: services.databaseEvents },
             serviceModules: {},
         },
         logger
@@ -213,7 +213,7 @@ export function useTargetFilters(
     // 4. Final Check
     const _isAcceptedAlways = isAcceptedAlwaysFactory(
         {
-            services: {},
+            services: { context: services.context },
             serviceModules: {},
         },
         logger

@@ -58,7 +58,7 @@ export function useP2PReplicatorFeature(
             return replicator;
         },
     };
-    addP2PEventHandlers(activeReplicator.replicator);
+    addP2PEventHandlers(activeReplicator.replicator, host.services.context.events);
     host.services.replicator.getNewReplicator.addHandler(
         async (settingOverride: Partial<ObsidianLiveSyncSettings> = {}) => {
             const settings = { ...host.services.setting.currentSettings(), ...settingOverride };
@@ -105,7 +105,7 @@ export function useP2PReplicatorFeature(
     host.services.appLifecycle.onResumed.addHandler(() => {
         const settings = host.services.setting.currentSettings();
         if (settings.P2P_Enabled && settings.P2P_AutoStart) {
-            compatGlobal.setTimeout(() => void replicator?.open(), 100);
+            compatGlobal.setTimeout((): void => void replicator?.open(), 100);
         }
         return Promise.resolve(true);
     });

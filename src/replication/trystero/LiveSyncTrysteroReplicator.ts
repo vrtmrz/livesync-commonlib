@@ -455,7 +455,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         return Promise.resolve(false);
     }
 
-    override env: LiveSyncTrysteroReplicatorEnv;
+    declare env: LiveSyncTrysteroReplicatorEnv;
     constructor(env: LiveSyncTrysteroReplicatorEnv) {
         super(env);
         this.env = env;
