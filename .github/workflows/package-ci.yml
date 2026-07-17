@@ -1,0 +1,35 @@
+name: Package CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  package-boundary:
+    name: Package boundary
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.x"
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Test boundary checks
+        run: npm run test:boundary
+
+      - name: Check package boundary
+        run: npm run check:boundary

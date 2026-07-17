@@ -1,0 +1,36 @@
+{
+  "forbiddenImports": [
+    {
+      "file": "src/common/coreEnvFunctions.ts",
+      "specifier": "obsidian"
+    },
+    {
+      "file": "src/replication/trystero/P2PLogCollector.ts",
+      "specifier": "@/common/events"
+    },
+    {
+      "file": "src/replication/trystero/addP2PEventHandlers.ts",
+      "specifier": "@/common/events"
+    },
+    {
+      "file": "src/services/base/KeyValueDBService.ts",
+      "specifier": "@/common/KeyValueDB"
+    },
+    {
+      "file": "src/services/base/UnresolvedErrorManager.ts",
+      "specifier": "@/common/events"
+    },
+    {
+      "file": "src/services/implements/injectable/InjectableSettingService.ts",
+      "specifier": "@/common/events"
+    },
+    {
+      "file": "src/services/implements/obsidian/ObsidianServiceContext.ts",
+      "specifier": "@/deps"
+    },
+    {
+      "file": "src/services/implements/obsidian/ObsidianServiceContext.ts",
+      "specifier": "@/main"
+    }
+  ]
+}
