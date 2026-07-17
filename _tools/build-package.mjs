@@ -144,10 +144,14 @@ async function bundleLanguageCatalogue() {
     });
 }
 
-function sourceTargetForAlias(specifier) {
+async function sourceTargetForAlias(specifier) {
     const sourcePath = specifier.slice("@lib/".length).replace(/\.(?:ts|js)$/u, "");
     if (sourcePath.endsWith(".svelte")) return `${sourcePath}.js`;
-    return `${sourcePath}.js`;
+    const directTarget = `${sourcePath}.js`;
+    if (await pathExists(resolve(outputDirectory, directTarget))) return directTarget;
+    const indexTarget = `${sourcePath}/index.js`;
+    if (await pathExists(resolve(outputDirectory, indexTarget))) return indexTarget;
+    return directTarget;
 }
 
 function relativeModuleSpecifier(fromPath, targetRelativePath) {
@@ -167,7 +171,7 @@ async function pathExists(path) {
 
 async function rewriteSpecifier(fromPath, specifier) {
     if (specifier.startsWith("@lib/")) {
-        return relativeModuleSpecifier(fromPath, sourceTargetForAlias(specifier));
+        return relativeModuleSpecifier(fromPath, await sourceTargetForAlias(specifier));
     }
     if (!specifier.startsWith("./") && !specifier.startsWith("../")) return specifier;
     if (specifier.includes("?")) return specifier;
