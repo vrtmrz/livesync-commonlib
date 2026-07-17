@@ -3,7 +3,6 @@ import type { LogFunction } from "@lib/services/lib/logUtils";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import { encodeSettingsToSetupURI } from "@lib/API/processSetting";
 import { EVENT_REQUEST_COPY_SETUP_URI } from "@lib/events/coreEvents";
-import { eventHub } from "@lib/hub/hub";
 import { fireAndForget } from "@lib/common/utils";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import type { SetupFeatureHost } from "./types";
@@ -66,7 +65,9 @@ export function useSetupURIFeature(host: NecessaryServices<"API" | "UI" | "setti
             callback: () => fireAndForget(copySetupURIFull(host, log)),
         });
 
-        eventHub.onEvent(EVENT_REQUEST_COPY_SETUP_URI, () => fireAndForget(() => copySetupURI(host, log)));
+        host.services.context.events.onEvent(EVENT_REQUEST_COPY_SETUP_URI, () =>
+            fireAndForget(() => copySetupURI(host, log))
+        );
         return Promise.resolve(true);
     });
 }

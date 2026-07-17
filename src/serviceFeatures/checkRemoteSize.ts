@@ -5,7 +5,6 @@ import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/l
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { EVENT_REQUEST_CHECK_REMOTE_SIZE } from "@lib/events/coreEvents";
 import { $msg } from "@lib/common/i18n";
-import { eventHub } from "@lib/hub/hub";
 
 /**
  * Notify when checking remote storage size is not configured.
@@ -210,7 +209,7 @@ export function useCheckRemoteSize(
                 await scanAllStat(host, log, true);
             },
         });
-        eventHub.onEvent(EVENT_REQUEST_CHECK_REMOTE_SIZE, () => scanAllStat(host, log, true));
+        host.services.context.events.onEvent(EVENT_REQUEST_CHECK_REMOTE_SIZE, () => scanAllStat(host, log, true));
         return Promise.resolve(true);
     });
 }

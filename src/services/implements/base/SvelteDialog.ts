@@ -6,7 +6,6 @@ import { getContext, mount, setContext, unmount, type Component } from "svelte";
 import { LOG_LEVEL_NOTICE, Logger } from "@lib/common/logger";
 import { $msg } from "@lib/common/i18n";
 import { fireAndForget, promiseWithResolvers, type PromiseWithResolvers } from "octagonal-wheels/promises";
-import { eventHub } from "@lib/hub/hub";
 import { EVENT_PLUGIN_UNLOADED } from "@lib/events/coreEvents";
 
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
@@ -127,7 +126,7 @@ export function SvelteDialogMixIn<TBase extends Constructor<IModalBase>>(TBase: 
                 this.resultPromiseWithResolvers.reject("Dialog opened again");
             }
             const pr = promiseWithResolvers<T | undefined>();
-            eventHub.once(EVENT_PLUGIN_UNLOADED, () => {
+            this.context.events.once(EVENT_PLUGIN_UNLOADED, () => {
                 if (this.resultPromiseWithResolvers === pr) {
                     pr.reject("Plugin unloaded");
                     this.close();

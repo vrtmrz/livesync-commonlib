@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { eventHub } from "@lib/hub/hub";
 import { EVENT_REQUEST_COPY_SETUP_URI } from "@lib/events/coreEvents";
+import { createServiceContext } from "@lib/services/base/ServiceBase";
 import { askEncryptingPassphrase, copySetupURI, copySetupURIFull, useSetupURIFeature } from "./setupUri";
 import { encodeSettingsToSetupURI } from "@lib/API/processSetting";
 
@@ -117,10 +117,12 @@ describe("setupObsidian/setupUri", () => {
     it("useSetupURIFeature should register onLoaded handler that wires commands and event", async () => {
         const addHandler = vi.fn();
         const addCommand = vi.fn();
-        const onEventSpy = vi.spyOn(eventHub, "onEvent");
+        const context = createServiceContext();
+        const onEventSpy = vi.spyOn(context.events, "onEvent");
 
         const host = {
             services: {
+                context,
                 API: {
                     addCommand,
                     addLog: vi.fn(),

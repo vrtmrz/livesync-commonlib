@@ -48,7 +48,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     ) {
         super(context);
         this.appLifecycleService = dependencies.appLifecycleService;
-        this._unresolvedErrorManager = new UnresolvedErrorManager(dependencies.appLifecycleService);
+        this._unresolvedErrorManager = new UnresolvedErrorManager(dependencies.appLifecycleService, this.context.events);
         this.settingService = dependencies.settingService;
         this.settingService.onRealiseSetting.addHandler(this._initialiseReplicator.bind(this));
         this.databaseEventService = dependencies.databaseEventService;

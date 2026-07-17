@@ -68,7 +68,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
         this.fileProcessing = dependencies.fileProcessingService;
         this.databaseService = dependencies.databaseService;
         this._log = createInstanceLogFunction("ReplicationService", dependencies.APIService);
-        this._unresolvedErrorManager = new UnresolvedErrorManager(dependencies.appLifecycleService);
+        this._unresolvedErrorManager = new UnresolvedErrorManager(dependencies.appLifecycleService, this.context.events);
     }
     /**
      * Process a synchronisation result document.
