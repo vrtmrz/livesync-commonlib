@@ -27,6 +27,7 @@
     "diff-match-patch": "^1.0.5",
     "events": "^3.3.0",
     "fflate": "^0.8.2",
+    "idb": "^8.0.3",
     "markdown-it": "^14.2.0",
     "minimatch": "^10.2.5",
     "octagonal-wheels": "^0.1.51",
@@ -58,6 +59,7 @@
     "@types/transform-pouch": "^1.0.6",
     "esbuild": "0.28.1",
     "esbuild-plugin-inline-worker": "^0.1.1",
+    "fake-indexeddb": "^6.2.5",
     "svelte": "5.56.3",
     "typescript": "5.9.3",
     "vitest": "^4.1.8"

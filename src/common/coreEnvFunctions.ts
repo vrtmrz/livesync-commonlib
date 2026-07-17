@@ -4,12 +4,11 @@
 // For `features`, please implement service, feature, or, serviceFeature for the sake of
 // robust architecture and dependency management. Only put truly core functions here that.
 
-// Do not import `obsidian`, especially, that because this function is used in every platform.
-import type { getLanguage as ObsidianGetLanguage } from "obsidian";
+export type LanguageGetter = () => string;
 
-let _getLanguage: typeof ObsidianGetLanguage = () => "en";
+let _getLanguage: LanguageGetter = () => "en";
 
-export function setGetLanguage(func: typeof ObsidianGetLanguage) {
+export function setGetLanguage(func: LanguageGetter) {
     _getLanguage = func;
 }
 

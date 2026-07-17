@@ -1,8 +1,7 @@
 import type { SimpleStore } from "@lib/common/utils";
 import type { IKeyValueDBService, IVaultService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
-import type { KeyValueDatabase } from "@lib/interfaces/KeyValueDatabase";
-import { OpenKeyValueDatabase } from "@/common/KeyValueDB";
+import type { KeyValueDatabase, KeyValueDatabaseFactory } from "@lib/interfaces/KeyValueDatabase";
 import { delay, yieldMicrotask } from "octagonal-wheels/promises";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
@@ -10,6 +9,7 @@ import type { InjectableDatabaseEventService } from "@lib/services/implements/in
 import type { AppLifecycleServiceBase } from "@lib/services/implements/injectable/InjectableAppLifecycleService";
 
 export interface KeyValueDBDependencies<T extends ServiceContext = ServiceContext> {
+    openKeyValueDatabase: KeyValueDatabaseFactory;
     databaseEvents: InjectableDatabaseEventService<T>;
     vault: IVaultService;
     appLifecycle: AppLifecycleServiceBase<T>;
@@ -40,6 +40,7 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
     private databaseEvents: InjectableDatabaseEventService<T>;
     private vault: IVaultService;
     private appLifecycle: AppLifecycleServiceBase<T>;
+    private openKeyValueDatabase: KeyValueDatabaseFactory;
     private _log = createInstanceLogFunction("KeyValueDBService");
 
     private async _everyOnResetDatabase(any: unknown): Promise<boolean> {
@@ -49,7 +50,7 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
             // localStorage.removeItem(lsKey);
             await this._kvDB?.destroy();
             await yieldMicrotask();
-            this._kvDB = await OpenKeyValueDatabase(this.vault.getVaultName() + "-livesync-kv");
+            this._kvDB = await this.openKeyValueDatabase(this.vault.getVaultName() + "-livesync-kv");
             await delay(100);
         } catch (e) {
             this._kvDB = undefined!;
@@ -76,7 +77,7 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
             await this.tryCloseKvDB();
             await delay(10);
             await yieldMicrotask();
-            this._kvDB = await OpenKeyValueDatabase(this.vault.getVaultName() + "-livesync-kv");
+            this._kvDB = await this.openKeyValueDatabase(this.vault.getVaultName() + "-livesync-kv");
             await yieldMicrotask();
             await delay(100);
         } catch (e) {
@@ -117,6 +118,7 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
         this.databaseEvents = dependencies.databaseEvents;
         this.vault = dependencies.vault;
         this.appLifecycle = dependencies.appLifecycle;
+        this.openKeyValueDatabase = dependencies.openKeyValueDatabase;
         this.databaseEvents.onResetDatabase.addHandler(this._everyOnResetDatabase.bind(this));
         this.appLifecycle.onSettingLoaded.addHandler(this._everyOnloadAfterLoadSettings.bind(this));
         this.databaseEvents.onDatabaseInitialisation.addHandler(this._everyOnInitializeDatabase.bind(this));
