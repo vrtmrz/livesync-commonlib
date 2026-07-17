@@ -47,3 +47,5 @@ TODO: introduce generated API reference for a reviewed allow-list of public entr
 The package build records each compatibility path explicitly. Do not add a wildcard export. A new compatibility path requires a real downstream import, a packed-consumer or downstream test, and a migration plan towards a focused public entry or the owning package.
 
 TODO: classify and document compatibility paths whose purpose is still unclear before stabilising the first public release. Remove obsolete paths rather than documenting accidental layout as API.
+
+Release preparation and staged-publication checks are documented in [the maintainer runbook](releasing.md).
