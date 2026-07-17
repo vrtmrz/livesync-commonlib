@@ -29,7 +29,6 @@ export class BrowserUIService<T extends ServiceContext> extends UIService<T> {
             control: dependents.control,
         });
         super(context, {
-            appLifecycle: dependents.appLifecycle,
             dialogManager: obsidianSvelteDialogManager,
             APIService: dependents.APIService,
         });

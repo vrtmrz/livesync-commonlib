@@ -19,11 +19,13 @@ import type { ServiceInstances } from "@lib/services/ServiceHub";
 import { UIService } from "@lib/services/implements/base/UIService";
 import { HeadlessAPIService } from "./implements/headless/HeadlessAPIService";
 import { HeadlessDatabaseService, HeadlessKeyValueDBService } from "./implements/headless/HeadlessDatabaseService";
-import { SvelteDialogManagerBase, type ComponentHasResult } from "./implements/base/SvelteDialog";
+import type {
+    ComponentHasResult,
+    SvelteDialogManager,
+} from "./implements/base/SvelteDialog";
 import type { DatabaseService } from "@lib/services/base/DatabaseService.ts";
 import { ControlService } from "./base/ControlService";
 import { InjectableSettingService } from "./implements/injectable/InjectableSettingService";
-import type { IControlService } from "./base/IService";
 import type { Constructor } from "@lib/common/utils.type";
 import { createIndexedDBKeyValueDatabaseFactory } from "@lib/databases/IndexedDBKeyValueDatabase";
 import type { KeyValueDatabaseFactory } from "@lib/interfaces/KeyValueDatabase";
@@ -37,18 +39,20 @@ class HeadlessAppLifecycleService<T extends ServiceContext> extends InjectableAp
     }
 }
 
-class HeadlessSvelteDialogManager<T extends ServiceContext> extends SvelteDialogManagerBase<T> {
+class HeadlessSvelteDialogManager<T extends ServiceContext> implements SvelteDialogManager<T> {
     openSvelteDialog<T, U>(component: ComponentHasResult<T, U>, initialData?: U): Promise<T | undefined> {
+        throw new Error("Method not implemented.");
+    }
+    open<T, U = T>(component: ComponentHasResult<T, U>, initialData?: U): Promise<T | undefined> {
+        return this.openSvelteDialog(component, initialData);
+    }
+    openWithExplicitCancel<T, U = T>(component: ComponentHasResult<T, U>, initialData?: U): Promise<T> {
         throw new Error("Method not implemented.");
     }
 }
 
 type HeadlessUIServiceDependencies<T extends ServiceContext = ServiceContext> = {
-    appLifecycle: AppLifecycleService<T>;
-    config: ConfigServiceBrowserCompat<T>;
-    replicator: InjectableReplicatorService<T>;
     APIService: HeadlessAPIService<T>;
-    control: IControlService;
 };
 
 class HeadlessUIService<T extends ServiceContext> extends UIService<T> {
@@ -56,16 +60,8 @@ class HeadlessUIService<T extends ServiceContext> extends UIService<T> {
         throw new Error("Method not implemented.");
     }
     constructor(context: T, dependents: HeadlessUIServiceDependencies<T>) {
-        const headlessConfirm = dependents.APIService.confirm;
-        const headlessSvelteDialogManager = new HeadlessSvelteDialogManager<T>(context, {
-            confirm: headlessConfirm,
-            appLifecycle: dependents.appLifecycle,
-            config: dependents.config,
-            replicator: dependents.replicator,
-            control: dependents.control,
-        });
+        const headlessSvelteDialogManager = new HeadlessSvelteDialogManager<T>();
         super(context, {
-            appLifecycle: dependents.appLifecycle,
             dialogManager: headlessSvelteDialogManager,
             APIService: dependents.APIService,
         });
@@ -147,11 +143,7 @@ export class HeadlessServiceHub<T extends ServiceContext> extends InjectableServ
             replicatorService: replicator,
         });
         const ui = new HeadlessUIService<T>(context, {
-            appLifecycle,
-            config,
-            replicator,
             APIService: API,
-            control: control,
         });
         // Using 'satisfies' to ensure all services are provided
         const serviceInstancesToInit = {

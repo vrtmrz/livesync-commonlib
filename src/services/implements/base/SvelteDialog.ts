@@ -57,6 +57,17 @@ export type DialogContext<C extends ServiceContext = ServiceContext, T = any, U 
     services: SvelteDialogManagerDependencies<C>;
 };
 
+export interface SvelteDialogManager<T extends ServiceContext> {
+    open<TResult, TInitial = TResult>(
+        component: ComponentHasResult<TResult, TInitial>,
+        initialData?: TInitial
+    ): Promise<TResult | undefined>;
+    openWithExplicitCancel<TResult, TInitial = TResult>(
+        component: ComponentHasResult<TResult, TInitial>,
+        initialData?: TInitial
+    ): Promise<TResult>;
+}
+
 export const CONTEXT_DIALOG_CONTROLS = "svelte-dialog-controls";
 export function setupDialogContext<T extends DialogContext>(controls: T) {
     setContext(CONTEXT_DIALOG_CONTROLS, controls);
@@ -173,7 +184,7 @@ export function SvelteDialogMixIn<TBase extends Constructor<IModalBase>>(TBase: 
     };
 }
 
-export abstract class SvelteDialogManagerBase<T extends ServiceContext> {
+export abstract class SvelteDialogManagerBase<T extends ServiceContext> implements SvelteDialogManager<T> {
     abstract openSvelteDialog<T, U = T>(component: ComponentHasResult<T, U>, initialData?: U): Promise<T | undefined>;
 
     protected _context: T;
