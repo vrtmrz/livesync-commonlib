@@ -19,13 +19,15 @@ export class ContentSplitterV2 extends ContentSplitterBase {
         options: SplitOptions
     ): Promise<AsyncGenerator<string, void, unknown> | Generator<string, void, unknown>> {
         if (options.useWorker) {
-            return splitPieces2WorkerV2(
-                options.blob,
-                options.pieceSize,
-                options.plainSplit,
-                options.minimumChunkSize,
-                options.path,
-                options.useSegmenter
+            return (
+                await splitPieces2WorkerV2(
+                    options.blob,
+                    options.pieceSize,
+                    options.plainSplit,
+                    options.minimumChunkSize,
+                    options.path,
+                    options.useSegmenter
+                )
             )();
         } else {
             return (
