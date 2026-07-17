@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "check:boundary": "node _tools/check-package-boundary.mjs",
+    "test": "vitest run",
     "test:boundary": "node --test _tools/check-package-boundary.test.mjs"
   },
   "dependencies": {
