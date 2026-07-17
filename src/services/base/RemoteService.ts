@@ -18,9 +18,12 @@ import type { SettingService } from "@lib/services/base/SettingService";
 import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
 import { createInstanceLogFunction, MARK_LOG_NETWORK_ERROR, type LogFunction } from "@lib/services/lib/logUtils";
 import { runWithTrackedPhysicalRequest } from "@lib/services/lib/remoteActivity.ts";
-import { PouchDB } from "@lib/pouchdb/pouchdb-browser.ts";
+import type PouchDB from "pouchdb-core";
+import type { PouchDBConstructor } from "@lib/pouchdb/PouchDBConstructor.ts";
 import { LiveSyncError } from "@lib/common/LSError";
 export interface RemoteServiceDependencies {
+    /** PouchDB with the HTTP adapter required by the host runtime already registered. */
+    pouchDB: PouchDBConstructor;
     APIService: APIService;
     appLifecycle: AppLifecycleService;
     setting: SettingService;
@@ -61,6 +64,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
     protected _appLifecycleService: AppLifecycleService;
     protected _settingService: SettingService;
     protected _unresolvedErrors: UnresolvedErrorManager;
+    protected _pouchDB: PouchDBConstructor;
     protected last_successful_post = false;
 
     get hadLastPostFailedBySize(): boolean {
@@ -69,6 +73,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
 
     constructor(context: T, dependencies: RemoteServiceDependencies) {
         super(context);
+        this._pouchDB = dependencies.pouchDB;
         this._APIService = dependencies.APIService;
         this._appLifecycleService = dependencies.appLifecycle;
         this._settingService = dependencies.setting;
@@ -273,7 +278,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
             },
         };
         const setting = this._settingService.currentSettings();
-        const db: PouchDB.Database<EntryDoc> = new PouchDB<EntryDoc>(uri, conf);
+        const db: PouchDB.Database<EntryDoc> = new this._pouchDB<EntryDoc>(uri, conf);
         replicationFilter(db, compression);
         disableEncryption();
         if (passphrase !== "false" && typeof passphrase === "string") {

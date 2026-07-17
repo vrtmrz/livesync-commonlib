@@ -21,6 +21,7 @@ import { ControlService } from "./base/ControlService";
 import type { AppLifecycleServiceDependencies } from "./base/AppLifecycleService";
 import { createIndexedDBKeyValueDatabaseFactory } from "@lib/databases/IndexedDBKeyValueDatabase";
 import type { KeyValueDatabaseFactory } from "@lib/interfaces/KeyValueDatabase";
+import { PouchDB } from "@lib/pouchdb/pouchdb-browser.ts";
 
 class BrowserAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
     constructor(context: T, dependencies: AppLifecycleServiceDependencies) {
@@ -41,6 +42,7 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
         const setting = new InjectableSettingService(context, { APIService: API });
         const appLifecycle = new BrowserAppLifecycleService(context, { settingService: setting });
         const remote = new InjectableRemoteService(context, {
+            pouchDB: PouchDB,
             APIService: API,
             appLifecycle: appLifecycle,
             setting: setting,
@@ -56,6 +58,7 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
             settingService: setting,
         });
         const database = new BrowserDatabaseService(context, {
+            pouchDB: PouchDB,
             path: path,
             vault: vault,
             setting: setting,

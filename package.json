@@ -1,8 +1,14 @@
 {
-  "name": "@vrtmrz/livesync-commonlib-development",
-  "version": "0.0.0",
+  "name": "@vrtmrz/livesync-commonlib",
+  "version": "0.1.0-package-proof.0",
+  "description": "Shared data, storage, and replication primitives for Self-hosted LiveSync clients.",
   "private": true,
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vrtmrz/livesync-commonlib.git"
+  },
   "imports": {
     "#worker": {
       "browser": "./src/worker/bgWorker.ts",
@@ -12,10 +18,13 @@
     }
   },
   "scripts": {
+    "build:package": "node _tools/build-package.mjs",
     "check:boundary": "node _tools/check-package-boundary.mjs",
+    "check:package": "node _tools/check-packed-package.mjs",
     "check:types": "tsc --noEmit",
     "test": "vitest run",
-    "test:boundary": "node --test _tools/check-package-boundary.test.mjs"
+    "test:boundary": "node --test _tools/check-package-boundary.test.mjs",
+    "test:package": "npm run build:package && npm run check:package"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.808.0",
