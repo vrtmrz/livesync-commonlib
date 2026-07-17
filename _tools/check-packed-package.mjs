@@ -121,10 +121,14 @@ const contextApi = await import("${packageName}/context");
 const rootApi = await import("${packageName}");
 const workerApi = await import("${packageName}/compat/worker/bgWorker");
 const runtimeCompat = await import("${packageName}/compat/common/coreEnvFunctions");
+const p2pFeatureApi = await import(
+    "${packageName}/compat/replication/trystero/useP2PReplicatorFeature"
+);
 
 assert.equal(contextApi.createServiceContext().translate("message.key"), "message.key");
 assert.equal(typeof rootApi.DirectFileManipulator, "function");
 assert.equal(runtimeCompat.compatGlobal, globalThis);
+assert.equal(typeof p2pFeatureApi.useP2PReplicatorFeature, "function");
 
 const piecesFactory = await workerApi.splitPieces2Worker(
     new Blob(["abcdef"], { type: "text/plain" }),
