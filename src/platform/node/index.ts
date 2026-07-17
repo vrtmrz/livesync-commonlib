@@ -37,3 +37,9 @@ export {
     type CreateNodeStorageOptions,
     type NodeStorageStat,
 } from "./storage.ts";
+export {
+    createNodeStandardIo,
+    type CreateNodeStandardIoOptions,
+    type NodeStandardInput,
+    type NodeStandardOutput,
+} from "./standardIo.ts";

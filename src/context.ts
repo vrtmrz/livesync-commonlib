@@ -16,3 +16,4 @@ export {
     type MessageTranslator,
     type TranslationParameters,
 } from "@lib/services/base/MessageTranslator";
+export type { StandardIo, StandardIoChunk } from "@lib/platform/standardIo";

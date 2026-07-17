@@ -36,6 +36,20 @@ await storage.write('notes/example.md', '# Example');
 
 See [the platform storage contract](docs/platform-storage.md) for path, ownership, and permission details.
 
+## Standard input and output
+
+CLI hosts can inject the platform-neutral `StandardIo` contract from the context entry. The Node entry supplies the concrete stream adapter. This keeps command input and protocol output testable without treating logging or process lifecycle as standard I/O.
+
+```ts
+import type { StandardIo } from '@vrtmrz/livesync-commonlib/context';
+import { createNodeStandardIo } from '@vrtmrz/livesync-commonlib/node';
+
+const standardIo: StandardIo = createNodeStandardIo();
+standardIo.writeStdout('ready\n');
+```
+
+See [the standard-I/O contract](docs/platform-standard-io.md) for host composition and test-double examples.
+
 ## API status
 
 The package is currently an infrastructure and compatibility boundary. `DirectFileManipulator` is useful for existing integrations, but its enumeration, watch ownership, failure, conflict, concurrency, and disposal semantics are not yet a stable high-level SDK contract.

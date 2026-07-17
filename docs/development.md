@@ -18,7 +18,8 @@ npm run test:package
 `test:contracts` runs the host-neutral result contracts which are intended to be reusable while implementations move:
 
 - `test:contract:context` verifies event delivery, default instance isolation, translation results, and host extension of `ServiceContextContract`; and
-- `test:contract:platform-storage` runs one result table against Node storage and browser File System Access storage, including missing paths, text and binary round trips, append, listing, removal, root handling, and traversal rejection.
+- `test:contract:platform-storage` runs one result table against Node storage and browser File System Access storage, including missing paths, text and binary round trips, append, listing, removal, root handling, and traversal rejection; and
+- `test:contract:standard-io` verifies the injectable contract, UTF-8 decoding across chunks, text and binary output, and line-oriented prompting through injected Node streams.
 
 These scripts are deliberately available independently of CI. Add a focused result contract before moving another platform API; do not infer compatibility from matching TypeScript shapes alone. Platform-specific behaviour, such as timestamp fidelity, must remain documented outside the shared result set.
 
