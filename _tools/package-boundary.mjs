@@ -87,6 +87,15 @@ export function extractImportSpecifiers(source) {
     return [...specifiers].sort();
 }
 
+/**
+ * Package modules must not patch DOM prototypes when they are imported.
+ * Keeping prototype access out of production source makes this boundary easy to audit.
+ */
+export function hasForbiddenDomPrototypeAccess(source) {
+    const uncommented = stripComments(source);
+    return /\b(?:HTMLElement|SVGElement)\s*\.\s*prototype\b/u.test(uncommented);
+}
+
 export async function collectBoundaryFindings(root) {
     const sourceRoot = resolve(root, "src");
     const findings = [];
@@ -103,4 +112,16 @@ export async function collectBoundaryFindings(root) {
     return findings.sort((left, right) =>
         `${left.file}\0${left.specifier}`.localeCompare(`${right.file}\0${right.specifier}`)
     );
+}
+
+export async function collectDomPrototypeFindings(root) {
+    const sourceRoot = resolve(root, "src");
+    const findings = [];
+    for (const path of await collectFiles(sourceRoot)) {
+        const source = await readFile(path, "utf8");
+        if (hasForbiddenDomPrototypeAccess(source)) {
+            findings.push(relative(root, path).split(sep).join("/"));
+        }
+    }
+    return findings.sort();
 }
