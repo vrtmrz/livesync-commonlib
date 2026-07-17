@@ -97,7 +97,6 @@
     "services/implements/base/UIService",
     "services/implements/browser/BrowserAPIService",
     "services/implements/browser/ConfigServiceBrowserCompat",
-    "services/implements/browser/Menu",
     "services/implements/headless/HeadlessAPIService",
     "services/implements/injectable/InjectableAPIService",
     "services/implements/injectable/InjectableAppLifecycleService",
@@ -141,6 +140,7 @@
     "serviceFeatures/setupObsidian/qrCode",
     "serviceFeatures/setupObsidian/setupUri",
     "serviceFeatures/setupObsidian/types",
+    "services/implements/browser/Menu",
     "services/implements/obsidian/ObsidianServiceContext"
   ],
   "obsolete": [

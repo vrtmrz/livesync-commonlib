@@ -12,6 +12,7 @@ const obsoleteImports = new Set(["UI/svelteDialog", "services/InjectableServices
 const hostOwnedPatterns = [
     /^UI\/(?:DialogHost\.svelte|components\/|dialogues\/)/u,
     /^serviceFeatures\/setupObsidian\//u,
+    /^services\/implements\/browser\/(?:BrowserConfirm|BrowserUIService|Menu|SvelteDialogBrowser|ui\/)/u,
     /^services\/implements\/obsidian\//u,
 ];
 
