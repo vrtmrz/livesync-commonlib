@@ -4,73 +4,99 @@ on:
   workflow_dispatch:
     inputs:
       downstream_ref:
-        description: Self-hosted LiveSync branch, tag, or commit SHA to test
-        required: false
-        default: main
+        description: Self-hosted LiveSync package-consumer branch, tag, or commit SHA to test
+        required: true
         type: string
-  pull_request:
-  push:
-    branches:
-      - main
-      - master
 
 permissions:
   contents: read
 
 jobs:
-  self-hosted-livesync-unit-tests:
-    name: Self-hosted LiveSync unit tests
+  self-hosted-livesync:
+    name: Self-hosted LiveSync package consumer
     runs-on: ubuntu-latest
+    timeout-minutes: 40
 
     steps:
-      - name: Checkout commonlib
-        uses: actions/checkout@v4
+      - name: Checkout Commonlib
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           path: livesync-commonlib
           persist-credentials: false
 
       - name: Checkout Self-hosted LiveSync
-        uses: actions/checkout@v4
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           repository: vrtmrz/obsidian-livesync
-          ref: ${{ github.event_name == 'workflow_dispatch' && inputs.downstream_ref || 'main' }}
+          ref: ${{ inputs.downstream_ref }}
           path: obsidian-livesync
-          submodules: false
           persist-credentials: false
 
       - name: Record checked-out revisions
         env:
-          DOWNSTREAM_REF: ${{ github.event_name == 'workflow_dispatch' && inputs.downstream_ref || 'main' }}
+          DOWNSTREAM_REF: ${{ inputs.downstream_ref }}
         run: |
           {
             echo "### Downstream CI revisions"
             echo
-            printf -- '- commonlib: `%s`\n' "$(git -C livesync-commonlib rev-parse HEAD)"
+            printf -- '- Commonlib: `%s`\n' "$(git -C livesync-commonlib rev-parse HEAD)"
             printf -- '- Self-hosted LiveSync: `%s`\n' "$(git -C obsidian-livesync rev-parse HEAD)"
             printf -- '- requested downstream ref: `%s`\n' "$DOWNSTREAM_REF"
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Replace commonlib submodule
-        run: |
-          rm -rf obsidian-livesync/src/lib
-          cp -a livesync-commonlib obsidian-livesync/src/lib
-          rm -rf obsidian-livesync/src/lib/.git
-
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
         with:
-          node-version: "24.x"
-          cache: npm
-          cache-dependency-path: obsidian-livesync/package-lock.json
+          node-version: 24
+          package-manager-cache: false
 
-      - name: Install dependencies
-        working-directory: obsidian-livesync
+      - name: Setup Deno
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
+      - name: Install Commonlib dependencies
+        working-directory: livesync-commonlib
         run: npm ci
 
-      - name: Run type checks
-        working-directory: obsidian-livesync
-        run: npm run tsc-check
+      - name: Verify and pack Commonlib
+        id: commonlib
+        working-directory: livesync-commonlib
+        run: |
+          npm run verify:package
+          package_file=$(find "$PWD/artifacts" -maxdepth 1 -type f -name '*.tgz' -print -quit)
+          test -n "$package_file"
+          sha256sum "$package_file"
+          printf 'package_file=%s\n' "$package_file" >> "$GITHUB_OUTPUT"
 
-      - name: Run unit tests
+      - name: Require a package-consuming downstream
         working-directory: obsidian-livesync
-        run: npm run test:unit
+        run: |
+          node -e 'const p=require("./package.json"); if (!p.dependencies?.["@vrtmrz/livesync-commonlib"]) throw new Error("The selected downstream ref does not consume @vrtmrz/livesync-commonlib.")'
+
+      - name: Install the exact Commonlib tarball
+        working-directory: obsidian-livesync
+        env:
+          COMMONLIB_PACKAGE_FILE: ${{ steps.commonlib.outputs.package_file }}
+        run: |
+          npm install --package-lock-only --ignore-scripts --save-exact "$COMMONLIB_PACKAGE_FILE"
+          npm ci
+          node -e 'const p=require("./node_modules/@vrtmrz/livesync-commonlib/package.json"); console.log(`Installed ${p.name}@${p.version}`)'
+
+      - name: Run Self-hosted LiveSync checks
+        working-directory: obsidian-livesync
+        run: |
+          npm run tsc-check
+          npm run test:unit
+
+      - name: Build Self-hosted LiveSync applications
+        working-directory: obsidian-livesync
+        run: |
+          npm run build
+          npm run build --workspace self-hosted-livesync-cli
+          npm run build --workspace livesync-webapp
+          npm run build --workspace webpeer
+
+      - name: Run CLI E2E against the built artefact
+        working-directory: obsidian-livesync
+        run: deno task --cwd src/apps/cli/testdeno test:setup-put-cat

@@ -32,7 +32,9 @@
     "test:contract:context": "vitest run src/services/base/ServiceContext.unit.spec.ts",
     "test:contract:platform-storage": "vitest run src/platform/storage.contract.unit.test.ts",
     "test:contracts": "vitest run src/services/base/ServiceContext.unit.spec.ts src/platform/storage.contract.unit.test.ts",
-    "test:package": "npm run build:package && npm run check:package"
+    "test:package": "npm run build:package && npm run check:package",
+    "test:release": "node --test _tools/validate-release-selection.test.mjs",
+    "verify:package": "npm run check:types && npm test && npm run test:boundary && npm run test:release && npm run check:boundary && npm run test:package"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.808.0",

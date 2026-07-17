@@ -258,8 +258,9 @@ async function copyStaticFiles() {
     await cp(readmePath, resolve(packageDirectory, "README.md"));
     await cp(resolve(root, "LICENSE"), resolve(packageDirectory, "LICENSE"));
     await mkdir(resolve(packageDirectory, "docs"), { recursive: true });
-    await cp(resolve(root, "docs", "platform-storage.md"), resolve(packageDirectory, "docs", "platform-storage.md"));
-    await cp(resolve(root, "docs", "development.md"), resolve(packageDirectory, "docs", "development.md"));
+    for (const document of ["development.md", "platform-storage.md", "releasing.md"]) {
+        await cp(resolve(root, "docs", document), resolve(packageDirectory, "docs", document));
+    }
 }
 
 async function validateOutput() {
