@@ -15,12 +15,14 @@ export class ContentSplitterRabinKarp extends ContentSplitterBase {
         options: SplitOptions
     ): Promise<AsyncGenerator<string, void, unknown> | Generator<string, void, unknown>> {
         if (options.useWorker) {
-            return splitPieces2WorkerRabinKarp(
-                options.blob,
-                options.pieceSize,
-                options.plainSplit,
-                options.minimumChunkSize,
-                options.path
+            return (
+                await splitPieces2WorkerRabinKarp(
+                    options.blob,
+                    options.pieceSize,
+                    options.plainSplit,
+                    options.minimumChunkSize,
+                    options.path
+                )
             )();
         } else {
             return (
