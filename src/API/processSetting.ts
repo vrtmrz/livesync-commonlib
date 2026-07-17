@@ -79,7 +79,7 @@ export function decodeSettingsFromQRCodeData(qr: string): ObsidianLiveSyncSettin
     return newSettings;
 }
 
-export const enum OutputFormat {
+export enum OutputFormat {
     SVG = 0,
     ASCII = 1,
 }
