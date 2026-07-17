@@ -172,6 +172,13 @@ await writeConsumerFile(
 `
 );
 await writeConsumerFile(
+    "browser-rosetta.ts",
+    `import { SUPPORTED_I18N_LANGS } from "${packageName}/compat/common/rosetta";
+
+document.body.dataset.supportedLanguages = SUPPORTED_I18N_LANGS.join(",");
+`
+);
+await writeConsumerFile(
     "browser-worker.ts",
     `export { initialiseWorkerModule, splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
 `
@@ -234,6 +241,23 @@ const browserServicesInputs = Object.keys(browserServicesBundle.metafile.inputs)
 assert.ok(
     browserServicesInputs.every((path) => !path.includes("svelte")),
     "Importing the browser service composition must not load a Svelte runtime or component."
+);
+
+const browserRosettaBundle = await build({
+    absWorkingDir: consumerDirectory,
+    bundle: true,
+    conditions: ["browser"],
+    entryPoints: [resolve(consumerDirectory, "browser-rosetta.ts")],
+    format: "esm",
+    logLevel: "silent",
+    metafile: true,
+    platform: "browser",
+    write: false,
+});
+const browserRosettaInputs = Object.keys(browserRosettaBundle.metafile.inputs);
+assert.ok(
+    browserRosettaInputs.every((path) => !path.includes("messagesJson")),
+    "Importing language contracts must not load the generated message catalogue."
 );
 
 const workerBundle = await build({

@@ -5,6 +5,7 @@ import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 
 import { build } from "esbuild";
+import { extractImportSpecifiers } from "./package-boundary.mjs";
 
 const root = resolve(new URL("..", import.meta.url).pathname);
 const packageDirectory = resolve(root, ".package");
@@ -105,7 +106,9 @@ async function bundleLanguageCatalogue() {
 }
 
 async function sourceTargetForAlias(specifier) {
-    const sourcePath = specifier.slice("@lib/".length).replace(/\.(?:ts|js)$/u, "");
+    const sourcePathWithExtension = specifier.slice("@lib/".length);
+    if (sourcePathWithExtension.endsWith(".json")) return sourcePathWithExtension;
+    const sourcePath = sourcePathWithExtension.replace(/\.(?:ts|js)$/u, "");
     if (sourcePath.endsWith(".svelte")) return `${sourcePath}.js`;
     const directTarget = `${sourcePath}.js`;
     if (await pathExists(resolve(outputDirectory, directTarget))) return directTarget;
@@ -272,13 +275,25 @@ async function validateOutput() {
         (path) => path.endsWith(".js") || path.endsWith(".d.ts")
     );
     const forbidden = [];
+    const missingRelativeImports = [];
     for (const path of modulePaths) {
         const source = await readFile(path, "utf8");
         if (source.includes("@lib/") || source.includes('from "@/') || source.includes("?worker")) {
             forbidden.push(relative(packageDirectory, path).split(sep).join("/"));
         }
+        for (const specifier of extractImportSpecifiers(source)) {
+            if (!specifier.startsWith(".") || specifier.includes("?")) continue;
+            if (!(await pathExists(resolve(dirname(path), specifier)))) {
+                missingRelativeImports.push(
+                    `${relative(packageDirectory, path).split(sep).join("/")}: ${specifier}`
+                );
+            }
+        }
     }
     if (forbidden.length > 0) throw new Error(`Unresolved source-only imports:\n${forbidden.join("\n")}`);
+    if (missingRelativeImports.length > 0) {
+        throw new Error(`Missing relative package imports:\n${missingRelativeImports.join("\n")}`);
+    }
 }
 
 await rm(packageDirectory, { recursive: true, force: true });
