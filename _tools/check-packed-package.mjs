@@ -337,6 +337,12 @@ const manifest = JSON.parse(
     await readFile(resolve(consumerDirectory, "node_modules", "@vrtmrz", "livesync-commonlib", "package.json"), "utf8")
 );
 assert.equal(manifest.name, packageName);
+assert.notEqual(manifest.private, true, "The generated package must be publishable.");
+assert.deepEqual(
+    manifest.publishConfig,
+    { access: "public", tag: "next" },
+    "The generated package must default to public staged publication on the next dist-tag."
+);
 assert.ok(Object.hasOwn(manifest.exports, "./browser"));
 assert.ok(Object.hasOwn(manifest.exports, "./node"));
 assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 6);
