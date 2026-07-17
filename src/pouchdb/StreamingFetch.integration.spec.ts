@@ -14,7 +14,7 @@ function loadEnv() {
     const loadEnvFile = (path: string) => (existsSync(path) ? parseEnv(readFileSync(path, "utf-8")) : {});
     const defEnv = loadEnvFile(".env");
     const testEnv = loadEnvFile(".test.env");
-    return Object.assign({}, defEnv, testEnv);
+    return Object.assign({}, defEnv, testEnv, process.env);
 }
 
 const env = loadEnv();

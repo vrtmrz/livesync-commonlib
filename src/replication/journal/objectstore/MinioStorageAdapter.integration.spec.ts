@@ -5,15 +5,12 @@ import type { LiveSyncJournalReplicatorEnv } from "@lib/replication/journal/Live
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 
 describe("MinioStorageAdapter Integration Tests", () => {
-    // Requires minioEndpoint, accessKey, secretKey, bucketName in env
-    const endpoint = process.env.minioEndpoint;
-    const accessKey = process.env.accessKey;
-    const secretKey = process.env.secretKey;
-    const bucket = process.env.bucketName || "test-bucket";
+    const endpoint = process.env.minioEndpoint ?? "http://127.0.0.1:9000";
+    const accessKey = process.env.accessKey ?? "minioadmin";
+    const secretKey = process.env.secretKey ?? "minioadmin";
+    const bucket = process.env.bucketName ?? "livesync-test-bucket";
 
-    const isIntegrationEnvironmentReady = !!(endpoint && accessKey && secretKey);
-
-    it.runIf(isIntegrationEnvironmentReady)("should upload, download, and delete a file", async () => {
+    it("should upload, download, and delete a file", async () => {
         const settings = {
             endpoint,
             accessKey,
@@ -70,14 +67,5 @@ describe("MinioStorageAdapter Integration Tests", () => {
         expect(filesAfterDelete).not.toContain(testKey);
         expect(requestCount.value).toBeGreaterThan(0);
         expect(responseCount.value).toBe(requestCount.value);
-    });
-
-    it("skips tests if MinIO environment variables are not set", () => {
-        if (!isIntegrationEnvironmentReady) {
-            console.warn(
-                "Skipping MinioStorageAdapter integration tests. Please set minioEndpoint, accessKey, secretKey."
-            );
-        }
-        expect(true).toBe(true);
     });
 });
