@@ -73,7 +73,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
         this._appLifecycleService = dependencies.appLifecycle;
         this._settingService = dependencies.setting;
         this._log = createInstanceLogFunction("RemoteService", dependencies.APIService);
-        this._unresolvedErrors = new UnresolvedErrorManager(this._appLifecycleService);
+        this._unresolvedErrors = new UnresolvedErrorManager(this._appLifecycleService, this.context.events);
     }
 
     showError(msg: string, max_log_level: LOG_LEVEL = LOG_LEVEL_NOTICE) {

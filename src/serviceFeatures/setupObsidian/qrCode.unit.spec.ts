@@ -1,6 +1,6 @@
 import { describe, expect, it, vi, afterEach } from "vitest";
-import { eventHub } from "@lib/hub/hub";
 import { EVENT_REQUEST_SHOW_SETUP_QR } from "@lib/events/coreEvents";
+import { createServiceContext } from "@lib/services/base/ServiceBase";
 import { encodeSetupSettingsAsQR, useSetupQRCodeFeature } from "./qrCode";
 import { encodeQR, encodeSettingsToQRCodeData } from "@lib/API/processSetting";
 import { $msg } from "@lib/common/i18n";
@@ -79,10 +79,12 @@ describe("setupObsidian/qrCode", () => {
     it("useSetupQRCodeFeature should register onLoaded handler that wires command and event", async () => {
         const addHandler = vi.fn();
         const addCommand = vi.fn();
-        const onEventSpy = vi.spyOn(eventHub, "onEvent");
+        const context = createServiceContext();
+        const onEventSpy = vi.spyOn(context.events, "onEvent");
 
         const host = {
             services: {
+                context,
                 API: {
                     addCommand,
                 },

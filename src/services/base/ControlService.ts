@@ -9,7 +9,6 @@ import type { APIService } from "./APIService";
 import type { DatabaseService } from "./DatabaseService";
 import type { IControlService, IFileProcessingService, IReplicatorService, ISettingService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
-import { eventHub } from "@lib/hub/hub";
 import { EVENT_PLATFORM_UNLOADED, EVENT_PLUGIN_UNLOADED } from "@lib/events/coreEvents";
 import { cancelAllPeriodicTask, cancelAllTasks } from "octagonal-wheels/concurrency/task";
 import { stopAllRunningProcessors } from "octagonal-wheels/concurrency/processor";
@@ -83,7 +82,7 @@ export class ControlService<T extends ServiceContext = ServiceContext>
     }
 
     private async _onLiveSyncUnload(): Promise<void> {
-        eventHub.emitEvent(EVENT_PLUGIN_UNLOADED);
+        this.context.events.emitEvent(EVENT_PLUGIN_UNLOADED);
         await this.services.appLifecycleService.onBeforeUnload();
         await Promise.resolve(this.services.appLifecycleService.onAppUnload());
         cancelAllPeriodicTask();
@@ -100,8 +99,8 @@ export class ControlService<T extends ServiceContext = ServiceContext>
             localDatabase.onunload();
             await localDatabase.close();
         }
-        eventHub.emitEvent(EVENT_PLATFORM_UNLOADED);
-        eventHub.offAll();
+        this.context.events.emitEvent(EVENT_PLATFORM_UNLOADED);
+        this.context.events.offAll();
         this._log($msg("moduleLiveSyncMain.logUnloadingPlugin"));
         return;
     }

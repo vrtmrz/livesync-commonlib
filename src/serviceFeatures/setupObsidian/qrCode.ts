@@ -2,7 +2,6 @@ import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { $msg } from "@lib/common/i18n";
 import { encodeQR, encodeSettingsToQRCodeData, OutputFormat } from "@lib/API/processSetting";
 import { EVENT_REQUEST_SHOW_SETUP_QR } from "@lib/events/coreEvents";
-import { eventHub } from "@lib/hub/hub";
 import { fireAndForget } from "@lib/common/utils";
 import type { SetupFeatureHost } from "./types";
 
@@ -65,7 +64,9 @@ export function useSetupQRCodeFeature(host: NecessaryServices<"API" | "UI" | "se
             name: "Show settings as a QR code",
             callback: () => fireAndForget(encodeSetupSettingsAsQR(host)),
         });
-        eventHub.onEvent(EVENT_REQUEST_SHOW_SETUP_QR, () => fireAndForget(() => encodeSetupSettingsAsQR(host)));
+        host.services.context.events.onEvent(EVENT_REQUEST_SHOW_SETUP_QR, () =>
+            fireAndForget(() => encodeSetupSettingsAsQR(host))
+        );
         return Promise.resolve(true);
     });
 }

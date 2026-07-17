@@ -8,8 +8,8 @@ import {
 } from "./checkRemoteSize";
 import { type LogFunction, createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import { $msg } from "@lib/common/i18n";
-import { eventHub } from "@lib/hub/hub";
 import { EVENT_REQUEST_CHECK_REMOTE_SIZE } from "@lib/events/coreEvents";
+import { createServiceContext } from "@lib/services/base/ServiceBase";
 
 const APIServiceMock = {
     addLog(message: string, level?: any) {
@@ -632,6 +632,7 @@ describe("scanAllStat", () => {
 
 describe("useCheckRemoteSize", () => {
     it("should register event handlers on app lifecycle events", async () => {
+        const context = createServiceContext();
         const commandCallbacks = [] as any[];
         const logs = [] as string[];
         const mockAPI = {
@@ -664,6 +665,7 @@ describe("useCheckRemoteSize", () => {
         };
         const host = {
             services: {
+                context,
                 API: mockAPI,
                 setting: settingMock,
                 appLifecycle: mockAppLifecycle,
@@ -685,7 +687,7 @@ describe("useCheckRemoteSize", () => {
         const offlineLogs = logs.filter((e) => e.includes("offline")).length;
         expect(offlineLogs).toBe(preOfflineLogs + 1); // The handler should log about being offline
         const previousApplyPartialCallCount = settingMock.applyPartial.mock.calls.length;
-        eventHub.emitEvent(EVENT_REQUEST_CHECK_REMOTE_SIZE);
+        context.events.emitEvent(EVENT_REQUEST_CHECK_REMOTE_SIZE);
         await new Promise((resolve) => setTimeout(resolve, 20)); // Wait for async handlers to complete
         // Since the actual logic of the handlers is tested in their respective unit tests, here we just verify that the event triggers without errors
         expect(settingMock.applyPartial.mock.calls.length).toBe(previousApplyPartialCallCount + 1);

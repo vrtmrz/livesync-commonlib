@@ -9,14 +9,6 @@
       "specifier": "@/common/KeyValueDB"
     },
     {
-      "file": "src/services/base/UnresolvedErrorManager.ts",
-      "specifier": "@/common/events"
-    },
-    {
-      "file": "src/services/implements/injectable/InjectableSettingService.ts",
-      "specifier": "@/common/events"
-    },
-    {
       "file": "src/services/implements/obsidian/ObsidianServiceContext.ts",
       "specifier": "@/deps"
     },
