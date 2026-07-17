@@ -9,7 +9,6 @@ import { scheduleOnceIfDuplicated, serialized, skipIfDuplicated } from "octagona
 import { delay, fireAndForget } from "octagonal-wheels/promises";
 import { EVENT_P2P_REPLICATOR_PROGRESS, EVENT_P2P_REPLICATOR_STATUS, P2PHost } from "./TrysteroReplicatorP2PServer";
 import { encryptWithEphemeralSalt, decryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
-import { $msg } from "@lib/common/i18n";
 import { sha1 } from "octagonal-wheels/hash/purejs";
 import { isObjectDifferent } from "octagonal-wheels/object";
 import { getRelaySockets, pauseRelayReconnection, resumeRelayReconnection } from "@trystero-p2p/nostr";
@@ -105,6 +104,9 @@ export class TrysteroReplicator {
     }
     get confirm(): Confirm {
         return this._env.confirm;
+    }
+    get translate() {
+        return this._env.translate;
     }
 
     private async runFiniteReplicationActivity<T>(task: () => T | PromiseLike<T>): Promise<T> {
@@ -246,7 +248,7 @@ export class TrysteroReplicator {
                 const passphrase = await skipIfDuplicated(`getAllConfig-${fromPeerId}`, async () => {
                     return await this.confirm.askString(
                         "Passphrase required",
-                        $msg("P2P.AskPassphraseForShare"),
+                        this.translate("P2P.AskPassphraseForShare"),
                         "something you only know",
                         true
                     );
@@ -684,7 +686,7 @@ export class TrysteroReplicator {
         const encryptedConfig = await connection.invokeRemoteFunction("getAllConfig", [this.server.serverPeerId], 0);
         const passphrase = await this.confirm.askString(
             "Passphrase required",
-            $msg("P2P.AskPassphraseForDecrypt"),
+            this.translate("P2P.AskPassphraseForDecrypt"),
             "something you only know",
             true
         );
@@ -752,7 +754,7 @@ export class TrysteroReplicator {
         const r = await skipIfDuplicated("replicateFromCommand", async () => {
             const logLevel = showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
             if (!this._env.settings.P2P_Enabled) {
-                Logger($msg("P2P.NotEnabled"), logLevel);
+                Logger(this.translate("P2P.NotEnabled"), logLevel);
                 return Promise.resolve(false);
             }
             // throw new Error("Method not implemented.");
@@ -760,24 +762,24 @@ export class TrysteroReplicator {
                 .map((e) => e.trim())
                 .filter((e) => e);
             if (peers.length == 0) {
-                Logger($msg("P2P.NoAutoSyncPeers"), LOG_LEVEL_NOTICE);
+                Logger(this.translate("P2P.NoAutoSyncPeers"), LOG_LEVEL_NOTICE);
                 return Promise.resolve(false);
             }
 
             for (const peer of peers) {
                 const peerId = this.knownAdvertisements.find((e) => e.name == peer)?.peerId;
                 if (!peerId) {
-                    Logger($msg(`P2P.SeemsOffline`, { name: peer }), logLevel);
+                    Logger(this.translate(`P2P.SeemsOffline`, { name: peer }), logLevel);
                 } else {
-                    Logger($msg(`P2P.SyncStartedWith`, { name: peer }), logLevel);
+                    Logger(this.translate(`P2P.SyncStartedWith`, { name: peer }), logLevel);
                     await this.sync(peerId, showResult);
                 }
             }
-            Logger($msg("P2P.SyncCompleted"), logLevel);
+            Logger(this.translate("P2P.SyncCompleted"), logLevel);
             return Promise.resolve(true);
         });
         if (r === null) {
-            Logger($msg("P2P.SyncAlreadyRunning"), LOG_LEVEL_NOTICE);
+            Logger(this.translate("P2P.SyncAlreadyRunning"), LOG_LEVEL_NOTICE);
         }
     }
 

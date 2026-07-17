@@ -1,5 +1,4 @@
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
-import { $msg } from "@lib/common/i18n";
 import { encodeQR, encodeSettingsToQRCodeData, OutputFormat } from "@lib/API/processSetting";
 import { EVENT_REQUEST_SHOW_SETUP_QR } from "@lib/events/coreEvents";
 import { fireAndForget } from "@lib/common/utils";
@@ -13,7 +12,7 @@ export async function encodeSetupSettingsAsQR(host: SetupFeatureHost) {
     }
 
     if (typeof result === "string") {
-        const msg = $msg("Setup.QRCode", { qr_image: result });
+        const msg = host.services.context.translate("Setup.QRCode", { qr_image: result });
         await host.services.UI.confirm.confirmWithMessage("Settings QR Code", msg, ["OK"], "OK");
         return result;
     } else {

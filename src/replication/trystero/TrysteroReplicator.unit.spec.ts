@@ -7,6 +7,7 @@ function createReplicator(settings: Record<string, unknown> = {}) {
     const replicator = new TrysteroReplicator(
         {
             events: createLiveSyncEventHub(),
+            translate: (key: string) => key,
             settings: {
                 P2P_AutoSyncPeers: "",
                 P2P_AutoWatchPeers: "",

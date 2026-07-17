@@ -4,7 +4,6 @@ import type { ReplicatorService } from "@lib/services/base/ReplicatorService";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import { getContext, mount, setContext, unmount, type Component } from "svelte";
 import { LOG_LEVEL_NOTICE, Logger } from "@lib/common/logger";
-import { $msg } from "@lib/common/i18n";
 import { fireAndForget, promiseWithResolvers, type PromiseWithResolvers } from "octagonal-wheels/promises";
 import { EVENT_PLUGIN_UNLOADED } from "@lib/events/coreEvents";
 
@@ -203,7 +202,10 @@ export abstract class SvelteDialogManagerBase<T extends ServiceContext> {
             if (this.dependents.control.hasUnloaded()) {
                 throw new Error("Operation cancelled due to app shutdown.");
             }
-            Logger($msg("Please select 'Cancel' explicitly to cancel this operation."), LOG_LEVEL_NOTICE);
+            Logger(
+                this.context.translate("Please select 'Cancel' explicitly to cancel this operation."),
+                LOG_LEVEL_NOTICE
+            );
         }
         throw new Error("Operation Forcibly cancelled by user.");
     }

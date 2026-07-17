@@ -21,6 +21,10 @@ function createLogger(name: string): LogFunction {
     return createInstanceLogFunction(name, APIServiceMock as any);
 }
 
+function createTranslatedContext() {
+    return createServiceContext({ translate: $msg });
+}
+
 describe("onNotifyRemoteSizeNotConfigured", () => {
     let logger: LogFunction;
 
@@ -43,6 +47,7 @@ describe("onNotifyRemoteSizeNotConfigured", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 setting: mockSetting,
             },
@@ -94,15 +99,14 @@ describe("onNotifyRemoteSizeNotConfigured", () => {
 
             const host = {
                 services: {
+                    context: createTranslatedContext(),
                     API: mockAPI,
                     setting: mockSetting,
                 },
                 serviceModules: {},
             } as any;
 
-            // We need to mock the actual dialogue call to return a value that matches one of the options
-            // Since $msg is called inside the handler, we need to match the actual implementation
-            // In this case, we just verify that the handler completes successfully
+            // The context and expected answers use the same real translator, while the dialogue itself remains injected.
             const handler = onNotifyRemoteSizeNotConfiguredFactory(host, logger);
             const result = await handler();
 
@@ -139,6 +143,7 @@ describe("onNotifyRemoteSizeExceed", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 replicator: mockReplicator,
                 setting: mockSetting,
@@ -175,6 +180,7 @@ describe("onNotifyRemoteSizeExceed", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 replicator: mockReplicator,
                 setting: mockSetting,
@@ -213,6 +219,7 @@ describe("onNotifyRemoteSizeExceed", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 replicator: mockReplicator,
                 setting: mockSetting,
@@ -284,6 +291,7 @@ describe("onNotifyRemoteSizeExceed", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 replicator: mockReplicator,
                 setting: mockSetting,
@@ -352,6 +360,7 @@ describe("onNotifyRemoteSizeExceed", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 replicator: mockReplicator,
                 setting: mockSetting,
@@ -375,9 +384,6 @@ describe("onNotifyRemoteSizeExceed", () => {
         );
     });
     it("should handle user dialogue responses correctly", async () => {
-        // Since the implementation uses $msg() to create the answer values,
-        // and we cannot easily mock $msg in the test, we verify that the dialogue is called
-        // and the handler completes successfully
         const mockAPI = {
             isOnline: true,
             confirm: {
@@ -406,6 +412,7 @@ describe("onNotifyRemoteSizeExceed", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 replicator: mockReplicator,
                 setting: mockSetting,
@@ -420,9 +427,7 @@ describe("onNotifyRemoteSizeExceed", () => {
         expect(mockAPI.confirm.askSelectStringDialogue).toHaveBeenCalled();
     });
 
-    it("should verify rebuild path is handled", async () => {
-        // To properly test rebuild path, we would need to mock $msg()
-        // For now, we just verify that the handler processes the scenario correctly
+    it("should treat an unmatched response as dismissal", async () => {
         const mockAPI = {
             isOnline: true,
             confirm: {
@@ -456,6 +461,7 @@ describe("onNotifyRemoteSizeExceed", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 replicator: mockReplicator,
                 setting: mockSetting,
@@ -505,6 +511,7 @@ describe("onNotifyRemoteSizeExceed", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 replicator: mockReplicator,
                 setting: mockSetting,
@@ -565,6 +572,7 @@ describe("scanAllStat", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 setting: mockSetting,
                 appLifecycle: mockAppLifecycle,
@@ -614,6 +622,7 @@ describe("scanAllStat", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 setting: mockSetting,
                 appLifecycle: mockAppLifecycle,

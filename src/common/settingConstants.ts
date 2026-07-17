@@ -446,12 +446,17 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         desc: "Files with modification times greater than this value (in seconds since the Unix epoch) will not have their events reflected. Set to 0 to disable this limit.",
     },
 };
-function translateInfo(infoSrc: ConfigurationItem | undefined | false) {
+type SettingLabelTranslator = (message: string) => string;
+
+function translateInfo(
+    infoSrc: ConfigurationItem | undefined | false,
+    translate: SettingLabelTranslator = (message) => $t(message)
+) {
     if (!infoSrc) return false;
     const info = { ...infoSrc };
-    info.name = $t(info.name);
+    info.name = translate(info.name);
     if (info.desc) {
-        info.desc = $t(info.desc);
+        info.desc = translate(info.desc);
     }
     return info;
 }
@@ -464,11 +469,11 @@ function _getConfig(key: AllSettingItemKey) {
     }
     return false;
 }
-export function getConfig(key: AllSettingItemKey) {
-    return translateInfo(_getConfig(key));
+export function getConfig(key: AllSettingItemKey, translate?: SettingLabelTranslator) {
+    return translateInfo(_getConfig(key), translate);
 }
-export function getConfName(key: AllSettingItemKey) {
-    const conf = getConfig(key);
+export function getConfName(key: AllSettingItemKey, translate?: SettingLabelTranslator) {
+    const conf = getConfig(key, translate);
     if (!conf) return `${key} (No info)`;
     return conf.name;
 }
