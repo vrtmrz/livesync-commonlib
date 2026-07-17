@@ -89,8 +89,28 @@ export interface IModalBase {
     onClose(): void;
     open(): void;
 }
-export function SvelteDialogMixIn<TBase extends Constructor<IModalBase>>(TBase: TBase, d: Component<DialogHostProps>) {
-    return class SvelteDialog<
+
+export interface SvelteDialogInstance<T, U, C extends ServiceContext = ServiceContext> extends IModalBase {
+    initDialog(
+        context: C,
+        dependents: SvelteDialogManagerDependencies<C>,
+        component: ComponentHasResult<T, U>,
+        initialData?: U
+    ): void;
+    waitForClose(): Promise<T | undefined>;
+}
+
+export type SvelteDialogClass<TBase extends Constructor<IModalBase>> = {
+    new <T, U, C extends ServiceContext = ServiceContext>(
+        ...args: ConstructorParameters<TBase>
+    ): SvelteDialogInstance<T, U, C>;
+};
+
+export function SvelteDialogMixIn<TBase extends Constructor<IModalBase>>(
+    TBase: TBase,
+    d: Component<DialogHostProps>
+): SvelteDialogClass<TBase> {
+    const SvelteDialog = class SvelteDialog<
         T,
         U,
         C extends ServiceContext = ServiceContext,
@@ -182,6 +202,7 @@ export function SvelteDialogMixIn<TBase extends Constructor<IModalBase>>(TBase: 
             });
         }
     };
+    return SvelteDialog as SvelteDialogClass<TBase>;
 }
 
 export abstract class SvelteDialogManagerBase<T extends ServiceContext> implements SvelteDialogManager<T> {

@@ -117,7 +117,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         this.ready.resolve();
         this.liveSyncLocalDB.refreshSettings();
     }
-    getBoundDatabaseService(options: () => DirectFileManipulatorOptions) {
+    getBoundDatabaseService(options: () => DirectFileManipulatorOptions): typeof HeadlessDatabaseService {
         const _option = options;
         return class HeadlessDatabaseServiceExt<T extends ServiceContext> extends HeadlessDatabaseService<T> {
             override createPouchDBInstance<T extends object>(
@@ -137,6 +137,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         const getSettings = () => this.settings as any;
         const context = new ServiceContext();
         this.services = new HeadlessServiceHub(context, {
+            pouchDB: PouchDB,
             database: this.getBoundDatabaseService(() => this.options),
         });
 

@@ -5,6 +5,7 @@ import type { AppLifecycleService } from "./AppLifecycleService";
 import { RemoteService } from "./RemoteService";
 import { ServiceContext } from "./ServiceBase";
 import type { SettingService } from "./SettingService";
+import { PouchDB } from "@lib/pouchdb/pouchdb-http";
 
 class TestRemoteService extends RemoteService {}
 
@@ -28,6 +29,7 @@ function createService(fetchImplementation: (req: string | Request, opts?: Reque
         currentSettings: vi.fn(() => ({ E2EEAlgorithm: "v2" })),
     } as unknown as SettingService;
     const service = new TestRemoteService(new ServiceContext(), {
+        pouchDB: PouchDB,
         APIService,
         appLifecycle,
         setting,

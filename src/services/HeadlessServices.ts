@@ -29,6 +29,7 @@ import { InjectableSettingService } from "./implements/injectable/InjectableSett
 import type { Constructor } from "@lib/common/utils.type";
 import { createIndexedDBKeyValueDatabaseFactory } from "@lib/databases/IndexedDBKeyValueDatabase";
 import type { KeyValueDatabaseFactory } from "@lib/interfaces/KeyValueDatabase";
+import type { PouchDBConstructor } from "@lib/pouchdb/PouchDBConstructor.ts";
 
 class HeadlessAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
     constructor(context: T, dependencies: AppLifecycleServiceDependencies) {
@@ -71,11 +72,13 @@ class HeadlessUIService<T extends ServiceContext> extends UIService<T> {
 
 export class HeadlessServiceHub<T extends ServiceContext> extends InjectableServiceHub<T> {
     constructor(
-        _context?: T,
+        _context: T | undefined,
         overrideServiceConstructor: {
+            /** PouchDB with the adapters required by this headless runtime. */
+            pouchDB: PouchDBConstructor;
             database?: Constructor<DatabaseService<T>>;
             openKeyValueDatabase?: KeyValueDatabaseFactory;
-        } = {}
+        }
     ) {
         const context = (_context ?? new ServiceContext()) as T;
         const API = new HeadlessAPIService<T>(context);
@@ -89,6 +92,7 @@ export class HeadlessServiceHub<T extends ServiceContext> extends InjectableServ
             settingService: setting,
         });
         const remote = new InjectableRemoteService(context, {
+            pouchDB: overrideServiceConstructor.pouchDB,
             APIService: API,
             appLifecycle: appLifecycle,
             setting: setting,
@@ -104,6 +108,7 @@ export class HeadlessServiceHub<T extends ServiceContext> extends InjectableServ
             settingService: setting,
         });
         const database = new (overrideServiceConstructor.database ?? HeadlessDatabaseService<T>)(context, {
+            pouchDB: overrideServiceConstructor.pouchDB,
             API: API,
             path: path,
             vault: vault,
