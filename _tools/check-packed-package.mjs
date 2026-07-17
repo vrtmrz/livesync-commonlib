@@ -90,6 +90,10 @@ await writeConsumerFile(
     type ServiceContextOptions,
 } from "${packageName}/context";
 import { DirectFileManipulator, type DirectFileManipulatorOptions } from "${packageName}";
+import {
+    createFileSystemAccessStorage,
+    type CreateFileSystemAccessStorageOptions,
+} from "${packageName}/browser";
 import { splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
 
 const options: ServiceContextOptions = { translate: (key) => \`translated:\${key}\` };
@@ -98,11 +102,15 @@ const untranslated: string = passthroughMessageTranslator("message.key");
 const split = splitPieces2Worker(new Blob(["content"], { type: "text/plain" }), 4, false, 1);
 const directOptions = {} as DirectFileManipulatorOptions;
 const directType: typeof DirectFileManipulator = DirectFileManipulator;
+const fileSystemAccessOptions = {} as CreateFileSystemAccessStorageOptions;
+const fileSystemAccessFactory: typeof createFileSystemAccessStorage = createFileSystemAccessStorage;
 void context;
 void untranslated;
 void split;
 void directOptions;
 void directType;
+void fileSystemAccessOptions;
+void fileSystemAccessFactory;
 `
 );
 await writeConsumerFile(
@@ -125,6 +133,7 @@ const contextApi = await import("${packageName}/context");
 const rootApi = await import("${packageName}");
 const workerApi = await import("${packageName}/compat/worker/bgWorker");
 const runtimeCompat = await import("${packageName}/compat/common/coreEnvFunctions");
+const nodeRuntime = await import("${packageName}/node");
 const p2pFeatureApi = await import(
     "${packageName}/compat/replication/trystero/useP2PReplicatorFeature"
 );
@@ -132,6 +141,11 @@ const p2pFeatureApi = await import(
 assert.equal(contextApi.createServiceContext().translate("message.key"), "message.key");
 assert.equal(typeof rootApi.DirectFileManipulator, "function");
 assert.equal(runtimeCompat.compatGlobal, globalThis);
+assert.equal(typeof nodeRuntime.fs.readFileSync, "function");
+assert.equal(typeof nodeRuntime.fsPromises.readFile, "function");
+assert.equal(typeof nodeRuntime.path.join, "function");
+assert.equal(typeof nodeRuntime.readline.createInterface, "function");
+assert.equal(typeof nodeRuntime.fileURLToPath, "function");
 assert.equal(typeof p2pFeatureApi.useP2PReplicatorFeature, "function");
 
 const piecesFactory = await workerApi.splitPieces2Worker(
@@ -179,6 +193,15 @@ document.body.dataset.supportedLanguages = SUPPORTED_I18N_LANGS.join(",");
 `
 );
 await writeConsumerFile(
+    "browser-storage.ts",
+    `import { createFileSystemAccessStorage } from "${packageName}/browser";
+
+declare const rootHandle: FileSystemDirectoryHandle;
+const storage = createFileSystemAccessStorage({ rootHandle });
+void storage;
+`
+);
+await writeConsumerFile(
     "browser-worker.ts",
     `export { initialiseWorkerModule, splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
 `
@@ -220,8 +243,10 @@ const contextBundle = await build({
 });
 const contextInputs = Object.keys(contextBundle.metafile.inputs);
 assert.ok(
-    contextInputs.every((path) => !path.includes("svelte") && !path.includes("messagesJson")),
-    "The context entry point must not load Svelte or the language catalogue."
+    contextInputs.every(
+        (path) => !path.includes("svelte") && !path.includes("messagesJson") && !path.includes("/dist/node/")
+    ),
+    "The context entry point must not load Svelte, the language catalogue, or Node-only host APIs."
 );
 assert.ok(contextBundle.outputFiles[0].contents.length < 20_000, "The context bundle has grown unexpectedly.");
 
@@ -260,6 +285,23 @@ assert.ok(
     "Importing language contracts must not load the generated message catalogue."
 );
 
+const browserStorageBundle = await build({
+    absWorkingDir: consumerDirectory,
+    bundle: true,
+    conditions: ["browser"],
+    entryPoints: [resolve(consumerDirectory, "browser-storage.ts")],
+    format: "esm",
+    logLevel: "silent",
+    metafile: true,
+    platform: "browser",
+    write: false,
+});
+const browserStorageInputs = Object.keys(browserStorageBundle.metafile.inputs);
+assert.ok(
+    browserStorageInputs.every((path) => !path.includes("/dist/platform/node/")),
+    "The File System Access storage entry must not load Node-only host APIs."
+);
+
 const workerBundle = await build({
     absWorkingDir: consumerDirectory,
     bundle: true,
@@ -281,7 +323,9 @@ const manifest = JSON.parse(
     await readFile(resolve(consumerDirectory, "node_modules", "@vrtmrz", "livesync-commonlib", "package.json"), "utf8")
 );
 assert.equal(manifest.name, packageName);
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 4);
+assert.ok(Object.hasOwn(manifest.exports, "./browser"));
+assert.ok(Object.hasOwn(manifest.exports, "./node"));
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 6);
 
 console.log(
     JSON.stringify(
@@ -292,6 +336,7 @@ console.log(
             unpackedBytes: packed.unpackedSize,
             contextBundleBytes: contextBundle.outputFiles[0].contents.length,
             browserServicesBundleBytes: browserServicesBundle.outputFiles[0].contents.length,
+            browserStorageBundleBytes: browserStorageBundle.outputFiles[0].contents.length,
             workerBundleBytes: workerBundle.outputFiles[0].contents.length,
         },
         null,

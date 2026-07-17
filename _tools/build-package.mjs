@@ -191,7 +191,9 @@ function compiledCompatibilityPath(sourcePath) {
 function createExports() {
     const exports = {
         ".": exportTarget("index"),
+        "./browser": exportTarget("platform/browser/index"),
         "./context": exportTarget("context"),
+        "./node": exportTarget("platform/node/index"),
         "./rpc": exportTarget("rpc/index"),
     };
     for (const sourcePath of inventory.compatibility) {
