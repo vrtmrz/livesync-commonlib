@@ -1,6 +1,6 @@
 {
   "name": "@vrtmrz/livesync-commonlib",
-  "version": "0.1.0-package-proof.6",
+  "version": "0.1.0-package-proof.8",
   "description": "Shared data, storage, and replication primitives for Self-hosted LiveSync clients.",
   "private": true,
   "type": "module",
@@ -29,6 +29,9 @@
     "i18n:yaml2json": "tsx _tools/yaml2json.ts",
     "test": "vitest run",
     "test:boundary": "node --test _tools/check-package-boundary.test.mjs",
+    "test:contract:context": "vitest run src/services/base/ServiceContext.unit.spec.ts",
+    "test:contract:platform-storage": "vitest run src/platform/storage.contract.unit.test.ts",
+    "test:contracts": "vitest run src/services/base/ServiceContext.unit.spec.ts src/platform/storage.contract.unit.test.ts",
     "test:package": "npm run build:package && npm run check:package"
   },
   "dependencies": {

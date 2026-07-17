@@ -7,6 +7,7 @@
 export {
     ServiceContext,
     createServiceContext,
+    type ServiceContextContract,
     type ServiceContextOptions,
 } from "@lib/services/base/ServiceBase";
 export { createLiveSyncEventHub, type LiveSyncEventHub } from "@lib/hub/hub";

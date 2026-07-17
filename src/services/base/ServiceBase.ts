@@ -12,8 +12,20 @@ export interface ServiceContextOptions {
     translate?: MessageTranslator;
 }
 
+/**
+ * Minimum host-owned capabilities required by Commonlib service composition.
+ *
+ * Hosts may extend this contract with platform-specific capabilities, but the
+ * event channel and translator remain instance-selected and must be passed
+ * unchanged to every service in one composition.
+ */
+export interface ServiceContextContract {
+    readonly events: LiveSyncEventHub;
+    readonly translate: MessageTranslator;
+}
+
 /** Instance-owned capabilities shared by a composed set of Commonlib services. */
-export class ServiceContext {
+export class ServiceContext implements ServiceContextContract {
     readonly events: LiveSyncEventHub;
     readonly translate: MessageTranslator;
 
