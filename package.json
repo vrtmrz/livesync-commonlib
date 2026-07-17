@@ -33,6 +33,8 @@
     "test:contract:platform-storage": "vitest run src/platform/storage.contract.unit.test.ts",
     "test:contract:standard-io": "vitest run src/platform/standardIo.unit.spec.ts",
     "test:contracts": "vitest run src/services/base/ServiceContext.unit.spec.ts src/platform/storage.contract.unit.test.ts src/platform/standardIo.unit.spec.ts",
+    "test:integration": "node _tools/run-integration-tests.mjs",
+    "test:integration:managed": "node _tools/run-integration-tests.mjs --manage-services",
     "test:package": "npm run build:package && npm run check:package",
     "test:release": "node --test _tools/validate-release-selection.test.mjs",
     "verify:package": "npm run check:types && npm test && npm run test:boundary && npm run test:release && npm run check:boundary && npm run test:package"

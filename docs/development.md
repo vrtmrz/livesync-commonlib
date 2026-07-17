@@ -8,6 +8,7 @@ This document is for Commonlib developers. Package consumers should begin with t
 npm ci
 npm run check:types
 npm test
+npm run test:integration:managed
 npm run test:contracts
 npm run test:boundary
 npm run test:package
@@ -24,6 +25,18 @@ npm run test:package
 These scripts are deliberately available independently of CI. Add a focused result contract before moving another platform API; do not infer compatibility from matching TypeScript shapes alone. Platform-specific behaviour, such as timestamp fidelity, must remain documented outside the shared result set.
 
 Self-hosted LiveSync remains the principal downstream consumer. A Commonlib change is not ready for publication until the exact packed artefact has also passed the applicable LiveSync type checks, unit and integration tests, application builds, CLI E2E, and focused real-Obsidian E2E.
+
+## Integration tests
+
+The integration suite owns Commonlib's direct CouchDB and S3-compatible storage checks. Run it with managed, disposable CouchDB and MinIO containers:
+
+```bash
+npm run test:integration:managed
+```
+
+This command requires Docker Compose, creates only test credentials and data, and removes the containers and their volumes after the run. It is the same entry point used by package CI.
+
+To test services that are already running, use `npm run test:integration`. The runner accepts `hostname`, `username`, and `password` for CouchDB, and `minioEndpoint`, `accessKey`, `secretKey`, and `bucketName` for S3-compatible storage. Without overrides, it uses the endpoints and test credentials from the managed Compose environment. The selected MinIO bucket must already exist when services are not managed by the runner.
 
 ## Translation catalogue
 
