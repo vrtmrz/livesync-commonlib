@@ -19,6 +19,8 @@ import { BrowserAPIService } from "./implements/browser/BrowserAPIService";
 import { BrowserDatabaseService, BrowserKeyValueDBService } from "./implements/browser/BrowserDatabaseService";
 import { ControlService } from "./base/ControlService";
 import type { AppLifecycleServiceDependencies } from "./base/AppLifecycleService";
+import { createIndexedDBKeyValueDatabaseFactory } from "@lib/databases/IndexedDBKeyValueDatabase";
+import type { KeyValueDatabaseFactory } from "@lib/interfaces/KeyValueDatabase";
 
 class BrowserAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
     constructor(context: T, dependencies: AppLifecycleServiceDependencies) {
@@ -30,7 +32,7 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
     override get vault(): InjectableVaultServiceCompat<T> {
         return this._vault as InjectableVaultServiceCompat<T>;
     }
-    constructor() {
+    constructor(openKeyValueDatabase: KeyValueDatabaseFactory = createIndexedDBKeyValueDatabaseFactory()) {
         const context = new ServiceContext() as T;
         const API = new BrowserAPIService(context);
         const conflict = new InjectableConflictService(context);
@@ -77,6 +79,7 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
             databaseService: database,
         });
         const keyValueDB = new BrowserKeyValueDBService(context, {
+            openKeyValueDatabase,
             appLifecycle: appLifecycle,
             databaseEvents: databaseEvents,
             vault: vault,

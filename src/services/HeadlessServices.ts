@@ -25,6 +25,8 @@ import { ControlService } from "./base/ControlService";
 import { InjectableSettingService } from "./implements/injectable/InjectableSettingService";
 import type { IControlService } from "./base/IService";
 import type { Constructor } from "@lib/common/utils.type";
+import { createIndexedDBKeyValueDatabaseFactory } from "@lib/databases/IndexedDBKeyValueDatabase";
+import type { KeyValueDatabaseFactory } from "@lib/interfaces/KeyValueDatabase";
 
 class HeadlessAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
     constructor(context: T, dependencies: AppLifecycleServiceDependencies) {
@@ -76,6 +78,7 @@ export class HeadlessServiceHub<T extends ServiceContext> extends InjectableServ
         _context?: T,
         overrideServiceConstructor: {
             database?: Constructor<DatabaseService<T>>;
+            openKeyValueDatabase?: KeyValueDatabaseFactory;
         } = {}
     ) {
         const context = (_context ?? new ServiceContext()) as T;
@@ -129,6 +132,8 @@ export class HeadlessServiceHub<T extends ServiceContext> extends InjectableServ
         });
 
         const keyValueDB = new HeadlessKeyValueDBService(context, {
+            openKeyValueDatabase:
+                overrideServiceConstructor.openKeyValueDatabase ?? createIndexedDBKeyValueDatabaseFactory(),
             appLifecycle: appLifecycle,
             databaseEvents: databaseEvents,
             vault: vault,
