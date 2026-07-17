@@ -3,6 +3,7 @@ import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.cons
 import type { FileEventItem, FilePath, MetaEntry, UXFileInfo, UXFileInfoStub } from "@lib/common/types";
 import { createTextBlob } from "@lib/common/utils";
 import { ServiceFileHandlerBase, type ServiceFileHandlerDependencies } from "./ServiceFileHandlerBase";
+import { createLiveSyncEventHub } from "@lib/hub/hub";
 
 class TestFileHandler extends ServiceFileHandlerBase {}
 
@@ -83,6 +84,7 @@ function createHandler(
         markChangesAreSame: vi.fn(),
     };
     const deps = {
+        events: createLiveSyncEventHub(),
         API: { addLog: vi.fn() },
         databaseFileAccess,
         storageAccess,
@@ -117,6 +119,7 @@ function createRenameHandler(caseInsensitive: boolean, oldEntry: MetaEntry | fal
         path2id: vi.fn().mockImplementation(async (path: string) => (caseInsensitive ? path.toLowerCase() : path)),
     };
     const deps = {
+        events: createLiveSyncEventHub(),
         API: { addLog: vi.fn() },
         databaseFileAccess,
         storageAccess: {},

@@ -20,7 +20,7 @@ import {
 } from "@lib/common/utils";
 import { shouldBeIgnored, stripAllPrefixes } from "@lib/string_and_binary/path";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
-import { eventHub } from "@lib/hub/hub";
+import type { LiveSyncEventHub } from "@lib/hub/hub";
 import type { IFileHandler } from "@lib/interfaces/FileHandler.ts";
 import { ServiceModuleBase } from "@lib/serviceModules/ServiceModuleBase";
 import type { APIService } from "@lib/services/base/APIService.ts";
@@ -37,6 +37,7 @@ import { EVEN } from "@lib/common/models/shared.const.symbols";
 import { tryGetFilePath } from "@lib/common/utils.doc";
 
 export interface ServiceFileHandlerDependencies {
+    events: LiveSyncEventHub;
     API: APIService;
     databaseFileAccess: DatabaseFileAccess;
     storageAccess: StorageAccess;
@@ -77,6 +78,7 @@ export abstract class ServiceFileHandlerBase
     extends ServiceModuleBase<ServiceFileHandlerDependencies>
     implements IFileHandler
 {
+    private events: LiveSyncEventHub;
     private databaseFileAccess: DatabaseFileAccess;
     private storageAccess: StorageAccess;
     private conflict: ConflictService;
@@ -85,6 +87,7 @@ export abstract class ServiceFileHandlerBase
     private vault: VaultService;
     constructor(services: ServiceFileHandlerDependencies) {
         super(services);
+        this.events = services.events;
         this.databaseFileAccess = services.databaseFileAccess;
         this.storageAccess = services.storageAccess;
         this.conflict = services.conflict;
@@ -587,7 +590,7 @@ export abstract class ServiceFileHandlerBase
                     LOG_LEVEL_VERBOSE
                 );
                 // Before writing (or skipped ), merging dialogue should be cancelled.
-                eventHub.emitEvent("conflict-cancelled", path);
+                this.events.emitEvent("conflict-cancelled", path);
                 const ret = await this.dbToStorage(entry, targetFile);
                 this._log(`Processing ${path} (${entry._id.substring(0, 8)} :${entry._rev?.substring(0, 5)}) : Done`);
                 return ret;

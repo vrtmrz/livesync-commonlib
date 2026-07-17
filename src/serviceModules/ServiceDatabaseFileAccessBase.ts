@@ -18,13 +18,14 @@ import { shouldBeIgnored, isPlainText, stripAllPrefixes } from "@lib/string_and_
 import { LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 import { serialized } from "octagonal-wheels/concurrency/lock_v2";
 import { ServiceModuleBase } from "@lib/serviceModules/ServiceModuleBase";
-import { eventHub } from "@lib/hub/hub";
+import type { LiveSyncEventHub } from "@lib/hub/hub";
 import { EVENT_FILE_SAVED } from "@lib/events/coreEvents";
 import { getDatabasePathFromUXFileInfo, getStoragePathFromUXFileInfo, isInternalMetadata } from "@lib/common/typeUtils";
 import { createBlob, createTextBlob, determineTypeFromBlob, isDocContentSame, readContent } from "@lib/common/utils";
 import { ICHeader } from "@lib/common/models/fileaccess.const";
 
 export interface ServiceDatabaseFileAccessDependencies {
+    events: LiveSyncEventHub;
     API: APIService;
     vault: VaultService;
     storageAccess: StorageAccess;
@@ -36,12 +37,14 @@ export class ServiceDatabaseFileAccessBase
     extends ServiceModuleBase<ServiceDatabaseFileAccessDependencies>
     implements DatabaseFileAccess
 {
+    private events: LiveSyncEventHub;
     private vault: VaultService;
     private storageAccess: StorageAccess;
     private path: PathService;
     private database: DatabaseService;
     constructor(services: ServiceDatabaseFileAccessDependencies) {
         super(services);
+        this.events = services.events;
         this.vault = services.vault;
         this.storageAccess = services.storageAccess;
         this.database = services.database;
@@ -226,7 +229,7 @@ export class ServiceDatabaseFileAccessBase
         const ret = await this.database.localDatabase.putDBEntry(d, onlyChunks, conflictBaseRev);
         if (ret !== false) {
             this._log(msg + fullPath);
-            eventHub.emitEvent(EVENT_FILE_SAVED);
+            this.events.emitEvent(EVENT_FILE_SAVED);
         }
         return ret != false;
     }
@@ -384,7 +387,7 @@ export class ServiceDatabaseFileAccessBase
         }
         const opt = rev ? { rev: rev } : undefined;
         const ret = await this.database.localDatabase.deleteDBEntry(fullPath, opt);
-        eventHub.emitEvent(EVENT_FILE_SAVED);
+        this.events.emitEvent(EVENT_FILE_SAVED);
         return ret;
     }
 }

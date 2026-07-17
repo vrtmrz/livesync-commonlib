@@ -94,6 +94,7 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
         this._log($msg("moduleLocalDatabase.logWaitingForReady"));
         const env = {
             services: {
+                context: this.context,
                 ...this.services,
                 ...params,
                 database: this,

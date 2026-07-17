@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 import { REMOTE_COUCHDB } from "@lib/common/models/setting.const";
 import { ServiceRebuilder } from "./Rebuilder";
+import { createLiveSyncEventHub } from "@lib/hub/hub";
+import { EVENT_DATABASE_REBUILT } from "@lib/events/coreEvents";
 
 const fetchChangesForInitialSyncMock = vi.hoisted(() => vi.fn());
 
@@ -44,6 +46,7 @@ function createRebuilder() {
         }
     });
     const services = {
+        events: createLiveSyncEventHub(),
         API: {
             addLog: vi.fn(),
             getAppID: vi.fn(() => "app"),
@@ -122,6 +125,18 @@ function createRebuilder() {
         runBoundedRemoteActivity,
     };
 }
+
+describe("ServiceRebuilder event isolation", () => {
+    it("announces a database reset through its injected event hub", async () => {
+        const { rebuilder, services } = createRebuilder();
+        const listener = vi.fn();
+        services.events.onEvent(EVENT_DATABASE_REBUILT, listener);
+
+        await rebuilder.resetLocalDatabase();
+
+        expect(listener).toHaveBeenCalledOnce();
+    });
+});
 
 describe("ServiceRebuilder fast fetch retry", () => {
     it("retries from the latest checkpoint after a transient fast fetch failure", async () => {

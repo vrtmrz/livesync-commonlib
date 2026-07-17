@@ -20,11 +20,11 @@ import { Logger } from "@lib/common/logger.ts";
 import { isErrorOfMissingDoc } from "./utils_couchdb.ts";
 
 import { EVENT_CHUNK_FETCHED } from "@lib/managers/ChunkFetcher.ts";
-import { eventHub } from "@lib/hub/hub.ts";
+import type { LiveSyncEventHub } from "@lib/hub/hub.ts";
 import { FallbackWeakRef } from "octagonal-wheels/common/polyfill";
 import { LiveSyncManagers } from "@lib/managers/LiveSyncManagers.ts";
 import type { AutoMergeResult } from "@lib/managers/ConflictManager.ts";
-import type { IServiceHub } from "@lib/services/base/IService.ts";
+import type { RequiredServices } from "@lib/interfaces/ServiceModule.ts";
 import type { APIService } from "@lib/services/base/APIService.ts";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils.ts";
 
@@ -54,7 +54,7 @@ export interface LiveSyncLocalDBEnv {
     // $$getReplicator: () => LiveSyncAbstractReplicator;
     // getSettings(): RemoteDBSettings;
     // managers: LiveSyncManagers;
-    services: Pick<IServiceHub, "API" | "database" | "databaseEvents" | "replicator" | "setting" | "path">;
+    services: RequiredServices<"API" | "database" | "databaseEvents" | "replicator" | "setting" | "path">;
 }
 
 export function getNoFromRev(rev: string) {
@@ -109,7 +109,7 @@ export class LiveSyncLocalDB {
         void this._prepareHashFunctions();
     }
 
-    offRemoteChunkFetchedHandler?: ReturnType<typeof eventHub.onEvent>;
+    offRemoteChunkFetchedHandler?: ReturnType<LiveSyncEventHub["onEvent"]>;
     constructor(dbname: string, env: LiveSyncLocalDBEnv) {
         this.auth = {
             username: "",
@@ -180,7 +180,7 @@ export class LiveSyncLocalDB {
             void this.managers.teardownManagers();
         });
         const _instance = new FallbackWeakRef(this);
-        const unload = eventHub.onEvent(REMOTE_CHUNK_FETCHED, (chunk: EntryLeaf) => {
+        const unload = this.env.services.context.events.onEvent(REMOTE_CHUNK_FETCHED, (chunk: EntryLeaf) => {
             if (_instance.deref() == null) {
                 unload();
             }
