@@ -30,11 +30,14 @@ export const EVENT_PLATFORM_UNLOADED = "platform-unloaded";
 export const EVENT_ON_UNRESOLVED_ERROR = "on-unresolved-error";
 
 export const EVENT_REQUEST_CHECK_REMOTE_SIZE = "request-check-remote-size";
+export const EVENT_CONFLICT_CANCELLED = "conflict-cancelled";
 
 // export const EVENT_FILE_CHANGED = "file-changed";
 
 declare global {
     interface LSEvents {
+        [EVENT_PLUGIN_LOADED]: undefined;
+        [EVENT_PLUGIN_UNLOADED]: undefined;
         [EVENT_FILE_SAVED]: undefined;
         [EVENT_SETTING_SAVED]: ObsidianLiveSyncSettings;
         [EVENT_LAYOUT_READY]: undefined;
@@ -43,11 +46,17 @@ declare global {
 
         [EVENT_DATABASE_REBUILT]: undefined;
         [EVENT_REQUEST_OPEN_P2P_SETTINGS]: undefined;
+        [EVENT_LEAF_ACTIVE_CHANGED]: undefined;
+        [EVENT_REQUEST_OPEN_SETUP_URI]: undefined;
+        [EVENT_REQUEST_COPY_SETUP_URI]: undefined;
+        [EVENT_REQUEST_RELOAD_SETTING_TAB]: undefined;
+        [EVENT_REQUEST_OPEN_PLUGIN_SYNC_DIALOG]: undefined;
         [EVENT_REQUEST_SHOW_SETUP_QR]: undefined;
         [EVENT_REQUEST_OPEN_P2P]: undefined;
         [EVENT_REQUEST_CLOSE_P2P]: undefined;
         [EVENT_PLATFORM_UNLOADED]: undefined;
         [EVENT_ON_UNRESOLVED_ERROR]: undefined;
         [EVENT_REQUEST_CHECK_REMOTE_SIZE]: undefined;
+        [EVENT_CONFLICT_CANCELLED]: FilePathWithPrefix;
     }
 }

@@ -662,7 +662,7 @@ export class JournalSyncCore {
                 const existChunks = new Set(e2.filter((e) => e !== undefined));
                 const saveChunks = chunks
                     .filter((e) => !existChunks.has(e._id))
-                    .map((e) => ({ ...e, _rev: undefined }));
+                    .map((e) => ({ ...e, _rev: undefined as string | undefined }));
                 const ret = await this.db.bulkDocs<EntryDoc>(saveChunks, { new_edits: true });
                 const saveError = ret.filter((e) => "error" in e).map((e) => e.id);
 

@@ -117,7 +117,7 @@ export function SvelteDialogMixIn<TBase extends Constructor<IModalBase>>(TBase: 
         resultPromiseWithResolvers?: PromiseWithResolvers<T | undefined>;
         override onOpen() {
             const { contentEl } = this;
-            contentEl.empty();
+            contentEl.replaceChildren();
             // eslint-disable-next-line @typescript-eslint/no-this-alias
             const dialog = this;
 

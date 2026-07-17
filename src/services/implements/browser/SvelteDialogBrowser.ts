@@ -25,14 +25,14 @@ export class ShimModal {
         this.titleEl.className = "modal-title";
         this.modalEl = _activeDocument.createElement("div");
         this.modalEl.className = "modal";
-        this.modalEl.setCssStyles({ display: "none" });
+        this.modalEl.style.display = "none";
         this.modalEl.appendChild(this.titleEl);
         this.modalEl.appendChild(this.contentEl);
         this.baseEl.appendChild(this.modalEl);
     }
     open() {
         this.isOpen = true;
-        this.modalEl.setCssStyles({ display: "block" });
+        this.modalEl.style.display = "block";
         if (!this.baseEl.parentElement) {
             _activeDocument.body.appendChild(this.baseEl);
         }
@@ -40,7 +40,7 @@ export class ShimModal {
     }
     close() {
         this.isOpen = false;
-        this.baseEl.setCssStyles({ display: "none" });
+        this.baseEl.style.display = "none";
         this.baseEl.remove();
         this.onClose();
     }

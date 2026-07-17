@@ -250,10 +250,9 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
             panel.classList.toggle("is-active", windowType === type);
         }
 
-        const tabs = this.windowTabs?.querySelectorAll("button[data-window-tab]") ?? [];
-        tabs.forEach((tab) => {
-            const isActive = (tab as HTMLButtonElement).dataset.windowTab === type;
-            (tab as HTMLButtonElement).classList.toggle("is-active", isActive);
+        this.windowTabs?.querySelectorAll<HTMLButtonElement>("button[data-window-tab]").forEach((tab) => {
+            const isActive = tab.dataset.windowTab === type;
+            tab.classList.toggle("is-active", isActive);
         });
     }
 

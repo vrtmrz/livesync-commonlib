@@ -267,7 +267,7 @@ export class RpcRoom {
             if (!pending) return;
             this.pending.delete(envelope.requestId);
             if (pending.timeoutHandle) compatGlobal.clearTimeout(pending.timeoutHandle);
-            if (envelope.ok) {
+            if (envelope.ok === true) {
                 pending.resolve(envelope.data);
             } else {
                 pending.reject(new RpcError(envelope.error.code, envelope.error.message, envelope.error.details));

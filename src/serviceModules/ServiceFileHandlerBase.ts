@@ -8,6 +8,7 @@ import type {
     MetaEntry,
     UXFileInfo,
     UXFileInfoStub,
+    UXFolderInfo,
     UXInternalFileInfoStub,
 } from "@lib/common/types";
 import {
@@ -18,6 +19,7 @@ import {
     readAsBlob,
     readContent,
 } from "@lib/common/utils";
+import { EVENT_CONFLICT_CANCELLED } from "@lib/events/coreEvents";
 import { shouldBeIgnored, stripAllPrefixes } from "@lib/string_and_binary/path";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import type { LiveSyncEventHub } from "@lib/hub/hub";
@@ -72,6 +74,10 @@ async function serializedByKeys<T>(keys: readonly string[], callback: () => Prom
 function getParentPath(path: string): string {
     const lastSeparator = path.lastIndexOf("/");
     return lastSeparator < 0 ? "" : path.slice(0, lastSeparator);
+}
+
+function isFolderInfo(info: UXFileInfoStub | UXFolderInfo | null): info is UXFolderInfo {
+    return info?.isFolder === true;
 }
 
 export abstract class ServiceFileHandlerBase
@@ -364,7 +370,7 @@ export abstract class ServiceFileHandlerBase
 
         // 2. Check if the file is already exist on the storage.
         let existDoc = await this.storage.getStub(path);
-        if (existDoc && existDoc.isFolder) {
+        if (isFolderInfo(existDoc)) {
             this._log(`Folder ${path} is already exist on the storage as a folder`, LOG_LEVEL_VERBOSE);
             // We can do nothing, and other modules should also nothing to do.
             return true;
@@ -576,7 +582,7 @@ export abstract class ServiceFileHandlerBase
             const path = this.getPath(entry);
 
             const targetFile = await this.storage.getStub(this.getPathWithoutPrefix(entry));
-            if (targetFile && targetFile.isFolder) {
+            if (isFolderInfo(targetFile)) {
                 this._log(`${path} is already exist as the folder`);
                 // Nothing to do and other modules should also nothing to do.
                 return true;
@@ -590,7 +596,7 @@ export abstract class ServiceFileHandlerBase
                     LOG_LEVEL_VERBOSE
                 );
                 // Before writing (or skipped ), merging dialogue should be cancelled.
-                this.events.emitEvent("conflict-cancelled", path);
+                this.events.emitEvent(EVENT_CONFLICT_CANCELLED, path);
                 const ret = await this.dbToStorage(entry, targetFile);
                 this._log(`Processing ${path} (${entry._id.substring(0, 8)} :${entry._rev?.substring(0, 5)}) : Done`);
                 return ret;

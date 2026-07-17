@@ -1123,7 +1123,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 (settings.couchDB_DBNAME == "" ? "" : "/" + settings.couchDB_DBNAME),
             auth,
             settings.disableRequestURI || isMobile,
-            settings.encrypt ? settings.passphrase : settings.encrypt,
+            settings.encrypt ? settings.passphrase : false,
             settings.useDynamicIterationCount,
             performSetup,
             skipInfo,

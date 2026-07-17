@@ -60,7 +60,7 @@ export function useP2PReplicator(
     host.services.appLifecycle.onResumed.addHandler(() => {
         const settings = host.services.setting.currentSettings();
         if (settings.P2P_Enabled && settings.P2P_AutoStart) {
-            compatGlobal.setTimeout(() => void replicator.open(), 100);
+            compatGlobal.setTimeout((): void => void replicator.open(), 100);
         }
         return Promise.resolve(true);
     });
@@ -166,7 +166,7 @@ export function useP2PReplicator(
             });
             host.services.API.addRibbonIcon("waypoints", "P2P Replicator", () => {
                 void openPane();
-            })?.addClass?.("livesync-ribbon-replicate-p2p");
+            })?.classList.add("livesync-ribbon-replicate-p2p");
 
             return Promise.resolve(true);
         });
