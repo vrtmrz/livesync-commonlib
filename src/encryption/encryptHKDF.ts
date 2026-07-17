@@ -1,4 +1,4 @@
-import { encryptHKDFWorker, decryptHKDFWorker } from "@lib/worker/bgWorker.ts";
+import { encryptHKDFWorker, decryptHKDFWorker } from "#worker";
 
 export const encryptHKDF = encryptHKDFWorker;
 export const decryptHKDF = decryptHKDFWorker;

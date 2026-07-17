@@ -1,7 +1,7 @@
 // Foreground part of Worker-off-loaded functions
 
 import { promiseWithResolvers } from "octagonal-wheels/promises.js";
-import { eventHub } from "@lib/hub/hub.ts";
+import type { LiveSyncEventHub } from "@lib/hub/hub.ts";
 //@ts-ignore
 import WorkerX from "./bg.worker.ts?worker&inline";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
@@ -114,10 +114,10 @@ function initialiseWorkers() {
 }
 
 let workers: WorkerInstance[] = [];
-export function initialiseWorkerModule() {
+let offPlatformUnloaded: (() => void) | undefined;
+export function initialiseWorkerModule(events: LiveSyncEventHub) {
     if (workers.length > 0) {
         terminateWorker();
-        workers = [];
     }
     workers = initialiseWorkers();
     for (const inst of workers) {
@@ -165,7 +165,7 @@ export function initialiseWorkerModule() {
         };
     }
 
-    eventHub.on(EVENT_PLATFORM_UNLOADED, () => {
+    offPlatformUnloaded = events.onEvent(EVENT_PLATFORM_UNLOADED, () => {
         terminateWorker();
     });
 }
@@ -211,5 +211,8 @@ export function terminateWorker() {
     for (const inst of workers) {
         inst.worker.terminate();
     }
+    workers = [];
+    offPlatformUnloaded?.();
+    offPlatformUnloaded = undefined;
     // isTerminated = true;
 }

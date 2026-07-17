@@ -14,10 +14,3 @@ export type LiveSyncEventHub = EventHub<LSEvents>;
 export function createLiveSyncEventHub(): LiveSyncEventHub {
     return new EventHub<LSEvents>();
 }
-
-/**
- * Process-global compatibility hub used while existing services migrate to `ServiceContext.events`.
- *
- * @deprecated Receive an instance-owned hub from a service context.
- */
-export const eventHub = createLiveSyncEventHub();

@@ -3,6 +3,14 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
+  "imports": {
+    "#worker": {
+      "browser": "./src/worker/bgWorker.ts",
+      "deno": "./src/worker/bgWorker.direct.ts",
+      "node": "./src/worker/bgWorker.direct.ts",
+      "default": "./src/worker/bgWorker.direct.ts"
+    }
+  },
   "scripts": {
     "check:boundary": "node _tools/check-package-boundary.mjs",
     "test": "vitest run",

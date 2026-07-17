@@ -5,6 +5,7 @@ import { encrypt as encryptHKDF, decrypt as decryptHKDF } from "octagonal-wheels
 import { splitPieces2, splitPieces2V2, splitPiecesRabinKarp } from "@lib/string_and_binary/chunks.ts";
 import type { EncryptHKDFProcessItem, EncryptProcessItem, SplitProcessItem, ProcessItem } from "./universalTypes.ts";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
+import type { LiveSyncEventHub } from "@lib/hub/hub.ts";
 
 export type SplitArguments = {
     key: number;
@@ -121,4 +122,4 @@ export function startWorker(data: Omit<EncryptArguments | SplitArguments | Encry
 
 export const tasks = new Map<number, ProcessItem>();
 
-export function initialiseWorkerModule() {}
+export function initialiseWorkerModule(_events: LiveSyncEventHub) {}
