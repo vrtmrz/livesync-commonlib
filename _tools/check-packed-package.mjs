@@ -160,6 +160,7 @@ assert.equal(typeof nodeRuntime.fs.readFileSync, "function");
 assert.equal(typeof nodeRuntime.fsPromises.readFile, "function");
 assert.equal(typeof nodeRuntime.path.join, "function");
 assert.equal(typeof nodeRuntime.readline.createInterface, "function");
+assert.equal(typeof nodeRuntime.createNodeStandardIo, "function");
 assert.equal(typeof nodeRuntime.fileURLToPath, "function");
 assert.ok(nodeRuntime.builtinModules.includes("fs"));
 assert.equal(nodeRuntime.isBuiltin("stream"), true);
@@ -190,9 +191,17 @@ assert.deepEqual(
 );
 await writeConsumerFile(
     "browser-context.ts",
-    `import { createServiceContext } from "${packageName}/context";
+    `import { createServiceContext, type StandardIo } from "${packageName}/context";
 
 document.body.dataset.translation = createServiceContext().translate("message.key");
+
+const memoryIo: StandardIo = {
+    readStdin: async () => "input",
+    prompt: async () => "answer",
+    writeStdout: () => undefined,
+    writeStderr: () => undefined,
+};
+void memoryIo;
 `
 );
 await writeConsumerFile(
