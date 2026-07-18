@@ -4,7 +4,7 @@ import { execFileSync } from "node:child_process";
 import { access, mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve, sep } from "node:path";
 
-import { extractImportSpecifiers } from "./package-boundary.mjs";
+import { extractImportSpecifiers, normaliseDownstreamCommonlibSpecifier } from "./package-boundary.mjs";
 
 const sourceExtensions = [".ts", ".tsx", ".mts", ".cts", ".svelte"];
 const ignoredDirectories = new Set([".git", "_types", "dist", "node_modules"]);
@@ -39,10 +39,6 @@ async function collectSourceFiles(directory, downstreamRoot) {
     return files;
 }
 
-function normaliseLibSpecifier(specifier) {
-    return specifier.slice("@lib/".length).replace(/\.(?:ts|js)$/u, "");
-}
-
 function classify(specifier) {
     if (obsoleteImports.has(specifier)) return "obsolete";
     if (hostOwnedPatterns.some((pattern) => pattern.test(specifier))) return "hostOwned";
@@ -73,7 +69,8 @@ for (const sourceRoot of downstreamSources) {
     for (const path of await collectSourceFiles(sourceRoot, downstream)) {
         const source = await readFile(path, "utf8");
         for (const specifier of extractImportSpecifiers(source)) {
-            if (specifier.startsWith("@lib/")) specifiers.add(normaliseLibSpecifier(specifier));
+            const sourcePath = normaliseDownstreamCommonlibSpecifier(specifier);
+            if (sourcePath !== undefined) specifiers.add(sourcePath);
         }
     }
 }

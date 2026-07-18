@@ -5,6 +5,7 @@ import {
     extractImportSpecifiers,
     hasForbiddenDomPrototypeAccess,
     isForbiddenPackageImport,
+    normaliseDownstreamCommonlibSpecifier,
 } from "./package-boundary.mjs";
 
 test("extracts static, type-only, side-effect, export, and dynamic imports", () => {
@@ -41,6 +42,16 @@ test("rejects host aliases and Obsidian imports without rejecting package-local 
     assert.equal(isForbiddenPackageImport("obsidian/unsupported"), true);
     assert.equal(isForbiddenPackageImport("@lib/common/types"), false);
     assert.equal(isForbiddenPackageImport("octagonal-wheels/promises"), false);
+});
+
+test("normalises legacy source and package compatibility imports for the downstream inventory", () => {
+    assert.equal(normaliseDownstreamCommonlibSpecifier("@lib/common/types.ts"), "common/types");
+    assert.equal(
+        normaliseDownstreamCommonlibSpecifier("@vrtmrz/livesync-commonlib/compat/common/types"),
+        "common/types"
+    );
+    assert.equal(normaliseDownstreamCommonlibSpecifier("@vrtmrz/livesync-commonlib/context"), undefined);
+    assert.equal(normaliseDownstreamCommonlibSpecifier("octagonal-wheels/promises"), undefined);
 });
 
 test("rejects DOM prototype access in production modules", () => {

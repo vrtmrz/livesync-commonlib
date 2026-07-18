@@ -121,6 +121,14 @@ Resolve these questions before describing the corresponding behaviour as stable:
 
 The package build records each compatibility path explicitly. Do not add a wildcard export. A new compatibility path requires a real downstream import, a packed-consumer or downstream test, and a migration plan towards a focused public entry or the owning package.
 
+After the reviewed Self-hosted LiveSync revision changes, inspect its current compatibility imports with:
+
+```bash
+npm run update:downstream-import-inventory -- --downstream /path/to/obsidian-livesync
+```
+
+The command recognises both the former `@lib/*` source aliases and current `@vrtmrz/livesync-commonlib/compat/*` package imports. It ignores focused package entries. Review the resulting paths and recorded downstream commit before accepting them. Regenerate the export map only for a new package version: do not change the contents represented by an immutable published version.
+
 TODO: classify and document compatibility paths whose purpose is still unclear before stabilising the first public release. Remove obsolete paths rather than documenting accidental layout as API.
 
 Release preparation and staged-publication checks are documented in [the maintainer runbook](releasing.md).

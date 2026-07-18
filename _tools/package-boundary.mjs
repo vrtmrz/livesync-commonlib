@@ -88,6 +88,20 @@ export function extractImportSpecifiers(source) {
 }
 
 /**
+ * Returns the Commonlib source-relative path represented by a downstream migration import.
+ * Stable package entries are deliberately excluded from the compatibility inventory.
+ */
+export function normaliseDownstreamCommonlibSpecifier(specifier) {
+    const legacyPrefix = "@lib/";
+    const compatibilityPrefix = "@vrtmrz/livesync-commonlib/compat/";
+    let sourcePath;
+    if (specifier.startsWith(legacyPrefix)) sourcePath = specifier.slice(legacyPrefix.length);
+    else if (specifier.startsWith(compatibilityPrefix)) sourcePath = specifier.slice(compatibilityPrefix.length);
+    else return undefined;
+    return sourcePath.replace(/\.(?:ts|js)$/u, "");
+}
+
+/**
  * Package modules must not patch DOM prototypes when they are imported.
  * Keeping prototype access out of production source makes this boundary easy to audit.
  */

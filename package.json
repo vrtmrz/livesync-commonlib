@@ -37,6 +37,7 @@
     "test:integration:managed": "node _tools/run-integration-tests.mjs --manage-services",
     "test:package": "npm run build:package && npm run check:package",
     "test:release": "node --test _tools/validate-release-selection.test.mjs",
+    "update:downstream-import-inventory": "node _tools/update-downstream-import-inventory.mjs",
     "verify:package": "npm run check:types && npm test && npm run test:boundary && npm run test:release && npm run check:boundary && npm run test:package"
   },
   "dependencies": {
