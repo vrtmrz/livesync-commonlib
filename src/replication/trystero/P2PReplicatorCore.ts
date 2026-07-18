@@ -1,26 +1,24 @@
 /**
- * Obsoleted: separated into non-UI things and UI things.
+ * Compatibility composition for the former combined P2P feature.
+ *
+ * Replicator ownership and lifecycle now belong exclusively to
+ * `useP2PReplicatorFeature`. This wrapper retains the former optional view
+ * registration and return shape for downstream callers.
  */
-import { AutoAccepting, REMOTE_P2P, type ObsidianLiveSyncSettings } from "@lib/common/types";
-import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
+import { REMOTE_P2P } from "@lib/common/types";
+import { reactiveSource } from "octagonal-wheels/dataobject/reactive_v2";
 import { EVENT_REQUEST_OPEN_P2P } from "@lib/events/coreEvents";
-import { LiveSyncTrysteroReplicator, type LiveSyncTrysteroReplicatorEnv } from "./LiveSyncTrysteroReplicator";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
-import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { P2PLogCollector } from "./P2PLogCollector";
-import { addP2PEventHandlers } from "./addP2PEventHandlers";
 import type { P2PPaneParams } from "./UseP2PReplicatorResult";
-import { compatGlobal } from "@lib/common/coreEnvFunctions";
+import { useP2PReplicatorCommands } from "./useP2PReplicatorCommands";
+import { useP2PReplicatorFeature } from "./useP2PReplicatorFeature";
 
 export type P2PViewFactory = (leaf: unknown) => unknown;
 
 /**
- * ServiceFeature: P2P Replicator lifecycle management.
- * Binds a LiveSyncTrysteroReplicator to the host's lifecycle events,
- * following the same middleware style as useOfflineScanner.
- *
- * @param viewTypeAndFactory  Optional [viewType, factory] pair for registering the P2P pane view.
- *                            When provided, also registers commands and ribbon icon via services.API.
+ * @deprecated Compose `useP2PReplicatorFeature` with host-specific commands
+ * and UI instead. This wrapper remains for source compatibility.
  */
 export function useP2PReplicator(
     host: NecessaryServices<
@@ -40,122 +38,33 @@ export function useP2PReplicator(
     >,
     viewTypeAndFactory?: [viewType: string, factory: P2PViewFactory]
 ): P2PPaneParams {
-    const env: LiveSyncTrysteroReplicatorEnv = { services: host.services };
-    let replicator = new LiveSyncTrysteroReplicator(env);
-    const activeReplicator = {
-        get instance() {
-            return replicator;
-        },
-    };
+    const activeReplicator = useP2PReplicatorFeature(host);
     const events = host.services.context.events;
-    addP2PEventHandlers(activeReplicator.instance, events);
-
     const p2pLogCollector = new P2PLogCollector(events);
     const storeP2PStatusLine = reactiveSource("");
     p2pLogCollector.p2pReplicationLine.onChanged((line) => {
         storeP2PStatusLine.value = line.value;
     });
 
-    // Lifecycle bindings
-    host.services.appLifecycle.onResumed.addHandler(() => {
-        const settings = host.services.setting.currentSettings();
-        if (settings.P2P_Enabled && settings.P2P_AutoStart) {
-            compatGlobal.setTimeout((): void => void replicator.open(), 100);
-        }
-        return Promise.resolve(true);
-    });
-    host.services.appLifecycle.onUnload.addHandler(async () => {
-        await replicator.close();
-        return true;
-    });
-
-    host.services.appLifecycle.onSuspending.addHandler(async () => {
-        await replicator.close();
-        return true;
-    });
-
-    host.services.databaseEvents.onDatabaseInitialisation.addHandler(async () => {
-        await replicator.close();
-        return true;
-    });
-
-    // Suspend extra sync handler
-    host.services.setting.suspendExtraSync.addHandler(() => {
-        const s = host.services.setting.currentSettings();
-        // When P2P is the primary remote type, do not disable P2P_Enabled —
-        // the rebuild/fetch flows depend on it to replicate from a peer.
-        if (s.remoteType !== REMOTE_P2P) {
-            s.P2P_Enabled = false;
-        }
-        s.P2P_AutoAccepting = AutoAccepting.NONE;
-        s.P2P_AutoBroadcast = false;
-        s.P2P_AutoStart = false;
-        s.P2P_AutoSyncPeers = "";
-        s.P2P_AutoWatchPeers = "";
-        return Promise.resolve(true);
-    });
-
-    // New replicator factory
-    host.services.replicator.getNewReplicator.addHandler(
-        async (settingOverride: Partial<ObsidianLiveSyncSettings> = {}) => {
-            const settings = { ...host.services.setting.currentSettings(), ...settingOverride };
-            if (settings.remoteType == REMOTE_P2P) {
-                // Returning replicator instance directly here
-                // return Promise.resolve(replicator);
-                try {
-                    await replicator.close();
-                } catch (e) {
-                    Logger(`Error closing existing p2p replicator`);
-                    Logger(e, LOG_LEVEL_VERBOSE);
-                }
-                const newReplicator = new LiveSyncTrysteroReplicator({ services: host.services });
-                replicator = newReplicator; // Update the replicator reference for lifecycle handlers
-                return Promise.resolve(replicator);
-            }
-            return undefined!;
-        }
-    );
-
-    // Register view, commands and ribbon if a view factory is provided
     if (viewTypeAndFactory) {
         const [viewType, factory] = viewTypeAndFactory;
         const openPane = () => host.services.API.showWindow(viewType);
+        useP2PReplicatorCommands(host, activeReplicator);
 
         host.services.appLifecycle.onInitialise.addHandler(() => {
             host.services.API.registerWindow(viewType, factory);
-
-            events.onEvent(EVENT_REQUEST_OPEN_P2P, () => {
-                void openPane();
-            });
+            events.onEvent(EVENT_REQUEST_OPEN_P2P, () => void openPane());
 
             host.services.API.addCommand({
                 id: "open-p2p-replicator",
                 name: "P2P Sync : Open P2P Replicator",
-                callback: () => {
-                    void openPane();
-                },
-            });
-            host.services.API.addCommand({
-                id: "p2p-establish-connection",
-                name: "P2P Sync : Connect to the Signalling Server",
-                checkCallback: (isChecking: boolean) => {
-                    if (isChecking) return !(replicator.server?.isServing ?? false);
-                    void replicator.open();
-                },
-            });
-            host.services.API.addCommand({
-                id: "p2p-close-connection",
-                name: "P2P Sync : Disconnect from the Signalling Server",
-                checkCallback: (isChecking: boolean) => {
-                    if (isChecking) return replicator.server?.isServing ?? false;
-                    Logger("Closing P2P Connection", LOG_LEVEL_NOTICE);
-                    void replicator.close();
-                },
+                callback: () => void openPane(),
             });
             host.services.API.addCommand({
                 id: "replicate-now-by-p2p",
                 name: "Replicate now by P2P",
                 checkCallback: (isChecking: boolean) => {
+                    const replicator = activeReplicator.replicator;
                     const settings = host.services.setting.currentSettings();
                     if (isChecking) {
                         if (settings.remoteType == REMOTE_P2P) return false;
@@ -172,5 +81,11 @@ export function useP2PReplicator(
         });
     }
 
-    return { replicator, p2pLogCollector, storeP2PStatusLine };
+    return {
+        get replicator() {
+            return activeReplicator.replicator;
+        },
+        p2pLogCollector,
+        storeP2PStatusLine,
+    };
 }

@@ -16,6 +16,7 @@ import type {
     MISSING_OR_ERROR,
     ObsidianLiveSyncSettings,
     RemoteDBSettings,
+    SettingsMigrationState,
     TweakValues,
     UXFileInfo,
     UXFileInfoStub,
@@ -185,6 +186,7 @@ export interface IReplicationService {
     onBeforeReplicate(showMessage: boolean): Promise<boolean>;
     checkConnectionFailure(): Promise<boolean | "CHECKAGAIN" | undefined>;
 
+    /** Lightweight, idempotent policy checks which every replication entry point may invoke. */
     onCheckReplicationReady(showMessage: boolean): Promise<boolean>;
     isReplicationReady(showMessage: boolean): Promise<boolean>;
     performReplication(showMessage?: boolean): Promise<boolean | void>;
@@ -311,11 +313,25 @@ export interface ISettingService {
 
     loadSettings(): Promise<void>;
 
+    getSettingsMigrationState(): SettingsMigrationState | undefined;
+
     getDeviceAndVaultName(): string;
 
     setDeviceAndVaultName(name: string): void;
 
     saveDeviceAndVaultName(): void;
+
+    /**
+     * Read host-provided, device-local configuration by its exact key.
+     * This storage is not part of the synchronised settings document.
+     */
+    getDeviceLocalConfig(key: string): string | null;
+
+    /** Store host-provided, device-local configuration by its exact key. */
+    setDeviceLocalConfig(key: string, value: string): void;
+
+    /** Delete host-provided, device-local configuration by its exact key. */
+    deleteDeviceLocalConfig(key: string): void;
 
     onBeforeSaveSettingData(
         nextSettings: ObsidianLiveSyncSettings,

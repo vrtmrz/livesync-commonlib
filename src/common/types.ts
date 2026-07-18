@@ -113,7 +113,21 @@ import {
     PREFERRED_SETTING_CLOUDANT,
     PREFERRED_SETTING_SELF_HOSTED,
 } from "./models/setting.const.preferred.ts";
-import { P2P_DEFAULT_SETTINGS, DEFAULT_SETTINGS } from "./models/setting.const.defaults.ts";
+import {
+    P2P_DEFAULT_SETTINGS,
+    DEFAULT_SETTINGS,
+    NEW_VAULT_SETTINGS,
+    SETTINGS_SCHEMA_DEFAULTS,
+    createNewVaultSettings,
+} from "./models/setting.const.defaults.ts";
+import {
+    prepareSettingsForLoad,
+    SettingsMigrationReviewCodes,
+    type PreparedSettings,
+    type SettingsMigrationReviewCode,
+    type SettingsMigrationReviewReason,
+    type SettingsMigrationState,
+} from "./models/setting.lifecycle.ts";
 import { KeyIndexOfSettings } from "./models/setting.const.qr.ts";
 import type {
     DeviceInfo,
@@ -260,7 +274,15 @@ export { HashAlgorithms, type HashAlgorithm, ChunkAlgorithmNames, ChunkAlgorithm
 export type { RemoteDBSettings };
 export type { ObsidianLiveSyncSettings };
 
-export { DEFAULT_SETTINGS };
+export { DEFAULT_SETTINGS, NEW_VAULT_SETTINGS, SETTINGS_SCHEMA_DEFAULTS, createNewVaultSettings };
+export {
+    prepareSettingsForLoad,
+    SettingsMigrationReviewCodes,
+    type PreparedSettings,
+    type SettingsMigrationReviewCode,
+    type SettingsMigrationReviewReason,
+    type SettingsMigrationState,
+};
 export { KeyIndexOfSettings };
 
 export { type HasSettings };

@@ -53,7 +53,7 @@ export class RpcRoom {
     private incomingChunkMap = new Map<string, IncomingChunkBuffer>();
     private incomingChunkTimers = new Map<string, number>();
     private peerVersion = new Map<string, { major: number; minor: number }>();
-    private disposer: (() => void) | undefined;
+    private disposers: Array<() => void> = [];
 
     constructor(options: RpcRoomOptions) {
         this.options = {
@@ -61,28 +61,34 @@ export class RpcRoom {
             chunkMissingRetryMs: options.chunkMissingRetryMs ?? 350,
             ...options,
         };
-        this.disposer = this.options.transport.onMessage((msg, peerId) => {
-            void this.onWireMessage(msg, peerId);
-        });
+        this.disposers.push(
+            this.options.transport.onMessage((msg, peerId) => {
+                void this.onWireMessage(msg, peerId);
+            })
+        );
         if (this.options.transport.onPeerJoin) {
-            this.options.transport.onPeerJoin((peerId) => {
-                void this.sendEnvelope(peerId, {
-                    kind: "handshake",
-                    versionMajor: RPC_VERSION_MAJOR,
-                    versionMinor: RPC_VERSION_MINOR,
-                });
-            });
+            this.disposers.push(
+                this.options.transport.onPeerJoin((peerId) => {
+                    void this.sendEnvelope(peerId, {
+                        kind: "handshake",
+                        versionMajor: RPC_VERSION_MAJOR,
+                        versionMinor: RPC_VERSION_MINOR,
+                    });
+                })
+            );
         }
         if (this.options.transport.onPeerLeave) {
-            this.options.transport.onPeerLeave((peerId) => {
-                this.sessions.delete(peerId);
-                this.peerVersion.delete(peerId);
-            });
+            this.disposers.push(
+                this.options.transport.onPeerLeave((peerId) => {
+                    this.sessions.delete(peerId);
+                    this.peerVersion.delete(peerId);
+                })
+            );
         }
     }
 
     close() {
-        this.disposer?.();
+        this.disposers.splice(0).forEach((dispose) => dispose());
         this.pending.forEach((pending) => pending.reject(new RpcError("NOT_CONNECTED", "Room closed")));
         this.pending.clear();
         this.inboundCalls.clear();

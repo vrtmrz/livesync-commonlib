@@ -58,7 +58,7 @@ export function useP2PReplicatorFeature(
             return replicator;
         },
     };
-    addP2PEventHandlers(activeReplicator.replicator, host.services.context.events);
+    addP2PEventHandlers(() => activeReplicator.replicator, host.services.context.events);
     host.services.replicator.getNewReplicator.addHandler(
         async (settingOverride: Partial<ObsidianLiveSyncSettings> = {}) => {
             const settings = { ...host.services.setting.currentSettings(), ...settingOverride };

@@ -46,7 +46,7 @@
     "@smithy/middleware-apply-body-checksum": "^4.3.9",
     "@smithy/types": "^4.14.3",
     "@smithy/util-retry": "^4.4.5",
-    "@trystero-p2p/nostr": "^0.24.0",
+    "@trystero-p2p/nostr": "0.25.3",
     "diff-match-patch": "^1.0.5",
     "events": "^3.3.0",
     "fflate": "^0.8.2",

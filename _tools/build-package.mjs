@@ -46,6 +46,18 @@ async function compileTypeScriptModules() {
     });
 }
 
+async function selectProductionLanguageCatalogue() {
+    const i18nModulePath = resolve(outputDirectory, "common/i18n.js");
+    const source = await readFile(i18nModulePath, "utf8");
+    const developmentCatalogue = "./messages/combinedMessages.dev.ts";
+    const productionCatalogue = "./messages/combinedMessages.prod.ts";
+    const rewritten = source.replace(developmentCatalogue, productionCatalogue);
+    if (rewritten === source) {
+        throw new Error(`The compiled i18n module did not import ${developmentCatalogue}.`);
+    }
+    await writeFile(i18nModulePath, rewritten);
+}
+
 async function bundleInlineWorker() {
     const workerResult = await build({
         bundle: true,
@@ -87,19 +99,6 @@ export default function createWorker() {
         packages: "external",
         platform: "browser",
         plugins: [inlineWorkerPlugin],
-        target: "es2022",
-        tsconfig: resolve(root, "tsconfig.json"),
-    });
-}
-
-async function bundleLanguageCatalogue() {
-    await build({
-        bundle: true,
-        entryPoints: [resolve(sourceDirectory, "common/i18n.ts")],
-        format: "esm",
-        outfile: resolve(outputDirectory, "common/i18n.js"),
-        packages: "external",
-        platform: "neutral",
         target: "es2022",
         tsconfig: resolve(root, "tsconfig.json"),
     });
@@ -195,6 +194,7 @@ function createExports() {
         "./context": exportTarget("context"),
         "./node": exportTarget("platform/node/index"),
         "./rpc": exportTarget("rpc/index"),
+        "./settings": exportTarget("settings"),
     };
     for (const sourcePath of inventory.compatibility) {
         exports[`./compat/${sourcePath}`] =
@@ -260,10 +260,12 @@ async function copyStaticFiles() {
     await mkdir(resolve(packageDirectory, "docs"), { recursive: true });
     for (const document of [
         "development.md",
+        "p2p-transport-lifecycle.md",
         "platform-standard-io.md",
         "platform-storage.md",
         "proven-in-use.md",
         "releasing.md",
+        "settings-lifecycle.md",
     ]) {
         await cp(resolve(root, "docs", document), resolve(packageDirectory, "docs", document));
     }
@@ -318,8 +320,8 @@ execFileSync(process.execPath, [resolve(root, "node_modules/typescript/bin/tsc")
     stdio: "inherit",
 });
 await compileTypeScriptModules();
+await selectProductionLanguageCatalogue();
 await bundleInlineWorker();
-await bundleLanguageCatalogue();
 await copyStaticFiles();
 await rewriteModuleSpecifiers();
 await writePackageManifest();

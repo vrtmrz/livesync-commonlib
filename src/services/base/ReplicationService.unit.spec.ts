@@ -57,6 +57,19 @@ describe("ReplicationService activity boundary", () => {
         expect(openReplication).not.toHaveBeenCalled();
     });
 
+    it("honours reusable replication policy checks before starting standard replication", async () => {
+        const { dependencies, openReplication, runFiniteReplicationActivity } = createDependencies();
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+        const policyCheck = vi.fn(async () => false);
+        service.onCheckReplicationReady.addHandler(policyCheck);
+
+        await expect(service.replicate(true)).resolves.toBe(false);
+
+        expect(policyCheck).toHaveBeenCalledWith(true);
+        expect(runFiniteReplicationActivity).not.toHaveBeenCalled();
+        expect(openReplication).not.toHaveBeenCalled();
+    });
+
     it("ends the bounded activity before handling a failed replication", async () => {
         const { dependencies, openReplication } = createDependencies();
         const calls: string[] = [];

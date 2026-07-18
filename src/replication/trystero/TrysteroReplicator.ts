@@ -116,6 +116,12 @@ export class TrysteroReplicator {
         return await task();
     }
 
+    private async canStartOrdinaryReplication(showMessage: boolean = false): Promise<boolean> {
+        return this._env.canStartOrdinaryReplication
+            ? await this._env.canStartOrdinaryReplication(showMessage)
+            : true;
+    }
+
     constructor(env: ReplicatorHostEnv, server?: P2PHost) {
         this._env = env;
         if (server) {
@@ -351,6 +357,9 @@ export class TrysteroReplicator {
     async requestSynchroniseToPeer(
         peerId: string
     ): Promise<Awaited<ReturnType<ReturnType<typeof this.getCommands>["reqSync"]>>> {
+        if (!(await this.canStartOrdinaryReplication(false))) {
+            return { error: new Error("Replication is not ready") };
+        }
         await delay(25);
         if (!this.server) throw new Error("Server is not available");
         // Logger(`P2P requesting remote sync from ${peerId}`, LOG_LEVEL_NOTICE, "p2p-replicator");
@@ -547,7 +556,17 @@ export class TrysteroReplicator {
                 Logger(ex, LOG_LEVEL_VERBOSE);
             });
     }
-    async replicateFrom(remotePeer: string, showNotice: boolean = false, fromStart = false) {
+    async replicateFrom(
+        remotePeer: string,
+        showNotice: boolean = false,
+        fromStart = false,
+        skipOrdinaryReplicationPolicy = false
+    ) {
+        // Explicit Fetch/Rebuild flows have their own destructive-operation
+        // confirmation and must remain available while ordinary replication is paused.
+        if (!skipOrdinaryReplicationPolicy && !(await this.canStartOrdinaryReplication(showNotice))) {
+            return { error: new Error("Replication is not ready") };
+        }
         const logLevel = showNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
         Logger(`P2P Requesting Authentication to ${remotePeer}`, logLevel, "p2p-replicator");
         if ((await this.requestAuthenticate(remotePeer)) !== true) {
@@ -786,14 +805,11 @@ export class TrysteroReplicator {
     disconnectFromServer() {
         // Trystero does not provide typings for getRelaySockets.
         // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-        const connections = getRelaySockets() as Record<string, { close: () => void; onclose: (() => void) | null }>;
+        const connections = getRelaySockets() as Record<string, { close: () => void }>;
         const sockets = Object.entries(connections);
         pauseRelayReconnection();
         sockets.forEach(([, s]) => {
             s.close();
-            s.onclose = () => {
-                void this.server?.dispatchConnectionStatus();
-            }; // Prevent reconnection
         });
         void this.pauseServe();
     }

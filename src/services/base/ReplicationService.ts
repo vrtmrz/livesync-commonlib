@@ -96,7 +96,9 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
     readonly onBeforeReplicate = handlers<IReplicationService>().bailFirstFailure("onBeforeReplicate");
 
     /**
-     *
+     * Lightweight, repeatable policy checks shared by every replication entry point.
+     * Handlers must remain idempotent because a high-level replication may cross
+     * more than one entry point before work begins.
      */
     readonly onCheckReplicationReady = handlers<IReplicationService>().bailFirstFailure("onCheckReplicationReady");
 
@@ -107,6 +109,9 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
     async isReplicationReady(showMessage: boolean = false): Promise<boolean> {
         if (!this.appLifecycleService.isReady()) {
             this._log(`Not ready`);
+            return false;
+        }
+        if (!(await this.onCheckReplicationReady(showMessage))) {
             return false;
         }
         const currentSettings = this.settingService.currentSettings();

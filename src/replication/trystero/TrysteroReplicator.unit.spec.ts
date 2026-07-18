@@ -79,4 +79,46 @@ describe("TrysteroReplicator automatic remote activity", () => {
 
         expect(sync).toHaveBeenCalledWith("peer-id");
     });
+
+    it("does not pull from a peer when the host replication policy rejects it", async () => {
+        const { replicator } = createReplicator();
+        const canReplicate = vi.fn(async () => false);
+        (replicator as any)._env.canStartOrdinaryReplication = canReplicate;
+        const requestAuthenticate = vi.spyOn(replicator, "requestAuthenticate");
+
+        const result = await replicator.replicateFrom("peer-id", true);
+
+        expect(result).toMatchObject({ error: expect.any(Error) });
+        expect(canReplicate).toHaveBeenCalledWith(true);
+        expect(requestAuthenticate).not.toHaveBeenCalled();
+    });
+
+    it("does not ask a peer to pull when the host replication policy rejects it", async () => {
+        const { replicator } = createReplicator();
+        const canReplicate = vi.fn(async () => false);
+        const invokeRemoteFunction = vi.fn();
+        (replicator as any)._env.canStartOrdinaryReplication = canReplicate;
+        (replicator as any).server = {
+            serverPeerId: "local-peer",
+            getConnection: vi.fn(() => ({ invokeRemoteFunction })),
+        };
+
+        const result = await replicator.requestSynchroniseToPeer("peer-id");
+
+        expect(result).toMatchObject({ error: expect.any(Error) });
+        expect(canReplicate).toHaveBeenCalledWith(false);
+        expect(invokeRemoteFunction).not.toHaveBeenCalled();
+    });
+
+    it("keeps an explicitly confirmed rebuild pull available while ordinary replication is paused", async () => {
+        const { replicator } = createReplicator();
+        const canReplicate = vi.fn(async () => false);
+        (replicator as any)._env.canStartOrdinaryReplication = canReplicate;
+        const requestAuthenticate = vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(false);
+
+        await replicator.replicateFrom("peer-id", true, false, true);
+
+        expect(canReplicate).not.toHaveBeenCalled();
+        expect(requestAuthenticate).toHaveBeenCalledWith("peer-id");
+    });
 });

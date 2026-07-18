@@ -106,6 +106,8 @@ export interface ReplicatorHostEnv extends ReplicatorHost {
     db: PouchDB.Database<EntryDoc>;
     simpleStore: SimpleStore<unknown>;
     runFiniteReplicationActivity?: AsyncActivityRunner["run"];
+    /** Lightweight, repeatable host policy checked before ordinary P2P replication starts. */
+    canStartOrdinaryReplication?(showMessage?: boolean): Promise<boolean>;
 
     processReplicatedDocs(docs: Array<PouchDB.Core.ExistingDocument<EntryDoc>>): void | Promise<void>;
 }

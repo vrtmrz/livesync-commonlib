@@ -32,6 +32,8 @@ The browser and Node storage implementations run through the same Commonlib resu
 
 The browser service composition in [`createLiveSyncBrowserServiceHub.ts`](https://github.com/vrtmrz/obsidian-livesync/blob/6cc06bf20fc044c70408ef3d92fe0bbc0874479d/src/apps/browser/createLiveSyncBrowserServiceHub.ts) supplies browser-owned API and UI services around a caller-supplied context. WebPeer and the browser applications exercise this compatibility surface through type checks and builds.
 
+The Obsidian plug-in, CLI, and Webapp compose P2P ownership through `useP2PReplicatorFeature`. Commands and Obsidian views retain its live result object and resolve the current replicator when an action occurs. WebPeer still enters through the deprecated combined compatibility function, which now delegates the same ownership and lifecycle to the focused feature instead of maintaining a second implementation. Downstream Deno and Compose P2P E2E cover peer discovery and synchronisation; the Webapp and WebPeer UI surfaces themselves remain build- and type-check evidence rather than equivalent real-runtime gates.
+
 This is evidence that the current package boundary can be consumed without the Obsidian host, but it is not yet a recommended standalone Commonlib client factory. The high-level lifecycle, readiness, error, and disposal contract remains a documented 1.0 decision.
 
 ## What a new consumer should copy

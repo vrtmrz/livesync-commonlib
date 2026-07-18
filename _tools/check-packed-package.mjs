@@ -57,8 +57,27 @@ assert.ok(
     "The release guide linked from the developer guide must be included in the package."
 );
 assert.ok(
+    packed.files.some(({ path }) => path === "docs/settings-lifecycle.md"),
+    "The settings lifecycle guide linked from the README must be included in the package."
+);
+assert.ok(
+    packed.files.some(({ path }) => path === "docs/p2p-transport-lifecycle.md"),
+    "The P2P transport lifecycle guide linked from the developer guide must be included in the package."
+);
+assert.ok(
     packed.files.every(({ path }) => !path.includes(".svelte")),
     "Host-owned Svelte source and compiled components must not be published."
+);
+
+const i18nModule = await readFile(resolve(packageDirectory, "dist/common/i18n.js"), "utf8");
+assert.match(
+    i18nModule,
+    /from\s+["']\.\/messages\/combinedMessages\.prod\.js["']/u,
+    "The i18n module must import the generated production catalogue instead of duplicating it in a pre-bundled file."
+);
+assert.ok(
+    Buffer.byteLength(i18nModule) < 20_000,
+    "The i18n entry point must remain a small ESM composition; consumers own final application bundling."
 );
 
 const tarballPath = resolve(artefactDirectory, packed.filename);
@@ -112,6 +131,13 @@ import {
     type CreateFileSystemAccessStorageOptions,
 } from "${packageName}/browser";
 import { splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
+import {
+    NEW_VAULT_SETTINGS,
+    SETTINGS_SCHEMA_DEFAULTS,
+    createNewVaultSettings,
+    prepareSettingsForLoad,
+    type SettingsMigrationState,
+} from "${packageName}/settings";
 
 const options: ServiceContextOptions = { translate: (key) => \`translated:\${key}\` };
 const context = createServiceContext(options);
@@ -122,6 +148,11 @@ const directOptions = {} as DirectFileManipulatorOptions;
 const directType: typeof DirectFileManipulator = DirectFileManipulator;
 const fileSystemAccessOptions = {} as CreateFileSystemAccessStorageOptions;
 const fileSystemAccessFactory: typeof createFileSystemAccessStorage = createFileSystemAccessStorage;
+const prepared = prepareSettingsForLoad(undefined);
+const migrationState: SettingsMigrationState = prepared;
+const newVaultSetting = NEW_VAULT_SETTINGS.usePluginSyncV2;
+const schemaFallback = SETTINGS_SCHEMA_DEFAULTS.usePluginSyncV2;
+const mutableNewVaultSettings = createNewVaultSettings();
 void context;
 void contextContract;
 void untranslated;
@@ -130,6 +161,10 @@ void directOptions;
 void directType;
 void fileSystemAccessOptions;
 void fileSystemAccessFactory;
+void migrationState;
+void newVaultSetting;
+void schemaFallback;
+void mutableNewVaultSettings;
 `
 );
 await writeConsumerFile(
@@ -150,6 +185,8 @@ const before = {
 
 const contextApi = await import("${packageName}/context");
 const rootApi = await import("${packageName}");
+const settingsApi = await import("${packageName}/settings");
+const i18nApi = await import("${packageName}/compat/common/i18n");
 const workerApi = await import("${packageName}/compat/worker/bgWorker");
 const runtimeCompat = await import("${packageName}/compat/common/coreEnvFunctions");
 const nodeRuntime = await import("${packageName}/node");
@@ -159,6 +196,11 @@ const p2pFeatureApi = await import(
 
 assert.equal(contextApi.createServiceContext().translate("message.key"), "message.key");
 assert.equal(typeof rootApi.DirectFileManipulator, "function");
+assert.equal(settingsApi.NEW_VAULT_SETTINGS.usePluginSyncV2, true);
+assert.equal(settingsApi.SETTINGS_SCHEMA_DEFAULTS.usePluginSyncV2, false);
+assert.equal(settingsApi.prepareSettingsForLoad(undefined).isNewVault, true);
+assert.notEqual(settingsApi.createNewVaultSettings(), settingsApi.NEW_VAULT_SETTINGS);
+assert.equal(i18nApi.$t("Activate", "es"), "Activar");
 assert.equal(runtimeCompat.compatGlobal, globalThis);
 assert.equal(typeof nodeRuntime.fs.readFileSync, "function");
 assert.equal(typeof nodeRuntime.fsPromises.readFile, "function");
@@ -362,7 +404,14 @@ assert.deepEqual(
 );
 assert.ok(Object.hasOwn(manifest.exports, "./browser"));
 assert.ok(Object.hasOwn(manifest.exports, "./node"));
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 6);
+assert.deepEqual(
+    Object.keys(manifest.exports)
+        .filter((path) => !path.startsWith("./compat/"))
+        .sort(),
+    [".", "./browser", "./context", "./node", "./package.json", "./rpc", "./settings"],
+    "The focused package surface must remain explicit."
+);
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 7);
 
 console.log(
     JSON.stringify(

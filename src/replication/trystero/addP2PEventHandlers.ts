@@ -21,28 +21,36 @@ export interface P2PReplicatorLike {
     readonly server?: { isServing?: boolean };
 }
 
+/** Resolves the replicator which currently owns P2P state. */
+export type P2PReplicatorProvider = () => P2PReplicatorLike;
+
 /**
  * Add event handlers for P2P replication related events.
- * @param instance P2PReplicatorLike instance
+ * @param source A fixed compatibility instance or a provider for a replaceable replicator.
  */
-export function addP2PEventHandlers(instance: P2PReplicatorLike, events: LiveSyncEventHub) {
+export function addP2PEventHandlers(
+    source: P2PReplicatorLike | P2PReplicatorProvider,
+    events: LiveSyncEventHub
+) {
+    const current = (): P2PReplicatorLike => (typeof source === "function" ? source() : source);
     events.onEvent(EVENT_ADVERTISEMENT_RECEIVED, (peer) => {
-        void instance.onNewPeer(peer);
+        void current().onNewPeer(peer);
     });
     // I know that the correct spell is "left"... Miserable
     events.onEvent(EVENT_DEVICE_LEAVED, (peerId) => {
-        instance.onPeerLeaved(peerId);
+        current().onPeerLeaved(peerId);
     });
     events.onEvent(EVENT_REQUEST_STATUS, () => {
-        instance.requestStatus();
+        current().requestStatus();
     });
     events.onEvent(EVENT_DATABASE_REBUILT, async () => {
-        await instance.open();
+        await current().open();
     });
     events.onEvent(EVENT_PLATFORM_UNLOADED, () => {
-        void instance.close();
+        void current().close();
     });
     events.onEvent(EVENT_SETTING_SAVED, async (settings: P2PSyncSetting) => {
+        const instance = current();
         const isOpen = instance.isServing ?? instance.server?.isServing ?? false;
         if (settings.P2P_Enabled && settings.P2P_AutoStart) {
             await instance.open();

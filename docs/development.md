@@ -6,7 +6,7 @@ This document is for Commonlib developers. Package consumers should begin with t
 
 The source tree is larger than the supported package surface. Consumers may import only paths in the generated package export map:
 
-- `src/index.ts`, `src/context.ts`, `src/platform/browser/index.ts`, `src/platform/node/index.ts`, and `src/rpc/index.ts` define the focused entries;
+- `src/index.ts`, `src/context.ts`, `src/settings.ts`, `src/platform/browser/index.ts`, `src/platform/node/index.ts`, and `src/rpc/index.ts` define the focused entries;
 - `_tools/build-package.mjs` compiles those entries and creates the publishable manifest under `.package`;
 - `docs/migration/downstream-imports.json` is the reviewed inventory from which explicit `compat/*` exports are generated;
 - colocated `*.unit.spec.ts` and `*.unit.test.ts` files exercise implementation and result contracts; and
@@ -51,7 +51,27 @@ npm run test:package
 
 These scripts are deliberately available independently of CI. Add a focused result contract before moving another platform API; do not infer compatibility from matching TypeScript shapes alone. Platform-specific behaviour, such as timestamp fidelity, must remain documented outside the shared result set.
 
+The settings lifecycle has an additional focused unit table in `src/common/models/setting.lifecycle.unit.spec.ts`. Extend it whenever a schema migration, a new-Vault recommendation, or downgrade handling changes. A stored setting must keep its explicit value unless the migration itself documents a deliberate transformation.
+
+### P2P composition ownership
+
+`useP2PReplicatorFeature` is the sole owner of the active `LiveSyncTrysteroReplicator` and its lifecycle bindings. It creates or replaces the outer replicator when `ReplicatorService` requests one, closes the previous instance before replacement, and returns a stable result object whose `replicator` property resolves the current instance.
+
+Consumers must preserve that result object and read `result.replicator` at the point of use. Do not destructure the property into a command, event handler, view, or other long-lived closure: a database reinitialisation or remote-type transition can close and replace the captured instance, and calling `open()` on that obsolete outer object can create a second connection outside the active service state.
+
+The similarly named compositions have narrower roles:
+
+- `useP2PReplicatorCommands` adds host commands and resolves the current instance when a command is checked or invoked;
+- host UI features add views, status presentation, and injected peer-selection callbacks without owning the replicator lifecycle; and
+- the deprecated `useP2PReplicator` entry is a compatibility composition which delegates ownership to `useP2PReplicatorFeature`.
+
+When registering P2P event handlers for a replaceable instance, pass a provider to `addP2PEventHandlers`. Passing a fixed instance remains supported only for compositions whose instance cannot change. Extend the focused feature, command, event-hub, and compatibility-wrapper tests whenever this ownership boundary changes.
+
+The physical room, WebRTC peer, and relay-socket boundaries are documented in [P2P transport lifecycle](p2p-transport-lifecycle.md). In particular, normal shutdown leaves the Trystero room without closing raw peer connections directly.
+
 Self-hosted LiveSync remains the principal downstream consumer. A Commonlib change is not ready for publication until the exact packed artefact has also passed the applicable LiveSync type checks, unit and integration tests, application builds, CLI E2E, and focused real-Obsidian E2E.
+
+The package publishes the generated production language catalogue as an ordinary ESM module. It does not duplicate that catalogue inside `dist/common/i18n.js`; the final application bundler remains responsible for composing the catalogue for environments such as Obsidian. Source development continues to use the JSON-derived development catalogue.
 
 Keep [the maintained-host evidence](proven-in-use.md) aligned with the downstream source and gates. If a host no longer consumes a focused entry, a test is retired, or a compatibility path receives a reviewed replacement, update the consumer-facing account as part of the same maintenance rather than leaving historical adoption as a current support claim.
 
