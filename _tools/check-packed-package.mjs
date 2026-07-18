@@ -49,6 +49,10 @@ assert.ok(
     "The developer guide linked from the README must be included in the package."
 );
 assert.ok(
+    packed.files.some(({ path }) => path === "docs/proven-in-use.md"),
+    "The maintained-host evidence linked from the README must be included in the package."
+);
+assert.ok(
     packed.files.some(({ path }) => path === "docs/releasing.md"),
     "The release guide linked from the developer guide must be included in the package."
 );
