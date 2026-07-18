@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const VERSION_PATTERN = /^(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?$/u;
 const COMMIT_PATTERN = /^[0-9a-f]{40}$/u;
+const BRANCH_REF_PATTERN = /^refs\/heads\/[^\s]+$/u;
 
 function requireCondition(condition, message) {
     if (!condition) throw new Error(message);
@@ -17,12 +18,17 @@ export function validateReleaseSelection({
     version,
     expectedSha,
     actualSha,
+    actualRef,
     confirmation,
 }) {
     requireCondition(VERSION_PATTERN.test(version), `Invalid release version: ${version}`);
     requireCondition(!version.includes("package-proof"), "Package-proof versions cannot be published.");
     requireCondition(COMMIT_PATTERN.test(expectedSha), "The expected commit must be a full lowercase SHA.");
     requireCondition(actualSha === expectedSha, `Expected ${expectedSha}, but the workflow is running ${actualSha}.`);
+    requireCondition(BRANCH_REF_PATTERN.test(actualRef), "Releases must be dispatched from a branch ref.");
+    if (!version.includes("-")) {
+        requireCondition(actualRef === "refs/heads/main", "Stable releases must be selected from refs/heads/main.");
+    }
     requireCondition(sourceManifest.version === version, `Source manifest version is ${sourceManifest.version}, not ${version}.`);
     requireCondition(sourceManifest.private === true, "The source repository manifest must remain private.");
     requireCondition(builtManifest.name === sourceManifest.name, "The built package name differs from the source manifest.");
@@ -37,12 +43,12 @@ export function validateReleaseSelection({
 }
 
 async function main() {
-    const [version, expectedSha, actualSha, confirmation] = process.argv.slice(2);
+    const [version, expectedSha, actualSha, actualRef, confirmation] = process.argv.slice(2);
     const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
     const sourceManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
     const builtManifest = JSON.parse(await readFile(resolve(root, ".package/package.json"), "utf8"));
-    validateReleaseSelection({ sourceManifest, builtManifest, version, expectedSha, actualSha, confirmation });
-    console.log(`Validated ${sourceManifest.name}@${version} from ${actualSha} for staged publication.`);
+    validateReleaseSelection({ sourceManifest, builtManifest, version, expectedSha, actualSha, actualRef, confirmation });
+    console.log(`Validated ${sourceManifest.name}@${version} from ${actualRef} at ${actualSha} for staged publication.`);
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

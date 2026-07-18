@@ -28,18 +28,35 @@ function validSelection(overrides = {}) {
         version,
         expectedSha: sha,
         actualSha: sha,
+        actualRef: "refs/heads/release/commonlib-0.1.0-rc.0",
         confirmation: `stage @vrtmrz/livesync-commonlib@${version} from ${sha}`,
         ...selectionOverrides,
     };
 }
 
 describe("release selection", () => {
-    it("accepts an exact reviewed prerelease", () => {
+    it("accepts an exact reviewed prerelease from a branch", () => {
         assert.doesNotThrow(() => validateReleaseSelection(validSelection()));
     });
 
-    it("accepts a stable version while retaining the next publication gate", () => {
-        assert.doesNotThrow(() => validateReleaseSelection(validSelection({ version: "0.1.0" })));
+    it("accepts a stable version from main while retaining the next publication gate", () => {
+        assert.doesNotThrow(() =>
+            validateReleaseSelection(validSelection({ version: "0.1.0", actualRef: "refs/heads/main" }))
+        );
+    });
+
+    it("rejects a stable version selected from a non-main branch", () => {
+        assert.throws(
+            () => validateReleaseSelection(validSelection({ version: "0.1.0" })),
+            /Stable releases must be selected from refs\/heads\/main/u
+        );
+    });
+
+    it("rejects a prerelease selected by tag", () => {
+        assert.throws(
+            () => validateReleaseSelection(validSelection({ actualRef: "refs/tags/0.1.0-rc.0" })),
+            /Releases must be dispatched from a branch ref/u
+        );
     });
 
     for (const [name, overrides, message] of [

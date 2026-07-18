@@ -19,7 +19,7 @@ Before publication, run the downstream workflow against an exact Self-hosted Liv
 
 Choose the version explicitly. Use a prerelease such as `0.1.0-rc.0` when registry installation must be validated before the first stable version. Package-proof versions are local artefacts and cannot be staged.
 
-From a release branch based on `main`:
+For a stable release, use a release branch based on `main`. For a pre-release which must be validated before its feature pull request is merged, prepare the version commit on that reviewed draft branch and keep the pull request in draft:
 
 ```bash
 npm ci
@@ -53,17 +53,20 @@ After bootstrap, configure the npm Trusted Publisher for:
 - environment: `npm`; and
 - allowed action: staged publishing only.
 
-Protect the GitHub `npm` environment with a required reviewer and permit only the `main` branch. The workflow accepts only the exact commit currently on `main`, runs `verify:package`, validates the requested version and confirmation text, packs that reviewed output, records its checksum, and passes the same tarball to the protected staging job.
+Protect the GitHub `npm` environment with a required reviewer. Permit `main` and only the explicitly reviewed pre-release branch which is currently being validated; remove that temporary branch permission after publication. Do not use a broad branch wildcard. The workflow accepts an exact selected branch commit, permits stable versions only from `main`, runs `verify:package`, validates the source ref, requested version, full commit SHA, and confirmation text, packs that reviewed output, records its checksum, and passes the same tarball to the protected staging job.
 
-Dispatch it with the exact stable or prerelease version and full commit SHA:
+Dispatch a pre-release from its reviewed draft branch with the exact version and full commit SHA:
 
 ```bash
-sha=$(git rev-parse origin/main)
+ref=separate-setting-lifecycle
+sha=$(git rev-parse "origin/$ref")
 gh workflow run publish-npm.yml \
-  --ref main \
+  --ref "$ref" \
   -f version=<version> \
   -f expected_sha="$sha" \
   -f confirmation="stage @vrtmrz/livesync-commonlib@<version> from $sha"
 ```
 
-The workflow always stages to `next`. Inspect the staged package name, version, access, dist-tag, provenance, checksum, files, and source commit before approving it through npm. Approval and later promotion to `latest` are separate user-authorised operations. Validate the exact registry version in Self-hosted LiveSync before promoting a stable release.
+For a stable version, use `ref=main`; the workflow rejects a stable version selected from any other branch.
+
+The workflow always stages to `next`. Inspect the staged package name, version, access, dist-tag, provenance, checksum, files, source branch, and source commit before approving it through npm. Approval and later promotion to `latest` are separate user-authorised operations. Keep a pre-release pull request in draft while validating the exact registry version in Self-hosted LiveSync, then merge the validated change if it succeeds. Validate a stable release in Self-hosted LiveSync before promoting it to `latest`.
