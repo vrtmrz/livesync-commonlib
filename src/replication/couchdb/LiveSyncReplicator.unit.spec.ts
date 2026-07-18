@@ -75,3 +75,68 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
         );
     });
 });
+
+describe("LiveSyncCouchDBReplicator one-shot connection lifecycle", () => {
+    it.each([
+        ["DONE", true],
+        ["FAILED", false],
+    ] as const)("closes the remote database after %s", async (syncResult, expected) => {
+        const remoteDatabase = { close: vi.fn() };
+        const syncHandler = {};
+        const localDatabase = {
+            info: vi.fn().mockResolvedValue({ update_seq: 7 }),
+            sync: vi.fn(() => syncHandler),
+        };
+        const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.env = {
+            services: {
+                database: {
+                    localDatabase: { localDatabase },
+                },
+            },
+        } as unknown as LiveSyncCouchDBReplicator["env"];
+        replicator.docArrived = 0;
+        replicator.docSent = 0;
+        replicator.updateInfo = vi.fn();
+        replicator.terminateSync = vi.fn();
+        vi.spyOn(replicator, "ensurePBKDF2Salt").mockResolvedValue(true);
+        vi.spyOn(replicator, "checkReplicationConnectivity").mockResolvedValue({
+            db: remoteDatabase,
+            info: { update_seq: 9 },
+            syncOptionBase: {},
+        } as never);
+        vi.spyOn(replicator, "processSync").mockResolvedValue(syncResult);
+
+        await expect(
+            replicator.openOneShotReplication({} as RemoteDBSettings, false, false, "sync")
+        ).resolves.toBe(expected);
+
+        expect(remoteDatabase.close).toHaveBeenCalledOnce();
+    });
+
+    it("closes the remote database when replication setup fails", async () => {
+        const remoteDatabase = { close: vi.fn() };
+        const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.env = {
+            services: {
+                database: {
+                    localDatabase: {
+                        localDatabase: { info: vi.fn().mockRejectedValue(new Error("local info failed")) },
+                    },
+                },
+            },
+        } as unknown as LiveSyncCouchDBReplicator["env"];
+        vi.spyOn(replicator, "ensurePBKDF2Salt").mockResolvedValue(true);
+        vi.spyOn(replicator, "checkReplicationConnectivity").mockResolvedValue({
+            db: remoteDatabase,
+            info: { update_seq: 9 },
+            syncOptionBase: {},
+        } as never);
+
+        await expect(
+            replicator.openOneShotReplication({} as RemoteDBSettings, false, false, "sync")
+        ).rejects.toThrow("local info failed");
+
+        expect(remoteDatabase.close).toHaveBeenCalledOnce();
+    });
+});
