@@ -1874,6 +1874,8 @@ Ui:
       Back: No, please take me back
       Cancel: Cancel
       ProceedSelectOption: Please select an option to proceed
+    Invitation:
+      Start: Start setup
     Intro:
       ExistingOption: I am adding a device to an existing synchronisation setup
       ExistingOptionDesc: Select this if you are already using synchronisation on another computer or smartphone. Use this option to connect this device to that existing setup.

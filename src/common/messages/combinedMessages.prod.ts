@@ -8686,6 +8686,9 @@ export const allMessages = {
         def: "Welcome to Self-hosted LiveSync",
         zh: "欢迎使用 Self-hosted LiveSync",
     },
+    "Ui.SetupWizard.Invitation.Start": {
+        def: "Start setup",
+    },
     "Ui.SetupWizard.OutroAskUserMode.CompatibleOption": {
         def: "The remote is already set up, and the configuration is compatible (or became compatible through this operation).",
         zh: "远程端已配置完成，且当前配置兼容（或已通过本次操作变为兼容）。",

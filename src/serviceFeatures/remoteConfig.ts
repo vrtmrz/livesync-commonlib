@@ -1,5 +1,5 @@
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type LOG_LEVEL } from "@lib/common/logger";
-import { ConnectionStringParser } from "@lib/common/ConnectionString";
+import { ConnectionStringParser, type RemoteConfigurationResult } from "@lib/common/ConnectionString";
 import type { ObsidianLiveSyncSettings, RemoteConfiguration, RemoteDBSettings } from "@lib/common/models/setting.type";
 import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
@@ -80,6 +80,150 @@ export function migrateLegacyRemoteConfigurationsInPlace(
  */
 export function createRemoteConfigurationId(): string {
     return `remote-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+export type SerializableRemoteConfigurationType = Exclude<RemoteConfigurationResult["type"], "webdav">;
+
+export interface UpsertRemoteConfigurationOptions {
+    /**
+     * Reuse this identifier to update a known profile. Omit it to allocate a new opaque identifier.
+     */
+    id?: string;
+    /**
+     * User-visible name. Omit it to derive a descriptive name from the connection settings.
+     */
+    name?: string;
+    /**
+     * Select this profile as the main remote and project it onto the compatibility fields.
+     */
+    activate?: boolean;
+    /**
+     * Select this profile for P2P features without changing the main remote selection.
+     */
+    activateForP2P?: boolean;
+}
+
+function toRemoteConfigurationResult(
+    type: SerializableRemoteConfigurationType,
+    settings: ObsidianLiveSyncSettings
+): RemoteConfigurationResult {
+    if (type === "couchdb") {
+        return { type, settings };
+    }
+    if (type === "s3") {
+        return { type, settings };
+    }
+    return { type, settings };
+}
+
+/**
+ * Suggest a concise display name from a serialisable remote configuration.
+ *
+ * The name is presentation only. Callers must continue to use the profile ID for identity and
+ * `activeConfigurationId` for the selected main remote.
+ */
+export function suggestRemoteConfigurationName(configuration: RemoteConfigurationResult): string {
+    if (configuration.type === "couchdb") {
+        try {
+            const host = new URL(configuration.settings.couchDB_URI).host;
+            return host ? `CouchDB ${host}` : "CouchDB remote";
+        } catch {
+            return "CouchDB remote";
+        }
+    }
+    if (configuration.type === "s3") {
+        const bucket = configuration.settings.bucket.trim();
+        if (bucket) {
+            return `S3 ${bucket}`;
+        }
+        try {
+            const host = new URL(configuration.settings.endpoint).host;
+            return host ? `S3 ${host}` : "Object Storage remote";
+        } catch {
+            return "Object Storage remote";
+        }
+    }
+    if (configuration.type === "p2p") {
+        const room = configuration.settings.P2P_roomID.trim();
+        return room ? `P2P ${room}` : "P2P remote";
+    }
+    return "Remote configuration";
+}
+
+function allocateRemoteConfigurationId(configurations: Record<string, RemoteConfiguration>): string {
+    let id = createRemoteConfigurationId();
+    while (configurations[id]) {
+        id = createRemoteConfigurationId();
+    }
+    return id;
+}
+
+function allocateRemoteConfigurationName(
+    configurations: Record<string, RemoteConfiguration>,
+    baseName: string,
+    updatingId?: string
+): string {
+    const usedNames = new Set(
+        Object.values(configurations)
+            .filter((configuration) => configuration.id !== updatingId)
+            .map((configuration) => configuration.name)
+    );
+    if (!usedNames.has(baseName)) {
+        return baseName;
+    }
+    let suffix = 2;
+    while (usedNames.has(`${baseName} (${suffix})`)) {
+        suffix += 1;
+    }
+    return `${baseName} (${suffix})`;
+}
+
+/**
+ * Create or update a multiple-remote profile from the corresponding compatibility fields.
+ *
+ * This mutates `settings`. Passing an existing `id` intentionally replaces that profile; omitting
+ * it always allocates a new opaque ID and preserves all existing profiles. Generated display names
+ * are made unique for readability, but names never act as identifiers. The stored connection URI is
+ * plaintext at this boundary; `SettingService` applies configured at-rest encryption when saving it.
+ */
+export function upsertRemoteConfigurationInPlace(
+    settings: ObsidianLiveSyncSettings,
+    type: SerializableRemoteConfigurationType,
+    options: UpsertRemoteConfigurationOptions = {}
+): RemoteConfiguration {
+    if (options.activateForP2P && type !== "p2p") {
+        throw new Error("Only a P2P remote configuration can be selected for P2P features.");
+    }
+    const configurations = settings.remoteConfigurations ?? {};
+    const requestedId = options.id?.trim();
+    const id = requestedId || allocateRemoteConfigurationId(configurations);
+    const existing = configurations[id];
+    const serialisable = toRemoteConfigurationResult(type, settings);
+    const suggestedName = suggestRemoteConfigurationName(serialisable);
+    const requestedName = options.name?.trim();
+    const name =
+        requestedName || existing?.name || allocateRemoteConfigurationName(configurations, suggestedName, existing?.id);
+
+    const configuration: RemoteConfiguration = {
+        id,
+        name,
+        uri: ConnectionStringParser.serialize(serialisable),
+        isEncrypted: false,
+    };
+    settings.remoteConfigurations ??= configurations;
+    configurations[id] = configuration;
+
+    if (options.activate) {
+        if (!activateRemoteConfiguration(settings, id)) {
+            throw new Error(`Failed to activate remote configuration '${id}'.`);
+        }
+    }
+    if (options.activateForP2P) {
+        if (!activateP2PRemoteConfiguration(settings, id)) {
+            throw new Error(`Failed to activate P2P remote configuration '${id}'.`);
+        }
+    }
+    return configuration;
 }
 
 /**

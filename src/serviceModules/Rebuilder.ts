@@ -195,23 +195,39 @@ Please enable them from the settings screen after setup is complete.`,
         return this.fetchLocalDBFast(autoResume);
     }
 
-    async scheduleRebuild(): Promise<void> {
+    private async scheduleInitialisation(flag: string, prepareBeforeRestart?: () => Promise<void>): Promise<boolean> {
         try {
-            await this.storageAccess.writeFileAuto(FlagFilesHumanReadable.REBUILD_ALL, "");
+            await this.storageAccess.writeFileAuto(flag, "");
         } catch (ex) {
-            this._log(`Could not create ${FlagFilesHumanReadable.REBUILD_ALL}`, LOG_LEVEL_NOTICE);
+            this._log(`Could not create ${flag}`, LOG_LEVEL_NOTICE);
             this._log(ex, LOG_LEVEL_VERBOSE);
+            return false;
         }
+
+        this.appLifecycle.setSuspended(true);
+        try {
+            await prepareBeforeRestart?.();
+        } catch (ex) {
+            try {
+                await this.storageAccess.delete(flag, true);
+            } catch (cleanupError) {
+                this._log(`Could not remove ${flag} after restart preparation failed`, LOG_LEVEL_NOTICE);
+                this._log(cleanupError, LOG_LEVEL_VERBOSE);
+            }
+            this.appLifecycle.setSuspended(false);
+            throw ex;
+        }
+
         this.appLifecycle.performRestart();
+        return true;
     }
-    async scheduleFetch(): Promise<void> {
-        try {
-            await this.storageAccess.writeFileAuto(FlagFilesHumanReadable.FETCH_ALL, "");
-        } catch (ex) {
-            this._log(`Could not create ${FlagFilesHumanReadable.FETCH_ALL}`, LOG_LEVEL_NOTICE);
-            this._log(ex, LOG_LEVEL_VERBOSE);
-        }
-        this.appLifecycle.performRestart();
+
+    scheduleRebuild(prepareBeforeRestart?: () => Promise<void>): Promise<boolean> {
+        return this.scheduleInitialisation(FlagFilesHumanReadable.REBUILD_ALL, prepareBeforeRestart);
+    }
+
+    scheduleFetch(prepareBeforeRestart?: () => Promise<void>): Promise<boolean> {
+        return this.scheduleInitialisation(FlagFilesHumanReadable.FETCH_ALL, prepareBeforeRestart);
     }
 
     private async _tryResetRemoteDatabase(): Promise<void> {
@@ -373,7 +389,10 @@ Are you sure you wish to proceed?`;
         });
     }
 
-    private async performFetchLocalDBFast(settings: ReturnType<SettingService["currentSettings"]>, autoResume: boolean) {
+    private async performFetchLocalDBFast(
+        settings: ReturnType<SettingService["currentSettings"]>,
+        autoResume: boolean
+    ) {
         const remote =
             settings.couchDB_URI.replace(/\/+$/, "") +
             (settings.couchDB_DBNAME == "" ? "" : "/" + settings.couchDB_DBNAME);

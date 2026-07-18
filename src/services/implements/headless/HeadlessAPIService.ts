@@ -43,7 +43,12 @@ export class HeadlessConfirm implements Confirm {
         console.error(`[Headless] ${opt.title ?? "Confirm"}: ${message} → ${String(opt.defaultAction)}`);
         return Promise.resolve(opt.defaultAction);
     }
-    askInPopup(key: string, dialogText: string, anchorCallback: (anchor: HTMLAnchorElement) => void): void {
+    askInPopup(
+        key: string,
+        dialogText: string,
+        anchorCallback: (anchor: HTMLAnchorElement) => void,
+        durationMs?: number
+    ): void {
         console.error(`[Headless] Popup (${key}): ${dialogText}`);
     }
     confirmWithMessage(

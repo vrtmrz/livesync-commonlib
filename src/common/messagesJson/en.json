@@ -1039,6 +1039,7 @@
     "Ui.SetupWizard.Intro.ProceedNew": "Yes, I want to set up a new synchronisation",
     "Ui.SetupWizard.Intro.Question": "First, please select the option that best describes your current situation.",
     "Ui.SetupWizard.Intro.Title": "Welcome to Self-hosted LiveSync",
+    "Ui.SetupWizard.Invitation.Start": "Start setup",
     "Ui.SetupWizard.OutroAskUserMode.CompatibleOption": "The remote is already set up, and the configuration is compatible (or became compatible through this operation).",
     "Ui.SetupWizard.OutroAskUserMode.CompatibleOptionDesc": "Unless you are certain, selecting this option is risky. It assumes the server configuration is compatible with this device. If that is not the case, data loss may occur. Please make sure you understand the consequences.",
     "Ui.SetupWizard.OutroAskUserMode.ExistingOption": "My remote server is already set up. I want to join this device.",

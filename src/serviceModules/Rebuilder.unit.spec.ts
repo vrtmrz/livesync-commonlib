@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { REMOTE_COUCHDB } from "@lib/common/models/setting.const";
+import { FlagFilesHumanReadable } from "@lib/common/models/redflag.const";
 import { ServiceRebuilder } from "./Rebuilder";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import { EVENT_DATABASE_REBUILT } from "@lib/events/coreEvents";
@@ -98,6 +99,8 @@ function createRebuilder() {
         },
         appLifecycle: {
             markIsReady: vi.fn(),
+            performRestart: vi.fn(),
+            setSuspended: vi.fn(),
         },
         UI: {
             showMarkdownDialog: vi.fn(async () => "OK"),
@@ -108,6 +111,8 @@ function createRebuilder() {
         remote: {},
         storageAccess: {
             clearTouched: vi.fn(),
+            writeFileAuto: vi.fn(async () => undefined),
+            delete: vi.fn(async () => undefined),
         },
         vault: {
             scanVault: vi.fn(async () => undefined),
@@ -125,6 +130,58 @@ function createRebuilder() {
         runBoundedRemoteActivity,
     };
 }
+
+describe("ServiceRebuilder scheduled restart flags", () => {
+    it.each([
+        ["Fetch", "scheduleFetch", FlagFilesHumanReadable.FETCH_ALL],
+        ["Rebuild", "scheduleRebuild", FlagFilesHumanReadable.REBUILD_ALL],
+    ] as const)("writes the %s flag and prepares state before requesting a restart", async (_name, method, flag) => {
+        const { rebuilder, services } = createRebuilder();
+        const prepare = vi.fn(async () => undefined);
+
+        await expect(rebuilder[method](prepare)).resolves.toBe(true);
+
+        expect(services.storageAccess.writeFileAuto).toHaveBeenCalledWith(flag, "");
+        expect(services.storageAccess.writeFileAuto.mock.invocationCallOrder[0]).toBeLessThan(
+            services.appLifecycle.setSuspended.mock.invocationCallOrder[0]
+        );
+        expect(services.appLifecycle.setSuspended).toHaveBeenCalledWith(true);
+        expect(services.appLifecycle.setSuspended.mock.invocationCallOrder[0]).toBeLessThan(
+            prepare.mock.invocationCallOrder[0]
+        );
+        expect(prepare.mock.invocationCallOrder[0]).toBeLessThan(
+            services.appLifecycle.performRestart.mock.invocationCallOrder[0]
+        );
+    });
+
+    it.each([
+        ["Fetch", "scheduleFetch"],
+        ["Rebuild", "scheduleRebuild"],
+    ] as const)("does not restart when the %s flag cannot be written", async (_name, method) => {
+        const { rebuilder, services } = createRebuilder();
+        services.storageAccess.writeFileAuto.mockRejectedValueOnce(new Error("read-only Vault"));
+
+        await expect(rebuilder[method]()).resolves.toBe(false);
+
+        expect(services.appLifecycle.setSuspended).not.toHaveBeenCalled();
+        expect(services.appLifecycle.performRestart).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["Fetch", "scheduleFetch", FlagFilesHumanReadable.FETCH_ALL],
+        ["Rebuild", "scheduleRebuild", FlagFilesHumanReadable.REBUILD_ALL],
+    ] as const)("cleans up the %s flag when preparation fails", async (_name, method, flag) => {
+        const { rebuilder, services } = createRebuilder();
+        const error = new Error("settings could not be saved");
+
+        await expect(rebuilder[method](async () => Promise.reject(error))).rejects.toBe(error);
+
+        expect(services.storageAccess.delete).toHaveBeenCalledWith(flag, true);
+        expect(services.appLifecycle.setSuspended).toHaveBeenNthCalledWith(1, true);
+        expect(services.appLifecycle.setSuspended).toHaveBeenNthCalledWith(2, false);
+        expect(services.appLifecycle.performRestart).not.toHaveBeenCalled();
+    });
+});
 
 describe("ServiceRebuilder event isolation", () => {
     it("announces a database reset through its injected event hub", async () => {

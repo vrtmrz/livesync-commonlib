@@ -6,7 +6,7 @@ This document is for Commonlib developers. Package consumers should begin with t
 
 The source tree is larger than the supported package surface. Consumers may import only paths in the generated package export map:
 
-- `src/index.ts`, `src/context.ts`, `src/settings.ts`, `src/platform/browser/index.ts`, `src/platform/node/index.ts`, and `src/rpc/index.ts` define the focused entries;
+- `src/index.ts`, `src/context.ts`, `src/settings.ts`, `src/remoteConfigurations.ts`, `src/platform/browser/index.ts`, `src/platform/node/index.ts`, and `src/rpc/index.ts` define the focused entries;
 - `_tools/build-package.mjs` compiles those entries and creates the publishable manifest under `.package`;
 - `docs/migration/downstream-imports.json` is the reviewed inventory from which explicit `compat/*` exports are generated;
 - colocated `*.unit.spec.ts` and `*.unit.test.ts` files exercise implementation and result contracts; and
@@ -52,6 +52,8 @@ npm run test:package
 These scripts are deliberately available independently of CI. Add a focused result contract before moving another platform API; do not infer compatibility from matching TypeScript shapes alone. Platform-specific behaviour, such as timestamp fidelity, must remain documented outside the shared result set.
 
 The settings lifecycle has an additional focused unit table in `src/common/models/setting.lifecycle.unit.spec.ts`. Extend it whenever a schema migration, a new-Vault recommendation, or downgrade handling changes. A stored setting must keep its explicit value unless the migration itself documents a deliberate transformation.
+
+The multiple-remote profile contract has focused unit coverage in `src/serviceFeatures/remoteConfig.unit.spec.ts`. Extend it whenever profile identity, generated display names, activation, P2P selection, URI serialisation, or legacy migration changes. New hosts should import the reviewed primitives through `/remote-configurations`; `compat/serviceFeatures/remoteConfig` remains the wider migration surface used by existing clients.
 
 ### P2P composition ownership
 

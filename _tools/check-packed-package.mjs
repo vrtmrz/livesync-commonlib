@@ -34,12 +34,13 @@ await rm(consumerDirectory, { recursive: true, force: true });
 await mkdir(consumerDirectory, { recursive: true });
 await mkdir(artefactDirectory, { recursive: true });
 
-const packed = JSON.parse(
-    run("npm", ["pack", packageDirectory, "--json", "--pack-destination", artefactDirectory])
-)[0];
+const packed = JSON.parse(run("npm", ["pack", packageDirectory, "--json", "--pack-destination", artefactDirectory]))[0];
 assert.equal(packed.name, packageName);
 assert.ok(packed.size > 0, "The packed package must not be empty.");
-assert.ok(packed.files.every(({ path }) => !path.startsWith("src/")), "Source files must not be published.");
+assert.ok(
+    packed.files.every(({ path }) => !path.startsWith("src/")),
+    "Source files must not be published."
+);
 assert.ok(
     packed.files.some(({ path }) => path === "docs/platform-storage.md"),
     "The platform storage guide must be included in the package."
@@ -59,6 +60,10 @@ assert.ok(
 assert.ok(
     packed.files.some(({ path }) => path === "docs/settings-lifecycle.md"),
     "The settings lifecycle guide linked from the README must be included in the package."
+);
+assert.ok(
+    packed.files.some(({ path }) => path === "docs/remote-configurations.md"),
+    "The remote configuration guide linked from the README must be included in the package."
 );
 assert.ok(
     packed.files.some(({ path }) => path === "docs/p2p-transport-lifecycle.md"),
@@ -138,6 +143,10 @@ import {
     prepareSettingsForLoad,
     type SettingsMigrationState,
 } from "${packageName}/settings";
+import {
+    upsertRemoteConfigurationInPlace,
+    type UpsertRemoteConfigurationOptions,
+} from "${packageName}/remote-configurations";
 
 const options: ServiceContextOptions = { translate: (key) => \`translated:\${key}\` };
 const context = createServiceContext(options);
@@ -153,6 +162,8 @@ const migrationState: SettingsMigrationState = prepared;
 const newVaultSetting = NEW_VAULT_SETTINGS.usePluginSyncV2;
 const schemaFallback = SETTINGS_SCHEMA_DEFAULTS.usePluginSyncV2;
 const mutableNewVaultSettings = createNewVaultSettings();
+const remoteConfigurationOptions: UpsertRemoteConfigurationOptions = { activate: true };
+const remoteConfigurationUpsert: typeof upsertRemoteConfigurationInPlace = upsertRemoteConfigurationInPlace;
 void context;
 void contextContract;
 void untranslated;
@@ -165,6 +176,8 @@ void migrationState;
 void newVaultSetting;
 void schemaFallback;
 void mutableNewVaultSettings;
+void remoteConfigurationOptions;
+void remoteConfigurationUpsert;
 `
 );
 await writeConsumerFile(
@@ -186,6 +199,7 @@ const before = {
 const contextApi = await import("${packageName}/context");
 const rootApi = await import("${packageName}");
 const settingsApi = await import("${packageName}/settings");
+const remoteConfigurationsApi = await import("${packageName}/remote-configurations");
 const i18nApi = await import("${packageName}/compat/common/i18n");
 const workerApi = await import("${packageName}/compat/worker/bgWorker");
 const runtimeCompat = await import("${packageName}/compat/common/coreEnvFunctions");
@@ -200,6 +214,7 @@ assert.equal(settingsApi.NEW_VAULT_SETTINGS.usePluginSyncV2, true);
 assert.equal(settingsApi.SETTINGS_SCHEMA_DEFAULTS.usePluginSyncV2, false);
 assert.equal(settingsApi.prepareSettingsForLoad(undefined).isNewVault, true);
 assert.notEqual(settingsApi.createNewVaultSettings(), settingsApi.NEW_VAULT_SETTINGS);
+assert.equal(typeof remoteConfigurationsApi.upsertRemoteConfigurationInPlace, "function");
 assert.equal(i18nApi.$t("Activate", "es"), "Activar");
 assert.equal(runtimeCompat.compatGlobal, globalThis);
 assert.equal(typeof nodeRuntime.fs.readFileSync, "function");
@@ -388,7 +403,10 @@ const workerBundle = await build({
 });
 const workerInputs = Object.keys(workerBundle.metafile.inputs);
 const workerSource = workerBundle.outputFiles[0].text;
-assert.ok(workerInputs.every((path) => !path.includes("bgWorker.direct")), "Browser builds must not use the direct worker.");
+assert.ok(
+    workerInputs.every((path) => !path.includes("bgWorker.direct")),
+    "Browser builds must not use the direct worker."
+);
 assert.match(workerSource, /new Blob\(/u);
 assert.match(workerSource, /new Worker\(/u);
 
@@ -408,10 +426,10 @@ assert.deepEqual(
     Object.keys(manifest.exports)
         .filter((path) => !path.startsWith("./compat/"))
         .sort(),
-    [".", "./browser", "./context", "./node", "./package.json", "./rpc", "./settings"],
+    [".", "./browser", "./context", "./node", "./package.json", "./remote-configurations", "./rpc", "./settings"],
     "The focused package surface must remain explicit."
 );
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 7);
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 8);
 
 console.log(
     JSON.stringify(

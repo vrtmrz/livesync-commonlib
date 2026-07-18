@@ -14,6 +14,8 @@ The consumer's [service-context contract](https://github.com/vrtmrz/obsidian-liv
 
 Most replication and storage services used by the plug-in still enter through explicit `compat/*` paths. Those imports prove that the published compatibility boundary supports the current migration; they are not examples of a finished high-level client API.
 
+The plug-in's manual onboarding and Remote Databases pane use the focused `/remote-configurations` entry to create opaque profile IDs, retain user-visible names, and select main and P2P remotes. Commonlib owns the in-memory profile result contract; Self-hosted LiveSync adds dialogue, Setup URI classification, Fetch or Rebuild scheduling, persistence, restart ordering, and real-Obsidian presentation checks.
+
 ## CLI
 
 The CLI extends the same neutral context with its database path and injected `StandardIo` in [`NodeServiceContext.ts`](https://github.com/vrtmrz/obsidian-livesync/blob/6cc06bf20fc044c70408ef3d92fe0bbc0874479d/src/apps/cli/services/NodeServiceContext.ts). Its entry point creates the Node standard-I/O adapter once and passes it to command composition, while unit tests provide stream-independent fakes for parsing, prompts, standard output, and standard error.
@@ -43,9 +45,10 @@ A new integration should start with the focused entries, not by reproducing Self
 - create one `ServiceContext` per independently composed client, inject its translator and events, and extend it only with capabilities owned by that host;
 - let the host select and authorise a storage root, then pass the root once to the Node or browser storage factory;
 - inject `StandardIo` into CLI policy so that protocol output and prompts remain testable; and
+- use `/remote-configurations` when a host needs to create or select saved remote profiles, while keeping naming prompts, persistence, and restart policy in the host; and
 - run the relevant Commonlib result contract against another implementation before describing matching TypeScript shapes as compatible behaviour.
 
-Use the linked consumer code as an integration example, while retaining the ownership and limitations stated in the [root README](https://github.com/vrtmrz/livesync-commonlib/blob/main/readme.md), [storage guide](platform-storage.md), and [standard-I/O guide](platform-standard-io.md).
+Use the linked consumer code as an integration example, while retaining the ownership and limitations stated in the [root README](https://github.com/vrtmrz/livesync-commonlib/blob/main/readme.md), [storage guide](platform-storage.md), [standard-I/O guide](platform-standard-io.md), and [remote configuration profile guide](remote-configurations.md).
 
 ## Maintenance rule
 

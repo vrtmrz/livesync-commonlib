@@ -14,16 +14,17 @@ The package is ESM-only and declares Node 20 or later. Browser entry points are 
 
 ## Package entry points
 
-| Entry point                               | Intended use                                                                      | Current contract status                                                                     |
-| ----------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
-| `@vrtmrz/livesync-commonlib`              | `DirectFileManipulator` for integrations which access CouchDB directly            | Deliberately small, but its high-level lifecycle and file-operation semantics are not final |
-| `@vrtmrz/livesync-commonlib/context`      | Instance-owned events, translation injection, and host-neutral standard-I/O types | Focused, package-tested pre-1.0 contract                                                    |
-| `@vrtmrz/livesync-commonlib/browser`      | Rooted File System Access API storage                                             | Focused, package-tested pre-1.0 contract                                                    |
-| `@vrtmrz/livesync-commonlib/node`         | Rooted Node storage, Node standard I/O, and selected Node capabilities            | Focused platform entry; some convenience exports still require 1.0 classification           |
-| `@vrtmrz/livesync-commonlib/rpc`          | Transport-neutral RPC rooms, sessions, errors, and the PouchDB RPC bridge         | Deliberate export, but its 1.0 stability status is not yet accepted                         |
-| `@vrtmrz/livesync-commonlib/settings`     | New-Vault defaults, stored-setting fallbacks, and settings migration results      | Focused, package-tested pre-1.0 contract                                                    |
-| `@vrtmrz/livesync-commonlib/compat/*`     | Exact legacy imports still required by existing clients                           | Migration-only; paths may be removed as consumers migrate                                   |
-| `@vrtmrz/livesync-commonlib/package.json` | Package metadata for tooling                                                      | Metadata export, not a runtime API                                                          |
+| Entry point                                        | Intended use                                                                      | Current contract status                                                                     |
+| -------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `@vrtmrz/livesync-commonlib`                       | `DirectFileManipulator` for integrations which access CouchDB directly            | Deliberately small, but its high-level lifecycle and file-operation semantics are not final |
+| `@vrtmrz/livesync-commonlib/context`               | Instance-owned events, translation injection, and host-neutral standard-I/O types | Focused, package-tested pre-1.0 contract                                                    |
+| `@vrtmrz/livesync-commonlib/browser`               | Rooted File System Access API storage                                             | Focused, package-tested pre-1.0 contract                                                    |
+| `@vrtmrz/livesync-commonlib/node`                  | Rooted Node storage, Node standard I/O, and selected Node capabilities            | Focused platform entry; some convenience exports still require 1.0 classification           |
+| `@vrtmrz/livesync-commonlib/rpc`                   | Transport-neutral RPC rooms, sessions, errors, and the PouchDB RPC bridge         | Deliberate export, but its 1.0 stability status is not yet accepted                         |
+| `@vrtmrz/livesync-commonlib/remote-configurations` | Multiple-remote profile creation, naming, and selection                           | Focused, package-tested pre-1.0 contract                                                    |
+| `@vrtmrz/livesync-commonlib/settings`              | New-Vault defaults, stored-setting fallbacks, and settings migration results      | Focused, package-tested pre-1.0 contract                                                    |
+| `@vrtmrz/livesync-commonlib/compat/*`              | Exact legacy imports still required by existing clients                           | Migration-only; paths may be removed as consumers migrate                                   |
+| `@vrtmrz/livesync-commonlib/package.json`          | Package metadata for tooling                                                      | Metadata export, not a runtime API                                                          |
 
 Import only the entry point required by the current runtime. Browser code must not import the Node entry.
 
@@ -98,6 +99,12 @@ New-Vault recommendations are deliberately separate from the conservative values
 
 See [the settings lifecycle guide](docs/settings-lifecycle.md) before initialising, importing, resetting, or migrating settings.
 
+## Remote connection profiles
+
+New profile-management code can create or update a CouchDB, Object Storage, or P2P connection through the focused remote-configurations entry. Profile IDs provide identity, display names remain editable presentation, and the active selection is explicit. Older flat connection fields remain a runtime projection and an import-compatibility boundary rather than the preferred persistence model.
+
+See [the remote configuration profile guide](docs/remote-configurations.md) for creation, activation, P2P selection, legacy import, persistence, and verification responsibilities.
+
 ## Contract scope
 
 The package is currently an infrastructure and compatibility boundary. The context, rooted-storage, and standard-I/O result contracts have focused cross-platform or instance-isolation tests. Platform details which cannot be shared, such as file timestamp fidelity and browser permission handling, remain host concerns and are documented separately.
@@ -106,7 +113,7 @@ The package is currently an infrastructure and compatibility boundary. The conte
 
 TODO: define and document the first high-level client façade before declaring list, get, put, delete, watch, and close behaviour stable.
 
-Package developers should read [the developer guide](docs/development.md). The focused contracts are described in [the storage guide](docs/platform-storage.md), [the standard-I/O guide](docs/platform-standard-io.md), and [the settings lifecycle guide](docs/settings-lifecycle.md).
+Package developers should read [the developer guide](docs/development.md). The focused contracts are described in [the storage guide](docs/platform-storage.md), [the standard-I/O guide](docs/platform-standard-io.md), [the settings lifecycle guide](docs/settings-lifecycle.md), and [the remote configuration profile guide](docs/remote-configurations.md).
 
 ## Proven in maintained hosts
 

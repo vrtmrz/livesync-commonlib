@@ -149,10 +149,7 @@ async function rewriteSpecifier(fromPath, specifier) {
 }
 
 async function rewriteModuleSpecifiers() {
-    const modulePaths = await collectFiles(
-        outputDirectory,
-        (path) => path.endsWith(".js") || path.endsWith(".d.ts")
-    );
+    const modulePaths = await collectFiles(outputDirectory, (path) => path.endsWith(".js") || path.endsWith(".d.ts"));
     const patterns = [
         /(\bfrom\s+)(["'])([^"']+)(\2)/gu,
         /(\bimport\s*)(["'])([^"']+)(\2)/gu,
@@ -194,6 +191,7 @@ function createExports() {
         "./context": exportTarget("context"),
         "./node": exportTarget("platform/node/index"),
         "./rpc": exportTarget("rpc/index"),
+        "./remote-configurations": exportTarget("remoteConfigurations"),
         "./settings": exportTarget("settings"),
     };
     for (const sourcePath of inventory.compatibility) {
@@ -252,7 +250,7 @@ async function copyStaticFiles() {
         await mkdir(dirname(target), { recursive: true });
         await cp(path, target);
     }
-    const readmePath = await pathExists(resolve(root, "README.md"))
+    const readmePath = (await pathExists(resolve(root, "README.md")))
         ? resolve(root, "README.md")
         : resolve(root, "readme.md");
     await cp(readmePath, resolve(packageDirectory, "README.md"));
@@ -264,6 +262,7 @@ async function copyStaticFiles() {
         "platform-standard-io.md",
         "platform-storage.md",
         "proven-in-use.md",
+        "remote-configurations.md",
         "releasing.md",
         "settings-lifecycle.md",
     ]) {
@@ -287,10 +286,7 @@ async function validateOutput() {
     for (const [key, value] of Object.entries(manifest.imports)) await visitTarget(key, value);
     if (missingTargets.length > 0) throw new Error(`Missing package targets:\n${missingTargets.join("\n")}`);
 
-    const modulePaths = await collectFiles(
-        outputDirectory,
-        (path) => path.endsWith(".js") || path.endsWith(".d.ts")
-    );
+    const modulePaths = await collectFiles(outputDirectory, (path) => path.endsWith(".js") || path.endsWith(".d.ts"));
     const forbidden = [];
     const missingRelativeImports = [];
     for (const path of modulePaths) {
@@ -301,9 +297,7 @@ async function validateOutput() {
         for (const specifier of extractImportSpecifiers(source)) {
             if (!specifier.startsWith(".") || specifier.includes("?")) continue;
             if (!(await pathExists(resolve(dirname(path), specifier)))) {
-                missingRelativeImports.push(
-                    `${relative(packageDirectory, path).split(sep).join("/")}: ${specifier}`
-                );
+                missingRelativeImports.push(`${relative(packageDirectory, path).split(sep).join("/")}: ${specifier}`);
             }
         }
     }
