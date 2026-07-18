@@ -53,20 +53,21 @@ After bootstrap, configure the npm Trusted Publisher for:
 - environment: `npm`; and
 - allowed action: staged publishing only.
 
-Protect the GitHub `npm` environment with a required reviewer. Permit `main` and only the explicitly reviewed pre-release branch which is currently being validated; remove that temporary branch permission after publication. Do not use a broad branch wildcard. The workflow accepts an exact selected branch commit, permits stable versions only from `main`, runs `verify:package`, validates the source ref, requested version, full commit SHA, and confirmation text, packs that reviewed output, records its checksum, and passes the same tarball to the protected staging job.
+Protect the GitHub `npm` environment with a required reviewer and permit only `main`. The trusted workflow definition always runs from `main`, but a pre-release may package an exact commit from a reviewed draft branch. The workflow confirms that the named source branch still points to the requested full commit SHA, permits stable versions only when the source branch is `main`, runs `verify:package`, validates the source ref, requested version, full commit SHA, and confirmation text, packs that reviewed output, records its checksum, and passes the same tarball to the protected staging job.
 
 Dispatch a pre-release from its reviewed draft branch with the exact version and full commit SHA:
 
 ```bash
-ref=separate-setting-lifecycle
-sha=$(git rev-parse "origin/$ref")
+source_ref=separate-setting-lifecycle
+sha=$(git rev-parse "origin/$source_ref")
 gh workflow run publish-npm.yml \
-  --ref "$ref" \
+  --ref main \
   -f version=<version> \
+  -f source_ref="$source_ref" \
   -f expected_sha="$sha" \
   -f confirmation="stage @vrtmrz/livesync-commonlib@<version> from $sha"
 ```
 
-For a stable version, use `ref=main`; the workflow rejects a stable version selected from any other branch.
+For a stable version, use `source_ref=main`; the workflow rejects a stable version selected from any other source branch. The workflow dispatch itself still uses `--ref main` in both cases so that an unmerged branch cannot change the trusted publication job or acquire access to the `npm` environment.
 
 The workflow always stages to `next`. Inspect the staged package name, version, access, dist-tag, provenance, checksum, files, source branch, and source commit before approving it through npm. Approval and later promotion to `latest` are separate user-authorised operations. Keep a pre-release pull request in draft while validating the exact registry version in Self-hosted LiveSync, then merge the validated change if it succeeds. Validate a stable release in Self-hosted LiveSync before promoting it to `latest`.
