@@ -4,7 +4,6 @@
 import { AutoAccepting, REMOTE_P2P, type ObsidianLiveSyncSettings } from "@lib/common/types";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import { EVENT_REQUEST_OPEN_P2P } from "@lib/events/coreEvents";
-import { eventHub } from "@lib/hub/hub";
 import { LiveSyncTrysteroReplicator, type LiveSyncTrysteroReplicatorEnv } from "./LiveSyncTrysteroReplicator";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { Logger, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
@@ -48,9 +47,10 @@ export function useP2PReplicator(
             return replicator;
         },
     };
-    addP2PEventHandlers(activeReplicator.instance);
+    const events = host.services.context.events;
+    addP2PEventHandlers(activeReplicator.instance, events);
 
-    const p2pLogCollector = new P2PLogCollector();
+    const p2pLogCollector = new P2PLogCollector(events);
     const storeP2PStatusLine = reactiveSource("");
     p2pLogCollector.p2pReplicationLine.onChanged((line) => {
         storeP2PStatusLine.value = line.value;
@@ -60,7 +60,7 @@ export function useP2PReplicator(
     host.services.appLifecycle.onResumed.addHandler(() => {
         const settings = host.services.setting.currentSettings();
         if (settings.P2P_Enabled && settings.P2P_AutoStart) {
-            compatGlobal.setTimeout(() => void replicator.open(), 100);
+            compatGlobal.setTimeout((): void => void replicator.open(), 100);
         }
         return Promise.resolve(true);
     });
@@ -124,7 +124,7 @@ export function useP2PReplicator(
         host.services.appLifecycle.onInitialise.addHandler(() => {
             host.services.API.registerWindow(viewType, factory);
 
-            eventHub.onEvent(EVENT_REQUEST_OPEN_P2P, () => {
+            events.onEvent(EVENT_REQUEST_OPEN_P2P, () => {
                 void openPane();
             });
 
@@ -166,7 +166,7 @@ export function useP2PReplicator(
             });
             host.services.API.addRibbonIcon("waypoints", "P2P Replicator", () => {
                 void openPane();
-            })?.addClass?.("livesync-ribbon-replicate-p2p");
+            })?.classList.add("livesync-ribbon-replicate-p2p");
 
             return Promise.resolve(true);
         });

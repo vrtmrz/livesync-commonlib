@@ -1,10 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { TrysteroReplicator } from "./TrysteroReplicator";
+import { createLiveSyncEventHub } from "@lib/hub/hub";
 
 function createReplicator(settings: Record<string, unknown> = {}) {
     const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
     const replicator = new TrysteroReplicator(
         {
+            events: createLiveSyncEventHub(),
+            translate: (key: string) => key,
             settings: {
                 P2P_AutoSyncPeers: "",
                 P2P_AutoWatchPeers: "",

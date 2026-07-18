@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { RemoteDBSettings } from "@lib/common/types.ts";
+import { createServiceContext } from "@lib/services/base/ServiceBase";
 import { LiveSyncCouchDBReplicator } from "./LiveSyncReplicator.ts";
 
 describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
@@ -8,6 +9,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
         replicator.env = {
             services: {
+                context: createServiceContext(),
                 database: {
                     localDatabase: {
                         localDatabase: {},
@@ -37,6 +39,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
         replicator.env = {
             services: {
+                context: createServiceContext(),
                 database: {
                     localDatabase: { localDatabase },
                 },

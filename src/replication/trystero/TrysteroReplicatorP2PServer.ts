@@ -16,10 +16,8 @@ import {
 } from "./types";
 import { StoredMapLike } from "@lib/dataobject/StoredMap";
 import { TrysteroReplicatorP2PClient } from "./TrysteroReplicatorP2PClient";
-import { eventHub } from "@lib/hub/hub";
 import { createHostingDB } from "./ProxiedDB";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
-import { $msg } from "@lib/common/i18n";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock_v2";
 import { Computed } from "octagonal-wheels/dataobject/Computed";
 import { RpcRoom, type JsonLike, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
@@ -129,7 +127,7 @@ export class TrysteroReplicatorP2PServer {
                 Logger(ex, LOG_LEVEL_VERBOSE);
             }
             this._room = undefined;
-            eventHub.emitEvent(EVENT_P2P_DISCONNECTED);
+            this._env.events.emitEvent(EVENT_P2P_DISCONNECTED);
         }
     }
     async setRoom(room: Room) {
@@ -160,7 +158,7 @@ export class TrysteroReplicatorP2PServer {
             };
         });
         const ads = await Promise.all(adsTasks);
-        eventHub.emitEvent(EVENT_SERVER_STATUS, {
+        this._env.events.emitEvent(EVENT_SERVER_STATUS, {
             isConnected: this.isServing,
             knownAdvertisements: ads,
             serverPeerId: this.serverPeerId,
@@ -172,7 +170,7 @@ export class TrysteroReplicatorP2PServer {
     constructor(env: ReplicatorHostEnv, _serverPeerId = selfId) {
         this._env = env;
         this._serverPeerId = _serverPeerId;
-        eventHub.onEvent(EVENT_PLATFORM_UNLOADED, () => {
+        this._env.events.onEvent(EVENT_PLATFORM_UNLOADED, () => {
             void this.shutdown();
         });
         // SimpleStore has no type support now.
@@ -281,7 +279,7 @@ export class TrysteroReplicatorP2PServer {
         if (data.peerId !== peerId) return;
         this._knownAdvertisements.set(peerId, data);
         void this.dispatchConnectionStatus();
-        void eventHub.emitEvent(EVENT_ADVERTISEMENT_RECEIVED, data);
+        void this._env.events.emitEvent(EVENT_ADVERTISEMENT_RECEIVED, data);
     }
 
     acceptedPeers: StoredMapLike<boolean>;
@@ -435,7 +433,7 @@ You can chose as follows:
             peerConn.close();
             this.activePeer.delete(peerId);
         }
-        void eventHub.emitEvent(EVENT_DEVICE_LEAVED, peerId);
+        void this._env.events.emitEvent(EVENT_DEVICE_LEAVED, peerId);
         void this.dispatchConnectionStatus();
     }
 
@@ -447,7 +445,7 @@ You can chose as follows:
         const [sendRpc, arrivedRpc] = room.makeAction<RpcWireMessage>("rpc2");
         const transport: TransportAdapter = {
             send: (message, peerId) => {
-                return sendRpc(message, peerId).then(() => undefined);
+                return sendRpc(message, peerId).then((): void => undefined);
             },
             onMessage: (handler) => {
                 arrivedRpc((data, peerId) => {
@@ -489,13 +487,13 @@ You can chose as follows:
             void this.onAdvertisement(data, peerId);
         });
 
-        eventHub.emitEvent(EVENT_P2P_CONNECTED);
+        this._env.events.emitEvent(EVENT_P2P_CONNECTED);
         void this.dispatchConnectionStatus();
     }
 
     async startService(bindings: BindableObject[] = []) {
         if (!this.isEnabled) {
-            Logger($msg("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
+            Logger(this._env.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
             return;
         }
         const servingDB = createHostingDB(this._env);
@@ -510,7 +508,7 @@ You can chose as follows:
     async start(bindings: BindableObject[] = []) {
         await this.shutdown();
         if (!this.settings.P2P_Enabled) {
-            Logger($msg("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
+            Logger(this._env.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
             return;
         }
         const options = generateJoinRoomOptions(this.settings);

@@ -24,7 +24,6 @@ import { fireAndForget, type SimpleStore } from "@lib/common/utils.ts";
 import { extractObject } from "@lib/common/utils.ts";
 import { clearHandlers } from "@lib/replication/SyncParamsHandler.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
-import { $msg } from "@lib/common/i18n.ts";
 
 const MILSTONE_DOCID = "_00000000-milestone.json";
 
@@ -35,7 +34,7 @@ const currentVersionRange: ChunkVersionRange = {
 };
 
 export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
-    override env: LiveSyncJournalReplicatorEnv;
+    declare env: LiveSyncJournalReplicatorEnv;
 
     get isChunkSendingSupported(): boolean {
         return false;
@@ -176,7 +175,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             } else if (ensure == "OK") {
                 /* NO OP FOR NARROWING */
             } else if (ensure[0] == "MISMATCHED") {
-                Logger($msg("liveSyncReplicator.mismatchedTweakDetected"), LOG_LEVEL_NOTICE);
+                Logger(this.translate("liveSyncReplicator.mismatchedTweakDetected"), LOG_LEVEL_NOTICE);
                 this.tweakSettingsMismatched = true;
                 this.preferredTweakValue = ensure[1];
                 return false;

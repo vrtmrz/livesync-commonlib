@@ -26,6 +26,7 @@ import { type LogFunction, createInstanceLogFunction } from "@lib/services/lib/l
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import type { MetaEntry, UXFileInfoStub, FilePathWithPrefix, ObsidianLiveSyncSettings } from "@lib/common/types";
 import { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE } from "@lib/common/types";
+import { createServiceContext } from "@lib/services/base/ServiceBase";
 
 const APIServiceMock = {
     addLog(message: string, level?: any) {
@@ -75,6 +76,7 @@ describe("getPathFromEntry", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 path: mockPath,
             },
             serviceModules: {},
@@ -106,6 +108,7 @@ describe("canProceedScan", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 keyValueDB: {},
                 setting: {
                     currentSettings: () => ({
@@ -130,6 +133,7 @@ describe("canProceedScan", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 keyValueDB: {},
                 setting: {
                     currentSettings: () => ({
@@ -156,6 +160,7 @@ describe("canProceedScan", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 keyValueDB: {},
                 setting: {
                     currentSettings: () => ({
@@ -182,6 +187,7 @@ describe("canProceedScan", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 keyValueDB: {},
                 setting: {
                     currentSettings: () => ({
@@ -208,6 +214,7 @@ describe("canProceedScan", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 keyValueDB: {},
                 setting: {
                     currentSettings: () => ({
@@ -237,6 +244,7 @@ describe("collectDeletedFiles", () => {
     it("should skip collection if limitDays is <= 0", async () => {
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         automaticallyDeleteMetadataOfDeletedFiles: 0,
@@ -286,6 +294,7 @@ describe("collectDeletedFiles", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         automaticallyDeleteMetadataOfDeletedFiles: 30,
@@ -331,6 +340,7 @@ describe("collectDeletedFiles", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         automaticallyDeleteMetadataOfDeletedFiles: 30,
@@ -372,6 +382,7 @@ describe("collectFilesOnStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isTargetFile: isTargetFileMock,
                 },
@@ -404,6 +415,7 @@ describe("collectFilesOnStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isTargetFile: vi.fn().mockResolvedValue(true),
                 },
@@ -451,6 +463,7 @@ describe("collectDatabaseFiles", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isValidPath: vi.fn().mockReturnValue(true),
                     isTargetFile: vi.fn().mockResolvedValue(true),
@@ -491,6 +504,7 @@ describe("updateToDatabase", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -517,6 +531,7 @@ describe("updateToDatabase", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(true),
                 },
@@ -552,6 +567,7 @@ describe("updateToStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -585,6 +601,7 @@ describe("updateToStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -617,6 +634,7 @@ describe("updateToStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -658,6 +676,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -704,6 +723,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -751,6 +771,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -799,6 +820,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -839,6 +861,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -880,6 +903,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(true),
                 },
@@ -925,6 +949,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(true),
                 },
@@ -975,6 +1000,7 @@ describe("syncStorageAndDatabase", () => {
     it("should skip sync if document has conflicts", async () => {
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -1004,6 +1030,7 @@ describe("syncStorageAndDatabase", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn((size: number) => size > 1000),
                 },
@@ -1036,6 +1063,7 @@ describe("syncStorageAndDatabase", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn((size: number) => size > 10000),
                 },
@@ -1237,6 +1265,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         handleFilenameCaseSensitive: true,
@@ -1308,6 +1337,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         handleFilenameCaseSensitive: true,
@@ -1372,6 +1402,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         handleFilenameCaseSensitive: true,
@@ -1431,6 +1462,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         handleFilenameCaseSensitive: true,
@@ -1488,6 +1520,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         handleFilenameCaseSensitive: true,
@@ -1551,6 +1584,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         handleFilenameCaseSensitive: true,
@@ -1618,6 +1652,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         handleFilenameCaseSensitive: true,
@@ -1676,6 +1711,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
             const host = {
                 services: {
+                    context: createServiceContext(),
                     setting: {
                         currentSettings: () => ({
                             handleFilenameCaseSensitive: true,
@@ -1742,6 +1778,7 @@ describe("performFullScan", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         isConfigured: false,
@@ -1781,6 +1818,7 @@ describe("performFullScan", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         isConfigured: true,
@@ -1853,6 +1891,7 @@ describe("performFullScan", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         isConfigured: true,
@@ -1929,6 +1968,7 @@ describe("prepareDatabaseForUse", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 appLifecycle: {
                     resetIsReady: vi.fn(),
                     markIsReady: markIsReadyMock,
@@ -1970,6 +2010,7 @@ describe("prepareDatabaseForUse", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 appLifecycle: {
                     resetIsReady: vi.fn(),
                     markIsReady: vi.fn(),
@@ -2012,6 +2053,7 @@ describe("useOfflineScanner", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 API: APIServiceMock,
                 appLifecycle: {
                     getUnresolvedMessages: {

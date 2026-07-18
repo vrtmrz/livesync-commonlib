@@ -3,14 +3,16 @@ import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB";
 import { handlers } from "@lib/services/lib/HandlerUtils";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils.ts";
-import { PouchDB } from "@lib/pouchdb/pouchdb-browser.ts";
+import type PouchDB from "pouchdb-core";
+import type { PouchDBConstructor } from "@lib/pouchdb/PouchDBConstructor.ts";
 import { ExtraSuffixIndexedDB } from "@lib/common/models/shared.const.ts";
-import { $msg } from "@lib/common/i18n.ts";
 import type { SettingService } from "./SettingService";
 import type { APIService } from "./APIService";
 import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 
 export type DatabaseServiceDependencies = {
+    /** PouchDB with the adapters required by the host runtime already registered. */
+    pouchDB: PouchDBConstructor;
     path: IPathService;
     vault: IVaultService;
     setting: SettingService;
@@ -83,7 +85,7 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
     ): PouchDB.Database<T> {
         const settings = this.services.setting.currentSettings();
         const optionPass = this.modifyDatabaseOptions(settings, name ?? "", options ?? {});
-        return new PouchDB(optionPass.name, optionPass.options);
+        return new this.services.pouchDB(optionPass.name, optionPass.options);
     }
 
     async openDatabase(params: openDatabaseParameters): Promise<boolean> {
@@ -91,9 +93,10 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
             await this._localDatabase.close();
         }
         const vaultName = this.services.vault.getVaultName();
-        this._log($msg("moduleLocalDatabase.logWaitingForReady"));
+        this._log(this.context.translate("moduleLocalDatabase.logWaitingForReady"));
         const env = {
             services: {
+                context: this.context,
                 ...this.services,
                 ...params,
                 database: this,

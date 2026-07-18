@@ -1,1 +1,7 @@
 *.swp
+node_modules/
+.build/
+.package/
+.package-consumer/
+artifacts/
+coverage/

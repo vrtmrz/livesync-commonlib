@@ -1,0 +1,116 @@
+name: Stage npm package
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Exact version in package.json
+        required: true
+        type: string
+      expected_sha:
+        description: Full 40-character commit SHA expected on main
+        required: true
+        type: string
+      confirmation:
+        description: "Type: stage @vrtmrz/livesync-commonlib@<version> from <expected-sha>"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: npm-stage
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Require the exact main commit
+        env:
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+
+      - name: Check out the selected commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Use the reviewed npm CLI
+        run: npm install --global npm@11.18.0
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify package and release selection
+        env:
+          PACKAGE_VERSION: ${{ inputs.version }}
+          EXPECTED_SHA: ${{ inputs.expected_sha }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+        run: |
+          npm run verify:package
+          node _tools/validate-release-selection.mjs "$PACKAGE_VERSION" "$EXPECTED_SHA" "$GITHUB_SHA" "$CONFIRMATION"
+
+      - name: Pack the verified package
+        run: |
+          mkdir -p "$RUNNER_TEMP/npm-package"
+          npm pack .package --pack-destination "$RUNNER_TEMP/npm-package"
+          cd "$RUNNER_TEMP/npm-package"
+          sha256sum ./*.tgz > SHA256SUMS
+          tar -tzf ./*.tgz
+
+      - name: Upload the verified package
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: npm-package
+          path: ${{ runner.temp }}/npm-package
+          if-no-files-found: error
+          retention-days: 7
+
+  stage:
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: npm
+    permissions:
+      contents: read
+      id-token: write
+
+    steps:
+      - name: Set up Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+
+      - name: Use an npm CLI with staged publishing
+        run: npm install --global npm@11.18.0
+
+      - name: Download the verified package
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          name: npm-package
+          path: ${{ runner.temp }}/npm-package
+
+      - name: Verify and stage the package
+        env:
+          DIST_TAG: next
+        run: |
+          cd "$RUNNER_TEMP/npm-package"
+          sha256sum --check SHA256SUMS
+          package_file=$(find . -maxdepth 1 -type f -name '*.tgz' -print -quit)
+          test -n "$package_file"
+          npm stage publish "$package_file" --tag "$DIST_TAG"

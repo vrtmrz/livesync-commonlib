@@ -71,7 +71,8 @@ export function attachAdvertisement(
 
     const [sendAd, arrivedAd] = room.makeAction<TrysteroAdvertisement>(AD_ACTION_NAME);
 
-    const sendAdvertisement = (toPeerId?: string): Promise<void> => sendAd(localAd, toPeerId).then(() => undefined);
+    const sendAdvertisement = (toPeerId?: string): Promise<void> =>
+        sendAd(localAd, toPeerId).then((): void => undefined);
 
     // When a new peer joins, introduce ourselves to them specifically.
     room.onPeerJoin((peerId) => {
@@ -152,7 +153,7 @@ export function wrapTrysteroRoom(room: Room): TransportAdapter {
 
     return {
         send(message: RpcWireMessage, peerId: string) {
-            return sendRpc(message, peerId).then(() => undefined);
+            return sendRpc(message, peerId).then((): void => undefined);
         },
 
         onMessage(handler) {

@@ -4,12 +4,15 @@ import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import type { IAPIService, ICommandCompat } from "@lib/services/base/IService";
 import { handlers } from "@lib/services/lib/HandlerUtils";
 import type { Confirm } from "@lib/interfaces/Confirm";
-import { BrowserConfirm } from "./BrowserConfirm";
 import { LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 import { _activeDocument } from "@lib/common/coreEnvFunctions.ts";
 
 export declare const PACKAGE_VERSION: string;
 export declare const MANIFEST_VERSION: string;
+
+export type BrowserAPIServiceDependencies = {
+    confirm: Confirm;
+};
 
 export class BrowserAPIService<T extends ServiceContext> extends InjectableAPIService<T> {
     _confirmInstance: Confirm;
@@ -26,9 +29,9 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
     private windowPanels = new Map<string, HTMLDivElement>();
     private activeWindowType: string | null = null;
 
-    constructor(context: T) {
+    constructor(context: T, dependencies: BrowserAPIServiceDependencies) {
         super(context);
-        this._confirmInstance = new BrowserConfirm(context);
+        this._confirmInstance = dependencies.confirm;
         this.addLog.setHandler((message, level, key) => {
             if (level >= LOG_LEVEL_VERBOSE) {
                 this.appendLog(message, level, key);
@@ -250,10 +253,9 @@ export class BrowserAPIService<T extends ServiceContext> extends InjectableAPISe
             panel.classList.toggle("is-active", windowType === type);
         }
 
-        const tabs = this.windowTabs?.querySelectorAll("button[data-window-tab]") ?? [];
-        tabs.forEach((tab) => {
-            const isActive = (tab as HTMLButtonElement).dataset.windowTab === type;
-            (tab as HTMLButtonElement).classList.toggle("is-active", isActive);
+        this.windowTabs?.querySelectorAll<HTMLButtonElement>("button[data-window-tab]").forEach((tab) => {
+            const isActive = tab.dataset.windowTab === type;
+            tab.classList.toggle("is-active", isActive);
         });
     }
 
