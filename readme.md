@@ -4,6 +4,11 @@ Commonlib is the ESM package which provides shared data, storage, replication, h
 
 This package is primarily for maintainers of those clients and for integrations which deliberately reuse a reviewed Commonlib contract. It is not yet a general-purpose LiveSync SDK: the package does not provide a stable end-to-end client factory or own host UI, permissions, credentials, process lifecycle, or application persistence.
 
+> [!IMPORTANT]
+> **Package migration in progress.** Commonlib is moving from a source-directory and Git-submodule dependency to a compiled npm package as part of Self-hosted LiveSync's Community directory review, reusable package boundary, and 1.0 preparation work.
+>
+> Existing contributions remain welcome and the normal contribution process has not changed. Pull requests which touch packaging, host lifecycle, or compatibility boundaries may need coordination or a rebase while this boundary settles; maintainers will identify affected work rather than asking contributors to adopt a new process pre-emptively.
+
 ## Status and versioning
 
 The package is pre-1.0. Pin an exact reviewed version, and review changes before upgrading. An entry in the package export map means that the import is deliberate and package-tested; it does not make every semantic detail of that entry a final 1.0 guarantee.
