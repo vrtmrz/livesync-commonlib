@@ -19,7 +19,7 @@ Before publication, run the downstream workflow against an exact Self-hosted Liv
 
 Choose the version explicitly. Use a prerelease such as `0.1.0-rc.0` when registry installation must be validated before the first stable version. Package-proof versions are local artefacts and cannot be staged.
 
-For a stable release, use a release branch based on `main`. For a pre-release which must be validated before its feature pull request is merged, prepare the version commit on that reviewed draft branch and keep the pull request in draft:
+For a stable release, prepare the version on a release branch based on `main`, review it, and merge the exact release commit into `main` before dispatch. For a pre-release which must be validated before its feature pull request is merged, prepare the version commit on that reviewed draft branch and keep the pull request in draft:
 
 ```bash
 npm ci

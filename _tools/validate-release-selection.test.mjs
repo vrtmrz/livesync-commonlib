@@ -28,7 +28,7 @@ function validSelection(overrides = {}) {
         version,
         expectedSha: sha,
         actualSha: sha,
-        actualRef: "refs/heads/release/commonlib-0.1.0-rc.0",
+        sourceRef: "refs/heads/release/commonlib-0.1.0-rc.0",
         confirmation: `stage @vrtmrz/livesync-commonlib@${version} from ${sha}`,
         ...selectionOverrides,
     };
@@ -41,7 +41,7 @@ describe("release selection", () => {
 
     it("accepts a stable version from main while retaining the next publication gate", () => {
         assert.doesNotThrow(() =>
-            validateReleaseSelection(validSelection({ version: "0.1.0", actualRef: "refs/heads/main" }))
+            validateReleaseSelection(validSelection({ version: "0.1.0", sourceRef: "refs/heads/main" }))
         );
     });
 
@@ -54,8 +54,8 @@ describe("release selection", () => {
 
     it("rejects a prerelease selected by tag", () => {
         assert.throws(
-            () => validateReleaseSelection(validSelection({ actualRef: "refs/tags/0.1.0-rc.0" })),
-            /Releases must be dispatched from a branch ref/u
+            () => validateReleaseSelection(validSelection({ sourceRef: "refs/tags/0.1.0-rc.0" })),
+            /release source must be selected from a branch ref/u
         );
     });
 
