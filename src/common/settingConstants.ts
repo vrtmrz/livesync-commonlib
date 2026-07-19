@@ -375,8 +375,8 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         desc: "If this enabled, all chunks will be stored with the revision made from its content.",
     },
     sendChunksBulkMaxSize: {
-        name: "Maximum size of chunks to send in one request",
-        desc: "MB",
+        name: "Maximum request size for manually resending chunks",
+        desc: "MB per request",
     },
     useAdvancedMode: {
         name: "Enable advanced features",

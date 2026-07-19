@@ -16,6 +16,8 @@ Most replication and storage services used by the plug-in still enter through ex
 
 The plug-in's manual onboarding and Remote Databases pane use the focused `/remote-configurations` entry to create opaque profile IDs, retain user-visible names, and select main and P2P remotes. Commonlib owns the in-memory profile result contract; Self-hosted LiveSync adds dialogue, Setup URI classification, Fetch or Rebuild scheduling, persistence, restart ordering, and real-Obsidian presentation checks.
 
+Commonlib's confirmation contract can also convey a host-neutral vertical action-layout request for long, safety-sensitive choices. Self-hosted LiveSync maps that request to Fancy Kit at its Obsidian boundary. Focused tests check the mapping, and the consumer's real-Obsidian suite checks the resulting controls and mobile touch targets; Commonlib does not own the rendering or CSS.
+
 ## CLI
 
 The CLI extends the same neutral context with its database path and injected `StandardIo` in [`NodeServiceContext.ts`](https://github.com/vrtmrz/obsidian-livesync/blob/6cc06bf20fc044c70408ef3d92fe0bbc0874479d/src/apps/cli/services/NodeServiceContext.ts). Its entry point creates the Node standard-I/O adapter once and passes it to command composition, while unit tests provide stream-independent fakes for parsing, prompts, standard output, and standard error.

@@ -157,6 +157,7 @@ export const SETTINGS_SCHEMA_DEFAULTS: ObsidianLiveSyncSettings = {
     handleFilenameCaseSensitive: undefined!,
     doNotUseFixedRevisionForChunks: true,
     showLongerLogInsideEditor: false,
+    /** @deprecated Retained for settings and Setup URI compatibility. */
     sendChunksBulk: false,
     sendChunksBulkMaxSize: 1,
     /**

@@ -791,12 +791,14 @@ interface ObsoleteRemoteDBSettings {
     disableRequestURI: boolean;
 
     /**
-     * Indicates whether to send data in bulk chunks.
+     * Retained for settings and Setup URI compatibility.
+     * Automatic bulk chunk pre-send is no longer supported.
+     * @deprecated
      */
     sendChunksBulk: boolean;
 
     /**
-     * The maximum size of the bulk chunks to be sent.
+     * The maximum request size used by the explicit manual chunk resend tool, in MB.
      */
     sendChunksBulkMaxSize: number;
 

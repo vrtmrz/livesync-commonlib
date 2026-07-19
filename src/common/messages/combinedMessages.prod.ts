@@ -2624,6 +2624,12 @@ export const allMessages = {
         ru: "Можно установить предупреждение о максимальной ёмкости базы данных.",
         zh: "我们可以设置一个最大数据库容量警告,**以便在远程存储空间耗尽前采取行动**。\n您想启用这个功能吗?\n\n> [!MORE]-\n> - 0: 不警告存储大小。\n>   如果您在远程存储(尤其是自托管)上有足够的空间,则推荐此选项。您可以手动检查存储大小并重建。\n> - 800: 如果远程存储大小超过 800MB 则发出警告。\n>   如果您使用的是 fly.io(1GB 限制) 或 IBM Cloudant,则推荐此选项。\n> - 2000: 如果远程存储大小超过 2GB 则发出警告。\n\n如果达到限制,系统会要求我们逐步增大限制\n",
     },
+    "moduleCheckRemoteSize.noticeExceeded": {
+        def: "Remote storage size is ${measuredSize}, above the configured ${notifySize} notification threshold. {HERE}",
+    },
+    "moduleCheckRemoteSize.noticeNotConfigured": {
+        def: "Remote storage size notifications are not configured. {HERE}",
+    },
     "moduleCheckRemoteSize.option2GB": {
         def: "2GB (Standard)",
         es: "2GB (Estándar)",
@@ -2693,6 +2699,9 @@ export const allMessages = {
         ko: "지금 모든 것 재구축",
         ru: "Перестроить всё сейчас",
         zh: "立即重建所有内容",
+    },
+    "moduleCheckRemoteSize.optionReview": {
+        def: "Review options",
     },
     "moduleCheckRemoteSize.titleDatabaseSizeLimitExceeded": {
         def: "Remote storage size exceeded the limit",

@@ -358,13 +358,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     readonly suspendExtraSync = handlers<ISettingService>().all("suspendExtraSync");
 
     /**
-     * Suggest enabling optional features to the user.
-     */
-    readonly suggestOptionalFeatures = handlers<ISettingService>().all("suggestOptionalFeatures");
-
-    /**
      * Enable an optional feature and save to the settings.
-     * It may also raised from `handleSuggestOptionalFeatures` if the user agrees.
      * @param mode The optional feature to enable.
      */
     readonly enableOptionalFeature = handlers<ISettingService>().all("enableOptionalFeature");

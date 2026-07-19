@@ -58,9 +58,6 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     get rawHost() {
         return this._p2pHost;
     }
-    override get isChunkSendingSupported(): boolean {
-        return false;
-    }
 
     getReplicationPBKDF2Salt(_setting: RemoteDBSettings, _refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
         return Promise.resolve(new Uint8Array(32));
@@ -202,11 +199,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         );
     }
 
-    async replicateFrom(
-        peerId: string,
-        showNotice: boolean = false,
-        skipOrdinaryReplicationPolicy = false
-    ) {
+    async replicateFrom(peerId: string, showNotice: boolean = false, skipOrdinaryReplicationPolicy = false) {
         const replicator = this._replicator;
         if (!replicator) throw new Error("P2P replicator is not open");
         return await this.env.services.replicator.runFiniteReplicationActivity(
@@ -292,11 +285,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         return Promise.resolve(false);
     }
 
-    replicateAllToServer(
-        _setting: RemoteDBSettings,
-        _showingNotice?: boolean,
-        _sendChunksInBulkDisabled?: boolean
-    ): Promise<boolean> {
+    replicateAllToServer(_setting: RemoteDBSettings, _showingNotice?: boolean): Promise<boolean> {
         return Promise.resolve(false);
     }
 

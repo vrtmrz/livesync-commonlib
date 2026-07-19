@@ -1,3 +1,5 @@
+export type ConfirmActionLayout = "auto" | "vertical";
+
 export interface Confirm {
     askYesNo(message: string): Promise<"yes" | "no">;
     askString(title: string, key: string, placeholder: string, isPassword?: boolean): Promise<string | false>;
@@ -34,6 +36,7 @@ export interface Confirm {
         contentMd: string,
         buttons: string[],
         defaultAction: (typeof buttons)[number],
-        timeout?: number
+        timeout?: number,
+        actionLayout?: ConfirmActionLayout
     ): Promise<(typeof buttons)[number] | false>;
 }

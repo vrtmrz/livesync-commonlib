@@ -243,6 +243,8 @@ describe("ServiceRebuilder bounded remote activity", () => {
             label: "rebuild-remote",
         });
         expect(services.replication.replicateAllToRemote).toHaveBeenCalledTimes(2);
+        expect(services.replication.replicateAllToRemote).toHaveBeenNthCalledWith(1, true);
+        expect(services.replication.replicateAllToRemote).toHaveBeenNthCalledWith(2, true);
         expect(services.replication.replicateAllToRemote.mock.invocationCallOrder[1]).toBeLessThan(
             activityFinished.mock.invocationCallOrder[0]
         );
@@ -261,6 +263,8 @@ describe("ServiceRebuilder bounded remote activity", () => {
         });
         expect(services.databaseEvents.initialiseDatabase).toHaveBeenCalled();
         expect(services.replication.replicateAllToRemote).toHaveBeenCalledTimes(2);
+        expect(services.replication.replicateAllToRemote).toHaveBeenNthCalledWith(1, true);
+        expect(services.replication.replicateAllToRemote).toHaveBeenNthCalledWith(2, true);
         expect(services.replication.replicateAllToRemote.mock.invocationCallOrder[1]).toBeLessThan(
             activityFinished.mock.invocationCallOrder[0]
         );

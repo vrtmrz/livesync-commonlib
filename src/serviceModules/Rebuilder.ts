@@ -112,17 +112,6 @@ Please enable them from the settings screen after setup is complete.`,
             ["OK"]
         );
     }
-    async askUsingOptionalFeature(opt: { enableFetch?: boolean; enableOverwrite?: boolean }) {
-        if (
-            (await this.UI.confirm.askYesNoDialog(
-                "Do you want to enable extra features? If you are new to Self-hosted LiveSync, try the core feature first!",
-                { title: "Enable extra features", defaultOption: "No", timeout: 15 }
-            )) == "yes"
-        ) {
-            await this.setting.suggestOptionalFeatures(opt);
-        }
-    }
-
     async rebuildRemote() {
         await this.replicator.runBoundedRemoteActivity(() => this.performRemoteRebuild(), {
             label: "rebuild-remote",
@@ -143,11 +132,12 @@ Please enable them from the settings screen after setup is complete.`,
         await this._tryResetRemoteDatabase();
         await this.replication.markLocked();
         await delay(500);
-        // await this.askUsingOptionalFeature({ enableOverwrite: true });
         await delay(1000);
         await this.replication.replicateAllToRemote(true);
         await delay(1000);
-        await this.replication.replicateAllToRemote(true, true);
+        // The second standard pass predates the removed bulk pre-send path. It converges follow-up
+        // writes and conflict resolutions which the first pass may produce after a remote reset.
+        await this.replication.replicateAllToRemote(true);
     }
     $rebuildRemote(): Promise<void> {
         return this.rebuildRemote();
@@ -176,11 +166,11 @@ Please enable them from the settings screen after setup is complete.`,
         await this.replication.markLocked();
         await delay(500);
         // We do not have any other devices' data, so we do not need to ask for overwriting.
-        // await this.askUsingOptionalFeature({ enableOverwrite: false });
         await delay(1000);
         await this.replication.replicateAllToRemote(true);
         await delay(1000);
-        await this.replication.replicateAllToRemote(true, true);
+        // Preserve the same convergence pass used by a remote-only rebuild.
+        await this.replication.replicateAllToRemote(true);
     }
 
     $rebuildEverything(): Promise<void> {

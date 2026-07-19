@@ -198,7 +198,7 @@ export interface IReplicationService {
     storageApplyingCount: ReactiveSource<number>;
     replicationResultCount: ReactiveSource<number>;
 
-    replicateAllToRemote(showingNotice?: boolean, sendChunksInBulkDisabled?: boolean): Promise<boolean>;
+    replicateAllToRemote(showingNotice?: boolean): Promise<boolean>;
 
     replicateAllFromRemote(showingNotice?: boolean): Promise<boolean>;
 
@@ -302,7 +302,6 @@ export interface ISettingService {
     onRealiseSetting(): Promise<boolean>;
     suspendAllSync(): Promise<boolean>;
     suspendExtraSync(): Promise<boolean>;
-    suggestOptionalFeatures(opt: { enableFetch?: boolean; enableOverwrite?: boolean }): Promise<boolean>;
     enableOptionalFeature(mode: keyof OPTIONAL_SYNC_FEATURES): Promise<boolean>;
 
     clearUsedPassphrase(): void;

@@ -60,6 +60,51 @@ describe("onNotifyRemoteSizeNotConfigured", () => {
         expect(result).toBe(true);
     });
 
+    it("defers configuration choices to a clickable notice", async () => {
+        let action: ((event: Pick<MouseEvent, "preventDefault">) => void) | undefined;
+        let configuredAnchor: HTMLAnchorElement | undefined;
+        const askSelectStringDialogue = vi.fn().mockResolvedValue("ignored");
+        const askInPopup = vi.fn(
+            (_key: string, _message: string, configureAnchor: (anchor: HTMLAnchorElement) => void) => {
+                const anchor = {
+                    addEventListener: vi.fn(
+                        (_event: string, handler: (event: Pick<MouseEvent, "preventDefault">) => void) => {
+                            action = handler;
+                        }
+                    ),
+                    textContent: "",
+                } as unknown as HTMLAnchorElement;
+                configuredAnchor = anchor;
+                configureAnchor(anchor);
+            }
+        );
+        const host = {
+            services: {
+                context: createTranslatedContext(),
+                API: {
+                    isOnline: true,
+                    confirm: { askInPopup, askSelectStringDialogue },
+                },
+                setting: {
+                    currentSettings: () => ({ notifyThresholdOfRemoteStorageSize: -1 }),
+                    applyPartial: vi.fn().mockResolvedValue(true),
+                },
+            },
+            serviceModules: {},
+        } as any;
+
+        const handler = onNotifyRemoteSizeNotConfiguredFactory(host, logger);
+        await expect(handler()).resolves.toBe(true);
+
+        expect(askInPopup).toHaveBeenCalledOnce();
+        expect(configuredAnchor?.href).toBe("#");
+        expect(askSelectStringDialogue).not.toHaveBeenCalled();
+
+        action?.({ preventDefault: vi.fn() });
+        await vi.waitFor(() => expect(askSelectStringDialogue).toHaveBeenCalledOnce());
+        expect(askSelectStringDialogue.mock.calls[0][2]).not.toHaveProperty("timeout");
+    });
+
     const ANSWER_0 = $msg("moduleCheckRemoteSize.optionNoWarn");
     const ANSWER_800 = $msg("moduleCheckRemoteSize.option800MB");
     const ANSWER_2000 = $msg("moduleCheckRemoteSize.option2GB");
@@ -107,7 +152,7 @@ describe("onNotifyRemoteSizeNotConfigured", () => {
             } as any;
 
             // The context and expected answers use the same real translator, while the dialogue itself remains injected.
-            const handler = onNotifyRemoteSizeNotConfiguredFactory(host, logger);
+            const handler = onNotifyRemoteSizeNotConfiguredFactory(host, logger, "dialogue");
             const result = await handler();
 
             expect(result).toBe(true);
@@ -233,6 +278,53 @@ describe("onNotifyRemoteSizeExceed", () => {
         expect(result).toBe(true);
     });
 
+    it("defers exceeded-size choices to a clickable notice", async () => {
+        let action: ((event: Pick<MouseEvent, "preventDefault">) => void) | undefined;
+        const askSelectStringDialogue = vi.fn().mockResolvedValue("ignored");
+        const askInPopup = vi.fn(
+            (_key: string, _message: string, configureAnchor: (anchor: HTMLAnchorElement) => void) => {
+                const anchor = {
+                    addEventListener: vi.fn(
+                        (_event: string, handler: (event: Pick<MouseEvent, "preventDefault">) => void) => {
+                            action = handler;
+                        }
+                    ),
+                    textContent: "",
+                } as unknown as HTMLAnchorElement;
+                configureAnchor(anchor);
+            }
+        );
+        const host = {
+            services: {
+                context: createTranslatedContext(),
+                API: {
+                    isOnline: true,
+                    confirm: { askInPopup, askSelectStringDialogue },
+                },
+                replicator: {
+                    getActiveReplicator: () => ({
+                        getRemoteStatus: vi.fn().mockResolvedValue({ estimatedSize: 1000 * 1024 * 1024 }),
+                    }),
+                },
+                setting: {
+                    currentSettings: () => ({ notifyThresholdOfRemoteStorageSize: 800 }),
+                    applyPartial: vi.fn().mockResolvedValue(true),
+                },
+            },
+            serviceModules: {},
+        } as any;
+
+        const handler = onNotifyRemoteSizeExceedFactory(host, logger);
+        await expect(handler()).resolves.toBe(true);
+
+        expect(askInPopup).toHaveBeenCalledOnce();
+        expect(askSelectStringDialogue).not.toHaveBeenCalled();
+
+        action?.({ preventDefault: vi.fn() });
+        await vi.waitFor(() => expect(askSelectStringDialogue).toHaveBeenCalledOnce());
+        expect(askSelectStringDialogue.mock.calls[0][2]).not.toHaveProperty("timeout");
+    });
+
     const testEstimatedSize = 1000 * 1024 * 1024; // 1000 MB
     const newMax = ~~(testEstimatedSize / 1024 / 1024) + 100; // Same calculation as in the handler
     const ANSWER_ENLARGE_LIMIT = $msg("moduleCheckRemoteSize.optionIncreaseLimit", {
@@ -299,7 +391,7 @@ describe("onNotifyRemoteSizeExceed", () => {
             serviceModules: {},
         } as any;
 
-        const handler = onNotifyRemoteSizeExceedFactory(host, logger);
+        const handler = onNotifyRemoteSizeExceedFactory(host, logger, "dialogue");
         const result = await handler();
 
         // The API confirm method should be called when size exceeds threshold
@@ -370,7 +462,7 @@ describe("onNotifyRemoteSizeExceed", () => {
             },
         } as any;
 
-        const handler = onNotifyRemoteSizeExceedFactory(host, logger);
+        const handler = onNotifyRemoteSizeExceedFactory(host, logger, "dialogue");
         const result = await handler();
 
         // The API confirm method should be called when size exceeds threshold
@@ -420,7 +512,7 @@ describe("onNotifyRemoteSizeExceed", () => {
             serviceModules: {},
         } as any;
 
-        const handler = onNotifyRemoteSizeExceedFactory(host, logger);
+        const handler = onNotifyRemoteSizeExceedFactory(host, logger, "dialogue");
         const result = await handler();
 
         expect(result).toBe(true);
@@ -471,7 +563,7 @@ describe("onNotifyRemoteSizeExceed", () => {
             },
         } as any;
 
-        const handler = onNotifyRemoteSizeExceedFactory(host, logger);
+        const handler = onNotifyRemoteSizeExceedFactory(host, logger, "dialogue");
         const result = await handler();
 
         expect(result).toBe(true);
@@ -521,7 +613,7 @@ describe("onNotifyRemoteSizeExceed", () => {
             },
         } as any;
 
-        const handler = onNotifyRemoteSizeExceedFactory(host, logger);
+        const handler = onNotifyRemoteSizeExceedFactory(host, logger, "dialogue");
         const result = await handler();
 
         expect(result).toBe(true);

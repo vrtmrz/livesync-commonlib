@@ -36,9 +36,6 @@ const currentVersionRange: ChunkVersionRange = {
 export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     declare env: LiveSyncJournalReplicatorEnv;
 
-    get isChunkSendingSupported(): boolean {
-        return false;
-    }
     get client() {
         return this.setupJournalSyncClient();
     }

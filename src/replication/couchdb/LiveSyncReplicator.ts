@@ -130,10 +130,6 @@ export interface LiveSyncCouchDBReplicatorEnv extends LiveSyncReplicatorEnv {
 }
 
 export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
-    override get isChunkSendingSupported(): boolean {
-        return true;
-    }
-
     isMobile() {
         return this.env.services.API.isMobile();
     }

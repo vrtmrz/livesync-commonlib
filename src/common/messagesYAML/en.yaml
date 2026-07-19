@@ -412,12 +412,17 @@ moduleCheckRemoteSize:
 
     If we have reached the limit, we will be asked to enlarge the limit step by
     step.
+  noticeExceeded: Remote storage size is ${measuredSize}, above the configured
+    ${notifySize} notification threshold. {HERE}
+  noticeNotConfigured: Remote storage size notifications are not configured.
+    {HERE}
   option2GB: 2GB (Standard)
   option800MB: 800MB (Cloudant, fly.io)
   optionAskMeLater: Ask me later
   optionDismiss: Dismiss
   optionIncreaseLimit: increase to ${newMax}MB
   optionNoWarn: No, never warn please
+  optionReview: Review options
   optionRebuildAll: Rebuild Everything Now
   titleDatabaseSizeLimitExceeded: Remote storage size exceeded the limit
   titleDatabaseSizeNotify: Setting up database size notification

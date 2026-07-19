@@ -106,3 +106,42 @@ describe("ReplicationService activity boundary", () => {
         expect(runFiniteReplicationActivity).not.toHaveBeenCalled();
     });
 });
+
+describe("ReplicationService full upload", () => {
+    it("uses standard replication without offering the obsolete bulk chunk pre-send", async () => {
+        const askYesNoDialog = vi.fn().mockResolvedValue("yes");
+        const sendChunks = vi.fn().mockResolvedValue(true);
+        const replicateAllToServer = vi.fn().mockResolvedValue(true);
+        const dependencies = {
+            APIService: {
+                addLog: vi.fn(),
+                confirm: { askYesNoDialog },
+            },
+            appLifecycleService: {
+                isReady: () => true,
+                getUnresolvedMessages: Object.assign(vi.fn().mockResolvedValue([]), {
+                    addHandler: vi.fn(),
+                }),
+            },
+            databaseService: {},
+            fileProcessingService: {},
+            replicatorService: {
+                getActiveReplicator: () => ({
+                    isChunkSendingSupported: true,
+                    sendChunks,
+                    replicateAllToServer,
+                }),
+            },
+            settingService: {
+                currentSettings: () => ({}),
+            },
+        } as unknown as ReplicationServiceDependencies;
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+
+        await expect(service.replicateAllToRemote(true)).resolves.toBe(true);
+
+        expect(askYesNoDialog).not.toHaveBeenCalled();
+        expect(sendChunks).not.toHaveBeenCalled();
+        expect(replicateAllToServer).toHaveBeenCalledOnce();
+    });
+});

@@ -86,12 +86,12 @@ export const DoctorRegulationV0_24_16: DoctorRegulation = {
     rules: {
         sendChunksBulk: {
             value: false,
-            reason: "This is an obsolete setting and we should not enable this no more",
+            reason: "Automatic bulk chunk pre-send is obsolete and must remain disabled",
             level: RuleLevel.Must,
         },
         sendChunksBulkMaxSize: {
             value: 1,
-            reason: "This is an obsolete setting and we should not enable this no more",
+            reason: "Use a conservative request size for the explicit manual chunk resend tool",
             level: RuleLevel.Must,
         },
         doNotUseFixedRevisionForChunks: {
@@ -372,7 +372,10 @@ export async function performDoctorConsultation(
                 }),
                 options,
                 {
-                    title: translate("Doctor.Dialogue.TitleFix", { current: `${++idx}`, total: `${issueItems.length}` }),
+                    title: translate("Doctor.Dialogue.TitleFix", {
+                        current: `${++idx}`,
+                        total: `${issueItems.length}`,
+                    }),
                     defaultAction: OPT_FIX,
                 }
             );

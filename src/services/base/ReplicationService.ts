@@ -67,7 +67,10 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
         this.fileProcessing = dependencies.fileProcessingService;
         this.databaseService = dependencies.databaseService;
         this._log = createInstanceLogFunction("ReplicationService", dependencies.APIService);
-        this._unresolvedErrorManager = new UnresolvedErrorManager(dependencies.appLifecycleService, this.context.events);
+        this._unresolvedErrorManager = new UnresolvedErrorManager(
+            dependencies.appLifecycleService,
+            this.context.events
+        );
     }
     /**
      * Process a synchronisation result document.
@@ -238,10 +241,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
         return activeReplicator;
     }
 
-    async replicateAllToRemote(
-        showingNotice: boolean = false,
-        sendChunksInBulkDisabled: boolean = false
-    ): Promise<boolean> {
+    async replicateAllToRemote(showingNotice: boolean = false): Promise<boolean> {
         if (!this.appLifecycleService.isReady()) return false;
         if (!(await this.onBeforeReplicate(showingNotice))) {
             this._log(this.context.translate("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_NOTICE);
@@ -251,21 +251,6 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
         const activeReplicator = this.getActiveReplicatorFor("sending data to remote");
         if (!activeReplicator) {
             return false;
-        }
-        if (!sendChunksInBulkDisabled) {
-            if (activeReplicator?.isChunkSendingSupported) {
-                if (
-                    (await this.APIService.confirm.askYesNoDialog(
-                        "Do you want to send all chunks before replication?",
-                        {
-                            defaultOption: "No",
-                            timeout: 20,
-                        }
-                    )) == "yes"
-                ) {
-                    await activeReplicator.sendChunks(currentSettings, undefined, true, 0);
-                }
-            }
         }
         const ret = await activeReplicator.replicateAllToServer(currentSettings, showingNotice);
         if (ret) return true;
