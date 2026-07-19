@@ -30,7 +30,9 @@ npm publish --dry-run .package --tag next --access public
 
 Review `package.json`, `package-lock.json`, the generated manifest, the tarball contents, the test results, and the downstream evidence. Commit only the source manifest and lockfile for the version change; `.package`, `.package-consumer`, and `artifacts` are generated and ignored. Push and open a release pull request only after the usual user checkpoint.
 
-## Initial npm bootstrap
+## Historical initial npm bootstrap
+
+The package and its Trusted Publisher are already configured. This section records the one-time bootstrap which created the package; do not use it for routine releases. Current releases use the staged-publishing workflow below.
 
 The npm package must exist before Trusted Publishing can be configured. Bootstrap the first reviewed release candidate once from the exact reviewed commit in the draft release pull request, using an interactive npm session with 2FA:
 
