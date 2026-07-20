@@ -371,8 +371,8 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         desc: "If this enabled, All files are handled as case-Sensitive (Previous behaviour).",
     },
     doNotUseFixedRevisionForChunks: {
-        name: "Compute revisions for chunks",
-        desc: "If this enabled, all chunks will be stored with the revision made from its content.",
+        name: "Content-derived chunk revisions (obsolete setting)",
+        desc: "Chunk revisions are always derived from their content. This stored key is retained only for compatibility.",
     },
     sendChunksBulkMaxSize: {
         name: "Maximum request size for manually resending chunks",

@@ -9,6 +9,7 @@ import type { ObsidianLiveSyncSettings } from "./setting.type";
 export const SettingsMigrationReviewCodes = {
     LegacyUpdatePending: "legacy-update-review-pending",
     FutureSchema: "settings-schema-newer-than-runtime",
+    FilenameCaseSensitivityUnresolved: "filename-case-sensitivity-unresolved",
 } as const;
 
 export type SettingsMigrationReviewCode =
@@ -150,6 +151,14 @@ export function prepareSettingsForLoad(
         throw new Error(
             `No setting migration reaches schema ${CURRENT_SETTING_VERSION} from schema ${sourceVersion}.`
         );
+    }
+
+    if (typeof migrated.handleFilenameCaseSensitive !== "boolean") {
+        reviewReasons.push({
+            code: SettingsMigrationReviewCodes.FilenameCaseSensitivityUnresolved,
+            fromVersion: sourceVersion,
+            toVersion: targetVersion,
+        });
     }
 
     return {

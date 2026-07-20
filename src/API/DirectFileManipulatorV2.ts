@@ -72,6 +72,9 @@ export type DirectFileManipulatorOptions = {
     enableChunkSplitterV2?: boolean;
     enableCompression?: boolean;
     handleFilenameCaseSensitive?: boolean;
+    /**
+     * @deprecated Chunk revisions are always derived from their content.
+     */
     doNotUseFixedRevisionForChunks?: boolean;
     chunkSplitterVersion?: ChunkSplitterVersion;
     E2EEAlgorithm?: E2EEAlgorithm;

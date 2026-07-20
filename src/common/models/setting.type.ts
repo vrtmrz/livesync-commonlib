@@ -701,7 +701,10 @@ interface ChunkSettings {
     enableChunkSplitterV2: boolean;
 
     /**
-     * Flag indicating whether to avoid using a fixed revision for chunks.
+     * Retained for stored-setting and Setup URI compatibility. Chunk revisions
+     * are always derived from their content, irrespective of this value.
+     *
+     * @deprecated This behaviour is no longer configurable.
      */
     doNotUseFixedRevisionForChunks: boolean;
 

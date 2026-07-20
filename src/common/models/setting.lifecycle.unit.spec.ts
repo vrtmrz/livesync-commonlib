@@ -4,8 +4,11 @@ import {
     DEFAULT_SETTINGS,
     NEW_VAULT_SETTINGS,
     SETTINGS_SCHEMA_DEFAULTS,
+    TweakValuesShouldMatchedTemplate,
+    TweakValuesRecommendedTemplate,
     createNewVaultSettings,
 } from "../types";
+import { IncompatibleChangesInSpecificPattern } from "./tweak.definition";
 import { prepareSettingsForLoad, SettingsMigrationReviewCodes } from "./setting.lifecycle";
 import type { ObsidianLiveSyncSettings } from "./setting.type";
 
@@ -56,7 +59,10 @@ describe("prepareSettingsForLoad", () => {
     });
 
     it("is idempotent after the current schema has been applied", () => {
-        const first = prepareSettingsForLoad({ liveSync: true });
+        const first = prepareSettingsForLoad({
+            liveSync: true,
+            handleFilenameCaseSensitive: false,
+        });
         const second = prepareSettingsForLoad(first.settings);
 
         expect(second.sourceVersion).toBe(CURRENT_SETTING_VERSION);
@@ -98,10 +104,49 @@ describe("prepareSettingsForLoad", () => {
         expect(DEFAULT_SETTINGS).toBe(SETTINGS_SCHEMA_DEFAULTS);
         expect(NEW_VAULT_SETTINGS).not.toBe(SETTINGS_SCHEMA_DEFAULTS);
         expect(SETTINGS_SCHEMA_DEFAULTS.doNotUseFixedRevisionForChunks).toBe(true);
-        expect(NEW_VAULT_SETTINGS.doNotUseFixedRevisionForChunks).toBe(false);
+        expect(NEW_VAULT_SETTINGS.doNotUseFixedRevisionForChunks).toBe(true);
         expect(SETTINGS_SCHEMA_DEFAULTS.usePluginSyncV2).toBe(false);
         expect(NEW_VAULT_SETTINGS.usePluginSyncV2).toBe(true);
         expect(SETTINGS_SCHEMA_DEFAULTS.handleFilenameCaseSensitive).toBeUndefined();
         expect(NEW_VAULT_SETTINGS.handleFilenameCaseSensitive).toBe(false);
     });
+
+    it("does not expose the invariant chunk-revision policy as a tweak", () => {
+        expect(TweakValuesShouldMatchedTemplate.doNotUseFixedRevisionForChunks).toBeUndefined();
+        expect(TweakValuesRecommendedTemplate.doNotUseFixedRevisionForChunks).toBeUndefined();
+        expect(
+            IncompatibleChangesInSpecificPattern.filter(
+                ({ key }) => key === "doNotUseFixedRevisionForChunks"
+            )
+        ).toEqual([]);
+    });
+
+    it("requires compatibility review when an existing Vault has no filename-case decision", () => {
+        const prepared = prepareSettingsForLoad({
+            settingVersion: CURRENT_SETTING_VERSION,
+            liveSync: true,
+        });
+
+        expect(prepared.requiresSyncReview).toBe(true);
+        expect(prepared.reviewReasons).toContainEqual({
+            code: SettingsMigrationReviewCodes.FilenameCaseSensitivityUnresolved,
+            fromVersion: CURRENT_SETTING_VERSION,
+            toVersion: CURRENT_SETTING_VERSION,
+        });
+        expect(prepared.settings.handleFilenameCaseSensitive).toBeUndefined();
+    });
+
+    it.each([false, true])(
+        "preserves an explicit filename-case decision of %s without requesting another review",
+        (handleFilenameCaseSensitive) => {
+            const prepared = prepareSettingsForLoad({
+                settingVersion: CURRENT_SETTING_VERSION,
+                liveSync: true,
+                handleFilenameCaseSensitive,
+            });
+
+            expect(prepared.requiresSyncReview).toBe(false);
+            expect(prepared.settings.handleFilenameCaseSensitive).toBe(handleFilenameCaseSensitive);
+        }
+    );
 });

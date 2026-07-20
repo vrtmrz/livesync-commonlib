@@ -181,6 +181,7 @@ export const DoctorRegulationV0_25_27: DoctorRegulation = {
     rules: {
         ...DoctorRegulationV0_25_0.rules,
         useIndexedDBAdapter: undefined,
+        doNotUseFixedRevisionForChunks: undefined,
     },
 };
 

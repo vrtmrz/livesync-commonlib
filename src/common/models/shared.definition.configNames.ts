@@ -75,8 +75,8 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         desc: "If this enabled, All files are handled as case-Sensitive (Previous behaviour).",
     },
     doNotUseFixedRevisionForChunks: {
-        name: "Compute revisions for chunks (Previous behaviour)",
-        desc: "If this enabled, all chunks will be stored with the revision made from its content. (Previous behaviour)",
+        name: "Content-derived chunk revisions (obsolete setting)",
+        desc: "Chunk revisions are always derived from their content. This stored key is retained only for compatibility.",
     },
     useSegmenter: {
         name: "Use Segmented-splitter",
