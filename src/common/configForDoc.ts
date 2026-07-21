@@ -3,7 +3,13 @@ import type { MessageTranslator } from "@lib/services/base/MessageTranslator";
 import { isCloudantURI } from "@lib/pouchdb/utils_couchdb";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "./logger";
 import { getConfName, type AllSettingItemKey } from "./settingConstants";
-import { ChunkAlgorithmNames, E2EEAlgorithmNames, E2EEAlgorithms, type ObsidianLiveSyncSettings } from "./types";
+import {
+    ChunkAlgorithmNames,
+    E2EEAlgorithmNames,
+    E2EEAlgorithms,
+    REMOTE_COUCHDB,
+    type ObsidianLiveSyncSettings,
+} from "./types";
 
 enum ConditionType {
     PLATFORM_CASE_INSENSITIVE = "platform-case-insensitive",
@@ -158,7 +164,9 @@ export const DoctorRegulationV0_24_30: DoctorRegulation = {
             valueDisplay: "60 (detected on if less than 55)",
             level: RuleLevel.Recommended,
             detectionFunc: (settings: Partial<ObsidianLiveSyncSettings>) =>
-                settings?.chunkSplitterVersion === "v3-rabin-karp" && !isCloudantURI(settings?.couchDB_URI || ""),
+                settings?.remoteType === REMOTE_COUCHDB &&
+                settings?.chunkSplitterVersion === "v3-rabin-karp" &&
+                !isCloudantURI(settings?.couchDB_URI || ""),
             reason: "With the V3 Rabin-Karp chunk splitter and Self-hosted CouchDB, the chunk size is set to 60 (means around 6MB) by default. This is in effect the maximum chunk size, which in practice is divided more finely.",
         },
     },

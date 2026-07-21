@@ -1,5 +1,5 @@
 import { FlagFilesHumanReadable } from "@lib/common/models/redflag.const";
-import { REMOTE_COUCHDB, REMOTE_MINIO } from "@lib/common/models/setting.const";
+import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
 import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
 import type { IFileHandler } from "@lib/interfaces/FileHandler";
 import type { APIService } from "@lib/services/base/APIService";
@@ -161,6 +161,12 @@ Please enable them from the settings screen after setup is complete.`,
         await this.resetLocalDatabase();
         await delay(1000);
         await this.databaseEvents.initialiseDatabase(true, true, true);
+        if (this.setting.currentSettings().remoteType === REMOTE_P2P) {
+            // P2P has no central remote database to lock, reset, or seed. The
+            // first device still needs the same local database initialisation
+            // as other new-user workflows before it can host a peer session.
+            return;
+        }
         await this.replication.markLocked();
         await this._tryResetRemoteDatabase();
         await this.replication.markLocked();
@@ -351,8 +357,10 @@ Are you sure you wish to proceed?`;
         await this.replication.markResolved();
         await delay(500);
         await this.replication.replicateAllFromRemote(true);
-        await delay(1000);
-        await this.replication.replicateAllFromRemote(true);
+        if (this.setting.currentSettings().remoteType !== REMOTE_P2P) {
+            await delay(1000);
+            await this.replication.replicateAllFromRemote(true);
+        }
         if (autoResume) {
             await this.finishRebuild();
         }

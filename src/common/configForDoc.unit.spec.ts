@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_SETTINGS, NEW_VAULT_SETTINGS, PREFERRED_SETTING_SELF_HOSTED } from "./types";
+import {
+    DEFAULT_SETTINGS,
+    NEW_VAULT_SETTINGS,
+    PREFERRED_JOURNAL_SYNC,
+    PREFERRED_SETTING_SELF_HOSTED,
+    REMOTE_MINIO,
+} from "./types";
 import { configurationNames, LEVEL_ADVANCED } from "./models/shared.definition.configNames";
 import { checkUnsuitableValues, DoctorRegulation, performDoctorConsultation, RebuildOptions } from "./configForDoc";
 
@@ -35,6 +41,16 @@ describe("Doctor translation boundary", () => {
             ...DEFAULT_SETTINGS,
             ...PREFERRED_SETTING_SELF_HOSTED,
             couchDB_URI: "https://couchdb.example.test/database",
+        });
+
+        expect(result.rules.customChunkSize).toBeUndefined();
+    });
+
+    it("does not apply the CouchDB chunk-size recommendation to Object Storage", () => {
+        const result = checkUnsuitableValues({
+            ...DEFAULT_SETTINGS,
+            ...PREFERRED_JOURNAL_SYNC,
+            remoteType: REMOTE_MINIO,
         });
 
         expect(result.rules.customChunkSize).toBeUndefined();

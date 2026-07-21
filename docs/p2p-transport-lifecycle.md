@@ -35,6 +35,12 @@ An explicit open resumes Trystero relay reconnection before joining the configur
 
 Do not replace a relay socket's `onclose` handler. Trystero 0.25 shares relay clients by URL and uses its own handler to retire and recreate them. Use the exported pause and resume functions around explicit disconnection instead.
 
+## First-device and additional-device setup
+
+P2P has no central remote database. A first-device rebuild initialises the local database, then returns without attempting to lock, reset, or seed a remote database.
+
+An additional-device Fetch uses one explicit peer-selection pass. The selected peer supplies the complete finite replication from the beginning, after which the rebuild service resumes database and Vault reflection. The generic second convergence pass remains appropriate for central remote types, but must not be applied to P2P: an injected Obsidian rebuild UI would otherwise ask the user to select the same peer twice and leave reflection suspended while the second dialogue waits.
+
 ## Unsupported forced close
 
 Do not close the raw values returned by `room.getPeers()`. Both closing them before room departure and closing captured values after departure have prevented the same peer from being rediscovered within 60 seconds in the real-transport replacement test.
@@ -46,7 +52,9 @@ Commonlib consequently does not expose a forced physical-disconnection command. 
 Maintain all three boundaries when this lifecycle changes:
 
 - Commonlib unit tests must prove that normal close leaves the room without directly closing Trystero-owned peers, and that overlapping open and close requests leave one current owner;
+- Commonlib rebuild tests must prove that first-device P2P initialisation does not reset a remote database and that an additional-device P2P Fetch performs one explicit peer-selection pass before resuming reflection;
 - the Self-hosted LiveSync Compose P2P lifecycle test must replace a current replicator, rediscover the same real peer, perform bidirectional RPC, and verify transferred content from a separate process; and
+- the Self-hosted LiveSync real-Obsidian P2P Setup URI workflow must generate the second-device URI on the first device, accept both peer directions visibly, and verify a two-way note round-trip; and
 - the relay-disconnect test must observe the original WebSocket reach `CLOSED`, remain closed while reconnection is paused, and be replaced after reconnection resumes.
 
 The corresponding product decision and rejected alternatives are recorded in Self-hosted LiveSync's P2P room and transport lifecycle ADR.

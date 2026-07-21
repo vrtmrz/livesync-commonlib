@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { REMOTE_COUCHDB } from "@lib/common/models/setting.const";
+import { REMOTE_COUCHDB, REMOTE_P2P } from "@lib/common/models/setting.const";
 import { FlagFilesHumanReadable } from "@lib/common/models/redflag.const";
 import { ServiceRebuilder } from "./Rebuilder";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
@@ -234,6 +234,25 @@ describe("ServiceRebuilder fast fetch retry", () => {
 });
 
 describe("ServiceRebuilder bounded remote activity", () => {
+    it("initialises a first P2P device without attempting to reset or upload to a non-existent remote database", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.remoteType = REMOTE_P2P;
+        const p2pReplicator = {
+            tryResetRemoteDatabase: vi.fn(async () => {
+                throw new Error("P2P replication does not support database reset.");
+            }),
+        };
+        services.replicator.getActiveReplicator.mockReturnValue(p2pReplicator);
+
+        await expect(rebuilder.$rebuildEverything()).resolves.toBeUndefined();
+
+        expect(services.database.resetDatabase).toHaveBeenCalled();
+        expect(services.databaseEvents.initialiseDatabase).toHaveBeenCalledWith(true, true, true);
+        expect(p2pReplicator.tryResetRemoteDatabase).not.toHaveBeenCalled();
+        expect(services.replication.markLocked).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllToRemote).not.toHaveBeenCalled();
+    });
+
     it("protects a remote rebuild but releases the activity before the completion dialogue", async () => {
         const { rebuilder, services, activityFinished, runBoundedRemoteActivity } = createRebuilder();
 
@@ -283,6 +302,16 @@ describe("ServiceRebuilder bounded remote activity", () => {
         expect(services.vault.scanVault.mock.invocationCallOrder[0]).toBeLessThan(
             activityFinished.mock.invocationCallOrder[0]
         );
+    });
+
+    it("completes a P2P fetch with one explicit peer-selection pass", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.remoteType = REMOTE_P2P;
+
+        await rebuilder.$fetchLocal(false, true);
+
+        expect(services.replication.replicateAllFromRemote).toHaveBeenCalledOnce();
+        expect(services.vault.scanVault).toHaveBeenCalledWith(true);
     });
 
     it("does not start protected activity while waiting for restricted-fetch confirmation", async () => {
