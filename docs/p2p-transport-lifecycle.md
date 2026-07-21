@@ -49,11 +49,11 @@ Commonlib consequently does not expose a forced physical-disconnection command. 
 
 ## Verification
 
-Maintain all three boundaries when this lifecycle changes:
+Maintain all five boundaries when this lifecycle changes:
 
 - Commonlib unit tests must prove that normal close leaves the room without directly closing Trystero-owned peers, and that overlapping open and close requests leave one current owner;
 - Commonlib rebuild tests must prove that first-device P2P initialisation does not reset a remote database and that an additional-device P2P Fetch performs one explicit peer-selection pass before resuming reflection;
-- the Self-hosted LiveSync Compose P2P lifecycle test must replace a current replicator, rediscover the same real peer, perform bidirectional RPC, and verify transferred content from a separate process; and
+- the Self-hosted LiveSync Compose P2P lifecycle test must replace a current replicator, rediscover the same real peer, perform bidirectional RPC, and verify transferred content from a separate process;
 - the Self-hosted LiveSync real-Obsidian P2P Setup URI workflow must generate the second-device URI on the first device, accept both peer directions visibly, and verify a two-way note round-trip; and
 - the relay-disconnect test must observe the original WebSocket reach `CLOSED`, remain closed while reconnection is paused, and be replaced after reconnection resumes.
 

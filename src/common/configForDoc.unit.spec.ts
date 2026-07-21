@@ -5,7 +5,9 @@ import {
     NEW_VAULT_SETTINGS,
     PREFERRED_JOURNAL_SYNC,
     PREFERRED_SETTING_SELF_HOSTED,
+    REMOTE_COUCHDB,
     REMOTE_MINIO,
+    REMOTE_P2P,
 } from "./types";
 import { configurationNames, LEVEL_ADVANCED } from "./models/shared.definition.configNames";
 import { checkUnsuitableValues, DoctorRegulation, performDoctorConsultation, RebuildOptions } from "./configForDoc";
@@ -51,6 +53,29 @@ describe("Doctor translation boundary", () => {
             ...DEFAULT_SETTINGS,
             ...PREFERRED_JOURNAL_SYNC,
             remoteType: REMOTE_MINIO,
+        });
+
+        expect(result.rules.customChunkSize).toBeUndefined();
+    });
+
+    it("applies the chunk-size recommendation to matching CouchDB settings", () => {
+        const result = checkUnsuitableValues({
+            ...DEFAULT_SETTINGS,
+            remoteType: REMOTE_COUCHDB,
+            chunkSplitterVersion: "v3-rabin-karp",
+            customChunkSize: 20,
+            couchDB_URI: "https://couchdb.example.test/database",
+        });
+
+        expect(result.rules.customChunkSize).toBeDefined();
+    });
+
+    it("does not apply the CouchDB chunk-size recommendation to P2P", () => {
+        const result = checkUnsuitableValues({
+            ...DEFAULT_SETTINGS,
+            remoteType: REMOTE_P2P,
+            chunkSplitterVersion: "v3-rabin-karp",
+            customChunkSize: 20,
         });
 
         expect(result.rules.customChunkSize).toBeUndefined();
