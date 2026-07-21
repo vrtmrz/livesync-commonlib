@@ -1,6 +1,6 @@
 {
   "name": "@vrtmrz/livesync-commonlib",
-  "version": "0.1.0-rc.6",
+  "version": "0.1.0-rc.7",
   "description": "Shared data, storage, and replication primitives for Self-hosted LiveSync clients.",
   "private": true,
   "type": "module",
