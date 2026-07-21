@@ -1,14 +1,28 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { DEFAULT_SETTINGS, NEW_VAULT_SETTINGS, PREFERRED_SETTING_SELF_HOSTED } from "./types";
-import {
-    checkUnsuitableValues,
-    DoctorRegulation,
-    performDoctorConsultation,
-    RebuildOptions,
-} from "./configForDoc";
+import { configurationNames, LEVEL_ADVANCED } from "./models/shared.definition.configNames";
+import { checkUnsuitableValues, DoctorRegulation, performDoctorConsultation, RebuildOptions } from "./configForDoc";
 
 describe("Doctor translation boundary", () => {
+    it("classifies Data Compression as advanced rather than experimental", () => {
+        expect(configurationNames.enableCompression).toMatchObject({
+            name: "Data Compression",
+            level: LEVEL_ADVANCED,
+        });
+        expect(configurationNames.enableCompression?.status).toBeUndefined();
+    });
+
+    it("accepts Data Compression as a supported opt-in setting", () => {
+        const result = checkUnsuitableValues({
+            ...DEFAULT_SETTINGS,
+            enableCompression: true,
+        });
+
+        expect(DoctorRegulation.version).toBe("1.0.0");
+        expect(result.rules.enableCompression).toBeUndefined();
+    });
+
     it("accepts the content-derived revision policy used by new Vaults", () => {
         const result = checkUnsuitableValues(NEW_VAULT_SETTINGS);
 

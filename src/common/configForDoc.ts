@@ -184,8 +184,15 @@ export const DoctorRegulationV0_25_27: DoctorRegulation = {
         doNotUseFixedRevisionForChunks: undefined,
     },
 };
+export const DoctorRegulationV1_0_0: DoctorRegulation = {
+    version: "1.0.0",
+    rules: {
+        ...DoctorRegulationV0_25_27.rules,
+        enableCompression: undefined,
+    },
+};
 
-export const DoctorRegulation = DoctorRegulationV0_25_27;
+export const DoctorRegulation = DoctorRegulationV1_0_0;
 
 export function checkUnsuitableValues(
     setting: Partial<ObsidianLiveSyncSettings>,

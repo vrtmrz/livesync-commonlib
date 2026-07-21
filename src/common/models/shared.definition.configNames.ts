@@ -32,7 +32,7 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
     },
     enableCompression: {
         name: "Data Compression",
-        status: "EXPERIMENTAL",
+        level: LEVEL_ADVANCED,
     },
     useEden: {
         name: "Incubate Chunks in Document",
