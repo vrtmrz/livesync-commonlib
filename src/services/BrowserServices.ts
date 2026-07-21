@@ -24,6 +24,7 @@ import type { InjectableAPIService } from "./implements/injectable/InjectableAPI
 import { createIndexedDBKeyValueDatabaseFactory } from "@lib/databases/IndexedDBKeyValueDatabase";
 import type { KeyValueDatabaseFactory } from "@lib/interfaces/KeyValueDatabase";
 import { PouchDB } from "@lib/pouchdb/pouchdb-browser.ts";
+import type { ObsidianLiveSyncSettings } from "@lib/common/types";
 
 class BrowserAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
     constructor(context: T, dependencies: AppLifecycleServiceDependencies) {
@@ -54,6 +55,7 @@ export type BrowserServiceHubOptions<T extends ServiceContext> = {
     context?: T;
     host: BrowserServiceHost<T>;
     openKeyValueDatabase?: KeyValueDatabaseFactory;
+    onDisplayLanguageChanged?: (language: ObsidianLiveSyncSettings["displayLanguage"]) => void;
 };
 
 export class BrowserServiceHub<T extends ServiceContext> extends InjectableServiceHub<T> {
@@ -67,7 +69,10 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
         const conflict = new InjectableConflictService(context);
         const fileProcessing = new InjectableFileProcessingService(context);
 
-        const setting = new InjectableSettingService(context, { APIService: API });
+        const setting = new InjectableSettingService(context, {
+            APIService: API,
+            onDisplayLanguageChanged: options.onDisplayLanguageChanged,
+        });
         const appLifecycle = new BrowserAppLifecycleService(context, { settingService: setting });
         const remote = new InjectableRemoteService(context, {
             pouchDB: PouchDB,

@@ -73,16 +73,17 @@ assert.ok(
     packed.files.every(({ path }) => !path.includes(".svelte")),
     "Host-owned Svelte source and compiled components must not be published."
 );
-
-const i18nModule = await readFile(resolve(packageDirectory, "dist/common/i18n.js"), "utf8");
-assert.match(
-    i18nModule,
-    /from\s+["']\.\/messages\/combinedMessages\.prod\.js["']/u,
-    "The i18n module must import the generated production catalogue instead of duplicating it in a pre-bundled file."
-);
 assert.ok(
-    Buffer.byteLength(i18nModule) < 20_000,
-    "The i18n entry point must remain a small ESM composition; consumers own final application bundling."
+    packed.files.every(
+        ({ path }) =>
+            path !== "dist/common/i18n.js" &&
+            path !== "dist/common/i18n.d.ts" &&
+            path !== "dist/common/rosetta.js" &&
+            path !== "dist/common/rosetta.d.ts" &&
+            !path.startsWith("dist/common/messages/") &&
+            !path.startsWith("dist/common/messagesJson/")
+    ),
+    "The Commonlib package must not publish the LiveSync-owned translation runtime or catalogue."
 );
 
 const tarballPath = resolve(artefactDirectory, packed.filename);
@@ -151,7 +152,7 @@ import {
 const options: ServiceContextOptions = { translate: (key) => \`translated:\${key}\` };
 const context = createServiceContext(options);
 const contextContract: ServiceContextContract = context;
-const untranslated: string = passthroughMessageTranslator("message.key");
+const untranslated: string = passthroughMessageTranslator("moduleLocalDatabase.logWaitingForReady");
 const split = splitPieces2Worker(new Blob(["content"], { type: "text/plain" }), 4, false, 1);
 const directOptions = {} as DirectFileManipulatorOptions;
 const directType: typeof DirectFileManipulator = DirectFileManipulator;
@@ -200,7 +201,6 @@ const contextApi = await import("${packageName}/context");
 const rootApi = await import("${packageName}");
 const settingsApi = await import("${packageName}/settings");
 const remoteConfigurationsApi = await import("${packageName}/remote-configurations");
-const i18nApi = await import("${packageName}/compat/common/i18n");
 const workerApi = await import("${packageName}/compat/worker/bgWorker");
 const runtimeCompat = await import("${packageName}/compat/common/coreEnvFunctions");
 const nodeRuntime = await import("${packageName}/node");
@@ -208,14 +208,16 @@ const p2pFeatureApi = await import(
     "${packageName}/compat/replication/trystero/useP2PReplicatorFeature"
 );
 
-assert.equal(contextApi.createServiceContext().translate("message.key"), "message.key");
+assert.equal(
+    contextApi.createServiceContext().translate("moduleCheckRemoteSize.optionIncreaseLimit", { newMax: "800" }),
+    "increase to 800MB"
+);
 assert.equal(typeof rootApi.DirectFileManipulator, "function");
 assert.equal(settingsApi.NEW_VAULT_SETTINGS.usePluginSyncV2, true);
 assert.equal(settingsApi.SETTINGS_SCHEMA_DEFAULTS.usePluginSyncV2, false);
 assert.equal(settingsApi.prepareSettingsForLoad(undefined).isNewVault, true);
 assert.notEqual(settingsApi.createNewVaultSettings(), settingsApi.NEW_VAULT_SETTINGS);
 assert.equal(typeof remoteConfigurationsApi.upsertRemoteConfigurationInPlace, "function");
-assert.equal(i18nApi.$t("Activate", "es"), "Activar");
 assert.equal(runtimeCompat.compatGlobal, globalThis);
 assert.equal(typeof nodeRuntime.fs.readFileSync, "function");
 assert.equal(typeof nodeRuntime.fsPromises.readFile, "function");
@@ -254,7 +256,7 @@ await writeConsumerFile(
     "browser-context.ts",
     `import { createServiceContext, type StandardIo } from "${packageName}/context";
 
-document.body.dataset.translation = createServiceContext().translate("message.key");
+document.body.dataset.translation = createServiceContext().translate("moduleLocalDatabase.logWaitingForReady");
 
 const memoryIo: StandardIo = {
     readStdin: async () => "input",
@@ -271,13 +273,6 @@ await writeConsumerFile(
 
 (globalThis as typeof globalThis & { CommonlibBrowserServiceHub?: typeof BrowserServiceHub })
     .CommonlibBrowserServiceHub = BrowserServiceHub;
-`
-);
-await writeConsumerFile(
-    "browser-rosetta.ts",
-    `import { SUPPORTED_I18N_LANGS } from "${packageName}/compat/common/rosetta";
-
-document.body.dataset.supportedLanguages = SUPPORTED_I18N_LANGS.join(",");
 `
 );
 await writeConsumerFile(
@@ -336,7 +331,10 @@ assert.ok(
     ),
     "The context entry point must not load Svelte, the language catalogue, or Node-only host APIs."
 );
-assert.ok(contextBundle.outputFiles[0].contents.length < 20_000, "The context bundle has grown unexpectedly.");
+assert.ok(
+    contextBundle.outputFiles[0].contents.length < 50_000,
+    "The context bundle, including the canonical English fallback, has grown unexpectedly."
+);
 
 const browserServicesBundle = await build({
     absWorkingDir: consumerDirectory,
@@ -354,23 +352,6 @@ const browserServicesInputs = Object.keys(browserServicesBundle.metafile.inputs)
 assert.ok(
     browserServicesInputs.every((path) => !path.includes("svelte")),
     "Importing the browser service composition must not load a Svelte runtime or component."
-);
-
-const browserRosettaBundle = await build({
-    absWorkingDir: consumerDirectory,
-    bundle: true,
-    conditions: ["browser"],
-    entryPoints: [resolve(consumerDirectory, "browser-rosetta.ts")],
-    format: "esm",
-    logLevel: "silent",
-    metafile: true,
-    platform: "browser",
-    write: false,
-});
-const browserRosettaInputs = Object.keys(browserRosettaBundle.metafile.inputs);
-assert.ok(
-    browserRosettaInputs.every((path) => !path.includes("messagesJson")),
-    "Importing language contracts must not load the generated message catalogue."
 );
 
 const browserStorageBundle = await build({

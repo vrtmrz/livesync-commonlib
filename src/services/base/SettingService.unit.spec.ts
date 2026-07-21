@@ -26,7 +26,7 @@ class TestSettingService extends SettingService<ServiceContext> {
     }
 }
 
-function createService() {
+function createService(onDisplayLanguageChanged?: (language: ObsidianLiveSyncSettings["displayLanguage"]) => void) {
     const service = new TestSettingService(new ServiceContext(), {
         APIService: {
             getSystemVaultName: vi.fn(() => "vault"),
@@ -36,7 +36,8 @@ function createService() {
             },
             addLog: vi.fn(),
         } as any,
-    });
+        onDisplayLanguageChanged,
+    } as any);
     service.settings = {
         ...DEFAULT_SETTINGS,
         remoteConfigurations: {},
@@ -46,6 +47,20 @@ function createService() {
 }
 
 describe("SettingService", () => {
+    it("delegates the loaded display language to the host", async () => {
+        const onDisplayLanguageChanged = vi.fn();
+        const service = createService(onDisplayLanguageChanged);
+        vi.spyOn(service as any, "loadData").mockResolvedValue({
+            ...DEFAULT_SETTINGS,
+            displayLanguage: "ja",
+        });
+
+        await service.loadSettings();
+
+        expect(onDisplayLanguageChanged).toHaveBeenCalledOnce();
+        expect(onDisplayLanguageChanged).toHaveBeenCalledWith("ja");
+    });
+
     it("exposes exact device-local configuration without placing it in the settings document", () => {
         const service = createService();
 

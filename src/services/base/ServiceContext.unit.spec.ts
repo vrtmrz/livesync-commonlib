@@ -1,10 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
-import {
-    createServiceContext,
-    ServiceContext,
-    type ServiceContextContract,
-} from "./ServiceBase";
+import { createServiceContext, ServiceContext, type ServiceContextContract } from "./ServiceBase";
+
+const MESSAGE_KEY = "moduleLocalDatabase.logWaitingForReady" as const;
 
 function useContextContract(context: ServiceContextContract): {
     translation: string;
@@ -18,12 +16,22 @@ function useContextContract(context: ServiceContextContract): {
         unsubscribe();
     }
     return {
-        translation: context.translate("message"),
+        translation: context.translate(MESSAGE_KEY),
         received,
     };
 }
 
 describe("ServiceContext", () => {
+    it("uses the English catalogue when a host does not provide a translator", () => {
+        const context = createServiceContext();
+
+        expect(
+            context.translate("moduleCheckRemoteSize.optionIncreaseLimit", {
+                newMax: "800",
+            })
+        ).toBe("increase to 800MB");
+    });
+
     it("creates an event hub which is isolated from other contexts", () => {
         const first = createServiceContext();
         const second = createServiceContext();
@@ -46,8 +54,8 @@ describe("ServiceContext", () => {
             translate: (key) => `second:${key}`,
         });
 
-        expect(first.translate("message")).toBe("first:message");
-        expect(second.translate("message")).toBe("second:message");
+        expect(first.translate(MESSAGE_KEY)).toBe(`first:${MESSAGE_KEY}`);
+        expect(second.translate(MESSAGE_KEY)).toBe(`second:${MESSAGE_KEY}`);
     });
 
     it("exposes stable event and translation results through the public contract", () => {
@@ -58,7 +66,7 @@ describe("ServiceContext", () => {
         );
 
         expect(result).toEqual({
-            translation: "translated:message",
+            translation: `translated:${MESSAGE_KEY}`,
             received: ["event-result"],
         });
     });
@@ -73,7 +81,7 @@ describe("ServiceContext", () => {
         const context = new HostContext("host-root");
 
         expect(useContextContract(context)).toEqual({
-            translation: "host:message",
+            translation: `host:${MESSAGE_KEY}`,
             received: ["event-result"],
         });
         expect(context.root).toBe("host-root");

@@ -46,18 +46,6 @@ async function compileTypeScriptModules() {
     });
 }
 
-async function selectProductionLanguageCatalogue() {
-    const i18nModulePath = resolve(outputDirectory, "common/i18n.js");
-    const source = await readFile(i18nModulePath, "utf8");
-    const developmentCatalogue = "./messages/combinedMessages.dev.ts";
-    const productionCatalogue = "./messages/combinedMessages.prod.ts";
-    const rewritten = source.replace(developmentCatalogue, productionCatalogue);
-    if (rewritten === source) {
-        throw new Error(`The compiled i18n module did not import ${developmentCatalogue}.`);
-    }
-    await writeFile(i18nModulePath, rewritten);
-}
-
 async function bundleInlineWorker() {
     const workerResult = await build({
         bundle: true,
@@ -314,7 +302,6 @@ execFileSync(process.execPath, [resolve(root, "node_modules/typescript/bin/tsc")
     stdio: "inherit",
 });
 await compileTypeScriptModules();
-await selectProductionLanguageCatalogue();
 await bundleInlineWorker();
 await copyStaticFiles();
 await rewriteModuleSpecifiers();

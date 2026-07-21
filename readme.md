@@ -39,7 +39,7 @@ The RPC entry exists only while the maintained LiveSync P2P composition depends 
 
 ## Host context and initialisation
 
-One service context belongs to one independently composed Commonlib client. It owns that client's event hub and translator. Creating a context without options creates a fresh event hub and uses a translator which returns message keys unchanged:
+One service context belongs to one independently composed Commonlib client. It owns that client's event hub and translator. Creating a context without options creates a fresh event hub and renders Commonlib's typed canonical English messages. A host may inject a translator to provide another language:
 
 ```ts
 import {

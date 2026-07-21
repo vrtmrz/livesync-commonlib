@@ -22,11 +22,6 @@
     "check:boundary": "node _tools/check-package-boundary.mjs",
     "check:package": "node _tools/check-packed-package.mjs",
     "check:types": "tsc --noEmit",
-    "i18n:bake": "npm run i18n:yaml2json && npm run i18n:bakejson && npm run i18n:format",
-    "i18n:bakejson": "tsx _tools/bakei18n.ts",
-    "i18n:format": "prettier --config .prettierrc.mjs --write --log-level error 'src/common/messagesJson/*.json' 'src/common/messages/*.ts'",
-    "i18n:json2yaml": "tsx _tools/json2yaml.ts",
-    "i18n:yaml2json": "tsx _tools/yaml2json.ts",
     "test": "vitest run",
     "test:boundary": "node --test _tools/check-package-boundary.test.mjs _tools/compatibility-classification.test.mjs _tools/update-downstream-import-inventory.test.mjs",
     "test:contract:context": "vitest run src/services/base/ServiceContext.unit.spec.ts",
@@ -87,10 +82,8 @@
     "prettier": "3.8.1",
     "svelte": "5.56.3",
     "tinyglobby": "^0.2.15",
-    "tsx": "^4.21.0",
     "typescript": "5.9.3",
-    "vitest": "^4.1.8",
-    "yaml": "^2.8.2"
+    "vitest": "^4.1.8"
   },
   "engines": {
     "node": ">=20"

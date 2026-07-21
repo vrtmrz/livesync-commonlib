@@ -8,7 +8,7 @@ The code paths below identify the maintained Self-hosted LiveSync composition po
 
 ## Obsidian plug-in
 
-The plug-in extends the neutral `ServiceContext` with Obsidian-owned capabilities in `src/modules/services/ObsidianServiceContext.ts`. One context instance carries the host translator and event hub through the Service Hub rather than placing those dependencies in Commonlib globals.
+The plug-in extends the neutral `ServiceContext` with Obsidian-owned capabilities in `src/modules/services/ObsidianServiceContext.ts`. One context instance carries the LiveSync-owned translator and event hub through the Service Hub rather than placing those dependencies in Commonlib globals. Commonlib supplies its typed English fallback when another host omits the translator.
 
 The consumer contract in `test/contracts/serviceContext.ts` checks shared result semantics and exact context identity across the composed services. The real-Obsidian suite documented in `test/e2e-obsidian/README.md` then covers plug-in loading, representative Svelte dialogue mounts, Vault reflection, CouchDB and Object Storage synchronisation, a two-device P2P Setup URI round-trip, two-Vault behaviour, and other Obsidian-owned boundaries.
 
@@ -50,7 +50,7 @@ This is a boundary rule, not a requirement to build mock and spy infrastructure 
 
 A new integration should start with the focused entries, not by reproducing Self-hosted LiveSync's compatibility imports:
 
-- create one `ServiceContext` per independently composed client, inject its translator and events, and extend it only with capabilities owned by that host;
+- create one `ServiceContext` per independently composed client, optionally inject its translator and events, and extend it only with capabilities owned by that host; an omitted translator renders Commonlib's canonical English messages;
 - let the host select and authorise a storage root, then pass the root once to the Node or browser storage factory;
 - inject `StandardIo` into CLI policy so that protocol output and prompts remain testable; and
 - use `/remote-configurations` when a host needs to create or select saved remote profiles, while keeping naming prompts, persistence, and restart policy in the host; and

@@ -1,14 +1,11 @@
 import { createLiveSyncEventHub, type LiveSyncEventHub } from "@lib/hub/hub";
-import {
-    passthroughMessageTranslator,
-    type MessageTranslator,
-} from "@lib/services/base/MessageTranslator";
+import { englishMessageTranslator, type MessageTranslator } from "@lib/services/base/MessageTranslator";
 
 /** Capabilities shared by services which belong to one Commonlib client. */
 export interface ServiceContextOptions {
     /** An isolated event channel. A new channel is created when omitted. */
     events?: LiveSyncEventHub;
-    /** Host-provided message translation. Keys pass through unchanged when omitted. */
+    /** Optional host-provided translation. Canonical English is used when omitted. */
     translate?: MessageTranslator;
 }
 
@@ -31,7 +28,7 @@ export class ServiceContext implements ServiceContextContract {
 
     constructor(options: ServiceContextOptions = {}) {
         this.events = options.events ?? createLiveSyncEventHub();
-        this.translate = options.translate ?? passthroughMessageTranslator;
+        this.translate = options.translate ?? englishMessageTranslator;
     }
 }
 

@@ -79,7 +79,7 @@ Commonlib owner tests exercise the real implementation behind each focused resul
 
 Prefer an object or callback injected at the host composition boundary over replacing an ESM module namespace. If a proposed focused API would require global mutation, import-order coupling, hidden construction, or private nominal types to substitute later, stop and review the production design before stabilising it. Exact-package downstream checks and focused real-runtime E2E remain responsible for proving the real package and host composition together.
 
-The package publishes the generated production language catalogue as an ordinary ESM module. It does not duplicate that catalogue inside `dist/common/i18n.js`; the final application bundler remains responsible for composing the catalogue for environments such as Obsidian. Source development continues to use the JSON-derived development catalogue.
+Commonlib publishes the typed English messages which it owns and uses them when a host does not provide a translator. A host may inject a translator through `ServiceContext`; the full multilingual catalogue and language-selection state belong to that host and are not part of the Commonlib package.
 
 Keep [the maintained-host evidence](proven-in-use.md) aligned with the downstream source and gates. If a host no longer consumes a focused entry, a test is retired, or a compatibility path receives a reviewed replacement, update the consumer-facing account as part of the same maintenance rather than leaving historical adoption as a current support claim.
 
@@ -95,15 +95,11 @@ This command requires Docker Compose, creates only test credentials and data, an
 
 To test services that are already running, use `npm run test:integration`. The runner accepts `hostname`, `username`, and `password` for CouchDB, and `minioEndpoint`, `accessKey`, `secretKey`, and `bucketName` for S3-compatible storage. Without overrides, it uses the endpoints and test credentials from the managed Compose environment. The selected MinIO bucket must already exist when services are not managed by the runner.
 
-## Translation catalogue
+## Messages and translation
 
-Human-edited translations live under `src/common/messagesYAML`. Regenerate derived JSON and TypeScript resources with:
+`src/services/base/CommonlibMessages.ts` is the canonical English definition and key type for messages requested by Commonlib. Keep a meaningful English value for every symbolic key. Hosts may translate that typed key set, but translation is optional and omission must remain safe for users.
 
-```bash
-npm run i18n:bake
-```
-
-The generated catalogue remains an optional dependency surface. Core and context imports must not load it.
+Application language catalogues and their generation tools belong to the application repository. Do not add a process-global language selection or a complete application catalogue to Commonlib.
 
 ## Public API documentation
 

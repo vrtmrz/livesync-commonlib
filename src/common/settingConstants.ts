@@ -1,4 +1,5 @@
-import { $t } from "./i18n.ts";
+import type { CommonlibMessageKey } from "@lib/services/base/CommonlibMessages";
+import { englishMessageTranslator, type MessageTranslator } from "@lib/services/base/MessageTranslator";
 import {
     DEFAULT_SETTINGS,
     configurationNames,
@@ -446,17 +447,17 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         desc: "Files with modification times greater than this value (in seconds since the Unix epoch) will not have their events reflected. Set to 0 to disable this limit.",
     },
 };
-type SettingLabelTranslator = (message: string) => string;
+type SettingLabelTranslator = MessageTranslator;
 
 function translateInfo(
     infoSrc: ConfigurationItem | undefined | false,
-    translate: SettingLabelTranslator = (message) => $t(message)
+    translate: SettingLabelTranslator = englishMessageTranslator
 ) {
     if (!infoSrc) return false;
     const info = { ...infoSrc };
-    info.name = translate(info.name);
+    info.name = translate(info.name as CommonlibMessageKey);
     if (info.desc) {
-        info.desc = translate(info.desc);
+        info.desc = translate(info.desc as CommonlibMessageKey);
     }
     return info;
 }

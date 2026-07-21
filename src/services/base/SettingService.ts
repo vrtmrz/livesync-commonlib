@@ -18,7 +18,6 @@ import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import { isCloudantURI } from "@lib/pouchdb/utils_couchdb";
 import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
-import { setLang } from "@lib/common/i18n";
 import {
     activateP2PRemoteConfiguration,
     activateRemoteConfiguration,
@@ -29,6 +28,8 @@ import { ConnectionStringParser } from "@lib/common/ConnectionString";
 
 export interface SettingServiceDependencies {
     APIService: IAPIService;
+    /** Optional host hook for applying the loaded display language to its catalogue. */
+    onDisplayLanguageChanged?: (language: ObsidianLiveSyncSettings["displayLanguage"]) => void;
 }
 export abstract class SettingService<T extends ServiceContext = ServiceContext>
     extends ServiceBase<T>
@@ -36,6 +37,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
 {
     deviceAndVaultName: string = "";
     protected APIService: IAPIService;
+    private readonly onDisplayLanguageChanged?: SettingServiceDependencies["onDisplayLanguageChanged"];
 
     protected abstract setItem(key: string, value: string): void;
     protected abstract getItem(key: string): string;
@@ -67,6 +69,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     constructor(context: T, dependencies: SettingServiceDependencies) {
         super(context);
         this.APIService = dependencies.APIService;
+        this.onDisplayLanguageChanged = dependencies.onDisplayLanguageChanged;
         this._log = createInstanceLogFunction("SettingService", this.APIService);
     }
 
@@ -562,7 +565,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         this.settings = await this.decryptSettings(settings);
 
         // I wonder can we call here.
-        setLang(this.settings.displayLanguage);
+        this.onDisplayLanguageChanged?.(this.settings.displayLanguage);
 
         await this.adjustSettings(this.settings);
         const migratedLegacyRemoteConfigurations =

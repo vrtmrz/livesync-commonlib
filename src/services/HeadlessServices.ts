@@ -19,10 +19,7 @@ import type { ServiceInstances } from "@lib/services/ServiceHub";
 import { UIService } from "@lib/services/implements/base/UIService";
 import { HeadlessAPIService } from "./implements/headless/HeadlessAPIService";
 import { HeadlessDatabaseService, HeadlessKeyValueDBService } from "./implements/headless/HeadlessDatabaseService";
-import type {
-    ComponentHasResult,
-    SvelteDialogManager,
-} from "./implements/base/SvelteDialog";
+import type { ComponentHasResult, SvelteDialogManager } from "./implements/base/SvelteDialog";
 import type { DatabaseService } from "@lib/services/base/DatabaseService.ts";
 import { ControlService } from "./base/ControlService";
 import { InjectableSettingService } from "./implements/injectable/InjectableSettingService";
@@ -30,6 +27,7 @@ import type { Constructor } from "@lib/common/utils.type";
 import { createIndexedDBKeyValueDatabaseFactory } from "@lib/databases/IndexedDBKeyValueDatabase";
 import type { KeyValueDatabaseFactory } from "@lib/interfaces/KeyValueDatabase";
 import type { PouchDBConstructor } from "@lib/pouchdb/PouchDBConstructor.ts";
+import type { ObsidianLiveSyncSettings } from "@lib/common/types";
 
 class HeadlessAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
     constructor(context: T, dependencies: AppLifecycleServiceDependencies) {
@@ -78,6 +76,7 @@ export class HeadlessServiceHub<T extends ServiceContext> extends InjectableServ
             pouchDB: PouchDBConstructor;
             database?: Constructor<DatabaseService<T>>;
             openKeyValueDatabase?: KeyValueDatabaseFactory;
+            onDisplayLanguageChanged?: (language: ObsidianLiveSyncSettings["displayLanguage"]) => void;
         }
     ) {
         const context = (_context ?? new ServiceContext()) as T;
@@ -87,6 +86,7 @@ export class HeadlessServiceHub<T extends ServiceContext> extends InjectableServ
 
         const setting = new InjectableSettingService(context, {
             APIService: API,
+            onDisplayLanguageChanged: overrideServiceConstructor.onDisplayLanguageChanged,
         });
         const appLifecycle = new HeadlessAppLifecycleService<T>(context, {
             settingService: setting,

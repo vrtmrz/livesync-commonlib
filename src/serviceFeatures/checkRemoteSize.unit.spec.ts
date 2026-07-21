@@ -7,7 +7,7 @@ import {
     useCheckRemoteSize,
 } from "./checkRemoteSize";
 import { type LogFunction, createInstanceLogFunction } from "@lib/services/lib/logUtils";
-import { $msg } from "@lib/common/i18n";
+import { englishMessageTranslator as $msg } from "@lib/services/base/MessageTranslator";
 import { EVENT_REQUEST_CHECK_REMOTE_SIZE } from "@lib/events/coreEvents";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
 

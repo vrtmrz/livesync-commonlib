@@ -8,9 +8,11 @@ import type {
     MODE_SHINY,
     RemoteTypes,
 } from "./setting.const";
-import type { I18N_LANGS } from "@lib/common/rosetta";
 import type { CustomRegExpSourceList } from "./shared.type.util";
 import type { JWTAlgorithm } from "./auth.type";
+
+/** Display languages recognised by the current LiveSync settings schema. */
+export type I18N_LANGS = "" | "def" | "de" | "es" | "fr" | "he" | "ja" | "ko" | "ru" | "zh" | "zh-tw";
 
 /**
  * Represents the connection details required to connect to a CouchDB instance.
