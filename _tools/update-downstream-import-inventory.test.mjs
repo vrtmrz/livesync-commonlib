@@ -55,12 +55,24 @@ test("collects compatibility imports from downstream utilities", async () => {
             "user.name=Commonlib test",
             "-c",
             "user.email=commonlib-test@example.invalid",
+            "-c",
+            "commit.gpgsign=false",
             "commit",
             "--quiet",
             "-m",
             "Create downstream fixture",
         ],
-        { stdio: "ignore" }
+        {
+            stdio: "ignore",
+            env: {
+                ...process.env,
+                GIT_CONFIG_COUNT: "2",
+                GIT_CONFIG_KEY_0: "commit.gpgsign",
+                GIT_CONFIG_VALUE_0: "true",
+                GIT_CONFIG_KEY_1: "gpg.program",
+                GIT_CONFIG_VALUE_1: join(fixtureRoot, "missing-gpg-program"),
+            },
+        }
     );
 
     execFileSync(

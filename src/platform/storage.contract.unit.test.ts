@@ -170,4 +170,40 @@ describe("rooted storage adapters", () => {
             await contractCase.run(createFileSystemAccessStorage({ rootHandle }));
         });
     }
+
+    it("Node: rejects writes through a symbolic link which leaves the injected root", async () => {
+        const rootPath = await nodeFs.mkdtemp(nodePath.join(nodeOs.tmpdir(), "commonlib-storage-"));
+        const outsidePath = await nodeFs.mkdtemp(nodePath.join(nodeOs.tmpdir(), "commonlib-storage-outside-"));
+        temporaryDirectories.push(rootPath, outsidePath);
+        await nodeFs.writeFile(nodePath.join(outsidePath, "victim.txt"), "before", "utf8");
+        await nodeFs.symlink(
+            outsidePath,
+            nodePath.join(rootPath, "linked"),
+            process.platform === "win32" ? "junction" : "dir"
+        );
+
+        const adapter = createNodeStorage({ rootPath });
+
+        await expect(adapter.write("linked/victim.txt", "after")).rejects.toThrow(/symbolic link/i);
+        await expect(nodeFs.readFile(nodePath.join(outsidePath, "victim.txt"), "utf8")).resolves.toBe("before");
+    });
+
+    it("Node: renames entries atomically without following symbolic links", async () => {
+        const rootPath = await nodeFs.mkdtemp(nodePath.join(nodeOs.tmpdir(), "commonlib-storage-"));
+        const outsidePath = await nodeFs.mkdtemp(nodePath.join(nodeOs.tmpdir(), "commonlib-storage-outside-"));
+        temporaryDirectories.push(rootPath, outsidePath);
+        await nodeFs.writeFile(nodePath.join(rootPath, "source.txt"), "content", "utf8");
+        await nodeFs.symlink(
+            outsidePath,
+            nodePath.join(rootPath, "linked"),
+            process.platform === "win32" ? "junction" : "dir"
+        );
+        const adapter = createNodeStorage({ rootPath });
+
+        await adapter.rename("source.txt", "renamed.txt");
+        await expect(adapter.read("renamed.txt")).resolves.toBe("content");
+        await expect(adapter.rename("renamed.txt", "linked/moved.txt")).rejects.toThrow(/symbolic link/i);
+        await expect(adapter.read("renamed.txt")).resolves.toBe("content");
+        await expect(nodeFs.stat(nodePath.join(outsidePath, "moved.txt"))).rejects.toMatchObject({ code: "ENOENT" });
+    });
 });

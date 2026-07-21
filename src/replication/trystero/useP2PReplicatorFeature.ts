@@ -47,6 +47,7 @@ export function useP2PReplicatorFeature(
     let replicator: LiveSyncTrysteroReplicator = new LiveSyncTrysteroReplicator({
         services: host.services,
     });
+    let replacementPromise: Promise<LiveSyncTrysteroReplicator> | undefined;
     if (openReplicationUIFactory) {
         replicator.env.openReplicationUI = openReplicationUIFactory(replicator);
     }
@@ -63,22 +64,31 @@ export function useP2PReplicatorFeature(
         async (settingOverride: Partial<ObsidianLiveSyncSettings> = {}) => {
             const settings = { ...host.services.setting.currentSettings(), ...settingOverride };
             if (settings.remoteType == REMOTE_P2P) {
-                const existingReplicator = replicator;
+                if (replacementPromise) return await replacementPromise;
+                const operation = (async () => {
+                    const existingReplicator = replicator;
+                    try {
+                        await existingReplicator?.close();
+                    } catch (e) {
+                        Logger(`Error closing existing p2p replicator`);
+                        Logger(e, LOG_LEVEL_VERBOSE);
+                    }
+                    const newReplicator = new LiveSyncTrysteroReplicator({ services: host.services });
+                    if (openReplicationUIFactory) {
+                        newReplicator.env.openReplicationUI = openReplicationUIFactory(newReplicator);
+                    }
+                    if (openRebuildUIFactory) {
+                        newReplicator.env.openRebuildUI = openRebuildUIFactory(newReplicator);
+                    }
+                    replicator = newReplicator; // Update the replicator reference for lifecycle handlers
+                    return replicator;
+                })();
+                replacementPromise = operation;
                 try {
-                    await existingReplicator?.close();
-                } catch (e) {
-                    Logger(`Error closing existing p2p replicator`);
-                    Logger(e, LOG_LEVEL_VERBOSE);
+                    return await operation;
+                } finally {
+                    if (replacementPromise === operation) replacementPromise = undefined;
                 }
-                const newReplicator = new LiveSyncTrysteroReplicator({ services: host.services });
-                if (openReplicationUIFactory) {
-                    newReplicator.env.openReplicationUI = openReplicationUIFactory(newReplicator);
-                }
-                if (openRebuildUIFactory) {
-                    newReplicator.env.openRebuildUI = openRebuildUIFactory(newReplicator);
-                }
-                replicator = newReplicator; // Update the replicator reference for lifecycle handlers
-                return replicator;
             }
             return undefined!;
         }

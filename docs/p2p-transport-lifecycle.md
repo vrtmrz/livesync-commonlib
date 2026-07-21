@@ -31,7 +31,9 @@ It is therefore a logical LiveSync disconnection and a physical signalling-serve
 
 ## Reconnection and replacement
 
-An explicit open resumes Trystero relay reconnection before joining the configured room. Settings application may change the relay URLs, room ID, passphrase, or TURN configuration, so the owning service closes and discards the former LiveSync instance before constructing the replacement. No fixed close-to-open delay is required: lifecycle operations are serialised, and peer readiness is observed through discovery.
+An explicit open resumes Trystero relay reconnection before joining the configured room. Settings application may change the relay URLs, room ID, passphrase, or TURN configuration, so the owning service closes and discards the former LiveSync instance before constructing the replacement. Concurrent replacement requests share the same in-flight replacement and receive the same new owner. No fixed close-to-open delay is required: lifecycle operations are serialised, and peer readiness is observed through discovery.
+
+Saving settings with P2P or automatic start disabled always requests `close()`, even when the room has not started serving. This cancels an in-flight open through the same lifecycle queue, so a connection cannot appear after the disabling setting has been applied.
 
 Do not replace a relay socket's `onclose` handler. Trystero 0.25 shares relay clients by URL and uses its own handler to retire and recreate them. Use the exported pause and resume functions around explicit disconnection instead.
 
@@ -51,7 +53,7 @@ Commonlib consequently does not expose a forced physical-disconnection command. 
 
 Maintain all five boundaries when this lifecycle changes:
 
-- Commonlib unit tests must prove that normal close leaves the room without directly closing Trystero-owned peers, and that overlapping open and close requests leave one current owner;
+- Commonlib unit tests must prove that normal close leaves the room without directly closing Trystero-owned peers, that disabling settings cancel a pending open, and that concurrent replacement requests leave one current owner;
 - Commonlib rebuild tests must prove that first-device P2P initialisation does not reset a remote database and that an additional-device P2P Fetch performs one explicit peer-selection pass before resuming reflection;
 - the Self-hosted LiveSync Compose P2P lifecycle test must replace a current replicator, rediscover the same real peer, perform bidirectional RPC, and verify transferred content from a separate process;
 - the Self-hosted LiveSync real-Obsidian P2P Setup URI workflow must generate the second-device URI on the first device, accept both peer directions visibly, and verify a two-way note round-trip; and

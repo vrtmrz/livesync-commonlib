@@ -28,10 +28,7 @@ export type P2PReplicatorProvider = () => P2PReplicatorLike;
  * Add event handlers for P2P replication related events.
  * @param source A fixed compatibility instance or a provider for a replaceable replicator.
  */
-export function addP2PEventHandlers(
-    source: P2PReplicatorLike | P2PReplicatorProvider,
-    events: LiveSyncEventHub
-) {
+export function addP2PEventHandlers(source: P2PReplicatorLike | P2PReplicatorProvider, events: LiveSyncEventHub) {
     const current = (): P2PReplicatorLike => (typeof source === "function" ? source() : source);
     events.onEvent(EVENT_ADVERTISEMENT_RECEIVED, (peer) => {
         void current().onNewPeer(peer);
@@ -51,14 +48,12 @@ export function addP2PEventHandlers(
     });
     events.onEvent(EVENT_SETTING_SAVED, async (settings: P2PSyncSetting) => {
         const instance = current();
-        const isOpen = instance.isServing ?? instance.server?.isServing ?? false;
         if (settings.P2P_Enabled && settings.P2P_AutoStart) {
             await instance.open();
             return;
         }
-        if (isOpen) {
-            await instance.close();
-        }
+        // close() also cancels an open operation which has not started serving yet.
+        await instance.close();
     });
 }
 

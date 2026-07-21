@@ -39,6 +39,8 @@ await storage.write('notes/example.md', '# Example');
 
 `rootPath` may be absolute or process-relative. The host should normally resolve and validate configuration before constructing the adapter.
 
+The Node adapter does not follow symbolic links in adapter paths. A path containing a symbolic link is rejected, including when the link points to another location below `rootPath`, so every operation retains one unambiguous rooted-storage boundary. Its concrete `rename(sourcePath, targetPath)` operation preserves this boundary while providing the atomic rename expected by Node hosts.
+
 ## Shared path contract
 
 Adapter paths are relative to the injected root and use forward slashes. The empty path refers to the root for root-safe operations such as `exists`, `stat`, `list`, and `mkdir`.

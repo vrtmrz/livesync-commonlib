@@ -59,7 +59,7 @@ The multiple-remote profile contract has focused unit coverage in `src/serviceFe
 
 ### P2P composition ownership
 
-`useP2PReplicatorFeature` is the sole owner of the active `LiveSyncTrysteroReplicator` and its lifecycle bindings. It creates or replaces the outer replicator when `ReplicatorService` requests one, closes the previous instance before replacement, and returns a stable result object whose `replicator` property resolves the current instance.
+`useP2PReplicatorFeature` is the sole owner of the active `LiveSyncTrysteroReplicator` and its lifecycle bindings. It creates or replaces the outer replicator when `ReplicatorService` requests one, closes the previous instance before replacement, shares an in-flight replacement between concurrent callers, and returns a stable result object whose `replicator` property resolves the current instance.
 
 Consumers must preserve that result object and read `result.replicator` at the point of use. Do not destructure the property into a command, event handler, view, or other long-lived closure: a database reinitialisation or remote-type transition can close and replace the captured instance, and calling `open()` on that obsolete outer object can create a second connection outside the active service state.
 
