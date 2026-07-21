@@ -1,6 +1,6 @@
 # Self-hosted LiveSync Commonlib
 
-Commonlib is the ESM package which provides shared data, storage, replication, host-context, and RPC primitives for Self-hosted LiveSync, its CLI, Webapp, and WebPeer.
+Commonlib is the ESM package which provides shared data, storage, replication, and host-context primitives for Self-hosted LiveSync, its CLI, Webapp, and WebPeer.
 
 This package is primarily for maintainers of those clients and for integrations which deliberately reuse a reviewed Commonlib contract. It is not yet a general-purpose LiveSync SDK: the package does not provide a stable end-to-end client factory or own host UI, permissions, credentials, process lifecycle, or application persistence.
 
@@ -24,8 +24,8 @@ The package is ESM-only and declares Node 20 or later. Browser entry points are 
 | `@vrtmrz/livesync-commonlib`                       | `DirectFileManipulator` for integrations which access CouchDB directly            | Deliberately small, but its high-level lifecycle and file-operation semantics are not final |
 | `@vrtmrz/livesync-commonlib/context`               | Instance-owned events, translation injection, and host-neutral standard-I/O types | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/browser`               | Rooted File System Access API storage                                             | Focused, package-tested pre-1.0 contract                                                    |
-| `@vrtmrz/livesync-commonlib/node`                  | Rooted Node storage, Node standard I/O, and selected Node capabilities            | Focused platform entry; some convenience exports still require 1.0 classification           |
-| `@vrtmrz/livesync-commonlib/rpc`                   | Transport-neutral RPC rooms, sessions, errors, and the PouchDB RPC bridge         | Deliberate export, but its 1.0 stability status is not yet accepted                         |
+| `@vrtmrz/livesync-commonlib/node`                  | Rooted Node storage, Node standard I/O, and selected Node capabilities            | Supported platform façade; keeps Node-only dependencies behind an explicit boundary         |
+| `@vrtmrz/livesync-commonlib/rpc`                   | Existing LiveSync RPC and PouchDB bridge migration                                | Transitional only; not part of the stable Commonlib 1.0 contract                            |
 | `@vrtmrz/livesync-commonlib/remote-configurations` | Multiple-remote profile creation, naming, and selection                           | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/settings`              | New-Vault defaults, stored-setting fallbacks, and settings migration results      | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/compat/*`              | Exact legacy imports still required by existing clients                           | Migration-only; paths may be removed as consumers migrate                                   |
@@ -33,9 +33,9 @@ The package is ESM-only and declares Node 20 or later. Browser entry points are 
 
 Import only the entry point required by the current runtime. Browser code must not import the Node entry.
 
-TODO: decide whether the Node entry's `fs`, `fsPromises`, `path`, `os`, `readline`, URL, and built-in-module convenience exports belong in the 1.0 public contract or should move behind compatibility paths.
+The Node and browser entries are platform façades. They keep platform-specific adapters and capabilities behind package-owned boundaries, so a consumer does not have to reproduce those imports or their build and review exceptions. The Node entry's selected built-in-module exports are deliberate parts of that façade. Package checks ensure that the root, context, and browser entries do not load the Node implementation.
 
-TODO: decide whether the draft RPC protocol and PouchDB bridge are stable 1.0 contracts, remain explicitly experimental, or move to a separately versioned package. Until that decision, pin the exact package version when consuming the RPC entry.
+The RPC entry exists only while the maintained LiveSync P2P composition depends on the current implementation. Its draft wire protocol and PouchDB bridge are not stable Commonlib 1.0 contracts. RPC is planned to move to Fancy Kit as an independently owned rewrite; new Commonlib consumers should not adopt the transitional entry.
 
 ## Host context and initialisation
 
@@ -61,7 +61,9 @@ The host may instead extend `ServiceContext` with platform-specific capabilities
 
 Context construction does not select storage, connect to a database, start replication, acquire browser permission, or install process-wide state. The host separately owns platform-resource acquisition, adapter construction, and the lifecycle order of its particular service composition.
 
-TODO: define a reviewed high-level composition factory and its initialisation, readiness, error, and disposal contract. Until that exists, service implementations exposed under `compat/*` retain their owning client's lifecycle rather than becoming a general public composition API.
+After the Self-hosted LiveSync 1.0 work, the planned high-level composition is a narrow `createLiveSyncFileClient` factory for direct database integrations, not a general factory which exposes Commonlib's internal Service Hub. It will resolve only after its private context, services, database, and protocol settings are ready, and its returned file client will own its watches, reconnect work, and orderly disposal. Obsidian, CLI, Webapp, and other full hosts retain their host-specific compositions.
+
+The factory is not implemented yet. Until it is available, service implementations exposed under `compat/*` retain their owning client's lifecycle rather than becoming a general public composition API.
 
 ## Rooted storage
 
@@ -114,9 +116,9 @@ See [the remote configuration profile guide](docs/remote-configurations.md) for 
 
 The package is currently an infrastructure and compatibility boundary. The context, rooted-storage, and standard-I/O result contracts have focused cross-platform or instance-isolation tests. Platform details which cannot be shared, such as file timestamp fidelity and browser permission handling, remain host concerns and are documented separately.
 
-`DirectFileManipulator` is useful for existing integrations, but its enumeration, watch ownership, failure, conflict, concurrency, readiness, and disposal semantics are not yet a stable high-level SDK contract.
+`DirectFileManipulator` is useful for existing integrations, but its enumeration, watch ownership, failure, conflict, concurrency, readiness, and disposal semantics are not a stable high-level SDK contract. It is the migration source for the planned file client, not the shape to preserve as the new API.
 
-TODO: define and document the first high-level client façade before declaring list, get, put, delete, watch, and close behaviour stable.
+The accepted replacement direction is an asynchronously created file client with stable `list`, `get`, `put`, `delete`, `watch`, and `close` operations. The operation result, conflict, concurrency, watch checkpoint, retry, and error contracts still require focused decisions and tests before that client can be published.
 
 Package developers should read [the developer guide](docs/development.md). The focused contracts are described in [the storage guide](docs/platform-storage.md), [the standard-I/O guide](docs/platform-standard-io.md), [the settings lifecycle guide](docs/settings-lifecycle.md), and [the remote configuration profile guide](docs/remote-configurations.md).
 

@@ -62,7 +62,12 @@ async function sourceExists(root, specifier) {
 
 const root = resolve(new URL("..", import.meta.url).pathname);
 const { downstream } = parseArguments(process.argv.slice(2));
-const downstreamSources = [resolve(downstream, "src"), resolve(downstream, "test")];
+const downstreamSources = [
+    resolve(downstream, "src"),
+    resolve(downstream, "test"),
+    resolve(downstream, "utils"),
+    resolve(downstream, "utilsdeno"),
+];
 const specifiers = new Set();
 
 for (const sourceRoot of downstreamSources) {

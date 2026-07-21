@@ -50,6 +50,10 @@ test("normalises legacy source and package compatibility imports for the downstr
         normaliseDownstreamCommonlibSpecifier("@vrtmrz/livesync-commonlib/compat/common/types"),
         "common/types"
     );
+    assert.equal(
+        normaliseDownstreamCommonlibSpecifier("npm:@vrtmrz/livesync-commonlib@0.1.0-rc.5/compat/common/types.ts"),
+        "common/types"
+    );
     assert.equal(normaliseDownstreamCommonlibSpecifier("@vrtmrz/livesync-commonlib/context"), undefined);
     assert.equal(normaliseDownstreamCommonlibSpecifier("octagonal-wheels/promises"), undefined);
 });

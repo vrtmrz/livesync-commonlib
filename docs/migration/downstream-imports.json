@@ -1,6 +1,6 @@
 {
   "repository": "vrtmrz/obsidian-livesync",
-  "revision": "6475d32769fe92f49efe0eb9b3f0d7df41227b94",
+  "revision": "04b57340896101a16211e5100dc476d79a4e91fb",
   "compatibility": [
     "API/processSetting",
     "bureau/bureau",
@@ -14,8 +14,6 @@
     "common/models/fileaccess.const",
     "common/models/redflag.const",
     "common/models/setting.const",
-    "common/models/setting.const.defaults",
-    "common/models/setting.const.preferred",
     "common/models/setting.type",
     "common/models/shared.const",
     "common/models/shared.const.symbols",
@@ -30,7 +28,6 @@
     "dev/checks",
     "encryption/stringEncryption",
     "events/coreEvents",
-    "hub/hub",
     "interfaces/Confirm",
     "interfaces/DatabaseFileAccess",
     "interfaces/DatabaseRebuilder",
@@ -121,31 +118,6 @@
     "string_and_binary/path",
     "worker/bgWorker"
   ],
-  "hostOwned": [
-    "UI/DialogHost.svelte",
-    "UI/components/Check.svelte",
-    "UI/components/Decision.svelte",
-    "UI/components/DialogHeader.svelte",
-    "UI/components/ExtraItems.svelte",
-    "UI/components/Guidance.svelte",
-    "UI/components/InfoNote.svelte",
-    "UI/components/InfoTable.svelte",
-    "UI/components/InputRow.svelte",
-    "UI/components/Instruction.svelte",
-    "UI/components/Option.svelte",
-    "UI/components/Options.svelte",
-    "UI/components/Password.svelte",
-    "UI/components/Question.svelte",
-    "UI/components/UserDecisions.svelte",
-    "UI/dialogues/DialogueToCopy.svelte",
-    "serviceFeatures/setupObsidian/qrCode",
-    "serviceFeatures/setupObsidian/setupUri",
-    "serviceFeatures/setupObsidian/types",
-    "services/implements/browser/Menu",
-    "services/implements/obsidian/ObsidianServiceContext"
-  ],
-  "obsolete": [
-    "UI/svelteDialog",
-    "services/InjectableServices"
-  ]
+  "hostOwned": [],
+  "obsolete": []
 }

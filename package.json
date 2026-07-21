@@ -28,7 +28,7 @@
     "i18n:json2yaml": "tsx _tools/json2yaml.ts",
     "i18n:yaml2json": "tsx _tools/yaml2json.ts",
     "test": "vitest run",
-    "test:boundary": "node --test _tools/check-package-boundary.test.mjs",
+    "test:boundary": "node --test _tools/check-package-boundary.test.mjs _tools/compatibility-classification.test.mjs _tools/update-downstream-import-inventory.test.mjs",
     "test:contract:context": "vitest run src/services/base/ServiceContext.unit.spec.ts",
     "test:contract:platform-storage": "vitest run src/platform/storage.contract.unit.test.ts",
     "test:contract:standard-io": "vitest run src/platform/standardIo.unit.spec.ts",

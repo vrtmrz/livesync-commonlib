@@ -1,0 +1,192 @@
+{
+    "repository": "vrtmrz/obsidian-livesync",
+    "revision": "04b57340896101a16211e5100dc476d79a4e91fb",
+    "status": "accepted-for-livesync-1.0-planning",
+    "categories": [
+        {
+            "id": "setup-uri-focused-candidate",
+            "owner": "Commonlib",
+            "destination": "The current exact-version compatibility boundary, with a possible focused /setup-uri entry after LiveSync 1.0",
+            "policy": "Do not create a new entry merely to clean up imports before LiveSync 1.0. A later focused entry may move only the reviewed Setup URI encoding, decoding, and URI-family constants; it must not promote either source module wholesale or pull the CouchDB adapter into Setup URI generation.",
+            "paths": ["API/processSetting", "common/models/shared.const"]
+        },
+        {
+            "id": "settings-focused-migration",
+            "owner": "Commonlib",
+            "destination": "The existing /settings focused entry",
+            "policy": "Move reviewed settings schema, lifecycle, and tweak symbols into /settings. Keep LiveSync-only presentation and implementation details private.",
+            "paths": [
+                "common/models/setting.const",
+                "common/models/setting.type",
+                "common/models/tweak.definition",
+                "common/settingConstants"
+            ]
+        },
+        {
+            "id": "remote-configuration-focused-migration",
+            "owner": "Commonlib",
+            "destination": "The existing /remote-configurations focused entry",
+            "policy": "Expose reviewed connection parsing and profile operations through the focused entry, then remove downstream imports of the compatibility modules.",
+            "paths": ["common/ConnectionString", "serviceFeatures/remoteConfig"]
+        },
+        {
+            "id": "setup-tool-database-version-compatibility",
+            "owner": "Commonlib",
+            "destination": "The current exact-version setup-tool compatibility boundary, with a possible narrow /database-version entry after LiveSync 1.0",
+            "policy": "Keep the proven setup tool on its immutable Commonlib version for LiveSync 1.0. Do not combine database-version negotiation with synchronisation-parameter lifecycle or expose the wider PouchDB implementation module as a new public contract.",
+            "paths": ["pouchdb/negotiation"]
+        },
+        {
+            "id": "rpc-fancy-kit-transition",
+            "owner": "Fancy Kit after rewrite",
+            "destination": "The planned independently owned Fancy Kit RPC implementation",
+            "policy": "Keep only for the current maintained LiveSync P2P composition. It is not a Commonlib 1.0 API and must not gain new consumers.",
+            "paths": ["rpc/transports/DiagRTCPeerConnections.utils"]
+        },
+        {
+            "id": "p2p-composition-internal",
+            "owner": "Commonlib LiveSync composition",
+            "destination": "Package-private P2P composition using the rewritten RPC boundary",
+            "policy": "Retain compatibility exports while the maintained LiveSync hosts migrate. Do not stabilise raw replicator classes, pane contracts, or the deprecated combined composition as general APIs.",
+            "paths": [
+                "replication/trystero/LiveSyncTrysteroReplicator",
+                "replication/trystero/P2PLogCollector",
+                "replication/trystero/P2PReplicatorBase",
+                "replication/trystero/P2PReplicatorCore",
+                "replication/trystero/P2PReplicatorPaneCommon",
+                "replication/trystero/TrysteroReplicator",
+                "replication/trystero/TrysteroReplicatorP2PServer",
+                "replication/trystero/UseP2PReplicatorResult",
+                "replication/trystero/types",
+                "replication/trystero/useP2PReplicatorCommands",
+                "replication/trystero/useP2PReplicatorFeature"
+            ]
+        },
+        {
+            "id": "neutral-storage-review",
+            "owner": "A future independent Fancy Kit storage package for the neutral capability subset",
+            "destination": "Capability contracts and cross-platform contract tests, not the current LiveSync policy layers",
+            "policy": "Review each symbol before extraction. Keep LiveSync cache, event, metadata, database, and Hidden File policy in Commonlib or LiveSync rather than moving these modules wholesale.",
+            "paths": [
+                "common/models/fileaccess.const",
+                "interfaces/DatabaseFileAccess",
+                "interfaces/DatabaseRebuilder",
+                "interfaces/FileHandler",
+                "interfaces/KeyValueDatabase",
+                "interfaces/StorageAccess",
+                "managers/StorageEventManager",
+                "managers/StorageProcessingManager",
+                "managers/adapters",
+                "serviceModules/FileAccessBase",
+                "serviceModules/Rebuilder",
+                "serviceModules/ServiceDatabaseFileAccessBase",
+                "serviceModules/ServiceFileAccessBase",
+                "serviceModules/ServiceFileHandlerBase",
+                "serviceModules/adapters"
+            ]
+        },
+        {
+            "id": "host-composition-internal",
+            "owner": "Commonlib and the maintained LiveSync hosts",
+            "destination": "Focused host features or host-owned implementations, without exposing the internal service graph",
+            "policy": "Keep as migration-only compatibility while LiveSync composes these services directly. Do not generate public API documentation for service constructors, dependency graphs, or presentation shims.",
+            "paths": [
+                "bureau/bureau",
+                "events/coreEvents",
+                "interfaces/Confirm",
+                "interfaces/ServiceModule",
+                "serviceFeatures/checkRemoteSize",
+                "serviceFeatures/offlineScanner",
+                "serviceFeatures/prepareDatabaseForUse",
+                "serviceFeatures/targetFilter",
+                "services/BrowserServices",
+                "services/ServiceHub",
+                "services/base/AppLifecycleService",
+                "services/base/ConfigService",
+                "services/base/ControlService",
+                "services/base/DatabaseService",
+                "services/base/FileProcessingService",
+                "services/base/IService",
+                "services/base/KeyValueDBService",
+                "services/base/PathService",
+                "services/base/ReplicatorService",
+                "services/base/ServiceBase",
+                "services/base/SettingService",
+                "services/base/UnresolvedErrorManager",
+                "services/implements/base/SvelteDialog",
+                "services/implements/base/UIService",
+                "services/implements/browser/BrowserAPIService",
+                "services/implements/browser/ConfigServiceBrowserCompat",
+                "services/implements/headless/HeadlessAPIService",
+                "services/implements/injectable/InjectableAPIService",
+                "services/implements/injectable/InjectableAppLifecycleService",
+                "services/implements/injectable/InjectableConflictService",
+                "services/implements/injectable/InjectableDatabaseEventService",
+                "services/implements/injectable/InjectableFileProcessingService",
+                "services/implements/injectable/InjectablePathService",
+                "services/implements/injectable/InjectableRemoteService",
+                "services/implements/injectable/InjectableReplicationService",
+                "services/implements/injectable/InjectableReplicatorService",
+                "services/implements/injectable/InjectableServiceHub",
+                "services/implements/injectable/InjectableSettingService",
+                "services/implements/injectable/InjectableTestService",
+                "services/implements/injectable/InjectableTweakValueService",
+                "services/implements/injectable/InjectableVaultService",
+                "services/lib/HandlerUtils",
+                "services/lib/logUtils"
+            ]
+        },
+        {
+            "id": "replication-engine-internal",
+            "owner": "Commonlib",
+            "destination": "Package-private replication implementation behind reviewed high-level operations",
+            "policy": "Keep exact compatibility only for the maintained LiveSync migration. Do not stabilise PouchDB constructors, raw replicators, chunk internals, encryption globals, or worker implementation paths.",
+            "paths": [
+                "encryption/stringEncryption",
+                "pouchdb/LiveSyncLocalDB",
+                "pouchdb/chunks",
+                "pouchdb/pouchdb-browser",
+                "pouchdb/utils_couchdb",
+                "replication/LiveSyncAbstractReplicator",
+                "replication/SyncParamsHandler",
+                "replication/couchdb/LiveSyncReplicator",
+                "replication/httplib",
+                "replication/journal/JournalSyncCore",
+                "replication/journal/JournalSyncTypes",
+                "replication/journal/LiveSyncJournalReplicator",
+                "replication/journal/LiveSyncJournalReplicatorEnv",
+                "replication/journal/objectstore/MinioStorageAdapter",
+                "string_and_binary/chunks",
+                "string_and_binary/convert",
+                "string_and_binary/hash",
+                "string_and_binary/path",
+                "worker/bgWorker"
+            ]
+        },
+        {
+            "id": "shared-implementation-internal",
+            "owner": "Commonlib",
+            "destination": "Package-private helpers or selected symbols on an existing focused entry",
+            "policy": "Do not create a general utilities entry. Migrate a symbol only when a reviewed public contract needs it; otherwise remove the downstream import as LiveSync composition is narrowed.",
+            "paths": [
+                "common/LSError",
+                "common/configForDoc",
+                "common/coreEnvFunctions",
+                "common/coreEnvVars",
+                "common/i18n",
+                "common/logger",
+                "common/models/redflag.const",
+                "common/models/shared.const.symbols",
+                "common/rosetta",
+                "common/typeUtils",
+                "common/types",
+                "common/utils",
+                "common/utils.doc",
+                "common/utils.type",
+                "dev/checks",
+                "mock_and_interop/stores",
+                "mock_and_interop/wrapper"
+            ]
+        }
+    ]
+}

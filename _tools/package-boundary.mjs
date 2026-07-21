@@ -94,10 +94,13 @@ export function extractImportSpecifiers(source) {
 export function normaliseDownstreamCommonlibSpecifier(specifier) {
     const legacyPrefix = "@lib/";
     const compatibilityPrefix = "@vrtmrz/livesync-commonlib/compat/";
+    const denoNpmCompatibilityPrefix = /^npm:@vrtmrz\/livesync-commonlib(?:@[^/]+)?\/compat\//u;
     let sourcePath;
     if (specifier.startsWith(legacyPrefix)) sourcePath = specifier.slice(legacyPrefix.length);
     else if (specifier.startsWith(compatibilityPrefix)) sourcePath = specifier.slice(compatibilityPrefix.length);
-    else return undefined;
+    else if (denoNpmCompatibilityPrefix.test(specifier)) {
+        sourcePath = specifier.replace(denoNpmCompatibilityPrefix, "");
+    } else return undefined;
     return sourcePath.replace(/\.(?:ts|js)$/u, "");
 }
 
