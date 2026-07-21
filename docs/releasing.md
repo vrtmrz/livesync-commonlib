@@ -13,6 +13,20 @@ npm run verify:package
 
 The gate type-checks Commonlib, runs its complete unit suite, verifies the source boundary, builds the distributable package, installs its exact tarball into a clean consumer, and bundles representative browser and Node entry points. The source `package.json` remains private to prevent publishing the repository root. Only the generated `.package` directory is publishable, and its manifest defaults to public publication on the `next` dist-tag.
 
+### Lockfile reproducibility
+
+Regenerate `package-lock.json` with the reviewed npm CLI version pinned by the `Use the reviewed npm CLI` step in `.github/workflows/publish-npm.yml`. Do this after adding, removing, or updating a dependency, even when an older local npm reports that the lockfile is already up to date. npm minor versions can differ in how they record transitive optional peer dependencies; a lockfile accepted by an older client can otherwise fail the hosted `npm ci` before any tests run.
+
+With the currently reviewed npm version, use:
+
+```bash
+npx --yes npm@11.18.0 install --package-lock-only --ignore-scripts --no-audit --no-fund
+npx --yes npm@11.18.0 ci
+npm run verify:package
+```
+
+Inspect the lockfile diff before committing it. A dependency-only maintenance change must not alter the source package version, and lockfile normalisation must not be described as a package upgrade when resolved versions and integrity values are unchanged. When the workflow selects a newer reviewed npm CLI, update this example in the same change.
+
 Before publication, run the downstream workflow against an exact Self-hosted LiveSync ref which already consumes the package. The workflow installs the tarball produced from the selected Commonlib commit, then runs LiveSync type checks, unit tests, plug-in and application builds, and CLI E2E. Real Obsidian E2E remains local-only and is required when the changed boundary affects actual plug-in composition, storage, UI, or platform behaviour.
 
 ## Preparing a release
