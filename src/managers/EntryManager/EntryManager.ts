@@ -20,6 +20,7 @@ import {
     isTargetFile,
     prepareChunk,
     putDBEntry,
+    storeDeletionByPathAtRevision,
 } from "./EntryManagerImpls";
 
 export interface EntryManagerOptions {
@@ -105,6 +106,10 @@ export class EntryManager {
 
     async deleteDBEntry(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
         return await deleteDBEntryByPath(this.serviceHost, this, path, opt);
+    }
+
+    async storeDeletionAtRevision(path: FilePathWithPrefix | FilePath, baseRevision: string) {
+        return await storeDeletionByPathAtRevision(this.serviceHost, this, path, baseRevision);
     }
 
     async putDBEntry(note: SavingEntry, onlyChunks?: boolean, conflictBaseRev?: string) {

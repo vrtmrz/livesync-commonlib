@@ -71,6 +71,7 @@
                 "common/models/fileaccess.const",
                 "interfaces/DatabaseFileAccess",
                 "interfaces/DatabaseRebuilder",
+                "interfaces/FileReflectionProvenance",
                 "interfaces/FileHandler",
                 "interfaces/KeyValueDatabase",
                 "interfaces/StorageAccess",

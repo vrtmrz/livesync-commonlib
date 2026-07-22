@@ -80,19 +80,49 @@ export class ServiceDatabaseFileAccessBase
     }
 
     async createChunks(file: UXFileInfo, force: boolean = false, skipCheck?: boolean): Promise<boolean> {
-        return await this.__store(file, force, skipCheck, true);
+        return (await this.__store(file, force, skipCheck, true)) !== false;
     }
 
     async store(file: UXFileInfo, force: boolean = false, skipCheck?: boolean): Promise<boolean> {
-        return await this.__store(file, force, skipCheck, false);
+        return (await this.__store(file, force, skipCheck, false)) !== false;
+    }
+    async storeWithBaseRevision(
+        file: UXFileInfo,
+        baseRevision: string | undefined,
+        skipCheck?: boolean
+    ): Promise<string | false> {
+        const result = await this.__store(file, true, skipCheck, false, baseRevision);
+        return result !== null && typeof result === "object" && "rev" in result ? result.rev : false;
     }
     async storeAsConflictedRevision(file: UXFileInfo, currentRev: string, skipCheck?: boolean): Promise<boolean> {
+        return (await this.storeAsConflictedRevisionWithResult(file, currentRev, skipCheck)) !== false;
+    }
+    async storeAsConflictedRevisionWithResult(
+        file: UXFileInfo,
+        currentRev: string,
+        skipCheck?: boolean
+    ): Promise<string | false> {
         const conflictBaseRev = await this.getParentRev(file, currentRev);
         if (!conflictBaseRev) {
             this._log(`Could not find parent revision for ${file.path} (${currentRev})`, LOG_LEVEL_VERBOSE);
             return false;
         }
-        return await this.__store(file, true, skipCheck, false, conflictBaseRev);
+        return await this.storeWithBaseRevision(file, conflictBaseRev, skipCheck);
+    }
+    async storeDeletionWithBaseRevision(
+        file: UXFileInfoStub | FilePathWithPrefix,
+        baseRevision: string
+    ): Promise<string | false> {
+        if (!(await this.checkIsTargetFile(file))) {
+            return false;
+        }
+        const fullPath = getDatabasePathFromUXFileInfo(file);
+        const result = await this.database.localDatabase.storeDeletionAtRevision(fullPath, baseRevision);
+        if (result === false) {
+            return false;
+        }
+        this.events.emitEvent(EVENT_FILE_SAVED);
+        return result.rev;
     }
     async storeContent(path: FilePathWithPrefix, content: string): Promise<boolean> {
         const blob = createTextBlob(content);
@@ -110,7 +140,7 @@ export class ServiceDatabaseFileAccessBase
             body: blob,
             isInternal,
         };
-        return await this.__store(dummyUXFileInfo, true, false, false);
+        return (await this.__store(dummyUXFileInfo, true, false, false)) !== false;
     }
 
     private async __store(
@@ -119,7 +149,7 @@ export class ServiceDatabaseFileAccessBase
         skipCheck?: boolean,
         onlyChunks?: boolean,
         conflictBaseRev?: string
-    ): Promise<boolean> {
+    ): Promise<true | false | PouchDB.Core.Response> {
         if (!skipCheck) {
             if (!(await this.checkIsTargetFile(file))) {
                 return true;
@@ -231,7 +261,7 @@ export class ServiceDatabaseFileAccessBase
             this._log(msg + fullPath);
             this.events.emitEvent(EVENT_FILE_SAVED);
         }
-        return ret != false;
+        return ret;
     }
 
     private async getParentRev(file: UXFileInfoStub | FilePathWithPrefix, rev: string): Promise<string | false> {
@@ -253,14 +283,11 @@ export class ServiceDatabaseFileAccessBase
         }
     }
 
-    async hasContentInRevisionHistory(
+    private async findContentRevisionsInternal(
         file: UXFileInfoStub | FilePathWithPrefix,
         content: string | string[] | Blob | ArrayBuffer,
         currentRev?: string
-    ): Promise<boolean> {
-        if (!(await this.checkIsTargetFile(file))) {
-            return true;
-        }
+    ): Promise<string[]> {
         const filename = getDatabasePathFromUXFileInfo(file);
         try {
             const doc = await this.database.localDatabase.getDBEntryMeta(
@@ -269,24 +296,76 @@ export class ServiceDatabaseFileAccessBase
                 true
             );
             if (doc === false) {
-                return false;
+                return [];
             }
             const revisions = (doc as LoadedEntry & { _revs_info?: { rev: string; status: string }[] })._revs_info;
             const availableRevs = new Set((revisions || []).filter((e) => e.status === "available").map((e) => e.rev));
             if (currentRev) {
                 availableRevs.add(currentRev);
             }
-            for (const rev of availableRevs) {
-                const entry = await this.database.localDatabase.getDBEntry(filename, { rev }, false, true, true);
-                if (entry !== false && (await isDocContentSame(readContent(entry), content))) {
-                    return true;
+            type OpenRevision = { ok?: { _rev?: string } };
+            const leaves = (await this.database.localDatabase.getRaw(doc._id, {
+                open_revs: "all",
+            } as unknown as PouchDB.Core.GetOptions)) as unknown as OpenRevision[];
+            if (!Array.isArray(leaves)) {
+                return [];
+            }
+            for (const leaf of leaves) {
+                const leafRev = leaf.ok?._rev;
+                if (!leafRev) {
+                    continue;
+                }
+                const branch = await this.database.localDatabase.getDBEntryMeta(
+                    filename,
+                    { rev: leafRev, revs_info: true },
+                    true
+                );
+                if (branch === false) {
+                    continue;
+                }
+                const branchRevisions = (branch as LoadedEntry & { _revs_info?: { rev: string; status: string }[] })
+                    ._revs_info;
+                for (const revision of branchRevisions || []) {
+                    if (revision.status === "available") {
+                        availableRevs.add(revision.rev);
+                    }
                 }
             }
+            const matchingRevisions: string[] = [];
+            for (const rev of availableRevs) {
+                const entry = await this.database.localDatabase.getDBEntry(filename, { rev }, false, true, true);
+                if (entry !== false && !entry._deleted && (await isDocContentSame(readContent(entry), content))) {
+                    matchingRevisions.push(rev);
+                }
+            }
+            return matchingRevisions;
         } catch (ex) {
             this._log(`Could not check revision history for ${filename}`, LOG_LEVEL_VERBOSE);
             this._log(ex, LOG_LEVEL_VERBOSE);
         }
-        return false;
+        return [];
+    }
+
+    async findContentRevisions(
+        file: UXFileInfoStub | FilePathWithPrefix,
+        content: string | string[] | Blob | ArrayBuffer,
+        currentRev?: string
+    ): Promise<string[]> {
+        if (!(await this.checkIsTargetFile(file))) {
+            return [];
+        }
+        return await this.findContentRevisionsInternal(file, content, currentRev);
+    }
+
+    async hasContentInRevisionHistory(
+        file: UXFileInfoStub | FilePathWithPrefix,
+        content: string | string[] | Blob | ArrayBuffer,
+        currentRev?: string
+    ): Promise<boolean> {
+        if (!(await this.checkIsTargetFile(file))) {
+            return true;
+        }
+        return (await this.findContentRevisionsInternal(file, content, currentRev)).length > 0;
     }
 
     async getConflictedRevs(file: UXFileInfoStub | FilePathWithPrefix): Promise<string[]> {

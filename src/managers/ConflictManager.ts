@@ -332,15 +332,28 @@ export class ConflictManager {
     }
     async tryAutoMergeSensibly(path: FilePathWithPrefix, test: LoadedEntry, conflicts: string[]) {
         const conflictedRev = conflicts[0];
-        const conflictedRevNo = Number(conflictedRev.split("-")[0]);
-        //Search
-        const revFrom = await this.database.get<EntryDoc>(await this.options.pathService.path2id(path), {
-            revs_info: true,
-        });
-        const commonBase =
-            (revFrom._revs_info || []).filter(
-                (e) => e.status == "available" && Number(e.rev.split("-")[0]) < conflictedRevNo
-            )?.[0]?.rev ?? "";
+        let commonBase = "";
+        try {
+            const documentId = await this.options.pathService.path2id(path);
+            const [currentBranch, conflictedBranch] = await Promise.all([
+                this.database.get<EntryDoc>(documentId, { rev: test._rev, revs_info: true }),
+                this.database.get<EntryDoc>(documentId, { rev: conflictedRev, revs_info: true }),
+            ]);
+            const currentAvailable = new Set(
+                (currentBranch._revs_info || [])
+                    .filter((revision) => revision.status === "available")
+                    .map((revision) => revision.rev)
+            );
+            commonBase =
+                (conflictedBranch._revs_info || [])
+                    .filter((revision) => revision.status === "available" && currentAvailable.has(revision.rev))
+                    .sort((left, right) => Number(right.rev.split("-")[0]) - Number(left.rev.split("-")[0]))[0]?.rev ??
+                "";
+        } catch (ex) {
+            Logger(`Could not determine the common revision for ${path}`, LOG_LEVEL_VERBOSE);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            return false;
+        }
         let p = undefined;
         if (commonBase) {
             if (isSensibleMargeApplicable(path)) {

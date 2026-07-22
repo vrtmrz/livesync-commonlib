@@ -29,6 +29,7 @@
     "interfaces/Confirm",
     "interfaces/DatabaseFileAccess",
     "interfaces/DatabaseRebuilder",
+    "interfaces/FileReflectionProvenance",
     "interfaces/FileHandler",
     "interfaces/KeyValueDatabase",
     "interfaces/ServiceModule",

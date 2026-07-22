@@ -127,6 +127,16 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
     }
 
     openSimpleStore<T>(kind: string) {
+        // Creating a namespaced handle is intentionally safe during service
+        // composition, before onSettingLoaded has opened the backing database.
+        // Operations remain fail-fast: maintained hosts complete the sequential
+        // onSettingLoaded lifecycle before scans, watchers, or replication can
+        // use the handle. We must not wait here because a failed or omitted
+        // lifecycle transition would otherwise wait forever, and a store access
+        // from an initialisation handler could wait on its own completion.
+        // Database reset is also a transient unavailable boundary; callers must
+        // not perform store work during reset and can reconstruct derived state
+        // after the database has reopened.
         const getDB = () => {
             if (!this._kvDB) {
                 throw new Error("KeyValueDB is not initialized yet");
@@ -154,7 +164,9 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
                     .filter((e) => e.startsWith(prefix))
                     .map((e) => e.substring(prefix.length));
             },
-            db: Promise.resolve(getDB()),
+            get db() {
+                return Promise.resolve(getDB());
+            },
         } satisfies SimpleStore<T>;
     }
 }

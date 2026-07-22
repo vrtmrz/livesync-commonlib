@@ -624,3 +624,38 @@ export async function deleteDBEntryByPath(
         throw ex;
     }
 }
+
+export async function storeDeletionByPathAtRevision(
+    host: NecessaryServicesInterfaces<"path" | "setting", never>,
+    { localDatabase }: NecessaryManagers<"localDatabase">,
+    path: FilePathWithPrefix | FilePath,
+    baseRevision: string
+): Promise<PouchDB.Core.Response | false> {
+    if (!isTargetFile(host, path)) {
+        return false;
+    }
+    const id = await host.services.path.path2id(path);
+    try {
+        return (
+            (await serialized("file:" + path, async () => {
+                const obj = (await localDatabase.get<EntryDocResponse>(id, {
+                    rev: baseRevision,
+                })) as EntryDocResponse & EntryBase;
+                if (obj.type === "leaf") {
+                    return false;
+                }
+                delete obj._deleted;
+                obj.deleted = true;
+                obj.mtime = Date.now();
+                const result = await localDatabase.put(obj, { force: true });
+                Logger(`Entry soft-deleted from revision: ${path} (${obj._id.substring(0, 8)}-${result.rev})`);
+                return result;
+            })) ?? false
+        );
+    } catch (ex) {
+        if (isErrorOfMissingDoc(ex)) {
+            return false;
+        }
+        throw ex;
+    }
+}

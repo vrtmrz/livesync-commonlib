@@ -1081,5 +1081,39 @@ describe("ConflictManager", () => {
                 expect(merged.server).toBe("localhost"); // Unchanged from base
             }
         });
+
+        it("uses the nearest available ancestor shared by unequal conflict branches", async () => {
+            const path = "unequal-branches.md" as FilePathWithPrefix;
+            const revisions = [
+                { rev: "1-a1", history: ["a1"], content: "A1\n" },
+                { rev: "2-b1", history: ["b1", "a1"], content: "A1\nB1\n" },
+                { rev: "3-c1", history: ["c1", "b1", "a1"], content: "A1\nB1\nC1\n" },
+                { rev: "4-d1", history: ["d1", "c1", "b1", "a1"], content: "A1\nB1\nC1\nD1\n" },
+                { rev: "2-b2", history: ["b2", "a1"], content: "A1\nB2\n" },
+                { rev: "3-c2", history: ["c2", "b2", "a1"], content: "A1\nB2\nC2\n" },
+            ];
+            for (const revision of revisions) {
+                await db.put(
+                    {
+                        ...createTestDoc(path, revision.content),
+                        _rev: revision.rev,
+                        _revisions: {
+                            start: Number(revision.rev.split("-")[0]),
+                            ids: revision.history,
+                        },
+                    },
+                    { new_edits: false } as PouchDB.Core.PutOptions
+                );
+            }
+
+            const conflicted = await db.get(path, { conflicts: true });
+            expect(conflicted._rev).toBe("4-d1");
+            expect(conflicted._conflicts).toEqual(["3-c2"]);
+            const merge = vi.spyOn(conflictManager, "mergeSensibly").mockResolvedValue(false);
+
+            await conflictManager.tryAutoMerge(path, true);
+
+            expect(merge).toHaveBeenCalledWith(path, "1-a1", "4-d1", "3-c2");
+        });
     });
 });

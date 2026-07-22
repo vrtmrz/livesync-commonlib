@@ -520,6 +520,9 @@ export class LiveSyncLocalDB {
     async deleteDBEntry(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
         return await this.managers.entryManager.deleteDBEntry(path, opt);
     }
+    async storeDeletionAtRevision(path: FilePathWithPrefix | FilePath, baseRevision: string) {
+        return await this.managers.entryManager.storeDeletionAtRevision(path, baseRevision);
+    }
     async putDBEntry(note: SavingEntry, onlyChunks?: boolean, conflictBaseRev?: string) {
         return await this.managers.entryManager.putDBEntry(note, onlyChunks, conflictBaseRev);
     }

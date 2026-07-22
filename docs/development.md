@@ -57,6 +57,10 @@ The settings lifecycle has an additional focused unit table in `src/common/model
 
 The multiple-remote profile contract has focused unit coverage in `src/serviceFeatures/remoteConfig.unit.spec.ts`. Extend it whenever profile identity, generated display names, activation, P2P selection, URI serialisation, or legacy migration changes. New hosts should import the reviewed primitives through `/remote-configurations`; `compat/serviceFeatures/remoteConfig` remains the wider migration surface used by existing clients.
 
+The revision-tree safety rules are documented in [Conflict resolution and file provenance](conflict-resolution.md). `ConflictManager.unit.spec.ts` owns common-ancestor and conservative merge behaviour. `ServiceDatabaseFileAccessBase.unit.spec.ts` owns all-branch content discovery and exact-revision logical deletion. `ServiceFileHandlerBase.unit.spec.ts` owns the injected provenance policy for edit, deletion, and rename operations. Extend the relevant sides when changing conflict resolution, compaction handling, provenance, or database-to-storage overwrite protection.
+
+`openSimpleStore()` may create an inert namespace handle during composition, before the backing key-value database has opened. Maintained hosts must complete their sequential settings lifecycle before scans, watchers, or replication invoke the handle. Operations fail on a lifecycle violation rather than waiting for readiness; do not introduce an implicit wait which can hang after failed initialisation or become self-referential from an initialisation handler. Treat database reset as a transient unavailable boundary and reconstruct derived local state after reopening.
+
 ### P2P composition ownership
 
 `useP2PReplicatorFeature` is the sole owner of the active `LiveSyncTrysteroReplicator` and its lifecycle bindings. It creates or replaces the outer replicator when `ReplicatorService` requests one, closes the previous instance before replacement, shares an in-flight replacement between concurrent callers, and returns a stable result object whose `replicator` property resolves the current instance.
