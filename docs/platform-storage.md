@@ -39,7 +39,9 @@ await storage.write('notes/example.md', '# Example');
 
 `rootPath` may be absolute or process-relative. The host should normally resolve and validate configuration before constructing the adapter.
 
-The Node adapter does not follow symbolic links in adapter paths. A path containing a symbolic link is rejected, including when the link points to another location below `rootPath`, so every operation retains one unambiguous rooted-storage boundary. Its concrete `rename(sourcePath, targetPath)` operation preserves this boundary while providing the atomic rename expected by Node hosts.
+The Node adapter rejects symbolic-link components which it observes in an adapter path before an operation. File opens also use `O_NOFOLLOW` for the final component where the platform exposes that flag. These checks protect against invalid paths and symbolic links which already exist when an operation begins. Its concrete `rename(sourcePath, targetPath)` operation validates both paths before providing the atomic rename expected by Node hosts.
+
+The host-selected `rootPath` is a trust boundary, not an operating-system filesystem sandbox. The adapter assumes that an untrusted local process cannot replace that root or its descendants concurrently with an operation. A host which grants another local actor write access to the tree must not rely on the adapter as a privilege boundary.
 
 ## Shared path contract
 

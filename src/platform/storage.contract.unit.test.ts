@@ -60,7 +60,7 @@ const contractCases: readonly ContractCase[] = [
         },
     },
     {
-        name: "contains all operations inside the injected root",
+        name: "rejects paths outside the injected-root contract",
         async run(adapter) {
             await expectRejected(() => adapter.exists("../outside"));
             await expectRejected(() => adapter.write("nested/../outside", "content"));

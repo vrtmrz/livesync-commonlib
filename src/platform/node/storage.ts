@@ -19,7 +19,12 @@ class SymbolicLinkStoragePathError extends Error {
 }
 
 export interface CreateNodeStorageOptions {
-    /** Absolute or process-relative directory which bounds every adapter operation. */
+    /**
+     * Host-selected root directory. Adapter paths are resolved relative to this root.
+     *
+     * The host owns this trust boundary. The adapter is not a filesystem sandbox against
+     * an untrusted local process which can replace path components concurrently.
+     */
     rootPath: string;
 }
 
