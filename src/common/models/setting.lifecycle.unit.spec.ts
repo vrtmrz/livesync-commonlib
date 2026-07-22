@@ -3,6 +3,9 @@ import {
     CURRENT_SETTING_VERSION,
     DEFAULT_SETTINGS,
     NEW_VAULT_SETTINGS,
+    PREFERRED_JOURNAL_SYNC,
+    PREFERRED_SETTING_CLOUDANT,
+    PREFERRED_SETTING_SELF_HOSTED,
     SETTINGS_SCHEMA_DEFAULTS,
     TweakValuesShouldMatchedTemplate,
     TweakValuesRecommendedTemplate,
@@ -111,6 +114,40 @@ describe("prepareSettingsForLoad", () => {
         expect(NEW_VAULT_SETTINGS.handleFilenameCaseSensitive).toBe(false);
     });
 
+    it("keeps the new-Vault differences from stored-setting fallbacks explicit and bounded", () => {
+        const differingKeys = Object.keys(SETTINGS_SCHEMA_DEFAULTS)
+            .filter(
+                (key) =>
+                    JSON.stringify(SETTINGS_SCHEMA_DEFAULTS[key as keyof ObsidianLiveSyncSettings]) !==
+                    JSON.stringify(NEW_VAULT_SETTINGS[key as keyof ObsidianLiveSyncSettings])
+            )
+            .sort();
+        const deliberatelyUnsetKeys = Object.keys(NEW_VAULT_SETTINGS)
+            .filter((key) => NEW_VAULT_SETTINGS[key as keyof ObsidianLiveSyncSettings] === undefined)
+            .sort();
+
+        expect(differingKeys).toEqual(["handleFilenameCaseSensitive", "usePluginSyncV2"]);
+        expect(deliberatelyUnsetKeys).toEqual(["autoAcceptCompatibleTweak", "isConfigured", "tweakModified"]);
+    });
+
+    it("keeps remote-specific recommendations separate from the new-Vault base", () => {
+        expect(PREFERRED_SETTING_CLOUDANT).toMatchObject({
+            customChunkSize: 0,
+            concurrencyOfReadChunksOnline: 100,
+            minimumIntervalOfReadChunksOnline: 333,
+        });
+        expect(PREFERRED_SETTING_SELF_HOSTED).toMatchObject({
+            customChunkSize: 60,
+            concurrencyOfReadChunksOnline: 30,
+            minimumIntervalOfReadChunksOnline: 25,
+        });
+        expect(PREFERRED_JOURNAL_SYNC).toMatchObject({
+            customChunkSize: 10,
+            concurrencyOfReadChunksOnline: 30,
+            minimumIntervalOfReadChunksOnline: 25,
+        });
+    });
+
     it("does not expose the invariant chunk-revision policy as a tweak", () => {
         expect(TweakValuesShouldMatchedTemplate.doNotUseFixedRevisionForChunks).toBeUndefined();
         expect(TweakValuesRecommendedTemplate.doNotUseFixedRevisionForChunks).toBeUndefined();
@@ -121,19 +158,45 @@ describe("prepareSettingsForLoad", () => {
         ).toEqual([]);
     });
 
-    it("requires compatibility review when an existing Vault has no filename-case decision", () => {
+    it("preserves the legacy case-insensitive behaviour when an existing Vault has no stored decision", () => {
         const prepared = prepareSettingsForLoad({
             settingVersion: CURRENT_SETTING_VERSION,
             liveSync: true,
         });
 
-        expect(prepared.requiresSyncReview).toBe(true);
-        expect(prepared.reviewReasons).toContainEqual({
-            code: SettingsMigrationReviewCodes.FilenameCaseSensitivityUnresolved,
-            fromVersion: CURRENT_SETTING_VERSION,
-            toVersion: CURRENT_SETTING_VERSION,
+        expect(prepared.changed).toBe(true);
+        expect(prepared.requiresSyncReview).toBe(false);
+        expect(prepared.reviewReasons).toEqual([]);
+        expect(prepared.settings.handleFilenameCaseSensitive).toBe(false);
+    });
+
+    it("preserves the legacy configured-state inference for a non-empty default-equivalent store", () => {
+        const prepared = prepareSettingsForLoad({
+            settingVersion: CURRENT_SETTING_VERSION,
+            liveSync: SETTINGS_SCHEMA_DEFAULTS.liveSync,
         });
-        expect(prepared.settings.handleFilenameCaseSensitive).toBeUndefined();
+
+        expect(prepared.changed).toBe(true);
+        expect(prepared.settings.isConfigured).toBe(false);
+    });
+
+    it("infers a missing legacy configured state only from a non-default stored value", () => {
+        const prepared = prepareSettingsForLoad({
+            settingVersion: CURRENT_SETTING_VERSION,
+            liveSync: true,
+        });
+
+        expect(prepared.settings.isConfigured).toBe(true);
+    });
+
+    it.each([false, true])("preserves an explicit configured state of %s", (isConfigured) => {
+        const prepared = prepareSettingsForLoad({
+            settingVersion: CURRENT_SETTING_VERSION,
+            isConfigured,
+            liveSync: !isConfigured,
+        });
+
+        expect(prepared.settings.isConfigured).toBe(isConfigured);
     });
 
     it.each([false, true])(

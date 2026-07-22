@@ -9,6 +9,7 @@ import type { ObsidianLiveSyncSettings } from "./setting.type";
 export const SettingsMigrationReviewCodes = {
     LegacyUpdatePending: "legacy-update-review-pending",
     FutureSchema: "settings-schema-newer-than-runtime",
+    /** @deprecated Missing legacy values are now normalised to false and do not emit this reason. */
     FilenameCaseSensitivityUnresolved: "filename-case-sensitivity-unresolved",
 } as const;
 
@@ -90,6 +91,13 @@ function isBlankSettings(settings: Partial<ObsidianLiveSyncSettings> | undefined
     return settings === undefined || Object.keys(settings).length === 0;
 }
 
+function inferLegacyConfiguredState(settings: Partial<ObsidianLiveSyncSettings>): boolean {
+    // This is the exact pre-1.0 inference: a missing flag meant configured
+    // only when completing the stored document changed a legacy default.
+    const completed = { ...SETTINGS_SCHEMA_DEFAULTS, ...settings };
+    return JSON.stringify(completed) !== JSON.stringify(SETTINGS_SCHEMA_DEFAULTS);
+}
+
 /**
  * Completes and migrates raw settings before services consume them.
  *
@@ -153,13 +161,20 @@ export function prepareSettingsForLoad(
         );
     }
 
-    if (typeof migrated.handleFilenameCaseSensitive !== "boolean") {
-        reviewReasons.push({
-            code: SettingsMigrationReviewCodes.FilenameCaseSensitivityUnresolved,
-            fromVersion: sourceVersion,
-            toVersion: targetVersion,
-        });
+    // Keep the configured-state inference used before 1.0. A non-empty
+    // default-equivalent document is still unconfigured; treating every
+    // non-empty store as configured would make that state irreversible once
+    // this migration is saved.
+    const normalisedConfiguredState = migrated.isConfigured === undefined;
+    if (normalisedConfiguredState) {
+        migrated = { ...migrated, isConfigured: inferLegacyConfiguredState(source) };
     }
+
+    // Every pre-1.0 path consumer treated an absent value as false. Persist
+    // that effective legacy behaviour explicitly so the migration does not
+    // invent a case-sensitive policy or require an unnecessary rebuild.
+    const normalisedFilenameCase = typeof migrated.handleFilenameCaseSensitive !== "boolean";
+    if (normalisedFilenameCase) migrated = { ...migrated, handleFilenameCaseSensitive: false };
 
     return {
         settings: cloneSettings(migrated, SETTINGS_SCHEMA_DEFAULTS),
@@ -167,7 +182,7 @@ export function prepareSettingsForLoad(
         targetVersion,
         isNewVault: false,
         isFromFutureSchema: false,
-        changed: sourceVersion !== targetVersion,
+        changed: sourceVersion !== targetVersion || normalisedConfiguredState || normalisedFilenameCase,
         requiresSyncReview: reviewReasons.length > 0,
         reviewReasons,
     };

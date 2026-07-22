@@ -288,6 +288,17 @@ describe("SettingService", () => {
         });
     });
 
+    it("keeps a non-empty legacy default-equivalent store unconfigured when isConfigured is absent", async () => {
+        const service = createService();
+        vi.spyOn(service as any, "loadData").mockResolvedValue({
+            liveSync: DEFAULT_SETTINGS.liveSync,
+        });
+
+        await service.loadSettings();
+
+        expect(service.currentSettings().isConfigured).toBe(false);
+    });
+
     it("saveSettingData should apply patches from onBeforeSaveSettingData handlers", async () => {
         const service = createService();
 

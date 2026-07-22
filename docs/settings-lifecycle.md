@@ -20,7 +20,24 @@ const initialSettings = createNewVaultSettings();
 
 The recommended base currently selects a 50 MB maximum synchronised file size, Rabin–Karp chunk splitting, Plug-in Sync V2, case-insensitive file-name handling, and E2EE V2. Chunk revisions are always derived from their content; the obsolete `doNotUseFixedRevisionForChunks` stored key is retained only for compatibility and is not a recommendation or tweak. The recommended base does not enable synchronisation or encryption on behalf of the user.
 
+Compared with the conservative stored-setting fallbacks, the current new-Vault object has exactly two semantic differences:
+
+| Setting | Existing stored setting is absent | New Vault |
+| --- | --- | --- |
+| `usePluginSyncV2` | `false` | `true` |
+| `handleFilenameCaseSensitive` | normalised from the legacy absent value to `false` | `false` |
+
+The other headline recommendations are already the conservative fallbacks: `syncMaxSizeInMB` is 50, `chunkSplitterVersion` is `v3-rabin-karp`, and `E2EEAlgorithm` is `v2`. Data Compression, Eden, V1 dynamic iteration, the legacy IndexedDB adapter, Hidden File Sync, and automatic synchronisation remain disabled when their stored values are absent. Explicit stored values take precedence.
+
 Apply a remote-specific preferred object only while configuring that remote. Do not merge it into an existing stored configuration merely because the remote type can be inferred. The self-hosted CouchDB profile uses a chunk-size coefficient of 60, matching the Doctor check for Rabin–Karp databases; Cloudant retains its service-specific value of 0.
+
+| Explicitly selected remote | `customChunkSize` | `concurrencyOfReadChunksOnline` | `minimumIntervalOfReadChunksOnline` |
+| --- | ---: | ---: | ---: |
+| Cloudant | 0 | 100 | 333 |
+| Self-hosted CouchDB | 60 | 30 | 25 |
+| Object Storage | 10 | 30 | 25 |
+
+These are setup-time recommendations, not upgrade migrations. Selecting or detecting a remote does not apply them to an existing configuration unless the person is actively configuring that remote.
 
 ## Loading existing settings
 
@@ -43,7 +60,13 @@ if (prepared.requiresSyncReview) {
 
 Explicit stored values take precedence over every fallback. A migration therefore preserves synchronisation switches and other user choices unless a migration step documents a deliberate transformation.
 
-An existing settings store without an explicit `handleFilenameCaseSensitive` value reports `filename-case-sensitivity-unresolved` and leaves the value unset. The host must keep synchronisation paused until the user makes an explicit compatibility decision. An explicit `true` or `false` value is preserved. New Vaults select case-insensitive handling (`false`).
+An existing settings store without an explicit `handleFilenameCaseSensitive` value is normalised to `false` and saved. This preserves the effective behaviour of earlier releases, where an absent value followed the case-insensitive branch. An explicit `true` or `false` value is preserved. New Vaults also select case-insensitive handling (`false`).
+
+`isConfigured` has a separate compatibility rule from new-Vault initialisation. For a blank store, the standard service keeps the runtime unconfigured. For a non-empty legacy document without the flag, Commonlib repeats the pre-1.0 inference: a document which is equivalent to the conservative defaults remains `false`, while a stored non-default value is evidence for `true`. The inferred boolean is saved. An explicit boolean is preserved. This rule does not make a non-empty document eligible for new-Vault recommendations.
+
+Two other values deliberately remain unset until their owning lifecycle supplies evidence: `autoAcceptCompatibleTweak` represents that no auto-accept decision has been made, and `tweakModified` represents that no tweak-change timestamp has been recorded. They are not implicit boolean defaults and are not normalised by the settings migration.
+
+`SettingsMigrationReviewCodes.FilenameCaseSensitivityUnresolved` remains as a deprecated compatibility export for release-candidate consumers, but `prepareSettingsForLoad` no longer emits it.
 
 The standard Commonlib `SettingService` performs this preparation automatically. Hosts which use that service can inspect `getSettingsMigrationState()` after `loadSettings()` instead of calling the function themselves.
 
@@ -57,6 +80,6 @@ The settings schema version is independent of the package version and of any rem
 
 ## Tests owned by Commonlib
 
-The settings lifecycle unit tests cover blank stores, representative legacy choices, migration idempotence, unresolved file-name case policy, legacy review state, future-schema downgrade protection, and the distinction between new-Vault recommendations and stored-setting fallbacks. The packed-package test imports the focused `/settings` entry from a clean consumer and checks its declarations and runtime exports.
+The settings lifecycle unit tests cover blank stores, representative legacy choices, migration idempotence, legacy file-name case normalisation, legacy review state, future-schema downgrade protection, and the distinction between new-Vault recommendations and stored-setting fallbacks. The packed-package test imports the focused `/settings` entry from a clean consumer and checks its declarations and runtime exports.
 
 Hosts remain responsible for testing when setup is classified as new, how local review acknowledgement is stored, how replication is gated, and how their settings interface presents the result.
