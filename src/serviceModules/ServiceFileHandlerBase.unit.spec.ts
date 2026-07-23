@@ -543,6 +543,25 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
         expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
     });
 
+    it("rebinds provenance to the surviving revision when duplicate content already matches storage", async () => {
+        const { handler, remoteMeta, storageStub, databaseFileAccess, storageAccess, pathService, provenance } =
+            createHandler("same body", "same body", false, EVEN, true);
+        provenance.get.mockResolvedValue({
+            revision: "1-deleted-duplicate",
+            observedStorageMtime: storageStub.stat.mtime,
+        });
+        pathService.compareFileFreshness.mockReturnValue(EVEN);
+
+        await expect(handler.dbToStorage(remoteMeta, storageStub)).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeAsConflictedRevisionWithResult).not.toHaveBeenCalled();
+        expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
+        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+            revision: remoteMeta._rev,
+            observedStorageMtime: storageStub.stat.mtime,
+        });
+    });
+
     it("reflects the explicitly selected revision instead of refetching the winner", async () => {
         const { handler, storageStub, databaseFileAccess, storageAccess } = createHandler(
             "old storage",

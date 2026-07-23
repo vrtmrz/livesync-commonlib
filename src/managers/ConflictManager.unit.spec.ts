@@ -71,6 +71,55 @@ async function createConflict(
 }
 unused(createConflict);
 
+/**
+ * Reproduce two devices creating the same document before either has seen the
+ * other. The two generation-one leaves deliberately have no common revision.
+ */
+async function createIndependentConflict(
+    db: PouchDB.Database<EntryDoc>,
+    id: string,
+    leftData: string,
+    rightData: string
+): Promise<void> {
+    const left = {
+        ...createTestDoc(id, leftData, 1000),
+        _rev: "1-left",
+        _revisions: { start: 1, ids: ["left"] },
+    };
+    const right = {
+        ...createTestDoc(id, rightData, 2000),
+        _rev: "1-right",
+        _revisions: { start: 1, ids: ["right"] },
+    };
+    await db.bulkDocs([left, right], { new_edits: false });
+}
+
+/** Create two generation-two leaves which share one real available base. */
+async function createSharedBaseConflict(
+    db: PouchDB.Database<EntryDoc>,
+    id: string,
+    baseData: string,
+    leftData: string,
+    rightData: string
+): Promise<void> {
+    const base = {
+        ...createTestDoc(id, baseData, 1000),
+        _rev: "1-base",
+        _revisions: { start: 1, ids: ["base"] },
+    };
+    const left = {
+        ...createTestDoc(id, leftData, 2000),
+        _rev: "2-left",
+        _revisions: { start: 2, ids: ["left", "base"] },
+    };
+    const right = {
+        ...createTestDoc(id, rightData, 2100),
+        _rev: "2-right",
+        _revisions: { start: 2, ids: ["right", "base"] },
+    };
+    await db.bulkDocs([base, left, right], { new_edits: false });
+}
+
 describe("ConflictManager", () => {
     let db: PouchDB.Database<EntryDoc>;
     let conflictManager: ConflictManager;
@@ -772,6 +821,87 @@ describe("ConflictManager", () => {
             expect(result).toHaveProperty("ok");
             if ("ok" in result) {
                 expect(result.ok).toBe(NOT_CONFLICTED);
+            }
+        });
+
+        it("returns identical independently created leaves for duplicate collapse", async () => {
+            const path = "independently-created.md" as FilePathWithPrefix;
+            await createIndependentConflict(db, path, "Same content\n", "Same content\n");
+
+            const result = await conflictManager.tryAutoMerge(path, true);
+
+            expect(result).toHaveProperty("leftRev");
+            expect(result).toHaveProperty("rightRev");
+            expect(result).not.toHaveProperty("result");
+            if ("leftRev" in result) {
+                expect(result.leftLeaf).not.toBe(false);
+                expect(result.rightLeaf).not.toBe(false);
+                if (result.leftLeaf !== false && result.rightLeaf !== false) {
+                    expect(result.leftLeaf.data).toBe("Same content\n");
+                    expect(result.rightLeaf.data).toBe("Same content\n");
+                }
+            }
+        });
+
+        it("does not three-way merge different independently created leaves without a common revision", async () => {
+            const path = "independently-created.md" as FilePathWithPrefix;
+            await createIndependentConflict(db, path, "Left content\n", "Right content\n");
+
+            const result = await conflictManager.tryAutoMerge(path, true);
+
+            expect(result).toHaveProperty("leftRev");
+            expect(result).toHaveProperty("rightRev");
+            expect(result).not.toHaveProperty("result");
+            if ("leftRev" in result) {
+                expect(result.leftLeaf).not.toBe(false);
+                expect(result.rightLeaf).not.toBe(false);
+                if (result.leftLeaf !== false && result.rightLeaf !== false) {
+                    expect(new Set([result.leftLeaf.data, result.rightLeaf.data])).toEqual(
+                        new Set(["Left content\n", "Right content\n"])
+                    );
+                }
+            }
+        });
+
+        it("sensible-merges non-overlapping changes from a real shared revision", async () => {
+            const path = "shared-base-clean.md" as FilePathWithPrefix;
+            await createSharedBaseConflict(
+                db,
+                path,
+                "Title\nLeft slot\nRight slot\n",
+                "Title\nLeft changed\nRight slot\n",
+                "Title\nLeft slot\nRight changed\n"
+            );
+
+            const result = await conflictManager.tryAutoMerge(path, true);
+
+            expect(result).toHaveProperty("result");
+            expect(result).not.toHaveProperty("leftRev");
+            if ("result" in result) {
+                expect(result.result).toBe("Title\nLeft changed\nRight changed\n");
+                expect(new Set([result.conflictedRev, (await db.get(path, { conflicts: true }))._rev])).toEqual(
+                    new Set(["2-left", "2-right"])
+                );
+            }
+        });
+
+        it("requires manual resolution for overlapping changes from a real shared revision", async () => {
+            const path = "shared-base-overlap.md" as FilePathWithPrefix;
+            await createSharedBaseConflict(
+                db,
+                path,
+                "Title\nShared line\nTail\n",
+                "Title\nLeft replacement\nTail\n",
+                "Title\nRight replacement\nTail\n"
+            );
+
+            const result = await conflictManager.tryAutoMerge(path, true);
+
+            expect(result).toHaveProperty("leftRev");
+            expect(result).toHaveProperty("rightRev");
+            expect(result).not.toHaveProperty("result");
+            if ("leftRev" in result) {
+                expect(new Set([result.leftRev, result.rightRev])).toEqual(new Set(["2-left", "2-right"]));
             }
         });
 
