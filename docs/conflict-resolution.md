@@ -50,6 +50,14 @@ A client can resolve only the leaves which it has observed. If it resolves an ol
 
 This is expected conflict behaviour, not a replication reset. A resolver should process the current leaves repeatedly until one live result remains or user action is required.
 
+## More than two live versions
+
+When a document has three or more live leaves, Commonlib compares the current PouchDB winner with one remaining leaf at a time. The remaining candidates are ordered by revision generation ascending, original leaf modification time ascending, then the complete revision ID in code-unit lexical order. A missing or non-finite modification time sorts before a finite time. This order makes the next pair reproducible; it does not make an earlier modification time authoritative.
+
+Each duplicate collapse, conservative merge, or host-directed manual choice is committed to the ordinary revision tree before the next pair is considered. The resolver then reads the current live leaves again instead of retaining a separate accumulator. Completed stages therefore survive a process restart, while a new or externally resolved leaf is considered from the tree which actually exists at the next check.
+
+A host must not apply a dialogue result after either compared revision has ceased to be the current pair. It should discard that stale result, refresh its warning or dialogue state, and queue the path again when conflicts remain.
+
 ## File-reflection provenance
 
 The compatibility implementation accepts an injected, device-local `FileReflectionProvenance` capability owned by the database-to-storage composition rather than by a filesystem adapter. Maintained hosts persist:
@@ -150,4 +158,4 @@ Do not:
 
 ## Verification ownership
 
-Commonlib unit tests build real in-memory PouchDB trees and inject provenance fakes at the file-handler boundary. They cover unequal branch lengths, nearest shared ancestry, content retained below a deleted losing leaf, recorded and reconstructed branch identity, ambiguous content, conflict-time editing, logical deletion, case-only rename, cross-path rename, and safe unproven fallbacks. A maintained host should additionally verify its composition: persistent device-local provenance, real file events, replication of the resulting revision trees, and dialogue policy.
+Commonlib unit tests build real in-memory PouchDB trees and inject provenance fakes at the file-handler boundary. They cover unequal branch lengths, nearest shared ancestry, deterministic selection from multiple live leaves, reconstruction of a later manual pair after an earlier sensible merge, content retained below a deleted losing leaf, recorded and reconstructed branch identity, ambiguous content, conflict-time editing, logical deletion, case-only rename, cross-path rename, and safe unproven fallbacks. A maintained host should additionally verify its composition: persistent device-local provenance, real file events, replication of the resulting revision trees, and dialogue policy.

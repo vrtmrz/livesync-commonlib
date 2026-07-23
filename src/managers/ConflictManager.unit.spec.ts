@@ -824,6 +824,45 @@ describe("ConflictManager", () => {
             }
         });
 
+        it("selects remaining leaves by generation, missing mtime, mtime, and full revision ID", async () => {
+            const path = "multiple-conflicts.md" as FilePathWithPrefix;
+            const revisions = [
+                { rev: "1-old", ids: ["old"], data: "Old root\n", mtime: 7000 },
+                { rev: "2-zzzz", ids: ["zzzz", "winner-root"], data: "Winner\n", mtime: 9000 },
+                { rev: "2-bbbb", ids: ["bbbb", "b-root"], data: "Later candidate\n", mtime: 3000 },
+                { rev: "2-aaaa", ids: ["aaaa", "a-root"], data: "Earlier candidate\n", mtime: 1000 },
+                { rev: "2-cccc", ids: ["cccc", "c-root"], data: "Missing mtime\n", mtime: undefined },
+            ];
+            for (const revision of revisions) {
+                const doc = {
+                    ...createTestDoc(path, revision.data, revision.mtime),
+                    _rev: revision.rev,
+                    _revisions: {
+                        start: Number(revision.rev.split("-")[0]),
+                        ids: revision.ids,
+                    },
+                };
+                if (revision.mtime === undefined) {
+                    delete (doc as Partial<EntryDoc>).mtime;
+                }
+                await db.put(doc, { new_edits: false } as PouchDB.Core.PutOptions);
+            }
+
+            const expectedOrder = ["1-old", "2-cccc", "2-aaaa", "2-bbbb"];
+            for (const expectedRevision of expectedOrder) {
+                const result = await conflictManager.tryAutoMerge(path, true);
+
+                expect(result).toHaveProperty("rightRev", expectedRevision);
+                if (!("rightRev" in result)) {
+                    throw new Error(`Expected ${expectedRevision} to be selected for pairwise resolution`);
+                }
+                await db.remove(path, result.rightRev);
+            }
+
+            const finalResult = await conflictManager.tryAutoMerge(path, true);
+            expect(finalResult).toEqual({ ok: NOT_CONFLICTED });
+        });
+
         it("returns identical independently created leaves for duplicate collapse", async () => {
             const path = "independently-created.md" as FilePathWithPrefix;
             await createIndependentConflict(db, path, "Same content\n", "Same content\n");
@@ -882,6 +921,73 @@ describe("ConflictManager", () => {
                 expect(new Set([result.conflictedRev, (await db.get(path, { conflicts: true }))._rev])).toEqual(
                     new Set(["2-left", "2-right"])
                 );
+            }
+        });
+
+        it("rebuilds the next pair from live leaves after a sensible merge leaves a manual conflict", async () => {
+            const path = "three-shared-branches.md" as FilePathWithPrefix;
+            const revisions = [
+                { rev: "1-base", ids: ["base"], content: "Title\nLeft slot\nRight slot\n", mtime: 500 },
+                {
+                    rev: "2-zzzz",
+                    ids: ["zzzz", "base"],
+                    content: "Title\nLeft changed\nRight slot\n",
+                    mtime: 2000,
+                },
+                {
+                    rev: "2-aaaa",
+                    ids: ["aaaa", "base"],
+                    content: "Title\nLeft slot\nRight changed\n",
+                    mtime: 1000,
+                },
+                {
+                    rev: "2-bbbb",
+                    ids: ["bbbb", "base"],
+                    content: "Title\nOverlapping left\nRight slot\n",
+                    mtime: 3000,
+                },
+            ];
+            for (const revision of revisions) {
+                await db.put(
+                    {
+                        ...createTestDoc(path, revision.content, revision.mtime),
+                        _rev: revision.rev,
+                        _revisions: {
+                            start: Number(revision.rev.split("-")[0]),
+                            ids: revision.ids,
+                        },
+                    },
+                    { new_edits: false } as PouchDB.Core.PutOptions
+                );
+            }
+
+            const firstPair = await conflictManager.tryAutoMerge(path, true);
+            expect(firstPair).toEqual({
+                result: "Title\nLeft changed\nRight changed\n",
+                conflictedRev: "2-aaaa",
+            });
+            if (!("result" in firstPair)) {
+                throw new Error("Expected the first pair to merge sensibly");
+            }
+
+            const current = await db.get(path);
+            await db.put({
+                ...current,
+                data: [firstPair.result],
+                mtime: 4000,
+            });
+            await db.remove(path, firstPair.conflictedRev);
+
+            const remainingPair = await conflictManager.tryAutoMerge(path, true);
+            expect(remainingPair).toHaveProperty("rightRev", "2-bbbb");
+            expect(remainingPair).not.toHaveProperty("result");
+            if ("rightRev" in remainingPair) {
+                expect(remainingPair.leftLeaf).not.toBe(false);
+                expect(remainingPair.rightLeaf).not.toBe(false);
+                if (remainingPair.leftLeaf !== false && remainingPair.rightLeaf !== false) {
+                    expect(remainingPair.leftLeaf.data).toBe("Title\nLeft changed\nRight changed\n");
+                    expect(remainingPair.rightLeaf.data).toBe("Title\nOverlapping left\nRight slot\n");
+                }
             }
         });
 
