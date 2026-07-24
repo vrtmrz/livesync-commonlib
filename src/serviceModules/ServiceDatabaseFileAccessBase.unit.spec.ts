@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import replication from "pouchdb-replication";
-import type { DocumentID, EntryDoc, FilePathWithPrefix, LoadedEntry } from "@lib/common/types";
+import type { DocumentID, EntryDoc, FilePathWithPrefix, LoadedEntry, UXFileInfo } from "@lib/common/types";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import {
     ServiceDatabaseFileAccessBase,
@@ -176,5 +176,40 @@ describe("ServiceDatabaseFileAccessBase.hasContentInRevisionHistory", () => {
         await expect(service.findContentRevisions(path, "displayed edit", response.rev)).resolves.not.toContain(
             response.rev
         );
+    });
+
+    it("does not invent a sibling base for a generation-one revision", async () => {
+        databaseSequence += 1;
+        const database = new PouchDB<EntryDoc>(`revision-generation-one-${databaseSequence}`, {
+            adapter: "memory",
+        });
+        databases.push(database);
+
+        const path = "root.md" as FilePathWithPrefix;
+        const id = "root.md" as DocumentID;
+        const root = await database.put({
+            ...createEntry(id, path, ""),
+            children: ["h:missing"],
+        });
+        const service = createService(database, id);
+        const storeWithBaseRevision = vi.spyOn(service, "storeWithBaseRevision");
+        const storageFile = {
+            path,
+            name: "root.md",
+            stat: {
+                ctime: 2,
+                mtime: 2,
+                size: 12,
+                type: "file",
+            },
+            body: new Blob(["local bytes"]),
+        } as UXFileInfo;
+
+        await expect(service.storeAsConflictedRevisionWithResult(storageFile, root.rev, true)).resolves.toBe(false);
+
+        expect(storeWithBaseRevision).not.toHaveBeenCalled();
+        const after = await database.get(id, { conflicts: true });
+        expect(after._rev).toBe(root.rev);
+        expect(after._conflicts).toBeUndefined();
     });
 });

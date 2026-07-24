@@ -405,6 +405,57 @@ describe("EntryManagerImpls", () => {
             }
         });
 
+        it("stores a readable sibling branch from an explicit base revision", async () => {
+            const entry = createSavingEntry("conflict-base-test", "Shared base");
+            const host = createHost(mockSettingService, mockPathService);
+            const baseResult = await putDBEntry(
+                host,
+                { localDatabase: db, chunkManager, hashManager, splitter },
+                entry
+            );
+            expect(baseResult).not.toBe(false);
+            if (baseResult === false) return;
+
+            const winnerResult = await putDBEntry(
+                host,
+                { localDatabase: db, chunkManager, hashManager, splitter },
+                {
+                    ...entry,
+                    data: createTextBlob("Winning branch"),
+                    mtime: entry.mtime + 1,
+                }
+            );
+            expect(winnerResult).not.toBe(false);
+            if (winnerResult === false) return;
+
+            const siblingResult = await putDBEntry(
+                host,
+                { localDatabase: db, chunkManager, hashManager, splitter },
+                {
+                    ...entry,
+                    data: createTextBlob("Preserved local edit"),
+                    mtime: entry.mtime + 2,
+                },
+                false,
+                baseResult.rev
+            );
+            expect(siblingResult).not.toBe(false);
+            if (siblingResult === false) return;
+
+            const conflicted = await db.get(entry._id, { conflicts: true });
+            expect([conflicted._rev, ...(conflicted._conflicts ?? [])]).toEqual(
+                expect.arrayContaining([winnerResult.rev, siblingResult.rev])
+            );
+
+            const storedSibling = await getDBEntryByPath(host, { localDatabase: db, chunkManager }, entry.path, {
+                rev: siblingResult.rev,
+            });
+            expect(storedSibling).not.toBe(false);
+            if (storedSibling !== false) {
+                await expect(isDocContentSame(storedSibling.data, "Preserved local edit")).resolves.toBe(true);
+            }
+        });
+
         it("should skip non-target files", async () => {
             const entry = createSavingEntry("invalid:file", "Should be skipped");
             const host = createHost(mockSettingService, mockPathService);
@@ -576,6 +627,7 @@ describe("EntryManagerImpls", () => {
 
             expect(result).toBe(false);
         });
+
     });
 
     describe("getDBEntryByPath", () => {
@@ -625,6 +677,71 @@ describe("EntryManagerImpls", () => {
             // Verify deletion
             const meta = await getDBEntryMetaByPath(host, { localDatabase: db }, entry.path);
             expect(meta).toBe(false);
+        });
+
+        it("deletes an exact generation-one revision without reading its missing chunk", async () => {
+            const entry = createSavingEntry("broken-root.md", "Root content ".repeat(512));
+            const host = createHost(mockSettingService, mockPathService);
+            const saved = await putDBEntry(
+                host,
+                { localDatabase: db, chunkManager, hashManager, splitter },
+                entry
+            );
+            if (saved === false) {
+                throw new Error("Failed to save generation-one fixture");
+            }
+            expect(saved.rev.startsWith("1-")).toBe(true);
+
+            const raw = await db.get(saved.id);
+            const chunkId = raw.children.find((id) => !(id in (raw.eden ?? {})));
+            if (!chunkId) {
+                throw new Error("Generation-one fixture did not create a separately stored chunk");
+            }
+            const chunk = await db.get(chunkId as DocumentID);
+            await db.remove(chunk);
+            chunkManager.clearCaches();
+
+            await expect(
+                getDBEntryByPath(host, { localDatabase: db, chunkManager }, entry.path)
+            ).resolves.toBe(false);
+            await expect(
+                deleteDBEntryByPath(host, { localDatabase: db }, entry.path, {
+                    rev: saved.rev,
+                })
+            ).resolves.toBe(true);
+
+            const row = (await db.allDocs({ keys: [saved.id] })).rows[0];
+            expect("value" in row && row.value.deleted).toBe(true);
+            if (!("value" in row)) {
+                throw new Error("Deleted generation-one fixture has no current revision");
+            }
+            const tombstone = await db.get(saved.id, {
+                rev: row.value.rev,
+                revs: true,
+            });
+            expect(tombstone._deleted).toBe(true);
+            expect(tombstone._revisions?.ids[1]).toBe(saved.rev.split("-")[1]);
+
+            const replacement = createSavingEntry("broken-root.md", "Confirmed replacement content");
+            await expect(
+                putDBEntry(
+                    host,
+                    { localDatabase: db, chunkManager, hashManager, splitter },
+                    replacement
+                )
+            ).resolves.not.toBe(false);
+            const loadedReplacement = await getDBEntryByPath(
+                host,
+                { localDatabase: db, chunkManager },
+                replacement.path
+            );
+            expect(loadedReplacement).not.toBe(false);
+            if (loadedReplacement === false) {
+                throw new Error("Replacement content could not be read");
+            }
+            await expect(
+                isDocContentSame(loadedReplacement.data, replacement.data)
+            ).resolves.toBe(true);
         });
 
         it("should return false for non-existent entry", async () => {

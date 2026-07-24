@@ -292,7 +292,11 @@ export abstract class ServiceFileHandlerBase
                 await this.conflict.queueCheckFor(file.path);
                 return true;
             }
-            const currentRevision = entry && entry._rev;
+            // Missing chunks can make the winning entry body unavailable while its metadata
+            // and revision tree remain readable. Preserving the local bytes as a sibling only
+            // requires the exact winning revision; it does not require trusting its content.
+            const currentEntry = entry || (await this.db.fetchEntryMeta(file, undefined, true));
+            const currentRevision = currentEntry && currentEntry._rev;
             if (!currentRevision) {
                 this._log(
                     `Could not preserve the unknown conflict branch for ${file.path}; no current revision is available`,

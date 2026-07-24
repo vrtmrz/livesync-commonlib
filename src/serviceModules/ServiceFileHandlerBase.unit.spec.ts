@@ -191,18 +191,22 @@ function createConflictedOperationHandler() {
         findContentRevisions: vi.fn().mockResolvedValue([]),
     };
     const provenance = {
-        get: vi.fn().mockImplementation(async (path: FilePathWithPrefix) =>
-            path === "note.md" || path === "old.md"
-                ? { revision: displayedRevision, observedStorageMtime: 2 }
-                : undefined
-        ),
+        get: vi
+            .fn()
+            .mockImplementation(async (path: FilePathWithPrefix) =>
+                path === "note.md" || path === "old.md"
+                    ? { revision: displayedRevision, observedStorageMtime: 2 }
+                    : undefined
+            ),
         set: vi.fn().mockResolvedValue(undefined),
         delete: vi.fn().mockResolvedValue(undefined),
         move: vi.fn().mockResolvedValue(undefined),
     };
     const storageAccess = {
         getFileStub: vi.fn().mockResolvedValue(storageFile),
-        readStubContent: vi.fn().mockImplementation(async (file: UXFileInfoStub) => ({ ...storageFile, path: file.path })),
+        readStubContent: vi
+            .fn()
+            .mockImplementation(async (file: UXFileInfoStub) => ({ ...storageFile, path: file.path })),
         stat: vi.fn().mockImplementation(async () => storageFile.stat),
     };
     const conflict = {
@@ -259,7 +263,9 @@ describe("ServiceFileHandlerBase.renameFileInDB", () => {
         await expect(handler.renameFileInDB(file, "old.md" as FilePath)).resolves.toBe(true);
 
         expect(databaseFileAccess.fetchEntryMeta).toHaveBeenCalledWith("old.md", undefined, true);
-        expect(storeSpy.mock.invocationCallOrder[0]).toBeLessThan(databaseFileAccess.delete.mock.invocationCallOrder[0]);
+        expect(storeSpy.mock.invocationCallOrder[0]).toBeLessThan(
+            databaseFileAccess.delete.mock.invocationCallOrder[0]
+        );
         expect(databaseFileAccess.delete).toHaveBeenCalledWith("old.md");
     });
 
@@ -635,6 +641,46 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
             "3-winner",
             true
         );
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
+    });
+
+    it("preserves an edit when conflicted winner content is unavailable but its metadata remains", async () => {
+        const { handler, databaseFileAccess, provenance, conflict, storageFile } = createConflictedOperationHandler();
+        provenance.get.mockResolvedValue(undefined);
+        databaseFileAccess.findContentRevisions.mockResolvedValue([]);
+        databaseFileAccess.fetchEntry.mockResolvedValue(false);
+
+        await expect(handler.storeFileToDB(storageFile)).resolves.toBe(true);
+
+        expect(databaseFileAccess.fetchEntryMeta).toHaveBeenCalledWith(storageFile, undefined, true);
+        expect(databaseFileAccess.storeAsConflictedRevisionWithResult).toHaveBeenCalledWith(
+            storageFile,
+            "3-winner",
+            true
+        );
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
+    });
+
+    it("keeps a generation-one unreadable winner unresolved when no sibling base can exist", async () => {
+        const { handler, databaseFileAccess, provenance, conflict, storageFile } = createConflictedOperationHandler();
+        provenance.get.mockResolvedValue(undefined);
+        databaseFileAccess.findContentRevisions.mockResolvedValue([]);
+        databaseFileAccess.fetchEntry.mockResolvedValue(false);
+        databaseFileAccess.fetchEntryMeta.mockResolvedValue({
+            _id: "note.md",
+            _rev: "1-root",
+            path: "note.md",
+        });
+        databaseFileAccess.storeAsConflictedRevisionWithResult.mockResolvedValue(false);
+
+        await expect(handler.storeFileToDB(storageFile)).resolves.toBe(false);
+
+        expect(databaseFileAccess.storeAsConflictedRevisionWithResult).toHaveBeenCalledWith(
+            storageFile,
+            "1-root",
+            true
+        );
+        expect(provenance.set).not.toHaveBeenCalled();
         expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
     });
 
