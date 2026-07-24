@@ -18,6 +18,12 @@ A1
 
 Resolving a conflict writes the selected or merged result on one branch and deletes every losing live leaf which the resolver has observed. Deleted leaves remain part of the tree until compaction removes their bodies. A stale client can therefore receive the resolved branch and the tombstone for a branch whose old content is still present in its storage.
 
+## Chunk reachability during conflicts
+
+A host which collects unreferenced chunks must include the current winner, every other live conflict leaf, their available divergent revisions, and their nearest available shared ancestor in its reachability scan. This preserves the content and merge base required to review an unresolved conflict. Chunk identifiers are shared across documents, so one reachability set must cover the whole database.
+
+After the conflict is resolved, the deleted losing branch and no-longer-needed merge ancestry stop protecting their unique chunks. An ordinary superseded linear revision also does not protect its former chunks. A host must keep garbage collection separate from repair because collection cannot reconstruct content which is already unavailable.
+
 ## Safety invariants
 
 Commonlib follows these rules:

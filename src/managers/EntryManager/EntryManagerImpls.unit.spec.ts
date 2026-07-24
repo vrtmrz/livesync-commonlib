@@ -378,6 +378,41 @@ describe("EntryManagerImpls", () => {
             }
         });
 
+        it("recreates a content-addressed chunk after its previous revision was collected", async () => {
+            const entry = createSavingEntry("recreated-chunk", "Content which will be written again after collection");
+            const host = createHost(mockSettingService, mockPathService);
+            const saved = await putDBEntry(
+                host,
+                { localDatabase: db, chunkManager, hashManager, splitter },
+                entry
+            );
+            expect(saved).not.toBe(false);
+            if (saved === false) return;
+
+            const metadata = await db.get(entry._id);
+            if (!("children" in metadata)) {
+                throw new Error("Expected saved metadata to reference chunks");
+            }
+            expect(metadata.children).not.toHaveLength(0);
+            const collectedChunkID = metadata.children[0] as DocumentID;
+            await db.remove(await db.get(collectedChunkID));
+            chunkManager.clearCaches();
+            await expect(db.get(collectedChunkID)).rejects.toMatchObject({ status: 404 });
+
+            const recreated = await putDBEntry(
+                host,
+                { localDatabase: db, chunkManager, hashManager, splitter },
+                entry,
+                true
+            );
+
+            expect(recreated).not.toBe(false);
+            await expect(db.get(collectedChunkID)).resolves.toMatchObject({
+                _id: collectedChunkID,
+                type: "leaf",
+            });
+        });
+
         it("should update existing entry", async () => {
             const entry = createSavingEntry("update-test", "Initial content");
             const host = createHost(mockSettingService, mockPathService);
