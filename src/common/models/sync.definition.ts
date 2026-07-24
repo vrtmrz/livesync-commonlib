@@ -2,7 +2,7 @@ import { EntryTypes } from "./db.const";
 import type { DatabaseEntry, DocumentID } from "./db.type";
 
 export const ProtocolVersions = {
-    UNSET: undefined,
+    UNSET: undefined as undefined,
     LEGACY: 1,
     ADVANCED_E2EE: 2,
 } as const;

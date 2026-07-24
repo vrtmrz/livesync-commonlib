@@ -8,12 +8,13 @@ import type { UseP2PReplicatorResult } from "./UseP2PReplicatorResult";
  */
 export function useP2PReplicatorCommands(
     host: NecessaryServices<"API" | "setting", never>,
-    { replicator }: UseP2PReplicatorResult
+    result: UseP2PReplicatorResult
 ) {
     host.services.API.addCommand({
         id: "p2p-establish-connection",
         name: "P2P Sync : Connect to the Signalling Server",
         checkCallback: (isChecking: boolean) => {
+            const replicator = result.replicator;
             if (!replicator) return false;
             if (isChecking) return !(replicator.server?.isServing ?? false);
             void replicator.open();
@@ -23,6 +24,7 @@ export function useP2PReplicatorCommands(
         id: "p2p-close-connection",
         name: "P2P Sync : Disconnect from the Signalling Server",
         checkCallback: (isChecking: boolean) => {
+            const replicator = result.replicator;
             if (!replicator) return false;
             if (isChecking) return replicator.server?.isServing ?? false;
             Logger("Closing P2P Connection", LOG_LEVEL_NOTICE);

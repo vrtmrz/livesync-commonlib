@@ -39,6 +39,36 @@ type UserActionRequired = {
     rightLeaf: diff_result_leaf | false;
 };
 
+type ConflictCandidate = {
+    revision: string;
+    leaf: diff_result_leaf | false;
+};
+
+function revisionGeneration(revision: string): number {
+    const generation = Number(revision.split("-", 1)[0]);
+    return Number.isFinite(generation) ? generation : Number.MAX_SAFE_INTEGER;
+}
+
+function compareConflictCandidates(left: ConflictCandidate, right: ConflictCandidate): number {
+    const generationDifference = revisionGeneration(left.revision) - revisionGeneration(right.revision);
+    if (generationDifference !== 0) return generationDifference;
+
+    // A missing modification time is reviewed first. It must not acquire
+    // accidental priority from PouchDB's internal leaf enumeration order.
+    const leftMtime =
+        left.leaf === false || !Number.isFinite(left.leaf.mtime) ? Number.NEGATIVE_INFINITY : left.leaf.mtime;
+    const rightMtime =
+        right.leaf === false || !Number.isFinite(right.leaf.mtime) ? Number.NEGATIVE_INFINITY : right.leaf.mtime;
+    const mtimeDifference = leftMtime - rightMtime;
+    if (mtimeDifference !== 0) return mtimeDifference;
+
+    // Compare the complete revision IDs by code unit so the final tie-breaker
+    // is independent of the host locale.
+    if (left.revision < right.revision) return -1;
+    if (left.revision > right.revision) return 1;
+    return 0;
+}
+
 export type AutoMergeResult = Promise<AutoMergeOutcomeOK | AutoMergeCanBeDoneByDeletingRev | UserActionRequired>;
 
 export interface ConflictManagerOptions {
@@ -332,15 +362,28 @@ export class ConflictManager {
     }
     async tryAutoMergeSensibly(path: FilePathWithPrefix, test: LoadedEntry, conflicts: string[]) {
         const conflictedRev = conflicts[0];
-        const conflictedRevNo = Number(conflictedRev.split("-")[0]);
-        //Search
-        const revFrom = await this.database.get<EntryDoc>(await this.options.pathService.path2id(path), {
-            revs_info: true,
-        });
-        const commonBase =
-            (revFrom._revs_info || []).filter(
-                (e) => e.status == "available" && Number(e.rev.split("-")[0]) < conflictedRevNo
-            )?.[0]?.rev ?? "";
+        let commonBase = "";
+        try {
+            const documentId = await this.options.pathService.path2id(path);
+            const [currentBranch, conflictedBranch] = await Promise.all([
+                this.database.get<EntryDoc>(documentId, { rev: test._rev, revs_info: true }),
+                this.database.get<EntryDoc>(documentId, { rev: conflictedRev, revs_info: true }),
+            ]);
+            const currentAvailable = new Set(
+                (currentBranch._revs_info || [])
+                    .filter((revision) => revision.status === "available")
+                    .map((revision) => revision.rev)
+            );
+            commonBase =
+                (conflictedBranch._revs_info || [])
+                    .filter((revision) => revision.status === "available" && currentAvailable.has(revision.rev))
+                    .sort((left, right) => Number(right.rev.split("-")[0]) - Number(left.rev.split("-")[0]))[0]?.rev ??
+                "";
+        } catch (ex) {
+            Logger(`Could not determine the common revision for ${path}`, LOG_LEVEL_VERBOSE);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            return false;
+        }
         let p = undefined;
         if (commonBase) {
             if (isSensibleMargeApplicable(path)) {
@@ -383,10 +426,19 @@ export class ConflictManager {
         if (test == null) return { ok: MISSING_OR_ERROR };
         if (!test._conflicts) return { ok: NOT_CONFLICTED };
         if (test._conflicts.length == 0) return { ok: NOT_CONFLICTED };
-        const conflicts = test._conflicts.sort((a, b) => Number(a.split("-")[0]) - Number(b.split("-")[0]));
+        const conflictCandidates = await Promise.all(
+            test._conflicts.map(
+                async (revision): Promise<ConflictCandidate> => ({
+                    revision,
+                    leaf: await this.getConflictedDoc(path, revision),
+                })
+            )
+        );
+        conflictCandidates.sort(compareConflictCandidates);
+        const conflicts = conflictCandidates.map(({ revision }) => revision);
         // Resolve identical conflict leaves without creating a new revision.
         const leftLeaf = await this.getConflictedDoc(path, test._rev!);
-        const rightLeaf = await this.getConflictedDoc(path, conflicts[0]);
+        const rightLeaf = conflictCandidates[0].leaf;
         if (
             leftLeaf !== false &&
             rightLeaf !== false &&

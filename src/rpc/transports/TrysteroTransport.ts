@@ -9,6 +9,7 @@ import type { P2PConnectionInfo } from "@lib/common/models/setting.type";
 import { ConnectionStringParser } from "@lib/common/ConnectionString";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 import { generateJoinRoomOptions } from "./trysteroUtils";
+import { subscribeTrysteroPeerEvents } from "./trysteroRoomEvents";
 
 /** Action name used on the Trystero room for the RPC channel. */
 const RPC_ACTION_NAME = "rpc2";
@@ -69,26 +70,28 @@ export function attachAdvertisement(
     const peerMap = new Map<string, TrysteroAdvertisement>();
     const localAd: TrysteroAdvertisement = { peerId: localPeerId, name, platform };
 
-    const [sendAd, arrivedAd] = room.makeAction<TrysteroAdvertisement>(AD_ACTION_NAME);
+    const advertisementAction = room.makeAction<TrysteroAdvertisement>(AD_ACTION_NAME);
 
-    const sendAdvertisement = (toPeerId?: string): Promise<void> => sendAd(localAd, toPeerId).then(() => undefined);
+    const sendAdvertisement = (toPeerId?: string): Promise<void> =>
+        advertisementAction.send(localAd, toPeerId ? { target: toPeerId } : undefined);
 
-    // When a new peer joins, introduce ourselves to them specifically.
-    room.onPeerJoin((peerId) => {
-        void sendAdvertisement(peerId);
-    });
-
-    // Remove stale entries when a peer disconnects.
-    room.onPeerLeave((peerId) => {
-        peerMap.delete(peerId);
+    const disposePeerEvents = subscribeTrysteroPeerEvents(room, {
+        // When a new peer joins, introduce ourselves to them specifically.
+        onJoin: (peerId) => {
+            void sendAdvertisement(peerId);
+        },
+        // Remove stale entries when a peer disconnects.
+        onLeave: (peerId) => {
+            peerMap.delete(peerId);
+        },
     });
 
     // Record incoming advertisements; reject spoofed ones where peerId ≠ sender.
-    arrivedAd((data, peerId) => {
+    advertisementAction.onMessage = (data, { peerId }) => {
         if (data.peerId === localPeerId) return;
         if (data.peerId !== peerId) return;
         peerMap.set(peerId, data);
-    });
+    };
 
     return {
         get peers(): ReadonlyMap<string, TrysteroAdvertisement> {
@@ -96,6 +99,8 @@ export function attachAdvertisement(
         },
         sendAdvertisement,
         stop() {
+            disposePeerEvents();
+            advertisementAction.onMessage = null;
             peerMap.clear();
         },
     };
@@ -148,26 +153,26 @@ export const TRYSTERO_RPC_DEFAULTS = {
  * @returns     A `TransportAdapter` that can be passed to `new RpcRoom(...)`.
  */
 export function wrapTrysteroRoom(room: Room): TransportAdapter {
-    const [sendRpc, arrivedRpc] = room.makeAction<RpcWireMessage>(RPC_ACTION_NAME);
+    const rpcAction = room.makeAction<RpcWireMessage>(RPC_ACTION_NAME);
 
     return {
         send(message: RpcWireMessage, peerId: string) {
-            return sendRpc(message, peerId).then(() => undefined);
+            return rpcAction.send(message, { target: peerId });
         },
 
         onMessage(handler) {
-            arrivedRpc((data, peerId) => handler(data, peerId));
-            return () => undefined;
+            rpcAction.onMessage = (data, { peerId }) => handler(data, peerId);
+            return () => {
+                rpcAction.onMessage = null;
+            };
         },
 
         onPeerJoin(handler) {
-            room.onPeerJoin((peerId) => handler(peerId));
-            return () => undefined;
+            return subscribeTrysteroPeerEvents(room, { onJoin: handler });
         },
 
         onPeerLeave(handler) {
-            room.onPeerLeave((peerId) => handler(peerId));
-            return () => undefined;
+            return subscribeTrysteroPeerEvents(room, { onLeave: handler });
         },
     };
 }
@@ -192,6 +197,8 @@ export type TrysteroRoomHandle = {
     /**
      * Returns the current WebRTC peer connections keyed by peer ID.
      * Equivalent to the Trystero `room.getPeers()` call.
+     * Treat these as diagnostic handles. Their lifecycle belongs to Trystero;
+     * call {@link TrysteroRoomHandle.leave} instead of closing them directly.
      */
     getPeers: () => Record<string, RTCPeerConnection>;
     /**

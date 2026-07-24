@@ -7,9 +7,9 @@ import {
     useCheckRemoteSize,
 } from "./checkRemoteSize";
 import { type LogFunction, createInstanceLogFunction } from "@lib/services/lib/logUtils";
-import { $msg } from "@lib/common/i18n";
-import { eventHub } from "@lib/hub/hub";
+import { englishMessageTranslator as $msg } from "@lib/services/base/MessageTranslator";
 import { EVENT_REQUEST_CHECK_REMOTE_SIZE } from "@lib/events/coreEvents";
+import { createServiceContext } from "@lib/services/base/ServiceBase";
 
 const APIServiceMock = {
     addLog(message: string, level?: any) {
@@ -19,6 +19,10 @@ const APIServiceMock = {
 
 function createLogger(name: string): LogFunction {
     return createInstanceLogFunction(name, APIServiceMock as any);
+}
+
+function createTranslatedContext() {
+    return createServiceContext({ translate: $msg });
 }
 
 describe("onNotifyRemoteSizeNotConfigured", () => {
@@ -43,6 +47,7 @@ describe("onNotifyRemoteSizeNotConfigured", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 setting: mockSetting,
             },
@@ -53,6 +58,51 @@ describe("onNotifyRemoteSizeNotConfigured", () => {
         const result = await handler();
 
         expect(result).toBe(true);
+    });
+
+    it("defers configuration choices to a clickable notice", async () => {
+        let action: ((event: Pick<MouseEvent, "preventDefault">) => void) | undefined;
+        let configuredAnchor: HTMLAnchorElement | undefined;
+        const askSelectStringDialogue = vi.fn().mockResolvedValue("ignored");
+        const askInPopup = vi.fn(
+            (_key: string, _message: string, configureAnchor: (anchor: HTMLAnchorElement) => void) => {
+                const anchor = {
+                    addEventListener: vi.fn(
+                        (_event: string, handler: (event: Pick<MouseEvent, "preventDefault">) => void) => {
+                            action = handler;
+                        }
+                    ),
+                    textContent: "",
+                } as unknown as HTMLAnchorElement;
+                configuredAnchor = anchor;
+                configureAnchor(anchor);
+            }
+        );
+        const host = {
+            services: {
+                context: createTranslatedContext(),
+                API: {
+                    isOnline: true,
+                    confirm: { askInPopup, askSelectStringDialogue },
+                },
+                setting: {
+                    currentSettings: () => ({ notifyThresholdOfRemoteStorageSize: -1 }),
+                    applyPartial: vi.fn().mockResolvedValue(true),
+                },
+            },
+            serviceModules: {},
+        } as any;
+
+        const handler = onNotifyRemoteSizeNotConfiguredFactory(host, logger);
+        await expect(handler()).resolves.toBe(true);
+
+        expect(askInPopup).toHaveBeenCalledOnce();
+        expect(configuredAnchor?.href).toBe("#");
+        expect(askSelectStringDialogue).not.toHaveBeenCalled();
+
+        action?.({ preventDefault: vi.fn() });
+        await vi.waitFor(() => expect(askSelectStringDialogue).toHaveBeenCalledOnce());
+        expect(askSelectStringDialogue.mock.calls[0][2]).not.toHaveProperty("timeout");
     });
 
     const ANSWER_0 = $msg("moduleCheckRemoteSize.optionNoWarn");
@@ -94,16 +144,15 @@ describe("onNotifyRemoteSizeNotConfigured", () => {
 
             const host = {
                 services: {
+                    context: createTranslatedContext(),
                     API: mockAPI,
                     setting: mockSetting,
                 },
                 serviceModules: {},
             } as any;
 
-            // We need to mock the actual dialogue call to return a value that matches one of the options
-            // Since $msg is called inside the handler, we need to match the actual implementation
-            // In this case, we just verify that the handler completes successfully
-            const handler = onNotifyRemoteSizeNotConfiguredFactory(host, logger);
+            // The context and expected answers use the same real translator, while the dialogue itself remains injected.
+            const handler = onNotifyRemoteSizeNotConfiguredFactory(host, logger, "dialogue");
             const result = await handler();
 
             expect(result).toBe(true);
@@ -139,6 +188,7 @@ describe("onNotifyRemoteSizeExceed", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 replicator: mockReplicator,
                 setting: mockSetting,
@@ -175,6 +225,7 @@ describe("onNotifyRemoteSizeExceed", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 replicator: mockReplicator,
                 setting: mockSetting,
@@ -213,6 +264,7 @@ describe("onNotifyRemoteSizeExceed", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 replicator: mockReplicator,
                 setting: mockSetting,
@@ -224,6 +276,53 @@ describe("onNotifyRemoteSizeExceed", () => {
         const result = await handler();
 
         expect(result).toBe(true);
+    });
+
+    it("defers exceeded-size choices to a clickable notice", async () => {
+        let action: ((event: Pick<MouseEvent, "preventDefault">) => void) | undefined;
+        const askSelectStringDialogue = vi.fn().mockResolvedValue("ignored");
+        const askInPopup = vi.fn(
+            (_key: string, _message: string, configureAnchor: (anchor: HTMLAnchorElement) => void) => {
+                const anchor = {
+                    addEventListener: vi.fn(
+                        (_event: string, handler: (event: Pick<MouseEvent, "preventDefault">) => void) => {
+                            action = handler;
+                        }
+                    ),
+                    textContent: "",
+                } as unknown as HTMLAnchorElement;
+                configureAnchor(anchor);
+            }
+        );
+        const host = {
+            services: {
+                context: createTranslatedContext(),
+                API: {
+                    isOnline: true,
+                    confirm: { askInPopup, askSelectStringDialogue },
+                },
+                replicator: {
+                    getActiveReplicator: () => ({
+                        getRemoteStatus: vi.fn().mockResolvedValue({ estimatedSize: 1000 * 1024 * 1024 }),
+                    }),
+                },
+                setting: {
+                    currentSettings: () => ({ notifyThresholdOfRemoteStorageSize: 800 }),
+                    applyPartial: vi.fn().mockResolvedValue(true),
+                },
+            },
+            serviceModules: {},
+        } as any;
+
+        const handler = onNotifyRemoteSizeExceedFactory(host, logger);
+        await expect(handler()).resolves.toBe(true);
+
+        expect(askInPopup).toHaveBeenCalledOnce();
+        expect(askSelectStringDialogue).not.toHaveBeenCalled();
+
+        action?.({ preventDefault: vi.fn() });
+        await vi.waitFor(() => expect(askSelectStringDialogue).toHaveBeenCalledOnce());
+        expect(askSelectStringDialogue.mock.calls[0][2]).not.toHaveProperty("timeout");
     });
 
     const testEstimatedSize = 1000 * 1024 * 1024; // 1000 MB
@@ -284,6 +383,7 @@ describe("onNotifyRemoteSizeExceed", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 replicator: mockReplicator,
                 setting: mockSetting,
@@ -291,7 +391,7 @@ describe("onNotifyRemoteSizeExceed", () => {
             serviceModules: {},
         } as any;
 
-        const handler = onNotifyRemoteSizeExceedFactory(host, logger);
+        const handler = onNotifyRemoteSizeExceedFactory(host, logger, "dialogue");
         const result = await handler();
 
         // The API confirm method should be called when size exceeds threshold
@@ -352,6 +452,7 @@ describe("onNotifyRemoteSizeExceed", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 replicator: mockReplicator,
                 setting: mockSetting,
@@ -361,7 +462,7 @@ describe("onNotifyRemoteSizeExceed", () => {
             },
         } as any;
 
-        const handler = onNotifyRemoteSizeExceedFactory(host, logger);
+        const handler = onNotifyRemoteSizeExceedFactory(host, logger, "dialogue");
         const result = await handler();
 
         // The API confirm method should be called when size exceeds threshold
@@ -375,9 +476,6 @@ describe("onNotifyRemoteSizeExceed", () => {
         );
     });
     it("should handle user dialogue responses correctly", async () => {
-        // Since the implementation uses $msg() to create the answer values,
-        // and we cannot easily mock $msg in the test, we verify that the dialogue is called
-        // and the handler completes successfully
         const mockAPI = {
             isOnline: true,
             confirm: {
@@ -406,6 +504,7 @@ describe("onNotifyRemoteSizeExceed", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 replicator: mockReplicator,
                 setting: mockSetting,
@@ -413,16 +512,14 @@ describe("onNotifyRemoteSizeExceed", () => {
             serviceModules: {},
         } as any;
 
-        const handler = onNotifyRemoteSizeExceedFactory(host, logger);
+        const handler = onNotifyRemoteSizeExceedFactory(host, logger, "dialogue");
         const result = await handler();
 
         expect(result).toBe(true);
         expect(mockAPI.confirm.askSelectStringDialogue).toHaveBeenCalled();
     });
 
-    it("should verify rebuild path is handled", async () => {
-        // To properly test rebuild path, we would need to mock $msg()
-        // For now, we just verify that the handler processes the scenario correctly
+    it("should treat an unmatched response as dismissal", async () => {
         const mockAPI = {
             isOnline: true,
             confirm: {
@@ -456,6 +553,7 @@ describe("onNotifyRemoteSizeExceed", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 replicator: mockReplicator,
                 setting: mockSetting,
@@ -465,7 +563,7 @@ describe("onNotifyRemoteSizeExceed", () => {
             },
         } as any;
 
-        const handler = onNotifyRemoteSizeExceedFactory(host, logger);
+        const handler = onNotifyRemoteSizeExceedFactory(host, logger, "dialogue");
         const result = await handler();
 
         expect(result).toBe(true);
@@ -505,6 +603,7 @@ describe("onNotifyRemoteSizeExceed", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 replicator: mockReplicator,
                 setting: mockSetting,
@@ -514,7 +613,7 @@ describe("onNotifyRemoteSizeExceed", () => {
             },
         } as any;
 
-        const handler = onNotifyRemoteSizeExceedFactory(host, logger);
+        const handler = onNotifyRemoteSizeExceedFactory(host, logger, "dialogue");
         const result = await handler();
 
         expect(result).toBe(true);
@@ -565,6 +664,7 @@ describe("scanAllStat", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 setting: mockSetting,
                 appLifecycle: mockAppLifecycle,
@@ -614,6 +714,7 @@ describe("scanAllStat", () => {
 
         const host = {
             services: {
+                context: createTranslatedContext(),
                 API: mockAPI,
                 setting: mockSetting,
                 appLifecycle: mockAppLifecycle,
@@ -632,6 +733,7 @@ describe("scanAllStat", () => {
 
 describe("useCheckRemoteSize", () => {
     it("should register event handlers on app lifecycle events", async () => {
+        const context = createServiceContext();
         const commandCallbacks = [] as any[];
         const logs = [] as string[];
         const mockAPI = {
@@ -664,6 +766,7 @@ describe("useCheckRemoteSize", () => {
         };
         const host = {
             services: {
+                context,
                 API: mockAPI,
                 setting: settingMock,
                 appLifecycle: mockAppLifecycle,
@@ -685,7 +788,7 @@ describe("useCheckRemoteSize", () => {
         const offlineLogs = logs.filter((e) => e.includes("offline")).length;
         expect(offlineLogs).toBe(preOfflineLogs + 1); // The handler should log about being offline
         const previousApplyPartialCallCount = settingMock.applyPartial.mock.calls.length;
-        eventHub.emitEvent(EVENT_REQUEST_CHECK_REMOTE_SIZE);
+        context.events.emitEvent(EVENT_REQUEST_CHECK_REMOTE_SIZE);
         await new Promise((resolve) => setTimeout(resolve, 20)); // Wait for async handlers to complete
         // Since the actual logic of the handlers is tested in their respective unit tests, here we just verify that the event triggers without errors
         expect(settingMock.applyPartial.mock.calls.length).toBe(previousApplyPartialCallCount + 1);

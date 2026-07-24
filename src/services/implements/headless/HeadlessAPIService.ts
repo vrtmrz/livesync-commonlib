@@ -2,7 +2,7 @@ import type { ServiceContext } from "@lib/services/base/ServiceBase";
 import { InjectableAPIService } from "@lib/services/implements/injectable/InjectableAPIService";
 import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import type { ICommandCompat } from "@lib/services/base/IService";
-import type { Confirm } from "@lib/interfaces/Confirm";
+import type { Confirm, ConfirmActionLayout } from "@lib/interfaces/Confirm";
 // const module = await import("node:crypto");
 import module from "node:crypto";
 import { _activeDocument } from "@lib/common/coreEnvFunctions.ts";
@@ -43,7 +43,12 @@ export class HeadlessConfirm implements Confirm {
         console.error(`[Headless] ${opt.title ?? "Confirm"}: ${message} → ${String(opt.defaultAction)}`);
         return Promise.resolve(opt.defaultAction);
     }
-    askInPopup(key: string, dialogText: string, anchorCallback: (anchor: HTMLAnchorElement) => void): void {
+    askInPopup(
+        key: string,
+        dialogText: string,
+        anchorCallback: (anchor: HTMLAnchorElement) => void,
+        durationMs?: number
+    ): void {
         console.error(`[Headless] Popup (${key}): ${dialogText}`);
     }
     confirmWithMessage(
@@ -51,7 +56,8 @@ export class HeadlessConfirm implements Confirm {
         contentMd: string,
         buttons: string[],
         defaultAction: (typeof buttons)[number],
-        timeout?: number
+        timeout?: number,
+        _actionLayout?: ConfirmActionLayout
     ): Promise<(typeof buttons)[number] | false> {
         console.error(`[Headless] ${title}: ${contentMd} → ${defaultAction}`);
         return Promise.resolve(defaultAction);

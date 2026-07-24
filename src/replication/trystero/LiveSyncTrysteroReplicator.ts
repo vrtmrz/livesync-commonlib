@@ -1,4 +1,3 @@
-import { eventHub } from "@lib/hub/hub";
 import { Logger } from "@lib/common/logger";
 import {
     type RemoteDBSettings,
@@ -24,7 +23,6 @@ import {
     type AcceptanceDecision,
     type RevokeAcceptanceDecision,
 } from "./TrysteroReplicatorP2PServer";
-import { $msg } from "@lib/common/i18n";
 import { delay } from "octagonal-wheels/promises";
 import type { AsyncActivityOptions } from "@lib/interfaces/AsyncActivityRunner";
 
@@ -47,6 +45,8 @@ export interface LiveSyncTrysteroReplicatorEnv extends LiveSyncReplicatorEnv {
 export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     private _p2pHost?: P2PHost;
     private _replicator?: TrysteroReplicator;
+    private _lifecycleOperation: Promise<void> = Promise.resolve();
+    private _shouldBeOpen = false;
 
     get openReplicationUI() {
         return this.env.openReplicationUI;
@@ -57,9 +57,6 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     }
     get rawHost() {
         return this._p2pHost;
-    }
-    override get isChunkSendingSupported(): boolean {
-        return false;
     }
 
     getReplicationPBKDF2Salt(_setting: RemoteDBSettings, _refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
@@ -73,6 +70,8 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     private _buildEnv() {
         const services = this.env.services;
         return {
+            events: services.context.events,
+            translate: services.context.translate,
             get settings() {
                 return services.setting.currentSettings();
             },
@@ -93,6 +92,8 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             },
             runFiniteReplicationActivity: <T>(task: () => T | PromiseLike<T>, options?: AsyncActivityOptions) =>
                 services.replicator.runFiniteReplicationActivity(task, options),
+            canStartOrdinaryReplication: (showMessage: boolean = false) =>
+                services.replication.onCheckReplicationReady(showMessage),
             processReplicatedDocs: async (docs: Parameters<typeof services.replication.parseSynchroniseResult>[0]) => {
                 const settings = services.setting.currentSettings();
                 if (settings.suspendParseReplicationResult) {
@@ -110,38 +111,51 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         };
     }
 
+    private _enqueueLifecycleOperation(operation: () => Promise<void>): Promise<void> {
+        const queued = this._lifecycleOperation.catch((): void => undefined).then(operation);
+        this._lifecycleOperation = queued.catch((): void => undefined);
+        return queued;
+    }
+
     async open() {
         if (!this.env.services.setting.currentSettings().P2P_Enabled) {
-            Logger($msg("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
+            Logger(this.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
             // Nothing to do.
             return;
         }
-        if (this._replicator && this._p2pHost?.isServing) {
-            Logger("P2P replicator is already open.");
-            return;
-        }
-        try {
-            const env = this._buildEnv();
-            const host = new P2PHost(env);
-            const replicator = new TrysteroReplicator(env, host);
-            this._p2pHost = host;
-            this._replicator = replicator;
-            await replicator.open();
-        } catch (e) {
-            Logger(e instanceof Error ? e.message : "Error while opening P2P connection", LOG_LEVEL_NOTICE);
-            Logger(e, LOG_LEVEL_VERBOSE);
-            this._p2pHost = undefined;
-            this._replicator = undefined;
-        }
+        this._shouldBeOpen = true;
+        await this._enqueueLifecycleOperation(async () => {
+            if (!this._shouldBeOpen) return;
+            if (this._replicator && this._p2pHost?.isServing) {
+                Logger("P2P replicator is already open.");
+                return;
+            }
+            try {
+                const env = this._buildEnv();
+                const host = new P2PHost(env);
+                const replicator = new TrysteroReplicator(env, host);
+                this._p2pHost = host;
+                this._replicator = replicator;
+                await replicator.open();
+            } catch (e) {
+                Logger(e instanceof Error ? e.message : "Error while opening P2P connection", LOG_LEVEL_NOTICE);
+                Logger(e, LOG_LEVEL_VERBOSE);
+                this._p2pHost = undefined;
+                this._replicator = undefined;
+            }
+        });
     }
 
     async close() {
-        if (this._replicator) {
-            this._replicator.disableBroadcastChanges();
-            await this._replicator.close();
-            this._replicator = undefined;
-        }
-        this._p2pHost = undefined;
+        this._shouldBeOpen = false;
+        await this._enqueueLifecycleOperation(async () => {
+            if (this._replicator) {
+                this._replicator.disableBroadcastChanges();
+                await this._replicator.close();
+                this._replicator = undefined;
+            }
+            this._p2pHost = undefined;
+        });
     }
 
     closeReplication(): void {
@@ -185,11 +199,14 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         );
     }
 
-    async replicateFrom(peerId: string, showNotice: boolean = false) {
+    async replicateFrom(peerId: string, showNotice: boolean = false, skipOrdinaryReplicationPolicy = false) {
         const replicator = this._replicator;
         if (!replicator) throw new Error("P2P replicator is not open");
         return await this.env.services.replicator.runFiniteReplicationActivity(
-            () => replicator.replicateFrom(peerId, showNotice),
+            () =>
+                skipOrdinaryReplicationPolicy
+                    ? replicator.replicateFrom(peerId, showNotice, false, true)
+                    : replicator.replicateFrom(peerId, showNotice),
             { label: "replication" }
         );
     }
@@ -258,7 +275,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
 
         await this.makeSureOpened();
         if (!this._replicator) {
-            Logger($msg("P2P.ReplicatorInstanceMissing"), logLevel);
+            Logger(this.translate("P2P.ReplicatorInstanceMissing"), logLevel);
             return false;
         }
         await this._replicator.replicateFromCommand(showResult);
@@ -268,11 +285,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         return Promise.resolve(false);
     }
 
-    replicateAllToServer(
-        _setting: RemoteDBSettings,
-        _showingNotice?: boolean,
-        _sendChunksInBulkDisabled?: boolean
-    ): Promise<boolean> {
+    replicateAllToServer(_setting: RemoteDBSettings, _showingNotice?: boolean): Promise<boolean> {
         return Promise.resolve(false);
     }
 
@@ -282,8 +295,8 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         if (knownPeersOrg.length != 0) {
             knownPeers = knownPeersOrg;
         } else {
-            Logger($msg("P2P.NoKnownPeers"), logLevel);
-            await Promise.race([delay(5000), eventHub.waitFor(EVENT_ADVERTISEMENT_RECEIVED)]);
+            Logger(this.translate("P2P.NoKnownPeers"), logLevel);
+            await Promise.race([delay(5000), this.env.services.context.events.waitFor(EVENT_ADVERTISEMENT_RECEIVED)]);
             knownPeers = r.server?.knownAdvertisements ?? [];
         }
         const message =
@@ -301,7 +314,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             return false;
         }
         if (selected == "Refresh List") {
-            await Promise.race([delay(1000), eventHub.waitFor(EVENT_ADVERTISEMENT_RECEIVED)]);
+            await Promise.race([delay(1000), this.env.services.context.events.waitFor(EVENT_ADVERTISEMENT_RECEIVED)]);
             return this.selectPeer(settingPeerName, r, logLevel);
         }
         const selectedPeerName = selected.split("\u2001")[0];
@@ -339,8 +352,8 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         const logLevel = showingNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
         if (setting.P2P_Enabled == false) {
             const confirm = this.env.services.UI.confirm;
-            if ((await confirm.askYesNoDialog($msg("P2P.DisabledButNeed"), {})) != "yes") {
-                Logger($msg("P2P.NotEnabled"), logLevel);
+            if ((await confirm.askYesNoDialog(this.translate("P2P.DisabledButNeed"), {})) != "yes") {
+                Logger(this.translate("P2P.NotEnabled"), logLevel);
             }
             setting.P2P_Enabled = true;
             this.env.services.setting.currentSettings().P2P_Enabled = true;
@@ -361,7 +374,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         }
 
         // Fallback: headless peer-selection flow (CLI / non-Obsidian).
-        await eventHub.waitFor(EVENT_P2P_CONNECTED);
+        await this.env.services.context.events.waitFor(EVENT_P2P_CONNECTED);
         const peerFrom = setting.P2P_RebuildFrom;
         this._replicator.setOnSetup();
         try {
@@ -384,7 +397,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             }
             this.env.services.setting.currentSettings().P2P_RebuildFrom = "";
             Logger("Fetching from peer " + peerId + ".", logLevel);
-            const rep = await r.replicateFrom(peerId, showingNotice);
+            const rep = await r.replicateFrom(peerId, showingNotice, false, true);
             if (rep.ok) {
                 Logger("P2P Fetching has been succeed from " + peerId + ".", logLevel);
                 return true;
@@ -455,7 +468,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         return Promise.resolve(false);
     }
 
-    override env: LiveSyncTrysteroReplicatorEnv;
+    declare env: LiveSyncTrysteroReplicatorEnv;
     constructor(env: LiveSyncTrysteroReplicatorEnv) {
         super(env);
         this.env = env;

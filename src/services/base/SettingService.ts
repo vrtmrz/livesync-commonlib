@@ -1,15 +1,16 @@
 import {
     ChunkAlgorithmNames,
-    DEFAULT_SETTINGS,
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_URGENT,
     LOG_LEVEL_VERBOSE,
     SALT_OF_PASSPHRASE,
     SETTING_KEY_P2P_DEVICE_NAME,
+    prepareSettingsForLoad,
     type BucketSyncSetting,
     type ConfigPassphraseStore,
     type CouchDBConnection,
     type ObsidianLiveSyncSettings,
+    type SettingsMigrationState,
 } from "@lib/common/types";
 import { handlers } from "@lib/services/lib/HandlerUtils";
 import type { IAPIService, ISettingService } from "./IService";
@@ -17,7 +18,6 @@ import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import { isCloudantURI } from "@lib/pouchdb/utils_couchdb";
 import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
-import { setLang } from "@lib/common/i18n";
 import {
     activateP2PRemoteConfiguration,
     activateRemoteConfiguration,
@@ -28,6 +28,8 @@ import { ConnectionStringParser } from "@lib/common/ConnectionString";
 
 export interface SettingServiceDependencies {
     APIService: IAPIService;
+    /** Optional host hook for applying the loaded display language to its catalogue. */
+    onDisplayLanguageChanged?: (language: ObsidianLiveSyncSettings["displayLanguage"]) => void;
 }
 export abstract class SettingService<T extends ServiceContext = ServiceContext>
     extends ServiceBase<T>
@@ -35,6 +37,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
 {
     deviceAndVaultName: string = "";
     protected APIService: IAPIService;
+    private readonly onDisplayLanguageChanged?: SettingServiceDependencies["onDisplayLanguageChanged"];
 
     protected abstract setItem(key: string, value: string): void;
     protected abstract getItem(key: string): string;
@@ -56,11 +59,17 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     protected abstract loadData(): Promise<ObsidianLiveSyncSettings | undefined>;
 
     private _lastPersistedSettings?: ObsidianLiveSyncSettings;
+    private _settingsMigrationState?: SettingsMigrationState;
+
+    getSettingsMigrationState(): SettingsMigrationState | undefined {
+        return this._settingsMigrationState;
+    }
 
     _log: ReturnType<typeof createInstanceLogFunction>;
     constructor(context: T, dependencies: SettingServiceDependencies) {
         super(context);
         this.APIService = dependencies.APIService;
+        this.onDisplayLanguageChanged = dependencies.onDisplayLanguageChanged;
         this._log = createInstanceLogFunction("SettingService", this.APIService);
     }
 
@@ -133,7 +142,27 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             "obsidian-live-sync-vaultanddevicename-" +
             this.APIService.getSystemVaultName() +
             this.additionalSuffixOfDatabaseName();
-        this.setItem(lsKey, this.deviceAndVaultName);
+        this.setDeviceLocalConfig(lsKey, this.deviceAndVaultName);
+    }
+
+    /**
+     * Read an exact key from the host's device-local configuration store.
+     *
+     * Unlike the main settings document, this state is not synchronised. Callers
+     * which need Vault namespacing should normally use {@link getSmallConfig}.
+     */
+    getDeviceLocalConfig(key: string): string | null {
+        return this.getItem(key);
+    }
+
+    /** Store an exact key in the host's non-synchronised configuration store. */
+    setDeviceLocalConfig(key: string, value: string): void {
+        this.setItem(key, value);
+    }
+
+    /** Delete an exact key from the host's non-synchronised configuration store. */
+    deleteDeviceLocalConfig(key: string): void {
+        this.deleteItem(key);
     }
 
     private additionalSuffixOfDatabaseName() {
@@ -152,15 +181,15 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
 
     setSmallConfig(key: string, value: string): void {
         const dbKey = this.getKey(key);
-        this.setItem(dbKey, value);
+        this.setDeviceLocalConfig(dbKey, value);
     }
     getSmallConfig(key: string): string {
         const dbKey = this.getKey(key);
-        return this.getItem(dbKey);
+        return this.getDeviceLocalConfig(dbKey) ?? "";
     }
     deleteSmallConfig(key: string): void {
         const dbKey = this.getKey(key);
-        this.deleteItem(dbKey);
+        this.deleteDeviceLocalConfig(dbKey);
     }
 
     /**
@@ -332,13 +361,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     readonly suspendExtraSync = handlers<ISettingService>().all("suspendExtraSync");
 
     /**
-     * Suggest enabling optional features to the user.
-     */
-    readonly suggestOptionalFeatures = handlers<ISettingService>().all("suggestOptionalFeatures");
-
-    /**
      * Enable an optional feature and save to the settings.
-     * It may also raised from `handleSuggestOptionalFeatures` if the user agrees.
      * @param mode The optional feature to enable.
      */
     readonly enableOptionalFeature = handlers<ISettingService>().all("enableOptionalFeature");
@@ -403,7 +426,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     getPassphrase(settings: ObsidianLiveSyncSettings) {
         const methods: Record<ConfigPassphraseStore, () => Promise<string | false>> = {
             "": () => Promise.resolve("*"),
-            LOCALSTORAGE: () => Promise.resolve(this.getItem("ls-setting-passphrase") ?? false),
+            LOCALSTORAGE: () => Promise.resolve(this.getDeviceLocalConfig("ls-setting-passphrase") ?? false),
             ASK_AT_LAUNCH: () => this.APIService.confirm.askString("Passphrase", "passphrase", ""),
         };
         const method = settings.configPassphraseStore;
@@ -524,15 +547,15 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     }
 
     async loadSettings(): Promise<void> {
-        const settings = Object.assign({}, DEFAULT_SETTINGS, await this.loadData());
+        const prepared = prepareSettingsForLoad(await this.loadData());
+        const { settings, ...migrationState } = prepared;
+        this._settingsMigrationState = migrationState;
         const hadRemoteConfigurations = Object.keys(settings.remoteConfigurations ?? {}).length > 0;
 
         if (typeof settings.isConfigured == "undefined") {
-            // If migrated, mark true
-            if (JSON.stringify(settings) !== JSON.stringify(DEFAULT_SETTINGS)) {
+            if (!prepared.isNewVault) {
                 settings.isConfigured = true;
             } else {
-                //
                 const appId = this.APIService.getAppID();
                 settings.additionalSuffixOfDatabaseName = appId;
                 settings.isConfigured = false;
@@ -542,7 +565,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         this.settings = await this.decryptSettings(settings);
 
         // I wonder can we call here.
-        setLang(this.settings.displayLanguage);
+        this.onDisplayLanguageChanged?.(this.settings.displayLanguage);
 
         await this.adjustSettings(this.settings);
         const migratedLegacyRemoteConfigurations =
@@ -591,7 +614,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             this.APIService.getSystemVaultName() +
             this.additionalSuffixOfDatabaseName();
         if (this.settings.deviceAndVaultName != "") {
-            if (!this.getItem(lsKey)) {
+            if (!this.getDeviceLocalConfig(lsKey)) {
                 this.setDeviceAndVaultName(this.settings.deviceAndVaultName);
                 this.saveDeviceAndVaultName();
                 this.settings.deviceAndVaultName = "";
@@ -604,7 +627,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             );
             this.settings.customChunkSize = 0;
         }
-        this.setDeviceAndVaultName(this.getItem(lsKey) || "");
+        this.setDeviceAndVaultName(this.getDeviceLocalConfig(lsKey) || "");
         if (this.getDeviceAndVaultName() == "") {
             if (this.settings.usePluginSync) {
                 this._log("Device name missing. Disabling plug-in sync.", LOG_LEVEL_NOTICE);
@@ -612,14 +635,16 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             }
         }
 
-        if (migratedLegacyRemoteConfigurations || migratedP2PActiveRemoteConfiguration) {
+        if (
+            !prepared.isFromFutureSchema &&
+            (prepared.changed || migratedLegacyRemoteConfigurations || migratedP2PActiveRemoteConfiguration)
+        ) {
             await this.saveSettingData();
         }
 
         this._lastPersistedSettings = this.cloneSettings(this.settings);
 
         // this.core.ignoreFiles = this.settings.ignoreFiles.split(",").map(e => e.trim());
-        // eventHub.emitEvent(EVENT_REQUEST_RELOAD_SETTING_TAB);
         const dispatch = this.settings;
         void this.onSettingLoaded(dispatch);
         void this.onSettingChanged(dispatch);

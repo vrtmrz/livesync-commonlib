@@ -8,9 +8,11 @@ import type {
     MODE_SHINY,
     RemoteTypes,
 } from "./setting.const";
-import type { I18N_LANGS } from "@lib/common/rosetta";
 import type { CustomRegExpSourceList } from "./shared.type.util";
 import type { JWTAlgorithm } from "./auth.type";
+
+/** Display languages recognised by the current LiveSync settings schema. */
+export type I18N_LANGS = "" | "def" | "de" | "es" | "fr" | "he" | "ja" | "ko" | "ru" | "zh" | "zh-tw";
 
 /**
  * Represents the connection details required to connect to a CouchDB instance.
@@ -701,7 +703,10 @@ interface ChunkSettings {
     enableChunkSplitterV2: boolean;
 
     /**
-     * Flag indicating whether to avoid using a fixed revision for chunks.
+     * Retained for stored-setting and Setup URI compatibility. Chunk revisions
+     * are always derived from their content, irrespective of this value.
+     *
+     * @deprecated This behaviour is no longer configurable.
      */
     doNotUseFixedRevisionForChunks: boolean;
 
@@ -791,12 +796,14 @@ interface ObsoleteRemoteDBSettings {
     disableRequestURI: boolean;
 
     /**
-     * Indicates whether to send data in bulk chunks.
+     * Retained for settings and Setup URI compatibility.
+     * Automatic bulk chunk pre-send is no longer supported.
+     * @deprecated
      */
     sendChunksBulk: boolean;
 
     /**
-     * The maximum size of the bulk chunks to be sent.
+     * The maximum request size used by the explicit manual chunk resend tool, in MB.
      */
     sendChunksBulkMaxSize: number;
 

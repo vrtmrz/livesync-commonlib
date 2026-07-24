@@ -6,7 +6,6 @@ import type { SettingService } from "./SettingService";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import type { AppLifecycleService } from "./AppLifecycleService";
 import { UnresolvedErrorManager } from "./UnresolvedErrorManager";
-import { $msg } from "@lib/common/i18n";
 import { yieldMicrotask } from "octagonal-wheels/promises";
 import type { DatabaseEventService } from "./DatabaseEventService";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
@@ -48,7 +47,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     ) {
         super(context);
         this.appLifecycleService = dependencies.appLifecycleService;
-        this._unresolvedErrorManager = new UnresolvedErrorManager(dependencies.appLifecycleService);
+        this._unresolvedErrorManager = new UnresolvedErrorManager(dependencies.appLifecycleService, this.context.events);
         this.settingService = dependencies.settingService;
         this.settingService.onRealiseSetting.addHandler(this._initialiseReplicator.bind(this));
         this.databaseEventService = dependencies.databaseEventService;
@@ -125,7 +124,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     }
 
     private async _initialiseReplicator() {
-        const message = $msg("Replicator.Message.InitialiseFatalError");
+        const message = this.context.translate("Replicator.Message.InitialiseFatalError");
         const setting = this.settingService.currentSettings();
         if (!setting) {
             this._activeReplicator = undefined;

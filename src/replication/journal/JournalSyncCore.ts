@@ -37,7 +37,6 @@ import {
     SyncParamsNotFoundError,
     SyncParamsUpdateError,
 } from "@lib/replication/SyncParamsHandler.ts";
-import { eventHub } from "@lib/hub/hub.ts";
 import { REMOTE_CHUNK_FETCHED } from "@lib/pouchdb/LiveSyncLocalDB.ts";
 import { decryptBinary, encryptBinary } from "octagonal-wheels/encryption/encryption";
 import {
@@ -663,13 +662,15 @@ export class JournalSyncCore {
                 const existChunks = new Set(e2.filter((e) => e !== undefined));
                 const saveChunks = chunks
                     .filter((e) => !existChunks.has(e._id))
-                    .map((e) => ({ ...e, _rev: undefined }));
+                    .map((e) => ({ ...e, _rev: undefined as string | undefined }));
                 const ret = await this.db.bulkDocs<EntryDoc>(saveChunks, { new_edits: true });
                 const saveError = ret.filter((e) => "error" in e).map((e) => e.id);
 
                 saveChunks
                     .filter((e) => saveError.indexOf(e._id) === -1)
-                    .forEach((doc) => eventHub.emitEvent(REMOTE_CHUNK_FETCHED, doc as EntryLeaf));
+                    .forEach((doc) =>
+                        this.env.services.context.events.emitEvent(REMOTE_CHUNK_FETCHED, doc as EntryLeaf)
+                    );
 
                 await this.updateCheckPointInfo((info) => ({
                     ...info,

@@ -1,9 +1,8 @@
 import { EVENT_SETTING_SAVED } from "@lib/events/coreEvents";
 import type { ServiceContext } from "@lib/services/base/ServiceBase";
 import { SettingService, type SettingServiceDependencies } from "@lib/services/base/SettingService";
-import { EVENT_REQUEST_RELOAD_SETTING_TAB } from "@/common/events";
+import { EVENT_REQUEST_RELOAD_SETTING_TAB } from "@lib/events/coreEvents";
 
-import { eventHub } from "@lib/hub/hub";
 import type { ObsidianLiveSyncSettings } from "@lib/common/types";
 import { handlers } from "@lib/services/lib/HandlerUtils";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
@@ -12,11 +11,11 @@ export class InjectableSettingService<T extends ServiceContext> extends SettingS
     constructor(context: T, dependencies: SettingServiceDependencies) {
         super(context, dependencies);
         this.onSettingSaved.addHandler((settings) => {
-            eventHub.emitEvent(EVENT_SETTING_SAVED, settings);
+            this.context.events.emitEvent(EVENT_SETTING_SAVED, settings);
             return Promise.resolve(true);
         });
         this.onSettingLoaded.addHandler((settings) => {
-            eventHub.emitEvent(EVENT_REQUEST_RELOAD_SETTING_TAB);
+            this.context.events.emitEvent(EVENT_REQUEST_RELOAD_SETTING_TAB);
             return Promise.resolve(true);
         });
     }

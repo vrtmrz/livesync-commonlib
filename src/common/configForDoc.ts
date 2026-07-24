@@ -1,9 +1,15 @@
 import type { Confirm } from "@lib/interfaces/Confirm";
+import type { MessageTranslator } from "@lib/services/base/MessageTranslator";
 import { isCloudantURI } from "@lib/pouchdb/utils_couchdb";
-import { $msg } from "./i18n";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "./logger";
 import { getConfName, type AllSettingItemKey } from "./settingConstants";
-import { ChunkAlgorithmNames, E2EEAlgorithmNames, E2EEAlgorithms, type ObsidianLiveSyncSettings } from "./types";
+import {
+    ChunkAlgorithmNames,
+    E2EEAlgorithmNames,
+    E2EEAlgorithms,
+    REMOTE_COUCHDB,
+    type ObsidianLiveSyncSettings,
+} from "./types";
 
 enum ConditionType {
     PLATFORM_CASE_INSENSITIVE = "platform-case-insensitive",
@@ -24,7 +30,7 @@ type BaseRule<TType extends string, TValue> = {
     requireRebuildLocal?: boolean;
     recommendRebuild?: boolean;
     reason?: string;
-    reasonFunc?: (settings: Partial<ObsidianLiveSyncSettings>) => string;
+    reasonFunc?: (settings: Partial<ObsidianLiveSyncSettings>, translate: MessageTranslator) => string;
     condition?: ConditionType[];
     detectionFunc?: (settings: Partial<ObsidianLiveSyncSettings>) => boolean;
     value?: TValue;
@@ -86,12 +92,12 @@ export const DoctorRegulationV0_24_16: DoctorRegulation = {
     rules: {
         sendChunksBulk: {
             value: false,
-            reason: "This is an obsolete setting and we should not enable this no more",
+            reason: "Automatic bulk chunk pre-send is obsolete and must remain disabled",
             level: RuleLevel.Must,
         },
         sendChunksBulkMaxSize: {
             value: 1,
-            reason: "This is an obsolete setting and we should not enable this no more",
+            reason: "Use a conservative request size for the explicit manual chunk resend tool",
             level: RuleLevel.Must,
         },
         doNotUseFixedRevisionForChunks: {
@@ -158,7 +164,9 @@ export const DoctorRegulationV0_24_30: DoctorRegulation = {
             valueDisplay: "60 (detected on if less than 55)",
             level: RuleLevel.Recommended,
             detectionFunc: (settings: Partial<ObsidianLiveSyncSettings>) =>
-                settings?.chunkSplitterVersion === "v3-rabin-karp" && !isCloudantURI(settings?.couchDB_URI || ""),
+                settings?.remoteType === REMOTE_COUCHDB &&
+                settings?.chunkSplitterVersion === "v3-rabin-karp" &&
+                !isCloudantURI(settings?.couchDB_URI || ""),
             reason: "With the V3 Rabin-Karp chunk splitter and Self-hosted CouchDB, the chunk size is set to 60 (means around 6MB) by default. This is in effect the maximum chunk size, which in practice is divided more finely.",
         },
     },
@@ -172,7 +180,7 @@ export const DoctorRegulationV0_25_0: DoctorRegulation = {
             value: E2EEAlgorithms.V2,
             valueDisplay: E2EEAlgorithmNames[E2EEAlgorithms.V2],
             level: RuleLevel.Recommended,
-            reasonFunc: (_) => $msg("Doctor.RULES.E2EE_V02500.REASON"),
+            reasonFunc: (_settings, translate) => translate("Doctor.RULES.E2EE_V02500.REASON"),
         },
     },
 } as const;
@@ -181,10 +189,18 @@ export const DoctorRegulationV0_25_27: DoctorRegulation = {
     rules: {
         ...DoctorRegulationV0_25_0.rules,
         useIndexedDBAdapter: undefined,
+        doNotUseFixedRevisionForChunks: undefined,
+    },
+};
+export const DoctorRegulationV1_0_0: DoctorRegulation = {
+    version: "1.0.0",
+    rules: {
+        ...DoctorRegulationV0_25_27.rules,
+        enableCompression: undefined,
     },
 };
 
-export const DoctorRegulation = DoctorRegulationV0_25_27;
+export const DoctorRegulation = DoctorRegulationV1_0_0;
 
 export function checkUnsuitableValues(
     setting: Partial<ObsidianLiveSyncSettings>,
@@ -244,6 +260,7 @@ export type DoctorResult = {
 };
 export type HasConfirm = {
     confirm: Confirm;
+    translate: MessageTranslator;
 };
 
 export async function performDoctorConsultation(
@@ -256,6 +273,7 @@ export async function performDoctorConsultation(
         forceRescan = false,
     }: DoctorOptions
 ): Promise<DoctorResult> {
+    const translate = env.translate;
     let shouldRebuild = false;
     let shouldRebuildLocal = false;
     let isModified = false;
@@ -277,21 +295,21 @@ export async function performDoctorConsultation(
     }
     const issues = Object.entries(r.rules);
     if (issues.length == 0) {
-        Logger($msg("Doctor.Message.NoIssues"), activateReason !== "updated" ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+        Logger(translate("Doctor.Message.NoIssues"), activateReason !== "updated" ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
         return getResult();
     } else {
-        const OPT_YES = `${$msg("Doctor.Button.Yes")}` as const;
-        const OPT_NO = `${$msg("Doctor.Button.No")}` as const;
-        const OPT_DISMISS = `${$msg("Doctor.Button.DismissThisVersion")}` as const;
+        const OPT_YES = `${translate("Doctor.Button.Yes")}` as const;
+        const OPT_NO = `${translate("Doctor.Button.No")}` as const;
+        const OPT_DISMISS = `${translate("Doctor.Button.DismissThisVersion")}` as const;
         // this._log(`Issues found in ${key}`, LOG_LEVEL_VERBOSE);
         const issues = Object.keys(r.rules)
-            .map((key) => `- ${getConfName(key as AllSettingItemKey)}`)
+            .map((key) => `- ${getConfName(key as AllSettingItemKey, translate)}`)
             .join("\n");
         const msg = await env.confirm.askSelectStringDialogue(
-            $msg("Doctor.Dialogue.Main", { activateReason, issues }),
+            translate("Doctor.Dialogue.Main", { activateReason, issues }),
             [OPT_YES, OPT_NO, OPT_DISMISS],
             {
-                title: $msg("Doctor.Dialogue.Title"),
+                title: translate("Doctor.Dialogue.Title"),
                 defaultAction: OPT_YES,
             }
         );
@@ -315,16 +333,16 @@ export async function performDoctorConsultation(
         Logger(`${issueItems.length} Issue(s) found `, LOG_LEVEL_VERBOSE);
         let idx = 0;
         const applySettings = {} as Partial<DoctorCheckSettings>;
-        const OPT_FIX = `${$msg("Doctor.Button.Fix")}` as const;
-        const OPT_SKIP = `${$msg("Doctor.Button.Skip")}` as const;
-        const OPTION_FIX_WITHOUT_REBUILD = `${$msg("Doctor.Button.FixButNoRebuild")}` as const;
+        const OPT_FIX = `${translate("Doctor.Button.Fix")}` as const;
+        const OPT_SKIP = `${translate("Doctor.Button.Skip")}` as const;
+        const OPTION_FIX_WITHOUT_REBUILD = `${translate("Doctor.Button.FixButNoRebuild")}` as const;
         let skipped = 0;
         for (const [key, value] of issueItems) {
             const levelMap = {
-                [RuleLevel.Necessary]: $msg("Doctor.Level.Necessary"),
-                [RuleLevel.Recommended]: $msg("Doctor.Level.Recommended"),
-                [RuleLevel.Optional]: $msg("Doctor.Level.Optional"),
-                [RuleLevel.Must]: $msg("Doctor.Level.Must"),
+                [RuleLevel.Necessary]: translate("Doctor.Level.Necessary"),
+                [RuleLevel.Recommended]: translate("Doctor.Level.Recommended"),
+                [RuleLevel.Optional]: translate("Doctor.Level.Optional"),
+                [RuleLevel.Must]: translate("Doctor.Level.Must"),
             };
             const level = value.level ? levelMap[value.level] : "Unknown";
             const options = [OPT_FIX] as [typeof OPT_FIX | typeof OPT_SKIP | typeof OPTION_FIX_WITHOUT_REBUILD];
@@ -356,13 +374,13 @@ export async function performDoctorConsultation(
                 options.push(OPTION_FIX_WITHOUT_REBUILD);
             }
             options.push(OPT_SKIP);
-            const note = `${askRebuild ? $msg("Doctor.Message.RebuildRequired") : ""}${askRebuildLocal ? $msg("Doctor.Message.RebuildLocalRequired") : ""}`;
+            const note = `${askRebuild ? translate("Doctor.Message.RebuildRequired") : ""}${askRebuildLocal ? translate("Doctor.Message.RebuildLocalRequired") : ""}`;
 
             const ret = await env.confirm.askSelectStringDialogue(
-                $msg("Doctor.Dialogue.MainFix", {
-                    name: getConfName(key as AllSettingItemKey),
+                translate("Doctor.Dialogue.MainFix", {
+                    name: getConfName(key as AllSettingItemKey, translate),
                     current: `${settings[key]}`,
-                    reason: value.reasonFunc?.(settings) ?? value.reason ?? " N/A ",
+                    reason: value.reasonFunc?.(settings, translate) ?? value.reason ?? " N/A ",
                     ideal: `${value.valueDisplayFunc ? value.valueDisplayFunc(settings) : value.value}`,
                     //@ts-ignore
                     level: `${level}`,
@@ -370,7 +388,10 @@ export async function performDoctorConsultation(
                 }),
                 options,
                 {
-                    title: $msg("Doctor.Dialogue.TitleFix", { current: `${++idx}`, total: `${issueItems.length}` }),
+                    title: translate("Doctor.Dialogue.TitleFix", {
+                        current: `${++idx}`,
+                        total: `${issueItems.length}`,
+                    }),
                     defaultAction: OPT_FIX,
                 }
             );
@@ -398,8 +419,8 @@ export async function performDoctorConsultation(
             isModified = true;
         } else {
             if (
-                (await env.confirm.askYesNoDialog($msg("Doctor.Message.SomeSkipped"), {
-                    title: $msg("Doctor.Dialogue.TitleAlmostDone"),
+                (await env.confirm.askYesNoDialog(translate("Doctor.Message.SomeSkipped"), {
+                    title: translate("Doctor.Dialogue.TitleAlmostDone"),
                     defaultOption: "No",
                 })) == "no"
             ) {

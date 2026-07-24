@@ -13,6 +13,8 @@ import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "@li
 import { resolveWithIgnoreKnownError } from "@lib/common/utils.ts";
 import { arrayBufferToBase64Single } from "@lib/string_and_binary/convert.ts";
 import type { RequiredServices } from "@lib/interfaces/ServiceModule";
+import type { TranslationParameters } from "@lib/services/base/MessageTranslator";
+import type { CommonlibMessageKey } from "@lib/services/base/CommonlibMessages";
 // import type { IServiceHub } from "@lib/services/base/IService.ts";
 
 export type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<boolean> | boolean;
@@ -66,8 +68,6 @@ export abstract class LiveSyncAbstractReplicator {
     tweakSettingsMismatched = false;
     preferredTweakValue?: TweakValues;
 
-    abstract get isChunkSendingSupported(): boolean;
-
     get database() {
         return this.env.services.database.localDatabase;
     }
@@ -76,6 +76,9 @@ export abstract class LiveSyncAbstractReplicator {
     }
     get currentSettings() {
         return this.env.services.setting.currentSettings();
+    }
+    protected translate(key: CommonlibMessageKey, params?: TranslationParameters): string {
+        return this.env.services.context.translate(key, params);
     }
     sendChunks(
         setting: RemoteDBSettings,
@@ -158,11 +161,7 @@ export abstract class LiveSyncAbstractReplicator {
     };
 
     abstract tryConnectRemote(setting: RemoteDBSettings, showResult?: boolean): Promise<boolean>;
-    abstract replicateAllToServer(
-        setting: RemoteDBSettings,
-        showingNotice?: boolean,
-        sendChunksInBulkDisabled?: boolean
-    ): Promise<boolean>;
+    abstract replicateAllToServer(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>;
     abstract replicateAllFromServer(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>;
     abstract closeReplication(): void;
 

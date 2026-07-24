@@ -1,0 +1,91 @@
+{
+  "name": "@vrtmrz/livesync-commonlib",
+  "version": "0.1.0-rc.12",
+  "description": "Shared data, storage, and replication primitives for Self-hosted LiveSync clients.",
+  "private": true,
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/vrtmrz/livesync-commonlib.git"
+  },
+  "imports": {
+    "#worker": {
+      "browser": "./src/worker/bgWorker.ts",
+      "deno": "./src/worker/bgWorker.direct.ts",
+      "node": "./src/worker/bgWorker.direct.ts",
+      "default": "./src/worker/bgWorker.direct.ts"
+    }
+  },
+  "scripts": {
+    "build:package": "node _tools/build-package.mjs",
+    "check:boundary": "node _tools/check-package-boundary.mjs",
+    "check:package": "node _tools/check-packed-package.mjs",
+    "check:types": "tsc --noEmit",
+    "test": "vitest run",
+    "test:boundary": "node --test _tools/check-package-boundary.test.mjs _tools/compatibility-classification.test.mjs _tools/update-downstream-import-inventory.test.mjs",
+    "test:contract:context": "vitest run src/services/base/ServiceContext.unit.spec.ts",
+    "test:contract:platform-storage": "vitest run src/platform/storage.contract.unit.test.ts",
+    "test:contract:standard-io": "vitest run src/platform/standardIo.unit.spec.ts",
+    "test:contracts": "vitest run src/services/base/ServiceContext.unit.spec.ts src/platform/storage.contract.unit.test.ts src/platform/standardIo.unit.spec.ts",
+    "test:integration": "node _tools/run-integration-tests.mjs",
+    "test:integration:managed": "node _tools/run-integration-tests.mjs --manage-services",
+    "test:package": "npm run build:package && npm run check:package",
+    "test:release": "node --test _tools/validate-release-selection.test.mjs",
+    "update:downstream-import-inventory": "node _tools/update-downstream-import-inventory.mjs",
+    "verify:package": "npm run check:types && npm test && npm run test:boundary && npm run test:release && npm run check:boundary && npm run test:package"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.808.0",
+    "@smithy/fetch-http-handler": "^5.3.10",
+    "@smithy/md5-js": "^4.2.9",
+    "@smithy/middleware-apply-body-checksum": "^4.3.9",
+    "@smithy/types": "^4.14.3",
+    "@smithy/util-retry": "^4.4.5",
+    "@trystero-p2p/nostr": "0.25.3",
+    "diff-match-patch": "^1.0.5",
+    "events": "^3.3.0",
+    "fflate": "^0.8.2",
+    "idb": "^8.0.3",
+    "markdown-it": "^14.2.0",
+    "minimatch": "^10.2.5",
+    "octagonal-wheels": "^0.1.51",
+    "pouchdb-adapter-http": "^9.0.0",
+    "pouchdb-adapter-idb": "^9.0.0",
+    "pouchdb-adapter-indexeddb": "^9.0.0",
+    "pouchdb-adapter-memory": "^9.0.0",
+    "pouchdb-core": "^9.0.0",
+    "pouchdb-errors": "^9.0.0",
+    "pouchdb-find": "^9.0.0",
+    "pouchdb-mapreduce": "^9.0.0",
+    "pouchdb-merge": "^9.0.0",
+    "pouchdb-replication": "^9.0.0",
+    "pouchdb-utils": "^9.0.0",
+    "qrcode-generator": "^1.4.4",
+    "transform-pouch": "^2.0.0",
+    "xxhash-wasm-102": "npm:xxhash-wasm@^1.0.2"
+  },
+  "devDependencies": {
+    "@smithy/protocol-http": "^5.5.10",
+    "@types/diff-match-patch": "^1.0.36",
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^24.10.13",
+    "@types/pouchdb": "^6.4.2",
+    "@types/pouchdb-adapter-http": "^6.1.6",
+    "@types/pouchdb-adapter-idb": "^6.1.7",
+    "@types/pouchdb-core": "^7.0.15",
+    "@types/pouchdb-mapreduce": "^6.1.10",
+    "@types/transform-pouch": "^1.0.6",
+    "esbuild": "0.28.1",
+    "esbuild-plugin-inline-worker": "^0.1.1",
+    "fake-indexeddb": "^6.2.5",
+    "prettier": "3.8.1",
+    "svelte": "5.56.3",
+    "tinyglobby": "^0.2.15",
+    "typescript": "5.9.3",
+    "vitest": "^4.1.8"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

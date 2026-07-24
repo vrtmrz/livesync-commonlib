@@ -8,9 +8,7 @@ import { TrysteroConnection } from "./TrysteroReplicatorP2PConnection";
 import { scheduleOnceIfDuplicated, serialized, skipIfDuplicated } from "octagonal-wheels/concurrency/lock_v2";
 import { delay, fireAndForget } from "octagonal-wheels/promises";
 import { EVENT_P2P_REPLICATOR_PROGRESS, EVENT_P2P_REPLICATOR_STATUS, P2PHost } from "./TrysteroReplicatorP2PServer";
-import { eventHub } from "@lib/hub/hub";
 import { encryptWithEphemeralSalt, decryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
-import { $msg } from "@lib/common/i18n";
 import { sha1 } from "octagonal-wheels/hash/purejs";
 import { isObjectDifferent } from "octagonal-wheels/object";
 import { getRelaySockets, pauseRelayReconnection, resumeRelayReconnection } from "@trystero-p2p/nostr";
@@ -107,12 +105,21 @@ export class TrysteroReplicator {
     get confirm(): Confirm {
         return this._env.confirm;
     }
+    get translate() {
+        return this._env.translate;
+    }
 
     private async runFiniteReplicationActivity<T>(task: () => T | PromiseLike<T>): Promise<T> {
         if (this._env.runFiniteReplicationActivity) {
             return await this._env.runFiniteReplicationActivity(task, { label: "replication" });
         }
         return await task();
+    }
+
+    private async canStartOrdinaryReplication(showMessage: boolean = false): Promise<boolean> {
+        return this._env.canStartOrdinaryReplication
+            ? await this._env.canStartOrdinaryReplication(showMessage)
+            : true;
     }
 
     constructor(env: ReplicatorHostEnv, server?: P2PHost) {
@@ -247,7 +254,7 @@ export class TrysteroReplicator {
                 const passphrase = await skipIfDuplicated(`getAllConfig-${fromPeerId}`, async () => {
                     return await this.confirm.askString(
                         "Passphrase required",
-                        $msg("P2P.AskPassphraseForShare"),
+                        this.translate("P2P.AskPassphraseForShare"),
                         "something you only know",
                         true
                     );
@@ -350,6 +357,9 @@ export class TrysteroReplicator {
     async requestSynchroniseToPeer(
         peerId: string
     ): Promise<Awaited<ReturnType<ReturnType<typeof this.getCommands>["reqSync"]>>> {
+        if (!(await this.canStartOrdinaryReplication(false))) {
+            return { error: new Error("Replication is not ready") };
+        }
         await delay(25);
         if (!this.server) throw new Error("Server is not available");
         // Logger(`P2P requesting remote sync from ${peerId}`, LOG_LEVEL_NOTICE, "p2p-replicator");
@@ -373,7 +383,7 @@ export class TrysteroReplicator {
     }
 
     dispatchStatus() {
-        eventHub.emitEvent(EVENT_P2P_REPLICATOR_STATUS, {
+        this._env.events.emitEvent(EVENT_P2P_REPLICATOR_STATUS, {
             isBroadcasting: this._isBroadcasting,
             replicatingTo: [...this._replicateToPeers],
             replicatingFrom: [...this._replicateFromPeers],
@@ -509,7 +519,7 @@ export class TrysteroReplicator {
             };
         }
         // console.warn(`Own Progress ${peerId}`, stat);
-        eventHub.emitEvent(EVENT_P2P_REPLICATOR_PROGRESS, stat);
+        this._env.events.emitEvent(EVENT_P2P_REPLICATOR_PROGRESS, stat);
         return true;
     }
     onProgressAcknowledged(peerId: string, info?: ProgressInfo) {
@@ -532,7 +542,7 @@ export class TrysteroReplicator {
             };
         }
         // console.warn(`Progress acknowledged from ${peerId}`, ack);
-        eventHub.emitEvent(EVENT_P2P_REPLICATOR_PROGRESS, ack);
+        this._env.events.emitEvent(EVENT_P2P_REPLICATOR_PROGRESS, ack);
         return true;
     }
     // Sending the progress to the remote peer
@@ -546,7 +556,17 @@ export class TrysteroReplicator {
                 Logger(ex, LOG_LEVEL_VERBOSE);
             });
     }
-    async replicateFrom(remotePeer: string, showNotice: boolean = false, fromStart = false) {
+    async replicateFrom(
+        remotePeer: string,
+        showNotice: boolean = false,
+        fromStart = false,
+        skipOrdinaryReplicationPolicy = false
+    ) {
+        // Explicit Fetch/Rebuild flows have their own destructive-operation
+        // confirmation and must remain available while ordinary replication is paused.
+        if (!skipOrdinaryReplicationPolicy && !(await this.canStartOrdinaryReplication(showNotice))) {
+            return { error: new Error("Replication is not ready") };
+        }
         const logLevel = showNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
         Logger(`P2P Requesting Authentication to ${remotePeer}`, logLevel, "p2p-replicator");
         if ((await this.requestAuthenticate(remotePeer)) !== true) {
@@ -685,7 +705,7 @@ export class TrysteroReplicator {
         const encryptedConfig = await connection.invokeRemoteFunction("getAllConfig", [this.server.serverPeerId], 0);
         const passphrase = await this.confirm.askString(
             "Passphrase required",
-            $msg("P2P.AskPassphraseForDecrypt"),
+            this.translate("P2P.AskPassphraseForDecrypt"),
             "something you only know",
             true
         );
@@ -753,7 +773,7 @@ export class TrysteroReplicator {
         const r = await skipIfDuplicated("replicateFromCommand", async () => {
             const logLevel = showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
             if (!this._env.settings.P2P_Enabled) {
-                Logger($msg("P2P.NotEnabled"), logLevel);
+                Logger(this.translate("P2P.NotEnabled"), logLevel);
                 return Promise.resolve(false);
             }
             // throw new Error("Method not implemented.");
@@ -761,38 +781,35 @@ export class TrysteroReplicator {
                 .map((e) => e.trim())
                 .filter((e) => e);
             if (peers.length == 0) {
-                Logger($msg("P2P.NoAutoSyncPeers"), LOG_LEVEL_NOTICE);
+                Logger(this.translate("P2P.NoAutoSyncPeers"), LOG_LEVEL_NOTICE);
                 return Promise.resolve(false);
             }
 
             for (const peer of peers) {
                 const peerId = this.knownAdvertisements.find((e) => e.name == peer)?.peerId;
                 if (!peerId) {
-                    Logger($msg(`P2P.SeemsOffline`, { name: peer }), logLevel);
+                    Logger(this.translate(`P2P.SeemsOffline`, { name: peer }), logLevel);
                 } else {
-                    Logger($msg(`P2P.SyncStartedWith`, { name: peer }), logLevel);
+                    Logger(this.translate(`P2P.SyncStartedWith`, { name: peer }), logLevel);
                     await this.sync(peerId, showResult);
                 }
             }
-            Logger($msg("P2P.SyncCompleted"), logLevel);
+            Logger(this.translate("P2P.SyncCompleted"), logLevel);
             return Promise.resolve(true);
         });
         if (r === null) {
-            Logger($msg("P2P.SyncAlreadyRunning"), LOG_LEVEL_NOTICE);
+            Logger(this.translate("P2P.SyncAlreadyRunning"), LOG_LEVEL_NOTICE);
         }
     }
 
     disconnectFromServer() {
         // Trystero does not provide typings for getRelaySockets.
         // eslint-disable-next-line @typescript-eslint/no-unsafe-call
-        const connections = getRelaySockets() as Record<string, { close: () => void; onclose: (() => void) | null }>;
+        const connections = getRelaySockets() as Record<string, { close: () => void }>;
         const sockets = Object.entries(connections);
         pauseRelayReconnection();
         sockets.forEach(([, s]) => {
             s.close();
-            s.onclose = () => {
-                void this.server?.dispatchConnectionStatus();
-            }; // Prevent reconnection
         });
         void this.pauseServe();
     }

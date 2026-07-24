@@ -7,3 +7,6 @@ export interface KeyValueDatabase {
     close(): Promise<void>;
     destroy(): Promise<void>;
 }
+
+/** Opens the key-value database owned by one service composition. */
+export type KeyValueDatabaseFactory = (databaseKey: string) => Promise<KeyValueDatabase>;
