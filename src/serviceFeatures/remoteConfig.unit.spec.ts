@@ -4,6 +4,7 @@ import {
     migrateToMultipleRemoteConfigurations,
     activateRemoteConfiguration,
     upsertRemoteConfigurationInPlace,
+    useRemoteConfiguration,
 } from "@lib/serviceFeatures/remoteConfig";
 import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
 import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
@@ -413,6 +414,25 @@ describe("Remote Configuration Commands", () => {
                 },
             },
         };
+    });
+
+    it("registers connection-oriented command names without changing established command IDs", () => {
+        useRemoteConfiguration(mockHost);
+
+        expect(mockHost.services.API.addCommand).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({
+                id: "livesync-switch-remote",
+                name: "Switch active connection",
+            })
+        );
+        expect(mockHost.services.API.addCommand).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({
+                id: "livesync-replicate-with-specific",
+                name: "Sync with a saved connection",
+            })
+        );
     });
 
     it("commandSwitchActiveRemote should switch configuration based on user selection", async () => {

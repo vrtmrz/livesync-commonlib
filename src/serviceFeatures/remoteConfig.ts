@@ -332,7 +332,7 @@ export function activateP2PRemoteConfiguration(
 }
 
 /**
- * Command: Switch Active Remote
+ * Command: Switch active connection
  */
 export async function commandSwitchActiveRemote(host: RemoteConfigHost): Promise<void> {
     const settings = host.services.setting.currentSettings();
@@ -375,7 +375,7 @@ export async function commandSwitchActiveRemote(host: RemoteConfigHost): Promise
 }
 
 /**
- * Command: Replicate with specific remote
+ * Command: Sync with a saved connection
  */
 export async function commandReplicateWithSpecificRemote(host: RemoteConfigHost): Promise<void> {
     const settings = host.services.setting.currentSettings();
@@ -451,13 +451,13 @@ export function useRemoteConfiguration(host: RemoteConfigHost) {
     // Register commands
     host.services.API.addCommand({
         id: "livesync-switch-remote",
-        name: "Switch Active Remote",
+        name: "Switch active connection",
         callback: () => commandSwitchActiveRemote(host),
     });
 
     host.services.API.addCommand({
         id: "livesync-replicate-with-specific",
-        name: "Replicate with specific remote",
+        name: "Sync with a saved connection",
         callback: () => commandReplicateWithSpecificRemote(host),
     });
 

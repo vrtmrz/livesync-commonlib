@@ -242,6 +242,67 @@ export abstract class ServiceFileHandlerBase
         return await this.storeFileToDBFromRevision(info, force, onlyChunks);
     }
 
+    async storeFileToDBWithBaseRevision(
+        info: UXFileInfoStub | UXFileInfo | FilePathWithPrefix,
+        baseRevision: string,
+        createIfDifferent: boolean = true
+    ): Promise<boolean> {
+        const file = await this.infoToStub(info);
+        if (file == null) {
+            this._log(`File ${tryGetFilePath(info)} is not exist on the storage`, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+        if (file.isInternal) {
+            this._log(
+                `Internal file ${file.path} is not allowed to be stored through the ordinary file handler`,
+                LOG_LEVEL_VERBOSE
+            );
+            return false;
+        }
+
+        const [baseEntry, currentEntry, conflictedRevisions] = await Promise.all([
+            this.db.fetchEntryMeta(file, baseRevision, true),
+            this.db.fetchEntryMeta(file, undefined, true),
+            this.db.getConflictedRevs(file),
+        ]);
+        const liveRevisions = new Set([
+            ...(currentEntry && currentEntry._rev ? [currentEntry._rev] : []),
+            ...conflictedRevisions,
+        ]);
+        if (!baseEntry || baseEntry._rev !== baseRevision || !liveRevisions.has(baseRevision)) {
+            this._log(
+                `Could not store ${file.path} on revision ${baseRevision}; the selected revision is no longer live`,
+                LOG_LEVEL_NOTICE
+            );
+            return false;
+        }
+
+        const readFile = await this.readFileFromStub(file);
+        if (!baseEntry.deleted && !baseEntry._deleted) {
+            const loadedBase = await this.db.fetchEntry(file, baseRevision, true, true);
+            if (loadedBase && (await isDocContentSame(getDocDataAsArray(loadedBase.data), readFile.body))) {
+                await this.setProvenance(file.path, baseRevision, readFile.stat.mtime);
+                await this.conflict.queueCheckFor(file.path);
+                return true;
+            }
+        }
+        if (!createIfDifferent) {
+            this._log(
+                `Could not mark ${file.path} as revision ${baseRevision}; the storage content differs`,
+                LOG_LEVEL_NOTICE
+            );
+            return false;
+        }
+
+        const storedRevision = await this.db.storeWithBaseRevision(readFile, baseRevision, true);
+        if (storedRevision === false) {
+            return false;
+        }
+        await this.setProvenance(file.path, storedRevision, readFile.stat.mtime);
+        await this.conflict.queueCheckFor(file.path);
+        return true;
+    }
+
     private async storeFileToDBFromRevision(
         info: UXFileInfoStub | UXFileInfo | UXInternalFileInfoStub | FilePathWithPrefix,
         force: boolean = false,
@@ -522,8 +583,13 @@ export abstract class ServiceFileHandlerBase
         info: UXFileInfoStub | FilePath | FilePathWithPrefix,
         rev: string
     ): Promise<boolean | undefined> {
-        //TODO: Possibly check the conflicting.
-        return await this.db.delete(info, rev);
+        const path = getStoragePathFromUXFileInfo(info);
+        const provenance = await this.getProvenance(path);
+        const deleted = await this.db.delete(info, rev);
+        if (deleted && provenance?.revision === rev) {
+            await this.deleteProvenance(path);
+        }
+        return deleted;
     }
 
     async resolveConflictedByDeletingRevision(
@@ -531,32 +597,60 @@ export abstract class ServiceFileHandlerBase
         rev: string
     ): Promise<boolean | undefined> {
         const path = getStoragePathFromUXFileInfo(info);
+        const file = await this.infoToStub(info);
+        const docEntry = await this.db.fetchEntryMeta(file ?? info, rev, true);
+        if (!docEntry) {
+            this._log(`Failed to read the conflicted revision ${rev} of ${path}`, LOG_LEVEL_VERBOSE);
+            return false;
+        }
         if (!(await this.deleteRevisionFromDB(info, rev))) {
             this._log(`Failed to delete the conflicted revision ${rev} of ${path}`, LOG_LEVEL_VERBOSE);
             return false;
         }
-        if (!(await this.dbToStorageWithSpecificRev(info, rev, true))) {
+        // This legacy operation deliberately applies the branch which it has
+        // just removed. The public exact-revision operation accepts only live
+        // branches, so it cannot be used after the deletion. Preserve the old
+        // ordering by applying the metadata captured before deletion, then
+        // discard any provenance for the now non-live revision.
+        if (!(await this.applyDatabaseEntryToStorage(docEntry, file, true))) {
             this._log(`Failed to apply the resolved revision ${rev} of ${path} to the storage`, LOG_LEVEL_VERBOSE);
             return false;
         }
+        await this.deleteProvenance(path);
     }
 
     async dbToStorageWithSpecificRev(
-        info: UXFileInfoStub | UXFileInfo | FilePath | null,
+        info: UXFileInfoStub | UXFileInfo | FilePath | FilePathWithPrefix | null,
         rev: string,
         force?: boolean
     ): Promise<boolean> {
+        if (info == null) {
+            this._log(`Cannot select database revision ${rev} without a file path`, LOG_LEVEL_VERBOSE);
+            return false;
+        }
         const file = await this.infoToStub(info);
-        if (file == null) {
-            this._log(`File ${tryGetFilePath(info)} is not exist on the storage`, LOG_LEVEL_VERBOSE);
-            return false;
-        }
-        const docEntry = await this.db.fetchEntryMeta(file, rev, true);
+        const databaseTarget = file ?? info;
+        const [docEntry, currentEntry, conflictedRevisions] = await Promise.all([
+            this.db.fetchEntryMeta(databaseTarget, rev, true),
+            this.db.fetchEntryMeta(databaseTarget, undefined, true),
+            this.db.getConflictedRevs(databaseTarget),
+        ]);
         if (!docEntry) {
-            this._log(`File ${file.path} is not exist on the database`, LOG_LEVEL_VERBOSE);
+            this._log(`File ${tryGetFilePath(info)} is not exist on the database`, LOG_LEVEL_VERBOSE);
             return false;
         }
-        return await this.applyDatabaseEntryToStorage(docEntry, file, force);
+        const liveRevisions = new Set([
+            ...(currentEntry && currentEntry._rev ? [currentEntry._rev] : []),
+            ...conflictedRevisions,
+        ]);
+        if (!liveRevisions.has(rev)) {
+            this._log(
+                `Could not apply ${tryGetFilePath(info)} revision ${rev}; the selected revision is no longer live`,
+                LOG_LEVEL_NOTICE
+            );
+            return false;
+        }
+        return await this.applyDatabaseEntryToStorage(docEntry, file, force, true);
     }
 
     async dbToStorage(
@@ -577,14 +671,15 @@ export abstract class ServiceFileHandlerBase
     private async applyDatabaseEntryToStorage(
         docEntry: MetaEntry,
         file: UXFileInfoStub | UXFileInfo | null,
-        force?: boolean
+        force?: boolean,
+        allowExistingConflicts: boolean = false
     ): Promise<boolean> {
         const mode = file == null ? "create" : "modify";
         const path = this.getPath(docEntry);
         const settings = this.setting.currentSettings();
         // 1. Check if it already conflicted.
         const revs = await this.db.getConflictedRevs(path);
-        if (revs.length > 0) {
+        if (revs.length > 0 && !allowExistingConflicts) {
             // Some conflicts are exist.
             if (settings.writeDocumentsIfConflicted) {
                 // If configured to write the document even if conflicted, then it should be written.
@@ -673,6 +768,15 @@ export abstract class ServiceFileHandlerBase
         }
 
         const docData = readContent(docRead);
+
+        if (allowExistingConflicts && existDoc && !force) {
+            const readFile = await this.readFileFromStub(existDoc);
+            if (await isDocContentSame(docData, readFile.body)) {
+                await this.setProvenance(path, docEntry._rev, existDoc.stat.mtime);
+                this.path.markChangesAreSame(docRead, docRead.mtime, existDoc.stat.mtime);
+                return true;
+            }
+        }
 
         if (existDoc && !force) {
             // The file is exist on the storage. Let's check the difference between the file and the entry.
