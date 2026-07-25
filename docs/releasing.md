@@ -33,7 +33,7 @@ Before publication, run the downstream workflow against an exact Self-hosted Liv
 
 Choose the version explicitly. Use a prerelease such as `0.1.0-rc.0` when registry installation must be validated before the first stable version. Package-proof versions are local artefacts and cannot be staged.
 
-Prepare both stable releases and pre-releases on a reviewed pull request based on `main`. Registry staging is deliberately restricted to the exact commit which triggered the trusted workflow from `main`. If a change is not yet ready to merge, validate its local tarball and run the downstream workflow against the exact reviewed commit; do not stage it from the pull-request branch.
+Prepare both stable releases and pre-releases on a reviewed pull request based on `main`. A pre-release may be staged from the exact reviewed pull-request branch commit so that the registry artefact can be validated in Self-hosted LiveSync before the Commonlib change is merged. A stable release must be staged only after its exact reviewed release commit is present on `main`.
 
 ```bash
 npm ci
@@ -42,7 +42,7 @@ npm run verify:package
 npm publish --dry-run .package --tag next --access public
 ```
 
-Review `package.json`, `package-lock.json`, the generated manifest, the tarball contents, the test results, and the downstream evidence. Commit only the source manifest and lockfile for the version change; `.package`, `.package-consumer`, and `artifacts` are generated and ignored. Push and open a release pull request only after the usual user checkpoint. Merge the exact reviewed release commit into `main` only after the separate merge checkpoint, then dispatch the staged-publishing workflow from that exact `main` commit.
+Review `package.json`, `package-lock.json`, the generated manifest, the tarball contents, the test results, and the downstream evidence. Commit only the source manifest and lockfile for the version change; `.package`, `.package-consumer`, and `artifacts` are generated and ignored. Push and open a release pull request only after the usual user checkpoint. Keep a pre-release pull request in draft while its exact registry artefact is validated in Self-hosted LiveSync. Merge and stable publication remain separate later checkpoints.
 
 ## Historical initial npm bootstrap
 
@@ -58,7 +58,7 @@ npm publish .package --tag next --access public
 
 Confirm the authenticated npm account, `@vrtmrz` scope ownership, package name, version, tarball checksum, packed contents, source commit, and target tag immediately before publication. Treat bootstrap publication as a separate user-authorised operation. npm may assign `latest` to the first published version even when `next` is requested; leave the immutable version in place and replace `latest` only after a stable release has passed consumer validation.
 
-Bootstrap publication was the one historical exception in which a package was published before its source pull request was merged. Do not repeat that sequence for routine releases. Current staged releases must use an exact `main` commit. If validation fails, leave the published version immutable and prepare a new pre-release version.
+Bootstrap publication was the one historical exception which used direct `npm publish`. Do not repeat that operation for routine releases. Current pre-releases use protected staged publishing and may select an exact reviewed branch commit; stable releases use an exact `main` commit. If validation fails, leave the published version immutable and prepare a new pre-release version.
 
 ## Trusted staged publishing
 
@@ -69,22 +69,24 @@ After bootstrap, configure the npm Trusted Publisher for:
 - environment: `npm`; and
 - allowed action: staged publishing only.
 
-Protect the GitHub `npm` environment with a required reviewer and permit only `main`. The trusted workflow definition and the packaged source must use the same exact `main` commit. The workflow requires its `GITHUB_REF`, workflow-triggering `GITHUB_SHA`, current remote `main`, and checked-out HEAD to match the requested full commit SHA. It then runs `verify:package`, validates the requested version, full commit SHA, and confirmation text, packs that reviewed output, records its checksum, and passes the same tarball to the protected staging job.
+Protect the GitHub `npm` environment with a required reviewer and permit only `main`. The trusted workflow definition always runs from `main`. A pre-release may package an exact commit from a reviewed draft branch, while a stable release also requires the package source and workflow-triggering commit to be the exact current `main` commit. The workflow confirms that the selected source branch still points to the requested full commit SHA, checks out that SHA, runs `verify:package`, validates the requested version and confirmation text, packs the reviewed output, records its checksum, and passes the same tarball to the protected staging job.
 
-This equality is also a provenance boundary. npm's automatic provenance identifies the commit which triggered the trusted workflow. Checking out a different branch commit later does not change that source reference, even when the resulting tarball is otherwise correct.
+npm's automatic provenance identifies the `main` commit which triggered the trusted workflow. For a pre-release selected from a draft branch, this identifies the trusted workflow source rather than the packaged source commit. Record and verify the separate `source_ref`, exact package SHA, and tarball checksum before approving the staged version. This provenance distinction is accepted for an immutable pre-release used to validate the consumer before merge. A stable release requires the workflow and package source to be the same exact `main` commit.
 
-Dispatch either a stable release or a pre-release from the exact reviewed commit already merged to `main`:
+Dispatch a pre-release from its exact reviewed draft branch commit:
 
 ```bash
-git fetch origin main
-sha=$(git rev-parse origin/main)
+source_ref=separate-setting-lifecycle
+git fetch origin "$source_ref"
+sha=$(git rev-parse "origin/$source_ref")
 gh workflow run publish-npm.yml \
   --ref main \
   -f version=<version> \
+  -f source_ref="$source_ref" \
   -f expected_sha="$sha" \
   -f confirmation="stage @vrtmrz/livesync-commonlib@<version> from $sha"
 ```
 
-The workflow rejects every release selected from a branch or commit other than the exact current `main` commit. This prevents an unmerged branch from changing the trusted publication job or acquiring access to the `npm` environment, and keeps the package source and provenance source aligned.
+For a stable release, use `source_ref=main`. The workflow rejects a stable release selected from another branch, rejects a stable release without its trusted workflow commit, and requires the workflow-triggering SHA to equal the packaged `main` SHA. The workflow dispatch itself uses `--ref main` for every release, so an unmerged branch cannot change the trusted publication job or acquire access to the `npm` environment.
 
-The workflow always stages to `next`. Inspect the staged package name, version, access, dist-tag, provenance, checksum, files, and source commit before approving it through npm. The packaged source and provenance source must both identify the requested `main` commit. Approval and later promotion to `latest` are separate user-authorised operations. Keep the Self-hosted LiveSync consumer pull request in draft while validating the exact registry version. If validation fails, leave that published version immutable, prepare a new pre-release on `main`, and validate the replacement. Validate a stable release in Self-hosted LiveSync before promoting it to `latest`.
+The workflow always stages to `next`. Inspect the staged package name, version, access, dist-tag, provenance, checksum, files, selected source branch, and source commit before approving it through npm. Approval and later promotion to `latest` are separate user-authorised operations. Keep the Commonlib and Self-hosted LiveSync consumer pull requests in draft while validating the exact registry pre-release. If validation fails, leave that published version immutable and prepare a new pre-release. After successful consumer validation, merge Commonlib only through its separate maintainer gate. Validate a stable release in Self-hosted LiveSync before promoting it to `latest`.

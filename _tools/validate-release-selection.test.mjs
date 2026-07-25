@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { validateReleaseSelection } from "./validate-release-selection.mjs";
+import { parseReleaseSelectionArguments, validateReleaseSelection } from "./validate-release-selection.mjs";
 
 const sha = "0123456789abcdef0123456789abcdef01234567";
 
@@ -44,10 +44,25 @@ describe("release selection", () => {
         assert.doesNotThrow(() => validateReleaseSelection(validSelection({ version: "0.1.0" })));
     });
 
-    it("rejects a prerelease selected from a non-main branch", () => {
-        assert.throws(
-            () => validateReleaseSelection(validSelection({ sourceRef: "refs/heads/release/commonlib-0.1.0-rc.0" })),
-            /All releases must be selected from refs\/heads\/main/u
+    it("accepts an exact reviewed prerelease from a branch when the trusted workflow commit differs", () => {
+        assert.doesNotThrow(() =>
+            validateReleaseSelection(
+                validSelection({
+                    workflowSha: "f".repeat(40),
+                    sourceRef: "refs/heads/release/commonlib-0.1.0-rc.0",
+                })
+            )
+        );
+    });
+
+    it("accepts an exact reviewed prerelease from the legacy trusted workflow invocation", () => {
+        assert.doesNotThrow(() =>
+            validateReleaseSelection(
+                validSelection({
+                    workflowSha: undefined,
+                    sourceRef: "refs/heads/release/commonlib-0.1.0-rc.0",
+                })
+            )
         );
     });
 
@@ -60,7 +75,21 @@ describe("release selection", () => {
                         sourceRef: "refs/heads/release/commonlib-0.1.0",
                     })
                 ),
-            /All releases must be selected from refs\/heads\/main/u
+            /Stable releases must be selected from refs\/heads\/main/u
+        );
+    });
+
+    it("rejects a stable release without the trusted workflow commit", () => {
+        assert.throws(
+            () => validateReleaseSelection(validSelection({ version: "0.1.0", workflowSha: undefined })),
+            /Stable releases require the trusted workflow commit/u
+        );
+    });
+
+    it("rejects a stable release from a different workflow commit", () => {
+        assert.throws(
+            () => validateReleaseSelection(validSelection({ version: "0.1.0", workflowSha: "f".repeat(40) })),
+            /workflow was triggered/u
         );
     });
 
@@ -76,7 +105,6 @@ describe("release selection", () => {
         ["short commit", { expectedSha: "0123456" }, /full lowercase SHA/u],
         ["different commit", { actualSha: "f".repeat(40) }, /workflow is running/u],
         ["short workflow commit", { workflowSha: "0123456" }, /workflow commit must be a full lowercase SHA/u],
-        ["different workflow commit", { workflowSha: "f".repeat(40) }, /workflow was triggered/u],
         ["source version mismatch", { sourceManifest: { version: "0.1.1", private: true } }, /Source manifest/u],
         ["public source root", { sourceManifest: { private: false } }, /source repository manifest/u],
         ["private output", { builtManifest: { private: true } }, /built package is marked private/u],
@@ -87,4 +115,51 @@ describe("release selection", () => {
             assert.throws(() => validateReleaseSelection(validSelection(overrides)), message);
         });
     }
+});
+
+describe("release selection arguments", () => {
+    it("parses the current six-argument workflow invocation", () => {
+        assert.deepEqual(
+            parseReleaseSelectionArguments([
+                "0.1.0-rc.14",
+                sha,
+                sha,
+                "f".repeat(40),
+                "refs/heads/separate-setting-lifecycle",
+                `stage @vrtmrz/livesync-commonlib@0.1.0-rc.14 from ${sha}`,
+            ]),
+            {
+                version: "0.1.0-rc.14",
+                expectedSha: sha,
+                actualSha: sha,
+                workflowSha: "f".repeat(40),
+                sourceRef: "refs/heads/separate-setting-lifecycle",
+                confirmation: `stage @vrtmrz/livesync-commonlib@0.1.0-rc.14 from ${sha}`,
+            }
+        );
+    });
+
+    it("parses the legacy five-argument prerelease invocation", () => {
+        assert.deepEqual(
+            parseReleaseSelectionArguments([
+                "0.1.0-rc.14",
+                sha,
+                sha,
+                "refs/heads/separate-setting-lifecycle",
+                `stage @vrtmrz/livesync-commonlib@0.1.0-rc.14 from ${sha}`,
+            ]),
+            {
+                version: "0.1.0-rc.14",
+                expectedSha: sha,
+                actualSha: sha,
+                workflowSha: undefined,
+                sourceRef: "refs/heads/separate-setting-lifecycle",
+                confirmation: `stage @vrtmrz/livesync-commonlib@0.1.0-rc.14 from ${sha}`,
+            }
+        );
+    });
+
+    it("rejects an unsupported argument count", () => {
+        assert.throws(() => parseReleaseSelectionArguments(["0.1.0-rc.14"]), /five legacy arguments or six current/u);
+    });
 });

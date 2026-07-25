@@ -24,15 +24,21 @@ export function validateReleaseSelection({
 }) {
     requireCondition(VERSION_PATTERN.test(version), `Invalid release version: ${version}`);
     requireCondition(!version.includes("package-proof"), "Package-proof versions cannot be published.");
+    const isPrerelease = version.includes("-");
     requireCondition(COMMIT_PATTERN.test(expectedSha), "The expected commit must be a full lowercase SHA.");
     requireCondition(actualSha === expectedSha, `Expected ${expectedSha}, but the workflow is running ${actualSha}.`);
-    requireCondition(COMMIT_PATTERN.test(workflowSha), "The workflow commit must be a full lowercase SHA.");
-    requireCondition(
-        workflowSha === expectedSha,
-        `Expected ${expectedSha}, but the workflow was triggered from ${workflowSha}.`
-    );
+    if (workflowSha !== undefined) {
+        requireCondition(COMMIT_PATTERN.test(workflowSha), "The workflow commit must be a full lowercase SHA.");
+    }
     requireCondition(BRANCH_REF_PATTERN.test(sourceRef), "The release source must be selected from a branch ref.");
-    requireCondition(sourceRef === "refs/heads/main", "All releases must be selected from refs/heads/main.");
+    if (!isPrerelease) {
+        requireCondition(sourceRef === "refs/heads/main", "Stable releases must be selected from refs/heads/main.");
+        requireCondition(workflowSha !== undefined, "Stable releases require the trusted workflow commit.");
+        requireCondition(
+            workflowSha === expectedSha,
+            `Expected ${expectedSha}, but the workflow was triggered from ${workflowSha}.`
+        );
+    }
     requireCondition(
         sourceManifest.version === version,
         `Source manifest version is ${sourceManifest.version}, not ${version}.`
@@ -55,23 +61,31 @@ export function validateReleaseSelection({
     requireCondition(confirmation === expectedConfirmation, `Confirmation must be: ${expectedConfirmation}`);
 }
 
+export function parseReleaseSelectionArguments(args) {
+    requireCondition(
+        args.length === 5 || args.length === 6,
+        "Release selection requires either five legacy arguments or six current arguments."
+    );
+    if (args.length === 5) {
+        const [version, expectedSha, actualSha, sourceRef, confirmation] = args;
+        return { version, expectedSha, actualSha, workflowSha: undefined, sourceRef, confirmation };
+    }
+    const [version, expectedSha, actualSha, workflowSha, sourceRef, confirmation] = args;
+    return { version, expectedSha, actualSha, workflowSha, sourceRef, confirmation };
+}
+
 async function main() {
-    const [version, expectedSha, actualSha, workflowSha, sourceRef, confirmation] = process.argv.slice(2);
+    const selection = parseReleaseSelectionArguments(process.argv.slice(2));
     const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
     const sourceManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
     const builtManifest = JSON.parse(await readFile(resolve(root, ".package/package.json"), "utf8"));
     validateReleaseSelection({
         sourceManifest,
         builtManifest,
-        version,
-        expectedSha,
-        actualSha,
-        workflowSha,
-        sourceRef,
-        confirmation,
+        ...selection,
     });
     console.log(
-        `Validated ${sourceManifest.name}@${version} from ${sourceRef} at ${actualSha} for staged publication.`
+        `Validated ${sourceManifest.name}@${selection.version} from ${selection.sourceRef} at ${selection.actualSha} for staged publication.`
     );
 }
 

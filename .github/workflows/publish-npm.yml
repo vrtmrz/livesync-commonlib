@@ -7,8 +7,12 @@ on:
         description: Exact version in package.json
         required: true
         type: string
+      source_ref:
+        description: Branch whose exact commit will be packaged
+        required: true
+        type: string
       expected_sha:
-        description: Full 40-character commit SHA expected on main
+        description: Full 40-character commit SHA expected on the source branch
         required: true
         type: string
       confirmation:
@@ -29,26 +33,32 @@ jobs:
     timeout-minutes: 30
 
     steps:
-      - name: Require the exact trusted workflow commit
-        env:
-          EXPECTED_SHA: ${{ inputs.expected_sha }}
-        run: |
-          test "$GITHUB_REF" = refs/heads/main
-          test "$GITHUB_SHA" = "$EXPECTED_SHA"
+      - name: Require the trusted workflow branch
+        run: test "$GITHUB_REF" = refs/heads/main
 
-      - name: Check out the trusted source commit
+      - name: Check out the selected source commit
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
           ref: ${{ inputs.expected_sha }}
           persist-credentials: false
 
-      - name: Require the exact main commit
+      - name: Require the exact selected source branch commit
         env:
+          SOURCE_REF: ${{ inputs.source_ref }}
           EXPECTED_SHA: ${{ inputs.expected_sha }}
+          PACKAGE_VERSION: ${{ inputs.version }}
         run: |
-          remote_sha=$(git ls-remote --exit-code origin refs/heads/main | cut -f1)
+          git check-ref-format --branch "$SOURCE_REF" >/dev/null
+          remote_sha=$(git ls-remote --exit-code origin "refs/heads/$SOURCE_REF" | cut -f1)
           test "$remote_sha" = "$EXPECTED_SHA"
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          case "$PACKAGE_VERSION" in
+            *-*) ;;
+            *)
+              test "$SOURCE_REF" = main
+              test "$GITHUB_SHA" = "$EXPECTED_SHA"
+              ;;
+          esac
 
       - name: Set up Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
@@ -66,12 +76,13 @@ jobs:
       - name: Verify package and release selection
         env:
           PACKAGE_VERSION: ${{ inputs.version }}
+          SOURCE_REF: ${{ inputs.source_ref }}
           EXPECTED_SHA: ${{ inputs.expected_sha }}
           CONFIRMATION: ${{ inputs.confirmation }}
         run: |
           npm run verify:package
           actual_sha=$(git rev-parse HEAD)
-          node _tools/validate-release-selection.mjs "$PACKAGE_VERSION" "$EXPECTED_SHA" "$actual_sha" "$GITHUB_SHA" "$GITHUB_REF" "$CONFIRMATION"
+          node _tools/validate-release-selection.mjs "$PACKAGE_VERSION" "$EXPECTED_SHA" "$actual_sha" "$GITHUB_SHA" "refs/heads/$SOURCE_REF" "$CONFIRMATION"
 
       - name: Pack the verified package
         run: |
