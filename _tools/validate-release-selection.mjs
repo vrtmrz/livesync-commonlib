@@ -18,6 +18,7 @@ export function validateReleaseSelection({
     version,
     expectedSha,
     actualSha,
+    workflowSha,
     sourceRef,
     confirmation,
 }) {
@@ -25,14 +26,26 @@ export function validateReleaseSelection({
     requireCondition(!version.includes("package-proof"), "Package-proof versions cannot be published.");
     requireCondition(COMMIT_PATTERN.test(expectedSha), "The expected commit must be a full lowercase SHA.");
     requireCondition(actualSha === expectedSha, `Expected ${expectedSha}, but the workflow is running ${actualSha}.`);
+    requireCondition(COMMIT_PATTERN.test(workflowSha), "The workflow commit must be a full lowercase SHA.");
+    requireCondition(
+        workflowSha === expectedSha,
+        `Expected ${expectedSha}, but the workflow was triggered from ${workflowSha}.`
+    );
     requireCondition(BRANCH_REF_PATTERN.test(sourceRef), "The release source must be selected from a branch ref.");
-    if (!version.includes("-")) {
-        requireCondition(sourceRef === "refs/heads/main", "Stable releases must be selected from refs/heads/main.");
-    }
-    requireCondition(sourceManifest.version === version, `Source manifest version is ${sourceManifest.version}, not ${version}.`);
+    requireCondition(sourceRef === "refs/heads/main", "All releases must be selected from refs/heads/main.");
+    requireCondition(
+        sourceManifest.version === version,
+        `Source manifest version is ${sourceManifest.version}, not ${version}.`
+    );
     requireCondition(sourceManifest.private === true, "The source repository manifest must remain private.");
-    requireCondition(builtManifest.name === sourceManifest.name, "The built package name differs from the source manifest.");
-    requireCondition(builtManifest.version === version, `Built package version is ${builtManifest.version}, not ${version}.`);
+    requireCondition(
+        builtManifest.name === sourceManifest.name,
+        "The built package name differs from the source manifest."
+    );
+    requireCondition(
+        builtManifest.version === version,
+        `Built package version is ${builtManifest.version}, not ${version}.`
+    );
     requireCondition(builtManifest.private !== true, "The built package is marked private.");
     requireCondition(
         builtManifest.publishConfig?.access === "public" && builtManifest.publishConfig?.tag === "next",
@@ -43,12 +56,23 @@ export function validateReleaseSelection({
 }
 
 async function main() {
-    const [version, expectedSha, actualSha, sourceRef, confirmation] = process.argv.slice(2);
+    const [version, expectedSha, actualSha, workflowSha, sourceRef, confirmation] = process.argv.slice(2);
     const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
     const sourceManifest = JSON.parse(await readFile(resolve(root, "package.json"), "utf8"));
     const builtManifest = JSON.parse(await readFile(resolve(root, ".package/package.json"), "utf8"));
-    validateReleaseSelection({ sourceManifest, builtManifest, version, expectedSha, actualSha, sourceRef, confirmation });
-    console.log(`Validated ${sourceManifest.name}@${version} from ${sourceRef} at ${actualSha} for staged publication.`);
+    validateReleaseSelection({
+        sourceManifest,
+        builtManifest,
+        version,
+        expectedSha,
+        actualSha,
+        workflowSha,
+        sourceRef,
+        confirmation,
+    });
+    console.log(
+        `Validated ${sourceManifest.name}@${version} from ${sourceRef} at ${actualSha} for staged publication.`
+    );
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

@@ -28,27 +28,39 @@ function validSelection(overrides = {}) {
         version,
         expectedSha: sha,
         actualSha: sha,
-        sourceRef: "refs/heads/release/commonlib-0.1.0-rc.0",
+        workflowSha: sha,
+        sourceRef: "refs/heads/main",
         confirmation: `stage @vrtmrz/livesync-commonlib@${version} from ${sha}`,
         ...selectionOverrides,
     };
 }
 
 describe("release selection", () => {
-    it("accepts an exact reviewed prerelease from a branch", () => {
+    it("accepts an exact reviewed prerelease from main", () => {
         assert.doesNotThrow(() => validateReleaseSelection(validSelection()));
     });
 
     it("accepts a stable version from main while retaining the next publication gate", () => {
-        assert.doesNotThrow(() =>
-            validateReleaseSelection(validSelection({ version: "0.1.0", sourceRef: "refs/heads/main" }))
+        assert.doesNotThrow(() => validateReleaseSelection(validSelection({ version: "0.1.0" })));
+    });
+
+    it("rejects a prerelease selected from a non-main branch", () => {
+        assert.throws(
+            () => validateReleaseSelection(validSelection({ sourceRef: "refs/heads/release/commonlib-0.1.0-rc.0" })),
+            /All releases must be selected from refs\/heads\/main/u
         );
     });
 
-    it("rejects a stable version selected from a non-main branch", () => {
+    it("rejects a stable release selected from a non-main branch", () => {
         assert.throws(
-            () => validateReleaseSelection(validSelection({ version: "0.1.0" })),
-            /Stable releases must be selected from refs\/heads\/main/u
+            () =>
+                validateReleaseSelection(
+                    validSelection({
+                        version: "0.1.0",
+                        sourceRef: "refs/heads/release/commonlib-0.1.0",
+                    })
+                ),
+            /All releases must be selected from refs\/heads\/main/u
         );
     });
 
@@ -63,6 +75,8 @@ describe("release selection", () => {
         ["package proof", { version: "0.1.0-package-proof.8" }, /Package-proof versions/u],
         ["short commit", { expectedSha: "0123456" }, /full lowercase SHA/u],
         ["different commit", { actualSha: "f".repeat(40) }, /workflow is running/u],
+        ["short workflow commit", { workflowSha: "0123456" }, /workflow commit must be a full lowercase SHA/u],
+        ["different workflow commit", { workflowSha: "f".repeat(40) }, /workflow was triggered/u],
         ["source version mismatch", { sourceManifest: { version: "0.1.1", private: true } }, /Source manifest/u],
         ["public source root", { sourceManifest: { private: false } }, /source repository manifest/u],
         ["private output", { builtManifest: { private: true } }, /built package is marked private/u],
