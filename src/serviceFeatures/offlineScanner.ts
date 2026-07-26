@@ -17,7 +17,7 @@ import {
 } from "@lib/common/types";
 
 import { compareMTime, isAnyNote } from "@lib/common/utils";
-import { stripAllPrefixes } from "@lib/string_and_binary/path";
+import { shouldBeIgnored, stripAllPrefixes } from "@lib/string_and_binary/path";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
@@ -205,6 +205,7 @@ export async function collectFilesOnStorage(
     const _filesStorage: UXFileInfoStub[] = [];
 
     for (const f of filesStorageSrc) {
+        if (shouldBeIgnored(f.path)) continue;
         if (await host.services.vault.isTargetFile(f.path)) {
             _filesStorage.push(f);
         }
@@ -243,7 +244,11 @@ export async function collectDatabaseFiles(
             );
         const path = getPathFromEntry(host, doc);
 
-        if (host.services.vault.isValidPath(path) && (await host.services.vault.isTargetFile(path))) {
+        if (
+            host.services.vault.isValidPath(path) &&
+            !shouldBeIgnored(path) &&
+            (await host.services.vault.isTargetFile(path))
+        ) {
             if (!isMetaEntry(doc)) {
                 log(`Invalid entry: ${path}`, LOG_LEVEL_INFO);
                 continue;

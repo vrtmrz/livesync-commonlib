@@ -407,6 +407,37 @@ describe("collectFilesOnStorage", () => {
         expect(result.storageFileNameCI2CS).toHaveProperty("file1.md");
     });
 
+    it("should omit built-in ignored files even when the vault accepts them", async () => {
+        const mockFiles = [
+            { path: "ordinary.md", stat: { size: 100 } },
+            { path: "livesync_log_2024-09-30.md", stat: { size: 200 } },
+            { path: "LIVESYNC_LOG_2024-09-30.md", stat: { size: 300 } },
+            { path: "redflag.md", stat: { size: 0 } },
+        ];
+
+        const host = {
+            services: {
+                context: createServiceContext(),
+                vault: {
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                },
+            },
+            serviceModules: {
+                storageAccess: {
+                    getFiles: vi.fn().mockReturnValue(mockFiles),
+                },
+            },
+        } as any;
+
+        const settings = {
+            handleFilenameCaseSensitive: true,
+        } as ObsidianLiveSyncSettings;
+
+        const result = await collectFilesOnStorage(host, settings, logger);
+
+        expect(result.storageFileNames).toEqual(["ordinary.md"]);
+    });
+
     it("should handle case-insensitive filenames", async () => {
         const mockFiles = [
             { path: "File1.md", stat: { size: 100 } },
@@ -489,6 +520,80 @@ describe("collectDatabaseFiles", () => {
         expect(result.databaseFileNames).toHaveLength(2);
         expect(result.databaseFileNames).toContain("file1.md");
         expect(result.databaseFileNames).toContain("file2.txt");
+    });
+
+    it("should omit built-in ignored documents even when the vault accepts them", async () => {
+        const mockDocs = [
+            {
+                _id: "doc1",
+                path: "ordinary.md",
+                size: 100,
+                type: "newnote",
+                mtime: 1000,
+                ctime: 900,
+                children: [],
+            },
+            {
+                _id: "doc2",
+                path: "livesync_log_2024-09-30.md",
+                size: 200,
+                type: "newnote",
+                mtime: 2000,
+                ctime: 1900,
+                children: [],
+            },
+            {
+                _id: "doc3",
+                path: "LIVESYNC_LOG_2024-09-30.md",
+                size: 300,
+                type: "newnote",
+                mtime: 3000,
+                ctime: 2900,
+                children: [],
+            },
+            {
+                _id: "doc4",
+                path: "redflag.md",
+                size: 0,
+                type: "newnote",
+                mtime: 4000,
+                ctime: 3900,
+                children: [],
+            },
+        ];
+
+        async function* mockFindAllNormalDocs() {
+            for (const doc of mockDocs) {
+                yield doc;
+            }
+        }
+
+        const host = {
+            services: {
+                context: createServiceContext(),
+                vault: {
+                    isValidPath: vi.fn().mockReturnValue(true),
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                },
+                database: {
+                    localDatabase: {
+                        findAllNormalDocs: vi.fn().mockReturnValue(mockFindAllNormalDocs()),
+                    },
+                },
+                path: {
+                    getPath: vi.fn((doc: any) => doc.path),
+                },
+            },
+            serviceModules: {},
+        } as any;
+
+        const settings = {
+            handleFilenameCaseSensitive: true,
+        } as ObsidianLiveSyncSettings;
+
+        const result = await collectDatabaseFiles(host, settings, logger, false);
+
+        expect(result.databaseFileNames).toEqual(["ordinary.md"]);
     });
 });
 
