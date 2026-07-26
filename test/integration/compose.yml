@@ -1,0 +1,31 @@
+name: livesync-commonlib-integration
+
+services:
+  couchdb:
+    image: couchdb:3.5.0
+    environment:
+      COUCHDB_USER: admin
+      COUCHDB_PASSWORD: testpassword
+    ports:
+      - "5989:5984"
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      - minio
+    entrypoint:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+        mc alias set integration http://minio:9000 minioadmin minioadmin
+        mc mb --ignore-existing integration/livesync-test-bucket

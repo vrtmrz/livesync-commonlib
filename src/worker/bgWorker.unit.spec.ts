@@ -1,4 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { createLiveSyncEventHub } from "@lib/hub/hub";
+import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 
 const hoisted = vi.hoisted(() => {
     const createdWorkers: Array<{
@@ -67,7 +69,7 @@ describe("bgWorker", () => {
 
     it("removeTask should be idempotent and clear the task map", async () => {
         const bgWorker = await import("./bgWorker.ts");
-        bgWorker.initialiseWorkerModule();
+        bgWorker.initialiseWorkerModule(createLiveSyncEventHub());
 
         const process = bgWorker.startWorker({
             type: "encrypt",
@@ -84,9 +86,23 @@ describe("bgWorker", () => {
         expect(() => bgWorker.removeTask(process.key)).not.toThrow();
     });
 
+    it("terminates workers only when the supplied event hub unloads", async () => {
+        const bgWorker = await import("./bgWorker.ts");
+        const events = createLiveSyncEventHub();
+        const unrelatedEvents = createLiveSyncEventHub();
+        bgWorker.initialiseWorkerModule(events);
+        const workers = [...hoisted.createdWorkers];
+
+        unrelatedEvents.emitEvent(EVENT_PLATFORM_UNLOADED);
+        expect(workers.every((worker) => worker.terminate.mock.calls.length === 0)).toBe(true);
+
+        events.emitEvent(EVENT_PLATFORM_UNLOADED);
+        expect(workers.every((worker) => worker.terminate.mock.calls.length === 1)).toBe(true);
+    });
+
     it("should abort split tasks and clear task entry when worker crashes", async () => {
         const bgWorker = await import("./bgWorker.ts");
-        bgWorker.initialiseWorkerModule();
+        bgWorker.initialiseWorkerModule(createLiveSyncEventHub());
 
         const process = bgWorker.startWorker({
             type: "split",
@@ -115,7 +131,7 @@ describe("bgWorker", () => {
 
     it("should reject encryption task promise when worker crashes", async () => {
         const bgWorker = await import("./bgWorker.ts");
-        bgWorker.initialiseWorkerModule();
+        bgWorker.initialiseWorkerModule(createLiveSyncEventHub());
 
         const process = bgWorker.startWorker({
             type: "encrypt",

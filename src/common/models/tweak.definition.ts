@@ -18,7 +18,6 @@ export const TweakValuesShouldMatchedTemplate: Partial<ObsidianLiveSyncSettings>
     maxAgeInEden: 10,
     usePluginSyncV2: false,
     handleFilenameCaseSensitive: false,
-    doNotUseFixedRevisionForChunks: true,
     useSegmenter: false,
     E2EEAlgorithm: E2EEAlgorithms.V2,
     chunkSplitterVersion: ChunkAlgorithms.RabinKarp,
@@ -51,10 +50,7 @@ type IncompatibleRecommendationPatterns<T extends TweakKeys> = {
       }
 );
 
-export const IncompatibleChangesInSpecificPattern: IncompatibleRecommendationPatterns<TweakKeys>[] = [
-    { key: "doNotUseFixedRevisionForChunks", from: true, to: false, isRecommendation: true },
-    { key: "doNotUseFixedRevisionForChunks", to: true, isRecommendation: false },
-] as const;
+export const IncompatibleChangesInSpecificPattern: IncompatibleRecommendationPatterns<TweakKeys>[] = [];
 
 export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> = {
     useIgnoreFiles: false,
@@ -74,7 +70,6 @@ export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> =
     enableChunkSplitterV2: false,
     usePluginSyncV2: true,
     handleFilenameCaseSensitive: false,
-    doNotUseFixedRevisionForChunks: false,
     E2EEAlgorithm: E2EEAlgorithms.V2,
     chunkSplitterVersion: ChunkAlgorithms.RabinKarp,
 } satisfies Partial<ObsidianLiveSyncSettings>;

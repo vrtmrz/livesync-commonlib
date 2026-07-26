@@ -11,7 +11,7 @@ import { type AppLifecycleServiceBase } from "./InjectableAppLifecycleService";
 import { InjectableConflictService } from "./InjectableConflictService";
 import { InjectableDatabaseEventService } from "./InjectableDatabaseEventService";
 import { InjectableFileProcessingService } from "./InjectableFileProcessingService";
-import { InjectableRemoteService } from "./InjectableRemoteService";
+import type { InjectableRemoteService } from "./InjectableRemoteService";
 import { InjectableReplicationService } from "./InjectableReplicationService";
 import { InjectableReplicatorService } from "./InjectableReplicatorService";
 import type { InjectableServiceInstances } from "./InjectableServices";
@@ -109,6 +109,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
             ui: UIService<T>;
             config: ConfigService<T>;
             database: DatabaseService<T>;
+            remote: InjectableRemoteService<T>;
             vault: InjectableVaultService<T>;
             keyValueDB: KeyValueDBService<T>;
             replicator: InjectableReplicatorService<T>;
@@ -125,13 +126,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
         this._conflict = services.conflict ?? new InjectableConflictService<T>(context);
         this._appLifecycle = services.appLifecycle;
         this._setting = services.setting;
-        this._remote =
-            services.remote ??
-            new InjectableRemoteService<T>(context, {
-                APIService: this._api,
-                appLifecycle: this._appLifecycle,
-                setting: this._setting,
-            });
+        this._remote = services.remote;
         this._tweakValue = services.tweakValue ?? new InjectableTweakValueService<T>(context);
         this._replication =
             services.replication ??

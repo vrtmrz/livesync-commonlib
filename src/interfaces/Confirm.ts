@@ -1,3 +1,5 @@
+export type ConfirmActionLayout = "auto" | "vertical";
+
 export interface Confirm {
     askYesNo(message: string): Promise<"yes" | "no">;
     askString(title: string, key: string, placeholder: string, isPassword?: boolean): Promise<string | false>;
@@ -15,13 +17,26 @@ export interface Confirm {
         opt: { title?: string; defaultAction: T[number]; timeout?: number }
     ): Promise<T[number] | false>;
 
-    askInPopup(key: string, dialogText: string, anchorCallback: (anchor: HTMLAnchorElement) => void): void;
+    /**
+     * Shows a non-blocking message containing one host-rendered action link.
+     *
+     * Hosts which can display transient UI should keep the message visible for
+     * `durationMs`. Headless hosts may report the message without presenting an
+     * interactive action.
+     */
+    askInPopup(
+        key: string,
+        dialogText: string,
+        anchorCallback: (anchor: HTMLAnchorElement) => void,
+        durationMs?: number
+    ): void;
 
     confirmWithMessage(
         title: string,
         contentMd: string,
         buttons: string[],
         defaultAction: (typeof buttons)[number],
-        timeout?: number
+        timeout?: number,
+        actionLayout?: ConfirmActionLayout
     ): Promise<(typeof buttons)[number] | false>;
 }

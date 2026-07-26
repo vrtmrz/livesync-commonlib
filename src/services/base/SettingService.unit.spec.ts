@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { DEFAULT_SETTINGS, REMOTE_COUCHDB } from "@lib/common/types";
+import { CURRENT_SETTING_VERSION, DEFAULT_SETTINGS, REMOTE_COUCHDB } from "@lib/common/types";
 import { SettingService } from "./SettingService";
 import { ServiceContext } from "./ServiceBase";
 import type { ObsidianLiveSyncSettings } from "@lib/common/types";
@@ -7,11 +7,16 @@ import { ConnectionStringParser } from "@lib/common/ConnectionString";
 
 class TestSettingService extends SettingService<ServiceContext> {
     lastSavedSetting?: ObsidianLiveSyncSettings;
-    protected setItem(_key: string, _value: string): void {}
-    protected getItem(_key: string): string {
-        return "";
+    readonly localItems = new Map<string, string>();
+    protected setItem(key: string, value: string): void {
+        this.localItems.set(key, value);
     }
-    protected deleteItem(_key: string): void {}
+    protected getItem(key: string): string {
+        return this.localItems.get(key) ?? "";
+    }
+    protected deleteItem(key: string): void {
+        this.localItems.delete(key);
+    }
     protected saveData(setting: ObsidianLiveSyncSettings): Promise<void> {
         this.lastSavedSetting = JSON.parse(JSON.stringify(setting));
         return Promise.resolve();
@@ -21,7 +26,7 @@ class TestSettingService extends SettingService<ServiceContext> {
     }
 }
 
-function createService() {
+function createService(onDisplayLanguageChanged?: (language: ObsidianLiveSyncSettings["displayLanguage"]) => void) {
     const service = new TestSettingService(new ServiceContext(), {
         APIService: {
             getSystemVaultName: vi.fn(() => "vault"),
@@ -31,7 +36,8 @@ function createService() {
             },
             addLog: vi.fn(),
         } as any,
-    });
+        onDisplayLanguageChanged,
+    } as any);
     service.settings = {
         ...DEFAULT_SETTINGS,
         remoteConfigurations: {},
@@ -41,6 +47,33 @@ function createService() {
 }
 
 describe("SettingService", () => {
+    it("delegates the loaded display language to the host", async () => {
+        const onDisplayLanguageChanged = vi.fn();
+        const service = createService(onDisplayLanguageChanged);
+        vi.spyOn(service as any, "loadData").mockResolvedValue({
+            ...DEFAULT_SETTINGS,
+            displayLanguage: "ja",
+        });
+
+        await service.loadSettings();
+
+        expect(onDisplayLanguageChanged).toHaveBeenCalledOnce();
+        expect(onDisplayLanguageChanged).toHaveBeenCalledWith("ja");
+    });
+
+    it("exposes exact device-local configuration without placing it in the settings document", () => {
+        const service = createService();
+
+        service.setDeviceLocalConfig("legacy-version-marker", "12");
+
+        expect(service.getDeviceLocalConfig("legacy-version-marker")).toBe("12");
+        expect(service.localItems.get("legacy-version-marker")).toBe("12");
+        expect(service.currentSettings()).not.toHaveProperty("legacy-version-marker");
+
+        service.deleteDeviceLocalConfig("legacy-version-marker");
+        expect(service.getDeviceLocalConfig("legacy-version-marker")).toBe("");
+    });
+
     it("adjustSettings should migrate legacy remote settings into remoteConfigurations", async () => {
         const service = createService();
         const settings = {
@@ -223,6 +256,47 @@ describe("SettingService", () => {
         expect(service.currentSettings().remoteType).toBe(REMOTE_COUCHDB);
         expect(service.currentSettings().P2P_roomID).toBe("123-456-789-abc");
         expect(service.currentSettings().P2P_ActiveRemoteConfigurationId).toBe("p2p");
+    });
+
+    it("loadSettings should persist the detected schema version without changing explicit sync choices", async () => {
+        const service = createService();
+        const storedSettings: Partial<ObsidianLiveSyncSettings> = {
+            ...DEFAULT_SETTINGS,
+            liveSync: true,
+            syncOnSave: true,
+            syncOnStart: true,
+            remoteConfigurations: {
+                couch: {
+                    id: "couch",
+                    name: "CouchDB",
+                    uri: "sls+http://user:password@localhost:5984/?db=vault",
+                    isEncrypted: false,
+                },
+            },
+            activeConfigurationId: "couch",
+        };
+        delete storedSettings.settingVersion;
+        vi.spyOn(service as any, "loadData").mockResolvedValue(storedSettings);
+
+        await service.loadSettings();
+
+        expect(service.lastSavedSetting).toMatchObject({
+            settingVersion: CURRENT_SETTING_VERSION,
+            liveSync: true,
+            syncOnSave: true,
+            syncOnStart: true,
+        });
+    });
+
+    it("keeps a non-empty legacy default-equivalent store unconfigured when isConfigured is absent", async () => {
+        const service = createService();
+        vi.spyOn(service as any, "loadData").mockResolvedValue({
+            liveSync: DEFAULT_SETTINGS.liveSync,
+        });
+
+        await service.loadSettings();
+
+        expect(service.currentSettings().isConfigured).toBe(false);
     });
 
     it("saveSettingData should apply patches from onBeforeSaveSettingData handlers", async () => {

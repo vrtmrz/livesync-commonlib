@@ -17,6 +17,8 @@ import {
 import { type SimpleStore, pickBucketSyncSettings } from "@lib/common/utils.ts";
 import { CheckPointInfoDefault, type CheckPointInfo } from "./JournalSyncTypes.ts";
 import { wrappedDeflate, wrappedInflate } from "@lib/pouchdb/compress.ts";
+import { REMOTE_CHUNK_FETCHED } from "@lib/pouchdb/LiveSyncLocalDB.ts";
+import { createServiceContext } from "@lib/services/base/ServiceBase.ts";
 
 PouchDB.plugin(MemoryAdapter);
 
@@ -27,11 +29,13 @@ describe("JournalSyncCore", () => {
     let mockStorage: IJournalStorage;
     let core: JournalSyncCore;
     let virtualStorage: Map<string, Uint8Array>;
+    let context: ReturnType<typeof createServiceContext>;
 
     beforeEach(async () => {
         dbCounter++;
         localDB = new PouchDB(`test_db_${dbCounter}`, { adapter: "memory" });
         virtualStorage = new Map();
+        context = createServiceContext();
 
         mockStorage = {
             upload: vi.fn(async (file: string, buffer: Uint8Array) => {
@@ -53,6 +57,7 @@ describe("JournalSyncCore", () => {
 
         env = {
             services: {
+                context,
                 database: {
                     localDatabase: {
                         localDatabase: localDB,
@@ -178,6 +183,24 @@ describe("JournalSyncCore", () => {
             const localDoc = await localDB.get("remote_doc");
             expect(localDoc).toBeDefined();
             expect(localDoc._rev).toBe("1-abc");
+        });
+    });
+
+    describe("processDocuments", () => {
+        it("announces fetched chunks through the owning service context", async () => {
+            const listener = vi.fn();
+            context.events.onEvent(REMOTE_CHUNK_FETCHED, listener);
+
+            await core.processDocuments([
+                {
+                    _id: "h:chunk" as DocumentID,
+                    _rev: "1-chunk",
+                    type: "leaf",
+                    data: "chunk-data",
+                },
+            ]);
+
+            expect(listener).toHaveBeenCalledWith(expect.objectContaining({ _id: "h:chunk" }));
         });
     });
 });

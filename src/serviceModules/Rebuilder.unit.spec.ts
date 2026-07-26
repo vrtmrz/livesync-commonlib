@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
-import { REMOTE_COUCHDB } from "@lib/common/models/setting.const";
+import { REMOTE_COUCHDB, REMOTE_P2P } from "@lib/common/models/setting.const";
+import { FlagFilesHumanReadable } from "@lib/common/models/redflag.const";
 import { ServiceRebuilder } from "./Rebuilder";
+import { createLiveSyncEventHub } from "@lib/hub/hub";
+import { EVENT_DATABASE_REBUILT } from "@lib/events/coreEvents";
 
 const fetchChangesForInitialSyncMock = vi.hoisted(() => vi.fn());
 
@@ -44,6 +47,7 @@ function createRebuilder() {
         }
     });
     const services = {
+        events: createLiveSyncEventHub(),
         API: {
             addLog: vi.fn(),
             getAppID: vi.fn(() => "app"),
@@ -95,6 +99,8 @@ function createRebuilder() {
         },
         appLifecycle: {
             markIsReady: vi.fn(),
+            performRestart: vi.fn(),
+            setSuspended: vi.fn(),
         },
         UI: {
             showMarkdownDialog: vi.fn(async () => "OK"),
@@ -105,6 +111,8 @@ function createRebuilder() {
         remote: {},
         storageAccess: {
             clearTouched: vi.fn(),
+            writeFileAuto: vi.fn(async () => undefined),
+            delete: vi.fn(async () => undefined),
         },
         vault: {
             scanVault: vi.fn(async () => undefined),
@@ -122,6 +130,70 @@ function createRebuilder() {
         runBoundedRemoteActivity,
     };
 }
+
+describe("ServiceRebuilder scheduled restart flags", () => {
+    it.each([
+        ["Fetch", "scheduleFetch", FlagFilesHumanReadable.FETCH_ALL],
+        ["Rebuild", "scheduleRebuild", FlagFilesHumanReadable.REBUILD_ALL],
+    ] as const)("writes the %s flag and prepares state before requesting a restart", async (_name, method, flag) => {
+        const { rebuilder, services } = createRebuilder();
+        const prepare = vi.fn(async () => undefined);
+
+        await expect(rebuilder[method](prepare)).resolves.toBe(true);
+
+        expect(services.storageAccess.writeFileAuto).toHaveBeenCalledWith(flag, "");
+        expect(services.storageAccess.writeFileAuto.mock.invocationCallOrder[0]).toBeLessThan(
+            services.appLifecycle.setSuspended.mock.invocationCallOrder[0]
+        );
+        expect(services.appLifecycle.setSuspended).toHaveBeenCalledWith(true);
+        expect(services.appLifecycle.setSuspended.mock.invocationCallOrder[0]).toBeLessThan(
+            prepare.mock.invocationCallOrder[0]
+        );
+        expect(prepare.mock.invocationCallOrder[0]).toBeLessThan(
+            services.appLifecycle.performRestart.mock.invocationCallOrder[0]
+        );
+    });
+
+    it.each([
+        ["Fetch", "scheduleFetch"],
+        ["Rebuild", "scheduleRebuild"],
+    ] as const)("does not restart when the %s flag cannot be written", async (_name, method) => {
+        const { rebuilder, services } = createRebuilder();
+        services.storageAccess.writeFileAuto.mockRejectedValueOnce(new Error("read-only Vault"));
+
+        await expect(rebuilder[method]()).resolves.toBe(false);
+
+        expect(services.appLifecycle.setSuspended).not.toHaveBeenCalled();
+        expect(services.appLifecycle.performRestart).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["Fetch", "scheduleFetch", FlagFilesHumanReadable.FETCH_ALL],
+        ["Rebuild", "scheduleRebuild", FlagFilesHumanReadable.REBUILD_ALL],
+    ] as const)("cleans up the %s flag when preparation fails", async (_name, method, flag) => {
+        const { rebuilder, services } = createRebuilder();
+        const error = new Error("settings could not be saved");
+
+        await expect(rebuilder[method](async () => Promise.reject(error))).rejects.toBe(error);
+
+        expect(services.storageAccess.delete).toHaveBeenCalledWith(flag, true);
+        expect(services.appLifecycle.setSuspended).toHaveBeenNthCalledWith(1, true);
+        expect(services.appLifecycle.setSuspended).toHaveBeenNthCalledWith(2, false);
+        expect(services.appLifecycle.performRestart).not.toHaveBeenCalled();
+    });
+});
+
+describe("ServiceRebuilder event isolation", () => {
+    it("announces a database reset through its injected event hub", async () => {
+        const { rebuilder, services } = createRebuilder();
+        const listener = vi.fn();
+        services.events.onEvent(EVENT_DATABASE_REBUILT, listener);
+
+        await rebuilder.resetLocalDatabase();
+
+        expect(listener).toHaveBeenCalledOnce();
+    });
+});
 
 describe("ServiceRebuilder fast fetch retry", () => {
     it("retries from the latest checkpoint after a transient fast fetch failure", async () => {
@@ -162,6 +234,25 @@ describe("ServiceRebuilder fast fetch retry", () => {
 });
 
 describe("ServiceRebuilder bounded remote activity", () => {
+    it("initialises a first P2P device without attempting to reset or upload to a non-existent remote database", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.remoteType = REMOTE_P2P;
+        const p2pReplicator = {
+            tryResetRemoteDatabase: vi.fn(async () => {
+                throw new Error("P2P replication does not support database reset.");
+            }),
+        };
+        services.replicator.getActiveReplicator.mockReturnValue(p2pReplicator);
+
+        await expect(rebuilder.$rebuildEverything()).resolves.toBeUndefined();
+
+        expect(services.database.resetDatabase).toHaveBeenCalled();
+        expect(services.databaseEvents.initialiseDatabase).toHaveBeenCalledWith(true, true, true);
+        expect(p2pReplicator.tryResetRemoteDatabase).not.toHaveBeenCalled();
+        expect(services.replication.markLocked).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllToRemote).not.toHaveBeenCalled();
+    });
+
     it("protects a remote rebuild but releases the activity before the completion dialogue", async () => {
         const { rebuilder, services, activityFinished, runBoundedRemoteActivity } = createRebuilder();
 
@@ -171,6 +262,8 @@ describe("ServiceRebuilder bounded remote activity", () => {
             label: "rebuild-remote",
         });
         expect(services.replication.replicateAllToRemote).toHaveBeenCalledTimes(2);
+        expect(services.replication.replicateAllToRemote).toHaveBeenNthCalledWith(1, true);
+        expect(services.replication.replicateAllToRemote).toHaveBeenNthCalledWith(2, true);
         expect(services.replication.replicateAllToRemote.mock.invocationCallOrder[1]).toBeLessThan(
             activityFinished.mock.invocationCallOrder[0]
         );
@@ -189,6 +282,8 @@ describe("ServiceRebuilder bounded remote activity", () => {
         });
         expect(services.databaseEvents.initialiseDatabase).toHaveBeenCalled();
         expect(services.replication.replicateAllToRemote).toHaveBeenCalledTimes(2);
+        expect(services.replication.replicateAllToRemote).toHaveBeenNthCalledWith(1, true);
+        expect(services.replication.replicateAllToRemote).toHaveBeenNthCalledWith(2, true);
         expect(services.replication.replicateAllToRemote.mock.invocationCallOrder[1]).toBeLessThan(
             activityFinished.mock.invocationCallOrder[0]
         );
@@ -207,6 +302,16 @@ describe("ServiceRebuilder bounded remote activity", () => {
         expect(services.vault.scanVault.mock.invocationCallOrder[0]).toBeLessThan(
             activityFinished.mock.invocationCallOrder[0]
         );
+    });
+
+    it("completes a P2P fetch with one explicit peer-selection pass", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.remoteType = REMOTE_P2P;
+
+        await rebuilder.$fetchLocal(false, true);
+
+        expect(services.replication.replicateAllFromRemote).toHaveBeenCalledOnce();
+        expect(services.vault.scanVault).toHaveBeenCalledWith(true);
     });
 
     it("does not start protected activity while waiting for restricted-fetch confirmation", async () => {

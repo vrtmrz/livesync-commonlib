@@ -1,13 +1,11 @@
 import type { Confirm } from "@lib/interfaces/Confirm";
-import type { ComponentHasResult, SvelteDialogManagerBase } from "@lib/UI/svelteDialog";
+import type { ComponentHasResult, SvelteDialogManager } from "@lib/services/implements/base/SvelteDialog";
 import type { IAPIService, IUIService } from "@lib/services/base/IService";
 
-import { type AppLifecycleService } from "@lib/services/base/AppLifecycleService.ts";
 import { ServiceBase, type ServiceContext } from "@lib/services/base/ServiceBase";
 
 export type UIServiceDependencies<T extends ServiceContext = ServiceContext> = {
-    appLifecycle: AppLifecycleService<T>;
-    dialogManager: SvelteDialogManagerBase<T>;
+    dialogManager: SvelteDialogManager<T>;
     APIService: IAPIService;
 };
 
@@ -21,7 +19,7 @@ export abstract class UIService<T extends ServiceContext = ServiceContext>
     extends ServiceBase<T>
     implements IUIService
 {
-    private _dialogManager: SvelteDialogManagerBase<T>;
+    private _dialogManager: SvelteDialogManager<T>;
     protected _APIService: IAPIService;
     abstract get dialogToCopy(): ComponentHasResult<DialogResult, DialogParams>;
     constructor(context: T, dependents: UIServiceDependencies<T>) {
@@ -29,7 +27,7 @@ export abstract class UIService<T extends ServiceContext = ServiceContext>
         this._dialogManager = dependents.dialogManager;
         this._APIService = dependents.APIService;
     }
-    get dialogManager(): SvelteDialogManagerBase<T> {
+    get dialogManager(): SvelteDialogManager<T> {
         return this._dialogManager;
     }
 

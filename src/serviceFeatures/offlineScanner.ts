@@ -17,10 +17,9 @@ import {
 } from "@lib/common/types";
 
 import { compareMTime, isAnyNote } from "@lib/common/utils";
-import { stripAllPrefixes } from "@lib/string_and_binary/path";
+import { shouldBeIgnored, stripAllPrefixes } from "@lib/string_and_binary/path";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
-import { eventHub } from "@lib/hub/hub";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
@@ -118,7 +117,7 @@ export async function syncFileBetweenDBandStorage(
             if (!host.services.vault.isFileSizeTooLarge(doc.size)) {
                 log("STORAGE <- DB :" + docPath);
                 if (await host.serviceModules.fileHandler.dbToStorage(doc, stripAllPrefixes(docPath), false)) {
-                    eventHub.emitEvent("event-file-changed", {
+                    host.services.context.events.emitEvent("event-file-changed", {
                         file: file.path,
                         automated: true,
                     });
@@ -206,6 +205,7 @@ export async function collectFilesOnStorage(
     const _filesStorage: UXFileInfoStub[] = [];
 
     for (const f of filesStorageSrc) {
+        if (shouldBeIgnored(f.path)) continue;
         if (await host.services.vault.isTargetFile(f.path)) {
             _filesStorage.push(f);
         }
@@ -244,7 +244,11 @@ export async function collectDatabaseFiles(
             );
         const path = getPathFromEntry(host, doc);
 
-        if (host.services.vault.isValidPath(path) && (await host.services.vault.isTargetFile(path))) {
+        if (
+            host.services.vault.isValidPath(path) &&
+            !shouldBeIgnored(path) &&
+            (await host.services.vault.isTargetFile(path))
+        ) {
             if (!isMetaEntry(doc)) {
                 log(`Invalid entry: ${path}`, LOG_LEVEL_INFO);
                 continue;
@@ -272,7 +276,7 @@ export async function updateToDatabase(
     if (!host.services.vault.isFileSizeTooLarge(file.stat.size)) {
         const path = file.path;
         await host.serviceModules.fileHandler.storeFileToDB(file);
-        eventHub.emitEvent("event-file-changed", { file: path, automated: true });
+        host.services.context.events.emitEvent("event-file-changed", { file: path, automated: true });
     } else {
         log(`UPDATE DATABASE: ${file.path} has been skipped due to file size exceeding the limit`, logLevel);
     }
@@ -294,7 +298,7 @@ export async function updateToStorage(
                 return;
             }
             await host.serviceModules.fileHandler.dbToStorage(path, null, true);
-            eventHub.emitEvent("event-file-changed", {
+            host.services.context.events.emitEvent("event-file-changed", {
                 file: path,
                 automated: true,
             });
@@ -796,7 +800,7 @@ export function useOfflineScanner(
     >
 ) {
     const log = createInstanceLogFunction("SF:OfflineScanner", host.services.API);
-    const errorManager = new UnresolvedErrorManager(host.services.appLifecycle);
+    const errorManager = new UnresolvedErrorManager(host.services.appLifecycle, host.services.context.events);
 
     // Handler for vault scanning
     const handleScanVault = async (showingNotice?: boolean, ignoreSuspending: boolean = false): Promise<boolean> => {

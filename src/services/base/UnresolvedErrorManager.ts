@@ -1,7 +1,8 @@
-import { eventHub, EVENT_ON_UNRESOLVED_ERROR } from "@/common/events";
+import { EVENT_ON_UNRESOLVED_ERROR } from "@lib/events/coreEvents";
 import { type LOG_LEVEL, LEVEL_NOTICE, LEVEL_INFO } from "octagonal-wheels/common/logger";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import type { AppLifecycleService } from "./AppLifecycleService";
+import type { LiveSyncEventHub } from "@lib/hub/hub";
 
 export class UnresolvedErrorManager {
     private _log = createInstanceLogFunction("UnresolvedErrorManager");
@@ -13,7 +14,7 @@ export class UnresolvedErrorManager {
         this._log(msg, level);
         if (!this._occurredErrors.has(msg)) {
             this._occurredErrors.add(msg);
-            eventHub.emitEvent(EVENT_ON_UNRESOLVED_ERROR);
+            this.events.emitEvent(EVENT_ON_UNRESOLVED_ERROR);
         }
     }
 
@@ -22,11 +23,11 @@ export class UnresolvedErrorManager {
             return;
         }
         this._occurredErrors.delete(msg);
-        eventHub.emitEvent(EVENT_ON_UNRESOLVED_ERROR);
+        this.events.emitEvent(EVENT_ON_UNRESOLVED_ERROR);
     }
     clearErrors() {
         this._occurredErrors.clear();
-        eventHub.emitEvent(EVENT_ON_UNRESOLVED_ERROR);
+        this.events.emitEvent(EVENT_ON_UNRESOLVED_ERROR);
     }
 
     countErrors(needle: string) {
@@ -39,7 +40,10 @@ export class UnresolvedErrorManager {
         return Promise.resolve(Array.from(this._occurredErrors));
     }
 
-    constructor(appLifecycleService: AppLifecycleService) {
+    constructor(
+        appLifecycleService: AppLifecycleService,
+        private readonly events: LiveSyncEventHub
+    ) {
         this.appLifecycleService = appLifecycleService;
         this.appLifecycleService.getUnresolvedMessages.addHandler(this._reportUnresolvedMessages.bind(this));
     }

@@ -26,6 +26,7 @@ import { type LogFunction, createInstanceLogFunction } from "@lib/services/lib/l
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import type { MetaEntry, UXFileInfoStub, FilePathWithPrefix, ObsidianLiveSyncSettings } from "@lib/common/types";
 import { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE } from "@lib/common/types";
+import { createServiceContext } from "@lib/services/base/ServiceBase";
 
 const APIServiceMock = {
     addLog(message: string, level?: any) {
@@ -75,6 +76,7 @@ describe("getPathFromEntry", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 path: mockPath,
             },
             serviceModules: {},
@@ -106,6 +108,7 @@ describe("canProceedScan", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 keyValueDB: {},
                 setting: {
                     currentSettings: () => ({
@@ -130,6 +133,7 @@ describe("canProceedScan", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 keyValueDB: {},
                 setting: {
                     currentSettings: () => ({
@@ -156,6 +160,7 @@ describe("canProceedScan", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 keyValueDB: {},
                 setting: {
                     currentSettings: () => ({
@@ -182,6 +187,7 @@ describe("canProceedScan", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 keyValueDB: {},
                 setting: {
                     currentSettings: () => ({
@@ -208,6 +214,7 @@ describe("canProceedScan", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 keyValueDB: {},
                 setting: {
                     currentSettings: () => ({
@@ -237,6 +244,7 @@ describe("collectDeletedFiles", () => {
     it("should skip collection if limitDays is <= 0", async () => {
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         automaticallyDeleteMetadataOfDeletedFiles: 0,
@@ -286,6 +294,7 @@ describe("collectDeletedFiles", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         automaticallyDeleteMetadataOfDeletedFiles: 30,
@@ -331,6 +340,7 @@ describe("collectDeletedFiles", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         automaticallyDeleteMetadataOfDeletedFiles: 30,
@@ -372,6 +382,7 @@ describe("collectFilesOnStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isTargetFile: isTargetFileMock,
                 },
@@ -396,6 +407,37 @@ describe("collectFilesOnStorage", () => {
         expect(result.storageFileNameCI2CS).toHaveProperty("file1.md");
     });
 
+    it("should omit built-in ignored files even when the vault accepts them", async () => {
+        const mockFiles = [
+            { path: "ordinary.md", stat: { size: 100 } },
+            { path: "livesync_log_2024-09-30.md", stat: { size: 200 } },
+            { path: "LIVESYNC_LOG_2024-09-30.md", stat: { size: 300 } },
+            { path: "redflag.md", stat: { size: 0 } },
+        ];
+
+        const host = {
+            services: {
+                context: createServiceContext(),
+                vault: {
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                },
+            },
+            serviceModules: {
+                storageAccess: {
+                    getFiles: vi.fn().mockReturnValue(mockFiles),
+                },
+            },
+        } as any;
+
+        const settings = {
+            handleFilenameCaseSensitive: true,
+        } as ObsidianLiveSyncSettings;
+
+        const result = await collectFilesOnStorage(host, settings, logger);
+
+        expect(result.storageFileNames).toEqual(["ordinary.md"]);
+    });
+
     it("should handle case-insensitive filenames", async () => {
         const mockFiles = [
             { path: "File1.md", stat: { size: 100 } },
@@ -404,6 +446,7 @@ describe("collectFilesOnStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isTargetFile: vi.fn().mockResolvedValue(true),
                 },
@@ -451,6 +494,7 @@ describe("collectDatabaseFiles", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isValidPath: vi.fn().mockReturnValue(true),
                     isTargetFile: vi.fn().mockResolvedValue(true),
@@ -477,6 +521,80 @@ describe("collectDatabaseFiles", () => {
         expect(result.databaseFileNames).toContain("file1.md");
         expect(result.databaseFileNames).toContain("file2.txt");
     });
+
+    it("should omit built-in ignored documents even when the vault accepts them", async () => {
+        const mockDocs = [
+            {
+                _id: "doc1",
+                path: "ordinary.md",
+                size: 100,
+                type: "newnote",
+                mtime: 1000,
+                ctime: 900,
+                children: [],
+            },
+            {
+                _id: "doc2",
+                path: "livesync_log_2024-09-30.md",
+                size: 200,
+                type: "newnote",
+                mtime: 2000,
+                ctime: 1900,
+                children: [],
+            },
+            {
+                _id: "doc3",
+                path: "LIVESYNC_LOG_2024-09-30.md",
+                size: 300,
+                type: "newnote",
+                mtime: 3000,
+                ctime: 2900,
+                children: [],
+            },
+            {
+                _id: "doc4",
+                path: "redflag.md",
+                size: 0,
+                type: "newnote",
+                mtime: 4000,
+                ctime: 3900,
+                children: [],
+            },
+        ];
+
+        async function* mockFindAllNormalDocs() {
+            for (const doc of mockDocs) {
+                yield doc;
+            }
+        }
+
+        const host = {
+            services: {
+                context: createServiceContext(),
+                vault: {
+                    isValidPath: vi.fn().mockReturnValue(true),
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                },
+                database: {
+                    localDatabase: {
+                        findAllNormalDocs: vi.fn().mockReturnValue(mockFindAllNormalDocs()),
+                    },
+                },
+                path: {
+                    getPath: vi.fn((doc: any) => doc.path),
+                },
+            },
+            serviceModules: {},
+        } as any;
+
+        const settings = {
+            handleFilenameCaseSensitive: true,
+        } as ObsidianLiveSyncSettings;
+
+        const result = await collectDatabaseFiles(host, settings, logger, false);
+
+        expect(result.databaseFileNames).toEqual(["ordinary.md"]);
+    });
 });
 
 describe("updateToDatabase", () => {
@@ -491,6 +609,7 @@ describe("updateToDatabase", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -517,6 +636,7 @@ describe("updateToDatabase", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(true),
                 },
@@ -552,6 +672,7 @@ describe("updateToStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -585,6 +706,7 @@ describe("updateToStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -617,6 +739,7 @@ describe("updateToStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -658,6 +781,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -704,6 +828,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -751,6 +876,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -799,6 +925,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -839,6 +966,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -880,6 +1008,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(true),
                 },
@@ -925,6 +1054,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(true),
                 },
@@ -975,6 +1105,7 @@ describe("syncStorageAndDatabase", () => {
     it("should skip sync if document has conflicts", async () => {
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn().mockReturnValue(false),
                 },
@@ -1004,6 +1135,7 @@ describe("syncStorageAndDatabase", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn((size: number) => size > 1000),
                 },
@@ -1036,6 +1168,7 @@ describe("syncStorageAndDatabase", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 vault: {
                     isFileSizeTooLarge: vi.fn((size: number) => size > 10000),
                 },
@@ -1237,6 +1370,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         handleFilenameCaseSensitive: true,
@@ -1308,6 +1442,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         handleFilenameCaseSensitive: true,
@@ -1372,6 +1507,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         handleFilenameCaseSensitive: true,
@@ -1431,6 +1567,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         handleFilenameCaseSensitive: true,
@@ -1488,6 +1625,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         handleFilenameCaseSensitive: true,
@@ -1551,6 +1689,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         handleFilenameCaseSensitive: true,
@@ -1618,6 +1757,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         handleFilenameCaseSensitive: true,
@@ -1676,6 +1816,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
             const host = {
                 services: {
+                    context: createServiceContext(),
                     setting: {
                         currentSettings: () => ({
                             handleFilenameCaseSensitive: true,
@@ -1742,6 +1883,7 @@ describe("performFullScan", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         isConfigured: false,
@@ -1781,6 +1923,7 @@ describe("performFullScan", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         isConfigured: true,
@@ -1853,6 +1996,7 @@ describe("performFullScan", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 setting: {
                     currentSettings: () => ({
                         isConfigured: true,
@@ -1929,6 +2073,7 @@ describe("prepareDatabaseForUse", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 appLifecycle: {
                     resetIsReady: vi.fn(),
                     markIsReady: markIsReadyMock,
@@ -1970,6 +2115,7 @@ describe("prepareDatabaseForUse", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 appLifecycle: {
                     resetIsReady: vi.fn(),
                     markIsReady: vi.fn(),
@@ -2012,6 +2158,7 @@ describe("useOfflineScanner", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 API: APIServiceMock,
                 appLifecycle: {
                     getUnresolvedMessages: {

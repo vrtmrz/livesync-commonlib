@@ -1,5 +1,5 @@
 import { FlagFilesHumanReadable } from "@lib/common/models/redflag.const";
-import { REMOTE_COUCHDB, REMOTE_MINIO } from "@lib/common/models/setting.const";
+import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
 import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
 import type { IFileHandler } from "@lib/interfaces/FileHandler";
 import type { APIService } from "@lib/services/base/APIService";
@@ -16,7 +16,7 @@ import type { Rebuilder } from "@lib/interfaces/DatabaseRebuilder";
 import type { StorageAccess } from "@lib/interfaces/StorageAccess";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 import { delay } from "octagonal-wheels/promises";
-import { eventHub } from "@lib/hub/hub";
+import type { LiveSyncEventHub } from "@lib/hub/hub";
 import { EVENT_DATABASE_REBUILT } from "@lib/events/coreEvents";
 import { ServiceModuleBase } from "@lib/serviceModules/ServiceModuleBase";
 import type { ControlService } from "@lib/services/base/ControlService";
@@ -34,6 +34,7 @@ type FastFetchCheckpoint = {
 };
 
 export interface ServiceRebuilderDependencies {
+    events: LiveSyncEventHub;
     appLifecycle: AppLifecycleService;
     API: APIService;
     UI: UIService;
@@ -50,6 +51,7 @@ export interface ServiceRebuilderDependencies {
 }
 
 export class ServiceRebuilder extends ServiceModuleBase<ServiceRebuilderDependencies> implements Rebuilder {
+    private events: LiveSyncEventHub;
     private appLifecycle: AppLifecycleService;
     private API: APIService;
     private UI: UIService;
@@ -65,6 +67,7 @@ export class ServiceRebuilder extends ServiceModuleBase<ServiceRebuilderDependen
     private control: ControlService;
     constructor(services: ServiceRebuilderDependencies) {
         super(services);
+        this.events = services.events;
         this.appLifecycle = services.appLifecycle;
         this.API = services.API;
         this.UI = services.UI;
@@ -109,17 +112,6 @@ Please enable them from the settings screen after setup is complete.`,
             ["OK"]
         );
     }
-    async askUsingOptionalFeature(opt: { enableFetch?: boolean; enableOverwrite?: boolean }) {
-        if (
-            (await this.UI.confirm.askYesNoDialog(
-                "Do you want to enable extra features? If you are new to Self-hosted LiveSync, try the core feature first!",
-                { title: "Enable extra features", defaultOption: "No", timeout: 15 }
-            )) == "yes"
-        ) {
-            await this.setting.suggestOptionalFeatures(opt);
-        }
-    }
-
     async rebuildRemote() {
         await this.replicator.runBoundedRemoteActivity(() => this.performRemoteRebuild(), {
             label: "rebuild-remote",
@@ -140,11 +132,12 @@ Please enable them from the settings screen after setup is complete.`,
         await this._tryResetRemoteDatabase();
         await this.replication.markLocked();
         await delay(500);
-        // await this.askUsingOptionalFeature({ enableOverwrite: true });
         await delay(1000);
         await this.replication.replicateAllToRemote(true);
         await delay(1000);
-        await this.replication.replicateAllToRemote(true, true);
+        // The second standard pass predates the removed bulk pre-send path. It converges follow-up
+        // writes and conflict resolutions which the first pass may produce after a remote reset.
+        await this.replication.replicateAllToRemote(true);
     }
     $rebuildRemote(): Promise<void> {
         return this.rebuildRemote();
@@ -168,16 +161,22 @@ Please enable them from the settings screen after setup is complete.`,
         await this.resetLocalDatabase();
         await delay(1000);
         await this.databaseEvents.initialiseDatabase(true, true, true);
+        if (this.setting.currentSettings().remoteType === REMOTE_P2P) {
+            // P2P has no central remote database to lock, reset, or seed. The
+            // first device still needs the same local database initialisation
+            // as other new-user workflows before it can host a peer session.
+            return;
+        }
         await this.replication.markLocked();
         await this._tryResetRemoteDatabase();
         await this.replication.markLocked();
         await delay(500);
         // We do not have any other devices' data, so we do not need to ask for overwriting.
-        // await this.askUsingOptionalFeature({ enableOverwrite: false });
         await delay(1000);
         await this.replication.replicateAllToRemote(true);
         await delay(1000);
-        await this.replication.replicateAllToRemote(true, true);
+        // Preserve the same convergence pass used by a remote-only rebuild.
+        await this.replication.replicateAllToRemote(true);
     }
 
     $rebuildEverything(): Promise<void> {
@@ -192,23 +191,39 @@ Please enable them from the settings screen after setup is complete.`,
         return this.fetchLocalDBFast(autoResume);
     }
 
-    async scheduleRebuild(): Promise<void> {
+    private async scheduleInitialisation(flag: string, prepareBeforeRestart?: () => Promise<void>): Promise<boolean> {
         try {
-            await this.storageAccess.writeFileAuto(FlagFilesHumanReadable.REBUILD_ALL, "");
+            await this.storageAccess.writeFileAuto(flag, "");
         } catch (ex) {
-            this._log(`Could not create ${FlagFilesHumanReadable.REBUILD_ALL}`, LOG_LEVEL_NOTICE);
+            this._log(`Could not create ${flag}`, LOG_LEVEL_NOTICE);
             this._log(ex, LOG_LEVEL_VERBOSE);
+            return false;
         }
+
+        this.appLifecycle.setSuspended(true);
+        try {
+            await prepareBeforeRestart?.();
+        } catch (ex) {
+            try {
+                await this.storageAccess.delete(flag, true);
+            } catch (cleanupError) {
+                this._log(`Could not remove ${flag} after restart preparation failed`, LOG_LEVEL_NOTICE);
+                this._log(cleanupError, LOG_LEVEL_VERBOSE);
+            }
+            this.appLifecycle.setSuspended(false);
+            throw ex;
+        }
+
         this.appLifecycle.performRestart();
+        return true;
     }
-    async scheduleFetch(): Promise<void> {
-        try {
-            await this.storageAccess.writeFileAuto(FlagFilesHumanReadable.FETCH_ALL, "");
-        } catch (ex) {
-            this._log(`Could not create ${FlagFilesHumanReadable.FETCH_ALL}`, LOG_LEVEL_NOTICE);
-            this._log(ex, LOG_LEVEL_VERBOSE);
-        }
-        this.appLifecycle.performRestart();
+
+    scheduleRebuild(prepareBeforeRestart?: () => Promise<void>): Promise<boolean> {
+        return this.scheduleInitialisation(FlagFilesHumanReadable.REBUILD_ALL, prepareBeforeRestart);
+    }
+
+    scheduleFetch(prepareBeforeRestart?: () => Promise<void>): Promise<boolean> {
+        return this.scheduleInitialisation(FlagFilesHumanReadable.FETCH_ALL, prepareBeforeRestart);
     }
 
     private async _tryResetRemoteDatabase(): Promise<void> {
@@ -342,8 +357,10 @@ Are you sure you wish to proceed?`;
         await this.replication.markResolved();
         await delay(500);
         await this.replication.replicateAllFromRemote(true);
-        await delay(1000);
-        await this.replication.replicateAllFromRemote(true);
+        if (this.setting.currentSettings().remoteType !== REMOTE_P2P) {
+            await delay(1000);
+            await this.replication.replicateAllFromRemote(true);
+        }
         if (autoResume) {
             await this.finishRebuild();
         }
@@ -370,7 +387,10 @@ Are you sure you wish to proceed?`;
         });
     }
 
-    private async performFetchLocalDBFast(settings: ReturnType<SettingService["currentSettings"]>, autoResume: boolean) {
+    private async performFetchLocalDBFast(
+        settings: ReturnType<SettingService["currentSettings"]>,
+        autoResume: boolean
+    ) {
         const remote =
             settings.couchDB_URI.replace(/\/+$/, "") +
             (settings.couchDB_DBNAME == "" ? "" : "/" + settings.couchDB_DBNAME);
@@ -507,7 +527,7 @@ Are you sure you wish to proceed?`;
         const suffix = this.API.getAppID() || "";
         await this.setting.applyPartial({ additionalSuffixOfDatabaseName: suffix });
         await this.database.resetDatabase();
-        eventHub.emitEvent(EVENT_DATABASE_REBUILT);
+        this.events.emitEvent(EVENT_DATABASE_REBUILT);
     }
 
     private getFastFetchCheckpoint(remote: string): FastFetchCheckpoint | undefined {

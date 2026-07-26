@@ -73,7 +73,7 @@ export class ChunkFetcher {
         const claimedIds = this.ensureClaims(ids);
         this.queue = unique([...this.queue, ...claimedIds]);
         if (this.canRequestMore()) {
-            compatGlobal.setTimeout(() => void this.requestMissingChunks(), 1);
+            compatGlobal.setTimeout((): void => void this.requestMissingChunks(), 1);
         }
     }
 
@@ -281,7 +281,7 @@ export class ChunkFetcher {
             if (this.queue.length > 0) {
                 // If there are remaining items in the queue, trigger the next process.
                 // Use setTimeout to release the call stack once.
-                compatGlobal.setTimeout(() => void this.requestMissingChunks(), 0);
+                compatGlobal.setTimeout((): void => void this.requestMissingChunks(), 0);
             }
         }
     }

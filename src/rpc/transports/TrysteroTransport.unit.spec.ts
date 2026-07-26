@@ -30,55 +30,50 @@ const { MockRoom, createdRooms, mockJoinRoom, mockMixedHash, MOCK_SELF_ID } = vi
     class MockRoom {
         peer?: MockRoom;
         readonly id: string;
-        private joinHandlers: Array<(peerId: string) => void> = [];
-        private leaveHandlers: Array<(peerId: string) => void> = [];
-        /** Keyed by action name — stores the arrived-handler registered by the consumer. */
-        actionHandlers = new Map<string, (data: unknown, peerId: string) => void>();
+        onPeerJoin: ((peerId: string) => void) | null = null;
+        onPeerLeave: ((peerId: string) => void) | null = null;
+        /** Keyed by action name — stores the message action registered by the consumer. */
+        actionHandlers = new Map<
+            string,
+            { onMessage: ((data: unknown, context: { peerId: string }) => void | Promise<void>) | null }
+        >();
 
         constructor(id = "room") {
             this.id = id;
         }
 
-        /** Simulate room.makeAction<T>(name): [sender, receiver] */
-        makeAction<T>(
-            name: string
-        ): [(data: T, peerId?: string) => Promise<void>, (handler: (data: T, peerId: string) => void) => void] {
+        /** Simulate the Trystero 0.25 message-action API. */
+        makeAction<T>(name: string) {
             // eslint-disable-next-line @typescript-eslint/no-this-alias
             const self = this;
-            const sender = (data: T, _peerId?: string): Promise<void> => {
-                if (!self.peer) return Promise.resolve();
-                const handler = self.peer.actionHandlers.get(name);
-                if (handler) handler(data, self.id);
-                return Promise.resolve();
+            const action = {
+                onMessage: null as ((data: T, context: { peerId: string }) => void | Promise<void>) | null,
+                onReceiveProgress: null,
+                send: async (data: T, _options?: { target?: string }) => {
+                    const peerAction = self.peer?.actionHandlers.get(name);
+                    await peerAction?.onMessage?.(data, { peerId: self.id });
+                },
             };
-            const receiver = (handler: (data: T, peerId: string) => void) => {
-                self.actionHandlers.set(name, handler as (data: unknown, peerId: string) => void);
-            };
-            return [sender, receiver];
-        }
-
-        onPeerJoin(handler: (peerId: string) => void) {
-            this.joinHandlers.push(handler);
-        }
-
-        onPeerLeave(handler: (peerId: string) => void) {
-            this.leaveHandlers.push(handler);
+            self.actionHandlers.set(
+                name,
+                action as { onMessage: ((data: unknown, context: { peerId: string }) => void | Promise<void>) | null }
+            );
+            return action;
         }
 
         /** Test helper: simulate a remote peer joining. */
         triggerJoin(peerId: string) {
-            this.joinHandlers.forEach((h) => h(peerId));
+            this.onPeerJoin?.(peerId);
         }
 
         /** Test helper: simulate a remote peer leaving. */
         triggerLeave(peerId: string) {
-            this.leaveHandlers.forEach((h) => h(peerId));
+            this.onPeerLeave?.(peerId);
         }
 
         /** Test helper: directly invoke a named action handler as if 'from' sent 'data'. */
         triggerAction<T>(name: string, data: T, from: string) {
-            const handler = this.actionHandlers.get(name);
-            if (handler) handler(data as unknown, from);
+            void this.actionHandlers.get(name)?.onMessage?.(data as unknown, { peerId: from });
         }
 
         getPeers() {
@@ -212,18 +207,28 @@ describe("wrapTrysteroRoom", () => {
         expect(left).toEqual(["peer-y"]);
     });
 
-    it("cleanup callbacks returned by onMessage / onPeerJoin / onPeerLeave are no-ops", () => {
+    it("cleanup callbacks remove message and peer-event subscriptions", async () => {
         const [roomA] = makePairedRooms();
         const transport = wrapTrysteroRoom(roomA as any);
 
-        const cleanMsg = transport.onMessage(() => undefined);
-        const cleanJoin = transport.onPeerJoin!(() => undefined);
-        const cleanLeave = transport.onPeerLeave!(() => undefined);
+        const messages: unknown[] = [];
+        const joined: string[] = [];
+        const left: string[] = [];
+        const cleanMsg = transport.onMessage((message) => messages.push(message));
+        const cleanJoin = transport.onPeerJoin!((peerId) => joined.push(peerId));
+        const cleanLeave = transport.onPeerLeave!((peerId) => left.push(peerId));
 
-        // Must not throw and must return undefined
         expect(cleanMsg()).toBeUndefined();
         expect(cleanJoin()).toBeUndefined();
         expect(cleanLeave()).toBeUndefined();
+
+        roomA.triggerAction("rpc2", { wire: "raw", payload: "{}" }, "peer-x");
+        roomA.triggerJoin("peer-x");
+        roomA.triggerLeave("peer-x");
+        await Promise.resolve();
+        expect(messages).toEqual([]);
+        expect(joined).toEqual([]);
+        expect(left).toEqual([]);
     });
 
     it("end-to-end: two RpcRooms exchange a request/response via paired MockRooms", async () => {

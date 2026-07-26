@@ -54,7 +54,10 @@ jobs:
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           case "$PACKAGE_VERSION" in
             *-*) ;;
-            *) test "$SOURCE_REF" = main ;;
+            *)
+              test "$SOURCE_REF" = main
+              test "$GITHUB_SHA" = "$EXPECTED_SHA"
+              ;;
           esac
 
       - name: Set up Node.js
@@ -79,7 +82,7 @@ jobs:
         run: |
           npm run verify:package
           actual_sha=$(git rev-parse HEAD)
-          node _tools/validate-release-selection.mjs "$PACKAGE_VERSION" "$EXPECTED_SHA" "$actual_sha" "refs/heads/$SOURCE_REF" "$CONFIRMATION"
+          node _tools/validate-release-selection.mjs "$PACKAGE_VERSION" "$EXPECTED_SHA" "$actual_sha" "$GITHUB_SHA" "refs/heads/$SOURCE_REF" "$CONFIRMATION"
 
       - name: Pack the verified package
         run: |

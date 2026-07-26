@@ -10,7 +10,9 @@ const ContentSplitters = [ContentSplitterV1, ContentSplitterV2, ContentSplitterR
  * ContentSplitter class that manages the active content splitter based on the provided settings.
  */
 export class ContentSplitter extends ContentSplitterCore {
-    _activeSplitter!: ContentSplitterBase;
+    // The base constructor calls initialise(). `declare` prevents a class-field
+    // initialiser from overwriting the selected splitter after super() returns.
+    declare _activeSplitter: ContentSplitterBase;
     constructor(options: ContentSplitterOptions) {
         super(options);
     }

@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "declarationMap": false,
+    "emitDeclarationOnly": true,
+    "noEmit": false,
+    "noEmitOnError": true,
+    "outDir": ".package/dist",
+    "rootDir": "src",
+    "sourceMap": false
+  },
+  "include": ["src/**/*.ts", "src/**/*.d.ts"],
+  "exclude": [
+    "apps",
+    "src/cli",
+    "src/**/*.integration.spec.ts",
+    "src/**/*.integration.test.ts",
+    "src/**/*.spec.ts",
+    "src/**/*.test.ts"
+  ]
+}

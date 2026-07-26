@@ -3,6 +3,8 @@ import {
     migrateLegacyRemoteConfigurationsInPlace,
     migrateToMultipleRemoteConfigurations,
     activateRemoteConfiguration,
+    upsertRemoteConfigurationInPlace,
+    useRemoteConfiguration,
 } from "@lib/serviceFeatures/remoteConfig";
 import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
 import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
@@ -195,6 +197,180 @@ describe("Remote Configuration Activation", () => {
     });
 });
 
+describe("Remote Configuration Registration", () => {
+    it("adds and activates a CouchDB profile without replacing existing profiles", () => {
+        const settings = {
+            remoteConfigurations: {
+                existing: {
+                    id: "existing",
+                    name: "Existing remote",
+                    uri: "sls+http://old:secret@old.example/?db=old",
+                    isEncrypted: false,
+                },
+            },
+            activeConfigurationId: "existing",
+            P2P_ActiveRemoteConfigurationId: "",
+            remoteType: REMOTE_P2P,
+            couchDB_URI: "https://couch.example/vault",
+            couchDB_USER: "alice",
+            couchDB_PASSWORD: "secret",
+            couchDB_DBNAME: "notes",
+            couchDB_CustomHeaders: "",
+            useJWT: false,
+            jwtAlgorithm: "",
+            jwtKey: "",
+            jwtKid: "",
+            jwtSub: "",
+            jwtExpDuration: 5,
+            useRequestAPI: false,
+        } as ObsidianLiveSyncSettings;
+
+        const profile = upsertRemoteConfigurationInPlace(settings, "couchdb", { activate: true });
+
+        expect(settings.remoteConfigurations.existing).toBeDefined();
+        expect(Object.keys(settings.remoteConfigurations)).toHaveLength(2);
+        expect(profile.id).toMatch(/^remote-/);
+        expect(profile).toEqual(settings.remoteConfigurations[profile.id]);
+        expect(profile.name).toBe("CouchDB couch.example");
+        expect(profile.uri).toContain("sls+https://alice:secret@couch.example/vault");
+        expect(settings.activeConfigurationId).toBe(profile.id);
+        expect(settings.remoteType).toBe(REMOTE_COUCHDB);
+    });
+
+    it("gives generated display names a suffix instead of treating a name as an identifier", () => {
+        const settings = {
+            remoteConfigurations: {
+                existing: {
+                    id: "existing",
+                    name: "S3 notes",
+                    uri: "sls+s3://old:secret@storage.example/?bucket=old",
+                    isEncrypted: false,
+                },
+            },
+            activeConfigurationId: "existing",
+            endpoint: "https://storage.example",
+            accessKey: "key",
+            secretKey: "secret",
+            bucket: "notes",
+            region: "auto",
+            bucketPrefix: "",
+            useCustomRequestHandler: false,
+            bucketCustomHeaders: "",
+            forcePathStyle: true,
+        } as ObsidianLiveSyncSettings;
+
+        const profile = upsertRemoteConfigurationInPlace(settings, "s3", {
+            id: "onboarding-s3",
+        });
+
+        expect(profile.name).toBe("S3 notes (2)");
+        expect(settings.activeConfigurationId).toBe("existing");
+    });
+
+    it("can select a P2P profile without replacing the main active remote", () => {
+        const settings = {
+            remoteConfigurations: {
+                couch: {
+                    id: "couch",
+                    name: "Primary CouchDB",
+                    uri: "sls+http://user:secret@localhost:5984/?db=vault",
+                    isEncrypted: false,
+                },
+            },
+            activeConfigurationId: "couch",
+            P2P_ActiveRemoteConfigurationId: "",
+            remoteType: REMOTE_COUCHDB,
+            P2P_Enabled: true,
+            P2P_roomID: "team-room",
+            P2P_passphrase: "secret",
+            P2P_relays: "wss://relay.example",
+            P2P_AppID: "self-hosted-livesync",
+            P2P_AutoStart: true,
+            P2P_AutoBroadcast: false,
+            P2P_turnServers: "",
+            P2P_turnUsername: "",
+            P2P_turnCredential: "",
+        } as ObsidianLiveSyncSettings;
+
+        const profile = upsertRemoteConfigurationInPlace(settings, "p2p", {
+            id: "onboarding-p2p",
+            activateForP2P: true,
+        });
+
+        expect(profile.name).toBe("P2P team-room");
+        expect(settings.activeConfigurationId).toBe("couch");
+        expect(settings.remoteType).toBe(REMOTE_COUCHDB);
+        expect(settings.P2P_ActiveRemoteConfigurationId).toBe("onboarding-p2p");
+    });
+
+    it("updates a known P2P profile without replacing its display name", () => {
+        const settings = {
+            remoteConfigurations: {
+                p2p: {
+                    id: "p2p",
+                    name: "My phone",
+                    uri: "sls+p2p://old-room?passphrase=old",
+                    isEncrypted: false,
+                },
+            },
+            activeConfigurationId: "",
+            P2P_ActiveRemoteConfigurationId: "p2p",
+            remoteType: REMOTE_COUCHDB,
+            P2P_Enabled: true,
+            P2P_roomID: "new-room",
+            P2P_passphrase: "new-secret",
+            P2P_relays: "wss://relay.example",
+            P2P_AppID: "self-hosted-livesync",
+            P2P_AutoStart: true,
+            P2P_AutoBroadcast: false,
+            P2P_turnServers: "",
+            P2P_turnUsername: "",
+            P2P_turnCredential: "",
+        } as ObsidianLiveSyncSettings;
+
+        const profile = upsertRemoteConfigurationInPlace(settings, "p2p", {
+            id: "p2p",
+            activateForP2P: true,
+        });
+
+        expect(Object.keys(settings.remoteConfigurations)).toEqual(["p2p"]);
+        expect(profile.name).toBe("My phone");
+        expect(profile.uri).toContain("new-room");
+        expect(settings.P2P_ActiveRemoteConfigurationId).toBe("p2p");
+    });
+
+    it("rejects a non-P2P selection without partially registering the profile", () => {
+        const settings = {
+            remoteConfigurations: {},
+            activeConfigurationId: "",
+            P2P_ActiveRemoteConfigurationId: "",
+            remoteType: REMOTE_COUCHDB,
+            couchDB_URI: "https://couch.example/vault",
+            couchDB_USER: "alice",
+            couchDB_PASSWORD: "secret",
+            couchDB_DBNAME: "notes",
+            couchDB_CustomHeaders: "",
+            useJWT: false,
+            jwtAlgorithm: "",
+            jwtKey: "",
+            jwtKid: "",
+            jwtSub: "",
+            jwtExpDuration: 5,
+            useRequestAPI: false,
+        } as ObsidianLiveSyncSettings;
+        const before = JSON.parse(JSON.stringify(settings)) as ObsidianLiveSyncSettings;
+
+        expect(() =>
+            upsertRemoteConfigurationInPlace(settings, "couchdb", {
+                id: "invalid-p2p-selection",
+                activateForP2P: true,
+            })
+        ).toThrow("Only a P2P remote configuration can be selected for P2P features.");
+
+        expect(settings).toEqual(before);
+    });
+});
+
 describe("Remote Configuration Commands", () => {
     let mockSettings: any;
     let mockHost: any;
@@ -238,6 +414,25 @@ describe("Remote Configuration Commands", () => {
                 },
             },
         };
+    });
+
+    it("registers connection-oriented command names without changing established command IDs", () => {
+        useRemoteConfiguration(mockHost);
+
+        expect(mockHost.services.API.addCommand).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({
+                id: "livesync-switch-remote",
+                name: "Switch active connection",
+            })
+        );
+        expect(mockHost.services.API.addCommand).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({
+                id: "livesync-replicate-with-specific",
+                name: "Sync with a saved connection",
+            })
+        );
     });
 
     it("commandSwitchActiveRemote should switch configuration based on user selection", async () => {

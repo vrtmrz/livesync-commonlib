@@ -6,8 +6,8 @@ import { ChunkManager } from "@lib/managers/ChunkManager.ts";
 import { ConflictManager } from "@lib/managers/ConflictManager.ts";
 import { EntryManager } from "@lib/managers/EntryManager/EntryManager.ts";
 import { HashManager } from "@lib/managers/HashManager/HashManager.ts";
-import type { APIService } from "@lib/services/base/APIService.ts";
 import type {
+    IAPIService,
     IDatabaseService,
     IPathService,
     IReplicatorService,
@@ -21,13 +21,13 @@ export interface LiveSyncManagersOptions<TSettingService extends ISettingService
     settingService: TSettingService;
     pathService: IPathService;
     replicatorService: IReplicatorService;
-    APIService: APIService;
+    APIService: IAPIService;
 }
 export class LiveSyncManagers {
     protected _pathService: IPathService;
     protected _replicatorService: IReplicatorService;
     protected _settingService: ISettingService;
-    protected _APIService: APIService;
+    protected _APIService: IAPIService;
 
     hashManager: HashManager;
     chunkFetcher: ChunkFetcher;

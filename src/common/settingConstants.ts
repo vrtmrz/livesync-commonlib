@@ -1,4 +1,5 @@
-import { $t } from "./i18n.ts";
+import type { CommonlibMessageKey } from "@lib/services/base/CommonlibMessages";
+import { englishMessageTranslator, type MessageTranslator } from "@lib/services/base/MessageTranslator";
 import {
     DEFAULT_SETTINGS,
     configurationNames,
@@ -371,12 +372,12 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         desc: "If this enabled, All files are handled as case-Sensitive (Previous behaviour).",
     },
     doNotUseFixedRevisionForChunks: {
-        name: "Compute revisions for chunks",
-        desc: "If this enabled, all chunks will be stored with the revision made from its content.",
+        name: "Content-derived chunk revisions (obsolete setting)",
+        desc: "Chunk revisions are always derived from their content. This stored key is retained only for compatibility.",
     },
     sendChunksBulkMaxSize: {
-        name: "Maximum size of chunks to send in one request",
-        desc: "MB",
+        name: "Maximum request size for manually resending chunks",
+        desc: "MB per request",
     },
     useAdvancedMode: {
         name: "Enable advanced features",
@@ -446,12 +447,17 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         desc: "Files with modification times greater than this value (in seconds since the Unix epoch) will not have their events reflected. Set to 0 to disable this limit.",
     },
 };
-function translateInfo(infoSrc: ConfigurationItem | undefined | false) {
+type SettingLabelTranslator = MessageTranslator;
+
+function translateInfo(
+    infoSrc: ConfigurationItem | undefined | false,
+    translate: SettingLabelTranslator = englishMessageTranslator
+) {
     if (!infoSrc) return false;
     const info = { ...infoSrc };
-    info.name = $t(info.name);
+    info.name = translate(info.name as CommonlibMessageKey);
     if (info.desc) {
-        info.desc = $t(info.desc);
+        info.desc = translate(info.desc as CommonlibMessageKey);
     }
     return info;
 }
@@ -464,11 +470,11 @@ function _getConfig(key: AllSettingItemKey) {
     }
     return false;
 }
-export function getConfig(key: AllSettingItemKey) {
-    return translateInfo(_getConfig(key));
+export function getConfig(key: AllSettingItemKey, translate?: SettingLabelTranslator) {
+    return translateInfo(_getConfig(key), translate);
 }
-export function getConfName(key: AllSettingItemKey) {
-    const conf = getConfig(key);
+export function getConfName(key: AllSettingItemKey, translate?: SettingLabelTranslator) {
+    const conf = getConfig(key, translate);
     if (!conf) return `${key} (No info)`;
     return conf.name;
 }

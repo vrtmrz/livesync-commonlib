@@ -13,32 +13,69 @@ import { InjectableVaultServiceCompat } from "@lib/services/implements/injectabl
 import { ServiceContext } from "@lib/services/base/ServiceBase";
 import { ConfigServiceBrowserCompat } from "@lib/services/implements/browser/ConfigServiceBrowserCompat";
 import { InjectableServiceHub } from "@lib/services/implements/injectable/InjectableServiceHub";
-import { BrowserUIService } from "@lib/services/implements/browser/BrowserUIService";
 import type { ServiceInstances } from "@lib/services/ServiceHub";
-import { BrowserAPIService } from "./implements/browser/BrowserAPIService";
 import { BrowserDatabaseService, BrowserKeyValueDBService } from "./implements/browser/BrowserDatabaseService";
 import { ControlService } from "./base/ControlService";
-import type { AppLifecycleServiceDependencies } from "./base/AppLifecycleService";
+import type { AppLifecycleService, AppLifecycleServiceDependencies } from "./base/AppLifecycleService";
+import type { ConfigService } from "./base/ConfigService";
+import type { ReplicatorService } from "./base/ReplicatorService";
+import type { UIService } from "./implements/base/UIService";
+import type { InjectableAPIService } from "./implements/injectable/InjectableAPIService";
+import { createIndexedDBKeyValueDatabaseFactory } from "@lib/databases/IndexedDBKeyValueDatabase";
+import type { KeyValueDatabaseFactory } from "@lib/interfaces/KeyValueDatabase";
+import { PouchDB } from "@lib/pouchdb/pouchdb-browser.ts";
+import type { ObsidianLiveSyncSettings } from "@lib/common/types";
 
 class BrowserAppLifecycleService<T extends ServiceContext> extends InjectableAppLifecycleService<T> {
     constructor(context: T, dependencies: AppLifecycleServiceDependencies) {
         super(context, dependencies);
     }
 }
+
+export type BrowserServiceHostDependencies<T extends ServiceContext> = {
+    API: InjectableAPIService<T>;
+    appLifecycle: AppLifecycleService<T>;
+    config: ConfigService<T>;
+    control: ControlService<T>;
+    replicator: ReplicatorService<T>;
+};
+
+/**
+ * Host-owned presentation services used by the browser composition.
+ *
+ * Commonlib owns the data and replication composition, while the application
+ * chooses its confirmation, dialogue, and other presentation behaviour.
+ */
+export interface BrowserServiceHost<T extends ServiceContext> {
+    createAPI(context: T): InjectableAPIService<T>;
+    createUI(context: T, dependencies: BrowserServiceHostDependencies<T>): UIService<T>;
+}
+
+export type BrowserServiceHubOptions<T extends ServiceContext> = {
+    context?: T;
+    host: BrowserServiceHost<T>;
+    openKeyValueDatabase?: KeyValueDatabaseFactory;
+    onDisplayLanguageChanged?: (language: ObsidianLiveSyncSettings["displayLanguage"]) => void;
+};
+
 export class BrowserServiceHub<T extends ServiceContext> extends InjectableServiceHub<T> {
     //  get vault():InjectableVaultServiceCompat<T>;
     override get vault(): InjectableVaultServiceCompat<T> {
         return this._vault as InjectableVaultServiceCompat<T>;
     }
-    constructor() {
-        const context = new ServiceContext() as T;
-        const API = new BrowserAPIService(context);
+    constructor(options: BrowserServiceHubOptions<T>) {
+        const context = options.context ?? (new ServiceContext() as T);
+        const API = options.host.createAPI(context);
         const conflict = new InjectableConflictService(context);
         const fileProcessing = new InjectableFileProcessingService(context);
 
-        const setting = new InjectableSettingService(context, { APIService: API });
+        const setting = new InjectableSettingService(context, {
+            APIService: API,
+            onDisplayLanguageChanged: options.onDisplayLanguageChanged,
+        });
         const appLifecycle = new BrowserAppLifecycleService(context, { settingService: setting });
         const remote = new InjectableRemoteService(context, {
+            pouchDB: PouchDB,
             APIService: API,
             appLifecycle: appLifecycle,
             setting: setting,
@@ -54,6 +91,7 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
             settingService: setting,
         });
         const database = new BrowserDatabaseService(context, {
+            pouchDB: PouchDB,
             path: path,
             vault: vault,
             setting: setting,
@@ -77,6 +115,7 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
             databaseService: database,
         });
         const keyValueDB = new BrowserKeyValueDBService(context, {
+            openKeyValueDatabase: options.openKeyValueDatabase ?? createIndexedDBKeyValueDatabaseFactory(),
             appLifecycle: appLifecycle,
             databaseEvents: databaseEvents,
             vault: vault,
@@ -89,12 +128,12 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
             APIService: API,
             replicatorService: replicator,
         });
-        const ui = new BrowserUIService<T>(context, {
+        const ui = options.host.createUI(context, {
+            API,
             appLifecycle,
             config,
+            control,
             replicator,
-            APIService: API,
-            control: control,
         });
 
         // Using 'satisfies' to ensure all services are provided

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { usePrepareDatabaseForUse } from "./prepareDatabaseForUse";
+import { createServiceContext } from "@lib/services/base/ServiceBase";
 
 const APIServiceMock = {
     addLog(message: string, level?: any) {
@@ -19,6 +20,7 @@ describe("usePrepareDatabaseForUse", () => {
 
         const host = {
             services: {
+                context: createServiceContext(),
                 API: APIServiceMock,
                 appLifecycle: {
                     getUnresolvedMessages: {

@@ -74,7 +74,7 @@ export function usePrepareDatabaseForUse(
     >
 ) {
     const log = createInstanceLogFunction("SF:prepareDatabaseForUse", host.services.API);
-    const errorManager = new UnresolvedErrorManager(host.services.appLifecycle);
+    const errorManager = new UnresolvedErrorManager(host.services.appLifecycle, host.services.context.events);
 
     // Handler for database initialisation
     const initialiseDatabaseHandler = async (

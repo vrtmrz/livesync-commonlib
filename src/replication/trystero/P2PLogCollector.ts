@@ -1,4 +1,4 @@
-import { eventHub } from "@/common/events";
+import type { LiveSyncEventHub } from "@lib/hub/hub";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive_v2";
 import type { P2PReplicationProgress } from "./TrysteroReplicator";
 import {
@@ -10,8 +10,8 @@ import {
 } from "./TrysteroReplicatorP2PServer";
 
 export class P2PLogCollector {
-    constructor() {
-        eventHub.onEvent(EVENT_ADVERTISEMENT_RECEIVED, (data) => {
+    constructor(events: LiveSyncEventHub) {
+        events.onEvent(EVENT_ADVERTISEMENT_RECEIVED, (data) => {
             this.p2pReplicationResult.set(data.peerId, {
                 peerId: data.peerId,
                 peerName: data.name,
@@ -28,19 +28,19 @@ export class P2PLogCollector {
             });
             this.updateP2PReplicationLine();
         });
-        eventHub.onEvent(EVENT_P2P_CONNECTED, () => {
+        events.onEvent(EVENT_P2P_CONNECTED, () => {
             this.p2pReplicationResult.clear();
             this.updateP2PReplicationLine();
         });
-        eventHub.onEvent(EVENT_P2P_DISCONNECTED, () => {
+        events.onEvent(EVENT_P2P_DISCONNECTED, () => {
             this.p2pReplicationResult.clear();
             this.updateP2PReplicationLine();
         });
-        eventHub.onEvent(EVENT_DEVICE_LEAVED, (peerId) => {
+        events.onEvent(EVENT_DEVICE_LEAVED, (peerId) => {
             this.p2pReplicationResult.delete(peerId);
             this.updateP2PReplicationLine();
         });
-        eventHub.onEvent(EVENT_P2P_REPLICATOR_PROGRESS, (data) => {
+        events.onEvent(EVENT_P2P_REPLICATOR_PROGRESS, (data) => {
             const prev = this.p2pReplicationResult.get(data.peerId) || {
                 peerId: data.peerId,
                 peerName: data.peerName,

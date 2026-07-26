@@ -7,4 +7,10 @@ declare global {
     }
 }
 
-export const eventHub = new EventHub<LSEvents>();
+/** An event hub owned by one Commonlib service context. */
+export type LiveSyncEventHub = EventHub<LSEvents>;
+
+/** Creates an isolated event hub for one Commonlib client or host composition. */
+export function createLiveSyncEventHub(): LiveSyncEventHub {
+    return new EventHub<LSEvents>();
+}

@@ -4,7 +4,6 @@ import type { ObsidianLiveSyncSettings } from "./setting.type";
 export const PREFERRED_BASE: Partial<ObsidianLiveSyncSettings> = {
     syncMaxSizeInMB: 50,
     chunkSplitterVersion: "v3-rabin-karp",
-    doNotUseFixedRevisionForChunks: false,
     usePluginSyncV2: true,
     handleFilenameCaseSensitive: false,
     E2EEAlgorithm: E2EEAlgorithms.V2,
@@ -19,7 +18,7 @@ export const PREFERRED_SETTING_CLOUDANT: Partial<ObsidianLiveSyncSettings> = {
 };
 export const PREFERRED_SETTING_SELF_HOSTED: Partial<ObsidianLiveSyncSettings> = {
     ...PREFERRED_BASE,
-    customChunkSize: 50,
+    customChunkSize: 60,
     sendChunksBulkMaxSize: 1,
     concurrencyOfReadChunksOnline: 30,
     minimumIntervalOfReadChunksOnline: 25,

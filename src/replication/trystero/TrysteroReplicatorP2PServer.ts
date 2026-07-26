@@ -1,4 +1,4 @@
-import { type ActionSender, type Room, selfId, joinRoom } from "@trystero-p2p/nostr";
+import { type Room, selfId, joinRoom } from "@trystero-p2p/nostr";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } from "@lib/common/types";
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger";
 import {
@@ -16,14 +16,13 @@ import {
 } from "./types";
 import { StoredMapLike } from "@lib/dataobject/StoredMap";
 import { TrysteroReplicatorP2PClient } from "./TrysteroReplicatorP2PClient";
-import { eventHub } from "@lib/hub/hub";
 import { createHostingDB } from "./ProxiedDB";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
-import { $msg } from "@lib/common/i18n";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock_v2";
 import { Computed } from "octagonal-wheels/dataobject/Computed";
 import { RpcRoom, type JsonLike, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
 import { TRYSTERO_RPC_DEFAULTS } from "@lib/rpc/transports/TrysteroTransport";
+import { subscribeTrysteroPeerEvents } from "@lib/rpc/transports/trysteroRoomEvents";
 import { toRpcMethodName } from "./rpcCompat";
 import { generateJoinRoomOptions } from "@lib/rpc/transports/trysteroUtils";
 import { subscribeConnectionStatus, subscribeFailureDiagnosis } from "@lib/rpc/transports/DiagRTCPeerConnections";
@@ -82,7 +81,7 @@ export class TrysteroReplicatorP2PServer {
     _room?: Room;
     _serverPeerId: string;
     _activeRoomId: string = "";
-    ___send?: ActionSender<Payload>;
+    ___send?: (data: Payload, peerId?: string) => Promise<void>;
     assignedFunctions = new Map<string, BindableFunction>();
     clients: Map<string, TrysteroReplicatorP2PClient> = new Map();
     _bindingObjects: BindableObject[] = [];
@@ -129,7 +128,7 @@ export class TrysteroReplicatorP2PServer {
                 Logger(ex, LOG_LEVEL_VERBOSE);
             }
             this._room = undefined;
-            eventHub.emitEvent(EVENT_P2P_DISCONNECTED);
+            this._env.events.emitEvent(EVENT_P2P_DISCONNECTED);
         }
     }
     async setRoom(room: Room) {
@@ -160,7 +159,7 @@ export class TrysteroReplicatorP2PServer {
             };
         });
         const ads = await Promise.all(adsTasks);
-        eventHub.emitEvent(EVENT_SERVER_STATUS, {
+        this._env.events.emitEvent(EVENT_SERVER_STATUS, {
             isConnected: this.isServing,
             knownAdvertisements: ads,
             serverPeerId: this.serverPeerId,
@@ -172,7 +171,7 @@ export class TrysteroReplicatorP2PServer {
     constructor(env: ReplicatorHostEnv, _serverPeerId = selfId) {
         this._env = env;
         this._serverPeerId = _serverPeerId;
-        eventHub.onEvent(EVENT_PLATFORM_UNLOADED, () => {
+        this._env.events.onEvent(EVENT_PLATFORM_UNLOADED, () => {
             void this.shutdown();
         });
         // SimpleStore has no type support now.
@@ -233,7 +232,7 @@ export class TrysteroReplicatorP2PServer {
         };
     }
 
-    _sendAdvertisement?: ActionSender<Advertisement>;
+    _sendAdvertisement?: (data: Advertisement, peerId?: string) => Promise<void>;
     // _advertisementTimer?: ReturnType<typeof setInterval>;
     sendAdvertisement(peerId?: string) {
         if (!this.isEnabled) return;
@@ -281,7 +280,7 @@ export class TrysteroReplicatorP2PServer {
         if (data.peerId !== peerId) return;
         this._knownAdvertisements.set(peerId, data);
         void this.dispatchConnectionStatus();
-        void eventHub.emitEvent(EVENT_ADVERTISEMENT_RECEIVED, data);
+        void this._env.events.emitEvent(EVENT_ADVERTISEMENT_RECEIVED, data);
     }
 
     acceptedPeers: StoredMapLike<boolean>;
@@ -421,53 +420,48 @@ You can chose as follows:
             //
             return;
         }
-        const peers = this._room.getPeers();
-        const peer = peers[peerId];
         Logger(`Peer joined: ${peerId}`, LOG_LEVEL_VERBOSE);
-        this.activePeer.set(peerId, peer);
         this.sendAdvertisement(peerId);
     }
     private _onPeerLeave(peerId: string) {
         Logger(`Peer left: ${peerId}`, LOG_LEVEL_VERBOSE);
         this._knownAdvertisements.delete(peerId);
-        const peerConn = this.activePeer.get(peerId);
-        if (peerConn) {
-            peerConn.close();
-            this.activePeer.delete(peerId);
-        }
-        void eventHub.emitEvent(EVENT_DEVICE_LEAVED, peerId);
+        void this._env.events.emitEvent(EVENT_DEVICE_LEAVED, peerId);
         void this.dispatchConnectionStatus();
     }
 
-    activePeer = new Map<string, RTCPeerConnection>();
     onAfterJoinRoom() {
         Logger(`Initializing...`, LOG_LEVEL_VERBOSE);
         const room = this.room;
         if (!room) throw new Error("This server has been already disconnected");
-        const [sendRpc, arrivedRpc] = room.makeAction<RpcWireMessage>("rpc2");
+        const rpcAction = room.makeAction<RpcWireMessage>("rpc2");
         const transport: TransportAdapter = {
             send: (message, peerId) => {
-                return sendRpc(message, peerId).then(() => undefined);
+                return rpcAction.send(message, { target: peerId });
             },
             onMessage: (handler) => {
-                arrivedRpc((data, peerId) => {
+                rpcAction.onMessage = (data, { peerId }) => {
                     handler(data, peerId);
-                });
-                return () => undefined;
+                };
+                return () => {
+                    rpcAction.onMessage = null;
+                };
             },
             onPeerJoin: (handler) => {
-                room.onPeerJoin((peerId) => {
-                    this._onPeerJoin(peerId);
-                    handler(peerId);
+                return subscribeTrysteroPeerEvents(room, {
+                    onJoin: (peerId) => {
+                        this._onPeerJoin(peerId);
+                        handler(peerId);
+                    },
                 });
-                return () => undefined;
             },
             onPeerLeave: (handler) => {
-                room.onPeerLeave((peerId) => {
-                    this._onPeerLeave(peerId);
-                    handler(peerId);
+                return subscribeTrysteroPeerEvents(room, {
+                    onLeave: (peerId) => {
+                        this._onPeerLeave(peerId);
+                        handler(peerId);
+                    },
                 });
-                return () => undefined;
             },
         };
         this._rpcRoom?.close();
@@ -482,20 +476,21 @@ You can chose as follows:
                 Logger(`RPC Protocol warning${peerId ? ` from ${peerId}` : ""}: ${message}`, LOG_LEVEL_VERBOSE);
             },
         });
-        const [adSend, adArrived] = room.makeAction<Advertisement>("ad");
+        const advertisementAction = room.makeAction<Advertisement>("ad");
 
-        this._sendAdvertisement = adSend;
-        adArrived((data, peerId) => {
+        this._sendAdvertisement = (data, peerId) =>
+            advertisementAction.send(data, peerId ? { target: peerId } : undefined);
+        advertisementAction.onMessage = (data, { peerId }) => {
             void this.onAdvertisement(data, peerId);
-        });
+        };
 
-        eventHub.emitEvent(EVENT_P2P_CONNECTED);
+        this._env.events.emitEvent(EVENT_P2P_CONNECTED);
         void this.dispatchConnectionStatus();
     }
 
     async startService(bindings: BindableObject[] = []) {
         if (!this.isEnabled) {
-            Logger($msg("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
+            Logger(this._env.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
             return;
         }
         const servingDB = createHostingDB(this._env);
@@ -510,7 +505,7 @@ You can chose as follows:
     async start(bindings: BindableObject[] = []) {
         await this.shutdown();
         if (!this.settings.P2P_Enabled) {
-            Logger($msg("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
+            Logger(this._env.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
             return;
         }
         const options = generateJoinRoomOptions(this.settings);
@@ -598,14 +593,12 @@ You can chose as follows:
     async close() {
         // this.stopAdvertisementBroadcast();
         this.assignedFunctions.clear();
-        const peers = this.room?.getPeers() ?? {};
         this.clients.forEach((client) => client.close());
         this.clients.clear();
         this._rpcRoom?.close();
         this._rpcRoom = undefined;
-        for (const [, peer] of Object.entries(peers)) {
-            peer.close();
-        }
+        // Trystero 0.25 owns the underlying WebRTC peer and may share it across rooms.
+        // Leaving the room detaches this room's RPC and advertisement bindings safely.
         await this.ensureLeaved();
         this._activeRoomId = "";
         this._knownAdvertisements.clear();

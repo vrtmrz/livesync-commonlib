@@ -1,6 +1,6 @@
 import { ChunkAlgorithms } from "@lib/common/types";
 import { splitPieces2 } from "@lib/string_and_binary/chunks";
-import { splitPieces2Worker } from "@lib/worker/bgWorker.ts";
+import { splitPieces2Worker } from "#worker";
 import type { ContentSplitterOptions, SplitOptions } from "./ContentSplitter";
 import { ContentSplitterBase } from "./ContentSplitterBase";
 
@@ -20,13 +20,15 @@ export class ContentSplitterV1 extends ContentSplitterBase {
         options: SplitOptions
     ): Promise<AsyncGenerator<string, void, unknown> | Generator<string, void, unknown>> {
         if (options.useWorker) {
-            return splitPieces2Worker(
-                options.blob,
-                options.pieceSize,
-                options.plainSplit,
-                options.minimumChunkSize,
-                options.path,
-                options.useSegmenter
+            return (
+                await splitPieces2Worker(
+                    options.blob,
+                    options.pieceSize,
+                    options.plainSplit,
+                    options.minimumChunkSize,
+                    options.path,
+                    options.useSegmenter
+                )
             )();
         } else {
             return (

@@ -41,7 +41,8 @@ export type ServiceInstances<T extends ServiceContext = ServiceContext> = {
 };
 
 export abstract class ServiceHub<T extends ServiceContext = ServiceContext> implements IServiceHub {
-    protected context: T;
+    /** Context shared by every service exposed by this hub. */
+    readonly context: T;
     protected abstract _api: APIService<T>;
     protected abstract _path: PathService<T>;
     protected abstract _database: DatabaseService<T>;

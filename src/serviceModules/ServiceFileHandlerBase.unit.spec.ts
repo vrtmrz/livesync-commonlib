@@ -1,8 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
-import type { FileEventItem, FilePath, MetaEntry, UXFileInfo, UXFileInfoStub } from "@lib/common/types";
+import type {
+    FileEventItem,
+    FilePath,
+    FilePathWithPrefix,
+    MetaEntry,
+    UXFileInfo,
+    UXFileInfoStub,
+} from "@lib/common/types";
 import { createTextBlob } from "@lib/common/utils";
 import { ServiceFileHandlerBase, type ServiceFileHandlerDependencies } from "./ServiceFileHandlerBase";
+import { createLiveSyncEventHub } from "@lib/hub/hub";
 
 class TestFileHandler extends ServiceFileHandlerBase {}
 
@@ -43,7 +51,8 @@ function createHandler(
     localBody: string,
     remoteBody: string,
     localContentIsKnown: boolean,
-    freshness: typeof BASE_IS_NEW | typeof TARGET_IS_NEW | typeof EVEN = TARGET_IS_NEW
+    freshness: typeof BASE_IS_NEW | typeof TARGET_IS_NEW | typeof EVEN = TARGET_IS_NEW,
+    trackProvenance: boolean = false
 ) {
     const path = "note.md";
     const remoteMeta = createMeta(path, remoteBody);
@@ -61,6 +70,7 @@ function createHandler(
         fetchEntryFromMeta: vi.fn().mockResolvedValue(remoteEntry),
         hasContentInRevisionHistory: vi.fn().mockResolvedValue(localContentIsKnown),
         storeAsConflictedRevision: vi.fn().mockResolvedValue(true),
+        storeAsConflictedRevisionWithResult: vi.fn().mockResolvedValue("3-local-preserved"),
     };
     const storageAccess = {
         getFileStub: vi.fn().mockResolvedValue(storageStub),
@@ -68,6 +78,7 @@ function createHandler(
         readStubContent: vi.fn().mockResolvedValue(storageFile),
         ensureDir: vi.fn().mockResolvedValue(undefined),
         writeFileAuto: vi.fn().mockResolvedValue(true),
+        stat: vi.fn().mockResolvedValue(storageFile.stat),
         touched: vi.fn().mockResolvedValue(undefined),
         triggerFileEvent: vi.fn(),
         renameFile: vi.fn(),
@@ -82,7 +93,14 @@ function createHandler(
         compareFileFreshness: vi.fn().mockReturnValue(freshness),
         markChangesAreSame: vi.fn(),
     };
+    const provenance = {
+        get: vi.fn().mockResolvedValue(undefined),
+        set: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined),
+        move: vi.fn().mockResolvedValue(undefined),
+    };
     const deps = {
+        events: createLiveSyncEventHub(),
         API: { addLog: vi.fn() },
         databaseFileAccess,
         storageAccess,
@@ -92,6 +110,7 @@ function createHandler(
         path: pathService,
         setting: { currentSettings: vi.fn().mockReturnValue({ writeDocumentsIfConflicted: false }) },
         vault: {},
+        fileReflectionProvenance: trackProvenance ? provenance : undefined,
     } as unknown as ServiceFileHandlerDependencies;
 
     return {
@@ -102,21 +121,27 @@ function createHandler(
         storageAccess,
         conflict,
         pathService,
+        provenance,
     };
 }
 
 function createRenameHandler(caseInsensitive: boolean, oldEntry: MetaEntry | false = createMeta("old.md", "body")) {
     let processFileEvent: ((item: FileEventItem) => Promise<boolean>) | undefined;
     const databaseFileAccess = {
-        fetchEntryMeta: vi.fn().mockResolvedValue(oldEntry),
+        fetchEntryMeta: vi.fn().mockImplementation(async (path: UXFileInfoStub | FilePathWithPrefix) => {
+            const filePath = typeof path === "string" ? path : path.path;
+            return filePath === "new.md" ? false : oldEntry;
+        }),
         getConflictedRevs: vi.fn().mockResolvedValue([]),
         fetchEntry: vi.fn().mockResolvedValue(oldEntry),
         delete: vi.fn().mockResolvedValue(true),
+        storeWithBaseRevision: vi.fn().mockResolvedValue("4-renamed"),
     };
     const pathService = {
         path2id: vi.fn().mockImplementation(async (path: string) => (caseInsensitive ? path.toLowerCase() : path)),
     };
     const deps = {
+        events: createLiveSyncEventHub(),
         API: { addLog: vi.fn() },
         databaseFileAccess,
         storageAccess: {},
@@ -138,10 +163,87 @@ function createRenameHandler(caseInsensitive: boolean, oldEntry: MetaEntry | fal
     return { handler, processFileEvent, databaseFileAccess, pathService };
 }
 
+function createConflictedOperationHandler() {
+    const displayedRevision = "3-displayed";
+    const winner = {
+        ...createMeta("note.md", "winner", "3-winner"),
+        data: "winner",
+    };
+    const storageFile = createStorageFile("note.md", "edited displayed content");
+    const databaseFileAccess = {
+        fetchEntry: vi.fn().mockImplementation(async (file: UXFileInfoStub | FilePathWithPrefix) => {
+            const path = typeof file === "string" ? file : file.path;
+            return path === "new.md" ? false : winner;
+        }),
+        fetchEntryMeta: vi.fn().mockImplementation(async (file: UXFileInfoStub | FilePathWithPrefix) => {
+            const path = typeof file === "string" ? file : file.path;
+            return path === "new.md" ? false : winner;
+        }),
+        getConflictedRevs: vi.fn().mockImplementation(async (file: UXFileInfoStub | FilePathWithPrefix) => {
+            const path = typeof file === "string" ? file : file.path;
+            return path === "new.md" ? [] : [displayedRevision];
+        }),
+        store: vi.fn().mockResolvedValue(true),
+        delete: vi.fn().mockResolvedValue(true),
+        storeWithBaseRevision: vi.fn().mockResolvedValue("4-local-edit"),
+        storeAsConflictedRevisionWithResult: vi.fn().mockResolvedValue("4-unknown-edit"),
+        storeDeletionWithBaseRevision: vi.fn().mockResolvedValue("4-local-delete"),
+        findContentRevisions: vi.fn().mockResolvedValue([]),
+    };
+    const provenance = {
+        get: vi
+            .fn()
+            .mockImplementation(async (path: FilePathWithPrefix) =>
+                path === "note.md" || path === "old.md"
+                    ? { revision: displayedRevision, observedStorageMtime: 2 }
+                    : undefined
+            ),
+        set: vi.fn().mockResolvedValue(undefined),
+        delete: vi.fn().mockResolvedValue(undefined),
+        move: vi.fn().mockResolvedValue(undefined),
+    };
+    const storageAccess = {
+        getFileStub: vi.fn().mockResolvedValue(storageFile),
+        readStubContent: vi
+            .fn()
+            .mockImplementation(async (file: UXFileInfoStub) => ({ ...storageFile, path: file.path })),
+        stat: vi.fn().mockImplementation(async () => storageFile.stat),
+    };
+    const conflict = {
+        queueCheckFor: vi.fn().mockResolvedValue(undefined),
+        queueCheckForIfOpen: vi.fn().mockResolvedValue(undefined),
+    };
+    const pathService = {
+        path2id: vi.fn().mockImplementation(async (path: string) => path.toLowerCase()),
+        compareFileFreshness: vi.fn().mockReturnValue(TARGET_IS_NEW),
+        markChangesAreSame: vi.fn(),
+    };
+    const deps = {
+        events: createLiveSyncEventHub(),
+        API: { addLog: vi.fn() },
+        databaseFileAccess,
+        storageAccess,
+        fileProcessing: { processFileEvent: { addHandler: vi.fn() } },
+        replication: { processSynchroniseResult: { addHandler: vi.fn() } },
+        conflict,
+        path: pathService,
+        setting: { currentSettings: vi.fn().mockReturnValue({}) },
+        vault: {},
+        fileReflectionProvenance: provenance,
+    } as unknown as ServiceFileHandlerDependencies;
+    return {
+        handler: new TestFileHandler(deps),
+        databaseFileAccess,
+        provenance,
+        conflict,
+        storageFile,
+        displayedRevision,
+    };
+}
+
 describe("ServiceFileHandlerBase.renameFileInDB", () => {
     it("updates one document without deleting it for a case-only rename", async () => {
         const { handler, databaseFileAccess, pathService } = createRenameHandler(true);
-        const storeSpy = vi.spyOn(handler, "storeFileToDB").mockResolvedValue(true);
         const deleteSpy = vi.spyOn(handler, "deleteFileFromDB").mockResolvedValue(true);
         const file = createStorageFile("calculus.md", "body");
 
@@ -149,22 +251,22 @@ describe("ServiceFileHandlerBase.renameFileInDB", () => {
 
         expect(pathService.path2id).toHaveBeenNthCalledWith(1, "Calculus.md");
         expect(pathService.path2id).toHaveBeenNthCalledWith(2, "calculus.md");
-        expect(storeSpy).toHaveBeenCalledWith(file, true);
-        expect(databaseFileAccess.fetchEntryMeta).not.toHaveBeenCalled();
+        expect(databaseFileAccess.storeWithBaseRevision).toHaveBeenCalledWith(file, "2-remote", true);
         expect(deleteSpy).not.toHaveBeenCalled();
     });
 
     it("stores the target before deleting the source for an ordinary rename", async () => {
         const { handler, databaseFileAccess } = createRenameHandler(false);
         const storeSpy = vi.spyOn(handler, "storeFileToDB").mockResolvedValue(true);
-        const deleteSpy = vi.spyOn(handler, "deleteFileFromDB").mockResolvedValue(true);
         const file = createStorageFile("new.md", "body");
 
         await expect(handler.renameFileInDB(file, "old.md" as FilePath)).resolves.toBe(true);
 
         expect(databaseFileAccess.fetchEntryMeta).toHaveBeenCalledWith("old.md", undefined, true);
-        expect(storeSpy.mock.invocationCallOrder[0]).toBeLessThan(deleteSpy.mock.invocationCallOrder[0]);
-        expect(deleteSpy).toHaveBeenCalledWith(expect.objectContaining({ path: "old.md", deleted: true }));
+        expect(storeSpy.mock.invocationCallOrder[0]).toBeLessThan(
+            databaseFileAccess.delete.mock.invocationCallOrder[0]
+        );
+        expect(databaseFileAccess.delete).toHaveBeenCalledWith("old.md");
     });
 
     it("preserves the source when storing the rename target fails", async () => {
@@ -324,13 +426,35 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
 
         await expect(handler.dbToStorage(remoteMeta, storageStub)).resolves.toBe(true);
 
-        expect(databaseFileAccess.storeAsConflictedRevision).toHaveBeenCalledWith(
+        expect(databaseFileAccess.storeAsConflictedRevisionWithResult).toHaveBeenCalledWith(
             expect.objectContaining({ path: "note.md" }),
             "2-remote",
             true
         );
         expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
         expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
+    });
+
+    it("records the exact revision created while preserving unknown local storage content", async () => {
+        const { handler, remoteMeta, storageStub, databaseFileAccess, provenance } = createHandler(
+            "local unsynchronised edit",
+            "remote update",
+            false,
+            BASE_IS_NEW,
+            true
+        );
+
+        await expect(handler.dbToStorage(remoteMeta, storageStub)).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeAsConflictedRevisionWithResult).toHaveBeenCalledWith(
+            expect.objectContaining({ path: "note.md" }),
+            "2-remote",
+            true
+        );
+        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+            revision: "3-local-preserved",
+            observedStorageMtime: storageStub.stat.mtime,
+        });
     });
 
     it("applies a remote addition without conflict when local storage is an unmodified older copy (#994)", async () => {
@@ -343,7 +467,7 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
 
         await expect(handler.dbToStorage(remoteMeta, storageStub)).resolves.toBe(true);
 
-        expect(databaseFileAccess.storeAsConflictedRevision).not.toHaveBeenCalled();
+        expect(databaseFileAccess.storeAsConflictedRevisionWithResult).not.toHaveBeenCalled();
         expect(conflict.queueCheckFor).not.toHaveBeenCalled();
         expect(storageAccess.writeFileAuto).toHaveBeenCalledWith(
             "note.md",
@@ -365,7 +489,7 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
 
         await expect(handler.dbToStorage(remoteMeta, storageStub)).resolves.toBe(true);
 
-        expect(databaseFileAccess.storeAsConflictedRevision).toHaveBeenCalledWith(
+        expect(databaseFileAccess.storeAsConflictedRevisionWithResult).toHaveBeenCalledWith(
             expect.objectContaining({ path: "note.md" }),
             "2-remote",
             true
@@ -384,7 +508,7 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
 
         await expect(handler.dbToStorage(remoteMeta, storageStub)).resolves.toBe(true);
 
-        expect(databaseFileAccess.storeAsConflictedRevision).toHaveBeenCalledWith(
+        expect(databaseFileAccess.storeAsConflictedRevisionWithResult).toHaveBeenCalledWith(
             expect.objectContaining({ path: "note.md" }),
             "2-remote",
             true
@@ -403,7 +527,7 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
 
         await expect(handler.dbToStorage(remoteMeta, storageStub)).resolves.toBe(true);
 
-        expect(databaseFileAccess.storeAsConflictedRevision).not.toHaveBeenCalled();
+        expect(databaseFileAccess.storeAsConflictedRevisionWithResult).not.toHaveBeenCalled();
         expect(conflict.queueCheckFor).not.toHaveBeenCalled();
         expect(storageAccess.writeFileAuto).toHaveBeenCalledWith("note.md", "remote update", {
             ctime: 1,
@@ -423,5 +547,474 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
 
         expect(databaseFileAccess.hasContentInRevisionHistory).not.toHaveBeenCalled();
         expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
+    });
+
+    it("rebinds provenance to the surviving revision when duplicate content already matches storage", async () => {
+        const { handler, remoteMeta, storageStub, databaseFileAccess, storageAccess, pathService, provenance } =
+            createHandler("same body", "same body", false, EVEN, true);
+        provenance.get.mockResolvedValue({
+            revision: "1-deleted-duplicate",
+            observedStorageMtime: storageStub.stat.mtime,
+        });
+        pathService.compareFileFreshness.mockReturnValue(EVEN);
+
+        await expect(handler.dbToStorage(remoteMeta, storageStub)).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeAsConflictedRevisionWithResult).not.toHaveBeenCalled();
+        expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
+        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+            revision: remoteMeta._rev,
+            observedStorageMtime: storageStub.stat.mtime,
+        });
+    });
+
+    it("reflects the explicitly selected revision instead of refetching the winner", async () => {
+        const { handler, storageStub, databaseFileAccess, storageAccess } = createHandler(
+            "old storage",
+            "unused",
+            false
+        );
+        const selected = createMeta("note.md", "selected content", "2-selected");
+        const winner = createMeta("note.md", "winner content", "3-winner");
+        databaseFileAccess.getConflictedRevs.mockResolvedValue([selected._rev]);
+        databaseFileAccess.fetchEntryMeta.mockReset();
+        databaseFileAccess.fetchEntryMeta.mockResolvedValueOnce(selected).mockResolvedValueOnce(winner);
+        databaseFileAccess.fetchEntryFromMeta.mockImplementation(async (meta: MetaEntry) => ({
+            ...meta,
+            data: meta._rev === selected._rev ? "selected content" : "winner content",
+        }));
+
+        await expect(handler.dbToStorageWithSpecificRev(storageStub, selected._rev, true)).resolves.toBe(true);
+
+        expect(storageAccess.writeFileAuto).toHaveBeenCalledWith("note.md", "selected content", {
+            ctime: 1,
+            mtime: 2,
+        });
+        expect(databaseFileAccess.fetchEntryMeta).toHaveBeenCalledTimes(2);
+    });
+
+    it("refuses to reflect an explicitly selected revision which is no longer live", async () => {
+        const { handler, storageStub, databaseFileAccess, storageAccess, provenance } = createHandler(
+            "old storage",
+            "unused",
+            false
+        );
+        const selected = createMeta("note.md", "selected content", "2-obsolete");
+        const winner = createMeta("note.md", "winner content", "3-winner");
+        databaseFileAccess.fetchEntryMeta.mockReset();
+        databaseFileAccess.fetchEntryMeta.mockResolvedValueOnce(selected).mockResolvedValueOnce(winner);
+        databaseFileAccess.getConflictedRevs.mockResolvedValue([]);
+
+        await expect(handler.dbToStorageWithSpecificRev(storageStub, selected._rev, true)).resolves.toBe(false);
+
+        expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
+        expect(provenance.set).not.toHaveBeenCalled();
+    });
+
+    it("reflects an explicitly selected conflict revision while other conflicts remain", async () => {
+        const { handler, storageStub, databaseFileAccess, storageAccess, provenance } = createHandler(
+            "old storage",
+            "unused",
+            false,
+            TARGET_IS_NEW,
+            true
+        );
+        const selected = createMeta("note.md", "selected content", "2-selected");
+        databaseFileAccess.getConflictedRevs.mockResolvedValue(["3-other"]);
+        databaseFileAccess.fetchEntryMeta.mockResolvedValue(selected);
+        databaseFileAccess.fetchEntryFromMeta.mockResolvedValue({
+            ...selected,
+            data: "selected content",
+        });
+
+        await expect(handler.dbToStorageWithSpecificRev(storageStub, selected._rev, true)).resolves.toBe(true);
+
+        expect(storageAccess.writeFileAuto).toHaveBeenCalledWith("note.md", "selected content", {
+            ctime: 1,
+            mtime: 2,
+        });
+        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+            revision: selected._rev,
+            observedStorageMtime: storageStub.stat.mtime,
+        });
+    });
+
+    it("restores an explicitly selected revision when the Vault file is missing", async () => {
+        const { handler, databaseFileAccess, storageAccess, provenance } = createHandler(
+            "unused",
+            "unused",
+            false,
+            TARGET_IS_NEW,
+            true
+        );
+        const selected = createMeta("note.md", "selected content", "2-selected");
+        databaseFileAccess.getConflictedRevs.mockResolvedValue(["3-other"]);
+        databaseFileAccess.fetchEntryMeta.mockResolvedValue(selected);
+        databaseFileAccess.fetchEntryFromMeta.mockResolvedValue({
+            ...selected,
+            data: "selected content",
+        });
+        storageAccess.getFileStub.mockResolvedValue(null);
+        storageAccess.getStub.mockResolvedValue(null);
+        storageAccess.stat.mockResolvedValue({ ctime: 1, mtime: 22, size: 16, type: "file" });
+
+        await expect(
+            handler.dbToStorageWithSpecificRev("note.md" as FilePath, selected._rev, true)
+        ).resolves.toBe(true);
+
+        expect(storageAccess.writeFileAuto).toHaveBeenCalledWith("note.md", "selected content", {
+            ctime: 1,
+            mtime: 2,
+        });
+        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+            revision: selected._rev,
+            observedStorageMtime: 22,
+        });
+    });
+
+});
+
+describe("ServiceFileHandlerBase conflicted storage operations", () => {
+    it("clears matching Vault provenance when an exact live branch is discarded", async () => {
+        const { handler, databaseFileAccess, storageStub, provenance } = createHandler(
+            "Vault content",
+            "winner content",
+            false,
+            TARGET_IS_NEW,
+            true
+        );
+        const selectedRevision = "2-selected";
+        provenance.get.mockResolvedValue({
+            revision: selectedRevision,
+            observedStorageMtime: storageStub.stat.mtime,
+        });
+        Object.assign(databaseFileAccess, {
+            delete: vi.fn().mockResolvedValue(true),
+        });
+
+        await expect(
+            handler.deleteRevisionFromDB(storageStub, selectedRevision)
+        ).resolves.toBe(true);
+
+        expect(databaseFileAccess.delete).toHaveBeenCalledWith(
+            storageStub,
+            selectedRevision
+        );
+        expect(provenance.delete).toHaveBeenCalledWith("note.md");
+    });
+
+    it("keeps Vault provenance which names another live branch", async () => {
+        const { handler, databaseFileAccess, storageStub, provenance } = createHandler(
+            "Vault content",
+            "winner content",
+            false,
+            TARGET_IS_NEW,
+            true
+        );
+        provenance.get.mockResolvedValue({
+            revision: "3-other",
+            observedStorageMtime: storageStub.stat.mtime,
+        });
+        Object.assign(databaseFileAccess, {
+            delete: vi.fn().mockResolvedValue(true),
+        });
+
+        await expect(
+            handler.deleteRevisionFromDB(storageStub, "2-selected")
+        ).resolves.toBe(true);
+
+        expect(provenance.delete).not.toHaveBeenCalled();
+    });
+
+    it("keeps matching Vault provenance when exact branch deletion fails", async () => {
+        const { handler, databaseFileAccess, storageStub, provenance } = createHandler(
+            "Vault content",
+            "winner content",
+            false,
+            TARGET_IS_NEW,
+            true
+        );
+        provenance.get.mockResolvedValue({
+            revision: "2-selected",
+            observedStorageMtime: storageStub.stat.mtime,
+        });
+        Object.assign(databaseFileAccess, {
+            delete: vi.fn().mockResolvedValue(false),
+        });
+
+        await expect(
+            handler.deleteRevisionFromDB(storageStub, "2-selected")
+        ).resolves.toBe(false);
+
+        expect(provenance.delete).not.toHaveBeenCalled();
+    });
+
+    it("applies a discarded conflict branch after removing it from the live revision tree", async () => {
+        const {
+            handler,
+            databaseFileAccess,
+            storageAccess,
+            storageStub,
+            provenance,
+        } = createHandler("Vault content", "winner content", false, TARGET_IS_NEW, true);
+        const discardedRevision = "2-discarded";
+        const discarded = createMeta("note.md", "discarded content", discardedRevision);
+        const winner = createMeta("note.md", "winner content", "3-winner");
+        let deleted = false;
+        Object.assign(databaseFileAccess, {
+            delete: vi.fn().mockImplementation(async () => {
+                deleted = true;
+                return true;
+            }),
+        });
+        databaseFileAccess.fetchEntryMeta.mockImplementation(
+            async (_file: UXFileInfoStub | FilePathWithPrefix, revision?: string) =>
+                revision === discardedRevision ? discarded : winner
+        );
+        databaseFileAccess.getConflictedRevs.mockImplementation(
+            async () => (deleted ? [] : [discardedRevision])
+        );
+        databaseFileAccess.fetchEntryFromMeta.mockImplementation(async (meta: MetaEntry) => ({
+            ...meta,
+            data: meta._rev === discardedRevision ? "discarded content" : "winner content",
+        }));
+
+        await expect(
+            handler.resolveConflictedByDeletingRevision(storageStub, discardedRevision)
+        ).resolves.toBeUndefined();
+
+        expect(databaseFileAccess.delete).toHaveBeenCalledWith(storageStub, discardedRevision);
+        expect(storageAccess.writeFileAuto).toHaveBeenCalledWith("note.md", "discarded content", {
+            ctime: 1,
+            mtime: 2,
+        });
+        expect(provenance.delete).toHaveBeenCalledWith("note.md");
+    });
+
+    it("stores Vault content as a child of an explicitly selected live revision", async () => {
+        const { handler, databaseFileAccess, provenance, conflict, storageFile } =
+            createConflictedOperationHandler();
+        const selectedRevision = "3-winner";
+
+        await expect(
+            handler.storeFileToDBWithBaseRevision(storageFile, selectedRevision)
+        ).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeWithBaseRevision).toHaveBeenCalledWith(storageFile, selectedRevision, true);
+        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+            revision: "4-local-edit",
+            observedStorageMtime: storageFile.stat.mtime,
+        });
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
+    });
+
+    it("refuses to extend a revision which is no longer live", async () => {
+        const { handler, databaseFileAccess, provenance, conflict, storageFile } =
+            createConflictedOperationHandler();
+        const selectedRevision = "2-obsolete";
+        const obsolete = createMeta("note.md", "obsolete", selectedRevision);
+        const winner = createMeta("note.md", "winner", "3-winner");
+        databaseFileAccess.fetchEntryMeta.mockImplementation(
+            async (_file: UXFileInfoStub | FilePathWithPrefix, revision?: string) =>
+                revision === selectedRevision ? obsolete : winner
+        );
+
+        await expect(
+            handler.storeFileToDBWithBaseRevision(storageFile, selectedRevision)
+        ).resolves.toBe(false);
+
+        expect(databaseFileAccess.storeWithBaseRevision).not.toHaveBeenCalled();
+        expect(provenance.set).not.toHaveBeenCalled();
+        expect(conflict.queueCheckFor).not.toHaveBeenCalled();
+    });
+
+    it("records the selected revision without creating a child when its content already matches the Vault", async () => {
+        const { handler, databaseFileAccess, provenance, conflict, storageFile } =
+            createConflictedOperationHandler();
+        const selectedRevision = "3-winner";
+        databaseFileAccess.fetchEntry.mockResolvedValue({
+            ...createMeta("note.md", storageFile.body, selectedRevision),
+            data: storageFile.body,
+        });
+
+        await expect(
+            handler.storeFileToDBWithBaseRevision(storageFile, selectedRevision, false)
+        ).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeWithBaseRevision).not.toHaveBeenCalled();
+        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+            revision: selectedRevision,
+            observedStorageMtime: storageFile.stat.mtime,
+        });
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
+    });
+
+    it("does not create a child when asked only to mark a selected revision which differs from the Vault", async () => {
+        const { handler, databaseFileAccess, provenance, conflict, storageFile } =
+            createConflictedOperationHandler();
+        const selectedRevision = "3-winner";
+
+        await expect(
+            handler.storeFileToDBWithBaseRevision(storageFile, selectedRevision, false)
+        ).resolves.toBe(false);
+
+        expect(databaseFileAccess.storeWithBaseRevision).not.toHaveBeenCalled();
+        expect(provenance.set).not.toHaveBeenCalled();
+        expect(conflict.queueCheckFor).not.toHaveBeenCalled();
+    });
+
+    it("extends the revision displayed in storage when a conflicted file is edited", async () => {
+        const { handler, databaseFileAccess, provenance, storageFile, displayedRevision } =
+            createConflictedOperationHandler();
+
+        await expect(handler.storeFileToDB(storageFile)).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeWithBaseRevision).toHaveBeenCalledWith(storageFile, displayedRevision, true);
+        expect(databaseFileAccess.store).not.toHaveBeenCalled();
+        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+            revision: "4-local-edit",
+            observedStorageMtime: storageFile.stat.mtime,
+        });
+    });
+
+    it("keeps the recorded displayed branch when edited content also matches another branch", async () => {
+        const { handler, databaseFileAccess, storageFile, displayedRevision } = createConflictedOperationHandler();
+        databaseFileAccess.findContentRevisions.mockResolvedValue(["3-other-branch"]);
+
+        await expect(handler.storeFileToDB(storageFile)).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeWithBaseRevision).toHaveBeenCalledWith(storageFile, displayedRevision, true);
+    });
+
+    it("reconstructs a missing displayed revision only from a unique exact content match", async () => {
+        const { handler, databaseFileAccess, provenance, storageFile } = createConflictedOperationHandler();
+        provenance.get.mockResolvedValue(undefined);
+        databaseFileAccess.findContentRevisions.mockResolvedValue(["3-reconstructed"]);
+
+        await expect(handler.storeFileToDB(storageFile)).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeWithBaseRevision).toHaveBeenCalledWith(storageFile, "3-reconstructed", true);
+        expect(databaseFileAccess.storeAsConflictedRevisionWithResult).not.toHaveBeenCalled();
+    });
+
+    it("preserves an edit as a new conflict when the displayed revision cannot be proved", async () => {
+        const { handler, databaseFileAccess, provenance, conflict, storageFile } = createConflictedOperationHandler();
+        provenance.get.mockResolvedValue(undefined);
+        databaseFileAccess.findContentRevisions.mockResolvedValue(["3-first-match", "3-second-match"]);
+
+        await expect(handler.storeFileToDB(storageFile)).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeWithBaseRevision).not.toHaveBeenCalled();
+        expect(databaseFileAccess.storeAsConflictedRevisionWithResult).toHaveBeenCalledWith(
+            storageFile,
+            "3-winner",
+            true
+        );
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
+    });
+
+    it("preserves an edit when conflicted winner content is unavailable but its metadata remains", async () => {
+        const { handler, databaseFileAccess, provenance, conflict, storageFile } = createConflictedOperationHandler();
+        provenance.get.mockResolvedValue(undefined);
+        databaseFileAccess.findContentRevisions.mockResolvedValue([]);
+        databaseFileAccess.fetchEntry.mockResolvedValue(false);
+
+        await expect(handler.storeFileToDB(storageFile)).resolves.toBe(true);
+
+        expect(databaseFileAccess.fetchEntryMeta).toHaveBeenCalledWith(storageFile, undefined, true);
+        expect(databaseFileAccess.storeAsConflictedRevisionWithResult).toHaveBeenCalledWith(
+            storageFile,
+            "3-winner",
+            true
+        );
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
+    });
+
+    it("keeps a generation-one unreadable winner unresolved when no sibling base can exist", async () => {
+        const { handler, databaseFileAccess, provenance, conflict, storageFile } = createConflictedOperationHandler();
+        provenance.get.mockResolvedValue(undefined);
+        databaseFileAccess.findContentRevisions.mockResolvedValue([]);
+        databaseFileAccess.fetchEntry.mockResolvedValue(false);
+        databaseFileAccess.fetchEntryMeta.mockResolvedValue({
+            _id: "note.md",
+            _rev: "1-root",
+            path: "note.md",
+        });
+        databaseFileAccess.storeAsConflictedRevisionWithResult.mockResolvedValue(false);
+
+        await expect(handler.storeFileToDB(storageFile)).resolves.toBe(false);
+
+        expect(databaseFileAccess.storeAsConflictedRevisionWithResult).toHaveBeenCalledWith(
+            storageFile,
+            "1-root",
+            true
+        );
+        expect(provenance.set).not.toHaveBeenCalled();
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
+    });
+
+    it("stores a soft-delete child of the displayed revision instead of deleting the winner", async () => {
+        const { handler, databaseFileAccess, provenance, conflict, storageFile, displayedRevision } =
+            createConflictedOperationHandler();
+
+        await expect(handler.deleteFileFromDB(storageFile)).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeDeletionWithBaseRevision).toHaveBeenCalledWith("note.md", displayedRevision);
+        expect(databaseFileAccess.delete).not.toHaveBeenCalled();
+        expect(provenance.delete).toHaveBeenCalledWith("note.md");
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
+    });
+
+    it("preserves every branch when a deleted file has no provable displayed revision", async () => {
+        const { handler, databaseFileAccess, provenance, conflict } = createConflictedOperationHandler();
+        provenance.get.mockResolvedValue(undefined);
+
+        await expect(handler.deleteFileFromDB("note.md" as FilePath)).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeDeletionWithBaseRevision).not.toHaveBeenCalled();
+        expect(databaseFileAccess.delete).not.toHaveBeenCalled();
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
+    });
+
+    it("extends the displayed revision for a case-only rename", async () => {
+        const { handler, databaseFileAccess, provenance, displayedRevision } = createConflictedOperationHandler();
+        const renamedFile = createStorageFile("note.md", "renamed case content");
+
+        await expect(handler.renameFileInDB(renamedFile, "Note.md" as FilePath)).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeWithBaseRevision).toHaveBeenCalledWith(renamedFile, displayedRevision, true);
+        expect(databaseFileAccess.delete).not.toHaveBeenCalled();
+        expect(provenance.delete).toHaveBeenCalledWith("Note.md");
+        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+            revision: "4-local-edit",
+            observedStorageMtime: renamedFile.stat.mtime,
+        });
+    });
+
+    it("soft-deletes only the displayed source branch for a cross-path rename", async () => {
+        const { handler, databaseFileAccess, provenance, conflict, displayedRevision } =
+            createConflictedOperationHandler();
+        const renamedFile = createStorageFile("new.md", "renamed content");
+
+        await expect(handler.renameFileInDB(renamedFile, "old.md" as FilePath)).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeDeletionWithBaseRevision).toHaveBeenCalledWith("old.md", displayedRevision);
+        expect(databaseFileAccess.delete).not.toHaveBeenCalled();
+        expect(provenance.delete).toHaveBeenCalledWith("old.md");
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith("old.md");
+    });
+
+    it("preserves every source branch when a cross-path rename has no provable displayed revision", async () => {
+        const { handler, databaseFileAccess, provenance, conflict } = createConflictedOperationHandler();
+        provenance.get.mockResolvedValue(undefined);
+        databaseFileAccess.findContentRevisions.mockResolvedValue([]);
+        vi.spyOn(handler, "storeFileToDB").mockResolvedValue(true);
+        const renamedFile = createStorageFile("new.md", "renamed content");
+
+        await expect(handler.renameFileInDB(renamedFile, "old.md" as FilePath)).resolves.toBe(true);
+
+        expect(databaseFileAccess.storeDeletionWithBaseRevision).not.toHaveBeenCalled();
+        expect(databaseFileAccess.delete).not.toHaveBeenCalled();
+        expect(conflict.queueCheckFor).toHaveBeenCalledWith("old.md");
     });
 });

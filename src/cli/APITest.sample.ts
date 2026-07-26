@@ -19,7 +19,6 @@ const opt: DirectFileManipulatorOptions = {
     enableChunkSplitterV2: true,
     enableCompression: false,
     handleFilenameCaseSensitive: false,
-    doNotUseFixedRevisionForChunks: false,
 };
 
 const directFileManipulator = new DirectFileManipulator(opt);
