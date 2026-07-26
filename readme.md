@@ -9,6 +9,9 @@ This package is primarily for maintainers of those clients and for integrations 
 >
 > Existing contributions remain welcome and the normal contribution process has not changed. Pull requests which touch packaging, host lifecycle, or compatibility boundaries may need coordination or a rebase while this boundary settles; maintainers will identify affected work rather than asking contributors to adopt a new process pre-emptively.
 
+> [!NOTE]
+> The multilingual translation resources and application dialogues are now maintained in the main application repository, [Self-hosted LiveSync](https://github.com/vrtmrz/obsidian-livesync). New pull requests for them are welcome there. Thank you to everyone who has contributed translations and dialogue improvements here.
+
 ## Status and versioning
 
 The package is pre-1.0. Pin an exact reviewed version, and review changes before upgrading. An entry in the package export map means that the import is deliberate and package-tested; it does not make every semantic detail of that entry a final 1.0 guarantee.
