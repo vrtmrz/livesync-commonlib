@@ -113,6 +113,15 @@ type DatabaseSyncStatus = {
     pending?: number;
 };
 
+// Throws a diagnosable error for an unsuccessful response.
+// Only the request stage and the HTTP status are reported, to avoid leaking header values.
+function throwIfNotOk(response: Response, stage: string): void {
+    if (response.ok) return;
+    throw new Error(
+        `Fast fetch failed while requesting the ${stage} (HTTP ${response.status} ${response.statusText}).`
+    );
+}
+
 function reachedTargetSequence(seq: DBSequence | undefined, targetSeq: DBSequence | undefined): boolean {
     if (seq === undefined || targetSeq === undefined) return false;
     const seqStr = seq.toString();
@@ -132,8 +141,10 @@ function reachedTargetSequence(seq: DBSequence | undefined, targetSeq: DBSequenc
  * Fetches initial data from CouchDB as a stream and writes it into PouchDB.
  * @param downloadToDB PouchDB instance.
  * @param remoteDbUrl CouchDB database URL (for example: 'https://xxx.com/mydb').
+ * @param authHeader Value of the `Authorization` header for CouchDB.
  * @param decryptFunction Function to decrypt each document.
  * @param since Sequence ID to start fetching changes from (default is '0').
+ * @param customHeaders Additional request headers (for example, headers required by a reverse proxy).
  */
 export async function fetchChangesForInitialSync(
     downloadToDB: PouchDB.Database,
@@ -142,7 +153,8 @@ export async function fetchChangesForInitialSync(
     decryptFunction: (doc: EntryDoc) => Promise<AnyEntry | EntryLeaf>,
     since: number | string = "0",
     onProgress?: (progress: FetchChangesForInitialSyncProgress) => void,
-    onCheckpoint?: (sequence: DBSequence) => void | Promise<void>
+    onCheckpoint?: (sequence: DBSequence) => void | Promise<void>,
+    customHeaders?: Record<string, string>
 ): Promise<void> {
     let totalFetched = 0;
     let totalValidFetched = 0;
@@ -157,6 +169,8 @@ export async function fetchChangesForInitialSync(
     } as const;
     const fetchHeaders = {
         Accept: "application/json",
+        ...customHeaders,
+        // Assign the authorisation header last so that custom headers cannot override it.
         Authorization: authHeader,
     };
 
@@ -169,6 +183,12 @@ export async function fetchChangesForInitialSync(
         if (dbInfoRes.ok) {
             const dbInfo = await dbInfoRes.json();
             targetSeq = dbInfo.update_seq;
+        } else {
+            // The target sequence is optional here, as it is recovered from the changes summary below.
+            Logger(
+                `Failed to fetch database info for target sequence (HTTP ${dbInfoRes.status} ${dbInfoRes.statusText}).`,
+                LOG_LEVEL_VERBOSE
+            );
         }
     } catch (e) {
         Logger("Failed to fetch database info for target sequence:", LOG_LEVEL_VERBOSE);
@@ -185,6 +205,7 @@ export async function fetchChangesForInitialSync(
     const infoRes = await _fetch(fetchURL.toString(), {
         headers: fetchHeaders,
     });
+    throwIfNotOk(infoRes, "changes summary");
     const infoSource = await infoRes.text();
     const infoSourceTrimmed = infoSource.trim();
     if (!infoSourceTrimmed) {
@@ -232,6 +253,8 @@ export async function fetchChangesForInitialSync(
         headers: fetchHeaders,
         signal: controller.signal,
     });
+
+    throwIfNotOk(response, "changes stream");
 
     if (!response.body) {
         throw new Error("ReadableStream is not supported by this browser.");

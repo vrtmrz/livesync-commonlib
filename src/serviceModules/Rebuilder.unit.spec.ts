@@ -29,6 +29,7 @@ function createRebuilder() {
         couchDB_DBNAME: "db",
         couchDB_USER: "user",
         couchDB_PASSWORD: "pass",
+        couchDB_CustomHeaders: "",
         useJWT: false,
         passphrase: "",
         E2EEAlgorithm: "",
@@ -230,6 +231,19 @@ describe("ServiceRebuilder fast fetch retry", () => {
         expect(services.setting.deleteSmallConfig.mock.invocationCallOrder[0]).toBeLessThan(
             activityFinished.mock.invocationCallOrder[0]
         );
+    });
+
+    it("forwards the configured CouchDB custom headers to the fast fetch", async () => {
+        fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
+        const { rebuilder, settings } = createRebuilder();
+        settings.couchDB_CustomHeaders = "CF-Access-Client-Id: client-id\nCF-Access-Client-Secret: client-secret";
+
+        await rebuilder.$fetchLocalDBFast(false);
+
+        expect(fetchChangesForInitialSyncMock.mock.calls[0][7]).toEqual({
+            "CF-Access-Client-Id": "client-id",
+            "CF-Access-Client-Secret": "client-secret",
+        });
     });
 });
 
