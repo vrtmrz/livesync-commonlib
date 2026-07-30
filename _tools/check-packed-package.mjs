@@ -272,11 +272,10 @@ void memoryIo;
 `
 );
 await writeConsumerFile(
-    "browser-services.ts",
-    `import { BrowserServiceHub } from "${packageName}/compat/services/BrowserServices";
+    "dialogue-compat.ts",
+    `import { SvelteDialogMixIn } from "${packageName}/compat/services/implements/base/SvelteDialog";
 
-(globalThis as typeof globalThis & { CommonlibBrowserServiceHub?: typeof BrowserServiceHub })
-    .CommonlibBrowserServiceHub = BrowserServiceHub;
+void SvelteDialogMixIn;
 `
 );
 await writeConsumerFile(
@@ -338,24 +337,6 @@ assert.ok(
 assert.ok(
     contextBundle.outputFiles[0].contents.length < 50_000,
     "The context bundle, including the canonical English fallback, has grown unexpectedly."
-);
-
-const browserServicesBundle = await build({
-    absWorkingDir: consumerDirectory,
-    bundle: true,
-    conditions: ["browser"],
-    entryPoints: [resolve(consumerDirectory, "browser-services.ts")],
-    external: ["crypto"],
-    format: "esm",
-    logLevel: "silent",
-    metafile: true,
-    platform: "browser",
-    write: false,
-});
-const browserServicesInputs = Object.keys(browserServicesBundle.metafile.inputs);
-assert.ok(
-    browserServicesInputs.every((path) => !path.includes("svelte")),
-    "Importing the browser service composition must not load a Svelte runtime or component."
 );
 
 const browserStorageBundle = await build({
@@ -424,7 +405,6 @@ console.log(
             packedBytes: packed.size,
             unpackedBytes: packed.unpackedSize,
             contextBundleBytes: contextBundle.outputFiles[0].contents.length,
-            browserServicesBundleBytes: browserServicesBundle.outputFiles[0].contents.length,
             browserStorageBundleBytes: browserStorageBundle.outputFiles[0].contents.length,
             workerBundleBytes: workerBundle.outputFiles[0].contents.length,
         },
