@@ -106,6 +106,11 @@ export type SvelteDialogClass<TBase extends Constructor<IModalBase>> = {
     ): SvelteDialogInstance<T, U, C>;
 };
 
+/**
+ * Adds Svelte dialogue state to a modal class through dynamic inheritance.
+ *
+ * @deprecated Compose the dialogue lifecycle explicitly in the owning host.
+ */
 export function SvelteDialogMixIn<TBase extends Constructor<IModalBase>>(
     TBase: TBase,
     d: Component<DialogHostProps>
