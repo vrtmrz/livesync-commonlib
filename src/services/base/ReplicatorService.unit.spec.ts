@@ -31,6 +31,42 @@ function createService(activityRunner?: AsyncActivityRunner) {
 }
 
 describe("ReplicatorService bounded remote activity", () => {
+    it("does not register application database lifecycle handlers for direct access", () => {
+        const onRealiseSetting = eventHook();
+        const onResetDatabase = eventHook();
+        const onDatabaseInitialisation = eventHook();
+        const onDatabaseInitialised = eventHook();
+        const onDatabaseHasReady = eventHook();
+        const onSuspending = eventHook();
+        const dependencies = {
+            settingService: { onRealiseSetting },
+            appLifecycleService: {
+                getUnresolvedMessages: Object.assign(vi.fn().mockResolvedValue([]), eventHook()),
+                onSuspending,
+            },
+            databaseEventService: {
+                onResetDatabase,
+                onDatabaseInitialisation,
+                onDatabaseInitialised,
+                onDatabaseHasReady,
+            },
+            registerLifecycleHandlers: false,
+        } as unknown as ReplicatorServiceDependencies;
+
+        new TestReplicatorService(new ServiceContext(), dependencies);
+
+        for (const hook of [
+            onRealiseSetting,
+            onResetDatabase,
+            onDatabaseInitialisation,
+            onDatabaseInitialised,
+            onDatabaseHasReady,
+            onSuspending,
+        ]) {
+            expect(hook.addHandler).not.toHaveBeenCalled();
+        }
+    });
+
     it("runs the task through an injected host activity policy", async () => {
         const run = vi.fn<(task: () => unknown, options?: AsyncActivityOptions) => void>();
         const service = createService({

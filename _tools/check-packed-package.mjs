@@ -135,7 +135,11 @@ await writeConsumerFile(
     type ServiceContextContract,
     type ServiceContextOptions,
 } from "${packageName}/context";
-import { DirectFileManipulator, type DirectFileManipulatorOptions } from "${packageName}";
+import {
+    DirectFileManipulator,
+    type DirectFileManipulatorOptions,
+    type DirectFileManipulatorRuntimeOptions,
+} from "${packageName}";
 import {
     createFileSystemAccessStorage,
     type CreateFileSystemAccessStorageOptions,
@@ -159,7 +163,10 @@ const contextContract: ServiceContextContract = context;
 const untranslated: string = passthroughMessageTranslator("moduleLocalDatabase.logWaitingForReady");
 const split = splitPieces2Worker(new Blob(["content"], { type: "text/plain" }), 4, false, 1);
 const directOptions = {} as DirectFileManipulatorOptions;
+const directRuntimeOptions: DirectFileManipulatorRuntimeOptions = { fetch: globalThis.fetch };
 const directType: typeof DirectFileManipulator = DirectFileManipulator;
+const createDirect = (options: DirectFileManipulatorOptions): DirectFileManipulator =>
+    new DirectFileManipulator(options, directRuntimeOptions);
 const fileSystemAccessOptions = {} as CreateFileSystemAccessStorageOptions;
 const fileSystemAccessFactory: typeof createFileSystemAccessStorage = createFileSystemAccessStorage;
 const prepared = prepareSettingsForLoad(undefined);
@@ -174,7 +181,9 @@ void contextContract;
 void untranslated;
 void split;
 void directOptions;
+void directRuntimeOptions;
 void directType;
+void createDirect;
 void fileSystemAccessOptions;
 void fileSystemAccessFactory;
 void migrationState;

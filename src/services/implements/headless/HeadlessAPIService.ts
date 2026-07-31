@@ -6,6 +6,7 @@ import type { Confirm, ConfirmActionLayout } from "@lib/interfaces/Confirm";
 // const module = await import("node:crypto");
 import module from "node:crypto";
 import { _activeDocument } from "@lib/common/coreEnvFunctions.ts";
+import { Logger } from "@lib/common/logger";
 
 declare const MANIFEST_VERSION: string | undefined;
 // declare const PACKAGE_VERSION: string | undefined;
@@ -69,6 +70,7 @@ export class HeadlessAPIService<T extends ServiceContext> extends InjectableAPIS
     constructor(context: T) {
         super(context);
         this._confirmInstance = new HeadlessConfirm();
+        this.addLog.setHandler(Logger);
     }
     get confirm(): Confirm {
         return this._confirmInstance;
