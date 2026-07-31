@@ -46,6 +46,10 @@ assert.ok(
     "The platform storage guide must be included in the package."
 );
 assert.ok(
+    packed.files.some(({ path }) => path === "docs/adaptive-journal.md"),
+    "The Adaptive Journal protocol guide must be included in the package."
+);
+assert.ok(
     packed.files.some(({ path }) => path === "docs/development.md"),
     "The developer guide linked from the README must be included in the package."
 );

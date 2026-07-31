@@ -247,6 +247,7 @@ async function copyStaticFiles() {
     await cp(resolve(root, "LICENSE"), resolve(packageDirectory, "LICENSE"));
     await mkdir(resolve(packageDirectory, "docs"), { recursive: true });
     for (const document of [
+        "adaptive-journal.md",
         "conflict-resolution.md",
         "development.md",
         "p2p-transport-lifecycle.md",

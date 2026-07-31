@@ -115,6 +115,12 @@ New profile-management code can create or update a CouchDB, Object Storage, or P
 
 See [the remote configuration profile guide](docs/remote-configurations.md) for creation, activation, P2P selection, legacy import, persistence, and verification responsibilities.
 
+## Adaptive Journal protocol
+
+The experimental `/adaptive-journal` entry defines transport-independent v1 records, immutable publication and recovery rules, object-pack and native Chunk delivery contracts, and deterministic fixtures. It is a low-level protocol boundary rather than a ready-to-run synchronisation client.
+
+See [the Adaptive Journal protocol guide](docs/adaptive-journal.md) for repository identity, Metadata and Chunk separation, capability requirements, retry semantics, and host ownership.
+
 ## Contract scope
 
 The package is currently an infrastructure and compatibility boundary. The context, rooted-storage, standard-I/O, and revision-tree safety contracts have focused cross-platform, instance-isolation, or real-PouchDB tests. Platform details which cannot be shared, such as file timestamp fidelity and browser permission handling, remain host concerns and are documented separately.
@@ -123,7 +129,7 @@ The package is currently an infrastructure and compatibility boundary. The conte
 
 The accepted replacement direction is an asynchronously created file client with stable `list`, `get`, `put`, `delete`, `watch`, and `close` operations. The operation result, conflict, concurrency, watch checkpoint, retry, and error contracts still require focused decisions and tests before that client can be published.
 
-Package developers should read [the developer guide](docs/development.md). The focused contracts are described in [the storage guide](docs/platform-storage.md), [the standard-I/O guide](docs/platform-standard-io.md), [the settings lifecycle guide](docs/settings-lifecycle.md), [the remote configuration profile guide](docs/remote-configurations.md), and [the conflict-resolution guide](docs/conflict-resolution.md).
+Package developers should read [the developer guide](docs/development.md). The focused contracts are described in [the storage guide](docs/platform-storage.md), [the standard-I/O guide](docs/platform-standard-io.md), [the settings lifecycle guide](docs/settings-lifecycle.md), [the remote configuration profile guide](docs/remote-configurations.md), [the Adaptive Journal protocol guide](docs/adaptive-journal.md), and [the conflict-resolution guide](docs/conflict-resolution.md).
 
 ## Proven in maintained hosts
 
