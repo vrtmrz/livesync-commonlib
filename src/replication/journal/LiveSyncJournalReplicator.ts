@@ -13,13 +13,20 @@ import {
 } from "@lib/common/types.ts";
 import { Logger } from "@lib/common/logger.ts";
 
+import { AdaptiveJournalSyncCore } from "./AdaptiveJournalSyncCore.ts";
 import { JournalSyncCore } from "./JournalSyncCore.ts";
-import { MinioStorageAdapter } from "./objectstore/MinioStorageAdapter.ts";
+import {
+    createJournalStorageAdapter,
+    getJournalRemoteDisplayName,
+    inspectJournalStorageConnectivity,
+    isJournalStorageAdapterCompatible,
+    journalProtocolConfigurationForSettings,
+} from "./objectstore/JournalStorageAdapterFactory.ts";
 
 import { LiveSyncAbstractReplicator, type RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";
 import { ensureRemoteIsCompatible, type ENSURE_DB_RESULT } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import type { CheckPointInfo } from "./JournalSyncTypes.ts";
-import { fireAndForget, type SimpleStore } from "@lib/common/utils.ts";
+import { type SimpleStore } from "@lib/common/utils.ts";
 
 import { extractObject } from "@lib/common/utils.ts";
 import { clearHandlers } from "@lib/replication/SyncParamsHandler.ts";
@@ -33,6 +40,8 @@ const currentVersionRange: ChunkVersionRange = {
     current: 2,
 };
 
+type JournalSyncClient = AdaptiveJournalSyncCore | JournalSyncCore;
+
 export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     declare env: LiveSyncJournalReplicatorEnv;
 
@@ -43,7 +52,8 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     get simpleStore() {
         return this.env.services.keyValueDB.simpleStore as SimpleStore<CheckPointInfo>;
     }
-    _client!: JournalSyncCore;
+    _client!: JournalSyncClient;
+    private readonly nodeInitialisation: Promise<boolean>;
 
     override async getReplicationPBKDF2Salt(
         setting: RemoteDBSettings,
@@ -54,15 +64,35 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
 
     setupJournalSyncClient() {
         const settings = this.currentSettings;
-        if (this._client) {
-            this._client.applyNewConfig(settings, this.simpleStore, this.env);
+        const adaptive = journalProtocolConfigurationForSettings(settings).journalFormat === "adaptive-v1";
+        const currentModeMatches =
+            this._client !== undefined && adaptive === this._client instanceof AdaptiveJournalSyncCore;
+        const currentStorageMatches =
+            this._client !== undefined && isJournalStorageAdapterCompatible(this._client.storage, settings);
+        if (currentModeMatches && currentStorageMatches) {
+            const storage = this._client.storage;
+            this._client.applyNewConfig(settings, this.simpleStore, this.env, storage);
         } else {
-            this._client = new JournalSyncCore(
-                settings,
-                this.simpleStore,
-                this.env,
-                new MinioStorageAdapter(settings, this.env)
-            );
+            this._client?.requestStop();
+            const storage = currentStorageMatches
+                ? this._client.storage
+                : createJournalStorageAdapter(settings, this.env);
+            storage.applyNewConfig(settings);
+            this._client = adaptive
+                ? new AdaptiveJournalSyncCore(
+                      settings,
+                      this.simpleStore as unknown as SimpleStore<unknown>,
+                      this.env,
+                      storage,
+                      async () => {
+                          if (!(await this.nodeInitialisation) || this.nodeid.length === 0) {
+                              throw new Error("Could not initialise the local Journal host ID");
+                          }
+                          return this.nodeid;
+                      },
+                      async (docs) => await this.env.services.replication.parseSynchroniseResult(docs)
+                  )
+                : new JournalSyncCore(settings, this.simpleStore, this.env, storage);
         }
         return this._client;
     }
@@ -71,8 +101,10 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         deviceNodeID: string,
         currentVersionRange: ChunkVersionRange
     ): Promise<ENSURE_DB_RESULT> {
-        const downloadedMilestone = await this.client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
-        const cPointInfo = await this.client.getCheckpointInfo();
+        const client = this.client;
+        if (client instanceof AdaptiveJournalSyncCore) return "OK";
+        const downloadedMilestone = await client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
+        const cPointInfo = await client.getCheckpointInfo();
         const progress = [...(cPointInfo?.receivedFiles || [])].sort().pop() || "";
         return await ensureRemoteIsCompatible(
             downloadedMilestone,
@@ -87,7 +119,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                 progress: progress,
             },
             async (info) => {
-                await this.client.uploadJson(MILSTONE_DOCID, info);
+                await client.uploadJson(MILSTONE_DOCID, info);
             }
         );
     }
@@ -95,8 +127,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     constructor(env: LiveSyncJournalReplicatorEnv) {
         super(env);
         this.env = env;
-        // initialize local node information.
-        fireAndForget(() => this.initializeDatabaseForReplication());
+        this.nodeInitialisation = this.initializeDatabaseForReplication();
         this.rawDatabase.on("close", () => {
             this.closeReplication();
         });
@@ -193,7 +224,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     async tryResetRemoteDatabase(setting: RemoteDBSettings) {
         this.closeReplication();
         try {
-            await this.client.resetBucket();
+            if (!(await this.client.resetBucket())) throw new Error("Remote Journal storage rebuild failed");
             clearHandlers();
             Logger("Remote Bucket Cleared", LOG_LEVEL_NOTICE);
             await this.tryCreateRemoteDatabase(setting);
@@ -211,6 +242,14 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         return await Promise.resolve();
     }
     async markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean) {
+        const client = this.client;
+        if (client instanceof AdaptiveJournalSyncCore) {
+            Logger(
+                "Adaptive Journal repositories use repository identity instead of the legacy remote lock",
+                LOG_LEVEL_VERBOSE
+            );
+            return;
+        }
         const defInitPoint: EntryMilestoneInfo = {
             _id: MILSTONE_DOCID as DocumentID,
             type: "milestoneinfo",
@@ -225,7 +264,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
 
         const remoteMilestone: EntryMilestoneInfo = {
             ...defInitPoint,
-            ...((await this.client.downloadJson(MILSTONE_DOCID)) || {}),
+            ...((await client.downloadJson(MILSTONE_DOCID)) || {}),
         };
         remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
         remoteMilestone.accepted_nodes = [this.nodeid];
@@ -236,9 +275,14 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         } else {
             Logger("Unlock remote bucket to prevent data corruption", LOG_LEVEL_NOTICE);
         }
-        await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone);
+        await client.uploadJson(MILSTONE_DOCID, remoteMilestone);
     }
     async markRemoteResolved(setting: RemoteDBSettings) {
+        const client = this.client;
+        if (client instanceof AdaptiveJournalSyncCore) {
+            Logger("Adaptive Journal repositories do not use the legacy resolved-device milestone", LOG_LEVEL_VERBOSE);
+            return;
+        }
         const defInitPoint: EntryMilestoneInfo = {
             _id: MILSTONE_DOCID as DocumentID,
             type: "milestoneinfo",
@@ -252,19 +296,32 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
 
         const remoteMilestone: EntryMilestoneInfo = {
             ...defInitPoint,
-            ...((await this.client.downloadJson(MILSTONE_DOCID)) || {}),
+            ...((await client.downloadJson(MILSTONE_DOCID)) || {}),
         };
         remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
         remoteMilestone.accepted_nodes = Array.from(new Set([...remoteMilestone.accepted_nodes, this.nodeid]));
         Logger("Mark this device as 'resolved'.", LOG_LEVEL_NOTICE);
-        await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone);
+        await client.uploadJson(MILSTONE_DOCID, remoteMilestone);
     }
 
-    async tryConnectRemote(setting: RemoteDBSettings, showResult: boolean = true): Promise<boolean> {
-        const endpoint = setting.endpoint;
-        const testClient = new MinioStorageAdapter(setting, this.env);
+    async tryConnectRemote(setting: RemoteDBSettings, _showResult: boolean = true): Promise<boolean> {
+        const endpoint = getJournalRemoteDisplayName(setting);
+        const testClient = createJournalStorageAdapter(setting, this.env);
         try {
-            await testClient.listFiles("", 1);
+            const connectivity = await inspectJournalStorageConnectivity(testClient, setting);
+            if (!connectivity.available) {
+                const selectedFormat = journalProtocolConfigurationForSettings(setting).journalFormat;
+                if (
+                    connectivity.remoteFormat !== undefined &&
+                    connectivity.remoteFormat !== "empty" &&
+                    connectivity.remoteFormat !== selectedFormat
+                ) {
+                    throw new Error(
+                        `The remote contains ${connectivity.remoteFormat} Journal data, but this connection selects ${selectedFormat}. Rebuild the remote before changing formats.`
+                    );
+                }
+                throw new Error("The remote Journal storage is unavailable");
+            }
             Logger(`Connected to ${endpoint} successfully!`, LOG_LEVEL_NOTICE);
             return true;
         } catch (ex) {
@@ -275,14 +332,19 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async resetRemoteTweakSettings(setting: RemoteDBSettings) {
+        const client = this.client;
+        if (client instanceof AdaptiveJournalSyncCore) {
+            Logger("Adaptive Journal repositories do not store legacy remote tweak settings", LOG_LEVEL_VERBOSE);
+            return;
+        }
         try {
-            const remoteMilestone = await this.client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
+            const remoteMilestone = await client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
             if (!remoteMilestone) {
                 throw new Error("Missing remote milestone");
             }
             remoteMilestone.tweak_values = {};
             Logger(`tweak values on the remote database have been cleared`, LOG_LEVEL_VERBOSE);
-            await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone);
+            await client.uploadJson(MILSTONE_DOCID, remoteMilestone);
         } catch (ex) {
             Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
             throw ex;
@@ -290,8 +352,13 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async setPreferredRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
+        const client = this.client;
+        if (client instanceof AdaptiveJournalSyncCore) {
+            Logger("Adaptive Journal repositories do not store legacy remote tweak settings", LOG_LEVEL_VERBOSE);
+            return;
+        }
         try {
-            const remoteMilestone = await this.client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
+            const remoteMilestone = await client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
             if (!remoteMilestone) {
                 throw new Error("Missing remote milestone");
             }
@@ -299,7 +366,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                 ...setting,
             }) satisfies TweakValues;
             Logger(`tweak values on the remote database have been cleared`, LOG_LEVEL_VERBOSE);
-            await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone);
+            await client.uploadJson(MILSTONE_DOCID, remoteMilestone);
         } catch (ex) {
             Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
             throw ex;
@@ -307,8 +374,10 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<false | TweakValues> {
+        const client = this.client;
+        if (client instanceof AdaptiveJournalSyncCore) return false;
         try {
-            const remoteMilestone = await this.client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
+            const remoteMilestone = await client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
             if (!remoteMilestone) {
                 throw new Error("Missing remote milestone");
             }
@@ -321,7 +390,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus> {
-        const testClient = new MinioStorageAdapter(setting, this.env);
+        const testClient = createJournalStorageAdapter(setting, this.env);
         return await testClient.getUsage();
     }
 

@@ -26,9 +26,13 @@ import {
 } from "@lib/common/utils.ts";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock";
 import { wrappedDeflate, wrappedInflate } from "@lib/pouchdb/compress.ts";
-import { type CheckPointInfo, CheckPointInfoDefault } from "./JournalSyncTypes.ts";
+import { type CheckPointInfo, createCheckPointInfoDefault } from "./JournalSyncTypes.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
-import type { IJournalStorage } from "./objectstore/JournalStorageAdapter.ts";
+import {
+    assertJournalStorageRemoteFormatV1,
+    JournalStorageFormatMismatchError,
+    type IJournalStorage,
+} from "./objectstore/JournalStorageAdapter.ts";
 
 import {
     clearHandlers,
@@ -47,6 +51,7 @@ import {
 const RECORD_SPLIT = `\n`;
 const UNIT_SPLIT = `\u001f`;
 type ProcessingEntry = PouchDB.Core.PutDocument<EntryDoc> & PouchDB.Core.GetMeta;
+export type JournalSyncSetting = BucketSyncSetting | RemoteDBSettings;
 
 const te = new TextEncoder();
 function serializeDoc(doc: EntryDoc): Uint8Array {
@@ -59,7 +64,7 @@ function serializeDoc(doc: EntryDoc): Uint8Array {
 }
 
 export class JournalSyncCore {
-    _settings: BucketSyncSetting;
+    _settings: JournalSyncSetting;
     storage: IJournalStorage;
 
     get db() {
@@ -77,6 +82,14 @@ export class JournalSyncCore {
     store: SimpleStore<CheckPointInfo>;
     requestedStop = false;
 
+    private async assertOpaqueJournalEngine(): Promise<void> {
+        const selectedFormat = this._settings.journalFormat ?? "opaque-v1";
+        if (selectedFormat !== "opaque-v1") {
+            throw new JournalStorageFormatMismatchError("opaque-v1", selectedFormat);
+        }
+        await assertJournalStorageRemoteFormatV1(this.storage, "opaque-v1");
+    }
+
     getInitialSyncParameters(): Promise<SyncParameters> {
         return Promise.resolve({
             ...DEFAULT_SYNC_PARAMETERS,
@@ -86,6 +99,7 @@ export class JournalSyncCore {
     }
 
     async getSyncParameters(): Promise<SyncParameters> {
+        await this.assertOpaqueJournalEngine();
         try {
             const downloadedData = await this.storage.download(DOCID_JOURNAL_SYNC_PARAMETERS, true);
             if (!downloadedData) {
@@ -100,6 +114,7 @@ export class JournalSyncCore {
     }
 
     async putSyncParameters(params: SyncParameters): Promise<boolean> {
+        await this.assertOpaqueJournalEngine();
         try {
             const data = new TextEncoder().encode(JSON.stringify(params));
             if (await this.storage.upload(DOCID_JOURNAL_SYNC_PARAMETERS, data, "application/json")) {
@@ -113,14 +128,14 @@ export class JournalSyncCore {
         }
     }
 
-    getHash(settings: BucketSyncSetting) {
+    getHash(settings: JournalSyncSetting) {
         return btoa(
             encodeURI([settings.endpoint, `${settings.bucket}${settings.bucketPrefix}`, settings.region].join())
         );
     }
 
     constructor(
-        settings: BucketSyncSetting,
+        settings: JournalSyncSetting,
         store: SimpleStore<CheckPointInfo>,
         env: LiveSyncJournalReplicatorEnv,
         storage: IJournalStorage
@@ -130,12 +145,13 @@ export class JournalSyncCore {
         this.processReplication = async (docs: PouchDB.Core.ExistingDocument<EntryDoc>[]) =>
             await env.services.replication.parseSynchroniseResult(docs);
         this.store = store;
-        this.hash = this.getHash(settings);
         this.storage = storage;
+        this.hash = this.getHash(settings);
         clearHandlers();
     }
 
     async downloadJson<T>(key: string): Promise<T | false> {
+        await this.assertOpaqueJournalEngine();
         try {
             const data = await this.storage.download(key, true);
             if (!data) return false;
@@ -148,6 +164,7 @@ export class JournalSyncCore {
     }
 
     async uploadJson<T>(key: string, body: T): Promise<boolean> {
+        await this.assertOpaqueJournalEngine();
         try {
             const data = new TextEncoder().encode(JSON.stringify(body));
             return await this.storage.upload(key, data, "application/json");
@@ -158,14 +175,21 @@ export class JournalSyncCore {
         }
     }
 
-    applyNewConfig(settings: BucketSyncSetting, store: SimpleStore<CheckPointInfo>, env: LiveSyncJournalReplicatorEnv) {
+    applyNewConfig(
+        settings: JournalSyncSetting,
+        store: SimpleStore<CheckPointInfo>,
+        env: LiveSyncJournalReplicatorEnv,
+        storage: IJournalStorage = this.storage
+    ) {
         this._settings = settings;
         this.env = env;
         this.processReplication = async (docs: PouchDB.Core.ExistingDocument<EntryDoc>[]) =>
             await env.services.replication.parseSynchroniseResult(docs);
         this.store = store;
-        this.hash = this.getHash(settings);
+        this.storage = storage;
         this.storage.applyNewConfig(settings);
+        this.hash = this.getHash(settings);
+        this._currentCheckPointInfo = createCheckPointInfoDefault();
         clearHandlers();
     }
 
@@ -191,7 +215,7 @@ export class JournalSyncCore {
         return newInfo;
     }
 
-    _currentCheckPointInfo = { ...CheckPointInfoDefault };
+    _currentCheckPointInfo = createCheckPointInfoDefault();
     async getCheckpointInfo(): Promise<CheckPointInfo> {
         const checkPointKey = `bucketsync-checkpoint-${this.hash}` as DocumentID;
         const old: Record<string, unknown> = (await this.store.get(checkPointKey)) || {};
@@ -214,7 +238,7 @@ export class JournalSyncCore {
             }
             old[key] = new Set<string>();
         }
-        this._currentCheckPointInfo = { ...CheckPointInfoDefault, ...old };
+        this._currentCheckPointInfo = { ...createCheckPointInfoDefault(), ...old };
         return this._currentCheckPointInfo;
     }
 
@@ -222,8 +246,25 @@ export class JournalSyncCore {
         clearHandlers();
     }
 
+    async resetReceivedHistory(): Promise<void> {
+        await this.updateCheckPointInfo((info) => ({
+            ...info,
+            receivedFiles: new Set(),
+            knownIDs: new Set(),
+        }));
+    }
+
+    async resetSentHistory(): Promise<void> {
+        await this.updateCheckPointInfo((info) => ({
+            ...info,
+            lastLocalSeq: 0,
+            sentIDs: new Set(),
+            sentFiles: new Set(),
+        }));
+    }
+
     async resetCheckpointInfo() {
-        await this.updateCheckPointInfo((info) => ({ ...CheckPointInfoDefault }));
+        await this.updateCheckPointInfo(() => createCheckPointInfoDefault());
         clearHandlers();
     }
 
@@ -291,10 +332,27 @@ export class JournalSyncCore {
     }
 
     async isAvailable(): Promise<boolean> {
-        return await this.storage.isAvailable();
+        try {
+            if ((this._settings.journalFormat ?? "opaque-v1") !== "opaque-v1") return false;
+            const remoteFormat = await this.storage.inspectRemoteFormat?.();
+            if (remoteFormat !== undefined) return remoteFormat === "empty" || remoteFormat === "opaque-v1";
+            return await this.storage.isAvailable();
+        } catch {
+            return false;
+        }
     }
 
     async resetBucket(): Promise<boolean> {
+        if (this.storage.resetJournalStorage) {
+            const reset = await this.storage.resetJournalStorage();
+            if (!reset) {
+                Logger("Could not rebuild remote Journal storage.", LOG_LEVEL_NOTICE, "reset-bucket");
+                return false;
+            }
+            clearHandlers();
+            await this.resetCheckpointInfo();
+            return true;
+        }
         let files = [] as string[];
         try {
             do {
@@ -322,7 +380,7 @@ export class JournalSyncCore {
     }
 
     getRemoteKey(): string {
-        return this.getHash(this._settings);
+        return this.hash;
     }
 
     async getReplicationPBKDF2Salt(refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
@@ -582,6 +640,7 @@ export class JournalSyncCore {
     }
 
     async sendLocalJournal(showMessage = false) {
+        await this.assertOpaqueJournalEngine();
         this.updateInfo({ syncStatus: "JOURNAL_SEND" });
         return await shareRunningResult("send_journal_stream", async () => {
             this.requestedStop = false;
@@ -630,6 +689,7 @@ export class JournalSyncCore {
     }
 
     async _getRemoteJournals() {
+        await this.assertOpaqueJournalEngine();
         const checkPointInfo = await this.getCheckpointInfo();
         const StartAfter = [...checkPointInfo.receivedFiles.keys()].sort((a, b) =>
             b.localeCompare(a, undefined, { numeric: true })

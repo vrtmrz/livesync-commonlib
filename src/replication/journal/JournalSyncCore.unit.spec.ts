@@ -15,7 +15,7 @@ import {
     type PlainEntry,
 } from "@lib/common/types.ts";
 import { type SimpleStore, pickBucketSyncSettings } from "@lib/common/utils.ts";
-import { CheckPointInfoDefault, type CheckPointInfo } from "./JournalSyncTypes.ts";
+import { createCheckPointInfoDefault, type CheckPointInfo } from "./JournalSyncTypes.ts";
 import { wrappedDeflate, wrappedInflate } from "@lib/pouchdb/compress.ts";
 import { REMOTE_CHUNK_FETCHED } from "@lib/pouchdb/LiveSyncLocalDB.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase.ts";
@@ -28,6 +28,7 @@ describe("JournalSyncCore", () => {
     let env: LiveSyncJournalReplicatorEnv;
     let mockStorage: IJournalStorage;
     let core: JournalSyncCore;
+    let store: SimpleStore<CheckPointInfo>;
     let virtualStorage: Map<string, Uint8Array>;
     let context: ReturnType<typeof createServiceContext>;
 
@@ -50,6 +51,7 @@ describe("JournalSyncCore", () => {
             listFiles: vi.fn(async () => {
                 return Array.from(virtualStorage.keys());
             }),
+            isAvailable: vi.fn(async () => true),
             deleteFile: vi.fn(async (file: string) => {
                 virtualStorage.delete(file);
             }),
@@ -82,8 +84,8 @@ describe("JournalSyncCore", () => {
             },
         } as unknown as LiveSyncJournalReplicatorEnv;
 
-        const store = {
-            get: vi.fn(async () => ({ ...CheckPointInfoDefault })),
+        store = {
+            get: vi.fn(async () => createCheckPointInfoDefault()),
             set: vi.fn(async () => {}),
             keys: vi.fn(async () => []),
             delete: vi.fn(async () => {}),
@@ -97,6 +99,24 @@ describe("JournalSyncCore", () => {
         await localDB.destroy();
     });
 
+    it("does not share a missing checkpoint's mutable sets between Journal cores", async () => {
+        const createEmptyStore = () =>
+            ({
+                delete: vi.fn(async () => {}),
+                get: vi.fn(async () => undefined),
+                keys: vi.fn(async () => []),
+                set: vi.fn(async () => {}),
+            }) as unknown as SimpleStore<CheckPointInfo>;
+        const settings: BucketSyncSetting = pickBucketSyncSettings(DEFAULT_SETTINGS);
+        const first = new JournalSyncCore(settings, createEmptyStore(), env, mockStorage);
+        const second = new JournalSyncCore(settings, createEmptyStore(), env, mockStorage);
+
+        const firstCheckpoint = await first.getCheckpointInfo();
+        firstCheckpoint.sentFiles.add("sent-by-first.jsonl.gz");
+
+        expect((await second.getCheckpointInfo()).sentFiles).not.toContain("sent-by-first.jsonl.gz");
+    });
+
     describe("getSyncParameters", () => {
         it("throws SyncParamsNotFoundError if sync parameters do not exist in storage", async () => {
             await expect(core.getSyncParameters()).rejects.toThrowError("Missing sync parameters");
@@ -108,6 +128,30 @@ describe("JournalSyncCore", () => {
 
             const fetched = await core.getSyncParameters();
             expect(fetched.pbkdf2salt).toBe("salt");
+        });
+    });
+
+    describe("Opaque control records", () => {
+        it("refuses to read or write them when Adaptive data is present", async () => {
+            mockStorage.inspectRemoteFormat = vi.fn(async () => "adaptive-v1");
+
+            await expect(core.downloadJson("_00000000-milestone.json")).rejects.toMatchObject({
+                code: "journal-storage-format-mismatch",
+            });
+            await expect(core.uploadJson("_00000000-milestone.json", {})).rejects.toMatchObject({
+                code: "journal-storage-format-mismatch",
+            });
+            expect(mockStorage.download).not.toHaveBeenCalled();
+            expect(mockStorage.upload).not.toHaveBeenCalled();
+        });
+    });
+
+    describe("availability", () => {
+        it("uses successful format inspection without issuing a redundant availability request", async () => {
+            mockStorage.inspectRemoteFormat = vi.fn(async () => "opaque-v1");
+
+            await expect(core.isAvailable()).resolves.toBe(true);
+            expect(mockStorage.isAvailable).not.toHaveBeenCalled();
         });
     });
 
@@ -159,6 +203,15 @@ describe("JournalSyncCore", () => {
     });
 
     describe("receiveRemoteJournal", () => {
+        it("refuses to read an Adaptive remote through the Opaque Journal engine", async () => {
+            mockStorage.inspectRemoteFormat = vi.fn(async () => "adaptive-v1");
+
+            await expect(core.receiveRemoteJournal(true)).rejects.toMatchObject({
+                code: "journal-storage-format-mismatch",
+            });
+            expect(mockStorage.listFiles).not.toHaveBeenCalled();
+        });
+
         it("should parse and apply incoming documents with new_edits: false", async () => {
             // Put a mock compressed chunk into virtual storage
             const mockDoc = {
