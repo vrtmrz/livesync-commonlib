@@ -306,6 +306,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 enableCompression: this.options.enableCompression ?? DEFAULT_SETTINGS.enableCompression,
                 handleFilenameCaseSensitive:
                     this.options.handleFilenameCaseSensitive ?? DEFAULT_SETTINGS.handleFilenameCaseSensitive,
+                usePathObfuscation: !!this.options.obfuscatePassphrase,
                 E2EEAlgorithm: this.options.E2EEAlgorithm ?? E2EEAlgorithms.V2,
             },
         };
@@ -436,7 +437,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         // return;
     }
     async *_enumerate(startKey: string, endKey: string, opt: { metaOnly: boolean }) {
-        if (opt.metaOnly) return this.liveSyncLocalDB.findEntries(startKey, endKey, {});
+        if (opt.metaOnly) return yield* this.liveSyncLocalDB.findEntries(startKey, endKey, {});
         for await (const f of this.liveSyncLocalDB.findEntries(startKey, endKey, {})) {
             yield await this.getByMeta(f);
         }
@@ -492,7 +493,14 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                     }
                 }
                 Logger(`WATCH: PROCESSING: ${doc.path}`, LEVEL_VERBOSE, "watch");
-                const docX = await this.getByMeta(doc);
+                let docX;
+                try {
+                    docX = await this.getByMeta(doc);
+                } catch (ex) {
+                    Logger(`WATCH: DECRYPT FAILED: ${doc.path}`, LEVEL_INFO, "watch");
+                    Logger(ex, LEVEL_VERBOSE, "watch");
+                    return;
+                }
                 try {
                     await callback(docX, change.seq);
                     Logger(`WATCH: PROCESS DONE: ${doc.path}`, LEVEL_INFO, "watch");

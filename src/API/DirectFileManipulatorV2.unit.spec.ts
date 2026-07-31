@@ -20,6 +20,7 @@ import {
     DirectFileManipulator,
     type DirectFileManipulatorOptions,
     type DirectFileManipulatorRuntimeOptions,
+    type MetaEntry,
 } from "./DirectFileManipulatorV2.ts";
 
 type GetBoundDatabaseService = (
@@ -76,5 +77,74 @@ describe("DirectFileManipulator", () => {
                 },
             },
         ]);
+    });
+
+    it("yields metadata entries when metadata-only enumeration is requested", async () => {
+        const entries = [{ type: "plain", path: "note.md" }] as unknown as MetaEntry[];
+        const getByMeta = vi.fn();
+        const manipulator = {
+            liveSyncLocalDB: {
+                async *findEntries() {
+                    yield* entries;
+                },
+            },
+            getByMeta,
+        } as unknown as DirectFileManipulator;
+        const received: MetaEntry[] = [];
+
+        for await (const entry of DirectFileManipulator.prototype._enumerate.call(manipulator, "", "z", {
+            metaOnly: true,
+        })) {
+            received.push(entry);
+        }
+
+        expect(received).toEqual(entries);
+        expect(getByMeta).not.toHaveBeenCalled();
+    });
+
+    it("enables path obfuscation when an obfuscation passphrase is supplied", () => {
+        const options: DirectFileManipulatorOptions = {
+            url: "https://example.com/couchdb",
+            database: "vault",
+            username: "alice",
+            password: "secret",
+            passphrase: undefined,
+            obfuscatePassphrase: "obfuscation-secret",
+        };
+        const getSettings = Object.getOwnPropertyDescriptor(DirectFileManipulator.prototype, "settings")?.get;
+        if (!getSettings) throw new Error("DirectFileManipulator.settings getter is unavailable");
+
+        const settings = getSettings.call({ options } as DirectFileManipulator);
+
+        expect(settings.usePathObfuscation).toBe(true);
+    });
+
+    it("keeps its watch callback contained when a changed document cannot be decrypted", async () => {
+        const changes = {
+            on: vi.fn().mockReturnThis(),
+            cancel: vi.fn(),
+        };
+        const callback = vi.fn();
+        const manipulator = {
+            watching: false,
+            since: "0",
+            liveSyncLocalDB: {
+                localDatabase: {
+                    changes: vi.fn(() => changes),
+                },
+            },
+            getByMeta: vi.fn().mockRejectedValue(new Error("decryption failed")),
+        } as unknown as DirectFileManipulator;
+
+        DirectFileManipulator.prototype.beginWatch.call(manipulator, callback);
+        const changeHandler = changes.on.mock.calls.find(([event]) => event === "change")?.[1] as
+            | ((change: { doc: { type: "plain"; path: string }; seq: number }) => Promise<void>)
+            | undefined;
+        if (!changeHandler) throw new Error("DirectFileManipulator change handler was not registered");
+
+        await expect(
+            changeHandler({ doc: { type: "plain", path: "encrypted.md" }, seq: 1 })
+        ).resolves.toBeUndefined();
+        expect(callback).not.toHaveBeenCalled();
     });
 });
