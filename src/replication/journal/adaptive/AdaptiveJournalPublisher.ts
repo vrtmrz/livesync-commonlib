@@ -2,19 +2,12 @@ import type { DocumentID, EntryDoc } from "@lib/common/types.ts";
 
 import { bytesEqual } from "./AdaptiveJournalBinary.ts";
 import type { AdaptiveJournalChunkDeliveryV1 } from "./AdaptiveJournalChunkDelivery.ts";
-import {
-    digestAdaptiveJournalRequiredChunkKeysV1,
-    encodeCommitEnvelopeV1,
-} from "./AdaptiveJournalCommit.ts";
-import { adaptiveJournalMetadataObjectKeyV1 } from "./AdaptiveJournalCatalogue.ts";
+import { digestAdaptiveJournalRequiredChunkKeysV1, encodeCommitEnvelopeV1 } from "./AdaptiveJournalCommit.ts";
 import { encodeAdaptiveJournalCommitRecordV1 } from "./AdaptiveJournalControl.ts";
 import type { AdaptiveJournalEventStoreV1 } from "./AdaptiveJournalEventStore.ts";
 import { publishAdaptiveJournalMetadataRecordV1 } from "./AdaptiveJournalImmutablePublication.ts";
 import { AdaptiveJournalError, type AdaptiveJournalKeySetV1 } from "./AdaptiveJournalManifest.ts";
-import {
-    encodeAdaptiveJournalChunkRecordV1,
-    encodeAdaptiveJournalMetadataRecordV1,
-} from "./AdaptiveJournalPayload.ts";
+import { encodeAdaptiveJournalChunkRecordV1, encodeAdaptiveJournalMetadataRecordV1 } from "./AdaptiveJournalPayload.ts";
 import type { RemoteFailure } from "./AdaptiveJournalRepository.ts";
 import {
     publishAdaptiveJournalPendingCommitV1,
@@ -71,7 +64,8 @@ function requiredChunkSources(
     const byId = new Map<DocumentID, AdaptiveJournalChunkSourceV1>();
     for (const source of sources) {
         if (!source.localChunkId.startsWith("h:")) throw invalidChunkSet("Chunk source has an invalid local Chunk ID");
-        if (byId.has(source.localChunkId)) throw invalidChunkSet("Chunk source set contains a duplicate local Chunk ID");
+        if (byId.has(source.localChunkId))
+            throw invalidChunkSet("Chunk source set contains a duplicate local Chunk ID");
         byId.set(source.localChunkId, source);
     }
     if (byId.size !== localChunkIds.length) {
@@ -131,12 +125,11 @@ export async function publishAdaptiveJournalMetadataBatchV1(
 
     const requiredChunkKeySet = await digestAdaptiveJournalRequiredChunkKeysV1(chunks.requiredChunkKeys);
     const commitRecord = await encodeAdaptiveJournalCommitRecordV1({
-        catalogueDeltas: chunks.catalogueDeltas,
+        chunkPacks: chunks.chunkPacks,
         keys: options.keys,
         metadata: {
             bytes: metadataPublication.bytes,
             digest: metadataPublication.digest,
-            key: adaptiveJournalMetadataObjectKeyV1(state.writerStreamId, sequence),
         },
         previousCommitDigest: state.lastCommitDigest,
         requiredChunkKeysDigest: requiredChunkKeySet.digest,
@@ -145,7 +138,9 @@ export async function publishAdaptiveJournalMetadataBatchV1(
     });
     const envelope = await encodeCommitEnvelopeV1({
         commitFrame: commitRecord.bytes,
+        ...(chunks.inlinePack ? { inlinePack: chunks.inlinePack } : {}),
         metadataDigest: metadataPublication.digest,
+        metadataFrame: metadata.bytes,
         previousCommitDigest: state.lastCommitDigest,
         repositoryId: state.repositoryId,
         requiredChunkKeys: requiredChunkKeySet.keys,

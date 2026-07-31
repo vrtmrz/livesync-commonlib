@@ -64,9 +64,11 @@ async function commitFixture(sequenceValue = 1n, previousCommitDigest: Uint8Arra
     const repositoryId = sequence(0x10);
     const writerStreamId = sequence(0x40);
     const commitFrame = new TextEncoder().encode(`commit-frame-${sequenceValue}`);
+    const metadataFrame = new TextEncoder().encode(`metadata-frame-${sequenceValue}`);
     const encoded = await encodeCommitEnvelopeV1({
         commitFrame,
-        metadataDigest: sequence(0x80),
+        metadataDigest: await sha256(metadataFrame),
+        metadataFrame,
         previousCommitDigest,
         repositoryId,
         requiredChunkKeys: [sequence(0xc0)],
@@ -215,7 +217,8 @@ describe("Adaptive Journal writer recovery", () => {
         await expect(stageAdaptiveJournalCommitV1(store, first.encoded.bytes)).resolves.toBe("already-staged");
         const different = await encodeCommitEnvelopeV1({
             commitFrame: new TextEncoder().encode("different frame"),
-            metadataDigest: sequence(0x80),
+            metadataDigest: await sha256(new TextEncoder().encode("different metadata")),
+            metadataFrame: new TextEncoder().encode("different metadata"),
             previousCommitDigest: null,
             repositoryId: first.repositoryId,
             requiredChunkKeys: [sequence(0xc0)],

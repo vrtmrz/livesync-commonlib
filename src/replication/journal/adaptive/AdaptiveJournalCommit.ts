@@ -15,19 +15,25 @@ import { AdaptiveJournalError, sha256 } from "./AdaptiveJournalManifest.ts";
 export interface AdaptiveCommitLimitsV1 {
     maxBytes: number;
     maxCommitFrameBytes: number;
+    maxInlinePackBytes: number;
+    maxMetadataFrameBytes: number;
     maxRequiredChunkKeys: number;
 }
 
 export const DEFAULT_ADAPTIVE_COMMIT_LIMITS_V1: Readonly<AdaptiveCommitLimitsV1> = {
     maxBytes: 64 * 1024 * 1024,
     maxCommitFrameBytes: 8 * 1024 * 1024,
+    maxInlinePackBytes: 8 * 1024 * 1024,
+    maxMetadataFrameBytes: 16 * 1024 * 1024,
     maxRequiredChunkKeys: 4096,
 };
 
 export interface EncodeCommitEnvelopeV1Options {
     commitFrame: Uint8Array;
+    inlinePack?: Uint8Array;
     limits?: Partial<AdaptiveCommitLimitsV1>;
     metadataDigest: Uint8Array;
+    metadataFrame: Uint8Array;
     previousCommitDigest: Uint8Array | null;
     repositoryId: Uint8Array;
     requiredChunkKeys: readonly Uint8Array[];
@@ -39,6 +45,9 @@ export interface EncodedCommitEnvelopeV1 {
     bytes: Uint8Array;
     commitFrameDigest: Uint8Array;
     digest: Uint8Array;
+    inlinePack?: Uint8Array;
+    inlinePackDigest?: Uint8Array;
+    metadataFrame: Uint8Array;
     requiredChunkKeys: readonly Uint8Array[];
     requiredChunkKeysDigest: Uint8Array;
 }
@@ -47,7 +56,10 @@ export interface DecodedCommitEnvelopeV1 {
     commitFrame: Uint8Array;
     commitFrameDigest: Uint8Array;
     digest: Uint8Array;
+    inlinePack?: Uint8Array;
+    inlinePackDigest?: Uint8Array;
     metadataDigest: Uint8Array;
+    metadataFrame: Uint8Array;
     metadataLogicalKey: Uint8Array;
     previousCommitDigest: Uint8Array | null;
     repositoryId: Uint8Array;
@@ -57,8 +69,69 @@ export interface DecodedCommitEnvelopeV1 {
     writerStreamId: Uint8Array;
 }
 
+export interface CachedAdaptiveJournalCommitBundleV1 {
+    byteLength: number;
+    envelope: DecodedCommitEnvelopeV1;
+}
+
+export interface AdaptiveJournalCommitBundleCacheLimitsV1 {
+    maxBytes: number;
+    maxEntries: number;
+}
+
+export const DEFAULT_ADAPTIVE_JOURNAL_COMMIT_BUNDLE_CACHE_LIMITS_V1: Readonly<AdaptiveJournalCommitBundleCacheLimitsV1> =
+    {
+        maxBytes: DEFAULT_ADAPTIVE_COMMIT_LIMITS_V1.maxBytes,
+        maxEntries: 64,
+    };
+
+/** Shares a bounded LRU of successfully decoded immutable Commit Bundles between logical readers. */
+export class AdaptiveJournalCommitBundleCacheV1 {
+    private readonly entries = new Map<string, CachedAdaptiveJournalCommitBundleV1>();
+    private readonly limits: AdaptiveJournalCommitBundleCacheLimitsV1;
+    private retainedBytes = 0;
+
+    constructor(limitOverrides?: Partial<AdaptiveJournalCommitBundleCacheLimitsV1>) {
+        this.limits = { ...DEFAULT_ADAPTIVE_JOURNAL_COMMIT_BUNDLE_CACHE_LIMITS_V1, ...limitOverrides };
+        for (const [name, value] of Object.entries(this.limits)) {
+            if (!Number.isSafeInteger(value) || value < 1) {
+                throw new RangeError(`${name} must be a positive safe integer`);
+            }
+        }
+    }
+
+    get(objectKey: string): CachedAdaptiveJournalCommitBundleV1 | undefined {
+        const entry = this.entries.get(objectKey);
+        if (!entry) return undefined;
+        this.entries.delete(objectKey);
+        this.entries.set(objectKey, entry);
+        return entry;
+    }
+
+    set(objectKey: string, bytes: Uint8Array, envelope: DecodedCommitEnvelopeV1): void {
+        this.delete(objectKey);
+        if (bytes.byteLength > this.limits.maxBytes) return;
+        const entry = { byteLength: bytes.byteLength, envelope };
+        this.entries.set(objectKey, entry);
+        this.retainedBytes += entry.byteLength;
+        while (this.entries.size > this.limits.maxEntries || this.retainedBytes > this.limits.maxBytes) {
+            const oldestKey = this.entries.keys().next().value as string | undefined;
+            if (oldestKey === undefined) break;
+            this.delete(oldestKey);
+        }
+    }
+
+    delete(objectKey: string): void {
+        const entry = this.entries.get(objectKey);
+        if (!entry) return;
+        this.entries.delete(objectKey);
+        this.retainedBytes -= entry.byteLength;
+    }
+}
+
 const COMMIT_MAGIC = utf8Bytes("LSAC");
-const COMMIT_FIXED_LENGTH = 244;
+export const ADAPTIVE_JOURNAL_COMMIT_BUNDLE_INLINE_PACK_OFFSET_V1 = 292;
+const COMMIT_FIXED_LENGTH = ADAPTIVE_JOURNAL_COMMIT_BUNDLE_INLINE_PACK_OFFSET_V1;
 const MAX_WRITER_SEQUENCE = 0x7fffffffffffffffn;
 
 function limitsWithDefaults(overrides?: Partial<AdaptiveCommitLimitsV1>): AdaptiveCommitLimitsV1 {
@@ -68,6 +141,12 @@ function limitsWithDefaults(overrides?: Partial<AdaptiveCommitLimitsV1>): Adapti
     }
     if (!Number.isSafeInteger(limits.maxCommitFrameBytes) || limits.maxCommitFrameBytes < 1) {
         throw new RangeError("maxCommitFrameBytes must be a positive safe integer");
+    }
+    if (!Number.isSafeInteger(limits.maxInlinePackBytes) || limits.maxInlinePackBytes < 0) {
+        throw new RangeError("maxInlinePackBytes must be a non-negative safe integer");
+    }
+    if (!Number.isSafeInteger(limits.maxMetadataFrameBytes) || limits.maxMetadataFrameBytes < 1) {
+        throw new RangeError("maxMetadataFrameBytes must be a positive safe integer");
     }
     if (!Number.isSafeInteger(limits.maxRequiredChunkKeys) || limits.maxRequiredChunkKeys < 0) {
         throw new RangeError("maxRequiredChunkKeys must be a non-negative safe integer");
@@ -81,6 +160,12 @@ function validateSequence(sequence: bigint): void {
             "invalid-commit-envelope",
             "Adaptive Journal writer sequence must be a positive 63-bit integer"
         );
+    }
+}
+
+function validatePredecessor(sequence: bigint, previousCommitDigest: Uint8Array | null): void {
+    if ((sequence === 1n) !== (previousCommitDigest === null)) {
+        throw invalidCommit("Commit predecessor presence does not match its sequence");
     }
 }
 
@@ -118,30 +203,50 @@ function invalidCommit(message: string, cause?: unknown): AdaptiveJournalError {
     return new AdaptiveJournalError("invalid-commit-envelope", message, cause === undefined ? undefined : { cause });
 }
 
-export async function encodeCommitEnvelopeV1(
-    options: EncodeCommitEnvelopeV1Options
-): Promise<EncodedCommitEnvelopeV1> {
+export async function encodeCommitEnvelopeV1(options: EncodeCommitEnvelopeV1Options): Promise<EncodedCommitEnvelopeV1> {
     const limits = limitsWithDefaults(options.limits);
     validateSequence(options.sequence);
     const repositoryId = fixedLength(options.repositoryId, 32, "repositoryId");
     const writerStreamId = fixedLength(options.writerStreamId, 32, "writerStreamId");
     const metadataDigest = fixedLength(options.metadataDigest, 32, "metadataDigest");
+    const metadataFrame = options.metadataFrame.slice();
+    if (metadataFrame.byteLength < 1 || metadataFrame.byteLength > limits.maxMetadataFrameBytes) {
+        throw new AdaptiveJournalError("commit-limit-exceeded", "Metadata frame exceeds its configured byte limit");
+    }
+    if (!bytesEqual(await sha256(metadataFrame), metadataDigest)) {
+        throw invalidCommit("Metadata frame digest does not match its exact bytes");
+    }
+    const inlinePack = options.inlinePack?.slice();
+    if (inlinePack && inlinePack.byteLength === 0) {
+        throw invalidCommit("Inline Pack must not be empty");
+    }
+    if (inlinePack && inlinePack.byteLength > limits.maxInlinePackBytes) {
+        throw new AdaptiveJournalError("commit-limit-exceeded", "Inline Pack exceeds its configured byte limit");
+    }
+    const inlinePackDigest = inlinePack ? await sha256(inlinePack) : undefined;
     const previousCommitDigest =
         options.previousCommitDigest === null
             ? null
             : fixedLength(options.previousCommitDigest, 32, "previousCommitDigest");
+    validatePredecessor(options.sequence, previousCommitDigest);
     const requiredChunkKeySet = await digestAdaptiveJournalRequiredChunkKeysV1(
         options.requiredChunkKeys,
         limits.maxRequiredChunkKeys
     );
     const requiredChunkKeys = requiredChunkKeySet.keys;
+    if (options.commitFrame.byteLength < 1) throw invalidCommit("Commit frame must not be empty");
     if (options.commitFrame.byteLength > limits.maxCommitFrameBytes) {
         throw new AdaptiveJournalError("commit-limit-exceeded", "Commit frame exceeds its configured limit");
     }
     const requiredChunkKeyBytes = concatBytes(...requiredChunkKeys);
     const requiredChunkKeysDigest = requiredChunkKeySet.digest;
     const metadataLogicalKey = concatBytes(writerStreamId, u64be(options.sequence));
-    const totalLength = COMMIT_FIXED_LENGTH + requiredChunkKeyBytes.byteLength + options.commitFrame.byteLength;
+    const totalLength =
+        COMMIT_FIXED_LENGTH +
+        (inlinePack?.byteLength ?? 0) +
+        requiredChunkKeyBytes.byteLength +
+        options.commitFrame.byteLength +
+        metadataFrame.byteLength;
     if (!Number.isSafeInteger(totalLength) || totalLength > limits.maxBytes) {
         throw new AdaptiveJournalError("commit-limit-exceeded", "Commit envelope exceeds its configured byte limit");
     }
@@ -152,7 +257,7 @@ export async function encodeCommitEnvelopeV1(
     );
     const bytes = concatBytes(
         COMMIT_MAGIC,
-        Uint8Array.of(1, 0),
+        Uint8Array.of(2, 0),
         u16be(0),
         u64be(totalLength),
         repositoryId,
@@ -164,13 +269,20 @@ export async function encodeCommitEnvelopeV1(
         metadataLogicalKey,
         metadataDigest,
         u64be(options.commitFrame.byteLength),
+        u64be(metadataFrame.byteLength),
+        u64be(inlinePack?.byteLength ?? 0),
+        inlinePackDigest ?? new Uint8Array(32),
+        inlinePack ?? new Uint8Array(),
         requiredChunkKeyBytes,
-        options.commitFrame
+        options.commitFrame,
+        metadataFrame
     );
     return {
         bytes,
         commitFrameDigest: await sha256(options.commitFrame),
         digest: await sha256(bytes),
+        ...(inlinePack ? { inlinePack, inlinePackDigest: inlinePackDigest! } : {}),
+        metadataFrame,
         requiredChunkKeys,
         requiredChunkKeysDigest,
     };
@@ -189,7 +301,7 @@ export async function decodeCommitEnvelopeV1(
     try {
         if (!bytesEqual(reader.readBytes(4), COMMIT_MAGIC)) throw invalidCommit("Commit envelope magic does not match");
         const version = reader.readU8();
-        if (version !== 1) {
+        if (version !== 2) {
             throw new AdaptiveJournalError(
                 "unsupported-commit-version",
                 `Unsupported Adaptive Journal commit envelope version ${version}`
@@ -222,6 +334,7 @@ export async function decodeCommitEnvelopeV1(
         } else {
             throw invalidCommit("Commit predecessor presence flag is invalid");
         }
+        validatePredecessor(sequence, previousCommitDigest);
         const requiredKeyCount = reader.readU32();
         if (requiredKeyCount > limits.maxRequiredChunkKeys) {
             throw new AdaptiveJournalError(
@@ -237,6 +350,21 @@ export async function decodeCommitEnvelopeV1(
         }
         const metadataDigest = reader.readBytes(32);
         const commitFrameLength = boundedU64ToNumber(reader.readU64(), limits.maxCommitFrameBytes);
+        if (commitFrameLength < 1) throw invalidCommit("Commit frame must not be empty");
+        const metadataFrameLength = boundedU64ToNumber(reader.readU64(), limits.maxMetadataFrameBytes);
+        if (metadataFrameLength < 1) throw invalidCommit("Metadata frame must not be empty");
+        const inlinePackLength = boundedU64ToNumber(reader.readU64(), limits.maxInlinePackBytes);
+        const inlinePackDigestField = reader.readBytes(32);
+        const inlinePack = inlinePackLength === 0 ? undefined : reader.readBytes(inlinePackLength);
+        let inlinePackDigest: Uint8Array | undefined;
+        if (inlinePack) {
+            inlinePackDigest = await sha256(inlinePack);
+            if (!bytesEqual(inlinePackDigestField, inlinePackDigest)) {
+                throw invalidCommit("Inline Pack digest does not match its exact bytes");
+            }
+        } else if (!bytesEqual(inlinePackDigestField, new Uint8Array(32))) {
+            throw invalidCommit("Absent inline Pack digest must be zero");
+        }
         const requiredChunkKeys: Uint8Array[] = [];
         for (let index = 0; index < requiredKeyCount; index += 1) {
             const key = reader.readBytes(32);
@@ -246,15 +374,21 @@ export async function decodeCommitEnvelopeV1(
             requiredChunkKeys.push(key);
         }
         const commitFrame = reader.readBytes(commitFrameLength);
+        const metadataFrame = reader.readBytes(metadataFrameLength);
         if (reader.remaining !== 0) throw invalidCommit("Commit envelope contains trailing bytes");
         if (!bytesEqual(requiredChunkKeysDigest, await sha256(concatBytes(...requiredChunkKeys)))) {
             throw invalidCommit("Commit required Chunk key digest does not match its key set");
+        }
+        if (!bytesEqual(metadataDigest, await sha256(metadataFrame))) {
+            throw invalidCommit("Commit Metadata digest does not match its exact frame");
         }
         return {
             commitFrame,
             commitFrameDigest: await sha256(commitFrame),
             digest: await sha256(bytes),
+            ...(inlinePack ? { inlinePack, inlinePackDigest: inlinePackDigest! } : {}),
             metadataDigest,
+            metadataFrame,
             metadataLogicalKey,
             previousCommitDigest,
             repositoryId,
@@ -266,9 +400,13 @@ export async function decodeCommitEnvelopeV1(
     } catch (error) {
         if (error instanceof AdaptiveJournalError) throw error;
         if (error instanceof RangeError && error.message.includes("configured limit")) {
-            throw new AdaptiveJournalError("commit-limit-exceeded", "Commit envelope field exceeds its configured limit", {
-                cause: error,
-            });
+            throw new AdaptiveJournalError(
+                "commit-limit-exceeded",
+                "Commit envelope field exceeds its configured limit",
+                {
+                    cause: error,
+                }
+            );
         }
         throw invalidCommit("Commit envelope is malformed or truncated", error);
     }

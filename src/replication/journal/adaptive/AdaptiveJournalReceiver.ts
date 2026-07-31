@@ -4,7 +4,7 @@ import { base64UrlToBytes, bytesEqual, bytesToBase64Url, fixedLength } from "./A
 import type { AdaptiveJournalCatalogueLoaderV1 } from "./AdaptiveJournalObjectCatalogueLoader.ts";
 import { digestAdaptiveJournalRequiredChunkKeysV1 } from "./AdaptiveJournalCommit.ts";
 import type { AdaptiveJournalChunkReaderV1 } from "./AdaptiveJournalChunkStore.ts";
-import { decodeAdaptiveJournalCommitRecordV1 } from "./AdaptiveJournalControl.ts";
+import { decodeAdaptiveJournalCommitPacksV1, decodeAdaptiveJournalCommitRecordV1 } from "./AdaptiveJournalControl.ts";
 import type { AdaptiveJournalDiscoveryStoreV1 } from "./AdaptiveJournalDiscoveryStore.ts";
 import { deriveRemoteChunkKeyV1, type AdaptiveJournalKeySetV1 } from "./AdaptiveJournalManifest.ts";
 import { decodeAdaptiveJournalChunkRecordV1, decodeAdaptiveJournalMetadataRecordV1 } from "./AdaptiveJournalPayload.ts";
@@ -180,10 +180,8 @@ async function receiveWriter(
                 break;
             }
             const loaded = await options.catalogueLoader.load({
-                dependencies: commit.payload.catalogueDeltas.map(({ digest, key }) => ({
-                    digest: fixedLength(base64UrlToBytes(digest), 32, "catalogue Delta digest"),
-                    key,
-                })),
+                chunkPacks: decodeAdaptiveJournalCommitPacksV1(commit.payload),
+                requiredChunkKeys: required.keys,
                 sequence,
                 writerStreamId,
             });
@@ -204,7 +202,10 @@ async function receiveWriter(
                 throw new AdaptiveJournalLocalSinkFailure(error);
             }
             const missingIndexes = availableLocally.flatMap((available, index) => (available ? [] : [index]));
-            const fetched = await options.chunks.getMany(missingIndexes.map((index) => remoteChunkKeys[index]));
+            const fetched =
+                missingIndexes.length === 0
+                    ? { chunks: [] as const, status: "ok" as const }
+                    : await options.chunks.getMany(missingIndexes.map((index) => remoteChunkKeys[index]));
             if (fetched.status === "failed") {
                 blocked(blocks, writerStreamId, fetched.failure, sequence);
                 break;

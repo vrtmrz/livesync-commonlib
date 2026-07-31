@@ -2,9 +2,9 @@
  * Transport-independent Adaptive Journal Sync protocol primitives.
  *
  * These APIs define the v1 wire formats, immutable repository state machines, native Chunk
- * batches, object packs, catalogue records, and publication recovery boundary. A host remains
- * responsible for durable local binding storage and for connecting received Metadata to its
- * maintained Journal application path.
+ * batches, Commit Bundles, object Packs, derived Catalogues, and publication recovery boundary.
+ * A host remains responsible for durable local binding storage and for connecting received
+ * Metadata to its maintained Journal application path.
  *
  * @packageDocumentation
  */

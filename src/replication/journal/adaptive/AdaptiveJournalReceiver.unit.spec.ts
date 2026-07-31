@@ -1,11 +1,10 @@
 import type { DocumentID, EntryDoc } from "@lib/common/types.ts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { bytesToBase64Url } from "./AdaptiveJournalBinary.ts";
 import { ADAPTIVE_JOURNAL_NOOP_CATALOGUE_LOADER_V1 } from "./AdaptiveJournalObjectCatalogueLoader.ts";
 import { digestAdaptiveJournalRequiredChunkKeysV1 } from "./AdaptiveJournalCommit.ts";
 import type { AdaptiveJournalChunkReaderV1, StoredChunkRecordV1 } from "./AdaptiveJournalChunkStore.ts";
-import { adaptiveJournalMetadataObjectKeyV1 } from "./AdaptiveJournalCatalogue.ts";
 import { encodeAdaptiveJournalCommitRecordV1 } from "./AdaptiveJournalControl.ts";
 import type { AdaptiveJournalDiscoveryStoreV1 } from "./AdaptiveJournalDiscoveryStore.ts";
 import { createAdaptiveJournalManifestV1 } from "./AdaptiveJournalManifest.ts";
@@ -64,12 +63,11 @@ describe("Adaptive Journal receiver", () => {
         });
         const required = await digestAdaptiveJournalRequiredChunkKeysV1([chunk.remoteChunkKey]);
         const commit = await encodeAdaptiveJournalCommitRecordV1({
-            catalogueDeltas: [],
+            chunkPacks: [],
             keys: candidate.keys,
             metadata: {
                 bytes: metadata.bytes.byteLength,
                 digest: metadata.digest,
-                key: adaptiveJournalMetadataObjectKeyV1(activeWriter.writerStreamId, 1n),
             },
             previousCommitDigest: null,
             requiredChunkKeysDigest: required.digest,
@@ -173,12 +171,11 @@ describe("Adaptive Journal receiver", () => {
         });
         const required = await digestAdaptiveJournalRequiredChunkKeysV1([chunk.remoteChunkKey]);
         const commit = await encodeAdaptiveJournalCommitRecordV1({
-            catalogueDeltas: [],
+            chunkPacks: [],
             keys: candidate.keys,
             metadata: {
                 bytes: metadata.bytes.byteLength,
                 digest: metadata.digest,
-                key: adaptiveJournalMetadataObjectKeyV1(writer.writerStreamId, 1n),
             },
             previousCommitDigest: null,
             requiredChunkKeysDigest: required.digest,
@@ -198,19 +195,23 @@ describe("Adaptive Journal receiver", () => {
             readWriter: async () => ({ status: "found", value: writer.bytes }),
             registerWriter: async () => ({ result: "inserted", status: "ok" }),
         };
+        const getMany = vi.fn(async () => ({
+            chunks: [{ frame: chunk.bytes, frameDigest: chunk.digest, key: chunk.remoteChunkKey }],
+            status: "ok" as const,
+        }));
         const chunkReader: AdaptiveJournalChunkReaderV1 = {
             capabilities: { atomicBatchWrite: true, nativeMultiKeyLookup: true, serverSideImmutableCreate: true },
-            getMany: async () => ({
-                chunks: [{ frame: chunk.bytes, frameDigest: chunk.digest, key: chunk.remoteChunkKey }],
-                status: "ok",
-            }),
+            getMany,
             hasMany: async () => ({ availability: [true], status: "ok" }),
         };
         const localFailure = new Error("local sink failed");
+        const catalogueLoader = {
+            load: vi.fn(async () => ({ status: "ok" as const })),
+        };
 
-        const receiveWithFailure = (failurePhase: "apply" | "availability") =>
+        const receiveWithFailure = (failurePhase: "apply" | "availability" | "none") =>
             receiveAdaptiveJournalV1({
-                catalogueLoader: ADAPTIVE_JOURNAL_NOOP_CATALOGUE_LOADER_V1,
+                catalogueLoader,
                 chunks: chunkReader,
                 keys: candidate.keys,
                 remote,
@@ -221,12 +222,17 @@ describe("Adaptive Journal receiver", () => {
                     frontier: async () => ({ commitDigest: null, sequence: 0n }),
                     hasChunks: async (localChunkIds) => {
                         if (failurePhase === "availability") throw localFailure;
-                        return localChunkIds.map(() => false);
+                        return localChunkIds.map(() => failurePhase === "none");
                     },
                 },
             });
 
         await expect(receiveWithFailure("availability")).rejects.toBe(localFailure);
+        expect(catalogueLoader.load).toHaveBeenCalledOnce();
+        catalogueLoader.load.mockClear();
+        await expect(receiveWithFailure("none")).resolves.toMatchObject({ appliedBatches: 1, status: "ok" });
+        expect(catalogueLoader.load).toHaveBeenCalledOnce();
+        expect(getMany).not.toHaveBeenCalled();
         await expect(receiveWithFailure("apply")).rejects.toBe(localFailure);
     });
 });

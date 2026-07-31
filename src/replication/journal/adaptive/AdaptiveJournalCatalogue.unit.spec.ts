@@ -4,15 +4,10 @@ import { bytesToBase64Url } from "./AdaptiveJournalBinary.ts";
 import {
     AdaptiveJournalCatalogueV1,
     adaptiveJournalCommitObjectKeyV1,
-    adaptiveJournalDeltaObjectKeyV1,
-    adaptiveJournalIndexObjectKeyV1,
-    adaptiveJournalMetadataObjectKeyV1,
     adaptiveJournalPackObjectKeyV1,
     adaptiveJournalWriterObjectKeyV1,
-    decodeAdaptiveJournalCatalogueDeltaV1,
-    encodeAdaptiveJournalCatalogueDeltaV1,
+    parseAdaptiveJournalCommitObjectKeyV1,
 } from "./AdaptiveJournalCatalogue.ts";
-import { createAdaptiveJournalManifestV1 } from "./AdaptiveJournalManifest.ts";
 
 function sequence(start: number): Uint8Array {
     return Uint8Array.from({ length: 32 }, (_, index) => (start + index) & 0xff);
@@ -27,62 +22,17 @@ describe("Adaptive Journal object catalogue v1", () => {
 
         expect(adaptiveJournalWriterObjectKeyV1(writer)).toBe(`a1~writer~${writerText}.writer`);
         expect(adaptiveJournalPackObjectKeyV1(pack)).toBe(`a1~pack~${packText}.bin`);
-        expect(adaptiveJournalIndexObjectKeyV1(pack)).toBe(`a1~index~${packText}.idx`);
-        expect(adaptiveJournalDeltaObjectKeyV1(writer, 23n)).toBe(
-            `a1~delta~${writerText}~00000000000000000023.delta`
-        );
-        expect(adaptiveJournalMetadataObjectKeyV1(writer, 23n)).toBe(
-            `a1~metadata~${writerText}~00000000000000000023.batch`
-        );
         expect(adaptiveJournalCommitObjectKeyV1(writer, 23n)).toBe(
             `a1~commit~${writerText}~00000000000000000023.commit`
         );
+        expect(parseAdaptiveJournalCommitObjectKeyV1(adaptiveJournalCommitObjectKeyV1(writer, 23n))).toEqual({
+            sequence: 23n,
+            writerStreamId: writer,
+        });
         expect(() => adaptiveJournalCommitObjectKeyV1(writer, 0n)).toThrowError();
     });
 
-    it("round-trips an authenticated catalogue delta and validates its route", async () => {
-        const candidate = await createAdaptiveJournalManifestV1({
-            encryption: "encrypted",
-            passphrase: "catalogue fixture passphrase",
-            repositoryId: sequence(0x11),
-            securitySeed: sequence(0x81),
-        });
-        const writerStreamId = sequence(0x20);
-        const packId = sequence(0x50);
-        const encoded = await encodeAdaptiveJournalCatalogueDeltaV1({
-            indexDigest: sequence(0x90),
-            indexKey: adaptiveJournalIndexObjectKeyV1(packId),
-            keys: candidate.keys,
-            packBytes: 1234,
-            packId,
-            recordIv: new Uint8Array(12).fill(0xa2),
-            recordSalt: new Uint8Array(32).fill(0xa3),
-            sequence: 7n,
-            writerStreamId,
-        });
-
-        await expect(
-            decodeAdaptiveJournalCatalogueDeltaV1({
-                bytes: encoded.bytes,
-                keys: candidate.keys,
-                sequence: 7n,
-                writerStreamId,
-            })
-        ).resolves.toEqual({
-            digest: encoded.digest,
-            payload: encoded.payload,
-        });
-        await expect(
-            decodeAdaptiveJournalCatalogueDeltaV1({
-                bytes: encoded.bytes,
-                keys: candidate.keys,
-                sequence: 8n,
-                writerStreamId,
-            })
-        ).rejects.toMatchObject({ code: "record-integrity-failed" });
-    });
-
-    it("adds locations only when a committed delta and its verified index are applied", () => {
+    it("adds locations only when authenticated Commit Bundle routes are applied", () => {
         const catalogue = new AdaptiveJournalCatalogueV1();
         const chunkKey = sequence(0x30);
         const otherChunkKey = sequence(0x60);
@@ -93,15 +43,91 @@ describe("Adaptive Journal object catalogue v1", () => {
             frameLength: 91,
             key: chunkKey,
             offset: 0,
-            plaintextLength: 23,
         };
 
         expect(catalogue.locations(chunkKey)).toEqual([]);
-        catalogue.applyCommittedPack(firstPackId, [entry]);
-        catalogue.applyCommittedPack(secondPackId, [entry, { ...entry, key: otherChunkKey, offset: 91 }]);
+        catalogue.applyCommittedPack({
+            container: "pack",
+            entries: [entry],
+            objectKey: adaptiveJournalPackObjectKeyV1(firstPackId),
+            packBytes: 91,
+            packId: firstPackId,
+        });
+        catalogue.applyCommittedPack({
+            container: "pack",
+            entries: [entry, { ...entry, key: otherChunkKey, offset: 91 }],
+            objectKey: adaptiveJournalPackObjectKeyV1(secondPackId),
+            packBytes: 182,
+            packId: secondPackId,
+        });
 
         expect(catalogue.locations(chunkKey).map(({ packId }) => packId)).toEqual([firstPackId, secondPackId]);
         expect(catalogue.locations(otherChunkKey)).toHaveLength(1);
         expect(catalogue.size).toBe(2);
+        expect(catalogue.routes([chunkKey, otherChunkKey])).toHaveLength(2);
+    });
+
+    it("does not partially apply a conflicting route group", () => {
+        const catalogue = new AdaptiveJournalCatalogueV1();
+        const existingKey = sequence(0x31);
+        const pendingKey = sequence(0x61);
+        const existingPackId = sequence(0xa1);
+        const pendingPackId = sequence(0xb1);
+        const existingObjectKey = adaptiveJournalPackObjectKeyV1(existingPackId);
+        catalogue.applyCommittedPack({
+            container: "pack",
+            entries: [{ frameDigest: sequence(0xc1), frameLength: 10, key: existingKey, offset: 0 }],
+            objectKey: existingObjectKey,
+            packBytes: 10,
+            packId: existingPackId,
+        });
+
+        expect(() =>
+            catalogue.applyCommittedPacks([
+                {
+                    container: "pack",
+                    entries: [{ frameDigest: sequence(0xd1), frameLength: 10, key: pendingKey, offset: 0 }],
+                    objectKey: adaptiveJournalPackObjectKeyV1(pendingPackId),
+                    packBytes: 10,
+                    packId: pendingPackId,
+                },
+                {
+                    container: "pack",
+                    entries: [{ frameDigest: sequence(0xe1), frameLength: 10, key: existingKey, offset: 0 }],
+                    objectKey: existingObjectKey,
+                    packBytes: 10,
+                    packId: existingPackId,
+                },
+            ])
+        ).toThrowError(expect.objectContaining({ code: "invalid-catalogue-record" }));
+        expect(catalogue.locations(pendingKey)).toEqual([]);
+        expect(catalogue.locations(existingKey)).toHaveLength(1);
+    });
+
+    it("rejects conflicting identities for the same Commit Bundle object", () => {
+        const catalogue = new AdaptiveJournalCatalogueV1();
+        const writerStreamId = sequence(0x12);
+        const objectKey = adaptiveJournalCommitObjectKeyV1(writerStreamId, 1n);
+        const firstKey = sequence(0x32);
+        const secondKey = sequence(0x62);
+        catalogue.applyCommittedPack({
+            container: "bundle",
+            entries: [{ frameDigest: sequence(0xc2), frameLength: 10, key: firstKey, offset: 0 }],
+            objectKey,
+            packBytes: 10,
+            packId: sequence(0xa2),
+        });
+
+        expect(() =>
+            catalogue.applyCommittedPack({
+                container: "bundle",
+                entries: [{ frameDigest: sequence(0xd2), frameLength: 10, key: secondKey, offset: 0 }],
+                objectKey,
+                packBytes: 10,
+                packId: sequence(0xb2),
+            })
+        ).toThrowError(expect.objectContaining({ code: "invalid-catalogue-record" }));
+        expect(catalogue.locations(firstKey)).toHaveLength(1);
+        expect(catalogue.locations(secondKey)).toEqual([]);
     });
 });

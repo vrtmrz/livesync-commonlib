@@ -1,14 +1,8 @@
 import { describe, expect, it } from "vitest";
 
-import { bytesToBase64Url, concatBytes } from "./AdaptiveJournalBinary.ts";
+import { concatBytes } from "./AdaptiveJournalBinary.ts";
 import { createAdaptiveJournalManifestV1, sha256 } from "./AdaptiveJournalManifest.ts";
-import {
-    buildAdaptiveJournalPackV1,
-    decodeAdaptiveJournalPackIndexPayloadV1,
-    decodeAdaptiveJournalPackV1,
-    encodeAdaptiveJournalPackIndexPayloadV1,
-    frameFromAdaptiveJournalPackV1,
-} from "./AdaptiveJournalPack.ts";
+import { buildAdaptiveJournalPackV1, frameFromAdaptiveJournalPackV1 } from "./AdaptiveJournalPack.ts";
 import { AdaptiveRecordKindV1, encodeRecordFrameV1 } from "./AdaptiveJournalRecord.ts";
 
 function sequence(start: number): Uint8Array {
@@ -16,7 +10,7 @@ function sequence(start: number): Uint8Array {
 }
 
 describe("Adaptive Journal immutable pack v1", () => {
-    it("builds a content-addressed pack and a sorted, complete index", async () => {
+    it("builds a content-addressed Pack and sorted frame routes", async () => {
         const keys = (
             await createAdaptiveJournalManifestV1({
                 encryption: "unencrypted",
@@ -51,7 +45,6 @@ describe("Adaptive Journal immutable pack v1", () => {
 
         expect(built.packBytes).toEqual(concatBytes(first.bytes, second.bytes));
         expect(built.packId).toEqual(await sha256(built.packBytes));
-        expect(built.packIdText).toBe(bytesToBase64Url(built.packId));
         expect(built.entries.map(({ key }) => key)).toEqual([firstKey, secondKey]);
         expect(built.entries[0]).toMatchObject({ offset: 0, frameLength: first.bytes.byteLength });
         expect(built.entries[1]).toMatchObject({
@@ -59,17 +52,10 @@ describe("Adaptive Journal immutable pack v1", () => {
             frameLength: second.bytes.byteLength,
         });
 
-        const decoded = await decodeAdaptiveJournalPackV1({
-            indexFrame: built.indexFrame,
-            keys,
-            packBytes: built.packBytes,
-        });
-        expect(decoded.packId).toEqual(built.packId);
-        expect(decoded.entries).toEqual(built.entries);
-        expect(frameFromAdaptiveJournalPackV1(built.packBytes, decoded.entries[1])).toEqual(second.bytes);
+        expect(frameFromAdaptiveJournalPackV1(built.packBytes, built.entries[1])).toEqual(second.bytes);
     });
 
-    it("encrypts the index independently while keeping every Chunk frame range-addressable", async () => {
+    it("keeps encrypted Chunk frames independently range-addressable", async () => {
         const keys = (
             await createAdaptiveJournalManifestV1({
                 encryption: "encrypted",
@@ -90,18 +76,13 @@ describe("Adaptive Journal immutable pack v1", () => {
         });
         const built = await buildAdaptiveJournalPackV1({
             chunks: [{ frame: chunk.bytes, key }],
-            indexIv: new Uint8Array(12).fill(0x47),
-            indexRecordSalt: new Uint8Array(32).fill(0x48),
             keys,
         });
 
-        await expect(
-            decodeAdaptiveJournalPackV1({ indexFrame: built.indexFrame, keys, packBytes: built.packBytes })
-        ).resolves.toMatchObject({ entries: built.entries, packId: built.packId });
         expect(frameFromAdaptiveJournalPackV1(built.packBytes, built.entries[0])).toEqual(chunk.bytes);
     });
 
-    it("rejects duplicate keys, gaps, overlaps, and a pack whose content digest changed", async () => {
+    it("rejects duplicate keys and entries which extend beyond available Pack bytes", async () => {
         const keys = (
             await createAdaptiveJournalManifestV1({
                 encryption: "unencrypted",
@@ -125,22 +106,20 @@ describe("Adaptive Journal immutable pack v1", () => {
                 ],
                 keys,
             })
-        ).rejects.toMatchObject({ code: "invalid-pack-index" });
-
-        const digest = await sha256(chunk.bytes);
-        const invalidPayload = encodeAdaptiveJournalPackIndexPayloadV1([
-            { frameDigest: digest, frameLength: 4, key, offset: 0, plaintextLength: 1 },
-            { frameDigest: digest, frameLength: 4, key: sequence(0x50), offset: 3, plaintextLength: 1 },
-        ]);
-        expect(() => decodeAdaptiveJournalPackIndexPayloadV1(invalidPayload, 7)).toThrowError(
-            expect.objectContaining({ code: "invalid-pack-index" })
-        );
+        ).rejects.toMatchObject({ code: "invalid-pack" });
 
         const built = await buildAdaptiveJournalPackV1({ chunks: [{ frame: chunk.bytes, key }], keys });
-        const changedPack = built.packBytes.slice();
-        changedPack[changedPack.byteLength - 1] ^= 0xff;
-        await expect(
-            decodeAdaptiveJournalPackV1({ indexFrame: built.indexFrame, keys, packBytes: changedPack })
-        ).rejects.toMatchObject({ code: "pack-integrity-failed" });
+        expect(() =>
+            frameFromAdaptiveJournalPackV1(built.packBytes, {
+                ...built.entries[0],
+                frameLength: built.packBytes.byteLength + 1,
+            })
+        ).toThrowError(expect.objectContaining({ code: "invalid-pack" }));
+        expect(() =>
+            frameFromAdaptiveJournalPackV1(built.packBytes, {
+                ...built.entries[0],
+                frameLength: 0,
+            })
+        ).toThrowError(expect.objectContaining({ code: "invalid-pack" }));
     });
 });

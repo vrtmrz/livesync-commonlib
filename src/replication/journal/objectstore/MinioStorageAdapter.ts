@@ -31,6 +31,7 @@ import type {
 } from "../adaptive/AdaptiveJournalObjectStore.ts";
 import {
     classifyJournalStorageRemoteFormatV1,
+    invalidateJournalStorageRemoteFormatV1,
     type IJournalStorage,
     type JournalStorageRemoteFormatV1,
     type JournalStorageSetting,
@@ -128,6 +129,7 @@ export class MinioStorageAdapter
         if (!sameS3Connection(this._settings, next)) {
             this._instance = undefined;
             this.capabilityVerifications.clear();
+            invalidateJournalStorageRemoteFormatV1(this);
         }
         this._settings = next;
     }

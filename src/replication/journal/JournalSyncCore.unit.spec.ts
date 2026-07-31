@@ -153,6 +153,16 @@ describe("JournalSyncCore", () => {
             await expect(core.isAvailable()).resolves.toBe(true);
             expect(mockStorage.isAvailable).not.toHaveBeenCalled();
         });
+
+        it("reuses one successful format inspection throughout an Opaque preflight", async () => {
+            mockStorage.inspectRemoteFormat = vi.fn(async () => "opaque-v1");
+
+            await expect(core.isAvailable()).resolves.toBe(true);
+            await expect(core.uploadJson("_control.json", { ready: true })).resolves.toBe(true);
+            await expect(core.downloadJson("_control.json")).resolves.toEqual({ ready: true });
+
+            expect(mockStorage.inspectRemoteFormat).toHaveBeenCalledOnce();
+        });
     });
 
     describe("sendLocalJournal", () => {

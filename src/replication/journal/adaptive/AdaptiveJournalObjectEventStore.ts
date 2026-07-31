@@ -1,33 +1,32 @@
 import {
-    AdaptiveJournalCatalogueV1,
     ADAPTIVE_JOURNAL_WRITER_OBJECT_PREFIX_V1,
-    adaptiveJournalCommitObjectPrefixV1,
     adaptiveJournalCommitObjectKeyV1,
-    adaptiveJournalMetadataObjectKeyV1,
-    adaptiveJournalPackObjectKeyV1,
+    adaptiveJournalCommitObjectPrefixV1,
     adaptiveJournalWriterObjectKeyV1,
-    decodeAdaptiveJournalCatalogueDeltaV1,
-    parseAdaptiveJournalDeltaObjectKeyV1,
+    parseAdaptiveJournalCommitObjectKeyV1,
 } from "./AdaptiveJournalCatalogue.ts";
+import type { AdaptiveJournalCatalogueV1 } from "./AdaptiveJournalCatalogue.ts";
 import { base64UrlToBytes, bytesEqual, bytesToHex, fixedLength } from "./AdaptiveJournalBinary.ts";
-import { decodeCommitEnvelopeV1, type DecodedCommitEnvelopeV1 } from "./AdaptiveJournalCommit.ts";
 import {
+    AdaptiveJournalCommitBundleCacheV1,
+    decodeCommitEnvelopeV1,
+    type DecodedCommitEnvelopeV1,
+} from "./AdaptiveJournalCommit.ts";
+import {
+    decodeAdaptiveJournalCommitPacksV1,
     decodeAdaptiveJournalCommitRecordV1,
-    type AdaptiveJournalCommitDependencyV1,
+    type AdaptiveJournalCommitPackV1,
 } from "./AdaptiveJournalControl.ts";
-import type {
-    AdaptiveImmutableRecordResultV1,
-    AdaptiveImmutableRecordStatusV1,
-    AdaptiveJournalEventStoreV1,
-} from "./AdaptiveJournalEventStore.ts";
+import type { AdaptiveImmutableRecordResultV1, AdaptiveImmutableRecordStatusV1 } from "./AdaptiveJournalEventStore.ts";
 import type { AdaptiveJournalDiscoveryStoreV1 } from "./AdaptiveJournalDiscoveryStore.ts";
 import { sha256, type AdaptiveJournalKeySetV1 } from "./AdaptiveJournalManifest.ts";
 import type { AdaptiveJournalObjectPublicationCacheV1 } from "./AdaptiveJournalObjectPublicationCache.ts";
 import type { AdaptiveJournalObjectRemoteV1 } from "./AdaptiveJournalObjectStore.ts";
-import { decodeAdaptiveJournalPackV1, type AdaptiveJournalPackIndexEntryV1 } from "./AdaptiveJournalPack.ts";
-import type { RemoteFailure } from "./AdaptiveJournalRepository.ts";
+import { decodeAdaptiveJournalMetadataRecordV1 } from "./AdaptiveJournalPayload.ts";
+import type { RemoteFailure, RemoteRead } from "./AdaptiveJournalRepository.ts";
 
 export interface CreateAdaptiveJournalObjectEventStoreV1Options {
+    bundleCache?: AdaptiveJournalCommitBundleCacheV1;
     catalogue: AdaptiveJournalCatalogueV1;
     keys: AdaptiveJournalKeySetV1;
     publicationCache?: AdaptiveJournalObjectPublicationCacheV1;
@@ -36,34 +35,17 @@ export interface CreateAdaptiveJournalObjectEventStoreV1Options {
 
 type DecodedCommitControl = Awaited<ReturnType<typeof decodeAdaptiveJournalCommitRecordV1>>;
 
-type VerifiedPackAddition = {
-    dependency: AdaptiveJournalCommitDependencyV1;
-    entries: readonly AdaptiveJournalPackIndexEntryV1[];
-    packId: Uint8Array;
-};
-
-type DependencyVerification =
-    | { additions: readonly VerifiedPackAddition[]; status: "verified" }
-    | { failure: RemoteFailure; status: "failed" };
-
 type ControlVerification =
-    | { control: DecodedCommitControl; status: "verified" }
+    | { control: DecodedCommitControl; routes: readonly AdaptiveJournalCommitPackV1[]; status: "verified" }
     | { failure: RemoteFailure; status: "failed" };
+
+type BundleRead = { status: "found" | "missing" } | { failure: RemoteFailure; status: "failed" };
 
 const INVALID_REMOTE: RemoteFailure = { category: "invalid-response", retry: "never" };
 const MISSING_REMOTE: RemoteFailure = { category: "unavailable", retry: "later" };
 
 function failed(failure: RemoteFailure): { failure: RemoteFailure; status: "failed" } {
     return { status: "failed", failure };
-}
-
-async function readRequiredObject(
-    remote: AdaptiveJournalObjectRemoteV1,
-    key: string
-): Promise<{ bytes: Uint8Array; status: "found" } | { failure: RemoteFailure; status: "failed" }> {
-    const read = await remote.readAdaptiveObject(key);
-    if (read.status === "found") return { status: "found", bytes: read.value };
-    return read.status === "failed" ? read : failed(MISSING_REMOTE);
 }
 
 async function ensureImmutableRecord(
@@ -80,9 +62,9 @@ async function ensureImmutableRecord(
     if (read.status === "missing") {
         return created.status === "failed" ? created : failed({ category: "invalid-response", retry: "later" });
     }
-    let result: AdaptiveImmutableRecordStatusV1;
-    if (!bytesEqual(read.value, intended)) result = "validate-existing";
-    else result = "exact-existing";
+    const result: AdaptiveImmutableRecordStatusV1 = bytesEqual(read.value, intended)
+        ? "exact-existing"
+        : "validate-existing";
     return { status: "ok", result };
 }
 
@@ -104,11 +86,23 @@ function commitControlMatchesEnvelope(
             : envelope.previousCommitDigest !== null && bytesEqual(previous, envelope.previousCommitDigest);
     return (
         previousMatches &&
+        payload.metadata.bytes === envelope.metadataFrame.byteLength &&
         bytesEqual(digestFromText(payload.metadata.digest, "metadataDigest"), envelope.metadataDigest) &&
         bytesEqual(
             digestFromText(payload.requiredChunkKeysDigest, "requiredChunkKeysDigest"),
             envelope.requiredChunkKeysDigest
         )
+    );
+}
+
+function routesCoverRequiredChunks(
+    envelope: DecodedCommitEnvelopeV1,
+    routes: readonly AdaptiveJournalCommitPackV1[]
+): boolean {
+    const routed = new Set(routes.flatMap(({ entries }) => entries.map(({ key }) => bytesToHex(key))));
+    return (
+        routed.size === envelope.requiredChunkKeys.length &&
+        envelope.requiredChunkKeys.every((key) => routed.has(bytesToHex(key)))
     );
 }
 
@@ -123,136 +117,205 @@ async function verifyCommitControl(
             sequence: envelope.sequence,
             writerStreamId: envelope.writerStreamId,
         });
+        const routes = decodeAdaptiveJournalCommitPacksV1(control.payload);
         if (
             !bytesEqual(control.digest, envelope.commitFrameDigest) ||
-            !commitControlMatchesEnvelope(envelope, control.payload)
+            !commitControlMatchesEnvelope(envelope, control.payload) ||
+            !routesCoverRequiredChunks(envelope, routes)
         ) {
             return failed(INVALID_REMOTE);
         }
-        return { status: "verified", control };
+        await decodeAdaptiveJournalMetadataRecordV1({
+            bytes: envelope.metadataFrame,
+            keys: options.keys,
+            sequence: envelope.sequence,
+            writerStreamId: envelope.writerStreamId,
+        });
+        return { status: "verified", control, routes };
     } catch {
         return failed(INVALID_REMOTE);
     }
 }
 
-function verifyRequiredChunkKeys(
-    options: CreateAdaptiveJournalObjectEventStoreV1Options,
-    envelope: DecodedCommitEnvelopeV1,
-    additions: readonly VerifiedPackAddition[]
-): DependencyVerification {
-    const newlyAvailable = new Set(additions.flatMap(({ entries }) => entries.map(({ key }) => bytesToHex(key))));
-    for (const key of envelope.requiredChunkKeys) {
-        const text = bytesToHex(key);
-        if (options.catalogue.locations(key).length === 0 && !newlyAvailable.has(text)) {
-            return failed(MISSING_REMOTE);
-        }
-    }
-    return { status: "verified", additions };
+function routeIsInCatalogue(catalogue: AdaptiveJournalCatalogueV1, route: AdaptiveJournalCommitPackV1): boolean {
+    return route.entries.every((entry) =>
+        catalogue
+            .locations(entry.key)
+            .some(
+                (location) =>
+                    location.objectKey === route.objectKey &&
+                    location.container === route.container &&
+                    location.packBytes === route.packBytes &&
+                    bytesEqual(location.packId, route.packId) &&
+                    location.offset === entry.offset &&
+                    location.frameLength === entry.frameLength &&
+                    bytesEqual(location.frameDigest, entry.frameDigest)
+            )
+    );
 }
 
-function verifyCachedCommitDependencies(
-    options: CreateAdaptiveJournalObjectEventStoreV1Options,
-    envelope: DecodedCommitEnvelopeV1,
-    control: DecodedCommitControl
-): DependencyVerification | undefined {
-    const cache = options.publicationCache;
-    if (!cache) return undefined;
-    try {
-        const metadata = control.payload.metadata;
-        if (metadata.key !== adaptiveJournalMetadataObjectKeyV1(envelope.writerStreamId, envelope.sequence)) {
-            return failed(INVALID_REMOTE);
-        }
-        if (!cache.hasMetadata(metadata.key, envelope.metadataDigest, metadata.bytes)) return undefined;
-
-        const additions: VerifiedPackAddition[] = [];
-        for (const dependency of control.payload.catalogueDeltas) {
-            const decodedDependency = {
-                digest: digestFromText(dependency.digest, "deltaDigest"),
-                key: dependency.key,
-            };
-            const publication = cache.packForDelta(dependency.key, decodedDependency.digest);
-            if (publication) {
-                additions.push({
-                    dependency: decodedDependency,
-                    entries: publication.entries,
-                    packId: publication.packId,
-                });
-            } else if (!options.catalogue.hasDependency(decodedDependency)) {
-                return undefined;
-            }
-        }
-        return verifyRequiredChunkKeys(options, envelope, additions);
-    } catch {
-        return failed(INVALID_REMOTE);
-    }
+function bundlePackMatches(envelope: DecodedCommitEnvelopeV1, route: AdaptiveJournalCommitPackV1): boolean {
+    return (
+        envelope.inlinePack !== undefined &&
+        envelope.inlinePackDigest !== undefined &&
+        envelope.inlinePack.byteLength === route.packBytes &&
+        bytesEqual(envelope.inlinePackDigest, route.packId)
+    );
 }
 
-async function verifyObjectCommitDependencies(
-    options: CreateAdaptiveJournalObjectEventStoreV1Options,
+function currentBundleRouteMatches(
     envelope: DecodedCommitEnvelopeV1,
-    control: DecodedCommitControl
-): Promise<DependencyVerification> {
-    try {
-        const metadata = await readRequiredObject(options.remote, control.payload.metadata.key);
-        if (metadata.status === "failed") return metadata;
-        if (
-            metadata.bytes.byteLength !== control.payload.metadata.bytes ||
-            !bytesEqual(await sha256(metadata.bytes), envelope.metadataDigest) ||
-            control.payload.metadata.key !==
-                adaptiveJournalMetadataObjectKeyV1(envelope.writerStreamId, envelope.sequence)
-        ) {
-            return failed(INVALID_REMOTE);
-        }
+    routes: readonly AdaptiveJournalCommitPackV1[]
+): boolean {
+    const currentKey = adaptiveJournalCommitObjectKeyV1(envelope.writerStreamId, envelope.sequence);
+    const currentBundleRoutes = routes.filter(
+        ({ container, objectKey }) => container === "bundle" && objectKey === currentKey
+    );
+    return (
+        (envelope.inlinePack === undefined) === (currentBundleRoutes.length === 0) &&
+        currentBundleRoutes.length <= 1 &&
+        (currentBundleRoutes.length === 0 || bundlePackMatches(envelope, currentBundleRoutes[0]))
+    );
+}
 
-        const additions: VerifiedPackAddition[] = [];
-        for (const dependency of control.payload.catalogueDeltas) {
-            const deltaFrame = await readRequiredObject(options.remote, dependency.key);
-            if (deltaFrame.status === "failed") return deltaFrame;
-            if (!bytesEqual(await sha256(deltaFrame.bytes), digestFromText(dependency.digest, "deltaDigest"))) {
-                return failed(INVALID_REMOTE);
-            }
-            const route = parseAdaptiveJournalDeltaObjectKeyV1(dependency.key);
-            const delta = await decodeAdaptiveJournalCatalogueDeltaV1({
-                bytes: deltaFrame.bytes,
-                keys: options.keys,
-                sequence: route.sequence,
-                writerStreamId: route.writerStreamId,
-            });
-            const packId = digestFromText(delta.payload.add.packId, "packId");
-            const pack = await readRequiredObject(options.remote, adaptiveJournalPackObjectKeyV1(packId));
-            if (pack.status === "failed") return pack;
-            if (pack.bytes.byteLength !== delta.payload.add.packBytes) return failed(INVALID_REMOTE);
-            const index = await readRequiredObject(options.remote, delta.payload.add.indexKey);
-            if (index.status === "failed") return index;
-            if (!bytesEqual(await sha256(index.bytes), digestFromText(delta.payload.add.indexDigest, "indexDigest"))) {
-                return failed(INVALID_REMOTE);
-            }
-            const decodedPack = await decodeAdaptiveJournalPackV1({
-                expectedPackId: packId,
-                indexFrame: index.bytes,
-                keys: options.keys,
-                packBytes: pack.bytes,
-            });
-            additions.push({
-                dependency: {
-                    digest: digestFromText(dependency.digest, "deltaDigest"),
-                    key: dependency.key,
-                },
-                entries: decodedPack.entries,
-                packId,
-            });
-        }
-
-        return verifyRequiredChunkKeys(options, envelope, additions);
-    } catch {
-        return failed(INVALID_REMOTE);
-    }
+function remoteReadFailure(read: RemoteRead<Uint8Array>): { failure: RemoteFailure; status: "failed" } | undefined {
+    if (read.status === "failed") return read;
+    if (read.status === "missing") return failed(MISSING_REMOTE);
+    return undefined;
 }
 
 export function createAdaptiveJournalObjectEventStoreV1(
     options: CreateAdaptiveJournalObjectEventStoreV1Options
 ): AdaptiveJournalDiscoveryStoreV1 {
     options.publicationCache?.requireRemote(options.remote);
+    const bundleCache = options.bundleCache ?? new AdaptiveJournalCommitBundleCacheV1();
+    const bundleReads = new Map<string, Promise<RemoteRead<Uint8Array>>>();
+    const writerReads = new Map<string, Promise<RemoteRead<Uint8Array>>>();
+
+    const readBundle = async (writerStreamId: Uint8Array, sequence: bigint): Promise<BundleRead> => {
+        const key = adaptiveJournalCommitObjectKeyV1(writerStreamId, sequence);
+        let pending = bundleReads.get(key);
+        if (!pending) {
+            pending = options.remote.readAdaptiveObject(key);
+            bundleReads.set(key, pending);
+        }
+        try {
+            const read = await pending;
+            if (read.status !== "found") {
+                if (bundleReads.get(key) === pending) bundleReads.delete(key);
+                return read;
+            }
+            const envelope = await decodeCommitEnvelopeV1(read.value);
+            if (
+                !bytesEqual(envelope.repositoryId, options.keys.repositoryId) ||
+                !bytesEqual(envelope.writerStreamId, writerStreamId) ||
+                envelope.sequence !== sequence
+            ) {
+                if (bundleReads.get(key) === pending) bundleReads.delete(key);
+                return failed(INVALID_REMOTE);
+            }
+            bundleCache.set(key, read.value, envelope);
+            if (bundleReads.get(key) === pending) bundleReads.delete(key);
+            return { status: "found" };
+        } catch {
+            if (bundleReads.get(key) === pending) bundleReads.delete(key);
+            return failed(INVALID_REMOTE);
+        }
+    };
+
+    const decodedBundle = async (
+        writerStreamId: Uint8Array,
+        sequence: bigint
+    ): Promise<
+        { envelope: DecodedCommitEnvelopeV1; status: "found" } | { failure: RemoteFailure; status: "failed" }
+    > => {
+        const key = adaptiveJournalCommitObjectKeyV1(writerStreamId, sequence);
+        let cached = bundleCache.get(key);
+        if (!cached) {
+            const read = await readBundle(writerStreamId, sequence);
+            if (read.status === "failed") return read;
+            if (read.status === "missing") return failed(MISSING_REMOTE);
+            cached = bundleCache.get(key);
+        }
+        return cached ? { envelope: cached.envelope, status: "found" } : failed(INVALID_REMOTE);
+    };
+
+    const verifyRouteObject = async (
+        currentKey: string,
+        currentEnvelope: DecodedCommitEnvelopeV1,
+        route: AdaptiveJournalCommitPackV1
+    ): Promise<{ status: "verified" } | { failure: RemoteFailure; status: "failed" }> => {
+        if (route.container === "bundle") {
+            if (route.objectKey === currentKey) {
+                return bundlePackMatches(currentEnvelope, route) ? { status: "verified" } : failed(INVALID_REMOTE);
+            }
+            const cached = bundleCache.get(route.objectKey);
+            let envelope = cached?.envelope;
+            if (!envelope) {
+                let routeIdentity;
+                try {
+                    routeIdentity = parseAdaptiveJournalCommitObjectKeyV1(route.objectKey);
+                } catch {
+                    return failed(INVALID_REMOTE);
+                }
+                const read = await decodedBundle(routeIdentity.writerStreamId, routeIdentity.sequence);
+                if (read.status === "failed") return read;
+                envelope = read.envelope;
+            }
+            return bundlePackMatches(envelope, route) ? { status: "verified" } : failed(INVALID_REMOTE);
+        }
+        const read = await options.remote.readAdaptiveObject(route.objectKey);
+        const failure = remoteReadFailure(read);
+        if (failure) return failure;
+        if (
+            read.status !== "found" ||
+            read.value.byteLength !== route.packBytes ||
+            !bytesEqual(await sha256(read.value), route.packId)
+        ) {
+            return failed(INVALID_REMOTE);
+        }
+        return { status: "verified" };
+    };
+
+    const verifyRouteObjects = async (
+        envelope: DecodedCommitEnvelopeV1,
+        routes: readonly AdaptiveJournalCommitPackV1[]
+    ): Promise<{ status: "verified" } | { failure: RemoteFailure; status: "failed" }> => {
+        const currentKey = adaptiveJournalCommitObjectKeyV1(envelope.writerStreamId, envelope.sequence);
+        if (!currentBundleRouteMatches(envelope, routes)) return failed(INVALID_REMOTE);
+        for (const route of routes) {
+            if (
+                routeIsInCatalogue(options.catalogue, route) ||
+                (route.container === "pack" && options.publicationCache?.hasPack(route))
+            ) {
+                continue;
+            }
+            const verified = await verifyRouteObject(currentKey, envelope, route);
+            if (verified.status === "failed") return verified;
+        }
+        return { status: "verified" };
+    };
+
+    const readWriter = async (writerStreamId: Uint8Array): Promise<RemoteRead<Uint8Array>> => {
+        const key = adaptiveJournalWriterObjectKeyV1(writerStreamId);
+        let pending = writerReads.get(key);
+        if (!pending) {
+            pending = options.remote.readAdaptiveObject(key);
+            writerReads.set(key, pending);
+        }
+        try {
+            const result = await pending;
+            if (result.status !== "found") {
+                if (writerReads.get(key) === pending) writerReads.delete(key);
+                return result;
+            }
+            return { ...result, value: result.value.slice() };
+        } catch (error) {
+            if (writerReads.get(key) === pending) writerReads.delete(key);
+            throw error;
+        }
+    };
+
     return {
         listWriterStreamIds: async () => {
             const listed = await options.remote.listAdaptiveObjects(ADAPTIVE_JOURNAL_WRITER_OBJECT_PREFIX_V1);
@@ -277,7 +340,7 @@ export function createAdaptiveJournalObjectEventStoreV1(
                 const sequences = listed.keys.map((key) => {
                     const suffix = key.slice(prefix.length);
                     const match = /^([0-9]{20})\.commit$/u.exec(suffix);
-                    if (!match) throw new Error("Invalid Adaptive Journal Commit object key");
+                    if (!match) throw new Error("Invalid Adaptive Journal Commit Bundle object key");
                     const sequence = BigInt(match[1]);
                     if (sequence < 1n || sequence > 0x7fffffffffffffffn) {
                         throw new Error("Invalid Adaptive Journal Commit sequence");
@@ -295,35 +358,53 @@ export function createAdaptiveJournalObjectEventStoreV1(
             if (!bytesEqual(await sha256(record.descriptorFrame), record.descriptorDigest)) {
                 return failed(INVALID_REMOTE);
             }
-            return await ensureImmutableRecord(
-                options.remote,
-                adaptiveJournalWriterObjectKeyV1(record.writerStreamId),
-                record.descriptorFrame,
-                "application/octet-stream"
-            );
-        },
-        putMetadataBatch: async (record) => {
-            if (!bytesEqual(await sha256(record.metadataFrame), record.metadataDigest)) {
-                return failed(INVALID_REMOTE);
-            }
-            const key = adaptiveJournalMetadataObjectKeyV1(record.writerStreamId, record.sequence);
+            const key = adaptiveJournalWriterObjectKeyV1(record.writerStreamId);
             const result = await ensureImmutableRecord(
                 options.remote,
                 key,
-                record.metadataFrame,
+                record.descriptorFrame,
                 "application/octet-stream"
             );
             if (result.status === "ok" && result.result !== "validate-existing") {
-                options.publicationCache?.rememberMetadata(key, record.metadataDigest, record.metadataFrame.byteLength);
+                writerReads.set(
+                    key,
+                    Promise.resolve({ status: "found" as const, value: record.descriptorFrame.slice() })
+                );
+            } else if (result.status === "ok") {
+                writerReads.delete(key);
             }
             return result;
         },
-        readCommit: async (writerStreamId, sequence) =>
-            await options.remote.readAdaptiveObject(adaptiveJournalCommitObjectKeyV1(writerStreamId, sequence)),
-        readMetadata: async (writerStreamId, sequence) =>
-            await options.remote.readAdaptiveObject(adaptiveJournalMetadataObjectKeyV1(writerStreamId, sequence)),
-        readWriter: async (writerStreamId) =>
-            await options.remote.readAdaptiveObject(adaptiveJournalWriterObjectKeyV1(writerStreamId)),
+        putMetadataBatch: async (record) => {
+            try {
+                if (!bytesEqual(await sha256(record.metadataFrame), record.metadataDigest)) {
+                    return failed(INVALID_REMOTE);
+                }
+                await decodeAdaptiveJournalMetadataRecordV1({
+                    bytes: record.metadataFrame,
+                    keys: options.keys,
+                    sequence: record.sequence,
+                    writerStreamId: record.writerStreamId,
+                });
+                return { result: "inserted", status: "ok" };
+            } catch {
+                return failed(INVALID_REMOTE);
+            }
+        },
+        readCommit: async (writerStreamId, sequence) => {
+            const read = await decodedBundle(writerStreamId, sequence);
+            if (read.status === "failed") return read;
+            const control = await verifyCommitControl(options, read.envelope);
+            if (control.status === "failed" || !currentBundleRouteMatches(read.envelope, control.routes)) {
+                return failed(INVALID_REMOTE);
+            }
+            return { status: "found", value: read.envelope.commitFrame.slice() };
+        },
+        readMetadata: async (writerStreamId, sequence) => {
+            const read = await decodedBundle(writerStreamId, sequence);
+            return read.status === "failed" ? read : { status: "found", value: read.envelope.metadataFrame.slice() };
+        },
+        readWriter,
         commitMetadataBatch: async (bytes) => {
             let envelope: DecodedCommitEnvelopeV1;
             try {
@@ -334,25 +415,23 @@ export function createAdaptiveJournalObjectEventStoreV1(
             if (!bytesEqual(envelope.repositoryId, options.keys.repositoryId)) return failed(INVALID_REMOTE);
             const control = await verifyCommitControl(options, envelope);
             if (control.status === "failed") return control;
-            const verified =
-                verifyCachedCommitDependencies(options, envelope, control.control) ??
-                (await verifyObjectCommitDependencies(options, envelope, control.control));
+            const verified = await verifyRouteObjects(envelope, control.routes);
             if (verified.status === "failed") return verified;
-            const created = await ensureImmutableRecord(
-                options.remote,
-                adaptiveJournalCommitObjectKeyV1(envelope.writerStreamId, envelope.sequence),
-                envelope.commitFrame,
-                "application/octet-stream"
-            );
+            const key = adaptiveJournalCommitObjectKeyV1(envelope.writerStreamId, envelope.sequence);
+            const created = await ensureImmutableRecord(options.remote, key, bytes, "application/octet-stream");
             if (created.status === "failed") return created;
-            if (created.result !== "validate-existing") {
-                for (const addition of verified.additions) {
-                    options.catalogue.applyCommittedPack(addition.packId, addition.entries, addition.dependency);
+            if (created.result === "validate-existing") {
+                bundleCache.delete(key);
+                bundleReads.delete(key);
+            } else {
+                bundleCache.set(key, bytes, envelope);
+                try {
+                    options.catalogue.applyCommittedPacks(control.routes);
+                } catch {
+                    bundleCache.delete(key);
+                    return failed(INVALID_REMOTE);
                 }
-                options.publicationCache?.acceptCommit(
-                    control.control.payload.metadata.key,
-                    control.control.payload.catalogueDeltas.map(({ key }) => key)
-                );
+                options.publicationCache?.acceptCommit(control.routes);
             }
             return { ...created, commitDigest: envelope.commitFrameDigest };
         },

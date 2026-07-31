@@ -1,13 +1,11 @@
+import type { DocumentID, EntryDoc } from "@lib/common/types.ts";
 import { describe, expect, it } from "vitest";
 
 import {
     AdaptiveJournalCatalogueV1,
     adaptiveJournalCommitObjectKeyV1,
-    adaptiveJournalMetadataObjectKeyV1,
-    adaptiveJournalPackObjectKeyV1,
     adaptiveJournalWriterObjectKeyV1,
 } from "./AdaptiveJournalCatalogue.ts";
-import { concatBytes, u64be } from "./AdaptiveJournalBinary.ts";
 import { encodeCommitEnvelopeV1 } from "./AdaptiveJournalCommit.ts";
 import { encodeAdaptiveJournalCommitRecordV1 } from "./AdaptiveJournalControl.ts";
 import { createAdaptiveJournalManifestV1, sha256 } from "./AdaptiveJournalManifest.ts";
@@ -20,6 +18,7 @@ import type {
 import { AdaptiveJournalObjectPublicationCacheV1 } from "./AdaptiveJournalObjectPublicationCache.ts";
 import { publishAdaptiveJournalPackV1 } from "./AdaptiveJournalObjectRepository.ts";
 import { buildAdaptiveJournalPackV1 } from "./AdaptiveJournalPack.ts";
+import { encodeAdaptiveJournalMetadataRecordV1 } from "./AdaptiveJournalPayload.ts";
 import type { ImmutableCreate, RemoteRead } from "./AdaptiveJournalRepository.ts";
 import { AdaptiveRecordKindV1, encodeRecordFrameV1 } from "./AdaptiveJournalRecord.ts";
 
@@ -28,10 +27,12 @@ function sequence(start: number): Uint8Array {
 }
 
 class MemoryObjectRemote implements AdaptiveJournalObjectRemoteV1 {
+    readonly creates: string[] = [];
     readonly objects = new Map<string, Uint8Array>();
     readonly reads: string[] = [];
 
     async createAdaptiveObject(key: string, bytes: Uint8Array): Promise<ImmutableCreate> {
+        this.creates.push(key);
         if (this.objects.has(key)) return { status: "already-exists" };
         this.objects.set(key, bytes.slice());
         return { status: "created" };
@@ -53,6 +54,52 @@ class MemoryObjectRemote implements AdaptiveJournalObjectRemoteV1 {
 }
 
 describe("Adaptive Journal object-store final commit", () => {
+    it("reuses an immutable Writer record after its first visible read", async () => {
+        const candidate = await createAdaptiveJournalManifestV1({
+            encryption: "unencrypted",
+            repositoryId: sequence(0x08),
+            securitySeed: sequence(0x78),
+        });
+        const writerStreamId = sequence(0x18);
+        const writerKey = adaptiveJournalWriterObjectKeyV1(writerStreamId);
+        const descriptor = new Uint8Array([1, 2, 3]);
+        const remote = new MemoryObjectRemote();
+        remote.objects.set(writerKey, descriptor);
+        const store = createAdaptiveJournalObjectEventStoreV1({
+            catalogue: new AdaptiveJournalCatalogueV1(),
+            keys: candidate.keys,
+            remote,
+        });
+
+        await expect(store.readWriter(writerStreamId)).resolves.toEqual({ status: "found", value: descriptor });
+        await expect(store.readWriter(writerStreamId)).resolves.toEqual({ status: "found", value: descriptor });
+
+        expect(remote.reads).toEqual([writerKey]);
+    });
+
+    it("does not cache a Writer record before it becomes visible", async () => {
+        const candidate = await createAdaptiveJournalManifestV1({
+            encryption: "unencrypted",
+            repositoryId: sequence(0x07),
+            securitySeed: sequence(0x77),
+        });
+        const writerStreamId = sequence(0x17);
+        const writerKey = adaptiveJournalWriterObjectKeyV1(writerStreamId);
+        const descriptor = new Uint8Array([4, 5, 6]);
+        const remote = new MemoryObjectRemote();
+        const store = createAdaptiveJournalObjectEventStoreV1({
+            catalogue: new AdaptiveJournalCatalogueV1(),
+            keys: candidate.keys,
+            remote,
+        });
+
+        await expect(store.readWriter(writerStreamId)).resolves.toEqual({ status: "missing" });
+        remote.objects.set(writerKey, descriptor);
+        await expect(store.readWriter(writerStreamId)).resolves.toEqual({ status: "found", value: descriptor });
+
+        expect(remote.reads).toEqual([writerKey, writerKey]);
+    });
+
     it("discovers every Writer independently and lists dense candidates after each frontier", async () => {
         const candidate = await createAdaptiveJournalManifestV1({
             encryption: "unencrypted",
@@ -87,7 +134,7 @@ describe("Adaptive Journal object-store final commit", () => {
         });
     });
 
-    it("keeps Metadata invisible until every pack dependency verifies, then applies its catalogue atomically", async () => {
+    it("publishes Metadata, routes, and a small Pack as one immutable Commit Bundle", async () => {
         const candidate = await createAdaptiveJournalManifestV1({
             encryption: "unencrypted",
             repositoryId: sequence(0x10),
@@ -106,32 +153,35 @@ describe("Adaptive Journal object-store final commit", () => {
             chunks: [{ frame: chunk.bytes, key: chunkKey }],
             keys: candidate.keys,
         });
-        const remote = new MemoryObjectRemote();
-        const packPublication = await publishAdaptiveJournalPackV1({
+        const metadata = await encodeAdaptiveJournalMetadataRecordV1({
+            codec: "none",
+            documents: [
+                {
+                    _id: "notes/bundle.md" as DocumentID,
+                    _rev: "1-bundle",
+                    children: [] as DocumentID[],
+                    type: "newnote",
+                } as EntryDoc,
+            ],
             keys: candidate.keys,
-            pack,
-            remote,
             sequence: 1n,
             writerStreamId,
         });
-        if (packPublication.status !== "ok") throw new Error("pack publication failed");
-
-        const metadataLogicalKey = concatBytes(writerStreamId, u64be(1n));
-        const metadata = await encodeRecordFrameV1({
-            codec: "none",
-            keys: candidate.keys,
-            kind: AdaptiveRecordKindV1.MetadataBatch,
-            logicalKey: metadataLogicalKey,
-            plaintext: new TextEncoder().encode("Metadata batch payload"),
-        });
         const requiredChunkKeysDigest = await sha256(chunkKey);
+        const commitKey = adaptiveJournalCommitObjectKeyV1(writerStreamId, 1n);
+        const route = {
+            container: "bundle" as const,
+            entries: pack.entries,
+            objectKey: commitKey,
+            packBytes: pack.packBytes.byteLength,
+            packId: pack.packId,
+        };
         const commitRecord = await encodeAdaptiveJournalCommitRecordV1({
-            catalogueDeltas: [{ digest: packPublication.deltaDigest, key: packPublication.deltaKey }],
+            chunkPacks: [route],
             keys: candidate.keys,
             metadata: {
                 bytes: metadata.bytes.byteLength,
                 digest: metadata.digest,
-                key: adaptiveJournalMetadataObjectKeyV1(writerStreamId, 1n),
             },
             previousCommitDigest: null,
             requiredChunkKeysDigest,
@@ -140,32 +190,22 @@ describe("Adaptive Journal object-store final commit", () => {
         });
         const envelope = await encodeCommitEnvelopeV1({
             commitFrame: commitRecord.bytes,
+            inlinePack: pack.packBytes,
             metadataDigest: metadata.digest,
+            metadataFrame: metadata.bytes,
             previousCommitDigest: null,
             repositoryId: candidate.keys.repositoryId,
             requiredChunkKeys: [chunkKey],
             sequence: 1n,
             writerStreamId,
         });
+        const remote = new MemoryObjectRemote();
         const catalogue = new AdaptiveJournalCatalogueV1();
-        const publicationCache = new AdaptiveJournalObjectPublicationCacheV1(remote);
         const store = createAdaptiveJournalObjectEventStoreV1({
             catalogue,
             keys: candidate.keys,
-            publicationCache,
             remote,
         });
-        remote.reads.length = 0;
-        const descriptor = new TextEncoder().encode("writer descriptor frame");
-        await expect(
-            store.registerWriter({
-                descriptorDigest: await sha256(descriptor),
-                descriptorFrame: descriptor,
-                writerStreamId,
-            })
-        ).resolves.toEqual({ status: "ok", result: "inserted" });
-        expect(remote.reads).toEqual([]);
-        await expect(store.readWriter(writerStreamId)).resolves.toEqual({ status: "found", value: descriptor });
         await expect(
             store.putMetadataBatch({
                 metadataDigest: metadata.digest,
@@ -174,42 +214,161 @@ describe("Adaptive Journal object-store final commit", () => {
                 writerStreamId,
             })
         ).resolves.toEqual({ status: "ok", result: "inserted" });
-        await expect(store.readMetadata(writerStreamId, 1n)).resolves.toEqual({
-            status: "found",
-            value: metadata.bytes,
-        });
-        remote.reads.length = 0;
-
-        const packKey = adaptiveJournalPackObjectKeyV1(pack.packId);
-        const savedPack = remote.objects.get(packKey)!;
-        remote.objects.delete(packKey);
-        await expect(store.commitMetadataBatch(envelope.bytes)).resolves.toMatchObject({ status: "failed" });
-        expect(remote.objects.has(adaptiveJournalCommitObjectKeyV1(writerStreamId, 1n))).toBe(false);
+        expect(remote.objects.size).toBe(0);
         expect(catalogue.locations(chunkKey)).toEqual([]);
 
-        remote.objects.set(packKey, savedPack);
-        publicationCache.rememberPack({
-            deltaDigest: packPublication.deltaDigest,
-            deltaKey: packPublication.deltaKey,
-            entries: packPublication.entries,
-            packId: pack.packId,
-        });
-        remote.reads.length = 0;
         await expect(store.commitMetadataBatch(envelope.bytes)).resolves.toEqual({
             status: "ok",
             result: "inserted",
             commitDigest: commitRecord.digest,
         });
         expect(remote.reads).toEqual([]);
-        expect(catalogue.locations(chunkKey)).toHaveLength(1);
+        expect(remote.objects).toEqual(new Map([[commitKey, envelope.bytes]]));
+        expect(catalogue.locations(chunkKey)).toEqual([
+            expect.objectContaining({ container: "bundle", objectKey: commitKey }),
+        ]);
+        await expect(store.readCommit(writerStreamId, 1n)).resolves.toEqual({
+            status: "found",
+            value: commitRecord.bytes,
+        });
+        await expect(store.readMetadata(writerStreamId, 1n)).resolves.toEqual({
+            status: "found",
+            value: metadata.bytes,
+        });
+        expect(remote.reads).toEqual([]);
         await expect(store.commitMetadataBatch(envelope.bytes)).resolves.toEqual({
             status: "ok",
             result: "exact-existing",
             commitDigest: commitRecord.digest,
         });
-        await expect(store.readCommit(writerStreamId, 1n)).resolves.toEqual({
-            status: "found",
-            value: commitRecord.bytes,
+        expect(remote.reads).toEqual([commitKey]);
+
+        const conflictingPack = pack.packBytes.slice();
+        conflictingPack[0] ^= 0xff;
+        const conflictingEnvelope = await encodeCommitEnvelopeV1({
+            commitFrame: commitRecord.bytes,
+            inlinePack: conflictingPack,
+            metadataDigest: metadata.digest,
+            metadataFrame: metadata.bytes,
+            previousCommitDigest: null,
+            repositoryId: candidate.keys.repositoryId,
+            requiredChunkKeys: [chunkKey],
+            sequence: 1n,
+            writerStreamId,
         });
+        remote.objects.set(commitKey, conflictingEnvelope.bytes);
+        const conflictingStore = createAdaptiveJournalObjectEventStoreV1({
+            catalogue: new AdaptiveJournalCatalogueV1(),
+            keys: candidate.keys,
+            remote,
+        });
+        await expect(conflictingStore.readCommit(writerStreamId, 1n)).resolves.toEqual({
+            failure: { category: "invalid-response", retry: "never" },
+            status: "failed",
+        });
+    });
+
+    it("publishes a large change as one external Pack followed by one Commit Bundle", async () => {
+        const candidate = await createAdaptiveJournalManifestV1({
+            encryption: "unencrypted",
+            repositoryId: sequence(0x11),
+            securitySeed: sequence(0x81),
+        });
+        const writerStreamId = sequence(0x31);
+        const chunkKey = sequence(0x51);
+        const chunk = await encodeRecordFrameV1({
+            codec: "none",
+            keys: candidate.keys,
+            kind: AdaptiveRecordKindV1.Chunk,
+            logicalKey: chunkKey,
+            plaintext: new TextEncoder().encode("external Pack Chunk"),
+        });
+        const pack = await buildAdaptiveJournalPackV1({
+            chunks: [{ frame: chunk.bytes, key: chunkKey }],
+            keys: candidate.keys,
+        });
+        const metadata = await encodeAdaptiveJournalMetadataRecordV1({
+            documents: [
+                {
+                    _id: "notes/external.md" as DocumentID,
+                    _rev: "1-external",
+                    children: [] as DocumentID[],
+                    type: "newnote",
+                } as EntryDoc,
+            ],
+            keys: candidate.keys,
+            sequence: 1n,
+            writerStreamId,
+        });
+        const remote = new MemoryObjectRemote();
+        const publicationCache = new AdaptiveJournalObjectPublicationCacheV1(remote);
+        const published = await publishAdaptiveJournalPackV1({ pack, publicationCache, remote });
+        if (published.status !== "ok") throw new Error("Pack publication failed");
+        const route = {
+            container: "pack" as const,
+            entries: pack.entries,
+            objectKey: published.packKey,
+            packBytes: pack.packBytes.byteLength,
+            packId: pack.packId,
+        };
+        const commitRecord = await encodeAdaptiveJournalCommitRecordV1({
+            chunkPacks: [route],
+            keys: candidate.keys,
+            metadata: { bytes: metadata.bytes.byteLength, digest: metadata.digest },
+            previousCommitDigest: null,
+            requiredChunkKeysDigest: await sha256(chunkKey),
+            sequence: 1n,
+            writerStreamId,
+        });
+        const envelope = await encodeCommitEnvelopeV1({
+            commitFrame: commitRecord.bytes,
+            metadataDigest: metadata.digest,
+            metadataFrame: metadata.bytes,
+            previousCommitDigest: null,
+            repositoryId: candidate.keys.repositoryId,
+            requiredChunkKeys: [chunkKey],
+            sequence: 1n,
+            writerStreamId,
+        });
+        const commitKey = adaptiveJournalCommitObjectKeyV1(writerStreamId, 1n);
+
+        const missingDependencyRemote = new MemoryObjectRemote();
+        const recoveringWithoutPack = createAdaptiveJournalObjectEventStoreV1({
+            catalogue: new AdaptiveJournalCatalogueV1(),
+            keys: candidate.keys,
+            remote: missingDependencyRemote,
+        });
+        await expect(recoveringWithoutPack.commitMetadataBatch(envelope.bytes)).resolves.toMatchObject({
+            status: "failed",
+            failure: { category: "unavailable", retry: "later" },
+        });
+        expect(missingDependencyRemote.objects.has(commitKey)).toBe(false);
+
+        const store = createAdaptiveJournalObjectEventStoreV1({
+            catalogue: new AdaptiveJournalCatalogueV1(),
+            keys: candidate.keys,
+            publicationCache,
+            remote,
+        });
+
+        await expect(store.commitMetadataBatch(envelope.bytes)).resolves.toMatchObject({
+            result: "inserted",
+            status: "ok",
+        });
+        expect(remote.creates).toEqual([published.packKey, commitKey]);
+        expect(remote.reads).toEqual([]);
+        expect(remote.objects.size).toBe(2);
+
+        remote.reads.length = 0;
+        const recoveredStore = createAdaptiveJournalObjectEventStoreV1({
+            catalogue: new AdaptiveJournalCatalogueV1(),
+            keys: candidate.keys,
+            remote,
+        });
+        await expect(recoveredStore.commitMetadataBatch(envelope.bytes)).resolves.toMatchObject({
+            result: "exact-existing",
+            status: "ok",
+        });
+        expect(remote.reads).toEqual([published.packKey, commitKey]);
     });
 });

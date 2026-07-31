@@ -23,13 +23,12 @@ export type AdaptiveJournalErrorCode =
     | "invalid-commit-record"
     | "invalid-manifest"
     | "invalid-metadata-payload"
-    | "invalid-pack-index"
+    | "invalid-pack"
     | "invalid-record-frame"
     | "invalid-writer-descriptor"
     | "manifest-authentication-failed"
     | "metadata-payload-limit-exceeded"
     | "non-canonical-manifest"
-    | "pack-integrity-failed"
     | "pack-limit-exceeded"
     | "pending-commit-mismatch"
     | "pending-writer-descriptor-mismatch"
@@ -68,24 +67,18 @@ export type AdaptiveJournalRoleV1 =
     | "manifest-auth"
     | "chunk-identity"
     | "chunk-record"
-    | "pack-index"
     | "metadata-record"
-    | "catalogue-record"
     | "commit-record"
     | "writer-record"
-    | "catalogue-hint"
     | "writer-name";
 
 export const ADAPTIVE_JOURNAL_ROLES_V1: readonly AdaptiveJournalRoleV1[] = [
     "manifest-auth",
     "chunk-identity",
     "chunk-record",
-    "pack-index",
     "metadata-record",
-    "catalogue-record",
     "commit-record",
     "writer-record",
-    "catalogue-hint",
     "writer-name",
 ];
 
@@ -113,6 +106,7 @@ export interface AdaptiveJournalManifestV1 {
     format: "adaptive-journal";
     formatVersion: 1;
     manifestAuth: string;
+    objectLayout: "commit-bundle-v1";
     passwordKdf: {
         iterations: 310000;
         name: "pbkdf2-hmac-sha256";
@@ -167,13 +161,9 @@ export async function sha256(bytes: Uint8Array): Promise<Uint8Array> {
 
 export async function hmacSha256(keyBytes: Uint8Array, bytes: Uint8Array): Promise<Uint8Array> {
     const crypto = await getWebCrypto();
-    const key = await crypto.subtle.importKey(
-        "raw",
-        owned(keyBytes),
-        { hash: "SHA-256", name: "HMAC" },
-        false,
-        ["sign"]
-    );
+    const key = await crypto.subtle.importKey("raw", owned(keyBytes), { hash: "SHA-256", name: "HMAC" }, false, [
+        "sign",
+    ]);
     return new Uint8Array(await crypto.subtle.sign("HMAC", key, owned(bytes)));
 }
 
@@ -195,7 +185,10 @@ export async function hkdfSha256(
 
 async function pbkdf2MasterKey(passphrase: string, securitySeed: Uint8Array): Promise<Uint8Array> {
     if (passphrase.length === 0) {
-        throw new AdaptiveJournalError("invalid-manifest", "Encrypted Adaptive Journal repositories require a passphrase");
+        throw new AdaptiveJournalError(
+            "invalid-manifest",
+            "Encrypted Adaptive Journal repositories require a passphrase"
+        );
     }
     const crypto = await getWebCrypto();
     const passphraseKey = await crypto.subtle.importKey("raw", owned(utf8Bytes(passphrase)), "PBKDF2", false, [
@@ -287,6 +280,7 @@ function createManifestObject(
         format: "adaptive-journal",
         formatVersion: 1,
         manifestAuth,
+        objectLayout: "commit-bundle-v1",
         passwordKdf: MANIFEST_PASSWORD_KDF,
         recordKdf: "hkdf-sha256",
         repositoryId: bytesToBase64Url(repositoryId),
@@ -305,7 +299,12 @@ export async function createAdaptiveJournalManifestV1(
     const keys = await deriveKeySet(options.encryption, repositoryId, securitySeed, options.passphrase ?? "");
     const unsignedManifest = createManifestObject(options.encryption, repositoryId, securitySeed, "");
     const manifestAuth = await calculateManifestAuth(unsignedManifest, keys);
-    const manifest = createManifestObject(options.encryption, repositoryId, securitySeed, bytesToBase64Url(manifestAuth));
+    const manifest = createManifestObject(
+        options.encryption,
+        repositoryId,
+        securitySeed,
+        bytesToBase64Url(manifestAuth)
+    );
     const bytes = canonicalJsonBytes(manifest);
     return { bytes, digest: await sha256(bytes), keys, manifest };
 }
@@ -315,14 +314,19 @@ function invalidManifest(message: string, cause?: unknown): AdaptiveJournalError
 }
 
 function parseManifestShape(value: unknown): AdaptiveJournalManifestV1 {
-    if (!value || typeof value !== "object" || Array.isArray(value)) throw invalidManifest("Manifest must be an object");
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        throw invalidManifest("Manifest must be an object");
     const manifest = value as Record<string, unknown>;
+    if (manifest.format === "adaptive-journal" && manifest.formatVersion === 1 && manifest.objectLayout === undefined) {
+        throw invalidManifest("This Adaptive Journal uses the superseded object layout; the remote must be rebuilt");
+    }
     const expectedKeys = [
         "chunkKeyMode",
         "cipherSuite",
         "format",
         "formatVersion",
         "manifestAuth",
+        "objectLayout",
         "passwordKdf",
         "recordKdf",
         "repositoryId",
@@ -335,6 +339,9 @@ function parseManifestShape(value: unknown): AdaptiveJournalManifestV1 {
     if (manifest.format !== "adaptive-journal" || manifest.formatVersion !== 1) {
         throw invalidManifest("Manifest format is not Adaptive Journal v1");
     }
+    if (manifest.objectLayout !== "commit-bundle-v1") {
+        throw invalidManifest("Unsupported Adaptive Journal object layout; the remote must be rebuilt");
+    }
     if (manifest.recordKdf !== "hkdf-sha256") throw invalidManifest("Unsupported record KDF");
     if (
         !manifest.passwordKdf ||
@@ -344,10 +351,7 @@ function parseManifestShape(value: unknown): AdaptiveJournalManifestV1 {
     ) {
         throw invalidManifest("Unsupported password KDF parameters");
     }
-    if (
-        JSON.stringify(manifest.requiredCapabilities) !==
-        JSON.stringify(ADAPTIVE_JOURNAL_REQUIRED_CAPABILITIES_V1)
-    ) {
+    if (JSON.stringify(manifest.requiredCapabilities) !== JSON.stringify(ADAPTIVE_JOURNAL_REQUIRED_CAPABILITIES_V1)) {
         throw invalidManifest("Unsupported required capability set");
     }
     if (
@@ -358,8 +362,7 @@ function parseManifestShape(value: unknown): AdaptiveJournalManifestV1 {
         throw invalidManifest("Manifest identifiers and authentication value must be strings");
     }
     const encrypted = manifest.chunkKeyMode === "hmac-sha256" && manifest.cipherSuite === "aes-256-gcm";
-    const unencrypted =
-        manifest.chunkKeyMode === "repository-scoped-sha256" && manifest.cipherSuite === "none";
+    const unencrypted = manifest.chunkKeyMode === "repository-scoped-sha256" && manifest.cipherSuite === "none";
     if (!encrypted && !unencrypted) throw invalidManifest("Manifest encryption parameters are inconsistent");
     return manifest as unknown as AdaptiveJournalManifestV1;
 }
@@ -381,7 +384,10 @@ export async function parseAndVerifyAdaptiveJournalManifestV1(
     }
     const encryption: AdaptiveJournalEncryption = manifest.cipherSuite === "aes-256-gcm" ? "encrypted" : "unencrypted";
     if (encryption !== options.expectedEncryption) {
-        throw new AdaptiveJournalError("encryption-mode-mismatch", "Manifest encryption does not match the local profile");
+        throw new AdaptiveJournalError(
+            "encryption-mode-mismatch",
+            "Manifest encryption does not match the local profile"
+        );
     }
     let repositoryId: Uint8Array;
     let securitySeed: Uint8Array;
@@ -394,7 +400,10 @@ export async function parseAndVerifyAdaptiveJournalManifestV1(
         throw invalidManifest("Manifest contains an invalid binary field", error);
     }
     if (options.expectedRepositoryId !== undefined && options.expectedRepositoryId !== manifest.repositoryId) {
-        throw new AdaptiveJournalError("repository-id-mismatch", "Manifest repository ID does not match the pinned binding");
+        throw new AdaptiveJournalError(
+            "repository-id-mismatch",
+            "Manifest repository ID does not match the pinned binding"
+        );
     }
     const keys = await deriveKeySet(encryption, repositoryId, securitySeed, options.passphrase);
     const expectedAuth = await calculateManifestAuth(manifest, keys);
@@ -410,21 +419,14 @@ function canonicalChunkId(localChunkId: string): Uint8Array {
     return concatBytes(u16be(domain.byteLength), domain, u32be(value.byteLength), value);
 }
 
-export async function deriveRemoteChunkKeyV1(
-    keys: AdaptiveJournalKeySetV1,
-    localChunkId: string
-): Promise<Uint8Array> {
+export async function deriveRemoteChunkKeyV1(keys: AdaptiveJournalKeySetV1, localChunkId: string): Promise<Uint8Array> {
     if (localChunkId.length === 0) throw new TypeError("localChunkId must not be empty");
     const canonical = canonicalChunkId(localChunkId);
     if (keys.encryption === "encrypted") {
         return await hmacSha256(adaptiveJournalRoleKeyV1(keys, "chunk-identity"), canonical);
     }
     return await sha256(
-        concatBytes(
-            utf8Bytes("livesync/adaptive-journal/v1/public-chunk-identity"),
-            keys.repositoryId,
-            canonical
-        )
+        concatBytes(utf8Bytes("livesync/adaptive-journal/v1/public-chunk-identity"), keys.repositoryId, canonical)
     );
 }
 
@@ -432,14 +434,7 @@ function canonicalWriterIdentity(hostId: string, writerEpoch: string): Uint8Arra
     const domain = utf8Bytes("livesync/adaptive-journal/v1/writer-stream");
     const host = utf8Bytes(hostId);
     const epoch = utf8Bytes(writerEpoch);
-    return concatBytes(
-        u16be(domain.byteLength),
-        domain,
-        u32be(host.byteLength),
-        host,
-        u32be(epoch.byteLength),
-        epoch
-    );
+    return concatBytes(u16be(domain.byteLength), domain, u32be(host.byteLength), host, u32be(epoch.byteLength), epoch);
 }
 
 export async function deriveWriterStreamIdV1(

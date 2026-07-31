@@ -1,6 +1,6 @@
 import type { AdaptiveJournalCatalogueV1 } from "./AdaptiveJournalCatalogue.ts";
 import type { AdaptiveJournalChunkStoreV1 } from "./AdaptiveJournalChunkStore.ts";
-import type { AdaptiveJournalCommitDependencyV1 } from "./AdaptiveJournalControl.ts";
+import type { AdaptiveJournalCommitPackV1 } from "./AdaptiveJournalControl.ts";
 import type { AdaptiveJournalKeySetV1 } from "./AdaptiveJournalManifest.ts";
 import {
     publishAdaptiveJournalNativeChunksV1,
@@ -22,8 +22,9 @@ export interface AdaptiveJournalChunkDeliveryContextV1 {
 
 export type AdaptiveJournalChunkDeliveryOutcomeV1 =
     | {
-          catalogueDeltas: readonly AdaptiveJournalCommitDependencyV1[];
+          chunkPacks: readonly AdaptiveJournalCommitPackV1[];
           committedPackCandidates: readonly AdaptiveJournalCommittedPackCandidateV1[];
+          inlinePack?: Uint8Array;
           requiredChunkKeys: readonly Uint8Array[];
           status: "ok";
       }
@@ -45,7 +46,7 @@ export function createAdaptiveJournalNativeChunkDeliveryV1(
             const result = await publishAdaptiveJournalNativeChunksV1(store, keys, items);
             if (result.status === "pending" || result.status === "collision") return result;
             return {
-                catalogueDeltas: [],
+                chunkPacks: [],
                 committedPackCandidates: [],
                 requiredChunkKeys: items.map(({ record }) => record.remoteChunkKey.slice()),
                 status: "ok",
@@ -56,7 +57,9 @@ export function createAdaptiveJournalNativeChunkDeliveryV1(
 
 export interface CreateAdaptiveJournalObjectChunkDeliveryV1Options {
     catalogue: AdaptiveJournalCatalogueV1;
+    inlinePackMaxBytes?: number;
     keys: AdaptiveJournalKeySetV1;
+    packMaxBytes?: number;
     publicationCache?: AdaptiveJournalObjectPublicationCacheV1;
     remote: AdaptiveJournalObjectRemoteV1;
 }
@@ -66,15 +69,15 @@ export function createAdaptiveJournalObjectChunkDeliveryV1(
 ): AdaptiveJournalChunkDeliveryV1 {
     return {
         acceptCommitted: (candidates) => {
-            for (const candidate of candidates) {
-                options.catalogue.applyCommittedPack(candidate.packId, candidate.entries, candidate.dependency);
-            }
+            options.catalogue.applyCommittedPacks(candidates);
         },
         publish: async (context) => {
             const result = await publishAdaptiveJournalObjectChunksV1({
                 catalogue: options.catalogue,
+                inlinePackMaxBytes: options.inlinePackMaxBytes,
                 items: context.items,
                 keys: options.keys,
+                packMaxBytes: options.packMaxBytes,
                 publicationCache: options.publicationCache,
                 remote: options.remote,
                 sequence: context.sequence,

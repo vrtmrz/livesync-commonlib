@@ -21,6 +21,61 @@ export interface IJournalStorage {
     applyNewConfig(settings: JournalStorageSetting): void;
 }
 
+interface JournalStorageRemoteFormatCacheEntryV1 {
+    readonly identity: string;
+    readonly inspection: Promise<JournalStorageRemoteFormatV1>;
+}
+
+const remoteFormatInspections = new WeakMap<IJournalStorage, JournalStorageRemoteFormatCacheEntryV1>();
+
+function currentStorageIdentity(storage: IJournalStorage): string {
+    return storage.storageIdentity ?? "";
+}
+
+export async function inspectJournalStorageRemoteFormatV1(
+    storage: IJournalStorage
+): Promise<JournalStorageRemoteFormatV1 | undefined> {
+    const inspect = storage.inspectRemoteFormat;
+    if (!inspect) return undefined;
+    const identity = currentStorageIdentity(storage);
+    let entry = remoteFormatInspections.get(storage);
+    if (!entry || entry.identity !== identity) {
+        entry = {
+            identity,
+            inspection: Promise.resolve().then(async () => await inspect.call(storage)),
+        };
+        remoteFormatInspections.set(storage, entry);
+    }
+    try {
+        const remoteFormat = await entry.inspection;
+        if (remoteFormat === "empty" && remoteFormatInspections.get(storage) === entry) {
+            remoteFormatInspections.delete(storage);
+        }
+        return remoteFormat;
+    } catch (error) {
+        if (remoteFormatInspections.get(storage) === entry) remoteFormatInspections.delete(storage);
+        throw error;
+    }
+}
+
+export function recordJournalStorageRemoteFormatV1(
+    storage: IJournalStorage,
+    remoteFormat: JournalStorageRemoteFormatV1
+): void {
+    if (remoteFormat === "empty") {
+        remoteFormatInspections.delete(storage);
+        return;
+    }
+    remoteFormatInspections.set(storage, {
+        identity: currentStorageIdentity(storage),
+        inspection: Promise.resolve(remoteFormat),
+    });
+}
+
+export function invalidateJournalStorageRemoteFormatV1(storage: IJournalStorage): void {
+    remoteFormatInspections.delete(storage);
+}
+
 export function classifyJournalStorageRemoteFormatV1(
     hasAdaptiveObjects: boolean,
     hasOpaqueObjects: boolean
@@ -47,7 +102,7 @@ export async function assertJournalStorageRemoteFormatV1(
     storage: IJournalStorage,
     expectedFormat: Exclude<JournalStorageRemoteFormatV1, "empty" | "mixed">
 ): Promise<void> {
-    const remoteFormat = await storage.inspectRemoteFormat?.();
+    const remoteFormat = await inspectJournalStorageRemoteFormatV1(storage);
     if (remoteFormat === undefined || remoteFormat === "empty" || remoteFormat === expectedFormat) return;
     throw new JournalStorageFormatMismatchError(expectedFormat, remoteFormat);
 }

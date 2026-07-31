@@ -13,6 +13,7 @@ import type { SimpleStore } from "@lib/common/utils.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase.ts";
 
 import { AdaptiveJournalSyncCore } from "./AdaptiveJournalSyncCore.ts";
+import { decodeCommitEnvelopeV1 } from "./adaptive/AdaptiveJournalCommit.ts";
 import type {
     AdaptiveJournalByteRangeV1,
     AdaptiveJournalObjectListV1,
@@ -41,6 +42,7 @@ interface MemoryAdaptiveRemote {
 class MemoryAdaptiveObjectStorage
     implements IJournalStorage, AdaptiveJournalManifestRemoteV1, AdaptiveJournalObjectRemoteV1
 {
+    readonly adaptiveReads: Array<{ key: string; range?: AdaptiveJournalByteRangeV1 }> = [];
     readonly storageIdentity: string;
 
     readonly kind = "s3" as const;
@@ -97,6 +99,7 @@ class MemoryAdaptiveObjectStorage
     }
 
     async readAdaptiveObject(key: string, range?: AdaptiveJournalByteRangeV1): Promise<RemoteRead<Uint8Array>> {
+        this.adaptiveReads.push({ key, range });
         const bytes = this.remote.objects.get(key);
         if (!bytes) return { status: "missing" };
         return {
@@ -219,19 +222,21 @@ describe("AdaptiveJournalSyncCore", () => {
                 type: "leaf",
             } as EntryDoc);
             await senderDB.put(metadata());
+            const senderStorage = new MemoryAdaptiveObjectStorage(remote);
             const sender = new AdaptiveJournalSyncCore(
                 currentSettings,
                 memoryStore(),
                 environment(senderDB, currentSettings),
-                new MemoryAdaptiveObjectStorage(remote),
+                senderStorage,
                 async () => "sender-host",
                 vi.fn()
             );
+            const receiverStorage = new MemoryAdaptiveObjectStorage(remote);
             const receiver = new AdaptiveJournalSyncCore(
                 currentSettings,
                 memoryStore(),
                 environment(receiverDB, currentSettings),
-                new MemoryAdaptiveObjectStorage(remote),
+                receiverStorage,
                 async () => "receiver-host",
                 received
             );
@@ -251,16 +256,12 @@ describe("AdaptiveJournalSyncCore", () => {
             });
             expect(received).toHaveBeenCalledOnce();
             expect(remote.manifest).toBeDefined();
-            expect([...remote.objects.keys()]).toEqual(
-                expect.arrayContaining([
-                    expect.stringMatching(/^a1~writer~/u),
-                    expect.stringMatching(/^a1~pack~/u),
-                    expect.stringMatching(/^a1~index~/u),
-                    expect.stringMatching(/^a1~delta~/u),
-                    expect.stringMatching(/^a1~metadata~/u),
-                    expect.stringMatching(/^a1~commit~/u),
-                ])
-            );
+            const objectKeys = [...remote.objects.keys()];
+            expect(objectKeys.filter((key) => /^a1~writer~/u.test(key))).toHaveLength(2);
+            expect(objectKeys.filter((key) => /^a1~commit~/u.test(key))).toHaveLength(1);
+            expect(objectKeys.every((key) => /^a1~(?:writer|commit)~/u.test(key))).toBe(true);
+            expect(receiverStorage.adaptiveReads.filter(({ key }) => /^a1~commit~/u.test(key))).toHaveLength(1);
+            expect(receiverStorage.adaptiveReads.some(({ key }) => /^a1~pack~/u.test(key))).toBe(false);
 
             await senderDB.put({
                 ...metadata(),
@@ -322,6 +323,15 @@ describe("AdaptiveJournalSyncCore", () => {
             await expect(receiverDB.get("notes/adaptive.md")).resolves.toMatchObject({
                 children: ["h:adaptive-chunk"],
             });
+
+            const existingCommitKeys = new Set([...remote.objects.keys()].filter((key) => /^a1~commit~/u.test(key)));
+            await expect(receiver.sendLocalJournal()).resolves.toBe(true);
+            const reusedCommitKey = [...remote.objects.keys()].find(
+                (key) => /^a1~commit~/u.test(key) && !existingCommitKeys.has(key)
+            );
+            expect(reusedCommitKey).toBeDefined();
+            const reusedCommit = await decodeCommitEnvelopeV1(remote.objects.get(reusedCommitKey!)!);
+            expect(reusedCommit.inlinePack).toBeUndefined();
         } finally {
             await senderDB.destroy();
             await receiverDB.destroy();

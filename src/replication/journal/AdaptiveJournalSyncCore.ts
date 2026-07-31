@@ -26,6 +26,7 @@ import {
     clearAdaptiveJournalLocalStateV1,
 } from "./adaptive/AdaptiveJournalLocalState.ts";
 import { base64UrlToBytes, bytesEqual } from "./adaptive/AdaptiveJournalBinary.ts";
+import { AdaptiveJournalCommitBundleCacheV1 } from "./adaptive/AdaptiveJournalCommit.ts";
 import { AdaptiveJournalError, type AdaptiveJournalEncryption } from "./adaptive/AdaptiveJournalManifest.ts";
 import {
     createAdaptiveJournalObjectCatalogueLoaderV1,
@@ -49,7 +50,10 @@ import {
 import { encodeAdaptiveJournalWriterDescriptorV1 } from "./adaptive/AdaptiveJournalWriterDescriptor.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 import {
+    inspectJournalStorageRemoteFormatV1,
+    invalidateJournalStorageRemoteFormatV1,
     JournalStorageFormatMismatchError,
+    recordJournalStorageRemoteFormatV1,
     type IJournalStorage,
     type JournalStorageSetting,
 } from "./objectstore/JournalStorageAdapter.ts";
@@ -169,6 +173,7 @@ export class AdaptiveJournalSyncCore {
             );
         }
         if (manifest.status === "missing" || !bytesEqual(manifest.value, opened.repository.bytes)) {
+            invalidateJournalStorageRemoteFormatV1(this.storage);
             throw new AdaptiveJournalError(
                 "repository-id-mismatch",
                 "The Adaptive Journal remote repository was rebuilt while this client was active"
@@ -185,7 +190,7 @@ export class AdaptiveJournalSyncCore {
         if (protocol.journalFormat !== "adaptive-v1") {
             throw new JournalStorageFormatMismatchError("adaptive-v1", protocol.journalFormat);
         }
-        const remoteFormat = await this.storage.inspectRemoteFormat?.();
+        const remoteFormat = await inspectJournalStorageRemoteFormatV1(this.storage);
         if (remoteFormat === undefined) throw new Error("Journal storage cannot inspect its remote format");
         if (remoteFormat !== "empty" && remoteFormat !== "adaptive-v1") {
             throw new JournalStorageFormatMismatchError("adaptive-v1", remoteFormat);
@@ -203,6 +208,7 @@ export class AdaptiveJournalSyncCore {
             passphrase: this.settings.encrypt ? this.settings.passphrase : undefined,
             remote: requireManifestStorage(this.storage),
         });
+        recordJournalStorageRemoteFormatV1(this.storage, "adaptive-v1");
         const writerState = new AdaptiveJournalLocalWriterStateStoreV1(this.stateStore, this.storage.storageIdentity);
         const hostId = await this.resolveHostId();
         if (hostId.length === 0) throw new Error("Adaptive Journal requires an initialised host ID");
@@ -210,7 +216,9 @@ export class AdaptiveJournalSyncCore {
         const catalogue = new AdaptiveJournalCatalogueV1();
         const objectStorage = requireObjectStorage(this.storage);
         const publicationCache = new AdaptiveJournalObjectPublicationCacheV1(objectStorage);
+        const bundleCache = new AdaptiveJournalCommitBundleCacheV1();
         const eventStore = createAdaptiveJournalObjectEventStoreV1({
+            bundleCache,
             catalogue,
             keys: repository.keys,
             publicationCache,
@@ -223,14 +231,13 @@ export class AdaptiveJournalSyncCore {
             remote: objectStorage,
         });
         const chunkReader = createAdaptiveJournalObjectChunkReaderV1({
+            bundleCache,
             catalogue,
             remote: objectStorage,
             retrieval: protocol.packReadPolicy,
         });
         const catalogueLoader = createAdaptiveJournalObjectCatalogueLoaderV1({
             catalogue,
-            keys: repository.keys,
-            remote: objectStorage,
         });
         if (!writer.writerRegistered && !writer.pendingWriterDescriptor) {
             const descriptor = await encodeAdaptiveJournalWriterDescriptorV1({
@@ -298,7 +305,7 @@ export class AdaptiveJournalSyncCore {
 
     async isAvailable(): Promise<boolean> {
         try {
-            const format = await this.storage.inspectRemoteFormat?.();
+            const format = await inspectJournalStorageRemoteFormatV1(this.storage);
             return format === "empty" || format === "adaptive-v1";
         } catch {
             return false;
@@ -557,6 +564,7 @@ export class AdaptiveJournalSyncCore {
         await clearAdaptiveJournalLocalStateV1(this.stateStore, this.storage.storageIdentity);
         this.opened = undefined;
         this.openedConfiguration = undefined;
+        recordJournalStorageRemoteFormatV1(this.storage, "empty");
         return true;
     }
 

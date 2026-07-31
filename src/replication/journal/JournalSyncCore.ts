@@ -30,7 +30,10 @@ import { type CheckPointInfo, createCheckPointInfoDefault } from "./JournalSyncT
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 import {
     assertJournalStorageRemoteFormatV1,
+    inspectJournalStorageRemoteFormatV1,
+    invalidateJournalStorageRemoteFormatV1,
     JournalStorageFormatMismatchError,
+    recordJournalStorageRemoteFormatV1,
     type IJournalStorage,
 } from "./objectstore/JournalStorageAdapter.ts";
 
@@ -118,6 +121,7 @@ export class JournalSyncCore {
         try {
             const data = new TextEncoder().encode(JSON.stringify(params));
             if (await this.storage.upload(DOCID_JOURNAL_SYNC_PARAMETERS, data, "application/json")) {
+                recordJournalStorageRemoteFormatV1(this.storage, "opaque-v1");
                 return true;
             }
             throw new SyncParamsUpdateError(`Could not store remote sync parameters`);
@@ -167,7 +171,9 @@ export class JournalSyncCore {
         await this.assertOpaqueJournalEngine();
         try {
             const data = new TextEncoder().encode(JSON.stringify(body));
-            return await this.storage.upload(key, data, "application/json");
+            const uploaded = await this.storage.upload(key, data, "application/json");
+            if (uploaded) recordJournalStorageRemoteFormatV1(this.storage, "opaque-v1");
+            return uploaded;
         } catch (ex) {
             Logger(`Could not upload json ${key}`);
             Logger(ex, LOG_LEVEL_VERBOSE);
@@ -278,6 +284,7 @@ export class JournalSyncCore {
             const params = await this.getSyncParameters();
             journalEpoch = this.getJournalEpochFromSyncParams(params);
         } catch {
+            invalidateJournalStorageRemoteFormatV1(this.storage);
             return;
         }
 
@@ -334,7 +341,7 @@ export class JournalSyncCore {
     async isAvailable(): Promise<boolean> {
         try {
             if ((this._settings.journalFormat ?? "opaque-v1") !== "opaque-v1") return false;
-            const remoteFormat = await this.storage.inspectRemoteFormat?.();
+            const remoteFormat = await inspectJournalStorageRemoteFormatV1(this.storage);
             if (remoteFormat !== undefined) return remoteFormat === "empty" || remoteFormat === "opaque-v1";
             return await this.storage.isAvailable();
         } catch {
@@ -351,6 +358,7 @@ export class JournalSyncCore {
             }
             clearHandlers();
             await this.resetCheckpointInfo();
+            recordJournalStorageRemoteFormatV1(this.storage, "empty");
             return true;
         }
         let files = [] as string[];
@@ -371,11 +379,13 @@ export class JournalSyncCore {
         const journals = await this._getRemoteJournals();
         if (journals.length == 0) {
             Logger("Nothing to delete!", LOG_LEVEL_NOTICE);
+            recordJournalStorageRemoteFormatV1(this.storage, "empty");
             return true;
         }
         await this.storage.deleteFiles(journals);
         Logger(`${journals.length} items has been deleted!`, LOG_LEVEL_NOTICE);
         await this.resetCheckpointInfo();
+        recordJournalStorageRemoteFormatV1(this.storage, "empty");
         return true;
     }
 
@@ -618,6 +628,7 @@ export class JournalSyncCore {
                 if (!ret) {
                     throw new Error(`Could not send journalPack to the bucket (${filename})`);
                 }
+                recordJournalStorageRemoteFormatV1(this.storage, "opaque-v1");
 
                 sentFilesCount++;
                 stats.uploadedFiles++;

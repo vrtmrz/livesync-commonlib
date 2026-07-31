@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { AdaptiveJournalCatalogueV1 } from "./AdaptiveJournalCatalogue.ts";
-import { createAdaptiveJournalManifestV1 } from "./AdaptiveJournalManifest.ts";
+import { AdaptiveJournalCatalogueV1, adaptiveJournalCommitObjectKeyV1 } from "./AdaptiveJournalCatalogue.ts";
+import {
+    AdaptiveJournalCommitBundleCacheV1,
+    decodeCommitEnvelopeV1,
+    encodeCommitEnvelopeV1,
+} from "./AdaptiveJournalCommit.ts";
+import { createAdaptiveJournalManifestV1, sha256 } from "./AdaptiveJournalManifest.ts";
 import {
     createAdaptiveJournalObjectChunkReaderV1,
     type AdaptiveJournalPackCacheV1,
@@ -86,7 +91,13 @@ async function fixture() {
         keys: candidate.keys,
     });
     const catalogue = new AdaptiveJournalCatalogueV1();
-    catalogue.applyCommittedPack(pack.packId, pack.entries);
+    catalogue.applyCommittedPack({
+        container: "pack",
+        entries: pack.entries,
+        objectKey: adaptiveJournalPackObjectKeyV1(pack.packId),
+        packBytes: pack.packBytes.byteLength,
+        packId: pack.packId,
+    });
     return { candidate, catalogue, first, firstKey, pack, second, secondKey };
 }
 
@@ -136,7 +147,7 @@ describe("Adaptive Journal object Chunk retrieval", () => {
             [value.secondKey, value.firstKey].map((key) => {
                 const location = value.catalogue.locations(key)[0];
                 return {
-                    key: adaptiveJournalPackObjectKeyV1(location.packId),
+                    key: location.objectKey,
                     range: { length: location.frameLength, offset: location.offset },
                 };
             })
@@ -149,9 +160,7 @@ describe("Adaptive Journal object Chunk retrieval", () => {
         changed[changed.byteLength - 1] ^= 0xff;
         const whole = createAdaptiveJournalObjectChunkReaderV1({
             catalogue: value.catalogue,
-            remote: new ReadingObjectRemote(
-                new Map([[adaptiveJournalPackObjectKeyV1(value.pack.packId), changed]])
-            ),
+            remote: new ReadingObjectRemote(new Map([[adaptiveJournalPackObjectKeyV1(value.pack.packId), changed]])),
             retrieval: "whole-pack",
         });
         await expect(whole.getMany([value.firstKey])).resolves.toMatchObject({
@@ -171,5 +180,45 @@ describe("Adaptive Journal object Chunk retrieval", () => {
             status: "failed",
             failure: { category: "invalid-response", retry: "never" },
         });
+    });
+
+    it("reads an inline Pack from the shared Commit Bundle cache without another request", async () => {
+        const value = await fixture();
+        const writerStreamId = sequence(0x91);
+        const objectKey = adaptiveJournalCommitObjectKeyV1(writerStreamId, 1n);
+        const metadataFrame = new Uint8Array([1]);
+        const bundle = await encodeCommitEnvelopeV1({
+            commitFrame: new Uint8Array([2]),
+            inlinePack: value.pack.packBytes,
+            metadataDigest: await sha256(metadataFrame),
+            metadataFrame,
+            previousCommitDigest: null,
+            repositoryId: value.candidate.keys.repositoryId,
+            requiredChunkKeys: [value.firstKey, value.secondKey],
+            sequence: 1n,
+            writerStreamId,
+        });
+        const catalogue = new AdaptiveJournalCatalogueV1();
+        catalogue.applyCommittedPack({
+            container: "bundle",
+            entries: value.pack.entries,
+            objectKey,
+            packBytes: value.pack.packBytes.byteLength,
+            packId: value.pack.packId,
+        });
+        const bundleCache = new AdaptiveJournalCommitBundleCacheV1();
+        bundleCache.set(objectKey, bundle.bytes, await decodeCommitEnvelopeV1(bundle.bytes));
+        const remote = new ReadingObjectRemote(new Map());
+
+        for (const retrieval of ["whole-pack", "range"] as const) {
+            const reader = createAdaptiveJournalObjectChunkReaderV1({
+                bundleCache,
+                catalogue,
+                remote,
+                retrieval,
+            });
+            await expect(reader.getMany([value.secondKey, value.firstKey])).resolves.toMatchObject({ status: "ok" });
+        }
+        expect(remote.reads).toEqual([]);
     });
 });

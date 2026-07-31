@@ -31,6 +31,7 @@ const {
     encodeBatchResponseV1,
     encodeCommitEnvelopeV1,
     encodeRecordFrameV1,
+    sha256,
     u64be,
 } = protocol;
 
@@ -60,10 +61,7 @@ const logical32 = bytes(0x30);
 const logical40 = concatBytes(logical32, u64be(7n));
 const kinds = [
     ["chunk", AdaptiveRecordKindV1.Chunk, logical32],
-    ["pack-index", AdaptiveRecordKindV1.PackIndex, logical32],
     ["metadata-batch", AdaptiveRecordKindV1.MetadataBatch, logical40],
-    ["catalogue-delta", AdaptiveRecordKindV1.CatalogueDelta, logical40],
-    ["catalogue-snapshot", AdaptiveRecordKindV1.CatalogueSnapshot, logical32],
     ["writer-descriptor", AdaptiveRecordKindV1.WriterDescriptor, logical32],
     ["commit", AdaptiveRecordKindV1.Commit, logical40],
 ];
@@ -149,20 +147,19 @@ const batches = {
     putResponse: b64(
         encodeBatchResponseV1({
             operation: AdaptiveBatchOperationV1.Put,
-            entries: [
-                { status: "inserted" },
-                { status: "exact-existing" },
-                { status: "validate-existing" },
-            ],
+            entries: [{ status: "inserted" }, { status: "exact-existing" }, { status: "validate-existing" }],
         })
     ),
 };
 
 const writerStreamId = await deriveWriterStreamIdV1(encrypted.keys, hostId, writerEpoch);
 const commitFrame = recordValues.get("encrypted:commit:deflate").encoded.bytes;
+const metadataFrame = recordValues.get("encrypted:metadata-batch:deflate").encoded.bytes;
+const metadataDigest = await sha256(metadataFrame);
 const commit = await encodeCommitEnvelopeV1({
     commitFrame,
-    metadataDigest: bytes(0xd0),
+    metadataDigest,
+    metadataFrame,
     previousCommitDigest: bytes(0xb0),
     repositoryId,
     requiredChunkKeys: [secondKey, firstKey, secondKey],
@@ -220,9 +217,7 @@ const fixture = {
         ),
         encryptedWriterStreamId: b64(writerStreamId),
         unencryptedRemoteChunkKey: b64(await deriveRemoteChunkKeyV1(unencrypted.keys, localChunkId)),
-        unencryptedWriterStreamId: b64(
-            await deriveWriterStreamIdV1(unencrypted.keys, hostId, writerEpoch)
-        ),
+        unencryptedWriterStreamId: b64(await deriveWriterStreamIdV1(unencrypted.keys, hostId, writerEpoch)),
     },
     records,
     batches,
@@ -230,7 +225,7 @@ const fixture = {
         commitFrameDigest: b64(commit.commitFrameDigest),
         digest: b64(commit.digest),
         envelope: b64(commit.bytes),
-        metadataDigest: b64(bytes(0xd0)),
+        metadataDigest: b64(metadataDigest),
         previousCommitDigest: b64(bytes(0xb0)),
         requiredChunkKeys: commit.requiredChunkKeys.map(b64),
         requiredChunkKeysDigest: b64(commit.requiredChunkKeysDigest),
@@ -243,10 +238,7 @@ const fixture = {
             frameLength: entry.frameLength,
             key: b64(entry.key),
             offset: entry.offset,
-            plaintextLength: entry.plaintextLength,
         })),
-        indexFrame: b64(pack.indexFrame),
-        indexFrameDigest: b64(pack.indexFrameDigest),
         packBytes: b64(pack.packBytes),
         packId: b64(pack.packId),
     },

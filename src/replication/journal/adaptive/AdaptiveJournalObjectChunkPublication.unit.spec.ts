@@ -1,7 +1,11 @@
 import type { DocumentID } from "@lib/common/types.ts";
 import { describe, expect, it } from "vitest";
 
-import { AdaptiveJournalCatalogueV1, adaptiveJournalDeltaObjectKeyV1 } from "./AdaptiveJournalCatalogue.ts";
+import {
+    AdaptiveJournalCatalogueV1,
+    adaptiveJournalCommitObjectKeyV1,
+    adaptiveJournalPackObjectKeyV1,
+} from "./AdaptiveJournalCatalogue.ts";
 import { createAdaptiveJournalManifestV1 } from "./AdaptiveJournalManifest.ts";
 import { publishAdaptiveJournalObjectChunksV1 } from "./AdaptiveJournalObjectChunkPublication.ts";
 import type { AdaptiveJournalObjectListV1, AdaptiveJournalObjectRemoteV1 } from "./AdaptiveJournalObjectStore.ts";
@@ -49,23 +53,22 @@ describe("Adaptive Journal object Chunk publication", () => {
             localChunkId: "h:second" as DocumentID,
         });
         const catalogue = new AdaptiveJournalCatalogueV1();
-        const firstDependency = {
-            digest: sequence(0xd0),
-            key: adaptiveJournalDeltaObjectKeyV1(sequence(0x20), 1n),
-        };
-        catalogue.applyCommittedPack(
-            sequence(0xa0),
-            [
+        const firstPackId = sequence(0xa0);
+        const firstRoute = {
+            container: "pack" as const,
+            entries: [
                 {
                     frameDigest: first.digest,
                     frameLength: first.bytes.byteLength,
                     key: first.remoteChunkKey,
                     offset: 0,
-                    plaintextLength: 5,
                 },
             ],
-            firstDependency
-        );
+            objectKey: adaptiveJournalPackObjectKeyV1(firstPackId),
+            packBytes: first.bytes.byteLength,
+            packId: firstPackId,
+        };
+        catalogue.applyCommittedPack(firstRoute);
         const remote = new MemoryObjectRemote();
 
         const result = await publishAdaptiveJournalObjectChunksV1({
@@ -83,18 +86,22 @@ describe("Adaptive Journal object Chunk publication", () => {
         expect(result.status).toBe("ok");
         if (result.status !== "ok") return;
         expect(result.requiredChunkKeys).toEqual([first.remoteChunkKey, second.remoteChunkKey]);
-        expect(result.catalogueDeltas).toEqual(
+        expect(result.chunkPacks).toEqual(
             expect.arrayContaining([
-                firstDependency,
-                expect.objectContaining({ key: adaptiveJournalDeltaObjectKeyV1(sequence(0x30), 1n) }),
+                firstRoute,
+                expect.objectContaining({
+                    container: "bundle",
+                    objectKey: adaptiveJournalCommitObjectKeyV1(sequence(0x30), 1n),
+                }),
             ])
         );
+        expect(result.inlinePack).toBeInstanceOf(Uint8Array);
         expect(result.committedPackCandidates).toHaveLength(1);
         expect(result.committedPackCandidates[0].entries.map(({ key }) => key)).toEqual([second.remoteChunkKey]);
-        expect(remote.objects.size).toBe(3);
+        expect(remote.objects.size).toBe(0);
     });
 
-    it("reuses a catalogued Chunk by carrying its verified Delta dependency", async () => {
+    it("reuses an authenticated Pack route without a remote request", async () => {
         const candidate = await createAdaptiveJournalManifestV1({
             encryption: "unencrypted",
             repositoryId: sequence(0x11),
@@ -106,23 +113,22 @@ describe("Adaptive Journal object Chunk publication", () => {
             localChunkId: "h:chunk" as DocumentID,
         });
         const catalogue = new AdaptiveJournalCatalogueV1();
-        const dependency = {
-            digest: sequence(0xd1),
-            key: adaptiveJournalDeltaObjectKeyV1(sequence(0x21), 1n),
-        };
-        catalogue.applyCommittedPack(
-            sequence(0xa1),
-            [
+        const packId = sequence(0xa1);
+        const route = {
+            container: "pack" as const,
+            entries: [
                 {
                     frameDigest: chunk.digest,
                     frameLength: chunk.bytes.byteLength,
                     key: chunk.remoteChunkKey,
                     offset: 0,
-                    plaintextLength: 4,
                 },
             ],
-            dependency
-        );
+            objectKey: adaptiveJournalPackObjectKeyV1(packId),
+            packBytes: chunk.bytes.byteLength,
+            packId,
+        };
+        catalogue.applyCommittedPack(route);
         const remote = new MemoryObjectRemote();
 
         await expect(
@@ -134,7 +140,101 @@ describe("Adaptive Journal object Chunk publication", () => {
                 sequence: 2n,
                 writerStreamId: sequence(0x31),
             })
-        ).resolves.toMatchObject({ catalogueDeltas: [dependency], status: "ok" });
+        ).resolves.toMatchObject({ chunkPacks: [route], status: "ok" });
         expect(remote.objects.size).toBe(0);
+    });
+
+    it("publishes one external Pack when the inline threshold is exceeded", async () => {
+        const candidate = await createAdaptiveJournalManifestV1({
+            encryption: "unencrypted",
+            repositoryId: sequence(0x12),
+            securitySeed: sequence(0x82),
+        });
+        const chunk = await encodeAdaptiveJournalChunkRecordV1({
+            data: "external",
+            keys: candidate.keys,
+            localChunkId: "h:external" as DocumentID,
+        });
+        const remote = new MemoryObjectRemote();
+        const result = await publishAdaptiveJournalObjectChunksV1({
+            catalogue: new AdaptiveJournalCatalogueV1(),
+            inlinePackMaxBytes: 0,
+            items: [{ localChunkId: "h:external" as DocumentID, record: chunk }],
+            keys: candidate.keys,
+            remote,
+            sequence: 1n,
+            writerStreamId: sequence(0x32),
+        });
+
+        expect(result).toMatchObject({
+            chunkPacks: [expect.objectContaining({ container: "pack" })],
+            status: "ok",
+        });
+        expect(remote.objects.size).toBe(1);
+        expect([...remote.objects.keys()][0]).toMatch(/^a1~pack~/u);
+    });
+
+    it("partitions a publication which exceeds one Pack", async () => {
+        const candidate = await createAdaptiveJournalManifestV1({
+            encryption: "unencrypted",
+            repositoryId: sequence(0x14),
+            securitySeed: sequence(0x84),
+        });
+        const first = await encodeAdaptiveJournalChunkRecordV1({
+            data: "first partition",
+            keys: candidate.keys,
+            localChunkId: "h:partition-first" as DocumentID,
+        });
+        const second = await encodeAdaptiveJournalChunkRecordV1({
+            data: "second partition",
+            keys: candidate.keys,
+            localChunkId: "h:partition-second" as DocumentID,
+        });
+        const remote = new MemoryObjectRemote();
+        const result = await publishAdaptiveJournalObjectChunksV1({
+            catalogue: new AdaptiveJournalCatalogueV1(),
+            items: [
+                { localChunkId: "h:partition-first" as DocumentID, record: first },
+                { localChunkId: "h:partition-second" as DocumentID, record: second },
+            ],
+            keys: candidate.keys,
+            packMaxBytes: Math.max(first.bytes.byteLength, second.bytes.byteLength),
+            remote,
+            sequence: 1n,
+            writerStreamId: sequence(0x34),
+        });
+
+        expect(result.status).toBe("ok");
+        if (result.status !== "ok") return;
+        expect(result.chunkPacks).toHaveLength(2);
+        expect(result.chunkPacks.every(({ container }) => container === "pack")).toBe(true);
+        expect(result.committedPackCandidates).toHaveLength(2);
+        expect(result.inlinePack).toBeUndefined();
+        expect(remote.objects.size).toBe(2);
+    });
+
+    it("rejects an inline threshold which the Commit Bundle cannot encode", async () => {
+        const candidate = await createAdaptiveJournalManifestV1({
+            encryption: "unencrypted",
+            repositoryId: sequence(0x13),
+            securitySeed: sequence(0x83),
+        });
+        const chunk = await encodeAdaptiveJournalChunkRecordV1({
+            data: "body",
+            keys: candidate.keys,
+            localChunkId: "h:limit" as DocumentID,
+        });
+
+        await expect(
+            publishAdaptiveJournalObjectChunksV1({
+                catalogue: new AdaptiveJournalCatalogueV1(),
+                inlinePackMaxBytes: 8 * 1024 * 1024 + 1,
+                items: [{ localChunkId: "h:limit" as DocumentID, record: chunk }],
+                keys: candidate.keys,
+                remote: new MemoryObjectRemote(),
+                sequence: 1n,
+                writerStreamId: sequence(0x33),
+            })
+        ).rejects.toThrowError(RangeError);
     });
 });

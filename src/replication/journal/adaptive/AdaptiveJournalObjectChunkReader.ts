@@ -1,10 +1,15 @@
 import {
     AdaptiveJournalCatalogueV1,
-    adaptiveJournalPackObjectKeyV1,
+    parseAdaptiveJournalCommitObjectKeyV1,
     type AdaptiveJournalPackLocationV1,
 } from "./AdaptiveJournalCatalogue.ts";
 import type { AdaptiveJournalChunkReaderV1, StoredChunkRecordV1 } from "./AdaptiveJournalChunkStore.ts";
 import { bytesEqual, bytesToBase64Url } from "./AdaptiveJournalBinary.ts";
+import {
+    ADAPTIVE_JOURNAL_COMMIT_BUNDLE_INLINE_PACK_OFFSET_V1,
+    AdaptiveJournalCommitBundleCacheV1,
+    decodeCommitEnvelopeV1,
+} from "./AdaptiveJournalCommit.ts";
 import { sha256 } from "./AdaptiveJournalManifest.ts";
 import type { AdaptiveJournalObjectRemoteV1 } from "./AdaptiveJournalObjectStore.ts";
 import { frameFromAdaptiveJournalPackV1 } from "./AdaptiveJournalPack.ts";
@@ -18,6 +23,7 @@ export interface AdaptiveJournalPackCacheV1 {
 }
 
 export interface CreateAdaptiveJournalObjectChunkReaderV1Options {
+    bundleCache?: AdaptiveJournalCommitBundleCacheV1;
     cache?: AdaptiveJournalPackCacheV1;
     catalogue: AdaptiveJournalCatalogueV1;
     remote: AdaptiveJournalObjectRemoteV1;
@@ -42,13 +48,38 @@ async function verifiedCompletePack(
     let bytes: Uint8Array;
     if (cached) {
         bytes = cached;
+    } else if (location.container === "bundle") {
+        const cachedBundle = options.bundleCache?.get(location.objectKey);
+        if (cachedBundle) {
+            if (!cachedBundle.envelope.inlinePack) return { status: "failed", failure: INTEGRITY_FAILURE };
+            bytes = cachedBundle.envelope.inlinePack;
+        } else {
+            const read = await options.remote.readAdaptiveObject(location.objectKey);
+            if (read.status === "failed") return read;
+            if (read.status === "missing") return { status: "failed", failure: MISSING_DEPENDENCY };
+            try {
+                const route = parseAdaptiveJournalCommitObjectKeyV1(location.objectKey);
+                const envelope = await decodeCommitEnvelopeV1(read.value);
+                if (
+                    !bytesEqual(envelope.writerStreamId, route.writerStreamId) ||
+                    envelope.sequence !== route.sequence ||
+                    !envelope.inlinePack
+                ) {
+                    return { status: "failed", failure: INTEGRITY_FAILURE };
+                }
+                options.bundleCache?.set(location.objectKey, read.value, envelope);
+                bytes = envelope.inlinePack;
+            } catch {
+                return { status: "failed", failure: INTEGRITY_FAILURE };
+            }
+        }
     } else {
-        const read = await options.remote.readAdaptiveObject(adaptiveJournalPackObjectKeyV1(location.packId));
+        const read = await options.remote.readAdaptiveObject(location.objectKey);
         if (read.status === "failed") return read;
         if (read.status === "missing") return { status: "failed", failure: MISSING_DEPENDENCY };
         bytes = read.value;
     }
-    if (!bytesEqual(await sha256(bytes), location.packId)) {
+    if (bytes.byteLength !== location.packBytes || !bytesEqual(await sha256(bytes), location.packId)) {
         return { status: "failed", failure: INTEGRITY_FAILURE };
     }
     if (!cached) await options.cache?.set(packIdText, bytes);
@@ -62,7 +93,7 @@ async function readWholePacks(
 ): Promise<RemoteFailure | undefined> {
     const groups = new Map<string, RequestedLocation[]>();
     for (const request of requested) {
-        const id = bytesToBase64Url(request.location.packId);
+        const id = request.location.objectKey;
         const group = groups.get(id) ?? [];
         group.push(request);
         groups.set(id, group);
@@ -94,9 +125,28 @@ async function readRanges(
     chunks: Array<StoredChunkRecordV1 | undefined>
 ): Promise<RemoteFailure | undefined> {
     for (const request of requested) {
-        const read = await options.remote.readAdaptiveObject(adaptiveJournalPackObjectKeyV1(request.location.packId), {
+        const cachedBundle =
+            request.location.container === "bundle" ? options.bundleCache?.get(request.location.objectKey) : undefined;
+        if (cachedBundle?.envelope.inlinePack) {
+            let frame: Uint8Array;
+            try {
+                frame = frameFromAdaptiveJournalPackV1(cachedBundle.envelope.inlinePack, request.location);
+            } catch {
+                return INTEGRITY_FAILURE;
+            }
+            if (!bytesEqual(await sha256(frame), request.location.frameDigest)) return INTEGRITY_FAILURE;
+            chunks[request.requestIndex] = {
+                frame,
+                frameDigest: request.location.frameDigest.slice(),
+                key: request.key.slice(),
+            };
+            continue;
+        }
+        const read = await options.remote.readAdaptiveObject(request.location.objectKey, {
             length: request.location.frameLength,
-            offset: request.location.offset,
+            offset:
+                request.location.offset +
+                (request.location.container === "bundle" ? ADAPTIVE_JOURNAL_COMMIT_BUNDLE_INLINE_PACK_OFFSET_V1 : 0),
         });
         if (read.status === "failed") return read.failure;
         if (read.status === "missing") return MISSING_DEPENDENCY;

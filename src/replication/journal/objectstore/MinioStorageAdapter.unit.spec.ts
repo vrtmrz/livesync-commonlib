@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { BucketSyncSetting } from "@lib/common/types.ts";
 import type { LiveSyncJournalReplicatorEnv } from "@lib/replication/journal/LiveSyncJournalReplicatorEnv.ts";
+import { inspectJournalStorageRemoteFormatV1 } from "./JournalStorageAdapter.ts";
 import { MinioStorageAdapter } from "./MinioStorageAdapter.ts";
 
 type MockS3Client = {
@@ -213,6 +214,22 @@ describe("MinioStorageAdapter physical request activity", () => {
 
         adapter.applyNewConfig({ ...settings, bucketPrefix: "another-vault/" });
         expect(adapter.storageIdentity).not.toBe(storageIdentity);
+    });
+
+    it("retains format evidence for protocol-only changes and invalidates it for connection changes", async () => {
+        const listObjectsV2 = vi.fn(async () => ({ Contents: [{ Key: "test/journal-1" }], IsTruncated: false }));
+        const client = { listObjectsV2, send: vi.fn() };
+        const { adapter, settings } = createAdapter(client);
+
+        await expect(inspectJournalStorageRemoteFormatV1(adapter)).resolves.toBe("opaque-v1");
+        adapter.applyNewConfig({ ...settings, journalFormat: "adaptive-v1" });
+        await expect(inspectJournalStorageRemoteFormatV1(adapter)).resolves.toBe("opaque-v1");
+        expect(listObjectsV2).toHaveBeenCalledTimes(2);
+
+        adapter.applyNewConfig({ ...settings, secretKey: "rotated-secret" });
+        adapter._instance = client as unknown as S3;
+        await expect(inspectJournalStorageRemoteFormatV1(adapter)).resolves.toBe("opaque-v1");
+        expect(listObjectsV2).toHaveBeenCalledTimes(4);
     });
 
     it("uses an S3 conditional create for immutable Adaptive objects", async () => {

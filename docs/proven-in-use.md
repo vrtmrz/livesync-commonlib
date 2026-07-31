@@ -8,9 +8,9 @@ The code paths below identify the maintained Self-hosted LiveSync composition po
 
 ## Adaptive Journal protocol evidence
 
-The focused `/adaptive-journal` entry is established by Commonlib-owned deterministic fixtures and unit tests. They cover repository manifests and local identity binding, immutable record encodings, object packs and catalogues, native Chunk batches, writer and commit discovery, publication recovery after ambiguous writes, receive frontiers, and rejection of inconsistent records.
+The focused `/adaptive-journal` entry is established by Commonlib-owned deterministic fixtures and unit tests. They cover repository manifests and local identity binding, immutable record encodings, Commit Bundles, inline and external Packs, derived Catalogues, native Chunk batches, writer and Commit discovery, publication recovery after ambiguous writes, receive frontiers, and rejection of inconsistent records. Request-boundary tests verify that a small object-profile publication creates one Bundle, a representative external publication creates one Pack followed by one Bundle, an oversized publication partitions across Packs, and one received Bundle supplies its Commit, Metadata, and inline Pack without repeated object reads.
 
-The S3-compatible delivery stage adds focused tests for SDK request semantics, pagination, format detection, conditional creation, ambiguous-write classification, Range validation, capability-probe caching, and remote Rebuild. The managed MinIO suite covers the real adapter contract and transfers Opaque Journal packs and Adaptive Metadata and Chunks between two PouchDB databases.
+The S3-compatible delivery stage adds focused tests for SDK request semantics, pagination, format detection, conditional creation, ambiguous-write classification, Range validation, capability-probe caching, and remote Rebuild. The managed MinIO suite covers the real adapter contract and transfers Opaque Journal packs and Adaptive Commit Bundles and Chunks between two PouchDB databases.
 
 This is Commonlib protocol and S3 integration evidence rather than maintained-host adoption. CLI composition, host settings, and real-host end-to-end validation remain separate delivery stages. The entries therefore remain experimental even though their v1 invariants, browser-safe configuration boundary, and exact package exports are checked.
 

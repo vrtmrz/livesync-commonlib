@@ -8,11 +8,9 @@ import {
     fixedLength,
     u64be,
 } from "./AdaptiveJournalBinary.ts";
-import {
-    adaptiveJournalMetadataObjectKeyV1,
-    parseAdaptiveJournalDeltaObjectKeyV1,
-} from "./AdaptiveJournalCatalogue.ts";
+import { adaptiveJournalPackObjectKeyV1, parseAdaptiveJournalCommitObjectKeyV1 } from "./AdaptiveJournalCatalogue.ts";
 import { AdaptiveJournalError, type AdaptiveJournalKeySetV1 } from "./AdaptiveJournalManifest.ts";
+import type { AdaptiveJournalPackEntryV1 } from "./AdaptiveJournalPack.ts";
 import {
     AdaptiveRecordKindV1,
     decodeRecordFrameV1,
@@ -21,7 +19,9 @@ import {
 } from "./AdaptiveJournalRecord.ts";
 
 const MAX_WRITER_SEQUENCE = 0x7fffffffffffffffn;
-export const MAX_ADAPTIVE_JOURNAL_CATALOGUE_DELTAS_V1 = 64;
+const MAX_PACK_BYTES_V1 = 256 * 1024 * 1024;
+export const MAX_ADAPTIVE_JOURNAL_COMMIT_PACKS_V1 = 64;
+export const MAX_ADAPTIVE_JOURNAL_COMMIT_PACK_ENTRIES_V1 = 4096;
 
 function sequenceText(sequence: bigint): string {
     if (sequence < 1n || sequence > MAX_WRITER_SEQUENCE) {
@@ -39,19 +39,45 @@ function logicalKey(writerStreamId: Uint8Array, sequence: bigint): Uint8Array {
     return concatBytes(fixedLength(writerStreamId, 32, "writerStreamId"), u64be(sequence));
 }
 
-export interface AdaptiveJournalCommitDependencyV1 {
-    digest: Uint8Array;
-    key: string;
+export type AdaptiveJournalPackContainerV1 = "bundle" | "pack";
+
+/**
+ * Authenticated routing information for one raw Chunk Pack.
+ *
+ * A bundle container stores the raw Pack in the fixed inline section of a Commit Bundle. A pack
+ * container stores the same raw bytes in a content-addressed object. Entries may be a subset of
+ * the complete Pack when a later Commit reuses only some of its Chunks.
+ */
+export interface AdaptiveJournalCommitPackV1 {
+    container: AdaptiveJournalPackContainerV1;
+    entries: readonly AdaptiveJournalPackEntryV1[];
+    objectKey: string;
+    packBytes: number;
+    packId: Uint8Array;
 }
 
-export interface AdaptiveJournalCommitMetadataV1 extends AdaptiveJournalCommitDependencyV1 {
+export interface AdaptiveJournalCommitMetadataV1 {
     bytes: number;
+    digest: Uint8Array;
+}
+
+interface AdaptiveJournalCommitPackPayloadV1 {
+    container: AdaptiveJournalPackContainerV1;
+    entries: readonly {
+        frameDigest: string;
+        frameLength: number;
+        key: string;
+        offset: number;
+    }[];
+    objectKey: string;
+    packBytes: number;
+    packId: string;
 }
 
 export interface AdaptiveJournalCommitPayloadV1 {
-    catalogueDeltas: readonly { digest: string; key: string }[];
+    chunkPacks: readonly AdaptiveJournalCommitPackPayloadV1[];
     formatVersion: 1;
-    metadata: { bytes: number; digest: string; key: string };
+    metadata: { bytes: number; digest: string };
     previousCommitDigest: string | null;
     repositoryId: string;
     requiredChunkKeysDigest: string;
@@ -60,7 +86,7 @@ export interface AdaptiveJournalCommitPayloadV1 {
 }
 
 export interface EncodeAdaptiveJournalCommitRecordV1Options {
-    catalogueDeltas: readonly AdaptiveJournalCommitDependencyV1[];
+    chunkPacks: readonly AdaptiveJournalCommitPackV1[];
     codec?: AdaptiveRecordCodecPreferenceV1;
     keys: AdaptiveJournalKeySetV1;
     metadata: AdaptiveJournalCommitMetadataV1;
@@ -85,44 +111,99 @@ export interface EncodedAdaptiveJournalCommitRecordV1 {
     payload: AdaptiveJournalCommitPayloadV1;
 }
 
-function validateCommitSemantics(
-    sequence: bigint,
-    previousCommitDigest: Uint8Array | null,
-    metadataKey: string,
-    writerStreamId: Uint8Array
-): void {
+function validateCommitSemantics(sequence: bigint, previousCommitDigest: Uint8Array | null): void {
     if ((sequence === 1n) !== (previousCommitDigest === null)) {
         throw invalidCommitRecord("Commit predecessor presence does not match its sequence");
     }
-    if (metadataKey !== adaptiveJournalMetadataObjectKeyV1(writerStreamId, sequence)) {
-        throw invalidCommitRecord("Commit Metadata key does not match its writer sequence");
+}
+
+function compareBytes(left: Uint8Array, right: Uint8Array): number {
+    for (let index = 0; index < Math.min(left.byteLength, right.byteLength); index += 1) {
+        if (left[index] !== right[index]) return left[index] - right[index];
+    }
+    return left.byteLength - right.byteLength;
+}
+
+function safeInteger(value: unknown, label: string, minimum = 0): number {
+    if (typeof value !== "number" || !Number.isSafeInteger(value) || value < minimum) {
+        throw invalidCommitRecord(`${label} must be a safe integer of at least ${minimum}`);
+    }
+    return value;
+}
+
+function validatePackObjectRoute(
+    container: AdaptiveJournalPackContainerV1,
+    objectKey: string,
+    packId: Uint8Array
+): void {
+    try {
+        if (container === "pack") {
+            if (objectKey !== adaptiveJournalPackObjectKeyV1(packId)) {
+                throw invalidCommitRecord("External Pack object key does not match its content digest");
+            }
+        } else {
+            parseAdaptiveJournalCommitObjectKeyV1(objectKey);
+        }
+    } catch (error) {
+        if (error instanceof AdaptiveJournalError && error.code === "invalid-commit-record") throw error;
+        throw invalidCommitRecord("Commit Pack object key is invalid", error);
     }
 }
 
-function canonicalDependencies(
-    dependencies: readonly AdaptiveJournalCommitDependencyV1[]
-): Array<{ digest: string; key: string }> {
-    if (dependencies.length > MAX_ADAPTIVE_JOURNAL_CATALOGUE_DELTAS_V1) {
-        throw invalidCommitRecord("Commit catalogue dependency count exceeds the v1 limit");
+function canonicalChunkPacks(packs: readonly AdaptiveJournalCommitPackV1[]): AdaptiveJournalCommitPackPayloadV1[] {
+    if (packs.length > MAX_ADAPTIVE_JOURNAL_COMMIT_PACKS_V1) {
+        throw invalidCommitRecord("Commit Chunk Pack count exceeds the v1 limit");
     }
-    const byKey = new Map<string, string>();
-    for (const dependency of dependencies) {
-        fixedLength(dependency.digest, 32, "catalogue delta digest");
-        try {
-            parseAdaptiveJournalDeltaObjectKeyV1(dependency.key);
-        } catch (error) {
-            throw invalidCommitRecord("Commit catalogue dependency key is invalid", error);
+    const objectKeys = new Set<string>();
+    const chunkKeys = new Set<string>();
+    let entryCount = 0;
+    const canonical = packs.map((source) => {
+        if (source.container !== "bundle" && source.container !== "pack") {
+            throw invalidCommitRecord("Commit Pack container is invalid");
         }
-        const digest = bytesToBase64Url(dependency.digest);
-        const existing = byKey.get(dependency.key);
-        if (existing !== undefined && existing !== digest) {
-            throw invalidCommitRecord("Commit repeats a catalogue key with a different digest");
+        if (objectKeys.has(source.objectKey)) {
+            throw invalidCommitRecord("Commit repeats a Pack object route");
         }
-        byKey.set(dependency.key, digest);
-    }
-    return [...byKey.entries()]
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([key, digest]) => ({ digest, key }));
+        objectKeys.add(source.objectKey);
+        const packId = fixedLength(source.packId, 32, "packId");
+        const packBytes = safeInteger(source.packBytes, "Pack byte length", 1);
+        if (packBytes > MAX_PACK_BYTES_V1) throw invalidCommitRecord("Commit Pack exceeds the v1 byte limit");
+        validatePackObjectRoute(source.container, source.objectKey, packId);
+        if (source.entries.length === 0) throw invalidCommitRecord("Commit Pack route must contain an entry");
+        entryCount += source.entries.length;
+        if (entryCount > MAX_ADAPTIVE_JOURNAL_COMMIT_PACK_ENTRIES_V1) {
+            throw invalidCommitRecord("Commit Chunk Pack entry count exceeds the v1 limit");
+        }
+        const entries = source.entries
+            .map((entry) => {
+                const key = fixedLength(entry.key, 32, "remote Chunk key");
+                const keyText = bytesToBase64Url(key);
+                if (chunkKeys.has(keyText)) throw invalidCommitRecord("Commit repeats a remote Chunk key route");
+                chunkKeys.add(keyText);
+                const offset = safeInteger(entry.offset, "Pack entry offset");
+                const frameLength = safeInteger(entry.frameLength, "Pack entry frame length", 1);
+                const end = offset + frameLength;
+                if (!Number.isSafeInteger(end) || end > packBytes) {
+                    throw invalidCommitRecord("Commit Pack entry extends beyond the Pack");
+                }
+                return {
+                    frameDigest: bytesToBase64Url(fixedLength(entry.frameDigest, 32, "frameDigest")),
+                    frameLength,
+                    key: keyText,
+                    offset,
+                };
+            })
+            .sort((left, right) => compareBytes(base64UrlToBytes(left.key), base64UrlToBytes(right.key)));
+        return {
+            container: source.container,
+            entries,
+            objectKey: source.objectKey,
+            packBytes,
+            packId: bytesToBase64Url(packId),
+        };
+    });
+    canonical.sort((left, right) => (left.objectKey < right.objectKey ? -1 : left.objectKey > right.objectKey ? 1 : 0));
+    return canonical;
 }
 
 export async function encodeAdaptiveJournalCommitRecordV1(
@@ -136,17 +217,14 @@ export async function encodeAdaptiveJournalCommitRecordV1(
     const metadataDigest = fixedLength(options.metadata.digest, 32, "metadata digest");
     const requiredChunkKeysDigest = fixedLength(options.requiredChunkKeysDigest, 32, "required Chunk key digest");
     sequenceText(options.sequence);
-    validateCommitSemantics(options.sequence, previousCommitDigest, options.metadata.key, writerStreamId);
-    if (!Number.isSafeInteger(options.metadata.bytes) || options.metadata.bytes < 1) {
-        throw invalidCommitRecord("Commit Metadata byte length must be a positive safe integer");
-    }
+    validateCommitSemantics(options.sequence, previousCommitDigest);
+    const metadataBytes = safeInteger(options.metadata.bytes, "Commit Metadata byte length", 1);
     const payload: AdaptiveJournalCommitPayloadV1 = {
-        catalogueDeltas: canonicalDependencies(options.catalogueDeltas),
+        chunkPacks: canonicalChunkPacks(options.chunkPacks),
         formatVersion: 1,
         metadata: {
-            bytes: options.metadata.bytes,
+            bytes: metadataBytes,
             digest: bytesToBase64Url(metadataDigest),
-            key: options.metadata.key,
         },
         previousCommitDigest: previousCommitDigest === null ? null : bytesToBase64Url(previousCommitDigest),
         repositoryId: bytesToBase64Url(options.keys.repositoryId),
@@ -179,6 +257,75 @@ function decodeDigest(value: unknown, label: string): Uint8Array {
     }
 }
 
+function decodeChunkPacks(value: unknown): readonly AdaptiveJournalCommitPackV1[] {
+    if (!Array.isArray(value) || value.length > MAX_ADAPTIVE_JOURNAL_COMMIT_PACKS_V1) {
+        throw invalidCommitRecord("Commit Chunk Packs do not match v1");
+    }
+    const decoded: AdaptiveJournalCommitPackV1[] = [];
+    let previousObjectKey = "";
+    for (const packValue of value) {
+        if (!packValue || typeof packValue !== "object" || Array.isArray(packValue)) {
+            throw invalidCommitRecord("Commit Chunk Pack must be an object");
+        }
+        const pack = packValue as Record<string, unknown>;
+        if (
+            !exactObjectKeys(pack, ["container", "entries", "objectKey", "packBytes", "packId"]) ||
+            (pack.container !== "bundle" && pack.container !== "pack") ||
+            typeof pack.objectKey !== "string" ||
+            pack.objectKey <= previousObjectKey ||
+            !Array.isArray(pack.entries) ||
+            pack.entries.length === 0
+        ) {
+            throw invalidCommitRecord("Commit Chunk Pack fields do not match v1");
+        }
+        const packId = decodeDigest(pack.packId, "Pack ID");
+        const packBytes = safeInteger(pack.packBytes, "Pack byte length", 1);
+        if (packBytes > MAX_PACK_BYTES_V1) throw invalidCommitRecord("Commit Pack exceeds the v1 byte limit");
+        validatePackObjectRoute(pack.container, pack.objectKey, packId);
+        const entries: AdaptiveJournalPackEntryV1[] = [];
+        let previousKey: Uint8Array | undefined;
+        for (const entryValue of pack.entries) {
+            if (!entryValue || typeof entryValue !== "object" || Array.isArray(entryValue)) {
+                throw invalidCommitRecord("Commit Pack entry must be an object");
+            }
+            const entry = entryValue as Record<string, unknown>;
+            if (!exactObjectKeys(entry, ["frameDigest", "frameLength", "key", "offset"])) {
+                throw invalidCommitRecord("Commit Pack entry fields do not match v1");
+            }
+            const key = decodeDigest(entry.key, "remote Chunk key");
+            if (previousKey && compareBytes(previousKey, key) >= 0) {
+                throw invalidCommitRecord("Commit Pack entries must be sorted and unique");
+            }
+            const offset = safeInteger(entry.offset, "Pack entry offset");
+            const frameLength = safeInteger(entry.frameLength, "Pack entry frame length", 1);
+            const end = offset + frameLength;
+            if (!Number.isSafeInteger(end) || end > packBytes) {
+                throw invalidCommitRecord("Commit Pack entry extends beyond the Pack");
+            }
+            entries.push({
+                frameDigest: decodeDigest(entry.frameDigest, "frame digest"),
+                frameLength,
+                key,
+                offset,
+            });
+            previousKey = key;
+        }
+        decoded.push({
+            container: pack.container,
+            entries,
+            objectKey: pack.objectKey,
+            packBytes,
+            packId,
+        });
+        previousObjectKey = pack.objectKey;
+    }
+    const allKeys = decoded.flatMap(({ entries }) => entries.map(({ key }) => bytesToBase64Url(key)));
+    if (allKeys.length > MAX_ADAPTIVE_JOURNAL_COMMIT_PACK_ENTRIES_V1 || new Set(allKeys).size !== allKeys.length) {
+        throw invalidCommitRecord("Commit Chunk Pack routes repeat a key or exceed the v1 limit");
+    }
+    return decoded;
+}
+
 function parseCommitPayload(bytes: Uint8Array): AdaptiveJournalCommitPayloadV1 {
     let parsed: unknown;
     try {
@@ -192,7 +339,7 @@ function parseCommitPayload(bytes: Uint8Array): AdaptiveJournalCommitPayloadV1 {
     const payload = parsed as Record<string, unknown>;
     if (
         !exactObjectKeys(payload, [
-            "catalogueDeltas",
+            "chunkPacks",
             "formatVersion",
             "metadata",
             "previousCommitDigest",
@@ -205,8 +352,6 @@ function parseCommitPayload(bytes: Uint8Array): AdaptiveJournalCommitPayloadV1 {
         typeof payload.repositoryId !== "string" ||
         typeof payload.sequence !== "string" ||
         typeof payload.writerStreamId !== "string" ||
-        !Array.isArray(payload.catalogueDeltas) ||
-        payload.catalogueDeltas.length > MAX_ADAPTIVE_JOURNAL_CATALOGUE_DELTAS_V1 ||
         !payload.metadata ||
         typeof payload.metadata !== "object" ||
         Array.isArray(payload.metadata)
@@ -214,43 +359,24 @@ function parseCommitPayload(bytes: Uint8Array): AdaptiveJournalCommitPayloadV1 {
         throw invalidCommitRecord("Commit payload fields do not match v1");
     }
     const metadata = payload.metadata as Record<string, unknown>;
-    if (
-        !exactObjectKeys(metadata, ["bytes", "digest", "key"]) ||
-        typeof metadata.bytes !== "number" ||
-        !Number.isSafeInteger(metadata.bytes) ||
-        metadata.bytes < 1 ||
-        typeof metadata.key !== "string"
-    ) {
+    if (!exactObjectKeys(metadata, ["bytes", "digest"])) {
         throw invalidCommitRecord("Commit Metadata fields do not match v1");
     }
+    safeInteger(metadata.bytes, "Commit Metadata byte length", 1);
     decodeDigest(metadata.digest, "Metadata digest");
     decodeDigest(payload.requiredChunkKeysDigest, "required Chunk key digest");
     if (payload.previousCommitDigest !== null) decodeDigest(payload.previousCommitDigest, "previous Commit digest");
-    let previousKey = "";
-    for (const dependencyValue of payload.catalogueDeltas) {
-        if (!dependencyValue || typeof dependencyValue !== "object" || Array.isArray(dependencyValue)) {
-            throw invalidCommitRecord("Commit catalogue dependency must be an object");
-        }
-        const dependency = dependencyValue as Record<string, unknown>;
-        if (
-            !exactObjectKeys(dependency, ["digest", "key"]) ||
-            typeof dependency.key !== "string" ||
-            dependency.key <= previousKey
-        ) {
-            throw invalidCommitRecord("Commit catalogue dependencies must be sorted and unique");
-        }
-        decodeDigest(dependency.digest, "catalogue delta digest");
-        try {
-            parseAdaptiveJournalDeltaObjectKeyV1(dependency.key);
-        } catch (error) {
-            throw invalidCommitRecord("Commit catalogue dependency key is invalid", error);
-        }
-        previousKey = dependency.key;
-    }
+    decodeChunkPacks(payload.chunkPacks);
     if (!bytesEqual(bytes, canonicalJsonBytes(parsed))) {
         throw invalidCommitRecord("Commit payload is not canonical JSON");
     }
     return parsed as AdaptiveJournalCommitPayloadV1;
+}
+
+export function decodeAdaptiveJournalCommitPacksV1(
+    payload: AdaptiveJournalCommitPayloadV1
+): readonly AdaptiveJournalCommitPackV1[] {
+    return decodeChunkPacks(payload.chunkPacks);
 }
 
 export async function decodeAdaptiveJournalCommitRecordV1(
@@ -267,8 +393,7 @@ export async function decodeAdaptiveJournalCommitRecordV1(
     if (
         payload.repositoryId !== bytesToBase64Url(options.keys.repositoryId) ||
         payload.writerStreamId !== bytesToBase64Url(writerStreamId) ||
-        payload.sequence !== sequenceText(options.sequence) ||
-        payload.metadata.key !== adaptiveJournalMetadataObjectKeyV1(writerStreamId, options.sequence)
+        payload.sequence !== sequenceText(options.sequence)
     ) {
         throw invalidCommitRecord("Commit payload identity does not match its logical route");
     }
@@ -276,6 +401,6 @@ export async function decodeAdaptiveJournalCommitRecordV1(
         payload.previousCommitDigest === null
             ? null
             : decodeDigest(payload.previousCommitDigest, "previous Commit digest");
-    validateCommitSemantics(options.sequence, previousCommitDigest, payload.metadata.key, writerStreamId);
+    validateCommitSemantics(options.sequence, previousCommitDigest);
     return { digest: decoded.frameDigest, payload };
 }

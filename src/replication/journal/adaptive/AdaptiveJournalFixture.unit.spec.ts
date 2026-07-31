@@ -17,20 +17,14 @@ import {
     deriveRemoteChunkKeyV1,
     deriveWriterStreamIdV1,
     parseAndVerifyAdaptiveJournalManifestV1,
+    sha256,
     type AdaptiveJournalEncryption,
     type AdaptiveJournalManifestCandidateV1,
 } from "./AdaptiveJournalManifest.ts";
-import { decodeAdaptiveJournalPackV1, frameFromAdaptiveJournalPackV1 } from "./AdaptiveJournalPack.ts";
+import { frameFromAdaptiveJournalPackV1 } from "./AdaptiveJournalPack.ts";
 import { AdaptiveRecordKindV1, decodeRecordFrameV1 } from "./AdaptiveJournalRecord.ts";
 
-type FixtureRecordKind =
-    | "catalogue-delta"
-    | "catalogue-snapshot"
-    | "chunk"
-    | "commit"
-    | "metadata-batch"
-    | "pack-index"
-    | "writer-descriptor";
+type FixtureRecordKind = "chunk" | "commit" | "metadata-batch" | "writer-descriptor";
 
 interface AdaptiveJournalFixtureV1 {
     batches: Record<"getRequest" | "getResponse" | "hasRequest" | "hasResponse" | "putRequest" | "putResponse", string>;
@@ -68,10 +62,7 @@ interface AdaptiveJournalFixtureV1 {
             frameLength: number;
             key: string;
             offset: number;
-            plaintextLength: number;
         }>;
-        indexFrame: string;
-        indexFrameDigest: string;
         packBytes: string;
         packId: string;
     };
@@ -87,12 +78,9 @@ interface AdaptiveJournalFixtureV1 {
 }
 
 const kindByName: Record<FixtureRecordKind, AdaptiveRecordKindV1> = {
-    "catalogue-delta": AdaptiveRecordKindV1.CatalogueDelta,
-    "catalogue-snapshot": AdaptiveRecordKindV1.CatalogueSnapshot,
     chunk: AdaptiveRecordKindV1.Chunk,
     commit: AdaptiveRecordKindV1.Commit,
     "metadata-batch": AdaptiveRecordKindV1.MetadataBatch,
-    "pack-index": AdaptiveRecordKindV1.PackIndex,
     "writer-descriptor": AdaptiveRecordKindV1.WriterDescriptor,
 };
 
@@ -126,12 +114,12 @@ describe("Adaptive Journal v1 frozen interoperability fixture", () => {
                 fixture.keySchedule.encryptedRoleKeys[role]
             );
         }
-        await expect(
-            deriveRemoteChunkKeyV1(candidates.encrypted.keys, fixture.inputs.localChunkId)
-        ).resolves.toEqual(base64UrlToBytes(fixture.keySchedule.encryptedRemoteChunkKey));
-        await expect(
-            deriveRemoteChunkKeyV1(candidates.unencrypted.keys, fixture.inputs.localChunkId)
-        ).resolves.toEqual(base64UrlToBytes(fixture.keySchedule.unencryptedRemoteChunkKey));
+        await expect(deriveRemoteChunkKeyV1(candidates.encrypted.keys, fixture.inputs.localChunkId)).resolves.toEqual(
+            base64UrlToBytes(fixture.keySchedule.encryptedRemoteChunkKey)
+        );
+        await expect(deriveRemoteChunkKeyV1(candidates.unencrypted.keys, fixture.inputs.localChunkId)).resolves.toEqual(
+            base64UrlToBytes(fixture.keySchedule.unencryptedRemoteChunkKey)
+        );
         await expect(
             deriveWriterStreamIdV1(candidates.encrypted.keys, fixture.inputs.hostId, fixture.inputs.writerEpoch)
         ).resolves.toEqual(base64UrlToBytes(fixture.keySchedule.encryptedWriterStreamId));
@@ -141,7 +129,7 @@ describe("Adaptive Journal v1 frozen interoperability fixture", () => {
     });
 
     it("decodes every record kind in both modes and codecs", async () => {
-        expect(fixture.records).toHaveLength(28);
+        expect(fixture.records).toHaveLength(16);
         for (const record of fixture.records) {
             const decoded = await decodeRecordFrameV1({
                 bytes: base64UrlToBytes(record.frame),
@@ -155,7 +143,7 @@ describe("Adaptive Journal v1 frozen interoperability fixture", () => {
         }
     });
 
-    it("round-trips the batch, Commit, Pack, and index envelopes byte-for-byte", async () => {
+    it("round-trips the batch and Commit envelopes, and verifies Pack routes byte-for-byte", async () => {
         const hasRequest = decodeBatchRequestV1(base64UrlToBytes(fixture.batches.hasRequest));
         const getRequest = decodeBatchRequestV1(base64UrlToBytes(fixture.batches.getRequest));
         const putRequest = decodeBatchRequestV1(base64UrlToBytes(fixture.batches.putRequest));
@@ -179,7 +167,9 @@ describe("Adaptive Journal v1 frozen interoperability fixture", () => {
         expect(commit.requiredChunkKeys.map(bytesToBase64Url)).toEqual(fixture.commit.requiredChunkKeys);
         const reencodedCommit = await encodeCommitEnvelopeV1({
             commitFrame: commit.commitFrame,
+            ...(commit.inlinePack ? { inlinePack: commit.inlinePack } : {}),
             metadataDigest: commit.metadataDigest,
+            metadataFrame: commit.metadataFrame,
             previousCommitDigest: commit.previousCommitDigest,
             repositoryId: commit.repositoryId,
             requiredChunkKeys: commit.requiredChunkKeys,
@@ -189,23 +179,14 @@ describe("Adaptive Journal v1 frozen interoperability fixture", () => {
         expect(bytesToBase64Url(reencodedCommit.bytes)).toBe(fixture.commit.envelope);
 
         const packBytes = base64UrlToBytes(fixture.pack.packBytes);
-        const decodedPack = await decodeAdaptiveJournalPackV1({
-            expectedPackId: base64UrlToBytes(fixture.pack.packId),
-            indexFrame: base64UrlToBytes(fixture.pack.indexFrame),
-            keys: candidates.unencrypted.keys,
-            packBytes,
-        });
-        expect(bytesToBase64Url(decodedPack.indexFrameDigest)).toBe(fixture.pack.indexFrameDigest);
-        expect(
-            decodedPack.entries.map((entry) => ({
-                frameDigest: bytesToBase64Url(entry.frameDigest),
-                frameLength: entry.frameLength,
-                key: bytesToBase64Url(entry.key),
-                offset: entry.offset,
-                plaintextLength: entry.plaintextLength,
-            }))
-        ).toEqual(fixture.pack.entries);
-        for (const entry of decodedPack.entries) {
+        expect(await sha256(packBytes)).toEqual(base64UrlToBytes(fixture.pack.packId));
+        const entries = fixture.pack.entries.map((entry) => ({
+            frameDigest: base64UrlToBytes(entry.frameDigest),
+            frameLength: entry.frameLength,
+            key: base64UrlToBytes(entry.key),
+            offset: entry.offset,
+        }));
+        for (const entry of entries) {
             expect(frameFromAdaptiveJournalPackV1(packBytes, entry)).toHaveLength(entry.frameLength);
         }
     });

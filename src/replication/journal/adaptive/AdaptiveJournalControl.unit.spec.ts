@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { adaptiveJournalDeltaObjectKeyV1, adaptiveJournalMetadataObjectKeyV1 } from "./AdaptiveJournalCatalogue.ts";
-import { decodeAdaptiveJournalCommitRecordV1, encodeAdaptiveJournalCommitRecordV1 } from "./AdaptiveJournalControl.ts";
+import { adaptiveJournalPackObjectKeyV1 } from "./AdaptiveJournalCatalogue.ts";
+import {
+    decodeAdaptiveJournalCommitPacksV1,
+    decodeAdaptiveJournalCommitRecordV1,
+    encodeAdaptiveJournalCommitRecordV1,
+} from "./AdaptiveJournalControl.ts";
 import { createAdaptiveJournalManifestV1 } from "./AdaptiveJournalManifest.ts";
 
 function sequence(start: number): Uint8Array {
@@ -9,7 +13,7 @@ function sequence(start: number): Uint8Array {
 }
 
 describe("Adaptive Journal Commit control record v1", () => {
-    it("round-trips the canonical dependency manifest inside an authenticated Commit frame", async () => {
+    it("round-trips canonical Pack routes inside an authenticated Commit frame", async () => {
         const candidate = await createAdaptiveJournalManifestV1({
             encryption: "encrypted",
             passphrase: "commit control passphrase",
@@ -17,19 +21,28 @@ describe("Adaptive Journal Commit control record v1", () => {
             securitySeed: sequence(0x80),
         });
         const writerStreamId = sequence(0x30);
-        const catalogueWriterStreamId = sequence(0x40);
+        const packId = sequence(0x40);
         const encoded = await encodeAdaptiveJournalCommitRecordV1({
-            catalogueDeltas: [
+            chunkPacks: [
                 {
-                    digest: sequence(0x50),
-                    key: adaptiveJournalDeltaObjectKeyV1(catalogueWriterStreamId, 1n),
+                    container: "pack",
+                    entries: [
+                        {
+                            frameDigest: sequence(0x50),
+                            frameLength: 91,
+                            key: sequence(0x60),
+                            offset: 0,
+                        },
+                    ],
+                    objectKey: adaptiveJournalPackObjectKeyV1(packId),
+                    packBytes: 91,
+                    packId,
                 },
             ],
             keys: candidate.keys,
             metadata: {
                 bytes: 345,
                 digest: sequence(0x70),
-                key: adaptiveJournalMetadataObjectKeyV1(writerStreamId, 2n),
             },
             previousCommitDigest: sequence(0x90),
             recordIv: new Uint8Array(12).fill(0xa1),
@@ -39,17 +52,19 @@ describe("Adaptive Journal Commit control record v1", () => {
             writerStreamId,
         });
 
-        await expect(
-            decodeAdaptiveJournalCommitRecordV1({
-                bytes: encoded.bytes,
-                keys: candidate.keys,
-                sequence: 2n,
-                writerStreamId,
-            })
-        ).resolves.toEqual({ digest: encoded.digest, payload: encoded.payload });
+        const decoded = await decodeAdaptiveJournalCommitRecordV1({
+            bytes: encoded.bytes,
+            keys: candidate.keys,
+            sequence: 2n,
+            writerStreamId,
+        });
+        expect(decoded).toEqual({ digest: encoded.digest, payload: encoded.payload });
+        expect(decodeAdaptiveJournalCommitPacksV1(decoded.payload)).toEqual([
+            expect.objectContaining({ container: "pack", objectKey: adaptiveJournalPackObjectKeyV1(packId), packId }),
+        ]);
     });
 
-    it("rejects a Metadata route, predecessor, or writer route which does not match the Commit identity", async () => {
+    it("rejects a predecessor which does not match the Commit sequence", async () => {
         const candidate = await createAdaptiveJournalManifestV1({
             encryption: "unencrypted",
             repositoryId: sequence(0x11),
@@ -58,12 +73,11 @@ describe("Adaptive Journal Commit control record v1", () => {
         const writerStreamId = sequence(0x31);
         await expect(
             encodeAdaptiveJournalCommitRecordV1({
-                catalogueDeltas: [],
+                chunkPacks: [],
                 keys: candidate.keys,
                 metadata: {
                     bytes: 1,
                     digest: sequence(0x71),
-                    key: adaptiveJournalMetadataObjectKeyV1(writerStreamId, 1n),
                 },
                 previousCommitDigest: sequence(0x91),
                 requiredChunkKeysDigest: sequence(0xb1),
@@ -74,12 +88,11 @@ describe("Adaptive Journal Commit control record v1", () => {
 
         await expect(
             encodeAdaptiveJournalCommitRecordV1({
-                catalogueDeltas: [],
+                chunkPacks: [],
                 keys: candidate.keys,
                 metadata: {
                     bytes: 1,
                     digest: sequence(0x71),
-                    key: adaptiveJournalMetadataObjectKeyV1(writerStreamId, 2n),
                 },
                 previousCommitDigest: null,
                 requiredChunkKeysDigest: sequence(0xb1),

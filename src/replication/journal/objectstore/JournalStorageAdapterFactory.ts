@@ -1,6 +1,10 @@
 import type { RemoteDBSettings } from "@lib/common/types.ts";
 import type { LiveSyncJournalReplicatorEnv } from "../LiveSyncJournalReplicatorEnv.ts";
-import type { IJournalStorage, JournalStorageRemoteFormatV1 } from "./JournalStorageAdapter.ts";
+import {
+    inspectJournalStorageRemoteFormatV1,
+    type IJournalStorage,
+    type JournalStorageRemoteFormatV1,
+} from "./JournalStorageAdapter.ts";
 import { MinioStorageAdapter } from "./MinioStorageAdapter.ts";
 import {
     getJournalRemoteDisplayName,
@@ -40,7 +44,7 @@ export async function inspectJournalStorageConnectivity(
 ): Promise<JournalStorageConnectivityResult> {
     journalStorageKindForRemoteType(settings.remoteType);
     const protocol = journalProtocolConfigurationForSettings(settings);
-    const remoteFormat = await storage.inspectRemoteFormat?.();
+    const remoteFormat = await inspectJournalStorageRemoteFormatV1(storage);
     if (remoteFormat !== undefined && remoteFormat !== "empty" && remoteFormat !== protocol.journalFormat) {
         return { available: false, remoteFormat };
     }

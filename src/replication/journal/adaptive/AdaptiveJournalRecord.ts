@@ -24,10 +24,7 @@ import {
 
 export enum AdaptiveRecordKindV1 {
     Chunk = 0x01,
-    PackIndex = 0x02,
     MetadataBatch = 0x03,
-    CatalogueDelta = 0x04,
-    CatalogueSnapshot = 0x05,
     WriterDescriptor = 0x06,
     Commit = 0x07,
 }
@@ -90,20 +87,14 @@ const RECORD_KDF_DOMAIN = utf8Bytes("livesync/adaptive-journal/record/v1");
 
 const recordRoles = new Map<AdaptiveRecordKindV1, AdaptiveJournalRoleV1>([
     [AdaptiveRecordKindV1.Chunk, "chunk-record"],
-    [AdaptiveRecordKindV1.PackIndex, "pack-index"],
     [AdaptiveRecordKindV1.MetadataBatch, "metadata-record"],
-    [AdaptiveRecordKindV1.CatalogueDelta, "catalogue-record"],
-    [AdaptiveRecordKindV1.CatalogueSnapshot, "catalogue-record"],
     [AdaptiveRecordKindV1.WriterDescriptor, "writer-record"],
     [AdaptiveRecordKindV1.Commit, "commit-record"],
 ]);
 
 const logicalKeyLengths = new Map<AdaptiveRecordKindV1, number>([
     [AdaptiveRecordKindV1.Chunk, 32],
-    [AdaptiveRecordKindV1.PackIndex, 32],
     [AdaptiveRecordKindV1.MetadataBatch, 40],
-    [AdaptiveRecordKindV1.CatalogueDelta, 40],
-    [AdaptiveRecordKindV1.CatalogueSnapshot, 32],
     [AdaptiveRecordKindV1.WriterDescriptor, 32],
     [AdaptiveRecordKindV1.Commit, 40],
 ]);
@@ -161,7 +152,13 @@ function createPrefix(
     publicHeaderLength: number,
     payloadLength: number
 ): Uint8Array {
-    return concatBytes(RECORD_MAGIC, Uint8Array.of(1, kind), u16be(flags), u32be(publicHeaderLength), u64be(payloadLength));
+    return concatBytes(
+        RECORD_MAGIC,
+        Uint8Array.of(1, kind),
+        u16be(flags),
+        u32be(publicHeaderLength),
+        u64be(payloadLength)
+    );
 }
 
 function recordAad(
@@ -285,7 +282,12 @@ export async function encodeRecordFrameV1(options: EncodeRecordFrameV1Options): 
         );
         prefix = createPrefix(options.kind, ENCRYPTED_FLAG, ENCRYPTED_HEADER_LENGTH, stored.byteLength + GCM_TAG_BYTES);
         const key = await recordKey(options.keys, role, options.kind, options.logicalKey, recordSalt);
-        payload = await encryptPayload(key, iv, recordAad(options.keys.repositoryId, options.logicalKey, prefix, publicHeader), stored);
+        payload = await encryptPayload(
+            key,
+            iv,
+            recordAad(options.keys.repositoryId, options.logicalKey, prefix, publicHeader),
+            stored
+        );
         key.fill(0);
     } else {
         const payloadDigest = await sha256(stored);
@@ -340,7 +342,10 @@ export async function decodeRecordFrameV1(options: DecodeRecordFrameV1Options): 
         throw invalidFrame("Record prefix is invalid or truncated", error);
     }
     if (version !== 1) {
-        throw new AdaptiveJournalError("unsupported-record-version", `Unsupported Adaptive Journal record version ${version}`);
+        throw new AdaptiveJournalError(
+            "unsupported-record-version",
+            `Unsupported Adaptive Journal record version ${version}`
+        );
     }
     validateKindAndLogicalKey(kind, options.logicalKey);
     if (kind !== options.expectedKind) throw invalidFrame("Record kind does not match the expected logical route");

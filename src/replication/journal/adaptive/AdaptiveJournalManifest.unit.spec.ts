@@ -30,6 +30,7 @@ describe("Adaptive Journal manifest v1", () => {
         expect(text).not.toContain(" ");
         expect(candidate.manifest.repositoryId).toBe(bytesToBase64Url(repositoryId));
         expect(candidate.manifest.securitySeed).toBe(bytesToBase64Url(securitySeed));
+        expect(candidate.manifest.objectLayout).toBe("commit-bundle-v1");
 
         const opened = await parseAndVerifyAdaptiveJournalManifestV1(candidate.bytes, {
             expectedEncryption: "encrypted",
@@ -102,5 +103,22 @@ describe("Adaptive Journal manifest v1", () => {
             passphrase: "",
         });
         await expect(deriveRemoteChunkKeyV1(opened.keys, "h:public-chunk")).resolves.toHaveLength(32);
+    });
+
+    it("detects the superseded experimental object layout and requires a remote Rebuild", async () => {
+        const candidate = await createAdaptiveJournalManifestV1({
+            encryption: "unencrypted",
+            repositoryId: sequence(0x31),
+            securitySeed: sequence(0xc1),
+        });
+        const superseded = { ...candidate.manifest } as Record<string, unknown>;
+        delete superseded.objectLayout;
+
+        await expect(
+            parseAndVerifyAdaptiveJournalManifestV1(new TextEncoder().encode(JSON.stringify(superseded)), {
+                expectedEncryption: "unencrypted",
+                passphrase: "",
+            })
+        ).rejects.toThrowError(/remote must be rebuilt/u);
     });
 });
