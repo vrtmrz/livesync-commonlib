@@ -175,6 +175,7 @@ function compiledCompatibilityPath(sourcePath) {
 function createExports() {
     const exports = {
         ".": exportTarget("index"),
+        "./adaptive-journal": exportTarget("adaptiveJournal"),
         "./browser": exportTarget("platform/browser/index"),
         "./context": exportTarget("context"),
         "./journal-sync": exportTarget("journalSync"),

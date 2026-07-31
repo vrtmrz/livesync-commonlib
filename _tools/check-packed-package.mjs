@@ -159,6 +159,11 @@ import {
     type UpsertRemoteConfigurationOptions,
 } from "${packageName}/remote-configurations";
 import { useJournalSyncFeature } from "${packageName}/journal-sync";
+import {
+    AdaptiveRecordKindV1,
+    createAdaptiveJournalManifestV1,
+    type AdaptiveJournalObjectRetrievalV1,
+} from "${packageName}/adaptive-journal";
 
 const options: ServiceContextOptions = { translate: (key) => \`translated:\${key}\` };
 const context = createServiceContext(options);
@@ -181,6 +186,9 @@ const remoteConfigurationOptions: UpsertRemoteConfigurationOptions = { activate:
 const remoteConfigurationUpsert: typeof upsertRemoteConfigurationInPlace = upsertRemoteConfigurationInPlace;
 const remoteProviderRegistry: RemoteProviderRegistry = createBuiltInRemoteProviderRegistry();
 const journalSyncFeature: typeof useJournalSyncFeature = useJournalSyncFeature;
+const adaptiveRetrieval: AdaptiveJournalObjectRetrievalV1 = "whole-pack";
+const adaptiveManifestFactory: typeof createAdaptiveJournalManifestV1 = createAdaptiveJournalManifestV1;
+const adaptiveChunkKind: AdaptiveRecordKindV1 = AdaptiveRecordKindV1.Chunk;
 void context;
 void contextContract;
 void untranslated;
@@ -199,6 +207,9 @@ void remoteConfigurationOptions;
 void remoteConfigurationUpsert;
 void remoteProviderRegistry;
 void journalSyncFeature;
+void adaptiveRetrieval;
+void adaptiveManifestFactory;
+void adaptiveChunkKind;
 `
 );
 await writeConsumerFile(
@@ -222,6 +233,7 @@ const journalSyncApi = await import("${packageName}/journal-sync");
 const rootApi = await import("${packageName}");
 const settingsApi = await import("${packageName}/settings");
 const remoteConfigurationsApi = await import("${packageName}/remote-configurations");
+const adaptiveJournalApi = await import("${packageName}/adaptive-journal");
 const workerApi = await import("${packageName}/compat/worker/bgWorker");
 const runtimeCompat = await import("${packageName}/compat/common/coreEnvFunctions");
 const nodeRuntime = await import("${packageName}/node");
@@ -241,6 +253,8 @@ assert.notEqual(settingsApi.createNewVaultSettings(), settingsApi.NEW_VAULT_SETT
 assert.equal(typeof remoteConfigurationsApi.upsertRemoteConfigurationInPlace, "function");
 assert.equal(typeof remoteConfigurationsApi.createBuiltInRemoteProviderRegistry, "function");
 assert.equal(typeof journalSyncApi.useJournalSyncFeature, "function");
+assert.equal(typeof adaptiveJournalApi.createAdaptiveJournalManifestV1, "function");
+assert.equal(typeof adaptiveJournalApi.AdaptiveRecordKindV1.Chunk, "number");
 assert.equal(runtimeCompat.compatGlobal, globalThis);
 assert.equal(typeof nodeRuntime.fs.readFileSync, "function");
 assert.equal(typeof nodeRuntime.fsPromises.readFile, "function");
@@ -413,6 +427,7 @@ assert.deepEqual(
         .sort(),
     [
         ".",
+        "./adaptive-journal",
         "./browser",
         "./context",
         "./journal-sync",
@@ -424,7 +439,7 @@ assert.deepEqual(
     ],
     "The focused package surface must remain explicit."
 );
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 9);
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 10);
 
 console.log(
     JSON.stringify(

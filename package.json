@@ -19,6 +19,7 @@
   },
   "scripts": {
     "build:package": "node _tools/build-package.mjs",
+    "generate:adaptive-fixtures": "npm run build:package && node _tools/generate-adaptive-journal-fixture.mjs --write",
     "check:boundary": "node _tools/check-package-boundary.mjs",
     "check:package": "node _tools/check-packed-package.mjs",
     "check:types": "tsc --noEmit",
