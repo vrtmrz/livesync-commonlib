@@ -267,6 +267,39 @@ describe("Remote Configuration Registration", () => {
         expect(settings.activeConfigurationId).toBe("existing");
     });
 
+    it("round-trips Adaptive Journal fields through an S3 remote profile", () => {
+        const repositoryId = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        const settings = {
+            remoteConfigurations: {},
+            activeConfigurationId: "",
+            remoteType: REMOTE_MINIO,
+            endpoint: "https://storage.example",
+            accessKey: "key",
+            secretKey: "secret",
+            bucket: "notes",
+            region: "auto",
+            bucketPrefix: "adaptive/",
+            useCustomRequestHandler: false,
+            bucketCustomHeaders: "",
+            forcePathStyle: true,
+            expectedRepositoryId: repositoryId,
+            journalFormat: "adaptive-v1",
+            packReadPolicy: "range",
+        } as ObsidianLiveSyncSettings;
+
+        const profile = upsertRemoteConfigurationInPlace(settings, "s3", { activate: true });
+        settings.expectedRepositoryId = "";
+        settings.journalFormat = "opaque-v1";
+        settings.packReadPolicy = "whole-pack";
+
+        expect(activateRemoteConfiguration(settings, profile.id)).toBe(settings);
+        expect(settings).toMatchObject({
+            expectedRepositoryId: repositoryId,
+            journalFormat: "adaptive-v1",
+            packReadPolicy: "range",
+        });
+    });
+
     it("can select a P2P profile without replacing the main active remote", () => {
         const settings = {
             remoteConfigurations: {

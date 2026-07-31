@@ -1,0 +1,140 @@
+import { describe, expect, it, vi } from "vitest";
+
+import { DEFAULT_SETTINGS, REMOTE_MINIO, type RemoteDBSettings } from "@lib/common/types.ts";
+import type { LiveSyncJournalReplicatorEnv } from "../LiveSyncJournalReplicatorEnv.ts";
+import type { IJournalStorage } from "./JournalStorageAdapter.ts";
+import {
+    createJournalStorageAdapter,
+    inspectJournalStorageConnectivity,
+    isJournalStorageAdapterCompatible,
+    testJournalStorageConnectivity,
+} from "./JournalStorageAdapterFactory.ts";
+
+const env = { services: { API: {} } } as unknown as LiveSyncJournalReplicatorEnv;
+
+function s3Settings(overrides: Partial<RemoteDBSettings> = {}): RemoteDBSettings {
+    return {
+        ...DEFAULT_SETTINGS,
+        remoteType: REMOTE_MINIO,
+        ...overrides,
+    } as RemoteDBSettings;
+}
+
+describe("JournalStorageAdapterFactory S3 support", () => {
+    it("creates the S3 adapter and recognises its provider contract", () => {
+        const settings = s3Settings();
+        const storage = createJournalStorageAdapter(settings, env);
+
+        expect(storage.kind).toBe("s3");
+        expect(isJournalStorageAdapterCompatible(storage, settings)).toBe(true);
+    });
+
+    it("rejects a remote type which this delivery does not implement", () => {
+        expect(() => createJournalStorageAdapter(DEFAULT_SETTINGS, env)).toThrow("Unsupported Journal remote type");
+    });
+
+    it("does not repeat an Opaque listing after remote format inspection", async () => {
+        const storage = {
+            kind: "s3",
+            inspectRemoteFormat: vi.fn(async () => "empty" as const),
+            listFiles: vi.fn(async () => []),
+        } as unknown as IJournalStorage;
+        const settings = s3Settings();
+
+        await expect(inspectJournalStorageConnectivity(storage, settings)).resolves.toEqual({
+            available: true,
+            remoteFormat: "empty",
+        });
+        expect(storage.inspectRemoteFormat).toHaveBeenCalledOnce();
+        expect(storage.listFiles).not.toHaveBeenCalled();
+    });
+
+    it("retains the legacy Opaque listing check for adapters without format inspection", async () => {
+        const storage = {
+            kind: "s3",
+            listFiles: vi.fn(async () => []),
+        } as unknown as IJournalStorage;
+        const settings = s3Settings();
+
+        await expect(testJournalStorageConnectivity(storage, settings)).resolves.toBe(true);
+        expect(storage.listFiles).toHaveBeenCalledWith("", 1);
+    });
+
+    it.each([
+        {
+            expectedMessage: "Opaque Journal connections cannot carry Adaptive repository options",
+            overrides: { journalFormat: "opaque-v1", packReadPolicy: "range" },
+        },
+        {
+            expectedMessage: "expectedRepositoryId must be a canonical base64url-encoded 32-byte value",
+            overrides: { expectedRepositoryId: "AA", journalFormat: "adaptive-v1" },
+        },
+    ] as const)("rejects inconsistent persisted protocol settings", async ({ expectedMessage, overrides }) => {
+        const storage = {
+            kind: "s3",
+            inspectRemoteFormat: vi.fn(async () => "empty" as const),
+        } as unknown as IJournalStorage;
+
+        await expect(inspectJournalStorageConnectivity(storage, s3Settings(overrides))).rejects.toThrow(
+            expectedMessage
+        );
+    });
+
+    it.each(["whole-pack", "range"] as const)(
+        "verifies the Adaptive capabilities selected by the %s retrieval policy",
+        async (packReadPolicy) => {
+            const storage = {
+                kind: "s3",
+                inspectRemoteFormat: vi.fn(async () => "empty" as const),
+                verifyCapabilities: vi.fn(async () => ({ status: "verified" as const })),
+            } as unknown as IJournalStorage;
+            const settings = s3Settings({ journalFormat: "adaptive-v1", packReadPolicy });
+
+            await expect(inspectJournalStorageConnectivity(storage, settings)).resolves.toEqual({
+                available: true,
+                remoteFormat: "empty",
+            });
+            expect(storage.verifyCapabilities).toHaveBeenCalledWith([
+                "binary-fidelity",
+                "complete-listing",
+                "conditional-create",
+                "delete-visibility",
+                "read-after-write",
+                ...(packReadPolicy === "range" ? ["byte-range"] : []),
+            ]);
+        }
+    );
+
+    it("does not accept Adaptive mode when the adapter cannot verify its semantics", async () => {
+        const storage = {
+            kind: "s3",
+            inspectRemoteFormat: vi.fn(async () => "empty" as const),
+        } as unknown as IJournalStorage;
+
+        await expect(
+            inspectJournalStorageConnectivity(storage, s3Settings({ journalFormat: "adaptive-v1" }))
+        ).resolves.toEqual({ available: false, remoteFormat: "empty" });
+    });
+
+    it.each([
+        { configured: "opaque-v1", detected: "adaptive-v1" },
+        { configured: "opaque-v1", detected: "mixed" },
+        { configured: "adaptive-v1", detected: "opaque-v1" },
+        { configured: "adaptive-v1", detected: "mixed" },
+    ] as const)(
+        "rejects a $detected remote selected as $configured before any capability probe",
+        async ({ configured, detected }) => {
+            const verifyCapabilities = vi.fn();
+            const storage = {
+                kind: "s3",
+                inspectRemoteFormat: vi.fn(async () => detected),
+                verifyCapabilities,
+            } as unknown as IJournalStorage;
+
+            await expect(
+                inspectJournalStorageConnectivity(storage, s3Settings({ journalFormat: configured }))
+            ).resolves.toEqual({ available: false, remoteFormat: detected });
+            expect(verifyCapabilities).not.toHaveBeenCalled();
+        }
+    );
+});

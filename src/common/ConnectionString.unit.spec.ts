@@ -257,4 +257,58 @@ describe("ConnectionStringParser S3", () => {
         expect(parsed.settings.bucketCustomHeaders).toBe("x-amz-meta-test:1");
         expect(parsed.settings.forcePathStyle).toBe(false);
     });
+
+    it("keeps existing Object Storage URIs on Opaque Journal defaults", () => {
+        const parsed = ConnectionStringParser.parse(
+            "sls+s3://ak:sk@storage.example/?endpoint=https%3A%2F%2Fstorage.example&bucket=vault"
+        );
+        if (parsed.type !== "s3") throw new Error("Expected s3 type");
+
+        expect(parsed.settings).toMatchObject({
+            expectedRepositoryId: "",
+            journalFormat: "opaque-v1",
+            packReadPolicy: "whole-pack",
+        });
+    });
+
+    it("round-trips Adaptive Journal protocol fields", () => {
+        const repositoryId = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        const uri = ConnectionStringParser.serialize({
+            type: "s3",
+            settings: {
+                accessKey: "ak",
+                secretKey: "sk",
+                endpoint: "https://storage.example",
+                bucket: "vault",
+                region: "us-east-1",
+                bucketPrefix: "adaptive/",
+                useCustomRequestHandler: false,
+                bucketCustomHeaders: "",
+                forcePathStyle: true,
+                expectedRepositoryId: repositoryId,
+                journalFormat: "adaptive-v1",
+                packReadPolicy: "range",
+            },
+        });
+
+        expect(uri).toContain("journalFormat=adaptive-v1");
+        expect(uri).toContain("packReadPolicy=range");
+        expect(uri).toContain(`expectedRepositoryId=${repositoryId}`);
+        expect(ConnectionStringParser.parse(uri)).toMatchObject({
+            type: "s3",
+            settings: {
+                expectedRepositoryId: repositoryId,
+                journalFormat: "adaptive-v1",
+                packReadPolicy: "range",
+            },
+        });
+    });
+
+    it("rejects non-canonical Adaptive repository IDs", () => {
+        expect(() =>
+            ConnectionStringParser.parse(
+                "sls+s3://ak:sk@storage.example/?bucket=vault&journalFormat=adaptive-v1&expectedRepositoryId=AA"
+            )
+        ).toThrow("expectedRepositoryId must be a canonical base64url-encoded 32-byte value");
+    });
 });

@@ -565,7 +565,10 @@ export function pickBucketSyncSettings(setting: ObsidianLiveSyncSettings): Bucke
         accessKey: setting.accessKey,
         secretKey: setting.secretKey,
         bucketPrefix: setting.bucketPrefix,
+        expectedRepositoryId: setting.expectedRepositoryId ?? "",
         forcePathStyle: setting.forcePathStyle,
+        journalFormat: setting.journalFormat ?? "opaque-v1",
+        packReadPolicy: setting.packReadPolicy ?? "whole-pack",
         useCustomRequestHandler: setting.useCustomRequestHandler,
         bucketCustomHeaders: setting.bucketCustomHeaders,
     };

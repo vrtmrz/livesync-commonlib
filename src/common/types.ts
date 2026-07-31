@@ -71,6 +71,7 @@ import {
 } from "./models/shared.const.behabiour.ts";
 import {
     AutoAccepting,
+    type AdaptiveJournalPackReadPolicyV1,
     type BucketSyncSetting,
     type ChunkSplitterVersion,
     type ConfigPassphraseStore,
@@ -79,6 +80,7 @@ import {
     type EncryptionSettings,
     type HashAlgorithm,
     type HasSettings,
+    type JournalFormatV1,
     type LocalDBSettings,
     type ObsidianLiveSyncSettings,
     type P2PConnectionInfo,
@@ -258,7 +260,7 @@ export { MODE_SELECTIVE, MODE_AUTOMATIC, MODE_PAUSED, MODE_SHINY, type SYNC_MODE
 export { type PluginSyncSettingEntry };
 
 export { SETTING_VERSION_INITIAL, SETTING_VERSION_SUPPORT_CASE_INSENSITIVE, CURRENT_SETTING_VERSION };
-export type { BucketSyncSetting, LocalDBSettings };
+export type { AdaptiveJournalPackReadPolicyV1, BucketSyncSetting, JournalFormatV1, LocalDBSettings };
 
 export { RemoteTypes, REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P, type RemoteType, AutoAccepting };
 export type { P2PConnectionInfo, P2PSyncSetting };

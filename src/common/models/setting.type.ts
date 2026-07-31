@@ -491,6 +491,9 @@ interface SafetyValveSettings {
 /**
  * Represents the settings required to synchronise with a bucket.
  */
+export type JournalFormatV1 = "adaptive-v1" | "opaque-v1";
+export type AdaptiveJournalPackReadPolicyV1 = "range" | "whole-pack";
+
 export interface BucketSyncSetting {
     /**
      * The access key to use when connecting to the bucket.
@@ -530,6 +533,12 @@ export interface BucketSyncSetting {
      * Indicates whether to force path style access.
      */
     forcePathStyle: boolean;
+    /** Absence in an older persisted profile remains the Opaque Journal format. */
+    journalFormat?: JournalFormatV1;
+    /** Pinned Adaptive repository identity, when one has been explicitly configured. */
+    expectedRepositoryId?: string;
+    /** Adaptive object-pack retrieval preference. */
+    packReadPolicy?: AdaptiveJournalPackReadPolicyV1;
 }
 
 export interface LocalDBSettings {

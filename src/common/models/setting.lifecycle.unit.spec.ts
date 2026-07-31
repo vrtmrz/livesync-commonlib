@@ -112,6 +112,10 @@ describe("prepareSettingsForLoad", () => {
         expect(NEW_VAULT_SETTINGS.usePluginSyncV2).toBe(true);
         expect(SETTINGS_SCHEMA_DEFAULTS.handleFilenameCaseSensitive).toBeUndefined();
         expect(NEW_VAULT_SETTINGS.handleFilenameCaseSensitive).toBe(false);
+        expect(SETTINGS_SCHEMA_DEFAULTS.journalFormat).toBe("opaque-v1");
+        expect(SETTINGS_SCHEMA_DEFAULTS.expectedRepositoryId).toBe("");
+        expect(SETTINGS_SCHEMA_DEFAULTS.packReadPolicy).toBe("whole-pack");
+        expect(NEW_VAULT_SETTINGS.journalFormat).toBe("opaque-v1");
     });
 
     it("keeps the new-Vault differences from stored-setting fallbacks explicit and bounded", () => {
@@ -152,9 +156,7 @@ describe("prepareSettingsForLoad", () => {
         expect(TweakValuesShouldMatchedTemplate.doNotUseFixedRevisionForChunks).toBeUndefined();
         expect(TweakValuesRecommendedTemplate.doNotUseFixedRevisionForChunks).toBeUndefined();
         expect(
-            IncompatibleChangesInSpecificPattern.filter(
-                ({ key }) => key === "doNotUseFixedRevisionForChunks"
-            )
+            IncompatibleChangesInSpecificPattern.filter(({ key }) => key === "doNotUseFixedRevisionForChunks")
         ).toEqual([]);
     });
 

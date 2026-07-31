@@ -168,6 +168,12 @@ import {
     createAdaptiveJournalManifestV1,
     type AdaptiveJournalObjectRetrievalV1,
 } from "${packageName}/adaptive-journal";
+import {
+    REMOTE_MINIO,
+    journalProtocolConfigurationForSettings,
+    type JournalFormatV1,
+    type RemoteDBSettings,
+} from "${packageName}/journal-storage";
 
 const options: ServiceContextOptions = { translate: (key) => \`translated:\${key}\` };
 const context = createServiceContext(options);
@@ -193,6 +199,13 @@ const journalSyncFeature: typeof useJournalSyncFeature = useJournalSyncFeature;
 const adaptiveRetrieval: AdaptiveJournalObjectRetrievalV1 = "whole-pack";
 const adaptiveManifestFactory: typeof createAdaptiveJournalManifestV1 = createAdaptiveJournalManifestV1;
 const adaptiveChunkKind: AdaptiveRecordKindV1 = AdaptiveRecordKindV1.Chunk;
+const journalFormat: JournalFormatV1 = "adaptive-v1";
+const journalSettings = {
+    remoteType: REMOTE_MINIO,
+    journalFormat,
+    packReadPolicy: "range",
+} as RemoteDBSettings;
+const journalProtocol = journalProtocolConfigurationForSettings(journalSettings);
 void context;
 void contextContract;
 void untranslated;
@@ -214,6 +227,7 @@ void journalSyncFeature;
 void adaptiveRetrieval;
 void adaptiveManifestFactory;
 void adaptiveChunkKind;
+void journalProtocol;
 `
 );
 await writeConsumerFile(
@@ -238,6 +252,7 @@ const rootApi = await import("${packageName}");
 const settingsApi = await import("${packageName}/settings");
 const remoteConfigurationsApi = await import("${packageName}/remote-configurations");
 const adaptiveJournalApi = await import("${packageName}/adaptive-journal");
+const journalStorageApi = await import("${packageName}/journal-storage");
 const workerApi = await import("${packageName}/compat/worker/bgWorker");
 const runtimeCompat = await import("${packageName}/compat/common/coreEnvFunctions");
 const nodeRuntime = await import("${packageName}/node");
@@ -259,6 +274,15 @@ assert.equal(typeof remoteConfigurationsApi.createBuiltInRemoteProviderRegistry,
 assert.equal(typeof journalSyncApi.useJournalSyncFeature, "function");
 assert.equal(typeof adaptiveJournalApi.createAdaptiveJournalManifestV1, "function");
 assert.equal(typeof adaptiveJournalApi.AdaptiveRecordKindV1.Chunk, "number");
+assert.equal(journalStorageApi.REMOTE_MINIO, "MINIO");
+assert.deepEqual(
+    journalStorageApi.journalProtocolConfigurationForSettings({
+        remoteType: journalStorageApi.REMOTE_MINIO,
+        journalFormat: "adaptive-v1",
+        packReadPolicy: "range",
+    }),
+    { expectedRepositoryId: "", journalFormat: "adaptive-v1", packReadPolicy: "range" }
+);
 assert.equal(runtimeCompat.compatGlobal, globalThis);
 assert.equal(typeof nodeRuntime.fs.readFileSync, "function");
 assert.equal(typeof nodeRuntime.fsPromises.readFile, "function");
@@ -329,6 +353,13 @@ await writeConsumerFile(
     `export { initialiseWorkerModule, splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
 `
 );
+await writeConsumerFile(
+    "browser-journal-storage.ts",
+    `import { REMOTE_MINIO, journalStorageKindForRemoteType } from "${packageName}/journal-storage";
+
+document.body.dataset.journalStorage = journalStorageKindForRemoteType(REMOTE_MINIO);
+`
+);
 
 run(
     "npm",
@@ -393,6 +424,25 @@ assert.ok(
     "The File System Access storage entry must not load Node-only host APIs."
 );
 
+const journalStorageBundle = await build({
+    absWorkingDir: consumerDirectory,
+    bundle: true,
+    conditions: ["browser"],
+    entryPoints: [resolve(consumerDirectory, "browser-journal-storage.ts")],
+    format: "esm",
+    logLevel: "silent",
+    metafile: true,
+    platform: "browser",
+    write: false,
+});
+const journalStorageInputs = Object.keys(journalStorageBundle.metafile.inputs);
+assert.ok(
+    journalStorageInputs.every(
+        (path) => !path.includes("@aws-sdk") && !path.includes("svelte") && !path.includes("/dist/platform/node/")
+    ),
+    "The Journal storage configuration entry must not load the S3 client, Svelte, or Node-only host APIs."
+);
+
 const workerBundle = await build({
     absWorkingDir: consumerDirectory,
     bundle: true,
@@ -435,6 +485,7 @@ assert.deepEqual(
         "./browser",
         "./context",
         "./journal-sync",
+        "./journal-storage",
         "./node",
         "./package.json",
         "./remote-configurations",
@@ -443,7 +494,7 @@ assert.deepEqual(
     ],
     "The focused package surface must remain explicit."
 );
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 10);
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 11);
 
 console.log(
     JSON.stringify(
@@ -454,6 +505,7 @@ console.log(
             unpackedBytes: packed.unpackedSize,
             contextBundleBytes: contextBundle.outputFiles[0].contents.length,
             browserStorageBundleBytes: browserStorageBundle.outputFiles[0].contents.length,
+            journalStorageBundleBytes: journalStorageBundle.outputFiles[0].contents.length,
             workerBundleBytes: workerBundle.outputFiles[0].contents.length,
         },
         null,
