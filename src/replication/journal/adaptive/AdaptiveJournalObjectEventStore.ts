@@ -7,10 +7,14 @@ import {
     adaptiveJournalPackObjectKeyV1,
     adaptiveJournalWriterObjectKeyV1,
     decodeAdaptiveJournalCatalogueDeltaV1,
+    parseAdaptiveJournalDeltaObjectKeyV1,
 } from "./AdaptiveJournalCatalogue.ts";
 import { base64UrlToBytes, bytesEqual, bytesToHex, fixedLength } from "./AdaptiveJournalBinary.ts";
 import { decodeCommitEnvelopeV1, type DecodedCommitEnvelopeV1 } from "./AdaptiveJournalCommit.ts";
-import { decodeAdaptiveJournalCommitRecordV1 } from "./AdaptiveJournalControl.ts";
+import {
+    decodeAdaptiveJournalCommitRecordV1,
+    type AdaptiveJournalCommitDependencyV1,
+} from "./AdaptiveJournalControl.ts";
 import type {
     AdaptiveImmutableRecordResultV1,
     AdaptiveImmutableRecordStatusV1,
@@ -33,6 +37,7 @@ export interface CreateAdaptiveJournalObjectEventStoreV1Options {
 type DecodedCommitControl = Awaited<ReturnType<typeof decodeAdaptiveJournalCommitRecordV1>>;
 
 type VerifiedPackAddition = {
+    dependency: AdaptiveJournalCommitDependencyV1;
     entries: readonly AdaptiveJournalPackIndexEntryV1[];
     packId: Uint8Array;
 };
@@ -73,9 +78,7 @@ async function ensureImmutableRecord(
     const read = await remote.readAdaptiveObject(key);
     if (read.status === "failed") return read;
     if (read.status === "missing") {
-        return created.status === "failed"
-            ? created
-            : failed({ category: "invalid-response", retry: "later" });
+        return created.status === "failed" ? created : failed({ category: "invalid-response", retry: "later" });
     }
     let result: AdaptiveImmutableRecordStatusV1;
     if (!bytesEqual(read.value, intended)) result = "validate-existing";
@@ -120,7 +123,10 @@ async function verifyCommitControl(
             sequence: envelope.sequence,
             writerStreamId: envelope.writerStreamId,
         });
-        if (!bytesEqual(control.digest, envelope.commitFrameDigest) || !commitControlMatchesEnvelope(envelope, control.payload)) {
+        if (
+            !bytesEqual(control.digest, envelope.commitFrameDigest) ||
+            !commitControlMatchesEnvelope(envelope, control.payload)
+        ) {
             return failed(INVALID_REMOTE);
         }
         return { status: "verified", control };
@@ -134,9 +140,7 @@ function verifyRequiredChunkKeys(
     envelope: DecodedCommitEnvelopeV1,
     additions: readonly VerifiedPackAddition[]
 ): DependencyVerification {
-    const newlyAvailable = new Set(
-        additions.flatMap(({ entries }) => entries.map(({ key }) => bytesToHex(key)))
-    );
+    const newlyAvailable = new Set(additions.flatMap(({ entries }) => entries.map(({ key }) => bytesToHex(key))));
     for (const key of envelope.requiredChunkKeys) {
         const text = bytesToHex(key);
         if (options.catalogue.locations(key).length === 0 && !newlyAvailable.has(text)) {
@@ -162,12 +166,20 @@ function verifyCachedCommitDependencies(
 
         const additions: VerifiedPackAddition[] = [];
         for (const dependency of control.payload.catalogueDeltas) {
-            const publication = cache.packForDelta(
-                dependency.key,
-                digestFromText(dependency.digest, "deltaDigest")
-            );
-            if (!publication) return undefined;
-            additions.push({ entries: publication.entries, packId: publication.packId });
+            const decodedDependency = {
+                digest: digestFromText(dependency.digest, "deltaDigest"),
+                key: dependency.key,
+            };
+            const publication = cache.packForDelta(dependency.key, decodedDependency.digest);
+            if (publication) {
+                additions.push({
+                    dependency: decodedDependency,
+                    entries: publication.entries,
+                    packId: publication.packId,
+                });
+            } else if (!options.catalogue.hasDependency(decodedDependency)) {
+                return undefined;
+            }
         }
         return verifyRequiredChunkKeys(options, envelope, additions);
     } catch {
@@ -186,7 +198,8 @@ async function verifyObjectCommitDependencies(
         if (
             metadata.bytes.byteLength !== control.payload.metadata.bytes ||
             !bytesEqual(await sha256(metadata.bytes), envelope.metadataDigest) ||
-            control.payload.metadata.key !== adaptiveJournalMetadataObjectKeyV1(envelope.writerStreamId, envelope.sequence)
+            control.payload.metadata.key !==
+                adaptiveJournalMetadataObjectKeyV1(envelope.writerStreamId, envelope.sequence)
         ) {
             return failed(INVALID_REMOTE);
         }
@@ -198,11 +211,12 @@ async function verifyObjectCommitDependencies(
             if (!bytesEqual(await sha256(deltaFrame.bytes), digestFromText(dependency.digest, "deltaDigest"))) {
                 return failed(INVALID_REMOTE);
             }
+            const route = parseAdaptiveJournalDeltaObjectKeyV1(dependency.key);
             const delta = await decodeAdaptiveJournalCatalogueDeltaV1({
                 bytes: deltaFrame.bytes,
                 keys: options.keys,
-                sequence: envelope.sequence,
-                writerStreamId: envelope.writerStreamId,
+                sequence: route.sequence,
+                writerStreamId: route.writerStreamId,
             });
             const packId = digestFromText(delta.payload.add.packId, "packId");
             const pack = await readRequiredObject(options.remote, adaptiveJournalPackObjectKeyV1(packId));
@@ -219,7 +233,14 @@ async function verifyObjectCommitDependencies(
                 keys: options.keys,
                 packBytes: pack.bytes,
             });
-            additions.push({ entries: decodedPack.entries, packId });
+            additions.push({
+                dependency: {
+                    digest: digestFromText(dependency.digest, "deltaDigest"),
+                    key: dependency.key,
+                },
+                entries: decodedPack.entries,
+                packId,
+            });
         }
 
         return verifyRequiredChunkKeys(options, envelope, additions);
@@ -293,11 +314,7 @@ export function createAdaptiveJournalObjectEventStoreV1(
                 "application/octet-stream"
             );
             if (result.status === "ok" && result.result !== "validate-existing") {
-                options.publicationCache?.rememberMetadata(
-                    key,
-                    record.metadataDigest,
-                    record.metadataFrame.byteLength
-                );
+                options.publicationCache?.rememberMetadata(key, record.metadataDigest, record.metadataFrame.byteLength);
             }
             return result;
         },
@@ -330,7 +347,7 @@ export function createAdaptiveJournalObjectEventStoreV1(
             if (created.status === "failed") return created;
             if (created.result !== "validate-existing") {
                 for (const addition of verified.additions) {
-                    options.catalogue.applyCommittedPack(addition.packId, addition.entries);
+                    options.catalogue.applyCommittedPack(addition.packId, addition.entries, addition.dependency);
                 }
                 options.publicationCache?.acceptCommit(
                     control.control.payload.metadata.key,

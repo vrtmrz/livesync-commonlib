@@ -1,7 +1,7 @@
 import type { DocumentID } from "@lib/common/types.ts";
 import { describe, expect, it } from "vitest";
 
-import { AdaptiveJournalCatalogueV1 } from "./AdaptiveJournalCatalogue.ts";
+import { AdaptiveJournalCatalogueV1, adaptiveJournalDeltaObjectKeyV1 } from "./AdaptiveJournalCatalogue.ts";
 import { createAdaptiveJournalManifestV1 } from "./AdaptiveJournalManifest.ts";
 import { publishAdaptiveJournalObjectChunksV1 } from "./AdaptiveJournalObjectChunkPublication.ts";
 import type { AdaptiveJournalObjectListV1, AdaptiveJournalObjectRemoteV1 } from "./AdaptiveJournalObjectStore.ts";
@@ -49,15 +49,23 @@ describe("Adaptive Journal object Chunk publication", () => {
             localChunkId: "h:second" as DocumentID,
         });
         const catalogue = new AdaptiveJournalCatalogueV1();
-        catalogue.applyCommittedPack(sequence(0xa0), [
-            {
-                frameDigest: first.digest,
-                frameLength: first.bytes.byteLength,
-                key: first.remoteChunkKey,
-                offset: 0,
-                plaintextLength: 5,
-            },
-        ]);
+        const firstDependency = {
+            digest: sequence(0xd0),
+            key: adaptiveJournalDeltaObjectKeyV1(sequence(0x20), 1n),
+        };
+        catalogue.applyCommittedPack(
+            sequence(0xa0),
+            [
+                {
+                    frameDigest: first.digest,
+                    frameLength: first.bytes.byteLength,
+                    key: first.remoteChunkKey,
+                    offset: 0,
+                    plaintextLength: 5,
+                },
+            ],
+            firstDependency
+        );
         const remote = new MemoryObjectRemote();
 
         const result = await publishAdaptiveJournalObjectChunksV1({
@@ -75,13 +83,18 @@ describe("Adaptive Journal object Chunk publication", () => {
         expect(result.status).toBe("ok");
         if (result.status !== "ok") return;
         expect(result.requiredChunkKeys).toEqual([first.remoteChunkKey, second.remoteChunkKey]);
-        expect(result.catalogueDeltas).toHaveLength(1);
+        expect(result.catalogueDeltas).toEqual(
+            expect.arrayContaining([
+                firstDependency,
+                expect.objectContaining({ key: adaptiveJournalDeltaObjectKeyV1(sequence(0x30), 1n) }),
+            ])
+        );
         expect(result.committedPackCandidates).toHaveLength(1);
         expect(result.committedPackCandidates[0].entries.map(({ key }) => key)).toEqual([second.remoteChunkKey]);
         expect(remote.objects.size).toBe(3);
     });
 
-    it("does not publish another pack when every required Chunk is already catalogued", async () => {
+    it("reuses a catalogued Chunk by carrying its verified Delta dependency", async () => {
         const candidate = await createAdaptiveJournalManifestV1({
             encryption: "unencrypted",
             repositoryId: sequence(0x11),
@@ -93,15 +106,23 @@ describe("Adaptive Journal object Chunk publication", () => {
             localChunkId: "h:chunk" as DocumentID,
         });
         const catalogue = new AdaptiveJournalCatalogueV1();
-        catalogue.applyCommittedPack(sequence(0xa1), [
-            {
-                frameDigest: chunk.digest,
-                frameLength: chunk.bytes.byteLength,
-                key: chunk.remoteChunkKey,
-                offset: 0,
-                plaintextLength: 4,
-            },
-        ]);
+        const dependency = {
+            digest: sequence(0xd1),
+            key: adaptiveJournalDeltaObjectKeyV1(sequence(0x21), 1n),
+        };
+        catalogue.applyCommittedPack(
+            sequence(0xa1),
+            [
+                {
+                    frameDigest: chunk.digest,
+                    frameLength: chunk.bytes.byteLength,
+                    key: chunk.remoteChunkKey,
+                    offset: 0,
+                    plaintextLength: 4,
+                },
+            ],
+            dependency
+        );
         const remote = new MemoryObjectRemote();
 
         await expect(
@@ -113,7 +134,7 @@ describe("Adaptive Journal object Chunk publication", () => {
                 sequence: 2n,
                 writerStreamId: sequence(0x31),
             })
-        ).resolves.toMatchObject({ catalogueDeltas: [], status: "ok" });
+        ).resolves.toMatchObject({ catalogueDeltas: [dependency], status: "ok" });
         expect(remote.objects.size).toBe(0);
     });
 });

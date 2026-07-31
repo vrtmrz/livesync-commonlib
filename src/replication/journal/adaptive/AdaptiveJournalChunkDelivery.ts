@@ -67,7 +67,7 @@ export function createAdaptiveJournalObjectChunkDeliveryV1(
     return {
         acceptCommitted: (candidates) => {
             for (const candidate of candidates) {
-                options.catalogue.applyCommittedPack(candidate.packId, candidate.entries);
+                options.catalogue.applyCommittedPack(candidate.packId, candidate.entries, candidate.dependency);
             }
         },
         publish: async (context) => {

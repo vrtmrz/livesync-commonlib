@@ -8,7 +8,10 @@ import {
     fixedLength,
     u64be,
 } from "./AdaptiveJournalBinary.ts";
-import { adaptiveJournalDeltaObjectKeyV1, adaptiveJournalMetadataObjectKeyV1 } from "./AdaptiveJournalCatalogue.ts";
+import {
+    adaptiveJournalMetadataObjectKeyV1,
+    parseAdaptiveJournalDeltaObjectKeyV1,
+} from "./AdaptiveJournalCatalogue.ts";
 import { AdaptiveJournalError, type AdaptiveJournalKeySetV1 } from "./AdaptiveJournalManifest.ts";
 import {
     AdaptiveRecordKindV1,
@@ -18,7 +21,7 @@ import {
 } from "./AdaptiveJournalRecord.ts";
 
 const MAX_WRITER_SEQUENCE = 0x7fffffffffffffffn;
-const MAX_CATALOGUE_DELTAS = 64;
+export const MAX_ADAPTIVE_JOURNAL_CATALOGUE_DELTAS_V1 = 64;
 
 function sequenceText(sequence: bigint): string {
     if (sequence < 1n || sequence > MAX_WRITER_SEQUENCE) {
@@ -97,19 +100,18 @@ function validateCommitSemantics(
 }
 
 function canonicalDependencies(
-    dependencies: readonly AdaptiveJournalCommitDependencyV1[],
-    writerStreamId: Uint8Array,
-    sequence: bigint
+    dependencies: readonly AdaptiveJournalCommitDependencyV1[]
 ): Array<{ digest: string; key: string }> {
-    if (dependencies.length > MAX_CATALOGUE_DELTAS) {
+    if (dependencies.length > MAX_ADAPTIVE_JOURNAL_CATALOGUE_DELTAS_V1) {
         throw invalidCommitRecord("Commit catalogue dependency count exceeds the v1 limit");
     }
-    const expectedKey = adaptiveJournalDeltaObjectKeyV1(writerStreamId, sequence);
     const byKey = new Map<string, string>();
     for (const dependency of dependencies) {
         fixedLength(dependency.digest, 32, "catalogue delta digest");
-        if (dependency.key !== expectedKey) {
-            throw invalidCommitRecord("Commit catalogue delta key does not match its writer sequence");
+        try {
+            parseAdaptiveJournalDeltaObjectKeyV1(dependency.key);
+        } catch (error) {
+            throw invalidCommitRecord("Commit catalogue dependency key is invalid", error);
         }
         const digest = bytesToBase64Url(dependency.digest);
         const existing = byKey.get(dependency.key);
@@ -139,15 +141,14 @@ export async function encodeAdaptiveJournalCommitRecordV1(
         throw invalidCommitRecord("Commit Metadata byte length must be a positive safe integer");
     }
     const payload: AdaptiveJournalCommitPayloadV1 = {
-        catalogueDeltas: canonicalDependencies(options.catalogueDeltas, writerStreamId, options.sequence),
+        catalogueDeltas: canonicalDependencies(options.catalogueDeltas),
         formatVersion: 1,
         metadata: {
             bytes: options.metadata.bytes,
             digest: bytesToBase64Url(metadataDigest),
             key: options.metadata.key,
         },
-        previousCommitDigest:
-            previousCommitDigest === null ? null : bytesToBase64Url(previousCommitDigest),
+        previousCommitDigest: previousCommitDigest === null ? null : bytesToBase64Url(previousCommitDigest),
         repositoryId: bytesToBase64Url(options.keys.repositoryId),
         requiredChunkKeysDigest: bytesToBase64Url(requiredChunkKeysDigest),
         sequence: sequenceText(options.sequence),
@@ -205,7 +206,7 @@ function parseCommitPayload(bytes: Uint8Array): AdaptiveJournalCommitPayloadV1 {
         typeof payload.sequence !== "string" ||
         typeof payload.writerStreamId !== "string" ||
         !Array.isArray(payload.catalogueDeltas) ||
-        payload.catalogueDeltas.length > MAX_CATALOGUE_DELTAS ||
+        payload.catalogueDeltas.length > MAX_ADAPTIVE_JOURNAL_CATALOGUE_DELTAS_V1 ||
         !payload.metadata ||
         typeof payload.metadata !== "object" ||
         Array.isArray(payload.metadata)
@@ -239,6 +240,11 @@ function parseCommitPayload(bytes: Uint8Array): AdaptiveJournalCommitPayloadV1 {
             throw invalidCommitRecord("Commit catalogue dependencies must be sorted and unique");
         }
         decodeDigest(dependency.digest, "catalogue delta digest");
+        try {
+            parseAdaptiveJournalDeltaObjectKeyV1(dependency.key);
+        } catch (error) {
+            throw invalidCommitRecord("Commit catalogue dependency key is invalid", error);
+        }
         previousKey = dependency.key;
     }
     if (!bytesEqual(bytes, canonicalJsonBytes(parsed))) {
@@ -271,9 +277,5 @@ export async function decodeAdaptiveJournalCommitRecordV1(
             ? null
             : decodeDigest(payload.previousCommitDigest, "previous Commit digest");
     validateCommitSemantics(options.sequence, previousCommitDigest, payload.metadata.key, writerStreamId);
-    const expectedDeltaKey = adaptiveJournalDeltaObjectKeyV1(writerStreamId, options.sequence);
-    if (payload.catalogueDeltas.some(({ key }) => key !== expectedDeltaKey)) {
-        throw invalidCommitRecord("Commit catalogue dependency does not match its writer sequence");
-    }
     return { digest: decoded.frameDigest, payload };
 }

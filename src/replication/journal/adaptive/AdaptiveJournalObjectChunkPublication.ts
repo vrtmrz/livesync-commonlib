@@ -1,6 +1,9 @@
-import { bytesToBase64Url } from "./AdaptiveJournalBinary.ts";
+import { bytesEqual, bytesToBase64Url } from "./AdaptiveJournalBinary.ts";
 import type { AdaptiveJournalCatalogueV1, AdaptiveJournalPackLocationV1 } from "./AdaptiveJournalCatalogue.ts";
-import type { AdaptiveJournalCommitDependencyV1 } from "./AdaptiveJournalControl.ts";
+import {
+    MAX_ADAPTIVE_JOURNAL_CATALOGUE_DELTAS_V1,
+    type AdaptiveJournalCommitDependencyV1,
+} from "./AdaptiveJournalControl.ts";
 import type { AdaptiveJournalKeySetV1 } from "./AdaptiveJournalManifest.ts";
 import type { AdaptiveJournalChunkPublicationItemV1 } from "./AdaptiveJournalNativeChunkPublication.ts";
 import type { AdaptiveJournalObjectPublicationCacheV1 } from "./AdaptiveJournalObjectPublicationCache.ts";
@@ -12,6 +15,7 @@ import type { AdaptiveJournalObjectRemoteV1 } from "./AdaptiveJournalObjectStore
 import { buildAdaptiveJournalPackV1, type AdaptiveJournalPackIndexEntryV1 } from "./AdaptiveJournalPack.ts";
 
 export interface AdaptiveJournalCommittedPackCandidateV1 {
+    dependency: AdaptiveJournalCommitDependencyV1;
     entries: readonly AdaptiveJournalPackIndexEntryV1[];
     packId: Uint8Array;
 }
@@ -35,8 +39,21 @@ export interface PublishAdaptiveJournalObjectChunksV1Options {
     writerStreamId: Uint8Array;
 }
 
-function hasLocation(locations: readonly AdaptiveJournalPackLocationV1[]): boolean {
-    return locations.length > 0;
+function reusableDependency(
+    locations: readonly AdaptiveJournalPackLocationV1[]
+): AdaptiveJournalCommitDependencyV1 | undefined {
+    return locations.find(({ catalogueDependency }) => catalogueDependency !== undefined)?.catalogueDependency;
+}
+
+function addDependency(
+    dependencies: Map<string, AdaptiveJournalCommitDependencyV1>,
+    dependency: AdaptiveJournalCommitDependencyV1
+): void {
+    const existing = dependencies.get(dependency.key);
+    if (existing && !bytesEqual(existing.digest, dependency.digest)) {
+        throw new TypeError("Adaptive Journal catalogue dependency key has conflicting digests");
+    }
+    dependencies.set(dependency.key, { digest: dependency.digest.slice(), key: dependency.key });
 }
 
 export async function publishAdaptiveJournalObjectChunksV1(
@@ -49,11 +66,24 @@ export async function publishAdaptiveJournalObjectChunksV1(
         byKey.set(key, item);
     }
     const requiredChunkKeys = [...byKey.values()].map(({ record }) => record.remoteChunkKey.slice());
-    const missing = [...byKey.values()].filter(
-        ({ record }) => !hasLocation(options.catalogue.locations(record.remoteChunkKey))
-    );
+    const dependencies = new Map<string, AdaptiveJournalCommitDependencyV1>();
+    let missing: AdaptiveJournalChunkPublicationItemV1[] = [];
+    for (const item of byKey.values()) {
+        const dependency = reusableDependency(options.catalogue.locations(item.record.remoteChunkKey));
+        if (dependency) addDependency(dependencies, dependency);
+        else missing.push(item);
+    }
+    if (dependencies.size + (missing.length > 0 ? 1 : 0) > MAX_ADAPTIVE_JOURNAL_CATALOGUE_DELTAS_V1) {
+        dependencies.clear();
+        missing = [...byKey.values()];
+    }
     if (missing.length === 0) {
-        return { catalogueDeltas: [], committedPackCandidates: [], requiredChunkKeys, status: "ok" };
+        return {
+            catalogueDeltas: [...dependencies.values()],
+            committedPackCandidates: [],
+            requiredChunkKeys,
+            status: "ok",
+        };
     }
     const pack = await buildAdaptiveJournalPackV1({
         chunks: missing.map(({ record }) => ({ frame: record.bytes, key: record.remoteChunkKey })),
@@ -68,9 +98,11 @@ export async function publishAdaptiveJournalObjectChunksV1(
         writerStreamId: options.writerStreamId,
     });
     if (published.status !== "ok") return published;
+    const dependency = { digest: published.deltaDigest.slice(), key: published.deltaKey };
+    addDependency(dependencies, dependency);
     return {
-        catalogueDeltas: [{ digest: published.deltaDigest, key: published.deltaKey }],
-        committedPackCandidates: [{ entries: published.entries, packId: pack.packId }],
+        catalogueDeltas: [...dependencies.values()],
+        committedPackCandidates: [{ dependency, entries: published.entries, packId: pack.packId }],
         requiredChunkKeys,
         status: "ok",
     };

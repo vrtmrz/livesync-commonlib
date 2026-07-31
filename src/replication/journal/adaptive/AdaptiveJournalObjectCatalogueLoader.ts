@@ -2,6 +2,7 @@ import {
     AdaptiveJournalCatalogueV1,
     adaptiveJournalIndexObjectKeyV1,
     decodeAdaptiveJournalCatalogueDeltaV1,
+    parseAdaptiveJournalDeltaObjectKeyV1,
 } from "./AdaptiveJournalCatalogue.ts";
 import { base64UrlToBytes, bytesEqual, fixedLength } from "./AdaptiveJournalBinary.ts";
 import type { AdaptiveJournalCommitDependencyV1 } from "./AdaptiveJournalControl.ts";
@@ -17,15 +18,17 @@ export interface AdaptiveJournalCatalogueLoadContextV1 {
     writerStreamId: Uint8Array;
 }
 
-export type AdaptiveJournalCatalogueLoadOutcomeV1 =
-    | { status: "ok" }
-    | { failure: RemoteFailure; status: "failed" };
+export type AdaptiveJournalCatalogueLoadOutcomeV1 = { status: "ok" } | { failure: RemoteFailure; status: "failed" };
 
 export interface AdaptiveJournalCatalogueLoaderV1 {
     load(context: AdaptiveJournalCatalogueLoadContextV1): Promise<AdaptiveJournalCatalogueLoadOutcomeV1>;
 }
 
-type Addition = { entries: readonly AdaptiveJournalPackIndexEntryV1[]; packId: Uint8Array };
+type Addition = {
+    dependency: AdaptiveJournalCommitDependencyV1;
+    entries: readonly AdaptiveJournalPackIndexEntryV1[];
+    packId: Uint8Array;
+};
 
 const INTEGRITY_FAILURE: RemoteFailure = { category: "invalid-response", retry: "never" };
 const MISSING_FAILURE: RemoteFailure = { category: "unavailable", retry: "later" };
@@ -49,24 +52,22 @@ export function createAdaptiveJournalObjectCatalogueLoaderV1(options: {
         load: async (context) => {
             const additions: Addition[] = [];
             for (const dependency of context.dependencies) {
+                if (options.catalogue.hasDependency(dependency)) continue;
                 const deltaFrame = await requiredObject(options.remote, dependency.key);
                 if (deltaFrame.status === "failed") return deltaFrame;
                 try {
                     if (!bytesEqual(await sha256(deltaFrame.bytes), dependency.digest)) {
                         return { failure: INTEGRITY_FAILURE, status: "failed" };
                     }
+                    const route = parseAdaptiveJournalDeltaObjectKeyV1(dependency.key);
                     const delta = await decodeAdaptiveJournalCatalogueDeltaV1({
                         bytes: deltaFrame.bytes,
                         keys: options.keys,
-                        sequence: context.sequence,
-                        writerStreamId: context.writerStreamId,
+                        sequence: route.sequence,
+                        writerStreamId: route.writerStreamId,
                     });
                     const packId = fixedLength(base64UrlToBytes(delta.payload.add.packId), 32, "packId");
-                    const indexDigest = fixedLength(
-                        base64UrlToBytes(delta.payload.add.indexDigest),
-                        32,
-                        "indexDigest"
-                    );
+                    const indexDigest = fixedLength(base64UrlToBytes(delta.payload.add.indexDigest), 32, "indexDigest");
                     if (delta.payload.add.indexKey !== adaptiveJournalIndexObjectKeyV1(packId)) {
                         return { failure: INTEGRITY_FAILURE, status: "failed" };
                     }
@@ -81,12 +82,18 @@ export function createAdaptiveJournalObjectCatalogueLoaderV1(options: {
                         keys: options.keys,
                         packBytes: delta.payload.add.packBytes,
                     });
-                    additions.push({ entries: index.entries, packId });
+                    additions.push({
+                        dependency: { digest: dependency.digest.slice(), key: dependency.key },
+                        entries: index.entries,
+                        packId,
+                    });
                 } catch {
                     return { failure: INTEGRITY_FAILURE, status: "failed" };
                 }
             }
-            for (const addition of additions) options.catalogue.applyCommittedPack(addition.packId, addition.entries);
+            for (const addition of additions) {
+                options.catalogue.applyCommittedPack(addition.packId, addition.entries, addition.dependency);
+            }
             return { status: "ok" };
         },
     };

@@ -9,10 +9,7 @@ import { adaptiveJournalMetadataObjectKeyV1 } from "./AdaptiveJournalCatalogue.t
 import { encodeAdaptiveJournalCommitRecordV1 } from "./AdaptiveJournalControl.ts";
 import type { AdaptiveJournalDiscoveryStoreV1 } from "./AdaptiveJournalDiscoveryStore.ts";
 import { createAdaptiveJournalManifestV1 } from "./AdaptiveJournalManifest.ts";
-import {
-    encodeAdaptiveJournalChunkRecordV1,
-    encodeAdaptiveJournalMetadataRecordV1,
-} from "./AdaptiveJournalPayload.ts";
+import { encodeAdaptiveJournalChunkRecordV1, encodeAdaptiveJournalMetadataRecordV1 } from "./AdaptiveJournalPayload.ts";
 import {
     receiveAdaptiveJournalV1,
     type AdaptiveJournalReceiveFrontierV1,
@@ -138,6 +135,7 @@ describe("Adaptive Journal receiver", () => {
                 },
                 frontier: async (writerStreamId) =>
                     frontiers.get(id(writerStreamId)) ?? { commitDigest: null, sequence: 0n },
+                hasChunks: async (localChunkIds) => localChunkIds.map(() => false),
             },
         });
 
@@ -151,7 +149,7 @@ describe("Adaptive Journal receiver", () => {
         expect(applied[0].chunks[0]).toMatchObject({ _id: "h:chunk", data: "body", type: "leaf" });
     });
 
-    it("propagates a local sink failure without classifying valid remote data as invalid", async () => {
+    it("propagates local sink failures without classifying valid remote data as invalid", async () => {
         const candidate = await createAdaptiveJournalManifestV1({
             encryption: "unencrypted",
             repositoryId: sequence(0x12),
@@ -210,7 +208,7 @@ describe("Adaptive Journal receiver", () => {
         };
         const localFailure = new Error("local sink failed");
 
-        await expect(
+        const receiveWithFailure = (failurePhase: "apply" | "availability") =>
             receiveAdaptiveJournalV1({
                 catalogueLoader: ADAPTIVE_JOURNAL_NOOP_CATALOGUE_LOADER_V1,
                 chunks: chunkReader,
@@ -218,11 +216,17 @@ describe("Adaptive Journal receiver", () => {
                 remote,
                 sink: {
                     apply: async () => {
-                        throw localFailure;
+                        if (failurePhase === "apply") throw localFailure;
                     },
                     frontier: async () => ({ commitDigest: null, sequence: 0n }),
+                    hasChunks: async (localChunkIds) => {
+                        if (failurePhase === "availability") throw localFailure;
+                        return localChunkIds.map(() => false);
+                    },
                 },
-            })
-        ).rejects.toBe(localFailure);
+            });
+
+        await expect(receiveWithFailure("availability")).rejects.toBe(localFailure);
+        await expect(receiveWithFailure("apply")).rejects.toBe(localFailure);
     });
 });

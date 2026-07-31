@@ -1,4 +1,4 @@
-import type { EntryDoc, EntryLeaf } from "@lib/common/types.ts";
+import type { DocumentID, EntryDoc, EntryLeaf } from "@lib/common/types.ts";
 
 import { base64UrlToBytes, bytesEqual, bytesToBase64Url, fixedLength } from "./AdaptiveJournalBinary.ts";
 import type { AdaptiveJournalCatalogueLoaderV1 } from "./AdaptiveJournalObjectCatalogueLoader.ts";
@@ -7,10 +7,7 @@ import type { AdaptiveJournalChunkReaderV1 } from "./AdaptiveJournalChunkStore.t
 import { decodeAdaptiveJournalCommitRecordV1 } from "./AdaptiveJournalControl.ts";
 import type { AdaptiveJournalDiscoveryStoreV1 } from "./AdaptiveJournalDiscoveryStore.ts";
 import { deriveRemoteChunkKeyV1, type AdaptiveJournalKeySetV1 } from "./AdaptiveJournalManifest.ts";
-import {
-    decodeAdaptiveJournalChunkRecordV1,
-    decodeAdaptiveJournalMetadataRecordV1,
-} from "./AdaptiveJournalPayload.ts";
+import { decodeAdaptiveJournalChunkRecordV1, decodeAdaptiveJournalMetadataRecordV1 } from "./AdaptiveJournalPayload.ts";
 import type { RemoteFailure, RemoteRead } from "./AdaptiveJournalRepository.ts";
 import { decodeAdaptiveJournalWriterDescriptorV1 } from "./AdaptiveJournalWriterDescriptor.ts";
 
@@ -30,6 +27,7 @@ export interface AdaptiveJournalReceivedBatchV1 {
 export interface AdaptiveJournalReceiveSinkV1 {
     apply(batch: AdaptiveJournalReceivedBatchV1): Promise<void>;
     frontier(writerStreamId: Uint8Array): Promise<AdaptiveJournalReceiveFrontierV1>;
+    hasChunks(localChunkIds: readonly DocumentID[]): Promise<readonly boolean[]>;
 }
 
 export interface AdaptiveJournalReceiveGapV1 {
@@ -63,6 +61,10 @@ export interface ReceiveAdaptiveJournalV1Options {
 
 const INVALID_REMOTE: RemoteFailure = { category: "invalid-response", retry: "never" };
 const MISSING_REMOTE: RemoteFailure = { category: "unavailable", retry: "later" };
+
+class AdaptiveJournalLocalSinkFailure {
+    constructor(readonly reason: unknown) {}
+}
 
 function blocked(
     blocks: AdaptiveJournalReceiveBlockV1[],
@@ -189,19 +191,33 @@ async function receiveWriter(
                 blocked(blocks, writerStreamId, loaded.failure, sequence);
                 break;
             }
-            const fetched = await options.chunks.getMany(remoteChunkKeys);
+            let availableLocally: readonly boolean[];
+            try {
+                availableLocally = await options.sink.hasChunks(metadata.localChunkIds);
+                if (
+                    availableLocally.length !== metadata.localChunkIds.length ||
+                    !availableLocally.every((available) => typeof available === "boolean")
+                ) {
+                    throw new TypeError("Adaptive Journal local Chunk availability result is invalid");
+                }
+            } catch (error) {
+                throw new AdaptiveJournalLocalSinkFailure(error);
+            }
+            const missingIndexes = availableLocally.flatMap((available, index) => (available ? [] : [index]));
+            const fetched = await options.chunks.getMany(missingIndexes.map((index) => remoteChunkKeys[index]));
             if (fetched.status === "failed") {
                 blocked(blocks, writerStreamId, fetched.failure, sequence);
                 break;
             }
-            if (fetched.chunks.length !== metadata.localChunkIds.length) {
+            if (fetched.chunks.length !== missingIndexes.length) {
                 blocked(blocks, writerStreamId, INVALID_REMOTE, sequence);
                 break;
             }
             const chunks: EntryLeaf[] = [];
             let incomplete = false;
-            for (let index = 0; index < metadata.localChunkIds.length; index++) {
-                const stored = fetched.chunks[index];
+            for (let fetchedIndex = 0; fetchedIndex < missingIndexes.length; fetchedIndex++) {
+                const metadataIndex = missingIndexes[fetchedIndex];
+                const stored = fetched.chunks[fetchedIndex];
                 if (!stored) {
                     blocked(blocks, writerStreamId, MISSING_REMOTE, sequence);
                     incomplete = true;
@@ -210,7 +226,7 @@ async function receiveWriter(
                 const decoded = await decodeAdaptiveJournalChunkRecordV1({
                     bytes: stored.frame,
                     keys: options.keys,
-                    localChunkId: metadata.localChunkIds[index],
+                    localChunkId: metadata.localChunkIds[metadataIndex],
                 });
                 if (
                     !bytesEqual(stored.key, decoded.remoteChunkKey) ||
@@ -230,7 +246,8 @@ async function receiveWriter(
                 sequence,
                 writerStreamId,
             };
-        } catch {
+        } catch (error) {
+            if (error instanceof AdaptiveJournalLocalSinkFailure) throw error.reason;
             blocked(blocks, writerStreamId, INVALID_REMOTE, sequence);
             break;
         }

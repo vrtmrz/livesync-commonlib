@@ -10,6 +10,7 @@ import {
     u64be,
 } from "./AdaptiveJournalBinary.ts";
 import { AdaptiveJournalError, type AdaptiveJournalKeySetV1 } from "./AdaptiveJournalManifest.ts";
+import type { AdaptiveJournalCommitDependencyV1 } from "./AdaptiveJournalControl.ts";
 import type { AdaptiveJournalPackIndexEntryV1 } from "./AdaptiveJournalPack.ts";
 import {
     AdaptiveRecordKindV1,
@@ -120,6 +121,27 @@ function invalidCatalogue(message: string, cause?: unknown): AdaptiveJournalErro
     return new AdaptiveJournalError("invalid-catalogue-record", message, cause === undefined ? undefined : { cause });
 }
 
+export interface AdaptiveJournalDeltaObjectRouteV1 {
+    sequence: bigint;
+    writerStreamId: Uint8Array;
+}
+
+export function parseAdaptiveJournalDeltaObjectKeyV1(key: string): AdaptiveJournalDeltaObjectRouteV1 {
+    const match = /^a1~delta~([A-Za-z0-9_-]{43})~([0-9]{20})\.delta$/u.exec(key);
+    if (!match) throw invalidCatalogue("Catalogue delta object key is invalid");
+    try {
+        const writerStreamId = fixedLength(base64UrlToBytes(match[1]), 32, "writerStreamId");
+        const sequence = BigInt(match[2]);
+        if (key !== adaptiveJournalDeltaObjectKeyV1(writerStreamId, sequence)) {
+            throw invalidCatalogue("Catalogue delta object key is not canonical");
+        }
+        return { sequence, writerStreamId };
+    } catch (error) {
+        if (error instanceof AdaptiveJournalError) throw error;
+        throw invalidCatalogue("Catalogue delta object key is invalid", error);
+    }
+}
+
 function parseDeltaPayload(bytes: Uint8Array): AdaptiveJournalCatalogueDeltaPayloadV1 {
     let parsed: unknown;
     try {
@@ -142,8 +164,7 @@ function parseDeltaPayload(bytes: Uint8Array): AdaptiveJournalCatalogueDeltaPayl
     }
     const add = payload.add as Record<string, unknown>;
     if (
-        JSON.stringify(Object.keys(add).sort()) !==
-        JSON.stringify(["indexDigest", "indexKey", "packBytes", "packId"])
+        JSON.stringify(Object.keys(add).sort()) !== JSON.stringify(["indexDigest", "indexKey", "packBytes", "packId"])
     ) {
         throw invalidCatalogue("Catalogue delta add fields do not match v1");
     }
@@ -250,25 +271,62 @@ export async function decodeAdaptiveJournalCatalogueDeltaV1(
 }
 
 export interface AdaptiveJournalPackLocationV1 extends AdaptiveJournalPackIndexEntryV1 {
+    catalogueDependency?: AdaptiveJournalCommitDependencyV1;
     packId: Uint8Array;
 }
 
 export class AdaptiveJournalCatalogueV1 {
     private readonly byChunk = new Map<string, AdaptiveJournalPackLocationV1[]>();
+    private readonly dependencies = new Map<string, Uint8Array>();
 
     get size(): number {
         return this.byChunk.size;
     }
 
-    applyCommittedPack(packIdSource: Uint8Array, entries: readonly AdaptiveJournalPackIndexEntryV1[]): void {
+    applyCommittedPack(
+        packIdSource: Uint8Array,
+        entries: readonly AdaptiveJournalPackIndexEntryV1[],
+        catalogueDependency?: AdaptiveJournalCommitDependencyV1
+    ): void {
         const packId = fixedLength(packIdSource, 32, "packId").slice();
         const packText = bytesToBase64Url(packId);
+        const dependency = catalogueDependency
+            ? {
+                  digest: fixedLength(catalogueDependency.digest, 32, "catalogue delta digest").slice(),
+                  key: catalogueDependency.key,
+              }
+            : undefined;
+        if (dependency) {
+            parseAdaptiveJournalDeltaObjectKeyV1(dependency.key);
+            const knownDigest = this.dependencies.get(dependency.key);
+            if (knownDigest && !bytesEqual(knownDigest, dependency.digest)) {
+                throw invalidCatalogue("Catalogue delta key was applied with a different digest");
+            }
+            this.dependencies.set(dependency.key, dependency.digest.slice());
+        }
         for (const entry of entries) {
             const key = fixedLength(entry.key, 32, "remote Chunk key").slice();
             const keyHex = bytesToHex(key);
             const locations = this.byChunk.get(keyHex) ?? [];
-            if (locations.some((location) => bytesToBase64Url(location.packId) === packText)) continue;
+            const existing = locations.find((location) => bytesToBase64Url(location.packId) === packText);
+            if (existing) {
+                if (!existing.catalogueDependency && dependency) {
+                    existing.catalogueDependency = {
+                        digest: dependency.digest.slice(),
+                        key: dependency.key,
+                    };
+                }
+                continue;
+            }
             locations.push({
+                ...(dependency
+                    ? {
+                          catalogueDependency: {
+                              digest: dependency.digest.slice(),
+                              key: dependency.key,
+                          },
+                      }
+                    : {}),
                 frameDigest: fixedLength(entry.frameDigest, 32, "frameDigest").slice(),
                 frameLength: entry.frameLength,
                 key,
@@ -283,9 +341,25 @@ export class AdaptiveJournalCatalogueV1 {
     locations(key: Uint8Array): readonly AdaptiveJournalPackLocationV1[] {
         return (this.byChunk.get(bytesToHex(fixedLength(key, 32, "remote Chunk key"))) ?? []).map((location) => ({
             ...location,
+            ...(location.catalogueDependency
+                ? {
+                      catalogueDependency: {
+                          digest: location.catalogueDependency.digest.slice(),
+                          key: location.catalogueDependency.key,
+                      },
+                  }
+                : {}),
             frameDigest: location.frameDigest.slice(),
             key: location.key.slice(),
             packId: location.packId.slice(),
         }));
+    }
+
+    hasDependency(dependency: AdaptiveJournalCommitDependencyV1): boolean {
+        const knownDigest = this.dependencies.get(dependency.key);
+        return (
+            knownDigest !== undefined &&
+            bytesEqual(knownDigest, fixedLength(dependency.digest, 32, "catalogue delta digest"))
+        );
     }
 }

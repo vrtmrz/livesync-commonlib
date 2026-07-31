@@ -476,6 +476,15 @@ export class AdaptiveJournalSyncCore {
             sink: {
                 apply: async (batch) => await this.applyReceivedBatch(opened, batch),
                 frontier: async (writerStreamId) => await opened.receiveState.frontier(writerStreamId),
+                hasChunks: async (localChunkIds) => {
+                    const rows = await this.db.allDocs({ include_docs: false, keys: [...localChunkIds] });
+                    if (rows.rows.length !== localChunkIds.length) {
+                        throw new Error(
+                            "Local database returned an invalid Adaptive Journal Chunk availability result"
+                        );
+                    }
+                    return rows.rows.map((row, index) => "id" in row && row.id === localChunkIds[index]);
+                },
             },
         });
         if (outcome.status === "failed") return false;

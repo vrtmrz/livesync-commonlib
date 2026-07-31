@@ -1,13 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import {
-    adaptiveJournalDeltaObjectKeyV1,
-    adaptiveJournalMetadataObjectKeyV1,
-} from "./AdaptiveJournalCatalogue.ts";
-import {
-    decodeAdaptiveJournalCommitRecordV1,
-    encodeAdaptiveJournalCommitRecordV1,
-} from "./AdaptiveJournalControl.ts";
+import { adaptiveJournalDeltaObjectKeyV1, adaptiveJournalMetadataObjectKeyV1 } from "./AdaptiveJournalCatalogue.ts";
+import { decodeAdaptiveJournalCommitRecordV1, encodeAdaptiveJournalCommitRecordV1 } from "./AdaptiveJournalControl.ts";
 import { createAdaptiveJournalManifestV1 } from "./AdaptiveJournalManifest.ts";
 
 function sequence(start: number): Uint8Array {
@@ -23,11 +17,12 @@ describe("Adaptive Journal Commit control record v1", () => {
             securitySeed: sequence(0x80),
         });
         const writerStreamId = sequence(0x30);
+        const catalogueWriterStreamId = sequence(0x40);
         const encoded = await encodeAdaptiveJournalCommitRecordV1({
             catalogueDeltas: [
                 {
                     digest: sequence(0x50),
-                    key: adaptiveJournalDeltaObjectKeyV1(writerStreamId, 2n),
+                    key: adaptiveJournalDeltaObjectKeyV1(catalogueWriterStreamId, 1n),
                 },
             ],
             keys: candidate.keys,

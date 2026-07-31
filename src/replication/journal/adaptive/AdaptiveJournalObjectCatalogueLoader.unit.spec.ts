@@ -65,15 +65,33 @@ describe("Adaptive Journal object catalogue loader", () => {
         remote.reads.length = 0;
         const catalogue = new AdaptiveJournalCatalogueV1();
         const loader = createAdaptiveJournalObjectCatalogueLoaderV1({ catalogue, keys: candidate.keys, remote });
+        const consumerWriterStreamId = sequence(0x50);
 
         await expect(
             loader.load({
                 dependencies: [{ digest: published.deltaDigest, key: published.deltaKey }],
-                sequence: 1n,
-                writerStreamId,
+                sequence: 2n,
+                writerStreamId: consumerWriterStreamId,
             })
         ).resolves.toEqual({ status: "ok" });
-        expect(catalogue.locations(chunkKey)).toHaveLength(1);
+        expect(catalogue.locations(chunkKey)).toEqual([
+            expect.objectContaining({
+                catalogueDependency: {
+                    digest: published.deltaDigest,
+                    key: published.deltaKey,
+                },
+            }),
+        ]);
         expect(remote.reads).toEqual([published.deltaKey, published.indexKey]);
+
+        remote.reads.length = 0;
+        await expect(
+            loader.load({
+                dependencies: [{ digest: published.deltaDigest, key: published.deltaKey }],
+                sequence: 3n,
+                writerStreamId: consumerWriterStreamId,
+            })
+        ).resolves.toEqual({ status: "ok" });
+        expect(remote.reads).toEqual([]);
     });
 });

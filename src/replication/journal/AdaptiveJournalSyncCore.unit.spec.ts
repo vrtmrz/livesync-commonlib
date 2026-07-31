@@ -279,6 +279,119 @@ describe("AdaptiveJournalSyncCore", () => {
         }
     });
 
+    it("does not fetch a remote Chunk which is already present in the local database", async () => {
+        const remote: MemoryAdaptiveRemote = { objects: new Map() };
+        const currentSettings = settings();
+        const senderDB = new PouchDB<EntryDoc>("adaptive-core-existing-chunk-sender", { adapter: "memory" });
+        const receiverDB = new PouchDB<EntryDoc>("adaptive-core-existing-chunk-receiver", { adapter: "memory" });
+        try {
+            const chunk = {
+                _id: "h:adaptive-chunk" as DocumentID,
+                data: "adaptive body",
+                type: "leaf",
+            } as EntryDoc;
+            await senderDB.put(chunk);
+            await senderDB.put(metadata());
+            await receiverDB.put(chunk);
+
+            const sender = new AdaptiveJournalSyncCore(
+                currentSettings,
+                memoryStore(),
+                environment(senderDB, currentSettings),
+                new MemoryAdaptiveObjectStorage(remote),
+                async () => "sender-host",
+                vi.fn()
+            );
+            const receiverStorage = new MemoryAdaptiveObjectStorage(remote);
+            const readAdaptiveObject = vi.spyOn(receiverStorage, "readAdaptiveObject");
+            const receiver = new AdaptiveJournalSyncCore(
+                currentSettings,
+                memoryStore(),
+                environment(receiverDB, currentSettings),
+                receiverStorage,
+                async () => "receiver-host",
+                vi.fn()
+            );
+
+            await expect(sender.sendLocalJournal()).resolves.toBe(true);
+            await expect(receiver.receiveRemoteJournal()).resolves.toBe(true);
+
+            expect(readAdaptiveObject.mock.calls.map(([key]) => key)).not.toEqual(
+                expect.arrayContaining([expect.stringMatching(/^a1~pack~/u)])
+            );
+            await expect(receiverDB.get("notes/adaptive.md")).resolves.toMatchObject({
+                children: ["h:adaptive-chunk"],
+            });
+        } finally {
+            await senderDB.destroy();
+            await receiverDB.destroy();
+        }
+    });
+
+    it("publishes a receiver update back to the original writer", async () => {
+        const remote: MemoryAdaptiveRemote = { objects: new Map() };
+        const currentSettings = settings();
+        const firstDB = new PouchDB<EntryDoc>("adaptive-core-round-trip-first", { adapter: "memory" });
+        const secondDB = new PouchDB<EntryDoc>("adaptive-core-round-trip-second", { adapter: "memory" });
+        const firstState = memoryStore();
+        const secondState = memoryStore();
+        const firstCore = () =>
+            new AdaptiveJournalSyncCore(
+                currentSettings,
+                firstState,
+                environment(firstDB, currentSettings),
+                new MemoryAdaptiveObjectStorage(remote),
+                async () => "first-host",
+                vi.fn()
+            );
+        const secondCore = () =>
+            new AdaptiveJournalSyncCore(
+                currentSettings,
+                secondState,
+                environment(secondDB, currentSettings),
+                new MemoryAdaptiveObjectStorage(remote),
+                async () => "second-host",
+                vi.fn()
+            );
+        try {
+            await firstDB.put({
+                _id: "h:first-chunk" as DocumentID,
+                data: "first body",
+                type: "leaf",
+            } as EntryDoc);
+            await firstDB.put({
+                ...metadata(),
+                children: ["h:first-chunk"],
+            } as EntryDoc);
+            await expect(firstCore().sync()).resolves.toBe(true);
+            await expect(secondCore().sync()).resolves.toBe(true);
+
+            const received = await secondDB.get("notes/adaptive.md");
+            await secondDB.put({
+                _id: "h:second-chunk" as DocumentID,
+                data: "second body",
+                type: "leaf",
+            } as EntryDoc);
+            await secondDB.put({
+                ...received,
+                children: ["h:second-chunk"],
+                mtime: 3,
+                size: 11,
+            });
+
+            await expect(secondCore().sync()).resolves.toBe(true);
+            await expect(firstCore().sync()).resolves.toBe(true);
+            await expect(firstDB.get("notes/adaptive.md")).resolves.toMatchObject({
+                children: ["h:second-chunk"],
+                mtime: 3,
+                size: 11,
+            });
+        } finally {
+            await firstDB.destroy();
+            await secondDB.destroy();
+        }
+    });
+
     it("does not advance a receive frontier when a local Chunk write fails", async () => {
         const remote: MemoryAdaptiveRemote = { objects: new Map() };
         const currentSettings = settings();
