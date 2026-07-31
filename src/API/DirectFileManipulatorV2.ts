@@ -118,7 +118,6 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         await this.services.appLifecycle.onReady();
         await this.liveSyncLocalDB.initializeDatabase();
         this.ready.resolve();
-        this.liveSyncLocalDB.refreshSettings();
     }
     getBoundDatabaseService(options: () => DirectFileManipulatorOptions): typeof HeadlessDatabaseService {
         const _option = options;
