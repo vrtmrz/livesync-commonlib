@@ -121,6 +121,12 @@ The experimental `/adaptive-journal` entry defines transport-independent v1 reco
 
 See [the Adaptive Journal protocol guide](docs/adaptive-journal.md) for repository identity, Metadata and Chunk separation, capability requirements, retry semantics, and host ownership.
 
+## S3-compatible Journal storage
+
+The focused `/journal-storage` entry exposes S3-compatible Journal format and pack-retrieval settings without loading the concrete AWS SDK adapter. Existing Object Storage profiles remain on Opaque Journal unless they explicitly select the experimental Adaptive format. Commonlib detects mixed or mismatched remote data and requires a remote Rebuild rather than silently migrating it.
+
+The [S3-compatible delivery section](docs/adaptive-journal.md#s3-compatible-object-delivery) describes capability probing, immutable object publication, Range selection, request confirmation, prefix ownership, and the exact current verification scope.
+
 ## Contract scope
 
 The package is currently an infrastructure and compatibility boundary. The context, rooted-storage, standard-I/O, and revision-tree safety contracts have focused cross-platform, instance-isolation, or real-PouchDB tests. Platform details which cannot be shared, such as file timestamp fidelity and browser permission handling, remain host concerns and are documented separately.

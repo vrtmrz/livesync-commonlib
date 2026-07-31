@@ -34,6 +34,40 @@ The host remains responsible for durable local binding storage, credentials, rem
 
 Adaptive and Opaque Journal data formats are deliberately distinct. A host must detect a format mismatch and require an explicit remote Rebuild; the v1 protocol does not migrate remote data between formats.
 
+## S3-compatible object delivery
+
+S3-compatible Object Storage is the reference adapter for the object profile. Existing Object Storage settings remain on `opaque-v1` when the new protocol fields are absent. A host opts into Adaptive Journal by setting `journalFormat` to `adaptive-v1`:
+
+| Setting                | Meaning                                                                                                                                                  | Default      |
+| ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
+| `journalFormat`        | Selects `opaque-v1` or `adaptive-v1`. The formats cannot share one configured prefix.                                                                    | `opaque-v1`  |
+| `expectedRepositoryId` | Optionally pins a canonical base64url-encoded 32-byte repository identity. Local creation and attachment also record the binding in durable local state. | Empty        |
+| `packReadPolicy`       | Selects complete-pack reads or exact Range reads for Adaptive Chunk retrieval.                                                                           | `whole-pack` |
+
+The focused `/journal-storage` entry exposes these setting types and host-facing resolution helpers without importing the AWS SDK client:
+
+```ts
+import {
+    REMOTE_MINIO,
+    journalProtocolConfigurationForSettings,
+    type RemoteDBSettings,
+} from "@vrtmrz/livesync-commonlib/journal-storage";
+
+declare const settings: RemoteDBSettings;
+if (settings.remoteType === REMOTE_MINIO) {
+    const protocol = journalProtocolConfigurationForSettings(settings);
+    console.log(protocol.journalFormat, protocol.packReadPolicy);
+}
+```
+
+Before the first Adaptive write, the adapter uses owned random probe objects to verify binary fidelity, listing visibility, conditional immutable creation, deletion visibility, read-after-write behaviour, and exact Range semantics when Range retrieval is selected. It removes only its own probe objects. A verified result is cached for the active adapter configuration; a transient failed probe is not cached.
+
+Ordinary successful SDK responses are treated as confirmed operations, so publication does not add an immediate verification request after every write. An ambiguous mutation failure is reported as `verify-first`; the protocol then reads the exact immutable key before deciding whether a retry is safe. Immutable objects use `PutObject` with `If-None-Match: *`, listing follows every `ListObjectsV2` continuation token, and exact Range reads require a `206` response with the requested length and `Content-Range`.
+
+Packs and catalogues are immutable. Changing one Chunk creates any newly required pack and catalogue records; it does not replace an existing pack. A remote Rebuild removes every object under the configured prefix, including Opaque and Adaptive records, so the prefix must be dedicated to one Vault. Format inspection rejects mixed or mismatched data before synchronisation.
+
+`whole-pack` is the portable retrieval policy. `range` can reduce transferred bytes when the service implements exact Range semantics, but it may add requests and latency. The setting records the user's deployment-specific choice; the capability probe establishes correctness rather than benchmarking or recommending a policy.
+
 ## Verification scope
 
-Commonlib owns deterministic fixture generation and focused tests for the manifest, record encodings, object packs, catalogues, publication recovery, receive frontiers, repository identity, and both delivery contracts. Real provider behaviour and maintained-host composition require separate adapter, integration, CLI, and host tests. See [Proven in maintained hosts](proven-in-use.md) for the current evidence boundary.
+Commonlib owns deterministic fixture generation and focused tests for the manifest, record encodings, object packs, catalogues, publication recovery, receive frontiers, repository identity, and both delivery contracts. The S3 adapter adds focused SDK-command tests and managed MinIO integration. CLI composition and maintained-host behaviour require separate tests. See [Proven in maintained hosts](proven-in-use.md) for the current evidence boundary.

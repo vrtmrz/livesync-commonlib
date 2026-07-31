@@ -6,7 +6,7 @@ This document is for Commonlib developers. Package consumers should begin with t
 
 The source tree is larger than the supported package surface. Consumers may import only paths in the generated package export map:
 
-- `src/index.ts`, `src/adaptiveJournal.ts`, `src/context.ts`, `src/settings.ts`, `src/remoteConfigurations.ts`, `src/platform/browser/index.ts`, and `src/platform/node/index.ts` define the focused entries;
+- `src/index.ts`, `src/adaptiveJournal.ts`, `src/context.ts`, `src/journalStorage.ts`, `src/settings.ts`, `src/remoteConfigurations.ts`, `src/platform/browser/index.ts`, and `src/platform/node/index.ts` define the focused entries;
 - `src/rpc/index.ts` defines a transitional entry for the existing LiveSync P2P composition, not a stable Commonlib 1.0 contract;
 - `_tools/build-package.mjs` compiles those entries and creates the publishable manifest under `.package`;
 - `docs/migration/downstream-imports.json` is the reviewed inventory from which explicit `compat/*` exports are generated;
@@ -99,6 +99,8 @@ npm run test:integration:managed
 
 This command requires Docker Compose, creates only test credentials and data, and removes the containers and their volumes after the run. It is the same entry point used by package CI.
 
+For Adaptive Journal, the managed MinIO scope verifies conditional immutable creation, exact Range reads, listing visibility, remote Rebuild, and Metadata and Chunk transfer between two real PouchDB databases through the S3 adapter. Focused adapter tests separately exercise multi-page continuation. This remains a Commonlib adapter and synchronisation-core integration test; CLI and host end-to-end tests belong to their delivery stages.
+
 To test services that are already running, use `npm run test:integration`. The runner accepts `hostname`, `username`, and `password` for CouchDB, and `minioEndpoint`, `accessKey`, `secretKey`, and `bucketName` for S3-compatible storage. Without overrides, it uses the endpoints and test credentials from the managed Compose environment. The selected MinIO bucket must already exist when services are not managed by the runner.
 
 ## Messages and translation
@@ -115,7 +117,7 @@ Generated API reference is deferred until the compatibility export surface has b
 
 The proposed generated-reference allow-list is deliberately entry-based:
 
-- include `/adaptive-journal`, `/context`, `/browser`, `/node`, `/remote-configurations`, and `/settings`;
+- include `/adaptive-journal`, `/context`, `/browser`, `/journal-storage`, `/node`, `/remote-configurations`, and `/settings`;
 - exclude the root entry until `createLiveSyncFileClient` replaces `DirectFileManipulator` after the LiveSync 1.0 work;
 - leave possible `/setup-uri` and `/database-version` entries for later review rather than creating them to clean up imports before LiveSync 1.0; and
 - exclude `/rpc`, every `compat/*` path, and the metadata-only `package.json` export.

@@ -22,20 +22,22 @@ The recommended base currently selects a 50 MB maximum synchronised file size, R
 
 Compared with the conservative stored-setting fallbacks, the current new-Vault object has exactly two semantic differences:
 
-| Setting | Existing stored setting is absent | New Vault |
-| --- | --- | --- |
-| `usePluginSyncV2` | `false` | `true` |
-| `handleFilenameCaseSensitive` | normalised from the legacy absent value to `false` | `false` |
+| Setting                       | Existing stored setting is absent                  | New Vault |
+| ----------------------------- | -------------------------------------------------- | --------- |
+| `usePluginSyncV2`             | `false`                                            | `true`    |
+| `handleFilenameCaseSensitive` | normalised from the legacy absent value to `false` | `false`   |
 
 The other headline recommendations are already the conservative fallbacks: `syncMaxSizeInMB` is 50, `chunkSplitterVersion` is `v3-rabin-karp`, and `E2EEAlgorithm` is `v2`. Data Compression, Eden, V1 dynamic iteration, the legacy IndexedDB adapter, Hidden File Sync, and automatic synchronisation remain disabled when their stored values are absent. Explicit stored values take precedence.
+
+Object Storage profiles without the new Journal protocol fields retain the Opaque format and complete-pack retrieval. Adaptive Journal is never enabled as a new-Vault recommendation or an upgrade side effect. A host must record the user's explicit format and retrieval choice.
 
 Apply a remote-specific preferred object only while configuring that remote. Do not merge it into an existing stored configuration merely because the remote type can be inferred. The self-hosted CouchDB profile uses a chunk-size coefficient of 60, matching the Doctor check for Rabin–Karp databases; Cloudant retains its service-specific value of 0.
 
 | Explicitly selected remote | `customChunkSize` | `concurrencyOfReadChunksOnline` | `minimumIntervalOfReadChunksOnline` |
-| --- | ---: | ---: | ---: |
-| Cloudant | 0 | 100 | 333 |
-| Self-hosted CouchDB | 60 | 30 | 25 |
-| Object Storage | 10 | 30 | 25 |
+| -------------------------- | ----------------: | ------------------------------: | ----------------------------------: |
+| Cloudant                   |                 0 |                             100 |                                 333 |
+| Self-hosted CouchDB        |                60 |                              30 |                                  25 |
+| Object Storage             |                10 |                              30 |                                  25 |
 
 These are setup-time recommendations, not upgrade migrations. Selecting or detecting a remote does not apply them to an existing configuration unless the person is actively configuring that remote.
 
