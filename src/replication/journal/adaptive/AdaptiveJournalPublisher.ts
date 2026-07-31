@@ -99,12 +99,13 @@ export async function publishAdaptiveJournalMetadataBatchV1(
         writerStreamId: state.writerStreamId,
     });
     const chunkSources = requiredChunkSources(metadata.localChunkIds, options.chunks);
-    const chunkItems = await Promise.all(
-        chunkSources.map(async ({ data, localChunkId }) => ({
+    const chunkItems = [];
+    for (const { data, localChunkId } of chunkSources) {
+        chunkItems.push({
             localChunkId,
             record: await encodeAdaptiveJournalChunkRecordV1({ data, keys: options.keys, localChunkId }),
-        }))
-    );
+        });
+    }
     const chunks = await options.chunkDelivery.publish({
         items: chunkItems,
         sequence,

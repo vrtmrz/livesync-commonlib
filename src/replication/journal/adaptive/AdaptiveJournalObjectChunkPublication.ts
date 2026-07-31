@@ -1,3 +1,5 @@
+import { delay } from "octagonal-wheels/promises";
+
 import { bytesToBase64Url } from "./AdaptiveJournalBinary.ts";
 import { adaptiveJournalCommitObjectKeyV1, type AdaptiveJournalCatalogueV1 } from "./AdaptiveJournalCatalogue.ts";
 import { DEFAULT_ADAPTIVE_COMMIT_LIMITS_V1 } from "./AdaptiveJournalCommit.ts";
@@ -14,11 +16,9 @@ import {
     type AdaptiveJournalPackPublicationResultV1,
 } from "./AdaptiveJournalObjectRepository.ts";
 import type { AdaptiveJournalObjectRemoteV1 } from "./AdaptiveJournalObjectStore.ts";
-import {
-    buildAdaptiveJournalPackV1,
-    DEFAULT_ADAPTIVE_JOURNAL_PACK_LIMITS_V1,
-    type BuiltAdaptiveJournalPackV1,
-} from "./AdaptiveJournalPack.ts";
+import { buildAdaptiveJournalPackV1, DEFAULT_ADAPTIVE_JOURNAL_PACK_LIMITS_V1 } from "./AdaptiveJournalPack.ts";
+
+export const DEFAULT_ADAPTIVE_JOURNAL_OBJECT_PACK_TARGET_BYTES_V1 = 32 * 1024 * 1024;
 
 export type AdaptiveJournalCommittedPackCandidateV1 = AdaptiveJournalCommitPackV1;
 
@@ -37,26 +37,26 @@ export interface PublishAdaptiveJournalObjectChunksV1Options {
     inlinePackMaxBytes?: number;
     items: readonly AdaptiveJournalChunkPublicationItemV1[];
     keys: AdaptiveJournalKeySetV1;
-    packMaxBytes?: number;
+    packTargetBytes?: number;
     publicationCache?: AdaptiveJournalObjectPublicationCacheV1;
     remote: AdaptiveJournalObjectRemoteV1;
     sequence: bigint;
     writerStreamId: Uint8Array;
 }
 
-function packByteLimit(value: number | undefined): number {
-    const limit = value ?? DEFAULT_ADAPTIVE_JOURNAL_PACK_LIMITS_V1.maxPackBytes;
-    if (!Number.isSafeInteger(limit) || limit < 1 || limit > DEFAULT_ADAPTIVE_JOURNAL_PACK_LIMITS_V1.maxPackBytes) {
+function packByteTarget(value: number | undefined): number {
+    const target = value ?? DEFAULT_ADAPTIVE_JOURNAL_OBJECT_PACK_TARGET_BYTES_V1;
+    if (!Number.isSafeInteger(target) || target < 1 || target > DEFAULT_ADAPTIVE_JOURNAL_PACK_LIMITS_V1.maxPackBytes) {
         throw new RangeError(
-            `Adaptive Journal Pack limit must be between 1 and ${DEFAULT_ADAPTIVE_JOURNAL_PACK_LIMITS_V1.maxPackBytes}`
+            `Adaptive Journal Pack target must be between 1 and ${DEFAULT_ADAPTIVE_JOURNAL_PACK_LIMITS_V1.maxPackBytes}`
         );
     }
-    return limit;
+    return target;
 }
 
 function partitionPackItems(
     items: readonly AdaptiveJournalChunkPublicationItemV1[],
-    maxPackBytes: number
+    packTargetBytes: number
 ): readonly AdaptiveJournalChunkPublicationItemV1[][] {
     const sorted = [...items].sort((left, right) => {
         const leftKey = bytesToBase64Url(left.record.remoteChunkKey);
@@ -68,10 +68,10 @@ function partitionPackItems(
     let currentBytes = 0;
     for (const item of sorted) {
         const frameBytes = item.record.bytes.byteLength;
-        if (frameBytes > maxPackBytes) {
-            throw new AdaptiveJournalError("pack-limit-exceeded", "One Chunk frame exceeds the Pack byte limit");
+        if (frameBytes > DEFAULT_ADAPTIVE_JOURNAL_PACK_LIMITS_V1.maxPackBytes) {
+            throw new AdaptiveJournalError("pack-limit-exceeded", "One Chunk frame exceeds the Pack byte ceiling");
         }
-        if (current.length > 0 && currentBytes + frameBytes > maxPackBytes) {
+        if (current.length > 0 && currentBytes + frameBytes > packTargetBytes) {
             groups.push(current);
             current = [];
             currentBytes = 0;
@@ -97,7 +97,7 @@ export async function publishAdaptiveJournalObjectChunksV1(
     options: PublishAdaptiveJournalObjectChunksV1Options
 ): Promise<AdaptiveJournalObjectChunkPublicationOutcomeV1> {
     const maxInlinePackBytes = inlinePackLimit(options.inlinePackMaxBytes);
-    const maxPackBytes = packByteLimit(options.packMaxBytes);
+    const packTargetBytes = packByteTarget(options.packTargetBytes);
     const byKey = new Map<string, AdaptiveJournalChunkPublicationItemV1>();
     for (const item of options.items) {
         const key = bytesToBase64Url(item.record.remoteChunkKey);
@@ -118,11 +118,11 @@ export async function publishAdaptiveJournalObjectChunksV1(
         }
     }
     let chunkPacks = options.catalogue.routes(reusedKeys) ?? [];
-    let groups = partitionPackItems(missing, maxPackBytes);
+    let groups = partitionPackItems(missing, packTargetBytes);
     if (chunkPacks.length + groups.length > MAX_ADAPTIVE_JOURNAL_COMMIT_PACKS_V1) {
         chunkPacks = [];
         missing = [...byKey.values()];
-        groups = partitionPackItems(missing, maxPackBytes);
+        groups = partitionPackItems(missing, packTargetBytes);
     }
     if (groups.length > MAX_ADAPTIVE_JOURNAL_COMMIT_PACKS_V1) {
         throw new AdaptiveJournalError("commit-limit-exceeded", "Commit Chunk Pack count exceeds the v1 limit");
@@ -136,37 +136,55 @@ export async function publishAdaptiveJournalObjectChunksV1(
         };
     }
 
-    const packs: BuiltAdaptiveJournalPackV1[] = [];
-    for (const group of groups) {
-        packs.push(
-            await buildAdaptiveJournalPackV1({
-                chunks: group.map(({ record }) => ({ frame: record.bytes, key: record.remoteChunkKey })),
-                keys: options.keys,
-                limits: { maxPackBytes },
-            })
-        );
-    }
-    const inline = packs.length === 1 && packs[0].packBytes.byteLength <= maxInlinePackBytes;
-    if (inline) {
-        const pack = packs[0];
+    if (groups.length === 1) {
+        const pack = await buildAdaptiveJournalPackV1({
+            chunks: groups[0].map(({ record }) => ({ frame: record.bytes, key: record.remoteChunkKey })),
+            keys: options.keys,
+        });
+        if (pack.packBytes.byteLength <= maxInlinePackBytes) {
+            const route: AdaptiveJournalCommitPackV1 = {
+                container: "bundle",
+                entries: pack.entries,
+                objectKey: adaptiveJournalCommitObjectKeyV1(options.writerStreamId, options.sequence),
+                packBytes: pack.packBytes.byteLength,
+                packId: pack.packId,
+            };
+            return {
+                chunkPacks: [...chunkPacks, route],
+                committedPackCandidates: [route],
+                inlinePack: pack.packBytes,
+                requiredChunkKeys,
+                status: "ok",
+            };
+        }
+        const published = await publishAdaptiveJournalPackV1({
+            pack,
+            publicationCache: options.publicationCache,
+            remote: options.remote,
+        });
+        if (published.status !== "ok") return published;
         const route: AdaptiveJournalCommitPackV1 = {
-            container: "bundle",
-            entries: pack.entries,
-            objectKey: adaptiveJournalCommitObjectKeyV1(options.writerStreamId, options.sequence),
+            container: "pack",
+            entries: published.entries,
+            objectKey: published.packKey,
             packBytes: pack.packBytes.byteLength,
             packId: pack.packId,
         };
         return {
             chunkPacks: [...chunkPacks, route],
             committedPackCandidates: [route],
-            inlinePack: pack.packBytes,
             requiredChunkKeys,
             status: "ok",
         };
     }
 
     const routes: AdaptiveJournalCommitPackV1[] = [];
-    for (const pack of packs) {
+    for (let groupIndex = 0; groupIndex < groups.length; groupIndex += 1) {
+        const group = groups[groupIndex];
+        const pack = await buildAdaptiveJournalPackV1({
+            chunks: group.map(({ record }) => ({ frame: record.bytes, key: record.remoteChunkKey })),
+            keys: options.keys,
+        });
         const published = await publishAdaptiveJournalPackV1({
             pack,
             publicationCache: options.publicationCache,
@@ -180,6 +198,7 @@ export async function publishAdaptiveJournalObjectChunksV1(
             packBytes: pack.packBytes.byteLength,
             packId: pack.packId,
         });
+        if (groupIndex + 1 < groups.length) await delay(0);
     }
     return {
         chunkPacks: [...chunkPacks, ...routes],

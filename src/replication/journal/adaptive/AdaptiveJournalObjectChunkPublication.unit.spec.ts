@@ -7,8 +7,12 @@ import {
     adaptiveJournalPackObjectKeyV1,
 } from "./AdaptiveJournalCatalogue.ts";
 import { createAdaptiveJournalManifestV1 } from "./AdaptiveJournalManifest.ts";
-import { publishAdaptiveJournalObjectChunksV1 } from "./AdaptiveJournalObjectChunkPublication.ts";
+import {
+    DEFAULT_ADAPTIVE_JOURNAL_OBJECT_PACK_TARGET_BYTES_V1,
+    publishAdaptiveJournalObjectChunksV1,
+} from "./AdaptiveJournalObjectChunkPublication.ts";
 import type { AdaptiveJournalObjectListV1, AdaptiveJournalObjectRemoteV1 } from "./AdaptiveJournalObjectStore.ts";
+import { DEFAULT_ADAPTIVE_JOURNAL_PACK_LIMITS_V1 } from "./AdaptiveJournalPack.ts";
 import { encodeAdaptiveJournalChunkRecordV1 } from "./AdaptiveJournalPayload.ts";
 import type { ImmutableCreate, RemoteRead } from "./AdaptiveJournalRepository.ts";
 
@@ -36,6 +40,11 @@ class MemoryObjectRemote implements AdaptiveJournalObjectRemoteV1 {
 }
 
 describe("Adaptive Journal object Chunk publication", () => {
+    it("uses a mobile-conscious publication target below the wire-format ceiling", () => {
+        expect(DEFAULT_ADAPTIVE_JOURNAL_OBJECT_PACK_TARGET_BYTES_V1).toBe(32 * 1024 * 1024);
+        expect(DEFAULT_ADAPTIVE_JOURNAL_PACK_LIMITS_V1.maxPackBytes).toBe(256 * 1024 * 1024);
+    });
+
     it("packs only Chunks absent from the committed catalogue", async () => {
         const candidate = await createAdaptiveJournalManifestV1({
             encryption: "unencrypted",
@@ -174,6 +183,36 @@ describe("Adaptive Journal object Chunk publication", () => {
         expect([...remote.objects.keys()][0]).toMatch(/^a1~pack~/u);
     });
 
+    it("allows one Chunk frame to exceed the preferred Pack target", async () => {
+        const candidate = await createAdaptiveJournalManifestV1({
+            encryption: "unencrypted",
+            repositoryId: sequence(0x15),
+            securitySeed: sequence(0x85),
+        });
+        const chunk = await encodeAdaptiveJournalChunkRecordV1({
+            data: "larger than the test target",
+            keys: candidate.keys,
+            localChunkId: "h:large-frame" as DocumentID,
+        });
+        const remote = new MemoryObjectRemote();
+        const result = await publishAdaptiveJournalObjectChunksV1({
+            catalogue: new AdaptiveJournalCatalogueV1(),
+            inlinePackMaxBytes: 0,
+            items: [{ localChunkId: "h:large-frame" as DocumentID, record: chunk }],
+            keys: candidate.keys,
+            packTargetBytes: 1,
+            remote,
+            sequence: 1n,
+            writerStreamId: sequence(0x35),
+        });
+
+        expect(result).toMatchObject({
+            chunkPacks: [expect.objectContaining({ container: "pack", packBytes: chunk.bytes.byteLength })],
+            status: "ok",
+        });
+        expect(remote.objects.size).toBe(1);
+    });
+
     it("partitions a publication which exceeds one Pack", async () => {
         const candidate = await createAdaptiveJournalManifestV1({
             encryption: "unencrypted",
@@ -198,7 +237,7 @@ describe("Adaptive Journal object Chunk publication", () => {
                 { localChunkId: "h:partition-second" as DocumentID, record: second },
             ],
             keys: candidate.keys,
-            packMaxBytes: Math.max(first.bytes.byteLength, second.bytes.byteLength),
+            packTargetBytes: Math.max(first.bytes.byteLength, second.bytes.byteLength),
             remote,
             sequence: 1n,
             writerStreamId: sequence(0x34),
@@ -234,6 +273,31 @@ describe("Adaptive Journal object Chunk publication", () => {
                 remote: new MemoryObjectRemote(),
                 sequence: 1n,
                 writerStreamId: sequence(0x33),
+            })
+        ).rejects.toThrowError(RangeError);
+    });
+
+    it("rejects a preferred Pack target above the wire-format ceiling", async () => {
+        const candidate = await createAdaptiveJournalManifestV1({
+            encryption: "unencrypted",
+            repositoryId: sequence(0x16),
+            securitySeed: sequence(0x86),
+        });
+        const chunk = await encodeAdaptiveJournalChunkRecordV1({
+            data: "body",
+            keys: candidate.keys,
+            localChunkId: "h:target-limit" as DocumentID,
+        });
+
+        await expect(
+            publishAdaptiveJournalObjectChunksV1({
+                catalogue: new AdaptiveJournalCatalogueV1(),
+                items: [{ localChunkId: "h:target-limit" as DocumentID, record: chunk }],
+                keys: candidate.keys,
+                packTargetBytes: DEFAULT_ADAPTIVE_JOURNAL_PACK_LIMITS_V1.maxPackBytes + 1,
+                remote: new MemoryObjectRemote(),
+                sequence: 1n,
+                writerStreamId: sequence(0x36),
             })
         ).rejects.toThrowError(RangeError);
     });

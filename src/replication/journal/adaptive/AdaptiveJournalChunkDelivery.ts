@@ -59,7 +59,7 @@ export interface CreateAdaptiveJournalObjectChunkDeliveryV1Options {
     catalogue: AdaptiveJournalCatalogueV1;
     inlinePackMaxBytes?: number;
     keys: AdaptiveJournalKeySetV1;
-    packMaxBytes?: number;
+    packTargetBytes?: number;
     publicationCache?: AdaptiveJournalObjectPublicationCacheV1;
     remote: AdaptiveJournalObjectRemoteV1;
 }
@@ -77,7 +77,7 @@ export function createAdaptiveJournalObjectChunkDeliveryV1(
                 inlinePackMaxBytes: options.inlinePackMaxBytes,
                 items: context.items,
                 keys: options.keys,
-                packMaxBytes: options.packMaxBytes,
+                packTargetBytes: options.packTargetBytes,
                 publicationCache: options.publicationCache,
                 remote: options.remote,
                 sequence: context.sequence,

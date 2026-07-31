@@ -166,11 +166,10 @@ async function receiveWriter(
                 blocked(blocks, writerStreamId, INVALID_REMOTE, sequence);
                 break;
             }
-            const remoteChunkKeys = await Promise.all(
-                metadata.localChunkIds.map(
-                    async (localChunkId) => await deriveRemoteChunkKeyV1(options.keys, localChunkId)
-                )
-            );
+            const remoteChunkKeys: Uint8Array[] = [];
+            for (const localChunkId of metadata.localChunkIds) {
+                remoteChunkKeys.push(await deriveRemoteChunkKeyV1(options.keys, localChunkId));
+            }
             const required = await digestAdaptiveJournalRequiredChunkKeysV1(remoteChunkKeys);
             if (
                 bytesToBase64Url(required.digest) !== commit.payload.requiredChunkKeysDigest ||

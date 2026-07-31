@@ -34,30 +34,33 @@ async function prepareChunks(
     items: readonly AdaptiveJournalChunkPublicationItemV1[]
 ): Promise<readonly PreparedChunkV1[]> {
     const seen = new Set<string>();
-    return await Promise.all(
-        items.map(async ({ localChunkId, record }) => {
-            const decoded = await decodeAdaptiveJournalChunkRecordV1({
-                bytes: record.bytes,
-                keys,
-                localChunkId,
-            });
-            if (!bytesEqual(decoded.remoteChunkKey, record.remoteChunkKey) || !bytesEqual(decoded.frameDigest, record.digest)) {
-                throw new TypeError("Adaptive Journal Chunk frame does not match its publication metadata");
-            }
-            const keyText = bytesToBase64Url(record.remoteChunkKey);
-            if (seen.has(keyText)) throw new TypeError("Adaptive Journal Chunk publication contains a duplicate key");
-            seen.add(keyText);
-            return {
-                data: decoded.data,
-                localChunkId,
-                stored: {
-                    frame: record.bytes,
-                    frameDigest: record.digest,
-                    key: record.remoteChunkKey,
-                },
-            };
-        })
-    );
+    const prepared: PreparedChunkV1[] = [];
+    for (const { localChunkId, record } of items) {
+        const decoded = await decodeAdaptiveJournalChunkRecordV1({
+            bytes: record.bytes,
+            keys,
+            localChunkId,
+        });
+        if (
+            !bytesEqual(decoded.remoteChunkKey, record.remoteChunkKey) ||
+            !bytesEqual(decoded.frameDigest, record.digest)
+        ) {
+            throw new TypeError("Adaptive Journal Chunk frame does not match its publication metadata");
+        }
+        const keyText = bytesToBase64Url(record.remoteChunkKey);
+        if (seen.has(keyText)) throw new TypeError("Adaptive Journal Chunk publication contains a duplicate key");
+        seen.add(keyText);
+        prepared.push({
+            data: decoded.data,
+            localChunkId,
+            stored: {
+                frame: record.bytes,
+                frameDigest: record.digest,
+                key: record.remoteChunkKey,
+            },
+        });
+    }
+    return prepared;
 }
 
 async function validateExistingChunks(

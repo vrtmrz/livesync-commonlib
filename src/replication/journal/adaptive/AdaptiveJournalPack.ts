@@ -85,25 +85,24 @@ export async function buildAdaptiveJournalPackV1(
     if (options.chunks.length > limits.maxEntries) throw packLimit("Pack entry count exceeds its configured limit");
 
     const seen = new Set<string>();
-    const decoded = await Promise.all(
-        options.chunks.map(async (source) => {
-            const key = fixedLength(source.key, 32, "remote Chunk key").slice();
-            const keyHex = bytesToHex(key);
-            if (seen.has(keyHex)) throw invalidPack("A Pack cannot contain a duplicate remote Chunk key");
-            seen.add(keyHex);
-            const record = await decodeRecordFrameV1({
-                bytes: source.frame,
-                expectedKind: AdaptiveRecordKindV1.Chunk,
-                keys: options.keys,
-                logicalKey: key,
-            });
-            return {
-                frame: source.frame.slice(),
-                frameDigest: record.frameDigest,
-                key,
-            };
-        })
-    );
+    const decoded: { frame: Uint8Array; frameDigest: Uint8Array; key: Uint8Array }[] = [];
+    for (const source of options.chunks) {
+        const key = fixedLength(source.key, 32, "remote Chunk key").slice();
+        const keyHex = bytesToHex(key);
+        if (seen.has(keyHex)) throw invalidPack("A Pack cannot contain a duplicate remote Chunk key");
+        seen.add(keyHex);
+        const record = await decodeRecordFrameV1({
+            bytes: source.frame,
+            expectedKind: AdaptiveRecordKindV1.Chunk,
+            keys: options.keys,
+            logicalKey: key,
+        });
+        decoded.push({
+            frame: source.frame.slice(),
+            frameDigest: record.frameDigest,
+            key,
+        });
+    }
     decoded.sort((left, right) => compareBytes(left.key, right.key));
 
     const entries: AdaptiveJournalPackEntryV1[] = [];
