@@ -77,6 +77,8 @@ export class HeadlessServiceHub<T extends ServiceContext> extends InjectableServ
             database?: Constructor<DatabaseService<T>>;
             openKeyValueDatabase?: KeyValueDatabaseFactory;
             onDisplayLanguageChanged?: (language: ObsidianLiveSyncSettings["displayLanguage"]) => void;
+            /** Optional host capability when path obfuscation uses a secret distinct from content encryption. */
+            getPathObfuscationPassphrase?: () => string | false;
             /** Direct database clients do not run application-level replication or key-value database lifecycles. */
             databaseLifecycleMode?: "application" | "direct-access";
         }
@@ -110,6 +112,7 @@ export class HeadlessServiceHub<T extends ServiceContext> extends InjectableServ
         const databaseEvents = new InjectableDatabaseEventService(context);
         const path = new PathServiceCompat(context, {
             settingService: setting,
+            getPathObfuscationPassphrase: overrideServiceConstructor.getPathObfuscationPassphrase,
         });
         const database = new (overrideServiceConstructor.database ?? HeadlessDatabaseService<T>)(context, {
             pouchDB: overrideServiceConstructor.pouchDB,

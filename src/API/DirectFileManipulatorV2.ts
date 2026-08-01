@@ -166,6 +166,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         this.services = new HeadlessServiceHub(context, {
             pouchDB: PouchDB,
             database: this.getBoundDatabaseService(() => this.options, this.runtimeOptions),
+            getPathObfuscationPassphrase: () => this.options.obfuscatePassphrase ?? false,
             databaseLifecycleMode: "direct-access",
         });
 
@@ -497,7 +498,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 try {
                     docX = await this.getByMeta(doc);
                 } catch (ex) {
-                    Logger(`WATCH: DECRYPT FAILED: ${doc.path}`, LEVEL_INFO, "watch");
+                    Logger(`WATCH: DOCUMENT LOAD FAILED: ${doc.path}`, LEVEL_INFO, "watch");
                     Logger(ex, LEVEL_VERBOSE, "watch");
                     return;
                 }

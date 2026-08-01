@@ -1,12 +1,20 @@
 import { describe, expect, it, vi } from "vitest";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 
+import type { FilePath } from "@lib/common/types.ts";
+import { path2id_base } from "@lib/string_and_binary/path.ts";
 import type { HeadlessDatabaseService } from "@lib/services/implements/headless/HeadlessDatabaseService.ts";
 import { ServiceContext } from "@lib/services/base/ServiceBase.ts";
 
+const loggerCalls = vi.hoisted(() => vi.fn());
 const pouchDBCalls = vi.hoisted(
     () => [] as Array<{ name: string; options: PouchDB.Configuration.DatabaseConfiguration }>
 );
+
+vi.mock("octagonal-wheels/common/logger", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("octagonal-wheels/common/logger")>()),
+    Logger: loggerCalls,
+}));
 
 vi.mock("@lib/pouchdb/pouchdb-http.ts", () => ({
     PouchDB: class {
@@ -119,7 +127,26 @@ describe("DirectFileManipulator", () => {
         expect(settings.usePathObfuscation).toBe(true);
     });
 
-    it("keeps its watch callback contained when a changed document cannot be decrypted", async () => {
+    it("uses the dedicated path-obfuscation passphrase when it differs from the encryption passphrase", async () => {
+        const options: DirectFileManipulatorOptions = {
+            url: "https://example.com/couchdb",
+            database: "vault",
+            username: "alice",
+            password: "secret",
+            passphrase: "encryption-secret",
+            obfuscatePassphrase: "path-secret",
+            handleFilenameCaseSensitive: true,
+        };
+        const path = "note.md" as FilePath;
+        const manipulator = new DirectFileManipulator(options);
+        const expected = await path2id_base(path, "path-secret", false);
+        const encryptionDerived = await path2id_base(path, "encryption-secret", false);
+
+        await expect(manipulator.path2id(path)).resolves.toBe(expected);
+        expect(expected).not.toBe(encryptionDerived);
+    });
+
+    it("keeps its watch callback contained and reports a generic document-load failure", async () => {
         const changes = {
             on: vi.fn().mockReturnThis(),
             cancel: vi.fn(),
@@ -133,9 +160,10 @@ describe("DirectFileManipulator", () => {
                     changes: vi.fn(() => changes),
                 },
             },
-            getByMeta: vi.fn().mockRejectedValue(new Error("decryption failed")),
+            getByMeta: vi.fn().mockRejectedValue(new Error("chunk unavailable")),
         } as unknown as DirectFileManipulator;
 
+        loggerCalls.mockClear();
         DirectFileManipulator.prototype.beginWatch.call(manipulator, callback);
         const changeHandler = changes.on.mock.calls.find(([event]) => event === "change")?.[1] as
             | ((change: { doc: { type: "plain"; path: string }; seq: number }) => Promise<void>)
@@ -146,5 +174,10 @@ describe("DirectFileManipulator", () => {
             changeHandler({ doc: { type: "plain", path: "encrypted.md" }, seq: 1 })
         ).resolves.toBeUndefined();
         expect(callback).not.toHaveBeenCalled();
+        expect(loggerCalls).toHaveBeenCalledWith(
+            "WATCH: DOCUMENT LOAD FAILED: encrypted.md",
+            expect.anything(),
+            "watch"
+        );
     });
 });
