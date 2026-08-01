@@ -36,9 +36,17 @@ export function parseWebDAVConnectionURI(uriString: string): WebDAVConnection {
 
 /** Serialises WebDAV Journal connection fields for profile persistence. */
 export function serialiseWebDAVConnectionURI(connection: WebDAVConnection): string {
-    const endpoint = new URL(connection.endpoint);
+    let endpoint: URL;
+    try {
+        endpoint = new URL(connection.endpoint);
+    } catch {
+        throw new Error("Invalid WebDAV endpoint");
+    }
     if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
         throw new Error("WebDAV endpoint must use HTTP or HTTPS");
+    }
+    if (endpoint.username || endpoint.password) {
+        throw new Error("WebDAV endpoint must not include credentials");
     }
     if (endpoint.search || endpoint.hash) {
         throw new Error("WebDAV endpoint must not include a query or fragment");

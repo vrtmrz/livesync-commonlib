@@ -40,6 +40,7 @@ describe("WebDAV Journal connection URI", () => {
 
     it.each([
         "ftp://dav.example/files",
+        "https://embedded:top-secret@dav.example/files",
         "https://dav.example/files?token=secret",
         "https://dav.example/files#fragment",
     ])("rejects an endpoint which cannot be represented safely: %s", (endpoint) => {
