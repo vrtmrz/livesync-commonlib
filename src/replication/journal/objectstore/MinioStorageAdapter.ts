@@ -16,7 +16,8 @@ import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type BucketSyncSetting } from "@lib/common/types.ts";
 import { Logger } from "@lib/common/logger.ts";
 import type { RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";
-import { bytesEqual, bytesToHex } from "../adaptive/AdaptiveJournalBinary.ts";
+import { bytesToHex } from "../adaptive/AdaptiveJournalBinary.ts";
+import { probeAdaptiveJournalObjectCapabilitiesV1 } from "../adaptive/AdaptiveJournalObjectCapabilityProbe.ts";
 import type {
     AdaptiveJournalManifestRemoteV1,
     CapabilityVerification,
@@ -43,15 +44,6 @@ import { runWithTrackedPhysicalRequest } from "@lib/services/lib/remoteActivity.
 const ADAPTIVE_MANIFEST_KEY = "a1~manifest.json";
 const ADAPTIVE_PROBE_PREFIX = "a1~probe~";
 const ADAPTIVE_PROBE_SENTINEL = `${ADAPTIVE_PROBE_PREFIX}\u007f`;
-const ADAPTIVE_CAPABILITIES = new Set([
-    "binary-fidelity",
-    "byte-range",
-    "complete-listing",
-    "conditional-create",
-    "delete-visibility",
-    "read-after-write",
-]);
-
 type S3ErrorLike = {
     $metadata?: { httpStatusCode?: number };
     name?: string;
@@ -464,76 +456,12 @@ export class MinioStorageAdapter
     }
 
     private async probeCapabilities(required: readonly string[]): Promise<CapabilityVerification> {
-        const unsupported = required.filter((capability) => !ADAPTIVE_CAPABILITIES.has(capability));
-        if (unsupported.length > 0) return { status: "unsupported", missing: unsupported };
-
-        const key = this.makeCapabilityProbeKey();
-        const body = new Uint8Array([0x00, 0xff, 0x41, 0x80, 0x0a, 0x7f]);
-        const replacement = new Uint8Array([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0x11]);
-        const missing = new Set<string>();
-        let ownsProbe = false;
-        let failure: RemoteFailure | undefined;
-
-        const created = await this.createAdaptiveObject(key, body, "application/octet-stream");
-        if (created.status === "created") {
-            ownsProbe = true;
-        } else if (created.status === "failed") {
-            if (created.failure.retry === "verify-first") {
-                const verification = await this.readAdaptiveObject(key);
-                ownsProbe = verification.status === "found" && bytesEqual(verification.value, body);
-            }
-            if (!ownsProbe) failure = created.failure;
-        } else {
-            missing.add("conditional-create");
-        }
-
-        if (!failure && ownsProbe) {
-            const read = await this.readAdaptiveObject(key);
-            if (read.status === "failed") failure = read.failure;
-            else if (read.status !== "found" || !bytesEqual(read.value, body)) {
-                missing.add("binary-fidelity");
-                missing.add("read-after-write");
-            }
-
-            const listing = await this.listAdaptiveObjects(key);
-            if (listing.status === "failed") failure ??= listing.failure;
-            else if (!listing.keys.includes(key)) missing.add("complete-listing");
-
-            const second = await this.createAdaptiveObject(key, replacement, "application/octet-stream");
-            if (second.status === "failed") failure ??= second.failure;
-            else if (second.status !== "already-exists") missing.add("conditional-create");
-
-            const retained = await this.readAdaptiveObject(key);
-            if (retained.status === "failed") failure ??= retained.failure;
-            else if (retained.status !== "found" || !bytesEqual(retained.value, body)) {
-                missing.add("conditional-create");
-            }
-
-            if (required.includes("byte-range")) {
-                const ranged = await this.readAdaptiveObject(key, { length: 3, offset: 1 });
-                if (ranged.status === "failed") {
-                    if (ranged.failure.category === "invalid-response") missing.add("byte-range");
-                    else failure ??= ranged.failure;
-                } else if (ranged.status !== "found" || !bytesEqual(ranged.value, body.slice(1, 4))) {
-                    missing.add("byte-range");
-                }
-            }
-        }
-
-        if (ownsProbe) {
-            if (!(await this.deleteFiles([key]))) {
-                failure ??= { category: "unavailable", retry: "later" };
-            } else {
-                const deleted = await this.readAdaptiveObject(key);
-                if (deleted.status === "failed") failure ??= deleted.failure;
-                else if (deleted.status !== "missing") missing.add("delete-visibility");
-            }
-        }
-
-        if (failure) return { status: "failed", failure };
-        if (!ownsProbe) return { status: "unsupported", missing: [...missing] };
-        if (missing.size > 0) return { status: "unsupported", missing: [...missing] };
-        return { status: "verified" };
+        return await probeAdaptiveJournalObjectCapabilitiesV1({
+            makeProbeKey: () => this.makeCapabilityProbeKey(),
+            remote: this,
+            removeProbe: async (key) => await this.deleteFiles([key]),
+            required,
+        });
     }
 
     async verifyCapabilities(required: readonly string[]): Promise<CapabilityVerification> {
