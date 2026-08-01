@@ -202,5 +202,75 @@ describe("JournalSyncCore", () => {
 
             expect(listener).toHaveBeenCalledWith(expect.objectContaining({ _id: "h:chunk" }));
         });
+
+        it("does not apply Metadata when a Chunk write returns an error", async () => {
+            vi.spyOn(localDB, "bulkDocs").mockResolvedValueOnce([
+                {
+                    id: "h:chunk",
+                    error: "forbidden",
+                    status: 403,
+                    name: "forbidden",
+                    message: "forbidden",
+                },
+            ] as never);
+            const processReplication = vi.fn(async () => true);
+            core.processReplication = processReplication;
+
+            const applied = await core.processDocuments([
+                {
+                    _id: "h:chunk" as DocumentID,
+                    _rev: "1-chunk",
+                    type: "leaf",
+                    data: "chunk-data",
+                },
+                {
+                    _id: "remote_doc" as DocumentID,
+                    _rev: "1-remote",
+                    _revisions: { start: 1, ids: ["remote"] },
+                    type: "plain",
+                    path: "remote.md" as FilePathWithPrefix,
+                    children: ["h:chunk" as DocumentID],
+                    ctime: 1,
+                    mtime: 1,
+                    size: 10,
+                    eden: {},
+                } as PlainEntry,
+            ]);
+
+            expect(applied).toBe(false);
+            await expect(localDB.get("remote_doc")).rejects.toMatchObject({ status: 404 });
+            expect(processReplication).not.toHaveBeenCalled();
+        });
+
+        it("does not apply Metadata when the Chunk write throws", async () => {
+            vi.spyOn(localDB, "bulkDocs").mockRejectedValueOnce(new Error("Chunk database unavailable"));
+            const processReplication = vi.fn(async () => true);
+            core.processReplication = processReplication;
+
+            const applied = await core.processDocuments([
+                {
+                    _id: "h:chunk" as DocumentID,
+                    _rev: "1-chunk",
+                    type: "leaf",
+                    data: "chunk-data",
+                },
+                {
+                    _id: "remote_doc" as DocumentID,
+                    _rev: "1-remote",
+                    _revisions: { start: 1, ids: ["remote"] },
+                    type: "plain",
+                    path: "remote.md" as FilePathWithPrefix,
+                    children: ["h:chunk" as DocumentID],
+                    ctime: 1,
+                    mtime: 1,
+                    size: 10,
+                    eden: {},
+                } as PlainEntry,
+            ]);
+
+            expect(applied).toBe(false);
+            await expect(localDB.get("remote_doc")).rejects.toMatchObject({ status: 404 });
+            expect(processReplication).not.toHaveBeenCalled();
+        });
     });
 });

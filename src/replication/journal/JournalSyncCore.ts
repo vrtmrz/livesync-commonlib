@@ -664,13 +664,16 @@ export class JournalSyncCore {
                     .filter((e) => !existChunks.has(e._id))
                     .map((e) => ({ ...e, _rev: undefined as string | undefined }));
                 const ret = await this.db.bulkDocs<EntryDoc>(saveChunks, { new_edits: true });
-                const saveError = ret.filter((e) => "error" in e).map((e) => e.id);
+                const saveErrors = ret.filter((e) => "error" in e);
+                if (saveErrors.length > 0) {
+                    Logger(`Applying ${saveErrors.length} chunks failed`, LOG_LEVEL_INFO);
+                    Logger(saveErrors, LOG_LEVEL_VERBOSE);
+                    return false;
+                }
 
-                saveChunks
-                    .filter((e) => saveError.indexOf(e._id) === -1)
-                    .forEach((doc) =>
-                        this.env.services.context.events.emitEvent(REMOTE_CHUNK_FETCHED, doc as EntryLeaf)
-                    );
+                saveChunks.forEach((doc) =>
+                    this.env.services.context.events.emitEvent(REMOTE_CHUNK_FETCHED, doc as EntryLeaf)
+                );
 
                 await this.updateCheckPointInfo((info) => ({
                     ...info,
@@ -682,6 +685,7 @@ export class JournalSyncCore {
             } catch (ex) {
                 Logger(`Applying chunks failed`, LOG_LEVEL_INFO);
                 Logger(ex, LOG_LEVEL_VERBOSE);
+                return false;
             }
 
             // Docs saving.
