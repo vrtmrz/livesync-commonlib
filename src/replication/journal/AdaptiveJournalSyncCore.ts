@@ -67,6 +67,7 @@ interface OpenedAdaptiveJournalClientV1 {
     chunkDelivery: AdaptiveJournalChunkDeliveryV1;
     chunkReader: AdaptiveJournalChunkReaderV1;
     eventStore: AdaptiveJournalDiscoveryStoreV1;
+    objectStorage: AdaptiveObjectStorage;
     receiveState: AdaptiveJournalLocalReceiveStateV1;
     repository: OpenedAdaptiveJournalRepositoryV1;
     writerState: AdaptiveJournalLocalWriterStateStoreV1;
@@ -273,6 +274,7 @@ export class AdaptiveJournalSyncCore {
             chunkDelivery,
             chunkReader,
             eventStore,
+            objectStorage,
             receiveState,
             repository,
             writerState,
@@ -477,25 +479,29 @@ export class AdaptiveJournalSyncCore {
     }
 
     private async receiveRemoteJournalWith(opened: OpenedAdaptiveJournalClientV1): Promise<boolean> {
-        const outcome = await receiveAdaptiveJournalV1({
-            catalogueLoader: opened.catalogueLoader,
-            chunks: opened.chunkReader,
-            keys: opened.repository.keys,
-            remote: opened.eventStore,
-            sink: {
-                apply: async (batch) => await this.applyReceivedBatch(opened, batch),
-                frontier: async (writerStreamId) => await opened.receiveState.frontier(writerStreamId),
-                hasChunks: async (localChunkIds) => {
-                    const rows = await this.db.allDocs({ include_docs: false, keys: [...localChunkIds] });
-                    if (rows.rows.length !== localChunkIds.length) {
-                        throw new Error(
-                            "Local database returned an invalid Adaptive Journal Chunk availability result"
-                        );
-                    }
-                    return rows.rows.map((row, index) => "id" in row && row.id === localChunkIds[index]);
+        const receive = async () =>
+            await receiveAdaptiveJournalV1({
+                catalogueLoader: opened.catalogueLoader,
+                chunks: opened.chunkReader,
+                keys: opened.repository.keys,
+                remote: opened.eventStore,
+                sink: {
+                    apply: async (batch) => await this.applyReceivedBatch(opened, batch),
+                    frontier: async (writerStreamId) => await opened.receiveState.frontier(writerStreamId),
+                    hasChunks: async (localChunkIds) => {
+                        const rows = await this.db.allDocs({ include_docs: false, keys: [...localChunkIds] });
+                        if (rows.rows.length !== localChunkIds.length) {
+                            throw new Error(
+                                "Local database returned an invalid Adaptive Journal Chunk availability result"
+                            );
+                        }
+                        return rows.rows.map((row, index) => "id" in row && row.id === localChunkIds[index]);
+                    },
                 },
-            },
-        });
+            });
+        const outcome = opened.objectStorage.runAdaptiveJournalReceivePhase
+            ? await opened.objectStorage.runAdaptiveJournalReceivePhase(receive)
+            : await receive();
         if (outcome.status === "failed") return false;
         this.updateInfo({
             arrived: outcome.appliedBatches,

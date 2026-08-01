@@ -25,12 +25,14 @@ The package is ESM-only and declares Node 20 or later. Browser entry points are 
 | Entry point                                        | Intended use                                                                      | Current contract status                                                                     |
 | -------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `@vrtmrz/livesync-commonlib`                       | `DirectFileManipulator` for integrations which access CouchDB directly            | Deliberately small, but its high-level lifecycle and file-operation semantics are not final |
+| `@vrtmrz/livesync-commonlib/adaptive-journal`      | Transport-independent experimental Adaptive Journal protocol                      | Focused, package-tested experimental v1 contract                                            |
 | `@vrtmrz/livesync-commonlib/context`               | Instance-owned events, translation injection, and host-neutral standard-I/O types | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/browser`               | Rooted File System Access API storage                                             | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/node`                  | Rooted Node storage, Node standard I/O, and selected Node capabilities            | Supported platform façade; keeps Node-only dependencies behind an explicit boundary         |
 | `@vrtmrz/livesync-commonlib/rpc`                   | Existing LiveSync RPC and PouchDB bridge migration                                | Transitional only; not part of the stable Commonlib 1.0 contract                            |
 | `@vrtmrz/livesync-commonlib/remote-configurations` | Multiple-remote profile creation, naming, and selection                           | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/settings`              | New-Vault defaults, stored-setting fallbacks, and settings migration results      | Focused, package-tested pre-1.0 contract                                                    |
+| `@vrtmrz/livesync-commonlib/journal-storage`       | Host-facing S3-compatible and WebDAV Journal configuration primitives             | Focused, package-tested experimental provider boundary                                      |
 | `@vrtmrz/livesync-commonlib/compat/*`              | Exact legacy imports still required by existing clients                           | Migration-only; paths may be removed as consumers migrate                                   |
 | `@vrtmrz/livesync-commonlib/package.json`          | Package metadata for tooling                                                      | Metadata export, not a runtime API                                                          |
 
@@ -121,11 +123,11 @@ The experimental `/adaptive-journal` entry defines transport-independent v1 reco
 
 See [the Adaptive Journal protocol guide](docs/adaptive-journal.md) for repository identity, Metadata and Chunk separation, capability requirements, retry semantics, and host ownership.
 
-## S3-compatible Journal storage
+## Journal storage adapters
 
-The focused `/journal-storage` entry exposes S3-compatible Journal format and pack-retrieval settings without loading the concrete AWS SDK adapter. Existing Object Storage profiles remain on Opaque Journal unless they explicitly select the experimental Adaptive format. Commonlib detects mixed or mismatched remote data and requires a remote Rebuild rather than silently migrating it.
+The focused `/journal-storage` entry exposes S3-compatible and WebDAV Journal format and pack-retrieval settings without loading either concrete transport adapter. Existing Journal profiles remain on Opaque Journal unless they explicitly select the experimental Adaptive format. Commonlib detects mixed or mismatched remote data and requires a remote Rebuild rather than silently migrating it.
 
-The [S3-compatible delivery section](docs/adaptive-journal.md#s3-compatible-object-delivery) describes capability probing, immutable object publication, Range selection, request confirmation, prefix ownership, and the exact current verification scope.
+The [object delivery section](docs/adaptive-journal.md#object-delivery-adapters) describes capability probing, immutable object publication, Range selection, request confirmation, prefix ownership, request estimates, and the exact current verification scope.
 
 ## Contract scope
 

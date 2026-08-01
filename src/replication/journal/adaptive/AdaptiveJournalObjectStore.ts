@@ -13,4 +13,9 @@ export interface AdaptiveJournalObjectRemoteV1 {
     createAdaptiveObject(key: string, bytes: Uint8Array, mime: string): Promise<ImmutableCreate>;
     listAdaptiveObjects(prefix: string): Promise<AdaptiveJournalObjectListV1>;
     readAdaptiveObject(key: string, range?: AdaptiveJournalByteRangeV1): Promise<RemoteRead<Uint8Array>>;
+    /**
+     * Optionally scopes provider-specific discovery reuse to one receive phase.
+     * The provider must discard any listing snapshot before the next invocation.
+     */
+    runAdaptiveJournalReceivePhase?<T>(task: () => Promise<T>): Promise<T>;
 }

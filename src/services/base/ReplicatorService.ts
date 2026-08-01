@@ -9,7 +9,7 @@ import { UnresolvedErrorManager } from "./UnresolvedErrorManager";
 import { yieldMicrotask } from "octagonal-wheels/promises";
 import type { DatabaseEventService } from "./DatabaseEventService";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/logger";
-import { RemoteTypes } from "@lib/common/types";
+import { RemoteTypes, hasConfiguredRemote } from "@lib/common/types";
 import { DEFAULT_REPLICATION_STATICS } from "@lib/common/models/shared.definition";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import {
@@ -48,7 +48,10 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     ) {
         super(context);
         this.appLifecycleService = dependencies.appLifecycleService;
-        this._unresolvedErrorManager = new UnresolvedErrorManager(dependencies.appLifecycleService, this.context.events);
+        this._unresolvedErrorManager = new UnresolvedErrorManager(
+            dependencies.appLifecycleService,
+            this.context.events
+        );
         this.settingService = dependencies.settingService;
         this.databaseEventService = dependencies.databaseEventService;
         if (dependencies.registerLifecycleHandlers ?? true) {
@@ -138,16 +141,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
             return true;
         }
         const replicatorType = setting.remoteType;
-        const isCouchDBConfigured =
-            replicatorType === RemoteTypes.REMOTE_COUCHDB &&
-            !!setting.couchDB_URI?.trim() &&
-            !!setting.couchDB_DBNAME?.trim();
-        const isMinioConfigured =
-            replicatorType === RemoteTypes.REMOTE_MINIO && !!setting.endpoint?.trim() && !!setting.bucket?.trim();
-        const isP2PEnabled = replicatorType === RemoteTypes.REMOTE_P2P && setting.P2P_Enabled;
-        const hasReplicatorConfig = isCouchDBConfigured || isMinioConfigured || isP2PEnabled;
-
-        if (!hasReplicatorConfig) {
+        if (!hasConfiguredRemote(setting)) {
             this._activeReplicator = undefined;
             this._replicatorType = undefined;
             this._unresolvedErrorManager.clearError(message);

@@ -43,6 +43,7 @@ class MemoryAdaptiveObjectStorage
     implements IJournalStorage, AdaptiveJournalManifestRemoteV1, AdaptiveJournalObjectRemoteV1
 {
     readonly adaptiveReads: Array<{ key: string; range?: AdaptiveJournalByteRangeV1 }> = [];
+    receivePhases = 0;
     readonly storageIdentity: string;
 
     readonly kind = "s3" as const;
@@ -116,6 +117,11 @@ class MemoryAdaptiveObjectStorage
         this.remote.manifest = undefined;
         this.remote.objects.clear();
         return true;
+    }
+
+    async runAdaptiveJournalReceivePhase<T>(task: () => Promise<T>): Promise<T> {
+        this.receivePhases += 1;
+        return await task();
     }
 
     async upload(_key: string, _data: Uint8Array, _mime: string): Promise<boolean> {
@@ -285,6 +291,7 @@ describe("AdaptiveJournalSyncCore", () => {
                 type: "leaf",
             });
             expect(received).toHaveBeenCalledOnce();
+            expect(receiverStorage.receivePhases).toBe(1);
             expect(remote.manifest).toBeDefined();
             const objectKeys = [...remote.objects.keys()];
             expect(objectKeys.filter((key) => /^a1~writer~/u.test(key))).toHaveLength(2);

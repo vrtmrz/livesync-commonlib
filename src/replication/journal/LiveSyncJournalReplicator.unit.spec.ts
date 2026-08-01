@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_SETTINGS, REMOTE_MINIO } from "@lib/common/types.ts";
+import { DEFAULT_SETTINGS, REMOTE_MINIO, REMOTE_WEBDAV } from "@lib/common/types.ts";
 import { AdaptiveJournalSyncCore } from "./AdaptiveJournalSyncCore.ts";
 import { JournalSyncCore } from "./JournalSyncCore.ts";
 import { LiveSyncJournalReplicator } from "./LiveSyncJournalReplicator.ts";
@@ -61,6 +61,19 @@ describe("LiveSyncJournalReplicator S3 Journal selection", () => {
         expect(adaptive).toBeInstanceOf(AdaptiveJournalSyncCore);
         expect(adaptive).not.toBe(opaque);
         expect(adaptive.storage).toBe(opaque.storage);
+    });
+
+    it("selects WebDAV storage while retaining the default Opaque Journal format", () => {
+        const replicator = makeReplicatorWithSettings({
+            ...DEFAULT_SETTINGS,
+            remoteType: REMOTE_WEBDAV,
+            webDAVactiveConnectionURI: "sls+webdav://example.invalid/dav",
+        });
+
+        const client = replicator.setupJournalSyncClient();
+
+        expect(client).toBeInstanceOf(JournalSyncCore);
+        expect(client.storage.kind).toBe("webdav");
     });
 
     it("retries local host ID initialisation after an early failure", async () => {

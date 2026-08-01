@@ -137,6 +137,7 @@ export const SETTINGS_SCHEMA_DEFAULTS: ObsidianLiveSyncSettings = {
     endpoint: "",
     region: "auto",
     secretKey: "",
+    webDAVactiveConnectionURI: "",
     useEden: false,
     maxChunksInEden: 10,
     maxTotalLengthInEden: 1024,

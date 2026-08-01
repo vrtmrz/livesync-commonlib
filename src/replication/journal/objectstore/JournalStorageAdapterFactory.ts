@@ -6,6 +6,7 @@ import {
     type JournalStorageRemoteFormatV1,
 } from "./JournalStorageAdapter.ts";
 import { MinioStorageAdapter } from "./MinioStorageAdapter.ts";
+import { WebDAVStorageAdapter } from "./WebDAVStorageAdapter.ts";
 import {
     getJournalRemoteDisplayName,
     journalProtocolConfigurationForSettings,
@@ -26,6 +27,8 @@ export function createJournalStorageAdapter(
     switch (journalStorageKindForRemoteType(settings.remoteType)) {
         case "s3":
             return new MinioStorageAdapter(settings, env);
+        case "webdav":
+            return new WebDAVStorageAdapter(settings, env);
     }
 }
 

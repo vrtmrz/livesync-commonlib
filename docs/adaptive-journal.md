@@ -39,7 +39,9 @@ The host remains responsible for durable local binding storage, credentials, rem
 
 Adaptive and Opaque Journal data formats are deliberately distinct. A host must detect a format mismatch and require an explicit remote Rebuild; the v1 protocol does not migrate remote data between formats.
 
-## S3-compatible object delivery
+## Object delivery adapters
+
+### S3-compatible storage
 
 S3-compatible Object Storage is the reference adapter for the object profile. Existing Object Storage settings remain on `opaque-v1` when the new protocol fields are absent. A host opts into Adaptive Journal by setting `journalFormat` to `adaptive-v1`:
 
@@ -77,11 +79,19 @@ A remote Rebuild removes every object under the configured prefix, including Opa
 
 `whole-pack` is the portable retrieval policy. `range` can reduce transferred bytes when the service implements exact Range semantics, but it may add requests and latency. The setting records the user's deployment-specific choice; the capability probe establishes correctness rather than benchmarking or recommending a policy.
 
+### WebDAV storage
+
+The experimental WebDAV adapter applies the same Opaque and Adaptive Journal formats to a dedicated DAV collection. The focused `/journal-storage` entry exports `REMOTE_WEBDAV` and `WebDAVSyncSetting`; connection-URI construction during setup, credential acquisition, persistence, and presentation remain host responsibilities.
+
+Adaptive immutable objects use `PUT` with `If-None-Match: *`. The adapter accepts an acknowledged successful response without an immediate confirmation read, maps an ambiguous mutation to `verify-first`, and requires an exact `206` response, length, and `Content-Range` when Range retrieval is selected. Its non-destructive safety check uses an owned random object to prove the same required semantics as the S3 adapter and removes only that object. A server which ignores conditional creation or Range is reported as unsupported for the affected policy rather than being accepted from its method names alone.
+
+WebDAV has no portable multi-prefix listing operation. One receive phase therefore obtains one complete Depth-one `PROPFIND` result, reuses that immutable discovery snapshot for Writer and Commit prefixes, and discards it before the next receive phase. This reduces request latency without hiding objects from a later poll. RFC 4331 quota properties are optional diagnostics: their absence means that quota is unknown, not that the server is incompatible.
+
 ## Request model and Chunk size
 
 Adaptive Journal does not currently justify a smaller default Chunk size than Opaque Journal. The existing Journal Sync preset remains the starting point. With the current V3 splitter, its `customChunkSize` value of `10` places the binary maximum at about 1.1 MB, while the content-defined target is about 1 MiB. Several newly required Chunks in one Metadata batch share one Pack, so making Chunks smaller does not normally add S3 writes. It does increase local records, hashing work, Bundle route entries, and Range requests. Each Chunk record also has a 64-byte unencrypted or 92-byte encrypted frame overhead before payload compression. Route bytes use canonical JSON inside the authenticated Commit control record, so their compressed wire size is data-dependent rather than a fixed per-entry value. Text splitting follows different, much smaller targets, so the binary examples below do not predict text behaviour.
 
-The following request estimates describe the current S3 object-profile implementation, not benchmark results or a service guarantee. They assume a settled repository, one-page listings, acknowledged first attempts, and no format inspection, manifest access, capability probe, credential exchange, retry, or pagination. A complete `sync` performs the receive phase before the publication phase, but publication and later catch-up are shown separately because an editing device commonly publishes several changes before another device next receives them.
+The following request estimates describe the current S3 and WebDAV object-profile implementations, not benchmark results or a service guarantee. They assume a settled repository, one-page listings, acknowledged first attempts, and no format inspection, manifest access, capability probe, credential exchange, retry, or pagination. A complete `sync` performs the receive phase before the publication phase, but publication and later catch-up are shown separately because an editing device commonly publishes several changes before another device next receives them.
 
 Let:
 
@@ -111,27 +121,31 @@ If changes coalesce before synchronisation, both `B` and `J` may be much smaller
 
 ### Later catch-up on a receiving device
 
-One Opaque catch-up costs approximately one listing plus one read per new journal object, or `1 + J`. One Adaptive catch-up performs one Writer listing, one Commit listing per visible Writer, and one read for each previously unseen Writer descriptor. Each new batch then requires one Commit Bundle read. That single physical read supplies the logical Commit and Metadata records and, when present, the current inline Pack.
+One Opaque catch-up costs approximately one listing plus one read per new journal object, or `1 + J`. On S3, one Adaptive catch-up performs one Writer listing and one Commit listing per visible Writer. On WebDAV, the receive-phase listing replaces those `1 + W` prefix listings with one complete Depth-one listing. Both adapters read each previously unseen Writer descriptor. Each new batch then requires one Commit Bundle read. That single physical read supplies the logical Commit and Metadata records and, when present, the current inline Pack.
 
-| Retrieval policy | Approximate Adaptive catch-up operations |
-| ---------------- | ---------------------------------------: |
-| `whole-pack`     |                      `1 + W + K + B + P` |
-| `range`          |                      `1 + W + K + B + M` |
+| Provider | Retrieval policy | Approximate Adaptive catch-up operations |
+| -------- | ---------------- | ---------------------------------------: |
+| S3       | `whole-pack`     |                      `1 + W + K + B + P` |
+| S3       | `range`          |                      `1 + W + K + B + M` |
+| WebDAV   | `whole-pack`     |                          `1 + K + B + P` |
+| WebDAV   | `range`          |                          `1 + K + B + M` |
 
 `P` can refer to an external Pack or to an earlier Commit Bundle containing a reused inline Pack. The default Bundle cache retains at most 64 entries and 64 MiB; an evicted Bundle is read again if a later route needs its inline Pack. A host-provided Pack cache can similarly reduce repeated external Pack reads. The receiver checks its local Chunk database after decoding Metadata and before making an additional Pack or Range request. If every required Chunk is already local, the batch contributes no `P` or `M` term. The current Bundle is still read because it is the source of the Commit and Metadata records.
 
-A successful immutable Writer descriptor read is also reused while the same repository remains open; a missing or failed read is not cached. For one established Writer, an unchanged poll therefore costs three discovery operations the first time that Writer is encountered and two on later polls in the same process. Providers with native multi-key reads may coalesce parts of these terms; the formula above counts S3 object operations.
+A successful immutable Writer descriptor read is also reused while the same repository remains open; a missing or failed read is not cached. For one established Writer, an unchanged S3 poll therefore costs three discovery operations the first time that Writer is encountered and two on later polls in the same process. The corresponding WebDAV counts are two and one. Providers with native multi-key reads may coalesce parts of these terms.
 
 As an illustrative model, assume 100 Adaptive batches and 100 Opaque objects are published before another device catches up once. The first Adaptive catch-up has one visible uncached Writer; the warm case has its descriptor cached.
 
-| Scenario                                                      | Opaque Journal | Adaptive publication | Adaptive catch-up, first / warm Writer |
-| ------------------------------------------------------------- | -------------: | -------------------: | -------------------------------------: |
-| Every new Pack fits in its current Bundle                     |     100 writes |           100 writes |                   103 / 102 operations |
-| Every new Pack is external and must be read                   |     100 writes |           200 writes |                   203 / 202 operations |
-| Every new Pack is external, but all required Chunks are local |     100 writes |           200 writes |                   103 / 102 operations |
-| Every batch creates two external Packs which must be read     |     100 writes |           300 writes |                   303 / 302 operations |
+| Scenario                                                      | Opaque Journal | Adaptive publication | S3 catch-up, first / warm Writer | WebDAV catch-up, first / warm Writer |
+| ------------------------------------------------------------- | -------------: | -------------------: | -------------------------------: | -----------------------------------: |
+| Every new Pack fits in its current Bundle                     |     100 writes |           100 writes |             103 / 102 operations |                 102 / 101 operations |
+| Every new Pack is external and must be read                   |     100 writes |           200 writes |             203 / 202 operations |                 202 / 201 operations |
+| Every new Pack is external, but all required Chunks are local |     100 writes |           200 writes |             103 / 102 operations |                 102 / 101 operations |
+| Every batch creates two external Packs which must be read     |     100 writes |           300 writes |             303 / 302 operations |                 302 / 301 operations |
 
 The corresponding Opaque catch-up is approximately 101 operations under these assumptions. This comparison deliberately holds `B = J = 100`; Opaque batching can make `J` smaller. It also excludes the one-time repository manifest and Writer registration.
+
+The WebDAV model assumes a deployment where capacity or a fixed service plan is more important than direct per-request pricing. That is a planning hypothesis, not a property of WebDAV or a promise about a provider. A complete listing also transfers XML proportional to retained object count: at an illustrative average of 1 KiB per response entry, 10,000 retained objects produce about 10 MiB of listing XML, and 100,000 produce about 100 MiB. The single-listing optimisation reduces round trips, but it does not remove this bandwidth, parsing, memory, or immutable-history cost.
 
 For a rough byte model, consider 100 separately published, localised edits to an incompressible 10 MiB binary file. If content-defined splitting resumes after one changed Chunk, an average changed Chunk of 1 MiB contributes about 100 MiB of new payload across the 100 Bundles, while 256 KiB contributes about 25 MiB, before Metadata, routes, and framing. Both fit comfortably below the inline limit when each batch changes one Chunk, so the request counts remain the first row of the table. The same PouchDB Chunk split feeds both Journal formats, so this byte reduction is not an Adaptive-only saving.
 
@@ -139,4 +153,4 @@ Larger Chunks reduce route count and Range requests, but they increase transferr
 
 ## Verification scope
 
-Commonlib owns deterministic fixture generation and focused tests for the manifest, record encodings, Commit Bundles, object Packs, derived Catalogues, publication recovery, receive frontiers, repository identity, and both delivery contracts. The S3 adapter adds focused SDK-command tests and managed MinIO integration. CLI composition and maintained-host behaviour require separate tests. See [Proven in maintained hosts](proven-in-use.md) for the current evidence boundary.
+Commonlib owns deterministic fixture generation and focused tests for the manifest, record encodings, Commit Bundles, object Packs, derived Catalogues, publication recovery, receive frontiers, repository identity, and both delivery contracts. The S3 adapter adds focused SDK-command tests and managed MinIO integration. The WebDAV adapter adds focused HTTP-semantic tests and managed Apache DAV integration. CLI composition and maintained-host behaviour require separate tests. See [Proven in maintained hosts](proven-in-use.md) for the current evidence boundary.

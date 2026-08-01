@@ -12,7 +12,9 @@ The focused `/adaptive-journal` entry is established by Commonlib-owned determin
 
 The S3-compatible delivery stage adds focused tests for SDK request semantics, pagination, format detection, conditional creation, ambiguous-write classification, Range validation, capability-probe caching, and remote Rebuild. The managed MinIO suite covers the real adapter contract and transfers Opaque Journal packs and Adaptive Commit Bundles and Chunks between two PouchDB databases.
 
-This is Commonlib protocol and S3 integration evidence rather than maintained-host adoption. CLI composition, host settings, and real-host end-to-end validation remain separate delivery stages. The entries therefore remain experimental even though their v1 invariants, browser-safe configuration boundary, and exact package exports are checked.
+The WebDAV delivery stage adds focused tests for physical HTTP activity, native-to-web fallback, collection and path boundaries, conditional creation, ambiguous-write classification, exact Range validation, capability checking, receive-phase listing reuse, format detection, quota diagnostics, and remote Rebuild. The managed Apache DAV suite covers Opaque object operations and the real Adaptive adapter semantics. It does not yet establish CLI composition, Metadata and Chunk transfer through a maintained host, or real-host behaviour.
+
+This is Commonlib protocol, S3 integration, and WebDAV adapter evidence rather than maintained-host adoption. CLI composition, host settings, and real-host end-to-end validation remain separate delivery stages. The entries therefore remain experimental even though their v1 invariants, browser-safe configuration boundary, and exact package exports are checked.
 
 ## Obsidian plug-in
 

@@ -1,10 +1,10 @@
 import type { RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";
-import type { BucketSyncSetting, RemoteDBSettings } from "@lib/common/types.ts";
+import type { BucketSyncSetting, RemoteDBSettings, WebDAVSyncSetting } from "@lib/common/types.ts";
 import type { CapabilityVerification } from "../adaptive/AdaptiveJournalRepository.ts";
 
-export type JournalStorageKind = "s3";
+export type JournalStorageKind = "s3" | "webdav";
 export type JournalStorageRemoteFormatV1 = "adaptive-v1" | "empty" | "mixed" | "opaque-v1";
-export type JournalStorageSetting = BucketSyncSetting | RemoteDBSettings;
+export type JournalStorageSetting = BucketSyncSetting | RemoteDBSettings | WebDAVSyncSetting;
 
 export interface IJournalStorage {
     readonly kind: JournalStorageKind;

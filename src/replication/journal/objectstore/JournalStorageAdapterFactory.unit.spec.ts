@@ -1,10 +1,18 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_SETTINGS, REMOTE_MINIO, type RemoteDBSettings } from "@lib/common/types.ts";
+import {
+    DEFAULT_SETTINGS,
+    REMOTE_MINIO,
+    REMOTE_WEBDAV,
+    hasConfiguredRemote,
+    isJournalRemoteType,
+    type RemoteDBSettings,
+} from "@lib/common/types.ts";
 import type { LiveSyncJournalReplicatorEnv } from "../LiveSyncJournalReplicatorEnv.ts";
 import type { IJournalStorage } from "./JournalStorageAdapter.ts";
 import {
     createJournalStorageAdapter,
+    getJournalRemoteDisplayName,
     inspectJournalStorageConnectivity,
     isJournalStorageAdapterCompatible,
     testJournalStorageConnectivity,
@@ -20,13 +28,57 @@ function s3Settings(overrides: Partial<RemoteDBSettings> = {}): RemoteDBSettings
     } as RemoteDBSettings;
 }
 
-describe("JournalStorageAdapterFactory S3 support", () => {
+function webDAVSettings(overrides: Partial<RemoteDBSettings> = {}): RemoteDBSettings {
+    return {
+        ...DEFAULT_SETTINGS,
+        remoteType: REMOTE_WEBDAV,
+        webDAVactiveConnectionURI:
+            "sls+webdav://user:secret@example.invalid/remote.php/dav?prefix=vault%2F&insecure=true",
+        ...overrides,
+    } as RemoteDBSettings;
+}
+
+describe("JournalStorageAdapterFactory", () => {
     it("creates the S3 adapter and recognises its provider contract", () => {
         const settings = s3Settings();
         const storage = createJournalStorageAdapter(settings, env);
 
         expect(storage.kind).toBe("s3");
         expect(isJournalStorageAdapterCompatible(storage, settings)).toBe(true);
+    });
+
+    it("creates the WebDAV adapter and exposes a non-secret display name", () => {
+        const settings = webDAVSettings();
+        const storage = createJournalStorageAdapter(settings, env);
+
+        expect(storage.kind).toBe("webdav");
+        expect(isJournalStorageAdapterCompatible(storage, settings)).toBe(true);
+        expect(getJournalRemoteDisplayName(settings)).toBe("http://example.invalid/remote.php/dav");
+        expect(
+            getJournalRemoteDisplayName(webDAVSettings({ webDAVactiveConnectionURI: "sls+webdav:example.invalid/dav" }))
+        ).toBe("WebDAV");
+    });
+
+    it("does not treat an adapter for a different provider as compatible", () => {
+        const storage = createJournalStorageAdapter(s3Settings(), env);
+
+        expect(isJournalStorageAdapterCompatible(storage, webDAVSettings())).toBe(false);
+    });
+
+    it("requires connection fields belonging to the selected remote type", () => {
+        expect(hasConfiguredRemote(webDAVSettings())).toBe(true);
+        expect(
+            hasConfiguredRemote(
+                webDAVSettings({
+                    bucket: "unrelated-bucket",
+                    endpoint: "https://s3.example.invalid",
+                    webDAVactiveConnectionURI: "",
+                })
+            )
+        ).toBe(false);
+        expect(isJournalRemoteType(REMOTE_MINIO)).toBe(true);
+        expect(isJournalRemoteType(REMOTE_WEBDAV)).toBe(true);
+        expect(isJournalRemoteType(DEFAULT_SETTINGS.remoteType)).toBe(false);
     });
 
     it("rejects a remote type which this delivery does not implement", () => {

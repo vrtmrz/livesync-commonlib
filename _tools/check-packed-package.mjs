@@ -172,9 +172,12 @@ import {
 } from "${packageName}/adaptive-journal";
 import {
     REMOTE_MINIO,
+    REMOTE_WEBDAV,
+    isJournalRemoteType,
     journalProtocolConfigurationForSettings,
     type JournalFormatV1,
     type RemoteDBSettings,
+    type WebDAVSyncSetting,
 } from "${packageName}/journal-storage";
 
 const options: ServiceContextOptions = { translate: (key) => \`translated:\${key}\` };
@@ -212,6 +215,11 @@ const journalSettings = {
     packReadPolicy: "range",
 } as RemoteDBSettings;
 const journalProtocol = journalProtocolConfigurationForSettings(journalSettings);
+const webDAVSettings: WebDAVSyncSetting = {
+    webDAVactiveConnectionURI: "sls+webdav://example.invalid/dav",
+};
+const webDAVRemoteType = REMOTE_WEBDAV;
+const isJournalRemote = isJournalRemoteType(REMOTE_WEBDAV);
 void context;
 void contextContract;
 void untranslated;
@@ -236,6 +244,9 @@ void adaptiveManifestFactory;
 void adaptiveRepositoryIdFactory;
 void adaptiveChunkKind;
 void journalProtocol;
+void webDAVSettings;
+void webDAVRemoteType;
+void isJournalRemote;
 `
 );
 await writeConsumerFile(
@@ -285,6 +296,9 @@ assert.equal(typeof adaptiveJournalApi.createAdaptiveJournalManifestV1, "functio
 assert.equal(typeof adaptiveJournalApi.generateAdaptiveJournalRepositoryIdV1, "function");
 assert.equal(typeof adaptiveJournalApi.AdaptiveRecordKindV1.Chunk, "number");
 assert.equal(journalStorageApi.REMOTE_MINIO, "MINIO");
+assert.equal(journalStorageApi.REMOTE_WEBDAV, "WEBDAV");
+assert.equal(journalStorageApi.journalStorageKindForRemoteType(journalStorageApi.REMOTE_WEBDAV), "webdav");
+assert.equal(journalStorageApi.isJournalRemoteType(journalStorageApi.REMOTE_WEBDAV), true);
 assert.deepEqual(
     journalStorageApi.journalProtocolConfigurationForSettings({
         remoteType: journalStorageApi.REMOTE_MINIO,
@@ -365,9 +379,10 @@ await writeConsumerFile(
 );
 await writeConsumerFile(
     "browser-journal-storage.ts",
-    `import { REMOTE_MINIO, journalStorageKindForRemoteType } from "${packageName}/journal-storage";
+    `import { REMOTE_MINIO, REMOTE_WEBDAV, journalStorageKindForRemoteType } from "${packageName}/journal-storage";
 
 document.body.dataset.journalStorage = journalStorageKindForRemoteType(REMOTE_MINIO);
+document.body.dataset.webdavJournalStorage = journalStorageKindForRemoteType(REMOTE_WEBDAV);
 `
 );
 

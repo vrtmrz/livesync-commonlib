@@ -1,5 +1,5 @@
 import { FlagFilesHumanReadable } from "@lib/common/models/redflag.const";
-import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
+import { REMOTE_COUCHDB, REMOTE_P2P, isJournalRemoteType } from "@lib/common/models/setting.const";
 import { DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
 import type { IFileHandler } from "@lib/interfaces/FileHandler";
 import type { APIService } from "@lib/services/base/APIService";
@@ -266,7 +266,7 @@ Please enable them from the settings screen after setup is complete.`,
     async suspendReflectingDatabase(ignoreMinIO: boolean = false) {
         const settings = this.setting.currentSettings();
         if (settings.doNotSuspendOnFetching) return;
-        if (!ignoreMinIO && settings.remoteType == REMOTE_MINIO) return;
+        if (!ignoreMinIO && isJournalRemoteType(settings.remoteType)) return;
         this._log(
             `Suspending reflection: Database and storage changes will not be reflected in each other until completely finished the fetching.`,
             LOG_LEVEL_NOTICE
@@ -280,7 +280,7 @@ Please enable them from the settings screen after setup is complete.`,
     async resumeReflectingDatabase(ignoreMinIO: boolean = false) {
         const settings = this.setting.currentSettings();
         if (settings.doNotSuspendOnFetching) return;
-        if (!ignoreMinIO && settings.remoteType == REMOTE_MINIO) return;
+        if (!ignoreMinIO && isJournalRemoteType(settings.remoteType)) return;
         this._log(`Database and storage reflection has been resumed!`, LOG_LEVEL_NOTICE);
         await this.setting.applyPartial({
             suspendParseReplicationResult: false,

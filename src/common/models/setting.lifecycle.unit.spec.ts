@@ -115,6 +115,7 @@ describe("prepareSettingsForLoad", () => {
         expect(SETTINGS_SCHEMA_DEFAULTS.journalFormat).toBe("opaque-v1");
         expect(SETTINGS_SCHEMA_DEFAULTS.expectedRepositoryId).toBe("");
         expect(SETTINGS_SCHEMA_DEFAULTS.packReadPolicy).toBe("whole-pack");
+        expect(SETTINGS_SCHEMA_DEFAULTS.webDAVactiveConnectionURI).toBe("");
         expect(NEW_VAULT_SETTINGS.journalFormat).toBe("opaque-v1");
     });
 

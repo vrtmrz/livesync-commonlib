@@ -15,6 +15,7 @@ const managedEnvironment = {
     accessKey: "minioadmin",
     secretKey: "minioadmin",
     bucketName: "livesync-test-bucket",
+    webdavEndpoint: "http://127.0.0.1:8088/dav",
 };
 const integrationEnvironment = manageServices
     ? { ...process.env, ...managedEnvironment }
@@ -73,13 +74,22 @@ function waitForMinio() {
     return waitForHttpService("MinIO", url);
 }
 
+function waitForWebDAV() {
+    return waitForHttpService("WebDAV", integrationEnvironment.webdavEndpoint, {
+        body: `<?xml version="1.0" encoding="utf-8"?>
+<d:propfind xmlns:d="DAV:"><d:prop><d:resourcetype/></d:prop></d:propfind>`,
+        headers: { Depth: "0", "Content-Type": "application/xml; charset=utf-8" },
+        method: "PROPFIND",
+    });
+}
+
 const compose = (...args) => run("docker", ["compose", "--file", composeFile, ...args]);
 
 let failure;
 try {
     if (manageServices) {
-        await compose("up", "--detach", "couchdb", "minio");
-        await Promise.all([waitForCouchDb(), waitForMinio()]);
+        await compose("up", "--detach", "couchdb", "minio", "webdav");
+        await Promise.all([waitForCouchDb(), waitForMinio(), waitForWebDAV()]);
         await compose("run", "--rm", "minio-init");
     }
 

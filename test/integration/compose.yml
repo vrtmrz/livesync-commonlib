@@ -29,3 +29,13 @@ services:
         set -eu
         mc alias set integration http://minio:9000 minioadmin minioadmin
         mc mb --ignore-existing integration/livesync-test-bucket
+
+  webdav:
+    image: httpd:2.4.68
+    ports:
+      - "8088:80"
+    tmpfs:
+      - /usr/local/apache2/htdocs/dav:mode=0777
+      - /usr/local/apache2/var:mode=0777
+    volumes:
+      - ./webdav/httpd.conf:/usr/local/apache2/conf/httpd.conf:ro

@@ -1,5 +1,5 @@
 /**
- * Host-facing configuration primitives for S3-compatible Journal storage.
+ * Host-facing configuration primitives for Journal storage providers.
  *
  * These exports resolve and label settings only. The host owns credential collection,
  * encrypted persistence, custom request handling, and the replication lifecycle.
@@ -7,12 +7,13 @@
  * @packageDocumentation
  */
 
-export { REMOTE_MINIO } from "./common/models/setting.const.ts";
+export { REMOTE_MINIO, REMOTE_WEBDAV, isJournalRemoteType } from "./common/models/setting.const.ts";
 export type {
     AdaptiveJournalPackReadPolicyV1,
     BucketSyncSetting,
     JournalFormatV1,
     RemoteDBSettings,
+    WebDAVSyncSetting,
 } from "./common/models/setting.type.ts";
 export type {
     JournalStorageKind,

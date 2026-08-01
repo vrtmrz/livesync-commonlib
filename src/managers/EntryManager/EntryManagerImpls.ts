@@ -16,7 +16,7 @@ import {
     REMOTE_COUCHDB,
     type ObsidianLiveSyncSettings,
     type MetaEntry,
-    RemoteTypes,
+    isJournalRemoteType,
     type NoteEntry,
 } from "@lib/common/types";
 import type { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters";
@@ -385,7 +385,7 @@ function canFetchRemotely(settings: ObsidianLiveSyncSettings) {
     if (!canUseOnDemandChunking(settings)) {
         return false;
     }
-    if (settings.remoteType === RemoteTypes.REMOTE_MINIO) {
+    if (isJournalRemoteType(settings.remoteType)) {
         return false;
     }
     return true;

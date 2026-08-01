@@ -541,6 +541,20 @@ export interface BucketSyncSetting {
     packReadPolicy?: AdaptiveJournalPackReadPolicyV1;
 }
 
+/**
+ * Represents the settings required to synchronise Journal data with a WebDAV collection.
+ */
+export interface WebDAVSyncSetting {
+    /** The active `sls+webdav` connection URI. */
+    webDAVactiveConnectionURI: string;
+    /** Absence in an older persisted profile remains the Opaque Journal format. */
+    journalFormat?: JournalFormatV1;
+    /** Pinned Adaptive repository identity, when one has been explicitly configured. */
+    expectedRepositoryId?: string;
+    /** Adaptive object-pack retrieval preference. */
+    packReadPolicy?: AdaptiveJournalPackReadPolicyV1;
+}
+
 export interface LocalDBSettings {
     /**
      * Indicates whether to use the IndexedDB adapter for the local database.
@@ -1076,6 +1090,7 @@ interface ObsidianLiveSyncSettings_PluginSetting
 
 export type RemoteDBSettings = CouchDBConnection &
     BucketSyncSetting &
+    WebDAVSyncSetting &
     RemoteTypeSettings &
     EncryptionSettings &
     ChunkSettings &

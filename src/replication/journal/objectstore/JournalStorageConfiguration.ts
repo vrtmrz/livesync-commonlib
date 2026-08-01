@@ -1,5 +1,6 @@
 import {
     REMOTE_MINIO,
+    REMOTE_WEBDAV,
     type AdaptiveJournalPackReadPolicyV1,
     type JournalFormatV1,
     type RemoteDBSettings,
@@ -20,6 +21,7 @@ export interface ResolvedJournalProtocolConfigurationV1 {
  */
 export function journalStorageKindForRemoteType(remoteType: string): JournalStorageKind {
     if (remoteType === REMOTE_MINIO) return "s3";
+    if (remoteType === REMOTE_WEBDAV) return "webdav";
     throw new Error(`Unsupported Journal remote type: ${remoteType}`);
 }
 
@@ -29,8 +31,20 @@ export function journalStorageKindForRemoteType(remoteType: string): JournalStor
  * @throws If the selected provider is not implemented by this delivery.
  */
 export function getJournalRemoteDisplayName(settings: RemoteDBSettings): string {
-    journalStorageKindForRemoteType(settings.remoteType);
-    return settings.endpoint;
+    switch (journalStorageKindForRemoteType(settings.remoteType)) {
+        case "s3":
+            return settings.endpoint;
+        case "webdav":
+            try {
+                const match = /^sls\+webdav:(\/\/.*)$/u.exec(settings.webDAVactiveConnectionURI);
+                if (!match) throw new Error("Invalid WebDAV connection URI");
+                const url = new URL(`https:${match[1]}`);
+                const protocol = url.searchParams.get("insecure") === "true" ? "http:" : "https:";
+                return `${protocol}//${url.host}${url.pathname}`;
+            } catch {
+                return "WebDAV";
+            }
+    }
 }
 
 /** Resolves the protocol fields carried by the active provider profile. */
