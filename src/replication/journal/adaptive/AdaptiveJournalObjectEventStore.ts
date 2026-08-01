@@ -6,17 +6,14 @@ import {
     parseAdaptiveJournalCommitObjectKeyV1,
 } from "./AdaptiveJournalCatalogue.ts";
 import type { AdaptiveJournalCatalogueV1 } from "./AdaptiveJournalCatalogue.ts";
-import { base64UrlToBytes, bytesEqual, bytesToHex, fixedLength } from "./AdaptiveJournalBinary.ts";
+import { base64UrlToBytes, bytesEqual, fixedLength } from "./AdaptiveJournalBinary.ts";
 import {
     AdaptiveJournalCommitBundleCacheV1,
     decodeCommitEnvelopeV1,
     type DecodedCommitEnvelopeV1,
 } from "./AdaptiveJournalCommit.ts";
-import {
-    decodeAdaptiveJournalCommitPacksV1,
-    decodeAdaptiveJournalCommitRecordV1,
-    type AdaptiveJournalCommitPackV1,
-} from "./AdaptiveJournalControl.ts";
+import { type AdaptiveJournalCommitPackV1 } from "./AdaptiveJournalControl.ts";
+import { verifyAdaptiveJournalCommitEnvelopeV1 } from "./AdaptiveJournalCommitValidation.ts";
 import type { AdaptiveImmutableRecordResultV1, AdaptiveImmutableRecordStatusV1 } from "./AdaptiveJournalEventStore.ts";
 import type { AdaptiveJournalDiscoveryStoreV1 } from "./AdaptiveJournalDiscoveryStore.ts";
 import { sha256, type AdaptiveJournalKeySetV1 } from "./AdaptiveJournalManifest.ts";
@@ -32,12 +29,6 @@ export interface CreateAdaptiveJournalObjectEventStoreV1Options {
     publicationCache?: AdaptiveJournalObjectPublicationCacheV1;
     remote: AdaptiveJournalObjectRemoteV1;
 }
-
-type DecodedCommitControl = Awaited<ReturnType<typeof decodeAdaptiveJournalCommitRecordV1>>;
-
-type ControlVerification =
-    | { control: DecodedCommitControl; routes: readonly AdaptiveJournalCommitPackV1[]; status: "verified" }
-    | { failure: RemoteFailure; status: "failed" };
 
 type BundleRead = { status: "found" | "missing" } | { failure: RemoteFailure; status: "failed" };
 
@@ -66,75 +57,6 @@ async function ensureImmutableRecord(
         ? "exact-existing"
         : "validate-existing";
     return { status: "ok", result };
-}
-
-function digestFromText(value: string, label: string): Uint8Array {
-    return fixedLength(base64UrlToBytes(value), 32, label);
-}
-
-function commitControlMatchesEnvelope(
-    envelope: DecodedCommitEnvelopeV1,
-    payload: DecodedCommitControl["payload"]
-): boolean {
-    const previous =
-        payload.previousCommitDigest === null
-            ? null
-            : digestFromText(payload.previousCommitDigest, "previousCommitDigest");
-    const previousMatches =
-        previous === null
-            ? envelope.previousCommitDigest === null
-            : envelope.previousCommitDigest !== null && bytesEqual(previous, envelope.previousCommitDigest);
-    return (
-        previousMatches &&
-        payload.metadata.bytes === envelope.metadataFrame.byteLength &&
-        bytesEqual(digestFromText(payload.metadata.digest, "metadataDigest"), envelope.metadataDigest) &&
-        bytesEqual(
-            digestFromText(payload.requiredChunkKeysDigest, "requiredChunkKeysDigest"),
-            envelope.requiredChunkKeysDigest
-        )
-    );
-}
-
-function routesCoverRequiredChunks(
-    envelope: DecodedCommitEnvelopeV1,
-    routes: readonly AdaptiveJournalCommitPackV1[]
-): boolean {
-    const routed = new Set(routes.flatMap(({ entries }) => entries.map(({ key }) => bytesToHex(key))));
-    return (
-        routed.size === envelope.requiredChunkKeys.length &&
-        envelope.requiredChunkKeys.every((key) => routed.has(bytesToHex(key)))
-    );
-}
-
-async function verifyCommitControl(
-    options: CreateAdaptiveJournalObjectEventStoreV1Options,
-    envelope: DecodedCommitEnvelopeV1
-): Promise<ControlVerification> {
-    try {
-        const control = await decodeAdaptiveJournalCommitRecordV1({
-            bytes: envelope.commitFrame,
-            keys: options.keys,
-            sequence: envelope.sequence,
-            writerStreamId: envelope.writerStreamId,
-        });
-        const routes = decodeAdaptiveJournalCommitPacksV1(control.payload);
-        if (
-            !bytesEqual(control.digest, envelope.commitFrameDigest) ||
-            !commitControlMatchesEnvelope(envelope, control.payload) ||
-            !routesCoverRequiredChunks(envelope, routes)
-        ) {
-            return failed(INVALID_REMOTE);
-        }
-        await decodeAdaptiveJournalMetadataRecordV1({
-            bytes: envelope.metadataFrame,
-            keys: options.keys,
-            sequence: envelope.sequence,
-            writerStreamId: envelope.writerStreamId,
-        });
-        return { status: "verified", control, routes };
-    } catch {
-        return failed(INVALID_REMOTE);
-    }
 }
 
 function routeIsInCatalogue(catalogue: AdaptiveJournalCatalogueV1, route: AdaptiveJournalCommitPackV1): boolean {
@@ -394,7 +316,11 @@ export function createAdaptiveJournalObjectEventStoreV1(
         readCommit: async (writerStreamId, sequence) => {
             const read = await decodedBundle(writerStreamId, sequence);
             if (read.status === "failed") return read;
-            const control = await verifyCommitControl(options, read.envelope);
+            const control = await verifyAdaptiveJournalCommitEnvelopeV1({
+                envelope: read.envelope,
+                keys: options.keys,
+                routePolicy: "object",
+            });
             if (control.status === "failed" || !currentBundleRouteMatches(read.envelope, control.routes)) {
                 return failed(INVALID_REMOTE);
             }
@@ -413,7 +339,11 @@ export function createAdaptiveJournalObjectEventStoreV1(
                 return failed(INVALID_REMOTE);
             }
             if (!bytesEqual(envelope.repositoryId, options.keys.repositoryId)) return failed(INVALID_REMOTE);
-            const control = await verifyCommitControl(options, envelope);
+            const control = await verifyAdaptiveJournalCommitEnvelopeV1({
+                envelope,
+                keys: options.keys,
+                routePolicy: "object",
+            });
             if (control.status === "failed") return control;
             const verified = await verifyRouteObjects(envelope, control.routes);
             if (verified.status === "failed") return verified;

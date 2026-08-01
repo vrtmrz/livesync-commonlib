@@ -22,6 +22,7 @@ export * from "./replication/journal/adaptive/AdaptiveJournalImmutablePublicatio
 export * from "./replication/journal/adaptive/AdaptiveJournalLocalState.ts";
 export * from "./replication/journal/adaptive/AdaptiveJournalManifest.ts";
 export * from "./replication/journal/adaptive/AdaptiveJournalNativeChunkPublication.ts";
+export * from "./replication/journal/adaptive/AdaptiveJournalNativeStore.ts";
 export * from "./replication/journal/adaptive/AdaptiveJournalObjectChunkReader.ts";
 export * from "./replication/journal/adaptive/AdaptiveJournalObjectChunkPublication.ts";
 export * from "./replication/journal/adaptive/AdaptiveJournalObjectCatalogueLoader.ts";

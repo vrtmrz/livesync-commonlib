@@ -107,17 +107,32 @@ export async function publishAdaptiveJournalNativeChunksV1(
 ): Promise<AdaptiveJournalNativeChunkPublicationOutcomeV1> {
     const chunks = await prepareChunks(keys, items);
     if (chunks.length === 0) return { status: "accepted" };
-    const publication = await store.putMany(chunks.map(({ stored }) => stored));
+    let publicationChunks = chunks;
+    if (store.capabilities.nativeMultiKeyLookup) {
+        const availability = await store.hasMany(chunks.map(({ stored }) => stored.key));
+        if (availability.status === "failed") return { status: "pending", failure: availability.failure };
+        if (
+            availability.availability.length !== chunks.length ||
+            !availability.availability.every((present) => typeof present === "boolean")
+        ) {
+            return { status: "pending", failure: INVALID_RESPONSE };
+        }
+        publicationChunks = chunks.filter((_, index) => !availability.availability[index]);
+        if (publicationChunks.length === 0) return { status: "accepted" };
+    }
+    const publication = await store.putMany(publicationChunks.map(({ stored }) => stored));
     if (publication.status === "failed") {
         if (publication.failure.retry !== "verify-first") {
             return { status: "pending", failure: publication.failure };
         }
-        return await validateExistingChunks(store, keys, chunks, publication.failure);
+        return await validateExistingChunks(store, keys, publicationChunks, publication.failure);
     }
-    if (publication.results.length !== chunks.length) return { status: "pending", failure: INVALID_RESPONSE };
+    if (publication.results.length !== publicationChunks.length) {
+        return { status: "pending", failure: INVALID_RESPONSE };
+    }
     const validation: PreparedChunkV1[] = [];
     for (let index = 0; index < publication.results.length; index++) {
-        if (publication.results[index] === "validate-existing") validation.push(chunks[index]);
+        if (publication.results[index] === "validate-existing") validation.push(publicationChunks[index]);
     }
     return await validateExistingChunks(store, keys, validation);
 }

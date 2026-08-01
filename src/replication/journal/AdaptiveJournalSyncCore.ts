@@ -14,6 +14,7 @@ import { REMOTE_CHUNK_FETCHED } from "@lib/pouchdb/LiveSyncLocalDB.ts";
 
 import { AdaptiveJournalCatalogueV1 } from "./adaptive/AdaptiveJournalCatalogue.ts";
 import {
+    createAdaptiveJournalNativeChunkDeliveryV1,
     createAdaptiveJournalObjectChunkDeliveryV1,
     type AdaptiveJournalChunkDeliveryV1,
 } from "./adaptive/AdaptiveJournalChunkDelivery.ts";
@@ -27,11 +28,20 @@ import {
 } from "./adaptive/AdaptiveJournalLocalState.ts";
 import { base64UrlToBytes, bytesEqual } from "./adaptive/AdaptiveJournalBinary.ts";
 import { AdaptiveJournalCommitBundleCacheV1 } from "./adaptive/AdaptiveJournalCommit.ts";
-import { AdaptiveJournalError, type AdaptiveJournalEncryption } from "./adaptive/AdaptiveJournalManifest.ts";
 import {
+    ADAPTIVE_JOURNAL_NATIVE_REQUIRED_CAPABILITIES_V1,
+    AdaptiveJournalError,
+    type AdaptiveJournalEncryption,
+} from "./adaptive/AdaptiveJournalManifest.ts";
+import {
+    ADAPTIVE_JOURNAL_NOOP_CATALOGUE_LOADER_V1,
     createAdaptiveJournalObjectCatalogueLoaderV1,
     type AdaptiveJournalCatalogueLoaderV1,
 } from "./adaptive/AdaptiveJournalObjectCatalogueLoader.ts";
+import {
+    createAdaptiveJournalNativeEventStoreV1,
+    isAdaptiveJournalNativeStorageV1,
+} from "./adaptive/AdaptiveJournalNativeStore.ts";
 import { createAdaptiveJournalObjectChunkReaderV1 } from "./adaptive/AdaptiveJournalObjectChunkReader.ts";
 import { createAdaptiveJournalObjectEventStoreV1 } from "./adaptive/AdaptiveJournalObjectEventStore.ts";
 import { AdaptiveJournalObjectPublicationCacheV1 } from "./adaptive/AdaptiveJournalObjectPublicationCache.ts";
@@ -67,7 +77,7 @@ interface OpenedAdaptiveJournalClientV1 {
     chunkDelivery: AdaptiveJournalChunkDeliveryV1;
     chunkReader: AdaptiveJournalChunkReaderV1;
     eventStore: AdaptiveJournalDiscoveryStoreV1;
-    objectStorage: AdaptiveObjectStorage;
+    receivePhaseStorage?: AdaptiveObjectStorage;
     receiveState: AdaptiveJournalLocalReceiveStateV1;
     repository: OpenedAdaptiveJournalRepositoryV1;
     writerState: AdaptiveJournalLocalWriterStateStoreV1;
@@ -202,8 +212,13 @@ export class AdaptiveJournalSyncCore {
             this.storage.storageIdentity,
             adaptiveEncryption(this.settings)
         );
+        const nativeStorage = isAdaptiveJournalNativeStorageV1(this.storage) ? this.storage : undefined;
         const repository = await openAdaptiveJournalRepositoryV1({
-            additionalRequiredCapabilities: protocol.packReadPolicy === "range" ? ["byte-range"] : [],
+            additionalRequiredCapabilities: nativeStorage
+                ? ADAPTIVE_JOURNAL_NATIVE_REQUIRED_CAPABILITIES_V1
+                : protocol.packReadPolicy === "range"
+                  ? ["byte-range"]
+                  : [],
             binding,
             expectedRepositoryId: protocol.expectedRepositoryId || undefined,
             intent: remoteFormat === "empty" ? "create-new" : "attach-existing",
@@ -217,31 +232,46 @@ export class AdaptiveJournalSyncCore {
         if (hostId.length === 0) throw new Error("Adaptive Journal requires an initialised host ID");
         let writer = await writerState.initialise(repository.keys, hostId);
         const catalogue = new AdaptiveJournalCatalogueV1();
-        const objectStorage = requireObjectStorage(this.storage);
-        const publicationCache = new AdaptiveJournalObjectPublicationCacheV1(objectStorage);
-        const bundleCache = new AdaptiveJournalCommitBundleCacheV1();
-        const eventStore = createAdaptiveJournalObjectEventStoreV1({
-            bundleCache,
-            catalogue,
-            keys: repository.keys,
-            publicationCache,
-            remote: objectStorage,
-        });
-        const chunkDelivery = createAdaptiveJournalObjectChunkDeliveryV1({
-            catalogue,
-            keys: repository.keys,
-            publicationCache,
-            remote: objectStorage,
-        });
-        const chunkReader = createAdaptiveJournalObjectChunkReaderV1({
-            bundleCache,
-            catalogue,
-            remote: objectStorage,
-            retrieval: protocol.packReadPolicy,
-        });
-        const catalogueLoader = createAdaptiveJournalObjectCatalogueLoaderV1({
-            catalogue,
-        });
+        let catalogueLoader: AdaptiveJournalCatalogueLoaderV1;
+        let chunkDelivery: AdaptiveJournalChunkDeliveryV1;
+        let chunkReader: AdaptiveJournalChunkReaderV1;
+        let eventStore: AdaptiveJournalDiscoveryStoreV1;
+        let receivePhaseStorage: AdaptiveObjectStorage | undefined;
+        if (nativeStorage) {
+            const stores = nativeStorage.createAdaptiveJournalNativeStores(repository.keys.repositoryId);
+            catalogueLoader = ADAPTIVE_JOURNAL_NOOP_CATALOGUE_LOADER_V1;
+            chunkDelivery = createAdaptiveJournalNativeChunkDeliveryV1(stores.chunks, repository.keys);
+            chunkReader = stores.chunks;
+            eventStore = createAdaptiveJournalNativeEventStoreV1({
+                keys: repository.keys,
+                remote: stores.events,
+            });
+        } else {
+            const objectStorage = requireObjectStorage(this.storage);
+            const publicationCache = new AdaptiveJournalObjectPublicationCacheV1(objectStorage);
+            const bundleCache = new AdaptiveJournalCommitBundleCacheV1();
+            catalogueLoader = createAdaptiveJournalObjectCatalogueLoaderV1({ catalogue });
+            chunkDelivery = createAdaptiveJournalObjectChunkDeliveryV1({
+                catalogue,
+                keys: repository.keys,
+                publicationCache,
+                remote: objectStorage,
+            });
+            chunkReader = createAdaptiveJournalObjectChunkReaderV1({
+                bundleCache,
+                catalogue,
+                remote: objectStorage,
+                retrieval: protocol.packReadPolicy,
+            });
+            eventStore = createAdaptiveJournalObjectEventStoreV1({
+                bundleCache,
+                catalogue,
+                keys: repository.keys,
+                publicationCache,
+                remote: objectStorage,
+            });
+            receivePhaseStorage = objectStorage;
+        }
         if (!writer.writerRegistered && !writer.pendingWriterDescriptor) {
             const descriptor = await encodeAdaptiveJournalWriterDescriptorV1({
                 hostId,
@@ -274,7 +304,7 @@ export class AdaptiveJournalSyncCore {
             chunkDelivery,
             chunkReader,
             eventStore,
-            objectStorage,
+            receivePhaseStorage,
             receiveState,
             repository,
             writerState,
@@ -499,8 +529,8 @@ export class AdaptiveJournalSyncCore {
                     },
                 },
             });
-        const outcome = opened.objectStorage.runAdaptiveJournalReceivePhase
-            ? await opened.objectStorage.runAdaptiveJournalReceivePhase(receive)
+        const outcome = opened.receivePhaseStorage?.runAdaptiveJournalReceivePhase
+            ? await opened.receivePhaseStorage.runAdaptiveJournalReceivePhase(receive)
             : await receive();
         if (outcome.status === "failed") return false;
         this.updateInfo({

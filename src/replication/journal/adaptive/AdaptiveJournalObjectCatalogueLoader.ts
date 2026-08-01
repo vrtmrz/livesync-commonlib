@@ -53,5 +53,6 @@ export function createAdaptiveJournalObjectCatalogueLoaderV1(options: {
 }
 
 export const ADAPTIVE_JOURNAL_NOOP_CATALOGUE_LOADER_V1: AdaptiveJournalCatalogueLoaderV1 = {
-    load: async () => ({ status: "ok" }),
+    load: async ({ chunkPacks }) =>
+        chunkPacks.length === 0 ? { status: "ok" } : { failure: INTEGRITY_FAILURE, status: "failed" },
 };

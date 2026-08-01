@@ -2,7 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { AdaptiveJournalCatalogueV1, adaptiveJournalPackObjectKeyV1 } from "./AdaptiveJournalCatalogue.ts";
 import { createAdaptiveJournalManifestV1 } from "./AdaptiveJournalManifest.ts";
-import { createAdaptiveJournalObjectCatalogueLoaderV1 } from "./AdaptiveJournalObjectCatalogueLoader.ts";
+import {
+    ADAPTIVE_JOURNAL_NOOP_CATALOGUE_LOADER_V1,
+    createAdaptiveJournalObjectCatalogueLoaderV1,
+} from "./AdaptiveJournalObjectCatalogueLoader.ts";
 import { buildAdaptiveJournalPackV1 } from "./AdaptiveJournalPack.ts";
 import { AdaptiveRecordKindV1, encodeRecordFrameV1 } from "./AdaptiveJournalRecord.ts";
 
@@ -11,6 +14,25 @@ function sequence(start: number): Uint8Array {
 }
 
 describe("Adaptive Journal object catalogue loader", () => {
+    it("rejects object routes when the native no-op loader is selected", async () => {
+        await expect(
+            ADAPTIVE_JOURNAL_NOOP_CATALOGUE_LOADER_V1.load({
+                chunkPacks: [
+                    {
+                        container: "pack",
+                        entries: [],
+                        objectKey: "a1~pack~invalid.pack",
+                        packBytes: 1,
+                        packId: sequence(0x20),
+                    },
+                ],
+                requiredChunkKeys: [],
+                sequence: 1n,
+                writerStreamId: sequence(0x40),
+            })
+        ).resolves.toEqual({ failure: { category: "invalid-response", retry: "never" }, status: "failed" });
+    });
+
     it("derives catalogue locations from an authenticated Commit Bundle route without remote reads", async () => {
         const candidate = await createAdaptiveJournalManifestV1({
             encryption: "unencrypted",

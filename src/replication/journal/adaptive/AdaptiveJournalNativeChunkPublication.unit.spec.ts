@@ -10,8 +10,14 @@ function sequence(start: number): Uint8Array {
     return Uint8Array.from({ length: 32 }, (_, index) => (start + index) & 0xff);
 }
 
+const DIRECT_CAS_CAPABILITIES = {
+    atomicBatchWrite: true,
+    nativeMultiKeyLookup: false,
+    serverSideImmutableCreate: true,
+} as const;
+
 describe("Adaptive Journal native Chunk publication", () => {
-    it("accepts inserted Chunks without HAS or GET requests", async () => {
+    it("uses one immutable PUT when native multi-key lookup is unavailable", async () => {
         const candidate = await createAdaptiveJournalManifestV1({
             encryption: "unencrypted",
             repositoryId: sequence(0x10),
@@ -25,7 +31,7 @@ describe("Adaptive Journal native Chunk publication", () => {
         const getMany = vi.fn();
         const hasMany = vi.fn();
         const store = {
-            capabilities: { nativeBatch: true },
+            capabilities: DIRECT_CAS_CAPABILITIES,
             getMany,
             hasMany,
             putMany: vi.fn(async () => ({ results: ["inserted"] as const, status: "ok" as const })),
@@ -39,6 +45,44 @@ describe("Adaptive Journal native Chunk publication", () => {
         expect(store.putMany).toHaveBeenCalledTimes(1);
         expect(hasMany).not.toHaveBeenCalled();
         expect(getMany).not.toHaveBeenCalled();
+    });
+
+    it("queries all keys once and uploads only missing Chunks when native multi-key lookup is available", async () => {
+        const candidate = await createAdaptiveJournalManifestV1({
+            encryption: "unencrypted",
+            repositoryId: sequence(0x18),
+            securitySeed: sequence(0x88),
+        });
+        const existing = await encodeAdaptiveJournalChunkRecordV1({
+            data: "existing body",
+            keys: candidate.keys,
+            localChunkId: "h:existing" as DocumentID,
+        });
+        const missing = await encodeAdaptiveJournalChunkRecordV1({
+            data: "missing body",
+            keys: candidate.keys,
+            localChunkId: "h:missing" as DocumentID,
+        });
+        const hasMany = vi.fn(async () => ({ availability: [true, false], status: "ok" as const }));
+        const putMany = vi.fn(async () => ({ results: ["inserted"] as const, status: "ok" as const }));
+        const store = {
+            capabilities: { ...DIRECT_CAS_CAPABILITIES, nativeMultiKeyLookup: true },
+            getMany: vi.fn(),
+            hasMany,
+            putMany,
+        } as AdaptiveJournalChunkStoreV1;
+
+        await expect(
+            publishAdaptiveJournalNativeChunksV1(store, candidate.keys, [
+                { localChunkId: "h:existing" as DocumentID, record: existing },
+                { localChunkId: "h:missing" as DocumentID, record: missing },
+            ])
+        ).resolves.toEqual({ status: "accepted" });
+
+        expect(hasMany).toHaveBeenCalledWith([existing.remoteChunkKey, missing.remoteChunkKey]);
+        expect(putMany).toHaveBeenCalledWith([
+            { frame: missing.bytes, frameDigest: missing.digest, key: missing.remoteChunkKey },
+        ]);
     });
 
     it("validates only conflicting entries in one batch and adopts equivalent encrypted frames", async () => {
@@ -74,7 +118,7 @@ describe("Adaptive Journal native Chunk publication", () => {
             status: "ok" as const,
         }));
         const store = {
-            capabilities: { nativeBatch: true },
+            capabilities: DIRECT_CAS_CAPABILITIES,
             getMany,
             hasMany: vi.fn(),
             putMany: vi.fn(async () => ({ results: ["validate-existing"] as const, status: "ok" as const })),
@@ -110,7 +154,7 @@ describe("Adaptive Journal native Chunk publication", () => {
             key: existing.remoteChunkKey,
         };
         const store = {
-            capabilities: { nativeBatch: true },
+            capabilities: DIRECT_CAS_CAPABILITIES,
             getMany: vi.fn(async () => ({ chunks: [storedExisting], status: "ok" as const })),
             hasMany: vi.fn(),
             putMany: vi.fn(async () => ({ results: ["validate-existing"] as const, status: "ok" as const })),

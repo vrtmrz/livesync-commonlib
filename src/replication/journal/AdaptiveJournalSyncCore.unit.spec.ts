@@ -13,7 +13,12 @@ import type { SimpleStore } from "@lib/common/utils.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase.ts";
 
 import { AdaptiveJournalSyncCore } from "./AdaptiveJournalSyncCore.ts";
+import { bytesEqual, bytesToHex } from "./adaptive/AdaptiveJournalBinary.ts";
 import { decodeCommitEnvelopeV1 } from "./adaptive/AdaptiveJournalCommit.ts";
+import type {
+    AdaptiveJournalNativeStoresV1,
+    AdaptiveJournalNativeStorageV1,
+} from "./adaptive/AdaptiveJournalNativeStore.ts";
 import type {
     AdaptiveJournalByteRangeV1,
     AdaptiveJournalObjectListV1,
@@ -36,6 +41,11 @@ PouchDB.plugin(MemoryAdapter);
 
 interface MemoryAdaptiveRemote {
     manifest?: Uint8Array;
+    native?: {
+        chunks: Map<string, { frame: Uint8Array; frameDigest: Uint8Array; key: Uint8Array }>;
+        commits: Map<string, { bytes: Uint8Array; sequence: bigint; writerStreamId: Uint8Array }>;
+        writers: Map<string, { bytes: Uint8Array; writerStreamId: Uint8Array }>;
+    };
     objects: Map<string, Uint8Array>;
 }
 
@@ -48,7 +58,7 @@ class MemoryAdaptiveObjectStorage
 
     readonly kind = "s3" as const;
 
-    constructor(private readonly remote: MemoryAdaptiveRemote) {
+    constructor(protected readonly remote: MemoryAdaptiveRemote) {
         this.storageIdentity = "s3:https://example.com/adaptive/";
     }
 
@@ -129,6 +139,123 @@ class MemoryAdaptiveObjectStorage
     }
 
     async verifyCapabilities(_required: readonly string[]): Promise<CapabilityVerification> {
+        return { status: "verified" };
+    }
+}
+
+class MemoryAdaptiveNativeStorage extends MemoryAdaptiveObjectStorage implements AdaptiveJournalNativeStorageV1 {
+    readonly adaptiveJournalStorageStrategy = "native" as const;
+    readonly capabilityRequests: string[][] = [];
+
+    private get native() {
+        return (this.remote.native ??= { chunks: new Map(), commits: new Map(), writers: new Map() });
+    }
+
+    createAdaptiveJournalNativeStores(_repositoryId: Uint8Array): AdaptiveJournalNativeStoresV1 {
+        const immutable = (existing: Uint8Array | undefined, intended: Uint8Array) =>
+            existing === undefined
+                ? "inserted"
+                : bytesEqual(existing, intended)
+                  ? "exact-existing"
+                  : "validate-existing";
+        return {
+            chunks: {
+                capabilities: {
+                    atomicBatchWrite: true,
+                    nativeMultiKeyLookup: true,
+                    serverSideImmutableCreate: true,
+                },
+                getMany: async (keys) => ({
+                    chunks: keys.map((key) => {
+                        const value = this.native.chunks.get(bytesToHex(key));
+                        return value
+                            ? {
+                                  frame: value.frame.slice(),
+                                  frameDigest: value.frameDigest.slice(),
+                                  key: value.key.slice(),
+                              }
+                            : undefined;
+                    }),
+                    status: "ok",
+                }),
+                hasMany: async (keys) => ({
+                    availability: keys.map((key) => this.native.chunks.has(bytesToHex(key))),
+                    status: "ok",
+                }),
+                putMany: async (chunks) => ({
+                    results: chunks.map((chunk) => {
+                        const key = bytesToHex(chunk.key);
+                        const existing = this.native.chunks.get(key);
+                        const result = immutable(existing?.frame, chunk.frame);
+                        if (result === "inserted") {
+                            this.native.chunks.set(key, {
+                                frame: chunk.frame.slice(),
+                                frameDigest: chunk.frameDigest.slice(),
+                                key: chunk.key.slice(),
+                            });
+                        }
+                        return result;
+                    }),
+                    status: "ok",
+                }),
+            },
+            events: {
+                commitMetadataBatch: async (bytes) => {
+                    const envelope = await decodeCommitEnvelopeV1(bytes);
+                    const key = `${bytesToHex(envelope.writerStreamId)}:${envelope.sequence}`;
+                    const existing = this.native.commits.get(key);
+                    const result = immutable(existing?.bytes, bytes);
+                    if (result === "inserted") {
+                        this.native.commits.set(key, {
+                            bytes: bytes.slice(),
+                            sequence: envelope.sequence,
+                            writerStreamId: envelope.writerStreamId.slice(),
+                        });
+                    }
+                    return { result, status: "ok" };
+                },
+                listCommitSequences: async (writerStreamId, afterSequence) => ({
+                    sequences: [...this.native.commits.values()]
+                        .filter(
+                            (commit) =>
+                                bytesEqual(commit.writerStreamId, writerStreamId) && commit.sequence > afterSequence
+                        )
+                        .map(({ sequence }) => sequence)
+                        .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0)),
+                    status: "ok",
+                }),
+                listWriterStreamIds: async () => ({
+                    status: "ok",
+                    writerStreamIds: [...this.native.writers.values()].map(({ writerStreamId }) =>
+                        writerStreamId.slice()
+                    ),
+                }),
+                readCommitBundle: async (writerStreamId, sequence) => {
+                    const value = this.native.commits.get(`${bytesToHex(writerStreamId)}:${sequence}`);
+                    return value ? { status: "found", value: value.bytes.slice() } : { status: "missing" };
+                },
+                readWriter: async (writerStreamId) => {
+                    const value = this.native.writers.get(bytesToHex(writerStreamId));
+                    return value ? { status: "found", value: value.bytes.slice() } : { status: "missing" };
+                },
+                registerWriter: async (record) => {
+                    const key = bytesToHex(record.writerStreamId);
+                    const existing = this.native.writers.get(key);
+                    const result = immutable(existing?.bytes, record.descriptorFrame);
+                    if (result === "inserted") {
+                        this.native.writers.set(key, {
+                            bytes: record.descriptorFrame.slice(),
+                            writerStreamId: record.writerStreamId.slice(),
+                        });
+                    }
+                    return { result, status: "ok" };
+                },
+            },
+        };
+    }
+
+    async verifyCapabilities(required: readonly string[]): Promise<CapabilityVerification> {
+        this.capabilityRequests.push([...required]);
         return { status: "verified" };
     }
 }
@@ -220,6 +347,56 @@ describe("AdaptiveJournalSyncCore", () => {
             expect(accepted).toHaveBeenCalledOnce();
         } finally {
             await database.destroy();
+        }
+    });
+
+    it("uses native Chunk rows and transactional Commit Bundles without entering the object receive phase", async () => {
+        const remote: MemoryAdaptiveRemote = { objects: new Map() };
+        const currentSettings = settings();
+        const senderDB = new PouchDB<EntryDoc>("adaptive-core-native-sender", { adapter: "memory" });
+        const receiverDB = new PouchDB<EntryDoc>("adaptive-core-native-receiver", { adapter: "memory" });
+        try {
+            await senderDB.put({
+                _id: "h:adaptive-chunk" as DocumentID,
+                data: "adaptive body",
+                type: "leaf",
+            } as EntryDoc);
+            await senderDB.put(metadata());
+            const senderStorage = new MemoryAdaptiveNativeStorage(remote);
+            const receiverStorage = new MemoryAdaptiveNativeStorage(remote);
+            const sender = new AdaptiveJournalSyncCore(
+                currentSettings,
+                memoryStore(),
+                environment(senderDB, currentSettings),
+                senderStorage,
+                async () => "native-sender",
+                vi.fn()
+            );
+            const receiver = new AdaptiveJournalSyncCore(
+                currentSettings,
+                memoryStore(),
+                environment(receiverDB, currentSettings),
+                receiverStorage,
+                async () => "native-receiver",
+                vi.fn()
+            );
+
+            await expect(sender.sendLocalJournal()).resolves.toBe(true);
+            await expect(receiver.receiveRemoteJournal()).resolves.toBe(true);
+
+            await expect(receiverDB.get("notes/adaptive.md")).resolves.toMatchObject({
+                children: ["h:adaptive-chunk"],
+            });
+            await expect(receiverDB.get("h:adaptive-chunk")).resolves.toMatchObject({ data: "adaptive body" });
+            expect(remote.native?.chunks.size).toBe(1);
+            expect(remote.native?.commits.size).toBe(1);
+            expect(remote.native?.writers.size).toBe(2);
+            expect(remote.objects.size).toBe(0);
+            expect(receiverStorage.receivePhases).toBe(0);
+            expect(senderStorage.capabilityRequests[0]).toContain("native-batch-chunk-cas");
+        } finally {
+            await senderDB.destroy();
+            await receiverDB.destroy();
         }
     });
 
