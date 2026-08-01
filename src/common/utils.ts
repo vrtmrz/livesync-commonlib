@@ -589,8 +589,8 @@ export function pickPostgRESTSyncSettings(setting: ObsidianLiveSyncSettings): Po
     return {
         postgrestActiveConnectionURI: setting.postgrestActiveConnectionURI,
         expectedRepositoryId: setting.expectedRepositoryId ?? "",
-        journalFormat: setting.journalFormat ?? "adaptive-v1",
-        packReadPolicy: setting.packReadPolicy ?? "whole-pack",
+        journalFormat: "adaptive-v1",
+        packReadPolicy: "whole-pack",
     };
 }
 

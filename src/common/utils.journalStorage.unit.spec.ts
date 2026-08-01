@@ -57,4 +57,18 @@ describe("pickPostgRESTSyncSettings", () => {
             packReadPolicy: "whole-pack",
         });
     });
+
+    it("normalises shared Journal fields to the native PostgREST contract", () => {
+        const settings = {
+            ...DEFAULT_SETTINGS,
+            postgrestActiveConnectionURI: "sls+postgrest://vault-a:credential@project.example/rest/v1",
+            journalFormat: "opaque-v1" as const,
+            packReadPolicy: "range" as const,
+        };
+
+        expect(pickPostgRESTSyncSettings(settings)).toMatchObject({
+            journalFormat: "adaptive-v1",
+            packReadPolicy: "whole-pack",
+        });
+    });
 });
