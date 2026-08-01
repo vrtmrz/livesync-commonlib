@@ -57,6 +57,30 @@ describe("LiveSyncJournalReplicator S3 Journal selection", () => {
         expect(adaptive).not.toBe(opaque);
         expect(adaptive.storage).toBe(opaque.storage);
     });
+
+    it("retries local host ID initialisation after an early failure", async () => {
+        const replicator = makeReplicatorWithSettings({
+            ...DEFAULT_SETTINGS,
+            remoteType: REMOTE_MINIO,
+            journalFormat: "adaptive-v1",
+        });
+        Object.assign(replicator, { nodeInitialisation: Promise.resolve(false) });
+        const initialise = vi.fn(async () => {
+            replicator.nodeid = "receiving-host";
+            return true;
+        });
+        replicator.initializeDatabaseForReplication = initialise;
+
+        const client = replicator.setupJournalSyncClient();
+        const resolveHostId = (
+            client as unknown as {
+                resolveHostId: () => Promise<string>;
+            }
+        ).resolveHostId;
+
+        await expect(resolveHostId()).resolves.toBe("receiving-host");
+        expect(initialise).toHaveBeenCalledOnce();
+    });
 });
 
 describe("LiveSyncJournalReplicator", () => {

@@ -85,7 +85,11 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                       this.env,
                       storage,
                       async () => {
-                          if (!(await this.nodeInitialisation) || this.nodeid.length === 0) {
+                          const initiallyReady = await this.nodeInitialisation;
+                          if (
+                              (!initiallyReady || this.nodeid.length === 0) &&
+                              (!(await this.initializeDatabaseForReplication()) || this.nodeid.length === 0)
+                          ) {
                               throw new Error("Could not initialise the local Journal host ID");
                           }
                           return this.nodeid;
