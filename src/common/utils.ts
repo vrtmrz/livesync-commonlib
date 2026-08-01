@@ -23,6 +23,7 @@ import {
     type BucketSyncSetting,
     type CouchDBConnection,
     type EncryptionSettings,
+    type PostgRESTSyncSetting,
     type WebDAVSyncSetting,
 } from "./types.ts";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
@@ -580,6 +581,15 @@ export function pickWebDAVSyncSettings(setting: ObsidianLiveSyncSettings): WebDA
         webDAVactiveConnectionURI: setting.webDAVactiveConnectionURI,
         expectedRepositoryId: setting.expectedRepositoryId ?? "",
         journalFormat: setting.journalFormat ?? "opaque-v1",
+        packReadPolicy: setting.packReadPolicy ?? "whole-pack",
+    };
+}
+
+export function pickPostgRESTSyncSettings(setting: ObsidianLiveSyncSettings): PostgRESTSyncSetting {
+    return {
+        postgrestActiveConnectionURI: setting.postgrestActiveConnectionURI,
+        expectedRepositoryId: setting.expectedRepositoryId ?? "",
+        journalFormat: setting.journalFormat ?? "adaptive-v1",
         packReadPolicy: setting.packReadPolicy ?? "whole-pack",
     };
 }
