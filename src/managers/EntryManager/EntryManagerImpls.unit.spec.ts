@@ -29,6 +29,7 @@ import {
     REMOTE_COUCHDB,
     REMOTE_MINIO,
     REMOTE_P2P,
+    REMOTE_WEBDAV,
     IDPrefixes,
     ChunkAlgorithms,
 } from "@lib/common/types";
@@ -884,6 +885,18 @@ describe("EntryManagerImpls", () => {
                 expected: { preventRemoteRequest: true, waitForDelivery: true },
                 remoteType: REMOTE_MINIO,
                 useOnlyLocalChunk: true,
+                waitForReady: true,
+            },
+            {
+                expected: { preventRemoteRequest: true, waitForDelivery: false },
+                remoteType: REMOTE_WEBDAV,
+                useOnlyLocalChunk: false,
+                waitForReady: false,
+            },
+            {
+                expected: { preventRemoteRequest: true, waitForDelivery: true },
+                remoteType: REMOTE_WEBDAV,
+                useOnlyLocalChunk: false,
                 waitForReady: true,
             },
             {
