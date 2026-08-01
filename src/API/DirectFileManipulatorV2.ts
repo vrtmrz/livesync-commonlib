@@ -12,6 +12,7 @@ import {
     type LoadedEntry,
     DEFAULT_SETTINGS,
     type HashAlgorithm,
+    type ObsidianLiveSyncSettings,
     type RemoteDBSettings,
     type ChunkSplitterVersion,
     type SyncParameters,
@@ -80,6 +81,12 @@ export type DirectFileManipulatorOptions = {
     E2EEAlgorithm?: E2EEAlgorithm;
 };
 
+/** Host runtime capabilities used by a direct CouchDB connection. */
+export type DirectFileManipulatorRuntimeOptions = Readonly<{
+    /** Fetch implementation passed to PouchDB. Omit it to use PouchDB's default transport. */
+    fetch?: typeof globalThis.fetch;
+}>;
+
 export type ReadyEntry = (NewEntry | PlainEntry) & { data: string[] };
 export type MetaEntry = (NewEntry | PlainEntry) & { children: string[] };
 
@@ -112,36 +119,55 @@ export type EnumerateConditions = {
 export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     liveSyncLocalDB: LiveSyncLocalDB;
     options: DirectFileManipulatorOptions;
+    readonly runtimeOptions: DirectFileManipulatorRuntimeOptions;
     ready = promiseWithResolvers<void>();
     services: HeadlessServiceHub<ServiceContext>;
     public async init() {
-        await this.services.appLifecycle.onReady();
-        await this.liveSyncLocalDB.initializeDatabase();
-        this.ready.resolve();
-        this.liveSyncLocalDB.refreshSettings();
+        try {
+            await this.services.appLifecycle.onReady();
+            await this.liveSyncLocalDB.initializeDatabase();
+            this.liveSyncLocalDB.refreshSettings();
+            this.ready.resolve();
+        } catch (error) {
+            this.ready.reject(error);
+        }
     }
-    getBoundDatabaseService(options: () => DirectFileManipulatorOptions): typeof HeadlessDatabaseService {
+    getBoundDatabaseService(
+        options: () => DirectFileManipulatorOptions,
+        runtimeOptions: DirectFileManipulatorRuntimeOptions
+    ): typeof HeadlessDatabaseService {
         const _option = options;
+        const _runtimeOptions = runtimeOptions;
         return class HeadlessDatabaseServiceExt<T extends ServiceContext> extends HeadlessDatabaseService<T> {
             override createPouchDBInstance<T extends object>(
                 _name?: string,
                 _options?: PouchDB.Configuration.DatabaseConfiguration
             ): PouchDB.Database<T> {
                 const option = _option();
-                return new PouchDB(option.url + "/" + option.database, {
+                const pouchDBOptions: PouchDB.Configuration.DatabaseConfiguration = {
                     auth: { username: option.username, password: option.password },
-                });
+                };
+                if (_runtimeOptions.fetch) {
+                    pouchDBOptions.fetch = _runtimeOptions.fetch;
+                }
+                return new PouchDB(option.url + "/" + option.database, pouchDBOptions);
             }
         };
     }
 
-    constructor(options: DirectFileManipulatorOptions) {
+    constructor(
+        options: DirectFileManipulatorOptions,
+        runtimeOptions: DirectFileManipulatorRuntimeOptions = {}
+    ) {
         this.options = options;
-        const getSettings = () => this.settings as any;
+        this.runtimeOptions = runtimeOptions;
+        const getSettings = () => this.settings;
         const context = new ServiceContext();
         this.services = new HeadlessServiceHub(context, {
             pouchDB: PouchDB,
-            database: this.getBoundDatabaseService(() => this.options),
+            database: this.getBoundDatabaseService(() => this.options, this.runtimeOptions),
+            getPathObfuscationPassphrase: () => this.options.obfuscatePassphrase ?? false,
+            databaseLifecycleMode: "direct-access",
         });
 
         // (this.services.setting as InjectableSettingService<ServiceContext>).currentSettings.setHandler(
@@ -155,9 +181,14 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
             console.warn("Loading settings is not supported in DirectFileManipulator.");
             return Promise.resolve(getSettings());
         });
+        this.services.setting.settings = getSettings();
         // this.services.database.createPouchDBInstance.setHandler(this.$$createPouchDBInstance.bind(this));
         this.services.databaseEvents.onDatabaseInitialisation.addHandler(this.$everyOnInitializeDatabase.bind(this));
         this.liveSyncLocalDB = new LiveSyncLocalDB(this.options.url, this);
+        // Callers observe constructor-started initialisation through `ready`. Register a
+        // handler immediately so a failure cannot become an unhandled rejection before
+        // the host starts awaiting that promise.
+        void this.ready.promise.catch((): void => {});
         void this.init();
     }
 
@@ -244,7 +275,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     }
 
     get settings() {
-        const retObj: RemoteDBSettings = {
+        const retObj: ObsidianLiveSyncSettings = {
             ...DEFAULT_SETTINGS,
             ...{
                 minimumChunkSize: this.options.minimumChunkSize ?? DEFAULT_SETTINGS.minimumChunkSize,
@@ -276,6 +307,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 enableCompression: this.options.enableCompression ?? DEFAULT_SETTINGS.enableCompression,
                 handleFilenameCaseSensitive:
                     this.options.handleFilenameCaseSensitive ?? DEFAULT_SETTINGS.handleFilenameCaseSensitive,
+                usePathObfuscation: !!this.options.obfuscatePassphrase,
                 E2EEAlgorithm: this.options.E2EEAlgorithm ?? E2EEAlgorithms.V2,
             },
         };
@@ -406,7 +438,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         // return;
     }
     async *_enumerate(startKey: string, endKey: string, opt: { metaOnly: boolean }) {
-        if (opt.metaOnly) return this.liveSyncLocalDB.findEntries(startKey, endKey, {});
+        if (opt.metaOnly) return yield* this.liveSyncLocalDB.findEntries(startKey, endKey, {});
         for await (const f of this.liveSyncLocalDB.findEntries(startKey, endKey, {})) {
             yield await this.getByMeta(f);
         }
@@ -462,7 +494,14 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                     }
                 }
                 Logger(`WATCH: PROCESSING: ${doc.path}`, LEVEL_VERBOSE, "watch");
-                const docX = await this.getByMeta(doc);
+                let docX;
+                try {
+                    docX = await this.getByMeta(doc);
+                } catch (ex) {
+                    Logger(`WATCH: DOCUMENT LOAD FAILED: ${doc.path}`, LEVEL_INFO, "watch");
+                    Logger(ex, LEVEL_VERBOSE, "watch");
+                    return;
+                }
                 try {
                     await callback(docX, change.seq);
                     Logger(`WATCH: PROCESS DONE: ${doc.path}`, LEVEL_INFO, "watch");

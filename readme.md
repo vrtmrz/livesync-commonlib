@@ -1,6 +1,6 @@
 # Self-hosted LiveSync Commonlib
 
-Commonlib is the ESM package which provides shared data, storage, replication, and host-context primitives for Self-hosted LiveSync, its CLI, Webapp, and WebPeer.
+Commonlib is the ESM package which provides shared data, storage, replication, and host-context primitives for Self-hosted LiveSync, its CLI, WebApp, WebPeer, and LiveSync Bridge.
 
 This package is primarily for maintainers of those clients and for integrations which deliberately reuse a reviewed Commonlib contract. It is not yet a general-purpose LiveSync SDK: the package does not provide a stable end-to-end client factory or own host UI, permissions, credentials, process lifecycle, or application persistence.
 

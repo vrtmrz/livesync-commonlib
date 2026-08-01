@@ -46,6 +46,12 @@ The Obsidian plug-in, CLI, WebApp, and WebPeer compose P2P ownership through `us
 
 This is evidence that the current package boundary can be consumed without the Obsidian host, but it is not yet a recommended standalone Commonlib client factory. The high-level lifecycle, readiness, error, and disposal contract remains future package work after Self-hosted LiveSync 1.0 rather than a gate for that release.
 
+## LiveSync Bridge
+
+[LiveSync Bridge](https://github.com/vrtmrz/livesync-bridge) uses the root `DirectFileManipulator` entry to access CouchDB directly from Deno. The host supplies its fetch implementation, owns reachability probes, retries, and process health, and waits for the manipulator's readiness result before starting its watch. It does not compose the full LiveSync application Service Hub or use the planned file-client factory.
+
+The downstream Deno checks and unit tests run against the installed package. Its Compose integration starts a real CouchDB instance and verifies create, read, update, and deletion between two Bridge peers. This is evidence for the existing direct-access migration path. Commonlib's focused tests separately cover host fetch injection and initialisation failure reporting. This evidence does not make `DirectFileManipulator` a stable high-level SDK contract or establish the semantics still reserved for `createLiveSyncFileClient`.
+
 ## Verification ownership
 
 Commonlib tests the result and lifecycle contracts of the real implementations it publishes. A maintained host tests only its own composition, persistence, presentation, restart, and policy. When a current host test needs isolation, the host may inject the narrow structural capability it consumes and provide a small fake or spy for that test; Commonlib does not publish test-runner-specific mocks or expose its private service graph.

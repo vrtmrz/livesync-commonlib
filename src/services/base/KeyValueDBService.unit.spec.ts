@@ -15,6 +15,34 @@ vi.mock("octagonal-wheels/promises", async (importOriginal) => {
 class TestKeyValueDBService extends KeyValueDBService {}
 
 describe("KeyValueDBService factory boundary", () => {
+    it("does not register application database lifecycle handlers for direct access", () => {
+        const onSettingLoaded = vi.fn();
+        const onResetDatabase = vi.fn();
+        const onDatabaseInitialisation = vi.fn();
+        const onUnloadDatabase = vi.fn();
+        const onCloseDatabase = vi.fn();
+        const dependencies = {
+            openKeyValueDatabase: vi.fn(),
+            vault: { getVaultName: () => "test-vault" },
+            appLifecycle: { onSettingLoaded: { addHandler: onSettingLoaded } },
+            databaseEvents: {
+                onResetDatabase: { addHandler: onResetDatabase },
+                onDatabaseInitialisation: { addHandler: onDatabaseInitialisation },
+                onUnloadDatabase: { addHandler: onUnloadDatabase },
+                onCloseDatabase: { addHandler: onCloseDatabase },
+            },
+            registerLifecycleHandlers: false,
+        } as unknown as KeyValueDBDependencies;
+
+        new TestKeyValueDBService(createServiceContext(), dependencies);
+
+        expect(onSettingLoaded).not.toHaveBeenCalled();
+        expect(onResetDatabase).not.toHaveBeenCalled();
+        expect(onDatabaseInitialisation).not.toHaveBeenCalled();
+        expect(onUnloadDatabase).not.toHaveBeenCalled();
+        expect(onCloseDatabase).not.toHaveBeenCalled();
+    });
+
     it("creates a namespaced store handle before the backing database is initialised", () => {
         const dependencies = {
             openKeyValueDatabase: vi.fn(),

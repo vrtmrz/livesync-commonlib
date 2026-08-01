@@ -15,6 +15,11 @@ import type { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared
 
 export interface PathServiceDependencies {
     settingService: ISettingService;
+    /**
+     * Optional host capability for consumers which keep content encryption and
+     * path-obfuscation passphrases separate.
+     */
+    getPathObfuscationPassphrase?: () => string | false;
 }
 /**
  * The PathService provides methods for converting between file paths and document IDs.
@@ -25,6 +30,7 @@ export abstract class PathService<T extends ServiceContext = ServiceContext>
     implements IPathService
 {
     protected settingService: ISettingService;
+    private readonly getPathObfuscationPassphrase?: () => string | false;
     protected abstract normalizePath(path: string): string;
     get settings() {
         return this.settingService.currentSettings();
@@ -32,6 +38,7 @@ export abstract class PathService<T extends ServiceContext = ServiceContext>
     constructor(context: T, dependencies: PathServiceDependencies) {
         super(context);
         this.settingService = dependencies.settingService;
+        this.getPathObfuscationPassphrase = dependencies.getPathObfuscationPassphrase;
     }
     private _id2path(id: DocumentID, entry?: EntryHasPath): FilePathWithPrefix {
         const filename = id2path_base(id, entry);
@@ -80,9 +87,12 @@ export abstract class PathService<T extends ServiceContext = ServiceContext>
     async path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID> {
         const destPath = addPrefix(filename, prefix ?? "");
         const setting = this.settings;
+        const pathObfuscationPassphrase =
+            this.getPathObfuscationPassphrase?.() ??
+            (setting.usePathObfuscation ? setting.passphrase : false);
         return await this._path2id(
             destPath,
-            setting.usePathObfuscation ? setting.passphrase : "",
+            pathObfuscationPassphrase,
             !setting.handleFilenameCaseSensitive
         );
     }
