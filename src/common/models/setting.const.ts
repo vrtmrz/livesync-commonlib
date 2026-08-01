@@ -8,18 +8,22 @@ export const CURRENT_SETTING_VERSION = SETTING_VERSION_SUPPORT_CASE_INSENSITIVE;
 export const RemoteTypes = {
     REMOTE_COUCHDB: "",
     REMOTE_MINIO: "MINIO",
+    REMOTE_POSTGREST: "POSTGREST",
     REMOTE_WEBDAV: "WEBDAV",
     REMOTE_P2P: "ONLY_P2P",
 } as const;
 export const REMOTE_COUCHDB = RemoteTypes.REMOTE_COUCHDB;
 export const REMOTE_MINIO = RemoteTypes.REMOTE_MINIO;
+export const REMOTE_POSTGREST = RemoteTypes.REMOTE_POSTGREST;
 export const REMOTE_WEBDAV = RemoteTypes.REMOTE_WEBDAV;
 //
 export const REMOTE_P2P = RemoteTypes.REMOTE_P2P;
 
 /** Returns whether a remote type uses the sequential Journal synchronisation family. */
-export function isJournalRemoteType(remoteType: string): remoteType is typeof REMOTE_MINIO | typeof REMOTE_WEBDAV {
-    return remoteType === REMOTE_MINIO || remoteType === REMOTE_WEBDAV;
+export function isJournalRemoteType(
+    remoteType: string
+): remoteType is typeof REMOTE_MINIO | typeof REMOTE_POSTGREST | typeof REMOTE_WEBDAV {
+    return remoteType === REMOTE_MINIO || remoteType === REMOTE_POSTGREST || remoteType === REMOTE_WEBDAV;
 }
 
 /**
@@ -32,6 +36,8 @@ export function hasConfiguredRemote(settings: RemoteDBSettings): boolean {
             return !!settings.couchDB_URI?.trim() && !!settings.couchDB_DBNAME?.trim();
         case REMOTE_MINIO:
             return !!settings.endpoint?.trim() && !!settings.bucket?.trim();
+        case REMOTE_POSTGREST:
+            return !!settings.postgrestActiveConnectionURI?.trim();
         case REMOTE_WEBDAV:
             return !!settings.webDAVactiveConnectionURI?.trim();
         case REMOTE_P2P:

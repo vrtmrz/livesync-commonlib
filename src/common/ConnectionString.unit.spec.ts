@@ -394,3 +394,55 @@ describe("ConnectionStringParser WebDAV", () => {
         }
     });
 });
+
+describe("ConnectionStringParser PostgREST", () => {
+    it("round-trips an Adaptive-only profile without duplicating protocol fields in the active URI", () => {
+        const repositoryId = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        const uri = ConnectionStringParser.serialize({
+            type: "postgrest",
+            settings: {
+                expectedRepositoryId: repositoryId,
+                journalFormat: "adaptive-v1",
+                packReadPolicy: "whole-pack",
+                postgrestActiveConnectionURI:
+                    "sls+postgrest://vault-a:credential@project.example/rest/v1?schema=livesync_api&apiKey=publishable&useProxy=true",
+            },
+        });
+
+        expect(uri).toContain("journalFormat=adaptive-v1");
+        expect(uri).toContain(`expectedRepositoryId=${repositoryId}`);
+        const parsed = ConnectionStringParser.parse(uri);
+        expect(parsed).toMatchObject({
+            type: "postgrest",
+            settings: {
+                expectedRepositoryId: repositoryId,
+                journalFormat: "adaptive-v1",
+                packReadPolicy: "whole-pack",
+            },
+        });
+        if (parsed.type !== "postgrest") throw new Error("Expected postgrest type");
+        expect(parsed.settings.postgrestActiveConnectionURI).not.toContain("journalFormat=");
+        expect(parsed.settings.postgrestActiveConnectionURI).not.toContain("expectedRepositoryId=");
+        expect(ConnectionStringParser.serialize(parsed)).toBe(uri);
+    });
+
+    it("uses Adaptive defaults and rejects Opaque or range profiles", () => {
+        const parsed = ConnectionStringParser.parse(
+            "sls+postgrest://vault:credential@project.example/rest/v1?apiKey=publishable"
+        );
+        expect(parsed).toMatchObject({
+            type: "postgrest",
+            settings: { journalFormat: "adaptive-v1", packReadPolicy: "whole-pack" },
+        });
+        expect(() =>
+            ConnectionStringParser.parse(
+                "sls+postgrest://vault:credential@project.example/rest/v1?journalFormat=opaque-v1"
+            )
+        ).toThrow("Adaptive format");
+        expect(() =>
+            ConnectionStringParser.parse(
+                "sls+postgrest://vault:credential@project.example/rest/v1?packReadPolicy=range"
+            )
+        ).toThrow("range reads");
+    });
+});

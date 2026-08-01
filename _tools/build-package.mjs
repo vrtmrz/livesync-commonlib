@@ -212,7 +212,7 @@ async function writePackageManifest() {
             access: "public",
             tag: "next",
         },
-        files: ["dist", "docs", "README.md", "LICENSE"],
+        files: ["dist", "docs", "sql", "README.md", "LICENSE"],
         sideEffects: [
             "./dist/pouchdb/pouchdb-browser.js",
             "./dist/pouchdb/pouchdb-http.js",
@@ -260,6 +260,10 @@ async function copyStaticFiles() {
         "settings-lifecycle.md",
     ]) {
         await cp(resolve(root, "docs", document), resolve(packageDirectory, "docs", document));
+    }
+    await mkdir(resolve(packageDirectory, "sql", "postgrest"), { recursive: true });
+    for (const file of ["README.md", "adaptive_journal_v1.sql"]) {
+        await cp(resolve(root, "sql", "postgrest", file), resolve(packageDirectory, "sql", "postgrest", file));
     }
 }
 

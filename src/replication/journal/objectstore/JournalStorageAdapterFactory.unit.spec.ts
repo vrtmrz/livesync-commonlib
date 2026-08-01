@@ -3,12 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 import {
     DEFAULT_SETTINGS,
     REMOTE_MINIO,
+    REMOTE_POSTGREST,
     REMOTE_WEBDAV,
     hasConfiguredRemote,
     isJournalRemoteType,
     type RemoteDBSettings,
 } from "@lib/common/types.ts";
 import type { LiveSyncJournalReplicatorEnv } from "../LiveSyncJournalReplicatorEnv.ts";
+import { ADAPTIVE_JOURNAL_NATIVE_REQUIRED_CAPABILITIES_V1 } from "../adaptive/AdaptiveJournalManifest.ts";
 import type { IJournalStorage } from "./JournalStorageAdapter.ts";
 import {
     createJournalStorageAdapter,
@@ -38,6 +40,17 @@ function webDAVSettings(overrides: Partial<RemoteDBSettings> = {}): RemoteDBSett
     } as RemoteDBSettings;
 }
 
+function postgrestSettings(overrides: Partial<RemoteDBSettings> = {}): RemoteDBSettings {
+    return {
+        ...DEFAULT_SETTINGS,
+        journalFormat: "adaptive-v1",
+        packReadPolicy: "whole-pack",
+        postgrestActiveConnectionURI: "sls+postgrest://vault:credential@example.invalid/rest/v1?apiKey=publishable",
+        remoteType: REMOTE_POSTGREST,
+        ...overrides,
+    } as RemoteDBSettings;
+}
+
 describe("JournalStorageAdapterFactory", () => {
     it("creates the S3 adapter and recognises its provider contract", () => {
         const settings = s3Settings();
@@ -59,6 +72,15 @@ describe("JournalStorageAdapterFactory", () => {
         ).toBe("WebDAV");
     });
 
+    it("creates the Adaptive-only PostgREST adapter and exposes only its endpoint", () => {
+        const settings = postgrestSettings();
+        const storage = createJournalStorageAdapter(settings, env);
+
+        expect(storage.kind).toBe("postgrest");
+        expect(isJournalStorageAdapterCompatible(storage, settings)).toBe(true);
+        expect(getJournalRemoteDisplayName(settings)).toBe("https://example.invalid/rest/v1");
+    });
+
     it("does not treat an adapter for a different provider as compatible", () => {
         const storage = createJournalStorageAdapter(s3Settings(), env);
 
@@ -77,7 +99,9 @@ describe("JournalStorageAdapterFactory", () => {
             )
         ).toBe(false);
         expect(isJournalRemoteType(REMOTE_MINIO)).toBe(true);
+        expect(isJournalRemoteType(REMOTE_POSTGREST)).toBe(true);
         expect(isJournalRemoteType(REMOTE_WEBDAV)).toBe(true);
+        expect(hasConfiguredRemote(postgrestSettings())).toBe(true);
         expect(isJournalRemoteType(DEFAULT_SETTINGS.remoteType)).toBe(false);
     });
 
@@ -212,6 +236,25 @@ describe("JournalStorageAdapterFactory", () => {
             available: false,
             remoteFormat: "empty",
         });
+    });
+
+    it("checks native PostgREST semantics without requiring object Range support", async () => {
+        const verifyCapabilities = vi.fn(async () => ({ status: "verified" as const }));
+        const storage = {
+            kind: "postgrest",
+            inspectRemoteFormat: vi.fn(async () => "empty" as const),
+            verifyCapabilities,
+        } as unknown as IJournalStorage;
+
+        await expect(inspectJournalStorageConnectivity(storage, postgrestSettings())).resolves.toEqual({
+            adaptiveCapabilities: {
+                byteRange: { status: "not-checked" },
+                required: { status: "verified" },
+            },
+            available: true,
+            remoteFormat: "empty",
+        });
+        expect(verifyCapabilities).toHaveBeenCalledWith(ADAPTIVE_JOURNAL_NATIVE_REQUIRED_CAPABILITIES_V1);
     });
 
     it("preserves a typed remote failure instead of reporting unsupported semantics", async () => {

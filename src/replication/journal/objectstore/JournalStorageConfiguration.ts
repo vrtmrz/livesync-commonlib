@@ -1,5 +1,6 @@
 import {
     REMOTE_MINIO,
+    REMOTE_POSTGREST,
     REMOTE_WEBDAV,
     type AdaptiveJournalPackReadPolicyV1,
     type JournalFormatV1,
@@ -7,6 +8,7 @@ import {
 } from "@lib/common/types.ts";
 import { resolveJournalProtocolOptionsV1 } from "@lib/common/models/journalProtocol.ts";
 import type { JournalStorageKind } from "./JournalStorageAdapter.ts";
+import { parsePostgRESTConnectionURI } from "./JournalStorageConnection.ts";
 
 export interface ResolvedJournalProtocolConfigurationV1 {
     expectedRepositoryId: string;
@@ -21,6 +23,7 @@ export interface ResolvedJournalProtocolConfigurationV1 {
  */
 export function journalStorageKindForRemoteType(remoteType: string): JournalStorageKind {
     if (remoteType === REMOTE_MINIO) return "s3";
+    if (remoteType === REMOTE_POSTGREST) return "postgrest";
     if (remoteType === REMOTE_WEBDAV) return "webdav";
     throw new Error(`Unsupported Journal remote type: ${remoteType}`);
 }
@@ -34,6 +37,12 @@ export function getJournalRemoteDisplayName(settings: RemoteDBSettings): string 
     switch (journalStorageKindForRemoteType(settings.remoteType)) {
         case "s3":
             return settings.endpoint;
+        case "postgrest":
+            try {
+                return parsePostgRESTConnectionURI(settings.postgrestActiveConnectionURI).endpoint;
+            } catch {
+                return "PostgREST";
+            }
         case "webdav":
             try {
                 const match = /^sls\+webdav:(\/\/.*)$/u.exec(settings.webDAVactiveConnectionURI);
@@ -51,6 +60,13 @@ export function getJournalRemoteDisplayName(settings: RemoteDBSettings): string 
 export function journalProtocolConfigurationForSettings(
     settings: RemoteDBSettings
 ): ResolvedJournalProtocolConfigurationV1 {
-    journalStorageKindForRemoteType(settings.remoteType);
-    return resolveJournalProtocolOptionsV1(settings);
+    const kind = journalStorageKindForRemoteType(settings.remoteType);
+    const protocol = resolveJournalProtocolOptionsV1(settings);
+    if (kind === "postgrest" && protocol.journalFormat !== "adaptive-v1") {
+        throw new Error("PostgREST Journal storage requires the Adaptive format");
+    }
+    if (kind === "postgrest" && protocol.packReadPolicy !== "whole-pack") {
+        throw new Error("PostgREST native Chunk storage does not support object Pack range reads");
+    }
+    return protocol;
 }

@@ -7,7 +7,13 @@ import {
     upsertRemoteConfigurationInPlace,
     useRemoteConfiguration,
 } from "@lib/serviceFeatures/remoteConfig";
-import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P, REMOTE_WEBDAV } from "@lib/common/models/setting.const";
+import {
+    REMOTE_COUCHDB,
+    REMOTE_MINIO,
+    REMOTE_P2P,
+    REMOTE_POSTGREST,
+    REMOTE_WEBDAV,
+} from "@lib/common/models/setting.const";
 import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 
 describe("Remote Configuration Migration", () => {
@@ -408,6 +414,37 @@ describe("Remote Configuration Registration", () => {
             journalFormat: "adaptive-v1",
             packReadPolicy: "range",
         });
+    });
+
+    it("round-trips an Adaptive PostgREST remote profile", () => {
+        const repositoryId = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        const settings = {
+            remoteConfigurations: {},
+            activeConfigurationId: "",
+            remoteType: REMOTE_POSTGREST,
+            postgrestActiveConnectionURI: "sls+postgrest://vault:credential@project.example/rest/v1?apiKey=publishable",
+            expectedRepositoryId: repositoryId,
+            journalFormat: "adaptive-v1",
+            packReadPolicy: "whole-pack",
+        } as ObsidianLiveSyncSettings;
+
+        const profile = upsertRemoteConfigurationInPlace(settings, "postgrest", { activate: true });
+        expect(profile.name).toBe("PostgREST project.example");
+        expect(profile.uri).toContain("sls+postgrest://vault:credential@project.example/rest/v1");
+        settings.postgrestActiveConnectionURI = "";
+        settings.expectedRepositoryId = "";
+        settings.remoteType = REMOTE_COUCHDB;
+
+        expect(activateRemoteConfiguration(settings, profile.id)).toBe(settings);
+        expect(settings).toMatchObject({
+            remoteType: REMOTE_POSTGREST,
+            expectedRepositoryId: repositoryId,
+            journalFormat: "adaptive-v1",
+            packReadPolicy: "whole-pack",
+        });
+        expect(settings.postgrestActiveConnectionURI).toContain(
+            "sls+postgrest://vault:credential@project.example/rest/v1"
+        );
     });
 
     it("can select a P2P profile without replacing the main active remote", () => {

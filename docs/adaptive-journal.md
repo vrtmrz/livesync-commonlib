@@ -87,11 +87,23 @@ Adaptive immutable objects use `PUT` with `If-None-Match: *`. The adapter accept
 
 WebDAV has no portable multi-prefix listing operation. One receive phase therefore obtains one complete Depth-one `PROPFIND` result, reuses that immutable discovery snapshot for Writer and Commit prefixes, and discards it before the next receive phase. This reduces request latency without hiding objects from a later poll. RFC 4331 quota properties are optional diagnostics: their absence means that quota is unknown, not that the server is incompatible.
 
+## Native delivery adapters
+
+### PostgREST storage
+
+The experimental PostgREST adapter is Adaptive-only. It does not implement Opaque Journal operations, object Packs, Range retrieval, or a remote Catalogue. The focused `/journal-storage` entry exports `REMOTE_POSTGREST`, `PostgRESTSyncSetting`, and `sls+postgrest://` parsing and serialisation. The profile contains a PostgREST endpoint, an exposed schema, a Vault ID, a high-entropy Vault credential, an optional client-safe API key, and the host's custom-request-handler choice. Database credentials and privileged Supabase keys are not client fields.
+
+The accompanying [SQL contract](../sql/postgrest/README.md) keeps tables and administrative provisioning functions in a private schema and exposes only bounded PostgREST RPCs. One batched HAS request checks every Chunk key referenced by a Metadata batch. The client sends only missing Chunk frames, partitioned into one or more PUT requests with a preferred request size of 32 MiB; it bisects a request further if a hosting gateway reports HTTP 413. These immutable rows may arrive in separate transactions; they do not make the Metadata batch visible. The Commit RPC then verifies that every required Chunk is visible, locks one Writer stream, checks its predecessor, and inserts the exact Commit Bundle in one transaction. Metadata is not staged in a separate remote row. An acknowledged successful PUT or Commit response is authoritative; an ambiguous transport or server failure remains `verify-first` and causes an exact read before retry.
+
+The receive side lists visible Writers, lists Commit sequences for each Writer, fetches one exact Commit Bundle for both the Commit and Metadata frames, and initially issues one batched Chunk GET for each received batch which has locally missing Chunks. The SQL contract rejects a multi-entry response above the preferred 32 MiB response size before constructing it, and the client bisects that key set. One unusually large Chunk may use the 64 MiB wire ceiling rather than becoming unreadable. Successful immutable Writer reads and decoded Commit Bundles are reused while their bounded repository client remains open. Capability inspection requires the versioned native operation declaration and verifies an exact binary echo; it does not infer safety from the presence of similarly named tables or functions.
+
+A remote Rebuild deletes the Adaptive rows below one Manifest but retains the provisioned Vault credential. Changing the SQL or wire format requires detection and a remote Rebuild rather than an in-place remote-data migration. Revoking the credential is a separate trusted database-administration operation.
+
 ## Request model and Chunk size
 
 Adaptive Journal does not currently justify a smaller default Chunk size than Opaque Journal. The existing Journal Sync preset remains the starting point. With the current V3 splitter, its `customChunkSize` value of `10` places the binary maximum at about 1.1 MB, while the content-defined target is about 1 MiB. Several newly required Chunks in one Metadata batch share one Pack, so making Chunks smaller does not normally add S3 writes. It does increase local records, hashing work, Bundle route entries, and Range requests. Each Chunk record also has a 64-byte unencrypted or 92-byte encrypted frame overhead before payload compression. Route bytes use canonical JSON inside the authenticated Commit control record, so their compressed wire size is data-dependent rather than a fixed per-entry value. Text splitting follows different, much smaller targets, so the binary examples below do not predict text behaviour.
 
-The following request estimates describe the current S3 and WebDAV object-profile implementations, not benchmark results or a service guarantee. They assume a settled repository, one-page listings, acknowledged first attempts, and no format inspection, manifest access, capability probe, credential exchange, retry, or pagination. A complete `sync` performs the receive phase before the publication phase, but publication and later catch-up are shown separately because an editing device commonly publishes several changes before another device next receives them.
+The following request estimates describe the current S3 and WebDAV object profile and the PostgREST native profile. They are models, not benchmark results or a service guarantee. They assume a settled repository, one-page listings, acknowledged first attempts, and no format inspection, manifest access, capability probe, credential exchange, retry, or pagination. A complete `sync` performs the receive phase before the publication phase, but publication and later catch-up are shown separately because an editing device commonly publishes several changes before another device next receives them.
 
 Let:
 
@@ -100,8 +112,11 @@ Let:
 - `J` be the number of Opaque journal objects produced for the same changes;
 - `W` be the number of visible Writers during a receiving phase;
 - `K` be the number of those Writers whose immutable descriptor has not already been read successfully by the opened process;
-- `P` be the number of additional complete Pack-container reads needed for locally missing Chunks; and
-- `M` be the number of locally missing Chunks read separately with Range retrieval.
+- `P` be the number of additional complete Pack-container reads needed for locally missing Chunks;
+- `M` be the number of locally missing Chunks read separately with Range retrieval;
+- `H` be the number of PostgREST batches which reference at least one Chunk;
+- `U` be the total number of physical PostgREST Chunk PUT requests after missing frames are subdivided by request size; and
+- `G` be the total number of physical PostgREST Chunk GET requests after any oversized-response rejection and recursive subdivision.
 
 ### Publication from the editing device
 
@@ -119,20 +134,25 @@ An acknowledged conditional create is accepted without an immediate read-back. A
 
 If changes coalesce before synchronisation, both `B` and `J` may be much smaller than the number of edits. For example, an Opaque batch remains one object while it stays below its 250-record and 10 MB uncompressed thresholds, and one Adaptive Metadata scan currently includes up to 100 local database changes. Therefore `B` and `J` must not be assumed equal in a real workload.
 
+PostgREST native publication performs approximately `B + H + U` operations. Every batch inserts one transactional Commit Bundle. A batch with no Chunk references needs only that Commit request, while a non-empty batch adds one multi-key HAS. Missing frames share bounded PUT requests with a preferred request size of 32 MiB, so `U` is normally one for a non-empty, modest batch, but may be larger for a large batch or when a gateway reports a smaller request-body limit. Under that common assumption, 100 Metadata-only batches use about 100 operations, 100 batches whose Chunks already exist use about 200, and 100 batches which each introduce a bounded set of Chunks use about 300. The HAS trades one round trip per non-empty publication for avoiding retransmission of existing Chunk bodies; request-size subdivision trades further round trips for a lower peak request and mobile-host burden.
+
 ### Later catch-up on a receiving device
 
 One Opaque catch-up costs approximately one listing plus one read per new journal object, or `1 + J`. On S3, one Adaptive catch-up performs one Writer listing and one Commit listing per visible Writer. On WebDAV, the receive-phase listing replaces those `1 + W` prefix listings with one complete Depth-one listing. Both adapters read each previously unseen Writer descriptor. Each new batch then requires one Commit Bundle read. That single physical read supplies the logical Commit and Metadata records and, when present, the current inline Pack.
 
-| Provider | Retrieval policy | Approximate Adaptive catch-up operations |
-| -------- | ---------------- | ---------------------------------------: |
-| S3       | `whole-pack`     |                      `1 + W + K + B + P` |
-| S3       | `range`          |                      `1 + W + K + B + M` |
-| WebDAV   | `whole-pack`     |                          `1 + K + B + P` |
-| WebDAV   | `range`          |                          `1 + K + B + M` |
+| Provider  | Retrieval policy | Approximate Adaptive catch-up operations |
+| --------- | ---------------- | ---------------------------------------: |
+| S3        | `whole-pack`     |                      `1 + W + K + B + P` |
+| S3        | `range`          |                      `1 + W + K + B + M` |
+| WebDAV    | `whole-pack`     |                          `1 + K + B + P` |
+| WebDAV    | `range`          |                          `1 + K + B + M` |
+| PostgREST | native batch     |                      `1 + W + K + B + G` |
 
-`P` can refer to an external Pack or to an earlier Commit Bundle containing a reused inline Pack. The default Bundle cache retains at most 64 entries and 64 MiB; an evicted Bundle is read again if a later route needs its inline Pack. A host-provided Pack cache can similarly reduce repeated external Pack reads. The receiver checks its local Chunk database after decoding Metadata and before making an additional Pack or Range request. If every required Chunk is already local, the batch contributes no `P` or `M` term. The current Bundle is still read because it is the source of the Commit and Metadata records.
+`P` can refer to an external Pack or to an earlier Commit Bundle containing a reused inline Pack. The default Bundle cache retains at most 64 entries and 64 MiB; an evicted Bundle is read again if a later route needs its inline Pack. A host-provided Pack cache can similarly reduce repeated external Pack reads. The receiver checks its local Chunk database after decoding Metadata and before making an additional Pack, Range, or native batch request. If every required Chunk is already local, the batch contributes no `P`, `M`, or `G` term. The current Bundle is still read because it is the source of the Commit and Metadata records.
 
 A successful immutable Writer descriptor read is also reused while the same repository remains open; a missing or failed read is not cached. For one established Writer, an unchanged S3 poll therefore costs three discovery operations the first time that Writer is encountered and two on later polls in the same process. The corresponding WebDAV counts are two and one. Providers with native multi-key reads may coalesce parts of these terms.
+
+For PostgREST, 100 new batches from one Writer cost about 103 operations on the first catch-up, or 102 with its Writer descriptor already cached, when every required Chunk is local. If every batch needs at least one remote Chunk and each response remains within the wire limit, one batched GET per batch raises those estimates to 203 and 202. An oversized response adds its rejected request plus the recursively subdivided GETs. Within each successful bounded GET, the number of missing Chunks changes response bytes, database work, and local decoding, but not its request count.
 
 As an illustrative model, assume 100 Adaptive batches and 100 Opaque objects are published before another device catches up once. The first Adaptive catch-up has one visible uncached Writer; the warm case has its descriptor cached.
 
@@ -149,8 +169,8 @@ The WebDAV model assumes a deployment where capacity or a fixed service plan is 
 
 For a rough byte model, consider 100 separately published, localised edits to an incompressible 10 MiB binary file. If content-defined splitting resumes after one changed Chunk, an average changed Chunk of 1 MiB contributes about 100 MiB of new payload across the 100 Bundles, while 256 KiB contributes about 25 MiB, before Metadata, routes, and framing. Both fit comfortably below the inline limit when each batch changes one Chunk, so the request counts remain the first row of the table. The same PouchDB Chunk split feeds both Journal formats, so this byte reduction is not an Adaptive-only saving.
 
-Larger Chunks reduce route count and Range requests, but they increase transferred bytes for a localised edit and can push a multi-Chunk Pack over the inline threshold, adding at least one write. A batch which crosses the 32 MiB preferred Pack target adds further Pack writes; the 256 MiB ceiling remains available for one unusually large Chunk frame and for compatibility. Smaller Chunks have the opposite trade-off. Compression ratio, edit position, boundary movement, batch coalescing, multiple Writers, service latency, list pagination, process restarts, and cache lifetime can change the result. A different default therefore requires comparative measurements; Adaptive Journal should not be presented as an unconditional request-count optimisation over Opaque Journal on S3.
+Larger Chunks reduce route count and Range requests, but they increase transferred bytes for a localised edit and can push a multi-Chunk Pack over the inline threshold, adding at least one write. A batch which crosses the 32 MiB preferred Pack target adds further Pack writes; the 256 MiB ceiling remains available for one unusually large Chunk frame and for compatibility. PostgREST coalesces key lookup, missing-frame upload, and missing-frame download by Metadata batch. While the resulting bodies remain within their request and response targets, smaller Chunks primarily add rows, framing, hashing, and database-processing overhead rather than HTTP requests. Crossing a body target adds subdivisions, while smaller Chunks can still improve transferred-byte locality after a small edit. Compression ratio, edit position, boundary movement, batch coalescing, multiple Writers, service latency, list pagination, process restarts, and cache lifetime can change the result. A different default therefore requires comparative measurements; neither Adaptive delivery profile should be presented as an unconditional request-count optimisation over Opaque Journal.
 
 ## Verification scope
 
-Commonlib owns deterministic fixture generation and focused tests for the manifest, record encodings, Commit Bundles, object Packs, derived Catalogues, publication recovery, receive frontiers, repository identity, and both delivery contracts. The S3 adapter adds focused SDK-command tests and managed MinIO integration. The WebDAV adapter adds focused HTTP-semantic tests and managed Apache DAV integration. Self-hosted LiveSync separately composes the exact packed package into a two-database CLI WebDAV workflow; Host UI and real-Obsidian behaviour remain later delivery stages. See [Proven in maintained hosts](proven-in-use.md) for the current evidence boundary.
+Commonlib owns deterministic fixture generation and focused tests for the manifest, record encodings, Commit Bundles, object Packs, derived Catalogues, native batches, publication recovery, receive frontiers, repository identity, and both delivery contracts. The S3 adapter adds focused SDK-command tests and managed MinIO integration. The WebDAV adapter adds focused HTTP-semantic tests and managed Apache DAV integration. The PostgREST adapter adds focused RPC and credential tests plus a disposable PostgreSQL and PostgREST integration which exercises real binary batches and transactional Commit Bundles. Self-hosted LiveSync separately composes the exact packed package into a two-database CLI WebDAV workflow; PostgREST CLI, Host UI, and real-Obsidian behaviour remain later delivery stages. See [Proven in maintained hosts](proven-in-use.md) for the current evidence boundary.

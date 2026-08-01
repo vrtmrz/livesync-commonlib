@@ -1,6 +1,6 @@
 # Remote configuration profiles
 
-Commonlib represents saved remote connections as independently named profiles. The profile map is the persisted source for multiple-remote selection. Existing CouchDB, Object Storage, WebDAV, and P2P fields remain the runtime projection consumed by compatibility services.
+Commonlib represents saved remote connections as independently named profiles. The profile map is the persisted source for multiple-remote selection. Existing CouchDB, Object Storage, WebDAV, PostgREST, and P2P fields remain the runtime projection consumed by compatibility services.
 
 Use the focused entry point for new profile-management code:
 
@@ -33,7 +33,7 @@ For Adaptive Journal, `pinActiveAdaptiveJournalRepositoryIdInPlace(settings, rep
 
 Profile IDs are opaque identity. Omit `id` to allocate a new one and preserve every existing profile. Pass a known `id` only when deliberately updating that profile.
 
-Display names are presentation, not identity. When `name` is omitted, Commonlib proposes a concise type-specific name such as `CouchDB couch.example`, `S3 notes`, `WebDAV dav.example`, or `P2P team-room`. It adds a numeric suffix when that display name is already present. A host may let users rename profiles without changing their IDs or selections.
+Display names are presentation, not identity. When `name` is omitted, Commonlib proposes a concise type-specific name such as `CouchDB couch.example`, `S3 notes`, `WebDAV dav.example`, `PostgREST project.example`, or `P2P team-room`. It adds a numeric suffix when that display name is already present. A host may let users rename profiles without changing their IDs or selections.
 
 There is no special profile named or identified as `default`. The selected main remote is represented only by `activeConfigurationId`.
 
@@ -41,7 +41,7 @@ There is no special profile named or identified as `default`. The selected main 
 
 `activeConfigurationId` selects the main remote used by ordinary replication. `P2P_ActiveRemoteConfigurationId` independently selects the profile used by P2P features.
 
-- Use `{ activate: true }` for a CouchDB, Object Storage, or WebDAV profile selected as the main remote.
+- Use `{ activate: true }` for a CouchDB, Object Storage, WebDAV, or PostgREST profile selected as the main remote.
 - Use `{ activate: true, activateForP2P: true }` when P2P is the main remote.
 - Use `{ activateForP2P: true }` to select a P2P profile without changing the main remote.
 
@@ -51,7 +51,7 @@ Selecting a profile updates the compatibility fields immediately. Existing repli
 
 A modern Setup URI or another settings transport should preserve `remoteConfigurations`, profile IDs, display names, `activeConfigurationId`, and `P2P_ActiveRemoteConfigurationId` exactly.
 
-An older settings payload may contain only the flat remote fields. The standard `SettingService` recognises that shape when the profile map is empty and migrates the configured connections into explicitly labelled `legacy-*` profiles. This is a compatibility path, not the recommended way to create a new profile. New setup flows should call the focused API directly.
+An older settings payload may contain only the flat remote fields. The standard `SettingService` recognises the provider fields which pre-date profiles and migrates those configured connections into explicitly labelled `legacy-*` profiles. PostgREST has no legacy migration because it is introduced through the profile boundary. This is a compatibility path, not the recommended way to create a new profile. New setup flows should call the focused API directly.
 
 If a settings payload already contains profiles, legacy migration does not create or replace any entry. A host which writes only flat fields in that state would therefore fail to register a new connection; profile-aware setup code must upsert the profile explicitly.
 
@@ -61,6 +61,6 @@ The helper stores a plaintext connection URI in memory and marks the changed pro
 
 ## Verification ownership
 
-Commonlib unit tests cover preserving existing profiles, generated-name collision handling, main-remote activation, independent P2P selection, WebDAV URI round trips, and migration of existing flat WebDAV settings. The packed-package test imports the focused entry from a clean consumer and checks its declarations and runtime exports.
+Commonlib unit tests cover preserving existing profiles, generated-name collision handling, main-remote activation, independent P2P selection, WebDAV and PostgREST URI round trips, and migration of existing flat WebDAV settings. The packed-package test imports the focused entry from a clean consumer and checks its declarations and runtime exports.
 
-Hosts remain responsible for testing their dialogues, import classification, confirmation, Fetch or Rebuild scheduling, persistence, restart ordering, and real-runtime presentation. Self-hosted LiveSync's CLI additionally exercises WebDAV profile addition, activation, replacement, Setup URI transfer, and persistence before its Adaptive Journal transfer test.
+Hosts remain responsible for testing their dialogues, import classification, confirmation, Fetch or Rebuild scheduling, persistence, restart ordering, and real-runtime presentation. Self-hosted LiveSync's CLI currently exercises those boundaries for WebDAV; equivalent PostgREST CLI and Host UI delivery remain later stages.

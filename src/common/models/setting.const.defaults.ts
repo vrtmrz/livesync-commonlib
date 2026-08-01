@@ -137,6 +137,7 @@ export const SETTINGS_SCHEMA_DEFAULTS: ObsidianLiveSyncSettings = {
     endpoint: "",
     region: "auto",
     secretKey: "",
+    postgrestActiveConnectionURI: "",
     webDAVactiveConnectionURI: "",
     useEden: false,
     maxChunksInEden: 10,

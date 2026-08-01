@@ -32,7 +32,7 @@ The package is ESM-only and declares Node 20 or later. Browser entry points are 
 | `@vrtmrz/livesync-commonlib/rpc`                   | Existing LiveSync RPC and PouchDB bridge migration                                | Transitional only; not part of the stable Commonlib 1.0 contract                            |
 | `@vrtmrz/livesync-commonlib/remote-configurations` | Multiple-remote profile creation, naming, and selection                           | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/settings`              | New-Vault defaults, stored-setting fallbacks, and settings migration results      | Focused, package-tested pre-1.0 contract                                                    |
-| `@vrtmrz/livesync-commonlib/journal-storage`       | Host-facing S3-compatible and WebDAV Journal configuration primitives             | Focused, package-tested experimental provider boundary                                      |
+| `@vrtmrz/livesync-commonlib/journal-storage`       | Host-facing S3-compatible, WebDAV, and PostgREST Journal configuration primitives | Focused, package-tested experimental provider boundary                                      |
 | `@vrtmrz/livesync-commonlib/compat/*`              | Exact legacy imports still required by existing clients                           | Migration-only; paths may be removed as consumers migrate                                   |
 | `@vrtmrz/livesync-commonlib/package.json`          | Package metadata for tooling                                                      | Metadata export, not a runtime API                                                          |
 
@@ -113,7 +113,7 @@ See [the settings lifecycle guide](docs/settings-lifecycle.md) before initialisi
 
 ## Remote connection profiles
 
-New profile-management code can create or update a CouchDB, Object Storage, or P2P connection through the focused remote-configurations entry. Profile IDs provide identity, display names remain editable presentation, and the active selection is explicit. Older flat connection fields remain a runtime projection and an import-compatibility boundary rather than the preferred persistence model.
+New profile-management code can create or update a CouchDB, Object Storage, WebDAV, PostgREST, or P2P connection through the focused remote-configurations entry. Profile IDs provide identity, display names remain editable presentation, and the active selection is explicit. Older flat connection fields remain a runtime projection and an import-compatibility boundary rather than the preferred persistence model.
 
 See [the remote configuration profile guide](docs/remote-configurations.md) for creation, activation, P2P selection, legacy import, persistence, and verification responsibilities.
 
@@ -125,9 +125,9 @@ See [the Adaptive Journal protocol guide](docs/adaptive-journal.md) for reposito
 
 ## Journal storage adapters
 
-The focused `/journal-storage` entry exposes S3-compatible and WebDAV Journal format and pack-retrieval settings, WebDAV profile-field parsing and serialisation, and a structural guard for the typed Journal connection inspection implemented by Journal replicators, without loading either concrete transport adapter. The inspection allows a host to present required Adaptive semantics separately from optional Range support. Existing Journal profiles remain on Opaque Journal unless they explicitly select the experimental Adaptive format. Commonlib detects mixed or mismatched remote data and requires a remote Rebuild rather than silently migrating it.
+The focused `/journal-storage` entry exposes S3-compatible, WebDAV, and PostgREST Journal settings, browser-safe connection parsing and serialisation, and a structural guard for the typed Journal connection inspection implemented by Journal replicators, without loading a concrete transport adapter. S3-compatible and WebDAV profiles retain Opaque Journal unless they explicitly select the experimental Adaptive format. PostgREST is Adaptive-only and uses native Chunk batches and transactional Commit Bundles rather than object Packs. Commonlib detects incompatible remote data and requires a remote Rebuild rather than silently migrating it.
 
-The [object delivery section](docs/adaptive-journal.md#object-delivery-adapters) describes capability probing, immutable object publication, Range selection, request confirmation, prefix ownership, request estimates, and the exact current verification scope.
+The [Adaptive Journal guide](docs/adaptive-journal.md) describes object and native delivery, capability probing, request confirmation, request estimates, remote ownership, and the exact current verification scope.
 
 ## Contract scope
 

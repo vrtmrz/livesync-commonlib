@@ -6,13 +6,17 @@ import {
     type JournalStorageRemoteFormatV1,
 } from "./JournalStorageAdapter.ts";
 import { MinioStorageAdapter } from "./MinioStorageAdapter.ts";
+import { PostgRESTStorageAdapter } from "./PostgRESTStorageAdapter.ts";
 import { WebDAVStorageAdapter } from "./WebDAVStorageAdapter.ts";
 import {
     getJournalRemoteDisplayName,
     journalProtocolConfigurationForSettings,
     journalStorageKindForRemoteType,
 } from "./JournalStorageConfiguration.ts";
-import { ADAPTIVE_JOURNAL_REQUIRED_CAPABILITIES_V1 } from "../adaptive/AdaptiveJournalManifest.ts";
+import {
+    ADAPTIVE_JOURNAL_NATIVE_REQUIRED_CAPABILITIES_V1,
+    ADAPTIVE_JOURNAL_REQUIRED_CAPABILITIES_V1,
+} from "../adaptive/AdaptiveJournalManifest.ts";
 import type { CapabilityVerification } from "../adaptive/AdaptiveJournalRepository.ts";
 
 export {
@@ -28,6 +32,8 @@ export function createJournalStorageAdapter(
     switch (journalStorageKindForRemoteType(settings.remoteType)) {
         case "s3":
             return new MinioStorageAdapter(settings, env);
+        case "postgrest":
+            return new PostgRESTStorageAdapter(settings, env);
         case "webdav":
             return new WebDAVStorageAdapter(settings, env);
     }
@@ -84,13 +90,24 @@ function splitAdaptiveCapabilityVerification(
     };
 }
 
-function unsupportedAdaptiveCapabilities(): JournalStorageAdaptiveCapabilityInspection {
+function unsupportedAdaptiveCapabilities(
+    requiredCapabilities: readonly string[]
+): JournalStorageAdaptiveCapabilityInspection {
     return {
         byteRange: { status: "not-checked" },
         required: {
-            missing: [...ADAPTIVE_JOURNAL_REQUIRED_CAPABILITIES_V1],
+            missing: [...requiredCapabilities],
             status: "unsupported",
         },
+    };
+}
+
+function nativeAdaptiveCapabilityVerification(
+    verification: CapabilityVerification
+): JournalStorageAdaptiveCapabilityInspection {
+    return {
+        byteRange: { status: "not-checked" },
+        required: verification,
     };
 }
 
@@ -110,16 +127,23 @@ export async function inspectJournalStorageConnectivity(
         return { available: true, ...formatResult };
     }
     if (protocol.journalFormat === "adaptive-v1") {
+        const native = storage.kind === "postgrest";
         const adaptiveCapabilities = storage.verifyCapabilities
-            ? splitAdaptiveCapabilityVerification(
-                  await storage.verifyCapabilities(ADAPTIVE_OBJECT_CAPABILITIES_TO_INSPECT)
-              )
-            : unsupportedAdaptiveCapabilities();
+            ? native
+                ? nativeAdaptiveCapabilityVerification(
+                      await storage.verifyCapabilities(ADAPTIVE_JOURNAL_NATIVE_REQUIRED_CAPABILITIES_V1)
+                  )
+                : splitAdaptiveCapabilityVerification(
+                      await storage.verifyCapabilities(ADAPTIVE_OBJECT_CAPABILITIES_TO_INSPECT)
+                  )
+            : unsupportedAdaptiveCapabilities(
+                  native ? ADAPTIVE_JOURNAL_NATIVE_REQUIRED_CAPABILITIES_V1 : ADAPTIVE_JOURNAL_REQUIRED_CAPABILITIES_V1
+              );
         const requiredAvailable = adaptiveCapabilities.required.status === "verified";
         const rangeAvailable = adaptiveCapabilities.byteRange.status === "verified";
         return {
             adaptiveCapabilities,
-            available: requiredAvailable && (protocol.packReadPolicy === "whole-pack" || rangeAvailable),
+            available: requiredAvailable && (native || protocol.packReadPolicy === "whole-pack" || rangeAvailable),
             ...formatResult,
         };
     }

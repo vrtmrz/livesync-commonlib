@@ -170,6 +170,7 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     expectedRepositoryId: 162,
     packReadPolicy: 163,
     webDAVactiveConnectionURI: 164,
+    postgrestActiveConnectionURI: 165,
     tweakModified: -1,
     P2P_useDiagRTC: -1, // Do not encode into the QR Code.
 } as const;

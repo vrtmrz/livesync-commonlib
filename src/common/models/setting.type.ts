@@ -555,6 +555,20 @@ export interface WebDAVSyncSetting {
     packReadPolicy?: AdaptiveJournalPackReadPolicyV1;
 }
 
+/**
+ * Represents the settings required to synchronise Adaptive Journal data through PostgREST.
+ */
+export interface PostgRESTSyncSetting {
+    /** The active `sls+postgrest` connection URI. */
+    postgrestActiveConnectionURI: string;
+    /** PostgREST is an Adaptive-only Journal provider. */
+    journalFormat?: JournalFormatV1;
+    /** Pinned Adaptive repository identity, when one has been explicitly configured. */
+    expectedRepositoryId?: string;
+    /** Retained with the shared Journal profile fields; native rows require `whole-pack`. */
+    packReadPolicy?: AdaptiveJournalPackReadPolicyV1;
+}
+
 export interface LocalDBSettings {
     /**
      * Indicates whether to use the IndexedDB adapter for the local database.
@@ -1090,6 +1104,7 @@ interface ObsidianLiveSyncSettings_PluginSetting
 
 export type RemoteDBSettings = CouchDBConnection &
     BucketSyncSetting &
+    PostgRESTSyncSetting &
     WebDAVSyncSetting &
     RemoteTypeSettings &
     EncryptionSettings &

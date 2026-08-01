@@ -8,11 +8,27 @@ export interface WebDAVConnection {
     username: string;
 }
 
+/** Client-safe PostgREST fields encoded by the opaque profile URI. */
+export interface PostgRESTConnection {
+    apiKey: string;
+    endpoint: string;
+    schema: string;
+    useCustomRequestHandler: boolean;
+    vaultCredential: string;
+    vaultId: string;
+}
+
 const PROXY_SCHEME = "https";
 
 function parseSlsWebDAVURI(uriString: string): URL {
     const match = /^sls\+webdav:(\/\/.*)$/u.exec(uriString);
     if (!match) throw new Error("Invalid WebDAV connection URI");
+    return new URL(`${PROXY_SCHEME}:${match[1]}`);
+}
+
+function parseSlsPostgRESTURI(uriString: string): URL {
+    const match = /^sls\+postgrest:(\/\/.*)$/u.exec(uriString);
+    if (!match) throw new Error("Invalid PostgREST connection URI");
     return new URL(`${PROXY_SCHEME}:${match[1]}`);
 }
 
@@ -61,4 +77,46 @@ export function serialiseWebDAVConnectionURI(connection: WebDAVConnection): stri
     if (connection.useCustomRequestHandler) url.searchParams.set("useProxy", "true");
     const serialised = url.toString();
     return `sls+webdav:${serialised.slice(`${PROXY_SCHEME}:`.length)}`;
+}
+
+/** Parses an Adaptive-only PostgREST connection URI without performing a network request. */
+export function parsePostgRESTConnectionURI(uriString: string): PostgRESTConnection {
+    const url = parseSlsPostgRESTURI(uriString);
+    const schema = url.searchParams.get("schema") || "livesync_api";
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(schema)) throw new Error("Invalid PostgREST schema name");
+    return {
+        apiKey: url.searchParams.get("apiKey") || "",
+        endpoint: endpointFromConnectionURL(url),
+        schema,
+        useCustomRequestHandler: url.searchParams.get("useProxy") === "true",
+        vaultCredential: decodeURIComponent(url.password),
+        vaultId: decodeURIComponent(url.username),
+    };
+}
+
+/** Serialises client-safe PostgREST connection fields for profile persistence. */
+export function serialisePostgRESTConnectionURI(connection: PostgRESTConnection): string {
+    const endpoint = new URL(connection.endpoint);
+    if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
+        throw new Error("PostgREST endpoint must use HTTP or HTTPS");
+    }
+    if (endpoint.username || endpoint.password) {
+        throw new Error("PostgREST endpoint must not contain database credentials");
+    }
+    if (endpoint.search || endpoint.hash) {
+        throw new Error("PostgREST endpoint must not include a query or fragment");
+    }
+    if (!/^[A-Za-z_][A-Za-z0-9_]*$/u.test(connection.schema)) {
+        throw new Error("Invalid PostgREST schema name");
+    }
+
+    const url = new URL(`${PROXY_SCHEME}://${endpoint.host}${endpoint.pathname}`);
+    url.username = connection.vaultId;
+    url.password = connection.vaultCredential;
+    if (endpoint.protocol === "http:") url.searchParams.set("insecure", "true");
+    if (connection.schema !== "livesync_api") url.searchParams.set("schema", connection.schema);
+    if (connection.apiKey) url.searchParams.set("apiKey", connection.apiKey);
+    if (connection.useCustomRequestHandler) url.searchParams.set("useProxy", "true");
+    const serialised = url.toString();
+    return `sls+postgrest:${serialised.slice(`${PROXY_SCHEME}:`.length)}`;
 }

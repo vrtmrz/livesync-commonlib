@@ -39,3 +39,32 @@ services:
       - /usr/local/apache2/var:mode=0777
     volumes:
       - ./webdav/httpd.conf:/usr/local/apache2/conf/httpd.conf:ro
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_PASSWORD: integration-password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 1s
+      timeout: 5s
+      retries: 30
+    ports:
+      - "5442:5432"
+    volumes:
+      - ./postgrest/00_roles.sql:/docker-entrypoint-initdb.d/00_roles.sql:ro
+      - ../../sql/postgrest/adaptive_journal_v1.sql:/docker-entrypoint-initdb.d/01_adaptive_journal_v1.sql:ro
+      - ./postgrest/02_fixture.sql:/docker-entrypoint-initdb.d/02_fixture.sql:ro
+
+  postgrest:
+    image: postgrest/postgrest:v14.16
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGRST_DB_ANON_ROLE: livesync_postgrest_anon
+      PGRST_DB_SCHEMAS: livesync_api
+      PGRST_DB_URI: postgres://livesync_postgrest_authenticator:integration-password@postgres:5432/postgres
+      PGRST_SERVER_PORT: 3000
+    ports:
+      - "3001:3000"

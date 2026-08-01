@@ -16,6 +16,11 @@ const managedEnvironment = {
     secretKey: "minioadmin",
     bucketName: "livesync-test-bucket",
     webdavEndpoint: "http://127.0.0.1:8088/dav",
+    postgrestEndpoint: "http://127.0.0.1:3001",
+    postgrestVaultId: "integration-vault-01",
+    postgrestVaultCredential: "integration-vault-credential-0000000000001",
+    postgrestSecondaryVaultId: "integration-vault-02",
+    postgrestSecondaryVaultCredential: "integration-vault-credential-0000000000002",
 };
 const integrationEnvironment = manageServices
     ? { ...process.env, ...managedEnvironment }
@@ -83,13 +88,17 @@ function waitForWebDAV() {
     });
 }
 
+function waitForPostgREST() {
+    return waitForHttpService("PostgREST", integrationEnvironment.postgrestEndpoint);
+}
+
 const compose = (...args) => run("docker", ["compose", "--file", composeFile, ...args]);
 
 let failure;
 try {
     if (manageServices) {
-        await compose("up", "--detach", "couchdb", "minio", "webdav");
-        await Promise.all([waitForCouchDb(), waitForMinio(), waitForWebDAV()]);
+        await compose("up", "--detach", "couchdb", "minio", "webdav", "postgres", "postgrest");
+        await Promise.all([waitForCouchDb(), waitForMinio(), waitForWebDAV(), waitForPostgREST()]);
         await compose("run", "--rm", "minio-init");
     }
 

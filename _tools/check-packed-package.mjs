@@ -50,6 +50,10 @@ assert.ok(
     "The Adaptive Journal protocol guide must be included in the package."
 );
 assert.ok(
+    packed.files.some(({ path }) => path === "sql/postgrest/adaptive_journal_v1.sql"),
+    "The PostgREST Adaptive Journal SQL contract must be included in the package."
+);
+assert.ok(
     packed.files.some(({ path }) => path === "docs/development.md"),
     "The developer guide linked from the README must be included in the package."
 );
@@ -170,18 +174,24 @@ import {
     createAdaptiveJournalManifestV1,
     generateAdaptiveJournalRepositoryIdV1,
     type AdaptiveJournalObjectRetrievalV1,
+    type AdaptiveJournalNativeStorageV1,
 } from "${packageName}/adaptive-journal";
 import {
     REMOTE_MINIO,
+    REMOTE_POSTGREST,
     REMOTE_WEBDAV,
     isJournalRemoteType,
     isJournalStorageConnectionInspector,
     journalProtocolConfigurationForSettings,
+    parsePostgRESTConnectionURI,
     parseWebDAVConnectionURI,
+    serialisePostgRESTConnectionURI,
     serialiseWebDAVConnectionURI,
     type JournalFormatV1,
     type JournalStorageConnectionInspector,
     type JournalStorageConnectivityResult,
+    type PostgRESTConnection,
+    type PostgRESTSyncSetting,
     type RemoteDBSettings,
     type WebDAVConnection,
     type WebDAVSyncSetting,
@@ -215,6 +225,7 @@ const adaptiveManifestFactory: typeof createAdaptiveJournalManifestV1 = createAd
 const adaptiveRepositoryIdFactory: typeof generateAdaptiveJournalRepositoryIdV1 =
     generateAdaptiveJournalRepositoryIdV1;
 const adaptiveChunkKind: AdaptiveRecordKindV1 = AdaptiveRecordKindV1.Chunk;
+const adaptiveNativeStorage = {} as AdaptiveJournalNativeStorageV1;
 const journalFormat: JournalFormatV1 = "adaptive-v1";
 const journalSettings = {
     remoteType: REMOTE_MINIO,
@@ -222,6 +233,16 @@ const journalSettings = {
     packReadPolicy: "range",
 } as RemoteDBSettings;
 const journalProtocol = journalProtocolConfigurationForSettings(journalSettings);
+const postgRESTSettings: PostgRESTSyncSetting = {
+    journalFormat: "adaptive-v1",
+    packReadPolicy: "whole-pack",
+    postgrestActiveConnectionURI: "sls+postgrest://vault:credential@example.invalid/rest/v1",
+};
+const postgRESTConnection: PostgRESTConnection = parsePostgRESTConnectionURI(
+    postgRESTSettings.postgrestActiveConnectionURI
+);
+const postgRESTConnectionURI = serialisePostgRESTConnectionURI(postgRESTConnection);
+const postgRESTRemoteType = REMOTE_POSTGREST;
 const webDAVSettings: WebDAVSyncSetting = {
     webDAVactiveConnectionURI: "sls+webdav://example.invalid/dav",
 };
@@ -268,7 +289,12 @@ void adaptiveRetrieval;
 void adaptiveManifestFactory;
 void adaptiveRepositoryIdFactory;
 void adaptiveChunkKind;
+void adaptiveNativeStorage;
 void journalProtocol;
+void postgRESTSettings;
+void postgRESTConnection;
+void postgRESTConnectionURI;
+void postgRESTRemoteType;
 void webDAVSettings;
 void pickedWebDAVSettings;
 void webDAVConnection;
@@ -327,10 +353,14 @@ assert.equal(typeof adaptiveJournalApi.createAdaptiveJournalManifestV1, "functio
 assert.equal(typeof adaptiveJournalApi.generateAdaptiveJournalRepositoryIdV1, "function");
 assert.equal(typeof adaptiveJournalApi.AdaptiveRecordKindV1.Chunk, "number");
 assert.equal(journalStorageApi.REMOTE_MINIO, "MINIO");
+assert.equal(journalStorageApi.REMOTE_POSTGREST, "POSTGREST");
 assert.equal(journalStorageApi.REMOTE_WEBDAV, "WEBDAV");
+assert.equal(journalStorageApi.journalStorageKindForRemoteType(journalStorageApi.REMOTE_POSTGREST), "postgrest");
 assert.equal(journalStorageApi.journalStorageKindForRemoteType(journalStorageApi.REMOTE_WEBDAV), "webdav");
 assert.equal(journalStorageApi.isJournalRemoteType(journalStorageApi.REMOTE_WEBDAV), true);
 assert.equal(typeof journalStorageApi.parseWebDAVConnectionURI, "function");
+assert.equal(typeof journalStorageApi.parsePostgRESTConnectionURI, "function");
+assert.equal(typeof journalStorageApi.serialisePostgRESTConnectionURI, "function");
 assert.equal(typeof journalStorageApi.serialiseWebDAVConnectionURI, "function");
 assert.equal(
     journalStorageApi.isJournalStorageConnectionInspector({ inspectJournalStorageConnection() {} }),
@@ -416,9 +446,10 @@ await writeConsumerFile(
 );
 await writeConsumerFile(
     "browser-journal-storage.ts",
-    `import { REMOTE_MINIO, REMOTE_WEBDAV, isJournalStorageConnectionInspector, journalStorageKindForRemoteType } from "${packageName}/journal-storage";
+    `import { REMOTE_MINIO, REMOTE_POSTGREST, REMOTE_WEBDAV, isJournalStorageConnectionInspector, journalStorageKindForRemoteType } from "${packageName}/journal-storage";
 
 document.body.dataset.journalStorage = journalStorageKindForRemoteType(REMOTE_MINIO);
+document.body.dataset.postgrestJournalStorage = journalStorageKindForRemoteType(REMOTE_POSTGREST);
 document.body.dataset.webdavJournalStorage = journalStorageKindForRemoteType(REMOTE_WEBDAV);
 document.body.dataset.journalInspector = String(isJournalStorageConnectionInspector({}));
 `

@@ -29,7 +29,7 @@ Compared with the conservative stored-setting fallbacks, the current new-Vault o
 
 The other headline recommendations are already the conservative fallbacks: `syncMaxSizeInMB` is 50, `chunkSplitterVersion` is `v3-rabin-karp`, and `E2EEAlgorithm` is `v2`. Data Compression, Eden, V1 dynamic iteration, the legacy IndexedDB adapter, Hidden File Sync, and automatic synchronisation remain disabled when their stored values are absent. Explicit stored values take precedence.
 
-Object Storage and WebDAV profiles without the new protocol fields retain the Opaque format and complete-pack retrieval. Adaptive Journal is never enabled as a new-Vault recommendation or an upgrade side effect. A host must record the user's explicit format and retrieval choice.
+Object Storage and WebDAV profiles without the new protocol fields retain the Opaque format and complete-pack retrieval. A PostgREST profile is accepted only with its explicit Adaptive format and whole-Pack compatibility field. Adaptive Journal is never enabled as a new-Vault recommendation or an upgrade side effect. A host must record the user's explicit provider, format, and retrieval choice.
 
 Apply a remote-specific preferred object only while configuring that remote. Do not merge it into an existing stored configuration merely because the remote type can be inferred. The self-hosted CouchDB profile uses a chunk-size coefficient of 60, matching the Doctor check for Rabin–Karp databases; Cloudant retains its service-specific value of 0.
 

@@ -85,6 +85,7 @@ import {
     type ObsidianLiveSyncSettings,
     type P2PConnectionInfo,
     type P2PSyncSetting,
+    type PostgRESTSyncSetting,
     type PluginSyncSettingEntry,
     type RemoteDBSettings,
     type RemoteType,
@@ -102,6 +103,7 @@ import {
     REMOTE_COUCHDB,
     REMOTE_MINIO,
     REMOTE_P2P,
+    REMOTE_POSTGREST,
     REMOTE_WEBDAV,
     RemoteTypes,
     hasConfiguredRemote,
@@ -264,13 +266,21 @@ export { MODE_SELECTIVE, MODE_AUTOMATIC, MODE_PAUSED, MODE_SHINY, type SYNC_MODE
 export { type PluginSyncSettingEntry };
 
 export { SETTING_VERSION_INITIAL, SETTING_VERSION_SUPPORT_CASE_INSENSITIVE, CURRENT_SETTING_VERSION };
-export type { AdaptiveJournalPackReadPolicyV1, BucketSyncSetting, JournalFormatV1, LocalDBSettings, WebDAVSyncSetting };
+export type {
+    AdaptiveJournalPackReadPolicyV1,
+    BucketSyncSetting,
+    JournalFormatV1,
+    LocalDBSettings,
+    PostgRESTSyncSetting,
+    WebDAVSyncSetting,
+};
 
 export {
     RemoteTypes,
     REMOTE_COUCHDB,
     REMOTE_MINIO,
     REMOTE_P2P,
+    REMOTE_POSTGREST,
     REMOTE_WEBDAV,
     hasConfiguredRemote,
     isJournalRemoteType,

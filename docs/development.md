@@ -12,7 +12,7 @@ The source tree is larger than the supported package surface. Consumers may impo
 - `docs/migration/downstream-imports.json` is the reviewed inventory from which explicit `compat/*` exports are generated;
 - `docs/migration/compatibility-classification.json` assigns every inventoried compatibility path to one reviewed owner and migration policy, with a boundary test preventing omissions and duplicate classifications;
 - colocated `*.unit.spec.ts` and `*.unit.test.ts` files exercise implementation and result contracts; and
-- colocated `*.integration.spec.ts` files, `test/integration`, and the integration runner own checks against disposable CouchDB, S3-compatible, and WebDAV services.
+- colocated `*.integration.spec.ts` files, `test/integration`, and the integration runner own checks against disposable CouchDB, S3-compatible, WebDAV, PostgreSQL, and PostgREST services.
 
 Files elsewhere under `src` are implementation details unless a focused entry re-exports them or the compatibility inventory names them. Do not use the source layout, TypeScript path aliases, or the presence of generated declarations as evidence of a supported consumer import.
 
@@ -27,7 +27,7 @@ npm run verify:package
 
 `verify:package` type-checks the source, runs the unit suite and package-boundary tests, validates release selection, builds the compiled package, and checks the exact packed consumer boundary.
 
-Run the managed integration suite as a separate gate when CouchDB streaming fetches, S3-compatible storage, WebDAV storage, or their dependencies could be affected:
+Run the managed integration suite as a separate gate when CouchDB streaming fetches, S3-compatible storage, WebDAV storage, PostgREST storage, or their dependencies could be affected:
 
 ```bash
 npm run test:integration:managed
@@ -91,7 +91,7 @@ Keep [the maintained-host evidence](proven-in-use.md) aligned with the downstrea
 
 ## Integration tests
 
-The integration suite owns Commonlib's direct CouchDB, S3-compatible storage, and WebDAV checks. Run it with managed, disposable CouchDB, MinIO, and Apache HTTP Server containers:
+The integration suite owns Commonlib's direct CouchDB, S3-compatible storage, WebDAV, and PostgREST checks. Run it with managed, disposable CouchDB, MinIO, Apache HTTP Server, PostgreSQL, and PostgREST containers:
 
 ```bash
 npm run test:integration:managed
@@ -99,9 +99,9 @@ npm run test:integration:managed
 
 This command requires Docker Compose, creates only test credentials and data, and removes the containers and their volumes after the run. It is the same entry point used by package CI.
 
-For Adaptive Journal, the managed MinIO scope verifies conditional immutable creation, exact Range reads, listing visibility, remote Rebuild, and Metadata and Chunk transfer between two real PouchDB databases through the S3 adapter. Focused S3 tests separately exercise multi-page continuation. The managed Apache DAV scope verifies Opaque object operations, conditional immutable creation, exact Range reads, listing visibility, receive-phase listing reuse, and remote Rebuild through the WebDAV adapter. Metadata and Chunk transfer through WebDAV is covered separately by Self-hosted LiveSync's CLI delivery stage. These are Commonlib adapter and synchronisation-core checks; host end-to-end tests belong to their delivery stages.
+For Adaptive Journal, the managed MinIO scope verifies conditional immutable creation, exact Range reads, listing visibility, remote Rebuild, and Metadata and Chunk transfer between two real PouchDB databases through the S3 adapter. Focused S3 tests separately exercise multi-page continuation. The managed Apache DAV scope verifies Opaque object operations, conditional immutable creation, exact Range reads, listing visibility, receive-phase listing reuse, and remote Rebuild through the WebDAV adapter. Metadata and Chunk transfer through WebDAV is covered separately by Self-hosted LiveSync's CLI delivery stage. The managed PostgreSQL and PostgREST scope applies the distributable private-table and RPC contract to a new database, then verifies Vault authentication, binary Chunk batches, immutable Writer and Commit discovery, transactional Commit Bundles, remote Rebuild, and one-read Commit and Metadata delivery through the real HTTP adapter. These are Commonlib adapter and synchronisation-core checks; host end-to-end tests belong to their delivery stages.
 
-To test services that are already running, use `npm run test:integration`. The runner accepts `hostname`, `username`, and `password` for CouchDB; `minioEndpoint`, `accessKey`, `secretKey`, and `bucketName` for S3-compatible storage; and `webdavEndpoint` for WebDAV. Without overrides, it uses the endpoints and test credentials from the managed Compose environment. The selected MinIO bucket and WebDAV collection must already exist when services are not managed by the runner.
+To test services that are already running, use `npm run test:integration`. The runner accepts `hostname`, `username`, and `password` for CouchDB; `minioEndpoint`, `accessKey`, `secretKey`, and `bucketName` for S3-compatible storage; `webdavEndpoint` for WebDAV; and `postgrestEndpoint`, `postgrestVaultId`, and `postgrestVaultCredential` for PostgREST. Optional `postgrestSecondaryVaultId` and `postgrestSecondaryVaultCredential` values enable the valid-credential isolation case. Without overrides, it uses the endpoints and test credentials from the managed Compose environment. The selected MinIO bucket and WebDAV collection must already exist when services are not managed by the runner, and the PostgREST database must already contain the matching provisioned Vaults.
 
 ## Messages and translation
 
