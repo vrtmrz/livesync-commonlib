@@ -33,7 +33,6 @@ export function migrateLegacyRemoteConfigurationsInPlace(
     if (candidates.length === 0) return false;
 
     log?.("Migrating existing remote configuration to sls+ format...");
-
     for (const candidate of candidates) {
         try {
             const configuration = defaultRemoteProviderRegistry.configurationFromSettings(candidate.type, settings);

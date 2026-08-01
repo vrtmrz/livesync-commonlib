@@ -312,3 +312,76 @@ describe("ConnectionStringParser S3", () => {
         ).toThrow("expectedRepositoryId must be a canonical base64url-encoded 32-byte value");
     });
 });
+
+describe("ConnectionStringParser WebDAV", () => {
+    it("round-trips transport and Adaptive Journal fields without mixing their ownership", () => {
+        const repositoryId = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        const uri = ConnectionStringParser.serialize({
+            type: "webdav",
+            settings: {
+                webDAVactiveConnectionURI:
+                    "sls+webdav://us%C3%A9r:p%C3%A4ss@dav.example/remote.php/dav?prefix=vault%2F&insecure=true&useProxy=true&headers=x-test%3A1",
+                expectedRepositoryId: repositoryId,
+                journalFormat: "adaptive-v1",
+                packReadPolicy: "range",
+            },
+        });
+
+        expect(uri).toContain("sls+webdav://us%C3%A9r:p%C3%A4ss@dav.example/remote.php/dav?");
+        expect(uri).toContain("prefix=vault%2F");
+        expect(uri).toContain("insecure=true");
+        expect(uri).toContain("useProxy=true");
+        expect(uri).toContain("headers=x-test%3A1");
+        expect(uri).toContain("journalFormat=adaptive-v1");
+        expect(uri).toContain("packReadPolicy=range");
+        expect(uri).toContain(`expectedRepositoryId=${repositoryId}`);
+
+        const parsed = ConnectionStringParser.parse(uri);
+        expect(parsed).toMatchObject({
+            type: "webdav",
+            settings: {
+                expectedRepositoryId: repositoryId,
+                journalFormat: "adaptive-v1",
+                packReadPolicy: "range",
+            },
+        });
+        if (parsed.type !== "webdav") throw new Error("Expected webdav type");
+        expect(parsed.settings.webDAVactiveConnectionURI).not.toContain("journalFormat=");
+        expect(parsed.settings.webDAVactiveConnectionURI).not.toContain("expectedRepositoryId=");
+        expect(parsed.settings.webDAVactiveConnectionURI).not.toContain("packReadPolicy=");
+        expect(ConnectionStringParser.serialize(parsed)).toBe(uri);
+    });
+
+    it("keeps existing WebDAV connection URIs on Opaque Journal defaults", () => {
+        const parsed = ConnectionStringParser.parse(
+            "sls+webdav://user:secret@dav.example/remote.php/dav?prefix=vault%2F"
+        );
+        if (parsed.type !== "webdav") throw new Error("Expected webdav type");
+
+        expect(parsed.settings).toMatchObject({
+            expectedRepositoryId: "",
+            journalFormat: "opaque-v1",
+            packReadPolicy: "whole-pack",
+        });
+        expect(ConnectionStringParser.serialize(parsed)).not.toContain("journalFormat=");
+    });
+
+    it("rejects non-canonical Adaptive repository IDs", () => {
+        expect(() =>
+            ConnectionStringParser.parse(
+                "sls+webdav://dav.example/dav?journalFormat=adaptive-v1&expectedRepositoryId=AA"
+            )
+        ).toThrow("expectedRepositoryId must be a canonical base64url-encoded 32-byte value");
+    });
+
+    it("rejects a non-WebDAV transport URI during serialisation", () => {
+        expect(() =>
+            ConnectionStringParser.serialize({
+                type: "webdav",
+                settings: {
+                    webDAVactiveConnectionURI: "sls+s3://storage.example/",
+                },
+            })
+        ).toThrow("Invalid WebDAV connection URI");
+    });
+});

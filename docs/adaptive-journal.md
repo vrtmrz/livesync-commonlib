@@ -81,7 +81,7 @@ A remote Rebuild removes every object under the configured prefix, including Opa
 
 ### WebDAV storage
 
-The experimental WebDAV adapter applies the same Opaque and Adaptive Journal formats to a dedicated DAV collection. The focused `/journal-storage` entry exports `REMOTE_WEBDAV` and `WebDAVSyncSetting`; connection-URI construction during setup, credential acquisition, persistence, and presentation remain host responsibilities.
+The experimental WebDAV adapter applies the same Opaque and Adaptive Journal formats to a dedicated DAV collection. The focused `/journal-storage` entry exports `REMOTE_WEBDAV` and `WebDAVSyncSetting`, while `/remote-configurations` serialises and activates `sls+webdav://` profiles. Endpoint selection, credential acquisition, persistence, and presentation remain host responsibilities.
 
 Adaptive immutable objects use `PUT` with `If-None-Match: *`. The adapter accepts an acknowledged successful response without an immediate confirmation read, maps an ambiguous mutation to `verify-first`, and requires an exact `206` response, length, and `Content-Range` when Range retrieval is selected. Its non-destructive safety check uses an owned random object to prove the same required semantics as the S3 adapter and removes only that object. A server which ignores conditional creation or Range is reported as unsupported for the affected policy rather than being accepted from its method names alone.
 
@@ -153,4 +153,4 @@ Larger Chunks reduce route count and Range requests, but they increase transferr
 
 ## Verification scope
 
-Commonlib owns deterministic fixture generation and focused tests for the manifest, record encodings, Commit Bundles, object Packs, derived Catalogues, publication recovery, receive frontiers, repository identity, and both delivery contracts. The S3 adapter adds focused SDK-command tests and managed MinIO integration. The WebDAV adapter adds focused HTTP-semantic tests and managed Apache DAV integration. CLI composition and maintained-host behaviour require separate tests. See [Proven in maintained hosts](proven-in-use.md) for the current evidence boundary.
+Commonlib owns deterministic fixture generation and focused tests for the manifest, record encodings, Commit Bundles, object Packs, derived Catalogues, publication recovery, receive frontiers, repository identity, and both delivery contracts. The S3 adapter adds focused SDK-command tests and managed MinIO integration. The WebDAV adapter adds focused HTTP-semantic tests and managed Apache DAV integration. Self-hosted LiveSync separately composes the exact packed package into a two-database CLI WebDAV workflow; Host UI and real-Obsidian behaviour remain later delivery stages. See [Proven in maintained hosts](proven-in-use.md) for the current evidence boundary.

@@ -7,7 +7,7 @@ import {
     upsertRemoteConfigurationInPlace,
     useRemoteConfiguration,
 } from "@lib/serviceFeatures/remoteConfig";
-import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
+import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P, REMOTE_WEBDAV } from "@lib/common/models/setting.const";
 import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 
 describe("Remote Configuration Migration", () => {
@@ -84,6 +84,22 @@ describe("Remote Configuration Migration", () => {
         expect(result).toBe(true);
         const configs = Object.values(mockSettings.remoteConfigurations || {});
         expect(configs[0].uri).toContain("room%20123");
+    });
+
+    it("should migrate existing WebDAV settings", async () => {
+        mockSettings.remoteType = REMOTE_WEBDAV;
+        mockSettings.webDAVactiveConnectionURI = "sls+webdav://user:secret@dav.example/remote.php/dav?prefix=vault%2F";
+        mockSettings.journalFormat = "adaptive-v1";
+        mockSettings.packReadPolicy = "range";
+
+        const result = await migrateToMultipleRemoteConfigurations(mockHost);
+
+        expect(result).toBe(true);
+        const config = mockSettings.remoteConfigurations?.["legacy-webdav"];
+        expect(config?.uri).toContain("sls+webdav://user:secret@dav.example/remote.php/dav");
+        expect(config?.uri).toContain("journalFormat=adaptive-v1");
+        expect(config?.uri).toContain("packReadPolicy=range");
+        expect(mockSettings.activeConfigurationId).toBe("legacy-webdav");
     });
 
     it("should migrate all configured legacy remotes and keep active based on remoteType", async () => {
@@ -195,6 +211,30 @@ describe("Remote Configuration Activation", () => {
         } as any;
         const result = activateRemoteConfiguration(settings, "invalid-remote");
         expect(result).toBe(false);
+    });
+
+    it("should project a WebDAV profile onto the active Journal fields", () => {
+        const settings = {
+            remoteConfigurations: {
+                webdav: {
+                    id: "webdav",
+                    name: "WebDAV vault",
+                    uri: "sls+webdav://user:secret@dav.example/dav?prefix=vault%2F&journalFormat=adaptive-v1&packReadPolicy=range",
+                    isEncrypted: false,
+                },
+            },
+            activeConfigurationId: "",
+            remoteType: REMOTE_COUCHDB,
+        } as ObsidianLiveSyncSettings;
+
+        expect(activateRemoteConfiguration(settings, "webdav")).toBe(settings);
+        expect(settings).toMatchObject({
+            activeConfigurationId: "webdav",
+            remoteType: REMOTE_WEBDAV,
+            journalFormat: "adaptive-v1",
+            packReadPolicy: "range",
+        });
+        expect(settings.webDAVactiveConnectionURI).toBe("sls+webdav://user:secret@dav.example/dav?prefix=vault%2F");
     });
 });
 
@@ -337,6 +377,33 @@ describe("Remote Configuration Registration", () => {
 
         expect(activateRemoteConfiguration(settings, profile.id)).toBe(settings);
         expect(settings).toMatchObject({
+            expectedRepositoryId: repositoryId,
+            journalFormat: "adaptive-v1",
+            packReadPolicy: "range",
+        });
+    });
+
+    it("round-trips Adaptive Journal fields through a WebDAV remote profile", () => {
+        const repositoryId = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        const settings = {
+            remoteConfigurations: {},
+            activeConfigurationId: "",
+            remoteType: REMOTE_WEBDAV,
+            webDAVactiveConnectionURI: "sls+webdav://user:secret@dav.example/dav?prefix=vault%2F",
+            expectedRepositoryId: repositoryId,
+            journalFormat: "adaptive-v1",
+            packReadPolicy: "range",
+        } as ObsidianLiveSyncSettings;
+
+        const profile = upsertRemoteConfigurationInPlace(settings, "webdav", { activate: true });
+        expect(profile.name).toBe("WebDAV dav.example");
+        settings.expectedRepositoryId = "";
+        settings.journalFormat = "opaque-v1";
+        settings.packReadPolicy = "whole-pack";
+
+        expect(activateRemoteConfiguration(settings, profile.id)).toBe(settings);
+        expect(settings).toMatchObject({
+            remoteType: REMOTE_WEBDAV,
             expectedRepositoryId: repositoryId,
             journalFormat: "adaptive-v1",
             packReadPolicy: "range",

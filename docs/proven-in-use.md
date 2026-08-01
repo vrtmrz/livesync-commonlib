@@ -12,9 +12,9 @@ The focused `/adaptive-journal` entry is established by Commonlib-owned determin
 
 The S3-compatible delivery stage adds focused tests for SDK request semantics, pagination, format detection, conditional creation, ambiguous-write classification, Range validation, capability-probe caching, and remote Rebuild. The managed MinIO suite covers the real adapter contract and transfers Opaque Journal packs and Adaptive Commit Bundles and Chunks between two PouchDB databases.
 
-The WebDAV delivery stage adds focused tests for physical HTTP activity, native-to-web fallback, collection and path boundaries, conditional creation, ambiguous-write classification, exact Range validation, capability checking, receive-phase listing reuse, format detection, quota diagnostics, and remote Rebuild. The managed Apache DAV suite covers Opaque object operations and the real Adaptive adapter semantics. It does not yet establish CLI composition, Metadata and Chunk transfer through a maintained host, or real-host behaviour.
+The WebDAV delivery stage adds focused tests for physical HTTP activity, native-to-web fallback, collection and path boundaries, conditional creation, ambiguous-write classification, exact Range validation, capability checking, receive-phase listing reuse, format detection, quota diagnostics, and remote Rebuild. The managed Apache DAV suite covers Opaque object operations and the real Adaptive adapter semantics. In maintained-host delivery validation, Self-hosted LiveSync's Deno-driven CLI E2E runs against the exact packed Commonlib artefact and transfers encrypted Metadata and Chunks between two independent CLI databases through the disposable Apache server. It exercises whole-Pack and Range retrieval, external Packs, Setup URI transfer, remote-profile commands, bidirectional updates, and deletion propagation.
 
-This is Commonlib protocol, S3 integration, and WebDAV adapter evidence rather than maintained-host adoption. CLI composition, host settings, and real-host end-to-end validation remain separate delivery stages. The entries therefore remain experimental even though their v1 invariants, browser-safe configuration boundary, and exact package exports are checked.
+This establishes Commonlib protocol and adapter behaviour plus maintained CLI composition. Host settings and real-Obsidian end-to-end validation remain separate delivery stages. The entries therefore remain experimental even though their v1 invariants, browser-safe configuration boundary, exact package exports, and CLI transfer path are checked.
 
 ## Obsidian plug-in
 
@@ -41,6 +41,8 @@ The CLI extends the same neutral context with its database path and injected `St
 The CLI filesystem composition receives a configured base directory and constructs the rooted Node storage adapter in `src/apps/cli/adapters/NodeFileSystemAdapter.ts`. Commonlib's shared storage result table checks the focused root contract; the consumer adds its file cache, Vault-shaped operations, case handling, and command policy.
 
 The maintained CLI checks include unit tests, Deno-driven CLI E2E, Compose-based compatibility runs, and the CLI-to-real-Obsidian synchronisation scenario in `test/e2e-obsidian/scripts/cli-to-obsidian-sync.ts`. The latter is the strongest current evidence that the CLI and plug-in compose compatible Commonlib behaviour across two hosts.
+
+The Adaptive WebDAV CLI scope is a provider-specific maintained-host check rather than a second Commonlib adapter suite. It applies an encrypted Setup URI, persists and activates the same WebDAV profile identity on both databases, selects whole-Pack and Range retrieval independently, and verifies the resulting immutable remote layout after bidirectional Metadata and Chunk transfer.
 
 ## WebApp
 

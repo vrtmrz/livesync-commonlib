@@ -1,6 +1,6 @@
 import { REMOTE_MINIO } from "@lib/common/models/setting.const.ts";
 import type { BucketSyncSetting, RemoteDBSettings } from "@lib/common/models/setting.type.ts";
-import { resolveJournalProtocolOptionsV1 } from "@lib/common/models/journalProtocol.ts";
+import { applyJournalProtocolOptionsV1, parseJournalProtocolOptionsV1 } from "./JournalRemoteProvider.ts";
 import type { RemoteProviderDescriptor } from "./RemoteProviderRegistry.ts";
 import { parseSlsConnectionUri, proxyConnectionUrl, withSlsConnectionScheme } from "./connectionUri.ts";
 
@@ -42,11 +42,7 @@ export const s3RemoteProvider: RemoteProviderDescriptor<"s3", BucketSyncSetting>
             useCustomRequestHandler: url.searchParams.get("useProxy") === "true",
             bucketCustomHeaders: url.searchParams.get("headers") || "",
             forcePathStyle: url.searchParams.get("pathStyle") !== "false",
-            ...resolveJournalProtocolOptionsV1({
-                expectedRepositoryId: url.searchParams.get("expectedRepositoryId") || undefined,
-                journalFormat: url.searchParams.get("journalFormat") || undefined,
-                packReadPolicy: url.searchParams.get("packReadPolicy") || undefined,
-            }),
+            ...parseJournalProtocolOptionsV1(url),
         };
     },
     pick: pickS3Settings,
@@ -62,16 +58,7 @@ export const s3RemoteProvider: RemoteProviderDescriptor<"s3", BucketSyncSetting>
         if (settings.bucketCustomHeaders) url.searchParams.set("headers", settings.bucketCustomHeaders);
         if (settings.useCustomRequestHandler) url.searchParams.set("useProxy", "true");
         if (!settings.forcePathStyle) url.searchParams.set("pathStyle", "false");
-        const protocol = resolveJournalProtocolOptionsV1(settings);
-        if (protocol.journalFormat === "adaptive-v1") {
-            url.searchParams.set("journalFormat", protocol.journalFormat);
-            if (protocol.expectedRepositoryId) {
-                url.searchParams.set("expectedRepositoryId", protocol.expectedRepositoryId);
-            }
-            if (protocol.packReadPolicy !== "whole-pack") {
-                url.searchParams.set("packReadPolicy", protocol.packReadPolicy);
-            }
-        }
+        applyJournalProtocolOptionsV1(url, settings);
         return withSlsConnectionScheme(url, "s3");
     },
     suggestName(settings) {
