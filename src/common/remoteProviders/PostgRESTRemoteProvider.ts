@@ -59,9 +59,15 @@ export const postgRESTRemoteProvider: RemoteProviderDescriptor<"postgrest", Post
     },
     pick: pickPostgRESTSettings,
     serialise(settings) {
-        const { scheme, url } = parseSlsConnectionUri(settings.postgrestActiveConnectionURI);
+        let parsed: ReturnType<typeof parseSlsConnectionUri>;
+        try {
+            parsed = parseSlsConnectionUri(settings.postgrestActiveConnectionURI);
+        } catch {
+            throw new Error("Invalid PostgREST connection URI");
+        }
+        const { scheme, url } = parsed;
         if (scheme !== "postgrest") {
-            throw new Error(`Invalid PostgREST connection URI: ${settings.postgrestActiveConnectionURI}`);
+            throw new Error("Invalid PostgREST connection URI");
         }
         const protocol = resolvePostgRESTProtocol(settings);
         applyJournalProtocolOptionsV1(url, protocol);

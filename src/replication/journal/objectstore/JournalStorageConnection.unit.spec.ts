@@ -62,6 +62,28 @@ describe("PostgREST Journal connection URI", () => {
             })
         ).toThrow("credentials");
     });
+
+    it("rejects malformed PostgREST values without exposing credentials", () => {
+        const parse = () => parsePostgRESTConnectionURI("sls+postgrest://vault:top-secret@");
+        const serialise = () =>
+            serialisePostgRESTConnectionURI({
+                apiKey: "",
+                endpoint: "https://database-user:top-secret@",
+                schema: "livesync_api",
+                useCustomRequestHandler: false,
+                vaultCredential: "vault-credential",
+                vaultId: "vault-id",
+            });
+
+        for (const operation of [parse, serialise]) {
+            expect(operation).toThrow("Invalid PostgREST");
+            try {
+                operation();
+            } catch (error) {
+                expect(`${error}`).not.toContain("top-secret");
+            }
+        }
+    });
 });
 
 describe("WebDAV Journal connection URI", () => {

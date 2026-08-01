@@ -29,7 +29,11 @@ function parseSlsWebDAVURI(uriString: string): URL {
 function parseSlsPostgRESTURI(uriString: string): URL {
     const match = /^sls\+postgrest:(\/\/.*)$/u.exec(uriString);
     if (!match) throw new Error("Invalid PostgREST connection URI");
-    return new URL(`${PROXY_SCHEME}:${match[1]}`);
+    try {
+        return new URL(`${PROXY_SCHEME}:${match[1]}`);
+    } catch {
+        throw new Error("Invalid PostgREST connection URI");
+    }
 }
 
 function endpointFromConnectionURL(url: URL): string {
@@ -96,7 +100,12 @@ export function parsePostgRESTConnectionURI(uriString: string): PostgRESTConnect
 
 /** Serialises client-safe PostgREST connection fields for profile persistence. */
 export function serialisePostgRESTConnectionURI(connection: PostgRESTConnection): string {
-    const endpoint = new URL(connection.endpoint);
+    let endpoint: URL;
+    try {
+        endpoint = new URL(connection.endpoint);
+    } catch {
+        throw new Error("Invalid PostgREST endpoint");
+    }
     if (endpoint.protocol !== "http:" && endpoint.protocol !== "https:") {
         throw new Error("PostgREST endpoint must use HTTP or HTTPS");
     }

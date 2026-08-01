@@ -445,4 +445,24 @@ describe("ConnectionStringParser PostgREST", () => {
             )
         ).toThrow("range reads");
     });
+
+    it("rejects a non-PostgREST transport URI during serialisation without exposing credentials", () => {
+        for (const postgrestActiveConnectionURI of [
+            "sls+s3://vault:top-secret@storage.example/",
+            "vault:top-secret@project.example",
+        ]) {
+            const serialise = () =>
+                ConnectionStringParser.serialize({
+                    type: "postgrest",
+                    settings: { postgrestActiveConnectionURI },
+                });
+
+            expect(serialise).toThrow("Invalid PostgREST connection URI");
+            try {
+                serialise();
+            } catch (error) {
+                expect(`${error}`).not.toContain("top-secret");
+            }
+        }
+    });
 });
