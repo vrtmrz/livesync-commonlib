@@ -38,7 +38,13 @@ export const webDAVRemoteProvider: RemoteProviderDescriptor<"webdav", WebDAVSync
     },
     pick: pickWebDAVSettings,
     serialise(settings) {
-        const { scheme, url } = parseSlsConnectionUri(settings.webDAVactiveConnectionURI);
+        let parsed: ReturnType<typeof parseSlsConnectionUri>;
+        try {
+            parsed = parseSlsConnectionUri(settings.webDAVactiveConnectionURI);
+        } catch {
+            throw new Error("Invalid WebDAV connection URI");
+        }
+        const { scheme, url } = parsed;
         if (scheme !== "webdav") {
             throw new Error("Invalid WebDAV connection URI");
         }

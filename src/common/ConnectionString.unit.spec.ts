@@ -374,14 +374,23 @@ describe("ConnectionStringParser WebDAV", () => {
         ).toThrow("expectedRepositoryId must be a canonical base64url-encoded 32-byte value");
     });
 
-    it("rejects a non-WebDAV transport URI during serialisation", () => {
-        expect(() =>
-            ConnectionStringParser.serialize({
-                type: "webdav",
-                settings: {
-                    webDAVactiveConnectionURI: "sls+s3://storage.example/",
-                },
-            })
-        ).toThrow("Invalid WebDAV connection URI");
+    it("rejects a non-WebDAV transport URI during serialisation without exposing credentials", () => {
+        for (const webDAVactiveConnectionURI of [
+            "sls+s3://user:top-secret@storage.example/",
+            "user:top-secret@storage.example",
+        ]) {
+            const serialise = () =>
+                ConnectionStringParser.serialize({
+                    type: "webdav",
+                    settings: { webDAVactiveConnectionURI },
+                });
+
+            expect(serialise).toThrow("Invalid WebDAV connection URI");
+            try {
+                serialise();
+            } catch (error) {
+                expect(`${error}`).not.toContain("top-secret");
+            }
+        }
     });
 });
