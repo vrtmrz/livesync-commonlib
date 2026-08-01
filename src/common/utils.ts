@@ -23,6 +23,7 @@ import {
     type BucketSyncSetting,
     type CouchDBConnection,
     type EncryptionSettings,
+    type WebDAVSyncSetting,
 } from "./types.ts";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import { replaceAll, replaceAllPairs } from "octagonal-wheels/string";
@@ -571,6 +572,15 @@ export function pickBucketSyncSettings(setting: ObsidianLiveSyncSettings): Bucke
         packReadPolicy: setting.packReadPolicy ?? "whole-pack",
         useCustomRequestHandler: setting.useCustomRequestHandler,
         bucketCustomHeaders: setting.bucketCustomHeaders,
+    };
+}
+
+export function pickWebDAVSyncSettings(setting: ObsidianLiveSyncSettings): WebDAVSyncSetting {
+    return {
+        webDAVactiveConnectionURI: setting.webDAVactiveConnectionURI,
+        expectedRepositoryId: setting.expectedRepositoryId ?? "",
+        journalFormat: setting.journalFormat ?? "opaque-v1",
+        packReadPolicy: setting.packReadPolicy ?? "whole-pack",
     };
 }
 

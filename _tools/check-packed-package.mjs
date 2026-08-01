@@ -149,6 +149,7 @@ import {
     type CreateFileSystemAccessStorageOptions,
 } from "${packageName}/browser";
 import { splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
+import { pickWebDAVSyncSettings } from "${packageName}/compat/common/utils";
 import {
     NEW_VAULT_SETTINGS,
     SETTINGS_SCHEMA_DEFAULTS,
@@ -174,9 +175,15 @@ import {
     REMOTE_MINIO,
     REMOTE_WEBDAV,
     isJournalRemoteType,
+    isJournalStorageConnectionInspector,
     journalProtocolConfigurationForSettings,
+    parseWebDAVConnectionURI,
+    serialiseWebDAVConnectionURI,
     type JournalFormatV1,
+    type JournalStorageConnectionInspector,
+    type JournalStorageConnectivityResult,
     type RemoteDBSettings,
+    type WebDAVConnection,
     type WebDAVSyncSetting,
 } from "${packageName}/journal-storage";
 
@@ -218,8 +225,26 @@ const journalProtocol = journalProtocolConfigurationForSettings(journalSettings)
 const webDAVSettings: WebDAVSyncSetting = {
     webDAVactiveConnectionURI: "sls+webdav://example.invalid/dav",
 };
+const pickedWebDAVSettings: WebDAVSyncSetting = pickWebDAVSyncSettings({
+    ...SETTINGS_SCHEMA_DEFAULTS,
+    ...webDAVSettings,
+});
+const webDAVConnection: WebDAVConnection = parseWebDAVConnectionURI(webDAVSettings.webDAVactiveConnectionURI);
+const webDAVConnectionURI = serialiseWebDAVConnectionURI(webDAVConnection);
 const webDAVRemoteType = REMOTE_WEBDAV;
 const isJournalRemote = isJournalRemoteType(REMOTE_WEBDAV);
+const journalStorageInspection: JournalStorageConnectivityResult = {
+    adaptiveCapabilities: {
+        byteRange: { status: "unsupported", missing: ["byte-range"] },
+        required: { status: "verified" },
+    },
+    available: true,
+    remoteFormat: "empty",
+};
+const journalStorageInspector = {
+    inspectJournalStorageConnection: async () => journalStorageInspection,
+} satisfies JournalStorageConnectionInspector;
+const hasJournalStorageInspector = isJournalStorageConnectionInspector(journalStorageInspector);
 void context;
 void contextContract;
 void untranslated;
@@ -245,8 +270,14 @@ void adaptiveRepositoryIdFactory;
 void adaptiveChunkKind;
 void journalProtocol;
 void webDAVSettings;
+void pickedWebDAVSettings;
+void webDAVConnection;
+void webDAVConnectionURI;
 void webDAVRemoteType;
 void isJournalRemote;
+void journalStorageInspection;
+void journalStorageInspector;
+void hasJournalStorageInspector;
 `
 );
 await writeConsumerFile(
@@ -299,6 +330,12 @@ assert.equal(journalStorageApi.REMOTE_MINIO, "MINIO");
 assert.equal(journalStorageApi.REMOTE_WEBDAV, "WEBDAV");
 assert.equal(journalStorageApi.journalStorageKindForRemoteType(journalStorageApi.REMOTE_WEBDAV), "webdav");
 assert.equal(journalStorageApi.isJournalRemoteType(journalStorageApi.REMOTE_WEBDAV), true);
+assert.equal(typeof journalStorageApi.parseWebDAVConnectionURI, "function");
+assert.equal(typeof journalStorageApi.serialiseWebDAVConnectionURI, "function");
+assert.equal(
+    journalStorageApi.isJournalStorageConnectionInspector({ inspectJournalStorageConnection() {} }),
+    true
+);
 assert.deepEqual(
     journalStorageApi.journalProtocolConfigurationForSettings({
         remoteType: journalStorageApi.REMOTE_MINIO,
@@ -379,10 +416,11 @@ await writeConsumerFile(
 );
 await writeConsumerFile(
     "browser-journal-storage.ts",
-    `import { REMOTE_MINIO, REMOTE_WEBDAV, journalStorageKindForRemoteType } from "${packageName}/journal-storage";
+    `import { REMOTE_MINIO, REMOTE_WEBDAV, isJournalStorageConnectionInspector, journalStorageKindForRemoteType } from "${packageName}/journal-storage";
 
 document.body.dataset.journalStorage = journalStorageKindForRemoteType(REMOTE_MINIO);
 document.body.dataset.webdavJournalStorage = journalStorageKindForRemoteType(REMOTE_WEBDAV);
+document.body.dataset.journalInspector = String(isJournalStorageConnectionInspector({}));
 `
 );
 

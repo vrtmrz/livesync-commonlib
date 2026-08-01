@@ -13,6 +13,7 @@ import {
     journalStorageKindForRemoteType,
 } from "./JournalStorageConfiguration.ts";
 import { ADAPTIVE_JOURNAL_REQUIRED_CAPABILITIES_V1 } from "../adaptive/AdaptiveJournalManifest.ts";
+import type { CapabilityVerification } from "../adaptive/AdaptiveJournalRepository.ts";
 
 export {
     getJournalRemoteDisplayName,
@@ -37,8 +38,60 @@ export function isJournalStorageAdapterCompatible(storage: IJournalStorage, sett
 }
 
 export interface JournalStorageConnectivityResult {
+    adaptiveCapabilities?: JournalStorageAdaptiveCapabilityInspection;
     available: boolean;
     remoteFormat?: JournalStorageRemoteFormatV1;
+}
+
+export type JournalStorageCapabilityInspection = CapabilityVerification | { status: "not-checked" };
+
+export interface JournalStorageAdaptiveCapabilityInspection {
+    byteRange: JournalStorageCapabilityInspection;
+    required: JournalStorageCapabilityInspection;
+}
+
+const OPTIONAL_BYTE_RANGE_CAPABILITY = "byte-range";
+const ADAPTIVE_OBJECT_CAPABILITIES_TO_INSPECT = [
+    ...ADAPTIVE_JOURNAL_REQUIRED_CAPABILITIES_V1,
+    OPTIONAL_BYTE_RANGE_CAPABILITY,
+].sort();
+
+function splitAdaptiveCapabilityVerification(
+    verification: CapabilityVerification
+): JournalStorageAdaptiveCapabilityInspection {
+    if (verification.status === "verified") {
+        return {
+            byteRange: { status: "verified" },
+            required: { status: "verified" },
+        };
+    }
+    if (verification.status === "failed") {
+        return {
+            byteRange: { status: "not-checked" },
+            required: verification,
+        };
+    }
+
+    const requiredMissing = verification.missing.filter((capability) => capability !== OPTIONAL_BYTE_RANGE_CAPABILITY);
+    return {
+        byteRange: verification.missing.includes(OPTIONAL_BYTE_RANGE_CAPABILITY)
+            ? { missing: [OPTIONAL_BYTE_RANGE_CAPABILITY], status: "unsupported" }
+            : requiredMissing.length === 0
+              ? { status: "verified" }
+              : { status: "not-checked" },
+        required:
+            requiredMissing.length === 0 ? { status: "verified" } : { missing: requiredMissing, status: "unsupported" },
+    };
+}
+
+function unsupportedAdaptiveCapabilities(): JournalStorageAdaptiveCapabilityInspection {
+    return {
+        byteRange: { status: "not-checked" },
+        required: {
+            missing: [...ADAPTIVE_JOURNAL_REQUIRED_CAPABILITIES_V1],
+            status: "unsupported",
+        },
+    };
 }
 
 export async function inspectJournalStorageConnectivity(
@@ -57,13 +110,18 @@ export async function inspectJournalStorageConnectivity(
         return { available: true, ...formatResult };
     }
     if (protocol.journalFormat === "adaptive-v1") {
-        if (!storage.verifyCapabilities) return { available: false, ...formatResult };
-        const required = [
-            ...ADAPTIVE_JOURNAL_REQUIRED_CAPABILITIES_V1,
-            ...(protocol.packReadPolicy === "range" ? ["byte-range"] : []),
-        ];
-        const verification = await storage.verifyCapabilities(required);
-        return { available: verification.status === "verified", ...formatResult };
+        const adaptiveCapabilities = storage.verifyCapabilities
+            ? splitAdaptiveCapabilityVerification(
+                  await storage.verifyCapabilities(ADAPTIVE_OBJECT_CAPABILITIES_TO_INSPECT)
+              )
+            : unsupportedAdaptiveCapabilities();
+        const requiredAvailable = adaptiveCapabilities.required.status === "verified";
+        const rangeAvailable = adaptiveCapabilities.byteRange.status === "verified";
+        return {
+            adaptiveCapabilities,
+            available: requiredAvailable && (protocol.packReadPolicy === "whole-pack" || rangeAvailable),
+            ...formatResult,
+        };
     }
     return { available: await storage.isAvailable(), ...formatResult };
 }

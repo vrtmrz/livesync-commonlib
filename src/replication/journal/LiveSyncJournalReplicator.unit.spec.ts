@@ -149,4 +149,21 @@ describe("LiveSyncJournalReplicator", () => {
         await expect(replicator.openReplication(DEFAULT_SETTINGS, false, true, false)).resolves.toBe(false);
         expect(sync).toHaveBeenCalledWith(true);
     });
+
+    it("uses the typed Journal inspection boundary for connection tests", async () => {
+        const settings = {
+            ...DEFAULT_SETTINGS,
+            remoteType: REMOTE_WEBDAV,
+            webDAVactiveConnectionURI: "sls+webdav://example.invalid/dav",
+        };
+        const replicator = makeReplicatorWithSettings(settings);
+        const inspectJournalStorageConnection = vi.fn(async () => ({
+            available: true,
+            remoteFormat: "empty" as const,
+        }));
+        replicator.inspectJournalStorageConnection = inspectJournalStorageConnection;
+
+        await expect(replicator.tryConnectRemote(settings, false)).resolves.toBe(true);
+        expect(inspectJournalStorageConnection).toHaveBeenCalledWith(settings);
+    });
 });

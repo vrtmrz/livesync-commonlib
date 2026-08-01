@@ -21,6 +21,7 @@ import {
     inspectJournalStorageConnectivity,
     isJournalStorageAdapterCompatible,
     journalProtocolConfigurationForSettings,
+    type JournalStorageConnectivityResult,
 } from "./objectstore/JournalStorageAdapterFactory.ts";
 
 import { LiveSyncAbstractReplicator, type RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";
@@ -317,11 +318,15 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         await client.uploadJson(MILSTONE_DOCID, remoteMilestone);
     }
 
+    async inspectJournalStorageConnection(setting: RemoteDBSettings): Promise<JournalStorageConnectivityResult> {
+        const testClient = createJournalStorageAdapter(setting, this.env);
+        return await inspectJournalStorageConnectivity(testClient, setting);
+    }
+
     async tryConnectRemote(setting: RemoteDBSettings, _showResult: boolean = true): Promise<boolean> {
         const endpoint = getJournalRemoteDisplayName(setting);
-        const testClient = createJournalStorageAdapter(setting, this.env);
         try {
-            const connectivity = await inspectJournalStorageConnectivity(testClient, setting);
+            const connectivity = await this.inspectJournalStorageConnection(setting);
             if (!connectivity.available) {
                 const selectedFormat = journalProtocolConfigurationForSettings(setting).journalFormat;
                 if (

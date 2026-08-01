@@ -133,7 +133,7 @@ describe("JournalStorageAdapterFactory", () => {
     });
 
     it.each(["whole-pack", "range"] as const)(
-        "verifies the Adaptive capabilities selected by the %s retrieval policy",
+        "reports required and optional Adaptive capabilities for the %s retrieval policy",
         async (packReadPolicy) => {
             const storage = {
                 kind: "s3",
@@ -143,19 +143,96 @@ describe("JournalStorageAdapterFactory", () => {
             const settings = s3Settings({ journalFormat: "adaptive-v1", packReadPolicy });
 
             await expect(inspectJournalStorageConnectivity(storage, settings)).resolves.toEqual({
+                adaptiveCapabilities: {
+                    byteRange: { status: "verified" },
+                    required: { status: "verified" },
+                },
                 available: true,
                 remoteFormat: "empty",
             });
             expect(storage.verifyCapabilities).toHaveBeenCalledWith([
                 "binary-fidelity",
+                "byte-range",
                 "complete-listing",
                 "conditional-create",
                 "delete-visibility",
                 "read-after-write",
-                ...(packReadPolicy === "range" ? ["byte-range"] : []),
             ]);
         }
     );
+
+    it.each([
+        { available: true, packReadPolicy: "whole-pack" },
+        { available: false, packReadPolicy: "range" },
+    ] as const)(
+        "treats unsupported optional Range as available=$available for $packReadPolicy retrieval",
+        async ({ available, packReadPolicy }) => {
+            const storage = {
+                kind: "webdav",
+                inspectRemoteFormat: vi.fn(async () => "empty" as const),
+                verifyCapabilities: vi.fn(async () => ({ missing: ["byte-range"], status: "unsupported" as const })),
+            } as unknown as IJournalStorage;
+
+            await expect(
+                inspectJournalStorageConnectivity(
+                    storage,
+                    webDAVSettings({ journalFormat: "adaptive-v1", packReadPolicy })
+                )
+            ).resolves.toEqual({
+                adaptiveCapabilities: {
+                    byteRange: { missing: ["byte-range"], status: "unsupported" },
+                    required: { status: "verified" },
+                },
+                available,
+                remoteFormat: "empty",
+            });
+        }
+    );
+
+    it("reports missing required semantics without claiming that Range was checked", async () => {
+        const storage = {
+            kind: "webdav",
+            inspectRemoteFormat: vi.fn(async () => "empty" as const),
+            verifyCapabilities: vi.fn(async () => ({
+                missing: ["conditional-create"],
+                status: "unsupported" as const,
+            })),
+        } as unknown as IJournalStorage;
+
+        await expect(
+            inspectJournalStorageConnectivity(
+                storage,
+                webDAVSettings({ journalFormat: "adaptive-v1", packReadPolicy: "whole-pack" })
+            )
+        ).resolves.toEqual({
+            adaptiveCapabilities: {
+                byteRange: { status: "not-checked" },
+                required: { missing: ["conditional-create"], status: "unsupported" },
+            },
+            available: false,
+            remoteFormat: "empty",
+        });
+    });
+
+    it("preserves a typed remote failure instead of reporting unsupported semantics", async () => {
+        const failure = { category: "authentication" as const, retry: "never" as const };
+        const storage = {
+            kind: "webdav",
+            inspectRemoteFormat: vi.fn(async () => "empty" as const),
+            verifyCapabilities: vi.fn(async () => ({ failure, status: "failed" as const })),
+        } as unknown as IJournalStorage;
+
+        await expect(
+            inspectJournalStorageConnectivity(storage, webDAVSettings({ journalFormat: "adaptive-v1" }))
+        ).resolves.toEqual({
+            adaptiveCapabilities: {
+                byteRange: { status: "not-checked" },
+                required: { failure, status: "failed" },
+            },
+            available: false,
+            remoteFormat: "empty",
+        });
+    });
 
     it("does not accept Adaptive mode when the adapter cannot verify its semantics", async () => {
         const storage = {
@@ -165,7 +242,23 @@ describe("JournalStorageAdapterFactory", () => {
 
         await expect(
             inspectJournalStorageConnectivity(storage, s3Settings({ journalFormat: "adaptive-v1" }))
-        ).resolves.toEqual({ available: false, remoteFormat: "empty" });
+        ).resolves.toEqual({
+            adaptiveCapabilities: {
+                byteRange: { status: "not-checked" },
+                required: {
+                    missing: [
+                        "binary-fidelity",
+                        "complete-listing",
+                        "conditional-create",
+                        "delete-visibility",
+                        "read-after-write",
+                    ],
+                    status: "unsupported",
+                },
+            },
+            available: false,
+            remoteFormat: "empty",
+        });
     });
 
     it.each([

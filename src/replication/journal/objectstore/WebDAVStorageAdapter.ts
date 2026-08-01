@@ -26,6 +26,7 @@ import {
     type JournalStorageRemoteFormatV1,
     type JournalStorageSetting,
 } from "./JournalStorageAdapter.ts";
+import { parseWebDAVConnectionURI, type WebDAVConnection } from "./JournalStorageConnection.ts";
 
 const ADAPTIVE_MANIFEST_KEY = "a1~manifest.json";
 const ADAPTIVE_PROBE_PREFIX = "a1~probe~";
@@ -46,15 +47,6 @@ const PROPFIND_USAGE_BODY = `<?xml version="1.0" encoding="utf-8"?>
     <d:quota-available-bytes/>
   </d:prop>
 </d:propfind>`;
-
-interface ParsedWebDAVConnection {
-    customHeaders: string;
-    endpoint: string;
-    password: string;
-    prefix: string;
-    useCustomRequestHandler: boolean;
-    username: string;
-}
 
 interface WebDAVResponseEntry {
     contentLength?: number;
@@ -203,25 +195,10 @@ function utf8Base64(value: string): string {
     return btoa(binary);
 }
 
-function parseSlsWebDAVUri(uriString: string): ParsedWebDAVConnection {
-    const match = /^sls\+webdav:(\/\/.*)$/u.exec(uriString);
-    if (!match) throw new Error("Invalid WebDAV connection URI");
-    const url = new URL(`https:${match[1]}`);
-    const scheme = url.searchParams.get("insecure") === "true" ? "http" : "https";
-    return {
-        endpoint: `${scheme}://${url.host}${url.pathname === "/" ? "" : url.pathname}`,
-        username: decodeURIComponent(url.username),
-        password: decodeURIComponent(url.password),
-        prefix: url.searchParams.get("prefix") || "",
-        useCustomRequestHandler: url.searchParams.get("useProxy") === "true",
-        customHeaders: url.searchParams.get("headers") || "",
-    };
-}
-
 function sameWebDAVConnection(left: WebDAVSyncSetting, right: WebDAVSyncSetting): boolean {
     try {
-        const a = parseSlsWebDAVUri(left.webDAVactiveConnectionURI);
-        const b = parseSlsWebDAVUri(right.webDAVactiveConnectionURI);
+        const a = parseWebDAVConnectionURI(left.webDAVactiveConnectionURI);
+        const b = parseWebDAVConnectionURI(right.webDAVactiveConnectionURI);
         return (
             a.endpoint === b.endpoint &&
             a.username === b.username &&
@@ -287,8 +264,8 @@ export class WebDAVStorageAdapter
         this._settings = next;
     }
 
-    get connection(): ParsedWebDAVConnection {
-        return parseSlsWebDAVUri(this._settings.webDAVactiveConnectionURI);
+    get connection(): WebDAVConnection {
+        return parseWebDAVConnectionURI(this._settings.webDAVactiveConnectionURI);
     }
 
     get storageIdentity(): string {

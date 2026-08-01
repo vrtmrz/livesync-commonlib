@@ -125,7 +125,7 @@ See [the Adaptive Journal protocol guide](docs/adaptive-journal.md) for reposito
 
 ## Journal storage adapters
 
-The focused `/journal-storage` entry exposes S3-compatible and WebDAV Journal format and pack-retrieval settings without loading either concrete transport adapter. Existing Journal profiles remain on Opaque Journal unless they explicitly select the experimental Adaptive format. Commonlib detects mixed or mismatched remote data and requires a remote Rebuild rather than silently migrating it.
+The focused `/journal-storage` entry exposes S3-compatible and WebDAV Journal format and pack-retrieval settings, WebDAV profile-field parsing and serialisation, and a structural guard for the typed Journal connection inspection implemented by Journal replicators, without loading either concrete transport adapter. The inspection allows a host to present required Adaptive semantics separately from optional Range support. Existing Journal profiles remain on Opaque Journal unless they explicitly select the experimental Adaptive format. Commonlib detects mixed or mismatched remote data and requires a remote Rebuild rather than silently migrating it.
 
 The [object delivery section](docs/adaptive-journal.md#object-delivery-adapters) describes capability probing, immutable object publication, Range selection, request confirmation, prefix ownership, request estimates, and the exact current verification scope.
 
