@@ -164,6 +164,21 @@ describe("WebDAVStorageAdapter", () => {
         ).toThrow("Invalid WebDAV connection URI");
     });
 
+    it("preserves encoded endpoint path segments when constructing and matching object URLs", async () => {
+        const { fetch } = statefulWebDAV();
+        const { adapter } = createAdapter(
+            fetch,
+            settings("sls+webdav://example.invalid/remote%20dav?prefix=Vault%20One%2F&insecure=true")
+        );
+
+        expect(adapter.makeUrl("file.bin")).toBe("http://example.invalid/remote%20dav/Vault%20One/file.bin");
+        expect(adapter.keyFromHref("/remote%20dav/Vault%20One/file.bin")).toBe("file.bin");
+        await expect(adapter.upload("file.bin", new Uint8Array([1]), "application/octet-stream")).resolves.toBe(true);
+        expect(fetch.mock.calls.find(([, init]) => init.method === "MKCOL")?.[0]).toBe(
+            "http://example.invalid/remote%20dav/Vault%20One"
+        );
+    });
+
     it("encodes non-ASCII Basic credentials without relying on Node Buffer", async () => {
         const fetch = vi.fn(async () => new Response(null, { status: 201 }));
         const { adapter } = createAdapter(

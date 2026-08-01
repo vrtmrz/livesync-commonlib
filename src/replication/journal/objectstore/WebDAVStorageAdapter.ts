@@ -305,7 +305,11 @@ export class WebDAVStorageAdapter
     }
 
     get endpointPath(): string {
-        return trimSlashes(this.baseUrl.pathname);
+        try {
+            return trimSlashes(decodeURIComponent(this.baseUrl.pathname));
+        } catch {
+            throw new TypeError("WebDAV endpoint path contains invalid percent-encoding");
+        }
     }
 
     get prefix(): string {
