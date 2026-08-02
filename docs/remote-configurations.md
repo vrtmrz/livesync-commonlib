@@ -6,6 +6,7 @@ Use the focused entry point for new profile-management code:
 
 ```ts
 import {
+    pinActiveAdaptiveJournalRepositoryIdInPlace,
     upsertRemoteConfigurationInPlace,
     type RemoteConfiguration,
 } from "@vrtmrz/livesync-commonlib/remote-configurations";
@@ -25,6 +26,8 @@ const profile: RemoteConfiguration = upsertRemoteConfigurationInPlace(settings, 
 ```
 
 The helper serialises the connection fields into the profile URI. When `activate` is true, it selects that profile through `activeConfigurationId` and projects the profile back onto the compatibility fields. The host still owns persistence, restart policy, credential acquisition, and user confirmation.
+
+For Adaptive Journal, `pinActiveAdaptiveJournalRepositoryIdInPlace(settings, repositoryId)` records an accepted repository identity in both the active profile URI and its runtime projection. This is useful after a trust-on-first-use attachment: a later Setup URI can then carry the accepted identity as an expectation for another device. The helper is idempotent for the same identity and rejects an attempt to replace an existing pin. It updates in-memory settings only; the host remains responsible for saving them.
 
 ## Identity and display names
 

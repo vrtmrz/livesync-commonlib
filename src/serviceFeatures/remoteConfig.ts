@@ -2,6 +2,7 @@ import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type LOG_LEVEL } from "@lib/common
 import { ConnectionStringParser, type RemoteConfigurationResult } from "@lib/common/ConnectionString";
 import type { ObsidianLiveSyncSettings, RemoteConfiguration } from "@lib/common/models/setting.type";
 import { REMOTE_P2P } from "@lib/common/models/setting.const";
+import { resolveJournalProtocolOptionsV1 } from "@lib/common/models/journalProtocol.ts";
 import {
     defaultRemoteProviderRegistry,
     type BuiltInRemoteConfiguration,
@@ -181,6 +182,58 @@ export function upsertRemoteConfigurationInPlace(
         }
     }
     return configuration;
+}
+
+/**
+ * Pins an accepted Adaptive repository to the active runtime settings and saved connection.
+ *
+ * The repository ID is public identity metadata. Persisting it in both projections lets a later
+ * Setup URI carry an expectation learned through an earlier trust-on-first-use attachment.
+ */
+export function pinActiveAdaptiveJournalRepositoryIdInPlace(
+    settings: ObsidianLiveSyncSettings,
+    repositoryId: string
+): boolean {
+    const selected = resolveJournalProtocolOptionsV1({
+        expectedRepositoryId: repositoryId,
+        journalFormat: "adaptive-v1",
+        packReadPolicy: "whole-pack",
+    }).expectedRepositoryId;
+    const projected = resolveJournalProtocolOptionsV1(settings);
+    if (projected.journalFormat !== "adaptive-v1") {
+        throw new Error("Cannot pin an Adaptive repository ID to an Opaque Journal connection");
+    }
+    if (projected.expectedRepositoryId && projected.expectedRepositoryId !== selected) {
+        throw new Error("The active settings already pin a different Adaptive repository ID");
+    }
+
+    let changed = projected.expectedRepositoryId !== selected;
+    settings.expectedRepositoryId = selected;
+
+    const activeId = settings.activeConfigurationId?.trim();
+    if (!activeId) return changed;
+    const configuration = settings.remoteConfigurations?.[activeId];
+    if (!configuration) {
+        throw new Error(`The active remote configuration '${activeId}' is missing`);
+    }
+    const parsed = ConnectionStringParser.parse(configuration.uri);
+    if (parsed.type === "couchdb" || parsed.type === "p2p") {
+        throw new Error("The active remote configuration is not Journal storage");
+    }
+    const profileProtocol = resolveJournalProtocolOptionsV1(parsed.settings);
+    if (profileProtocol.journalFormat !== "adaptive-v1") {
+        throw new Error("The active remote configuration does not select Adaptive Journal");
+    }
+    if (profileProtocol.expectedRepositoryId && profileProtocol.expectedRepositoryId !== selected) {
+        throw new Error("The active remote configuration already pins a different Adaptive repository ID");
+    }
+    if (profileProtocol.expectedRepositoryId !== selected) {
+        parsed.settings.expectedRepositoryId = selected;
+        configuration.uri = ConnectionStringParser.serialize(parsed);
+        configuration.isEncrypted = false;
+        changed = true;
+    }
+    return changed;
 }
 
 /**

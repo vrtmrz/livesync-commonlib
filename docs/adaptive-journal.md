@@ -4,7 +4,7 @@ Adaptive Journal is an experimental v1 synchronisation protocol for publishing M
 
 ## Repository and record ownership
 
-Each repository has an immutable manifest containing a random repository identity, a security seed, and the capabilities required by the protocol. A client binds that identity to its local state when it creates or attaches to the repository. If the remote is rebuilt with a different identity, the client must stop and require an explicit attach or rebuild decision rather than continuing against unrelated data.
+Each repository has an immutable manifest containing a random repository identity, a security seed, and the capabilities required by the protocol. A creating host may generate the repository identity locally before the first remote write and pass it as the expected identity during initialisation. A client binds the accepted identity to its local state when it creates or attaches to the repository. If the remote is rebuilt with a different identity, the client must stop and require an explicit attach or rebuild decision rather than continuing against unrelated data.
 
 Metadata records refer to Chunks; raw file content is not stored in a Metadata record. The core supports two delivery profiles:
 
@@ -27,10 +27,13 @@ Import protocol primitives through the focused entry:
 
 ```ts
 import {
+    generateAdaptiveJournalRepositoryIdV1,
     openAdaptiveJournalRepositoryV1,
     type AdaptiveJournalManifestRemoteV1,
 } from "@vrtmrz/livesync-commonlib/adaptive-journal";
 ```
+
+`generateAdaptiveJournalRepositoryIdV1()` returns public identity metadata, not a credential. Supplying that value as `expectedRepositoryId` with the `create-new` intent creates a missing repository with the preselected identity. The same value makes a retry idempotent and rejects a concurrent repository with another identity. An `attach-existing` operation never creates a missing repository.
 
 The host remains responsible for durable local binding storage, credentials, remote adapter construction, synchronisation scheduling, local database application, user choices, and disposal. The protocol core does not select a provider or infer that matching TypeScript methods provide the required semantics.
 
@@ -43,7 +46,7 @@ S3-compatible Object Storage is the reference adapter for the object profile. Ex
 | Setting                | Meaning                                                                                                                                                  | Default      |
 | ---------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------ |
 | `journalFormat`        | Selects `opaque-v1` or `adaptive-v1`. The formats cannot share one configured prefix.                                                                    | `opaque-v1`  |
-| `expectedRepositoryId` | Optionally pins a canonical base64url-encoded 32-byte repository identity. Local creation and attachment also record the binding in durable local state. | Empty        |
+| `expectedRepositoryId` | Optionally pins a canonical base64url-encoded 32-byte repository identity. A fresh setup can generate it before creation; a trust-on-first-use attachment can persist the accepted value afterwards. | Empty        |
 | `packReadPolicy`       | Selects complete-pack reads or exact Range reads for Adaptive Chunk retrieval.                                                                           | `whole-pack` |
 
 The focused `/journal-storage` entry exposes these setting types and host-facing resolution helpers without importing the AWS SDK client:

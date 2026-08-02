@@ -1,4 +1,4 @@
-import { bytesEqual } from "./AdaptiveJournalBinary.ts";
+import { base64UrlToBytes, bytesEqual } from "./AdaptiveJournalBinary.ts";
 import {
     ADAPTIVE_JOURNAL_REQUIRED_CAPABILITIES_V1,
     AdaptiveJournalError,
@@ -228,23 +228,32 @@ export async function openAdaptiveJournalRepositoryV1(
         await requireCapabilities(options);
         return await accept(options.binding, candidate, "attached");
     }
-    if (options.intent === "attach-existing" || expectedRepositoryId !== undefined) {
+    if (options.intent === "attach-existing") {
         throw new AdaptiveJournalError("repository-missing", "The expected Adaptive Journal repository is missing");
     }
 
     await requireCapabilities(options);
+    const preselectedRepositoryId =
+        expectedRepositoryId === undefined ? undefined : base64UrlToBytes(expectedRepositoryId);
     const candidateFactory =
         options.candidateFactory ??
         (async () =>
             await createAdaptiveJournalManifestV1({
                 encryption: state.encryption,
                 passphrase: options.passphrase,
+                repositoryId: preselectedRepositoryId,
             }));
     const candidate = await candidateFactory();
     if (candidate.keys.encryption !== state.encryption) {
         throw new AdaptiveJournalError(
             "encryption-mode-mismatch",
             "Generated manifest encryption does not match the local binding"
+        );
+    }
+    if (expectedRepositoryId !== undefined && candidate.manifest.repositoryId !== expectedRepositoryId) {
+        throw new AdaptiveJournalError(
+            "repository-id-mismatch",
+            "Generated manifest repository ID does not match the identity selected before initialisation"
         );
     }
     await options.binding.stageInitialisation({ bytes: candidate.bytes, digest: candidate.digest });
@@ -255,9 +264,9 @@ export async function openAdaptiveJournalRepositoryV1(
     if (created.status === "failed") {
         const verification = await readManifestOrThrow(options.remote);
         if (verification.status === "missing") throw remoteFailure("Adaptive Journal manifest create", created.failure);
-        const winner = await verifyManifest(verification.value, state, undefined, options.passphrase);
+        const winner = await verifyManifest(verification.value, state, expectedRepositoryId, options.passphrase);
         await requireCapabilities(options);
         return await accept(options.binding, winner, "attached-concurrent");
     }
-    return await readBackAfterCreate(options, state, undefined, candidate.digest, created.status, false);
+    return await readBackAfterCreate(options, state, expectedRepositoryId, candidate.digest, created.status, false);
 }

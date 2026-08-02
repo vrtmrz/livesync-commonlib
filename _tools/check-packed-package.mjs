@@ -158,6 +158,7 @@ import {
 } from "${packageName}/settings";
 import {
     createBuiltInRemoteProviderRegistry,
+    pinActiveAdaptiveJournalRepositoryIdInPlace,
     upsertRemoteConfigurationInPlace,
     type RemoteProviderRegistry,
     type UpsertRemoteConfigurationOptions,
@@ -166,6 +167,7 @@ import { useJournalSyncFeature } from "${packageName}/journal-sync";
 import {
     AdaptiveRecordKindV1,
     createAdaptiveJournalManifestV1,
+    generateAdaptiveJournalRepositoryIdV1,
     type AdaptiveJournalObjectRetrievalV1,
 } from "${packageName}/adaptive-journal";
 import {
@@ -196,8 +198,12 @@ const remoteConfigurationOptions: UpsertRemoteConfigurationOptions = { activate:
 const remoteConfigurationUpsert: typeof upsertRemoteConfigurationInPlace = upsertRemoteConfigurationInPlace;
 const remoteProviderRegistry: RemoteProviderRegistry = createBuiltInRemoteProviderRegistry();
 const journalSyncFeature: typeof useJournalSyncFeature = useJournalSyncFeature;
+const repositoryProfilePin: typeof pinActiveAdaptiveJournalRepositoryIdInPlace =
+    pinActiveAdaptiveJournalRepositoryIdInPlace;
 const adaptiveRetrieval: AdaptiveJournalObjectRetrievalV1 = "whole-pack";
 const adaptiveManifestFactory: typeof createAdaptiveJournalManifestV1 = createAdaptiveJournalManifestV1;
+const adaptiveRepositoryIdFactory: typeof generateAdaptiveJournalRepositoryIdV1 =
+    generateAdaptiveJournalRepositoryIdV1;
 const adaptiveChunkKind: AdaptiveRecordKindV1 = AdaptiveRecordKindV1.Chunk;
 const journalFormat: JournalFormatV1 = "adaptive-v1";
 const journalSettings = {
@@ -224,8 +230,10 @@ void remoteConfigurationOptions;
 void remoteConfigurationUpsert;
 void remoteProviderRegistry;
 void journalSyncFeature;
+void repositoryProfilePin;
 void adaptiveRetrieval;
 void adaptiveManifestFactory;
+void adaptiveRepositoryIdFactory;
 void adaptiveChunkKind;
 void journalProtocol;
 `
@@ -272,7 +280,9 @@ assert.notEqual(settingsApi.createNewVaultSettings(), settingsApi.NEW_VAULT_SETT
 assert.equal(typeof remoteConfigurationsApi.upsertRemoteConfigurationInPlace, "function");
 assert.equal(typeof remoteConfigurationsApi.createBuiltInRemoteProviderRegistry, "function");
 assert.equal(typeof journalSyncApi.useJournalSyncFeature, "function");
+assert.equal(typeof remoteConfigurationsApi.pinActiveAdaptiveJournalRepositoryIdInPlace, "function");
 assert.equal(typeof adaptiveJournalApi.createAdaptiveJournalManifestV1, "function");
+assert.equal(typeof adaptiveJournalApi.generateAdaptiveJournalRepositoryIdV1, "function");
 assert.equal(typeof adaptiveJournalApi.AdaptiveRecordKindV1.Chunk, "number");
 assert.equal(journalStorageApi.REMOTE_MINIO, "MINIO");
 assert.deepEqual(

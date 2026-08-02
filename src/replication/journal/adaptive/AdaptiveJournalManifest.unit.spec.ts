@@ -5,6 +5,7 @@ import {
     createAdaptiveJournalManifestV1,
     deriveRemoteChunkKeyV1,
     deriveWriterStreamIdV1,
+    generateAdaptiveJournalRepositoryIdV1,
     parseAndVerifyAdaptiveJournalManifestV1,
 } from "./AdaptiveJournalManifest.ts";
 import { bytesToBase64Url } from "./AdaptiveJournalBinary.ts";
@@ -14,6 +15,15 @@ function sequence(start: number): Uint8Array {
 }
 
 describe("Adaptive Journal manifest v1", () => {
+    it("generates canonical non-secret repository identities before manifest creation", async () => {
+        const first = await generateAdaptiveJournalRepositoryIdV1();
+        const second = await generateAdaptiveJournalRepositoryIdV1();
+
+        expect(first).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+        expect(second).toMatch(/^[A-Za-z0-9_-]{43}$/u);
+        expect(second).not.toBe(first);
+    });
+
     it("creates canonical authenticated manifests and derives stable repository-scoped identities", async () => {
         const repositoryId = sequence(0x10);
         const securitySeed = sequence(0x80);

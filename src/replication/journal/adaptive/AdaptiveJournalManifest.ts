@@ -268,6 +268,11 @@ async function random32(): Promise<Uint8Array> {
     return bytes;
 }
 
+/** Generates a non-secret repository identity before any remote object is written. */
+export async function generateAdaptiveJournalRepositoryIdV1(): Promise<string> {
+    return bytesToBase64Url(await random32());
+}
+
 function createManifestObject(
     encryption: AdaptiveJournalEncryption,
     repositoryId: Uint8Array,

@@ -8,10 +8,15 @@ import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEn
 
 function makeReplicatorWithSettings(settings: Record<string, unknown>): LiveSyncJournalReplicator {
     const replicator = Object.create(LiveSyncJournalReplicator.prototype) as LiveSyncJournalReplicator;
+    const saveSettingData = vi.fn(async () => undefined);
     replicator.env = {
         services: {
             setting: {
                 currentSettings: () => settings,
+                saveSettingData,
+                updateSettings: vi.fn(async (update: (current: Record<string, unknown>) => Record<string, unknown>) => {
+                    update(settings);
+                }),
             },
             keyValueDB: {
                 simpleStore: {
@@ -80,6 +85,44 @@ describe("LiveSyncJournalReplicator S3 Journal selection", () => {
 
         await expect(resolveHostId()).resolves.toBe("receiving-host");
         expect(initialise).toHaveBeenCalledOnce();
+    });
+
+    it("persists a first accepted repository identity in the active profile", async () => {
+        const repositoryId = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        const settings: Record<string, unknown> = {
+            ...DEFAULT_SETTINGS,
+            activeConfigurationId: "adaptive",
+            expectedRepositoryId: "",
+            journalFormat: "adaptive-v1",
+            packReadPolicy: "whole-pack",
+            remoteConfigurations: {
+                adaptive: {
+                    id: "adaptive",
+                    isEncrypted: false,
+                    name: "Adaptive remote",
+                    uri: "sls+s3://key:secret@storage.example/?bucket=notes&journalFormat=adaptive-v1",
+                },
+            },
+            remoteType: REMOTE_MINIO,
+        };
+        const replicator = makeReplicatorWithSettings(settings);
+        const client = replicator.setupJournalSyncClient();
+        const acceptRepository = (
+            client as unknown as {
+                onRepositoryAccepted: (acceptedRepositoryId: string) => Promise<void>;
+            }
+        ).onRepositoryAccepted;
+
+        await acceptRepository(repositoryId);
+
+        expect(settings.expectedRepositoryId).toBe(repositoryId);
+        expect((settings.remoteConfigurations as Record<string, { uri: string }>).adaptive.uri).toContain(
+            `expectedRepositoryId=${repositoryId}`
+        );
+        expect(replicator.env.services.setting.saveSettingData).toHaveBeenCalledOnce();
+
+        await acceptRepository(repositoryId);
+        expect(replicator.env.services.setting.saveSettingData).toHaveBeenCalledOnce();
     });
 });
 

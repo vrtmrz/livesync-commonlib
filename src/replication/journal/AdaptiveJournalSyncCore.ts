@@ -129,7 +129,8 @@ export class AdaptiveJournalSyncCore {
         private env: LiveSyncJournalReplicatorEnv,
         storage: IJournalStorage,
         private readonly resolveHostId: () => Promise<string>,
-        public processReplication: ReplicationCallback
+        public processReplication: ReplicationCallback,
+        private readonly onRepositoryAccepted: (repositoryId: string) => Promise<void> = async () => undefined
     ) {
         this.settings = settings;
         this.storage = storage;
@@ -208,6 +209,7 @@ export class AdaptiveJournalSyncCore {
             passphrase: this.settings.encrypt ? this.settings.passphrase : undefined,
             remote: requireManifestStorage(this.storage),
         });
+        await this.onRepositoryAccepted(repository.manifest.repositoryId);
         recordJournalStorageRemoteFormatV1(this.storage, "adaptive-v1");
         const writerState = new AdaptiveJournalLocalWriterStateStoreV1(this.stateStore, this.storage.storageIdentity);
         const hostId = await this.resolveHostId();

@@ -187,6 +187,36 @@ function metadata(): EntryDoc {
 }
 
 describe("AdaptiveJournalSyncCore", () => {
+    it("reports the accepted repository identity once after the manifest is durably opened", async () => {
+        const remote: MemoryAdaptiveRemote = { objects: new Map() };
+        const currentSettings = settings();
+        const database = new PouchDB<EntryDoc>("adaptive-core-repository-identity", { adapter: "memory" });
+        const accepted = vi.fn(async (_repositoryId: string) => undefined);
+        try {
+            const AdaptiveJournalSyncCoreWithAcceptance = AdaptiveJournalSyncCore as unknown as new (
+                ...args: unknown[]
+            ) => AdaptiveJournalSyncCore;
+            const core = new AdaptiveJournalSyncCoreWithAcceptance(
+                currentSettings,
+                memoryStore(),
+                environment(database, currentSettings),
+                new MemoryAdaptiveObjectStorage(remote),
+                async () => "s3-host",
+                vi.fn(),
+                accepted
+            );
+
+            await expect(core.getReplicationPBKDF2Salt()).resolves.toHaveLength(32);
+            expect(accepted).toHaveBeenCalledOnce();
+            expect(accepted).toHaveBeenCalledWith(expect.stringMatching(/^[A-Za-z0-9_-]{43}$/u));
+
+            await expect(core.getReplicationPBKDF2Salt()).resolves.toHaveLength(32);
+            expect(accepted).toHaveBeenCalledOnce();
+        } finally {
+            await database.destroy();
+        }
+    });
+
     it("uses the Adaptive object path for S3-compatible storage", async () => {
         const remote: MemoryAdaptiveRemote = { objects: new Map() };
         const currentSettings = settings();

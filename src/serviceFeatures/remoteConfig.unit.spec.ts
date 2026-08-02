@@ -3,6 +3,7 @@ import {
     migrateLegacyRemoteConfigurationsInPlace,
     migrateToMultipleRemoteConfigurations,
     activateRemoteConfiguration,
+    pinActiveAdaptiveJournalRepositoryIdInPlace,
     upsertRemoteConfigurationInPlace,
     useRemoteConfiguration,
 } from "@lib/serviceFeatures/remoteConfig";
@@ -198,6 +199,48 @@ describe("Remote Configuration Activation", () => {
 });
 
 describe("Remote Configuration Registration", () => {
+    it("writes a first accepted Adaptive repository ID into the active profile exactly once", () => {
+        const repositoryId = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        const settings = {
+            remoteConfigurations: {
+                adaptive: {
+                    id: "adaptive",
+                    name: "Adaptive remote",
+                    uri: "sls+s3://key:secret@storage.example/?bucket=notes&journalFormat=adaptive-v1",
+                    isEncrypted: false,
+                },
+            },
+            activeConfigurationId: "adaptive",
+            remoteType: REMOTE_MINIO,
+            expectedRepositoryId: "",
+            journalFormat: "adaptive-v1",
+            packReadPolicy: "whole-pack",
+        } as ObsidianLiveSyncSettings;
+
+        expect(pinActiveAdaptiveJournalRepositoryIdInPlace(settings, repositoryId)).toBe(true);
+        expect(settings.expectedRepositoryId).toBe(repositoryId);
+        expect(settings.remoteConfigurations.adaptive.uri).toContain(`expectedRepositoryId=${repositoryId}`);
+        expect(settings.remoteConfigurations.adaptive.isEncrypted).toBe(false);
+
+        expect(pinActiveAdaptiveJournalRepositoryIdInPlace(settings, repositoryId)).toBe(false);
+    });
+
+    it("does not replace an existing Adaptive repository pin", () => {
+        const settings = {
+            remoteConfigurations: {},
+            activeConfigurationId: "",
+            remoteType: REMOTE_MINIO,
+            expectedRepositoryId: "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+            journalFormat: "adaptive-v1",
+            packReadPolicy: "whole-pack",
+        } as ObsidianLiveSyncSettings;
+
+        expect(() =>
+            pinActiveAdaptiveJournalRepositoryIdInPlace(settings, "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE")
+        ).toThrow("already pin a different Adaptive repository ID");
+        expect(settings.expectedRepositoryId).toBe("AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA");
+    });
+
     it("adds and activates a CouchDB profile without replacing existing profiles", () => {
         const settings = {
             remoteConfigurations: {

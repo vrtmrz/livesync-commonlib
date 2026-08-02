@@ -31,6 +31,7 @@ import { type SimpleStore } from "@lib/common/utils.ts";
 import { extractObject } from "@lib/common/utils.ts";
 import { clearHandlers } from "@lib/replication/SyncParamsHandler.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
+import { pinActiveAdaptiveJournalRepositoryIdInPlace } from "@lib/serviceFeatures/remoteConfig.ts";
 
 const MILSTONE_DOCID = "_00000000-milestone.json";
 
@@ -94,7 +95,15 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                           }
                           return this.nodeid;
                       },
-                      async (docs) => await this.env.services.replication.parseSynchroniseResult(docs)
+                      async (docs) => await this.env.services.replication.parseSynchroniseResult(docs),
+                      async (repositoryId) => {
+                          let changed = false;
+                          await this.env.services.setting.updateSettings((currentSettings) => {
+                              changed = pinActiveAdaptiveJournalRepositoryIdInPlace(currentSettings, repositoryId);
+                              return currentSettings;
+                          });
+                          if (changed) await this.env.services.setting.saveSettingData();
+                      }
                   )
                 : new JournalSyncCore(settings, this.simpleStore, this.env, storage);
         }

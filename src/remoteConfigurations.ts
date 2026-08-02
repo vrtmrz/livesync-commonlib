@@ -8,6 +8,7 @@ export {
     activateP2PRemoteConfiguration,
     activateRemoteConfiguration,
     createRemoteConfigurationId,
+    pinActiveAdaptiveJournalRepositoryIdInPlace,
     suggestRemoteConfigurationName,
     upsertRemoteConfigurationInPlace,
 } from "@lib/serviceFeatures/remoteConfig";

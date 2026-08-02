@@ -90,6 +90,25 @@ class MemoryManifestRemote implements AdaptiveJournalManifestRemoteV1 {
 }
 
 describe("Adaptive Journal repository initialisation", () => {
+    it("creates a missing repository with the identity pinned before the first remote write", async () => {
+        const expectedRepositoryId = bytesToBase64Url(sequence(0x08));
+        const binding = new MemoryBindingStore({ encryption: "encrypted" });
+        const remote = new MemoryManifestRemote();
+
+        const opened = await openAdaptiveJournalRepositoryV1({
+            binding,
+            expectedRepositoryId,
+            intent: "create-new",
+            passphrase: "repository passphrase",
+            remote,
+        });
+
+        expect(opened.disposition).toBe("created");
+        expect(opened.manifest.repositoryId).toBe(expectedRepositoryId);
+        expect(binding.state.repositoryId).toBe(expectedRepositoryId);
+        expect(remote.createCalls).toHaveLength(1);
+    });
+
     it("persists an exact pending candidate before conditional creation and pins the read-back winner", async () => {
         const expectedCandidate = await candidate(0x10);
         const binding = new MemoryBindingStore({ encryption: "encrypted" });
