@@ -4,6 +4,7 @@ import {
     REMOTE_COUCHDB,
     REMOTE_MINIO,
     REMOTE_P2P,
+    REMOTE_POSTGREST,
     REMOTE_WEBDAV,
 } from "@lib/common/types.ts";
 import { defaultRemoteProviderRegistry } from "./defaultRemoteProviderRegistry.ts";
@@ -15,6 +16,7 @@ describe("RemoteProviderRegistry", () => {
             expect.objectContaining({ family: "couchdb", remoteType: REMOTE_COUCHDB, type: "couchdb" }),
             expect.objectContaining({ family: "journal", remoteType: REMOTE_MINIO, type: "s3" }),
             expect.objectContaining({ family: "journal", remoteType: REMOTE_WEBDAV, type: "webdav" }),
+            expect.objectContaining({ family: "journal", remoteType: REMOTE_POSTGREST, type: "postgrest" }),
             expect.objectContaining({ family: "p2p", remoteType: REMOTE_P2P, type: "p2p" }),
         ]);
         expect(defaultRemoteProviderRegistry.isFrozen()).toBe(true);

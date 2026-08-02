@@ -27,9 +27,9 @@ function resolvePostgRESTProtocol(settings: Partial<PostgRESTSyncSetting>) {
 function pickPostgRESTSettings(settings: RemoteDBSettings): PostgRESTSyncSetting {
     return {
         postgrestActiveConnectionURI: settings.postgrestActiveConnectionURI,
-        expectedRepositoryId: settings.expectedRepositoryId,
-        journalFormat: settings.journalFormat,
-        packReadPolicy: settings.packReadPolicy,
+        expectedRepositoryId: settings.expectedRepositoryId ?? "",
+        journalFormat: "adaptive-v1",
+        packReadPolicy: "whole-pack",
     };
 }
 
