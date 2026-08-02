@@ -116,13 +116,17 @@ describe("WebDAVStorageAdapter integration", () => {
         await expect(adapter.inspectRemoteFormat()).resolves.toBe("empty");
     });
 
-    it("sends and receives Adaptive Journal changes through the real WebDAV adapter", async () => {
-        const settings = createSettings("adaptive-journal-core");
-        if (!settings) return;
-        await runAdaptiveJournalTwoClientIntegration({
-            inspectRemote: expectAdaptiveObjectJournalLayout,
-            label: "adaptive-webdav-journal-core",
-            settings,
-        });
-    });
+    it.each(["whole-pack", "range"] as const)(
+        "sends and receives Adaptive Journal changes through the real WebDAV adapter with %s retrieval",
+        async (packReadPolicy) => {
+            const settings = createSettings(`adaptive-${packReadPolicy}-journal-core`);
+            if (!settings) return;
+            settings.packReadPolicy = packReadPolicy;
+            await runAdaptiveJournalTwoClientIntegration({
+                inspectRemote: expectAdaptiveObjectJournalLayout,
+                label: `adaptive-webdav-${packReadPolicy}-journal-core`,
+                settings,
+            });
+        }
+    );
 });
