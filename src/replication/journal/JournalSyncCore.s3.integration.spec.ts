@@ -146,13 +146,17 @@ describe("S3 Journal core integration", () => {
         }
     });
 
-    it("sends and receives Adaptive Metadata and Chunks", async () => {
-        const settings = s3Settings(true);
-        if (!settings) return;
-        await runAdaptiveJournalTwoClientIntegration({
-            inspectRemote: expectAdaptiveObjectJournalLayout,
-            label: "adaptive-s3-journal-core",
-            settings,
-        });
-    });
+    it.each(["whole-pack", "range"] as const)(
+        "sends and receives Adaptive Metadata and Chunks with %s retrieval",
+        async (packReadPolicy) => {
+            const settings = s3Settings(true);
+            if (!settings) return;
+            settings.packReadPolicy = packReadPolicy;
+            await runAdaptiveJournalTwoClientIntegration({
+                inspectRemote: expectAdaptiveObjectJournalLayout,
+                label: `adaptive-s3-${packReadPolicy}-journal-core`,
+                settings,
+            });
+        }
+    );
 });
