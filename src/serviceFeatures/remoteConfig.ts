@@ -1,7 +1,11 @@
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type LOG_LEVEL } from "@lib/common/logger";
 import { ConnectionStringParser, type RemoteConfigurationResult } from "@lib/common/ConnectionString";
-import type { ObsidianLiveSyncSettings, RemoteConfiguration, RemoteDBSettings } from "@lib/common/models/setting.type";
-import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
+import type { ObsidianLiveSyncSettings, RemoteConfiguration } from "@lib/common/models/setting.type";
+import { REMOTE_P2P } from "@lib/common/models/setting.const";
+import {
+    defaultRemoteProviderRegistry,
+    type BuiltInRemoteConfiguration,
+} from "@lib/common/remoteProviders/defaultRemoteProviderRegistry.ts";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 
@@ -14,8 +18,6 @@ export function migrateLegacyRemoteConfigurationsInPlace(
     settings: ObsidianLiveSyncSettings,
     log?: (message: string, level?: LOG_LEVEL) => void
 ): boolean {
-    const hasText = (value: unknown): value is string => typeof value === "string" && value.trim() !== "";
-
     if (!settings.remoteConfigurations) {
         settings.remoteConfigurations = {};
     }
@@ -24,32 +26,20 @@ export function migrateLegacyRemoteConfigurationsInPlace(
         return false;
     }
 
-    const hasCouchDB = hasText(settings.couchDB_URI);
-    const hasS3 = hasText(settings.endpoint);
-    const hasP2P = hasText(settings.P2P_roomID);
-
-    if (!hasCouchDB && !hasS3 && !hasP2P) {
-        return false;
-    }
+    const candidates = defaultRemoteProviderRegistry
+        .providerSummaries()
+        .filter((provider) => defaultRemoteProviderRegistry.hasConfiguration(provider.type, settings));
+    if (candidates.length === 0) return false;
 
     log?.("Migrating existing remote configuration to sls+ format...");
 
-    const candidates: Array<{ id: string; name: string; type: "couchdb" | "s3" | "p2p"; enabled: boolean }> = [
-        { id: "legacy-couchdb", name: "CouchDB Remote", type: "couchdb", enabled: hasCouchDB },
-        { id: "legacy-s3", name: "S3 Remote", type: "s3", enabled: hasS3 },
-        { id: "legacy-p2p", name: "P2P Remote", type: "p2p", enabled: hasP2P },
-    ];
-
     for (const candidate of candidates) {
-        if (!candidate.enabled) continue;
         try {
-            const uri = ConnectionStringParser.serialize({
-                type: candidate.type,
-                settings: settings as RemoteDBSettings,
-            });
-            settings.remoteConfigurations[candidate.id] = {
-                id: candidate.id,
-                name: candidate.name,
+            const configuration = defaultRemoteProviderRegistry.configurationFromSettings(candidate.type, settings);
+            const uri = defaultRemoteProviderRegistry.serialise(configuration);
+            settings.remoteConfigurations[candidate.legacyProfileId] = {
+                id: candidate.legacyProfileId,
+                name: candidate.legacyProfileName,
                 uri,
                 isEncrypted: false,
             };
@@ -64,13 +54,10 @@ export function migrateLegacyRemoteConfigurationsInPlace(
         return false;
     }
 
-    const preferredId =
-        settings.remoteType === REMOTE_MINIO
-            ? "legacy-s3"
-            : settings.remoteType === REMOTE_P2P
-              ? "legacy-p2p"
-              : "legacy-couchdb";
-    settings.activeConfigurationId = settings.remoteConfigurations[preferredId] ? preferredId : createdIds[0];
+    const preferredType = defaultRemoteProviderRegistry.typeForRemoteType(settings.remoteType);
+    const preferredId = candidates.find((candidate) => candidate.type === preferredType)?.legacyProfileId;
+    settings.activeConfigurationId =
+        preferredId && settings.remoteConfigurations[preferredId] ? preferredId : createdIds[0];
     return true;
 }
 
@@ -82,7 +69,7 @@ export function createRemoteConfigurationId(): string {
     return `remote-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-export type SerializableRemoteConfigurationType = Exclude<RemoteConfigurationResult["type"], "webdav">;
+export type SerializableRemoteConfigurationType = BuiltInRemoteConfiguration["type"];
 
 export interface UpsertRemoteConfigurationOptions {
     /**
@@ -106,14 +93,8 @@ export interface UpsertRemoteConfigurationOptions {
 function toRemoteConfigurationResult(
     type: SerializableRemoteConfigurationType,
     settings: ObsidianLiveSyncSettings
-): RemoteConfigurationResult {
-    if (type === "couchdb") {
-        return { type, settings };
-    }
-    if (type === "s3") {
-        return { type, settings };
-    }
-    return { type, settings };
+): BuiltInRemoteConfiguration {
+    return defaultRemoteProviderRegistry.configurationFromSettings(type, settings);
 }
 
 /**
@@ -123,31 +104,7 @@ function toRemoteConfigurationResult(
  * `activeConfigurationId` for the selected main remote.
  */
 export function suggestRemoteConfigurationName(configuration: RemoteConfigurationResult): string {
-    if (configuration.type === "couchdb") {
-        try {
-            const host = new URL(configuration.settings.couchDB_URI).host;
-            return host ? `CouchDB ${host}` : "CouchDB remote";
-        } catch {
-            return "CouchDB remote";
-        }
-    }
-    if (configuration.type === "s3") {
-        const bucket = configuration.settings.bucket.trim();
-        if (bucket) {
-            return `S3 ${bucket}`;
-        }
-        try {
-            const host = new URL(configuration.settings.endpoint).host;
-            return host ? `S3 ${host}` : "Object Storage remote";
-        } catch {
-            return "Object Storage remote";
-        }
-    }
-    if (configuration.type === "p2p") {
-        const room = configuration.settings.P2P_roomID.trim();
-        return room ? `P2P ${room}` : "P2P remote";
-    }
-    return "Remote configuration";
+    return defaultRemoteProviderRegistry.suggestName(configuration as BuiltInRemoteConfiguration);
 }
 
 function allocateRemoteConfigurationId(configurations: Record<string, RemoteConfiguration>): string {
@@ -191,7 +148,7 @@ export function upsertRemoteConfigurationInPlace(
     type: SerializableRemoteConfigurationType,
     options: UpsertRemoteConfigurationOptions = {}
 ): RemoteConfiguration {
-    if (options.activateForP2P && type !== "p2p") {
+    if (options.activateForP2P && !defaultRemoteProviderRegistry.supportsActivationRole(type, "p2p")) {
         throw new Error("Only a P2P remote configuration can be selected for P2P features.");
     }
     const configurations = settings.remoteConfigurations ?? {};
@@ -245,8 +202,8 @@ export function migrateP2PActiveRemoteConfigurationIdInPlace(settings: ObsidianL
         return false;
     }
     try {
-        const parsed = ConnectionStringParser.parse(config.uri);
-        if (parsed.type !== "p2p") {
+        const parsed = defaultRemoteProviderRegistry.parse(config.uri);
+        if (!defaultRemoteProviderRegistry.supportsActivationRole(parsed.type, "p2p")) {
             return false;
         }
     } catch {
@@ -287,18 +244,8 @@ export function activateRemoteConfiguration(
     settings.activeConfigurationId = id;
 
     try {
-        const parsed = ConnectionStringParser.parse(config.uri);
-        // Apply to legacy fields
-        if (parsed.type === "couchdb") {
-            settings.remoteType = REMOTE_COUCHDB;
-            Object.assign(settings, parsed.settings);
-        } else if (parsed.type === "s3") {
-            settings.remoteType = REMOTE_MINIO;
-            Object.assign(settings, parsed.settings);
-        } else if (parsed.type === "p2p") {
-            settings.remoteType = REMOTE_P2P;
-            Object.assign(settings, parsed.settings);
-        }
+        const parsed = defaultRemoteProviderRegistry.parse(config.uri);
+        defaultRemoteProviderRegistry.applyConfiguration(settings, parsed);
         return settings;
     } catch {
         return false;
@@ -317,14 +264,12 @@ export function activateP2PRemoteConfiguration(
     if (!config) return false;
 
     try {
-        const parsed = ConnectionStringParser.parse(config.uri);
-        if (parsed.type !== "p2p") {
+        const parsed = defaultRemoteProviderRegistry.parse(config.uri);
+        if (!defaultRemoteProviderRegistry.supportsActivationRole(parsed.type, "p2p")) {
             return false;
         }
-        const currentRemoteType = settings.remoteType;
         settings.P2P_ActiveRemoteConfigurationId = id;
-        Object.assign(settings, parsed.settings);
-        settings.remoteType = currentRemoteType;
+        defaultRemoteProviderRegistry.applyConfiguration(settings, parsed, "p2p");
         return settings;
     } catch {
         return false;

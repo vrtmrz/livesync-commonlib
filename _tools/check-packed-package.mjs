@@ -153,7 +153,9 @@ import {
     type SettingsMigrationState,
 } from "${packageName}/settings";
 import {
+    createBuiltInRemoteProviderRegistry,
     upsertRemoteConfigurationInPlace,
+    type RemoteProviderRegistry,
     type UpsertRemoteConfigurationOptions,
 } from "${packageName}/remote-configurations";
 
@@ -176,6 +178,7 @@ const schemaFallback = SETTINGS_SCHEMA_DEFAULTS.usePluginSyncV2;
 const mutableNewVaultSettings = createNewVaultSettings();
 const remoteConfigurationOptions: UpsertRemoteConfigurationOptions = { activate: true };
 const remoteConfigurationUpsert: typeof upsertRemoteConfigurationInPlace = upsertRemoteConfigurationInPlace;
+const remoteProviderRegistry: RemoteProviderRegistry = createBuiltInRemoteProviderRegistry();
 void context;
 void contextContract;
 void untranslated;
@@ -192,6 +195,7 @@ void schemaFallback;
 void mutableNewVaultSettings;
 void remoteConfigurationOptions;
 void remoteConfigurationUpsert;
+void remoteProviderRegistry;
 `
 );
 await writeConsumerFile(
@@ -231,6 +235,7 @@ assert.equal(settingsApi.SETTINGS_SCHEMA_DEFAULTS.usePluginSyncV2, false);
 assert.equal(settingsApi.prepareSettingsForLoad(undefined).isNewVault, true);
 assert.notEqual(settingsApi.createNewVaultSettings(), settingsApi.NEW_VAULT_SETTINGS);
 assert.equal(typeof remoteConfigurationsApi.upsertRemoteConfigurationInPlace, "function");
+assert.equal(typeof remoteConfigurationsApi.createBuiltInRemoteProviderRegistry, "function");
 assert.equal(runtimeCompat.compatGlobal, globalThis);
 assert.equal(typeof nodeRuntime.fs.readFileSync, "function");
 assert.equal(typeof nodeRuntime.fsPromises.readFile, "function");
@@ -401,7 +406,16 @@ assert.deepEqual(
     Object.keys(manifest.exports)
         .filter((path) => !path.startsWith("./compat/"))
         .sort(),
-    [".", "./browser", "./context", "./node", "./package.json", "./remote-configurations", "./rpc", "./settings"],
+    [
+        ".",
+        "./browser",
+        "./context",
+        "./node",
+        "./package.json",
+        "./remote-configurations",
+        "./rpc",
+        "./settings",
+    ],
     "The focused package surface must remain explicit."
 );
 assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 8);
