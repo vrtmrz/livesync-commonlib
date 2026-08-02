@@ -1,26 +1,41 @@
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import { describe, expect, it } from "vitest";
 
-import type { WebDAVSyncSetting } from "@lib/common/types.ts";
+import { DEFAULT_SETTINGS, REMOTE_WEBDAV, type RemoteDBSettings, type WebDAVSyncSetting } from "@lib/common/types.ts";
+import {
+    expectAdaptiveObjectJournalLayout,
+    runAdaptiveJournalTwoClientIntegration,
+} from "@lib/replication/journal/AdaptiveJournalIntegrationHarness.spec.ts";
 import type { LiveSyncJournalReplicatorEnv } from "@lib/replication/journal/LiveSyncJournalReplicatorEnv.ts";
 import { ADAPTIVE_JOURNAL_REQUIRED_CAPABILITIES_V1 } from "../adaptive/AdaptiveJournalManifest.ts";
+import { serialiseWebDAVConnectionURI } from "./JournalStorageConnection.ts";
 import { WebDAVStorageAdapter } from "./WebDAVStorageAdapter.ts";
 
-function createAdapter(label: string) {
+function createSettings(label: string): RemoteDBSettings | undefined {
     const endpoint = process.env.webdavEndpoint;
     if (!endpoint) return undefined;
-    const url = new URL(endpoint);
     const prefix = `${label}-${process.pid}-${Date.now()}/`;
-    const connection = new URL(`sls+webdav://${url.host}${url.pathname}`);
-    connection.searchParams.set("insecure", url.protocol === "http:" ? "true" : "false");
-    connection.searchParams.set("prefix", prefix);
-    const requestCount = reactiveSource(0);
-    const responseCount = reactiveSource(0);
-    const settings = {
+    return {
+        ...DEFAULT_SETTINGS,
         journalFormat: label.startsWith("adaptive") ? "adaptive-v1" : "opaque-v1",
         packReadPolicy: label.startsWith("adaptive") ? "range" : "whole-pack",
-        webDAVactiveConnectionURI: connection.toString(),
-    } as WebDAVSyncSetting;
+        remoteType: REMOTE_WEBDAV,
+        webDAVactiveConnectionURI: serialiseWebDAVConnectionURI({
+            customHeaders: "",
+            endpoint,
+            password: "",
+            prefix,
+            useCustomRequestHandler: false,
+            username: "",
+        }),
+    };
+}
+
+function createAdapter(label: string) {
+    const settings = createSettings(label);
+    if (!settings) return undefined;
+    const requestCount = reactiveSource(0);
+    const responseCount = reactiveSource(0);
     const env = {
         services: {
             API: {
@@ -32,7 +47,7 @@ function createAdapter(label: string) {
         },
     } as unknown as LiveSyncJournalReplicatorEnv;
     return {
-        adapter: new WebDAVStorageAdapter(settings, env),
+        adapter: new WebDAVStorageAdapter(settings as WebDAVSyncSetting, env),
         requestCount,
         responseCount,
     };
@@ -99,5 +114,15 @@ describe("WebDAVStorageAdapter integration", () => {
             await expect(adapter.resetJournalStorage()).resolves.toBe(true);
         }
         await expect(adapter.inspectRemoteFormat()).resolves.toBe("empty");
+    });
+
+    it("sends and receives Adaptive Journal changes through the real WebDAV adapter", async () => {
+        const settings = createSettings("adaptive-journal-core");
+        if (!settings) return;
+        await runAdaptiveJournalTwoClientIntegration({
+            inspectRemote: expectAdaptiveObjectJournalLayout,
+            label: "adaptive-webdav-journal-core",
+            settings,
+        });
     });
 });
