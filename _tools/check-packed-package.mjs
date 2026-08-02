@@ -158,6 +158,7 @@ import {
     type RemoteProviderRegistry,
     type UpsertRemoteConfigurationOptions,
 } from "${packageName}/remote-configurations";
+import { useJournalSyncFeature } from "${packageName}/journal-sync";
 
 const options: ServiceContextOptions = { translate: (key) => \`translated:\${key}\` };
 const context = createServiceContext(options);
@@ -179,6 +180,7 @@ const mutableNewVaultSettings = createNewVaultSettings();
 const remoteConfigurationOptions: UpsertRemoteConfigurationOptions = { activate: true };
 const remoteConfigurationUpsert: typeof upsertRemoteConfigurationInPlace = upsertRemoteConfigurationInPlace;
 const remoteProviderRegistry: RemoteProviderRegistry = createBuiltInRemoteProviderRegistry();
+const journalSyncFeature: typeof useJournalSyncFeature = useJournalSyncFeature;
 void context;
 void contextContract;
 void untranslated;
@@ -196,6 +198,7 @@ void mutableNewVaultSettings;
 void remoteConfigurationOptions;
 void remoteConfigurationUpsert;
 void remoteProviderRegistry;
+void journalSyncFeature;
 `
 );
 await writeConsumerFile(
@@ -215,6 +218,7 @@ const before = {
 };
 
 const contextApi = await import("${packageName}/context");
+const journalSyncApi = await import("${packageName}/journal-sync");
 const rootApi = await import("${packageName}");
 const settingsApi = await import("${packageName}/settings");
 const remoteConfigurationsApi = await import("${packageName}/remote-configurations");
@@ -236,6 +240,7 @@ assert.equal(settingsApi.prepareSettingsForLoad(undefined).isNewVault, true);
 assert.notEqual(settingsApi.createNewVaultSettings(), settingsApi.NEW_VAULT_SETTINGS);
 assert.equal(typeof remoteConfigurationsApi.upsertRemoteConfigurationInPlace, "function");
 assert.equal(typeof remoteConfigurationsApi.createBuiltInRemoteProviderRegistry, "function");
+assert.equal(typeof journalSyncApi.useJournalSyncFeature, "function");
 assert.equal(runtimeCompat.compatGlobal, globalThis);
 assert.equal(typeof nodeRuntime.fs.readFileSync, "function");
 assert.equal(typeof nodeRuntime.fsPromises.readFile, "function");
@@ -410,6 +415,7 @@ assert.deepEqual(
         ".",
         "./browser",
         "./context",
+        "./journal-sync",
         "./node",
         "./package.json",
         "./remote-configurations",
@@ -418,7 +424,7 @@ assert.deepEqual(
     ],
     "The focused package surface must remain explicit."
 );
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 8);
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 9);
 
 console.log(
     JSON.stringify(

@@ -177,6 +177,7 @@ function createExports() {
         ".": exportTarget("index"),
         "./browser": exportTarget("platform/browser/index"),
         "./context": exportTarget("context"),
+        "./journal-sync": exportTarget("journalSync"),
         "./node": exportTarget("platform/node/index"),
         "./rpc": exportTarget("rpc/index"),
         "./remote-configurations": exportTarget("remoteConfigurations"),
