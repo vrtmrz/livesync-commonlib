@@ -1,7 +1,15 @@
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import { describe, expect, it, vi } from "vitest";
 
-import type { DocumentID, EntryDoc, PostgRESTSyncSetting } from "@lib/common/types.ts";
+import {
+    DEFAULT_SETTINGS,
+    REMOTE_POSTGREST,
+    type DocumentID,
+    type EntryDoc,
+    type PostgRESTSyncSetting,
+    type RemoteDBSettings,
+} from "@lib/common/types.ts";
+import { runAdaptiveJournalTwoClientIntegration } from "../AdaptiveJournalIntegrationHarness.spec.ts";
 import type { LiveSyncJournalReplicatorEnv } from "../LiveSyncJournalReplicatorEnv.ts";
 import { bytesEqual, bytesToBase64Url } from "../adaptive/AdaptiveJournalBinary.ts";
 import { digestAdaptiveJournalRequiredChunkKeysV1, encodeCommitEnvelopeV1 } from "../adaptive/AdaptiveJournalCommit.ts";
@@ -23,6 +31,24 @@ const vaultCredential = process.env.postgrestVaultCredential ?? "integration-vau
 const secondaryVaultId = process.env.postgrestSecondaryVaultId;
 const secondaryVaultCredential = process.env.postgrestSecondaryVaultCredential;
 
+function createSettings(credential = vaultCredential, configuredVaultId = vaultId): RemoteDBSettings {
+    const postgrestActiveConnectionURI = serialisePostgRESTConnectionURI({
+        apiKey: "",
+        endpoint,
+        schema: "livesync_api",
+        useCustomRequestHandler: false,
+        vaultCredential: credential,
+        vaultId: configuredVaultId,
+    });
+    return {
+        ...DEFAULT_SETTINGS,
+        journalFormat: "adaptive-v1",
+        packReadPolicy: "whole-pack",
+        postgrestActiveConnectionURI,
+        remoteType: REMOTE_POSTGREST,
+    };
+}
+
 function createAdapter(credential = vaultCredential, configuredVaultId = vaultId) {
     const requestCount = reactiveSource(0);
     const responseCount = reactiveSource(0);
@@ -36,19 +62,9 @@ function createAdapter(credential = vaultCredential, configuredVaultId = vaultId
             },
         },
     } as unknown as LiveSyncJournalReplicatorEnv;
-    const postgrestActiveConnectionURI = serialisePostgRESTConnectionURI({
-        apiKey: "",
-        endpoint,
-        schema: "livesync_api",
-        useCustomRequestHandler: false,
-        vaultCredential: credential,
-        vaultId: configuredVaultId,
-    });
+    const settings = createSettings(credential, configuredVaultId);
     return {
-        adapter: new PostgRESTStorageAdapter(
-            { journalFormat: "adaptive-v1", postgrestActiveConnectionURI } as PostgRESTSyncSetting,
-            env
-        ),
+        adapter: new PostgRESTStorageAdapter(settings as PostgRESTSyncSetting, env),
         requestCount,
         responseCount,
     };
@@ -64,6 +80,25 @@ function oversizedHasBatchHeader(): Uint8Array {
 }
 
 describe("PostgRESTStorageAdapter integration", () => {
+    it("sends and receives Adaptive Journal changes through the real native adapter", async () => {
+        await runAdaptiveJournalTwoClientIntegration({
+            inspectRemote: async ({ repositoryId, storage }) => {
+                const adapter = storage as PostgRESTStorageAdapter;
+                const manifest = await adapter.readManifest();
+                expect(manifest.status).toBe("found");
+                if (manifest.status !== "found") throw new Error("Adaptive PostgREST manifest was not readable");
+                expect(JSON.parse(new TextDecoder().decode(manifest.value))).toMatchObject({
+                    format: "adaptive-journal",
+                    objectLayout: "commit-bundle-v1",
+                    repositoryId,
+                });
+                await expect(adapter.getUsage()).resolves.toEqual({ estimatedSize: expect.any(Number) });
+            },
+            label: "adaptive-postgrest-journal-core",
+            settings: createSettings(),
+        });
+    });
+
     it("publishes and receives native Chunks and exact transactional Commit Bundles", async () => {
         const { adapter, requestCount } = createAdapter();
         await expect(adapter.resetJournalStorage()).resolves.toBe(true);
