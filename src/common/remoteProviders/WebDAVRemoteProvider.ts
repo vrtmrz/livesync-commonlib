@@ -11,9 +11,9 @@ import { parseSlsConnectionUri, withSlsConnectionScheme } from "./connectionUri.
 function pickWebDAVSettings(settings: RemoteDBSettings): WebDAVSyncSetting {
     return {
         webDAVactiveConnectionURI: settings.webDAVactiveConnectionURI,
-        expectedRepositoryId: settings.expectedRepositoryId,
-        journalFormat: settings.journalFormat,
-        packReadPolicy: settings.packReadPolicy,
+        expectedRepositoryId: settings.expectedRepositoryId ?? "",
+        journalFormat: settings.journalFormat ?? "opaque-v1",
+        packReadPolicy: settings.packReadPolicy ?? "whole-pack",
     };
 }
 
