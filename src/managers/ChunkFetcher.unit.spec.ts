@@ -345,6 +345,10 @@ describe("ChunkFetcher", () => {
                 EVENT_MISSING_CHUNK_REMOTE,
                 "chunk-2" as DocumentID
             );
+            expect(mockChunkManager.emitEvent).not.toHaveBeenCalledWith(
+                EVENT_MISSING_CHUNK_REMOTE,
+                "chunk-1" as DocumentID
+            );
         });
 
         it("should filter out invalid chunks", async () => {

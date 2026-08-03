@@ -1193,24 +1193,21 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return false;
         }
         const remoteChunks = await ret.db.allDocs({ keys: missingChunks, include_docs: true });
-        if (remoteChunks.rows.some((e) => "error" in e)) {
+        const errorRows = remoteChunks.rows.filter((e) => "error" in e);
+        if (errorRows.length > 0) {
             Logger(
-                `Some chunks are not exists both on remote and local database.`,
+                `Some requested chunks were not found in the remote database.`,
                 showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
                 "fetch"
             );
-            Logger(`Missing chunks: ${missingChunks.join(",")}`, LOG_LEVEL_VERBOSE);
-            Logger(
-                `Error chunks: ${remoteChunks.rows
-                    .filter((e) => "error" in e)
-                    .map((e) => (e as { key?: string }).key)
-                    .join(",")}`,
-                LOG_LEVEL_VERBOSE
-            );
-            return false;
+            Logger(`Requested chunks: ${missingChunks.join(",")}`, LOG_LEVEL_VERBOSE);
+            Logger(`Error chunks: ${errorRows.map((e) => (e as { key?: string }).key).join(",")}`, LOG_LEVEL_VERBOSE);
         }
 
-        const remoteChunkItems = remoteChunks.rows.map((e) => (e as { doc?: EntryLeaf }).doc as EntryLeaf);
+        const remoteChunkItems = remoteChunks.rows
+            .filter((e) => !("error" in e))
+            .map((e) => (e as { doc?: EntryLeaf }).doc)
+            .filter((e): e is EntryLeaf => e !== undefined);
         return remoteChunkItems;
     }
 
