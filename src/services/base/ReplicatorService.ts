@@ -23,6 +23,7 @@ export interface ReplicatorServiceDependencies {
     appLifecycleService: AppLifecycleService;
     databaseEventService: DatabaseEventService;
     activityRunner?: AsyncActivityRunner;
+    registerLifecycleHandlers?: boolean;
 }
 /**
  * The ReplicatorService provides methods for managing replication.
@@ -49,13 +50,15 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         this.appLifecycleService = dependencies.appLifecycleService;
         this._unresolvedErrorManager = new UnresolvedErrorManager(dependencies.appLifecycleService, this.context.events);
         this.settingService = dependencies.settingService;
-        this.settingService.onRealiseSetting.addHandler(this._initialiseReplicator.bind(this));
         this.databaseEventService = dependencies.databaseEventService;
-        this.databaseEventService.onResetDatabase.addHandler(this.disposeReplicator.bind(this));
-        this.databaseEventService.onDatabaseInitialisation.addHandler(this.disposeReplicator.bind(this));
-        this.databaseEventService.onDatabaseInitialised.addHandler(this.reinitialiseReplicator.bind(this));
-        this.databaseEventService.onDatabaseHasReady.addHandler(this.reinitialiseReplicator.bind(this));
-        this.appLifecycleService.onSuspending.addHandler(this.suspendReplication.bind(this));
+        if (dependencies.registerLifecycleHandlers ?? true) {
+            this.settingService.onRealiseSetting.addHandler(this._initialiseReplicator.bind(this));
+            this.databaseEventService.onResetDatabase.addHandler(this.disposeReplicator.bind(this));
+            this.databaseEventService.onDatabaseInitialisation.addHandler(this.disposeReplicator.bind(this));
+            this.databaseEventService.onDatabaseInitialised.addHandler(this.reinitialiseReplicator.bind(this));
+            this.databaseEventService.onDatabaseHasReady.addHandler(this.reinitialiseReplicator.bind(this));
+            this.appLifecycleService.onSuspending.addHandler(this.suspendReplication.bind(this));
+        }
     }
 
     /**

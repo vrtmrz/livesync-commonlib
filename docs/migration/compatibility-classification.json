@@ -1,6 +1,6 @@
 {
     "repository": "vrtmrz/obsidian-livesync",
-    "revision": "04b57340896101a16211e5100dc476d79a4e91fb",
+    "revision": "b21c3114e5242158c74169d30d3358f72ea09de1",
     "status": "accepted-for-livesync-1.0-planning",
     "categories": [
         {
@@ -51,8 +51,6 @@
             "paths": [
                 "replication/trystero/LiveSyncTrysteroReplicator",
                 "replication/trystero/P2PLogCollector",
-                "replication/trystero/P2PReplicatorBase",
-                "replication/trystero/P2PReplicatorCore",
                 "replication/trystero/P2PReplicatorPaneCommon",
                 "replication/trystero/TrysteroReplicator",
                 "replication/trystero/TrysteroReplicatorP2PServer",
@@ -92,7 +90,6 @@
             "destination": "Focused host features or host-owned implementations, without exposing the internal service graph",
             "policy": "Keep as migration-only compatibility while LiveSync composes these services directly. Do not generate public API documentation for service constructors, dependency graphs, or presentation shims.",
             "paths": [
-                "bureau/bureau",
                 "events/coreEvents",
                 "interfaces/Confirm",
                 "interfaces/ServiceModule",
@@ -100,7 +97,6 @@
                 "serviceFeatures/offlineScanner",
                 "serviceFeatures/prepareDatabaseForUse",
                 "serviceFeatures/targetFilter",
-                "services/BrowserServices",
                 "services/ServiceHub",
                 "services/base/AppLifecycleService",
                 "services/base/ConfigService",
@@ -116,7 +112,6 @@
                 "services/base/UnresolvedErrorManager",
                 "services/implements/base/SvelteDialog",
                 "services/implements/base/UIService",
-                "services/implements/browser/BrowserAPIService",
                 "services/implements/browser/ConfigServiceBrowserCompat",
                 "services/implements/headless/HeadlessAPIService",
                 "services/implements/injectable/InjectableAPIService",

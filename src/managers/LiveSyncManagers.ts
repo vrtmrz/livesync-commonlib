@@ -77,7 +77,7 @@ export class LiveSyncManagers {
 
     protected getManagerMembers() {
         this.log("Creating LiveSync Managers...");
-        const database = this.options.databaseService.localDatabase.localDatabase;
+        const database = this.options.database;
 
         const changeManager = new ChangeManager<EntryDoc>({
             database,
