@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { RemoteDBSettings } from "@lib/common/types.ts";
+import type { DocumentID, EntryLeaf, RemoteDBSettings } from "@lib/common/types.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
 import { LiveSyncCouchDBReplicator } from "./LiveSyncReplicator.ts";
 
@@ -76,5 +76,48 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             false,
             "pullOnly"
         );
+    });
+});
+
+describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
+    it("preserves available chunks when another row in the same batch is missing", async () => {
+        const availableChunk = {
+            _id: "h:available" as DocumentID,
+            type: "leaf",
+            data: "available-data",
+        } as EntryLeaf;
+        const allDocs = vi.fn().mockResolvedValue({
+            rows: [
+                {
+                    id: availableChunk._id,
+                    key: availableChunk._id,
+                    value: { rev: "1-available" },
+                    doc: availableChunk,
+                },
+                {
+                    key: "h:missing",
+                    error: "not_found",
+                },
+            ],
+        });
+        const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.env = {
+            services: {
+                API: { isMobile: () => false },
+                context: createServiceContext(),
+                setting: { currentSettings: () => ({}) },
+            },
+        } as unknown as LiveSyncCouchDBReplicator["env"];
+        vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
+            db: { allDocs },
+        } as never);
+
+        await expect(replicator.fetchRemoteChunks([availableChunk._id, "h:missing"], false)).resolves.toEqual([
+            availableChunk,
+        ]);
+        expect(allDocs).toHaveBeenCalledWith({
+            keys: [availableChunk._id, "h:missing"],
+            include_docs: true,
+        });
     });
 });
