@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.1.2-rc.0
+## 0.1.2
 
 ### Fixed
 
