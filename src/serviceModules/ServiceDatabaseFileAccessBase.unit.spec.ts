@@ -30,7 +30,15 @@ function createEntry(id: DocumentID, path: FilePathWithPrefix, content: string):
     } as unknown as EntryDoc;
 }
 
-function createService(database: PouchDB.Database<EntryDoc>, id: DocumentID) {
+type RevisionReader = (
+    path: FilePathWithPrefix,
+    options?: PouchDB.Core.GetOptions,
+    dump?: boolean,
+    waitForReady?: boolean,
+    includeDeleted?: boolean
+) => Promise<LoadedEntry | false>;
+
+function createService(database: PouchDB.Database<EntryDoc>, id: DocumentID, readRevision?: RevisionReader) {
     const getEntry = async (_path: FilePathWithPrefix, options?: PouchDB.Core.GetOptions) => {
         try {
             return (await database.get(id, options)) as LoadedEntry;
@@ -47,7 +55,7 @@ function createService(database: PouchDB.Database<EntryDoc>, id: DocumentID) {
         database: {
             localDatabase: {
                 getDBEntryMeta: getEntry,
-                getDBEntry: getEntry,
+                getDBEntry: readRevision ?? getEntry,
                 getRaw: (documentId: DocumentID, options?: PouchDB.Core.GetOptions) =>
                     database.get(documentId, options),
             },
@@ -97,6 +105,32 @@ describe("ServiceDatabaseFileAccessBase.hasContentInRevisionHistory", () => {
         await expect(
             service.hasContentInRevisionHistory(path, "a new unsynchronised local edit", resolved._rev)
         ).resolves.toBe(false);
+    });
+
+    it("stops after matching current content before an unreadable older revision", async () => {
+        databaseSequence += 1;
+        const database = new PouchDB<EntryDoc>(`revision-short-circuit-${databaseSequence}`, {
+            adapter: "memory",
+        });
+        databases.push(database);
+
+        const path = "short-circuit.md" as FilePathWithPrefix;
+        const id = "short-circuit.md" as DocumentID;
+        await database.put(createEntry(id, path, "older content"));
+        const base = await database.get(id);
+        const current = await database.put({ ...base, data: ["current content"], mtime: 2 });
+        const readRevision = vi.fn<RevisionReader>(async (_path, options) => {
+            if (options?.rev !== current.rev) {
+                return false;
+            }
+            return (await database.get(id, { rev: current.rev })) as LoadedEntry;
+        });
+        const service = createService(database, id, readRevision);
+
+        await expect(service.hasContentInRevisionHistory(path, "current content", current.rev)).resolves.toBe(true);
+
+        expect(readRevision).toHaveBeenCalledTimes(1);
+        expect(readRevision).toHaveBeenCalledWith(path, { rev: current.rev }, false, true, true);
     });
 
     it("returns every available revision with exactly matching content", async () => {

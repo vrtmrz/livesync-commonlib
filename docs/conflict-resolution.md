@@ -35,7 +35,9 @@ Commonlib follows these rules:
 - preserve storage content as a conflict when it is absent from all available branches; and
 - never select the newest modification time as a package-level default.
 
-The all-branch history check matters after a resolution has propagated. If a receiving device still displays the deleted losing revision, that exact content is known synchronised content. The resolved winner may replace it without recreating the conflict. If the device has edited that content again, the bytes no longer match the old revision, so the storage-protection guard preserves the new edit.
+The history check gathers available revisions from every live branch, then compares revision bodies until it finds an exact byte match. Its boolean existence form stops at that first match because older bodies cannot change the answer. This avoids reading obsolete historical bodies whose unique chunks were collected after they stopped being reachable.
+
+This check matters after a resolution has propagated. If a receiving device still displays the deleted losing revision, that exact content is known synchronised content. The resolved winner may replace it without recreating the conflict. If the device has edited that content again, the bytes no longer match the old revision, so the storage-protection guard preserves the new edit.
 
 ## Resolution classes
 
