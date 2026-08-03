@@ -286,7 +286,8 @@ export class ServiceDatabaseFileAccessBase
     private async findContentRevisionsInternal(
         file: UXFileInfoStub | FilePathWithPrefix,
         content: string | string[] | Blob | ArrayBuffer,
-        currentRev?: string
+        currentRev?: string,
+        stopAfterFirstMatch = false
     ): Promise<string[]> {
         const filename = getDatabasePathFromUXFileInfo(file);
         try {
@@ -336,6 +337,9 @@ export class ServiceDatabaseFileAccessBase
                 const entry = await this.database.localDatabase.getDBEntry(filename, { rev }, false, true, true);
                 if (entry !== false && !entry._deleted && (await isDocContentSame(readContent(entry), content))) {
                     matchingRevisions.push(rev);
+                    if (stopAfterFirstMatch) {
+                        return matchingRevisions;
+                    }
                 }
             }
             return matchingRevisions;
@@ -365,7 +369,7 @@ export class ServiceDatabaseFileAccessBase
         if (!(await this.checkIsTargetFile(file))) {
             return true;
         }
-        return (await this.findContentRevisionsInternal(file, content, currentRev)).length > 0;
+        return (await this.findContentRevisionsInternal(file, content, currentRev, true)).length > 0;
     }
 
     async getConflictedRevs(file: UXFileInfoStub | FilePathWithPrefix): Promise<string[]> {
