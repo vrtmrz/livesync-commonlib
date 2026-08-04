@@ -3,6 +3,35 @@ import type { DocumentID, EntryLeaf, RemoteDBSettings } from "@lib/common/types.
 import { createServiceContext } from "@lib/services/base/ServiceBase";
 import { LiveSyncCouchDBReplicator } from "./LiveSyncReplicator.ts";
 
+describe("LiveSyncCouchDBReplicator initialisation", () => {
+    it("allows a remote-only connection check before the local database is ready", async () => {
+        const getLocalDatabase = vi.fn(() => {
+            throw new Error("Local database is not ready yet.");
+        });
+        const env = {
+            services: {
+                API: {
+                    isMobile: () => false,
+                },
+                database: {
+                    get localDatabase() {
+                        return getLocalDatabase();
+                    },
+                },
+            },
+        } as unknown as ConstructorParameters<typeof LiveSyncCouchDBReplicator>[0];
+
+        const replicator = new LiveSyncCouchDBReplicator(env);
+        vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
+            db: {},
+            info: { db_name: "remote" },
+        } as never);
+
+        await expect(replicator.tryConnectRemote({} as RemoteDBSettings, false)).resolves.toBe(true);
+        expect(getLocalDatabase).not.toHaveBeenCalled();
+    });
+});
+
 describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
     it("exposes the initial pull-only catch-up as finite replication activity", async () => {
         const runFiniteReplicationActivity = vi.fn(async <T>(task: () => Promise<T>) => await task());

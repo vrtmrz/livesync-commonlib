@@ -181,6 +181,13 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
             // Probably we need to clear all synchronising parameters handlers
             // Note that parameters handler keeps an key-deriving salt in memory,
             // so we need to clear them when the replicator changes, to avoid potential database corruption.
+            if (!(await newReplicator.initializeDatabaseForReplication())) {
+                this._log("Failed to initialise the replicator's local node information.");
+                this._activeReplicator = undefined;
+                this._replicatorType = undefined;
+                this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
+                return false;
+            }
             if (!(await this.onReplicatorInitialised())) {
                 this._log("Failed to initialise the replicator, onReplicatorInitialised reported some problems.");
                 this._activeReplicator = undefined;

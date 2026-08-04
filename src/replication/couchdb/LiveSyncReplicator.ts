@@ -137,11 +137,6 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     constructor(env: LiveSyncCouchDBReplicatorEnv) {
         super(env);
         this.env = env;
-        // initialize local node information.
-        void this.initializeDatabaseForReplication();
-        this.rawDatabase.on("close", () => {
-            this.closeReplication();
-        });
     }
 
     getInitialSyncParameters(setting: RemoteDBSettings): Promise<SyncParameters> {
@@ -211,7 +206,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         showResult: boolean,
         ignoreCleanLock: boolean
     ) {
-        await this.initializeDatabaseForReplication();
+        if (!(await this.initializeDatabaseForReplication())) {
+            return false;
+        }
         if (keepAlive) {
             void this.openContinuousReplication(setting, showResult, false);
         } else {
