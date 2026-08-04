@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.3
+
 ### Fixed
 
 - Remote-only connection and configuration checks no longer access the local database while constructing a replicator, preventing start-up failures before local database initialisation ([Self-hosted LiveSync issue #1064](https://github.com/vrtmrz/obsidian-livesync/issues/1064)).
