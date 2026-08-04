@@ -19,7 +19,7 @@ import { MinioStorageAdapter } from "./objectstore/MinioStorageAdapter.ts";
 import { LiveSyncAbstractReplicator, type RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";
 import { ensureRemoteIsCompatible, type ENSURE_DB_RESULT } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import type { CheckPointInfo } from "./JournalSyncTypes.ts";
-import { fireAndForget, type SimpleStore } from "@lib/common/utils.ts";
+import type { SimpleStore } from "@lib/common/utils.ts";
 
 import { extractObject } from "@lib/common/utils.ts";
 import { clearHandlers } from "@lib/replication/SyncParamsHandler.ts";
@@ -95,11 +95,6 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     constructor(env: LiveSyncJournalReplicatorEnv) {
         super(env);
         this.env = env;
-        // initialize local node information.
-        fireAndForget(() => this.initializeDatabaseForReplication());
-        this.rawDatabase.on("close", () => {
-            this.closeReplication();
-        });
     }
 
     async migrate(from: number, to: number): Promise<boolean> {

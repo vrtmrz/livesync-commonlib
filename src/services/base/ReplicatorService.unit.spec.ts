@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import { ReplicatorService, type ReplicatorServiceDependencies } from "./ReplicatorService.ts";
 import { ServiceContext } from "./ServiceBase.ts";
 import type { AsyncActivityOptions, AsyncActivityRunner } from "@lib/interfaces/AsyncActivityRunner.ts";
+import { REMOTE_COUCHDB } from "@lib/common/types.ts";
+import type { LiveSyncAbstractReplicator } from "@lib/replication/LiveSyncAbstractReplicator.ts";
 
 class TestReplicatorService extends ReplicatorService<ServiceContext> {}
 
@@ -29,6 +31,57 @@ function createService(activityRunner?: AsyncActivityRunner) {
     } as unknown as ReplicatorServiceDependencies;
     return new TestReplicatorService(new ServiceContext(), dependencies);
 }
+
+describe("ReplicatorService lifecycle", () => {
+    it("initialises local node information only when a replicator becomes active", async () => {
+        let realiseSettings!: () => Promise<boolean>;
+        const initialiseLocalNode = vi.fn(async () => true);
+        const initialisationOrder: string[] = [];
+        initialiseLocalNode.mockImplementation(async () => {
+            initialisationOrder.push("local-node");
+            return true;
+        });
+        const replicator = {
+            initializeDatabaseForReplication: initialiseLocalNode,
+        } as unknown as LiveSyncAbstractReplicator;
+        const dependencies = {
+            settingService: {
+                currentSettings: () => ({
+                    remoteType: REMOTE_COUCHDB,
+                    couchDB_URI: "https://example.com",
+                    couchDB_DBNAME: "vault",
+                }),
+                onRealiseSetting: {
+                    addHandler: vi.fn((handler: () => Promise<boolean>) => {
+                        realiseSettings = handler;
+                    }),
+                },
+            },
+            appLifecycleService: {
+                getUnresolvedMessages: Object.assign(vi.fn().mockResolvedValue([]), eventHook()),
+                onSuspending: eventHook(),
+            },
+            databaseEventService: {
+                onResetDatabase: eventHook(),
+                onDatabaseInitialisation: eventHook(),
+                onDatabaseInitialised: eventHook(),
+                onDatabaseHasReady: eventHook(),
+            },
+        } as unknown as ReplicatorServiceDependencies;
+        const service = new TestReplicatorService(new ServiceContext(), dependencies);
+        service.getNewReplicator.addHandler(() => Promise.resolve(replicator));
+        service.onReplicatorInitialised.addHandler(() => {
+            initialisationOrder.push("host-handlers");
+            return Promise.resolve(true);
+        });
+
+        await expect(realiseSettings()).resolves.toBe(true);
+
+        expect(initialiseLocalNode).toHaveBeenCalledOnce();
+        expect(initialisationOrder).toEqual(["local-node", "host-handlers"]);
+        expect(service.getActiveReplicator()).toBe(replicator);
+    });
+});
 
 describe("ReplicatorService bounded remote activity", () => {
     it("does not register application database lifecycle handlers for direct access", () => {
