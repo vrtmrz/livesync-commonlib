@@ -60,6 +60,8 @@ if (prepared.requiresSyncReview) {
 
 Explicit stored values take precedence over every fallback. A migration therefore preserves synchronisation switches and other user choices unless a migration step documents a deliberate transformation.
 
+The sleep preferences are included in Setup URI encoding. When an older Setup URI or stored setting does not contain either key, `allowSleepDuringSynchronisation` defaults to `false`, while `allowSleepDuringSynchronisationOnDesktop` defaults to `true`. The maintained Obsidian host therefore retains best-effort screen-awake protection on mobile but allows normal automatic sleep on desktop unless the user selects otherwise.
+
 An existing settings store without an explicit `handleFilenameCaseSensitive` value is normalised to `false` and saved. This preserves the effective behaviour of earlier releases, where an absent value followed the case-insensitive branch. An explicit `true` or `false` value is preserved. New Vaults also select case-insensitive handling (`false`).
 
 `isConfigured` has a separate compatibility rule from new-Vault initialisation. For a blank store, the standard service keeps the runtime unconfigured. For a non-empty legacy document without the flag, Commonlib repeats the pre-1.0 inference: a document which is equivalent to the conservative defaults remains `false`, while a stored non-default value is evidence for `true`. The inferred boolean is saved. An explicit boolean is preserved. This rule does not make a non-empty document eligible for new-Vault recommendations.

@@ -130,6 +130,19 @@ interface SyncMethodSettings {
     keepReplicationActiveInBackground: boolean;
 
     /**
+     * Allow the operating system to sleep during finite synchronisation operations on every platform.
+     * Default false.
+     */
+    allowSleepDuringSynchronisation: boolean;
+
+    /**
+     * Desktop-only override which allows the operating system to sleep during finite
+     * synchronisation operations when the general preference is disabled. Ignored on mobile.
+     * Default true.
+     */
+    allowSleepDuringSynchronisationOnDesktop: boolean;
+
+    /**
      * The minimum delay between synchronisation operations (in milliseconds).
      * If the operation is triggered before this delay, the operation will be delayed until the delay is over, and executed as a single operation.
      */
