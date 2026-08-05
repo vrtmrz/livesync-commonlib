@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- The settings schema now includes controls for allowing operating-system sleep during finite synchronisation operations on every platform or on desktop only. Setup URIs preserve both preferences.
+
 ## 0.1.3
 
 ### Fixed

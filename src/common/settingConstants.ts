@@ -136,6 +136,14 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         name: "Keep replication active in the background",
         desc: "Desktop only; uses more battery and network.",
     },
+    allowSleepDuringSynchronisation: {
+        name: "Allow sleep during synchronisation",
+        desc: "Allow the operating system to sleep while finite synchronisation operations are in progress.",
+    },
+    allowSleepDuringSynchronisationOnDesktop: {
+        name: "Allow sleep during synchronisation on the desktop",
+        desc: "Desktop only. Allow sleep on this device even when the general option is disabled.",
+    },
     syncOnFileOpen: {
         name: "Sync on File Open",
         desc: "Forces the file to be synced when opened.",
