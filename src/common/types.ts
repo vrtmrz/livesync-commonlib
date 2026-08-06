@@ -204,6 +204,11 @@ import {
     TweakValuesTemplate,
     type TweakValues,
     DEVICE_ID_PREFERRED,
+    RemotePreferredTweakStatuses,
+    type RemotePreferredTweakStatus,
+    RemotePreferredTweakNotConfiguredReasons,
+    type RemotePreferredTweakNotConfiguredReason,
+    type RemotePreferredTweakResult,
 } from "./models/tweak.definition.ts";
 import type {
     diff_result_leaf,
@@ -344,6 +349,11 @@ export { confDesc };
 export { TweakValuesTemplate };
 export type { TweakValues };
 export { DEVICE_ID_PREFERRED };
+export { RemotePreferredTweakStatuses };
+export type { RemotePreferredTweakStatus };
+export { RemotePreferredTweakNotConfiguredReasons };
+export type { RemotePreferredTweakNotConfiguredReason };
+export type { RemotePreferredTweakResult };
 
 export type { NodeKey };
 export type { DeviceInfo };

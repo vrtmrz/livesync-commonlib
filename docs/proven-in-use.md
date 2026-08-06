@@ -20,6 +20,8 @@ Commonlib's chunk-reachability tests use real PouchDB revision trees. They verif
 
 Commonlib's injected CouchDB tests verify that a mixed remote chunk batch preserves available documents when another requested ID is absent. Its chunk-delivery tests separately verify that available chunks reach local storage and only absent IDs are marked unavailable. Self-hosted LiveSync supplies the real CouchDB connection and start-up composition, so device-specific replication timing remains downstream integration evidence rather than Commonlib unit coverage.
 
+Commonlib's remote-preference result contract distinguishes available synchronisation settings, a remote which has not stored those settings yet, a failed read, and a remote type which does not support central preferences. Focused CouchDB and Object Storage tests cover absent milestone data separately from transport failures, while Self-hosted LiveSync owns the initialisation choices, cancellation policy, and user-facing explanation.
+
 Most replication and storage services used by the plug-in still enter through explicit `compat/*` paths. Those imports prove that the published compatibility boundary supports the current migration; they are not examples of a finished high-level client API.
 
 The plug-in's manual onboarding and Remote Databases pane use the focused `/remote-configurations` entry to create opaque profile IDs, retain user-visible names, and select main and P2P remotes. Commonlib owns the in-memory profile result contract; Self-hosted LiveSync adds dialogue, Setup URI classification, Fetch or Rebuild scheduling, persistence, restart ordering, and real-Obsidian presentation checks.

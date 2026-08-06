@@ -47,6 +47,11 @@ describe("JournalSyncCore", () => {
                 if (data === undefined) return false;
                 return data;
             }),
+            downloadWithResult: vi.fn(async (file: string) => {
+                const data = virtualStorage.get(file);
+                if (data === undefined) return { status: "not-found" as const };
+                return { status: "available" as const, value: data };
+            }),
             listFiles: vi.fn(async () => {
                 return Array.from(virtualStorage.keys());
             }),
@@ -108,6 +113,30 @@ describe("JournalSyncCore", () => {
 
             const fetched = await core.getSyncParameters();
             expect(fetched.pbkdf2salt).toBe("salt");
+        });
+    });
+
+    describe("downloadJsonWithResult", () => {
+        it("preserves a missing-object result", async () => {
+            await expect(core.downloadJsonWithResult("missing.json")).resolves.toEqual({ status: "not-found" });
+        });
+
+        it("parses available JSON", async () => {
+            virtualStorage.set("available.json", new TextEncoder().encode('{"value":42}'));
+
+            await expect(core.downloadJsonWithResult<{ value: number }>("available.json")).resolves.toEqual({
+                status: "available",
+                value: { value: 42 },
+            });
+        });
+
+        it("reports invalid JSON as unavailable", async () => {
+            virtualStorage.set("invalid.json", new TextEncoder().encode("not-json"));
+
+            const result = await core.downloadJsonWithResult("invalid.json");
+
+            expect(result.status).toBe("unavailable");
+            if (result.status === "unavailable") expect(result.error).toBeInstanceOf(SyntaxError);
         });
     });
 

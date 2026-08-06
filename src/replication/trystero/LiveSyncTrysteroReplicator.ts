@@ -3,6 +3,8 @@ import {
     type RemoteDBSettings,
     type EntryLeaf,
     type TweakValues,
+    type RemotePreferredTweakResult,
+    RemotePreferredTweakStatuses,
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_INFO,
     LOG_LEVEL_VERBOSE,
@@ -447,12 +449,12 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         );
         return Promise.resolve(false);
     }
-    getRemotePreferredTweakValues(_setting: RemoteDBSettings): Promise<false | TweakValues> {
+    getRemotePreferredTweakValues(_setting: RemoteDBSettings): Promise<RemotePreferredTweakResult> {
         Logger(
             "Trying to get tweak values but P2P replication does not support to do this. This operation has been ignored",
             LOG_LEVEL_INFO
         );
-        return Promise.resolve(false);
+        return Promise.resolve({ status: RemotePreferredTweakStatuses.UNSUPPORTED });
     }
     countCompromisedChunks(): Promise<number> {
         Logger("P2P Replicator cannot count compromised chunks", LOG_LEVEL_VERBOSE);

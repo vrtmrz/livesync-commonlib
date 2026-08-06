@@ -1,4 +1,4 @@
-import type { RemoteDBSettings, TweakValues } from "@lib/common/types";
+import type { RemoteDBSettings, RemotePreferredTweakResult, TweakValues } from "@lib/common/types";
 import type { ITweakValueService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 
@@ -13,7 +13,7 @@ export abstract class TweakValueService<T extends ServiceContext = ServiceContex
      * Fetch and trial the remote database settings to determine if they are preferred.
      * @param trialSetting The remote database settings to connect.
      */
-    abstract fetchRemotePreferred(trialSetting: RemoteDBSettings): Promise<TweakValues | false>;
+    abstract fetchRemotePreferred(trialSetting: RemoteDBSettings): Promise<RemotePreferredTweakResult>;
 
     /**
      * Check and ask the user to resolve any mismatched tweak values.

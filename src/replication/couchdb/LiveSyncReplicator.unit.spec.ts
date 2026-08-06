@@ -1,5 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
-import type { DocumentID, EntryLeaf, RemoteDBSettings } from "@lib/common/types.ts";
+import {
+    DEVICE_ID_PREFERRED,
+    MILESTONE_DOCID,
+    VER,
+    VERSIONING_DOCID,
+    type DocumentID,
+    type EntryLeaf,
+    type RemoteDBSettings,
+} from "@lib/common/types.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
 import { LiveSyncCouchDBReplicator } from "./LiveSyncReplicator.ts";
 
@@ -29,6 +37,110 @@ describe("LiveSyncCouchDBReplicator initialisation", () => {
 
         await expect(replicator.tryConnectRemote({} as RemoteDBSettings, false)).resolves.toBe(true);
         expect(getLocalDatabase).not.toHaveBeenCalled();
+    });
+});
+
+describe("LiveSyncCouchDBReplicator remote preferred tweak values", () => {
+    const setting = {
+        couchDB_URI: "https://example.invalid",
+        couchDB_DBNAME: "remote",
+    } as RemoteDBSettings;
+
+    function createReplicator(get: ReturnType<typeof vi.fn>) {
+        const env = {
+            services: {
+                API: {
+                    isMobile: () => false,
+                },
+            },
+        } as unknown as ConstructorParameters<typeof LiveSyncCouchDBReplicator>[0];
+        const replicator = new LiveSyncCouchDBReplicator(env);
+        vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
+            db: { get },
+            info: { db_name: "remote" },
+        } as never);
+        return replicator;
+    }
+
+    function createRemoteGet(milestone: unknown | (() => never)) {
+        return vi.fn(async (id: string) => {
+            if (id === VERSIONING_DOCID) {
+                return { _id: VERSIONING_DOCID, type: "versioninfo", version: VER };
+            }
+            if (id === MILESTONE_DOCID) {
+                if (typeof milestone === "function") return milestone();
+                return milestone;
+            }
+            throw new Error(`Unexpected document: ${id}`);
+        });
+    }
+
+    it("distinguishes a remote database without a milestone from an unavailable remote", async () => {
+        const missing = { status: 404, name: "not_found", message: "missing" };
+        const replicator = createReplicator(
+            createRemoteGet(() => {
+                throw missing;
+            })
+        );
+
+        await expect(replicator.getRemotePreferredTweakValues(setting)).resolves.toEqual({
+            status: "not-configured",
+            reason: "milestone-missing",
+        });
+    });
+
+    it("reports a remote read failure as unavailable", async () => {
+        const failure = new Error("network failed");
+        const replicator = createReplicator(
+            createRemoteGet(() => {
+                throw failure;
+            })
+        );
+
+        await expect(replicator.getRemotePreferredTweakValues(setting)).resolves.toEqual({
+            status: "unavailable",
+            error: failure,
+        });
+    });
+
+    it("does not treat a missing remote database as an unconfigured milestone", async () => {
+        const failure = { status: 404, name: "not_found", message: "Database does not exist" };
+        const replicator = createReplicator(createRemoteGet({}));
+        vi.mocked(replicator.connectRemoteCouchDBWithSetting).mockRejectedValueOnce(failure);
+
+        await expect(replicator.getRemotePreferredTweakValues(setting)).resolves.toEqual({
+            status: "unavailable",
+            error: failure,
+        });
+    });
+
+    it("distinguishes a milestone without preferred values", async () => {
+        const replicator = createReplicator(
+            createRemoteGet({
+                _id: MILESTONE_DOCID,
+                tweak_values: {},
+            })
+        );
+
+        await expect(replicator.getRemotePreferredTweakValues(setting)).resolves.toEqual({
+            status: "not-configured",
+            reason: "preferred-values-missing",
+        });
+    });
+
+    it("returns available preferred values explicitly", async () => {
+        const values = { encrypt: true };
+        const replicator = createReplicator(
+            createRemoteGet({
+                _id: MILESTONE_DOCID,
+                tweak_values: { [DEVICE_ID_PREFERRED]: values },
+            })
+        );
+
+        await expect(replicator.getRemotePreferredTweakValues(setting)).resolves.toEqual({
+            status: "available",
+            values,
+        });
     });
 });
 
