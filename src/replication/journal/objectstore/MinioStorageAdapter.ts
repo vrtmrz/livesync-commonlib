@@ -15,7 +15,11 @@ import { promiseWithResolvers } from "octagonal-wheels/promises";
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type BucketSyncSetting } from "@lib/common/types.ts";
 import { Logger } from "@lib/common/logger.ts";
 import type { RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";
-import type { IJournalStorage } from "./JournalStorageAdapter.ts";
+import {
+    JournalStorageReadStatuses,
+    type IJournalStorage,
+    type JournalStorageReadResult,
+} from "./JournalStorageAdapter.ts";
 import { parseHeaderValues } from "@lib/common/utils.ts";
 import type { LiveSyncJournalReplicatorEnv } from "@lib/replication/journal/LiveSyncJournalReplicatorEnv.ts";
 import { runWithTrackedPhysicalRequest } from "@lib/services/lib/remoteActivity.ts";
@@ -136,7 +140,7 @@ export class MinioStorageAdapter implements IJournalStorage {
         return false;
     }
 
-    async download(key: string, ignoreCache: boolean = false): Promise<Uint8Array | false> {
+    async downloadWithResult(key: string, ignoreCache: boolean = false): Promise<JournalStorageReadResult<Uint8Array>> {
         const client = this._getClient();
         const cmd = new GetObjectCommand({
             Bucket: this._settings.bucket,
@@ -148,15 +152,32 @@ export class MinioStorageAdapter implements IJournalStorage {
             return await this.runTrackedRequest(async () => {
                 const r = await client.send(cmd);
                 if (r.Body) {
-                    return new Uint8Array(await r.Body.transformToByteArray());
+                    return {
+                        status: JournalStorageReadStatuses.AVAILABLE,
+                        value: new Uint8Array(await r.Body.transformToByteArray()),
+                    };
                 }
-                return false;
+                return {
+                    status: JournalStorageReadStatuses.UNAVAILABLE,
+                    error: new Error(`The response body for ${key} was empty`),
+                };
             });
         } catch (ex) {
+            if (isMissingObjectError(ex)) {
+                return { status: JournalStorageReadStatuses.NOT_FOUND };
+            }
             Logger(`Could not download ${key}`);
             Logger(ex, LOG_LEVEL_VERBOSE);
+            return {
+                status: JournalStorageReadStatuses.UNAVAILABLE,
+                error: ex,
+            };
         }
-        return false;
+    }
+
+    async download(key: string, ignoreCache: boolean = false): Promise<Uint8Array | false> {
+        const result = await this.downloadWithResult(key, ignoreCache);
+        return result.status === JournalStorageReadStatuses.AVAILABLE ? result.value : false;
     }
 
     async listFiles(from: string, limit?: number): Promise<string[]> {
@@ -229,4 +250,11 @@ export class MinioStorageAdapter implements IJournalStorage {
             return false;
         }
     }
+}
+
+function isMissingObjectError(error: unknown): boolean {
+    if (!error || typeof error !== "object") return false;
+    const { name, Code, code } = error as { name?: string; Code?: string; code?: string };
+    const errorCode = Code ?? code ?? name;
+    return errorCode === "NoSuchKey" || errorCode === "NotFound";
 }

@@ -23,6 +23,9 @@ import {
     ProtocolVersions,
     type NodeData,
     type DeviceInfo,
+    RemotePreferredTweakNotConfiguredReasons,
+    type RemotePreferredTweakResult,
+    RemotePreferredTweakStatuses,
 } from "@lib/common/types.ts";
 import {
     resolveWithIgnoreKnownError,
@@ -35,6 +38,7 @@ import {
 } from "@lib/common/utils.ts";
 import { Logger } from "@lib/common/logger.ts";
 import { checkRemoteVersion, countCompromisedChunks } from "@lib/pouchdb/negotiation.ts";
+import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import { preprocessOutgoing } from "@lib/pouchdb/encryption.ts";
 
 import { ensureDatabaseIsCompatible } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
@@ -1279,29 +1283,78 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
     }
 
-    async getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<TweakValues | false> {
+    async getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<RemotePreferredTweakResult> {
         const uri =
             setting.couchDB_URI.replace(/\/+$/, "") +
             (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
+        let dbRet: Awaited<ReturnType<typeof this.connectRemoteCouchDBWithSetting>>;
+        try {
+            dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
+        } catch (ex) {
+            Logger(`Could not connect to the remote database`, LOG_LEVEL_NOTICE);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            return {
+                status: RemotePreferredTweakStatuses.UNAVAILABLE,
+                error: ex,
+            };
+        }
         if (typeof dbRet === "string") {
             Logger(this.translate("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
-            return false;
+            return {
+                status: RemotePreferredTweakStatuses.UNAVAILABLE,
+                error: new Error(dbRet),
+            };
         }
-        if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
-            Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
-            return false;
+        try {
+            if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
+                const error = new Error("The remote database version is not compatible");
+                Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
+                return {
+                    status: RemotePreferredTweakStatuses.UNAVAILABLE,
+                    error,
+                };
+            }
+        } catch (ex) {
+            Logger(`Could not check the remote database version`, LOG_LEVEL_NOTICE);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            return {
+                status: RemotePreferredTweakStatuses.UNAVAILABLE,
+                error: ex,
+            };
         }
-        // check local database hash status and remote replicate hash status
+
         try {
             const remoteMilestone = (await dbRet.db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
-            if (!remoteMilestone) throw new Error("Remote milestone not found");
-            return remoteMilestone?.tweak_values?.[DEVICE_ID_PREFERRED] || false;
+            if (!remoteMilestone) {
+                return {
+                    status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
+                    reason: RemotePreferredTweakNotConfiguredReasons.MILESTONE_MISSING,
+                };
+            }
+            const preferred = remoteMilestone.tweak_values?.[DEVICE_ID_PREFERRED];
+            if (!preferred) {
+                return {
+                    status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
+                    reason: RemotePreferredTweakNotConfiguredReasons.PREFERRED_VALUES_MISSING,
+                };
+            }
+            return {
+                status: RemotePreferredTweakStatuses.AVAILABLE,
+                values: preferred,
+            };
         } catch (ex) {
-            // While trying unlocking and not exist on the remote, it is not normal.
+            if (isErrorOfMissingDoc(ex)) {
+                return {
+                    status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
+                    reason: RemotePreferredTweakNotConfiguredReasons.MILESTONE_MISSING,
+                };
+            }
             Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
             Logger(ex, LOG_LEVEL_VERBOSE);
-            return false;
+            return {
+                status: RemotePreferredTweakStatuses.UNAVAILABLE,
+                error: ex,
+            };
         }
     }
 

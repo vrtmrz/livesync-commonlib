@@ -16,6 +16,7 @@ import type {
     MISSING_OR_ERROR,
     ObsidianLiveSyncSettings,
     RemoteDBSettings,
+    RemotePreferredTweakResult,
     SettingsMigrationState,
     TweakValues,
     UXFileInfo,
@@ -359,7 +360,7 @@ export interface ISettingService {
     deleteSmallConfig(key: string): void;
 }
 export interface ITweakValueService {
-    fetchRemotePreferred(trialSetting: RemoteDBSettings): Promise<TweakValues | false>;
+    fetchRemotePreferred(trialSetting: RemoteDBSettings): Promise<RemotePreferredTweakResult>;
 
     checkAndAskResolvingMismatched(preferred: Partial<TweakValues>): Promise<[TweakValues | boolean, boolean]>;
 

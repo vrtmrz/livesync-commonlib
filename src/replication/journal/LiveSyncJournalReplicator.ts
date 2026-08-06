@@ -10,6 +10,9 @@ import {
     TweakValuesTemplate,
     type TweakValues,
     type NodeData,
+    RemotePreferredTweakNotConfiguredReasons,
+    type RemotePreferredTweakResult,
+    RemotePreferredTweakStatuses,
 } from "@lib/common/types.ts";
 import { Logger } from "@lib/common/logger.ts";
 
@@ -24,6 +27,7 @@ import type { SimpleStore } from "@lib/common/utils.ts";
 import { extractObject } from "@lib/common/utils.ts";
 import { clearHandlers } from "@lib/replication/SyncParamsHandler.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
+import { JournalStorageReadStatuses } from "./objectstore/JournalStorageAdapter.ts";
 
 const MILSTONE_DOCID = "_00000000-milestone.json";
 
@@ -302,18 +306,31 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         }
     }
 
-    async getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<false | TweakValues> {
-        try {
-            const remoteMilestone = await this.client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
-            if (!remoteMilestone) {
-                throw new Error("Missing remote milestone");
-            }
-            return remoteMilestone?.tweak_values?.[DEVICE_ID_PREFERRED] || false;
-        } catch (ex) {
-            Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
-            Logger(ex, LOG_LEVEL_VERBOSE);
-            return false;
+    async getRemotePreferredTweakValues(_setting: RemoteDBSettings): Promise<RemotePreferredTweakResult> {
+        const result = await this.client.downloadJsonWithResult<EntryMilestoneInfo>(MILSTONE_DOCID);
+        if (result.status === JournalStorageReadStatuses.NOT_FOUND) {
+            return {
+                status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
+                reason: RemotePreferredTweakNotConfiguredReasons.MILESTONE_MISSING,
+            };
         }
+        if (result.status === JournalStorageReadStatuses.UNAVAILABLE) {
+            return {
+                status: RemotePreferredTweakStatuses.UNAVAILABLE,
+                error: result.error,
+            };
+        }
+        const preferred = result.value.tweak_values?.[DEVICE_ID_PREFERRED];
+        if (!preferred) {
+            return {
+                status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
+                reason: RemotePreferredTweakNotConfiguredReasons.PREFERRED_VALUES_MISSING,
+            };
+        }
+        return {
+            status: RemotePreferredTweakStatuses.AVAILABLE,
+            values: preferred,
+        };
     }
 
     async getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus> {

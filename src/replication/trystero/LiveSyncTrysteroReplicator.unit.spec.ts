@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { LiveSyncTrysteroReplicator } from "./LiveSyncTrysteroReplicator";
 import { TrysteroReplicator } from "./TrysteroReplicator";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
+import type { RemoteDBSettings } from "@lib/common/types";
 
 function createDeferred() {
     let resolve!: () => void;
@@ -43,6 +44,16 @@ describe("LiveSyncTrysteroReplicator host environment", () => {
 
         expect(runFiniteReplicationActivity).toHaveBeenCalledWith(task, { label: "replication" });
         expect(translate).toHaveBeenCalledWith("P2P.NotEnabled");
+    });
+});
+
+describe("LiveSyncTrysteroReplicator remote preferred tweak values", () => {
+    it("reports that remote preferred values are unsupported", async () => {
+        const replicator = createLifecycleReplicator();
+
+        await expect(replicator.getRemotePreferredTweakValues({} as RemoteDBSettings)).resolves.toEqual({
+            status: "unsupported",
+        });
     });
 });
 

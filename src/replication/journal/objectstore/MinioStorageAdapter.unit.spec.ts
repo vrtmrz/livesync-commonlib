@@ -76,6 +76,23 @@ describe("MinioStorageAdapter physical request activity", () => {
         expect(responseCount.value).toBe(1);
     });
 
+    it("distinguishes a missing object from an unavailable object store", async () => {
+        const missing = Object.assign(new Error("The specified key does not exist"), { name: "NoSuchKey" });
+        const { adapter } = createAdapter({ send: vi.fn(() => Promise.reject(missing)) });
+
+        await expect(adapter.downloadWithResult("missing.json")).resolves.toEqual({ status: "not-found" });
+    });
+
+    it("preserves an object-store failure in the detailed download result", async () => {
+        const failure = new Error("network failed");
+        const { adapter } = createAdapter({ send: vi.fn(() => Promise.reject(failure)) });
+
+        await expect(adapter.downloadWithResult("settings.json")).resolves.toEqual({
+            status: "unavailable",
+            error: failure,
+        });
+    });
+
     it("balances activity when an SDK command rejects", async () => {
         const { adapter, requestCount, responseCount } = createAdapter({
             send: vi.fn(() => Promise.reject(new Error("network failed"))),
