@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.5
+
+### Changed
+
+- Remote-preferred synchronisation setting reads now report explicit available, not-configured, unavailable, or unsupported outcomes, so clients can distinguish a remote without saved synchronisation settings from one whose settings could not be read.
+
 ## 0.1.4
 
 ### Added
