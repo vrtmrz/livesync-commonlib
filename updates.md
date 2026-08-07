@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.6
+
+### Fixed
+
+- Fast Fetch now completes only after the captured CouchDB changes target has been persisted, and resumes transient interruptions from the last durable checkpoint. Decryption, protocol, and local write failures stop without finalising an incomplete local database ([Self-hosted LiveSync issue #1065](https://github.com/vrtmrz/obsidian-livesync/issues/1065)).
+
 ## 0.1.5
 
 ### Changed
