@@ -46,6 +46,7 @@ describe("StreamingFetch - fetchChangesForInitialSync integration", () => {
             // safe to ignore
         }
         remoteDB = new PouchDB(remoteDbUrlWithAuth, { adapter: "http" });
+        await remoteDB.info();
     });
 
     afterEach(async () => {
@@ -61,14 +62,16 @@ describe("StreamingFetch - fetchChangesForInitialSync integration", () => {
         }
     });
 
-    it("should fetch all documents from a populated remote database", async () => {
-        // 1. Put some documents in the remote database
-        const docs = [
-            { _id: "doc1", type: "plain", data: "hello 1" },
-            { _id: "doc2", type: "plain", data: "hello 2" },
-            { _id: "doc3", type: "plain", data: "hello 3" },
-        ];
+    it("should fetch and checkpoint all documents across a batch boundary", async () => {
+        // 1. Put enough documents in the remote database to cross the 100-document batch boundary.
+        const docs = Array.from({ length: 101 }, (_, index) => ({
+            _id: `doc-${index.toString().padStart(3, "0")}`,
+            type: "plain",
+            data: `hello ${index}`,
+        }));
         await remoteDB.bulkDocs(docs);
+        const targetSequence = (await remoteDB.changes({ since: "now", limit: 0 })).last_seq;
+        const checkpoints: Array<string | number> = [];
 
         // 2. Perform streaming fetch
         await fetchChangesForInitialSync(
@@ -77,13 +80,15 @@ describe("StreamingFetch - fetchChangesForInitialSync integration", () => {
             authHeader,
             (doc) => Promise.resolve(doc as any),
             "0",
-            () => {}
+            () => {},
+            (sequence) => checkpoints.push(sequence)
         );
 
         // 3. Verify documents in local database
         const localDocs = await localDB.allDocs({ include_docs: true });
-        expect(localDocs.rows.length).toBe(3);
-        expect(localDocs.rows.map((r) => r.id).sort()).toEqual(["doc1", "doc2", "doc3"]);
+        expect(localDocs.rows.length).toBe(docs.length);
+        expect(localDocs.rows.map((row) => row.id).sort()).toEqual(docs.map((doc) => doc._id));
+        expect(checkpoints.at(-1)?.toString()).toBe(targetSequence.toString());
     });
 
     it("should handle empty database gracefully", async () => {
@@ -100,8 +105,7 @@ describe("StreamingFetch - fetchChangesForInitialSync integration", () => {
         await remoteDB.bulkDocs(docs);
 
         // Get the latest sequence
-        const info: any = await remoteDB.info();
-        const latestSeq = info.update_seq;
+        const latestSeq = (await remoteDB.changes({ since: "now", limit: 0 })).last_seq;
 
         // 2. Perform streaming fetch with "since" set to the latest sequence
         await fetchChangesForInitialSync(

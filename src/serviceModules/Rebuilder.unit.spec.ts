@@ -9,6 +9,8 @@ const fetchChangesForInitialSyncMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@lib/pouchdb/StreamingFetch", () => ({
     fetchChangesForInitialSync: fetchChangesForInitialSyncMock,
+    isRetryableStreamingFetchFailure: (error: unknown) =>
+        Boolean((error as { retryable?: boolean } | undefined)?.retryable),
 }));
 
 vi.mock("octagonal-wheels/promises", async (importOriginal) => {
@@ -202,7 +204,10 @@ describe("ServiceRebuilder fast fetch retry", () => {
         fetchChangesForInitialSyncMock
             .mockImplementationOnce(async (...args: any[]) => {
                 await args[6]("10-g1");
-                throw new Error("network changed");
+                throw Object.assign(new Error("network changed"), {
+                    stage: "transport",
+                    retryable: true,
+                });
             })
             .mockResolvedValueOnce(undefined);
 
@@ -214,6 +219,23 @@ describe("ServiceRebuilder fast fetch retry", () => {
         expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
             label: "fast-fetch",
         });
+    });
+
+    it("does not retry a terminal fast fetch failure or finalise the local database", async () => {
+        fetchChangesForInitialSyncMock.mockReset().mockRejectedValue(
+            Object.assign(new Error("cannot decrypt remote document"), {
+                stage: "decryption",
+                retryable: false,
+            })
+        );
+        const { rebuilder, services } = createRebuilder();
+
+        await expect(rebuilder.$fetchLocalDBFast(true)).rejects.toThrow("cannot decrypt remote document");
+
+        expect(fetchChangesForInitialSyncMock).toHaveBeenCalledOnce();
+        expect(services.replication.markResolved).not.toHaveBeenCalled();
+        expect(services.vault.scanVault).not.toHaveBeenCalled();
+        expect(services.setting.deleteSmallConfig).not.toHaveBeenCalledWith("fast-fetch-checkpoint");
     });
 
     it("keeps reflection resumption and checkpoint removal inside a successful fast-fetch activity", async () => {

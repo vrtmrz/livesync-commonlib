@@ -20,7 +20,7 @@ import type { LiveSyncEventHub } from "@lib/hub/hub";
 import { EVENT_DATABASE_REBUILT } from "@lib/events/coreEvents";
 import { ServiceModuleBase } from "@lib/serviceModules/ServiceModuleBase";
 import type { ControlService } from "@lib/services/base/ControlService";
-import { fetchChangesForInitialSync } from "@lib/pouchdb/StreamingFetch";
+import { fetchChangesForInitialSync, isRetryableStreamingFetchFailure } from "@lib/pouchdb/StreamingFetch";
 import { getConfiguredFunctionsForEncryption } from "@lib/pouchdb/encryption";
 import { AuthorizationHeaderGenerator, generateCredentialObject } from "@lib/replication/httplib";
 import { sizeToHumanReadable } from "octagonal-wheels/number";
@@ -468,7 +468,12 @@ Are you sure you wish to proceed?`;
                 );
                 break;
             } catch (ex) {
-                if (attempt >= FAST_FETCH_RETRY_DELAYS.length) throw ex;
+                // StreamingFetch owns failure classification. Retrying only its
+                // explicitly transient transport failures prevents deterministic
+                // authentication, protocol, decryption, or storage failures from
+                // consuming the retry budget. Each retry resumes from the latest
+                // contiguous checkpoint persisted by the previous attempt.
+                if (!isRetryableStreamingFetchFailure(ex) || attempt >= FAST_FETCH_RETRY_DELAYS.length) throw ex;
                 checkpoint = this.getFastFetchCheckpoint(remote);
                 since = checkpoint?.sequence ?? since;
                 this._log(
