@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.8
+
 ### Fixed
 
 - Fast Fetch now uses a one-second idle timeout for each finite CouchDB changes page instead of a heartbeat, allowing CouchDB 3.2 to return its terminator after the currently available rows have been persisted.
