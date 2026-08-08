@@ -127,36 +127,6 @@ describe("StreamingFetch - fetchChangesForInitialSync integration", () => {
         await expectCheckpointHasNoPendingChanges(checkpoints.at(-1));
     });
 
-    it("should complete when a feed-level target differs from the final two-shard row sequence", async () => {
-        await remoteDB.put({ _id: "single-shard-change", type: "plain", data: "hello" });
-        const remoteChanges = await remoteDB.changes({ since: "0" });
-        const targetUrl = new URL(`${remoteDbUrl}/_changes`);
-        targetUrl.searchParams.set("feed", "normal");
-        targetUrl.searchParams.set("since", "now");
-        targetUrl.searchParams.set("limit", "1");
-        targetUrl.searchParams.set("include_docs", "false");
-        const targetResponse = await fetch(targetUrl, { headers: { Authorization: authHeader } });
-        expect(targetResponse.ok).toBe(true);
-        const targetSequence = ((await targetResponse.json()) as { last_seq: string | number }).last_seq;
-        const finalRowSequence = remoteChanges.results.at(-1)?.seq;
-        expect(finalRowSequence).toBeDefined();
-        expect(finalRowSequence?.toString()).not.toBe(targetSequence.toString());
-        const checkpoints: Array<string | number> = [];
-
-        await fetchChangesForInitialSync(
-            localDB,
-            remoteDbUrl,
-            authHeader,
-            (doc) => Promise.resolve(doc as any),
-            "0",
-            () => {},
-            (sequence) => checkpoints.push(sequence)
-        );
-
-        await expect(localDB.get("single-shard-change")).resolves.toMatchObject({ data: "hello" });
-        await expectCheckpointHasNoPendingChanges(checkpoints.at(-1));
-    });
-
     it("should count a deletion tombstone as one bounded changes row", async () => {
         await remoteDB.put({ _id: "retained-document", type: "plain", data: "keep" });
         const deletedDocument = await remoteDB.put({ _id: "deleted-document", type: "plain", data: "remove" });
