@@ -95,9 +95,19 @@ function queueChangesFeed(
 function fetchInitial(
     localDatabase: PouchDB.Database,
     decrypt = (doc: any) => Promise.resolve(doc),
-    onCheckpoint?: (sequence: string | number) => void
+    onCheckpoint?: (sequence: string | number) => void,
+    customHeaders?: Record<string, string>
 ): Promise<void> {
-    return fetchChangesForInitialSync(localDatabase, remoteDbUrl, "Basic test", decrypt, "0", undefined, onCheckpoint);
+    return fetchChangesForInitialSync(
+        localDatabase,
+        remoteDbUrl,
+        "Basic test",
+        decrypt,
+        "0",
+        undefined,
+        onCheckpoint,
+        customHeaders
+    );
 }
 
 beforeEach(() => {
@@ -109,6 +119,26 @@ afterEach(async () => {
 });
 
 describe("fetchChangesForInitialSync", () => {
+    it("sends custom headers on every request without allowing them to override authorisation", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-custom-headers");
+        const customHeaders = {
+            "CF-Access-Client-Id": "client-id",
+            "CF-Access-Client-Secret": "client-secret",
+            authorization: "Bearer must-not-win",
+        };
+        queueChangesFeed(1, 1, [changeLine(1, "doc1", "one")]);
+
+        await fetchInitial(localDB, undefined, undefined, customHeaders);
+
+        expect(fetchMock).toHaveBeenCalledTimes(4);
+        for (const [, init] of fetchMock.mock.calls) {
+            const headers = new Headers((init as RequestInit).headers);
+            expect(headers.get("CF-Access-Client-Id")).toBe("client-id");
+            expect(headers.get("CF-Access-Client-Secret")).toBe("client-secret");
+            expect(headers.get("Authorization")).toBe("Basic test");
+        }
+    });
+
     it("does not checkpoint a batch when PouchDB reports an individual write failure", async () => {
         const localDB = createLocalDatabase("streaming-fetch-bulk-result-failure");
         const checkpointSequences: Array<string | number> = [];
