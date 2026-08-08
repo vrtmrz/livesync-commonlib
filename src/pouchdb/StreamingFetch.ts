@@ -17,6 +17,11 @@ interface AnyDecryptedDoc {
 
 type DBSequence = number | string;
 
+// This bounds one HTTP response without changing the smaller PouchDB write
+// batches. A finite continuous feed returns its own opaque `last_seq` marker,
+// which is the only page boundary Fast Fetch needs to persist and replay.
+const FAST_FETCH_CHANGES_PAGE_LIMIT = 10_000;
+
 /**
  * Identifies the boundary at which Fast Fetch stopped.
  *
@@ -272,12 +277,12 @@ export type FetchChangesForInitialSyncProgress = {
 type DatabaseSyncStatus = {
     last_seq?: DBSequence;
     pending?: number;
+    results?: unknown[];
 };
 
-function isTargetSequence(sequence: DBSequence | undefined, targetSequence: DBSequence | undefined): boolean {
-    if (sequence === undefined || targetSequence === undefined) return false;
-    return sequence.toString() === targetSequence.toString();
-}
+type ParsedChangesFeedLine =
+    | { type: "change"; change: CouchChangeLine }
+    | { type: "terminator"; lastSequence: DBSequence };
 
 function parseStatusSource(source: string): DatabaseSyncStatus {
     const trimmed = source.trim();
@@ -297,7 +302,7 @@ function parseStatusSource(source: string): DatabaseSyncStatus {
     throw new StreamingFetchFailure("protocol", "Fast Fetch received an invalid changes status from CouchDB.", false);
 }
 
-function parseChangeLine(line: string): CouchChangeLine {
+function parseChangesFeedLine(line: string): ParsedChangesFeedLine {
     let parsed: unknown;
     try {
         parsed = JSON.parse(line);
@@ -306,7 +311,21 @@ function parseChangeLine(line: string): CouchChangeLine {
             cause: error,
         });
     }
-    if (!parsed || typeof parsed !== "object" || !("seq" in parsed)) {
+    if (!parsed || typeof parsed !== "object") {
+        throw new StreamingFetchFailure("protocol", "Fast Fetch received an invalid changes-feed line.", false);
+    }
+    if (!("seq" in parsed) && "last_seq" in parsed) {
+        const lastSequence = (parsed as DatabaseSyncStatus).last_seq;
+        if (lastSequence === undefined) {
+            throw new StreamingFetchFailure(
+                "protocol",
+                "Fast Fetch received a changes-feed terminator without a sequence.",
+                false
+            );
+        }
+        return { type: "terminator", lastSequence };
+    }
+    if (!("seq" in parsed)) {
         throw new StreamingFetchFailure(
             "protocol",
             "Fast Fetch received a changes-feed row without a sequence.",
@@ -317,7 +336,7 @@ function parseChangeLine(line: string): CouchChangeLine {
     if (change.seq === undefined || (change.doc !== undefined && (!change.doc || typeof change.doc !== "object"))) {
         throw new StreamingFetchFailure("protocol", "Fast Fetch received an invalid changes-feed row.", false);
     }
-    return change as CouchChangeLine;
+    return { type: "change", change: change as CouchChangeLine };
 }
 
 /**
@@ -353,14 +372,17 @@ export async function fetchChangesForInitialSync(
         Authorization: authHeader,
     };
 
-    // Capture the completion boundary from _changes itself. CouchDB treats sequence
-    // tokens as opaque, and a clustered database may encode update_seq from database
-    // information differently from a row at the same logical changes position.
+    // Capture a progress target from _changes itself. This is deliberately only a
+    // progress hint: a clustered row `seq` and a feed-level `last_seq` can represent
+    // related positions using different opaque values. Completion is established
+    // by per-page probes and finite page terminators below, never by comparing this
+    // target with another token.
     const targetURL = setParamsToURL(new URL(`${remoteDbUrl}/_changes`), {
         ...changesBaseParams,
         feed: "normal",
         since: "now",
-        limit: "0",
+        limit: "1",
+        include_docs: "false",
     });
     const targetResponse = await fetchResponse(
         targetURL.toString(),
@@ -368,140 +390,242 @@ export async function fetchChangesForInitialSync(
         "capture the changes target"
     );
     const targetStatus = parseStatusSource(await readResponseText(targetResponse, "read the changes target"));
-    const finalTargetSeq = targetStatus.last_seq;
-    if (finalTargetSeq === undefined) {
+    const progressTargetSeq = targetStatus.last_seq;
+    if (progressTargetSeq === undefined) {
         throw new StreamingFetchFailure(
             "protocol",
-            "Fast Fetch could not obtain an authoritative changes target from CouchDB.",
+            "Fast Fetch could not obtain a changes progress target from CouchDB.",
             false
         );
     }
-    if (isTargetSequence(since, finalTargetSeq)) {
-        Logger("Already at the target sequence. Initial data synchronisation is complete.");
-        return;
-    }
 
-    const fetchURL = setParamsToURL(new URL(`${remoteDbUrl}/_changes`), {
-        ...changesBaseParams,
-        feed: "normal",
-        limit: "0",
-    });
-    const infoResponse = await fetchResponse(fetchURL.toString(), { headers: fetchHeaders }, "read changes status");
-    const info = parseStatusSource(await readResponseText(infoResponse, "read changes status"));
-    if (typeof info.pending !== "number" || info.pending < 0) {
-        throw new StreamingFetchFailure(
-            "protocol",
-            "Fast Fetch received changes status without a valid pending count.",
-            false
-        );
-    }
-    // `pending` is useful for progress, but it is not a completion boundary. A
-    // filtered or clustered feed can make document counts diverge from sequence
-    // movement, so only the captured target token can complete a non-empty fetch.
-    const pendingDocs = info.pending;
-    const docsToFetch = pendingDocs;
-    if (pendingDocs === 0) {
-        // This status request is made after the target was captured. No changes after
-        // the durable `since` position therefore proves that the captured target also
-        // represents durable empty work, including for a newly created database.
-        await saveCheckpoint(onCheckpoint, finalTargetSeq);
-        Logger("No changes remain before the captured Fast Fetch target.");
-        return;
-    }
-
-    Logger(
-        `Starting initial synchronisation. Current sequence: ${since}, Target sequence: ${finalTargetSeq}, Estimated documents to fetch: ${docsToFetch}.`
-    );
-
-    const controller = new AbortController();
-    const changesURL = setParamsToURL(new URL(`${remoteDbUrl}/_changes`), changesBaseParams);
-    const response = await fetchResponse(
-        changesURL.toString(),
-        {
-            method: "GET",
-            headers: fetchHeaders,
-            signal: controller.signal,
-        },
-        "open the changes feed"
-    );
-    if (!response.body) {
-        throw new StreamingFetchFailure("protocol", "Fast Fetch could not read the CouchDB response stream.", false);
-    }
-
-    const sizeCaptureStream = new TransformStream({
-        transform(chunk, streamController) {
-            totalBytes += chunk.byteLength;
-            streamController.enqueue(chunk);
-        },
-    });
-    const reader = response.body.pipeThrough(sizeCaptureStream).pipeThrough(new TextDecoderStream()).getReader();
     const batchWriter = generatePouchDBBatchWriter(downloadToDB, decryptFunction, onCheckpoint);
-    let buffer = "";
+    let docsToFetch = 0;
     let lastProgress = 0;
     let lastReportTime = Date.now();
 
-    const reportProgress = () => {
-        if (totalFetched - lastProgress < 25 && Date.now() - lastReportTime < 2000) return;
+    const reportProgress = (force = false) => {
+        if (!force && totalFetched - lastProgress < 25 && Date.now() - lastReportTime < 2000) return;
         lastProgress = totalFetched;
         lastReportTime = Date.now();
         onProgress?.({
             totalFetched,
             totalValidFetched,
-            targetSeq: finalTargetSeq,
+            targetSeq: progressTargetSeq,
             docsToFetch,
             totalBytes,
         });
     };
 
-    const processLine = async (line: string): Promise<boolean> => {
-        const parsed = parseChangeLine(line);
-        totalFetched++;
-        if (parsed.doc) {
-            await batchWriter.write(parsed.doc, parsed.seq);
-            totalValidFetched++;
-        } else {
-            await batchWriter.flushThrough(parsed.seq);
+    const readAvailableChanges = async (pageSince: DBSequence): Promise<number> => {
+        // The normal probe and continuous page intentionally start from the same
+        // opaque cursor and use the same style and filter selection. A GET does not
+        // consume changes on the server; include_docs=false only removes the bodies.
+        //
+        // Use limit=1 rather than limit=0. CouchDB's API documentation describes
+        // zero as equivalent to one, but supported CouchDB releases have also been
+        // observed to return zero rows and keep the full count in `pending`. One
+        // explicit result makes `results.length + pending` portable across both
+        // behaviours and ensures that a final returned row is not mistaken for no
+        // work when `pending` itself is zero.
+        const statusURL = setParamsToURL(new URL(`${remoteDbUrl}/_changes`), {
+            ...changesBaseParams,
+            feed: "normal",
+            since: pageSince.toString(),
+            limit: "1",
+            include_docs: "false",
+        });
+        const response = await fetchResponse(
+            statusURL.toString(),
+            { method: "GET", headers: fetchHeaders },
+            "read changes status"
+        );
+        const status = parseStatusSource(await readResponseText(response, "read changes status"));
+        if (!Array.isArray(status.results)) {
+            throw new StreamingFetchFailure(
+                "protocol",
+                "Fast Fetch received changes status without a valid results list.",
+                false
+            );
         }
-        reportProgress();
-        if (!isTargetSequence(parsed.seq, finalTargetSeq)) return false;
-
-        // `write` may still hold the target row in memory. Completion is reported only
-        // after the target and every preceding row have crossed the persistence and
-        // checkpoint boundary.
-        await batchWriter.flush();
-        Logger("The captured Fast Fetch target is durable in the local database.");
-        controller.abort();
-        reportProgress();
-        return true;
+        const pending = status.pending;
+        if (typeof pending !== "number" || !Number.isSafeInteger(pending) || pending < 0) {
+            throw new StreamingFetchFailure(
+                "protocol",
+                "Fast Fetch received changes status without a valid pending count.",
+                false
+            );
+        }
+        const available = status.results.length + pending;
+        if (!Number.isSafeInteger(available)) {
+            throw new StreamingFetchFailure(
+                "protocol",
+                "Fast Fetch received a changes count outside the supported range.",
+                false
+            );
+        }
+        return available;
     };
 
-    try {
-        while (true) {
-            reportProgress();
-            let readResult: ReadableStreamReadResult<string>;
-            try {
-                readResult = await reader.read();
-            } catch (error) {
-                throw transportFailure("read the changes feed", error);
+    const fetchPage = async (pageSince: DBSequence, pageLimit: number): Promise<DBSequence> => {
+        const controller = new AbortController();
+        let reader: ReadableStreamDefaultReader<string> | undefined;
+        let buffer = "";
+        let fetchedRows = 0;
+
+        const processLine = async (line: string): Promise<DBSequence | undefined> => {
+            const parsed = parseChangesFeedLine(line);
+            if (parsed.type === "terminator") {
+                if (fetchedRows === 0) {
+                    throw new StreamingFetchFailure(
+                        "transport",
+                        "Fast Fetch received no rows after its status probe reported available changes.",
+                        true
+                    );
+                }
+                // The status probe and this stream are separate requests, not a locked
+                // snapshot. A valid page may therefore be shorter than the estimate.
+                // Make its documents durable, persist its opaque terminator verbatim,
+                // and let the next normal probe establish whether more work remains.
+                await batchWriter.flush();
+                await saveCheckpoint(onCheckpoint, parsed.lastSequence);
+                reportProgress(true);
+                return parsed.lastSequence;
             }
 
-            if (readResult.done) {
-                if (buffer.trim() && (await processLine(buffer))) return;
-                await batchWriter.flush();
+            if (fetchedRows >= pageLimit) {
                 throw new StreamingFetchFailure(
-                    "transport",
-                    "The CouchDB changes feed ended before Fast Fetch reached its captured target.",
-                    true
+                    "protocol",
+                    `Fast Fetch received more than its ${pageLimit}-row page limit.`,
+                    false
+                );
+            }
+            const change = parsed.change;
+            // CouchDB's limit counts outer result rows. Tombstones and rows without
+            // an included document each consume one slot; multiple leaf revisions in
+            // the inner `changes` array do not. Count the row before deciding whether
+            // it requires a local document write.
+            fetchedRows++;
+            totalFetched++;
+            if (change.doc) {
+                await batchWriter.write(change.doc, change.seq);
+                totalValidFetched++;
+            } else {
+                await batchWriter.flushThrough(change.seq);
+            }
+            reportProgress();
+            return undefined;
+        };
+
+        try {
+            const changesURL = setParamsToURL(new URL(`${remoteDbUrl}/_changes`), {
+                ...changesBaseParams,
+                since: pageSince.toString(),
+                limit: pageLimit.toString(),
+            });
+            const response = await fetchResponse(
+                changesURL.toString(),
+                {
+                    method: "GET",
+                    headers: fetchHeaders,
+                    signal: controller.signal,
+                },
+                "open the changes feed"
+            );
+            if (!response.body) {
+                throw new StreamingFetchFailure(
+                    "protocol",
+                    "Fast Fetch could not read the CouchDB response stream.",
+                    false
                 );
             }
 
-            buffer += readResult.value;
-            const lines = buffer.split("\n");
-            buffer = lines.pop() || "";
-            for (const line of lines) {
-                if (!line.trim()) continue;
-                if (await processLine(line)) return;
+            const decoder = new TextDecoder();
+            const byteCountingDecoderStream = new TransformStream<Uint8Array, string>({
+                transform(chunk, streamController) {
+                    totalBytes += chunk.byteLength;
+                    const decoded = decoder.decode(chunk, { stream: true });
+                    if (decoded) streamController.enqueue(decoded);
+                },
+                flush(streamController) {
+                    const decoded = decoder.decode();
+                    if (decoded) streamController.enqueue(decoded);
+                },
+            });
+            reader = response.body.pipeThrough(byteCountingDecoderStream).getReader();
+
+            while (true) {
+                reportProgress();
+                let readResult: ReadableStreamReadResult<string>;
+                try {
+                    readResult = await reader.read();
+                } catch (error) {
+                    throw transportFailure("read the changes feed", error);
+                }
+
+                if (readResult.done) {
+                    if (buffer.trim()) {
+                        const lastSequence = await processLine(buffer);
+                        if (lastSequence !== undefined) return lastSequence;
+                    }
+                    await batchWriter.flush();
+                    throw new StreamingFetchFailure(
+                        "transport",
+                        "The bounded CouchDB changes feed ended without a last_seq terminator.",
+                        true
+                    );
+                }
+
+                buffer += readResult.value;
+                const lines = buffer.split("\n");
+                buffer = lines.pop() || "";
+                for (const line of lines) {
+                    if (!line.trim()) continue;
+                    const lastSequence = await processLine(line);
+                    if (lastSequence !== undefined) return lastSequence;
+                }
             }
+        } finally {
+            controller.abort();
+            if (reader) {
+                try {
+                    await reader.cancel();
+                } catch {
+                    // The stream may already be closed or errored at this point.
+                }
+                reader.releaseLock();
+            }
+        }
+    };
+
+    try {
+        let pageSince: DBSequence = since;
+        let started = false;
+        while (true) {
+            const available = await readAvailableChanges(pageSince);
+            // A later probe may observe writes which arrived after the initial
+            // progress target. Keep the denominator useful without treating it as a
+            // completion contract.
+            docsToFetch = Math.max(docsToFetch, totalFetched + available);
+            if (available === 0) break;
+
+            if (!started) {
+                started = true;
+                Logger(
+                    `Starting initial synchronisation. Current sequence: ${since}, Target sequence: ${progressTargetSeq}, Documents to fetch: ${docsToFetch}.`
+                );
+            }
+            const pageLimit = Math.min(FAST_FETCH_CHANGES_PAGE_LIMIT, available);
+            const pageTerminator = await fetchPage(pageSince, pageLimit);
+            // Treat last_seq as an opaque cursor: store and replay the exact value.
+            // Do not compare it with a row token, target token, or later probe token.
+            pageSince = pageTerminator;
+        }
+        if (started) {
+            Logger("Fast Fetch is caught up and durable in the local database.");
+            reportProgress(true);
+        } else {
+            Logger("No changes remain for Fast Fetch.");
         }
     } catch (error) {
         const failure = asStreamingFetchFailure(error);
@@ -521,17 +645,5 @@ export async function fetchChangesForInitialSync(
         Logger(`Fast Fetch failed during ${failure.stage}.`, LOG_LEVEL_VERBOSE);
         Logger(failure, LOG_LEVEL_VERBOSE);
         throw failure;
-    } finally {
-        // Releasing a reader lock does not cancel its underlying continuous HTTP
-        // response. Abort the transport on every exit, then cancel the decoded
-        // stream as a fallback for stream implementations which do not observe the
-        // request signal directly.
-        controller.abort();
-        try {
-            await reader.cancel();
-        } catch {
-            // The stream may already be closed or errored at this point.
-        }
-        reader.releaseLock();
     }
 }
