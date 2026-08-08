@@ -47,6 +47,16 @@ function failingStream(error: Error) {
     });
 }
 
+function streamWhichFailsAfterCurrentRows(lines: string[], error: Error) {
+    return new ReadableStream({
+        start(controller) {
+            const encoder = new TextEncoder();
+            controller.enqueue(encoder.encode(lines.join("\n") + "\n"));
+            setTimeout(() => controller.error(error), 10);
+        },
+    });
+}
+
 function changeLine(sequence: string | number, id: string, value?: string): string {
     return JSON.stringify({
         seq: sequence,
@@ -182,6 +192,45 @@ describe("fetchChangesForInitialSync", () => {
         const changesURL = new URL(fetchMock.mock.calls[2][0]);
         expect(changesURL.searchParams.get("feed")).toBe("continuous");
         expect(changesURL.searchParams.get("limit")).toBe("1");
+    });
+
+    it("lets CouchDB 3.2 close a bounded page after its current changes are exhausted", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-couchdb-3-2-page-completion");
+        let probeCount = 0;
+        fetchMock.mockImplementation(async (input: string | URL | Request) => {
+            const url = new URL(input.toString());
+            if (url.searchParams.get("since") === "now") {
+                return new Response(JSON.stringify({ last_seq: "target-sequence" }));
+            }
+            if (url.searchParams.get("feed") === "normal") {
+                const available = probeCount++ === 0 ? 1 : 0;
+                return new Response(JSON.stringify(changesStatus(available, "page-terminator")));
+            }
+            if (url.searchParams.has("heartbeat")) {
+                // CouchDB 3.2 keeps a continuous heartbeat feed open after its
+                // finite limit is exhausted. Fail the fixture after delivering the
+                // current rows so that this server-side wait is detected promptly.
+                return new Response(
+                    streamWhichFailsAfterCurrentRows(
+                        [changeLine("row-sequence", "doc1", "one")],
+                        new Error("CouchDB 3.2 kept the bounded heartbeat feed open")
+                    )
+                );
+            }
+            return new Response(
+                textStream([
+                    changeLine("row-sequence", "doc1", "one"),
+                    JSON.stringify({ last_seq: "page-terminator", pending: 0 }),
+                ])
+            );
+        });
+
+        await fetchInitial(localDB);
+
+        await expect(localDB.get("doc1")).resolves.toMatchObject({ value: "one" });
+        const pageUrl = new URL(fetchMock.mock.calls[2][0]);
+        expect(pageUrl.searchParams.get("heartbeat")).toBeNull();
+        expect(pageUrl.searchParams.get("timeout")).toBe("1000");
     });
 
     it("continues from each opaque terminator in pages of at most 10,000 rows", async () => {
