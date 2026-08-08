@@ -18,9 +18,16 @@ interface AnyDecryptedDoc {
 type DBSequence = number | string;
 
 // This bounds one HTTP response without changing the smaller PouchDB write
-// batches. A finite continuous feed returns its own opaque `last_seq` marker,
-// which is the only page boundary Fast Fetch needs to persist and replay.
+// batches. Each completed page returns an opaque `last_seq` marker, which is
+// the only page boundary Fast Fetch needs to persist and replay.
 const FAST_FETCH_CHANGES_PAGE_LIMIT = 10_000;
+
+// A heartbeat keeps a continuous feed open after its finite limit on CouchDB
+// 3.2. Without a heartbeat, this timeout closes the feed after CouchDB has
+// exhausted the currently available changes and lets it emit `last_seq`.
+// Fast Fetch then reconnects from that cursor, so the short wait does not bound
+// the duration of an active page transfer.
+const FAST_FETCH_CHANGES_PAGE_TIMEOUT_MS = 1_000;
 
 /**
  * Identifies the boundary at which Fast Fetch stopped.
@@ -365,7 +372,6 @@ export async function fetchChangesForInitialSync(
         conflicts: "true",
         revs: "true",
         since: since.toString(),
-        heartbeat: "30000",
     } as const;
     const fetchHeaders = {
         Accept: "application/json",
@@ -522,6 +528,7 @@ export async function fetchChangesForInitialSync(
                 ...changesBaseParams,
                 since: pageSince.toString(),
                 limit: pageLimit.toString(),
+                timeout: FAST_FETCH_CHANGES_PAGE_TIMEOUT_MS.toString(),
             });
             const response = await fetchResponse(
                 changesURL.toString(),
