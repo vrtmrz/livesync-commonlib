@@ -23,6 +23,7 @@ import type { ControlService } from "@lib/services/base/ControlService";
 import { fetchChangesForInitialSync, isRetryableStreamingFetchFailure } from "@lib/pouchdb/StreamingFetch";
 import { getConfiguredFunctionsForEncryption } from "@lib/pouchdb/encryption";
 import { AuthorizationHeaderGenerator, generateCredentialObject } from "@lib/replication/httplib";
+import { parseHeaderValues } from "@lib/common/utils";
 import { sizeToHumanReadable } from "octagonal-wheels/number";
 
 const FAST_FETCH_CHECKPOINT_KEY = "fast-fetch-checkpoint";
@@ -448,6 +449,7 @@ Are you sure you wish to proceed?`;
         const authHeader = await new AuthorizationHeaderGenerator().getAuthorizationHeader(
             generateCredentialObject(settings)
         );
+        const customHeaders = parseHeaderValues(settings.couchDB_CustomHeaders);
 
         for (let attempt = 0; ; attempt++) {
             try {
@@ -464,7 +466,8 @@ Are you sure you wish to proceed?`;
                             "fetch-init-progress"
                         );
                     },
-                    (sequence) => this.saveFastFetchCheckpoint(remote, sequence)
+                    (sequence) => this.saveFastFetchCheckpoint(remote, sequence),
+                    customHeaders
                 );
                 break;
             } catch (ex) {

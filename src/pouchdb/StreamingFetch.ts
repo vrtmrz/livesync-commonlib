@@ -350,8 +350,10 @@ function parseChangesFeedLine(line: string): ParsedChangesFeedLine {
  * Fetches initial data from CouchDB as a stream and writes it into PouchDB.
  * @param downloadToDB PouchDB instance.
  * @param remoteDbUrl CouchDB database URL (for example: 'https://xxx.com/mydb').
+ * @param authHeader Value of the `Authorization` header for CouchDB.
  * @param decryptFunction Function to decrypt each document.
  * @param since Sequence ID to start fetching changes from (default is '0').
+ * @param customHeaders Additional request headers required by the CouchDB endpoint or its reverse proxy.
  */
 export async function fetchChangesForInitialSync(
     downloadToDB: PouchDB.Database,
@@ -360,7 +362,8 @@ export async function fetchChangesForInitialSync(
     decryptFunction: (doc: EntryDoc) => Promise<AnyEntry | EntryLeaf>,
     since: number | string = "0",
     onProgress?: (progress: FetchChangesForInitialSyncProgress) => void,
-    onCheckpoint?: (sequence: DBSequence) => void | Promise<void>
+    onCheckpoint?: (sequence: DBSequence) => void | Promise<void>,
+    customHeaders?: Record<string, string>
 ): Promise<void> {
     let totalFetched = 0;
     let totalValidFetched = 0;
@@ -373,10 +376,12 @@ export async function fetchChangesForInitialSync(
         revs: "true",
         since: since.toString(),
     } as const;
-    const fetchHeaders = {
-        Accept: "application/json",
-        Authorization: authHeader,
-    };
+    const fetchHeaders = new Headers(customHeaders);
+    fetchHeaders.set("Accept", "application/json");
+    // Credentials belong to the selected CouchDB configuration. Normalising the
+    // names through Headers prevents a differently-cased custom key from
+    // overriding them.
+    fetchHeaders.set("Authorization", authHeader);
 
     // Capture a progress target from _changes itself. This is deliberately only a
     // progress hint: a clustered row `seq` and a feed-level `last_seq` can represent
