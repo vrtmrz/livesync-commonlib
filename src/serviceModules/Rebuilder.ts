@@ -341,6 +341,7 @@ Are you sure you wish to proceed?`;
         await this.suspendReflectingDatabase(!autoResume);
         await this.control.applySettings();
         await this.resetLocalDatabase();
+        this.clearFastFetchCheckpoint();
         await delay(1000);
         await this.database.openDatabase({
             databaseEvents: this.databaseEvents,
@@ -377,6 +378,14 @@ Are you sure you wish to proceed?`;
         if (settings.remoteType !== REMOTE_COUCHDB) {
             this._log(
                 "Fast database fetch is available only for CouchDB remote. Falling back to standard fetch.",
+                LOG_LEVEL_NOTICE
+            );
+            await this.fetchLocal(false, true, autoResume);
+            return;
+        }
+        if (settings.useRequestAPI) {
+            this._log(
+                "Fast database fetch is unavailable while 'Use Internal API' is enabled. Falling back to Standard Fetch.",
                 LOG_LEVEL_NOTICE
             );
             await this.fetchLocal(false, true, autoResume);
