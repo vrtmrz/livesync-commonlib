@@ -32,6 +32,7 @@ function createRebuilder() {
         couchDB_USER: "user",
         couchDB_PASSWORD: "pass",
         couchDB_CustomHeaders: "",
+        useRequestAPI: false,
         useJWT: false,
         passphrase: "",
         E2EEAlgorithm: "",
@@ -365,6 +366,30 @@ describe("ServiceRebuilder bounded remote activity", () => {
 
         await rebuilder.$fetchLocalDBFast(false);
 
+        expect(runBoundedRemoteActivity).toHaveBeenCalledTimes(1);
+        expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
+            label: "rebuild-fetch",
+        });
+    });
+
+    it("uses Standard Fetch when the internal Request API is enabled", async () => {
+        fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
+        const { rebuilder, services, settings, runBoundedRemoteActivity } = createRebuilder();
+        settings.useRequestAPI = true;
+        settings.additionalSuffixOfDatabaseName = "app";
+        services.setting.setSmallConfig(
+            "fast-fetch-checkpoint",
+            JSON.stringify({ remote: "https://example.com/db", sequence: "10-g1" })
+        );
+
+        await rebuilder.$fetchLocalDBFast(false);
+
+        expect(fetchChangesForInitialSyncMock).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllFromRemote).toHaveBeenCalledTimes(2);
+        expect(services.setting.deleteSmallConfig).toHaveBeenCalledWith("fast-fetch-checkpoint");
+        expect(services.database.resetDatabase.mock.invocationCallOrder[0]).toBeLessThan(
+            services.setting.deleteSmallConfig.mock.invocationCallOrder[0]
+        );
         expect(runBoundedRemoteActivity).toHaveBeenCalledTimes(1);
         expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
             label: "rebuild-fetch",
