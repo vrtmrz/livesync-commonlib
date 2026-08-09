@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+## 0.1.9
+
 ### Fixed
 
 - Fast Fetch now forwards configured CouchDB custom headers to every changes-feed request, allowing reverse proxies such as Cloudflare Access to authenticate initial setup consistently with ordinary replication (PR #82). Thank you to @nimula for the contribution!
