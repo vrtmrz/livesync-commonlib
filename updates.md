@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.10
+
+### Fixed
+
+- Fast Fetch now falls back to Standard Fetch when the internal Request API is enabled, avoiding a buffered transport which cannot provide the progressive response reading or request cancellation Fast Fetch requires. Standard Fetch also discards obsolete Fast Fetch checkpoints after resetting the local database ([Self-hosted LiveSync issue #1020](https://github.com/vrtmrz/obsidian-livesync/issues/1020)).
+
 ## 0.1.9
 
 ### Fixed
