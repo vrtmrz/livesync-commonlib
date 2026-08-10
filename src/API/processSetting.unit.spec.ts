@@ -4,6 +4,19 @@ import { DEFAULT_SETTINGS } from "@lib/common/types";
 import type { RemoteConfiguration } from "@lib/common/models/setting.type";
 
 describe("QR Codec Round-Trip Test with Real Data", () => {
+    it("preserves sleep preferences in Setup URI data", () => {
+        const encoded = encodeSettingsToQRCodeData({
+            ...DEFAULT_SETTINGS,
+            allowSleepDuringSynchronisation: true,
+            allowSleepDuringSynchronisationOnDesktop: false,
+        });
+
+        const decoded = decodeSettingsFromQRCodeData(encoded);
+
+        expect(decoded.allowSleepDuringSynchronisation).toBe(true);
+        expect(decoded.allowSleepDuringSynchronisationOnDesktop).toBe(false);
+    });
+
     it("should preserve remoteConfigurations through encode/decode cycle", () => {
         // Dummy test data with remoteConfigurations
         // Note: In production, this would load from actual user settings containing multiple remoteConfigurations

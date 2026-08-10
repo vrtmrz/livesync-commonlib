@@ -59,6 +59,8 @@ describe("prepareSettingsForLoad", () => {
         expect(prepared.changed).toBe(true);
         expect(prepared.settings).toMatchObject(legacy);
         expect(prepared.settings.lessInformationInLog).toBe(SETTINGS_SCHEMA_DEFAULTS.lessInformationInLog);
+        expect(prepared.settings.allowSleepDuringSynchronisation).toBe(false);
+        expect(prepared.settings.allowSleepDuringSynchronisationOnDesktop).toBe(true);
     });
 
     it("is idempotent after the current schema has been applied", () => {
@@ -112,6 +114,8 @@ describe("prepareSettingsForLoad", () => {
         expect(NEW_VAULT_SETTINGS.usePluginSyncV2).toBe(true);
         expect(SETTINGS_SCHEMA_DEFAULTS.handleFilenameCaseSensitive).toBeUndefined();
         expect(NEW_VAULT_SETTINGS.handleFilenameCaseSensitive).toBe(false);
+        expect(SETTINGS_SCHEMA_DEFAULTS.allowSleepDuringSynchronisation).toBe(false);
+        expect(SETTINGS_SCHEMA_DEFAULTS.allowSleepDuringSynchronisationOnDesktop).toBe(true);
     });
 
     it("keeps the new-Vault differences from stored-setting fallbacks explicit and bounded", () => {

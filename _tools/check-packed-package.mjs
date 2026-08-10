@@ -135,7 +135,11 @@ await writeConsumerFile(
     type ServiceContextContract,
     type ServiceContextOptions,
 } from "${packageName}/context";
-import { DirectFileManipulator, type DirectFileManipulatorOptions } from "${packageName}";
+import {
+    DirectFileManipulator,
+    type DirectFileManipulatorOptions,
+    type DirectFileManipulatorRuntimeOptions,
+} from "${packageName}";
 import {
     createFileSystemAccessStorage,
     type CreateFileSystemAccessStorageOptions,
@@ -159,7 +163,10 @@ const contextContract: ServiceContextContract = context;
 const untranslated: string = passthroughMessageTranslator("moduleLocalDatabase.logWaitingForReady");
 const split = splitPieces2Worker(new Blob(["content"], { type: "text/plain" }), 4, false, 1);
 const directOptions = {} as DirectFileManipulatorOptions;
+const directRuntimeOptions: DirectFileManipulatorRuntimeOptions = { fetch: globalThis.fetch };
 const directType: typeof DirectFileManipulator = DirectFileManipulator;
+const createDirect = (options: DirectFileManipulatorOptions): DirectFileManipulator =>
+    new DirectFileManipulator(options, directRuntimeOptions);
 const fileSystemAccessOptions = {} as CreateFileSystemAccessStorageOptions;
 const fileSystemAccessFactory: typeof createFileSystemAccessStorage = createFileSystemAccessStorage;
 const prepared = prepareSettingsForLoad(undefined);
@@ -174,7 +181,9 @@ void contextContract;
 void untranslated;
 void split;
 void directOptions;
+void directRuntimeOptions;
 void directType;
+void createDirect;
 void fileSystemAccessOptions;
 void fileSystemAccessFactory;
 void migrationState;
@@ -272,11 +281,10 @@ void memoryIo;
 `
 );
 await writeConsumerFile(
-    "browser-services.ts",
-    `import { BrowserServiceHub } from "${packageName}/compat/services/BrowserServices";
+    "dialogue-compat.ts",
+    `import { SvelteDialogMixIn } from "${packageName}/compat/services/implements/base/SvelteDialog";
 
-(globalThis as typeof globalThis & { CommonlibBrowserServiceHub?: typeof BrowserServiceHub })
-    .CommonlibBrowserServiceHub = BrowserServiceHub;
+void SvelteDialogMixIn;
 `
 );
 await writeConsumerFile(
@@ -338,24 +346,6 @@ assert.ok(
 assert.ok(
     contextBundle.outputFiles[0].contents.length < 50_000,
     "The context bundle, including the canonical English fallback, has grown unexpectedly."
-);
-
-const browserServicesBundle = await build({
-    absWorkingDir: consumerDirectory,
-    bundle: true,
-    conditions: ["browser"],
-    entryPoints: [resolve(consumerDirectory, "browser-services.ts")],
-    external: ["crypto"],
-    format: "esm",
-    logLevel: "silent",
-    metafile: true,
-    platform: "browser",
-    write: false,
-});
-const browserServicesInputs = Object.keys(browserServicesBundle.metafile.inputs);
-assert.ok(
-    browserServicesInputs.every((path) => !path.includes("svelte")),
-    "Importing the browser service composition must not load a Svelte runtime or component."
 );
 
 const browserStorageBundle = await build({
@@ -424,7 +414,6 @@ console.log(
             packedBytes: packed.size,
             unpackedBytes: packed.unpackedSize,
             contextBundleBytes: contextBundle.outputFiles[0].contents.length,
-            browserServicesBundleBytes: browserServicesBundle.outputFiles[0].contents.length,
             browserStorageBundleBytes: browserStorageBundle.outputFiles[0].contents.length,
             workerBundleBytes: workerBundle.outputFiles[0].contents.length,
         },

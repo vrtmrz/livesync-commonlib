@@ -124,6 +124,8 @@ export const SETTINGS_SCHEMA_DEFAULTS: ObsidianLiveSyncSettings = {
     ignoreFiles: ".gitignore",
     syncOnEditorSave: false,
     keepReplicationActiveInBackground: false,
+    allowSleepDuringSynchronisation: false,
+    allowSleepDuringSynchronisationOnDesktop: true,
     pluginSyncExtendedSetting: {},
     syncMaxSizeInMB: 50,
     settingSyncFile: "",

@@ -13,6 +13,7 @@ export interface KeyValueDBDependencies<T extends ServiceContext = ServiceContex
     databaseEvents: InjectableDatabaseEventService<T>;
     vault: IVaultService;
     appLifecycle: AppLifecycleServiceBase<T>;
+    registerLifecycleHandlers?: boolean;
 }
 /**
  * The KeyValueDBService provides methods for managing the local key-value database.
@@ -119,11 +120,13 @@ export abstract class KeyValueDBService<T extends ServiceContext = ServiceContex
         this.vault = dependencies.vault;
         this.appLifecycle = dependencies.appLifecycle;
         this.openKeyValueDatabase = dependencies.openKeyValueDatabase;
-        this.databaseEvents.onResetDatabase.addHandler(this._everyOnResetDatabase.bind(this));
-        this.appLifecycle.onSettingLoaded.addHandler(this._everyOnloadAfterLoadSettings.bind(this));
-        this.databaseEvents.onDatabaseInitialisation.addHandler(this._everyOnInitializeDatabase.bind(this));
-        this.databaseEvents.onUnloadDatabase.addHandler(this._onOtherDatabaseUnload.bind(this));
-        this.databaseEvents.onCloseDatabase.addHandler(this._onOtherDatabaseClose.bind(this));
+        if (dependencies.registerLifecycleHandlers ?? true) {
+            this.databaseEvents.onResetDatabase.addHandler(this._everyOnResetDatabase.bind(this));
+            this.appLifecycle.onSettingLoaded.addHandler(this._everyOnloadAfterLoadSettings.bind(this));
+            this.databaseEvents.onDatabaseInitialisation.addHandler(this._everyOnInitializeDatabase.bind(this));
+            this.databaseEvents.onUnloadDatabase.addHandler(this._onOtherDatabaseUnload.bind(this));
+            this.databaseEvents.onCloseDatabase.addHandler(this._onOtherDatabaseClose.bind(this));
+        }
     }
 
     openSimpleStore<T>(kind: string) {

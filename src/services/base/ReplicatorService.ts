@@ -23,6 +23,7 @@ export interface ReplicatorServiceDependencies {
     appLifecycleService: AppLifecycleService;
     databaseEventService: DatabaseEventService;
     activityRunner?: AsyncActivityRunner;
+    registerLifecycleHandlers?: boolean;
 }
 /**
  * The ReplicatorService provides methods for managing replication.
@@ -49,13 +50,15 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         this.appLifecycleService = dependencies.appLifecycleService;
         this._unresolvedErrorManager = new UnresolvedErrorManager(dependencies.appLifecycleService, this.context.events);
         this.settingService = dependencies.settingService;
-        this.settingService.onRealiseSetting.addHandler(this._initialiseReplicator.bind(this));
         this.databaseEventService = dependencies.databaseEventService;
-        this.databaseEventService.onResetDatabase.addHandler(this.disposeReplicator.bind(this));
-        this.databaseEventService.onDatabaseInitialisation.addHandler(this.disposeReplicator.bind(this));
-        this.databaseEventService.onDatabaseInitialised.addHandler(this.reinitialiseReplicator.bind(this));
-        this.databaseEventService.onDatabaseHasReady.addHandler(this.reinitialiseReplicator.bind(this));
-        this.appLifecycleService.onSuspending.addHandler(this.suspendReplication.bind(this));
+        if (dependencies.registerLifecycleHandlers ?? true) {
+            this.settingService.onRealiseSetting.addHandler(this._initialiseReplicator.bind(this));
+            this.databaseEventService.onResetDatabase.addHandler(this.disposeReplicator.bind(this));
+            this.databaseEventService.onDatabaseInitialisation.addHandler(this.disposeReplicator.bind(this));
+            this.databaseEventService.onDatabaseInitialised.addHandler(this.reinitialiseReplicator.bind(this));
+            this.databaseEventService.onDatabaseHasReady.addHandler(this.reinitialiseReplicator.bind(this));
+            this.appLifecycleService.onSuspending.addHandler(this.suspendReplication.bind(this));
+        }
     }
 
     /**
@@ -178,6 +181,13 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
             // Probably we need to clear all synchronising parameters handlers
             // Note that parameters handler keeps an key-deriving salt in memory,
             // so we need to clear them when the replicator changes, to avoid potential database corruption.
+            if (!(await newReplicator.initializeDatabaseForReplication())) {
+                this._log("Failed to initialise the replicator's local node information.");
+                this._activeReplicator = undefined;
+                this._replicatorType = undefined;
+                this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
+                return false;
+            }
             if (!(await this.onReplicatorInitialised())) {
                 this._log("Failed to initialise the replicator, onReplicatorInitialised reported some problems.");
                 this._activeReplicator = undefined;

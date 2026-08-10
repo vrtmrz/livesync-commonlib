@@ -1,6 +1,6 @@
 # Self-hosted LiveSync Commonlib
 
-Commonlib is the ESM package which provides shared data, storage, replication, and host-context primitives for Self-hosted LiveSync, its CLI, Webapp, and WebPeer.
+Commonlib is the ESM package which provides shared data, storage, replication, and host-context primitives for Self-hosted LiveSync, its CLI, WebApp, WebPeer, and LiveSync Bridge.
 
 This package is primarily for maintainers of those clients and for integrations which deliberately reuse a reviewed Commonlib contract. It is not yet a general-purpose LiveSync SDK: the package does not provide a stable end-to-end client factory or own host UI, permissions, credentials, process lifecycle, or application persistence.
 
@@ -127,7 +127,7 @@ Package developers should read [the developer guide](docs/development.md). The f
 
 ## Proven in maintained hosts
 
-The package boundary is exercised by Self-hosted LiveSync's Obsidian plug-in, CLI, Webapp, and WebPeer compositions. Their validation is not uniform: the Obsidian plug-in and CLI have the strongest real-runtime and cross-host evidence, while the Webapp and WebPeer currently provide focused adapter, type-check, and build evidence.
+The package boundary is exercised by Self-hosted LiveSync's Obsidian plug-in, CLI, WebApp, and WebPeer compositions. Their validation is not uniform: the Obsidian plug-in and CLI have the strongest device and long-running synchronisation evidence, while WebApp and WebPeer have focused adapter and runtime tests, browser smoke tests, a cross-application P2P scenario ending at the production CLI, and public Pages smoke validation.
 
 See [Proven in maintained hosts](docs/proven-in-use.md) for the actual composition points, downstream tests, and remaining limits. The examples deliberately separate focused public entries which a new consumer may copy from `compat/*` imports which exist to migrate the current application.
 

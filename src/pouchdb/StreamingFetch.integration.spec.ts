@@ -33,19 +33,57 @@ const remoteDbUrlWithAuth = urlObj.toString();
 const remoteDbUrl = new URL(remoteDbName, hostname).toString();
 const authHeader = "Basic " + Buffer.from(`${username}:${password}`).toString("base64");
 
+async function recreateTwoShardRemoteDatabase(): Promise<void> {
+    const deleteResponse = await fetch(remoteDbUrl, {
+        method: "DELETE",
+        headers: { Authorization: authHeader },
+    });
+    if (!deleteResponse.ok && deleteResponse.status !== 404) {
+        throw new Error(`Could not delete the integration database: HTTP ${deleteResponse.status}.`);
+    }
+
+    const createUrl = new URL(remoteDbUrl);
+    createUrl.searchParams.set("n", "1");
+    createUrl.searchParams.set("q", "2");
+    const createResponse = await fetch(createUrl, {
+        method: "PUT",
+        headers: { Authorization: authHeader },
+    });
+    if (!createResponse.ok) {
+        throw new Error(`Could not create the integration database: HTTP ${createResponse.status}.`);
+    }
+
+    const infoResponse = await fetch(remoteDbUrl, { headers: { Authorization: authHeader } });
+    if (!infoResponse.ok) {
+        throw new Error(`Could not inspect the integration database: HTTP ${infoResponse.status}.`);
+    }
+    const info = (await infoResponse.json()) as { cluster?: { n?: number; q?: number } };
+    expect(info.cluster).toMatchObject({ n: 1, q: 2 });
+}
+
+async function expectCheckpointHasNoPendingChanges(checkpoint: string | number | undefined): Promise<void> {
+    expect(checkpoint).toBeDefined();
+    const resumeUrl = new URL(`${remoteDbUrl}/_changes`);
+    resumeUrl.searchParams.set("since", checkpoint!.toString());
+    resumeUrl.searchParams.set("feed", "normal");
+    resumeUrl.searchParams.set("limit", "1");
+    resumeUrl.searchParams.set("include_docs", "false");
+    const resumeResponse = await fetch(resumeUrl, { headers: { Authorization: authHeader } });
+    expect(resumeResponse.ok).toBe(true);
+    const resumeStatus = (await resumeResponse.json()) as { results?: unknown[]; pending?: number };
+    expect(resumeStatus.results).toEqual([]);
+    expect(resumeStatus.pending).toBe(0);
+}
+
 describe("StreamingFetch - fetchChangesForInitialSync integration", () => {
     let localDB: PouchDB.Database;
     let remoteDB: PouchDB.Database;
 
     beforeEach(async () => {
         localDB = new PouchDB("local_test_db_" + Date.now(), { adapter: "memory" });
+        await recreateTwoShardRemoteDatabase();
         remoteDB = new PouchDB(remoteDbUrlWithAuth, { adapter: "http" });
-        try {
-            await remoteDB.destroy();
-        } catch {
-            // safe to ignore
-        }
-        remoteDB = new PouchDB(remoteDbUrlWithAuth, { adapter: "http" });
+        await remoteDB.info();
     });
 
     afterEach(async () => {
@@ -61,14 +99,15 @@ describe("StreamingFetch - fetchChangesForInitialSync integration", () => {
         }
     });
 
-    it("should fetch all documents from a populated remote database", async () => {
-        // 1. Put some documents in the remote database
-        const docs = [
-            { _id: "doc1", type: "plain", data: "hello 1" },
-            { _id: "doc2", type: "plain", data: "hello 2" },
-            { _id: "doc3", type: "plain", data: "hello 3" },
-        ];
+    it("should fetch and checkpoint all documents across a batch boundary on two shards", async () => {
+        // 1. Put enough documents in the remote database to cross the 100-document batch boundary.
+        const docs = Array.from({ length: 101 }, (_, index) => ({
+            _id: `doc-${index.toString().padStart(3, "0")}`,
+            type: "plain",
+            data: `hello ${index}`,
+        }));
         await remoteDB.bulkDocs(docs);
+        const checkpoints: Array<string | number> = [];
 
         // 2. Perform streaming fetch
         await fetchChangesForInitialSync(
@@ -77,13 +116,39 @@ describe("StreamingFetch - fetchChangesForInitialSync integration", () => {
             authHeader,
             (doc) => Promise.resolve(doc as any),
             "0",
-            () => {}
+            () => {},
+            (sequence) => checkpoints.push(sequence)
         );
 
         // 3. Verify documents in local database
         const localDocs = await localDB.allDocs({ include_docs: true });
-        expect(localDocs.rows.length).toBe(3);
-        expect(localDocs.rows.map((r) => r.id).sort()).toEqual(["doc1", "doc2", "doc3"]);
+        expect(localDocs.rows.length).toBe(docs.length);
+        expect(localDocs.rows.map((row) => row.id).sort()).toEqual(docs.map((doc) => doc._id));
+        await expectCheckpointHasNoPendingChanges(checkpoints.at(-1));
+    });
+
+    it("should count a deletion tombstone as one bounded changes row", async () => {
+        await remoteDB.put({ _id: "retained-document", type: "plain", data: "keep" });
+        const deletedDocument = await remoteDB.put({ _id: "deleted-document", type: "plain", data: "remove" });
+        await remoteDB.remove("deleted-document", deletedDocument.rev);
+        const checkpoints: Array<string | number> = [];
+        const progress: Array<{ totalFetched: number; docsToFetch: number }> = [];
+
+        await fetchChangesForInitialSync(
+            localDB,
+            remoteDbUrl,
+            authHeader,
+            (doc) => Promise.resolve(doc as any),
+            "0",
+            (current) => progress.push(current),
+            (sequence) => checkpoints.push(sequence)
+        );
+
+        await expect(localDB.get("retained-document")).resolves.toMatchObject({ data: "keep" });
+        const deletedRows = await localDB.allDocs({ keys: ["deleted-document"] });
+        expect(deletedRows.rows[0]).toMatchObject({ value: { deleted: true } });
+        expect(progress.at(-1)).toMatchObject({ totalFetched: 2, docsToFetch: 2 });
+        await expectCheckpointHasNoPendingChanges(checkpoints.at(-1));
     });
 
     it("should handle empty database gracefully", async () => {
@@ -100,8 +165,7 @@ describe("StreamingFetch - fetchChangesForInitialSync integration", () => {
         await remoteDB.bulkDocs(docs);
 
         // Get the latest sequence
-        const info: any = await remoteDB.info();
-        const latestSeq = info.update_seq;
+        const latestSeq = (await remoteDB.changes({ since: "now", limit: 1 })).last_seq;
 
         // 2. Perform streaming fetch with "since" set to the latest sequence
         await fetchChangesForInitialSync(

@@ -28,7 +28,11 @@ import { shareRunningResult } from "octagonal-wheels/concurrency/lock";
 import { wrappedDeflate, wrappedInflate } from "@lib/pouchdb/compress.ts";
 import { type CheckPointInfo, CheckPointInfoDefault } from "./JournalSyncTypes.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
-import type { IJournalStorage } from "./objectstore/JournalStorageAdapter.ts";
+import {
+    JournalStorageReadStatuses,
+    type IJournalStorage,
+    type JournalStorageReadResult,
+} from "./objectstore/JournalStorageAdapter.ts";
 
 import {
     clearHandlers,
@@ -144,6 +148,24 @@ export class JournalSyncCore {
             Logger(`Could not download json ${key}`);
             Logger(ex, LOG_LEVEL_VERBOSE);
             return false;
+        }
+    }
+
+    async downloadJsonWithResult<T>(key: string): Promise<JournalStorageReadResult<T>> {
+        const result = await this.storage.downloadWithResult(key, true);
+        if (result.status !== JournalStorageReadStatuses.AVAILABLE) return result;
+        try {
+            return {
+                status: JournalStorageReadStatuses.AVAILABLE,
+                value: JSON.parse(new TextDecoder().decode(result.value)) as T,
+            };
+        } catch (ex) {
+            Logger(`Could not parse downloaded json ${key}`);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            return {
+                status: JournalStorageReadStatuses.UNAVAILABLE,
+                error: ex,
+            };
         }
     }
 

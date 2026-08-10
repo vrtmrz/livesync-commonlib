@@ -9,6 +9,8 @@ const fetchChangesForInitialSyncMock = vi.hoisted(() => vi.fn());
 
 vi.mock("@lib/pouchdb/StreamingFetch", () => ({
     fetchChangesForInitialSync: fetchChangesForInitialSyncMock,
+    isRetryableStreamingFetchFailure: (error: unknown) =>
+        Boolean((error as { retryable?: boolean } | undefined)?.retryable),
 }));
 
 vi.mock("octagonal-wheels/promises", async (importOriginal) => {
@@ -29,6 +31,8 @@ function createRebuilder() {
         couchDB_DBNAME: "db",
         couchDB_USER: "user",
         couchDB_PASSWORD: "pass",
+        couchDB_CustomHeaders: "",
+        useRequestAPI: false,
         useJWT: false,
         passphrase: "",
         E2EEAlgorithm: "",
@@ -202,7 +206,10 @@ describe("ServiceRebuilder fast fetch retry", () => {
         fetchChangesForInitialSyncMock
             .mockImplementationOnce(async (...args: any[]) => {
                 await args[6]("10-g1");
-                throw new Error("network changed");
+                throw Object.assign(new Error("network changed"), {
+                    stage: "transport",
+                    retryable: true,
+                });
             })
             .mockResolvedValueOnce(undefined);
 
@@ -214,6 +221,23 @@ describe("ServiceRebuilder fast fetch retry", () => {
         expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
             label: "fast-fetch",
         });
+    });
+
+    it("does not retry a terminal fast fetch failure or finalise the local database", async () => {
+        fetchChangesForInitialSyncMock.mockReset().mockRejectedValue(
+            Object.assign(new Error("cannot decrypt remote document"), {
+                stage: "decryption",
+                retryable: false,
+            })
+        );
+        const { rebuilder, services } = createRebuilder();
+
+        await expect(rebuilder.$fetchLocalDBFast(true)).rejects.toThrow("cannot decrypt remote document");
+
+        expect(fetchChangesForInitialSyncMock).toHaveBeenCalledOnce();
+        expect(services.replication.markResolved).not.toHaveBeenCalled();
+        expect(services.vault.scanVault).not.toHaveBeenCalled();
+        expect(services.setting.deleteSmallConfig).not.toHaveBeenCalledWith("fast-fetch-checkpoint");
     });
 
     it("keeps reflection resumption and checkpoint removal inside a successful fast-fetch activity", async () => {
@@ -230,6 +254,19 @@ describe("ServiceRebuilder fast fetch retry", () => {
         expect(services.setting.deleteSmallConfig.mock.invocationCallOrder[0]).toBeLessThan(
             activityFinished.mock.invocationCallOrder[0]
         );
+    });
+
+    it("forwards the configured CouchDB custom headers to the fast fetch", async () => {
+        fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
+        const { rebuilder, settings } = createRebuilder();
+        settings.couchDB_CustomHeaders = "CF-Access-Client-Id: client-id\nCF-Access-Client-Secret: client-secret";
+
+        await rebuilder.$fetchLocalDBFast(false);
+
+        expect(fetchChangesForInitialSyncMock.mock.calls[0][7]).toEqual({
+            "CF-Access-Client-Id": "client-id",
+            "CF-Access-Client-Secret": "client-secret",
+        });
     });
 });
 
@@ -329,6 +366,30 @@ describe("ServiceRebuilder bounded remote activity", () => {
 
         await rebuilder.$fetchLocalDBFast(false);
 
+        expect(runBoundedRemoteActivity).toHaveBeenCalledTimes(1);
+        expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
+            label: "rebuild-fetch",
+        });
+    });
+
+    it("uses Standard Fetch when the internal Request API is enabled", async () => {
+        fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
+        const { rebuilder, services, settings, runBoundedRemoteActivity } = createRebuilder();
+        settings.useRequestAPI = true;
+        settings.additionalSuffixOfDatabaseName = "app";
+        services.setting.setSmallConfig(
+            "fast-fetch-checkpoint",
+            JSON.stringify({ remote: "https://example.com/db", sequence: "10-g1" })
+        );
+
+        await rebuilder.$fetchLocalDBFast(false);
+
+        expect(fetchChangesForInitialSyncMock).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllFromRemote).toHaveBeenCalledTimes(2);
+        expect(services.setting.deleteSmallConfig).toHaveBeenCalledWith("fast-fetch-checkpoint");
+        expect(services.database.resetDatabase.mock.invocationCallOrder[0]).toBeLessThan(
+            services.setting.deleteSmallConfig.mock.invocationCallOrder[0]
+        );
         expect(runBoundedRemoteActivity).toHaveBeenCalledTimes(1);
         expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
             label: "rebuild-fetch",

@@ -20,9 +20,10 @@ import type { LiveSyncEventHub } from "@lib/hub/hub";
 import { EVENT_DATABASE_REBUILT } from "@lib/events/coreEvents";
 import { ServiceModuleBase } from "@lib/serviceModules/ServiceModuleBase";
 import type { ControlService } from "@lib/services/base/ControlService";
-import { fetchChangesForInitialSync } from "@lib/pouchdb/StreamingFetch";
+import { fetchChangesForInitialSync, isRetryableStreamingFetchFailure } from "@lib/pouchdb/StreamingFetch";
 import { getConfiguredFunctionsForEncryption } from "@lib/pouchdb/encryption";
 import { AuthorizationHeaderGenerator, generateCredentialObject } from "@lib/replication/httplib";
+import { parseHeaderValues } from "@lib/common/utils";
 import { sizeToHumanReadable } from "octagonal-wheels/number";
 
 const FAST_FETCH_CHECKPOINT_KEY = "fast-fetch-checkpoint";
@@ -340,6 +341,7 @@ Are you sure you wish to proceed?`;
         await this.suspendReflectingDatabase(!autoResume);
         await this.control.applySettings();
         await this.resetLocalDatabase();
+        this.clearFastFetchCheckpoint();
         await delay(1000);
         await this.database.openDatabase({
             databaseEvents: this.databaseEvents,
@@ -376,6 +378,14 @@ Are you sure you wish to proceed?`;
         if (settings.remoteType !== REMOTE_COUCHDB) {
             this._log(
                 "Fast database fetch is available only for CouchDB remote. Falling back to standard fetch.",
+                LOG_LEVEL_NOTICE
+            );
+            await this.fetchLocal(false, true, autoResume);
+            return;
+        }
+        if (settings.useRequestAPI) {
+            this._log(
+                "Fast database fetch is unavailable while 'Use Internal API' is enabled. Falling back to Standard Fetch.",
                 LOG_LEVEL_NOTICE
             );
             await this.fetchLocal(false, true, autoResume);
@@ -448,6 +458,7 @@ Are you sure you wish to proceed?`;
         const authHeader = await new AuthorizationHeaderGenerator().getAuthorizationHeader(
             generateCredentialObject(settings)
         );
+        const customHeaders = parseHeaderValues(settings.couchDB_CustomHeaders);
 
         for (let attempt = 0; ; attempt++) {
             try {
@@ -464,11 +475,17 @@ Are you sure you wish to proceed?`;
                             "fetch-init-progress"
                         );
                     },
-                    (sequence) => this.saveFastFetchCheckpoint(remote, sequence)
+                    (sequence) => this.saveFastFetchCheckpoint(remote, sequence),
+                    customHeaders
                 );
                 break;
             } catch (ex) {
-                if (attempt >= FAST_FETCH_RETRY_DELAYS.length) throw ex;
+                // StreamingFetch owns failure classification. Retrying only its
+                // explicitly transient transport failures prevents deterministic
+                // authentication, protocol, decryption, or storage failures from
+                // consuming the retry budget. Each retry resumes from the latest
+                // contiguous checkpoint persisted by the previous attempt.
+                if (!isRetryableStreamingFetchFailure(ex) || attempt >= FAST_FETCH_RETRY_DELAYS.length) throw ex;
                 checkpoint = this.getFastFetchCheckpoint(remote);
                 since = checkpoint?.sequence ?? since;
                 this._log(

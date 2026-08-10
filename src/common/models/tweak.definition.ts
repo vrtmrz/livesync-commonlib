@@ -88,3 +88,38 @@ export const TweakValuesTemplate = {
 export type TweakValues = Partial<typeof TweakValuesTemplate>;
 
 export const DEVICE_ID_PREFERRED = "PREFERRED";
+
+export const RemotePreferredTweakStatuses = {
+    AVAILABLE: "available",
+    NOT_CONFIGURED: "not-configured",
+    UNAVAILABLE: "unavailable",
+    UNSUPPORTED: "unsupported",
+} as const;
+
+export type RemotePreferredTweakStatus =
+    (typeof RemotePreferredTweakStatuses)[keyof typeof RemotePreferredTweakStatuses];
+
+export const RemotePreferredTweakNotConfiguredReasons = {
+    MILESTONE_MISSING: "milestone-missing",
+    PREFERRED_VALUES_MISSING: "preferred-values-missing",
+} as const;
+
+export type RemotePreferredTweakNotConfiguredReason =
+    (typeof RemotePreferredTweakNotConfiguredReasons)[keyof typeof RemotePreferredTweakNotConfiguredReasons];
+
+export type RemotePreferredTweakResult =
+    | {
+          status: typeof RemotePreferredTweakStatuses.AVAILABLE;
+          values: TweakValues;
+      }
+    | {
+          status: typeof RemotePreferredTweakStatuses.NOT_CONFIGURED;
+          reason: RemotePreferredTweakNotConfiguredReason;
+      }
+    | {
+          status: typeof RemotePreferredTweakStatuses.UNAVAILABLE;
+          error: unknown;
+      }
+    | {
+          status: typeof RemotePreferredTweakStatuses.UNSUPPORTED;
+      };

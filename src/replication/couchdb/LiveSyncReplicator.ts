@@ -23,6 +23,9 @@ import {
     ProtocolVersions,
     type NodeData,
     type DeviceInfo,
+    RemotePreferredTweakNotConfiguredReasons,
+    type RemotePreferredTweakResult,
+    RemotePreferredTweakStatuses,
 } from "@lib/common/types.ts";
 import {
     resolveWithIgnoreKnownError,
@@ -35,6 +38,7 @@ import {
 } from "@lib/common/utils.ts";
 import { Logger } from "@lib/common/logger.ts";
 import { checkRemoteVersion, countCompromisedChunks } from "@lib/pouchdb/negotiation.ts";
+import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import { preprocessOutgoing } from "@lib/pouchdb/encryption.ts";
 
 import { ensureDatabaseIsCompatible } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
@@ -137,11 +141,6 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     constructor(env: LiveSyncCouchDBReplicatorEnv) {
         super(env);
         this.env = env;
-        // initialize local node information.
-        void this.initializeDatabaseForReplication();
-        this.rawDatabase.on("close", () => {
-            this.closeReplication();
-        });
     }
 
     getInitialSyncParameters(setting: RemoteDBSettings): Promise<SyncParameters> {
@@ -211,7 +210,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         showResult: boolean,
         ignoreCleanLock: boolean
     ) {
-        await this.initializeDatabaseForReplication();
+        if (!(await this.initializeDatabaseForReplication())) {
+            return false;
+        }
         if (keepAlive) {
             void this.openContinuousReplication(setting, showResult, false);
         } else {
@@ -769,6 +770,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         return await next();
     }
 
+    // One-shot attempts own their temporary remote handle. Continuous replication
+    // keeps its handle until the replication controller terminates it.
     private async closeRemoteDatabase(db: PouchDB.Database<EntryDoc>) {
         try {
             await db.close();
@@ -813,6 +816,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             );
             return false;
         }
+        // Keep ownership here until the fully checked connection is returned.
         let ownershipTransferred = false;
         try {
             if (!skipCheck) {
@@ -1221,24 +1225,21 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return false;
         }
         const remoteChunks = await ret.db.allDocs({ keys: missingChunks, include_docs: true });
-        if (remoteChunks.rows.some((e) => "error" in e)) {
+        const errorRows = remoteChunks.rows.filter((e) => "error" in e);
+        if (errorRows.length > 0) {
             Logger(
-                `Some chunks are not exists both on remote and local database.`,
+                `Some requested chunks were not found in the remote database.`,
                 showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
                 "fetch"
             );
-            Logger(`Missing chunks: ${missingChunks.join(",")}`, LOG_LEVEL_VERBOSE);
-            Logger(
-                `Error chunks: ${remoteChunks.rows
-                    .filter((e) => "error" in e)
-                    .map((e) => (e as { key?: string }).key)
-                    .join(",")}`,
-                LOG_LEVEL_VERBOSE
-            );
-            return false;
+            Logger(`Requested chunks: ${missingChunks.join(",")}`, LOG_LEVEL_VERBOSE);
+            Logger(`Error chunks: ${errorRows.map((e) => (e as { key?: string }).key).join(",")}`, LOG_LEVEL_VERBOSE);
         }
 
-        const remoteChunkItems = remoteChunks.rows.map((e) => (e as { doc?: EntryLeaf }).doc as EntryLeaf);
+        const remoteChunkItems = remoteChunks.rows
+            .filter((e) => !("error" in e))
+            .map((e) => (e as { doc?: EntryLeaf }).doc)
+            .filter((e): e is EntryLeaf => e !== undefined);
         return remoteChunkItems;
     }
 
@@ -1313,29 +1314,78 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
     }
 
-    async getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<TweakValues | false> {
+    async getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<RemotePreferredTweakResult> {
         const uri =
             setting.couchDB_URI.replace(/\/+$/, "") +
             (setting.couchDB_DBNAME == "" ? "" : "/" + setting.couchDB_DBNAME);
-        const dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
+        let dbRet: Awaited<ReturnType<typeof this.connectRemoteCouchDBWithSetting>>;
+        try {
+            dbRet = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
+        } catch (ex) {
+            Logger(`Could not connect to the remote database`, LOG_LEVEL_NOTICE);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            return {
+                status: RemotePreferredTweakStatuses.UNAVAILABLE,
+                error: ex,
+            };
+        }
         if (typeof dbRet === "string") {
             Logger(this.translate("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
-            return false;
+            return {
+                status: RemotePreferredTweakStatuses.UNAVAILABLE,
+                error: new Error(dbRet),
+            };
         }
-        if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
-            Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
-            return false;
+        try {
+            if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
+                const error = new Error("The remote database version is not compatible");
+                Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
+                return {
+                    status: RemotePreferredTweakStatuses.UNAVAILABLE,
+                    error,
+                };
+            }
+        } catch (ex) {
+            Logger(`Could not check the remote database version`, LOG_LEVEL_NOTICE);
+            Logger(ex, LOG_LEVEL_VERBOSE);
+            return {
+                status: RemotePreferredTweakStatuses.UNAVAILABLE,
+                error: ex,
+            };
         }
-        // check local database hash status and remote replicate hash status
+
         try {
             const remoteMilestone = (await dbRet.db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
-            if (!remoteMilestone) throw new Error("Remote milestone not found");
-            return remoteMilestone?.tweak_values?.[DEVICE_ID_PREFERRED] || false;
+            if (!remoteMilestone) {
+                return {
+                    status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
+                    reason: RemotePreferredTweakNotConfiguredReasons.MILESTONE_MISSING,
+                };
+            }
+            const preferred = remoteMilestone.tweak_values?.[DEVICE_ID_PREFERRED];
+            if (!preferred) {
+                return {
+                    status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
+                    reason: RemotePreferredTweakNotConfiguredReasons.PREFERRED_VALUES_MISSING,
+                };
+            }
+            return {
+                status: RemotePreferredTweakStatuses.AVAILABLE,
+                values: preferred,
+            };
         } catch (ex) {
-            // While trying unlocking and not exist on the remote, it is not normal.
+            if (isErrorOfMissingDoc(ex)) {
+                return {
+                    status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
+                    reason: RemotePreferredTweakNotConfiguredReasons.MILESTONE_MISSING,
+                };
+            }
             Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
             Logger(ex, LOG_LEVEL_VERBOSE);
-            return false;
+            return {
+                status: RemotePreferredTweakStatuses.UNAVAILABLE,
+                error: ex,
+            };
         }
     }
 
