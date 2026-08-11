@@ -218,15 +218,25 @@ function generatePouchDBBatchWriter(
     return {
         async write(doc: EntryDoc, sequence: DBSequence) {
             let decryptedDoc: AnyEntry | EntryLeaf;
-            try {
-                decryptedDoc = await decryptFunction(doc);
-            } catch (error) {
-                throw new StreamingFetchFailure(
-                    "decryption",
-                    `Fast Fetch could not decrypt a document: ${errorMessage(error)}`,
-                    false,
-                    { cause: error }
-                );
+            if (doc._deleted) {
+                // A deletion tombstone carries no encrypted payload to decrypt.
+                // Pass it through unchanged so the local database records the
+                // deletion. Some decryption implementations require a path on
+                // obfuscated entries (f: ids) and throw for tombstones, which
+                // would otherwise abort the whole fetch at the first deleted
+                // document in the feed.
+                decryptedDoc = doc as unknown as AnyEntry;
+            } else {
+                try {
+                    decryptedDoc = await decryptFunction(doc);
+                } catch (error) {
+                    throw new StreamingFetchFailure(
+                        "decryption",
+                        `Fast Fetch could not decrypt a document: ${errorMessage(error)}`,
+                        false,
+                        { cause: error }
+                    );
+                }
             }
 
             let serialisedDoc: string;

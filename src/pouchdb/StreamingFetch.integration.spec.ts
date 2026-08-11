@@ -151,6 +151,39 @@ describe("StreamingFetch - fetchChangesForInitialSync integration", () => {
         await expectCheckpointHasNoPendingChanges(checkpoints.at(-1));
     });
 
+    it("should tolerate a tombstone whose id is an obfuscated entry", async () => {
+        await remoteDB.put({ _id: "f:retained-file", type: "file", path: "notes/keep.md", data: "keep" });
+        const deletedFile = await remoteDB.put({ _id: "f:deleted-file", type: "file", path: "notes/remove.md", data: "remove" });
+        await remoteDB.remove("f:deleted-file", deletedFile.rev);
+        const checkpoints: Array<string | number> = [];
+
+        // Mimic the E2EE decryption contract: obfuscated entries (f: ids) must
+        // carry a path to decrypt. A tombstone has no path, so a real
+        // implementation throws for it. The fetch must still complete and
+        // record the deletion instead of aborting at the tombstone.
+        const decryptFunction = (doc: any) => {
+            if (doc._id.startsWith("f:") && doc.path === undefined) {
+                return Promise.reject(new Error("Entry has been obfuscated!"));
+            }
+            return Promise.resolve(doc);
+        };
+
+        await fetchChangesForInitialSync(
+            localDB,
+            remoteDbUrl,
+            authHeader,
+            decryptFunction,
+            "0",
+            () => {},
+            (sequence) => checkpoints.push(sequence)
+        );
+
+        await expect(localDB.get("f:retained-file")).resolves.toMatchObject({ path: "notes/keep.md" });
+        const deletedRows = await localDB.allDocs({ keys: ["f:deleted-file"] });
+        expect(deletedRows.rows[0]).toMatchObject({ value: { deleted: true } });
+        await expectCheckpointHasNoPendingChanges(checkpoints.at(-1));
+    });
+
     it("should handle empty database gracefully", async () => {
         // Perform streaming fetch on empty database
         await fetchChangesForInitialSync(localDB, remoteDbUrl, authHeader, (doc) => Promise.resolve(doc as any), "0");
