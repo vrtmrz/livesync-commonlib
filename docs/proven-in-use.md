@@ -22,6 +22,8 @@ Commonlib's injected CouchDB tests verify that a mixed remote chunk batch preser
 
 Commonlib's remote-preference result contract distinguishes available synchronisation settings, a remote which has not stored those settings yet, a failed read, and a remote type which does not support central preferences. Focused CouchDB and Object Storage tests cover absent milestone data separately from transport failures, while Self-hosted LiveSync owns the initialisation choices, cancellation policy, and user-facing explanation.
 
+Commonlib's full offline scanner distinguishes completed, deliberately skipped, and failed storage/database pairs. It continues processing after individual failures, returns a failed aggregate only for actual failures, and records a database mtime as local provenance only after database content has been reflected successfully. Self-hosted LiveSync consumes the aggregate directly during Fast Setup, where an actual reflection failure reaches the host-owned recovery choice without treating conflict or size-policy skips as failures.
+
 Most replication and storage services used by the plug-in still enter through explicit `compat/*` paths. Those imports prove that the published compatibility boundary supports the current migration; they are not examples of a finished high-level client API.
 
 The plug-in's manual onboarding and Remote Databases pane use the focused `/remote-configurations` entry to create opaque profile IDs, retain user-visible names, and select main and P2P remotes. Commonlib owns the in-memory profile result contract; Self-hosted LiveSync adds dialogue, Setup URI classification, Fetch or Rebuild scheduling, persistence, restart ordering, and real-Obsidian presentation checks.
@@ -37,6 +39,8 @@ The CLI extends the same neutral context with its database path and injected `St
 The CLI filesystem composition receives a configured base directory and constructs the rooted Node storage adapter in `src/apps/cli/adapters/NodeFileSystemAdapter.ts`. Commonlib's shared storage result table checks the focused root contract; the consumer adds its file cache, Vault-shaped operations, case handling, and command policy.
 
 The maintained CLI checks include unit tests, Deno-driven CLI E2E, Compose-based compatibility runs, and the CLI-to-real-Obsidian synchronisation scenario in `test/e2e-obsidian/scripts/cli-to-obsidian-sync.ts`. The latter is the strongest current evidence that the CLI and plug-in compose compatible Commonlib behaviour across two hosts.
+
+The CLI mirror command returns Commonlib's full-scan aggregate, and daemon start-up stops when that aggregate reports an actual pair failure. Deliberately skipped pairs remain a successful scan result. Commonlib owns the pair classification and aggregate; the CLI owns its command and process policy.
 
 ## WebApp
 

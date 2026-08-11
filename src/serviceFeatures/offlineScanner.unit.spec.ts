@@ -4,6 +4,7 @@ import {
     collectDeletedFiles,
     ExtraOnLocal,
     ExtraOnRemote,
+    FilePairProcessResults,
     FullScanModes,
     normaliseFullScanOptions,
     getFilePairState,
@@ -626,7 +627,9 @@ describe("updateToDatabase", () => {
             stat: { size: 100 },
         } as UXFileInfoStub;
 
-        await updateToDatabase(host, logger, LOG_LEVEL_INFO, file);
+        await expect(updateToDatabase(host, logger, LOG_LEVEL_INFO, file)).resolves.toBe(
+            FilePairProcessResults.COMPLETED
+        );
 
         expect(storeFileToDBMock).toHaveBeenCalledWith(file);
     });
@@ -653,7 +656,9 @@ describe("updateToDatabase", () => {
             stat: { size: 999999999 },
         } as UXFileInfoStub;
 
-        await updateToDatabase(host, logger, LOG_LEVEL_INFO, file);
+        await expect(updateToDatabase(host, logger, LOG_LEVEL_INFO, file)).resolves.toBe(
+            FilePairProcessResults.SKIPPED
+        );
 
         expect(storeFileToDBMock).not.toHaveBeenCalled();
     });
@@ -695,7 +700,9 @@ describe("updateToStorage", () => {
             _deleted: false,
         } as MetaEntry;
 
-        await updateToStorage(host, logger, LOG_LEVEL_INFO, doc);
+        await expect(updateToStorage(host, logger, LOG_LEVEL_INFO, doc)).resolves.toBe(
+            FilePairProcessResults.COMPLETED
+        );
 
         expect(dbToStorageMock).toHaveBeenCalledWith("test.md", null, true);
     });
@@ -728,7 +735,9 @@ describe("updateToStorage", () => {
             deleted: true,
         } as MetaEntry;
 
-        await updateToStorage(host, logger, LOG_LEVEL_INFO, doc);
+        await expect(updateToStorage(host, logger, LOG_LEVEL_INFO, doc)).resolves.toBe(
+            FilePairProcessResults.SKIPPED
+        );
 
         expect(dbToStorageMock).not.toHaveBeenCalled();
     });
@@ -762,7 +771,9 @@ describe("updateToStorage", () => {
             _conflicts: ["conflict1"],
         } as MetaEntry;
 
-        await updateToStorage(host, logger, LOG_LEVEL_INFO, doc);
+        await expect(updateToStorage(host, logger, LOG_LEVEL_INFO, doc)).resolves.toBe(
+            FilePairProcessResults.SKIPPED
+        );
 
         expect(dbToStorageMock).not.toHaveBeenCalled();
     });
@@ -817,7 +828,9 @@ describe("syncFileBetweenDBandStorage", () => {
             size: 90,
         } as MetaEntry;
 
-        await syncFileBetweenDBandStorage(host, logger, file, doc);
+        await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).resolves.toBe(
+            FilePairProcessResults.COMPLETED
+        );
 
         expect(storeFileToDBMock).toHaveBeenCalled();
     });
@@ -864,7 +877,9 @@ describe("syncFileBetweenDBandStorage", () => {
             size: 100,
         } as MetaEntry;
 
-        await syncFileBetweenDBandStorage(host, logger, file, doc);
+        await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).resolves.toBe(
+            FilePairProcessResults.COMPLETED
+        );
 
         expect(dbToStorageMock).toHaveBeenCalledWith(doc, "test.md", false);
     });
@@ -913,7 +928,9 @@ describe("syncFileBetweenDBandStorage", () => {
             size: 100,
         } as MetaEntry;
 
-        await syncFileBetweenDBandStorage(host, logger, file, doc);
+        await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).resolves.toBe(
+            FilePairProcessResults.COMPLETED
+        );
 
         expect(storeFileToDBMock).not.toHaveBeenCalled();
         expect(dbToStorageMock).not.toHaveBeenCalled();
@@ -998,7 +1015,9 @@ describe("syncFileBetweenDBandStorage", () => {
             path: "test.md",
             size: 100,
         } as MetaEntry;
-        await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).resolves.toBeUndefined();
+        await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).resolves.toBe(
+            FilePairProcessResults.COMPLETED
+        );
         expect(compareFileFreshnessMock).toHaveBeenCalledWith(file, doc);
     });
     it("should handle if storage file is too large", async () => {
@@ -1043,7 +1062,9 @@ describe("syncFileBetweenDBandStorage", () => {
             path: "test.md",
             size: 100,
         } as MetaEntry;
-        await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).resolves.not.toThrow();
+        await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).resolves.toBe(
+            FilePairProcessResults.SKIPPED
+        );
         expect(storeFileToDBMock).not.toHaveBeenCalled();
         expect(dbToStorageMock).not.toHaveBeenCalled();
     });
@@ -1089,7 +1110,9 @@ describe("syncFileBetweenDBandStorage", () => {
             path: "test.md",
             size: 100,
         } as MetaEntry;
-        await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).resolves.not.toThrow();
+        await expect(syncFileBetweenDBandStorage(host, logger, file, doc)).resolves.toBe(
+            FilePairProcessResults.SKIPPED
+        );
         expect(storeFileToDBMock).not.toHaveBeenCalled();
         expect(dbToStorageMock).not.toHaveBeenCalled();
     });
@@ -1126,7 +1149,9 @@ describe("syncStorageAndDatabase", () => {
         } as MetaEntry;
 
         const xLogger = vi.fn(logger);
-        await syncStorageAndDatabase(host, xLogger, file, LOG_LEVEL_INFO, doc);
+        await expect(syncStorageAndDatabase(host, xLogger, file, LOG_LEVEL_INFO, doc)).resolves.toBe(
+            FilePairProcessResults.SKIPPED
+        );
         expect(xLogger).toHaveBeenCalledWith(expect.stringContaining("has conflicts."), LOG_LEVEL_INFO);
     });
 
@@ -1158,7 +1183,9 @@ describe("syncStorageAndDatabase", () => {
             size: 9999,
         } as MetaEntry;
 
-        await syncStorageAndDatabase(host, logger, file, LOG_LEVEL_INFO, doc);
+        await expect(syncStorageAndDatabase(host, logger, file, LOG_LEVEL_INFO, doc)).resolves.toBe(
+            FilePairProcessResults.SKIPPED
+        );
 
         // expect(syncMock).not.toHaveBeenCalled();
     });
@@ -1199,7 +1226,9 @@ describe("syncStorageAndDatabase", () => {
         } as MetaEntry;
 
         const xLogger = vi.fn(logger);
-        await syncStorageAndDatabase(host, xLogger, file, LOG_LEVEL_INFO, doc);
+        await expect(syncStorageAndDatabase(host, xLogger, file, LOG_LEVEL_INFO, doc)).resolves.toBe(
+            FilePairProcessResults.COMPLETED
+        );
         expect(xLogger).toHaveBeenCalledWith(expect.stringContaining("STORAGE == DB :"), LOG_LEVEL_DEBUG);
         expect(syncMock).not.toHaveBeenCalled();
     });
@@ -1605,14 +1634,184 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+        const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
             mode: FullScanModes.NEWER_WINS,
         });
 
+        expect(result).toBe(true);
         expect(storeFileToDBMock).toHaveBeenCalledTimes(1);
         expect(storeFileToDBMock).toHaveBeenCalledWith(expect.objectContaining({ path: "both-normal.md" }));
         expect(storeFileToDBMock).not.toHaveBeenCalledWith(expect.objectContaining({ path: "storage-too-large.md" }));
         expect(dbToStorageMock).not.toHaveBeenCalledWith("db-too-large.md", null, true);
+    });
+
+    it("should not record an oversized database-only entry as a reflected local file", async () => {
+        vi.useFakeTimers();
+        let sizeLimitActive = true;
+        let persistedFileStatus: Record<string, number> = {};
+        const dbToStorageMock = vi.fn().mockResolvedValue(true);
+        const deleteFileFromDBMock = vi.fn().mockResolvedValue(true);
+
+        async function* mockFindAllNormalDocs() {
+            yield {
+                _id: "d1",
+                path: "oversized.md",
+                size: 5000,
+                mtime: 10000,
+                type: "newnote",
+                children: [],
+            };
+        }
+
+        const host = {
+            services: {
+                context: createServiceContext(),
+                setting: {
+                    currentSettings: () => ({
+                        handleFilenameCaseSensitive: true,
+                    }),
+                },
+                vault: {
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                    isValidPath: vi.fn().mockReturnValue(true),
+                    isFileSizeTooLarge: vi.fn((size: number) => sizeLimitActive && size > 1000),
+                },
+                path: {
+                    getPath: vi.fn((doc: any) => doc.path),
+                },
+                fileProcessing: {},
+                database: {
+                    localDatabase: {
+                        findAllNormalDocs: vi.fn().mockImplementation(() => mockFindAllNormalDocs()),
+                    },
+                },
+                keyValueDB: {
+                    kvDB: {
+                        get: vi.fn().mockImplementation(async () => ({ ...persistedFileStatus })),
+                        set: vi.fn().mockImplementation(async (key: string, value: Record<string, number>) => {
+                            if (key === "fileStatusMap") persistedFileStatus = { ...value };
+                        }),
+                    },
+                },
+            },
+            serviceModules: {
+                storageAccess: {
+                    getFiles: vi.fn().mockResolvedValue([]),
+                    delete: vi.fn(),
+                },
+                fileHandler: {
+                    dbToStorage: dbToStorageMock,
+                    storeFileToDB: vi.fn(),
+                    deleteFileFromDB: deleteFileFromDBMock,
+                },
+            },
+        } as any;
+
+        try {
+            const firstResult = await synchroniseAllFilesBetweenDBandStorage(
+                host,
+                logger,
+                {} as any,
+                { mode: FullScanModes.DB_APPLY }
+            );
+            await vi.runAllTimersAsync();
+            const persistedAfterSkip = { ...persistedFileStatus };
+
+            sizeLimitActive = false;
+            const secondResult = await synchroniseAllFilesBetweenDBandStorage(
+                host,
+                logger,
+                {} as any,
+                { mode: FullScanModes.NEWER_WINS }
+            );
+
+            expect(firstResult).toBe(true);
+            expect(secondResult).toBe(true);
+            expect(persistedAfterSkip).not.toHaveProperty("oversized.md");
+            expect(dbToStorageMock).toHaveBeenCalledTimes(1);
+            expect(deleteFileFromDBMock).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("should fail when a newer database entry cannot replace an existing storage file", async () => {
+        vi.useFakeTimers();
+        let persistedFileStatus: Record<string, number> = {};
+        const eventMock = vi.fn();
+        const dbToStorageMock = vi.fn().mockResolvedValue(false);
+        const storageFile = { path: "both.md", stat: { size: 100, mtime: 5000 } };
+
+        async function* mockFindAllNormalDocs() {
+            yield {
+                _id: "d1",
+                path: "both.md",
+                size: 100,
+                mtime: 10000,
+                type: "newnote",
+                children: [],
+            };
+        }
+
+        const host = {
+            services: {
+                context: { events: { emitEvent: eventMock } },
+                setting: {
+                    currentSettings: () => ({
+                        handleFilenameCaseSensitive: true,
+                    }),
+                },
+                vault: {
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                    isValidPath: vi.fn().mockReturnValue(true),
+                    isFileSizeTooLarge: vi.fn().mockReturnValue(false),
+                },
+                path: {
+                    getPath: vi.fn((doc: any) => doc.path),
+                    compareFileFreshness: vi.fn().mockReturnValue(TARGET_IS_NEW),
+                },
+                fileProcessing: {},
+                database: {
+                    localDatabase: {
+                        findAllNormalDocs: vi.fn().mockImplementation(() => mockFindAllNormalDocs()),
+                    },
+                },
+                keyValueDB: {
+                    kvDB: {
+                        get: vi.fn().mockImplementation(async () => ({ ...persistedFileStatus })),
+                        set: vi.fn().mockImplementation(async (key: string, value: Record<string, number>) => {
+                            if (key === "fileStatusMap") persistedFileStatus = { ...value };
+                        }),
+                    },
+                },
+            },
+            serviceModules: {
+                storageAccess: {
+                    getFiles: vi.fn().mockResolvedValue([storageFile]),
+                    getFileStub: vi.fn().mockResolvedValue(storageFile),
+                    delete: vi.fn(),
+                },
+                fileHandler: {
+                    dbToStorage: dbToStorageMock,
+                    storeFileToDB: vi.fn(),
+                    deleteFileFromDB: vi.fn(),
+                },
+            },
+        } as any;
+
+        try {
+            const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+                mode: FullScanModes.NEWER_WINS,
+            });
+            await vi.runAllTimersAsync();
+
+            expect(result).toBe(false);
+            expect(persistedFileStatus).toEqual({ "both.md": 5000 });
+            expect(eventMock).not.toHaveBeenCalled();
+            expect(dbToStorageMock).toHaveBeenCalledWith(expect.objectContaining({ path: "both.md" }), "both.md", false);
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it("should treat db-only entry as offline local deletion when last seen mtime is newer", async () => {
@@ -1673,6 +1872,101 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
         expect(dbToStorageMock).not.toHaveBeenCalled();
     });
 
+    it("should retry a failed database reflection instead of persisting it as a local deletion", async () => {
+        vi.useFakeTimers();
+        let persistedFileStatus: Record<string, number> = {};
+        const dbToStorageMock = vi.fn().mockResolvedValue(false);
+        const deleteFileFromDBMock = vi.fn().mockResolvedValue(true);
+        const eventMock = vi.fn();
+        const logSpy = vi.fn();
+
+        async function* mockFindAllNormalDocs() {
+            yield {
+                _id: "d1",
+                path: "missing.md",
+                size: 100,
+                mtime: 10000,
+                type: "newnote",
+                children: [],
+            };
+        }
+
+        const host = {
+            services: {
+                context: { events: { emitEvent: eventMock } },
+                setting: {
+                    currentSettings: () => ({
+                        handleFilenameCaseSensitive: true,
+                    }),
+                },
+                vault: {
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                    isValidPath: vi.fn().mockReturnValue(true),
+                    isFileSizeTooLarge: vi.fn().mockReturnValue(false),
+                },
+                path: {
+                    getPath: vi.fn((doc: any) => doc.path),
+                },
+                fileProcessing: {},
+                database: {
+                    localDatabase: {
+                        findAllNormalDocs: vi.fn().mockImplementation(() => mockFindAllNormalDocs()),
+                    },
+                },
+                keyValueDB: {
+                    kvDB: {
+                        get: vi.fn().mockImplementation(async () => ({ ...persistedFileStatus })),
+                        set: vi.fn().mockImplementation(async (key: string, value: Record<string, number>) => {
+                            if (key === "fileStatusMap") persistedFileStatus = { ...value };
+                        }),
+                    },
+                },
+            },
+            serviceModules: {
+                storageAccess: {
+                    getFiles: vi.fn().mockResolvedValue([]),
+                    delete: vi.fn(),
+                },
+                fileHandler: {
+                    dbToStorage: dbToStorageMock,
+                    storeFileToDB: vi.fn(),
+                    deleteFileFromDB: deleteFileFromDBMock,
+                },
+            },
+        } as any;
+
+        try {
+            const firstResult = await synchroniseAllFilesBetweenDBandStorage(
+                host,
+                logSpy as unknown as LogFunction,
+                {} as any,
+                { mode: FullScanModes.DB_APPLY }
+            );
+            await vi.runAllTimersAsync();
+            const persistedAfterFailedReflection = { ...persistedFileStatus };
+
+            const secondResult = await synchroniseAllFilesBetweenDBandStorage(
+                host,
+                logSpy as unknown as LogFunction,
+                {} as any,
+                { mode: FullScanModes.NEWER_WINS }
+            );
+            await vi.runAllTimersAsync();
+
+            expect(firstResult).toBe(false);
+            expect(secondResult).toBe(false);
+            expect(persistedAfterFailedReflection).not.toHaveProperty("missing.md");
+            expect(dbToStorageMock).toHaveBeenCalledTimes(2);
+            expect(deleteFileFromDBMock).not.toHaveBeenCalled();
+            expect(eventMock).not.toHaveBeenCalled();
+            expect(
+                logSpy.mock.calls.some(([message]) => String(message).includes("Check or pull from db:missing.md OK"))
+            ).toBe(false);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("should keep the last-seen record when the database delete reports nothing was deleted", async () => {
         // Regression guard: when deleteFileFromDB returns false (nothing was
         // tombstoned), the delete-db path must not clear the file's last-seen
@@ -1729,10 +2023,11 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        await synchroniseAllFilesBetweenDBandStorage(host, logSpy as unknown as LogFunction, {} as any, {
+        const result = await synchroniseAllFilesBetweenDBandStorage(host, logSpy as unknown as LogFunction, {} as any, {
             mode: FullScanModes.NEWER_WINS,
         });
 
+        expect(result).toBe(false);
         expect(deleteFileFromDBMock).toHaveBeenCalledWith("gone.md");
         // The no-op delete must be reported rather than silently dropping the record.
         expect(logSpy).toHaveBeenCalledWith(expect.stringContaining("keeping last-seen record"), LOG_LEVEL_NOTICE);
@@ -2050,6 +2345,82 @@ describe("performFullScan", () => {
 
         expect(result).toBe(true);
         expect(host.serviceModules.storageAccess.restoreState).toHaveBeenCalled();
+    });
+
+    it("should return false after completing a scan which contains a failed reflection", async () => {
+        const errorManager = {
+            showError: vi.fn(),
+            clearError: vi.fn(),
+        };
+
+        async function* mockFindAllDocs() {
+            // Empty
+        }
+
+        async function* mockFindAllNormalDocs() {
+            yield {
+                _id: "doc1",
+                path: "missing.md",
+                size: 100,
+                mtime: 10000,
+                type: "newnote",
+                children: [],
+            };
+        }
+
+        const host = {
+            services: {
+                context: createServiceContext(),
+                setting: {
+                    currentSettings: () => ({
+                        isConfigured: true,
+                        suspendFileWatching: false,
+                        maxMTimeForReflectEvents: 0,
+                        handleFilenameCaseSensitive: true,
+                        automaticallyDeleteMetadataOfDeletedFiles: 0,
+                    }),
+                },
+                keyValueDB: {
+                    kvDB: {
+                        get: vi.fn().mockImplementation(async (key: string) => (key === "initialized" ? false : {})),
+                        set: vi.fn(),
+                    },
+                },
+                vault: {
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                    isValidPath: vi.fn().mockReturnValue(true),
+                    isFileSizeTooLarge: vi.fn().mockReturnValue(false),
+                },
+                database: {
+                    localDatabase: {
+                        findAllDocs: vi.fn().mockReturnValue(mockFindAllDocs()),
+                        findAllNormalDocs: vi.fn().mockReturnValue(mockFindAllNormalDocs()),
+                        isReady: true,
+                    },
+                },
+                path: {
+                    getPath: vi.fn((doc: any) => doc.path),
+                },
+                fileProcessing: {},
+            },
+            serviceModules: {
+                storageAccess: {
+                    getFiles: vi.fn().mockResolvedValue([]),
+                    restoreState: vi.fn(),
+                },
+                fileHandler: {
+                    storeFileToDB: vi.fn(),
+                    dbToStorage: vi.fn().mockResolvedValue(false),
+                },
+            },
+        } as any;
+
+        const result = await performFullScan(host, logger, errorManager as any, {
+            mode: FullScanModes.DB_APPLY,
+        });
+
+        expect(result).toBe(false);
+        expect(host.services.keyValueDB.kvDB.set).toHaveBeenCalledWith("initialized", true);
     });
 });
 
