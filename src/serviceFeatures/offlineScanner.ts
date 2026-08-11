@@ -25,6 +25,21 @@ import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManage
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 
 /**
+ * Outcome of processing one storage/database pair during an offline scan.
+ *
+ * A skipped pair is intentionally left unchanged by scanner policy. It is not
+ * a scan failure, but it must not receive success side effects which would
+ * claim that database content was reflected to storage.
+ */
+export const FilePairProcessResults = {
+    COMPLETED: "completed",
+    SKIPPED: "skipped",
+    FAILED: "failed",
+} as const;
+
+export type FilePairProcessResult = (typeof FilePairProcessResults)[keyof typeof FilePairProcessResults];
+
+/**
  * Collect deleted files that have expired according to retention policy.
  * @param host Services container
  * @param log Logging function
@@ -93,7 +108,7 @@ export async function syncFileBetweenDBandStorage(
     log: LogFunction,
     file: UXFileInfoStub,
     doc: MetaEntry
-): Promise<void> {
+): Promise<FilePairProcessResult> {
     const docPath = getPathFromEntry(host, doc);
     if (!doc) {
         throw new Error(`Missing doc:${docPath}`);
@@ -106,13 +121,14 @@ export async function syncFileBetweenDBandStorage(
             if (!host.services.vault.isFileSizeTooLarge(file.stat.size)) {
                 log("STORAGE -> DB :" + file.path);
                 await host.serviceModules.fileHandler.storeFileToDB(file);
+                return FilePairProcessResults.COMPLETED;
             } else {
                 log(
                     `STORAGE -> DB : ${file.path} has been skipped due to file size exceeding the limit`,
                     LOG_LEVEL_NOTICE
                 );
+                return FilePairProcessResults.SKIPPED;
             }
-            break;
         case TARGET_IS_NEW:
             if (!host.services.vault.isFileSizeTooLarge(doc.size)) {
                 log("STORAGE <- DB :" + docPath);
@@ -121,21 +137,24 @@ export async function syncFileBetweenDBandStorage(
                         file: file.path,
                         automated: true,
                     });
+                    return FilePairProcessResults.COMPLETED;
                 } else {
                     log(`STORAGE <- DB : Cloud not read ${file.path}, possibly deleted`, LOG_LEVEL_NOTICE);
+                    return FilePairProcessResults.FAILED;
                 }
             } else {
                 log(
                     `STORAGE <- DB : ${file.path} has been skipped due to file size exceeding the limit`,
                     LOG_LEVEL_NOTICE
                 );
+                return FilePairProcessResults.SKIPPED;
             }
-            break;
         case EVEN:
             log("STORAGE == DB :" + file.path + "", LOG_LEVEL_DEBUG);
-            break;
+            return FilePairProcessResults.COMPLETED;
         default:
             log("STORAGE ?? DB :" + file.path + " Something got weird");
+            return FilePairProcessResults.FAILED;
     }
 }
 
@@ -272,13 +291,15 @@ export async function updateToDatabase(
     log: LogFunction,
     logLevel: LOG_LEVEL,
     file: UXFileInfoStub
-): Promise<void> {
+): Promise<FilePairProcessResult> {
     if (!host.services.vault.isFileSizeTooLarge(file.stat.size)) {
         const path = file.path;
         await host.serviceModules.fileHandler.storeFileToDB(file);
         host.services.context.events.emitEvent("event-file-changed", { file: path, automated: true });
+        return FilePairProcessResults.COMPLETED;
     } else {
         log(`UPDATE DATABASE: ${file.path} has been skipped due to file size exceeding the limit`, logLevel);
+        return FilePairProcessResults.SKIPPED;
     }
 }
 
@@ -287,7 +308,7 @@ export async function updateToStorage(
     log: LogFunction,
     logLevel: LOG_LEVEL,
     w: MetaEntry
-) {
+): Promise<FilePairProcessResult> {
     // Exists in database but not in storage.
     const path = getPathFromEntry(host, w);
     if (w && !(w.deleted || w._deleted)) {
@@ -295,21 +316,29 @@ export async function updateToStorage(
             // Prevent applying the conflicted state to the storage.
             if ((w._conflicts?.length ?? 0) > 0) {
                 log(`UPDATE STORAGE: ${path} has conflicts. skipped (x)`, LOG_LEVEL_INFO);
-                return;
+                return FilePairProcessResults.SKIPPED;
             }
-            await host.serviceModules.fileHandler.dbToStorage(path, null, true);
+            const reflected = await host.serviceModules.fileHandler.dbToStorage(path, null, true);
+            // Keep a failed reflection retryable. Treating it as success would let
+            // the caller persist the database mtime as a locally observed file and
+            // a later newer-wins scan could misclassify the missing file as deleted.
+            if (!reflected) return FilePairProcessResults.FAILED;
             host.services.context.events.emitEvent("event-file-changed", {
                 file: path,
                 automated: true,
             });
             log(`Check or pull from db:${path} OK`);
+            return FilePairProcessResults.COMPLETED;
         } else {
             log(`UPDATE STORAGE: ${path} has been skipped due to file size exceeding the limit`, logLevel);
+            return FilePairProcessResults.SKIPPED;
         }
     } else if (w) {
         log(`Deletion history skipped: ${path}`, LOG_LEVEL_VERBOSE);
+        return FilePairProcessResults.SKIPPED;
     } else {
         log(`entry not found: ${path}`);
+        return FilePairProcessResults.FAILED;
     }
 }
 
@@ -319,19 +348,20 @@ export async function syncStorageAndDatabase(
     file: UXFileInfoStub,
     logLevel: LOG_LEVEL,
     doc: MetaEntry
-) {
+): Promise<FilePairProcessResult> {
     // Prevent applying the conflicted state to the storage.
     if ((doc._conflicts?.length ?? 0) > 0) {
         log(`SYNC DATABASE AND STORAGE: ${file.path} has conflicts. skipped`, LOG_LEVEL_INFO);
-        return;
+        return FilePairProcessResults.SKIPPED;
     }
     if (!host.services.vault.isFileSizeTooLarge(file.stat.size) && !host.services.vault.isFileSizeTooLarge(doc.size)) {
-        await syncFileBetweenDBandStorage(host, log, file, doc);
+        return await syncFileBetweenDBandStorage(host, log, file, doc);
     } else {
         log(
             `SYNC DATABASE AND STORAGE: ${getPathFromEntry(host, doc)} has been skipped due to file size exceeding the limit`,
             logLevel
         );
+        return FilePairProcessResults.SKIPPED;
     }
 }
 
@@ -465,7 +495,7 @@ async function processFilePair(
     log: LogFunction,
     pair: FilePair,
     options: FullScanOptions
-) {
+): Promise<FilePairProcessResult> {
     const { file, doc } = pair;
     const canonicalPath = doc ? getPathFromEntry(host, doc) : file?.path;
     if (!canonicalPath) {
@@ -480,7 +510,7 @@ async function processFilePair(
 
     if (doc && (doc._conflicts?.length ?? 0) > 0) {
         log(`SKIP ${options.mode}: ${path} has conflicts`, LOG_LEVEL_INFO);
-        return true;
+        return FilePairProcessResults.SKIPPED;
     }
     const state = getFilePairState(pair);
     let action = resolveFilePairAction(state, options);
@@ -504,32 +534,35 @@ async function processFilePair(
                 if (!file) {
                     throw new Error(`Missing storage file for ${path}`);
                 }
-                await updateToDatabase(host, log, LOG_LEVEL_INFO, file);
-                return true;
+                return await updateToDatabase(host, log, LOG_LEVEL_INFO, file);
             case "update-storage":
                 if (!doc) {
                     throw new Error(`Missing database entry for ${path}`);
                 }
-                await updateToStorage(host, log, LOG_LEVEL_INFO, doc);
-                updateFileMTimeInMap(host, fileMapKey, doc.mtime);
-                return true;
+                const updateStorageResult = await updateToStorage(host, log, LOG_LEVEL_INFO, doc);
+                if (updateStorageResult === FilePairProcessResults.COMPLETED) {
+                    updateFileMTimeInMap(host, fileMapKey, doc.mtime);
+                }
+                return updateStorageResult;
             case "sync-newer":
                 if (!file || !doc) {
                     throw new Error(`Cannot compare freshness for ${path}`);
                 }
-                await syncStorageAndDatabase(host, log, file, LOG_LEVEL_INFO, doc);
-                updateFileMTimeInMap(host, fileMapKey, Math.max(file.stat.mtime, doc.mtime));
-                return true;
+                const syncResult = await syncStorageAndDatabase(host, log, file, LOG_LEVEL_INFO, doc);
+                if (syncResult === FilePairProcessResults.COMPLETED) {
+                    updateFileMTimeInMap(host, fileMapKey, Math.max(file.stat.mtime, doc.mtime));
+                }
+                return syncResult;
             case "delete-local":
                 if (!file) {
                     log(`DELETE LOCAL: ${path} is already absent from storage`, LOG_LEVEL_VERBOSE);
-                    return true;
+                    return FilePairProcessResults.COMPLETED;
                 }
                 log(`DELETE LOCAL: ${file.path}`, LOG_LEVEL_INFO);
                 await host.serviceModules.storageAccess.delete(file.path, true);
                 fileMaps.delete(fileMapKey);
                 saveFileStatus(host);
-                return true;
+                return FilePairProcessResults.COMPLETED;
             case "delete-db": {
                 if (!doc) {
                     throw new Error(`Missing database entry for ${path}`);
@@ -545,22 +578,23 @@ async function processFilePair(
                 if (dbDeleted) {
                     fileMaps.delete(fileMapKey);
                     saveFileStatus(host);
+                    return FilePairProcessResults.COMPLETED;
                 } else {
                     log(
                         `DELETE DATABASE did not delete ${path}; keeping last-seen record to avoid resurrecting the file`,
                         LOG_LEVEL_NOTICE
                     );
+                    return FilePairProcessResults.FAILED;
                 }
-                return true;
             }
             case "skip":
                 log(`SKIP ${options.mode}: ${path} (${state})`, LOG_LEVEL_VERBOSE);
-                return true;
+                return FilePairProcessResults.SKIPPED;
         }
     } catch (ex) {
         log(`Error processing ${path} with action ${action}`, LOG_LEVEL_NOTICE);
         log(ex, LOG_LEVEL_VERBOSE);
-        return false;
+        return FilePairProcessResults.FAILED;
     }
 }
 /**
@@ -569,6 +603,7 @@ async function processFilePair(
  * @param log Logging function
  * @param errorManager Error manager
  * @param options Full scan options
+ * @returns True when every pair completed or was deliberately skipped; false when any pair failed
  */
 export async function synchroniseAllFilesBetweenDBandStorage(
     host: NecessaryServices<
@@ -578,7 +613,7 @@ export async function synchroniseAllFilesBetweenDBandStorage(
     log: LogFunction,
     errorManager: UnresolvedErrorManager,
     options: FullScanOptions
-) {
+): Promise<boolean> {
     const settings = host.services.setting.currentSettings();
     const showingNotice = options.showingNotice ?? false;
     await loadFileStatus(host);
@@ -604,7 +639,9 @@ export async function synchroniseAllFilesBetweenDBandStorage(
     }
 
     log(`Total files to synchronise: ${pairs.length}`, LOG_LEVEL_VERBOSE, "syncAll");
-    let successCount = 0;
+    let completedCount = 0;
+    let skippedCount = 0;
+    let failedCount = 0;
     let processedCount = 0;
     for await (const result of withConcurrency(
         pairs,
@@ -614,14 +651,22 @@ export async function synchroniseAllFilesBetweenDBandStorage(
             } catch (ex) {
                 log(`Error while synchronising files`, LOG_LEVEL_NOTICE);
                 log(ex, LOG_LEVEL_VERBOSE);
-                return false;
+                return FilePairProcessResults.FAILED;
             }
         },
         10
     )) {
         processedCount++;
-        if (result) {
-            successCount++;
+        switch (result) {
+            case FilePairProcessResults.COMPLETED:
+                completedCount++;
+                break;
+            case FilePairProcessResults.SKIPPED:
+                skippedCount++;
+                break;
+            case FilePairProcessResults.FAILED:
+                failedCount++;
+                break;
         }
         if (processedCount % 25 === 0) {
             log(
@@ -632,12 +677,12 @@ export async function synchroniseAllFilesBetweenDBandStorage(
         }
     }
     log(
-        `Synchronisation completed: ${successCount}/${processedCount} files processed successfully`,
+        `Synchronisation completed: ${processedCount} files processed (${completedCount} completed, ${skippedCount} skipped, ${failedCount} failed)`,
         showingNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
         "syncAll"
     );
     saveFileStatus(host, true);
-    return successCount === processedCount;
+    return failedCount === 0;
 }
 
 export function normaliseFullScanOptions(
@@ -715,7 +760,7 @@ function getFileMTimeFromMap(key: string): number | undefined {
  * @param errorManager Error manager
  * @param showingNotice Whether to show notices during scanning
  * @param ignoreSuspending Whether to ignore suspension settings
- * @returns True if scan completed successfully
+ * @returns True when the scan was permitted and no selected pair failed
  */
 export async function performFullScan(
     host: NecessaryServices<
@@ -767,7 +812,7 @@ export async function performFullScan(
     log("Initialize and checking database files");
     log("Checking deleted files");
     await collectDeletedFiles(host, log);
-    await synchroniseAllFilesBetweenDBandStorage(host, log, errorManager, options);
+    const scanResult = await synchroniseAllFilesBetweenDBandStorage(host, log, errorManager, options);
 
     log("Initialized, NOW TRACKING!");
     if (!isInitialized) {
@@ -776,7 +821,7 @@ export async function performFullScan(
     if (showingNotice) {
         log("Initialize done!", LOG_LEVEL_NOTICE, "syncAll");
     }
-    return true;
+    return scanResult;
 }
 
 /**
