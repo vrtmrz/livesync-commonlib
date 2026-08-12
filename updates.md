@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Fast Fetch now writes deletion tombstones to the local database without attempting to decrypt them. A tombstone has no encrypted payload, and decryption previously aborted the whole fetch at the first deleted document. New devices could not complete their initial sync on vaults that contain old deletions ([Self-hosted LiveSync issue #1099](https://github.com/vrtmrz/obsidian-livesync/issues/1099)).
+
 ## 0.1.11
 
 ### Fixed
