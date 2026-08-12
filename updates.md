@@ -2,9 +2,12 @@
 
 ## Unreleased
 
+## 0.1.12
+
 ### Fixed
 
-- Fast Fetch now writes deletion tombstones to the local database without attempting to decrypt them. A tombstone has no encrypted payload, and decryption previously aborted the whole fetch at the first deleted document. New devices could not complete their initial sync on vaults that contain old deletions ([Self-hosted LiveSync issue #1099](https://github.com/vrtmrz/obsidian-livesync/issues/1099)).
+- Fast Fetch now writes deletion tombstones to the local database without attempting to decrypt them. A tombstone has no encrypted payload, and decryption previously aborted the whole fetch at the first deleted document. New devices could not complete their initial sync on vaults that contain old deletions ([Self-hosted LiveSync issue #1099](https://github.com/vrtmrz/obsidian-livesync/issues/1099); PR #108). Thank you to @KennethLloyd for the contribution!
+- Offline scans now validate each Metadata document against its actual database ID before pairing it with storage. An inconsistent entry is left unchanged and cannot trigger reflection, deletion, or last-seen updates; a separate, consistent entry for the same logical path continues normally. Maintained hosts can inspect the mismatch by actual ID and explicitly repair one unambiguous entry at a time.
 
 ## 0.1.11
 
