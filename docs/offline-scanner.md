@@ -2,7 +2,13 @@
 
 This document defines the developer contract for `synchroniseAllFilesBetweenDBandStorage`. It describes how the scanner classifies each selected path, chooses an action, and records a database-to-storage reflection. Host-specific setup dialogue and recovery choices remain outside this contract.
 
-The scanner first applies the host's target-file policy and Commonlib's built-in exclusions. The tables below therefore cover only paths which remain after collection.
+Before applying the host's target-file policy, the scanner validates each decoded Metadata document against its actual local document ID. Consistent internal, customisation, and plug-in storage namespaces remain owned by their dedicated features. A namespace disagreement, or a normal-file ID which does not match the ID derived from its recorded path, is quarantined.
+
+The malformed Metadata entry never enters pair processing. If consistent, selected Metadata represents the same case-normalised path, that entry and its storage file continue through the established path-based flow. Otherwise, the storage path is also quarantined. The scanner performs no storage write, database deletion, or last-seen update for an unresolved path, and it retains expired logical deletion history whose identity is inconsistent. This does not add a fourth pair result: quarantined entries do not enter pair processing, and the established Boolean scan result retains its meaning.
+
+`inspectMetadataDocumentIdentities` provides the separate read-only, actual-ID-first report used by a host repair interface. `repairMetadataDocumentIdentity` revalidates one exact source revision, clears its last-seen state, writes and verifies the expected target, and only then tombstones the obsolete ID. It does not provide batch repair. An exact target left by an interrupted attempt permits the same one-entry repair to finish safely.
+
+The tables below cover only paths which remain after identity validation, the host's target-file policy, and Commonlib's built-in exclusions.
 
 ## Pair states
 
@@ -79,5 +85,7 @@ Focused two-pass coverage starts with a `DB_APPLY` reflection whose file handler
 - `deleteFileFromDB` is not called.
 
 A second two-pass case starts with a `db-only` entry skipped by the size limit. It then removes that limit and verifies that the entry is reflected to storage rather than misclassified as an offline local deletion. Coverage for an existing storage file verifies that a failed `sync-newer` reflection retains the observed storage mtime, and full-scan coverage verifies that the aggregate failure reaches its caller after scanner initialisation completes.
+
+Identity coverage verifies early quarantine when no consistent target exists, continued processing when consistent Metadata represents the same logical path, expired-deletion retention, special-namespace routing, actual-ID-first inspection, stale and ambiguous repair rejection, target-first ordering, exact-target retry, source preservation after failure, and last-seen clearing.
 
 Maintain that interaction boundary when changing file-handler results, last-seen persistence, Fast Setup reflection, or offline deletion detection.
