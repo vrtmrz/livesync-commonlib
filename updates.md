@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## 0.1.13
+
+### Fixed
+
+- Generated packages now declare root and subpath TypeScript mappings derived from the same public export inventory. TypeScript's `Node10` module resolution therefore finds the intended declarations instead of treating valid Commonlib imports as unresolved `error` types in downstream tooling.
+- `octagonal-wheels` 0.1.53 is now the minimum dependency, bringing equivalent declaration mappings to its public entries.
+
 ## 0.1.12
 
 ### Fixed
