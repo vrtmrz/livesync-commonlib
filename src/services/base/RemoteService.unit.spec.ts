@@ -9,7 +9,10 @@ import { PouchDB } from "@lib/pouchdb/pouchdb-http";
 
 class TestRemoteService extends RemoteService {}
 
-function createService(fetchImplementation: (req: string | Request, opts?: RequestInit) => Promise<Response>) {
+function createService(
+    fetchImplementation: (req: string | Request, opts?: RequestInit) => Promise<Response>,
+    pouchDB: PouchDB.Static = PouchDB
+) {
     const requestCount = reactiveSource(0);
     const responseCount = reactiveSource(0);
     const nativeFetch = vi.fn(fetchImplementation);
@@ -29,7 +32,7 @@ function createService(fetchImplementation: (req: string | Request, opts?: Reque
         currentSettings: vi.fn(() => ({ E2EEAlgorithm: "v2" })),
     } as unknown as SettingService;
     const service = new TestRemoteService(new ServiceContext(), {
-        pouchDB: PouchDB,
+        pouchDB,
         APIService,
         appLifecycle,
         setting,
@@ -57,26 +60,48 @@ function createDatabaseInfoResponse() {
     });
 }
 
-async function connect(service: TestRemoteService) {
-    const connection = await service.connect(
+async function rawConnect(service: TestRemoteService, skipInfo = true) {
+    return await service.connect(
         "https://example.com/db",
         { username: "user", password: "password", type: "basic" },
         false,
         false,
         false,
         false,
-        true,
+        skipInfo,
         false,
         {},
         false,
         () => Promise.resolve(new Uint8Array())
     );
+}
+
+async function connect(service: TestRemoteService, skipInfo = true) {
+    const connection = await rawConnect(service, skipInfo);
     expect(typeof connection).not.toBe("string");
     if (typeof connection === "string") throw new Error(connection);
     return connection;
 }
 
 describe("RemoteService request activity", () => {
+    it.each([
+        ["closes successfully", undefined],
+        ["fails to close", new Error("close failed")],
+    ] as const)("preserves the initial info failure when cleanup %s", async (_case, closeError) => {
+        const database = {
+            info: vi.fn().mockRejectedValue(new Error("info failed")),
+            close: closeError ? vi.fn().mockRejectedValue(closeError) : vi.fn().mockResolvedValue(undefined),
+            transform: vi.fn(),
+        };
+        const FakePouchDB = vi.fn(function () {
+            return database;
+        });
+        const { service } = createService(() => Promise.reject(new Error("unused")), FakePouchDB as never);
+
+        await expect(rawConnect(service, false)).resolves.toBe("Error:info failed");
+        expect(database.close).toHaveBeenCalledOnce();
+    });
+
     it("balances the counters after a CouchDB adapter request settles", async () => {
         const { requestCount, responseCount, service } = createService(() =>
             Promise.resolve(createDatabaseInfoResponse())

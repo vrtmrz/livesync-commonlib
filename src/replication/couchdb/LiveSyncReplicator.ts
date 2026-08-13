@@ -471,7 +471,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         remoteDB: PouchDB.Database<EntryDoc> | undefined,
         showResult: boolean,
         fromSeq?: number | string
-    ) {
+    ): Promise<boolean> {
         const trench = new Trench(
             this.env.services.keyValueDB.openSimpleStore<{
                 seq: string | number;
@@ -491,10 +491,13 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 );
                 return false;
             }
-            remoteDB = d.db;
+            return await this.withRemoteDatabase(d.db, async (db) => this.sendChunks(setting, db, showResult, fromSeq));
         }
         // To create salt
-        await this.checkReplicationConnectivity(setting, false, false, false, false);
+        const connectivity = await this.checkReplicationConnectivity(setting, false, false, false, false);
+        if (connectivity !== false) {
+            await this.closeRemoteDatabase(connectivity.db);
+        }
         Logger(`Bulk sending chunks to remote database...`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
         const remoteMilestone = await remoteDB.get(MILESTONE_DOCID);
         const remoteID = (remoteMilestone as { created?: number })?.created ?? 0;
@@ -772,12 +775,23 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
     // One-shot attempts own their temporary remote handle. Continuous replication
     // keeps its handle until the replication controller terminates it.
-    private async closeRemoteDatabase(db: PouchDB.Database<EntryDoc>) {
+    private async closeRemoteDatabase(db: Pick<PouchDB.Database<DatabaseEntry>, "close">) {
         try {
             await db.close();
         } catch (ex) {
             Logger("Failed to close remote database.", LOG_LEVEL_INFO, "sync");
             Logger(ex, LOG_LEVEL_VERBOSE, "sync");
+        }
+    }
+
+    private async withRemoteDatabase<T extends object, R>(
+        db: PouchDB.Database<T>,
+        task: (db: PouchDB.Database<T>) => Promise<R>
+    ): Promise<R> {
+        try {
+            return await task(db);
+        } finally {
+            await this.closeRemoteDatabase(db);
         }
     }
 
@@ -938,6 +952,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     Logger(this.translate("liveSyncReplicator.checkingLastSyncPoint"), LOG_LEVEL_NOTICE, "sync");
                 }
                 const { db, syncOption } = ret;
+                try {
                 this.syncStatus = "STARTED";
                 this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
                 this.maxPushSeq = Number(`${(await localDB.info()).update_seq}`.split("-")[0]);
@@ -970,7 +985,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 }
                 if (syncResult == "NEED_RESURRECT") {
                     this.terminateSync();
-                    return async () => await this.openContinuousReplication(this.originalSetting, showResult, false);
+                        return async () =>
+                            await this.openContinuousReplication(this.originalSetting, showResult, false);
                 }
                 if (syncResult == "NEED_RETRY") {
                     const tempSetting: RemoteDBSettings = JSON.parse(JSON.stringify(setting));
@@ -992,6 +1008,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         );
                         return async () => await this.openContinuousReplication(tempSetting, showResult, true);
                     }
+                }
+                } finally {
+                    await this.closeRemoteDatabase(db);
                 }
             }
             return false;
@@ -1018,12 +1037,16 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const con = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
         if (typeof con == "string") return;
         try {
+        try {
             await con.db.destroy();
             Logger(this.translate("liveSyncReplicator.remoteDbDestroyed"), LOG_LEVEL_NOTICE);
             await this.tryCreateRemoteDatabase(setting);
         } catch (ex) {
             Logger(this.translate("liveSyncReplicator.remoteDbDestroyError"), LOG_LEVEL_NOTICE);
             Logger(ex, LOG_LEVEL_NOTICE);
+        }
+        } finally {
+            await this.closeRemoteDatabase(con.db);
         }
         // Recreate salt
         clearHandlers();
@@ -1034,6 +1057,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const con2 = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
 
         if (typeof con2 === "string") return;
+        await this.closeRemoteDatabase(con2.db);
         // Recreate salt
         clearHandlers();
         await this.ensurePBKDF2Salt(setting, true, false);
@@ -1049,7 +1073,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return;
         }
 
-        if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
+        await this.withRemoteDatabase(dbRet.db, async (db) => {
+            if (!(await checkRemoteVersion(db, this.migrate.bind(this), VER))) {
             Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
             return;
         }
@@ -1067,7 +1092,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
         const remoteMilestone: EntryMilestoneInfo = {
             ...defInitPoint,
-            ...(await resolveWithIgnoreKnownError(dbRet.db.get(MILESTONE_DOCID), defInitPoint)),
+                ...(await resolveWithIgnoreKnownError(db.get(MILESTONE_DOCID), defInitPoint)),
         };
         remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
         remoteMilestone.accepted_nodes = [this.nodeid];
@@ -1078,7 +1103,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         } else {
             Logger(this.translate("liveSyncReplicator.unlockRemoteDb"), LOG_LEVEL_NOTICE);
         }
-        await dbRet.db.put(remoteMilestone);
+            await db.put(remoteMilestone);
+        });
     }
     async markRemoteResolved(setting: RemoteDBSettings) {
         const uri =
@@ -1090,7 +1116,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return;
         }
 
-        if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
+        await this.withRemoteDatabase(dbRet.db, async (db) => {
+            if (!(await checkRemoteVersion(db, this.migrate.bind(this), VER))) {
             Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
             return;
         }
@@ -1107,17 +1134,18 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         // check local database hash status and remote replicate hash status
         const remoteMilestone: EntryMilestoneInfo = {
             ...defInitPoint,
-            ...(await resolveWithIgnoreKnownError(dbRet.db.get(MILESTONE_DOCID), defInitPoint)),
+                ...(await resolveWithIgnoreKnownError(db.get(MILESTONE_DOCID), defInitPoint)),
         };
         remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
         remoteMilestone.accepted_nodes = Array.from(new Set([...remoteMilestone.accepted_nodes, this.nodeid]));
         Logger(this.translate("liveSyncReplicator.markDeviceResolved"), LOG_LEVEL_NOTICE);
-        const result = await dbRet.db.put(remoteMilestone);
+            const result = await db.put(remoteMilestone);
         if (result.ok) {
             Logger(this.translate("liveSyncReplicator.remoteDbMarkedResolved"), LOG_LEVEL_VERBOSE);
         } else {
             Logger(this.translate("liveSyncReplicator.couldNotMarkResolveRemoteDb"), LOG_LEVEL_NOTICE);
         }
+        });
     }
 
     connectRemoteCouchDBWithSetting(
@@ -1185,14 +1213,19 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         id: string,
         db?: PouchDB.Database<T>
     ): Promise<T | false> {
+        const ownsConnection = db === undefined;
+        const connDB = db ?? (await this._ensureConnection<T>(settings));
         try {
-            const connDB = db ?? (await this._ensureConnection(settings));
             return await connDB.get(id);
         } catch (ex: unknown) {
             if (ex && (ex as { status?: number }).status == 404) {
                 return false;
             }
             throw ex;
+        } finally {
+            if (ownsConnection) {
+                await this.closeRemoteDatabase(connDB);
+            }
         }
     }
     /**
@@ -1210,8 +1243,15 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     ): Promise<PouchDB.Core.Response> {
         // The `putRemoteDocument` function may be called to update the salt,
         // so we cannot skip the setup phase.
-        const connDB = db ?? (await this._ensureConnection(settings, true));
+        const ownsConnection = db === undefined;
+        const connDB = db ?? (await this._ensureConnection<T>(settings, true));
+        try {
         return await connDB.put(doc);
+        } finally {
+            if (ownsConnection) {
+                await this.closeRemoteDatabase(connDB);
+            }
+        }
     }
 
     async fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]> {
@@ -1224,7 +1264,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             );
             return false;
         }
-        const remoteChunks = await ret.db.allDocs({ keys: missingChunks, include_docs: true });
+        return await this.withRemoteDatabase(ret.db, async (db) => {
+            const remoteChunks = await db.allDocs({ keys: missingChunks, include_docs: true });
         const errorRows = remoteChunks.rows.filter((e) => "error" in e);
         if (errorRows.length > 0) {
             Logger(
@@ -1233,14 +1274,17 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 "fetch"
             );
             Logger(`Requested chunks: ${missingChunks.join(",")}`, LOG_LEVEL_VERBOSE);
-            Logger(`Error chunks: ${errorRows.map((e) => (e as { key?: string }).key).join(",")}`, LOG_LEVEL_VERBOSE);
+                Logger(
+                    `Error chunks: ${errorRows.map((e) => (e as { key?: string }).key).join(",")}`,
+                    LOG_LEVEL_VERBOSE
+                );
         }
 
-        const remoteChunkItems = remoteChunks.rows
+            return remoteChunks.rows
             .filter((e) => !("error" in e))
             .map((e) => (e as { doc?: EntryLeaf }).doc)
             .filter((e): e is EntryLeaf => e !== undefined);
-        return remoteChunkItems;
+        });
     }
 
     async tryConnectRemote(setting: RemoteDBSettings, showResult: boolean = true): Promise<boolean> {
@@ -1256,8 +1300,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             );
             return false;
         }
+        return await this.withRemoteDatabase(db.db, async () => {
         Logger(`Connected to ${db.info.db_name} successfully`, LOG_LEVEL_NOTICE);
         return true;
+        });
     }
 
     async resetRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
@@ -1270,21 +1316,23 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return;
         }
 
-        if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
+        await this.withRemoteDatabase(dbRet.db, async (db) => {
+            if (!(await checkRemoteVersion(db, this.migrate.bind(this), VER))) {
             Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
             return;
         }
         // check local database hash status and remote replicate hash status
         try {
-            const remoteMilestone = (await dbRet.db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
+                const remoteMilestone = (await db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
             remoteMilestone.tweak_values = {};
-            await dbRet.db.put(remoteMilestone);
+                await db.put(remoteMilestone);
             Logger(`tweak values on the remote database have been cleared`, LOG_LEVEL_VERBOSE);
         } catch (ex) {
             // While trying unlocking and not exist on the remote, it is not normal.
             Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
             throw ex;
         }
+        });
     }
 
     async setPreferredRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
@@ -1297,21 +1345,23 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return;
         }
 
-        if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
+        await this.withRemoteDatabase(dbRet.db, async (db) => {
+            if (!(await checkRemoteVersion(db, this.migrate.bind(this), VER))) {
             Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
             return;
         }
         // check local database hash status and remote replicate hash status
         try {
-            const remoteMilestone = (await dbRet.db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
+                const remoteMilestone = (await db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
             remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = extractObject(TweakValuesTemplate, { ...setting });
-            await dbRet.db.put(remoteMilestone);
+                await db.put(remoteMilestone);
             Logger(`Preferred tweak values has been registered`, LOG_LEVEL_VERBOSE);
         } catch (ex) {
             // While trying unlocking and not exist on the remote, it is not normal.
             Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
             throw ex;
         }
+        });
     }
 
     async getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<RemotePreferredTweakResult> {
@@ -1336,8 +1386,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 error: new Error(dbRet),
             };
         }
+        return await this.withRemoteDatabase(dbRet.db, async (db) => {
         try {
-            if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
+                if (!(await checkRemoteVersion(db, this.migrate.bind(this), VER))) {
                 const error = new Error("The remote database version is not compatible");
                 Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
                 return {
@@ -1355,7 +1406,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
 
         try {
-            const remoteMilestone = (await dbRet.db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
+                const remoteMilestone = (await db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
             if (!remoteMilestone) {
                 return {
                     status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
@@ -1387,6 +1438,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 error: ex,
             };
         }
+        });
     }
 
     async compactRemote(setting: RemoteDBSettings): Promise<boolean> {
@@ -1399,8 +1451,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return false;
         }
 
-        const ret = await dbRet.db.compact({ interval: 1000 });
-        return ret.ok;
+        return await this.withRemoteDatabase(dbRet.db, async (db) => (await db.compact({ interval: 1000 })).ok);
     }
 
     async getRemoteStatus(setting: RemoteDBSettings): Promise<RemoteDBStatus | false> {
@@ -1412,11 +1463,13 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             Logger(this.translate("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return false;
         }
-        const info = await dbRet.db.info();
+        return await this.withRemoteDatabase(dbRet.db, async (db) => {
+            const info = await db.info();
         return {
             ...info,
             estimatedSize: (info as { sizes?: { file?: number } })?.sizes?.file || 0,
         };
+        });
     }
 
     async countCompromisedChunks(setting: RemoteDBSettings = this.currentSettings): Promise<number | boolean> {
@@ -1428,8 +1481,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             Logger(this.translate("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return false;
         }
-        const compromised = await countCompromisedChunks(dbRet.db);
-        return compromised;
+        return await this.withRemoteDatabase(dbRet.db, countCompromisedChunks);
     }
 
     async getConnectedDeviceList(
@@ -1443,7 +1495,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             Logger(this.translate("liveSyncReplicator.couldNotConnectToURI", { uri, dbRet }), LOG_LEVEL_NOTICE);
             return false;
         }
-        const milestoneDoc = await dbRet.db.get(MILESTONE_DOCID);
+        return await this.withRemoteDatabase(dbRet.db, async (db) => {
+            const milestoneDoc = await db.get(MILESTONE_DOCID);
         if (!milestoneDoc) {
             Logger("Could not retrieve remote milestone", LOG_LEVEL_NOTICE);
             return false;
@@ -1451,5 +1504,6 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const nodeInfo = (milestoneDoc as EntryMilestoneInfo).node_info;
         const acceptedNodes = (milestoneDoc as EntryMilestoneInfo).accepted_nodes || [];
         return { node_info: nodeInfo, accepted_nodes: acceptedNodes };
+        });
     }
 }
