@@ -3,7 +3,7 @@
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
+import { dirname, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { build } from "esbuild";
@@ -37,6 +37,25 @@ await mkdir(artefactDirectory, { recursive: true });
 const packed = JSON.parse(run("npm", ["pack", packageDirectory, "--json", "--pack-destination", artefactDirectory]))[0];
 assert.equal(packed.name, packageName);
 assert.ok(packed.size > 0, "The packed package must not be empty.");
+const generatedManifest = JSON.parse(await readFile(resolve(packageDirectory, "package.json"), "utf8"));
+assert.equal(
+    generatedManifest.types,
+    "./dist/index.d.ts",
+    "The generated package manifest must declare its root type entry for legacy TypeScript resolution."
+);
+assert.ok(
+    generatedManifest.typesVersions?.["*"],
+    "The generated package manifest must include typesVersions for legacy TypeScript resolution."
+);
+const exportedSubpaths = Object.keys(generatedManifest.exports)
+    .filter((subpath) => subpath !== "." && subpath !== "./package.json")
+    .map((subpath) => subpath.slice(2))
+    .sort();
+assert.deepEqual(
+    Object.keys(generatedManifest.typesVersions["*"]).sort(),
+    exportedSubpaths,
+    "Every public subpath must have a declaration mapping."
+);
 assert.ok(
     packed.files.every(({ path }) => !path.startsWith("src/")),
     "Source files must not be published."
@@ -388,6 +407,32 @@ assert.match(workerSource, /new Worker\(/u);
 const manifest = JSON.parse(
     await readFile(resolve(consumerDirectory, "node_modules", "@vrtmrz", "livesync-commonlib", "package.json"), "utf8")
 );
+const installedPackageDirectory = resolve(consumerDirectory, "node_modules", "@vrtmrz", "livesync-commonlib");
+const { default: ts } = await import("typescript");
+const compilerOptions = {
+    module: ts.ModuleKind.ESNext,
+    moduleResolution: ts.ModuleResolutionKind.Node10,
+};
+const containingFile = resolve(consumerDirectory, "type-smoke.ts");
+const rootResolution = ts.resolveModuleName(packageName, containingFile, compilerOptions, ts.sys);
+assert.equal(
+    relative(installedPackageDirectory, rootResolution.resolvedModule?.resolvedFileName ?? "")
+        .split("\\")
+        .join("/"),
+    manifest.types.replace(/^\.\//u, ""),
+    "Node10 resolution selected an unexpected root declaration."
+);
+for (const [subpath, targets] of Object.entries(manifest.typesVersions["*"])) {
+    assert.equal(targets.length, 1, `Expected one declaration target for '${subpath}'.`);
+    const resolution = ts.resolveModuleName(`${packageName}/${subpath}`, containingFile, compilerOptions, ts.sys);
+    const resolved = resolution.resolvedModule?.resolvedFileName;
+    assert.ok(resolved, `Node10 resolution could not resolve '${packageName}/${subpath}'.`);
+    assert.equal(
+        relative(installedPackageDirectory, resolved).split("\\").join("/"),
+        targets[0],
+        `Node10 resolution selected an unexpected declaration for '${packageName}/${subpath}'.`
+    );
+}
 assert.equal(manifest.name, packageName);
 assert.notEqual(manifest.private, true, "The generated package must be publishable.");
 assert.deepEqual(
