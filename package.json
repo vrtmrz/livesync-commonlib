@@ -49,7 +49,7 @@
     "idb": "^8.0.3",
     "markdown-it": "^14.2.0",
     "minimatch": "^10.2.5",
-    "octagonal-wheels": "^0.1.51",
+    "octagonal-wheels": "^0.1.53",
     "pouchdb-adapter-http": "^9.0.0",
     "pouchdb-adapter-idb": "^9.0.0",
     "pouchdb-adapter-indexeddb": "^9.0.0",

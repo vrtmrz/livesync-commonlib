@@ -197,12 +197,27 @@ function createExports() {
     return exports;
 }
 
+function createTypesVersions(exports) {
+    const mappings = {};
+    for (const [exportPath, target] of Object.entries(exports)) {
+        if (exportPath === "." || exportPath === "./package.json") continue;
+        if (typeof target !== "object" || typeof target.types !== "string") {
+            throw new Error(`Public export '${exportPath}' has no declaration target.`);
+        }
+        mappings[exportPath.slice(2)] = [target.types.replace(/^\.\//u, "")];
+    }
+    // The exports map remains canonical; this mirrors it for legacy TypeScript resolvers.
+    return { "*": mappings };
+}
+
 async function writePackageManifest() {
+    const exports = createExports();
     const manifest = {
         name: sourceManifest.name,
         version: sourceManifest.version,
         description: sourceManifest.description,
         type: "module",
+        types: "./dist/index.d.ts",
         license: sourceManifest.license,
         repository: sourceManifest.repository,
         publishConfig: {
@@ -222,7 +237,8 @@ async function writePackageManifest() {
                 default: "./dist/worker/bgWorker.direct.js",
             },
         },
-        exports: createExports(),
+        exports,
+        typesVersions: createTypesVersions(exports),
         dependencies: sourceManifest.dependencies,
         peerDependencies: { svelte: sourceManifest.devDependencies.svelte },
         peerDependenciesMeta: { svelte: { optional: true } },
