@@ -294,6 +294,12 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
             const exMsg = ex instanceof Error ? ex : LiveSyncError.fromError(ex);
             const msg = `${exMsg.name}:${exMsg.message}`;
             this._log(ex, LOG_LEVEL_VERBOSE);
+            try {
+                await db.close();
+            } catch (closeError) {
+                this._log("Failed to close remote database after connection failure.", LOG_LEVEL_INFO);
+                this._log(closeError, LOG_LEVEL_VERBOSE);
+            }
             return msg;
         }
     }

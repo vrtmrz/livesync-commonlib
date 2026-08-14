@@ -58,7 +58,7 @@ describe("LiveSyncCouchDBReplicator remote preferred tweak values", () => {
         } as unknown as ConstructorParameters<typeof LiveSyncCouchDBReplicator>[0];
         const replicator = new LiveSyncCouchDBReplicator(env);
         vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
-            db: { get },
+            db: { get, close: vi.fn().mockResolvedValue(undefined) },
             info: { db_name: "remote" },
         } as never);
         return replicator;
@@ -173,7 +173,13 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
     });
 
     it("starts another finite catch-up when the live channel retries with smaller batches", async () => {
+        const events: string[] = [];
         const runFiniteReplicationActivity = vi.fn(async <T>(task: () => Promise<T>) => await task());
+        const remoteDatabase = {
+            close: vi.fn(async () => {
+                events.push("closed");
+            }),
+        };
         const localDatabase = {
             info: vi.fn().mockResolvedValue({ update_seq: 7 }),
             sync: vi.fn(() => ({})),
@@ -195,9 +201,12 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
         const catchUp = vi
             .spyOn(replicator, "openOneShotReplication")
             .mockResolvedValueOnce(true)
-            .mockResolvedValueOnce(false);
+            .mockImplementationOnce(async () => {
+                events.push("restarted");
+                return false;
+            });
         vi.spyOn(replicator, "checkReplicationConnectivity").mockResolvedValue({
-            db: {},
+            db: remoteDatabase,
             info: { update_seq: 9 },
             syncOption: {},
         } as never);
@@ -218,6 +227,40 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             false,
             "pullOnly"
         );
+        expect(events).toEqual(["closed", "restarted"]);
+    });
+
+    it("closes the live remote database when continuous replication settles", async () => {
+        const remoteDatabase = { close: vi.fn().mockResolvedValue(undefined) };
+        const localDatabase = {
+            info: vi.fn().mockResolvedValue({ update_seq: 7 }),
+            sync: vi.fn(() => ({})),
+        };
+        const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.env = {
+            services: {
+                context: createServiceContext(),
+                database: { localDatabase: { localDatabase } },
+                replicator: {
+                    runFiniteReplicationActivity: vi.fn(async <T>(task: () => Promise<T>) => await task()),
+                },
+            },
+        } as unknown as LiveSyncCouchDBReplicator["env"];
+        replicator.docArrived = 0;
+        replicator.docSent = 0;
+        replicator.updateInfo = vi.fn();
+        replicator.terminateSync = vi.fn();
+        vi.spyOn(replicator, "openOneShotReplication").mockResolvedValue(true);
+        vi.spyOn(replicator, "checkReplicationConnectivity").mockResolvedValue({
+            db: remoteDatabase,
+            info: { update_seq: 9 },
+            syncOption: {},
+        } as never);
+        vi.spyOn(replicator, "processSync").mockResolvedValue("DONE");
+
+        await expect(replicator.openContinuousReplication({} as RemoteDBSettings, false, false)).resolves.toBe(true);
+
+        expect(remoteDatabase.close).toHaveBeenCalledOnce();
     });
 });
 
@@ -396,6 +439,200 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
     });
 });
 
+describe("LiveSyncCouchDBReplicator direct document connection ownership", () => {
+    it.each([
+        ["success", { _id: "sync-params" }, undefined],
+        ["not found", false, { status: 404 }],
+        ["failure", undefined, new Error("get failed")],
+    ] as const)("closes an internally created connection after %s", async (_case, expected, error) => {
+        const remoteDatabase = {
+            get: error ? vi.fn().mockRejectedValue(error) : vi.fn().mockResolvedValue(expected),
+            close: vi.fn().mockResolvedValue(undefined),
+        };
+        const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.isMobile = vi.fn().mockReturnValue(false);
+        vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({ db: remoteDatabase } as never);
+
+        const result = replicator.fetchRemoteDocument({} as RemoteDBSettings, "sync-params");
+        if (error && "status" in error && error.status === 404) {
+            await expect(result).resolves.toBe(false);
+        } else if (error) {
+            await expect(result).rejects.toBe(error);
+        } else {
+            await expect(result).resolves.toBe(expected);
+        }
+
+        expect(remoteDatabase.close).toHaveBeenCalledOnce();
+    });
+
+    it("leaves a caller-provided connection open", async () => {
+        const remoteDatabase = {
+            get: vi.fn().mockResolvedValue({ _id: "sync-params" }),
+            close: vi.fn().mockResolvedValue(undefined),
+        };
+        const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+
+        await replicator.fetchRemoteDocument({} as RemoteDBSettings, "sync-params", remoteDatabase as never);
+
+        expect(remoteDatabase.close).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["success", undefined],
+        ["failure", new Error("put failed")],
+    ] as const)("closes an internally created connection after put %s", async (_case, error) => {
+        const response = { ok: true, id: "sync-params", rev: "1-test" };
+        const remoteDatabase = {
+            put: error ? vi.fn().mockRejectedValue(error) : vi.fn().mockResolvedValue(response),
+            close: vi.fn().mockResolvedValue(undefined),
+        };
+        const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.isMobile = vi.fn().mockReturnValue(false);
+        vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({ db: remoteDatabase } as never);
+
+        const result = replicator.putRemoteDocument({} as RemoteDBSettings, { _id: "sync-params" } as never);
+        if (error) {
+            await expect(result).rejects.toBe(error);
+        } else {
+            await expect(result).resolves.toBe(response);
+        }
+
+        expect(remoteDatabase.close).toHaveBeenCalledOnce();
+    });
+
+    it("leaves a caller-provided connection open after put", async () => {
+        const remoteDatabase = {
+            put: vi.fn().mockResolvedValue({ ok: true, id: "sync-params", rev: "1-test" }),
+            close: vi.fn().mockResolvedValue(undefined),
+        };
+        const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+
+        await replicator.putRemoteDocument(
+            {} as RemoteDBSettings,
+            { _id: "sync-params" } as never,
+            remoteDatabase as never
+        );
+
+        expect(remoteDatabase.close).not.toHaveBeenCalled();
+    });
+});
+
+describe("LiveSyncCouchDBReplicator finite maintenance connection ownership", () => {
+    const setting = {
+        couchDB_URI: "https://example.invalid",
+        couchDB_DBNAME: "remote",
+    } as RemoteDBSettings;
+
+    function createReplicator(remoteDatabase: Record<string, unknown>) {
+        const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.env = {
+            services: {
+                API: { isMobile: () => false },
+                context: createServiceContext(),
+                setting: { currentSettings: () => setting },
+            },
+        } as unknown as LiveSyncCouchDBReplicator["env"];
+        replicator.nodeid = "node";
+        vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
+            db: remoteDatabase,
+            info: { db_name: "remote" },
+        } as never);
+        return replicator;
+    }
+
+    it.each([
+        ["compactRemote", (replicator: LiveSyncCouchDBReplicator) => replicator.compactRemote(setting)],
+        ["getRemoteStatus", (replicator: LiveSyncCouchDBReplicator) => replicator.getRemoteStatus(setting)],
+        [
+            "getConnectedDeviceList",
+            (replicator: LiveSyncCouchDBReplicator) => replicator.getConnectedDeviceList(setting),
+        ],
+    ] as const)("closes the connection after %s", async (_method, run) => {
+        const remoteDatabase = {
+            compact: vi.fn().mockResolvedValue({ ok: true }),
+            info: vi.fn().mockResolvedValue({ db_name: "remote" }),
+            get: vi.fn().mockResolvedValue({ node_info: {}, accepted_nodes: [] }),
+            close: vi.fn().mockResolvedValue(undefined),
+        };
+        const replicator = createReplicator(remoteDatabase);
+
+        await run(replicator);
+
+        expect(remoteDatabase.close).toHaveBeenCalledOnce();
+    });
+
+    it("closes the connection after reading preferred tweak values", async () => {
+        const remoteDatabase = {
+            get: vi.fn(async (id: string) =>
+                id === VERSIONING_DOCID
+                    ? { _id: VERSIONING_DOCID, type: "versioninfo", version: VER }
+                    : { _id: MILESTONE_DOCID, tweak_values: {} }
+            ),
+            close: vi.fn().mockResolvedValue(undefined),
+        };
+        const replicator = createReplicator(remoteDatabase);
+
+        await replicator.getRemotePreferredTweakValues(setting);
+
+        expect(remoteDatabase.close).toHaveBeenCalledOnce();
+    });
+
+    it("logs a close failure without replacing a finite operation result", async () => {
+        const closeError = new Error("close failed");
+        const remoteDatabase = {
+            compact: vi.fn().mockResolvedValue({ ok: true }),
+            close: vi.fn().mockRejectedValue(closeError),
+        };
+        const replicator = createReplicator(remoteDatabase);
+        const logger = vi.fn();
+        setGlobalLogFunction(logger);
+
+        try {
+            await expect(replicator.compactRemote(setting)).resolves.toBe(true);
+            expect(logger).toHaveBeenCalledWith("Failed to close remote database.", expect.anything(), "sync");
+            expect(logger).toHaveBeenCalledWith(closeError, expect.anything(), "sync");
+        } finally {
+            setGlobalLogFunction(defaultLogger);
+        }
+    });
+});
+
+describe("LiveSyncCouchDBReplicator chunk sending connection ownership", () => {
+    it("closes only the connection it creates when sending fails", async () => {
+        const remoteDatabase = {
+            get: vi.fn().mockRejectedValue(new Error("milestone failed")),
+            close: vi.fn().mockResolvedValue(undefined),
+        };
+        const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.env = {
+            services: {
+                API: { isMobile: () => false },
+                context: createServiceContext(),
+                keyValueDB: {
+                    openSimpleStore: () => ({
+                        delete: vi.fn(),
+                        get: vi.fn(),
+                        keys: vi.fn().mockResolvedValue([]),
+                        set: vi.fn(),
+                    }),
+                },
+            },
+        } as unknown as LiveSyncCouchDBReplicator["env"];
+        vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({ db: remoteDatabase } as never);
+
+        await expect(replicator.sendChunks({} as RemoteDBSettings, undefined, false)).rejects.toThrow(
+            "milestone failed"
+        );
+        expect(remoteDatabase.close).toHaveBeenCalledOnce();
+
+        await expect(replicator.sendChunks({} as RemoteDBSettings, remoteDatabase as never, false)).rejects.toThrow(
+            "milestone failed"
+        );
+
+        expect(remoteDatabase.close).toHaveBeenCalledOnce();
+    });
+});
+
 describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
     it("preserves available chunks when another row in the same batch is missing", async () => {
         const availableChunk = {
@@ -436,5 +673,26 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
             keys: [availableChunk._id, "h:missing"],
             include_docs: true,
         });
+    });
+
+    it("closes its remote database when chunk fetching succeeds or fails", async () => {
+        const remoteDatabase = {
+            allDocs: vi.fn().mockResolvedValueOnce({ rows: [] }).mockRejectedValueOnce(new Error("chunk fetch failed")),
+            close: vi.fn().mockResolvedValue(undefined),
+        };
+        const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.env = {
+            services: {
+                API: { isMobile: () => false },
+                context: createServiceContext(),
+                setting: { currentSettings: () => ({}) },
+            },
+        } as unknown as LiveSyncCouchDBReplicator["env"];
+        vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({ db: remoteDatabase } as never);
+
+        await expect(replicator.fetchRemoteChunks([], false)).resolves.toEqual([]);
+        await expect(replicator.fetchRemoteChunks([], false)).rejects.toThrow("chunk fetch failed");
+
+        expect(remoteDatabase.close).toHaveBeenCalledTimes(2);
     });
 });
