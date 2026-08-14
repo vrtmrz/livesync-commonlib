@@ -953,62 +953,62 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 }
                 const { db, syncOption } = ret;
                 try {
-                this.syncStatus = "STARTED";
-                this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
-                this.maxPushSeq = Number(`${(await localDB.info()).update_seq}`.split("-")[0]);
-                this.updateInfo();
-                const docArrivedOnStart = this.docArrived;
-                const docSentOnStart = this.docSent;
-                if (!retrying) {
-                    //TODO if successfully saved, roll back org setting.
-                    this.originalSetting = setting;
-                }
-                this.terminateSync();
-                const syncHandler = localDB.sync<EntryDoc>(db, {
-                    ...syncOption,
-                });
-                const syncMode = "sync";
-                const syncResult = await this.processSync(
-                    syncHandler,
-                    showResult,
-                    docSentOnStart,
-                    docArrivedOnStart,
-                    syncMode,
-                    retrying
-                );
-
-                if (syncResult == "DONE") {
-                    return true;
-                }
-                if (syncResult == "FAILED") {
-                    return false;
-                }
-                if (syncResult == "NEED_RESURRECT") {
+                    this.syncStatus = "STARTED";
+                    this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
+                    this.maxPushSeq = Number(`${(await localDB.info()).update_seq}`.split("-")[0]);
+                    this.updateInfo();
+                    const docArrivedOnStart = this.docArrived;
+                    const docSentOnStart = this.docSent;
+                    if (!retrying) {
+                        //TODO if successfully saved, roll back org setting.
+                        this.originalSetting = setting;
+                    }
                     this.terminateSync();
+                    const syncHandler = localDB.sync<EntryDoc>(db, {
+                        ...syncOption,
+                    });
+                    const syncMode = "sync";
+                    const syncResult = await this.processSync(
+                        syncHandler,
+                        showResult,
+                        docSentOnStart,
+                        docArrivedOnStart,
+                        syncMode,
+                        retrying
+                    );
+
+                    if (syncResult == "DONE") {
+                        return true;
+                    }
+                    if (syncResult == "FAILED") {
+                        return false;
+                    }
+                    if (syncResult == "NEED_RESURRECT") {
+                        this.terminateSync();
                         return async () =>
                             await this.openContinuousReplication(this.originalSetting, showResult, false);
-                }
-                if (syncResult == "NEED_RETRY") {
-                    const tempSetting: RemoteDBSettings = JSON.parse(JSON.stringify(setting));
-                    tempSetting.batch_size = Math.ceil(tempSetting.batch_size / 2) + 2;
-                    tempSetting.batches_limit = Math.ceil(tempSetting.batches_limit / 2) + 2;
-                    if (tempSetting.batch_size <= 5 && tempSetting.batches_limit <= 5) {
-                        Logger(
-                            this.translate("liveSyncReplicator.cantReplicateLowerValue"),
-                            showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
-                        );
-                        return false;
-                    } else {
-                        Logger(
-                            this.translate("liveSyncReplicator.retryLowerBatchSize", {
-                                batch_size: tempSetting.batch_size.toString(),
-                                batches_limit: tempSetting.batches_limit.toString(),
-                            }),
-                            showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
-                        );
-                        return async () => await this.openContinuousReplication(tempSetting, showResult, true);
                     }
-                }
+                    if (syncResult == "NEED_RETRY") {
+                        const tempSetting: RemoteDBSettings = JSON.parse(JSON.stringify(setting));
+                        tempSetting.batch_size = Math.ceil(tempSetting.batch_size / 2) + 2;
+                        tempSetting.batches_limit = Math.ceil(tempSetting.batches_limit / 2) + 2;
+                        if (tempSetting.batch_size <= 5 && tempSetting.batches_limit <= 5) {
+                            Logger(
+                                this.translate("liveSyncReplicator.cantReplicateLowerValue"),
+                                showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
+                            );
+                            return false;
+                        } else {
+                            Logger(
+                                this.translate("liveSyncReplicator.retryLowerBatchSize", {
+                                    batch_size: tempSetting.batch_size.toString(),
+                                    batches_limit: tempSetting.batches_limit.toString(),
+                                }),
+                                showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
+                            );
+                            return async () => await this.openContinuousReplication(tempSetting, showResult, true);
+                        }
+                    }
                 } finally {
                     await this.closeRemoteDatabase(db);
                 }
@@ -1037,14 +1037,14 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const con = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
         if (typeof con == "string") return;
         try {
-        try {
-            await con.db.destroy();
-            Logger(this.translate("liveSyncReplicator.remoteDbDestroyed"), LOG_LEVEL_NOTICE);
-            await this.tryCreateRemoteDatabase(setting);
-        } catch (ex) {
-            Logger(this.translate("liveSyncReplicator.remoteDbDestroyError"), LOG_LEVEL_NOTICE);
-            Logger(ex, LOG_LEVEL_NOTICE);
-        }
+            try {
+                await con.db.destroy();
+                Logger(this.translate("liveSyncReplicator.remoteDbDestroyed"), LOG_LEVEL_NOTICE);
+                await this.tryCreateRemoteDatabase(setting);
+            } catch (ex) {
+                Logger(this.translate("liveSyncReplicator.remoteDbDestroyError"), LOG_LEVEL_NOTICE);
+                Logger(ex, LOG_LEVEL_NOTICE);
+            }
         } finally {
             await this.closeRemoteDatabase(con.db);
         }
@@ -1075,34 +1075,34 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
         await this.withRemoteDatabase(dbRet.db, async (db) => {
             if (!(await checkRemoteVersion(db, this.migrate.bind(this), VER))) {
-            Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
-            return;
-        }
-        const defInitPoint: EntryMilestoneInfo = {
-            _id: MILESTONE_DOCID,
-            type: "milestoneinfo",
-            created: Date.now(),
-            locked: locked,
-            cleaned: lockByClean,
-            accepted_nodes: [this.nodeid],
-            node_chunk_info: { [this.nodeid]: currentVersionRange },
-            node_info: {},
-            tweak_values: {},
-        };
+                Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
+                return;
+            }
+            const defInitPoint: EntryMilestoneInfo = {
+                _id: MILESTONE_DOCID,
+                type: "milestoneinfo",
+                created: Date.now(),
+                locked: locked,
+                cleaned: lockByClean,
+                accepted_nodes: [this.nodeid],
+                node_chunk_info: { [this.nodeid]: currentVersionRange },
+                node_info: {},
+                tweak_values: {},
+            };
 
-        const remoteMilestone: EntryMilestoneInfo = {
-            ...defInitPoint,
+            const remoteMilestone: EntryMilestoneInfo = {
+                ...defInitPoint,
                 ...(await resolveWithIgnoreKnownError(db.get(MILESTONE_DOCID), defInitPoint)),
-        };
-        remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
-        remoteMilestone.accepted_nodes = [this.nodeid];
-        remoteMilestone.locked = locked;
-        remoteMilestone.cleaned = remoteMilestone.cleaned || lockByClean;
-        if (locked) {
-            Logger(this.translate("liveSyncReplicator.lockRemoteDb"), LOG_LEVEL_NOTICE);
-        } else {
-            Logger(this.translate("liveSyncReplicator.unlockRemoteDb"), LOG_LEVEL_NOTICE);
-        }
+            };
+            remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
+            remoteMilestone.accepted_nodes = [this.nodeid];
+            remoteMilestone.locked = locked;
+            remoteMilestone.cleaned = remoteMilestone.cleaned || lockByClean;
+            if (locked) {
+                Logger(this.translate("liveSyncReplicator.lockRemoteDb"), LOG_LEVEL_NOTICE);
+            } else {
+                Logger(this.translate("liveSyncReplicator.unlockRemoteDb"), LOG_LEVEL_NOTICE);
+            }
             await db.put(remoteMilestone);
         });
     }
@@ -1118,33 +1118,33 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
         await this.withRemoteDatabase(dbRet.db, async (db) => {
             if (!(await checkRemoteVersion(db, this.migrate.bind(this), VER))) {
-            Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
-            return;
-        }
-        const defInitPoint: EntryMilestoneInfo = {
-            _id: MILESTONE_DOCID,
-            type: "milestoneinfo",
-            created: Date.now(),
-            locked: false,
-            accepted_nodes: [this.nodeid],
-            node_info: {},
-            node_chunk_info: { [this.nodeid]: currentVersionRange },
-            tweak_values: {},
-        };
-        // check local database hash status and remote replicate hash status
-        const remoteMilestone: EntryMilestoneInfo = {
-            ...defInitPoint,
+                Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
+                return;
+            }
+            const defInitPoint: EntryMilestoneInfo = {
+                _id: MILESTONE_DOCID,
+                type: "milestoneinfo",
+                created: Date.now(),
+                locked: false,
+                accepted_nodes: [this.nodeid],
+                node_info: {},
+                node_chunk_info: { [this.nodeid]: currentVersionRange },
+                tweak_values: {},
+            };
+            // check local database hash status and remote replicate hash status
+            const remoteMilestone: EntryMilestoneInfo = {
+                ...defInitPoint,
                 ...(await resolveWithIgnoreKnownError(db.get(MILESTONE_DOCID), defInitPoint)),
-        };
-        remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
-        remoteMilestone.accepted_nodes = Array.from(new Set([...remoteMilestone.accepted_nodes, this.nodeid]));
-        Logger(this.translate("liveSyncReplicator.markDeviceResolved"), LOG_LEVEL_NOTICE);
+            };
+            remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
+            remoteMilestone.accepted_nodes = Array.from(new Set([...remoteMilestone.accepted_nodes, this.nodeid]));
+            Logger(this.translate("liveSyncReplicator.markDeviceResolved"), LOG_LEVEL_NOTICE);
             const result = await db.put(remoteMilestone);
-        if (result.ok) {
-            Logger(this.translate("liveSyncReplicator.remoteDbMarkedResolved"), LOG_LEVEL_VERBOSE);
-        } else {
-            Logger(this.translate("liveSyncReplicator.couldNotMarkResolveRemoteDb"), LOG_LEVEL_NOTICE);
-        }
+            if (result.ok) {
+                Logger(this.translate("liveSyncReplicator.remoteDbMarkedResolved"), LOG_LEVEL_VERBOSE);
+            } else {
+                Logger(this.translate("liveSyncReplicator.couldNotMarkResolveRemoteDb"), LOG_LEVEL_NOTICE);
+            }
         });
     }
 
@@ -1246,7 +1246,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         const ownsConnection = db === undefined;
         const connDB = db ?? (await this._ensureConnection<T>(settings, true));
         try {
-        return await connDB.put(doc);
+            return await connDB.put(doc);
         } finally {
             if (ownsConnection) {
                 await this.closeRemoteDatabase(connDB);
@@ -1266,24 +1266,24 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
         return await this.withRemoteDatabase(ret.db, async (db) => {
             const remoteChunks = await db.allDocs({ keys: missingChunks, include_docs: true });
-        const errorRows = remoteChunks.rows.filter((e) => "error" in e);
-        if (errorRows.length > 0) {
-            Logger(
-                `Some requested chunks were not found in the remote database.`,
-                showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
-                "fetch"
-            );
-            Logger(`Requested chunks: ${missingChunks.join(",")}`, LOG_LEVEL_VERBOSE);
+            const errorRows = remoteChunks.rows.filter((e) => "error" in e);
+            if (errorRows.length > 0) {
+                Logger(
+                    `Some requested chunks were not found in the remote database.`,
+                    showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
+                    "fetch"
+                );
+                Logger(`Requested chunks: ${missingChunks.join(",")}`, LOG_LEVEL_VERBOSE);
                 Logger(
                     `Error chunks: ${errorRows.map((e) => (e as { key?: string }).key).join(",")}`,
                     LOG_LEVEL_VERBOSE
                 );
-        }
+            }
 
             return remoteChunks.rows
-            .filter((e) => !("error" in e))
-            .map((e) => (e as { doc?: EntryLeaf }).doc)
-            .filter((e): e is EntryLeaf => e !== undefined);
+                .filter((e) => !("error" in e))
+                .map((e) => (e as { doc?: EntryLeaf }).doc)
+                .filter((e): e is EntryLeaf => e !== undefined);
         });
     }
 
@@ -1301,8 +1301,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return false;
         }
         return await this.withRemoteDatabase(db.db, async () => {
-        Logger(`Connected to ${db.info.db_name} successfully`, LOG_LEVEL_NOTICE);
-        return true;
+            Logger(`Connected to ${db.info.db_name} successfully`, LOG_LEVEL_NOTICE);
+            return true;
         });
     }
 
@@ -1318,20 +1318,20 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
         await this.withRemoteDatabase(dbRet.db, async (db) => {
             if (!(await checkRemoteVersion(db, this.migrate.bind(this), VER))) {
-            Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
-            return;
-        }
-        // check local database hash status and remote replicate hash status
-        try {
+                Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
+                return;
+            }
+            // check local database hash status and remote replicate hash status
+            try {
                 const remoteMilestone = (await db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
-            remoteMilestone.tweak_values = {};
+                remoteMilestone.tweak_values = {};
                 await db.put(remoteMilestone);
-            Logger(`tweak values on the remote database have been cleared`, LOG_LEVEL_VERBOSE);
-        } catch (ex) {
-            // While trying unlocking and not exist on the remote, it is not normal.
-            Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
-            throw ex;
-        }
+                Logger(`tweak values on the remote database have been cleared`, LOG_LEVEL_VERBOSE);
+            } catch (ex) {
+                // While trying unlocking and not exist on the remote, it is not normal.
+                Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
+                throw ex;
+            }
         });
     }
 
@@ -1347,20 +1347,20 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
 
         await this.withRemoteDatabase(dbRet.db, async (db) => {
             if (!(await checkRemoteVersion(db, this.migrate.bind(this), VER))) {
-            Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
-            return;
-        }
-        // check local database hash status and remote replicate hash status
-        try {
+                Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
+                return;
+            }
+            // check local database hash status and remote replicate hash status
+            try {
                 const remoteMilestone = (await db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
-            remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = extractObject(TweakValuesTemplate, { ...setting });
+                remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = extractObject(TweakValuesTemplate, { ...setting });
                 await db.put(remoteMilestone);
-            Logger(`Preferred tweak values has been registered`, LOG_LEVEL_VERBOSE);
-        } catch (ex) {
-            // While trying unlocking and not exist on the remote, it is not normal.
-            Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
-            throw ex;
-        }
+                Logger(`Preferred tweak values has been registered`, LOG_LEVEL_VERBOSE);
+            } catch (ex) {
+                // While trying unlocking and not exist on the remote, it is not normal.
+                Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
+                throw ex;
+            }
         });
     }
 
@@ -1387,57 +1387,57 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             };
         }
         return await this.withRemoteDatabase(dbRet.db, async (db) => {
-        try {
+            try {
                 if (!(await checkRemoteVersion(db, this.migrate.bind(this), VER))) {
-                const error = new Error("The remote database version is not compatible");
-                Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
+                    const error = new Error("The remote database version is not compatible");
+                    Logger(this.translate("liveSyncReplicator.remoteDbCorrupted"), LOG_LEVEL_NOTICE);
+                    return {
+                        status: RemotePreferredTweakStatuses.UNAVAILABLE,
+                        error,
+                    };
+                }
+            } catch (ex) {
+                Logger(`Could not check the remote database version`, LOG_LEVEL_NOTICE);
+                Logger(ex, LOG_LEVEL_VERBOSE);
                 return {
                     status: RemotePreferredTweakStatuses.UNAVAILABLE,
-                    error,
+                    error: ex,
                 };
             }
-        } catch (ex) {
-            Logger(`Could not check the remote database version`, LOG_LEVEL_NOTICE);
-            Logger(ex, LOG_LEVEL_VERBOSE);
-            return {
-                status: RemotePreferredTweakStatuses.UNAVAILABLE,
-                error: ex,
-            };
-        }
 
-        try {
+            try {
                 const remoteMilestone = (await db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
-            if (!remoteMilestone) {
+                if (!remoteMilestone) {
+                    return {
+                        status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
+                        reason: RemotePreferredTweakNotConfiguredReasons.MILESTONE_MISSING,
+                    };
+                }
+                const preferred = remoteMilestone.tweak_values?.[DEVICE_ID_PREFERRED];
+                if (!preferred) {
+                    return {
+                        status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
+                        reason: RemotePreferredTweakNotConfiguredReasons.PREFERRED_VALUES_MISSING,
+                    };
+                }
                 return {
-                    status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
-                    reason: RemotePreferredTweakNotConfiguredReasons.MILESTONE_MISSING,
+                    status: RemotePreferredTweakStatuses.AVAILABLE,
+                    values: preferred,
+                };
+            } catch (ex) {
+                if (isErrorOfMissingDoc(ex)) {
+                    return {
+                        status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
+                        reason: RemotePreferredTweakNotConfiguredReasons.MILESTONE_MISSING,
+                    };
+                }
+                Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
+                Logger(ex, LOG_LEVEL_VERBOSE);
+                return {
+                    status: RemotePreferredTweakStatuses.UNAVAILABLE,
+                    error: ex,
                 };
             }
-            const preferred = remoteMilestone.tweak_values?.[DEVICE_ID_PREFERRED];
-            if (!preferred) {
-                return {
-                    status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
-                    reason: RemotePreferredTweakNotConfiguredReasons.PREFERRED_VALUES_MISSING,
-                };
-            }
-            return {
-                status: RemotePreferredTweakStatuses.AVAILABLE,
-                values: preferred,
-            };
-        } catch (ex) {
-            if (isErrorOfMissingDoc(ex)) {
-                return {
-                    status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
-                    reason: RemotePreferredTweakNotConfiguredReasons.MILESTONE_MISSING,
-                };
-            }
-            Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
-            Logger(ex, LOG_LEVEL_VERBOSE);
-            return {
-                status: RemotePreferredTweakStatuses.UNAVAILABLE,
-                error: ex,
-            };
-        }
         });
     }
 
@@ -1465,10 +1465,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
         return await this.withRemoteDatabase(dbRet.db, async (db) => {
             const info = await db.info();
-        return {
-            ...info,
-            estimatedSize: (info as { sizes?: { file?: number } })?.sizes?.file || 0,
-        };
+            return {
+                ...info,
+                estimatedSize: (info as { sizes?: { file?: number } })?.sizes?.file || 0,
+            };
         });
     }
 
@@ -1497,13 +1497,13 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
         return await this.withRemoteDatabase(dbRet.db, async (db) => {
             const milestoneDoc = await db.get(MILESTONE_DOCID);
-        if (!milestoneDoc) {
-            Logger("Could not retrieve remote milestone", LOG_LEVEL_NOTICE);
-            return false;
-        }
-        const nodeInfo = (milestoneDoc as EntryMilestoneInfo).node_info;
-        const acceptedNodes = (milestoneDoc as EntryMilestoneInfo).accepted_nodes || [];
-        return { node_info: nodeInfo, accepted_nodes: acceptedNodes };
+            if (!milestoneDoc) {
+                Logger("Could not retrieve remote milestone", LOG_LEVEL_NOTICE);
+                return false;
+            }
+            const nodeInfo = (milestoneDoc as EntryMilestoneInfo).node_info;
+            const acceptedNodes = (milestoneDoc as EntryMilestoneInfo).accepted_nodes || [];
+            return { node_info: nodeInfo, accepted_nodes: acceptedNodes };
         });
     }
 }
