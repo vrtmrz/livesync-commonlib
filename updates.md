@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.14
+
+### Fixed
+
+- Commonlib now closes the temporary CouchDB connections it creates for finite remote operations, including one-shot replication, Security Seed refreshes, chunk transfer, maintenance operations, and status queries. Continuous replication closes its previous connection before a retry or restart, while caller-provided connections remain under caller ownership. Connection set-up failures also close the partially initialised handle without masking the original connection error (PR #112). Thank you to @apple-ouyang for the contribution!
+
 ## 0.1.13
 
 ### Fixed
