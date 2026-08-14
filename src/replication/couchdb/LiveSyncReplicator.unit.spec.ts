@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+    DEFAULT_SYNC_PARAMETERS,
     DEVICE_ID_PREFERRED,
     MILESTONE_DOCID,
     VER,
@@ -10,6 +11,7 @@ import {
 } from "@lib/common/types.ts";
 import { defaultLogger, setGlobalLogFunction } from "@lib/common/logger.ts";
 import * as negotiation from "@lib/pouchdb/negotiation.ts";
+import { clearHandlers } from "@lib/replication/SyncParamsHandler.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
 import { LiveSyncCouchDBReplicator } from "./LiveSyncReplicator.ts";
 
@@ -303,6 +305,63 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
         );
 
         expect(remoteDatabase.close).toHaveBeenCalledOnce();
+    });
+
+    it("closes every finite connection across repeated one-shot Security Seed refreshes", async () => {
+        const remoteDatabases: {
+            close: ReturnType<typeof vi.fn>;
+            get: ReturnType<typeof vi.fn>;
+        }[] = [];
+        const localDatabase = {
+            info: vi.fn().mockResolvedValue({ update_seq: 7 }),
+            sync: vi.fn(() => ({})),
+        };
+        const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.env = {
+            services: {
+                API: { isMobile: () => false },
+                context: createServiceContext(),
+                database: { localDatabase: { localDatabase } },
+            },
+        } as unknown as LiveSyncCouchDBReplicator["env"];
+        replicator.docArrived = 0;
+        replicator.docSent = 0;
+        replicator.updateInfo = vi.fn();
+        replicator.terminateSync = vi.fn();
+        const setting = {
+            couchDB_URI: "https://example.test",
+            couchDB_DBNAME: "remote",
+        } as RemoteDBSettings;
+        const connect = vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockImplementation(async () => {
+            const db = {
+                close: vi.fn().mockResolvedValue(undefined),
+                get: vi.fn().mockResolvedValue({ ...DEFAULT_SYNC_PARAMETERS, pbkdf2salt: "AA==" }),
+            };
+            remoteDatabases.push(db);
+            return { db, info: { update_seq: 9 } } as never;
+        });
+        vi.spyOn(replicator, "checkReplicationConnectivity").mockImplementation(async () => {
+            const connection = await replicator.connectRemoteCouchDBWithSetting(setting, false, true);
+            if (typeof connection === "string") return false;
+            return { ...connection, syncOptionBase: {} } as never;
+        });
+        vi.spyOn(replicator, "processSync").mockResolvedValue("DONE");
+
+        try {
+            for (let cycle = 0; cycle < 2; cycle++) {
+                // Exercise the refresh boundary that hid a second finite connection behind each one-shot attempt.
+                clearHandlers();
+                await expect(replicator.openOneShotReplication(setting, false, false, "sync")).resolves.toBe(true);
+            }
+        } finally {
+            clearHandlers();
+        }
+
+        expect(connect).toHaveBeenCalledTimes(4);
+        expect(remoteDatabases).toHaveLength(4);
+        for (const remoteDatabase of remoteDatabases) {
+            expect(remoteDatabase.close).toHaveBeenCalledOnce();
+        }
     });
 
     it("closes a connection when connectivity checks cannot transfer ownership", async () => {
