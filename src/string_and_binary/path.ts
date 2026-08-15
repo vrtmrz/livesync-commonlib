@@ -82,12 +82,8 @@ export function expandDocumentIDPrefix(id: DocumentID): [string, FilePathWithPre
 const _hashString = memorizeFuncWithLRUCache(async (key: string) => {
     const buff = writeString(key);
     const webcrypto = await getWebCrypto();
-    let digest = await webcrypto.subtle.digest("SHA-256", buff);
-    const len = key.length;
-    for (let i = 0; i < len; i++) {
-        // Stretching
-        digest = await webcrypto.subtle.digest("SHA-256", buff);
-    }
+    // Derive the obfuscated document ID from this input.
+    const digest = await webcrypto.subtle.digest("SHA-256", buff);
     return uint8ArrayToHexString(new Uint8Array(digest));
 });
 
