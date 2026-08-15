@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.15
+
+### Fixed
+
+- Start-up offline scans are now faster when Path Obfuscation is enabled.
+
 ## 0.1.14
 
 ### Fixed
