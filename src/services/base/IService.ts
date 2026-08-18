@@ -33,6 +33,7 @@ import type { ReplicatorService } from "./ReplicatorService";
 import type { DatabaseEventService } from "./DatabaseEventService";
 import type { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import type { AsyncActivityOptions } from "@lib/interfaces/AsyncActivityRunner.ts";
+import type { OwnedCouchDBConnection, RemoteConnectionOpenOptions } from "./RemoteConnection.ts";
 
 declare global {
     interface OPTIONAL_SYNC_FEATURES {
@@ -210,6 +211,22 @@ export interface IReplicationService {
     markResolved(): Promise<void>;
 }
 export interface IRemoteService {
+    /**
+     * Opens an owned remote CouchDB connection.
+     *
+     * @remarks
+     * The caller must transfer ownership or call `close()` on the returned
+     * connection. Closing it aborts outstanding abort-capable requests before
+     * closing the PouchDB handle. Host-native request adapters may not honour
+     * `AbortSignal`; callers must not report those requests as cancelled without
+     * a host guarantee.
+     *
+     * @returns An error description, or an owned remote connection. When
+     * `skipInfo` is true, the `info` field retains its compatibility placeholder.
+     *
+     * @throws When PouchDB construction or local connection configuration fails
+     * before a connection result can be produced.
+     */
     connect(
         uri: string,
         auth: CouchDBCredentials,
@@ -221,14 +238,9 @@ export interface IRemoteService {
         compression: boolean,
         customHeaders: Record<string, string>,
         useRequestAPI: boolean,
-        getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>
-    ): Promise<
-        | string
-        | {
-              db: PouchDB.Database<EntryDoc>;
-              info: PouchDB.Core.DatabaseInfo;
-          }
-    >;
+        getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>,
+        options?: RemoteConnectionOpenOptions
+    ): Promise<string | OwnedCouchDBConnection<EntryDoc>>;
 
     /**
      * State if the last POST request failed due to payload size.

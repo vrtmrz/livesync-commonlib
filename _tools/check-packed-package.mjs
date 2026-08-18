@@ -175,6 +175,12 @@ import {
     upsertRemoteConfigurationInPlace,
     type UpsertRemoteConfigurationOptions,
 } from "${packageName}/remote-configurations";
+import type {
+    CouchDBReplicationConnection,
+    LiveSyncCouchDBReplicator,
+    OwnedCouchDBConnection,
+    RemoteConnectionOpenOptions,
+} from "${packageName}/compat/replication/couchdb/LiveSyncReplicator";
 
 const options: ServiceContextOptions = { translate: (key) => \`translated:\${key}\` };
 const context = createServiceContext(options);
@@ -195,6 +201,12 @@ const schemaFallback = SETTINGS_SCHEMA_DEFAULTS.usePluginSyncV2;
 const mutableNewVaultSettings = createNewVaultSettings();
 const remoteConfigurationOptions: UpsertRemoteConfigurationOptions = { activate: true };
 const remoteConfigurationUpsert: typeof upsertRemoteConfigurationInPlace = upsertRemoteConfigurationInPlace;
+const remoteConnectionOptions: RemoteConnectionOpenOptions = { allowNativeFallback: false };
+const closeRemoteConnection = (connection: OwnedCouchDBConnection<Record<string, unknown>>): Promise<void> =>
+    connection.close();
+const replicationConnection = {} as CouchDBReplicationConnection;
+type LegacyRemoteDatabase = Awaited<ReturnType<LiveSyncCouchDBReplicator["_ensureConnection"]>>;
+const readLegacyRemoteDatabase = (database: LegacyRemoteDatabase) => database.get("document-id");
 void context;
 void contextContract;
 void untranslated;
@@ -211,6 +223,10 @@ void schemaFallback;
 void mutableNewVaultSettings;
 void remoteConfigurationOptions;
 void remoteConfigurationUpsert;
+void remoteConnectionOptions;
+void closeRemoteConnection;
+void replicationConnection;
+void readLegacyRemoteDatabase;
 `
 );
 await writeConsumerFile(
