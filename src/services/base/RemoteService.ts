@@ -21,6 +21,99 @@ import { runWithTrackedPhysicalRequest } from "@lib/services/lib/remoteActivity.
 import type PouchDB from "pouchdb-core";
 import type { PouchDBConstructor } from "@lib/pouchdb/PouchDBConstructor.ts";
 import { LiveSyncError } from "@lib/common/LSError";
+import type { OwnedCouchDBConnection, RemoteConnectionOpenOptions } from "./RemoteConnection.ts";
+
+type RemoteConnectionScope = {
+    readonly signal: AbortSignal;
+    combine(signal?: AbortSignal | null): AbortSignal;
+    abort(reason?: unknown): void;
+};
+
+function createRemoteConnectionScope(ownerSignal?: AbortSignal): RemoteConnectionScope {
+    const controller = new AbortController();
+    const combinedSignals = new WeakMap<AbortSignal, AbortSignal>();
+    let detachOwner = () => {};
+    const abort = (reason?: unknown) => {
+        detachOwner();
+        if (!controller.signal.aborted) {
+            controller.abort(reason);
+        }
+    };
+    if (ownerSignal?.aborted) {
+        abort(ownerSignal.reason);
+    } else if (ownerSignal) {
+        const onOwnerAbort = () => abort(ownerSignal.reason);
+        ownerSignal.addEventListener("abort", onOwnerAbort, { once: true });
+        detachOwner = () => ownerSignal.removeEventListener("abort", onOwnerAbort);
+    }
+    const combine = (signal?: AbortSignal | null) => {
+        if (!signal || signal === controller.signal) return controller.signal;
+        const cached = combinedSignals.get(signal);
+        if (cached) return cached;
+        const combined = combineAbortSignals(signal, controller.signal);
+        combinedSignals.set(signal, combined);
+        return combined;
+    };
+    return { signal: controller.signal, combine, abort };
+}
+
+function combineAbortSignals(first: AbortSignal, second: AbortSignal): AbortSignal {
+    if (first === second) return first;
+
+    const abortSignalWithAny = AbortSignal as typeof AbortSignal & {
+        any?: (signals: AbortSignal[]) => AbortSignal;
+    };
+    if (typeof abortSignalWithAny.any === "function") {
+        return abortSignalWithAny.any([first, second]);
+    }
+
+    // Older hosts do not provide AbortSignal.any(). Keep both cancellation
+    // sources without replacing PouchDB's per-request signal.
+    const controller = new AbortController();
+    const listeners = new Map<AbortSignal, () => void>();
+    const detach = () => {
+        for (const [signal, listener] of listeners) {
+            signal.removeEventListener("abort", listener);
+        }
+        listeners.clear();
+    };
+    const abortFrom = (signal: AbortSignal) => {
+        detach();
+        if (!controller.signal.aborted) {
+            controller.abort(signal.reason);
+        }
+    };
+    for (const signal of [first, second]) {
+        if (signal.aborted) {
+            abortFrom(signal);
+            break;
+        }
+        const listener = () => abortFrom(signal);
+        listeners.set(signal, listener);
+        signal.addEventListener("abort", listener, { once: true });
+    }
+    return controller.signal;
+}
+
+function createCouchDBConnection<T extends object>(
+    db: PouchDB.Database<T>,
+    info: PouchDB.Core.DatabaseInfo,
+    scope: RemoteConnectionScope
+): OwnedCouchDBConnection<T> {
+    let closePromise: Promise<void> | undefined;
+    return {
+        db,
+        info,
+        close: () => {
+            closePromise ??= (async () => {
+                scope.abort(new Error("Remote connection closed."));
+                await db.close();
+            })();
+            return closePromise;
+        },
+    };
+}
+
 export interface RemoteServiceDependencies {
     /** PouchDB with the HTTP adapter required by the host runtime already registered. */
     pouchDB: PouchDBConstructor;
@@ -43,21 +136,6 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
     extends ServiceBase<T>
     implements IRemoteService
 {
-    /**
-     * Connect to the remote database with the provided settings.
-     * @param uri  The URI of the remote database.
-     * @param auth  The authentication credentials for the remote database.
-     * @param disableRequestURI  Whether to disable the request URI.
-     * @param passphrase  The passphrase for the remote database.
-     * @param useDynamicIterationCount  Whether to use dynamic iteration count.
-     * @param performSetup  Whether to perform setup.
-     * @param skipInfo  Whether to skip information retrieval.
-     * @param compression  Whether to enable compression.
-     * @param customHeaders  Custom headers to include in the request.
-     * @param useRequestAPI  Whether to use the request API.
-     * @param getPBKDF2Salt  Function to retrieve the PBKDF2 salt.
-     * Note that this function is used for CouchDB and compatible only.
-     */
     protected _log: LogFunction;
     protected _authHeader = new AuthorizationHeaderGenerator();
     protected _APIService: APIService;
@@ -138,6 +216,27 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
         });
     }
 
+    /**
+     * Opens a remote CouchDB connection with request cancellation bound to its
+     * owner.
+     *
+     * @param uri - The URI of the remote database.
+     * @param auth - Authentication credentials for the remote database.
+     * @param disableRequestURI - Whether request URI handling is disabled.
+     * @param passphrase - The database encryption passphrase, or `false` when
+     * encryption is disabled.
+     * @param useDynamicIterationCount - Whether legacy dynamic iteration counts
+     * are enabled.
+     * @param performSetup - Whether PouchDB may set up a missing database.
+     * @param skipInfo - Whether to omit the opening database information request.
+     * @param compression - Whether chunk compression is enabled.
+     * @param customHeaders - Additional HTTP headers for every request.
+     * @param useRequestAPI - Whether to use the host-native request adapter.
+     * @param getPBKDF2Salt - Resolves the PBKDF2 salt when encryption needs it.
+     * @param connectionOptions - Ownership and request fallback options.
+     * @returns An error description, or the owned connection. The caller must
+     * transfer ownership or call `close()`.
+     */
     async connect(
         uri: string,
         auth: CouchDBCredentials,
@@ -149,14 +248,16 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
         compression: boolean,
         customHeaders: Record<string, string>,
         useRequestAPI: boolean,
-        getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>
-    ): Promise<string | { db: PouchDB.Database<EntryDoc>; info: PouchDB.Core.DatabaseInfo }> {
+        getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>,
+        connectionOptions: RemoteConnectionOpenOptions = {}
+    ): Promise<string | OwnedCouchDBConnection<EntryDoc>> {
         if (!isValidRemoteCouchDBURI(uri)) return "Remote URI is not valid";
         if (uri.toLowerCase() != uri) return "Remote URI and database name could not contain capital letters.";
         if (uri.indexOf(" ") !== -1) return "Remote URI and database name could not contain spaces.";
         if (!this._APIService.isOnline) {
             return "Network is offline";
         }
+        const connectionScope = createRemoteConnectionScope(connectionOptions.signal);
         // let authHeader = await this._authHeader.getAuthorizationHeader(auth);
         const conf: PouchDB.HttpAdapter.HttpAdapterConfiguration = {
             adapter: "http",
@@ -228,14 +329,18 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                         //     }
                         // }
                         // this.clearErrors();
+                        const signal = connectionScope.combine(opts?.signal);
                         const response = await this.performFetch(
                             requestSrc,
-                            { ...opts, headers },
+                            { ...opts, headers, signal },
                             useRequestAPI ? FetchMethod.native : FetchMethod.webCompat
                         );
                         return response;
                     } catch (ex) {
                         if (ex instanceof TypeError) {
+                            if (connectionScope.signal.aborted || connectionOptions.allowNativeFallback === false) {
+                                throw ex;
+                            }
                             if (useRequestAPI) {
                                 this._log("Failed to request by API.");
                                 throw ex;
@@ -265,7 +370,12 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                 } catch (ex) {
                     this._log(`HTTP:${method}${size} to:${localURL} -> failed`, LOG_LEVEL_VERBOSE);
                     const msg = ex instanceof Error ? `${ex?.name}:${ex?.message}` : ex?.toString();
-                    this.showError(`${MARK_LOG_NETWORK_ERROR}Network Error: Failed to fetch: ${msg}`, LOG_LEVEL_INFO); // Do not show notice, due to throwing below
+                    if (!connectionScope.signal.aborted) {
+                        this.showError(
+                            `${MARK_LOG_NETWORK_ERROR}Network Error: Failed to fetch: ${msg}`,
+                            LOG_LEVEL_INFO
+                        ); // Do not show notice, due to throwing below
+                    }
                     this._log(ex, LOG_LEVEL_VERBOSE);
                     // limit only in bulk_docs.
                     if (url.toString().indexOf("_bulk_docs") !== -1) {
@@ -278,28 +388,44 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
             },
         };
         const setting = this._settingService.currentSettings();
-        const db: PouchDB.Database<EntryDoc> = new this._pouchDB<EntryDoc>(uri, conf);
-        replicationFilter(db, compression);
-        disableEncryption();
-        if (passphrase !== "false" && typeof passphrase === "string") {
-            enableEncryption(db, passphrase, useDynamicIterationCount, false, getPBKDF2Salt, setting.E2EEAlgorithm);
-        }
-        if (skipInfo) {
-            return { db: db, info: { db_name: "", doc_count: 0, update_seq: "" } };
-        }
+        let db: PouchDB.Database<EntryDoc>;
         try {
-            const info = await db.info();
-            return { db: db, info: info };
+            db = new this._pouchDB<EntryDoc>(uri, conf);
         } catch (ex) {
-            const exMsg = ex instanceof Error ? ex : LiveSyncError.fromError(ex);
-            const msg = `${exMsg.name}:${exMsg.message}`;
-            this._log(ex, LOG_LEVEL_VERBOSE);
+            connectionScope.abort(ex);
+            throw ex;
+        }
+        const compatibilityInfo = { db_name: "", doc_count: 0, update_seq: "" };
+        const connection = createCouchDBConnection(db, compatibilityInfo, connectionScope);
+        const closeAfterConnectionFailure = async () => {
             try {
-                await db.close();
+                await connection.close();
             } catch (closeError) {
                 this._log("Failed to close remote database after connection failure.", LOG_LEVEL_INFO);
                 this._log(closeError, LOG_LEVEL_VERBOSE);
             }
+        };
+        try {
+            replicationFilter(db, compression);
+            disableEncryption();
+            if (passphrase !== "false" && typeof passphrase === "string") {
+                enableEncryption(db, passphrase, useDynamicIterationCount, false, getPBKDF2Salt, setting.E2EEAlgorithm);
+            }
+        } catch (ex) {
+            await closeAfterConnectionFailure();
+            throw ex;
+        }
+        if (skipInfo) {
+            return connection;
+        }
+        try {
+            const info = await db.info();
+            return { ...connection, info };
+        } catch (ex) {
+            const exMsg = ex instanceof Error ? ex : LiveSyncError.fromError(ex);
+            const msg = `${exMsg.name}:${exMsg.message}`;
+            this._log(ex, LOG_LEVEL_VERBOSE);
+            await closeAfterConnectionFailure();
             return msg;
         }
     }

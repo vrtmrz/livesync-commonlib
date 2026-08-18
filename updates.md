@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- One-shot CouchDB connectivity checks now use a flat, owned connection whose `close()` cancels its abort-capable requests before closing PouchDB. If the complete preflight remains unsettled for 60 seconds on the web-compatible fetch path, an internal safety fuse ends the attempt, releases its shared operation, and closes the temporary connection before a later trigger can try again. This is not a limit on replication duration. The explicitly selected native Request API retains its existing behaviour because that adapter cannot currently honour transport cancellation.
+
 ## 0.1.15
 
 ### Fixed
