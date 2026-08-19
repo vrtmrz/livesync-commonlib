@@ -9,6 +9,16 @@ export interface DatabaseFileAccess {
         baseRevision: string | undefined,
         skipCheck?: boolean
     ) => Promise<string | false>;
+    /**
+     * Store a file as a child of an exact revision only while that revision remains a live leaf.
+     *
+     * Unlike {@link storeWithBaseRevision}, this method does not force a branch below an obsolete
+     * revision. 'Live leaf' means any current revision-tree leaf, including a non-winning conflict
+     * leaf or a logical-deletion leaf. In particular, it returns `false` when another writer has
+     * already advanced the supplied base; ordinary target and Chunk validation can also refuse the
+     * write without creating a Metadata successor.
+     */
+    storeWithLiveBaseRevision: (file: UXFileInfo, baseRevision: string, skipCheck?: boolean) => Promise<string | false>;
     storeAsConflictedRevision: (file: UXFileInfo, currentRev: string, skipCheck?: boolean) => Promise<boolean>;
     /** Preserve unknown storage content as a conflict and return its exact revision. */
     storeAsConflictedRevisionWithResult: (
