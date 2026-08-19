@@ -20,6 +20,7 @@ import {
     isTargetFile,
     prepareChunk,
     putDBEntry,
+    putDBEntryWithLiveBaseRevision,
     storeDeletionByPathAtRevision,
 } from "./EntryManagerImpls";
 
@@ -114,5 +115,9 @@ export class EntryManager {
 
     async putDBEntry(note: SavingEntry, onlyChunks?: boolean, conflictBaseRev?: string) {
         return await putDBEntry(this.serviceHost, this, note, onlyChunks, conflictBaseRev);
+    }
+
+    async putDBEntryWithLiveBaseRevision(note: SavingEntry, baseRevision: string, onlyChunks?: boolean) {
+        return await putDBEntryWithLiveBaseRevision(this.serviceHost, this, note, baseRevision, onlyChunks);
     }
 }

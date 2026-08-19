@@ -33,6 +33,11 @@ export interface ServiceDatabaseFileAccessDependencies {
     database: DatabaseService;
 }
 
+type StoreRevisionTarget =
+    | { mode: "default" }
+    | { mode: "force-base"; baseRevision: string | undefined }
+    | { mode: "live-base"; baseRevision: string };
+
 export class ServiceDatabaseFileAccessBase
     extends ServiceModuleBase<ServiceDatabaseFileAccessDependencies>
     implements DatabaseFileAccess
@@ -91,7 +96,21 @@ export class ServiceDatabaseFileAccessBase
         baseRevision: string | undefined,
         skipCheck?: boolean
     ): Promise<string | false> {
-        const result = await this.__store(file, true, skipCheck, false, baseRevision);
+        const result = await this.__store(file, true, skipCheck, false, {
+            mode: "force-base",
+            baseRevision,
+        });
+        return result !== null && typeof result === "object" && "rev" in result ? result.rev : false;
+    }
+    async storeWithLiveBaseRevision(
+        file: UXFileInfo,
+        baseRevision: string,
+        skipCheck?: boolean
+    ): Promise<string | false> {
+        const result = await this.__store(file, true, skipCheck, false, {
+            mode: "live-base",
+            baseRevision,
+        });
         return result !== null && typeof result === "object" && "rev" in result ? result.rev : false;
     }
     async storeAsConflictedRevision(file: UXFileInfo, currentRev: string, skipCheck?: boolean): Promise<boolean> {
@@ -148,7 +167,7 @@ export class ServiceDatabaseFileAccessBase
         force: boolean = false,
         skipCheck?: boolean,
         onlyChunks?: boolean,
-        conflictBaseRev?: string
+        revisionTarget: StoreRevisionTarget = { mode: "default" }
     ): Promise<true | false | PouchDB.Core.Response> {
         if (!skipCheck) {
             if (!(await this.checkIsTargetFile(file))) {
@@ -212,7 +231,7 @@ export class ServiceDatabaseFileAccessBase
         //upsert should locked
         const msg = `STORAGE -> DB (${datatype}) `;
         const isNotChanged = await serialized("file-" + fullPath, async () => {
-            if (conflictBaseRev) {
+            if (revisionTarget.mode !== "default") {
                 return false;
             }
             if (force) {
@@ -256,7 +275,18 @@ export class ServiceDatabaseFileAccessBase
             this._log(msg + " Skip " + fullPath, LOG_LEVEL_VERBOSE);
             return true;
         }
-        const ret = await this.database.localDatabase.putDBEntry(d, onlyChunks, conflictBaseRev);
+        const ret: false | PouchDB.Core.Response =
+            revisionTarget.mode === "live-base"
+                ? await this.database.localDatabase.putDBEntryWithLiveBaseRevision(
+                      d,
+                      revisionTarget.baseRevision,
+                      onlyChunks
+                  )
+                : await this.database.localDatabase.putDBEntry(
+                      d,
+                      onlyChunks,
+                      revisionTarget.mode === "force-base" ? revisionTarget.baseRevision : undefined
+                  );
         if (ret !== false) {
             this._log(msg + fullPath);
             this.events.emitEvent(EVENT_FILE_SAVED);

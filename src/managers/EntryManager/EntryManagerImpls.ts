@@ -38,6 +38,10 @@ type Managers = {
     localDatabase: PouchDB.Database<EntryDoc>;
 };
 type NecessaryManagers<T extends keyof Managers> = Pick<Managers, T>;
+type PutDBEntryRevisionTarget =
+    | { mode: "latest" }
+    | { mode: "force-base"; baseRevision: string }
+    | { mode: "live-base"; baseRevision: string };
 
 export async function createChunks(
     managers: NecessaryManagers<"chunkManager" | "hashManager" | "splitter">,
@@ -157,6 +161,45 @@ export async function putDBEntry(
     onlyChunks?: boolean,
     conflictBaseRev?: string
 ) {
+    const revisionTarget: PutDBEntryRevisionTarget = conflictBaseRev
+        ? { mode: "force-base", baseRevision: conflictBaseRev }
+        : { mode: "latest" };
+    return await putDBEntryInternal(host, managers, note, onlyChunks, revisionTarget);
+}
+
+/**
+ * Store an entry below an exact revision only while that revision remains a live leaf.
+ *
+ * PouchDB's ordinary MVCC write is the authority for this check. A 409 response means that the
+ * base has already been advanced, so the caller receives `false` and can retry from fresh state.
+ */
+export async function putDBEntryWithLiveBaseRevision(
+    host: NecessaryServicesInterfaces<"path" | "setting", never>,
+    managers: NecessaryManagers<"localDatabase" | "chunkManager" | "hashManager" | "splitter">,
+    note: SavingEntry,
+    baseRevision: string,
+    onlyChunks?: boolean
+) {
+    try {
+        return await putDBEntryInternal(host, managers, note, onlyChunks, {
+            mode: "live-base",
+            baseRevision,
+        });
+    } catch (ex) {
+        if (ex && typeof ex === "object" && "status" in ex && ex.status === 409) {
+            return false;
+        }
+        throw ex;
+    }
+}
+
+async function putDBEntryInternal(
+    host: NecessaryServicesInterfaces<"path" | "setting", never>,
+    managers: NecessaryManagers<"localDatabase" | "chunkManager" | "hashManager" | "splitter">,
+    note: SavingEntry,
+    onlyChunks: boolean | undefined,
+    revisionTarget: PutDBEntryRevisionTarget
+) {
     const { localDatabase, chunkManager, splitter } = managers;
 
     //safety valve
@@ -206,8 +249,8 @@ export async function putDBEntry(
 
         return (
             (await serialized("file:" + filename, async () => {
-                if (conflictBaseRev) {
-                    newDoc._rev = conflictBaseRev;
+                if (revisionTarget.mode !== "latest") {
+                    newDoc._rev = revisionTarget.baseRevision;
                 } else {
                     try {
                         const old = await localDatabase.get(newDoc._id);
@@ -220,7 +263,10 @@ export async function putDBEntry(
                         }
                     }
                 }
-                const r = await localDatabase.put<PlainEntry | NewEntry>(newDoc, { force: true });
+                const r =
+                    revisionTarget.mode === "live-base"
+                        ? await localDatabase.put<PlainEntry | NewEntry>(newDoc)
+                        : await localDatabase.put<PlainEntry | NewEntry>(newDoc, { force: true });
                 if (r.ok) {
                     return r;
                 } else {

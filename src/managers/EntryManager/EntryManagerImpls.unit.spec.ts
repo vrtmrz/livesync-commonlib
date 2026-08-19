@@ -4,12 +4,14 @@ import MemoryAdapter from "pouchdb-adapter-memory";
 import {
     createChunks,
     putDBEntry,
+    putDBEntryWithLiveBaseRevision,
     isTargetFile,
     prepareChunk,
     getDBEntryMetaByPath,
     getDBEntryFromMeta,
     getDBEntryByPath,
     deleteDBEntryByPath,
+    storeDeletionByPathAtRevision,
     canUseOnDemandChunking,
     computeChunkRetrievalMethod,
     isLegacyNote,
@@ -491,6 +493,125 @@ describe("EntryManagerImpls", () => {
             }
         });
 
+        it("advances an exact live leaf without replacing another conflict leaf", async () => {
+            const entry = createSavingEntry("live-base-test", "Shared base");
+            const host = createHost(mockSettingService, mockPathService);
+            const managers = { localDatabase: db, chunkManager, hashManager, splitter };
+            const baseResult = await putDBEntry(host, managers, entry);
+            expect(baseResult).not.toBe(false);
+            if (baseResult === false) return;
+
+            const firstLeaf = await putDBEntry(host, managers, {
+                ...entry,
+                data: createTextBlob("First live leaf"),
+                mtime: entry.mtime + 1,
+            });
+            expect(firstLeaf).not.toBe(false);
+            if (firstLeaf === false) return;
+
+            const secondLeaf = await putDBEntry(
+                host,
+                managers,
+                {
+                    ...entry,
+                    data: createTextBlob("Second live leaf"),
+                    mtime: entry.mtime + 2,
+                },
+                false,
+                baseResult.rev
+            );
+            expect(secondLeaf).not.toBe(false);
+            if (secondLeaf === false) return;
+
+            const advancedSecondLeaf = await putDBEntryWithLiveBaseRevision(
+                host,
+                managers,
+                {
+                    ...entry,
+                    data: createTextBlob("Restored historical content"),
+                    mtime: entry.mtime + 3,
+                },
+                secondLeaf.rev
+            );
+            expect(advancedSecondLeaf).not.toBe(false);
+            if (advancedSecondLeaf === false) return;
+
+            const conflicted = await db.get(entry._id, { conflicts: true });
+            const liveLeaves = [conflicted._rev, ...(conflicted._conflicts ?? [])];
+            expect(liveLeaves).toEqual(expect.arrayContaining([firstLeaf.rev, advancedSecondLeaf.rev]));
+            expect(liveLeaves).not.toContain(secondLeaf.rev);
+        });
+
+        it("refuses to store below a revision which is no longer a live leaf", async () => {
+            const entry = createSavingEntry("stale-live-base-test", "Initial content");
+            const host = createHost(mockSettingService, mockPathService);
+            const managers = { localDatabase: db, chunkManager, hashManager, splitter };
+            const baseResult = await putDBEntry(host, managers, entry);
+            expect(baseResult).not.toBe(false);
+            if (baseResult === false) return;
+
+            const advanced = await putDBEntryWithLiveBaseRevision(
+                host,
+                managers,
+                { ...entry, data: createTextBlob("First update"), mtime: entry.mtime + 1 },
+                baseResult.rev
+            );
+            expect(advanced).not.toBe(false);
+            if (advanced === false) return;
+
+            const staleWrite = await putDBEntryWithLiveBaseRevision(
+                host,
+                managers,
+                { ...entry, data: createTextBlob("Stale update"), mtime: entry.mtime + 2 },
+                baseResult.rev
+            );
+
+            expect(staleWrite).toBe(false);
+            const current = await db.get(entry._id, { conflicts: true });
+            expect([current._rev, ...(current._conflicts ?? [])]).toEqual([advanced.rev]);
+        });
+
+        it("stores a live child below a logical-deletion leaf", async () => {
+            const entry = createSavingEntry("deleted-live-base-test", "Content before deletion");
+            const host = createHost(mockSettingService, mockPathService);
+            const managers = { localDatabase: db, chunkManager, hashManager, splitter };
+            const baseResult = await putDBEntry(host, managers, entry);
+            expect(baseResult).not.toBe(false);
+            if (baseResult === false) return;
+
+            const deleted = await storeDeletionByPathAtRevision(
+                host,
+                { localDatabase: db },
+                entry.path,
+                baseResult.rev
+            );
+            expect(deleted).not.toBe(false);
+            if (deleted === false) return;
+            await expect(db.get(entry._id)).resolves.toMatchObject({ _rev: deleted.rev, deleted: true });
+
+            const restored = await putDBEntryWithLiveBaseRevision(
+                host,
+                managers,
+                {
+                    ...entry,
+                    data: createTextBlob("Restored content"),
+                    mtime: entry.mtime + 1,
+                },
+                deleted.rev
+            );
+
+            expect(restored).not.toBe(false);
+            if (restored === false) return;
+            const current = await db.get(entry._id);
+            expect(current).toMatchObject({ _rev: restored.rev });
+            expect(current).not.toHaveProperty("deleted");
+            const loaded = await getDBEntryByPath(host, { localDatabase: db, chunkManager }, entry.path);
+            expect(loaded).not.toBe(false);
+            if (loaded !== false) {
+                await expect(isDocContentSame(loaded.data, "Restored content")).resolves.toBe(true);
+            }
+        });
+
         it("should skip non-target files", async () => {
             const entry = createSavingEntry("invalid:file", "Should be skipped");
             const host = createHost(mockSettingService, mockPathService);
@@ -499,6 +620,7 @@ describe("EntryManagerImpls", () => {
 
             expect(result).toBe(false);
         });
+
     });
 
     describe("getDBEntryMetaByPath", () => {
@@ -662,7 +784,6 @@ describe("EntryManagerImpls", () => {
 
             expect(result).toBe(false);
         });
-
     });
 
     describe("getDBEntryByPath", () => {

@@ -9,6 +9,7 @@ import {
     type ServiceDatabaseFileAccessDependencies,
 } from "./ServiceDatabaseFileAccessBase";
 import { storeDeletionByPathAtRevision } from "@lib/managers/EntryManager/EntryManagerImpls";
+import { EVENT_FILE_SAVED } from "@lib/events/coreEvents";
 
 PouchDB.plugin(MemoryAdapter);
 PouchDB.plugin(replication);
@@ -245,5 +246,54 @@ describe("ServiceDatabaseFileAccessBase.hasContentInRevisionHistory", () => {
         const after = await database.get(id, { conflicts: true });
         expect(after._rev).toBe(root.rev);
         expect(after._conflicts).toBeUndefined();
+    });
+});
+
+describe("ServiceDatabaseFileAccessBase.storeWithLiveBaseRevision", () => {
+    it("returns the exact child revision and emits the saved event only after a successful conditional write", async () => {
+        const path = "restored.md" as FilePathWithPrefix;
+        const id = "restored.md" as DocumentID;
+        const events = createLiveSyncEventHub();
+        const emitEvent = vi.spyOn(events, "emitEvent");
+        const putDBEntryWithLiveBaseRevision = vi.fn().mockResolvedValue({
+            ok: true,
+            id,
+            rev: "3-restored",
+        });
+        const service = new ServiceDatabaseFileAccessBase({
+            events,
+            API: { addLog: vi.fn() },
+            vault: {},
+            storageAccess: {},
+            path: { path2id: vi.fn().mockResolvedValue(id) },
+            database: {
+                localDatabase: { putDBEntryWithLiveBaseRevision },
+            },
+        } as unknown as ServiceDatabaseFileAccessDependencies);
+        const file = {
+            path,
+            name: "restored.md",
+            stat: {
+                ctime: 1,
+                mtime: 2,
+                size: 8,
+                type: "file",
+            },
+            body: new Blob(["restored"]),
+        } as UXFileInfo;
+
+        await expect(service.storeWithLiveBaseRevision(file, "2-deleted", true)).resolves.toBe("3-restored");
+
+        expect(putDBEntryWithLiveBaseRevision).toHaveBeenCalledWith(
+            expect.objectContaining({ _id: id, path }),
+            "2-deleted",
+            false
+        );
+        expect(emitEvent).toHaveBeenCalledWith(EVENT_FILE_SAVED);
+
+        putDBEntryWithLiveBaseRevision.mockResolvedValueOnce(false);
+        emitEvent.mockClear();
+        await expect(service.storeWithLiveBaseRevision(file, "2-deleted", true)).resolves.toBe(false);
+        expect(emitEvent).not.toHaveBeenCalled();
     });
 });
