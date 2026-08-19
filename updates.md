@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.17
+
+### Added
+
+- `storeWithLiveBaseRevision()` conditionally stores content below an exact current revision-tree leaf using PouchDB's ordinary revision check. Maintained hosts can therefore create a successor without force-writing below a stale base, while the existing `storeWithBaseRevision()` operation retains its deliberate force-write behaviour.
+
 ## 0.1.16
 
 ### Improved
