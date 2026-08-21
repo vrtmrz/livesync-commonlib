@@ -29,6 +29,12 @@ import { delay } from "octagonal-wheels/promises";
 import type { AsyncActivityOptions } from "@lib/interfaces/AsyncActivityRunner";
 
 import type { Advertisement } from "./types";
+import {
+    hasValidP2PTurnServerUrl,
+    normaliseP2PConnectionPath,
+    normaliseP2PMaxWirePayloadBytes,
+} from "@lib/common/models/setting.p2p";
+import { P2PConnectionPaths } from "@lib/common/models/setting.const";
 
 export interface LiveSyncTrysteroReplicatorEnv extends LiveSyncReplicatorEnv {
     // services: IServiceHub;
@@ -49,6 +55,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     private _replicator?: TrysteroReplicator;
     private _lifecycleOperation: Promise<void> = Promise.resolve();
     private _shouldBeOpen = false;
+    private _activeTransportCompatibilitySignature?: string;
 
     get openReplicationUI() {
         return this.env.openReplicationUI;
@@ -119,6 +126,31 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         return queued;
     }
 
+    /**
+     * Capture settings which are fixed when the active P2P transport joins its room.
+     * A later open request can remain idempotent only while these effective values match.
+     */
+    private _getTransportCompatibilitySignature(): string {
+        const settings = this.env.services.setting.currentSettings();
+        const configuredPath = normaliseP2PConnectionPath(settings.P2P_connectionPath);
+        const effectivePath =
+            configuredPath === P2PConnectionPaths.Relay && hasValidP2PTurnServerUrl(settings.P2P_turnServers ?? "")
+                ? P2PConnectionPaths.Relay
+                : P2PConnectionPaths.Automatic;
+        return `${normaliseP2PMaxWirePayloadBytes(settings.P2P_maxWirePayloadBytes)}:${effectivePath}`;
+    }
+
+    /** Close and forget the transport without changing the requested lifecycle state. */
+    private async _closeTransport(): Promise<void> {
+        if (this._replicator) {
+            this._replicator.disableBroadcastChanges();
+            await this._replicator.close();
+            this._replicator = undefined;
+        }
+        this._p2pHost = undefined;
+        this._activeTransportCompatibilitySignature = undefined;
+    }
+
     async open() {
         if (!this.env.services.setting.currentSettings().P2P_Enabled) {
             Logger(this.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
@@ -128,9 +160,13 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         this._shouldBeOpen = true;
         await this._enqueueLifecycleOperation(async () => {
             if (!this._shouldBeOpen) return;
+            const compatibilitySignature = this._getTransportCompatibilitySignature();
             if (this._replicator && this._p2pHost?.isServing) {
-                Logger("P2P replicator is already open.");
-                return;
+                if (this._activeTransportCompatibilitySignature === compatibilitySignature) {
+                    Logger("P2P replicator is already open.");
+                    return;
+                }
+                await this._closeTransport();
             }
             try {
                 const env = this._buildEnv();
@@ -139,11 +175,13 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
                 this._p2pHost = host;
                 this._replicator = replicator;
                 await replicator.open();
+                this._activeTransportCompatibilitySignature = compatibilitySignature;
             } catch (e) {
                 Logger(e instanceof Error ? e.message : "Error while opening P2P connection", LOG_LEVEL_NOTICE);
                 Logger(e, LOG_LEVEL_VERBOSE);
                 this._p2pHost = undefined;
                 this._replicator = undefined;
+                this._activeTransportCompatibilitySignature = undefined;
             }
         });
     }
@@ -151,12 +189,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     async close() {
         this._shouldBeOpen = false;
         await this._enqueueLifecycleOperation(async () => {
-            if (this._replicator) {
-                this._replicator.disableBroadcastChanges();
-                await this._replicator.close();
-                this._replicator = undefined;
-            }
-            this._p2pHost = undefined;
+            await this._closeTransport();
         });
     }
 
