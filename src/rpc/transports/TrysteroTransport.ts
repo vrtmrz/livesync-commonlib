@@ -6,6 +6,7 @@ import { RpcPouchDBProxy } from "@lib/rpc/pouchdb/RpcPouchDBProxy";
 import type { RpcRoomOptions, RpcWireMessage, TransportAdapter } from "@lib/rpc/types";
 //TODO: following imports should be moved to a separated module, to make this module as a library.
 import type { P2PConnectionInfo } from "@lib/common/models/setting.type";
+import { normaliseP2PMaxWirePayloadBytes } from "@lib/common/models/setting.p2p";
 import { ConnectionStringParser } from "@lib/common/ConnectionString";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 import { generateJoinRoomOptions } from "./trysteroUtils";
@@ -136,6 +137,16 @@ export const TRYSTERO_RPC_DEFAULTS = {
     /** SCTP guarantees delivery; retransmission is a last-resort safety net. */
     chunkMissingRetryMs: 150,
 } as const;
+
+/** Resolve the RpcRoom defaults contributed by one P2P connection profile. */
+export function resolveTrysteroRpcOptions(
+    settings: Pick<P2PConnectionInfo, "P2P_maxWirePayloadBytes">
+): Required<Pick<RpcRoomOptions, "maxWirePayloadBytes" | "chunkMissingRetryMs">> {
+    return {
+        ...TRYSTERO_RPC_DEFAULTS,
+        maxWirePayloadBytes: normaliseP2PMaxWirePayloadBytes(settings.P2P_maxWirePayloadBytes),
+    };
+}
 
 // ---------------------------------------------------------------------------
 // Low-level: wrap an already-joined Trystero Room
@@ -303,7 +314,11 @@ export function serveTrysteroDB(
     options?: TrysteroRoomOptions
 ): TrysteroDBServerHandle {
     const roomHandle = joinTrysteroRoom(settings);
-    const rpcRoom = new RpcRoom({ ...TRYSTERO_RPC_DEFAULTS, transport: roomHandle.transport, ...options });
+    const rpcRoom = new RpcRoom({
+        ...resolveTrysteroRpcOptions(settings),
+        transport: roomHandle.transport,
+        ...options,
+    });
     exposeDB(rpcRoom, db, ns);
 
     return {
@@ -359,7 +374,11 @@ export function connectTrysteroDBClient(
     options?: TrysteroRoomOptions
 ): TrysteroDBClientHandle {
     const roomHandle = joinTrysteroRoom(settings);
-    const rpcRoom = new RpcRoom({ ...TRYSTERO_RPC_DEFAULTS, transport: roomHandle.transport, ...options });
+    const rpcRoom = new RpcRoom({
+        ...resolveTrysteroRpcOptions(settings),
+        transport: roomHandle.transport,
+        ...options,
+    });
     const proxy = new RpcPouchDBProxy(rpcRoom.session(serverPeerId), dbName, ns);
 
     return {

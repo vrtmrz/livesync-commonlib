@@ -13,6 +13,26 @@ export const REMOTE_MINIO = RemoteTypes.REMOTE_MINIO;
 //
 export const REMOTE_P2P = RemoteTypes.REMOTE_P2P;
 
+/** ICE route policies supported by a P2P connection profile. */
+export const P2PConnectionPaths = {
+    Automatic: "automatic",
+    Relay: "relay",
+} as const;
+export type P2PConnectionPath = (typeof P2PConnectionPaths)[keyof typeof P2PConnectionPaths];
+
+/**
+ * User-facing message-size presets for the P2P RPC transport.
+ *
+ * These values limit Commonlib wire payloads before Trystero applies its own
+ * framing. They are not file Chunk sizes or network MTUs.
+ */
+export const P2PMessageSizePresets = {
+    Standard: 15_360,
+    Reduced: 2_048,
+    Conservative: 1_024,
+    MaximumCompatibility: 800,
+} as const;
+
 export const E2EEAlgorithmNames = {
     "": "V1: Legacy",
     v2: "V2: AES-256-GCM With HKDF",

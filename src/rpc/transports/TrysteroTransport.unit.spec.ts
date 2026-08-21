@@ -113,6 +113,7 @@ import {
     connectTrysteroDBClient,
     joinTrysteroRoom,
     joinTrysteroRoomFromUrl,
+    resolveTrysteroRpcOptions,
     serveTrysteroDB,
     wrapTrysteroRoom,
 } from "./TrysteroTransport";
@@ -144,6 +145,20 @@ const BASE_SETTINGS: P2PConnectionInfo = {
     P2P_turnUsername: "",
     P2P_turnCredential: "",
 };
+
+describe("resolveTrysteroRpcOptions", () => {
+    it.each([
+        [undefined, 15_360],
+        [799, 15_360],
+        [800, 800],
+        [1_024, 1_024],
+        [15_360, 15_360],
+        [15_361, 15_360],
+        [1_024.5, 15_360],
+    ])("normalises the configured wire-payload bound %s to %s", (configured, expected) => {
+        expect(resolveTrysteroRpcOptions({ P2P_maxWirePayloadBytes: configured }).maxWirePayloadBytes).toBe(expected);
+    });
+});
 
 // ---------------------------------------------------------------------------
 // wrapTrysteroRoom
@@ -319,6 +334,45 @@ describe("joinTrysteroRoom", () => {
         ]);
     });
 
+    it.each(["turn:turn.example.com:3478", "turns:turn.example.com:5349"])(
+        "forces the relay ICE transport with the valid TURN URL %s",
+        (turnServer) => {
+            joinTrysteroRoom({
+                ...BASE_SETTINGS,
+                P2P_turnServers: turnServer,
+                P2P_connectionPath: "relay",
+            });
+
+            const [opts] = mockJoinRoom.mock.calls[0];
+            expect((opts as any).rtcConfig).toEqual({ iceTransportPolicy: "relay" });
+        }
+    );
+
+    it.each(["", "stun:stun.example.com:3478", "https://turn.example.com", "turn:"])(
+        "does not force the relay ICE transport without a valid TURN URL: %s",
+        (turnServer) => {
+            joinTrysteroRoom({
+                ...BASE_SETTINGS,
+                P2P_turnServers: turnServer,
+                P2P_connectionPath: "relay",
+            });
+
+            const [opts] = mockJoinRoom.mock.calls[0];
+            expect((opts as any).rtcConfig).toBeUndefined();
+        }
+    );
+
+    it("retains automatic ICE selection when a valid TURN URL is configured", () => {
+        joinTrysteroRoom({
+            ...BASE_SETTINGS,
+            P2P_turnServers: "turn:turn.example.com:3478",
+            P2P_connectionPath: "automatic",
+        });
+
+        const [opts] = mockJoinRoom.mock.calls[0];
+        expect((opts as any).rtcConfig).toBeUndefined();
+    });
+
     it("includes multiple TURN servers when given a comma-separated list", () => {
         joinTrysteroRoom({
             ...BASE_SETTINGS,
@@ -442,6 +496,19 @@ describe("serveTrysteroDB", () => {
         void server.close();
     });
 
+    it("uses the profile wire-payload bound for the server RpcRoom", async () => {
+        const server = serveTrysteroDB(
+            {
+                ...BASE_SETTINGS,
+                P2P_maxWirePayloadBytes: 800,
+            },
+            db
+        );
+
+        expect((server.rpcRoom as any).options.maxWirePayloadBytes).toBe(800);
+        await server.close();
+    });
+
     it("registers pdb.* methods on the RpcRoom", () => {
         const server = serveTrysteroDB(BASE_SETTINGS, db);
         // RpcRoom.hasMethod is not public, but we can verify via a call attempt
@@ -493,6 +560,20 @@ describe("connectTrysteroDBClient", () => {
         const client = connectTrysteroDBClient(BASE_SETTINGS, "server-peer", "my-db");
         expect(client.rpcRoom).toBeInstanceOf(RpcRoom);
         void client.close();
+    });
+
+    it("uses the profile wire-payload bound for the client RpcRoom", async () => {
+        const client = connectTrysteroDBClient(
+            {
+                ...BASE_SETTINGS,
+                P2P_maxWirePayloadBytes: 800,
+            },
+            "server-peer",
+            "my-db"
+        );
+
+        expect((client.rpcRoom as any).options.maxWirePayloadBytes).toBe(800);
+        await client.close();
     });
 
     it("close() calls room.leave()", async () => {

@@ -1,5 +1,6 @@
 import type { JWTAlgorithm } from "@lib/common/models/auth.type";
 import type { CouchDBConnection, BucketSyncSetting, P2PConnectionInfo } from "./models/setting.type";
+import { normaliseP2PConnectionPath, normaliseP2PMaxWirePayloadBytes } from "./models/setting.p2p";
 
 export type RemoteConfigurationResult =
     | { type: "couchdb"; settings: CouchDBConnection }
@@ -187,6 +188,8 @@ export class ConnectionStringParser {
             P2P_turnServers: searchParams.get("turnServers") || "",
             P2P_turnUsername: searchParams.get("turnUser") || "",
             P2P_turnCredential: searchParams.get("turnPass") || "",
+            P2P_maxWirePayloadBytes: normaliseP2PMaxWirePayloadBytes(Number(searchParams.get("maxWirePayloadBytes"))),
+            P2P_connectionPath: normaliseP2PConnectionPath(searchParams.get("connectionPath")),
         };
     }
 
@@ -200,6 +203,11 @@ export class ConnectionStringParser {
         if (settings.P2P_turnServers) searchParams.set("turnServers", settings.P2P_turnServers);
         if (settings.P2P_turnUsername) searchParams.set("turnUser", settings.P2P_turnUsername);
         if (settings.P2P_turnCredential) searchParams.set("turnPass", settings.P2P_turnCredential);
+        searchParams.set(
+            "maxWirePayloadBytes",
+            String(normaliseP2PMaxWirePayloadBytes(settings.P2P_maxWirePayloadBytes))
+        );
+        searchParams.set("connectionPath", normaliseP2PConnectionPath(settings.P2P_connectionPath));
 
         const credentials = settings.P2P_passphrase ? `:${encodeURIComponent(settings.P2P_passphrase)}@` : "";
         const host = encodeURIComponent(settings.P2P_roomID);

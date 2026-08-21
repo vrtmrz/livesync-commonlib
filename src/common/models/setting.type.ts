@@ -6,6 +6,7 @@ import type {
     MODE_PAUSED,
     MODE_SELECTIVE,
     MODE_SHINY,
+    P2PConnectionPath,
     RemoteTypes,
 } from "./setting.const";
 import type { CustomRegExpSourceList } from "./shared.type.util";
@@ -616,6 +617,18 @@ export interface P2PConnectionInfo {
      * The TURN credential (password, secret, etc...) for the P2P connection.
      */
     P2P_turnCredential: string;
+
+    /**
+     * Maximum serialised RPC wire payload sent through Trystero before
+     * Commonlib splits it. Applies to outgoing messages.
+     */
+    P2P_maxWirePayloadBytes?: number;
+
+    /**
+     * ICE route policy for this P2P profile. Relay-only mode is effective only
+     * when the profile contains at least one valid TURN URL.
+     */
+    P2P_connectionPath?: P2PConnectionPath;
 
     /**
      * Use Diagnostic Wrapper for RTCPeerConnection to collect statistics.

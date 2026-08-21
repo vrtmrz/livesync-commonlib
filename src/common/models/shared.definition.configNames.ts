@@ -166,6 +166,14 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         desc: "The credential/password for the TURN servers.",
         isHidden: true,
     },
+    P2P_maxWirePayloadBytes: {
+        name: "P2P Message Size",
+        desc: "The maximum outgoing RPC wire payload before Commonlib splits it for the P2P transport.",
+    },
+    P2P_connectionPath: {
+        name: "Connection Path",
+        desc: "Select the WebRTC route automatically or require a configured TURN relay.",
+    },
     useOnlyLocalChunk: {
         name: "Use Only Local Chunks",
         desc: "If enabled, the plugin will not attempt to connect to the remote database even if the chunk was not found locally.",
