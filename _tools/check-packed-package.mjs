@@ -15,6 +15,14 @@ const consumerDirectory = resolve(root, ".package-consumer");
 const packageName = "@vrtmrz/livesync-commonlib";
 const inventory = JSON.parse(await readFile(resolve(root, "docs/migration/downstream-imports.json"), "utf8"));
 
+function formatFileMode(mode) {
+    return typeof mode === "number" ? mode.toString(8).padStart(4, "0") : String(mode);
+}
+
+function normalisePackagePath(path) {
+    return path.replace(/^\.\//u, "");
+}
+
 function run(command, args, options = {}) {
     return execFileSync(command, args, {
         cwd: options.cwd ?? root,
@@ -38,6 +46,20 @@ const packed = JSON.parse(run("npm", ["pack", packageDirectory, "--json", "--pac
 assert.equal(packed.name, packageName);
 assert.ok(packed.size > 0, "The packed package must not be empty.");
 const generatedManifest = JSON.parse(await readFile(resolve(packageDirectory, "package.json"), "utf8"));
+const declaredBinTargets = new Set(
+    (typeof generatedManifest.bin === "string"
+        ? [generatedManifest.bin]
+        : Object.values(generatedManifest.bin ?? {})
+    ).map(normalisePackagePath)
+);
+for (const file of packed.files) {
+    const expectedMode = declaredBinTargets.has(normalisePackagePath(file.path)) ? 0o755 : 0o644;
+    assert.equal(
+        file.mode,
+        expectedMode,
+        `Packed file '${file.path}' has mode ${formatFileMode(file.mode)}; expected ${formatFileMode(expectedMode)}.`
+    );
+}
 assert.equal(
     generatedManifest.types,
     "./dist/index.d.ts",
