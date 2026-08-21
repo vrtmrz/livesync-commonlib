@@ -1,5 +1,11 @@
 import type { BaseRoomConfig, RelayConfig } from "@trystero-p2p/nostr";
 import type { P2PConnectionInfo } from "@lib/common/models/setting.type";
+import { P2PConnectionPaths } from "@lib/common/models/setting.const";
+import {
+    hasValidP2PTurnServerUrl,
+    normaliseP2PConnectionPath,
+    splitP2PTurnServerUrls,
+} from "@lib/common/models/setting.p2p";
 import { mixedHash } from "octagonal-wheels/hash/purejs";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 import { createDiagRTCPeerConnectionConstructor } from "./DiagRTCPeerConnections";
@@ -11,9 +17,7 @@ export function generateJoinRoomOptions(settings: P2PConnectionInfo): BaseRoomCo
         .map((e) => e.trim())
         .filter((e) => e.length > 0);
 
-    const turnServers = settings.P2P_turnServers.split(",")
-        .map((e) => e.trim())
-        .filter((e) => e.length > 0);
+    const turnServers = splitP2PTurnServerUrls(settings.P2P_turnServers);
     const relayConfig: RelayConfig = {
         manualReconnection: true,
         urls: relays,
@@ -37,6 +41,14 @@ export function generateJoinRoomOptions(settings: P2PConnectionInfo): BaseRoomCo
                 credential: settings.P2P_turnCredential,
             },
         ];
+    }
+    if (
+        normaliseP2PConnectionPath(settings.P2P_connectionPath) === P2PConnectionPaths.Relay &&
+        hasValidP2PTurnServerUrl(settings.P2P_turnServers)
+    ) {
+        options.rtcConfig = {
+            iceTransportPolicy: "relay",
+        };
     }
     return options;
 }

@@ -106,7 +106,17 @@ import {
     MODE_PAUSED,
     MODE_SELECTIVE,
     MODE_SHINY,
+    P2PConnectionPaths,
+    P2PMessageSizePresets,
+    type P2PConnectionPath,
 } from "./models/setting.const.ts";
+import {
+    hasValidP2PTurnServerUrl,
+    isValidP2PTurnServerUrl,
+    normaliseP2PConnectionPath,
+    normaliseP2PMaxWirePayloadBytes,
+    splitP2PTurnServerUrls,
+} from "./models/setting.p2p.ts";
 import {
     PREFERRED_BASE,
     PREFERRED_JOURNAL_SYNC,
@@ -265,8 +275,24 @@ export { type PluginSyncSettingEntry };
 export { SETTING_VERSION_INITIAL, SETTING_VERSION_SUPPORT_CASE_INSENSITIVE, CURRENT_SETTING_VERSION };
 export type { BucketSyncSetting, LocalDBSettings };
 
-export { RemoteTypes, REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P, type RemoteType, AutoAccepting };
-export type { P2PConnectionInfo, P2PSyncSetting };
+export {
+    RemoteTypes,
+    REMOTE_COUCHDB,
+    REMOTE_MINIO,
+    REMOTE_P2P,
+    P2PConnectionPaths,
+    P2PMessageSizePresets,
+    type RemoteType,
+    AutoAccepting,
+};
+export type { P2PConnectionInfo, P2PConnectionPath, P2PSyncSetting };
+export {
+    hasValidP2PTurnServerUrl,
+    isValidP2PTurnServerUrl,
+    normaliseP2PConnectionPath,
+    normaliseP2PMaxWirePayloadBytes,
+    splitP2PTurnServerUrls,
+};
 
 export { P2P_DEFAULT_SETTINGS };
 

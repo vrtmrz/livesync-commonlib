@@ -63,6 +63,16 @@ describe("prepareSettingsForLoad", () => {
         expect(prepared.settings.allowSleepDuringSynchronisationOnDesktop).toBe(true);
     });
 
+    it("adds P2P transport compatibility defaults when stored settings predate them", () => {
+        const prepared = prepareSettingsForLoad({
+            settingVersion: CURRENT_SETTING_VERSION,
+            liveSync: true,
+        });
+
+        expect(prepared.settings.P2P_maxWirePayloadBytes).toBe(15 * 1024);
+        expect(prepared.settings.P2P_connectionPath).toBe("automatic");
+    });
+
     it("is idempotent after the current schema has been applied", () => {
         const first = prepareSettingsForLoad({
             liveSync: true,
@@ -156,9 +166,7 @@ describe("prepareSettingsForLoad", () => {
         expect(TweakValuesShouldMatchedTemplate.doNotUseFixedRevisionForChunks).toBeUndefined();
         expect(TweakValuesRecommendedTemplate.doNotUseFixedRevisionForChunks).toBeUndefined();
         expect(
-            IncompatibleChangesInSpecificPattern.filter(
-                ({ key }) => key === "doNotUseFixedRevisionForChunks"
-            )
+            IncompatibleChangesInSpecificPattern.filter(({ key }) => key === "doNotUseFixedRevisionForChunks")
         ).toEqual([]);
     });
 

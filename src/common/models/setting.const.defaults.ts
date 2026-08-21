@@ -1,4 +1,11 @@
-import { ChunkAlgorithms, CURRENT_SETTING_VERSION, E2EEAlgorithms, REMOTE_COUCHDB } from "./setting.const";
+import {
+    ChunkAlgorithms,
+    CURRENT_SETTING_VERSION,
+    E2EEAlgorithms,
+    P2PConnectionPaths,
+    P2PMessageSizePresets,
+    REMOTE_COUCHDB,
+} from "./setting.const";
 import { PREFERRED_BASE } from "./setting.const.preferred";
 import { AutoAccepting, type ObsidianLiveSyncSettings, type P2PSyncSetting } from "./setting.type";
 import type { CustomRegExpSourceList } from "./shared.type.util";
@@ -23,6 +30,8 @@ export const P2P_DEFAULT_SETTINGS: P2PSyncSetting = {
     P2P_turnServers: "",
     P2P_turnUsername: "",
     P2P_turnCredential: "",
+    P2P_maxWirePayloadBytes: P2PMessageSizePresets.Standard,
+    P2P_connectionPath: P2PConnectionPaths.Automatic,
     P2P_useDiagRTC: false,
 } as const;
 

@@ -17,6 +17,19 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
         expect(decoded.allowSleepDuringSynchronisationOnDesktop).toBe(false);
     });
 
+    it("preserves P2P transport compatibility settings in Setup URI data", () => {
+        const encoded = encodeSettingsToQRCodeData({
+            ...DEFAULT_SETTINGS,
+            P2P_maxWirePayloadBytes: 1024,
+            P2P_connectionPath: "relay",
+        });
+
+        const decoded = decodeSettingsFromQRCodeData(encoded);
+
+        expect(decoded.P2P_maxWirePayloadBytes).toBe(1024);
+        expect(decoded.P2P_connectionPath).toBe("relay");
+    });
+
     it("should preserve remoteConfigurations through encode/decode cycle", () => {
         // Dummy test data with remoteConfigurations
         // Note: In production, this would load from actual user settings containing multiple remoteConfigurations

@@ -21,7 +21,7 @@ import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock_v2";
 import { Computed } from "octagonal-wheels/dataobject/Computed";
 import { RpcRoom, type JsonLike, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
-import { TRYSTERO_RPC_DEFAULTS } from "@lib/rpc/transports/TrysteroTransport";
+import { resolveTrysteroRpcOptions } from "@lib/rpc/transports/TrysteroTransport";
 import { subscribeTrysteroPeerEvents } from "@lib/rpc/transports/trysteroRoomEvents";
 import { toRpcMethodName } from "./rpcCompat";
 import { generateJoinRoomOptions } from "@lib/rpc/transports/trysteroUtils";
@@ -466,7 +466,7 @@ You can chose as follows:
         };
         this._rpcRoom?.close();
         this._rpcRoom = new RpcRoom({
-            ...TRYSTERO_RPC_DEFAULTS,
+            ...resolveTrysteroRpcOptions(this.settings),
             transport,
             canAcceptRequest: async (peerId, method) => {
                 if (method === toRpcMethodName("!reqAuth")) return true;

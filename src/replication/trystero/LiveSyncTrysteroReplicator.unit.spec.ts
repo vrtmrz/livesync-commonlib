@@ -12,12 +12,12 @@ function createDeferred() {
     return { promise, resolve };
 }
 
-function createLifecycleReplicator() {
+function createLifecycleReplicator(settings: Record<string, unknown> = { P2P_Enabled: true }) {
     return new LiveSyncTrysteroReplicator({
         services: {
             context: createServiceContext(),
             setting: {
-                currentSettings: () => ({ P2P_Enabled: true }),
+                currentSettings: () => settings,
             },
             keyValueDB: {
                 openSimpleStore: () => ({}),
@@ -179,5 +179,38 @@ describe("LiveSyncTrysteroReplicator transport lifecycle", () => {
         expect(openedTransport?.server?.isServing).toBe(false);
         expect(replicator.rawReplicator).toBeUndefined();
         expect(replicator.rawHost).toBeUndefined();
+    });
+
+    it.each([
+        ["message-size bound", "P2P_maxWirePayloadBytes", 15_360, 800],
+        ["connection path", "P2P_connectionPath", "automatic", "relay"],
+    ])("replaces a serving transport when its effective %s changes", async (_label, key, initialValue, nextValue) => {
+        vi.restoreAllMocks();
+        const lifecycle: string[] = [];
+        const settings: Record<string, unknown> = {
+            P2P_Enabled: true,
+            P2P_maxWirePayloadBytes: 15_360,
+            P2P_connectionPath: "automatic",
+            P2P_turnServers: "turn:turn.example.com:3478",
+            [key]: initialValue,
+        };
+        vi.spyOn(TrysteroReplicator.prototype, "open").mockImplementation(async function () {
+            lifecycle.push("open");
+            (this.server as any)._room = {};
+        });
+        vi.spyOn(TrysteroReplicator.prototype, "close").mockImplementation(async function () {
+            lifecycle.push("close");
+            (this.server as any)._room = undefined;
+        });
+        const replicator = createLifecycleReplicator(settings);
+
+        await replicator.open();
+        const firstTransport = replicator.rawReplicator;
+        settings[key] = nextValue;
+        await replicator.open();
+
+        expect(lifecycle).toEqual(["open", "close", "open"]);
+        expect(replicator.rawReplicator).not.toBe(firstTransport);
+        expect(replicator.rawHost?.isServing).toBe(true);
     });
 });

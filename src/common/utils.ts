@@ -24,6 +24,7 @@ import {
     type CouchDBConnection,
     type EncryptionSettings,
 } from "./types.ts";
+import { normaliseP2PConnectionPath, normaliseP2PMaxWirePayloadBytes } from "./models/setting.p2p.ts";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import { replaceAll, replaceAllPairs } from "octagonal-wheels/string";
 export { replaceAll, replaceAllPairs };
@@ -610,6 +611,8 @@ export function pickP2PSyncSettings(setting: Partial<ObsidianLiveSyncSettings> &
         P2P_turnServers: setting.P2P_turnServers,
         P2P_turnUsername: setting.P2P_turnUsername,
         P2P_turnCredential: setting.P2P_turnCredential,
+        P2P_maxWirePayloadBytes: normaliseP2PMaxWirePayloadBytes(setting.P2P_maxWirePayloadBytes),
+        P2P_connectionPath: normaliseP2PConnectionPath(setting.P2P_connectionPath),
     };
 }
 
