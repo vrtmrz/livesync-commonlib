@@ -42,6 +42,8 @@ There is no special profile named or identified as `default`. The selected main 
 - Use `{ activate: true, activateForP2P: true }` when P2P is the main remote.
 - Use `{ activateForP2P: true }` to select a P2P profile without changing the main remote.
 
+The outgoing message bound and connection path are ordinary P2P profile properties retained in its connection URI. Separate profiles may intentionally share a Group ID and credentials while selecting different transport compatibility values; only the profile selected by `P2P_ActiveRemoteConfigurationId` supplies the active flat P2P projection.
+
 Selecting a profile updates the compatibility fields immediately. Existing replication services may therefore continue to consume those fields while profile-aware hosts treat the profile map and selection IDs as authoritative persisted state.
 
 ## Import and migration boundary
