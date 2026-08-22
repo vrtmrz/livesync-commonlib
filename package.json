@@ -31,7 +31,7 @@
     "test:integration": "node _tools/run-integration-tests.mjs",
     "test:integration:managed": "node _tools/run-integration-tests.mjs --manage-services",
     "test:package": "node _tools/run-package-test.mjs",
-    "test:release": "node --test _tools/validate-release-selection.test.mjs",
+    "test:release": "node --test _tools/prepare-github-release.test.mjs _tools/validate-release-selection.test.mjs",
     "update:downstream-import-inventory": "node _tools/update-downstream-import-inventory.mjs",
     "verify:package": "npm run check:types && npm test && npm run test:boundary && npm run test:release && npm run check:boundary && npm run test:package"
   },
