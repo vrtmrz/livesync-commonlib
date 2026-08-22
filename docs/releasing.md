@@ -92,3 +92,25 @@ gh workflow run publish-npm.yml \
 For a stable release, use `source_ref=main`. The workflow rejects a stable release selected from another branch, rejects a stable release without its trusted workflow commit, and requires the workflow-triggering SHA to equal the packaged `main` SHA. The workflow dispatch itself uses `--ref main` for every release, so an unmerged branch cannot change the trusted publication job or acquire access to the `npm` environment.
 
 The workflow always stages to `next`. Inspect the staged package name, version, access, dist-tag, provenance, checksum, files, selected source branch, and source commit before approving it through npm. Approval and later promotion to `latest` are separate user-authorised operations. Keep the Commonlib and Self-hosted LiveSync consumer pull requests in draft while validating the exact registry pre-release. If validation fails, leave that published version immutable and prepare a new pre-release. After successful consumer validation, merge Commonlib only through its separate maintainer gate. Validate a stable release in Self-hosted LiveSync before promoting it to `latest`.
+
+## Publishing a GitHub Release
+
+Create a GitHub Release for each stable Commonlib release after the exact registry artefact has passed downstream validation and the version has been promoted to `latest`. Target the exact `main` commit used to build the published package.
+
+Protect the GitHub `github-release` environment with a required reviewer and permit only `main`. The manually dispatched workflow first verifies the release with read-only repository access. Only its protected publication job receives `contents: write` access.
+
+Set the exact version and release commit, then dispatch the workflow from `main`:
+
+```bash
+version='<version>'
+release_sha='<full-release-commit>'
+gh workflow run publish-github-release.yml \
+  --ref main \
+  -f version="$version" \
+  -f expected_sha="$release_sha" \
+  -f confirmation="release @vrtmrz/livesync-commonlib@$version from $release_sha"
+```
+
+The workflow requires the release commit to be an ancestor of its trusted `main` commit, reads the exact source version and corresponding release notes from that commit, confirms that npm `latest` points to the version, and rejects an existing version tag. Review those results before approving the `github-release` environment. The protected job rechecks npm `latest`, then creates the version tag and GitHub Release and verifies that the tag points to the selected commit.
+
+Treat dispatching and approving the GitHub Release workflow as separate user-authorised remote operations. Verify the version, exact release commit, and release notes immediately before approval.

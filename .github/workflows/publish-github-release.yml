@@ -1,0 +1,174 @@
+name: Publish GitHub Release
+
+on:
+    workflow_dispatch:
+        inputs:
+            version:
+                description: Exact stable version in package.json and npm latest
+                required: true
+                type: string
+            expected_sha:
+                description: Full 40-character release commit SHA on main
+                required: true
+                type: string
+            confirmation:
+                description: "Type: release @vrtmrz/livesync-commonlib@<version> from <expected-sha>"
+                required: true
+                type: string
+
+permissions:
+    contents: read
+
+concurrency:
+    group: github-release
+    cancel-in-progress: false
+
+env:
+    PACKAGE_NAME: "@vrtmrz/livesync-commonlib"
+
+jobs:
+    verify:
+        name: Verify GitHub Release selection
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+
+        steps:
+            - name: Check out the trusted workflow
+              uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+              with:
+                  fetch-depth: 0
+                  persist-credentials: false
+
+            - name: Set up Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+              with:
+                  node-version: 24
+                  registry-url: https://registry.npmjs.org
+                  package-manager-cache: false
+
+            - name: Verify the release source and prepare notes
+              env:
+                  VERSION: ${{ inputs.version }}
+                  EXPECTED_SHA: ${{ inputs.expected_sha }}
+                  CONFIRMATION: ${{ inputs.confirmation }}
+              run: |
+                  test "$GITHUB_REF" = refs/heads/main
+                  [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+                  git cat-file -e "$EXPECTED_SHA^{commit}"
+                  git merge-base --is-ancestor "$EXPECTED_SHA" "$GITHUB_SHA"
+                  git show "$EXPECTED_SHA:package.json" > "$RUNNER_TEMP/release-package.json"
+                  git show "$EXPECTED_SHA:updates.md" > "$RUNNER_TEMP/release-updates.md"
+                  node _tools/prepare-github-release.mjs \
+                    "$VERSION" \
+                    "$EXPECTED_SHA" \
+                    "$CONFIRMATION" \
+                    "$RUNNER_TEMP/release-package.json" \
+                    "$RUNNER_TEMP/release-updates.md" \
+                    "$RUNNER_TEMP/release-notes.md"
+
+            - name: Require the exact version on npm latest
+              env:
+                  VERSION: ${{ inputs.version }}
+              run: test "$(npm view "$PACKAGE_NAME@latest" version)" = "$VERSION"
+
+            - name: Require an unused version tag
+              env:
+                  VERSION: ${{ inputs.version }}
+              run: |
+                  set +e
+                  git ls-remote --exit-code origin "refs/tags/$VERSION" > "$RUNNER_TEMP/release-tag"
+                  status=$?
+                  set -e
+                  case "$status" in
+                    0)
+                      echo "Tag $VERSION already exists." >&2
+                      exit 1
+                      ;;
+                    2) ;;
+                    *) exit "$status" ;;
+                  esac
+
+            - name: Record the verified selection
+              env:
+                  VERSION: ${{ inputs.version }}
+                  EXPECTED_SHA: ${{ inputs.expected_sha }}
+              run: |
+                  {
+                    echo "### GitHub Release selection"
+                    echo
+                    printf -- '- package: `%s@%s`\n' "$PACKAGE_NAME" "$VERSION"
+                    printf -- '- release commit: `%s`\n' "$EXPECTED_SHA"
+                    echo '- npm dist-tag: `latest`'
+                  } >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Upload the verified release notes
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+              with:
+                  name: github-release-notes
+                  path: ${{ runner.temp }}/release-notes.md
+                  if-no-files-found: error
+                  retention-days: 1
+
+    publish:
+        name: Publish GitHub Release
+        needs: verify
+        runs-on: ubuntu-latest
+        timeout-minutes: 10
+        environment: github-release
+        permissions:
+            contents: write
+
+        steps:
+            - name: Set up Node.js
+              uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+              with:
+                  node-version: 24
+                  registry-url: https://registry.npmjs.org
+                  package-manager-cache: false
+
+            - name: Download the verified release notes
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+              with:
+                  name: github-release-notes
+                  path: ${{ runner.temp }}/github-release
+
+            - name: Revalidate the release gate
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  VERSION: ${{ inputs.version }}
+              run: |
+                  test "$(npm view "$PACKAGE_NAME@latest" version)" = "$VERSION"
+                  if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" > /dev/null 2>&1; then
+                    echo "Tag $VERSION already exists." >&2
+                    exit 1
+                  fi
+
+            - name: Publish the version tag and GitHub Release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  VERSION: ${{ inputs.version }}
+                  EXPECTED_SHA: ${{ inputs.expected_sha }}
+              run: |
+                  gh release create "$VERSION" \
+                    --repo "$GITHUB_REPOSITORY" \
+                    --target "$EXPECTED_SHA" \
+                    --title "$VERSION" \
+                    --notes-file "$RUNNER_TEMP/github-release/release-notes.md" \
+                    --latest
+
+            - name: Verify the published GitHub Release
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  VERSION: ${{ inputs.version }}
+                  EXPECTED_SHA: ${{ inputs.expected_sha }}
+              run: |
+                  test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" --jq '.object.type')" = commit
+                  test "$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$VERSION" --jq '.object.sha')" = "$EXPECTED_SHA"
+                  release_url=$(gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" --json isDraft,isPrerelease,url --jq 'select(.isDraft == false and .isPrerelease == false) | .url')
+                  test -n "$release_url"
+                  {
+                    echo "### Published GitHub Release"
+                    echo
+                    printf -- '- release: %s\n' "$release_url"
+                    printf -- '- release commit: `%s`\n' "$EXPECTED_SHA"
+                  } >> "$GITHUB_STEP_SUMMARY"
