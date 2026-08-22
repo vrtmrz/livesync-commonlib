@@ -92,3 +92,20 @@ gh workflow run publish-npm.yml \
 For a stable release, use `source_ref=main`. The workflow rejects a stable release selected from another branch, rejects a stable release without its trusted workflow commit, and requires the workflow-triggering SHA to equal the packaged `main` SHA. The workflow dispatch itself uses `--ref main` for every release, so an unmerged branch cannot change the trusted publication job or acquire access to the `npm` environment.
 
 The workflow always stages to `next`. Inspect the staged package name, version, access, dist-tag, provenance, checksum, files, selected source branch, and source commit before approving it through npm. Approval and later promotion to `latest` are separate user-authorised operations. Keep the Commonlib and Self-hosted LiveSync consumer pull requests in draft while validating the exact registry pre-release. If validation fails, leave that published version immutable and prepare a new pre-release. After successful consumer validation, merge Commonlib only through its separate maintainer gate. Validate a stable release in Self-hosted LiveSync before promoting it to `latest`.
+
+## Publishing a GitHub Release
+
+Create a GitHub Release for each stable Commonlib release after the exact registry artefact has passed downstream validation and the version has been promoted to `latest`. Target the exact `main` commit used to build the published package, and confirm that any existing version tag points to that commit.
+
+Prepare concise release notes from the corresponding `updates.md` entry. Then create the version tag, when it does not already exist, and publish the GitHub Release in one operation:
+
+```bash
+gh release create <version> \
+  --repo vrtmrz/livesync-commonlib \
+  --target <release-commit> \
+  --title '<version>' \
+  --notes-file <release-notes-file> \
+  --latest
+```
+
+Treat publishing the GitHub Release as a separate user-authorised remote operation. Verify the version, exact release commit, and release notes immediately before publishing it.
