@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.1.18
+
+### Added
+
+- P2P profiles can now select an outgoing RPC message bound through `P2P_maxWirePayloadBytes`. `P2PMessageSizePresets` provides Standard (15,360 bytes), Reduced (2,048 bytes), Conservative (1,024 bytes), and Maximum compatibility (800 bytes), while omitted or invalid values retain the established Standard behaviour. This gives constrained WebRTC paths a supported alternative to modifying installed package code. Thank you to @andrewschreiber for the detailed diagnosis and reproducible workaround in [issue #97](https://github.com/vrtmrz/livesync-commonlib/issues/97).
+- P2P profiles can select automatic ICE routing or require a configured TURN relay through `P2P_connectionPath`. Relay-only routing is effective only when at least one syntactically valid `turn:` or `turns:` URL is present. P2P connection strings and QR-encoded settings retain both compatibility choices.
+
+### Improved
+
+- A serving P2P transport is now recreated when its effective message bound or connection path changes. Repeated opens with unchanged compatibility settings remain idempotent.
+
 ## 0.1.17
 
 ### Added
