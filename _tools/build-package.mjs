@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { chmod, cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { basename, dirname, relative, resolve, sep } from "node:path";
 
 import { build } from "esbuild";
@@ -275,6 +275,31 @@ async function copyStaticFiles() {
     }
 }
 
+async function normalisePackagePermissions() {
+    const manifest = JSON.parse(await readFile(resolve(packageDirectory, "package.json"), "utf8"));
+    const executablePaths = new Set(
+        (typeof manifest.bin === "string" ? [manifest.bin] : Object.values(manifest.bin ?? {})).map((path) =>
+            path.replace(/^\.\//u, "")
+        )
+    );
+
+    const visit = async (directory) => {
+        await chmod(directory, 0o755);
+        for (const entry of await readdir(directory, { withFileTypes: true })) {
+            const path = resolve(directory, entry.name);
+            if (entry.isDirectory()) {
+                await visit(path);
+                continue;
+            }
+            if (!entry.isFile()) continue;
+            const packagePath = relative(packageDirectory, path).split(sep).join("/");
+            await chmod(path, executablePaths.has(packagePath) ? 0o755 : 0o644);
+        }
+    };
+
+    await visit(packageDirectory);
+}
+
 async function validateOutput() {
     const manifest = JSON.parse(await readFile(resolve(packageDirectory, "package.json"), "utf8"));
     const missingTargets = [];
@@ -323,6 +348,7 @@ await bundleInlineWorker();
 await copyStaticFiles();
 await rewriteModuleSpecifiers();
 await writePackageManifest();
+await normalisePackagePermissions();
 await validateOutput();
 
 console.log(

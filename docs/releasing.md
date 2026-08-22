@@ -13,6 +13,8 @@ npm run verify:package
 
 The gate type-checks Commonlib, runs its complete unit suite, verifies the source boundary, builds the distributable package, installs its exact tarball into a clean consumer, and bundles representative browser and Node entry points. The source `package.json` remains private to prevent publishing the repository root. Only the generated `.package` directory is publishable, and its manifest defaults to public publication on the `next` dist-tag.
 
+The package builder normalises generated directories to `0755`, ordinary files to `0644`, and declared `bin` targets to `0755` before validation. `test:package` uses a restrictive umask and verifies the packed modes, so local and hosted builds do not differ only because their caller environments use different umasks.
+
 ### Lockfile reproducibility
 
 Regenerate `package-lock.json` with the reviewed npm CLI version pinned by the `Use the reviewed npm CLI` step in `.github/workflows/publish-npm.yml`. Do this after adding, removing, or updating a dependency, even when an older local npm reports that the lockfile is already up to date. npm minor versions can differ in how they record transitive optional peer dependencies; a lockfile accepted by an older client can otherwise fail the hosted `npm ci` before any tests run.
