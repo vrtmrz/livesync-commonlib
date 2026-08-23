@@ -21,11 +21,11 @@ vi.mock("octagonal-wheels/promises", async (importOriginal) => {
     };
 });
 
-function createRebuilder() {
+function createRebuilder(initialDatabaseSuffix = "") {
     const smallConfig = new Map<string, string>();
     const settings = {
         isConfigured: true,
-        additionalSuffixOfDatabaseName: "",
+        additionalSuffixOfDatabaseName: initialDatabaseSuffix,
         remoteType: REMOTE_COUCHDB,
         couchDB_URI: "https://example.com",
         couchDB_DBNAME: "db",
@@ -43,6 +43,8 @@ function createRebuilder() {
         allDocs: vi.fn(async () => ({ total_rows: 1 })),
     };
     const activityFinished = vi.fn();
+    let activeDatabaseSuffix = initialDatabaseSuffix;
+    const resetDatabaseTargets: string[] = [];
     const runBoundedRemoteActivity = vi.fn(async (task: () => unknown) => {
         try {
             return await task();
@@ -79,8 +81,19 @@ function createRebuilder() {
         },
         database: {
             onDatabaseReset: { addHandler: vi.fn() },
-            resetDatabase: vi.fn(async () => undefined),
-            openDatabase: vi.fn(async () => undefined),
+            resetDatabase: vi.fn(async () => {
+                resetDatabaseTargets.push(activeDatabaseSuffix);
+                return true;
+            }),
+            resetDatabaseForCurrentSettings: vi.fn(async () => {
+                activeDatabaseSuffix = settings.additionalSuffixOfDatabaseName;
+                resetDatabaseTargets.push(activeDatabaseSuffix);
+                return true;
+            }),
+            openDatabase: vi.fn(async () => {
+                activeDatabaseSuffix = settings.additionalSuffixOfDatabaseName;
+                return true;
+            }),
             localDatabase: { localDatabase: localDB },
         },
         databaseEvents: {
@@ -132,6 +145,7 @@ function createRebuilder() {
         settings,
         activityFinished,
         runBoundedRemoteActivity,
+        resetDatabaseTargets,
     };
 }
 
@@ -188,6 +202,30 @@ describe("ServiceRebuilder scheduled restart flags", () => {
 });
 
 describe("ServiceRebuilder event isolation", () => {
+    it.each(["", "previous-device"])(
+        "resets only the database selected by the new device suffix when the former suffix is %j",
+        async (formerSuffix) => {
+            const { rebuilder, resetDatabaseTargets } = createRebuilder(formerSuffix);
+
+            await rebuilder.resetLocalDatabase();
+
+            expect(resetDatabaseTargets).toEqual(["app"]);
+        }
+    );
+
+    it("does not announce a reset which the database service could not complete", async () => {
+        const { rebuilder, services } = createRebuilder("previous-device");
+        const listener = vi.fn();
+        services.events.onEvent(EVENT_DATABASE_REBUILT, listener);
+        services.database.resetDatabaseForCurrentSettings.mockResolvedValueOnce(false);
+
+        await expect(rebuilder.resetLocalDatabase()).rejects.toThrow(
+            "The local database selected by the current settings could not be reset."
+        );
+
+        expect(listener).not.toHaveBeenCalled();
+    });
+
     it("announces a database reset through its injected event hub", async () => {
         const { rebuilder, services } = createRebuilder();
         const listener = vi.fn();
@@ -271,6 +309,20 @@ describe("ServiceRebuilder fast fetch retry", () => {
 });
 
 describe("ServiceRebuilder bounded remote activity", () => {
+    it("stops a rebuild before remote mutation when the selected local database cannot be reset", async () => {
+        const { rebuilder, services } = createRebuilder("previous-device");
+        const remoteReplicator = services.replicator.getActiveReplicator();
+        services.database.resetDatabaseForCurrentSettings.mockResolvedValueOnce(false);
+
+        await expect(rebuilder.$rebuildEverything()).rejects.toThrow(
+            "The local database selected by the current settings could not be reset."
+        );
+
+        expect(services.databaseEvents.initialiseDatabase).not.toHaveBeenCalled();
+        expect(remoteReplicator?.tryResetRemoteDatabase).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllToRemote).not.toHaveBeenCalled();
+    });
+
     it("initialises a first P2P device without attempting to reset or upload to a non-existent remote database", async () => {
         const { rebuilder, services, settings } = createRebuilder();
         settings.remoteType = REMOTE_P2P;
@@ -283,7 +335,7 @@ describe("ServiceRebuilder bounded remote activity", () => {
 
         await expect(rebuilder.$rebuildEverything()).resolves.toBeUndefined();
 
-        expect(services.database.resetDatabase).toHaveBeenCalled();
+        expect(services.database.resetDatabaseForCurrentSettings).toHaveBeenCalled();
         expect(services.databaseEvents.initialiseDatabase).toHaveBeenCalledWith(true, true, true);
         expect(p2pReplicator.tryResetRemoteDatabase).not.toHaveBeenCalled();
         expect(services.replication.markLocked).not.toHaveBeenCalled();
@@ -387,7 +439,7 @@ describe("ServiceRebuilder bounded remote activity", () => {
         expect(fetchChangesForInitialSyncMock).not.toHaveBeenCalled();
         expect(services.replication.replicateAllFromRemote).toHaveBeenCalledTimes(2);
         expect(services.setting.deleteSmallConfig).toHaveBeenCalledWith("fast-fetch-checkpoint");
-        expect(services.database.resetDatabase.mock.invocationCallOrder[0]).toBeLessThan(
+        expect(services.database.resetDatabaseForCurrentSettings.mock.invocationCallOrder[0]).toBeLessThan(
             services.setting.deleteSmallConfig.mock.invocationCallOrder[0]
         );
         expect(runBoundedRemoteActivity).toHaveBeenCalledTimes(1);

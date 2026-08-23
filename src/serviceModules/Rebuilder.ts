@@ -536,14 +536,15 @@ Are you sure you wish to proceed?`;
     }
 
     async resetLocalDatabase() {
-        const settings = this.setting.currentSettings();
-        if (settings.isConfigured && settings.additionalSuffixOfDatabaseName == "") {
-            // Discard the non-suffixed database
-            await this.database.resetDatabase();
-        }
         const suffix = this.API.getAppID() || "";
         await this.setting.applyPartial({ additionalSuffixOfDatabaseName: suffix });
-        await this.database.resetDatabase();
+        const reset = await this.database.resetDatabaseForCurrentSettings({
+            databaseEvents: this.databaseEvents,
+            replicator: this.replicator,
+        });
+        if (!reset) {
+            throw new Error("The local database selected by the current settings could not be reset.");
+        }
         this.events.emitEvent(EVENT_DATABASE_REBUILT);
     }
 

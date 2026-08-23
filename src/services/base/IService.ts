@@ -123,6 +123,8 @@ export interface IDatabaseService {
 
     resetDatabase(): Promise<boolean>;
 
+    resetDatabaseForCurrentSettings(params: openDatabaseParameters): Promise<boolean>;
+
     onDatabaseReset: () => Promise<boolean>;
 
     onOpenDatabase: (vaultName: string) => Promise<boolean>;

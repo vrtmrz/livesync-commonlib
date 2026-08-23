@@ -308,7 +308,10 @@ export class LiveSyncLocalDB {
         await this.localDatabase.destroy();
         //@ts-ignore
         this.localDatabase = null;
-        await this.initializeDatabase();
+        if (!(await this.initializeDatabase())) {
+            this._log("Local Database could not be reinitialised after reset.", LOG_LEVEL_NOTICE);
+            return false;
+        }
         this._log("Local Database Reset", LOG_LEVEL_NOTICE);
         return true;
     }

@@ -40,9 +40,7 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
     // Additional process when opening database, such as initialising managers or local database instance.
     onOpenDatabase = handlers<IDatabaseService>().bailFirstFailure("onOpenDatabase");
 
-    /**
-     * Called after the local database has been reset.
-     */
+    /** Called after the active database has been reset and successfully reinitialised. */
     onDatabaseReset = handlers<IDatabaseService>().bailFirstFailure("onDatabaseReset");
 
     get localDatabase() {
@@ -116,6 +114,30 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
         if (!this._localDatabase) {
             return Promise.resolve(true);
         }
-        return await this._localDatabase.resetDatabase();
+        if (!(await this._localDatabase.resetDatabase())) {
+            return false;
+        }
+        return await this.onDatabaseReset();
+    }
+
+    /**
+     * Reset the database selected by the current settings.
+     *
+     * A `LiveSyncLocalDB` captures its name when constructed, so changing a
+     * suffix does not retarget the active instance. This operation selects and
+     * opens the settings-derived database before resetting it when necessary.
+     * The formerly active physical database is closed but not destroyed.
+     */
+    async resetDatabaseForCurrentSettings(params: openDatabaseParameters): Promise<boolean> {
+        const selectedDatabaseName = this.services.vault.getVaultName();
+        if (this._localDatabase?.dbname !== selectedDatabaseName) {
+            if (!(await this.openDatabase(params))) {
+                return false;
+            }
+            if (this._localDatabase?.dbname !== selectedDatabaseName) {
+                return false;
+            }
+        }
+        return await this.resetDatabase();
     }
 }

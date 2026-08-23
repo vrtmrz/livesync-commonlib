@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import replication from "pouchdb-replication";
@@ -83,10 +83,9 @@ describe("LiveSyncLocalDB.allChunks", () => {
             ...(await database.get("first.md")),
             children: ["h:replacement"],
         });
-        await database.put(
-            revision("second.md", "1-second", ["second"], ["h:shared"]),
-            { new_edits: false } as PouchDB.Core.PutOptions
-        );
+        await database.put(revision("second.md", "1-second", ["second"], ["h:shared"]), {
+            new_edits: false,
+        } as PouchDB.Core.PutOptions);
 
         const { used } = await subject.allChunks();
 
@@ -189,5 +188,38 @@ describe("LiveSyncLocalDB.allChunks", () => {
         } finally {
             await target.destroy();
         }
+    });
+});
+
+describe("LiveSyncLocalDB reset lifecycle", () => {
+    it("reports failure when the destroyed database cannot be reinitialised", async () => {
+        const initialise = vi.fn(async () => false);
+        const destroy = vi.fn(async () => undefined);
+        const subject = Object.create(LiveSyncLocalDB.prototype) as LiveSyncLocalDB;
+        Object.assign(subject, {
+            _managers: {
+                teardownManagers: vi.fn(async () => undefined),
+            },
+            env: {
+                services: {
+                    replicator: {
+                        getActiveReplicator: vi.fn(() => undefined),
+                    },
+                    databaseEvents: {
+                        onResetDatabase: vi.fn(async () => true),
+                    },
+                },
+            },
+            localDatabase: {
+                destroy,
+            },
+            initializeDatabase: initialise,
+            _log: vi.fn(),
+        });
+
+        await expect(subject.resetDatabase()).resolves.toBe(false);
+
+        expect(destroy).toHaveBeenCalledOnce();
+        expect(initialise).toHaveBeenCalledOnce();
     });
 });
