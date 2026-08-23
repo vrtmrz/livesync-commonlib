@@ -2,8 +2,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import replication from "pouchdb-replication";
-import type { DocumentID, EntryDoc } from "@lib/common/types";
+import { DEFAULT_SETTINGS, type DocumentID, type EntryDoc } from "@lib/common/types";
+import { createServiceContext } from "@lib/services/base/ServiceBase";
 import { LiveSyncLocalDB } from "./LiveSyncLocalDB";
+
+const managerLifecycle = vi.hoisted(() => ({
+    initialise: vi.fn(async () => undefined),
+    teardown: vi.fn(async () => undefined),
+}));
+
+vi.mock("@lib/managers/LiveSyncManagers.ts", () => ({
+    LiveSyncManagers: class {
+        chunkManager = { emitEvent: vi.fn() };
+        initialise = managerLifecycle.initialise;
+        teardownManagers = managerLifecycle.teardown;
+        clearCaches = vi.fn();
+        prepareHashFunction = vi.fn(async () => undefined);
+    },
+}));
 
 PouchDB.plugin(MemoryAdapter);
 PouchDB.plugin(replication);
@@ -221,5 +237,100 @@ describe("LiveSyncLocalDB reset lifecycle", () => {
 
         expect(destroy).toHaveBeenCalledOnce();
         expect(initialise).toHaveBeenCalledOnce();
+    });
+});
+
+describe("LiveSyncLocalDB initialisation readiness", () => {
+    function createSubject(onDatabaseHasReady: () => Promise<boolean>) {
+        let closeHandler: (() => void) | undefined;
+        let closed = false;
+        const database = {
+            removeAllListeners: vi.fn(() => {
+                closeHandler = undefined;
+            }),
+            close: vi.fn(async () => {
+                if (!closed) {
+                    closed = true;
+                    closeHandler?.();
+                }
+            }),
+            info: vi.fn(async () => ({ db_name: "readiness" })),
+            on: vi.fn((event: string, handler: () => void) => {
+                if (event === "close") closeHandler = handler;
+            }),
+        };
+        const closeReplication = vi.fn();
+        const onUnloadDatabase = vi.fn(async () => true);
+        const context = createServiceContext();
+        const subject = new LiveSyncLocalDB("readiness", {
+            services: {
+                context,
+                API: { addLog: vi.fn() } as never,
+                setting: {
+                    currentSettings: vi.fn(() => ({ ...DEFAULT_SETTINGS })),
+                } as never,
+                path: {} as never,
+                database: {
+                    createPouchDBInstance: vi.fn(() => database),
+                } as never,
+                databaseEvents: {
+                    onDatabaseInitialisation: vi.fn(async () => true),
+                    onDatabaseHasReady,
+                    onUnloadDatabase,
+                } as never,
+                replicator: {
+                    finiteReplicationActivityCount: { value: 0 },
+                    getActiveReplicator: vi.fn(() => ({ closeReplication })),
+                } as never,
+            },
+        });
+        return { closeReplication, database, onUnloadDatabase, subject };
+    }
+
+    beforeEach(() => {
+        managerLifecycle.initialise.mockClear();
+        managerLifecycle.teardown.mockClear();
+    });
+
+    it("rolls back physical readiness when a required ready handler rejects the transition", async () => {
+        const onDatabaseHasReady = vi.fn(async () => false);
+        const { closeReplication, database, onUnloadDatabase, subject } = createSubject(onDatabaseHasReady);
+
+        await expect(subject.initializeDatabase()).resolves.toBe(false);
+
+        expect(subject.isReady).toBe(false);
+        expect(database.close).toHaveBeenCalledOnce();
+        expect(managerLifecycle.teardown).toHaveBeenCalled();
+        expect(closeReplication).toHaveBeenCalled();
+        expect(onUnloadDatabase).toHaveBeenCalledWith(subject);
+    });
+
+    it("rolls back physical readiness before propagating a required ready-handler error", async () => {
+        const error = new Error("local node information could not be initialised");
+        const { database, onUnloadDatabase, subject } = createSubject(async () => Promise.reject(error));
+
+        await expect(subject.initializeDatabase()).rejects.toBe(error);
+
+        expect(subject.isReady).toBe(false);
+        expect(database.close).toHaveBeenCalledOnce();
+        expect(managerLifecycle.teardown).toHaveBeenCalled();
+        expect(onUnloadDatabase).toHaveBeenCalledWith(subject);
+    });
+
+    it("does not tear down dependencies twice when a ready handler closes the database", async () => {
+        const onDatabaseHasReady = vi.fn<() => Promise<boolean>>();
+        const { closeReplication, database, onUnloadDatabase, subject } = createSubject(onDatabaseHasReady);
+        onDatabaseHasReady.mockImplementation(async () => {
+            await database.close();
+            return true;
+        });
+
+        await expect(subject.initializeDatabase()).resolves.toBe(false);
+
+        expect(subject.isReady).toBe(false);
+        expect(database.close).toHaveBeenCalledOnce();
+        expect(managerLifecycle.teardown).toHaveBeenCalledOnce();
+        expect(closeReplication).toHaveBeenCalledOnce();
+        expect(onUnloadDatabase).toHaveBeenCalledOnce();
     });
 });
