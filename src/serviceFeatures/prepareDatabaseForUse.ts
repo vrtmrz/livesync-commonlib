@@ -29,29 +29,32 @@ export async function prepareDatabaseForUse(
     appLifecycle.resetIsReady();
 
     if (
-        !reopenDatabase ||
-        (await host.services.database.openDatabase({
+        reopenDatabase &&
+        !(await host.services.database.openDatabase({
             databaseEvents: host.services.databaseEvents,
             replicator: host.services.replicator,
         }))
     ) {
-        if (host.services.database.localDatabase.isReady) {
-            await host.services.vault.scanVault(showingNotice, ignoreSuspending);
-        }
-        const ERR_INITIALISATION_FAILED = `Initializing database has been failed on some module!`;
-        if (!(await host.services.databaseEvents.onDatabaseInitialised(showingNotice))) {
-            errorManager.showError(ERR_INITIALISATION_FAILED, LOG_LEVEL_NOTICE);
-            return false;
-        }
-        errorManager.clearError(ERR_INITIALISATION_FAILED);
-        appLifecycle.markIsReady();
-        // Run queued event once.
-        await host.services.fileProcessing.commitPendingFileEvents();
-        return true;
-    } else {
-        appLifecycle.resetIsReady();
         return false;
     }
+    if (!host.services.database.isDatabaseReady()) {
+        return false;
+    }
+    if (!(await host.services.vault.scanVault(showingNotice, ignoreSuspending))) {
+        return false;
+    }
+    const ERR_INITIALISATION_FAILED = `Initializing database has been failed on some module!`;
+    if (!(await host.services.databaseEvents.onDatabaseInitialised(showingNotice))) {
+        errorManager.showError(ERR_INITIALISATION_FAILED, LOG_LEVEL_NOTICE);
+        return false;
+    }
+    errorManager.clearError(ERR_INITIALISATION_FAILED);
+    // Run queued event once.
+    if (!(await host.services.fileProcessing.commitPendingFileEvents())) {
+        return false;
+    }
+    appLifecycle.markIsReady();
+    return true;
 }
 
 /**

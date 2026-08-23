@@ -21,11 +21,11 @@ vi.mock("octagonal-wheels/promises", async (importOriginal) => {
     };
 });
 
-function createRebuilder() {
+function createRebuilder(initialDatabaseSuffix = "") {
     const smallConfig = new Map<string, string>();
     const settings = {
         isConfigured: true,
-        additionalSuffixOfDatabaseName: "",
+        additionalSuffixOfDatabaseName: initialDatabaseSuffix,
         remoteType: REMOTE_COUCHDB,
         couchDB_URI: "https://example.com",
         couchDB_DBNAME: "db",
@@ -37,12 +37,16 @@ function createRebuilder() {
         passphrase: "",
         E2EEAlgorithm: "",
         doNotSuspendOnFetching: false,
+        suspendFileWatching: true,
+        suspendParseReplicationResult: true,
     } as any;
     const localDB = {
         info: vi.fn(async () => ({ doc_count: 1 })),
         allDocs: vi.fn(async () => ({ total_rows: 1 })),
     };
     const activityFinished = vi.fn();
+    let activeDatabaseSuffix = initialDatabaseSuffix;
+    const resetDatabaseTargets: string[] = [];
     const runBoundedRemoteActivity = vi.fn(async (task: () => unknown) => {
         try {
             return await task();
@@ -79,12 +83,25 @@ function createRebuilder() {
         },
         database: {
             onDatabaseReset: { addHandler: vi.fn() },
-            resetDatabase: vi.fn(async () => undefined),
-            openDatabase: vi.fn(async () => undefined),
+            resetDatabase: vi.fn(async () => {
+                resetDatabaseTargets.push(activeDatabaseSuffix);
+                return true;
+            }),
+            resetDatabaseForCurrentSettings: vi.fn(async () => {
+                activeDatabaseSuffix = settings.additionalSuffixOfDatabaseName;
+                resetDatabaseTargets.push(activeDatabaseSuffix);
+                return true;
+            }),
+            openDatabase: vi.fn(async () => {
+                activeDatabaseSuffix = settings.additionalSuffixOfDatabaseName;
+                return true;
+            }),
+            isDatabaseReady: vi.fn(() => true),
             localDatabase: { localDatabase: localDB },
         },
         databaseEvents: {
             initialiseDatabase: vi.fn(async () => undefined),
+            onDatabaseInitialised: vi.fn(async () => true),
         },
         replicator: {
             getActiveReplicator: vi.fn(() => ({
@@ -99,9 +116,12 @@ function createRebuilder() {
             markLocked: vi.fn(async () => undefined),
             replicateAllToRemote: vi.fn(async () => true),
             replicateAllFromRemote: vi.fn(async () => true),
+            replicateAllToRemoteForRebuild: vi.fn(async () => true),
+            replicateAllFromRemoteForRebuild: vi.fn(async () => true),
             onBeforeReplicate: vi.fn(async () => true),
         },
         appLifecycle: {
+            resetIsReady: vi.fn(),
             markIsReady: vi.fn(),
             performRestart: vi.fn(),
             setSuspended: vi.fn(),
@@ -119,7 +139,10 @@ function createRebuilder() {
             delete: vi.fn(async () => undefined),
         },
         vault: {
-            scanVault: vi.fn(async () => undefined),
+            scanVault: vi.fn(async () => true),
+        },
+        fileProcessing: {
+            commitPendingFileEvents: vi.fn(async () => true),
         },
         fileHandler: {
             createAllChunks: vi.fn(async () => undefined),
@@ -132,6 +155,7 @@ function createRebuilder() {
         settings,
         activityFinished,
         runBoundedRemoteActivity,
+        resetDatabaseTargets,
     };
 }
 
@@ -188,6 +212,30 @@ describe("ServiceRebuilder scheduled restart flags", () => {
 });
 
 describe("ServiceRebuilder event isolation", () => {
+    it.each(["", "previous-device"])(
+        "resets only the database selected by the new device suffix when the former suffix is %j",
+        async (formerSuffix) => {
+            const { rebuilder, resetDatabaseTargets } = createRebuilder(formerSuffix);
+
+            await rebuilder.resetLocalDatabase();
+
+            expect(resetDatabaseTargets).toEqual(["app"]);
+        }
+    );
+
+    it("does not announce a reset which the database service could not complete", async () => {
+        const { rebuilder, services } = createRebuilder("previous-device");
+        const listener = vi.fn();
+        services.events.onEvent(EVENT_DATABASE_REBUILT, listener);
+        services.database.resetDatabaseForCurrentSettings.mockResolvedValueOnce(false);
+
+        await expect(rebuilder.resetLocalDatabase()).rejects.toThrow(
+            "The local database selected by the current settings could not be reset."
+        );
+
+        expect(listener).not.toHaveBeenCalled();
+    });
+
     it("announces a database reset through its injected event hub", async () => {
         const { rebuilder, services } = createRebuilder();
         const listener = vi.fn();
@@ -271,6 +319,20 @@ describe("ServiceRebuilder fast fetch retry", () => {
 });
 
 describe("ServiceRebuilder bounded remote activity", () => {
+    it("stops a rebuild before remote mutation when the selected local database cannot be reset", async () => {
+        const { rebuilder, services } = createRebuilder("previous-device");
+        const remoteReplicator = services.replicator.getActiveReplicator();
+        services.database.resetDatabaseForCurrentSettings.mockResolvedValueOnce(false);
+
+        await expect(rebuilder.$rebuildEverything()).rejects.toThrow(
+            "The local database selected by the current settings could not be reset."
+        );
+
+        expect(services.databaseEvents.initialiseDatabase).not.toHaveBeenCalled();
+        expect(remoteReplicator?.tryResetRemoteDatabase).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllToRemote).not.toHaveBeenCalled();
+    });
+
     it("initialises a first P2P device without attempting to reset or upload to a non-existent remote database", async () => {
         const { rebuilder, services, settings } = createRebuilder();
         settings.remoteType = REMOTE_P2P;
@@ -283,11 +345,17 @@ describe("ServiceRebuilder bounded remote activity", () => {
 
         await expect(rebuilder.$rebuildEverything()).resolves.toBeUndefined();
 
-        expect(services.database.resetDatabase).toHaveBeenCalled();
-        expect(services.databaseEvents.initialiseDatabase).toHaveBeenCalledWith(true, true, true);
+        expect(services.database.resetDatabaseForCurrentSettings).toHaveBeenCalled();
+        expect(services.databaseEvents.initialiseDatabase).not.toHaveBeenCalled();
+        expect(services.vault.scanVault).toHaveBeenCalledOnce();
+        expect(services.vault.scanVault).toHaveBeenCalledWith(true, true);
+        expect(services.databaseEvents.onDatabaseInitialised).toHaveBeenCalledOnce();
+        expect(services.fileProcessing.commitPendingFileEvents).toHaveBeenCalledTimes(2);
+        expect(services.appLifecycle.markIsReady).toHaveBeenCalledOnce();
         expect(p2pReplicator.tryResetRemoteDatabase).not.toHaveBeenCalled();
         expect(services.replication.markLocked).not.toHaveBeenCalled();
         expect(services.replication.replicateAllToRemote).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllToRemoteForRebuild).not.toHaveBeenCalled();
     });
 
     it("protects a remote rebuild but releases the activity before the completion dialogue", async () => {
@@ -317,11 +385,18 @@ describe("ServiceRebuilder bounded remote activity", () => {
         expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
             label: "rebuild-everything",
         });
-        expect(services.databaseEvents.initialiseDatabase).toHaveBeenCalled();
-        expect(services.replication.replicateAllToRemote).toHaveBeenCalledTimes(2);
-        expect(services.replication.replicateAllToRemote).toHaveBeenNthCalledWith(1, true);
-        expect(services.replication.replicateAllToRemote).toHaveBeenNthCalledWith(2, true);
-        expect(services.replication.replicateAllToRemote.mock.invocationCallOrder[1]).toBeLessThan(
+        expect(services.databaseEvents.initialiseDatabase).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllToRemote).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllToRemoteForRebuild).toHaveBeenCalledTimes(2);
+        expect(services.replication.replicateAllToRemoteForRebuild).toHaveBeenNthCalledWith(1, true);
+        expect(services.replication.replicateAllToRemoteForRebuild).toHaveBeenNthCalledWith(2, true);
+        expect(services.vault.scanVault).toHaveBeenCalledOnce();
+        expect(services.vault.scanVault).toHaveBeenCalledWith(true, true);
+        expect(services.databaseEvents.onDatabaseInitialised).toHaveBeenCalledOnce();
+        expect(services.databaseEvents.onDatabaseInitialised.mock.invocationCallOrder[0]).toBeLessThan(
+            services.replication.replicateAllToRemoteForRebuild.mock.invocationCallOrder[0]
+        );
+        expect(services.replication.replicateAllToRemoteForRebuild.mock.invocationCallOrder[1]).toBeLessThan(
             activityFinished.mock.invocationCallOrder[0]
         );
     });
@@ -334,7 +409,8 @@ describe("ServiceRebuilder bounded remote activity", () => {
         expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
             label: "rebuild-fetch",
         });
-        expect(services.replication.replicateAllFromRemote).toHaveBeenCalledTimes(2);
+        expect(services.replication.replicateAllFromRemote).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllFromRemoteForRebuild).toHaveBeenCalledTimes(2);
         expect(services.vault.scanVault).toHaveBeenCalledWith(true);
         expect(services.vault.scanVault.mock.invocationCallOrder[0]).toBeLessThan(
             activityFinished.mock.invocationCallOrder[0]
@@ -347,7 +423,8 @@ describe("ServiceRebuilder bounded remote activity", () => {
 
         await rebuilder.$fetchLocal(false, true);
 
-        expect(services.replication.replicateAllFromRemote).toHaveBeenCalledOnce();
+        expect(services.replication.replicateAllFromRemote).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllFromRemoteForRebuild).toHaveBeenCalledOnce();
         expect(services.vault.scanVault).toHaveBeenCalledWith(true);
     });
 
@@ -385,14 +462,270 @@ describe("ServiceRebuilder bounded remote activity", () => {
         await rebuilder.$fetchLocalDBFast(false);
 
         expect(fetchChangesForInitialSyncMock).not.toHaveBeenCalled();
-        expect(services.replication.replicateAllFromRemote).toHaveBeenCalledTimes(2);
+        expect(services.replication.replicateAllFromRemote).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllFromRemoteForRebuild).toHaveBeenCalledTimes(2);
         expect(services.setting.deleteSmallConfig).toHaveBeenCalledWith("fast-fetch-checkpoint");
-        expect(services.database.resetDatabase.mock.invocationCallOrder[0]).toBeLessThan(
+        expect(services.database.resetDatabaseForCurrentSettings.mock.invocationCallOrder[0]).toBeLessThan(
             services.setting.deleteSmallConfig.mock.invocationCallOrder[0]
         );
         expect(runBoundedRemoteActivity).toHaveBeenCalledTimes(1);
         expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {
             label: "rebuild-fetch",
         });
+    });
+});
+
+describe("ServiceRebuilder readiness boundary", () => {
+    it("uses the rebuild-only pull and marks Standard Fetch ready after finalisation", async () => {
+        const { rebuilder, services } = createRebuilder();
+
+        await rebuilder.$fetchLocal(false, true);
+
+        expect(services.replication.replicateAllFromRemote).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllFromRemoteForRebuild).toHaveBeenCalledTimes(2);
+        expect(services.appLifecycle.resetIsReady).toHaveBeenCalled();
+        expect(services.appLifecycle.markIsReady).toHaveBeenCalledOnce();
+        expect(services.replication.replicateAllFromRemoteForRebuild.mock.invocationCallOrder[1]).toBeLessThan(
+            services.vault.scanVault.mock.invocationCallOrder[0]
+        );
+        expect(services.databaseEvents.onDatabaseInitialised).not.toHaveBeenCalled();
+        expect(services.fileProcessing.commitPendingFileEvents.mock.invocationCallOrder[0]).toBeLessThan(
+            services.appLifecycle.markIsReady.mock.invocationCallOrder[0]
+        );
+    });
+
+    it("runs local preparation hooks before Standard Fetch when local files must be preserved", async () => {
+        const { rebuilder, services } = createRebuilder();
+
+        await rebuilder.$fetchLocal(false, false);
+
+        expect(services.vault.scanVault).toHaveBeenNthCalledWith(1, true, true);
+        expect(services.vault.scanVault).toHaveBeenNthCalledWith(2, true);
+        expect(services.databaseEvents.onDatabaseInitialised).toHaveBeenCalledOnce();
+        expect(services.vault.scanVault.mock.invocationCallOrder[0]).toBeLessThan(
+            services.databaseEvents.onDatabaseInitialised.mock.invocationCallOrder[0]
+        );
+        expect(services.databaseEvents.onDatabaseInitialised.mock.invocationCallOrder[0]).toBeLessThan(
+            services.fileProcessing.commitPendingFileEvents.mock.invocationCallOrder[0]
+        );
+        expect(services.fileProcessing.commitPendingFileEvents.mock.invocationCallOrder[0]).toBeLessThan(
+            services.replication.replicateAllFromRemoteForRebuild.mock.invocationCallOrder[0]
+        );
+        expect(services.replication.replicateAllFromRemoteForRebuild.mock.invocationCallOrder[1]).toBeLessThan(
+            services.vault.scanVault.mock.invocationCallOrder[1]
+        );
+        expect(services.fileProcessing.commitPendingFileEvents.mock.invocationCallOrder[1]).toBeLessThan(
+            services.appLifecycle.markIsReady.mock.invocationCallOrder[0]
+        );
+    });
+
+    it("leaves Fast Fetch unready when completion belongs to the host", async () => {
+        fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
+        const { rebuilder, services } = createRebuilder();
+
+        await rebuilder.$fetchLocalDBFast(false);
+
+        expect(services.appLifecycle.resetIsReady).toHaveBeenCalled();
+        expect(services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+        expect(services.databaseEvents.onDatabaseInitialised).not.toHaveBeenCalled();
+        expect(services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
+    });
+
+    it("does not reopen the settings-selected database after Standard Fetch has reset it", async () => {
+        const { rebuilder, services } = createRebuilder();
+
+        await rebuilder.fetchLocal(false, true, false);
+
+        expect(services.database.resetDatabaseForCurrentSettings).toHaveBeenCalledOnce();
+        expect(services.database.openDatabase).not.toHaveBeenCalled();
+    });
+
+    it("does not reopen the settings-selected database after a fresh Fast Fetch has reset it", async () => {
+        fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
+        const { rebuilder, services } = createRebuilder();
+
+        await rebuilder.$fetchLocalDBFast(false);
+
+        expect(services.database.resetDatabaseForCurrentSettings).toHaveBeenCalledOnce();
+        expect(services.database.openDatabase).not.toHaveBeenCalled();
+    });
+
+    it("uses the rebuild-only push and completes Rebuild Everything last", async () => {
+        const { rebuilder, services } = createRebuilder();
+
+        await rebuilder.$rebuildEverything();
+
+        expect(services.replication.replicateAllToRemote).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllToRemoteForRebuild).toHaveBeenCalledTimes(2);
+        expect(services.appLifecycle.markIsReady).toHaveBeenCalledOnce();
+        expect(services.replication.replicateAllToRemoteForRebuild.mock.invocationCallOrder[1]).toBeLessThan(
+            services.appLifecycle.markIsReady.mock.invocationCallOrder[0]
+        );
+    });
+
+    it("keeps application readiness and reflection suspended when final scanning fails", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        services.vault.scanVault.mockResolvedValueOnce(false);
+
+        await expect(rebuilder.finishRebuild()).resolves.toBe(false);
+
+        expect(services.databaseEvents.onDatabaseInitialised).not.toHaveBeenCalled();
+        expect(services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
+        expect(services.setting.saveSettingData).not.toHaveBeenCalled();
+        expect(services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+        expect(settings.suspendFileWatching).toBe(true);
+        expect(settings.suspendParseReplicationResult).toBe(true);
+    });
+
+    it("keeps application readiness and reflection suspended when the final replication pre-check rejects", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        services.replication.onBeforeReplicate.mockResolvedValueOnce(false);
+
+        await expect(rebuilder.finishRebuild()).resolves.toBe(false);
+
+        expect(services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
+        expect(services.databaseEvents.onDatabaseInitialised).not.toHaveBeenCalled();
+        expect(services.setting.saveSettingData).not.toHaveBeenCalled();
+        expect(services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+        expect(settings.suspendFileWatching).toBe(true);
+        expect(settings.suspendParseReplicationResult).toBe(true);
+    });
+
+    it("persists staged reflection only after every final gate and marks application readiness last", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        const timeline: string[] = [];
+        let applicationReady = true;
+        services.appLifecycle.resetIsReady.mockImplementation(() => {
+            applicationReady = false;
+            timeline.push("reset-ready");
+        });
+        services.setting.applyPartial.mockImplementation(async (partial: any) => {
+            Object.assign(settings, partial);
+            timeline.push("stage-reflection");
+        });
+        services.vault.scanVault.mockImplementation(async () => {
+            expect(applicationReady).toBe(false);
+            expect(settings.suspendFileWatching).toBe(false);
+            timeline.push("scan-vault");
+            return true;
+        });
+        services.replication.onBeforeReplicate.mockImplementation(async () => {
+            expect(applicationReady).toBe(false);
+            timeline.push("replication-pre-check");
+            return true;
+        });
+        services.fileProcessing.commitPendingFileEvents.mockImplementation(async () => {
+            expect(applicationReady).toBe(false);
+            timeline.push("release-current-batch");
+            return true;
+        });
+        services.setting.saveSettingData.mockImplementation(async () => {
+            expect(applicationReady).toBe(false);
+            timeline.push("persist-reflection");
+        });
+        services.appLifecycle.markIsReady.mockImplementation(() => {
+            applicationReady = true;
+            timeline.push("mark-ready");
+        });
+
+        await expect(rebuilder.finishRebuild()).resolves.toBe(true);
+
+        expect(timeline).toEqual([
+            "reset-ready",
+            "stage-reflection",
+            "scan-vault",
+            "replication-pre-check",
+            "release-current-batch",
+            "persist-reflection",
+            "mark-ready",
+        ]);
+    });
+
+    it("restores in-memory suspension and remains unready when persisting resumed reflection fails", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        const error = new Error("setting storage failed");
+        services.setting.saveSettingData.mockRejectedValueOnce(error);
+
+        await expect(rebuilder.finishRebuild()).rejects.toBe(error);
+
+        expect(services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+        expect(settings.suspendFileWatching).toBe(true);
+        expect(settings.suspendParseReplicationResult).toBe(true);
+    });
+
+    it("keeps application readiness and reflection suspended when current batch waits cannot be released", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        services.fileProcessing.commitPendingFileEvents.mockResolvedValueOnce(false);
+
+        await expect(rebuilder.finishRebuild()).resolves.toBe(false);
+
+        expect(services.setting.saveSettingData).not.toHaveBeenCalled();
+        expect(services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+        expect(settings.suspendFileWatching).toBe(true);
+        expect(settings.suspendParseReplicationResult).toBe(true);
+    });
+
+    it("does not finalise Standard Fetch after an incomplete maintenance transfer", async () => {
+        const { rebuilder, services } = createRebuilder();
+        services.replication.replicateAllFromRemoteForRebuild.mockResolvedValueOnce(false);
+
+        await expect(rebuilder.$fetchLocal(false, true)).rejects.toThrow(
+            "The first Standard Fetch pass did not complete."
+        );
+
+        expect(services.vault.scanVault).not.toHaveBeenCalled();
+        expect(services.databaseEvents.onDatabaseInitialised).not.toHaveBeenCalled();
+        expect(services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+    });
+
+    it("stops Rebuild Everything before remote mutation when local preparation hooks reject", async () => {
+        const { rebuilder, services } = createRebuilder();
+        services.databaseEvents.onDatabaseInitialised.mockResolvedValueOnce(false);
+
+        await expect(rebuilder.$rebuildEverything()).rejects.toThrow(
+            "The local database completion hooks failed during rebuild preparation."
+        );
+
+        expect(services.replication.markLocked).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllToRemoteForRebuild).not.toHaveBeenCalled();
+        expect(services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+    });
+
+    it("leaves Standard Fetch unready when the host owns completion", async () => {
+        const { rebuilder, services } = createRebuilder();
+
+        await rebuilder.fetchLocal(false, true, false);
+
+        expect(services.replication.replicateAllFromRemoteForRebuild).toHaveBeenCalledTimes(2);
+        expect(services.vault.scanVault).not.toHaveBeenCalled();
+        expect(services.databaseEvents.onDatabaseInitialised).not.toHaveBeenCalled();
+        expect(services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
+        expect(services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+    });
+
+    it("keeps the local-chunk Standard Fetch branch behind the final readiness boundary", async () => {
+        const { rebuilder, services } = createRebuilder();
+
+        await rebuilder.$fetchLocal(true, false);
+
+        expect(services.fileHandler.createAllChunks).toHaveBeenCalledWith(true);
+        expect(services.replication.replicateAllFromRemoteForRebuild).toHaveBeenCalledTimes(2);
+        expect(services.databaseEvents.onDatabaseInitialised).not.toHaveBeenCalled();
+        expect(services.appLifecycle.markIsReady).toHaveBeenCalledOnce();
+        expect(services.replication.replicateAllFromRemoteForRebuild.mock.invocationCallOrder[1]).toBeLessThan(
+            services.appLifecycle.markIsReady.mock.invocationCallOrder[0]
+        );
+    });
+
+    it("does not introduce the ordinary initialisation hook into a completed Fast Fetch", async () => {
+        fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
+        const { rebuilder, services } = createRebuilder();
+
+        await rebuilder.$fetchLocalDBFast(true);
+
+        expect(services.vault.scanVault).toHaveBeenCalledOnce();
+        expect(services.databaseEvents.onDatabaseInitialised).not.toHaveBeenCalled();
+        expect(services.fileProcessing.commitPendingFileEvents).toHaveBeenCalledOnce();
+        expect(services.appLifecycle.markIsReady).toHaveBeenCalledOnce();
     });
 });

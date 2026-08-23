@@ -2729,7 +2729,7 @@ describe("prepareDatabaseForUse", () => {
 
         const scanVaultMock = vi.fn().mockResolvedValue(true);
         const markIsReadyMock = vi.fn();
-        const commitPendingMock = vi.fn();
+        const commitPendingMock = vi.fn().mockResolvedValue(true);
         const onDatabaseInitialisedMock = vi.fn().mockResolvedValue(true);
 
         const host = {
@@ -2743,6 +2743,7 @@ describe("prepareDatabaseForUse", () => {
                     localDatabase: {
                         isReady: true,
                     },
+                    isDatabaseReady: vi.fn(() => true),
                     openDatabase: vi.fn().mockResolvedValue(true),
                 },
                 vault: {
@@ -2785,6 +2786,7 @@ describe("prepareDatabaseForUse", () => {
                     localDatabase: {
                         isReady: true,
                     },
+                    isDatabaseReady: vi.fn(() => true),
                     openDatabase: vi.fn().mockResolvedValue(true),
                 },
                 vault: {

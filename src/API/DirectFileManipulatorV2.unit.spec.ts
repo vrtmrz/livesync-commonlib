@@ -59,6 +59,27 @@ describe("DirectFileManipulator", () => {
         expect(refreshSettings).not.toHaveBeenCalled();
     });
 
+    it("reports a rejected database initialisation through the ready promise", async () => {
+        const ready = promiseWithResolvers<void>();
+        const refreshSettings = vi.fn();
+        const manipulator = {
+            services: {
+                appLifecycle: {
+                    onReady: vi.fn().mockResolvedValue(undefined),
+                },
+            },
+            liveSyncLocalDB: {
+                initializeDatabase: vi.fn().mockResolvedValue(false),
+                refreshSettings,
+            },
+            ready,
+        } as unknown as DirectFileManipulator;
+
+        await expect(DirectFileManipulator.prototype.init.call(manipulator)).resolves.toBeUndefined();
+        await expect(ready.promise).rejects.toThrow("Direct database initialisation was rejected.");
+        expect(refreshSettings).not.toHaveBeenCalled();
+    });
+
     it("passes the host fetch implementation to its direct CouchDB connection", () => {
         const fetch = vi.fn<typeof globalThis.fetch>();
         const options: DirectFileManipulatorOptions = {
@@ -170,9 +191,7 @@ describe("DirectFileManipulator", () => {
             | undefined;
         if (!changeHandler) throw new Error("DirectFileManipulator change handler was not registered");
 
-        await expect(
-            changeHandler({ doc: { type: "plain", path: "encrypted.md" }, seq: 1 })
-        ).resolves.toBeUndefined();
+        await expect(changeHandler({ doc: { type: "plain", path: "encrypted.md" }, seq: 1 })).resolves.toBeUndefined();
         expect(callback).not.toHaveBeenCalled();
         expect(loggerCalls).toHaveBeenCalledWith(
             "WATCH: DOCUMENT LOAD FAILED: encrypted.md",

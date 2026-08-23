@@ -241,8 +241,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
         return activeReplicator;
     }
 
-    async replicateAllToRemote(showingNotice: boolean = false): Promise<boolean> {
-        if (!this.appLifecycleService.isReady()) return false;
+    private async performReplicateAllToRemote(showingNotice: boolean): Promise<boolean> {
         if (!(await this.onBeforeReplicate(showingNotice))) {
             this._log(this.context.translate("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_NOTICE);
             return false;
@@ -260,8 +259,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
         return !checkResult;
     }
 
-    async replicateAllFromRemote(showingNotice: boolean = false): Promise<boolean> {
-        if (!this.appLifecycleService.isReady()) return false;
+    private async performReplicateAllFromRemote(showingNotice: boolean): Promise<boolean> {
         const activeReplicator = this.getActiveReplicatorFor("fetching data from remote");
         if (!activeReplicator) {
             return false;
@@ -273,6 +271,44 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
         if (checkResult == "CHECKAGAIN")
             return await activeReplicator.replicateAllFromServer(currentSettings, showingNotice);
         return !checkResult;
+    }
+
+    async replicateAllToRemote(showingNotice: boolean = false): Promise<boolean> {
+        if (!this.appLifecycleService.isReady()) return false;
+        return await this.performReplicateAllToRemote(showingNotice);
+    }
+
+    async replicateAllFromRemote(showingNotice: boolean = false): Promise<boolean> {
+        if (!this.appLifecycleService.isReady()) return false;
+        return await this.performReplicateAllFromRemote(showingNotice);
+    }
+
+    /**
+     * Perform a full upload owned by an active rebuild while the physical database is ready.
+     *
+     * This concrete maintenance entry point is intentionally absent from `IReplicationService`;
+     * it is not a general application-readiness bypass.
+     */
+    async replicateAllToRemoteForRebuild(showingNotice: boolean = false): Promise<boolean> {
+        if (!this.databaseService.isDatabaseReady()) {
+            this._log("The selected local database is not ready for the rebuild upload.", LOG_LEVEL_NOTICE);
+            return false;
+        }
+        return await this.performReplicateAllToRemote(showingNotice);
+    }
+
+    /**
+     * Perform a full download owned by an active rebuild while the physical database is ready.
+     *
+     * This concrete maintenance entry point is intentionally absent from `IReplicationService`;
+     * it is not a general application-readiness bypass.
+     */
+    async replicateAllFromRemoteForRebuild(showingNotice: boolean = false): Promise<boolean> {
+        if (!this.databaseService.isDatabaseReady()) {
+            this._log("The selected local database is not ready for the rebuild download.", LOG_LEVEL_NOTICE);
+            return false;
+        }
+        return await this.performReplicateAllFromRemote(showingNotice);
     }
 
     private _getReplicatorAndPerform(

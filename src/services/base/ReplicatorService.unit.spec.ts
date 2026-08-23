@@ -33,6 +33,42 @@ function createService(activityRunner?: AsyncActivityRunner) {
 }
 
 describe("ReplicatorService lifecycle", () => {
+    function createInitialisingService(initialiseLocalNode: () => Promise<boolean>) {
+        let realiseSettings!: () => Promise<boolean>;
+        const closeReplication = vi.fn();
+        const replicator = {
+            initializeDatabaseForReplication: initialiseLocalNode,
+            closeReplication,
+        } as unknown as LiveSyncAbstractReplicator;
+        const dependencies = {
+            settingService: {
+                currentSettings: () => ({
+                    remoteType: REMOTE_COUCHDB,
+                    couchDB_URI: "https://example.com",
+                    couchDB_DBNAME: "vault",
+                }),
+                onRealiseSetting: {
+                    addHandler: vi.fn((handler: () => Promise<boolean>) => {
+                        realiseSettings = handler;
+                    }),
+                },
+            },
+            appLifecycleService: {
+                getUnresolvedMessages: Object.assign(vi.fn().mockResolvedValue([]), eventHook()),
+                onSuspending: eventHook(),
+            },
+            databaseEventService: {
+                onResetDatabase: eventHook(),
+                onDatabaseInitialisation: eventHook(),
+                onDatabaseInitialised: eventHook(),
+                onDatabaseHasReady: eventHook(),
+            },
+        } as unknown as ReplicatorServiceDependencies;
+        const service = new TestReplicatorService(new ServiceContext(), dependencies);
+        service.getNewReplicator.addHandler(() => Promise.resolve(replicator));
+        return { closeReplication, realiseSettings: () => realiseSettings(), replicator, service };
+    }
+
     it("initialises local node information only when a replicator becomes active", async () => {
         let realiseSettings!: () => Promise<boolean>;
         const initialiseLocalNode = vi.fn(async () => true);
@@ -80,6 +116,27 @@ describe("ReplicatorService lifecycle", () => {
         expect(initialiseLocalNode).toHaveBeenCalledOnce();
         expect(initialisationOrder).toEqual(["local-node", "host-handlers"]);
         expect(service.getActiveReplicator()).toBe(replicator);
+    });
+
+    it("closes and forgets a new replicator when local-node initialisation is rejected", async () => {
+        const { closeReplication, realiseSettings, service } = createInitialisingService(async () => false);
+
+        await expect(realiseSettings()).resolves.toBe(false);
+
+        expect(closeReplication).toHaveBeenCalledOnce();
+        expect(service.getActiveReplicator()).toBeUndefined();
+    });
+
+    it("closes and forgets a new replicator before propagating a local-node initialisation error", async () => {
+        const error = new Error("node information could not be written");
+        const { closeReplication, realiseSettings, service } = createInitialisingService(async () =>
+            Promise.reject(error)
+        );
+
+        await expect(realiseSettings()).rejects.toBe(error);
+
+        expect(closeReplication).toHaveBeenCalledOnce();
+        expect(service.getActiveReplicator()).toBeUndefined();
     });
 });
 

@@ -48,7 +48,10 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     ) {
         super(context);
         this.appLifecycleService = dependencies.appLifecycleService;
-        this._unresolvedErrorManager = new UnresolvedErrorManager(dependencies.appLifecycleService, this.context.events);
+        this._unresolvedErrorManager = new UnresolvedErrorManager(
+            dependencies.appLifecycleService,
+            this.context.events
+        );
         this.settingService = dependencies.settingService;
         this.databaseEventService = dependencies.databaseEventService;
         if (dependencies.registerLifecycleHandlers ?? true) {
@@ -126,6 +129,19 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         return true;
     }
 
+    private async discardFailedReplicator(replicator: LiveSyncAbstractReplicator): Promise<void> {
+        if (this._activeReplicator === replicator) {
+            this._activeReplicator = undefined;
+            this._replicatorType = undefined;
+        }
+        try {
+            await Promise.resolve(replicator.closeReplication());
+        } catch (error) {
+            this._log("Failed to close a replicator after its initialisation failed.", LOG_LEVEL_VERBOSE);
+            this._log(error, LOG_LEVEL_VERBOSE);
+        }
+    }
+
     private async _initialiseReplicator() {
         const message = this.context.translate("Replicator.Message.InitialiseFatalError");
         const setting = this.settingService.currentSettings();
@@ -181,19 +197,23 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
             // Probably we need to clear all synchronising parameters handlers
             // Note that parameters handler keeps an key-deriving salt in memory,
             // so we need to clear them when the replicator changes, to avoid potential database corruption.
-            if (!(await newReplicator.initializeDatabaseForReplication())) {
-                this._log("Failed to initialise the replicator's local node information.");
-                this._activeReplicator = undefined;
-                this._replicatorType = undefined;
+            try {
+                if (!(await newReplicator.initializeDatabaseForReplication())) {
+                    this._log("Failed to initialise the replicator's local node information.");
+                    await this.discardFailedReplicator(newReplicator);
+                    this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
+                    return false;
+                }
+                if (!(await this.onReplicatorInitialised())) {
+                    this._log("Failed to initialise the replicator, onReplicatorInitialised reported some problems.");
+                    await this.discardFailedReplicator(newReplicator);
+                    this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
+                    return false;
+                }
+            } catch (error) {
+                await this.discardFailedReplicator(newReplicator);
                 this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
-                return false;
-            }
-            if (!(await this.onReplicatorInitialised())) {
-                this._log("Failed to initialise the replicator, onReplicatorInitialised reported some problems.");
-                this._activeReplicator = undefined;
-                this._replicatorType = undefined;
-                this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
-                return false;
+                throw error;
             }
             const remoteTypeDisplay = replicatorType === RemoteTypes.REMOTE_COUCHDB ? "CouchDB" : replicatorType;
             this._log(`Replicator (${remoteTypeDisplay}) initialised and activated`, LOG_LEVEL_VERBOSE);

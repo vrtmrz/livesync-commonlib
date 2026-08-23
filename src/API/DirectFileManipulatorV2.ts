@@ -125,7 +125,9 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
     public async init() {
         try {
             await this.services.appLifecycle.onReady();
-            await this.liveSyncLocalDB.initializeDatabase();
+            if (!(await this.liveSyncLocalDB.initializeDatabase())) {
+                throw new Error("Direct database initialisation was rejected.");
+            }
             this.liveSyncLocalDB.refreshSettings();
             this.ready.resolve();
         } catch (error) {
@@ -155,10 +157,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         };
     }
 
-    constructor(
-        options: DirectFileManipulatorOptions,
-        runtimeOptions: DirectFileManipulatorRuntimeOptions = {}
-    ) {
+    constructor(options: DirectFileManipulatorOptions, runtimeOptions: DirectFileManipulatorRuntimeOptions = {}) {
         this.options = options;
         this.runtimeOptions = runtimeOptions;
         const getSettings = () => this.settings;

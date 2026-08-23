@@ -145,3 +145,63 @@ describe("ReplicationService full upload", () => {
         expect(replicateAllToServer).toHaveBeenCalledOnce();
     });
 });
+
+describe("ReplicationService rebuild maintenance", () => {
+    function createMaintenanceService({ applicationReady = false, databaseReady = true } = {}) {
+        const replicateAllToServer = vi.fn(async () => true);
+        const replicateAllFromServer = vi.fn(async () => true);
+        const dependencies = {
+            APIService: { addLog: vi.fn() },
+            appLifecycleService: {
+                isReady: vi.fn(() => applicationReady),
+                getUnresolvedMessages: Object.assign(vi.fn().mockResolvedValue([]), {
+                    addHandler: vi.fn(),
+                }),
+            },
+            databaseService: {
+                isDatabaseReady: vi.fn(() => databaseReady),
+            },
+            fileProcessingService: {},
+            replicatorService: {
+                getActiveReplicator: vi.fn(() => ({ replicateAllToServer, replicateAllFromServer })),
+            },
+            settingService: {
+                currentSettings: vi.fn(() => ({})),
+            },
+        } as unknown as ReplicationServiceDependencies;
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+        return { replicateAllFromServer, replicateAllToServer, service };
+    }
+
+    it("keeps ordinary full replication behind application readiness", async () => {
+        const { replicateAllFromServer, replicateAllToServer, service } = createMaintenanceService();
+
+        await expect(service.replicateAllFromRemote()).resolves.toBe(false);
+        await expect(service.replicateAllToRemote()).resolves.toBe(false);
+
+        expect(replicateAllFromServer).not.toHaveBeenCalled();
+        expect(replicateAllToServer).not.toHaveBeenCalled();
+    });
+
+    it("allows explicit rebuild transfers when only the selected physical database is ready", async () => {
+        const { replicateAllFromServer, replicateAllToServer, service } = createMaintenanceService();
+
+        await expect(service.replicateAllFromRemoteForRebuild()).resolves.toBe(true);
+        await expect(service.replicateAllToRemoteForRebuild()).resolves.toBe(true);
+
+        expect(replicateAllFromServer).toHaveBeenCalledOnce();
+        expect(replicateAllToServer).toHaveBeenCalledOnce();
+    });
+
+    it("rejects rebuild transfers when the selected physical database is not ready", async () => {
+        const { replicateAllFromServer, replicateAllToServer, service } = createMaintenanceService({
+            databaseReady: false,
+        });
+
+        await expect(service.replicateAllFromRemoteForRebuild()).resolves.toBe(false);
+        await expect(service.replicateAllToRemoteForRebuild()).resolves.toBe(false);
+
+        expect(replicateAllFromServer).not.toHaveBeenCalled();
+        expect(replicateAllToServer).not.toHaveBeenCalled();
+    });
+});

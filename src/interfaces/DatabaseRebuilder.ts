@@ -21,7 +21,9 @@ export interface Rebuilder {
     /** See {@link scheduleRebuild}; this variant writes the Fetch flag. */
     scheduleFetch(prepareBeforeRestart?: () => Promise<void>): Promise<boolean>;
     /**
-     * Declares the finish of the rebuild process and unlock remote, resume reflecting the changes.
+     * Complete the final reflection scan and checks owned by a fetch, then establish application readiness.
+     *
+     * @returns `true` when every required completion phase succeeded; otherwise, `false`.
      */
-    finishRebuild(): Promise<void>;
+    finishRebuild(): Promise<boolean>;
 }

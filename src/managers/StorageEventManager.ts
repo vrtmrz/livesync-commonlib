@@ -38,6 +38,9 @@ type FileEventItemSentinelFlush = {
     type: typeof TYPE_SENTINEL_FLUSH;
 };
 export type FileEventItemSentinel = FileEventItemSentinelFlush;
+type RunQueuedEventsOptions = {
+    waitForProcessing?: boolean;
+};
 export interface StorageEventManagerBaseDependencies {
     setting: SettingService;
     vaultService: IVaultService;
@@ -135,14 +138,12 @@ export abstract class StorageEventManagerBase<
 
     /**
      * Snapshot restoration promise.
-     * Snapshot will be restored before starting to watch vault changes.
-     * In designed time, this has been called from Initialisation process, which has been implemented on `ModuleInitializerFile.ts`.
+     * It resolves after the restored file operations have finished, before Vault watching begins.
      */
     snapShotRestored: Promise<void> | null = null;
 
     /**
-     * Restore the previous snapshot if exists.
-     * @returns
+     * Restore and complete the previous storage-event snapshot when it exists.
      */
     restoreState(): Promise<void> {
         this.snapShotRestored = this._restoreFromSnapshot();
@@ -493,17 +494,51 @@ export abstract class StorageEventManagerBase<
             this._log(`Restoring storage operation snapshot: ${snapShot.length} items`, LOG_LEVEL_VERBOSE);
             // Restore the snapshot
             // Note: Mark all items as skipBatchWait to prevent apply the off-line batch saving.
-            this.bufferedQueuedItems = snapShot.map((e) => ({ ...e, skipBatchWait: true }));
+            this.bufferedQueuedItems = snapShot.map((event) =>
+                event.type === TYPE_SENTINEL_FLUSH
+                    ? event
+                    : { ...event, restoredFromPreviousRuntime: true, skipBatchWait: true }
+            );
             this.updateStatus();
-            await this.runQueuedEvents();
+            // A restored snapshot is part of start-up reconciliation. Wait until its
+            // actual file operations finish so that the following full scan observes
+            // their results rather than racing with fire-and-forget work.
+            await this.runQueuedEvents({ waitForProcessing: true });
         } else {
             this._log(`No snapshot to restore`, LOG_LEVEL_VERBOSE);
             // console.warn(`No snapshot to restore`);
         }
     }
 
-    protected runQueuedEvents() {
+    /**
+     * Dispatch buffered storage events.
+     *
+     * Ordinary watcher events retain the existing fire-and-forget behaviour.
+     * Snapshot restoration requests completion so its caller can use the replay as
+     * a lifecycle boundary. In that mode, a sentinel also waits for every operation
+     * dispatched before it, preserving the ordering represented by the snapshot.
+     * An individual restored operation failure is logged but does not prevent the
+     * following Offline Scanner from reconciling the resulting current state.
+     */
+    protected runQueuedEvents(options: RunQueuedEventsOptions = {}) {
+        const waitForProcessing = options.waitForProcessing ?? false;
         return skipIfDuplicated("storage-event-manager-run-queued-events", async () => {
+            let dispatched: { path: string; processing: Promise<void> }[] = [];
+            const waitForDispatched = async () => {
+                if (dispatched.length === 0) return;
+                const pending = dispatched;
+                dispatched = [];
+                const results = await Promise.allSettled(pending.map(({ processing }) => processing));
+                for (const [index, result] of results.entries()) {
+                    if (result.status === "rejected") {
+                        this._log(
+                            `Restored storage operation failed for ${pending[index].path}; the Offline Scanner will reconcile the current state`,
+                            LOG_LEVEL_NOTICE
+                        );
+                        this._log(result.reason, LOG_LEVEL_VERBOSE);
+                    }
+                }
+            };
             do {
                 if (this.bufferedQueuedItems.length === 0) {
                     break;
@@ -522,14 +557,25 @@ export abstract class StorageEventManagerBase<
                 //    If sentinel, wait for idle and continue.
                 if (fei.type === TYPE_SENTINEL_FLUSH) {
                     this._log(`Waiting for idle`, LOG_LEVEL_VERBOSE);
+                    if (waitForProcessing) {
+                        await waitForDispatched();
+                    }
                     // Flush all waiting batch queues
                     await this.waitForIdle();
                     this.updateStatus();
                     continue;
                 }
                 // 4. Process the event, this should be fire-and-forget to not block the queue processing in each file.
-                fireAndForget(() => this.processFileEvent(fei));
+                const processing = this.processFileEvent(fei);
+                if (waitForProcessing) {
+                    dispatched.push({ path: fei.args.file.path, processing });
+                } else {
+                    fireAndForget(processing);
+                }
             } while (this.bufferedQueuedItems.length > 0);
+            if (waitForProcessing) {
+                await waitForDispatched();
+            }
         });
     }
 

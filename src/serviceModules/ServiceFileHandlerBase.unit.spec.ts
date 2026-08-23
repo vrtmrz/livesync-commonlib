@@ -47,6 +47,12 @@ function createStorageFile(path: string, body: string): UXFileInfo {
     } as UXFileInfo;
 }
 
+function createStorageStub(path: string, body: string): UXFileInfoStub {
+    const file = createStorageFile(path, body);
+    delete (file as Partial<UXFileInfo>).body;
+    return file;
+}
+
 function createHandler(
     localBody: string,
     remoteBody: string,
@@ -161,6 +167,70 @@ function createRenameHandler(caseInsensitive: boolean, oldEntry: MetaEntry | fal
     const handler = new TestFileHandler(deps);
     if (!processFileEvent) throw new Error("File event handler was not registered");
     return { handler, processFileEvent, databaseFileAccess, pathService };
+}
+
+function createRestoredEvent(type: FileEventItem["type"], file: UXFileInfoStub, oldPath?: string): FileEventItem {
+    return {
+        type,
+        key: `${type}-${file.path}`,
+        args: { file, oldPath },
+        restoredFromPreviousRuntime: true,
+    };
+}
+
+function createRestoredEventHandler(
+    options: {
+        currentItems?: Record<string, UXFileInfoStub | { path: FilePath; isFolder: true } | null>;
+        caseInsensitiveIds?: boolean;
+        isTargetFile?: (path: string) => boolean;
+        isFileSizeTooLarge?: (size: number) => boolean;
+    } = {}
+) {
+    let processFileEvent: ((item: FileEventItem) => Promise<boolean>) | undefined;
+    const currentItems = options.currentItems ?? {};
+    const storageAccess = {
+        normalisePath: vi.fn((path: string) => path.replaceAll("\\", "/")),
+        getStub: vi.fn(async (path: string) => currentItems[path] ?? null),
+    };
+    const pathService = {
+        path2id: vi.fn(async (path: string) => (options.caseInsensitiveIds ? path.toLowerCase() : path)),
+    };
+    const vault = {
+        isTargetFile: vi.fn(async (path: string) => options.isTargetFile?.(path) ?? true),
+        isFileSizeTooLarge: vi.fn((size: number) => options.isFileSizeTooLarge?.(size) ?? false),
+    };
+    const dependencies = {
+        events: createLiveSyncEventHub(),
+        API: { addLog: vi.fn() },
+        databaseFileAccess: {},
+        storageAccess,
+        fileProcessing: {
+            processFileEvent: {
+                addHandler: vi.fn((handler: (item: FileEventItem) => Promise<boolean>) => {
+                    processFileEvent = handler;
+                }),
+            },
+        },
+        replication: { processSynchroniseResult: { addHandler: vi.fn() } },
+        conflict: {},
+        path: pathService,
+        setting: { currentSettings: vi.fn().mockReturnValue({}) },
+        vault,
+    } as unknown as ServiceFileHandlerDependencies;
+    const handler = new TestFileHandler(dependencies);
+    if (!processFileEvent) throw new Error("File event handler was not registered");
+    const storeFileToDB = vi.spyOn(handler, "storeFileToDB").mockResolvedValue(true);
+    const deleteFileFromDB = vi.spyOn(handler, "deleteFileFromDB").mockResolvedValue(true);
+    const renameFileInDB = vi.spyOn(handler, "renameFileInDB").mockResolvedValue(true);
+    return {
+        handler,
+        processFileEvent,
+        storageAccess,
+        vault,
+        storeFileToDB,
+        deleteFileFromDB,
+        renameFileInDB,
+    };
 }
 
 function createConflictedOperationHandler() {
@@ -334,6 +404,199 @@ describe("ServiceFileHandlerBase.renameFileInDB", () => {
         releaseDelete?.();
         await Promise.all([deletePromise, createPromise]);
         expect(storeSpy).toHaveBeenCalledTimes(1);
+    });
+});
+
+describe("ServiceFileHandlerBase restored storage events", () => {
+    it.each(["CREATE", "CHANGED"] as const)("uses the current storage stub for a restored %s event", async (type) => {
+        const saved = createStorageStub("note.md", "saved");
+        const current = createStorageStub("note.md", "current");
+        const { processFileEvent, storeFileToDB } = createRestoredEventHandler({
+            currentItems: { "note.md": current },
+        });
+
+        await expect(processFileEvent(createRestoredEvent(type, saved))).resolves.toBe(true);
+
+        expect(storeFileToDB).toHaveBeenCalledWith(current);
+    });
+
+    it("omits a restored inclusion when its exact path no longer contains that file", async () => {
+        const saved = createStorageStub("Note.md", "saved");
+        const current = createStorageStub("note.md", "current");
+        const { processFileEvent, storeFileToDB, deleteFileFromDB, renameFileInDB } = createRestoredEventHandler({
+            currentItems: { "Note.md": current },
+        });
+
+        await expect(processFileEvent(createRestoredEvent("CHANGED", saved))).resolves.toBe(true);
+
+        expect(storeFileToDB).not.toHaveBeenCalled();
+        expect(deleteFileFromDB).not.toHaveBeenCalled();
+        expect(renameFileInDB).not.toHaveBeenCalled();
+    });
+
+    it("suppresses a restored deletion when the path is occupied now", async () => {
+        const saved = createStorageStub("note.md", "saved");
+        const current = createStorageStub("note.md", "current");
+        const { processFileEvent, deleteFileFromDB } = createRestoredEventHandler({
+            currentItems: { "note.md": current },
+        });
+
+        await expect(processFileEvent(createRestoredEvent("DELETE", saved))).resolves.toBe(true);
+
+        expect(deleteFileFromDB).not.toHaveBeenCalled();
+    });
+
+    it("applies a restored deletion by path only after confirming current absence", async () => {
+        const saved = createStorageStub("note.md", "saved");
+        const { processFileEvent, deleteFileFromDB } = createRestoredEventHandler();
+
+        await expect(processFileEvent(createRestoredEvent("DELETE", saved))).resolves.toBe(true);
+
+        expect(deleteFileFromDB).toHaveBeenCalledWith("note.md");
+    });
+
+    it("suppresses a restored deletion when current storage inspection fails", async () => {
+        const saved = createStorageStub("note.md", "saved");
+        const { processFileEvent, storageAccess, deleteFileFromDB } = createRestoredEventHandler();
+        storageAccess.getStub.mockRejectedValueOnce(new Error("storage unavailable"));
+
+        await expect(processFileEvent(createRestoredEvent("DELETE", saved))).resolves.toBe(true);
+
+        expect(deleteFileFromDB).not.toHaveBeenCalled();
+    });
+
+    it.each(["CHANGED", "DELETE"] as const)(
+        "does not apply a restored %s operation after the path is deselected",
+        async (type) => {
+            const saved = createStorageStub("note.md", "saved");
+            const currentItems = type === "CHANGED" ? { "note.md": createStorageStub("note.md", "current") } : {};
+            const { processFileEvent, storeFileToDB, deleteFileFromDB } = createRestoredEventHandler({
+                currentItems,
+                isTargetFile: () => false,
+            });
+
+            await expect(processFileEvent(createRestoredEvent(type, saved))).resolves.toBe(true);
+
+            expect(storeFileToDB).not.toHaveBeenCalled();
+            expect(deleteFileFromDB).not.toHaveBeenCalled();
+        }
+    );
+
+    it("uses the current target for a restored cross-document rename", async () => {
+        const saved = createStorageStub("new.md", "saved");
+        const current = createStorageStub("new.md", "current");
+        const { processFileEvent, renameFileInDB } = createRestoredEventHandler({
+            currentItems: { "new.md": current, "old.md": null },
+        });
+
+        await expect(processFileEvent(createRestoredEvent("RENAME", saved, "old.md"))).resolves.toBe(true);
+
+        expect(renameFileInDB).toHaveBeenCalledWith(current, "old.md");
+    });
+
+    it("includes the current rename target without deleting a source which still exists", async () => {
+        const saved = createStorageStub("new.md", "saved");
+        const currentNew = createStorageStub("new.md", "current new");
+        const currentOld = createStorageStub("old.md", "current old");
+        const { processFileEvent, storeFileToDB, deleteFileFromDB, renameFileInDB } = createRestoredEventHandler({
+            currentItems: { "new.md": currentNew, "old.md": currentOld },
+        });
+
+        await expect(processFileEvent(createRestoredEvent("RENAME", saved, "old.md"))).resolves.toBe(true);
+
+        expect(storeFileToDB).toHaveBeenCalledWith(currentNew);
+        expect(deleteFileFromDB).not.toHaveBeenCalled();
+        expect(renameFileInDB).not.toHaveBeenCalled();
+    });
+
+    it("deletes an absent rename source when the target is also absent", async () => {
+        const saved = createStorageStub("new.md", "saved");
+        const { processFileEvent, storeFileToDB, deleteFileFromDB, renameFileInDB } = createRestoredEventHandler();
+
+        await expect(processFileEvent(createRestoredEvent("RENAME", saved, "old.md"))).resolves.toBe(true);
+
+        expect(deleteFileFromDB).toHaveBeenCalledWith("old.md");
+        expect(storeFileToDB).not.toHaveBeenCalled();
+        expect(renameFileInDB).not.toHaveBeenCalled();
+    });
+
+    it("preserves the rename source when a current target cannot be included", async () => {
+        const saved = createStorageStub("new.md", "saved");
+        const current = createStorageStub("new.md", "current");
+        const { processFileEvent, storeFileToDB, deleteFileFromDB, renameFileInDB } = createRestoredEventHandler({
+            currentItems: { "new.md": current, "old.md": null },
+            isFileSizeTooLarge: () => true,
+        });
+
+        await expect(processFileEvent(createRestoredEvent("RENAME", saved, "old.md"))).resolves.toBe(true);
+
+        expect(storeFileToDB).not.toHaveBeenCalled();
+        expect(deleteFileFromDB).not.toHaveBeenCalled();
+        expect(renameFileInDB).not.toHaveBeenCalled();
+    });
+
+    it("updates one document from the current target for a restored case-only rename", async () => {
+        const saved = createStorageStub("note.md", "saved");
+        const current = createStorageStub("note.md", "current");
+        const { processFileEvent, renameFileInDB } = createRestoredEventHandler({
+            currentItems: { "note.md": current, "Note.md": current },
+            caseInsensitiveIds: true,
+        });
+
+        await expect(processFileEvent(createRestoredEvent("RENAME", saved, "Note.md"))).resolves.toBe(true);
+
+        expect(renameFileInDB).toHaveBeenCalledWith(current, "Note.md");
+    });
+
+    it("does not replay a case-only rename whose current target is absent", async () => {
+        const saved = createStorageStub("note.md", "saved");
+        const { processFileEvent, storeFileToDB, deleteFileFromDB, renameFileInDB } = createRestoredEventHandler({
+            caseInsensitiveIds: true,
+        });
+
+        await expect(processFileEvent(createRestoredEvent("RENAME", saved, "Note.md"))).resolves.toBe(true);
+
+        expect(storeFileToDB).not.toHaveBeenCalled();
+        expect(deleteFileFromDB).not.toHaveBeenCalled();
+        expect(renameFileInDB).not.toHaveBeenCalled();
+    });
+
+    it("still includes a current rename target when source inspection fails", async () => {
+        const saved = createStorageStub("new.md", "saved");
+        const current = createStorageStub("new.md", "current");
+        const { processFileEvent, storageAccess, storeFileToDB, deleteFileFromDB, renameFileInDB } =
+            createRestoredEventHandler({ currentItems: { "new.md": current } });
+        storageAccess.getStub.mockImplementation(async (path: string) => {
+            if (path === "old.md") throw new Error("source unavailable");
+            return current;
+        });
+
+        await expect(processFileEvent(createRestoredEvent("RENAME", saved, "old.md"))).resolves.toBe(true);
+
+        expect(storeFileToDB).toHaveBeenCalledWith(current);
+        expect(deleteFileFromDB).not.toHaveBeenCalled();
+        expect(renameFileInDB).not.toHaveBeenCalled();
+    });
+
+    it("does not delete a rename source when target inspection fails", async () => {
+        const saved = createStorageStub("new.md", "saved");
+        const { processFileEvent, storageAccess, deleteFileFromDB } = createRestoredEventHandler();
+        storageAccess.getStub.mockRejectedValueOnce(new Error("target unavailable"));
+
+        await expect(processFileEvent(createRestoredEvent("RENAME", saved, "old.md"))).resolves.toBe(true);
+
+        expect(deleteFileFromDB).not.toHaveBeenCalled();
+    });
+
+    it("reports a failure from an admitted restored operation", async () => {
+        const saved = createStorageStub("note.md", "saved");
+        const current = createStorageStub("note.md", "current");
+        const { processFileEvent, storeFileToDB } = createRestoredEventHandler({
+            currentItems: { "note.md": current },
+        });
+        storeFileToDB.mockRejectedValueOnce(new Error("database unavailable"));
+
+        await expect(processFileEvent(createRestoredEvent("CHANGED", saved))).rejects.toThrow("database unavailable");
     });
 });
 
@@ -658,9 +921,9 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
         storageAccess.getStub.mockResolvedValue(null);
         storageAccess.stat.mockResolvedValue({ ctime: 1, mtime: 22, size: 16, type: "file" });
 
-        await expect(
-            handler.dbToStorageWithSpecificRev("note.md" as FilePath, selected._rev, true)
-        ).resolves.toBe(true);
+        await expect(handler.dbToStorageWithSpecificRev("note.md" as FilePath, selected._rev, true)).resolves.toBe(
+            true
+        );
 
         expect(storageAccess.writeFileAuto).toHaveBeenCalledWith("note.md", "selected content", {
             ctime: 1,
@@ -671,7 +934,6 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
             observedStorageMtime: 22,
         });
     });
-
 });
 
 describe("ServiceFileHandlerBase conflicted storage operations", () => {
@@ -692,14 +954,9 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
             delete: vi.fn().mockResolvedValue(true),
         });
 
-        await expect(
-            handler.deleteRevisionFromDB(storageStub, selectedRevision)
-        ).resolves.toBe(true);
+        await expect(handler.deleteRevisionFromDB(storageStub, selectedRevision)).resolves.toBe(true);
 
-        expect(databaseFileAccess.delete).toHaveBeenCalledWith(
-            storageStub,
-            selectedRevision
-        );
+        expect(databaseFileAccess.delete).toHaveBeenCalledWith(storageStub, selectedRevision);
         expect(provenance.delete).toHaveBeenCalledWith("note.md");
     });
 
@@ -719,9 +976,7 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
             delete: vi.fn().mockResolvedValue(true),
         });
 
-        await expect(
-            handler.deleteRevisionFromDB(storageStub, "2-selected")
-        ).resolves.toBe(true);
+        await expect(handler.deleteRevisionFromDB(storageStub, "2-selected")).resolves.toBe(true);
 
         expect(provenance.delete).not.toHaveBeenCalled();
     });
@@ -742,21 +997,19 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
             delete: vi.fn().mockResolvedValue(false),
         });
 
-        await expect(
-            handler.deleteRevisionFromDB(storageStub, "2-selected")
-        ).resolves.toBe(false);
+        await expect(handler.deleteRevisionFromDB(storageStub, "2-selected")).resolves.toBe(false);
 
         expect(provenance.delete).not.toHaveBeenCalled();
     });
 
     it("applies a discarded conflict branch after removing it from the live revision tree", async () => {
-        const {
-            handler,
-            databaseFileAccess,
-            storageAccess,
-            storageStub,
-            provenance,
-        } = createHandler("Vault content", "winner content", false, TARGET_IS_NEW, true);
+        const { handler, databaseFileAccess, storageAccess, storageStub, provenance } = createHandler(
+            "Vault content",
+            "winner content",
+            false,
+            TARGET_IS_NEW,
+            true
+        );
         const discardedRevision = "2-discarded";
         const discarded = createMeta("note.md", "discarded content", discardedRevision);
         const winner = createMeta("note.md", "winner content", "3-winner");
@@ -771,9 +1024,7 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
             async (_file: UXFileInfoStub | FilePathWithPrefix, revision?: string) =>
                 revision === discardedRevision ? discarded : winner
         );
-        databaseFileAccess.getConflictedRevs.mockImplementation(
-            async () => (deleted ? [] : [discardedRevision])
-        );
+        databaseFileAccess.getConflictedRevs.mockImplementation(async () => (deleted ? [] : [discardedRevision]));
         databaseFileAccess.fetchEntryFromMeta.mockImplementation(async (meta: MetaEntry) => ({
             ...meta,
             data: meta._rev === discardedRevision ? "discarded content" : "winner content",
@@ -792,13 +1043,10 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
     });
 
     it("stores Vault content as a child of an explicitly selected live revision", async () => {
-        const { handler, databaseFileAccess, provenance, conflict, storageFile } =
-            createConflictedOperationHandler();
+        const { handler, databaseFileAccess, provenance, conflict, storageFile } = createConflictedOperationHandler();
         const selectedRevision = "3-winner";
 
-        await expect(
-            handler.storeFileToDBWithBaseRevision(storageFile, selectedRevision)
-        ).resolves.toBe(true);
+        await expect(handler.storeFileToDBWithBaseRevision(storageFile, selectedRevision)).resolves.toBe(true);
 
         expect(databaseFileAccess.storeWithBaseRevision).toHaveBeenCalledWith(storageFile, selectedRevision, true);
         expect(provenance.set).toHaveBeenCalledWith("note.md", {
@@ -809,8 +1057,7 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
     });
 
     it("refuses to extend a revision which is no longer live", async () => {
-        const { handler, databaseFileAccess, provenance, conflict, storageFile } =
-            createConflictedOperationHandler();
+        const { handler, databaseFileAccess, provenance, conflict, storageFile } = createConflictedOperationHandler();
         const selectedRevision = "2-obsolete";
         const obsolete = createMeta("note.md", "obsolete", selectedRevision);
         const winner = createMeta("note.md", "winner", "3-winner");
@@ -819,9 +1066,7 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
                 revision === selectedRevision ? obsolete : winner
         );
 
-        await expect(
-            handler.storeFileToDBWithBaseRevision(storageFile, selectedRevision)
-        ).resolves.toBe(false);
+        await expect(handler.storeFileToDBWithBaseRevision(storageFile, selectedRevision)).resolves.toBe(false);
 
         expect(databaseFileAccess.storeWithBaseRevision).not.toHaveBeenCalled();
         expect(provenance.set).not.toHaveBeenCalled();
@@ -829,17 +1074,14 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
     });
 
     it("records the selected revision without creating a child when its content already matches the Vault", async () => {
-        const { handler, databaseFileAccess, provenance, conflict, storageFile } =
-            createConflictedOperationHandler();
+        const { handler, databaseFileAccess, provenance, conflict, storageFile } = createConflictedOperationHandler();
         const selectedRevision = "3-winner";
         databaseFileAccess.fetchEntry.mockResolvedValue({
             ...createMeta("note.md", storageFile.body, selectedRevision),
             data: storageFile.body,
         });
 
-        await expect(
-            handler.storeFileToDBWithBaseRevision(storageFile, selectedRevision, false)
-        ).resolves.toBe(true);
+        await expect(handler.storeFileToDBWithBaseRevision(storageFile, selectedRevision, false)).resolves.toBe(true);
 
         expect(databaseFileAccess.storeWithBaseRevision).not.toHaveBeenCalled();
         expect(provenance.set).toHaveBeenCalledWith("note.md", {
@@ -850,13 +1092,10 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
     });
 
     it("does not create a child when asked only to mark a selected revision which differs from the Vault", async () => {
-        const { handler, databaseFileAccess, provenance, conflict, storageFile } =
-            createConflictedOperationHandler();
+        const { handler, databaseFileAccess, provenance, conflict, storageFile } = createConflictedOperationHandler();
         const selectedRevision = "3-winner";
 
-        await expect(
-            handler.storeFileToDBWithBaseRevision(storageFile, selectedRevision, false)
-        ).resolves.toBe(false);
+        await expect(handler.storeFileToDBWithBaseRevision(storageFile, selectedRevision, false)).resolves.toBe(false);
 
         expect(databaseFileAccess.storeWithBaseRevision).not.toHaveBeenCalled();
         expect(provenance.set).not.toHaveBeenCalled();

@@ -69,6 +69,8 @@ The one-shot CouchDB connectivity preflight is the first bounded consumer. It ap
 
 `openSimpleStore()` may create an inert namespace handle during composition, before the backing key-value database has opened. Maintained hosts must complete their sequential settings lifecycle before scans, watchers, or replication invoke the handle. Operations fail on a lifecycle violation rather than waiting for readiness; do not introduce an implicit wait which can hang after failed initialisation or become self-referential from an initialisation handler. Treat database reset as a transient unavailable boundary and reconstruct derived local state after reopening.
 
+The active local database identity, settings-selected reset sequence, and lifecycle event phases are specified in [Local database lifecycle](database-lifecycle.md). Extend that document and the focused service and rebuild tests whenever database selection, reset ownership, event ordering, or failure propagation changes.
+
 ### P2P composition ownership
 
 `useP2PReplicatorFeature` is the sole owner of the active `LiveSyncTrysteroReplicator` and its lifecycle bindings. It creates or replaces the outer replicator when `ReplicatorService` requests one, closes the previous instance before replacement, shares an in-flight replacement between concurrent callers, and returns a stable result object whose `replicator` property resolves the current instance.
