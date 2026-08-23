@@ -62,6 +62,18 @@ The ordinary `prepareDatabaseForUse()` sequence is:
 
 The historical `commitPendingFileEvents()` name is stronger than its result contract. Its maintained handler releases the batch waits which exist when the call begins. It does not wait for every buffered event, already running file operation, or follow-up event to finish. Application readiness follows this existing call, which removes the premature-ready window without adding another scan or another I/O pass, but does not establish a full queue-drain guarantee.
 
+### Offline scan and stored storage-event operations
+
+The maintained `scanVault()` handler is `performFullScan()`. Its pair states, action matrix, identity checks, and result contract are specified in [Full offline scan](offline-scanner.md).
+
+On a subsequent start, the Offline Scanner first loads the storage-event snapshot left by the previous runtime. The snapshot carries pending operation intent, not durable file content or a journal of changes made while the application was stopped. Each standard-file event is revalidated against current exact storage paths: inclusion reads the current file, while deletion is admitted only when current storage still supports the observed absence. A rename between distinct document IDs validates its new-path inclusion and old-path deletion independently; a same-ID rename remains one document update. The detailed matrix is defined in [Full offline scan](offline-scanner.md).
+
+The manager replays the admitted operations without their former batch delay, waits for their actual file operations and snapshot sentinel ordering, and only then collects storage and database entries for the full scan. An individual replay failure is logged rather than preventing that reconciliation pass. The scan makes the final decision through its action matrix; an ambiguous pair may be deliberately skipped instead of either side being treated as unconditionally authoritative. This ordering prevents application readiness from racing ahead of a stored storage operation, but does not wait for events buffered or received after the snapshot boundary.
+
+A successful scan result means that every selected pair was either `completed` or deliberately `skipped`; it does not mean that every discovered Metadata entry was resolved or that storage and the database are identical. A `false` result, or an exception converted to `false` by the maintained `scanVault()` handler boundary, prevents `onDatabaseInitialised()`, the current batch-wait release, and application readiness.
+
+The scanner's `initialized` marker means that an earlier permitted invocation reached its aggregate-result boundary. It is recorded after the first aggregate `false` result as well as after `true`, so that the next runtime can restore stored operations; it is not evidence of a successful or fully converged scan. A host may maintain a separate replication-result snapshot, but that queue is outside this Offline Scanner contract.
+
 ### Rejected readiness transitions
 
 A readiness flag represents an accepted transition, not only that an implementation reached the line which assigns it. A `false` result or exception from `onDatabaseInitialisation()`, database inspection, or manager initialisation rejects the physical transition before readiness is exposed. An implementation may then need to expose `LiveSyncLocalDB.isReady` provisionally while `onDatabaseHasReady()` handlers initialise services against the new local database. If that hook returns `false`, throws, or loses the database handle while it is running, the transition has not been accepted and the flag must not remain set after `initializeDatabase()` returns. The owning `DatabaseService` clears the rejected active candidate as well as the physical readiness flag.

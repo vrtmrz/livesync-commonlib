@@ -95,6 +95,12 @@ function isFolderInfo(info: UXFileInfoStub | UXFolderInfo | null): info is UXFol
     return info?.isFolder === true;
 }
 
+type RestoredFileEventAction =
+    | { kind: "none" }
+    | { kind: "store"; file: UXFileInfoStub }
+    | { kind: "delete"; path: FilePath }
+    | { kind: "rename"; file: UXFileInfoStub; oldPath: FilePathWithPrefix };
+
 export abstract class ServiceFileHandlerBase
     extends ServiceModuleBase<ServiceFileHandlerDependencies>
     implements IFileHandler
@@ -866,15 +872,13 @@ export abstract class ServiceFileHandlerBase
     }
 
     private async _anyHandlerProcessesFileEvent(item: FileEventItem): Promise<boolean> {
+        if (item.restoredFromPreviousRuntime) {
+            return await this._processRestoredFileEvent(item);
+        }
         const eventItem = item.args;
         const type = item.type;
         const path = eventItem.file.path;
-        if (!(await this.vault.isTargetFile(path))) {
-            this._log(`File ${path} is not the target file`, LOG_LEVEL_VERBOSE);
-            return false;
-        }
-        if (shouldBeIgnored(path)) {
-            this._log(`File ${path} should be ignored`, LOG_LEVEL_VERBOSE);
+        if (!(await this.isCurrentPathSelected(path))) {
             return false;
         }
         if (type === "RENAME" && !eventItem.oldPath) {
@@ -882,9 +886,7 @@ export abstract class ServiceFileHandlerBase
             return false;
         }
         const eventPaths = type === "RENAME" ? [path, eventItem.oldPath as FilePathWithPrefix] : [path];
-        const documentIds = await Promise.all(eventPaths.map((eventPath) => this.path.path2id(eventPath)));
-        const lockKeys = [...new Set(documentIds)].sort().map((documentId) => `processFileEvent-${documentId}`);
-        return await serializedByKeys(lockKeys, async () => {
+        return await this.serializedByFileEventPaths(eventPaths, async () => {
             switch (type) {
                 case "CREATE":
                 case "CHANGED":
@@ -904,6 +906,175 @@ export abstract class ServiceFileHandlerBase
                     return false;
             }
         });
+    }
+
+    private async serializedByFileEventPaths<T>(
+        eventPaths: readonly FilePathWithPrefix[],
+        callback: (isSameDocument: boolean) => Promise<T>
+    ): Promise<T> {
+        const documentIds = await Promise.all(eventPaths.map((eventPath) => this.path.path2id(eventPath)));
+        const lockKeys = [...new Set(documentIds)].sort().map((documentId) => `processFileEvent-${documentId}`);
+        return await serializedByKeys(lockKeys, () =>
+            callback(documentIds.length === 2 && documentIds[0] === documentIds[1])
+        );
+    }
+
+    /**
+     * Revalidate a persisted storage operation against the current storage state.
+     *
+     * Snapshot entries preserve operation intent and ordering only. Their file
+     * stub, timestamps, and existence assumptions can be stale after a restart.
+     * Current inclusion is therefore read from storage, while destructive work
+     * is allowed only after current absence has been observed.
+     */
+    private async _processRestoredFileEvent(item: FileEventItem): Promise<boolean> {
+        const eventItem = item.args;
+        const type = item.type;
+        const path = eventItem.file.path;
+        if (type === "RENAME" && !eventItem.oldPath) {
+            this._log(`Rename event for ${path} has no source path`, LOG_LEVEL_VERBOSE);
+            return true;
+        }
+
+        const eventPaths = type === "RENAME" ? [path, eventItem.oldPath as FilePathWithPrefix] : [path];
+        return await this.serializedByFileEventPaths(eventPaths, async (isSameDocument) => {
+            let action: RestoredFileEventAction;
+            try {
+                action = await this._planRestoredFileEvent(item, isSameDocument);
+            } catch (ex) {
+                this.logRestoredEventValidationFailure(path, ex);
+                return true;
+            }
+
+            switch (action.kind) {
+                case "none":
+                    return true;
+                case "store":
+                    return await this.storeFileToDB(action.file);
+                case "delete":
+                    return await this.deleteFileFromDB(action.path);
+                case "rename":
+                    return await this.renameFileInDB(action.file, action.oldPath);
+            }
+        });
+    }
+
+    private async _planRestoredFileEvent(
+        item: FileEventItem,
+        isSameDocument: boolean
+    ): Promise<RestoredFileEventAction> {
+        const path = item.args.file.path;
+        switch (item.type) {
+            case "CREATE":
+            case "CHANGED": {
+                const current = this.getExactCurrentFile(await this.storage.getStub(path), path);
+                return current && (await this.isCurrentFileSelected(current))
+                    ? { kind: "store", file: current }
+                    : { kind: "none" };
+            }
+            case "DELETE": {
+                const current = await this.storage.getStub(path);
+                return current === null && (await this.canApplyRestoredDeletion(path))
+                    ? { kind: "delete", path: path as FilePath }
+                    : { kind: "none" };
+            }
+            case "RENAME":
+                return await this._planRestoredRename(path, item.args.oldPath as FilePathWithPrefix, isSameDocument);
+            case "INTERNAL":
+                return { kind: "none" };
+            default:
+                this._log(`Unsupported event type: ${item.type as string}`, LOG_LEVEL_VERBOSE);
+                return { kind: "none" };
+        }
+    }
+
+    private async _planRestoredRename(
+        newPath: FilePathWithPrefix,
+        oldPath: FilePathWithPrefix,
+        isSameDocument: boolean
+    ): Promise<RestoredFileEventAction> {
+        if (isSameDocument) {
+            const currentTarget = this.getExactCurrentFile(await this.storage.getStub(newPath), newPath);
+            if (!currentTarget || !(await this.isCurrentFileSelected(currentTarget))) {
+                return { kind: "none" };
+            }
+            return { kind: "rename", file: currentTarget, oldPath };
+        }
+
+        const currentTargetItem = await this.storage.getStub(newPath);
+        let currentSourceItem: UXFileInfoStub | UXFolderInfo | null = null;
+        let sourceWasInspected = true;
+        try {
+            currentSourceItem = await this.storage.getStub(oldPath);
+        } catch (ex) {
+            sourceWasInspected = false;
+            this.logRestoredEventValidationFailure(oldPath, ex);
+        }
+        const currentTarget = this.getExactCurrentFile(currentTargetItem, newPath);
+        if (currentTargetItem !== null) {
+            if (!currentTarget || !(await this.isCurrentFileSelected(currentTarget))) {
+                return { kind: "none" };
+            }
+            if (!sourceWasInspected || currentSourceItem !== null || !(await this.canApplyRestoredDeletion(oldPath))) {
+                return { kind: "store", file: currentTarget };
+            }
+            return { kind: "rename", file: currentTarget, oldPath };
+        }
+
+        if (!sourceWasInspected || currentSourceItem !== null || !(await this.canApplyRestoredDeletion(oldPath))) {
+            return { kind: "none" };
+        }
+        return { kind: "delete", path: oldPath as FilePath };
+    }
+
+    private getExactCurrentFile(
+        current: UXFileInfoStub | UXFolderInfo | null,
+        expectedPath: FilePathWithPrefix
+    ): UXFileInfoStub | null {
+        if (current === null || isFolderInfo(current)) {
+            return null;
+        }
+        return this.storage.normalisePath(current.path) === this.storage.normalisePath(expectedPath) ? current : null;
+    }
+
+    private async isCurrentFileSelected(file: UXFileInfoStub): Promise<boolean> {
+        if (!(await this.isCurrentPathSelected(file.path))) {
+            return false;
+        }
+        if (this.vault.isFileSizeTooLarge(file.stat.size)) {
+            this._log(`File ${file.path} exceeds the current maximum size`, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+        return true;
+    }
+
+    private async isCurrentPathSelected(path: FilePathWithPrefix): Promise<boolean> {
+        if (!(await this.vault.isTargetFile(path))) {
+            this._log(`File ${path} is not the target file`, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+        if (shouldBeIgnored(path)) {
+            this._log(`File ${path} should be ignored`, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+        return true;
+    }
+
+    private async canApplyRestoredDeletion(path: FilePathWithPrefix): Promise<boolean> {
+        try {
+            return await this.isCurrentPathSelected(path);
+        } catch (ex) {
+            this.logRestoredEventValidationFailure(path, ex);
+            return false;
+        }
+    }
+
+    private logRestoredEventValidationFailure(path: FilePathWithPrefix, ex: unknown): void {
+        this._log(
+            `Could not validate the saved storage operation for ${path} against current storage; the Offline Scanner will reconcile the current state`,
+            LOG_LEVEL_NOTICE
+        );
+        this._log(ex, LOG_LEVEL_VERBOSE);
     }
 
     async _anyProcessReplicatedDoc(entry: MetaEntry): Promise<boolean> {

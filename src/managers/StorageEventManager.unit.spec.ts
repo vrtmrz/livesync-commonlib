@@ -582,6 +582,125 @@ describe("StorageEventManagerBase", () => {
     });
 
     describe("Snapshot Restore", () => {
+        it("should wait for restored event processing to finish", async () => {
+            let releaseProcessing!: (result: boolean) => void;
+            const processing = new Promise<boolean>((resolve) => {
+                releaseProcessing = resolve;
+            });
+            vi.mocked(dependencies.fileProcessing.processFileEvent).mockReturnValue(processing);
+
+            const restoredEvent: FileEventItem = {
+                type: "CHANGED",
+                key: "restored-key",
+                args: {
+                    file: adapter.converter.toFileInfo(createMockFile("restored.md", "restored.md")),
+                },
+            };
+            await adapter.persistence.saveSnapshot([restoredEvent]);
+
+            let restorationSettled = false;
+            const restoration = manager.restoreState().then(() => {
+                restorationSettled = true;
+            });
+
+            try {
+                await vi.waitFor(() => {
+                    expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalledTimes(1);
+                });
+                expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalledWith(
+                    expect.objectContaining({ restoredFromPreviousRuntime: true })
+                );
+                await Promise.resolve();
+                expect(restorationSettled).toBe(false);
+            } finally {
+                releaseProcessing(true);
+                await restoration;
+            }
+
+            expect(restorationSettled).toBe(true);
+        });
+
+        it("should preserve sentinel ordering while restoring events", async () => {
+            let releaseFirst!: (result: boolean) => void;
+            const firstProcessing = new Promise<boolean>((resolve) => {
+                releaseFirst = resolve;
+            });
+            const processingOrder: string[] = [];
+            vi.mocked(dependencies.fileProcessing.processFileEvent).mockImplementation(async (event) => {
+                const path = event.args.file.path;
+                processingOrder.push(`${path}:start`);
+                if (path === "first.md") {
+                    await firstProcessing;
+                }
+                processingOrder.push(`${path}:end`);
+                return true;
+            });
+
+            const firstEvent: FileEventItem = {
+                type: "CHANGED",
+                key: "first-key",
+                args: {
+                    file: adapter.converter.toFileInfo(createMockFile("first.md", "first.md")),
+                },
+            };
+            const sentinel: FileEventItemSentinel = { type: "SENTINEL_FLUSH" };
+            const secondEvent: FileEventItem = {
+                type: "CHANGED",
+                key: "second-key",
+                args: {
+                    file: adapter.converter.toFileInfo(createMockFile("second.md", "second.md")),
+                },
+            };
+            await adapter.persistence.saveSnapshot([firstEvent, sentinel, secondEvent]);
+
+            const restoration = manager.restoreState();
+            try {
+                await vi.waitFor(() => {
+                    expect(processingOrder).toContain("first.md:start");
+                });
+                await Promise.resolve();
+                expect(processingOrder).not.toContain("second.md:start");
+            } finally {
+                releaseFirst(true);
+                await restoration;
+            }
+
+            expect(processingOrder).toEqual(["first.md:start", "first.md:end", "second.md:start", "second.md:end"]);
+        });
+
+        it("should continue restoration after an operation fails so the full scan can reconcile", async () => {
+            const processingOrder: string[] = [];
+            vi.mocked(dependencies.fileProcessing.processFileEvent).mockImplementation(async (event) => {
+                const path = event.args.file.path;
+                processingOrder.push(path);
+                if (path === "failed.md") {
+                    throw new Error("restored operation failed");
+                }
+                return true;
+            });
+
+            const failedEvent: FileEventItem = {
+                type: "CHANGED",
+                key: "failed-key",
+                args: {
+                    file: adapter.converter.toFileInfo(createMockFile("failed.md", "failed.md")),
+                },
+            };
+            const sentinel: FileEventItemSentinel = { type: "SENTINEL_FLUSH" };
+            const followingEvent: FileEventItem = {
+                type: "CHANGED",
+                key: "following-key",
+                args: {
+                    file: adapter.converter.toFileInfo(createMockFile("following.md", "following.md")),
+                },
+            };
+            await adapter.persistence.saveSnapshot([failedEvent, sentinel, followingEvent]);
+
+            await expect(manager.restoreState()).resolves.toBeUndefined();
+
+            expect(processingOrder).toEqual(["failed.md", "following.md"]);
+        });
+
         it("should restore state from snapshot", async () => {
             const mockSnapshot: FileEventItem[] = [
                 {
