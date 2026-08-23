@@ -2,6 +2,17 @@
 
 ## Unreleased
 
+## 0.1.19-rc.0
+
+### Fixed
+
+- Reset and rebuild workflows now reset the local database selected by the resulting settings, rather than whichever database wrapper was already active. During a suffix transition, this prevents a database which was not reset from reopening with stale content. Failures stop before rebuilt events, remote resets, or uploads (Self-hosted LiveSync issue #1126).
+- Rejected or incomplete database initialisation no longer leaves either the physical database or the application marked as ready. Vault scanning and completion hooks now form explicit readiness boundaries, and direct file manipulation rejects an unaccepted database initialisation.
+
+### Improved
+
+- Restored storage events are now revalidated against current exact storage paths before replay. Current file contents replace saved observations, stale deletions are suppressed, and rename halves are admitted only when their current path state supports them.
+
 ## 0.1.18
 
 ### Added
