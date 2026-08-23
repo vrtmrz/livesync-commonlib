@@ -293,6 +293,18 @@ Please enable them from the settings screen after setup is complete.`,
         });
         await this.setting.saveSettingData();
     }
+    /**
+     * Stage reflection resumption and perform the final reconciliation checks.
+     *
+     * File watching is resumed in memory before the final scan so that changes
+     * made while the scan is running can enter the storage-event queue. This
+     * phase deliberately does not persist the resumed settings. The owning
+     * completion boundary persists them only after the scan, replication
+     * pre-check, and current batch-wait release have succeeded.
+     *
+     * @param ignoreMinIO Whether to resume reflection for a MinIO remote.
+     * @returns `true` when the applicable reconciliation checks succeeded.
+     */
     async resumeReflectingDatabase(ignoreMinIO: boolean = false): Promise<boolean> {
         const settings = this.setting.currentSettings();
         if (settings.doNotSuspendOnFetching) return true;
@@ -382,14 +394,6 @@ Are you sure you wish to proceed?`;
         await this.resetLocalDatabase();
         this.clearFastFetchCheckpoint();
         await delay(1000);
-        if (
-            !(await this.database.openDatabase({
-                databaseEvents: this.databaseEvents,
-                replicator: this.replicator,
-            }))
-        ) {
-            throw new Error("The selected local database could not be opened for Standard Fetch.");
-        }
         if (makeLocalChunkBeforeSync) {
             await this.fileHandler.createAllChunks(true);
         } else if (!preventMakeLocalFilesBeforeSync) {
@@ -463,17 +467,17 @@ Are you sure you wish to proceed?`;
                 LOG_LEVEL_NOTICE,
                 "fetch-init-resume"
             );
+            if (
+                !(await this.database.openDatabase({
+                    databaseEvents: this.databaseEvents,
+                    replicator: this.replicator,
+                }))
+            ) {
+                throw new Error("The selected local database could not be opened for Fast Fetch.");
+            }
         } else {
             await this.resetLocalDatabase();
             await delay(1000);
-        }
-        if (
-            !(await this.database.openDatabase({
-                databaseEvents: this.databaseEvents,
-                replicator: this.replicator,
-            }))
-        ) {
-            throw new Error("The selected local database could not be opened for Fast Fetch.");
         }
 
         let localDB = this.database.localDatabase.localDatabase;
@@ -486,14 +490,6 @@ Are you sure you wish to proceed?`;
             this.clearFastFetchCheckpoint();
             await this.resetLocalDatabase();
             await delay(1000);
-            if (
-                !(await this.database.openDatabase({
-                    databaseEvents: this.databaseEvents,
-                    replicator: this.replicator,
-                }))
-            ) {
-                throw new Error("The reset local database could not be opened for Fast Fetch.");
-            }
             localDB = this.database.localDatabase.localDatabase;
             since = "0";
         }
@@ -570,6 +566,11 @@ Are you sure you wish to proceed?`;
 
     /**
      * Complete the final rebuild phases and establish application readiness.
+     *
+     * A failed completion restores the previous reflection settings in memory.
+     * Persistence atomicity remains a responsibility of the host setting store;
+     * Commonlib cannot roll back a store which writes successfully and then
+     * reports an error.
      *
      * @param ignoreMinIO Whether to resume reflection for a MinIO remote.
      * @returns `true` when finalisation completed; otherwise, `false`.

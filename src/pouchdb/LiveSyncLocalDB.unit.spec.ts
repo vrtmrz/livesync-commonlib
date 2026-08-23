@@ -208,6 +208,36 @@ describe("LiveSyncLocalDB.allChunks", () => {
 });
 
 describe("LiveSyncLocalDB reset lifecycle", () => {
+    it("clears physical readiness when a reset hook rejects the transition", async () => {
+        const destroy = vi.fn(async () => undefined);
+        const subject = Object.create(LiveSyncLocalDB.prototype) as LiveSyncLocalDB;
+        Object.assign(subject, {
+            isReady: true,
+            _managers: {
+                teardownManagers: vi.fn(async () => undefined),
+            },
+            env: {
+                services: {
+                    replicator: {
+                        getActiveReplicator: vi.fn(() => undefined),
+                    },
+                    databaseEvents: {
+                        onResetDatabase: vi.fn(async () => false),
+                    },
+                },
+            },
+            localDatabase: {
+                destroy,
+            },
+            _log: vi.fn(),
+        });
+
+        await expect(subject.resetDatabase()).resolves.toBe(false);
+
+        expect(subject.isReady).toBe(false);
+        expect(destroy).not.toHaveBeenCalled();
+    });
+
     it("reports failure when the destroyed database cannot be reinitialised", async () => {
         const initialise = vi.fn(async () => false);
         const destroy = vi.fn(async () => undefined);
@@ -241,7 +271,10 @@ describe("LiveSyncLocalDB reset lifecycle", () => {
 });
 
 describe("LiveSyncLocalDB initialisation readiness", () => {
-    function createSubject(onDatabaseHasReady: () => Promise<boolean>) {
+    function createSubject(
+        onDatabaseHasReady: () => Promise<boolean>,
+        onDatabaseInitialisation = vi.fn(async () => true)
+    ) {
         let closeHandler: (() => void) | undefined;
         let closed = false;
         const database = {
@@ -274,7 +307,7 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
                     createPouchDBInstance: vi.fn(() => database),
                 } as never,
                 databaseEvents: {
-                    onDatabaseInitialisation: vi.fn(async () => true),
+                    onDatabaseInitialisation,
                     onDatabaseHasReady,
                     onUnloadDatabase,
                 } as never,
@@ -284,7 +317,7 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
                 } as never,
             },
         });
-        return { closeReplication, database, onUnloadDatabase, subject };
+        return { closeReplication, database, onDatabaseInitialisation, onUnloadDatabase, subject };
     }
 
     beforeEach(() => {
@@ -303,6 +336,9 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
         expect(managerLifecycle.teardown).toHaveBeenCalled();
         expect(closeReplication).toHaveBeenCalled();
         expect(onUnloadDatabase).toHaveBeenCalledWith(subject);
+
+        await subject.close();
+        expect(onUnloadDatabase).toHaveBeenCalledOnce();
     });
 
     it("rolls back physical readiness before propagating a required ready-handler error", async () => {
@@ -314,6 +350,60 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
         expect(subject.isReady).toBe(false);
         expect(database.close).toHaveBeenCalledOnce();
         expect(managerLifecycle.teardown).toHaveBeenCalled();
+        expect(onUnloadDatabase).toHaveBeenCalledWith(subject);
+    });
+
+    it("rolls back physical dependencies before propagating an initialisation-hook error", async () => {
+        const error = new Error("key-value database could not be initialised");
+        const onDatabaseInitialisation = vi.fn(async () => Promise.reject(error));
+        const { database, onUnloadDatabase, subject } = createSubject(async () => true, onDatabaseInitialisation);
+
+        await expect(subject.initializeDatabase()).rejects.toBe(error);
+
+        expect(subject.isReady).toBe(false);
+        expect(database.close).toHaveBeenCalledOnce();
+        expect(managerLifecycle.teardown).toHaveBeenCalledOnce();
+        expect(onUnloadDatabase).toHaveBeenCalledWith(subject);
+    });
+
+    it("rejects physical readiness when an initialisation hook reports failure", async () => {
+        const onDatabaseInitialisation = vi.fn(async () => false);
+        const onDatabaseHasReady = vi.fn(async () => true);
+        const { database, onUnloadDatabase, subject } = createSubject(onDatabaseHasReady, onDatabaseInitialisation);
+
+        await expect(subject.initializeDatabase()).resolves.toBe(false);
+
+        expect(subject.isReady).toBe(false);
+        expect(onDatabaseHasReady).not.toHaveBeenCalled();
+        expect(database.close).toHaveBeenCalledOnce();
+        expect(managerLifecycle.teardown).toHaveBeenCalledOnce();
+        expect(onUnloadDatabase).toHaveBeenCalledWith(subject);
+    });
+
+    it("rolls back physical dependencies before propagating a manager initialisation error", async () => {
+        const error = new Error("manager initialisation failed");
+        managerLifecycle.initialise.mockRejectedValueOnce(error);
+        const { database, onUnloadDatabase, subject } = createSubject(async () => true);
+
+        await expect(subject.initializeDatabase()).rejects.toBe(error);
+
+        expect(subject.isReady).toBe(false);
+        expect(database.close).toHaveBeenCalledOnce();
+        expect(managerLifecycle.teardown).toHaveBeenCalledOnce();
+        expect(onUnloadDatabase).toHaveBeenCalledWith(subject);
+    });
+
+    it("rolls back physical dependencies before propagating a database inspection error", async () => {
+        const error = new Error("database information could not be read");
+        const { database, onUnloadDatabase, subject } = createSubject(async () => true);
+        database.info.mockRejectedValueOnce(error);
+
+        await expect(subject.initializeDatabase()).rejects.toBe(error);
+
+        expect(subject.isReady).toBe(false);
+        expect(database.close).toHaveBeenCalledOnce();
+        expect(managerLifecycle.initialise).not.toHaveBeenCalled();
+        expect(managerLifecycle.teardown).toHaveBeenCalledOnce();
         expect(onUnloadDatabase).toHaveBeenCalledWith(subject);
     });
 
@@ -331,6 +421,16 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
         expect(database.close).toHaveBeenCalledOnce();
         expect(managerLifecycle.teardown).toHaveBeenCalledOnce();
         expect(closeReplication).toHaveBeenCalledOnce();
+        expect(onUnloadDatabase).toHaveBeenCalledOnce();
+    });
+
+    it("notifies unload handlers once when host unload is followed by close", async () => {
+        const { onUnloadDatabase, subject } = createSubject(async () => true);
+        await expect(subject.initializeDatabase()).resolves.toBe(true);
+
+        subject.onunload();
+        await subject.close();
+
         expect(onUnloadDatabase).toHaveBeenCalledOnce();
     });
 });

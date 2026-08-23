@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB";
+import { LiveSyncLocalDB as LiveSyncLocalDBClass } from "@lib/pouchdb/LiveSyncLocalDB";
 import { ServiceContext } from "./ServiceBase";
 import { DatabaseService } from "./DatabaseService";
 import type { openDatabaseParameters } from "./IService";
@@ -25,12 +26,42 @@ function createDatabaseService(selectedDatabaseName = "vault-current") {
         vault: {
             getVaultName: vi.fn(() => selectedDatabaseName),
         } as never,
-        setting: {} as never,
-        API: {} as never,
+        setting: {
+            currentSettings: vi.fn(() => ({ useIndexedDBAdapter: false })),
+        } as never,
+        API: { addLog: vi.fn() } as never,
     });
 }
 
 const openParameters = {} as openDatabaseParameters;
+
+afterEach(() => {
+    vi.restoreAllMocks();
+});
+
+describe("DatabaseService active database ownership", () => {
+    it("does not retain an active database whose physical readiness was rejected", async () => {
+        const service = createDatabaseService();
+        const initialise = vi.spyOn(LiveSyncLocalDBClass.prototype, "initializeDatabase").mockResolvedValueOnce(false);
+
+        await expect(service.openDatabase(openParameters)).resolves.toBe(false);
+
+        expect(initialise).toHaveBeenCalledOnce();
+        expect(service.localDatabaseDirect).toBeNull();
+        expect(service.isDatabaseReady()).toBe(false);
+    });
+
+    it("does not retain an active database whose physical initialisation threw", async () => {
+        const error = new Error("physical initialisation failed");
+        const service = createDatabaseService();
+        vi.spyOn(LiveSyncLocalDBClass.prototype, "initializeDatabase").mockRejectedValueOnce(error);
+
+        await expect(service.openDatabase(openParameters)).rejects.toBe(error);
+
+        expect(service.localDatabaseDirect).toBeNull();
+        expect(service.isDatabaseReady()).toBe(false);
+    });
+});
 
 describe("DatabaseService reset ownership", () => {
     it("selects the settings-derived database before resetting it", async () => {
@@ -93,10 +124,13 @@ describe("DatabaseService reset ownership", () => {
         const service = createDatabaseService();
         const completion = vi.fn(async () => true);
         service.onDatabaseReset.addHandler(completion);
-        service.setActiveDatabase(localDatabase("vault-current", false));
+        const rejected = localDatabase("vault-current", false);
+        service.setActiveDatabase(rejected);
 
         await expect(service.resetDatabase()).resolves.toBe(false);
         expect(completion).not.toHaveBeenCalled();
+        expect(rejected.close).toHaveBeenCalledOnce();
+        expect(service.localDatabaseDirect).toBeNull();
 
         service.setActiveDatabase(localDatabase("vault-current"));
         await expect(service.resetDatabase()).resolves.toBe(true);
@@ -105,9 +139,26 @@ describe("DatabaseService reset ownership", () => {
 
     it("reports a failed post-reset dependency as a reset failure", async () => {
         const service = createDatabaseService();
-        service.setActiveDatabase(localDatabase("vault-current"));
+        const reset = localDatabase("vault-current");
+        service.setActiveDatabase(reset);
         service.onDatabaseReset.addHandler(async () => false);
 
         await expect(service.resetDatabase()).resolves.toBe(false);
+
+        expect(reset.close).toHaveBeenCalledOnce();
+        expect(service.localDatabaseDirect).toBeNull();
+    });
+
+    it("discards the active database before propagating a reset error", async () => {
+        const error = new Error("reset failed");
+        const service = createDatabaseService();
+        const reset = localDatabase("vault-current");
+        vi.spyOn(reset, "resetDatabase").mockRejectedValueOnce(error);
+        service.setActiveDatabase(reset);
+
+        await expect(service.resetDatabase()).rejects.toBe(error);
+
+        expect(reset.close).toHaveBeenCalledOnce();
+        expect(service.localDatabaseDirect).toBeNull();
     });
 });

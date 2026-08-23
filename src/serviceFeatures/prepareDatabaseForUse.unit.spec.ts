@@ -126,6 +126,29 @@ describe("prepareDatabaseForUse readiness", () => {
         expect(host.services.appLifecycle.markIsReady).not.toHaveBeenCalled();
     });
 
+    it("keeps the application unready when the post-scan initialisation hook reports failure", async () => {
+        const { errorManager, host, isReady } = createPreparation({ initialised: false });
+
+        await expect(prepareDatabaseForUse(host, vi.fn(), errorManager as any)).resolves.toBe(false);
+
+        expect(isReady()).toBe(false);
+        expect(errorManager.showError).toHaveBeenCalled();
+        expect(host.services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
+        expect(host.services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+    });
+
+    it("keeps the application unready when the post-scan initialisation hook throws", async () => {
+        const { errorManager, host, isReady } = createPreparation();
+        const error = new Error("post-scan initialisation failed");
+        host.services.databaseEvents.onDatabaseInitialised.mockRejectedValueOnce(error);
+
+        await expect(prepareDatabaseForUse(host, vi.fn(), errorManager as any)).rejects.toBe(error);
+
+        expect(isReady()).toBe(false);
+        expect(host.services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
+        expect(host.services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+    });
+
     it("does not bypass a rejected physical database transition when reopening is skipped", async () => {
         const { errorManager, host, isReady } = createPreparation({ physicalReady: false });
 

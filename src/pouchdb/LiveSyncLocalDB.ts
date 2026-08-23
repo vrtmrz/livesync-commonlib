@@ -99,12 +99,6 @@ export class LiveSyncLocalDB {
         await this._managers?.prepareHashFunction();
     }
 
-    onunload() {
-        //this.kvDB.close();
-        void this.env.services.databaseEvents.onUnloadDatabase(this);
-        this.localDatabase.removeAllListeners();
-    }
-
     refreshSettings() {
         const settings = this.env.services.setting.currentSettings();
         this.settings = settings;
@@ -116,6 +110,7 @@ export class LiveSyncLocalDB {
         database: PouchDB.Database<EntryDoc>;
         promise: Promise<void>;
     };
+    private databaseUnloadNotification?: Promise<void>;
     constructor(dbname: string, env: LiveSyncLocalDBEnv) {
         this.auth = {
             username: "",
@@ -125,6 +120,20 @@ export class LiveSyncLocalDB {
         this.env = env;
         this._log = createInstanceLogFunction("LiveSyncLocalDB", this.env.services.API);
         this.refreshSettings();
+    }
+
+    /** Notify dependent services at most once for each physical database lifecycle. */
+    private notifyDatabaseUnload(): Promise<void> {
+        if (!this.databaseUnloadNotification) {
+            this.databaseUnloadNotification = Promise.resolve().then(async () => {
+                await this.env.services.databaseEvents.onUnloadDatabase(this);
+            });
+        }
+        return this.databaseUnloadNotification;
+    }
+
+    onunload() {
+        void this.notifyDatabaseUnload();
     }
 
     async close() {
@@ -138,8 +147,12 @@ export class LiveSyncLocalDB {
             if (this.databaseCloseCleanup?.database === database) {
                 await this.databaseCloseCleanup.promise;
             }
+            if (this.localDatabase === database) {
+                this.localDatabase = null!;
+            }
         }
-        await this.env.services.databaseEvents.onUnloadDatabase(this);
+        this._managers = undefined;
+        await this.notifyDatabaseUnload();
     }
 
     private async teardownDatabaseDependencies(managers: LiveSyncManagers): Promise<void> {
@@ -184,7 +197,7 @@ export class LiveSyncLocalDB {
             this._managers = undefined;
         }
         try {
-            await this.env.services.databaseEvents.onUnloadDatabase(this);
+            await this.notifyDatabaseUnload();
         } catch (error) {
             this._log("A database unload handler failed after initialisation was rejected.", LOG_LEVEL_VERBOSE);
             this._log(error, LOG_LEVEL_VERBOSE);
@@ -211,6 +224,7 @@ export class LiveSyncLocalDB {
                 deterministic_revs: true,
             }
         );
+        this.databaseUnloadNotification = undefined;
 
         const manager = new LiveSyncManagers({
             database: this.localDatabase,
@@ -222,55 +236,53 @@ export class LiveSyncLocalDB {
         });
 
         this._managers = manager;
-        // await this.managers.initManagers();
-        if (!(await this.env.services.databaseEvents.onDatabaseInitialisation(this))) {
-            this._log("Initializing Database has been failed on some module", LOG_LEVEL_NOTICE);
-            // TODO ask for continue or disable all.
-            // return false;
-        }
-        this._log("Opening Database...");
-        this._log("Database info", LOG_LEVEL_VERBOSE);
-        this._log(JSON.stringify(await this.localDatabase.info(), null, 2), LOG_LEVEL_VERBOSE);
-        await this.managers.initialise();
         const openedDatabase = this.localDatabase;
         this.databaseCloseCleanup = undefined;
-        openedDatabase.on("close", () => {
-            this._log("Database closed.");
-            this.isReady = false;
-            openedDatabase.removeAllListeners();
-            if (this.databaseCloseCleanup?.database !== openedDatabase) {
-                this.databaseCloseCleanup = {
-                    database: openedDatabase,
-                    promise: this.teardownDatabaseDependencies(manager),
-                };
-            }
-        });
-        const _instance = new FallbackWeakRef(this);
-        const unload = this.env.services.context.events.onEvent(REMOTE_CHUNK_FETCHED, (chunk: EntryLeaf) => {
-            if (_instance.deref() == null) {
-                unload();
-            }
-            _instance.deref()?.onNewLeaf(chunk);
-        });
-        this.offRemoteChunkFetchedHandler = unload;
-        this.isReady = true;
-        let readyAccepted: boolean;
         try {
-            readyAccepted = await this.env.services.databaseEvents.onDatabaseHasReady();
+            if (!(await this.env.services.databaseEvents.onDatabaseInitialisation(this))) {
+                await this.rollbackFailedInitialisation(openedDatabase, manager);
+                this._log("Database initialisation was rejected by a required module.", LOG_LEVEL_NOTICE);
+                return false;
+            }
+            this._log("Opening Database...");
+            this._log("Database info", LOG_LEVEL_VERBOSE);
+            this._log(JSON.stringify(await openedDatabase.info(), null, 2), LOG_LEVEL_VERBOSE);
+            await manager.initialise();
+            openedDatabase.on("close", () => {
+                this._log("Database closed.");
+                this.isReady = false;
+                openedDatabase.removeAllListeners();
+                if (this.databaseCloseCleanup?.database !== openedDatabase) {
+                    this.databaseCloseCleanup = {
+                        database: openedDatabase,
+                        promise: this.teardownDatabaseDependencies(manager),
+                    };
+                }
+            });
+            const _instance = new FallbackWeakRef(this);
+            const unload = this.env.services.context.events.onEvent(REMOTE_CHUNK_FETCHED, (chunk: EntryLeaf) => {
+                if (_instance.deref() == null) {
+                    unload();
+                }
+                _instance.deref()?.onNewLeaf(chunk);
+            });
+            this.offRemoteChunkFetchedHandler = unload;
+            this.isReady = true;
+            const readyAccepted = await this.env.services.databaseEvents.onDatabaseHasReady();
+            if (!readyAccepted || this.localDatabase !== openedDatabase || !this.isReady) {
+                await this.rollbackFailedInitialisation(openedDatabase, manager);
+                this._log(
+                    "Some module has prevented the database from being ready. The database is initialised but not ready for use.",
+                    LOG_LEVEL_NOTICE
+                );
+                return false;
+            }
+            this._log("Database is now ready.");
+            return true;
         } catch (error) {
             await this.rollbackFailedInitialisation(openedDatabase, manager);
             throw error;
         }
-        if (!readyAccepted || this.localDatabase !== openedDatabase || !this.isReady) {
-            await this.rollbackFailedInitialisation(openedDatabase, manager);
-            this._log(
-                "Some module has prevented the database from being ready. The database is initialised but not ready for use.",
-                LOG_LEVEL_NOTICE
-            );
-            return false;
-        }
-        this._log("Database is now ready.");
-        return true;
     }
 
     /**
@@ -369,6 +381,7 @@ export class LiveSyncLocalDB {
     }
 
     async resetDatabase() {
+        this.isReady = false;
         await this.managers.teardownManagers();
         this.env.services.replicator.getActiveReplicator()?.closeReplication();
         if (!(await this.env.services.databaseEvents.onResetDatabase(this))) {
@@ -376,7 +389,6 @@ export class LiveSyncLocalDB {
             return false;
         }
         Logger("Database closed for reset Database.");
-        this.isReady = false;
         await this.localDatabase.destroy();
         //@ts-ignore
         this.localDatabase = null;

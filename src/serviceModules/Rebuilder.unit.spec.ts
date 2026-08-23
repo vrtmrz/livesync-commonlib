@@ -531,6 +531,25 @@ describe("ServiceRebuilder readiness boundary", () => {
         expect(services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
     });
 
+    it("does not reopen the settings-selected database after Standard Fetch has reset it", async () => {
+        const { rebuilder, services } = createRebuilder();
+
+        await rebuilder.fetchLocal(false, true, false);
+
+        expect(services.database.resetDatabaseForCurrentSettings).toHaveBeenCalledOnce();
+        expect(services.database.openDatabase).not.toHaveBeenCalled();
+    });
+
+    it("does not reopen the settings-selected database after a fresh Fast Fetch has reset it", async () => {
+        fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
+        const { rebuilder, services } = createRebuilder();
+
+        await rebuilder.$fetchLocalDBFast(false);
+
+        expect(services.database.resetDatabaseForCurrentSettings).toHaveBeenCalledOnce();
+        expect(services.database.openDatabase).not.toHaveBeenCalled();
+    });
+
     it("uses the rebuild-only push and completes Rebuild Everything last", async () => {
         const { rebuilder, services } = createRebuilder();
 
@@ -552,6 +571,7 @@ describe("ServiceRebuilder readiness boundary", () => {
 
         expect(services.databaseEvents.onDatabaseInitialised).not.toHaveBeenCalled();
         expect(services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
+        expect(services.setting.saveSettingData).not.toHaveBeenCalled();
         expect(services.appLifecycle.markIsReady).not.toHaveBeenCalled();
         expect(settings.suspendFileWatching).toBe(true);
         expect(settings.suspendParseReplicationResult).toBe(true);
@@ -565,6 +585,69 @@ describe("ServiceRebuilder readiness boundary", () => {
 
         expect(services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
         expect(services.databaseEvents.onDatabaseInitialised).not.toHaveBeenCalled();
+        expect(services.setting.saveSettingData).not.toHaveBeenCalled();
+        expect(services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+        expect(settings.suspendFileWatching).toBe(true);
+        expect(settings.suspendParseReplicationResult).toBe(true);
+    });
+
+    it("persists staged reflection only after every final gate and marks application readiness last", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        const timeline: string[] = [];
+        let applicationReady = true;
+        services.appLifecycle.resetIsReady.mockImplementation(() => {
+            applicationReady = false;
+            timeline.push("reset-ready");
+        });
+        services.setting.applyPartial.mockImplementation(async (partial: any) => {
+            Object.assign(settings, partial);
+            timeline.push("stage-reflection");
+        });
+        services.vault.scanVault.mockImplementation(async () => {
+            expect(applicationReady).toBe(false);
+            expect(settings.suspendFileWatching).toBe(false);
+            timeline.push("scan-vault");
+            return true;
+        });
+        services.replication.onBeforeReplicate.mockImplementation(async () => {
+            expect(applicationReady).toBe(false);
+            timeline.push("replication-pre-check");
+            return true;
+        });
+        services.fileProcessing.commitPendingFileEvents.mockImplementation(async () => {
+            expect(applicationReady).toBe(false);
+            timeline.push("release-current-batch");
+            return true;
+        });
+        services.setting.saveSettingData.mockImplementation(async () => {
+            expect(applicationReady).toBe(false);
+            timeline.push("persist-reflection");
+        });
+        services.appLifecycle.markIsReady.mockImplementation(() => {
+            applicationReady = true;
+            timeline.push("mark-ready");
+        });
+
+        await expect(rebuilder.finishRebuild()).resolves.toBe(true);
+
+        expect(timeline).toEqual([
+            "reset-ready",
+            "stage-reflection",
+            "scan-vault",
+            "replication-pre-check",
+            "release-current-batch",
+            "persist-reflection",
+            "mark-ready",
+        ]);
+    });
+
+    it("restores in-memory suspension and remains unready when persisting resumed reflection fails", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        const error = new Error("setting storage failed");
+        services.setting.saveSettingData.mockRejectedValueOnce(error);
+
+        await expect(rebuilder.finishRebuild()).rejects.toBe(error);
+
         expect(services.appLifecycle.markIsReady).not.toHaveBeenCalled();
         expect(settings.suspendFileWatching).toBe(true);
         expect(settings.suspendParseReplicationResult).toBe(true);

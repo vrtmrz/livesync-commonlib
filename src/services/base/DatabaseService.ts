@@ -9,6 +9,7 @@ import { ExtraSuffixIndexedDB } from "@lib/common/models/shared.const.ts";
 import type { SettingService } from "./SettingService";
 import type { APIService } from "./APIService";
 import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
+import { LOG_LEVEL_VERBOSE } from "@lib/common/logger";
 
 export type DatabaseServiceDependencies = {
     /** PouchDB with the adapters required by the host runtime already registered. */
@@ -100,24 +101,58 @@ export abstract class DatabaseService<T extends ServiceContext = ServiceContext>
                 database: this,
             },
         };
-        this._localDatabase = new LiveSyncLocalDB(vaultName, env);
-        await this.onOpenDatabase(vaultName);
-
-        return await this.localDatabase.initializeDatabase();
+        const selectedDatabase = new LiveSyncLocalDB(vaultName, env);
+        this._localDatabase = selectedDatabase;
+        try {
+            await this.onOpenDatabase(vaultName);
+            const initialised = await selectedDatabase.initializeDatabase();
+            if (!initialised && this._localDatabase === selectedDatabase) {
+                this._localDatabase = null;
+            }
+            return initialised;
+        } catch (error) {
+            if (this._localDatabase === selectedDatabase) {
+                this._localDatabase = null;
+            }
+            throw error;
+        }
     }
 
     isDatabaseReady(): boolean {
         return this._localDatabase != null && this._localDatabase.isReady;
     }
 
+    private async discardFailedActiveDatabase(database: LiveSyncLocalDB): Promise<void> {
+        if (this._localDatabase === database) {
+            this._localDatabase = null;
+        }
+        try {
+            await database.close();
+        } catch (error) {
+            this._log("Failed to close the active database after a rejected lifecycle transition.", LOG_LEVEL_VERBOSE);
+            this._log(error, LOG_LEVEL_VERBOSE);
+        }
+    }
+
     async resetDatabase(): Promise<boolean> {
         if (!this._localDatabase) {
             return Promise.resolve(true);
         }
-        if (!(await this._localDatabase.resetDatabase())) {
-            return false;
+        const activeDatabase = this._localDatabase;
+        try {
+            if (!(await activeDatabase.resetDatabase())) {
+                await this.discardFailedActiveDatabase(activeDatabase);
+                return false;
+            }
+            if (!(await this.onDatabaseReset())) {
+                await this.discardFailedActiveDatabase(activeDatabase);
+                return false;
+            }
+            return true;
+        } catch (error) {
+            await this.discardFailedActiveDatabase(activeDatabase);
+            throw error;
         }
-        return await this.onDatabaseReset();
     }
 
     /**
