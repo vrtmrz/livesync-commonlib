@@ -1,6 +1,6 @@
 ---
 date: 2026-08-23
-commonlib-version: "0.1.18"
+commonlib-version: "0.1.19-rc.0"
 self-hosted-livesync-version: "1.0.17"
 status: unreleased
 ---
