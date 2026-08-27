@@ -74,7 +74,7 @@ The active local database identity, settings-selected reset sequence, and lifecy
 
 ### P2P composition ownership
 
-`useP2PReplicatorFeature` composes one stable P2P service owner and its lifecycle bindings. The service exposes seven focused views over that same owner. When `ReplicatorService` requests a P2P Replicator, the provider returns a fresh non-owning adapter. Replacing or disposing that active adapter stops its replication work but does not retire the service-owned room.
+`useP2PReplicatorFeature` composes one stable P2P service owner, one room-session owner, and their lifecycle bindings. The service exposes seven focused views over that same state. When `ReplicatorService` requests a P2P Replicator, the provider returns a fresh non-owning adapter. Replacing or disposing that active adapter does not cancel service-owned work or retire the room; the explicit stop capability and transport lifecycle view own those distinct operations. Database reset and explicit close reach the stable service through their pre-destruction lifecycle hooks, so non-ownership by the active adapter cannot leave a room using an unavailable local database.
 
 Consumers must request only the focused view which they need. Commands which connect or disconnect consume `transportLifecycle`; peer lists consume `peerDirectory`; RTC inspection consumes `diagnostics`. Ordinary consumers must not receive a raw room, raw host, or concrete Replicator. The result's `replicator` property is a deprecated compatibility façade for panes which have not yet migrated, not the active provider adapter.
 
@@ -83,7 +83,7 @@ The similarly named compositions have narrower roles:
 - `useP2PReplicatorCommands` adds host commands against the transport lifecycle view;
 - host UI features add views, status presentation, and injected peer-selection callbacks without owning the replicator lifecycle.
 
-The compatibility event bridge currently delegates to the stable service façade while remaining panes migrate. Do not add another consumer to that bridge. Extend the focused feature, command, and event-hub tests whenever this ownership boundary changes.
+The compatibility event bridge delegates lifecycle and status requests to the stable service while remaining panes migrate. Peer arrival and departure are handled inside their originating room session; the global peer events remain observational and are not routed into the current session. Do not add another consumer to the compatibility bridge. Extend the focused feature, command, session-fencing, and event-hub tests whenever this ownership boundary changes.
 
 The physical room, WebRTC peer, and relay-socket boundaries are documented in [P2P transport lifecycle](p2p-transport-lifecycle.md). In particular, normal shutdown leaves the Trystero room without closing raw peer connections directly.
 
