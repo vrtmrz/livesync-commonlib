@@ -1,10 +1,19 @@
 import { Logger, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
-import { AutoAccepting, REMOTE_P2P, type ObsidianLiveSyncSettings } from "@lib/common/types";
+import { AutoAccepting, REMOTE_P2P } from "@lib/common/types";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { LiveSyncTrysteroReplicator } from "./LiveSyncTrysteroReplicator";
 import { type UseP2PReplicatorResult } from "./UseP2PReplicatorResult";
 import { addP2PEventHandlers } from "./addP2PEventHandlers";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
+import {
+    CAPABILITY_NOT_APPLICABLE,
+    CAPABILITY_NOT_IMPLEMENTED,
+    defineReplicatorProviderDefinitions,
+    outcomeFromFiniteOpenReplication,
+    replicationBlocked,
+    replicationFailed,
+    type UserInitiatedOneShotRunner,
+} from "@lib/replication";
 
 /**
  * Factory type: given a replicator instance, returns the openReplicationUI callback for that instance.
@@ -48,51 +57,79 @@ export function useP2PReplicatorFeature(
         services: host.services,
     });
     let replacementPromise: Promise<LiveSyncTrysteroReplicator> | undefined;
-    if (openReplicationUIFactory) {
-        replicator.env.openReplicationUI = openReplicationUIFactory(replicator);
-    }
-    if (openRebuildUIFactory) {
-        replicator.env.openRebuildUI = openRebuildUIFactory(replicator);
-    }
+
+    const configureReplicator = (instance: LiveSyncTrysteroReplicator) => {
+        if (openReplicationUIFactory) {
+            instance.env.openReplicationUI = openReplicationUIFactory(instance);
+        }
+        if (openRebuildUIFactory) {
+            instance.env.openRebuildUI = openRebuildUIFactory(instance);
+        }
+    };
+    configureReplicator(replicator);
+
+    const createP2PReplicator = async (): Promise<LiveSyncTrysteroReplicator> => {
+        // Preserve the former factory boundary: every active acquisition closes
+        // the pre-existing outer instance before publishing its replacement.
+        if (replacementPromise) return await replacementPromise;
+        const operation = (async () => {
+            const existingReplicator = replicator;
+            try {
+                await existingReplicator?.close();
+            } catch (e) {
+                Logger(`Error closing existing p2p replicator`);
+                Logger(e, LOG_LEVEL_VERBOSE);
+            }
+            const newReplicator = new LiveSyncTrysteroReplicator({ services: host.services });
+            configureReplicator(newReplicator);
+            replicator = newReplicator; // Update the replicator reference for lifecycle handlers.
+            return replicator;
+        })();
+        replacementPromise = operation;
+        try {
+            return await operation;
+        } finally {
+            if (replacementPromise === operation) replacementPromise = undefined;
+        }
+    };
+
+    const userInitiatedOneShot: UserInitiatedOneShotRunner = async (instance, setting, request) => {
+        if (request.interaction.kind !== "permitted" || !request.interaction.permissions.peerSelection) {
+            return replicationBlocked("interaction-required");
+        }
+        try {
+            const result = await instance.openReplication(
+                setting,
+                false,
+                request.interaction.permissions.failureRecovery,
+                false
+            );
+            return outcomeFromFiniteOpenReplication(result);
+        } catch (error) {
+            return replicationFailed(error);
+        }
+    };
+
+    host.services.replicator.registerReplicatorProviderDefinitions(
+        defineReplicatorProviderDefinitions([REMOTE_P2P] as const, {
+            [REMOTE_P2P]: {
+                kind: REMOTE_P2P,
+                diagnosticName: "P2P",
+                isConfigured: (settings) => settings.remoteType === REMOTE_P2P && settings.P2P_Enabled,
+                create: createP2PReplicator,
+                userInitiatedOneShot: { kind: "supported", run: userInitiatedOneShot },
+                unattendedOneShot: CAPABILITY_NOT_IMPLEMENTED,
+                continuous: CAPABILITY_NOT_APPLICABLE,
+            },
+        })
+    );
+
     const activeReplicator = {
         get replicator() {
             return replicator;
         },
     };
     addP2PEventHandlers(() => activeReplicator.replicator, host.services.context.events);
-    host.services.replicator.getNewReplicator.addHandler(
-        async (settingOverride: Partial<ObsidianLiveSyncSettings> = {}) => {
-            const settings = { ...host.services.setting.currentSettings(), ...settingOverride };
-            if (settings.remoteType == REMOTE_P2P) {
-                if (replacementPromise) return await replacementPromise;
-                const operation = (async () => {
-                    const existingReplicator = replicator;
-                    try {
-                        await existingReplicator?.close();
-                    } catch (e) {
-                        Logger(`Error closing existing p2p replicator`);
-                        Logger(e, LOG_LEVEL_VERBOSE);
-                    }
-                    const newReplicator = new LiveSyncTrysteroReplicator({ services: host.services });
-                    if (openReplicationUIFactory) {
-                        newReplicator.env.openReplicationUI = openReplicationUIFactory(newReplicator);
-                    }
-                    if (openRebuildUIFactory) {
-                        newReplicator.env.openRebuildUI = openRebuildUIFactory(newReplicator);
-                    }
-                    replicator = newReplicator; // Update the replicator reference for lifecycle handlers
-                    return replicator;
-                })();
-                replacementPromise = operation;
-                try {
-                    return await operation;
-                } finally {
-                    if (replacementPromise === operation) replacementPromise = undefined;
-                }
-            }
-            return undefined!;
-        }
-    );
 
     // Lifecycle bindings (replication should be closed).
 

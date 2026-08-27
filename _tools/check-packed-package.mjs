@@ -197,6 +197,11 @@ import {
     upsertRemoteConfigurationInPlace,
     type UpsertRemoteConfigurationOptions,
 } from "${packageName}/remote-configurations";
+import {
+    NO_INTERACTION,
+    isReplicationCompleted,
+    type ReplicationOutcome,
+} from "${packageName}/replication";
 import type {
     CouchDBReplicationConnection,
     LiveSyncCouchDBReplicator,
@@ -229,6 +234,9 @@ const closeRemoteConnection = (connection: OwnedCouchDBConnection<Record<string,
 const replicationConnection = {} as CouchDBReplicationConnection;
 type LegacyRemoteDatabase = Awaited<ReturnType<LiveSyncCouchDBReplicator["_ensureConnection"]>>;
 const readLegacyRemoteDatabase = (database: LegacyRemoteDatabase) => database.get("document-id");
+const completedOutcome: ReplicationOutcome = { status: "completed" };
+const noInteractionKind: string = NO_INTERACTION.kind;
+const completedCheck: boolean = isReplicationCompleted(completedOutcome);
 void context;
 void contextContract;
 void untranslated;
@@ -249,6 +257,8 @@ void remoteConnectionOptions;
 void closeRemoteConnection;
 void replicationConnection;
 void readLegacyRemoteDatabase;
+void noInteractionKind;
+void completedCheck;
 `
 );
 await writeConsumerFile(
@@ -271,6 +281,7 @@ const contextApi = await import("${packageName}/context");
 const rootApi = await import("${packageName}");
 const settingsApi = await import("${packageName}/settings");
 const remoteConfigurationsApi = await import("${packageName}/remote-configurations");
+const replicationApi = await import("${packageName}/replication");
 const workerApi = await import("${packageName}/compat/worker/bgWorker");
 const runtimeCompat = await import("${packageName}/compat/common/coreEnvFunctions");
 const nodeRuntime = await import("${packageName}/node");
@@ -288,6 +299,8 @@ assert.equal(settingsApi.SETTINGS_SCHEMA_DEFAULTS.usePluginSyncV2, false);
 assert.equal(settingsApi.prepareSettingsForLoad(undefined).isNewVault, true);
 assert.notEqual(settingsApi.createNewVaultSettings(), settingsApi.NEW_VAULT_SETTINGS);
 assert.equal(typeof remoteConfigurationsApi.upsertRemoteConfigurationInPlace, "function");
+assert.equal(replicationApi.NO_INTERACTION.kind, "forbidden");
+assert.equal(typeof replicationApi.isReplicationCompleted, "function");
 assert.equal(runtimeCompat.compatGlobal, globalThis);
 assert.equal(typeof nodeRuntime.fs.readFileSync, "function");
 assert.equal(typeof nodeRuntime.fsPromises.readFile, "function");
@@ -484,10 +497,20 @@ assert.deepEqual(
     Object.keys(manifest.exports)
         .filter((path) => !path.startsWith("./compat/"))
         .sort(),
-    [".", "./browser", "./context", "./node", "./package.json", "./remote-configurations", "./rpc", "./settings"],
+    [
+        ".",
+        "./browser",
+        "./context",
+        "./node",
+        "./package.json",
+        "./remote-configurations",
+        "./replication",
+        "./rpc",
+        "./settings",
+    ],
     "The focused package surface must remain explicit."
 );
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 8);
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 9);
 
 console.log(
     JSON.stringify(

@@ -178,6 +178,7 @@ function createExports() {
         "./browser": exportTarget("platform/browser/index"),
         "./context": exportTarget("context"),
         "./node": exportTarget("platform/node/index"),
+        "./replication": exportTarget("replication/index"),
         "./rpc": exportTarget("rpc/index"),
         "./remote-configurations": exportTarget("remoteConfigurations"),
         "./settings": exportTarget("settings"),

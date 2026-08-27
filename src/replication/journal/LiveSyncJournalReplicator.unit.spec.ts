@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { RemoteDBSettings } from "@lib/common/types.ts";
+import { DEFAULT_SETTINGS, type RemoteDBSettings } from "@lib/common/types.ts";
 import { LiveSyncJournalReplicator } from "./LiveSyncJournalReplicator.ts";
 
 describe("LiveSyncJournalReplicator initialisation", () => {
@@ -19,6 +19,20 @@ describe("LiveSyncJournalReplicator initialisation", () => {
 
         expect(() => new LiveSyncJournalReplicator(env)).not.toThrow();
         expect(getLocalDatabase).not.toHaveBeenCalled();
+    });
+});
+
+describe("LiveSyncJournalReplicator replication outcomes", () => {
+    it("does not report an incomplete journal transfer as completed", async () => {
+        const replicator = Object.create(LiveSyncJournalReplicator.prototype) as LiveSyncJournalReplicator;
+        const sync = vi.fn().mockResolvedValue(false);
+        vi.spyOn(replicator, "checkReplicationConnectivity").mockResolvedValue(true);
+        vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue({
+            sync,
+        } as never);
+
+        await expect(replicator.openReplication(DEFAULT_SETTINGS, false, false)).resolves.toBe(false);
+        expect(sync).toHaveBeenCalledWith(false);
     });
 });
 

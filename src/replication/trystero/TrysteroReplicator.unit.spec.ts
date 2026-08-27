@@ -43,6 +43,18 @@ describe("TrysteroReplicator automatic remote activity", () => {
         expect(sync).toHaveBeenCalledWith("peer-id");
     });
 
+    it("starts watching a configured peer when it is discovered", async () => {
+        const { replicator } = createReplicator({
+            P2P_AutoWatchPeers: "peer-a",
+        });
+        const watchPeer = vi.spyOn(replicator, "watchPeer");
+
+        await replicator.onNewPeer({ peerId: "peer-id", name: "peer-a", platform: "test" });
+
+        expect(watchPeer).toHaveBeenCalledWith("peer-id");
+        expect(replicator._watchingPeers).toContain("peer-id");
+    });
+
     it("tracks a pull requested by a remote peer", async () => {
         const { replicator, runFiniteReplicationActivity } = createReplicator();
         const replicateFrom = vi.spyOn(replicator, "replicateFrom").mockResolvedValue({ ok: true });

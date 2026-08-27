@@ -1,8 +1,189 @@
 import { describe, expect, it, vi } from "vitest";
 import { ReplicationService, type ReplicationServiceDependencies } from "./ReplicationService.ts";
 import { ServiceContext } from "./ServiceBase.ts";
+import {
+    CAPABILITY_NOT_APPLICABLE,
+    NO_INTERACTION,
+    REPLICATION_COMPLETED,
+    USER_INITIATED_REPLICATION_AUTHORITY,
+    supportedOpenReplicationContinuous,
+    supportedOpenReplicationOneShot,
+    supportedOpenReplicationUnattended,
+    type ActiveReplicatorContext,
+    type ReplicatorProviderDefinition,
+} from "@lib/replication/ReplicatorProvider.ts";
+import { REMOTE_COUCHDB } from "@lib/common/types.ts";
 
 class TestReplicationService extends ReplicationService<ServiceContext> {}
+
+function createTypedDependencies(result: boolean | void = true) {
+    const openReplication = vi.fn().mockResolvedValue(result);
+    const replicator = { openReplication };
+    const provider: ReplicatorProviderDefinition<typeof REMOTE_COUCHDB> = {
+        kind: REMOTE_COUCHDB,
+        diagnosticName: "CouchDB",
+        isConfigured: () => true,
+        create: async () => replicator as never,
+        userInitiatedOneShot: supportedOpenReplicationOneShot(),
+        unattendedOneShot: supportedOpenReplicationUnattended(),
+        continuous: supportedOpenReplicationContinuous(),
+    };
+    const activeContext: ActiveReplicatorContext = {
+        provider,
+        replicator: replicator as never,
+    };
+    const getUnresolvedMessages = Object.assign(vi.fn().mockResolvedValue([]), {
+        addHandler: vi.fn(),
+    });
+    const getActiveReplicatorContext = vi.fn(() => activeContext);
+    const dependencies = {
+        APIService: { isOnline: true, addLog: vi.fn() },
+        appLifecycleService: {
+            isReady: () => true,
+            getUnresolvedMessages,
+        },
+        databaseService: {},
+        fileProcessingService: {
+            commitPendingFileEvents: vi.fn().mockResolvedValue(true),
+        },
+        replicatorService: {
+            getActiveReplicatorContext,
+            getActiveReplicator: vi.fn(() => replicator),
+            runFiniteReplicationActivity: vi.fn(async (task: () => unknown) => await task()),
+        },
+        settingService: {
+            currentSettings: vi.fn(() => ({ versionUpFlash: "", syncMinimumInterval: 0 })),
+        },
+    } as unknown as ReplicationServiceDependencies;
+    return { activeContext, dependencies, getActiveReplicatorContext, openReplication, replicator };
+}
+
+describe("ReplicationService typed provider roles", () => {
+    it("dispatches unattended one-shot work without interaction authority", async () => {
+        const { dependencies, openReplication } = createTypedDependencies(true);
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+
+        await expect(service.replicateUnattended({ trigger: "resume", interaction: NO_INTERACTION })).resolves.toEqual({
+            status: "completed",
+        });
+        expect(openReplication).toHaveBeenCalledWith(expect.anything(), false, false, false);
+    });
+
+    it("propagates unattended failures with forbidden interaction", async () => {
+        const { dependencies } = createTypedDependencies(false);
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+        const failure = vi.fn().mockResolvedValue(false);
+        service.onReplicationFailed.addHandler(failure);
+
+        await expect(
+            service.replicateUnattended({ trigger: "daemon", interaction: NO_INTERACTION })
+        ).resolves.toMatchObject({ status: "failed" });
+        expect(failure).toHaveBeenCalledWith(false, NO_INTERACTION);
+    });
+
+    it("honours a narrowed user authority in the provider adapter", async () => {
+        const { dependencies, openReplication } = createTypedDependencies(true);
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+        const interaction = {
+            kind: "permitted" as const,
+            permissions: { ...USER_INITIATED_REPLICATION_AUTHORITY.permissions, failureRecovery: false },
+        };
+
+        await expect(service.replicateUserInitiated({ trigger: "manual", interaction })).resolves.toEqual({
+            status: "completed",
+        });
+        expect(openReplication).toHaveBeenCalledWith(expect.anything(), false, false, false);
+    });
+
+    it("allows a manual request to veto interaction without blocking the replication", async () => {
+        const { dependencies, openReplication } = createTypedDependencies(true);
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+
+        await expect(
+            service.replicateUserInitiated({ trigger: "manual", interaction: NO_INTERACTION })
+        ).resolves.toEqual({ status: "completed" });
+        expect(openReplication).toHaveBeenCalledWith(expect.anything(), false, false, false);
+    });
+
+    it("keeps the provider and replicator from one context snapshot", async () => {
+        const { activeContext, dependencies } = createTypedDependencies(true);
+        const firstRun = vi.fn(async () => REPLICATION_COMPLETED);
+        const secondRun = vi.fn(async () => REPLICATION_COMPLETED);
+        const firstContext: ActiveReplicatorContext = {
+            ...activeContext,
+            provider: {
+                ...activeContext.provider,
+                unattendedOneShot: { kind: "supported", run: firstRun },
+            },
+        };
+        const secondContext: ActiveReplicatorContext = {
+            ...activeContext,
+            provider: {
+                ...activeContext.provider,
+                unattendedOneShot: { kind: "supported", run: secondRun },
+            },
+        };
+        const getContext = vi
+            .fn<() => ActiveReplicatorContext | undefined>()
+            .mockReturnValueOnce(firstContext)
+            .mockReturnValueOnce(secondContext);
+        (
+            dependencies.replicatorService as unknown as {
+                getActiveReplicatorContext: typeof getContext;
+            }
+        ).getActiveReplicatorContext = getContext;
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+
+        await expect(service.replicateUnattended({ trigger: "resume", interaction: NO_INTERACTION })).resolves.toBe(
+            REPLICATION_COMPLETED
+        );
+
+        expect(getContext).toHaveBeenCalledOnce();
+        expect(firstRun).toHaveBeenCalledWith(
+            firstContext.replicator,
+            expect.anything(),
+            expect.objectContaining({ trigger: "resume", interaction: NO_INTERACTION })
+        );
+        expect(secondRun).not.toHaveBeenCalled();
+    });
+
+    it("returns an explicit blocked result when no active replicator exists", async () => {
+        const { dependencies } = createTypedDependencies(true);
+        (
+            dependencies.replicatorService as unknown as { getActiveReplicatorContext: () => undefined }
+        ).getActiveReplicatorContext = () => undefined;
+        (dependencies.replicatorService as unknown as { getActiveReplicator: () => undefined }).getActiveReplicator =
+            () => undefined;
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+
+        await expect(service.replicateUnattended({ trigger: "resume", interaction: NO_INTERACTION })).resolves.toEqual({
+            status: "blocked",
+            reason: "no-active-replicator",
+        });
+    });
+
+    it("does not invoke a not-applicable continuous role", async () => {
+        const { activeContext, dependencies } = createTypedDependencies(true);
+        activeContext.provider.continuous = CAPABILITY_NOT_APPLICABLE;
+        (dependencies.appLifecycleService as unknown as { isReady: () => boolean }).isReady = () => false;
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+
+        await expect(service.startContinuous({ trigger: "resume", interaction: NO_INTERACTION })).resolves.toEqual({
+            status: "blocked",
+            reason: "capability-not-applicable",
+        });
+    });
+
+    it("treats a continuous void result as an accepted start", async () => {
+        const { dependencies, getActiveReplicatorContext } = createTypedDependencies(undefined);
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+
+        await expect(service.startContinuous({ trigger: "daemon", interaction: NO_INTERACTION })).resolves.toEqual({
+            status: "completed",
+        });
+        expect(getActiveReplicatorContext).toHaveBeenCalledOnce();
+    });
+});
 
 describe("ReplicationService activity boundary", () => {
     const createDependencies = () => {
@@ -102,7 +283,7 @@ describe("ReplicationService activity boundary", () => {
 
         await expect(service.performReplication(true)).resolves.toBe(false);
 
-        expect(handleFailure).toHaveBeenCalledWith(true);
+        expect(handleFailure).toHaveBeenCalledWith(true, USER_INITIATED_REPLICATION_AUTHORITY);
         expect(runFiniteReplicationActivity).not.toHaveBeenCalled();
     });
 });

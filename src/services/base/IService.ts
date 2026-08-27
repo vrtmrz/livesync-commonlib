@@ -34,6 +34,16 @@ import type { DatabaseEventService } from "./DatabaseEventService";
 import type { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import type { AsyncActivityOptions } from "@lib/interfaces/AsyncActivityRunner.ts";
 import type { OwnedCouchDBConnection, RemoteConnectionOpenOptions } from "./RemoteConnection.ts";
+import type {
+    ActiveReplicatorContext,
+    ContinuousReplicationRequest,
+    InteractionAuthority,
+    ReplicatorProviderDefinitionMap,
+    ReplicationOutcome,
+    UnattendedOneShotRequest,
+    UserInitiatedOneShotRequest,
+} from "@lib/replication/ReplicatorProvider.ts";
+import type { MultipleHandlerFunction } from "@lib/services/lib/HandlerUtils.ts";
 
 declare global {
     interface OPTIONAL_SYNC_FEATURES {
@@ -167,9 +177,13 @@ export interface IReplicatorService {
 
     onReplicatorInitialised(): Promise<boolean>;
 
-    getNewReplicator(
-        settingOverride?: Partial<ObsidianLiveSyncSettings>
-    ): Promise<LiveSyncAbstractReplicator | undefined | false>;
+    getNewReplicator: ReplicatorFactoryHandler;
+
+    /** Add the fixed provider definitions composed by the current host. */
+    registerReplicatorProviderDefinitions(definitions: ReplicatorProviderDefinitionMap): void;
+
+    /** Return the active provider and replicator as one atomic context. */
+    getActiveReplicatorContext(): ActiveReplicatorContext | undefined;
 
     getActiveReplicator(): LiveSyncAbstractReplicator | undefined;
     replicationStatics: ReactiveSource<ReplicationStatics>;
@@ -182,6 +196,11 @@ export interface IReplicatorService {
     /** Runs finite replication which may place documents in the local database. */
     runFiniteReplicationActivity<T>(task: () => T | PromiseLike<T>, options?: AsyncActivityOptions): Promise<T>;
 }
+
+export type ReplicatorFactoryCallback = (
+    settingOverride?: Partial<ObsidianLiveSyncSettings>
+) => Promise<LiveSyncAbstractReplicator | undefined | false>;
+export type ReplicatorFactoryHandler = MultipleHandlerFunction<ReplicatorFactoryCallback>;
 export interface IReplicationService {
     processSynchroniseResult(doc: MetaEntry): Promise<boolean>;
 
@@ -193,10 +212,14 @@ export interface IReplicationService {
     /** Lightweight, idempotent policy checks which every replication entry point may invoke. */
     onCheckReplicationReady(showMessage: boolean): Promise<boolean>;
     isReplicationReady(showMessage: boolean): Promise<boolean>;
+    replicateUserInitiated(request?: UserInitiatedOneShotRequest): Promise<ReplicationOutcome>;
+    replicateUnattended(request: UnattendedOneShotRequest): Promise<ReplicationOutcome>;
+    replicateUnattendedByEvent(request: UnattendedOneShotRequest): Promise<ReplicationOutcome>;
+    startContinuous(request: ContinuousReplicationRequest): Promise<ReplicationOutcome>;
     performReplication(showMessage?: boolean): Promise<boolean | void>;
     replicate(showMessage?: boolean): Promise<boolean | void>;
     replicateByEvent(showMessage?: boolean): Promise<boolean | void>;
-    onReplicationFailed(showMessage?: boolean): Promise<boolean>;
+    onReplicationFailed(showMessage?: boolean, interaction?: InteractionAuthority): Promise<boolean>;
     parseSynchroniseResult(docs: Array<PouchDB.Core.ExistingDocument<EntryDoc>>): Promise<boolean>;
     databaseQueueCount: ReactiveSource<number>;
     storageApplyingCount: ReactiveSource<number>;
