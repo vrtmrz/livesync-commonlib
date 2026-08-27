@@ -10,6 +10,7 @@ import {
     supportedOpenReplicationContinuous,
     supportedOpenReplicationOneShot,
     supportedOpenReplicationUnattended,
+    supportedStopActiveTransfer,
     type ReplicatorProviderDefinition,
 } from "@lib/replication/ReplicatorProvider.ts";
 import type { ActiveReplicatorContext } from "@lib/replication/ReplicatorProvider.ts";
@@ -166,6 +167,7 @@ describe("ReplicatorService lifecycle", () => {
             userInitiatedOneShot: supportedOpenReplicationOneShot(),
             unattendedOneShot: supportedOpenReplicationUnattended(),
             continuous: CAPABILITY_NOT_APPLICABLE,
+            stopActiveTransfer: supportedStopActiveTransfer(),
         };
         const dependencies = {
             settingService: {
@@ -227,6 +229,7 @@ describe("ReplicatorService lifecycle", () => {
             userInitiatedOneShot: supportedOpenReplicationOneShot(),
             unattendedOneShot: supportedOpenReplicationUnattended(),
             continuous: supportedOpenReplicationContinuous(),
+            stopActiveTransfer: supportedStopActiveTransfer(),
         };
         const dependencies = {
             settingService: {
@@ -275,6 +278,7 @@ describe("ReplicatorService lifecycle", () => {
             userInitiatedOneShot: supportedOpenReplicationOneShot(),
             unattendedOneShot: supportedOpenReplicationUnattended(),
             continuous: CAPABILITY_NOT_APPLICABLE,
+            stopActiveTransfer: supportedStopActiveTransfer(),
         };
         const dependencies = {
             settingService: {
@@ -335,6 +339,7 @@ describe("ReplicatorService lifecycle", () => {
             userInitiatedOneShot: supportedOpenReplicationOneShot(),
             unattendedOneShot: supportedOpenReplicationUnattended(),
             continuous: CAPABILITY_NOT_APPLICABLE,
+            stopActiveTransfer: supportedStopActiveTransfer(),
         };
         const couch: ReplicatorProviderDefinition<typeof REMOTE_COUCHDB> = {
             kind: REMOTE_COUCHDB,
@@ -344,6 +349,7 @@ describe("ReplicatorService lifecycle", () => {
             userInitiatedOneShot: supportedOpenReplicationOneShot(),
             unattendedOneShot: supportedOpenReplicationUnattended(),
             continuous: supportedOpenReplicationContinuous(),
+            stopActiveTransfer: supportedStopActiveTransfer(),
         };
         const dependencies = {
             settingService: {

@@ -9,6 +9,7 @@ import {
     supportedOpenReplicationContinuous,
     supportedOpenReplicationOneShot,
     supportedOpenReplicationUnattended,
+    supportedStopActiveTransfer,
     type ActiveReplicatorContext,
     type ReplicatorProviderDefinition,
 } from "@lib/replication/ReplicatorProvider.ts";
@@ -18,7 +19,9 @@ class TestReplicationService extends ReplicationService<ServiceContext> {}
 
 function createTypedDependencies(result: boolean | void = true) {
     const openReplication = vi.fn().mockResolvedValue(result);
-    const replicator = { openReplication };
+    const terminateSync = vi.fn();
+    const replicator = { openReplication, terminateSync };
+    const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
     const provider: ReplicatorProviderDefinition<typeof REMOTE_COUCHDB> = {
         kind: REMOTE_COUCHDB,
         diagnosticName: "CouchDB",
@@ -27,6 +30,7 @@ function createTypedDependencies(result: boolean | void = true) {
         userInitiatedOneShot: supportedOpenReplicationOneShot(),
         unattendedOneShot: supportedOpenReplicationUnattended(),
         continuous: supportedOpenReplicationContinuous(),
+        stopActiveTransfer: supportedStopActiveTransfer(),
     };
     const activeContext: ActiveReplicatorContext = {
         provider,
@@ -36,6 +40,7 @@ function createTypedDependencies(result: boolean | void = true) {
         addHandler: vi.fn(),
     });
     const getActiveReplicatorContext = vi.fn(() => activeContext);
+    const getActiveReplicator = vi.fn(() => replicator);
     const dependencies = {
         APIService: { isOnline: true, addLog: vi.fn() },
         appLifecycleService: {
@@ -48,14 +53,23 @@ function createTypedDependencies(result: boolean | void = true) {
         },
         replicatorService: {
             getActiveReplicatorContext,
-            getActiveReplicator: vi.fn(() => replicator),
-            runFiniteReplicationActivity: vi.fn(async (task: () => unknown) => await task()),
+            getActiveReplicator,
+            runFiniteReplicationActivity,
         },
         settingService: {
             currentSettings: vi.fn(() => ({ versionUpFlash: "", syncMinimumInterval: 0 })),
         },
     } as unknown as ReplicationServiceDependencies;
-    return { activeContext, dependencies, getActiveReplicatorContext, openReplication, replicator };
+    return {
+        activeContext,
+        dependencies,
+        getActiveReplicator,
+        getActiveReplicatorContext,
+        openReplication,
+        replicator,
+        runFiniteReplicationActivity,
+        terminateSync,
+    };
 }
 
 describe("ReplicationService typed provider roles", () => {
@@ -182,6 +196,63 @@ describe("ReplicationService typed provider roles", () => {
             status: "completed",
         });
         expect(getActiveReplicatorContext).toHaveBeenCalledOnce();
+    });
+
+    it("stops the captured active transfer without readiness or finite activity checks", async () => {
+        const { dependencies, runFiniteReplicationActivity, terminateSync } = createTypedDependencies();
+        const isReady = vi.fn(() => false);
+        (dependencies.appLifecycleService as unknown as { isReady: typeof isReady }).isReady = isReady;
+        const failureRecovery = vi.fn(async () => false);
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+        service.onReplicationFailed.addHandler(failureRecovery);
+
+        await expect(service.stopActiveTransfer()).resolves.toBe(REPLICATION_COMPLETED);
+
+        expect(terminateSync).toHaveBeenCalledOnce();
+        expect(isReady).not.toHaveBeenCalled();
+        expect(runFiniteReplicationActivity).not.toHaveBeenCalled();
+        expect(failureRecovery).not.toHaveBeenCalled();
+    });
+
+    it("returns a blocked result for a provider without the stop capability", async () => {
+        const { activeContext, dependencies, terminateSync } = createTypedDependencies();
+        Object.assign(activeContext.provider, { stopActiveTransfer: CAPABILITY_NOT_APPLICABLE });
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+
+        await expect(service.stopActiveTransfer()).resolves.toEqual({
+            status: "blocked",
+            reason: "capability-not-applicable",
+        });
+
+        expect(terminateSync).not.toHaveBeenCalled();
+    });
+
+    it("distinguishes an uncomposed legacy replicator from no active replicator", async () => {
+        const { dependencies, terminateSync, getActiveReplicatorContext } = createTypedDependencies();
+        getActiveReplicatorContext.mockReturnValue(undefined);
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+
+        await expect(service.stopActiveTransfer()).resolves.toEqual({
+            status: "blocked",
+            reason: "provider-not-composed",
+        });
+
+        expect(terminateSync).not.toHaveBeenCalled();
+    });
+
+    it("returns a blocked result when there is no active replicator", async () => {
+        const { dependencies, getActiveReplicator, getActiveReplicatorContext, terminateSync } =
+            createTypedDependencies();
+        getActiveReplicatorContext.mockReturnValue(undefined);
+        getActiveReplicator.mockReturnValue(undefined);
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+
+        await expect(service.stopActiveTransfer()).resolves.toEqual({
+            status: "blocked",
+            reason: "no-active-replicator",
+        });
+
+        expect(terminateSync).not.toHaveBeenCalled();
     });
 });
 

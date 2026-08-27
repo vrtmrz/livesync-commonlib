@@ -192,6 +192,13 @@ export type ContinuousRunner = (
     request: ContinuousReplicationRequest
 ) => Promise<ReplicationOutcome>;
 
+/**
+ * Request cancellation of finite transfer work on the currently active
+ * replicator. A `completed` outcome confirms that the stop request was
+ * accepted; it does not claim rollback of work which had already settled.
+ */
+export type StopActiveTransferRunner = (replicator: LiveSyncAbstractReplicator) => Promise<ReplicationOutcome>;
+
 export interface ReplicatorProviderDefinition<TKind extends RemoteType = RemoteType> {
     readonly kind: TKind;
     readonly diagnosticName: string;
@@ -201,6 +208,7 @@ export interface ReplicatorProviderDefinition<TKind extends RemoteType = RemoteT
     readonly userInitiatedOneShot: CapabilitySupport<UserInitiatedOneShotRunner>;
     readonly unattendedOneShot: CapabilitySupport<UnattendedOneShotRunner>;
     readonly continuous: CapabilitySupport<ContinuousRunner>;
+    readonly stopActiveTransfer: CapabilitySupport<StopActiveTransferRunner>;
 }
 
 /** The atomic pair which identifies the active provider and its replicator. */
@@ -312,6 +320,27 @@ export function supportedOpenReplicationContinuous(): SupportedCapability<Contin
             try {
                 const result = await replicator.openReplication(setting, true, false, false);
                 return outcomeFromContinuousOpenReplication(result);
+            } catch (error) {
+                return replicationFailed(error);
+            }
+        },
+    };
+}
+
+/**
+ * Adapt the legacy termination hook to the typed active-transfer capability.
+ *
+ * `terminateSync` is intentionally awaited even though existing replicators
+ * implement it synchronously. This keeps the capability boundary valid for a
+ * provider whose cancellation work needs to settle asynchronously.
+ */
+export function supportedStopActiveTransfer(): SupportedCapability<StopActiveTransferRunner> {
+    return {
+        kind: "supported",
+        run: async (replicator) => {
+            try {
+                await replicator.terminateSync();
+                return REPLICATION_COMPLETED;
             } catch (error) {
                 return replicationFailed(error);
             }

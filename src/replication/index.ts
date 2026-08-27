@@ -14,6 +14,7 @@ export {
     supportedOpenReplicationContinuous,
     supportedOpenReplicationOneShot,
     supportedOpenReplicationUnattended,
+    supportedStopActiveTransfer,
 } from "./ReplicatorProvider.ts";
 export type {
     ActiveReplicatorContext,
@@ -36,6 +37,7 @@ export type {
     ReplicationPartial,
     ReplicatorProviderDefinition,
     ReplicatorProviderDefinitionMap,
+    StopActiveTransferRunner,
     SupportedCapability,
     UnattendedOneShotRequest,
     UnattendedReplicationTrigger,

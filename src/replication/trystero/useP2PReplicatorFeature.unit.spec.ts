@@ -43,6 +43,14 @@ describe("useP2PReplicatorFeature", () => {
         expect(definition?.userInitiatedOneShot.kind).toBe("supported");
         expect(definition?.unattendedOneShot.kind).toBe("not-implemented");
         expect(definition?.continuous.kind).toBe("not-applicable");
+        expect(definition?.stopActiveTransfer.kind).toBe("supported");
+        if (definition?.stopActiveTransfer.kind !== "supported") {
+            throw new Error("P2P stop role should be supported");
+        }
+        const terminateSync = vi.fn();
+        const stopResult = await definition.stopActiveTransfer.run({ terminateSync } as never);
+        expect(stopResult).toEqual({ status: "completed" });
+        expect(terminateSync).toHaveBeenCalledOnce();
         const second = (await definition?.create({
             remoteType: REMOTE_P2P,
             P2P_Enabled: true,

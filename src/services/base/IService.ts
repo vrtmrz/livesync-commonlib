@@ -216,6 +216,8 @@ export interface IReplicationService {
     replicateUnattended(request: UnattendedOneShotRequest): Promise<ReplicationOutcome>;
     replicateUnattendedByEvent(request: UnattendedOneShotRequest): Promise<ReplicationOutcome>;
     startContinuous(request: ContinuousReplicationRequest): Promise<ReplicationOutcome>;
+    /** Stop finite transfer work on the current typed active replicator. */
+    stopActiveTransfer(): Promise<ReplicationOutcome>;
     performReplication(showMessage?: boolean): Promise<boolean | void>;
     replicate(showMessage?: boolean): Promise<boolean | void>;
     replicateByEvent(showMessage?: boolean): Promise<boolean | void>;

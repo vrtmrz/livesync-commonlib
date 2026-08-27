@@ -317,6 +317,34 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
         return await this.runContinuousRole(ready, request);
     }
 
+    /**
+     * Stop finite transfer work on the active provider without entering the
+     * replication readiness or activity accounting paths.
+     *
+     * The provider and replicator are obtained together so that a concurrent
+     * replacement cannot pair a capability from one provider with a
+     * replicator from another. Stopping is an operator action, not a failed
+     * replication, so it does not invoke failure-recovery handlers.
+     */
+    async stopActiveTransfer(): Promise<ReplicationOutcome> {
+        const context = this.replicatorService.getActiveReplicatorContext?.();
+        if (!context) {
+            return this.replicatorService.getActiveReplicator()
+                ? replicationBlocked("provider-not-composed")
+                : replicationBlocked("no-active-replicator");
+        }
+
+        const capability = context.provider.stopActiveTransfer;
+        const blocked = this.capabilityBlocked(capability);
+        if (blocked) return blocked;
+        if (capability.kind !== "supported") return replicationBlocked("capability-not-implemented");
+        try {
+            return await capability.run(context.replicator);
+        } catch (error) {
+            return replicationFailed(error);
+        }
+    }
+
     private async performReplicationRequest(showMessage?: boolean): Promise<boolean | void> {
         const activeReplicator = this.replicatorService.getActiveReplicator();
         if (!activeReplicator) {

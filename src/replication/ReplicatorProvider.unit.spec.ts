@@ -12,6 +12,7 @@ import {
     supportedOpenReplicationContinuous,
     supportedOpenReplicationOneShot,
     supportedOpenReplicationUnattended,
+    supportedStopActiveTransfer,
     type ReplicatorProviderDefinition,
 } from "./index.ts";
 import { REMOTE_COUCHDB, REMOTE_MINIO } from "@lib/common/types.ts";
@@ -20,8 +21,10 @@ import type { LiveSyncAbstractReplicator } from "./LiveSyncAbstractReplicator.ts
 function createReplicator(result: void | boolean) {
     return {
         openReplication: vi.fn().mockResolvedValue(result),
+        terminateSync: vi.fn(),
     } as unknown as LiveSyncAbstractReplicator & {
         openReplication: ReturnType<typeof vi.fn>;
+        terminateSync: ReturnType<typeof vi.fn>;
     };
 }
 
@@ -38,6 +41,30 @@ describe("replicator provider contract", () => {
         expect(outcomeFromContinuousOpenReplication(undefined)).toBe(REPLICATION_COMPLETED);
         expect(outcomeFromContinuousOpenReplication(true)).toBe(REPLICATION_COMPLETED);
         expect(outcomeFromContinuousOpenReplication(false).status).toBe("failed");
+    });
+
+    it("stops only the captured replicator and reports completion", async () => {
+        const capturedReplicator = createReplicator(true);
+        const otherReplicator = createReplicator(true);
+        const stop = supportedStopActiveTransfer();
+        if (stop.kind !== "supported") throw new Error("stop role should be supported");
+
+        await expect(stop.run(capturedReplicator)).resolves.toBe(REPLICATION_COMPLETED);
+
+        expect(capturedReplicator.terminateSync).toHaveBeenCalledOnce();
+        expect(otherReplicator.terminateSync).not.toHaveBeenCalled();
+    });
+
+    it("reports a legacy termination failure", async () => {
+        const replicator = createReplicator(true);
+        const error = new Error("stop failed");
+        replicator.terminateSync.mockImplementation(() => {
+            throw error;
+        });
+        const stop = supportedStopActiveTransfer();
+        if (stop.kind !== "supported") throw new Error("stop role should be supported");
+
+        await expect(stop.run(replicator)).resolves.toEqual({ status: "failed", error });
     });
 
     it("passes manual and unattended interaction boundaries to the open adapter", async () => {
@@ -96,6 +123,7 @@ describe("replicator provider contract", () => {
             userInitiatedOneShot: supportedOpenReplicationOneShot(),
             unattendedOneShot: supportedOpenReplicationUnattended(),
             continuous: supportedOpenReplicationContinuous(),
+            stopActiveTransfer: supportedStopActiveTransfer(),
         };
         const minio: ReplicatorProviderDefinition<typeof REMOTE_MINIO> = {
             kind: REMOTE_MINIO,
@@ -105,6 +133,7 @@ describe("replicator provider contract", () => {
             userInitiatedOneShot: supportedOpenReplicationOneShot(),
             unattendedOneShot: supportedOpenReplicationUnattended(),
             continuous: CAPABILITY_NOT_APPLICABLE,
+            stopActiveTransfer: supportedStopActiveTransfer(),
         };
 
         const definitions = defineReplicatorProviderDefinitions([REMOTE_COUCHDB, REMOTE_MINIO] as const, {

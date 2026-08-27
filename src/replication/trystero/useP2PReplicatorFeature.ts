@@ -12,6 +12,7 @@ import {
     outcomeFromFiniteOpenReplication,
     replicationBlocked,
     replicationFailed,
+    supportedStopActiveTransfer,
     type UserInitiatedOneShotRunner,
 } from "@lib/replication";
 
@@ -120,6 +121,7 @@ export function useP2PReplicatorFeature(
                 userInitiatedOneShot: { kind: "supported", run: userInitiatedOneShot },
                 unattendedOneShot: CAPABILITY_NOT_IMPLEMENTED,
                 continuous: CAPABILITY_NOT_APPLICABLE,
+                stopActiveTransfer: supportedStopActiveTransfer(),
             },
         })
     );
