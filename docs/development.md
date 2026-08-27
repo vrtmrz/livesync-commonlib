@@ -81,10 +81,9 @@ Consumers must preserve that result object and read `result.replicator` at the p
 The similarly named compositions have narrower roles:
 
 - `useP2PReplicatorCommands` adds host commands and resolves the current instance when a command is checked or invoked;
-- host UI features add views, status presentation, and injected peer-selection callbacks without owning the replicator lifecycle; and
-- the deprecated `useP2PReplicator` entry is a compatibility composition which delegates ownership to `useP2PReplicatorFeature`.
+- host UI features add views, status presentation, and injected peer-selection callbacks without owning the replicator lifecycle.
 
-When registering P2P event handlers for a replaceable instance, pass a provider to `addP2PEventHandlers`. Passing a fixed instance remains supported only for compositions whose instance cannot change. Extend the focused feature, command, event-hub, and compatibility-wrapper tests whenever this ownership boundary changes.
+When registering P2P event handlers for a replaceable instance, pass a provider to `addP2PEventHandlers`. Passing a fixed instance remains supported only for compositions whose instance cannot change. Extend the focused feature, command, and event-hub tests whenever this ownership boundary changes.
 
 The physical room, WebRTC peer, and relay-socket boundaries are documented in [P2P transport lifecycle](p2p-transport-lifecycle.md). In particular, normal shutdown leaves the Trystero room without closing raw peer connections directly.
 

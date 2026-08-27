@@ -57,24 +57,5 @@ export function addP2PEventHandlers(source: P2PReplicatorLike | P2PReplicatorPro
     });
 }
 
-/**
- * open P2P replicator if not opened yet.
- * @param instance
- */
-export async function openP2PReplicator(instance: P2PReplicatorLike) {
-    const isOpen = instance.isServing ?? instance.server?.isServing ?? false;
-    if (!isOpen) {
-        await instance.open();
-    }
-}
-
-/**
- * close P2P replicator
- * @param instance
- */
-export async function closeP2PReplicator(instance: P2PReplicatorLike) {
-    await instance.close();
-}
-
 // Backward-compatible overload: keep accepting LiveSyncTrysteroReplicator directly.
 export type { LiveSyncTrysteroReplicator };

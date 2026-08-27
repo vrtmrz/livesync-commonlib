@@ -4,7 +4,6 @@ import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "oct
 import { replicateShim, type ProgressInfo } from "@lib/pouchdb/ReplicatorShim";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import { type Advertisement, type ReplicatorHostEnv } from "./types";
-import { TrysteroConnection } from "./TrysteroReplicatorP2PConnection";
 import { scheduleOnceIfDuplicated, serialized, skipIfDuplicated } from "octagonal-wheels/concurrency/lock_v2";
 import { delay, fireAndForget } from "octagonal-wheels/promises";
 import { EVENT_P2P_REPLICATOR_PROGRESS, EVENT_P2P_REPLICATOR_STATUS, P2PHost } from "./TrysteroReplicatorP2PServer";
@@ -161,7 +160,7 @@ export class TrysteroReplicator {
             if (!this.settings.P2P_relays || this.settings.P2P_relays.length === 0) {
                 throw new Error("No relay URIs provided. We need them to establish the P2P connection");
             }
-            this.server = new TrysteroConnection(env);
+            this.server = new P2PHost(env);
         } catch (e) {
             Logger(e instanceof Error ? e.message : "Error while creating TrysteroReplicator", LOG_LEVEL_NOTICE);
             Logger(e, LOG_LEVEL_VERBOSE);
@@ -380,23 +379,6 @@ export class TrysteroReplicator {
         }
     }
 
-    // async selectPeer() {
-    //     if (!this.server) return false;
-    //     const knownPeers = this.server.knownAdvertisements;
-    //     if (knownPeers.length === 0) {
-    //         Logger("No known peers", LOG_LEVEL_VERBOSE);
-    //         return false;
-    //     }
-
-    //     const peers = [...Object.entries(knownPeers)].map(([peerId, info]) => {
-    //         return `${info.peerId}\u2001: (${info.name})`;
-    //     });
-
-    //     const selectedPeer = await this.confirm.askSelectString("Select a peer to replicate", peers);
-    //     if (selectedPeer) return selectedPeer.split("\u2001")[0];
-    //     return false;
-    // }
-
     lastSeq = "" as string | number;
     async requestSynchroniseToPeer(peerId: string, callerSignal?: AbortSignal): Promise<P2PReplicationResult> {
         return await this.runSessionFiniteOperation(
@@ -550,28 +532,6 @@ export class TrysteroReplicator {
     }
 
     _replicateToPeers = new Set<string>();
-    // async replicateTo() {
-    //     await this.makeSureOpened();
-    //     const remotePeer = await this.selectPeer();
-    //     if (!remotePeer) {
-    //         Logger("No peer selected", LOG_LEVEL_VERBOSE);
-    //         return;
-    //     }
-    //     Logger(`P2P Replicating to ${remotePeer}`, LOG_LEVEL_INFO);
-    //     try {
-    //         if (this._replicateToPeers.has(remotePeer)) {
-    //             Logger(`Replication to ${remotePeer} is already in progress`, LOG_LEVEL_VERBOSE);
-    //             return;
-    //         }
-    //         this._replicateToPeers.add(remotePeer);
-    //         this.dispatchStatus();
-    //         return await this.requestSynchroniseToPeer(remotePeer);
-    //     } finally {
-    //         this._replicateToPeers.delete(remotePeer);
-    //         this.dispatchStatus();
-    //     }
-    // }
-
     _replicateFromPeers = new Set<string>();
 
     dispatchReplicationProgress(peerId: string, info?: ProgressInfo) {
