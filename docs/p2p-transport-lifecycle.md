@@ -6,11 +6,11 @@ This guide is for developers composing Commonlib's Trystero P2P service. It desc
 
 The P2P composition has three distinct owners:
 
-- `useP2PReplicatorFeature` owns the current `LiveSyncTrysteroReplicator` exposed to a host;
+- `useP2PReplicatorFeature` owns one stable P2P service and the compatibility façade through which the current room session is implemented;
 - each `P2PRoomSession` owns one Trystero room binding, its LiveSync RPC surface, advertisements, client proxies, diagnostics, and the finite replication operations admitted through that room; and
 - Trystero owns the underlying shared WebRTC peers and Nostr relay clients.
 
-Consumers must retain the service-feature result and resolve `result.replicator` at the point of use. A settings or database lifecycle transition can replace the replicator. A command, event listener, or view which captured the former instance could otherwise reopen a transport which the current service no longer owns.
+Ordinary consumers use the seven focused views returned by the service feature. They do not receive the room session, raw host, raw peer connection, or concrete Replicator. `ReplicatorService` receives a fresh non-owning active adapter when it selects P2P as the main remote. Disposing or replacing that adapter cannot leave the service-owned room. The concrete `result.replicator` façade remains only as a deprecated migration boundary for existing panes.
 
 ## Active transfer cancellation
 
@@ -22,7 +22,7 @@ Retiring the session first rejects new finite work, then aborts and awaits all a
 
 ## Normal close
 
-`LiveSyncTrysteroReplicator.close()` serialises the close with any in-flight open operation and retires the current room session. It stops LiveSync-owned work, closes the RPC room, calls `room.leave()`, clears instance references, pauses relay reconnection, and closes the current Nostr relay WebSockets.
+The transport lifecycle view delegates an explicit disconnect to the stable compatibility façade. Its `close()` operation serialises the close with any in-flight open operation and retires the current room session. It stops LiveSync-owned work, closes the RPC room, calls `room.leave()`, clears instance references, pauses relay reconnection, and closes the current Nostr relay WebSockets.
 
 Normal close deliberately does not call `close()` on the `RTCPeerConnection` values returned by `room.getPeers()`. Trystero 0.25 may share a physical peer across rooms. Leaving a room detaches its callbacks and action namespace, while Trystero may retain the idle physical peer for approximately 123 seconds for reuse. The retained peer cannot carry traffic for the departed room.
 
@@ -39,9 +39,9 @@ It is therefore a logical LiveSync disconnection and a physical signalling-serve
 
 ## Reconnection and replacement
 
-An explicit open resumes Trystero relay reconnection before joining the configured room. Settings application may change the relay URLs, room ID, passphrase, or TURN configuration, so the owning service normally closes and discards the former LiveSync instance before constructing the replacement. Concurrent replacement requests share the same in-flight replacement and receive the same new owner.
+An explicit connect resumes Trystero relay reconnection before joining the configured room. Active-provider adapter acquisition is independent of that room lifecycle and cannot replace or close the service owner.
 
-A retained `LiveSyncTrysteroReplicator` also compares the effective outgoing message bound and connection path on every open. An unchanged signature keeps the serving transport, while a changed signature serialises closure of that transport before opening its replacement. This prevents a selected compatibility profile from appearing to take effect while the former room binding is still active. No fixed close-to-open delay is required: lifecycle operations are serialised, and peer readiness is observed through discovery.
+The retained compatibility façade compares the effective outgoing message bound and connection path on every open. An unchanged signature keeps the serving transport, while a changed signature serialises closure of that transport before opening its replacement. This prevents a selected compatibility profile from appearing to take effect while the former room binding is still active. No fixed close-to-open delay is required: lifecycle operations are serialised, and peer readiness is observed through discovery.
 
 Saving settings with P2P or automatic start disabled always requests `close()`, even when the room has not started serving. This cancels an in-flight open through the same lifecycle queue, so a connection cannot appear after the disabling setting has been applied.
 

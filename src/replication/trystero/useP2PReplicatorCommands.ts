@@ -1,34 +1,32 @@
 import { Logger, LOG_LEVEL_NOTICE } from "octagonal-wheels/common/logger";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
-import type { UseP2PReplicatorResult } from "./UseP2PReplicatorResult";
+import type { P2PServiceViews } from "@lib/p2p/P2PService";
 
 /**
- * ServiceFeature: Registers event handlers for P2P replication and manages the lifecycle of a LiveSyncTrysteroReplicator instance.
+ * Register manual transport commands against the focused lifecycle view.
  * @param host
  */
 export function useP2PReplicatorCommands(
     host: NecessaryServices<"API" | "setting", never>,
-    result: UseP2PReplicatorResult
+    result: Pick<P2PServiceViews, "transportLifecycle">
 ) {
     host.services.API.addCommand({
         id: "p2p-establish-connection",
         name: "P2P Sync : Connect to the Signalling Server",
         checkCallback: (isChecking: boolean) => {
-            const replicator = result.replicator;
-            if (!replicator) return false;
-            if (isChecking) return !(replicator.server?.isServing ?? false);
-            void replicator.open();
+            const lifecycle = result.transportLifecycle;
+            if (isChecking) return !lifecycle.isConnected;
+            void lifecycle.connect();
         },
     });
     host.services.API.addCommand({
         id: "p2p-close-connection",
         name: "P2P Sync : Disconnect from the Signalling Server",
         checkCallback: (isChecking: boolean) => {
-            const replicator = result.replicator;
-            if (!replicator) return false;
-            if (isChecking) return replicator.server?.isServing ?? false;
+            const lifecycle = result.transportLifecycle;
+            if (isChecking) return lifecycle.isConnected;
             Logger("Closing P2P Connection", LOG_LEVEL_NOTICE);
-            void replicator.close();
+            void lifecycle.disconnect();
         },
     });
 }

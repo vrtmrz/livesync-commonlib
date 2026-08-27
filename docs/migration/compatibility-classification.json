@@ -46,8 +46,8 @@
         {
             "id": "p2p-composition-internal",
             "owner": "Commonlib LiveSync composition",
-            "destination": "Package-private P2P composition using the rewritten RPC boundary",
-            "policy": "Retain compatibility exports while the maintained LiveSync hosts migrate. Do not stabilise raw replicator classes, pane contracts, or the deprecated combined composition as general APIs.",
+            "destination": "Focused /p2p service views over the maintained P2P composition",
+            "policy": "Migrate ordinary consumers to the focused /p2p views and retain compatibility exports while maintained panes move. Do not stabilise raw replicator classes, pane contracts, or the deprecated concrete facade as general APIs.",
             "paths": [
                 "replication/trystero/LiveSyncTrysteroReplicator",
                 "replication/trystero/P2PLogCollector",

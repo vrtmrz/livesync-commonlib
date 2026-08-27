@@ -1,10 +1,10 @@
-import { Logger, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 import { AutoAccepting, REMOTE_P2P } from "@lib/common/types";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
-import { LiveSyncTrysteroReplicator } from "./LiveSyncTrysteroReplicator";
+import type { LiveSyncTrysteroReplicator } from "./LiveSyncTrysteroReplicator";
 import { type UseP2PReplicatorResult } from "./UseP2PReplicatorResult";
 import { addP2PEventHandlers } from "./addP2PEventHandlers";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
+import { LiveSyncP2PService } from "@lib/p2p/P2PService";
 import {
     CAPABILITY_NOT_APPLICABLE,
     CAPABILITY_NOT_IMPLEMENTED,
@@ -28,9 +28,12 @@ export type OpenReplicationUIFactory = (
 export type OpenRebuildUIFactory = OpenReplicationUIFactory;
 
 /**
- * ServiceFeature: P2P Replicator integration and lifecycle management.
- * Registers a LiveSyncTrysteroReplicator instance as the active replicator when P2P is enabled in settings,
- * and binds it to lifecycle events for proper initialization and cleanup.
+ * Compose one P2P service owner and register non-owning active provider
+ * adapters over it.
+ *
+ * The returned views remain valid for the host composition lifetime. The
+ * compatibility facade is retained only for consumers which have not yet
+ * migrated to those views.
  * @param host
  */
 
@@ -53,11 +56,10 @@ export function useP2PReplicatorFeature(
     openReplicationUIFactory?: OpenReplicationUIFactory,
     openRebuildUIFactory?: OpenRebuildUIFactory
 ): UseP2PReplicatorResult {
-    // Replicator instance should be single and shared across the plug-in.
-    let replicator: LiveSyncTrysteroReplicator = new LiveSyncTrysteroReplicator({
+    const service = new LiveSyncP2PService({
         services: host.services,
     });
-    let replacementPromise: Promise<LiveSyncTrysteroReplicator> | undefined;
+    const replicator = service.compatibilityReplicator;
 
     const configureReplicator = (instance: LiveSyncTrysteroReplicator) => {
         if (openReplicationUIFactory) {
@@ -69,30 +71,7 @@ export function useP2PReplicatorFeature(
     };
     configureReplicator(replicator);
 
-    const createP2PReplicator = async (): Promise<LiveSyncTrysteroReplicator> => {
-        // Preserve the former factory boundary: every active acquisition closes
-        // the pre-existing outer instance before publishing its replacement.
-        if (replacementPromise) return await replacementPromise;
-        const operation = (async () => {
-            const existingReplicator = replicator;
-            try {
-                await existingReplicator?.close();
-            } catch (e) {
-                Logger(`Error closing existing p2p replicator`);
-                Logger(e, LOG_LEVEL_VERBOSE);
-            }
-            const newReplicator = new LiveSyncTrysteroReplicator({ services: host.services });
-            configureReplicator(newReplicator);
-            replicator = newReplicator; // Update the replicator reference for lifecycle handlers.
-            return replicator;
-        })();
-        replacementPromise = operation;
-        try {
-            return await operation;
-        } finally {
-            if (replacementPromise === operation) replacementPromise = undefined;
-        }
-    };
+    const createP2PReplicator = async () => service.createActiveReplicator();
 
     const userInitiatedOneShot: UserInitiatedOneShotRunner = async (instance, setting, request) => {
         if (request.interaction.kind !== "permitted" || !request.interaction.permissions.peerSelection) {
@@ -126,9 +105,30 @@ export function useP2PReplicatorFeature(
         })
     );
 
-    const activeReplicator = {
+    const activeReplicator: UseP2PReplicatorResult = {
         get replicator() {
             return replicator;
+        },
+        get transportLifecycle() {
+            return service.transportLifecycle;
+        },
+        get peerDirectory() {
+            return service.peerDirectory;
+        },
+        get peerAdmission() {
+            return service.peerAdmission;
+        },
+        get targetedTransfer() {
+            return service.targetedTransfer;
+        },
+        get changeRelay() {
+            return service.changeRelay;
+        },
+        get configurationExchange() {
+            return service.configurationExchange;
+        },
+        get diagnostics() {
+            return service.diagnostics;
         },
     };
     addP2PEventHandlers(() => activeReplicator.replicator, host.services.context.events);

@@ -6,7 +6,61 @@ import { useP2PReplicatorFeature } from "./useP2PReplicatorFeature";
 import { NO_INTERACTION, type ReplicatorProviderDefinitionMap } from "@lib/replication";
 
 describe("useP2PReplicatorFeature", () => {
-    it("routes P2P events to the current replicator after replacement", async () => {
+    it("keeps one P2P service owner while active adapters are reacquired", async () => {
+        const events = createLiveSyncEventHub();
+        let definitions: ReplicatorProviderDefinitionMap | undefined;
+        const handler = { addHandler: vi.fn() };
+        const host = {
+            services: {
+                context: { events },
+                setting: {
+                    currentSettings: vi.fn(() => ({ remoteType: REMOTE_P2P, P2P_Enabled: true })),
+                    suspendExtraSync: handler,
+                },
+                replicator: {
+                    registerReplicatorProviderDefinitions: vi.fn((value) => {
+                        definitions = value;
+                    }),
+                },
+                appLifecycle: {
+                    onUnload: handler,
+                    onSuspending: handler,
+                    onResumed: handler,
+                },
+                databaseEvents: { onDatabaseInitialisation: handler },
+            },
+            serviceModules: {},
+        } as unknown as Parameters<typeof useP2PReplicatorFeature>[0];
+
+        const result = useP2PReplicatorFeature(host);
+        const stableOwner = result.transportLifecycle;
+
+        expect(stableOwner).toBeDefined();
+        expect(result.peerDirectory).toBe(stableOwner);
+        expect(result.peerAdmission).toBe(stableOwner);
+        expect(result.targetedTransfer).toBe(stableOwner);
+        expect(result.changeRelay).toBe(stableOwner);
+        expect(result.configurationExchange).toBe(stableOwner);
+        expect(result.diagnostics).toBe(stableOwner);
+
+        const compatibilityReplicator = result.replicator;
+        const close = vi.spyOn(compatibilityReplicator, "close").mockResolvedValue(undefined);
+        const closeReplication = vi.spyOn(compatibilityReplicator, "closeReplication");
+        const definition = definitions?.get(REMOTE_P2P);
+        expect(definition).toBeDefined();
+
+        const firstAdapter = await definition!.create({ remoteType: REMOTE_P2P, P2P_Enabled: true } as never);
+        const secondAdapter = await definition!.create({ remoteType: REMOTE_P2P, P2P_Enabled: true } as never);
+
+        expect(firstAdapter).not.toBe(compatibilityReplicator);
+        expect(secondAdapter).not.toBe(firstAdapter);
+        firstAdapter?.closeReplication();
+        expect(result.replicator).toBe(compatibilityReplicator);
+        expect(close).not.toHaveBeenCalled();
+        expect(closeReplication).toHaveBeenCalledOnce();
+    });
+
+    it("routes P2P events to the stable service owner after active adapter replacement", async () => {
         const events = createLiveSyncEventHub();
         let definitions: ReplicatorProviderDefinitionMap | undefined;
         const handler = { addHandler: vi.fn() };
@@ -51,11 +105,10 @@ describe("useP2PReplicatorFeature", () => {
         const stopResult = await definition.stopActiveTransfer.run({ terminateSync } as never);
         expect(stopResult).toEqual({ status: "completed" });
         expect(terminateSync).toHaveBeenCalledOnce();
-        const second = (await definition?.create({
+        const activeAdapter = await definition?.create({
             remoteType: REMOTE_P2P,
             P2P_Enabled: true,
-        } as never)) as typeof first;
-        const secondOnNewPeer = vi.spyOn(second, "onNewPeer");
+        } as never);
 
         events.emitEvent(EVENT_ADVERTISEMENT_RECEIVED, {
             peerId: "peer-a",
@@ -63,9 +116,9 @@ describe("useP2PReplicatorFeature", () => {
             platform: "test",
         });
 
-        expect(result.replicator).toBe(second);
-        expect(firstOnNewPeer).not.toHaveBeenCalled();
-        expect(secondOnNewPeer).toHaveBeenCalledOnce();
+        expect(activeAdapter).not.toBe(first);
+        expect(result.replicator).toBe(first);
+        expect(firstOnNewPeer).toHaveBeenCalledOnce();
     });
 
     it("requires peer-selection authority for the user P2P role", async () => {
@@ -108,7 +161,7 @@ describe("useP2PReplicatorFeature", () => {
         expect(openReplication).not.toHaveBeenCalled();
     });
 
-    it("shares one replacement across concurrent replicator requests", async () => {
+    it("creates independent active adapters without replacing the service owner", async () => {
         const events = createLiveSyncEventHub();
         let definitions: ReplicatorProviderDefinitionMap | undefined;
         const handler = { addHandler: vi.fn() };
@@ -138,19 +191,14 @@ describe("useP2PReplicatorFeature", () => {
         const original = result.replicator;
         const definition = definitions?.get(REMOTE_P2P);
         expect(definition).toBeDefined();
-        let resolveClose!: () => void;
-        const closeGate = new Promise<void>((resolve) => {
-            resolveClose = resolve;
-        });
-        const close = vi.spyOn(original, "close").mockReturnValue(closeGate);
+        const close = vi.spyOn(original, "close").mockResolvedValue(undefined);
 
         const firstRequest = definition!.create({ remoteType: REMOTE_P2P, P2P_Enabled: true } as never);
         const secondRequest = definition!.create({ remoteType: REMOTE_P2P, P2P_Enabled: true } as never);
-        resolveClose();
         const [firstReplacement, secondReplacement] = await Promise.all([firstRequest, secondRequest]);
 
-        expect(close).toHaveBeenCalledOnce();
-        expect(firstReplacement).toBe(secondReplacement);
-        expect(result.replicator).toBe(firstReplacement);
+        expect(close).not.toHaveBeenCalled();
+        expect(firstReplacement).not.toBe(secondReplacement);
+        expect(result.replicator).toBe(original);
     });
 });

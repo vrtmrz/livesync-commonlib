@@ -203,6 +203,12 @@ import {
     type ReplicationOutcome,
 } from "${packageName}/replication";
 import type {
+    P2PDiagnostics,
+    P2PPeerConnectionMetrics,
+    P2PServiceViews,
+    UseP2PReplicatorResult,
+} from "${packageName}/p2p";
+import type {
     CouchDBReplicationConnection,
     LiveSyncCouchDBReplicator,
     OwnedCouchDBConnection,
@@ -237,6 +243,12 @@ const readLegacyRemoteDatabase = (database: LegacyRemoteDatabase) => database.ge
 const completedOutcome: ReplicationOutcome = { status: "completed" };
 const noInteractionKind: string = NO_INTERACTION.kind;
 const completedCheck: boolean = isReplicationCompleted(completedOutcome);
+const readP2PDiagnostics = (views: P2PServiceViews): P2PDiagnostics => views.diagnostics;
+const readP2PPeerConnectionMetrics = (
+    diagnostics: P2PDiagnostics,
+    peerId: string
+): Promise<P2PPeerConnectionMetrics | undefined> => diagnostics.getPeerConnectionMetrics(peerId);
+const readP2PCompatibilityReplicator = (result: UseP2PReplicatorResult) => result.replicator;
 void context;
 void contextContract;
 void untranslated;
@@ -259,6 +271,9 @@ void replicationConnection;
 void readLegacyRemoteDatabase;
 void noInteractionKind;
 void completedCheck;
+void readP2PDiagnostics;
+void readP2PPeerConnectionMetrics;
+void readP2PCompatibilityReplicator;
 `
 );
 await writeConsumerFile(
@@ -281,6 +296,7 @@ const contextApi = await import("${packageName}/context");
 const rootApi = await import("${packageName}");
 const settingsApi = await import("${packageName}/settings");
 const remoteConfigurationsApi = await import("${packageName}/remote-configurations");
+const p2pApi = await import("${packageName}/p2p");
 const replicationApi = await import("${packageName}/replication");
 const workerApi = await import("${packageName}/compat/worker/bgWorker");
 const runtimeCompat = await import("${packageName}/compat/common/coreEnvFunctions");
@@ -299,6 +315,8 @@ assert.equal(settingsApi.SETTINGS_SCHEMA_DEFAULTS.usePluginSyncV2, false);
 assert.equal(settingsApi.prepareSettingsForLoad(undefined).isNewVault, true);
 assert.notEqual(settingsApi.createNewVaultSettings(), settingsApi.NEW_VAULT_SETTINGS);
 assert.equal(typeof remoteConfigurationsApi.upsertRemoteConfigurationInPlace, "function");
+assert.equal(typeof p2pApi.useP2PReplicatorFeature, "function");
+assert.equal(typeof p2pApi.useP2PReplicatorCommands, "function");
 assert.equal(replicationApi.NO_INTERACTION.kind, "forbidden");
 assert.equal(typeof replicationApi.isReplicationCompleted, "function");
 assert.equal(runtimeCompat.compatGlobal, globalThis);
@@ -502,6 +520,7 @@ assert.deepEqual(
         "./browser",
         "./context",
         "./node",
+        "./p2p",
         "./package.json",
         "./remote-configurations",
         "./replication",
@@ -510,7 +529,7 @@ assert.deepEqual(
     ],
     "The focused package surface must remain explicit."
 );
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 9);
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 10);
 
 console.log(
     JSON.stringify(
