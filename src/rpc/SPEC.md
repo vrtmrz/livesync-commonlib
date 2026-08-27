@@ -92,29 +92,40 @@ uses `"req-<timestamp36>-<random>"`.
 before sending the request envelope, and remove it on settlement (resolve or
 reject).
 
-**[P-6]** The callee MUST send exactly one response envelope for each received
-request, either `{ ok: true, data }` or `{ ok: false, error }`.
+**[P-6]** Unless the request is cancelled or deliberately rejected by the
+admission policy, the callee MUST send exactly one response envelope for each
+received request, either `{ ok: true, data }` or `{ ok: false, error }`.
 
 **[P-7]** If the callee's handler throws, the Room MUST catch the error, convert
 it to `RpcErrorShape` via `asRpcErrorShape`, and send it as `{ ok: false,
 error }`. The handler's exception MUST NOT propagate unhandled.
 
 **[P-8]** If the caller does not receive a response within `timeoutMs`
-milliseconds, it MUST reject the pending invocation with `RpcError("TIMEOUT")`
-and remove the `requestId` from its pending map.
+milliseconds, it MUST reject the pending invocation with `RpcError("TIMEOUT")`,
+remove the `requestId` from its pending map, and notify the callee that the
+request is cancelled when the request envelope has been sent.
 
 ### 4.3 Cancellation
 
-**[P-9]** A caller MAY send a `cancel` envelope to notify the callee that the
-result is no longer needed. The callee SHOULD check for cancellation before
-performing expensive operations (via the `InboundCallContext`).
+**[P-9]** A caller MAY cancel an invocation explicitly or by aborting the
+`AbortSignal` supplied in `RpcCallOptions`. The caller MUST reject the pending
+invocation promptly with `RpcError("CANCELLED")`, remove it from its pending
+map, and do so even while transport delivery is still pending. If the request
+envelope later finishes sending, the Room MUST then send a `cancel` envelope
+so that request-before-cancel wire ordering is preserved. A late transport
+failure after local cancellation MUST be consumed and MUST NOT replace the
+caller's cancellation result.
 
-**[P-10]** The callee MUST NOT send a response after receiving a `cancel` for the
-same `requestId`.
+**[P-10]** The callee MUST create the request cancellation context before
+awaiting admission policy, and MUST abort that context when it receives a
+`cancel` envelope for the same `requestId`, when the peer leaves, or when the
+Room closes.
 
-**[P-11]** Sending a `cancel` does NOT remove the caller's pending invocation.
-The invocation settles only when the callee's response arrives or the timeout
-fires.
+**[P-11]** A handler registered through `registerCancellable` MUST receive the
+request context and SHOULD observe its `signal` directly or pass it to an
+abort-capable operation. Cancellation is cooperative: an atomic operation
+which has already begun MAY settle, but the callee MUST NOT send its resulting
+response after cancellation.
 
 ### 4.4 Chunking
 
@@ -161,6 +172,11 @@ NOT start until the previous one has settled.
 
 **[M-5]** Method handlers receive `(peerId: string, ...args: JsonLike[])` and
 MUST return a `JsonLike`-serialisable value or throw.
+
+**[M-6]** Cancellation-aware method handlers receive
+`(context: RpcRequestContext, peerId: string, ...args: JsonLike[])`. The
+request context is local execution state and MUST NOT be serialised as a wire
+argument.
 
 ---
 

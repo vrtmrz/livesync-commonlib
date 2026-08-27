@@ -11,6 +11,31 @@ export type RpcErrorShape = {
     details?: JsonLike;
 };
 
+/**
+ * Options which control one outbound RPC invocation.
+ *
+ * The numeric timeout overload remains supported by {@link RpcSession.call}
+ * and {@link RpcRoom.invoke}; use this object when a caller also needs an
+ * abort signal.
+ */
+export type RpcCallOptions = {
+    readonly timeoutMs?: number;
+    readonly signal?: AbortSignal;
+};
+
+/**
+ * Context supplied to handlers registered through the cancellation-aware
+ * registration API.
+ *
+ * Cancellation is cooperative: the handler must observe `signal.aborted` or
+ * otherwise pass the signal to an abort-capable operation. The RPC layer still
+ * suppresses a response after cancellation when a handler does not stop
+ * immediately.
+ */
+export type RpcRequestContext = {
+    readonly signal: AbortSignal;
+};
+
 export type RpcRequestEnvelope = {
     kind: "request";
     requestId: string;
@@ -85,11 +110,18 @@ export type RpcRoomOptions = {
     transport: TransportAdapter;
     maxWirePayloadBytes?: number;
     chunkMissingRetryMs?: number;
-    canAcceptRequest?: (peerId: string, method: string) => boolean | Promise<boolean>;
+    canAcceptRequest?: (peerId: string, method: string, context: RpcRequestContext) => boolean | Promise<boolean>;
     onProtocolWarning?: (message: string, peerId?: string) => void;
 };
 
 export type RpcMethodHandler<T extends JsonLike[], U> = (peerId: string, ...args: T) => U | Promise<U>;
+
+/** Handler which can stop cooperative work when its request is cancelled. */
+export type RpcCancellationAwareMethodHandler<T extends JsonLike[], U> = (
+    context: RpcRequestContext,
+    peerId: string,
+    ...args: T
+) => U | Promise<U>;
 
 export type RpcRegisterOptions = {
     serial?: boolean;
