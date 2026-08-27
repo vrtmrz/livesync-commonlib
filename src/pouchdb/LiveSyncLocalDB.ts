@@ -143,6 +143,7 @@ export class LiveSyncLocalDB {
         this.offRemoteChunkFetchedHandler = undefined;
         if (this.localDatabase != null) {
             const database = this.localDatabase;
+            await this.env.services.databaseEvents.onCloseDatabase(this);
             await database.close();
             if (this.databaseCloseCleanup?.database === database) {
                 await this.databaseCloseCleanup.promise;
@@ -382,12 +383,12 @@ export class LiveSyncLocalDB {
 
     async resetDatabase() {
         this.isReady = false;
-        await this.managers.teardownManagers();
         this.env.services.replicator.getActiveReplicator()?.closeReplication();
         if (!(await this.env.services.databaseEvents.onResetDatabase(this))) {
             Logger("Database reset has been prevented or failed on some modules.", LOG_LEVEL_NOTICE);
             return false;
         }
+        await this.managers.teardownManagers();
         Logger("Database closed for reset Database.");
         await this.localDatabase.destroy();
         //@ts-ignore

@@ -208,6 +208,50 @@ describe("LiveSyncLocalDB.allChunks", () => {
 });
 
 describe("LiveSyncLocalDB reset lifecycle", () => {
+    it("retires database consumers before tearing down managers", async () => {
+        const order: string[] = [];
+        const subject = Object.create(LiveSyncLocalDB.prototype) as LiveSyncLocalDB;
+        Object.assign(subject, {
+            isReady: true,
+            _managers: {
+                teardownManagers: vi.fn(async () => {
+                    order.push("managers");
+                }),
+            },
+            env: {
+                services: {
+                    replicator: {
+                        getActiveReplicator: vi.fn(() => ({
+                            closeReplication: vi.fn(() => {
+                                order.push("replication");
+                            }),
+                        })),
+                    },
+                    databaseEvents: {
+                        onResetDatabase: vi.fn(async () => {
+                            order.push("reset");
+                            return true;
+                        }),
+                    },
+                },
+            },
+            localDatabase: {
+                destroy: vi.fn(async () => {
+                    order.push("destroy");
+                }),
+            },
+            initializeDatabase: vi.fn(async () => {
+                order.push("initialise");
+                return true;
+            }),
+            _log: vi.fn(),
+        });
+
+        await expect(subject.resetDatabase()).resolves.toBe(true);
+
+        expect(order).toEqual(["replication", "reset", "managers", "destroy", "initialise"]);
+    });
+
     it("clears physical readiness when a reset hook rejects the transition", async () => {
         const destroy = vi.fn(async () => undefined);
         const subject = Object.create(LiveSyncLocalDB.prototype) as LiveSyncLocalDB;
@@ -293,6 +337,7 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
             }),
         };
         const closeReplication = vi.fn();
+        const onCloseDatabase = vi.fn(async () => true);
         const onUnloadDatabase = vi.fn(async () => true);
         const context = createServiceContext();
         const subject = new LiveSyncLocalDB("readiness", {
@@ -309,6 +354,7 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
                 databaseEvents: {
                     onDatabaseInitialisation,
                     onDatabaseHasReady,
+                    onCloseDatabase,
                     onUnloadDatabase,
                 } as never,
                 replicator: {
@@ -317,7 +363,7 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
                 } as never,
             },
         });
-        return { closeReplication, database, onDatabaseInitialisation, onUnloadDatabase, subject };
+        return { closeReplication, database, onCloseDatabase, onDatabaseInitialisation, onUnloadDatabase, subject };
     }
 
     beforeEach(() => {
@@ -432,5 +478,33 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
         await subject.close();
 
         expect(onUnloadDatabase).toHaveBeenCalledOnce();
+    });
+
+    it("settles close handlers before closing the physical database", async () => {
+        const order: string[] = [];
+        const { database, onCloseDatabase, subject } = createSubject(async () => true);
+        onCloseDatabase.mockImplementationOnce(async () => {
+            order.push("handler");
+            return true;
+        });
+        database.close.mockImplementationOnce(async () => {
+            order.push("database");
+        });
+        await expect(subject.initializeDatabase()).resolves.toBe(true);
+
+        await subject.close();
+
+        expect(order).toEqual(["handler", "database"]);
+    });
+
+    it("still closes the physical database when close cleanup reports failure", async () => {
+        const { database, onCloseDatabase, subject } = createSubject(async () => true);
+        onCloseDatabase.mockResolvedValueOnce(false);
+        await expect(subject.initializeDatabase()).resolves.toBe(true);
+
+        await subject.close();
+
+        expect(onCloseDatabase).toHaveBeenCalledWith(subject);
+        expect(database.close).toHaveBeenCalledOnce();
     });
 });

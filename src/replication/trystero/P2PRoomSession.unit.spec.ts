@@ -68,6 +68,7 @@ describe("P2PRoomSession finite-operation ownership", () => {
         const session = createSession();
         const operationSettled = createDeferred();
         const close = vi.spyOn(session.replicator, "close").mockResolvedValue(undefined);
+        const dispose = vi.spyOn(session.host, "dispose");
         const operation = session.runFiniteOperation(async (signal) => {
             if (!signal.aborted) {
                 await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve(), { once: true }));
@@ -82,6 +83,7 @@ describe("P2PRoomSession finite-operation ownership", () => {
         await retirement;
 
         expect(close).toHaveBeenCalledOnce();
+        expect(dispose).toHaveBeenCalledOnce();
         await expect(session.runFiniteOperation(() => undefined)).rejects.toThrow("retiring");
     });
 });

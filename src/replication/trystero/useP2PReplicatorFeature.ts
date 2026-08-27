@@ -131,30 +131,33 @@ export function useP2PReplicatorFeature(
             return service.diagnostics;
         },
     };
-    addP2PEventHandlers(() => activeReplicator.replicator, host.services.context.events);
+    addP2PEventHandlers(service, host.services.context.events);
 
     // Lifecycle bindings (replication should be closed).
 
     host.services.appLifecycle.onUnload.addHandler(async () => {
-        await replicator?.close();
+        await service.closeForLifecycle();
         return true;
     });
 
     host.services.appLifecycle.onSuspending.addHandler(async () => {
-        await replicator?.close();
+        await service.closeForLifecycle();
         return true;
     });
 
-    host.services.databaseEvents.onDatabaseInitialisation.addHandler(async () => {
-        await replicator?.close();
+    const closeForDatabaseLifecycle = async () => {
+        await service.closeForLifecycle();
         return true;
-    });
+    };
+    host.services.databaseEvents.onResetDatabase.addHandler(closeForDatabaseLifecycle);
+    host.services.databaseEvents.onCloseDatabase.addHandler(closeForDatabaseLifecycle);
+    host.services.databaseEvents.onDatabaseInitialisation.addHandler(closeForDatabaseLifecycle);
 
     // And, reopen if auto-start is enabled when app is resumed.
     host.services.appLifecycle.onResumed.addHandler(() => {
         const settings = host.services.setting.currentSettings();
         if (settings.P2P_Enabled && settings.P2P_AutoStart) {
-            compatGlobal.setTimeout((): void => void replicator?.open(), 100);
+            compatGlobal.setTimeout((): void => void service.reconcileAutoStart(settings), 100);
         }
         return Promise.resolve(true);
     });

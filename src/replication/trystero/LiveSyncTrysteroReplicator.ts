@@ -10,7 +10,6 @@ import {
     LOG_LEVEL_VERBOSE,
     type LOG_LEVEL,
     type NodeData,
-    SETTING_KEY_P2P_DEVICE_NAME,
 } from "@lib/common/types";
 import {
     LiveSyncAbstractReplicator,
@@ -25,16 +24,8 @@ import {
     type RevokeAcceptanceDecision,
 } from "./TrysteroReplicatorP2PServer";
 import { delay } from "octagonal-wheels/promises";
-import type { AsyncActivityOptions } from "@lib/interfaces/AsyncActivityRunner";
-
 import type { Advertisement } from "./types";
-import {
-    hasValidP2PTurnServerUrl,
-    normaliseP2PConnectionPath,
-    normaliseP2PMaxWirePayloadBytes,
-} from "@lib/common/models/setting.p2p";
-import { P2PConnectionPaths } from "@lib/common/models/setting.const";
-import { P2PRoomSession } from "./P2PRoomSession";
+import { P2PRoomSessionOwner, type P2PRoomSessionAccess } from "./P2PRoomSessionOwner";
 
 export interface LiveSyncTrysteroReplicatorEnv extends LiveSyncReplicatorEnv {
     // services: IServiceHub;
@@ -51,20 +42,18 @@ export interface LiveSyncTrysteroReplicatorEnv extends LiveSyncReplicatorEnv {
 }
 
 export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
-    private _roomSession?: P2PRoomSession;
-    private _lifecycleOperation: Promise<void> = Promise.resolve();
-    private _shouldBeOpen = false;
-    private _activeTransportCompatibilitySignature?: string;
+    /** Peer lifecycle is fenced inside the room session rather than this facade. */
+    readonly handlesPeerEventsWithinSession = true;
 
     get openReplicationUI() {
         return this.env.openReplicationUI;
     }
 
     get rawReplicator() {
-        return this._roomSession?.replicator;
+        return this.sessionOwner.currentSession?.replicator;
     }
     get rawHost() {
-        return this._roomSession?.host;
+        return this.sessionOwner.currentSession?.host;
     }
 
     getReplicationPBKDF2Salt(_setting: RemoteDBSettings, _refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
@@ -72,160 +61,51 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     }
 
     terminateSync(): void {
-        this._roomSession?.cancelActiveTransfers();
-    }
-
-    private _buildEnv() {
-        const services = this.env.services;
-        return {
-            events: services.context.events,
-            translate: services.context.translate,
-            get settings() {
-                return services.setting.currentSettings();
-            },
-            get db() {
-                return services.database.localDatabase.localDatabase;
-            },
-            get simpleStore() {
-                return services.keyValueDB.openSimpleStore("p2p-sync");
-            },
-            get deviceName() {
-                return services.config.getSmallConfig(SETTING_KEY_P2P_DEVICE_NAME) || services.vault.getVaultName();
-            },
-            get platform() {
-                return services.API.getPlatform();
-            },
-            get confirm() {
-                return services.API.confirm;
-            },
-            runFiniteReplicationActivity: <T>(task: () => T | PromiseLike<T>, options?: AsyncActivityOptions) =>
-                services.replicator.runFiniteReplicationActivity(task, options),
-            canStartOrdinaryReplication: (showMessage: boolean = false) =>
-                services.replication.onCheckReplicationReady(showMessage),
-            processReplicatedDocs: async (docs: Parameters<typeof services.replication.parseSynchroniseResult>[0]) => {
-                const settings = services.setting.currentSettings();
-                if (settings.suspendParseReplicationResult) {
-                    const docLength = docs.length;
-                    if (docLength > 0) {
-                        Logger(
-                            `P2P sync, but parseReplicationResult is suspended. Ignoring ${docLength} documents.`,
-                            LOG_LEVEL_VERBOSE
-                        );
-                    }
-                    return;
-                }
-                await services.replication.parseSynchroniseResult(docs);
-            },
-        };
-    }
-
-    private _enqueueLifecycleOperation(operation: () => Promise<void>): Promise<void> {
-        const queued = this._lifecycleOperation.catch((): void => undefined).then(operation);
-        this._lifecycleOperation = queued.catch((): void => undefined);
-        return queued;
-    }
-
-    /**
-     * Capture settings which are fixed when the active P2P transport joins its room.
-     * A later open request can remain idempotent only while these effective values match.
-     */
-    private _getTransportCompatibilitySignature(): string {
-        const settings = this.env.services.setting.currentSettings();
-        const configuredPath = normaliseP2PConnectionPath(settings.P2P_connectionPath);
-        const effectivePath =
-            configuredPath === P2PConnectionPaths.Relay && hasValidP2PTurnServerUrl(settings.P2P_turnServers ?? "")
-                ? P2PConnectionPaths.Relay
-                : P2PConnectionPaths.Automatic;
-        return `${normaliseP2PMaxWirePayloadBytes(settings.P2P_maxWirePayloadBytes)}:${effectivePath}`;
-    }
-
-    /** Close and forget the transport without changing the requested lifecycle state. */
-    private async _closeTransport(): Promise<void> {
-        const session = this._roomSession;
-        this._roomSession = undefined;
-        if (session) {
-            await session.retire();
-        }
-        this._activeTransportCompatibilitySignature = undefined;
+        this.sessionOwner.cancelActiveTransfers();
     }
 
     async open() {
-        if (!this.env.services.setting.currentSettings().P2P_Enabled) {
-            Logger(this.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
-            // Nothing to do.
-            return;
-        }
-        this._shouldBeOpen = true;
-        await this._enqueueLifecycleOperation(async () => {
-            if (!this._shouldBeOpen) return;
-            const compatibilitySignature = this._getTransportCompatibilitySignature();
-            if (this._roomSession?.host.isServing) {
-                if (this._activeTransportCompatibilitySignature === compatibilitySignature) {
-                    Logger("P2P replicator is already open.");
-                    return;
-                }
-                await this._closeTransport();
-            }
-            let candidate: P2PRoomSession | undefined;
-            try {
-                const env = this._buildEnv();
-                candidate = new P2PRoomSession(env);
-                await candidate.open();
-                this._roomSession = candidate;
-                this._activeTransportCompatibilitySignature = compatibilitySignature;
-            } catch (e) {
-                await candidate?.retire(e).catch((retirementError: unknown) => {
-                    Logger(retirementError, LOG_LEVEL_VERBOSE);
-                });
-                Logger(e instanceof Error ? e.message : "Error while opening P2P connection", LOG_LEVEL_NOTICE);
-                Logger(e, LOG_LEVEL_VERBOSE);
-                this._roomSession = undefined;
-                this._activeTransportCompatibilitySignature = undefined;
-            }
-        });
+        await this.sessionOwner.open();
     }
 
     async close() {
-        this._shouldBeOpen = false;
-        await this._enqueueLifecycleOperation(async () => {
-            await this._closeTransport();
-        });
+        await this.sessionOwner.close();
     }
 
     closeReplication(): void {
-        this._roomSession?.replicator.disconnectFromServer();
+        this.sessionOwner.currentSession?.replicator.disconnectFromServer();
     }
 
     get server() {
-        return this._roomSession?.replicator.server;
+        return this.sessionOwner.currentSession?.replicator.server;
     }
 
     get knownAdvertisements() {
-        return this._roomSession?.replicator.knownAdvertisements ?? [];
+        return this.sessionOwner.currentSession?.replicator.knownAdvertisements ?? [];
     }
 
     enableBroadcastChanges() {
-        this._roomSession?.replicator.enableBroadcastChanges();
+        this.sessionOwner.currentSession?.replicator.enableBroadcastChanges();
     }
 
     disableBroadcastChanges() {
-        this._roomSession?.replicator.disableBroadcastChanges();
+        this.sessionOwner.currentSession?.replicator.disableBroadcastChanges();
     }
 
     requestStatus() {
-        this._roomSession?.replicator.requestStatus();
+        this.sessionOwner.currentSession?.replicator.requestStatus();
     }
 
     onNewPeer(peer: Advertisement) {
-        return this._roomSession?.replicator.onNewPeer(peer);
+        return this.sessionOwner.currentSession?.replicator.onNewPeer(peer);
     }
 
     onPeerLeaved(peerId: string) {
-        this._roomSession?.replicator.onPeerLeaved(peerId);
+        this.sessionOwner.currentSession?.replicator.onPeerLeaved(peerId);
     }
 
     async replicateFromCommand(showResult: boolean = false) {
-        const replicator = this._roomSession?.replicator;
+        const replicator = this.sessionOwner.currentSession?.replicator;
         if (!replicator) return;
         await this.env.services.replicator.runFiniteReplicationActivity(
             () => replicator.replicateFromCommand(showResult),
@@ -234,7 +114,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     }
 
     async replicateFrom(peerId: string, showNotice: boolean = false, skipOrdinaryReplicationPolicy = false) {
-        const replicator = this._roomSession?.replicator;
+        const replicator = this.sessionOwner.currentSession?.replicator;
         if (!replicator) throw new Error("P2P replicator is not open");
         return await this.env.services.replicator.runFiniteReplicationActivity(
             () =>
@@ -246,7 +126,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     }
 
     async requestSynchroniseToPeer(peerId: string) {
-        const replicator = this._roomSession?.replicator;
+        const replicator = this.sessionOwner.currentSession?.replicator;
         if (!replicator) throw new Error("P2P replicator is not open");
         return await this.env.services.replicator.runBoundedRemoteActivity(
             () => replicator.requestSynchroniseToPeer(peerId),
@@ -255,43 +135,43 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getRemoteConfig(peerId: string) {
-        const replicator = this._roomSession?.replicator;
+        const replicator = this.sessionOwner.currentSession?.replicator;
         if (!replicator) throw new Error("P2P replicator is not open");
         return await replicator.getRemoteConfig(peerId);
     }
 
     watchPeer(peerId: string) {
-        this._roomSession?.replicator.watchPeer(peerId);
+        this.sessionOwner.currentSession?.replicator.watchPeer(peerId);
     }
 
     unwatchPeer(peerId: string) {
-        this._roomSession?.replicator.unwatchPeer(peerId);
+        this.sessionOwner.currentSession?.replicator.unwatchPeer(peerId);
     }
 
     async sync(peerId: string, showNotice: boolean = false) {
-        const replicator = this._roomSession?.replicator;
+        const replicator = this.sessionOwner.currentSession?.replicator;
         if (!replicator) throw new Error("P2P replicator is not open");
         return await replicator.sync(peerId, showNotice);
     }
 
     setOnSetup() {
-        this._roomSession?.replicator.setOnSetup();
+        this.sessionOwner.currentSession?.replicator.setOnSetup();
     }
 
     clearOnSetup() {
-        this._roomSession?.replicator.clearOnSetup();
+        this.sessionOwner.currentSession?.replicator.clearOnSetup();
     }
 
     async makeDecision(decision: AcceptanceDecision) {
-        await this._roomSession?.replicator.server?.makeDecision(decision);
+        await this.sessionOwner.currentSession?.replicator.server?.makeDecision(decision);
     }
 
     async revokeDecision(decision: RevokeAcceptanceDecision) {
-        await this._roomSession?.replicator.server?.revokeDecision(decision);
+        await this.sessionOwner.currentSession?.replicator.server?.revokeDecision(decision);
     }
 
     async makeSureOpened() {
-        if (!this._roomSession?.host.isServing) {
+        if (!this.sessionOwner.isConnected) {
             await this.open();
         }
     }
@@ -310,7 +190,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         const logLevel = showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
 
         await this.makeSureOpened();
-        const replicator = this._roomSession?.replicator;
+        const replicator = this.sessionOwner.currentSession?.replicator;
         if (!replicator) {
             Logger(this.translate("P2P.ReplicatorInstanceMissing"), logLevel);
             return false;
@@ -400,7 +280,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
         }
         await this.open();
 
-        const replicator = this._roomSession?.replicator;
+        const replicator = this.sessionOwner.currentSession?.replicator;
         if (!replicator) {
             Logger("Failed to get replicator instance.", logLevel);
             return false;
@@ -419,7 +299,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             const r = await this.tryUntilSuccess(
                 async () => {
                     await this.makeSureOpened();
-                    return this._roomSession?.replicator ?? false;
+                    return this.sessionOwner.currentSession?.replicator ?? false;
                 },
                 10,
                 logLevel
@@ -445,7 +325,7 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
                 return false;
             }
         } finally {
-            this._roomSession?.replicator.clearOnSetup();
+            this.sessionOwner.currentSession?.replicator.clearOnSetup();
         }
     }
 
@@ -507,7 +387,10 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
     }
 
     declare env: LiveSyncTrysteroReplicatorEnv;
-    constructor(env: LiveSyncTrysteroReplicatorEnv) {
+    constructor(
+        env: LiveSyncTrysteroReplicatorEnv,
+        private readonly sessionOwner: P2PRoomSessionAccess = new P2PRoomSessionOwner(env)
+    ) {
         super(env);
         this.env = env;
     }

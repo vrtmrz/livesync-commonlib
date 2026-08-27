@@ -1,12 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import { TrysteroReplicator } from "./TrysteroReplicator";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
+import { EVENT_P2P_REPLICATOR_STATUS } from "./TrysteroReplicatorP2PServer";
 
 function createReplicator(settings: Record<string, unknown> = {}) {
     const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
+    const events = createLiveSyncEventHub();
     const replicator = new TrysteroReplicator(
         {
-            events: createLiveSyncEventHub(),
+            events,
             translate: (key: string) => key,
             settings: {
                 P2P_AutoSyncPeers: "",
@@ -25,10 +27,27 @@ function createReplicator(settings: Record<string, unknown> = {}) {
             _knownAdvertisements: new Map(),
         } as any
     );
-    return { replicator, runFiniteReplicationActivity };
+    return { events, replicator, runFiniteReplicationActivity };
 }
 
 describe("TrysteroReplicator automatic remote activity", () => {
+    it("releases host-lifetime resources when terminally disposed", async () => {
+        const { events, replicator } = createReplicator();
+        const close = vi.spyOn(replicator, "close").mockResolvedValue(undefined);
+        const disposeHost = vi.fn();
+        (replicator as any).server = { dispose: disposeHost };
+        const statuses: unknown[] = [];
+        events.onEvent(EVENT_P2P_REPLICATOR_STATUS, (status) => statuses.push(status));
+
+        await (replicator as any).dispose();
+        replicator.dispatchStatus();
+
+        expect(close).toHaveBeenCalledOnce();
+        expect(disposeHost).toHaveBeenCalledOnce();
+        expect(statuses).toEqual([]);
+        await expect(replicator.open()).rejects.toThrow("disposed");
+    });
+
     it("binds an incoming synchronisation request to the RPC cancellation signal", async () => {
         const { replicator } = createReplicator();
         const registrationOrder: string[] = [];

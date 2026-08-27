@@ -18,6 +18,7 @@ import type {
     RevokeAcceptanceDecision,
 } from "@lib/replication/trystero/TrysteroReplicatorP2PServer";
 import type { Advertisement } from "@lib/replication/trystero/types";
+import { P2PRoomSessionOwner, type P2PRoomSessionAccess } from "@lib/replication/trystero/P2PRoomSessionOwner";
 
 /** Candidate details projected from browser RTC statistics. */
 export interface P2PCandidateSummary {
@@ -160,9 +161,28 @@ export class LiveSyncP2PService
         P2PDiagnostics
 {
     readonly compatibilityReplicator: LiveSyncTrysteroReplicator;
+    private readonly roomSessionOwner: P2PRoomSessionOwner;
+    private explicitDisconnectVeto = false;
 
     constructor(private readonly env: LiveSyncTrysteroReplicatorEnv) {
-        this.compatibilityReplicator = new LiveSyncTrysteroReplicator(env);
+        this.roomSessionOwner = new P2PRoomSessionOwner(env);
+        this.compatibilityReplicator = new LiveSyncTrysteroReplicator(env, this.createCompatibilitySessionAccess());
+    }
+
+    /** Keep legacy open and close calls within the stable service's intent policy. */
+    private createCompatibilitySessionAccess(): P2PRoomSessionAccess {
+        const owner = this.roomSessionOwner;
+        return {
+            get currentSession() {
+                return owner.currentSession;
+            },
+            get isConnected() {
+                return owner.isConnected;
+            },
+            cancelActiveTransfers: () => owner.cancelActiveTransfers(),
+            open: () => this.connect(),
+            close: () => this.disconnect(),
+        };
     }
 
     get transportLifecycle(): P2PTransportLifecycle {
@@ -194,15 +214,38 @@ export class LiveSyncP2PService
     }
 
     get isConnected(): boolean {
-        return this.compatibilityReplicator.server?.isServing ?? false;
+        return this.roomSessionOwner.isConnected;
     }
 
     connect(): Promise<void> {
-        return this.compatibilityReplicator.open();
+        this.explicitDisconnectVeto = false;
+        return this.roomSessionOwner.open();
     }
 
     disconnect(): Promise<void> {
-        return this.compatibilityReplicator.close();
+        this.explicitDisconnectVeto = true;
+        return this.roomSessionOwner.close();
+    }
+
+    /** Reopen after a rebuild which already owns that lifecycle continuation. */
+    openAfterDatabaseRebuild(): Promise<void> {
+        return this.roomSessionOwner.open();
+    }
+
+    /** Retire the current room without changing explicit user intent. */
+    closeForLifecycle(): Promise<void> {
+        return this.roomSessionOwner.close();
+    }
+
+    /** Apply the persisted AutoStart policy without overriding an explicit disconnect. */
+    reconcileAutoStart(settings: Pick<ObsidianLiveSyncSettings, "P2P_Enabled" | "P2P_AutoStart">): Promise<void> {
+        if (!settings.P2P_Enabled || !settings.P2P_AutoStart) {
+            return this.roomSessionOwner.close();
+        }
+        if (this.explicitDisconnectVeto) {
+            return Promise.resolve();
+        }
+        return this.roomSessionOwner.open();
     }
 
     getPeers(): readonly Advertisement[] {
@@ -312,7 +355,9 @@ class P2PActiveReplicatorAdapter extends LiveSyncAbstractReplicator {
     }
 
     closeReplication(): void {
-        this.delegate.closeReplication();
+        // The active-provider adapter does not own the service room. Releasing
+        // this adapter therefore cannot close the room, relay sockets, or the
+        // service's finite-operation registry.
     }
 
     tryResetRemoteDatabase(setting: RemoteDBSettings): Promise<void> {

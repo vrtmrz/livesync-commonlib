@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createLiveSyncEventHub } from "@lib/hub/hub";
+import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 
 const { rpcRoomOptions } = vi.hoisted(() => ({
     rpcRoomOptions: [] as unknown[],
@@ -22,7 +23,12 @@ vi.mock("@lib/rpc", async (importOriginal) => {
     };
 });
 
-import { P2PHost } from "./TrysteroReplicatorP2PServer";
+import {
+    EVENT_ADVERTISEMENT_RECEIVED,
+    EVENT_DEVICE_LEAVED,
+    EVENT_SERVER_STATUS,
+    P2PHost,
+} from "./TrysteroReplicatorP2PServer";
 
 describe("P2PHost transport configuration and ownership", () => {
     beforeEach(() => {
@@ -75,5 +81,66 @@ describe("P2PHost transport configuration and ownership", () => {
         expect(rpcRoomOptions.at(-1)).toMatchObject({
             maxWirePayloadBytes: 800,
         });
+    });
+
+    it("keeps its platform-unload subscription across a transport shutdown", async () => {
+        const events = createLiveSyncEventHub();
+        const host = new P2PHost({
+            events,
+            simpleStore: {},
+            settings: { P2P_Enabled: true },
+        } as any);
+        const shutdown = vi.spyOn(host, "shutdown");
+
+        await host.shutdown();
+        events.emitEvent(EVENT_PLATFORM_UNLOADED);
+        await Promise.resolve();
+
+        expect(shutdown).toHaveBeenCalledTimes(2);
+    });
+
+    it("removes its platform-unload subscription when the host is disposed", async () => {
+        const events = createLiveSyncEventHub();
+        const host = new P2PHost({
+            events,
+            simpleStore: {},
+            settings: { P2P_Enabled: true },
+        } as any);
+        const shutdown = vi.spyOn(host, "shutdown");
+
+        host.dispose();
+        events.emitEvent(EVENT_PLATFORM_UNLOADED);
+        await Promise.resolve();
+
+        expect(shutdown).not.toHaveBeenCalled();
+    });
+
+    it("does not publish late peer or status events after disposal", async () => {
+        const events = createLiveSyncEventHub();
+        const advertisement = vi.fn();
+        const peerLeft = vi.fn();
+        const status = vi.fn();
+        events.onEvent(EVENT_ADVERTISEMENT_RECEIVED, advertisement);
+        events.onEvent(EVENT_DEVICE_LEAVED, peerLeft);
+        events.onEvent(EVENT_SERVER_STATUS, status);
+        const host = new P2PHost({
+            events,
+            simpleStore: {
+                get: vi.fn(async () => undefined),
+                set: vi.fn(async () => undefined),
+                delete: vi.fn(async () => undefined),
+                keys: vi.fn(async () => []),
+            },
+            settings: { P2P_Enabled: true },
+        } as any);
+
+        host.dispose();
+        host.onAdvertisement({ peerId: "peer-a", name: "Device A", platform: "test" }, "peer-a");
+        (host as any)._onPeerLeave("peer-a");
+        await host.dispatchConnectionStatus();
+
+        expect(advertisement).not.toHaveBeenCalled();
+        expect(peerLeft).not.toHaveBeenCalled();
+        expect(status).not.toHaveBeenCalled();
     });
 });

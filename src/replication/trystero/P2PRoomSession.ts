@@ -26,12 +26,23 @@ export class P2PRoomSession implements P2PFiniteOperationOwner {
 
     private readonly sessionController = new AbortController();
     private readonly activeFiniteOperations = new Set<ActiveFiniteOperation>();
+    private readonly detachPeerHandlers: () => void;
     private acceptingOperations = true;
     private retirement?: Promise<void>;
 
     constructor(env: ReplicatorHostEnv) {
         this.host = new P2PHost(env);
         this.replicator = new TrysteroReplicator(env, this.host, this);
+        this.detachPeerHandlers = this.host.setSessionPeerHandlers({
+            onAdvertisement: async (peer) => {
+                if (!this.acceptingOperations) return;
+                await this.replicator.onNewPeer(peer);
+            },
+            onPeerLeft: (peerId) => {
+                if (!this.acceptingOperations) return;
+                this.replicator.onPeerLeaved(peerId);
+            },
+        });
     }
 
     /** Open the room owned by this session. */
@@ -78,6 +89,7 @@ export class P2PRoomSession implements P2PFiniteOperationOwner {
     retire(reason: unknown = new Error("P2P room session retired.")): Promise<void> {
         this.retirement ??= (async () => {
             this.acceptingOperations = false;
+            this.detachPeerHandlers();
             if (!this.sessionController.signal.aborted) {
                 this.sessionController.abort(reason);
             }
@@ -88,7 +100,7 @@ export class P2PRoomSession implements P2PFiniteOperationOwner {
                     .filter((settlement): settlement is Promise<unknown> => settlement !== undefined)
             );
             this.replicator.disableBroadcastChanges();
-            await this.replicator.close();
+            await this.replicator.dispose();
         })();
         return this.retirement;
     }

@@ -101,6 +101,7 @@ async function getHashedStringWithCurrentTime(source: string) {
 export class TrysteroReplicator {
     _env: ReplicatorHostEnv;
     private readonly finiteOperationOwner?: P2PFiniteOperationOwner;
+    private disposed = false;
 
     server?: P2PHost;
     replicationStatus() {
@@ -188,7 +189,21 @@ export class TrysteroReplicator {
         this.disconnectFromServer();
     }
 
+    /** Close the transport and release resources owned for this object's lifetime. */
+    async dispose(): Promise<void> {
+        if (this.disposed) return;
+        this.disposed = true;
+        try {
+            await this.close();
+        } finally {
+            this.server?.dispose();
+        }
+    }
+
     async open() {
+        if (this.disposed) {
+            throw new Error("The P2P Replicator has been disposed.");
+        }
         this.allowReconnection();
         const commands = this.getCommands();
         await this.server?.start([commands], () =>
@@ -424,6 +439,7 @@ export class TrysteroReplicator {
     }
 
     dispatchStatus() {
+        if (this.disposed) return;
         this._env.events.emitEvent(EVENT_P2P_REPLICATOR_STATUS, {
             isBroadcasting: this._isBroadcasting,
             replicatingTo: [...this._replicateToPeers],

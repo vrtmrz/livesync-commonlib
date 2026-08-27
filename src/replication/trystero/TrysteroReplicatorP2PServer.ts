@@ -50,6 +50,12 @@ export type P2PServerInfo = {
     roomId: string;
     diag: DiagRTCStats;
 };
+
+/** Peer callbacks bound to one room session rather than the global event hub. */
+export interface P2PSessionPeerHandlers {
+    onAdvertisement(peer: Advertisement): void | Promise<void>;
+    onPeerLeft(peerId: string): void;
+}
 export const EVENT_SERVER_STATUS = "p2p-server-status";
 export const EVENT_MAKE_DECISION = "make-decision-p2p-peer";
 export const EVENT_REVOKE_DECISION = "revoke-decision-p2p-peer";
@@ -88,6 +94,9 @@ export class TrysteroReplicatorP2PServer {
 
     protected _peerStatusEventCleanup: (() => void) | undefined = undefined;
     protected _peerFailureAnalysisCleanup: (() => void) | undefined = undefined;
+    private _platformUnloadCleanup: (() => void) | undefined;
+    private _sessionPeerHandlers: P2PSessionPeerHandlers | undefined;
+    private _hostLifetimeEnded = false;
 
     protected _peerConnectionEventCleanup() {
         if (this._peerStatusEventCleanup) {
@@ -147,7 +156,16 @@ export class TrysteroReplicatorP2PServer {
         }
     }
 
+    /** Release subscriptions whose lifetime is the host object rather than one transport join. */
+    dispose(): void {
+        this._hostLifetimeEnded = true;
+        this._platformUnloadCleanup?.();
+        this._platformUnloadCleanup = undefined;
+        this._sessionPeerHandlers = undefined;
+    }
+
     async dispatchConnectionStatus() {
+        if (this._hostLifetimeEnded) return;
         const adsTasks = [...this.knownAdvertisements].map(async (e) => {
             const isAccepted = await this.acceptedPeers.get(e.name);
             const isTemporaryAccepted = this.temporaryAcceptedPeers.get(e.peerId);
@@ -158,6 +176,7 @@ export class TrysteroReplicatorP2PServer {
             };
         });
         const ads = await Promise.all(adsTasks);
+        if (this._hostLifetimeEnded) return;
         this._env.events.emitEvent(EVENT_SERVER_STATUS, {
             isConnected: this.isServing,
             knownAdvertisements: ads,
@@ -170,7 +189,7 @@ export class TrysteroReplicatorP2PServer {
     constructor(env: ReplicatorHostEnv, _serverPeerId = selfId) {
         this._env = env;
         this._serverPeerId = _serverPeerId;
-        this._env.events.onEvent(EVENT_PLATFORM_UNLOADED, () => {
+        this._platformUnloadCleanup = this._env.events.onEvent(EVENT_PLATFORM_UNLOADED, () => {
             void this.shutdown();
         });
         // SimpleStore has no type support now.
@@ -178,6 +197,16 @@ export class TrysteroReplicatorP2PServer {
             this._env.simpleStore as SimpleStore<boolean>,
             "p2p-device-decisions"
         );
+    }
+
+    /** Attach callbacks owned by the current room session and return their disposer. */
+    setSessionPeerHandlers(handlers: P2PSessionPeerHandlers): () => void {
+        this._sessionPeerHandlers = handlers;
+        return () => {
+            if (this._sessionPeerHandlers === handlers) {
+                this._sessionPeerHandlers = undefined;
+            }
+        };
     }
     async makeDecision(decision: AcceptanceDecision) {
         if (decision.decision) {
@@ -252,6 +281,7 @@ export class TrysteroReplicatorP2PServer {
     }
 
     onAdvertisement(data: Advertisement, peerId: string) {
+        if (this._hostLifetimeEnded) return;
         if (!this.isEnabled) return;
         Logger(`Advertisement from ${peerId}`, LOG_LEVEL_VERBOSE);
         if (peerId === this.serverPeerId) return;
@@ -259,6 +289,9 @@ export class TrysteroReplicatorP2PServer {
         if (data.peerId !== peerId) return;
         this._knownAdvertisements.set(peerId, data);
         void this.dispatchConnectionStatus();
+        void Promise.resolve()
+            .then(() => this._sessionPeerHandlers?.onAdvertisement(data))
+            .catch((error: unknown) => Logger(error, LOG_LEVEL_VERBOSE));
         void this._env.events.emitEvent(EVENT_ADVERTISEMENT_RECEIVED, data);
     }
 
@@ -394,6 +427,7 @@ You can chose as follows:
     }
 
     private _onPeerJoin(peerId: string) {
+        if (this._hostLifetimeEnded) return;
         if (!this._room) {
             Logger(`Received peer join event from ${peerId}, but no active room. Ignoring.`, LOG_LEVEL_VERBOSE);
             //
@@ -403,8 +437,12 @@ You can chose as follows:
         this.sendAdvertisement(peerId);
     }
     private _onPeerLeave(peerId: string) {
+        if (this._hostLifetimeEnded) return;
         Logger(`Peer left: ${peerId}`, LOG_LEVEL_VERBOSE);
         this._knownAdvertisements.delete(peerId);
+        void Promise.resolve()
+            .then(() => this._sessionPeerHandlers?.onPeerLeft(peerId))
+            .catch((error: unknown) => Logger(error, LOG_LEVEL_VERBOSE));
         void this._env.events.emitEvent(EVENT_DEVICE_LEAVED, peerId);
         void this.dispatchConnectionStatus();
     }
