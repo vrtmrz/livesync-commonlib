@@ -58,6 +58,18 @@ describe("LiveSyncTrysteroReplicator remote preferred tweak values", () => {
 });
 
 describe("LiveSyncTrysteroReplicator manual replication", () => {
+    it("requests transfer cancellation without closing the room", () => {
+        const cancelActiveTransfers = vi.fn();
+        const retire = vi.fn();
+        const replicator = createLifecycleReplicator();
+        (replicator as any)._roomSession = { cancelActiveTransfers, retire };
+
+        replicator.terminateSync();
+
+        expect(cancelActiveTransfers).toHaveBeenCalledOnce();
+        expect(retire).not.toHaveBeenCalled();
+    });
+
     it("runs a finite command-triggered synchronisation through the shared activity boundary", async () => {
         const replicateFromCommand = vi.fn(async () => undefined);
         const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
@@ -67,7 +79,7 @@ describe("LiveSyncTrysteroReplicator manual replication", () => {
                 replicator: { runFiniteReplicationActivity },
             },
         } as any);
-        (replicator as any)._replicator = { replicateFromCommand };
+        (replicator as any)._roomSession = { replicator: { replicateFromCommand } };
 
         await replicator.replicateFromCommand(true);
 
@@ -86,7 +98,7 @@ describe("LiveSyncTrysteroReplicator manual replication", () => {
                 replicator: { runFiniteReplicationActivity },
             },
         } as any);
-        (replicator as any)._replicator = { replicateFrom };
+        (replicator as any)._roomSession = { replicator: { replicateFrom } };
 
         await expect(replicator.replicateFrom("peer-a", true)).resolves.toEqual({ ok: true });
 
@@ -105,7 +117,7 @@ describe("LiveSyncTrysteroReplicator manual replication", () => {
                 replicator: { runFiniteReplicationActivity },
             },
         } as any);
-        (replicator as any)._replicator = { replicateFrom };
+        (replicator as any)._roomSession = { replicator: { replicateFrom } };
 
         await expect(replicator.replicateFrom("peer-a", true, true)).resolves.toEqual({ ok: true });
 
@@ -122,7 +134,7 @@ describe("LiveSyncTrysteroReplicator manual replication", () => {
                 replicator: { runBoundedRemoteActivity, runFiniteReplicationActivity },
             },
         } as any);
-        (replicator as any)._replicator = { requestSynchroniseToPeer };
+        (replicator as any)._roomSession = { replicator: { requestSynchroniseToPeer } };
 
         await expect(replicator.requestSynchroniseToPeer("peer-a")).resolves.toEqual({ ok: true });
 

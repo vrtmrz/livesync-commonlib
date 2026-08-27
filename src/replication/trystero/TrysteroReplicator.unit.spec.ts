@@ -29,6 +29,102 @@ function createReplicator(settings: Record<string, unknown> = {}) {
 }
 
 describe("TrysteroReplicator automatic remote activity", () => {
+    it("binds an incoming synchronisation request to the RPC cancellation signal", async () => {
+        const { replicator } = createReplicator();
+        const registrationOrder: string[] = [];
+        const start = vi.fn(async (_bindings: unknown[], beforeAdvertisement?: () => void) => {
+            registrationOrder.push("room-opened");
+            beforeAdvertisement?.();
+            registrationOrder.push("advertised");
+        });
+        const serveCancellationAwareFunction = vi.fn(() => registrationOrder.push("cancellable-handler"));
+        (replicator as any).server = {
+            _knownAdvertisements: new Map(),
+            start,
+            serveCancellationAwareFunction,
+        };
+        const replicateFrom = vi.spyOn(replicator, "replicateFrom").mockResolvedValue({ status: "cancelled" });
+
+        await replicator.open();
+        const handler = serveCancellationAwareFunction.mock.calls[0][1] as (
+            context: { signal: AbortSignal },
+            peerId: string,
+            fromPeerId: string
+        ) => Promise<unknown>;
+        const controller = new AbortController();
+
+        await handler({ signal: controller.signal }, "rpc-peer", "source-peer");
+
+        expect(start).toHaveBeenCalledOnce();
+        expect(registrationOrder).toEqual(["room-opened", "cancellable-handler", "advertised"]);
+        expect(replicateFrom).toHaveBeenCalledWith("source-peer", false, false, false, controller.signal);
+    });
+
+    it("does not request the reverse transfer after the pull is cancelled", async () => {
+        const { replicator } = createReplicator();
+        vi.spyOn(replicator, "replicateFrom").mockResolvedValue({ status: "cancelled" });
+        const requestSynchroniseToPeer = vi
+            .spyOn(replicator, "requestSynchroniseToPeer")
+            .mockResolvedValue({ status: "completed", ok: true });
+
+        await replicator.sync("peer-id");
+
+        expect(requestSynchroniseToPeer).not.toHaveBeenCalled();
+    });
+
+    it("reports cancellation when an outgoing synchronisation request is aborted", async () => {
+        const { replicator } = createReplicator();
+        let requestStarted!: () => void;
+        const started = new Promise<void>((resolve) => {
+            requestStarted = resolve;
+        });
+        const invokeRemoteFunction = vi.fn(
+            (_type: string, _args: unknown[], _timeout: number, signal?: AbortSignal) =>
+                new Promise((_resolve, reject) => {
+                    requestStarted();
+                    signal?.addEventListener("abort", () => reject({ code: "CANCELLED" }), { once: true });
+                })
+        );
+        (replicator as any).server = {
+            serverPeerId: "local-peer",
+            getConnection: vi.fn(() => ({ invokeRemoteFunction })),
+        };
+        const controller = new AbortController();
+
+        const result = replicator.requestSynchroniseToPeer("peer-id", controller.signal);
+        await started;
+        controller.abort();
+
+        await expect(result).resolves.toEqual({ status: "cancelled" });
+    });
+
+    it("reports cancellation when an outgoing tweak check is aborted", async () => {
+        const { replicator } = createReplicator();
+        let requestStarted!: () => void;
+        const started = new Promise<void>((resolve) => {
+            requestStarted = resolve;
+        });
+        const invokeRemoteObjectFunction = vi.fn(
+            (_type: string, _args: unknown[], _timeout: number, signal?: AbortSignal) =>
+                new Promise((_resolve, reject) => {
+                    requestStarted();
+                    signal?.addEventListener("abort", () => reject({ code: "CANCELLED" }), { once: true });
+                })
+        );
+        (replicator as any).server = {
+            knownAdvertisements: [{ peerId: "peer-id", platform: "test" }],
+            getConnection: vi.fn(() => ({ invokeRemoteObjectFunction })),
+        };
+        vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+        const controller = new AbortController();
+
+        const result = replicator.replicateFrom("peer-id", false, false, false, controller.signal);
+        await started;
+        controller.abort();
+
+        await expect(result).resolves.toEqual({ status: "cancelled" });
+    });
+
     it("tracks automatic synchronisation when a configured peer is discovered", async () => {
         const { replicator, runFiniteReplicationActivity } = createReplicator({
             P2P_AutoSyncPeers: "peer-a",
@@ -57,7 +153,9 @@ describe("TrysteroReplicator automatic remote activity", () => {
 
     it("tracks a pull requested by a remote peer", async () => {
         const { replicator, runFiniteReplicationActivity } = createReplicator();
-        const replicateFrom = vi.spyOn(replicator, "replicateFrom").mockResolvedValue({ ok: true });
+        const replicateFrom = vi
+            .spyOn(replicator, "replicateFrom")
+            .mockResolvedValue({ status: "completed", ok: true });
 
         await replicator.getCommands().reqSync("peer-id");
 
@@ -69,7 +167,9 @@ describe("TrysteroReplicator automatic remote activity", () => {
 
     it("tracks a watched pull after a peer reports progress", async () => {
         const { replicator, runFiniteReplicationActivity } = createReplicator();
-        const replicateFrom = vi.spyOn(replicator, "replicateFrom").mockResolvedValue({ ok: true });
+        const replicateFrom = vi
+            .spyOn(replicator, "replicateFrom")
+            .mockResolvedValue({ status: "completed", ok: true });
         replicator._watchingPeers.add("peer-id");
 
         await replicator.onUpdateDatabase("peer-id");

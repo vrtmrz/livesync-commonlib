@@ -20,7 +20,7 @@ import { createHostingDB } from "./ProxiedDB";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock_v2";
 import { Computed } from "octagonal-wheels/dataobject/Computed";
-import { RpcRoom, type JsonLike, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
+import { RpcRoom, type JsonLike, type RpcRequestContext, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
 import { resolveTrysteroRpcOptions } from "@lib/rpc/transports/TrysteroTransport";
 import { subscribeTrysteroPeerEvents } from "@lib/rpc/transports/trysteroRoomEvents";
 import { toRpcMethodName } from "./rpcCompat";
@@ -488,7 +488,7 @@ You can chose as follows:
         void this.dispatchConnectionStatus();
     }
 
-    async startService(bindings: BindableObject[] = []) {
+    async startService(bindings: BindableObject[] = [], beforeAdvertisement?: () => void) {
         if (!this.isEnabled) {
             Logger(this._env.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
             return;
@@ -498,11 +498,14 @@ You can chose as follows:
         this._bindingObjects.forEach((b) => {
             this.serveObject(b);
         });
+        // Allow a caller to replace an ordinary binding with a specialised
+        // handler before peers are told that this room is ready.
+        beforeAdvertisement?.();
         await Promise.resolve(this.sendAdvertisement());
         // this.startAdvertisementBroadcast();
     }
 
-    async start(bindings: BindableObject[] = []) {
+    async start(bindings: BindableObject[] = [], beforeAdvertisement?: () => void) {
         await this.shutdown();
         if (!this.settings.P2P_Enabled) {
             Logger(this._env.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
@@ -530,7 +533,7 @@ You can chose as follows:
         this._activeRoomId = roomId;
         this.onAfterJoinRoom();
         void this.dispatchConnectionStatus();
-        await this.startService(bindings);
+        await this.startService(bindings, beforeAdvertisement);
     }
 
     /**
@@ -545,6 +548,18 @@ You can chose as follows:
             return await Promise.resolve(func.apply(this, [peerId, ...args]));
         });
     }
+
+    /** Serve one function whose finite work can observe caller cancellation. */
+    serveCancellationAwareFunction<T extends JsonLike[], U>(
+        type: string,
+        func: (context: RpcRequestContext, peerId: string, ...args: T) => U | Promise<U>
+    ) {
+        this._rpcRoom?.registerCancellable<T, U>(
+            toRpcMethodName(type),
+            async (context, peerId, ...args) => await Promise.resolve(func(context, peerId, ...args))
+        );
+    }
+
     serveObject<T>(obj: BindableObject<T>) {
         const keys = Object.keys(obj) as (keyof BindableObject<T>)[];
         keys.forEach((key) => {
