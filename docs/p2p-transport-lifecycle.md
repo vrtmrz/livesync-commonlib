@@ -7,14 +7,22 @@ This guide is for developers composing Commonlib's Trystero P2P service. It desc
 The P2P composition has three distinct owners:
 
 - `useP2PReplicatorFeature` owns the current `LiveSyncTrysteroReplicator` exposed to a host;
-- the Commonlib P2P host owns LiveSync RPC, advertisements, client proxies, diagnostics, and one Trystero room binding; and
+- each `P2PRoomSession` owns one Trystero room binding, its LiveSync RPC surface, advertisements, client proxies, diagnostics, and the finite replication operations admitted through that room; and
 - Trystero owns the underlying shared WebRTC peers and Nostr relay clients.
 
 Consumers must retain the service-feature result and resolve `result.replicator` at the point of use. A settings or database lifecycle transition can replace the replicator. A command, event listener, or view which captured the former instance could otherwise reopen a transport which the current service no longer owns.
 
+## Active transfer cancellation
+
+The provider's active-transfer stop capability asks the current `P2PRoomSession` to cancel every finite replication operation which it has admitted. The request returns after cancellation has been delivered; the operations then settle cooperatively. The session keeps the room, peer discovery, and RPC service available for later work. Stopping an active transfer is therefore distinct from disconnecting or replacing the P2P transport.
+
+Each finite operation receives an effective abort signal derived from the session lifetime, its operation controller, and any caller or incoming RPC request signal. Cancellation is cooperative: an atomic database write which has already begun may settle, and its matching checkpoint may be recorded, before the operation reports cancellation. It is not a rollback promise.
+
+Retiring the session first rejects new finite work, then aborts and awaits all admitted operations before releasing the room. Code admitted into the session must observe its effective signal and must not detach unowned work.
+
 ## Normal close
 
-`LiveSyncTrysteroReplicator.close()` serialises the close with any in-flight open operation. It stops LiveSync-owned work, closes the RPC room, calls `room.leave()`, clears instance references, pauses relay reconnection, and closes the current Nostr relay WebSockets.
+`LiveSyncTrysteroReplicator.close()` serialises the close with any in-flight open operation and retires the current room session. It stops LiveSync-owned work, closes the RPC room, calls `room.leave()`, clears instance references, pauses relay reconnection, and closes the current Nostr relay WebSockets.
 
 Normal close deliberately does not call `close()` on the `RTCPeerConnection` values returned by `room.getPeers()`. Trystero 0.25 may share a physical peer across rooms. Leaving a room detaches its callbacks and action namespace, while Trystero may retain the idle physical peer for approximately 123 seconds for reuse. The retained peer cannot carry traffic for the departed room.
 
