@@ -17,6 +17,27 @@ The source tree is larger than the supported package surface. Consumers may impo
 
 Files elsewhere under `src` are implementation details unless a focused entry re-exports them or the compatibility inventory names them. Do not use the source layout, TypeScript path aliases, or the presence of generated declarations as evidence of a supported consumer import.
 
+## Service composition and state ownership
+
+Commonlib uses four related forms of composition. Choose between them by ownership and dependency direction, not merely by whether an implementation has mutable state.
+
+- A **Service** is a long-lived contract in the Service Hub. Add a handler to an existing Service when the behaviour is a simple extension of that contract.
+- A **serviceFeature** is a typed composition function. It accepts only the Services and ServiceModules named by `NecessaryServices`, then registers handlers, commands, lifecycle bindings, or other host glue. It is not added to a runtime registry. A serviceFeature may return a focused view or controller, and may retain bounded private state when that state belongs only to the composed feature.
+- A **ServiceModule** is a long-lived stateful or resource-owning object constructed by the host and shared through the typed `ServiceModules` record. Use one when several consumers need the same operational capability or lifecycle, such as storage access, file handling, or database rebuilding. State alone does not make a ServiceModule necessary.
+- An **AbstractModule** is the legacy application module layer. Existing modules may continue to own application behaviour, but new composition should not acquire the broad core merely to gain lifecycle access or shared dependencies.
+
+When a feature needs state, separate the component which owns that state, its transitions, and its invariants from the code which connects it to application lifecycle events and downstream effects. Give the stateful component narrow collaborators or callbacks rather than the complete Service Hub or application core. Keep application-level handler registration and host-specific presentation in the surrounding serviceFeature. A handler or effect which is part of the state contract, such as querying unresolved errors or reporting their first occurrence, may remain inside the stateful component when its input and output ports are explicit and bounded.
+
+Existing features illustrate this direction:
+
+- `targetFilter.ts` keeps each cache or readiness gate inside the factory which owns the corresponding predicate. `useTargetFilters` composes those predicates and registers them in the required order.
+- `prepareDatabaseForUse.ts` keeps the initialisation sequence independently testable. `usePrepareDatabaseForUse` constructs its error manager and binds the operation to the database lifecycle.
+- the P2P composition keeps durable policy and room-session transitions in focused state owners, while `useP2PReplicatorFeature` connects those owners to Services and exposes narrow consumer views.
+
+Older code does not apply this boundary consistently. Improve it when changing the affected ownership or lifecycle; do not perform an unrelated mechanical conversion merely to change the abstraction name.
+
+Use interaction-based, London School unit tests at a serviceFeature boundary. Verify which collaborator is called, in which order, what is not called after a failure, and which handler receives the composed operation. Test the focused state owner separately for its transitions and invariants. If a unit test requires a broad core fixture, a deep chain of mocks, import-order substitution, or knowledge of unrelated services, stop and review the responsibility and dependency boundary before adding more test machinery. Difficulty writing a clean interaction test is a design-review signal, not a reason to expose more internals.
+
 ## Local validation
 
 For a complete local package gate, run:
