@@ -183,7 +183,9 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     closeReplication() {
-        this.client.requestStop();
+        // A never-used trial Replicator owns no Journal client. Closing it must
+        // not construct the resource which this method is meant to release.
+        this._client?.dispose();
         this.syncStatus = "CLOSED";
         Logger("Replication closed");
         this.updateInfo();
@@ -270,6 +272,8 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             Logger(`Error! Could not connected to ${endpoint}\n${(ex as Error).message}`, LOG_LEVEL_NOTICE);
             Logger(ex, LOG_LEVEL_NOTICE);
             return false;
+        } finally {
+            testClient.dispose();
         }
     }
 
@@ -305,36 +309,52 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         }
     }
 
-    async getRemotePreferredTweakValues(_setting: RemoteDBSettings): Promise<RemotePreferredTweakResult> {
-        const result = await this.client.downloadJsonWithResult<EntryMilestoneInfo>(MILSTONE_DOCID);
-        if (result.status === JournalStorageReadStatuses.NOT_FOUND) {
+    async getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<RemotePreferredTweakResult> {
+        // Preferred-tweak inspection is a finite trial-settings operation. Do
+        // not borrow or reconfigure the active Journal client.
+        const trialClient = new JournalSyncCore(
+            setting,
+            this.simpleStore,
+            this.env,
+            new MinioStorageAdapter(setting, this.env)
+        );
+        try {
+            const result = await trialClient.downloadJsonWithResult<EntryMilestoneInfo>(MILSTONE_DOCID);
+            if (result.status === JournalStorageReadStatuses.NOT_FOUND) {
+                return {
+                    status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
+                    reason: RemotePreferredTweakNotConfiguredReasons.MILESTONE_MISSING,
+                };
+            }
+            if (result.status === JournalStorageReadStatuses.UNAVAILABLE) {
+                return {
+                    status: RemotePreferredTweakStatuses.UNAVAILABLE,
+                    error: result.error,
+                };
+            }
+            const preferred = result.value.tweak_values?.[DEVICE_ID_PREFERRED];
+            if (!preferred) {
+                return {
+                    status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
+                    reason: RemotePreferredTweakNotConfiguredReasons.PREFERRED_VALUES_MISSING,
+                };
+            }
             return {
-                status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
-                reason: RemotePreferredTweakNotConfiguredReasons.MILESTONE_MISSING,
+                status: RemotePreferredTweakStatuses.AVAILABLE,
+                values: preferred,
             };
+        } finally {
+            trialClient.dispose();
         }
-        if (result.status === JournalStorageReadStatuses.UNAVAILABLE) {
-            return {
-                status: RemotePreferredTweakStatuses.UNAVAILABLE,
-                error: result.error,
-            };
-        }
-        const preferred = result.value.tweak_values?.[DEVICE_ID_PREFERRED];
-        if (!preferred) {
-            return {
-                status: RemotePreferredTweakStatuses.NOT_CONFIGURED,
-                reason: RemotePreferredTweakNotConfiguredReasons.PREFERRED_VALUES_MISSING,
-            };
-        }
-        return {
-            status: RemotePreferredTweakStatuses.AVAILABLE,
-            values: preferred,
-        };
     }
 
     async getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus> {
         const testClient = new MinioStorageAdapter(setting, this.env);
-        return await testClient.getUsage();
+        try {
+            return await testClient.getUsage();
+        } finally {
+            testClient.dispose();
+        }
     }
 
     countCompromisedChunks(): Promise<number> {

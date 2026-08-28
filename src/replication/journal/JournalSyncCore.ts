@@ -909,4 +909,10 @@ export class JournalSyncCore {
     requestStop() {
         this.requestedStop = true;
     }
+
+    /** Stop this Journal operation owner and release its storage transport. */
+    dispose(): void {
+        this.requestStop();
+        this.storage.dispose?.();
+    }
 }

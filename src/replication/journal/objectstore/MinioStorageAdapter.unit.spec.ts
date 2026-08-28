@@ -10,6 +10,7 @@ import type { LiveSyncJournalReplicatorEnv } from "@lib/replication/journal/Live
 import { MinioStorageAdapter } from "./MinioStorageAdapter.ts";
 
 type MockS3Client = {
+    destroy?: ReturnType<typeof vi.fn>;
     listObjectsV2?: ReturnType<typeof vi.fn>;
     send: ReturnType<typeof vi.fn>;
 };
@@ -155,5 +156,29 @@ describe("MinioStorageAdapter physical request activity", () => {
         await expect(uploading).resolves.toBe(true);
         expect(requestCount.value).toBe(1);
         expect(responseCount.value).toBe(1);
+    });
+});
+
+describe("MinioStorageAdapter resource ownership", () => {
+    it("destroys its SDK client exactly once when disposed repeatedly", async () => {
+        const destroy = vi.fn();
+        const { adapter } = createAdapter({ destroy, send: vi.fn() });
+
+        await (adapter as any).dispose();
+        await (adapter as any).dispose();
+
+        expect(destroy).toHaveBeenCalledOnce();
+        expect(adapter._instance).toBeUndefined();
+    });
+
+    it("destroys the former SDK client before applying new settings", () => {
+        const destroy = vi.fn();
+        const { adapter } = createAdapter({ destroy, send: vi.fn() });
+
+        adapter.applyNewConfig({ ...adapter._settings, endpoint: "https://replacement.invalid" });
+
+        expect(destroy).toHaveBeenCalledOnce();
+        expect(adapter._instance).toBeUndefined();
+        expect(adapter._settings.endpoint).toBe("https://replacement.invalid");
     });
 });

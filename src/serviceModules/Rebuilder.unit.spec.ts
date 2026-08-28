@@ -4,6 +4,7 @@ import { FlagFilesHumanReadable } from "@lib/common/models/redflag.const";
 import { ServiceRebuilder } from "./Rebuilder";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import { EVENT_DATABASE_REBUILT } from "@lib/events/coreEvents";
+import { REMOTE_RESOURCE_KINDS } from "@lib/replication";
 
 const fetchChangesForInitialSyncMock = vi.hoisted(() => vi.fn());
 
@@ -109,6 +110,14 @@ function createRebuilder(initialDatabaseSuffix = "") {
                 tryResetRemoteDatabase: vi.fn(async () => undefined),
             })),
             getNewReplicator: vi.fn(),
+            createRemoteResource: vi.fn(async (kind: string) =>
+                kind === REMOTE_RESOURCE_KINDS.SECURITY_SEED
+                    ? {
+                          read: vi.fn(async () => new Uint8Array([1])),
+                          dispose: vi.fn(async () => undefined),
+                      }
+                    : undefined
+            ),
             runBoundedRemoteActivity,
         },
         replication: {
@@ -315,6 +324,62 @@ describe("ServiceRebuilder fast fetch retry", () => {
             "CF-Access-Client-Id": "client-id",
             "CF-Access-Client-Secret": "client-secret",
         });
+    });
+});
+
+describe("ServiceRebuilder fast fetch resource ownership", () => {
+    it("does not use the general Replicator factory solely to prepare Fast Fetch", async () => {
+        fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
+        const { rebuilder, services, settings } = createRebuilder();
+
+        await rebuilder.$fetchLocalDBFast(false);
+
+        expect(services.replicator.getNewReplicator).not.toHaveBeenCalled();
+        expect(services.replicator.createRemoteResource).toHaveBeenCalledWith(
+            REMOTE_RESOURCE_KINDS.SECURITY_SEED,
+            settings
+        );
+    });
+
+    it("disposes the owned Security Seed resource exactly once when Fast Fetch succeeds", async () => {
+        fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
+        const { rebuilder, services } = createRebuilder();
+        const dispose = vi.fn(async () => undefined);
+        const resource = {
+            read: vi.fn(async () => new Uint8Array([1])),
+            dispose,
+        };
+        services.replicator.createRemoteResource.mockResolvedValue(resource);
+
+        await rebuilder.$fetchLocalDBFast(false);
+
+        expect(dispose).toHaveBeenCalledOnce();
+    });
+
+    it("disposes the owned Security Seed resource exactly once when Fast Fetch fails", async () => {
+        const failure = Object.assign(new Error("stream failed"), { retryable: false });
+        fetchChangesForInitialSyncMock.mockReset().mockRejectedValue(failure);
+        const { rebuilder, services } = createRebuilder();
+        const dispose = vi.fn(async () => undefined);
+        const resource = {
+            read: vi.fn(async () => new Uint8Array([1])),
+            dispose,
+        };
+        services.replicator.createRemoteResource.mockResolvedValue(resource);
+
+        await expect(rebuilder.$fetchLocalDBFast(false)).rejects.toBe(failure);
+
+        expect(dispose).toHaveBeenCalledOnce();
+    });
+
+    it("does not borrow the active Replicator for Fast Fetch", async () => {
+        fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
+        const { rebuilder, services } = createRebuilder();
+
+        await rebuilder.$fetchLocalDBFast(false);
+
+        expect(services.replicator.getNewReplicator).not.toHaveBeenCalled();
+        expect(services.replicator.getActiveReplicator).not.toHaveBeenCalled();
     });
 });
 

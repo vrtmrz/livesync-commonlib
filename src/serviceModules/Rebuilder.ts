@@ -26,6 +26,7 @@ import { getConfiguredFunctionsForEncryption } from "@lib/pouchdb/encryption";
 import { AuthorizationHeaderGenerator, generateCredentialObject } from "@lib/replication/httplib";
 import { parseHeaderValues } from "@lib/common/utils";
 import { sizeToHumanReadable } from "octagonal-wheels/number";
+import { REMOTE_RESOURCE_KINDS } from "@lib/replication";
 
 const FAST_FETCH_CHECKPOINT_KEY = "fast-fetch-checkpoint";
 const FAST_FETCH_RETRY_DELAYS = [2000, 5000, 10000, 20000];
@@ -493,75 +494,78 @@ Are you sure you wish to proceed?`;
             localDB = this.database.localDatabase.localDatabase;
             since = "0";
         }
-        const replicator = this.replicator.getActiveReplicator() ?? (await this.replicator.getNewReplicator());
-        if (!replicator) {
-            throw new Error("No active replicator found for fast fetch.");
+        const securitySeed = await this.replicator.createRemoteResource(REMOTE_RESOURCE_KINDS.SECURITY_SEED, settings);
+        if (!securitySeed) {
+            throw new Error("The selected provider cannot supply a Security Seed for Fast Fetch.");
         }
-        const salt = () => replicator.getReplicationPBKDF2Salt(settings);
-        const enc = getConfiguredFunctionsForEncryption(
-            settings.passphrase,
-            false,
-            false,
-            salt,
-            settings.E2EEAlgorithm
-        );
+        try {
+            const enc = getConfiguredFunctionsForEncryption(
+                settings.passphrase,
+                false,
+                false,
+                () => securitySeed.read(),
+                settings.E2EEAlgorithm
+            );
 
-        const authHeader = await new AuthorizationHeaderGenerator().getAuthorizationHeader(
-            generateCredentialObject(settings)
-        );
-        const customHeaders = parseHeaderValues(settings.couchDB_CustomHeaders);
+            const authHeader = await new AuthorizationHeaderGenerator().getAuthorizationHeader(
+                generateCredentialObject(settings)
+            );
+            const customHeaders = parseHeaderValues(settings.couchDB_CustomHeaders);
 
-        for (let attempt = 0; ; attempt++) {
-            try {
-                await fetchChangesForInitialSync(
-                    localDB,
-                    remote,
-                    authHeader,
-                    enc.outgoing,
-                    since,
-                    (progress) => {
-                        this._log(
-                            `Fast fetch progress: ${progress.totalValidFetched} / ${progress.docsToFetch}\nTotal bytes fetched: ${sizeToHumanReadable(progress.totalBytes)}`,
-                            LOG_LEVEL_NOTICE,
-                            "fetch-init-progress"
-                        );
-                    },
-                    (sequence) => this.saveFastFetchCheckpoint(remote, sequence),
-                    customHeaders
-                );
-                break;
-            } catch (ex) {
-                // StreamingFetch owns failure classification. Retrying only its
-                // explicitly transient transport failures prevents deterministic
-                // authentication, protocol, decryption, or storage failures from
-                // consuming the retry budget. Each retry resumes from the latest
-                // contiguous checkpoint persisted by the previous attempt.
-                if (!isRetryableStreamingFetchFailure(ex) || attempt >= FAST_FETCH_RETRY_DELAYS.length) throw ex;
-                checkpoint = this.getFastFetchCheckpoint(remote);
-                since = checkpoint?.sequence ?? since;
-                this._log(
-                    `Fast fetch interrupted. Retrying from sequence: ${since}`,
-                    LOG_LEVEL_NOTICE,
-                    "fetch-init-resume"
-                );
-                await delay(FAST_FETCH_RETRY_DELAYS[attempt]);
+            for (let attempt = 0; ; attempt++) {
+                try {
+                    await fetchChangesForInitialSync(
+                        localDB,
+                        remote,
+                        authHeader,
+                        enc.outgoing,
+                        since,
+                        (progress) => {
+                            this._log(
+                                `Fast fetch progress: ${progress.totalValidFetched} / ${progress.docsToFetch}\nTotal bytes fetched: ${sizeToHumanReadable(progress.totalBytes)}`,
+                                LOG_LEVEL_NOTICE,
+                                "fetch-init-progress"
+                            );
+                        },
+                        (sequence) => this.saveFastFetchCheckpoint(remote, sequence),
+                        customHeaders
+                    );
+                    break;
+                } catch (ex) {
+                    // StreamingFetch owns failure classification. Retrying only its
+                    // explicitly transient transport failures prevents deterministic
+                    // authentication, protocol, decryption, or storage failures from
+                    // consuming the retry budget. Each retry resumes from the latest
+                    // contiguous checkpoint persisted by the previous attempt.
+                    if (!isRetryableStreamingFetchFailure(ex) || attempt >= FAST_FETCH_RETRY_DELAYS.length) throw ex;
+                    checkpoint = this.getFastFetchCheckpoint(remote);
+                    since = checkpoint?.sequence ?? since;
+                    this._log(
+                        `Fast fetch interrupted. Retrying from sequence: ${since}`,
+                        LOG_LEVEL_NOTICE,
+                        "fetch-init-resume"
+                    );
+                    await delay(FAST_FETCH_RETRY_DELAYS[attempt]);
+                }
             }
-        }
 
-        const allDocs = await localDB.allDocs({ include_docs: false });
-        this._log(
-            `Fast database fetch completed. Total documents in local database: ${allDocs.total_rows}`,
-            LOG_LEVEL_NOTICE,
-            "fetch-init-complete"
-        );
+            const allDocs = await localDB.allDocs({ include_docs: false });
+            this._log(
+                `Fast database fetch completed. Total documents in local database: ${allDocs.total_rows}`,
+                LOG_LEVEL_NOTICE,
+                "fetch-init-complete"
+            );
 
-        await this.replication.markResolved();
-        if (autoResume) {
-            if (!(await this.finishRebuild())) {
-                throw new Error("Fast Fetch could not be finalised.");
+            await this.replication.markResolved();
+            if (autoResume) {
+                if (!(await this.finishRebuild())) {
+                    throw new Error("Fast Fetch could not be finalised.");
+                }
             }
+            this.clearFastFetchCheckpoint();
+        } finally {
+            await securitySeed.dispose();
         }
-        this.clearFastFetchCheckpoint();
     }
 
     /**

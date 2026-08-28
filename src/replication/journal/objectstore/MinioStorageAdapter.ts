@@ -39,8 +39,15 @@ export class MinioStorageAdapter implements IJournalStorage {
     }
 
     applyNewConfig(settings: BucketSyncSetting): void {
+        this.dispose();
         this._settings = settings;
-        this._instance = undefined; // Force recreation
+    }
+
+    /** Release the SDK client owned by this adapter. Repeated calls are safe. */
+    dispose(): void {
+        const instance = this._instance;
+        this._instance = undefined;
+        instance?.destroy();
     }
 
     get customHeaders(): [string, string][] {
