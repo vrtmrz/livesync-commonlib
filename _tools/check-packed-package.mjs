@@ -198,9 +198,19 @@ import {
     type UpsertRemoteConfigurationOptions,
 } from "${packageName}/remote-configurations";
 import {
+    NO_REMOTE_RESOURCE_CAPABILITIES,
     NO_INTERACTION,
+    REMOTE_ADMINISTRATION_ACTIONS,
+    REMOTE_ADMINISTRATION_FAILURE_REASONS,
+    REMOTE_RESOURCE_KINDS,
+    REPLACE_SAME_KIND_REPLICATOR,
     isReplicationCompleted,
+    type ReplicatorConfigurationIdentity,
+    type RemoteAdministrationRequest,
+    type RemoteAdministrationResult,
+    type RemoteResourceCapabilities,
     type ReplicationOutcome,
+    type SameKindReplicatorReconciliation,
 } from "${packageName}/replication";
 import type {
     P2PDiagnostics,
@@ -241,6 +251,17 @@ const replicationConnection = {} as CouchDBReplicationConnection;
 type LegacyRemoteDatabase = Awaited<ReturnType<LiveSyncCouchDBReplicator["_ensureConnection"]>>;
 const readLegacyRemoteDatabase = (database: LegacyRemoteDatabase) => database.get("document-id");
 const completedOutcome: ReplicationOutcome = { status: "completed" };
+const configurationIdentity: ReplicatorConfigurationIdentity = "profile-a";
+const sameKindReconciliation: SameKindReplicatorReconciliation = REPLACE_SAME_KIND_REPLICATOR;
+const remoteResourceCapabilities: RemoteResourceCapabilities = NO_REMOTE_RESOURCE_CAPABILITIES;
+const remoteAdministrationRequest: RemoteAdministrationRequest = {
+    action: REMOTE_ADMINISTRATION_ACTIONS.LOCK,
+};
+const remoteAdministrationFailure: RemoteAdministrationResult = {
+    status: "verification-failed",
+    reason: REMOTE_ADMINISTRATION_FAILURE_REASONS.POSTCONDITION_MISMATCH,
+};
+const securitySeedResourceKind: string = REMOTE_RESOURCE_KINDS.SECURITY_SEED;
 const noInteractionKind: string = NO_INTERACTION.kind;
 const completedCheck: boolean = isReplicationCompleted(completedOutcome);
 const readP2PDiagnostics = (views: P2PServiceViews): P2PDiagnostics => views.diagnostics;
@@ -269,6 +290,12 @@ void remoteConnectionOptions;
 void closeRemoteConnection;
 void replicationConnection;
 void readLegacyRemoteDatabase;
+void configurationIdentity;
+void sameKindReconciliation;
+void remoteResourceCapabilities;
+void remoteAdministrationRequest;
+void remoteAdministrationFailure;
+void securitySeedResourceKind;
 void noInteractionKind;
 void completedCheck;
 void readP2PDiagnostics;
@@ -318,6 +345,10 @@ assert.equal(typeof remoteConfigurationsApi.upsertRemoteConfigurationInPlace, "f
 assert.equal(typeof p2pApi.useP2PReplicatorFeature, "function");
 assert.equal(typeof p2pApi.useP2PReplicatorCommands, "function");
 assert.equal(replicationApi.NO_INTERACTION.kind, "forbidden");
+assert.equal(replicationApi.REPLACE_SAME_KIND_REPLICATOR.kind, "replace");
+assert.equal(replicationApi.REMOTE_RESOURCE_KINDS.SECURITY_SEED, "security-seed");
+assert.equal(replicationApi.REMOTE_ADMINISTRATION_ACTIONS.LOCK, "lock");
+assert.equal(replicationApi.REMOTE_ADMINISTRATION_FAILURE_REASONS.POSTCONDITION_MISMATCH, "postcondition-mismatch");
 assert.equal(typeof replicationApi.isReplicationCompleted, "function");
 assert.equal(runtimeCompat.compatGlobal, globalThis);
 assert.equal(typeof nodeRuntime.fs.readFileSync, "function");

@@ -6,15 +6,23 @@ import { addP2PEventHandlers } from "./addP2PEventHandlers";
 import { createP2PService, type P2PServiceViews } from "@lib/p2p/P2PService";
 import {
     CAPABILITY_NOT_APPLICABLE,
+    NO_REMOTE_RESOURCE_CAPABILITIES,
     PEER_REPLICATION_READINESS,
+    REMOTE_ADMINISTRATION_FAILURE_REASONS,
+    REPLACE_SAME_KIND_REPLICATOR,
+    applyRemoteAdministrationMutation,
     defineReplicatorProviderDefinitions,
     outcomeFromFiniteOpenReplication,
     replicationBlocked,
     replicationFailed,
+    remoteAdministrationVerificationFailed,
+    supportedCapability,
     supportedStopActiveTransfer,
+    type RemoteAdministrationRunner,
     type UserInitiatedOneShotRunner,
     type UnattendedOneShotRunner,
 } from "@lib/replication";
+import { getP2PReplicatorConfigurationIdentity } from "./p2pReplicatorConfigurationIdentity.ts";
 
 /**
  * Factory type: given the compatibility Replicator and the stable service
@@ -32,6 +40,18 @@ export type OpenReplicationUIFactory = (
 
 /** Same shape as OpenReplicationUIFactory, used for the rebuild/replicateAllFromServer flow. */
 export type OpenRebuildUIFactory = OpenReplicationUIFactory;
+
+/**
+ * Preserve the legacy P2P administration boundary without claiming a
+ * verifiable remote state. The ignored mark-resolved operation settles as not
+ * applicable, while unsupported lock operations continue to reject.
+ */
+const P2P_REMOTE_ADMINISTRATION_CAPABILITY = supportedCapability<RemoteAdministrationRunner>(
+    async (instance, setting, request) => {
+        await applyRemoteAdministrationMutation(instance, setting, request.action);
+        return remoteAdministrationVerificationFailed(REMOTE_ADMINISTRATION_FAILURE_REASONS.CAPABILITY_NOT_APPLICABLE);
+    }
+);
 
 /**
  * Compose one private P2P service context and register non-owning active
@@ -110,9 +130,13 @@ export function useP2PReplicatorFeature(
                 diagnosticName: "P2P",
                 readiness: PEER_REPLICATION_READINESS,
                 isConfigured: (settings) => settings.remoteType === REMOTE_P2P && settings.P2P_Enabled,
+                configurationIdentity: getP2PReplicatorConfigurationIdentity,
+                sameKindReconciliation: REPLACE_SAME_KIND_REPLICATOR,
                 create: createP2PReplicator,
-                userInitiatedOneShot: { kind: "supported", run: userInitiatedOneShot },
-                unattendedOneShot: { kind: "supported", run: unattendedOneShot },
+                remoteResources: NO_REMOTE_RESOURCE_CAPABILITIES,
+                remoteAdministration: P2P_REMOTE_ADMINISTRATION_CAPABILITY,
+                userInitiatedOneShot: supportedCapability(userInitiatedOneShot),
+                unattendedOneShot: supportedCapability(unattendedOneShot),
                 continuous: CAPABILITY_NOT_APPLICABLE,
                 stopActiveTransfer: supportedStopActiveTransfer(),
             },

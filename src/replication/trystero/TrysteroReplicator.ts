@@ -3,7 +3,7 @@ import { TweakValuesShouldMatchedTemplate, type EntryDoc, type ObsidianLiveSyncS
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
 import { replicateShim, type ProgressInfo } from "@lib/pouchdb/ReplicatorShim";
 import type { Confirm } from "@lib/interfaces/Confirm";
-import { type Advertisement, type ReplicatorHostEnv } from "./types";
+import { resolveCurrentP2PSettings, type Advertisement, type ReplicatorHostEnv } from "./types";
 import { scheduleOnceIfDuplicated, serialized, skipIfDuplicated } from "octagonal-wheels/concurrency/lock_v2";
 import { delay, fireAndForget } from "octagonal-wheels/promises";
 import {
@@ -139,6 +139,10 @@ export class TrysteroReplicator {
     get settings() {
         return this._env.settings;
     }
+    /** Latest room-local policy settings supplied by the owning host. */
+    get currentSettings() {
+        return resolveCurrentP2PSettings(this._env);
+    }
     get db(): PouchDB.Database<EntryDoc> {
         return this._env.db;
     }
@@ -245,9 +249,7 @@ export class TrysteroReplicator {
             )
         );
         this.dispatchStatus();
-        if (this.settings.P2P_AutoBroadcast) {
-            this.enableBroadcastChanges();
-        }
+        this.reconcileAutoBroadcast(this.currentSettings.P2P_AutoBroadcast);
     }
     async makeSureOpened() {
         if (!this.server?.isServing) {
@@ -255,14 +257,14 @@ export class TrysteroReplicator {
         }
     }
     get autoSyncPeers() {
-        const peers = this.settings.P2P_AutoSyncPeers.split(",")
+        const peers = this.currentSettings.P2P_AutoSyncPeers.split(",")
             .map((e) => e.trim())
             .filter((e) => e.length > 0)
             .map((e) => (e.startsWith("~") ? new RegExp(e.substring(1), "i") : new RegExp(`^${e}$`, "i")));
         return peers;
     }
     get autoWatchPeers() {
-        const peers = this.settings.P2P_AutoWatchPeers.split(",")
+        const peers = this.currentSettings.P2P_AutoWatchPeers.split(",")
             .map((e) => e.trim())
             .filter((e) => e.length > 0)
             .map((e) => (e.startsWith("~") ? new RegExp(e.substring(1), "i") : new RegExp(`^${e}$`, "i")));
@@ -542,6 +544,16 @@ export class TrysteroReplicator {
         void this.changes.on("error", closeChanges);
         void this.changes.on("complete", closeChanges);
         fireAndForget(async () => await this.notifyProgress());
+    }
+
+    /** Apply automatic broadcast policy without restarting this room. */
+    reconcileAutoBroadcast(enabled: boolean): void {
+        if (enabled === this._isBroadcasting) return;
+        if (enabled) {
+            this.enableBroadcastChanges();
+        } else {
+            this.disableBroadcastChanges();
+        }
     }
 
     get knownAdvertisements() {
@@ -906,7 +918,7 @@ export class TrysteroReplicator {
     }
 
     private configuredPeerNames(): string[] {
-        return [...new Set(this._env.settings.P2P_SyncOnReplication.split(",").map((name) => name.trim()))].filter(
+        return [...new Set(this.currentSettings.P2P_SyncOnReplication.split(",").map((name) => name.trim()))].filter(
             Boolean
         );
     }
@@ -958,7 +970,7 @@ export class TrysteroReplicator {
         callerSignal?: AbortSignal
     ): Promise<P2PConfiguredReplicationResult> {
         const logLevel = showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
-        if (!this._env.settings.P2P_Enabled) {
+        if (!this.currentSettings.P2P_Enabled) {
             Logger(this.translate("P2P.NotEnabled"), logLevel);
             return { status: "blocked", reason: "no-targets", targets: [] };
         }
@@ -988,7 +1000,8 @@ export class TrysteroReplicator {
                 targets.push({
                     name: peerName,
                     peerId: advertisement.peerId,
-                    status: acceptance === "rejected" ? "rejected" : acceptance === "undecided" ? "undecided" : "missing",
+                    status:
+                        acceptance === "rejected" ? "rejected" : acceptance === "undecided" ? "undecided" : "missing",
                 });
                 continue;
             }

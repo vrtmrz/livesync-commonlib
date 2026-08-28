@@ -6,6 +6,7 @@ export {
     PEER_REPLICATION_READINESS,
     REPLICATION_CANCELLED,
     REPLICATION_COMPLETED,
+    REPLACE_SAME_KIND_REPLICATOR,
     USER_INITIATED_REPLICATION_AUTHORITY,
     defineReplicatorProviderDefinitions,
     isReplicationCompleted,
@@ -17,6 +18,7 @@ export {
     supportedOpenReplicationOneShot,
     supportedOpenReplicationUnattended,
     supportedStopActiveTransfer,
+    supportedCapability,
 } from "./ReplicatorProvider.ts";
 export type {
     ActiveReplicatorContext,
@@ -38,8 +40,11 @@ export type {
     ReplicationOutcome,
     ReplicationReadinessRequirements,
     ReplicationPartial,
+    RebindActiveReplicatorRunner,
+    ReplicatorConfigurationIdentity,
     ReplicatorProviderDefinition,
     ReplicatorProviderDefinitionMap,
+    SameKindReplicatorReconciliation,
     StopActiveTransferRunner,
     SupportedCapability,
     UnattendedOneShotRequest,
@@ -49,3 +54,43 @@ export type {
     UserInitiatedReplicationAuthority,
     UserInitiatedOneShotRunner,
 } from "./ReplicatorProvider.ts";
+export { CAPABILITY_SUPPORT_KINDS, CAPABILITY_UNAVAILABLE_REASONS } from "./ProviderCapability.ts";
+export { NO_REMOTE_RESOURCE_CAPABILITIES, REMOTE_RESOURCE_KINDS } from "./RemoteResource.ts";
+export type {
+    ConnectionProbeFactory,
+    PreferredTweakProbe,
+    PreferredTweakProbeFactory,
+    RemoteConnectionProbe,
+    RemoteConnectionProbeOptions,
+    RemoteConnectionProbeResult,
+    RemoteResourceCapabilities,
+    RemoteResourceFactoryMap,
+    RemoteResourceKind,
+    RemoteResourceMap,
+    SecuritySeedResource,
+    SecuritySeedResourceFactory,
+    SynchronisationInformationResource,
+    SynchronisationInformationResourceFactory,
+} from "./RemoteResource.ts";
+export {
+    REMOTE_ADMINISTRATION_ACTIONS,
+    REMOTE_ADMINISTRATION_FAILURE_REASONS,
+    REMOTE_ADMINISTRATION_OBSERVATION_KINDS,
+    REMOTE_ADMINISTRATION_RESULT_STATUSES,
+    applyRemoteAdministrationMutation,
+    isRemoteAdministrationVerified,
+    milestoneSatisfiesRemoteAdministration,
+    remoteAdministrationVerificationFailed,
+    remoteAdministrationVerified,
+} from "./RemoteAdministration.ts";
+export type {
+    MilestoneRemoteAdministrationObservation,
+    RemoteAdministrationAction,
+    RemoteAdministrationFailureReason,
+    RemoteAdministrationObservation,
+    RemoteAdministrationRequest,
+    RemoteAdministrationResult,
+    RemoteAdministrationRunner,
+    RemoteAdministrationVerificationFailed,
+    RemoteAdministrationVerified,
+} from "./RemoteAdministration.ts";

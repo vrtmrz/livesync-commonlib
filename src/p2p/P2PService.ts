@@ -161,6 +161,7 @@ export interface P2PServiceLifecycle {
     requestStatus(): void;
     openAfterDatabaseRebuild(): Promise<void>;
     closeForLifecycle(): Promise<void>;
+    /** Reconcile the automatic room demand; the room owner also reapplies current room-local policy. */
     reconcileAutoStart(settings: Pick<ObsidianLiveSyncSettings, "P2P_Enabled" | "P2P_AutoStart">): Promise<void>;
     scheduleAutoStart(delayMs?: number): void;
 }

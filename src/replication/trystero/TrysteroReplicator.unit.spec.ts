@@ -12,16 +12,20 @@ import type { Advertisement } from "./types";
 function createReplicator(settings: Record<string, unknown> = {}) {
     const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
     const events = createLiveSyncEventHub();
+    const sessionSettings = {
+        P2P_Enabled: true,
+        P2P_AutoSyncPeers: "",
+        P2P_AutoWatchPeers: "",
+        P2P_SyncOnReplication: "",
+        ...settings,
+    };
+    const currentSettings = { ...sessionSettings };
     const replicator = new TrysteroReplicator(
         {
             events,
             translate: (key: string) => key,
-            settings: {
-                P2P_Enabled: true,
-                P2P_AutoSyncPeers: "",
-                P2P_AutoWatchPeers: "",
-                ...settings,
-            },
+            settings: sessionSettings,
+            currentSettings: () => currentSettings,
             db: {},
             simpleStore: {},
             deviceName: "device-a",
@@ -35,7 +39,7 @@ function createReplicator(settings: Record<string, unknown> = {}) {
             evaluatePeerAcceptance: vi.fn(async () => "accepted"),
         } as any
     );
-    return { events, replicator, runFiniteReplicationActivity };
+    return { currentSettings, events, replicator, runFiniteReplicationActivity };
 }
 
 function createAdvertisementServer(advertisements: Advertisement[] = []) {
@@ -190,6 +194,20 @@ describe("TrysteroReplicator automatic remote activity", () => {
         expect(replicator._watchingPeers).toContain("peer-id");
     });
 
+    it("reads current automatic synchronisation and watch policy for a newly advertised peer", async () => {
+        const { currentSettings, replicator } = createReplicator();
+        const sync = vi.spyOn(replicator, "sync").mockResolvedValue({ status: "completed", ok: true });
+        vi.spyOn(replicator, "getRemoteIsBroadcasting").mockResolvedValue(true);
+        const watchPeer = vi.spyOn(replicator, "watchPeer");
+        currentSettings.P2P_AutoSyncPeers = "peer-a";
+        currentSettings.P2P_AutoWatchPeers = "peer-a";
+
+        await replicator.onNewPeer({ peerId: "peer-id", name: "peer-a", platform: "test" });
+
+        expect(sync).toHaveBeenCalledWith("peer-id");
+        expect(watchPeer).toHaveBeenCalledWith("peer-id");
+    });
+
     it("tracks a pull requested by a remote peer", async () => {
         const { replicator, runFiniteReplicationActivity } = createReplicator();
         const replicateFrom = vi
@@ -257,6 +275,20 @@ describe("TrysteroReplicator automatic remote activity", () => {
         } finally {
             vi.useRealTimers();
         }
+    });
+
+    it("reads the current configured-target policy when unattended synchronisation starts", async () => {
+        const { currentSettings, replicator } = createReplicator();
+        const peer: Advertisement = { peerId: "peer-id", name: "peer-a", platform: "test" };
+        replicator.server = createAdvertisementServer([peer]) as unknown as P2PHost;
+        const sync = vi.spyOn(replicator, "sync").mockResolvedValue({ status: "completed", ok: true });
+        currentSettings.P2P_SyncOnReplication = "peer-a";
+
+        await expect(replicator.replicateFromCommand(true, 0)).resolves.toEqual({
+            status: "completed",
+            targets: [{ name: "peer-a", peerId: "peer-id", status: "completed" }],
+        });
+        expect(sync).toHaveBeenCalledWith(peer.peerId, true, undefined);
     });
 
     it.each([

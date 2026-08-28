@@ -1,5 +1,22 @@
 import type { RemoteDBSettings, ObsidianLiveSyncSettings, RemoteType } from "@lib/common/types.ts";
 import type { LiveSyncAbstractReplicator } from "./LiveSyncAbstractReplicator.ts";
+import { supportedCapability, type CapabilitySupport, type SupportedCapability } from "./ProviderCapability.ts";
+import type { RemoteResourceCapabilities } from "./RemoteResource.ts";
+import type { RemoteAdministrationRunner } from "./RemoteAdministration.ts";
+
+export {
+    CAPABILITY_NOT_APPLICABLE,
+    CAPABILITY_NOT_IMPLEMENTED,
+    CAPABILITY_SUPPORT_KINDS,
+    CAPABILITY_UNAVAILABLE_REASONS,
+    supportedCapability,
+} from "./ProviderCapability.ts";
+export type {
+    CapabilitySupport,
+    NotApplicableCapability,
+    NotImplementedCapability,
+    SupportedCapability,
+} from "./ProviderCapability.ts";
 
 /**
  * A finite replication trigger which can run without opening a user dialogue.
@@ -169,26 +186,6 @@ export function replicationFailed(error: unknown): ReplicationFailed {
     return { status: "failed", error };
 }
 
-/** A declared role is available, but its implementation is not included. */
-export type NotImplementedCapability = {
-    readonly kind: "not-implemented";
-    readonly reason: "capability-not-implemented";
-};
-
-/** A declared role does not apply to this provider. */
-export type NotApplicableCapability = {
-    readonly kind: "not-applicable";
-    readonly reason: "capability-not-applicable";
-};
-
-export type SupportedCapability<TRole> = {
-    readonly kind: "supported";
-    readonly run: TRole;
-};
-
-/** Provider capability declaration correlated with the role runner. */
-export type CapabilitySupport<TRole> = SupportedCapability<TRole> | NotImplementedCapability | NotApplicableCapability;
-
 export type UserInitiatedOneShotRunner = (
     replicator: LiveSyncAbstractReplicator,
     setting: RemoteDBSettings,
@@ -214,13 +211,50 @@ export type ContinuousRunner = (
  */
 export type StopActiveTransferRunner = (replicator: LiveSyncAbstractReplicator) => Promise<ReplicationOutcome>;
 
+/**
+ * Opaque provider-owned projection of every setting which binds an active Replicator.
+ * It is private comparison state and must not be logged, persisted, or displayed.
+ */
+export type ReplicatorConfigurationIdentity = string;
+
+/** Replace the active Replicator when a same-kind configuration identity changes. */
+export const REPLACE_SAME_KIND_REPLICATOR = Object.freeze({ kind: "replace" } as const);
+
+/**
+ * Rebind an existing Replicator to new effective settings.
+ *
+ * The runner must settle only after provider-owned credentials, cached remote
+ * state, and other configuration-bound resources can no longer expose the old
+ * identity through the rebound instance.
+ */
+export type RebindActiveReplicatorRunner = (
+    replicator: LiveSyncAbstractReplicator,
+    setting: ObsidianLiveSyncSettings
+) => Promise<void>;
+
+/** Explicit policy for a configuration change which retains the provider kind. */
+export type SameKindReplicatorReconciliation =
+    | typeof REPLACE_SAME_KIND_REPLICATOR
+    | {
+          readonly kind: "rebind";
+          readonly rebind: RebindActiveReplicatorRunner;
+      };
+
 export interface ReplicatorProviderDefinition<TKind extends RemoteType = RemoteType> {
     readonly kind: TKind;
     readonly diagnosticName: string;
     readonly readiness: ReplicationReadinessRequirements;
-    readonly isConfigured: (setting: ObsidianLiveSyncSettings) => boolean;
+    readonly isConfigured: (setting: RemoteDBSettings) => boolean;
+    /** Project the fully merged effective settings to this provider's stable binding identity. */
+    readonly configurationIdentity: (setting: RemoteDBSettings) => ReplicatorConfigurationIdentity;
+    /** Reconcile an identity change without relying on provider-kind changes. */
+    readonly sameKindReconciliation: SameKindReplicatorReconciliation;
     /** Construct a replicator from the fully merged effective settings. */
     readonly create: (setting: ObsidianLiveSyncSettings) => Promise<LiveSyncAbstractReplicator | undefined | false>;
+    /** Exhaustive provider-owned catalogue for finite remote resources. */
+    readonly remoteResources: RemoteResourceCapabilities;
+    /** Mutate remote administration state, then verify the provider-specific postcondition. */
+    readonly remoteAdministration: CapabilitySupport<RemoteAdministrationRunner>;
     readonly userInitiatedOneShot: CapabilitySupport<UserInitiatedOneShotRunner>;
     readonly unattendedOneShot: CapabilitySupport<UnattendedOneShotRunner>;
     readonly continuous: CapabilitySupport<ContinuousRunner>;
@@ -291,56 +325,47 @@ export function outcomeFromContinuousOpenReplication(result: void | boolean): Re
 }
 
 export function supportedOpenReplicationOneShot(): SupportedCapability<UserInitiatedOneShotRunner> {
-    return {
-        kind: "supported",
-        run: async (replicator, setting, request) => {
-            try {
-                const result = await replicator.openReplication(
-                    setting,
-                    false,
-                    request.interaction.kind === "permitted" && request.interaction.permissions.failureRecovery,
-                    false
-                );
-                return outcomeFromFiniteOpenReplication(result);
-            } catch (error) {
-                return replicationFailed(error);
-            }
-        },
-    };
+    return supportedCapability(async (replicator, setting, request) => {
+        try {
+            const result = await replicator.openReplication(
+                setting,
+                false,
+                request.interaction.kind === "permitted" && request.interaction.permissions.failureRecovery,
+                false
+            );
+            return outcomeFromFiniteOpenReplication(result);
+        } catch (error) {
+            return replicationFailed(error);
+        }
+    });
 }
 
 export function supportedOpenReplicationUnattended(): SupportedCapability<UnattendedOneShotRunner> {
-    return {
-        kind: "supported",
-        run: async (replicator, setting, request) => {
-            if (request.interaction.kind !== NO_INTERACTION.kind) {
-                return replicationBlocked("interaction-required");
-            }
-            try {
-                const result = await replicator.openReplication(setting, false, false, false);
-                return outcomeFromFiniteOpenReplication(result);
-            } catch (error) {
-                return replicationFailed(error);
-            }
-        },
-    };
+    return supportedCapability(async (replicator, setting, request) => {
+        if (request.interaction.kind !== NO_INTERACTION.kind) {
+            return replicationBlocked("interaction-required");
+        }
+        try {
+            const result = await replicator.openReplication(setting, false, false, false);
+            return outcomeFromFiniteOpenReplication(result);
+        } catch (error) {
+            return replicationFailed(error);
+        }
+    });
 }
 
 export function supportedOpenReplicationContinuous(): SupportedCapability<ContinuousRunner> {
-    return {
-        kind: "supported",
-        run: async (replicator, setting, request) => {
-            if (request.interaction.kind !== NO_INTERACTION.kind) {
-                return replicationBlocked("interaction-required");
-            }
-            try {
-                const result = await replicator.openReplication(setting, true, false, false);
-                return outcomeFromContinuousOpenReplication(result);
-            } catch (error) {
-                return replicationFailed(error);
-            }
-        },
-    };
+    return supportedCapability(async (replicator, setting, request) => {
+        if (request.interaction.kind !== NO_INTERACTION.kind) {
+            return replicationBlocked("interaction-required");
+        }
+        try {
+            const result = await replicator.openReplication(setting, true, false, false);
+            return outcomeFromContinuousOpenReplication(result);
+        } catch (error) {
+            return replicationFailed(error);
+        }
+    });
 }
 
 /**
@@ -351,25 +376,12 @@ export function supportedOpenReplicationContinuous(): SupportedCapability<Contin
  * provider whose cancellation work needs to settle asynchronously.
  */
 export function supportedStopActiveTransfer(): SupportedCapability<StopActiveTransferRunner> {
-    return {
-        kind: "supported",
-        run: async (replicator) => {
-            try {
-                await replicator.terminateSync();
-                return REPLICATION_COMPLETED;
-            } catch (error) {
-                return replicationFailed(error);
-            }
-        },
-    };
+    return supportedCapability(async (replicator) => {
+        try {
+            await replicator.terminateSync();
+            return REPLICATION_COMPLETED;
+        } catch (error) {
+            return replicationFailed(error);
+        }
+    });
 }
-
-export const CAPABILITY_NOT_IMPLEMENTED: NotImplementedCapability = Object.freeze({
-    kind: "not-implemented",
-    reason: "capability-not-implemented",
-});
-
-export const CAPABILITY_NOT_APPLICABLE: NotApplicableCapability = Object.freeze({
-    kind: "not-applicable",
-    reason: "capability-not-applicable",
-});

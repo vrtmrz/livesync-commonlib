@@ -16,18 +16,14 @@ import type {
 } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
-import { createInstanceLogFunction, MARK_LOG_NETWORK_ERROR, type LogFunction } from "@lib/services/lib/logUtils";
+import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 import type { LiveSyncAbstractReplicator } from "@lib/replication/LiveSyncAbstractReplicator";
 import {
     NO_INTERACTION,
     CENTRAL_REMOTE_REPLICATION_READINESS,
     USER_INITIATED_REPLICATION_AUTHORITY,
     replicationBlocked,
-    replicationFailed,
-    type ActiveReplicatorContext,
-    type CapabilitySupport,
     type ContinuousReplicationRequest,
-    type InteractionAuthority,
     type ReplicationOutcome,
     type ReplicationReadinessRequirements,
     type UnattendedOneShotRequest,
@@ -36,6 +32,8 @@ import {
 import { UnresolvedErrorManager } from "./UnresolvedErrorManager";
 import type { AppLifecycleService } from "./AppLifecycleService";
 import { isLockAcquired, shareRunningResult } from "octagonal-wheels/concurrency/lock";
+import { createReplicationReadinessEvaluator, type ReplicationReadinessEvaluator } from "./ReplicationReadiness.ts";
+import { TypedReplicationCoordinator } from "./TypedReplicationCoordinator.ts";
 
 /**
  * Event-triggered replication interval forecasted time.
@@ -51,13 +49,20 @@ export interface ReplicationServiceDependencies {
     fileProcessingService: IFileProcessingService;
 }
 /**
- * The ReplicationService provides methods for managing replication processes.
+ * Host-facing replication façade for handlers, legacy entry points, and counters.
+ *
+ * Ordered readiness evaluation and typed capability dispatch are delegated to
+ * focused collaborators. Handler objects remain on this service so existing
+ * hosts retain their registration identity, priority ordering, and failure
+ * semantics. Active Replicator ownership remains with `ReplicatorService`.
  */
 export abstract class ReplicationService<T extends ServiceContext = ServiceContext>
     extends ServiceBase<T>
     implements IReplicationService
 {
     private _unresolvedErrorManager: UnresolvedErrorManager;
+    private readonly _evaluateReadiness: ReplicationReadinessEvaluator;
+    private readonly _typedReplication: TypedReplicationCoordinator;
 
     showError(msg: string, max_log_level: LOG_LEVEL = LOG_LEVEL_NOTICE) {
         this._unresolvedErrorManager.showError(msg, max_log_level);
@@ -86,6 +91,30 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             dependencies.appLifecycleService,
             this.context.events
         );
+        this._evaluateReadiness = createReplicationReadinessEvaluator({
+            isApplicationReady: () => this.appLifecycleService.isReady(),
+            runPolicyChecks: (showMessage) => this.onCheckReplicationReady(showMessage),
+            currentSettings: () => this.settingService.currentSettings(),
+            isCleanupRunning: () => isLockAcquired("cleanup"),
+            commitPendingFileEvents: () => this.fileProcessing.commitPendingFileEvents(),
+            isOnline: () => this.APIService.isOnline,
+            prepareCentralRemote: (showMessage) => this.onPrepareCentralRemoteReplication(showMessage),
+            runBeforeReplicate: (showMessage) => this.onBeforeReplicate(showMessage),
+            getUnresolvedMessages: () => this.appLifecycleService.getUnresolvedMessages(),
+            translate: (key) => this.context.translate(key),
+            log: this._log,
+            showError: (message, maxLogLevel) => this.showError(message, maxLogLevel),
+            clearErrors: () => this.clearErrors(),
+        });
+        this._typedReplication = new TypedReplicationCoordinator({
+            replicatorService: this.replicatorService,
+            currentSettings: () => this.settingService.currentSettings(),
+            checkReadiness: (showMessage, readiness) => this.isReplicationReady(showMessage, readiness),
+            handleFailure: (showMessage, interaction) => this.onReplicationFailed(showMessage, interaction),
+            recordFiniteAttempt: () => {
+                this.previousReplicated = Date.now();
+            },
+        });
     }
     /**
      * Process a synchronisation result document.
@@ -114,8 +143,9 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
     readonly onBeforeReplicate = handlers<IReplicationService>().bailFirstFailure("onBeforeReplicate");
 
     /** Provider preparation which applies only to the central remote. */
-    readonly onPrepareCentralRemoteReplication =
-        handlers<IReplicationService>().bailFirstFailure("onPrepareCentralRemoteReplication");
+    readonly onPrepareCentralRemoteReplication = handlers<IReplicationService>().bailFirstFailure(
+        "onPrepareCentralRemoteReplication"
+    );
 
     /**
      * Lightweight, repeatable policy checks shared by every replication entry point.
@@ -125,149 +155,22 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
     readonly onCheckReplicationReady = handlers<IReplicationService>().bailFirstFailure("onCheckReplicationReady");
 
     /**
-     *  Check if the replication is ready to start.
-     * @param showMessage Whether to show messages to the user.
+     * Evaluate the ordered readiness conditions for an operation.
+     *
+     * This method does not acquire a Replicator or begin activity accounting.
+     * Provider requirements select whether central-remote preparation applies.
+     *
+     * @param showMessage Whether condition-specific diagnostics may be prominent.
+     * @param readiness Provider-owned preparation requirements.
      */
     async isReplicationReady(
         showMessage: boolean = false,
         readiness: ReplicationReadinessRequirements = CENTRAL_REMOTE_REPLICATION_READINESS
     ): Promise<boolean> {
-        if (!this.appLifecycleService.isReady()) {
-            this._log(`Not ready`);
-            return false;
-        }
-        if (!(await this.onCheckReplicationReady(showMessage))) {
-            return false;
-        }
-        const currentSettings = this.settingService.currentSettings();
-
-        if (isLockAcquired("cleanup")) {
-            this._log(this.context.translate("Replicator.Message.Cleaned"), LOG_LEVEL_NOTICE);
-            return false;
-        }
-
-        if (currentSettings.versionUpFlash != "") {
-            this._log(this.context.translate("Replicator.Message.VersionUpFlash"), LOG_LEVEL_NOTICE);
-            return false;
-        }
-
-        if (!(await this.fileProcessing.commitPendingFileEvents())) {
-            this.showError(this.context.translate("Replicator.Message.Pending"), LOG_LEVEL_NOTICE);
-            return false;
-        }
-
-        if (!this.APIService.isOnline) {
-            this.showError("Network is offline", showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
-            return false;
-        }
-        if (
-            (readiness.centralRemotePreparation === "required" &&
-                !(await this.onPrepareCentralRemoteReplication(showMessage))) ||
-            !(await this.onBeforeReplicate(showMessage))
-        ) {
-            // check for tagged network errors for filtering by NetworkWarningStyles
-            const hasNetworkError = (await this.appLifecycleService.getUnresolvedMessages())
-                .flat()
-                .some((e) => typeof e == "string" && e.indexOf(MARK_LOG_NETWORK_ERROR) !== -1);
-            if (!hasNetworkError) {
-                this.showError(this.context.translate("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_NOTICE);
-            } else {
-                this._log(this.context.translate("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_INFO);
-            }
-            return false;
-        }
-        this.clearErrors();
-        return true;
+        return (await this._evaluateReadiness({ showMessage, requirements: readiness })).ready;
     }
 
     onReplicationFailed = handlers<IReplicationService>().bailFirstFailure("onReplicationFailed");
-
-    private capabilityBlocked<TRole>(capability: CapabilitySupport<TRole>): ReplicationOutcome | undefined {
-        if (capability.kind === "supported") return undefined;
-        return replicationBlocked(capability.reason);
-    }
-
-    private async runFiniteActivity(
-        run: () => Promise<ReplicationOutcome>,
-        interaction: InteractionAuthority,
-        showMessage: boolean
-    ): Promise<ReplicationOutcome> {
-        try {
-            const result = await this.replicatorService.runFiniteReplicationActivity(run, { label: "replication" });
-            if (result.status === "failed") {
-                await this.onReplicationFailed(showMessage, interaction);
-            }
-            return result;
-        } catch (error) {
-            const result = replicationFailed(error);
-            await this.onReplicationFailed(showMessage, interaction);
-            return result;
-        }
-    }
-
-    private async runUserInitiatedRole(
-        context: ActiveReplicatorContext,
-        request: UserInitiatedOneShotRequest,
-        showMessage: boolean
-    ): Promise<ReplicationOutcome> {
-        const capability = context.provider.userInitiatedOneShot;
-        const blocked = this.capabilityBlocked(capability);
-        if (blocked) return blocked;
-        if (capability.kind !== "supported") return replicationBlocked("capability-not-implemented");
-        const settings = this.settingService.currentSettings();
-        return await this.runFiniteActivity(
-            () => capability.run(context.replicator, settings, request),
-            request.interaction,
-            showMessage
-        );
-    }
-
-    private async runUnattendedRole(
-        context: ActiveReplicatorContext,
-        request: UnattendedOneShotRequest
-    ): Promise<ReplicationOutcome> {
-        const capability = context.provider.unattendedOneShot;
-        const blocked = this.capabilityBlocked(capability);
-        if (blocked) return blocked;
-        if (capability.kind !== "supported") return replicationBlocked("capability-not-implemented");
-        const settings = this.settingService.currentSettings();
-        return await this.runFiniteActivity(
-            () => capability.run(context.replicator, settings, request),
-            NO_INTERACTION,
-            false
-        );
-    }
-
-    private async runContinuousRole(
-        context: ActiveReplicatorContext,
-        request: ContinuousReplicationRequest
-    ): Promise<ReplicationOutcome> {
-        const capability = context.provider.continuous;
-        const blocked = this.capabilityBlocked(capability);
-        if (blocked) return blocked;
-        if (capability.kind !== "supported") return replicationBlocked("capability-not-implemented");
-        try {
-            return await capability.run(context.replicator, this.settingService.currentSettings(), request);
-        } catch (error) {
-            return replicationFailed(error);
-        }
-    }
-
-    private async checkTypedReplicationReady(
-        showMessage: boolean,
-        contextOverride?: ActiveReplicatorContext
-    ): Promise<ActiveReplicatorContext | ReplicationOutcome> {
-        const context = contextOverride ?? this.replicatorService.getActiveReplicatorContext?.();
-        if (!context) {
-            return this.replicatorService.getActiveReplicator()
-                ? replicationBlocked("provider-not-composed")
-                : replicationBlocked("no-active-replicator");
-        }
-        if (!(await this.isReplicationReady(showMessage, context.provider.readiness))) {
-            return replicationBlocked("not-ready");
-        }
-        return context;
-    }
 
     async replicateUserInitiated(
         request: UserInitiatedOneShotRequest = {
@@ -275,23 +178,11 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             interaction: USER_INITIATED_REPLICATION_AUTHORITY,
         }
     ): Promise<ReplicationOutcome> {
-        const showMessage = request.interaction.kind === "permitted" && request.interaction.permissions.failureRecovery;
-        const ready = await this.checkTypedReplicationReady(showMessage);
-        if ("status" in ready) return ready;
-        const outcome = await this.runUserInitiatedRole(ready, request, showMessage);
-        this.previousReplicated = Date.now();
-        return outcome;
+        return await this._typedReplication.runUserInitiated(request);
     }
 
     async replicateUnattended(request: UnattendedOneShotRequest): Promise<ReplicationOutcome> {
-        if (request.interaction.kind !== NO_INTERACTION.kind) {
-            return replicationBlocked("interaction-required");
-        }
-        const ready = await this.checkTypedReplicationReady(false);
-        if ("status" in ready) return ready;
-        const outcome = await this.runUnattendedRole(ready, request);
-        this.previousReplicated = Date.now();
-        return outcome;
+        return await this._typedReplication.runUnattended(request);
     }
 
     replicateUnattendedByEvent(request: UnattendedOneShotRequest): Promise<ReplicationOutcome> {
@@ -315,21 +206,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
     }
 
     async startContinuous(request: ContinuousReplicationRequest): Promise<ReplicationOutcome> {
-        if (request.interaction.kind !== NO_INTERACTION.kind) {
-            return replicationBlocked("interaction-required");
-        }
-        const context = this.replicatorService.getActiveReplicatorContext?.();
-        if (!context) {
-            return this.replicatorService.getActiveReplicator()
-                ? replicationBlocked("provider-not-composed")
-                : replicationBlocked("no-active-replicator");
-        }
-        const capability = context.provider.continuous;
-        const unsupported = this.capabilityBlocked(capability);
-        if (unsupported) return unsupported;
-        const ready = await this.checkTypedReplicationReady(false, context);
-        if ("status" in ready) return ready;
-        return await this.runContinuousRole(ready, request);
+        return await this._typedReplication.startContinuous(request);
     }
 
     /**
@@ -342,22 +219,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
      * replication, so it does not invoke failure-recovery handlers.
      */
     async stopActiveTransfer(): Promise<ReplicationOutcome> {
-        const context = this.replicatorService.getActiveReplicatorContext?.();
-        if (!context) {
-            return this.replicatorService.getActiveReplicator()
-                ? replicationBlocked("provider-not-composed")
-                : replicationBlocked("no-active-replicator");
-        }
-
-        const capability = context.provider.stopActiveTransfer;
-        const blocked = this.capabilityBlocked(capability);
-        if (blocked) return blocked;
-        if (capability.kind !== "supported") return replicationBlocked("capability-not-implemented");
-        try {
-            return await capability.run(context.replicator);
-        } catch (error) {
-            return replicationFailed(error);
-        }
+        return await this._typedReplication.stopActiveTransfer();
     }
 
     private async performReplicationRequest(showMessage?: boolean): Promise<boolean | void> {
@@ -390,7 +252,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
      * @param showMessage Whether to show messages to the user.
      */
     async replicate(showMessage?: boolean): Promise<boolean | void> {
-        if (this.replicatorService.getActiveReplicatorContext?.()) {
+        if (await this.replicatorService.acquireActiveReplicatorContext()) {
             const outcome = showMessage
                 ? await this.replicateUserInitiated()
                 : await this.replicateUnattended({
@@ -423,9 +285,9 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
      * Start the replication process triggered by an event (e.g., file change).
      * @param showMessage Whether to show messages to the user.
      */
-    replicateByEvent(showMessage?: boolean): Promise<boolean | void> {
-        if (this.replicatorService.getActiveReplicatorContext?.()) {
-            return this.replicateUnattendedByEvent({
+    async replicateByEvent(showMessage?: boolean): Promise<boolean | void> {
+        if (await this.replicatorService.acquireActiveReplicatorContext()) {
+            return await this.replicateUnattendedByEvent({
                 trigger: "database-event",
                 interaction: NO_INTERACTION,
             }).then((outcome) => outcome.status === "completed");

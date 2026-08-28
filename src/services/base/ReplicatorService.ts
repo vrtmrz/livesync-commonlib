@@ -21,7 +21,12 @@ import type {
     ReplicatorProviderDefinition,
     ReplicatorProviderDefinitionMap,
 } from "@lib/replication/ReplicatorProvider.ts";
-import type { ObsidianLiveSyncSettings } from "@lib/common/types.ts";
+import type { ObsidianLiveSyncSettings, RemoteDBSettings } from "@lib/common/types.ts";
+import { ActiveReplicatorState } from "./ActiveReplicatorState.ts";
+import type { RemoteResourceKind, RemoteResourceMap } from "@lib/replication/RemoteResource.ts";
+import { resolveRemoteResource } from "./RemoteResourceResolver.ts";
+import type { RemoteAdministrationRequest, RemoteAdministrationResult } from "@lib/replication/RemoteAdministration.ts";
+import { runRemoteAdministrationWithContext } from "./RemoteAdministrationCoordinator.ts";
 
 export interface ReplicatorServiceDependencies {
     settingService: SettingService;
@@ -31,7 +36,12 @@ export interface ReplicatorServiceDependencies {
     registerLifecycleHandlers?: boolean;
 }
 /**
- * The ReplicatorService provides methods for managing replication.
+ * Own the active Replicator publication and its serialised lifecycle transitions.
+ *
+ * This service composes provider definitions, retires or reconciles active
+ * instances when their configuration identity changes, and publishes the
+ * provider and Replicator atomically. It does not select provider capabilities
+ * for individual replication requests; `ReplicationService` owns that dispatch.
  */
 export abstract class ReplicatorService<T extends ServiceContext = ServiceContext>
     extends ServiceBase<T>
@@ -43,9 +53,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
 
     private settingService: SettingService;
     private databaseEventService: DatabaseEventService;
-    private _activeReplicator: LiveSyncAbstractReplicator | undefined;
-    private _replicatorType: string | undefined;
-    private _activeReplicatorContext: ActiveReplicatorContext | undefined;
+    private readonly _activeReplicatorState = new ActiveReplicatorState();
     private _providerDefinitions = new Map<ReplicatorProviderDefinition["kind"], ReplicatorProviderDefinition>();
     private _transition: Promise<unknown> = Promise.resolve();
     private appLifecycleService: AppLifecycleService;
@@ -113,7 +121,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     private suspendReplication() {
         // During early lifecycle (e.g. settings migration), suspension can happen before
         // replicator initialisation. Avoid emitting unresolved-error noise in that case.
-        const activeReplicator = this._activeReplicator;
+        const activeReplicator = this._activeReplicatorState.current?.replicator;
         if (activeReplicator) {
             activeReplicator.closeReplication();
         }
@@ -136,10 +144,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
                 ? "Detect database reset, closing active replicator if exists."
                 : "Configuration changed, closing active replicator if exists."
         );
-        const activeReplicator = this._activeReplicator;
-        this._activeReplicator = undefined;
-        this._replicatorType = undefined;
-        this._activeReplicatorContext = undefined;
+        const activeReplicator = this._activeReplicatorState.take();
         if (activeReplicator) {
             await Promise.resolve(activeReplicator.closeReplication());
         }
@@ -148,11 +153,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     }
 
     private async discardFailedReplicator(replicator: LiveSyncAbstractReplicator): Promise<void> {
-        if (this._activeReplicator === replicator) {
-            this._activeReplicator = undefined;
-            this._replicatorType = undefined;
-            this._activeReplicatorContext = undefined;
-        }
+        this._activeReplicatorState.discardIfCurrent(replicator);
         try {
             await Promise.resolve(replicator.closeReplication());
         } catch (error) {
@@ -162,6 +163,8 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     }
 
     private enqueueTransition<TResult>(operation: () => Promise<TResult>): Promise<TResult> {
+        // A failed transition must not poison the queue. Later lifecycle events
+        // still need an ordered opportunity to retire or construct an owner.
         const transition = this._transition.then(operation, operation);
         this._transition = transition.then(
             (): undefined => undefined,
@@ -183,20 +186,98 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     ): Promise<LiveSyncAbstractReplicator | undefined | false> {
         const currentSettings = this.settingService.currentSettings();
         const setting = { ...currentSettings, ...settingOverride };
+        return await this.createReplicatorForSetting(setting, settingOverride);
+    }
+
+    private async createReplicatorForSetting(
+        setting: ObsidianLiveSyncSettings,
+        legacySettingOverride: Partial<ObsidianLiveSyncSettings> = {}
+    ): Promise<LiveSyncAbstractReplicator | undefined | false> {
         const provider = this.getProviderDefinition(setting);
         if (provider) {
             return await provider.create(setting);
         }
-        return await this.legacyGetNewReplicator(settingOverride);
+        return await this.legacyGetNewReplicator(legacySettingOverride);
+    }
+
+    private isCurrentProviderConfiguration(
+        provider: ReplicatorProviderDefinition,
+        configurationIdentity: string
+    ): boolean {
+        // Re-read effective settings at the publication boundary. Candidate
+        // construction and host preparation may both have yielded meanwhile.
+        const currentSetting = this.settingService.currentSettings();
+        return (
+            !!currentSetting &&
+            this.getProviderDefinition(currentSetting) === provider &&
+            provider.isConfigured(currentSetting) &&
+            provider.configurationIdentity(currentSetting) === configurationIdentity
+        );
+    }
+
+    private clearActiveReplicator(): LiveSyncAbstractReplicator | undefined {
+        return this._activeReplicatorState.take();
+    }
+
+    private publishActiveReplicator(
+        provider: ReplicatorProviderDefinition | undefined,
+        replicator: LiveSyncAbstractReplicator,
+        replicatorType: string,
+        configurationIdentity: string | undefined
+    ): void {
+        this._activeReplicatorState.publish(provider, replicator, replicatorType, configurationIdentity);
+    }
+
+    private async rebindActiveReplicator(
+        provider: ReplicatorProviderDefinition,
+        replicator: LiveSyncAbstractReplicator,
+        setting: ObsidianLiveSyncSettings,
+        configurationIdentity: string,
+        message: string
+    ): Promise<boolean> {
+        // Fence synchronous readers before provider-owned state begins changing.
+        // Transition-aware acquisition continues waiting on the queue.
+        this.clearActiveReplicator();
+        try {
+            const reconciliation = provider.sameKindReconciliation;
+            if (reconciliation.kind !== "rebind") {
+                throw new Error("A replace-only provider cannot rebind its active Replicator.");
+            }
+            await reconciliation.rebind(replicator, setting);
+            if (!(await this.onBeforeReplicatorPublication())) {
+                this._log(
+                    "Failed to initialise the rebound replicator, onBeforeReplicatorPublication reported some problems."
+                );
+                await this.discardFailedReplicator(replicator);
+                this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
+                return false;
+            }
+            if (!this.isCurrentProviderConfiguration(provider, configurationIdentity)) {
+                await this.discardFailedReplicator(replicator);
+                this._unresolvedErrorManager.clearError(message);
+                this._log(
+                    "Discarded a rebound replicator whose configuration changed before publication.",
+                    LOG_LEVEL_VERBOSE
+                );
+                return true;
+            }
+            this.replicationStatics.value = { ...DEFAULT_REPLICATION_STATICS };
+            this.publishActiveReplicator(provider, replicator, provider.kind, configurationIdentity);
+            this._unresolvedErrorManager.clearError(message);
+            this._log(`Replicator (${provider.diagnosticName}) rebound and activated`, LOG_LEVEL_VERBOSE);
+            return true;
+        } catch (error) {
+            await this.discardFailedReplicator(replicator);
+            this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
+            throw error;
+        }
     }
 
     private async initialiseReplicatorNow() {
         const message = this.context.translate("Replicator.Message.InitialiseFatalError");
         const setting = this.settingService.currentSettings();
         if (!setting) {
-            this._activeReplicator = undefined;
-            this._replicatorType = undefined;
-            this._activeReplicatorContext = undefined;
+            this.clearActiveReplicator();
             // Settings may not be available yet during early lifecycle.
             // Do not treat this as a fatal initialisation failure.
             this._unresolvedErrorManager.clearError(message);
@@ -204,7 +285,17 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         }
         const replicatorType = setting.remoteType;
         const provider = this.getProviderDefinition(setting);
-        const hasReplicatorConfig = provider ? provider.isConfigured(setting) : this._providerDefinitions.size === 0;
+        let hasReplicatorConfig: boolean;
+        let configurationIdentity: string | undefined;
+        try {
+            hasReplicatorConfig = provider ? provider.isConfigured(setting) : this._providerDefinitions.size === 0;
+            configurationIdentity =
+                provider && hasReplicatorConfig ? provider.configurationIdentity(setting) : undefined;
+        } catch (error) {
+            await this.disposeReplicatorNow("configuration transition");
+            this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
+            throw error;
+        }
 
         if (!hasReplicatorConfig) {
             // Configuration changes are transitions too: fence and close an old
@@ -215,27 +306,37 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
             return true;
         }
 
-        if (
-            replicatorType === this._replicatorType &&
-            this._activeReplicator &&
-            (!provider || this._activeReplicatorContext?.provider === provider)
-        ) {
+        const activePublication = this._activeReplicatorState.current;
+        const isSameProvider =
+            replicatorType === activePublication?.replicatorType &&
+            (!provider || activePublication.context?.provider === provider);
+        if (isSameProvider && (!provider || configurationIdentity === activePublication?.configurationIdentity)) {
             // No need to change the replicator.
             this._unresolvedErrorManager.clearError(message);
             this._log("Active replicator has been kept", LOG_LEVEL_VERBOSE);
             return true;
+        } else if (
+            isSameProvider &&
+            provider &&
+            provider.sameKindReconciliation.kind === "rebind" &&
+            activePublication
+        ) {
+            return await this.rebindActiveReplicator(
+                provider,
+                activePublication.replicator,
+                setting,
+                configurationIdentity!,
+                message
+            );
         } else {
             this._log("Acquiring new replicator");
             // Check existing replicator and close it if exists.
-            const previousReplicator = this._activeReplicator;
-            this._activeReplicator = undefined;
-            this._activeReplicatorContext = undefined;
-            this._replicatorType = undefined;
+            const previousReplicator = this.clearActiveReplicator();
             if (previousReplicator) {
                 await Promise.resolve(previousReplicator.closeReplication());
                 this._log("Active replicator closed", LOG_LEVEL_VERBOSE);
             }
-            const newReplicator = await this.createReplicator();
+            const newReplicator = await this.createReplicatorForSetting(setting);
             if (!newReplicator) {
                 this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
                 return false;
@@ -254,23 +355,29 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
                     this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
                     return false;
                 }
-                if (!(await this.onReplicatorInitialised())) {
-                    this._log("Failed to initialise the replicator, onReplicatorInitialised reported some problems.");
+                if (!(await this.onBeforeReplicatorPublication())) {
+                    this._log(
+                        "Failed to initialise the replicator, onBeforeReplicatorPublication reported some problems."
+                    );
                     await this.discardFailedReplicator(newReplicator);
                     this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
                     return false;
+                }
+                if (provider && !this.isCurrentProviderConfiguration(provider, configurationIdentity!)) {
+                    await this.discardFailedReplicator(newReplicator);
+                    this._unresolvedErrorManager.clearError(message);
+                    this._log(
+                        "Discarded a replicator whose configuration changed before publication.",
+                        LOG_LEVEL_VERBOSE
+                    );
+                    return true;
                 }
             } catch (error) {
                 await this.discardFailedReplicator(newReplicator);
                 this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
                 throw error;
             }
-            const activeProvider = provider ?? this.getProviderDefinition(setting);
-            if (activeProvider) {
-                this._activeReplicatorContext = { provider: activeProvider, replicator: newReplicator };
-            }
-            this._activeReplicator = newReplicator;
-            this._replicatorType = replicatorType;
+            this.publishActiveReplicator(provider, newReplicator, replicatorType, configurationIdentity);
             const remoteTypeDisplay = provider?.diagnosticName ?? (replicatorType || "CouchDB");
             this._log(`Replicator (${remoteTypeDisplay}) initialised and activated`, LOG_LEVEL_VERBOSE);
 
@@ -309,10 +416,41 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     }
 
     getActiveReplicatorContext(): ActiveReplicatorContext | undefined {
-        return this._activeReplicatorContext;
+        return this._activeReplicatorState.current?.context;
     }
 
-    readonly onReplicatorInitialised = handlers<IReplicatorService>().bailFirstFailure("onReplicatorInitialised");
+    async createRemoteResource<TKind extends RemoteResourceKind>(
+        kind: TKind,
+        setting: RemoteDBSettings
+    ): Promise<RemoteResourceMap[TKind] | undefined> {
+        const provider = this.getProviderDefinition(setting);
+        if (!provider || !provider.isConfigured(setting)) {
+            return undefined;
+        }
+        return await resolveRemoteResource(provider.remoteResources, kind, setting);
+    }
+
+    async runRemoteAdministration(request: RemoteAdministrationRequest): Promise<RemoteAdministrationResult> {
+        const context = await this.acquireActiveReplicatorContext();
+        const setting = { ...this.settingService.currentSettings() };
+        return await runRemoteAdministrationWithContext(context, setting, request);
+    }
+
+    async acquireActiveReplicatorContext(): Promise<ActiveReplicatorContext | undefined> {
+        // A transition may enqueue another transition while settling. Return
+        // only after the observed promise is still the tail of the queue.
+        while (true) {
+            const transition = this._transition;
+            await transition;
+            if (transition === this._transition) {
+                return this._activeReplicatorState.current?.context;
+            }
+        }
+    }
+
+    readonly onBeforeReplicatorPublication = handlers<IReplicatorService>().bailFirstFailure(
+        "onBeforeReplicatorPublication"
+    );
 
     /**
      * Get the currently active replicator instance.
@@ -320,7 +458,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
      */
     getActiveReplicator(): LiveSyncAbstractReplicator | undefined {
         const message = "No replicator has been activated or has not been initialised yet.";
-        const activeReplicator = this._activeReplicatorContext?.replicator ?? this._activeReplicator;
+        const activeReplicator = this._activeReplicatorState.current?.replicator;
         if (!activeReplicator) {
             this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
             return undefined;

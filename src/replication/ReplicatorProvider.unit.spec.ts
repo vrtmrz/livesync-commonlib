@@ -3,6 +3,7 @@ import {
     CAPABILITY_NOT_APPLICABLE,
     CAPABILITY_NOT_IMPLEMENTED,
     CENTRAL_REMOTE_REPLICATION_READINESS,
+    REPLACE_SAME_KIND_REPLICATOR,
     NO_INTERACTION,
     REPLICATION_COMPLETED,
     USER_INITIATED_REPLICATION_AUTHORITY,
@@ -16,6 +17,7 @@ import {
     supportedStopActiveTransfer,
     type ReplicatorProviderDefinition,
 } from "./index.ts";
+import { NO_REMOTE_RESOURCE_CAPABILITIES } from "./RemoteResource.ts";
 import { REMOTE_COUCHDB, REMOTE_MINIO } from "@lib/common/types.ts";
 import type { LiveSyncAbstractReplicator } from "./LiveSyncAbstractReplicator.ts";
 
@@ -121,7 +123,11 @@ describe("replicator provider contract", () => {
             diagnosticName: "CouchDB",
             readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
             isConfigured: () => true,
+            configurationIdentity: (setting) => setting.activeConfigurationId || setting.remoteType,
+            sameKindReconciliation: REPLACE_SAME_KIND_REPLICATOR,
             create: async () => false,
+            remoteResources: NO_REMOTE_RESOURCE_CAPABILITIES,
+            remoteAdministration: CAPABILITY_NOT_APPLICABLE,
             userInitiatedOneShot: supportedOpenReplicationOneShot(),
             unattendedOneShot: supportedOpenReplicationUnattended(),
             continuous: supportedOpenReplicationContinuous(),
@@ -132,7 +138,11 @@ describe("replicator provider contract", () => {
             diagnosticName: "Object Storage",
             readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
             isConfigured: () => true,
+            configurationIdentity: (setting) => setting.activeConfigurationId || setting.remoteType,
+            sameKindReconciliation: REPLACE_SAME_KIND_REPLICATOR,
             create: async () => false,
+            remoteResources: NO_REMOTE_RESOURCE_CAPABILITIES,
+            remoteAdministration: CAPABILITY_NOT_APPLICABLE,
             userInitiatedOneShot: supportedOpenReplicationOneShot(),
             unattendedOneShot: supportedOpenReplicationUnattended(),
             continuous: CAPABILITY_NOT_APPLICABLE,

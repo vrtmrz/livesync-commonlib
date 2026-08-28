@@ -4,7 +4,13 @@ import { EVENT_DATABASE_REBUILT, EVENT_SETTING_SAVED } from "@lib/events/coreEve
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import { EVENT_ADVERTISEMENT_RECEIVED } from "./TrysteroReplicatorP2PServer";
 import { useP2PReplicatorFeature } from "./useP2PReplicatorFeature";
-import { NO_INTERACTION, type ReplicatorProviderDefinitionMap } from "@lib/replication";
+import {
+    NO_INTERACTION,
+    REMOTE_ADMINISTRATION_ACTIONS,
+    REMOTE_ADMINISTRATION_FAILURE_REASONS,
+    REMOTE_ADMINISTRATION_RESULT_STATUSES,
+    type ReplicatorProviderDefinitionMap,
+} from "@lib/replication";
 import { P2PRoomSessionOwner } from "./P2PRoomSessionOwner";
 
 afterEach(() => {
@@ -287,7 +293,7 @@ describe("useP2PReplicatorFeature", () => {
         expect(definitions?.get(REMOTE_P2P)?.unattendedOneShot.kind).toBe("supported");
     });
 
-    it("does not route session-owned peer events through the global compatibility bridge", async () => {
+    it("declares P2P administration boundaries without routing session-owned peer events through the global bridge", async () => {
         const events = createLiveSyncEventHub();
         let definitions: ReplicatorProviderDefinitionMap | undefined;
         const handler = { addHandler: vi.fn() };
@@ -339,6 +345,24 @@ describe("useP2PReplicatorFeature", () => {
             remoteType: REMOTE_P2P,
             P2P_Enabled: true,
         } as never);
+        expect(definition?.remoteAdministration.kind).toBe("supported");
+        if (definition?.remoteAdministration.kind !== "supported") {
+            throw new Error("P2P remote administration should preserve the compatibility boundary");
+        }
+        const setting = { remoteType: REMOTE_P2P, P2P_Enabled: true } as never;
+        await expect(
+            definition.remoteAdministration.run(activeAdapter!, setting, {
+                action: REMOTE_ADMINISTRATION_ACTIONS.MARK_RESOLVED,
+            })
+        ).resolves.toEqual({
+            status: REMOTE_ADMINISTRATION_RESULT_STATUSES.VERIFICATION_FAILED,
+            reason: REMOTE_ADMINISTRATION_FAILURE_REASONS.CAPABILITY_NOT_APPLICABLE,
+        });
+        await expect(
+            definition.remoteAdministration.run(activeAdapter!, setting, {
+                action: REMOTE_ADMINISTRATION_ACTIONS.LOCK,
+            })
+        ).rejects.toThrow("P2P replication does not support database lock.");
 
         events.emitEvent(EVENT_ADVERTISEMENT_RECEIVED, {
             peerId: "peer-a",

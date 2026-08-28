@@ -44,6 +44,8 @@ import type {
     UnattendedOneShotRequest,
     UserInitiatedOneShotRequest,
 } from "@lib/replication/ReplicatorProvider.ts";
+import type { RemoteResourceKind, RemoteResourceMap } from "@lib/replication/RemoteResource.ts";
+import type { RemoteAdministrationRequest, RemoteAdministrationResult } from "@lib/replication/RemoteAdministration.ts";
 import type { MultipleHandlerFunction } from "@lib/services/lib/HandlerUtils.ts";
 
 declare global {
@@ -176,7 +178,14 @@ export interface IFileProcessingService {
 export interface IReplicatorService {
     onCloseActiveReplication(): Promise<boolean>;
 
-    onReplicatorInitialised(): Promise<boolean>;
+    /**
+     * Run host preparation after candidate initialisation and before active publication.
+     *
+     * This hook runs inside the ownership transition. A handler must not call or await
+     * `acquireActiveReplicatorContext()`, because acquisition waits for that same transition.
+     * Work which requires the new active context belongs after publication.
+     */
+    onBeforeReplicatorPublication(): Promise<boolean>;
 
     getNewReplicator: ReplicatorFactoryHandler;
 
@@ -185,6 +194,18 @@ export interface IReplicatorService {
 
     /** Return the active provider and replicator as one atomic context. */
     getActiveReplicatorContext(): ActiveReplicatorContext | undefined;
+
+    /** Resolve one provider-owned finite resource without changing active publication. */
+    createRemoteResource<TKind extends RemoteResourceKind>(
+        kind: TKind,
+        setting: RemoteDBSettings
+    ): Promise<RemoteResourceMap[TKind] | undefined>;
+
+    /** Apply and verify one typed provider-specific remote-administration action. */
+    runRemoteAdministration(request: RemoteAdministrationRequest): Promise<RemoteAdministrationResult>;
+
+    /** Wait for queued ownership transitions, then return the published active context. */
+    acquireActiveReplicatorContext(): Promise<ActiveReplicatorContext | undefined>;
 
     getActiveReplicator(): LiveSyncAbstractReplicator | undefined;
     replicationStatics: ReactiveSource<ReplicationStatics>;
@@ -214,12 +235,42 @@ export interface IReplicationService {
 
     /** Lightweight, idempotent policy checks which every replication entry point may invoke. */
     onCheckReplicationReady(showMessage: boolean): Promise<boolean>;
+    /**
+     * Evaluate ordered host and provider readiness without acquiring a Replicator.
+     *
+     * The provider requirements determine whether central-remote preparation
+     * applies. A false result means no remote work has been admitted.
+     */
     isReplicationReady(showMessage: boolean, readiness?: ReplicationReadinessRequirements): Promise<boolean>;
+    /**
+     * Run one user-initiated typed capability against an atomically acquired context.
+     *
+     * Readiness precedes finite activity, and failure recovery receives only
+     * the interaction authority carried by the request.
+     */
     replicateUserInitiated(request?: UserInitiatedOneShotRequest): Promise<ReplicationOutcome>;
+    /**
+     * Run one unattended typed capability without granting interaction authority.
+     *
+     * Readiness precedes finite activity, and failed outcomes reach unattended
+     * recovery only after activity accounting has settled.
+     */
     replicateUnattended(request: UnattendedOneShotRequest): Promise<ReplicationOutcome>;
+    /** Serialise and rate-limit an unattended event-triggered finite capability. */
     replicateUnattendedByEvent(request: UnattendedOneShotRequest): Promise<ReplicationOutcome>;
+    /**
+     * Start a supported continuous capability after its provider-specific readiness.
+     *
+     * Applicability is checked before readiness. Continuous work is not wrapped
+     * as finite activity and does not use the finite-operation recovery handler.
+     */
     startContinuous(request: ContinuousReplicationRequest): Promise<ReplicationOutcome>;
-    /** Stop finite transfer work on the current typed active replicator. */
+    /**
+     * Stop finite transfer work on the current typed active Replicator.
+     *
+     * This operator action bypasses readiness, finite activity accounting, and
+     * failure-recovery handlers.
+     */
     stopActiveTransfer(): Promise<ReplicationOutcome>;
     performReplication(showMessage?: boolean): Promise<boolean | void>;
     replicate(showMessage?: boolean): Promise<boolean | void>;

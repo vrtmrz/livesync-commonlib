@@ -93,9 +93,19 @@ The one-shot CouchDB connectivity preflight is the first bounded consumer. It ap
 
 The active local database identity, settings-selected reset sequence, and lifecycle event phases are specified in [Local database lifecycle](database-lifecycle.md). Extend that document and the focused service and rebuild tests whenever database selection, reset ownership, event ordering, or failure propagation changes.
 
+### Replication control boundaries
+
+`ReplicationService` remains the host-facing façade for handler registration, legacy entry points, mutable counters, event rate limiting, full transfers, and rebuild maintenance. It delegates ordered readiness evaluation and typed provider dispatch to focused collaborators without moving the handler objects, changing their priority semantics, or taking active Replicator ownership from `ReplicatorService`.
+
+`evaluateReadiness` is a domain-neutral, ordered evaluator. Its input states the diagnostic purpose and supplies named conditions; applicable conditions run sequentially, the first rejection short-circuits later work, condition-specific rejection reporting completes before return, and callback exceptions propagate unchanged. `createReplicationReadinessEvaluator` supplies the Replication-specific condition list, including the conditional central-remote preparation gate. Add a new readiness requirement as a named condition with focused ordering and short-circuit tests rather than extending one compound boolean expression.
+
+`TypedReplicationCoordinator` keeps user-initiated, unattended, continuous, and stop roles as explicit control flows. Their interaction authority, readiness position, activity accounting, and failure handling differ, so these roles must not be collapsed into a flag-driven capability table. Share only mechanics whose lifecycle meaning is identical, such as atomic context acquisition and finite activity accounting, and retain a focused sequencing test for each role.
+
 ### P2P composition ownership
 
 `useP2PReplicatorFeature` composes one stable P2P service owner, one room-session owner, and their lifecycle bindings. The service exposes seven focused views over that same state. When `ReplicatorService` requests a P2P Replicator, the provider returns a fresh non-owning adapter. Replacing or disposing that active adapter does not cancel service-owned work or retire the room; the explicit stop capability and transport lifecycle view own those distinct operations. Database reset and explicit close reach the stable service through their pre-destruction lifecycle hooks, so non-ownership by the active adapter cannot leave a room using an unavailable local database.
+
+Every composed provider projects its effective connection settings to an opaque configuration identity and declares whether a same-kind identity change replaces or rebinds the active Replicator. The projection follows provider-owned resource binding rather than the stored Setup URI grammar, and it remains private because it can contain credentials. `ReplicatorService` serialises those transitions, clears the old context before retirement, rechecks the candidate identity after asynchronous initialisation, and publishes the provider and Replicator together. Typed consumers use `acquireActiveReplicatorContext()` when they must wait for a queued transition rather than observing the synchronous compatibility snapshot.
 
 Consumers must request only the focused view which they need. Commands which connect or disconnect consume `transportLifecycle`; peer lists consume `peerDirectory`; RTC inspection consumes `diagnostics`. Ordinary consumers must not receive a raw room, raw host, or concrete Replicator. The result's `replicator` property is a deprecated compatibility façade for panes which have not yet migrated, not the active provider adapter.
 

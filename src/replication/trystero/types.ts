@@ -103,7 +103,20 @@ export interface ReplicatorHostEnv extends ReplicatorHost {
     events: LiveSyncEventHub;
     /** Message translation owned by the containing Commonlib service composition. */
     translate: MessageTranslator;
+    /**
+     * Immutable settings snapshot captured for this room session.
+     *
+     * Room join options, RPC framing, and other session-owned resources must
+     * use this snapshot so one session cannot mix transport generations.
+     */
     settings: P2PSyncSetting;
+    /**
+     * Return the latest host settings for policy evaluated on an open room.
+     *
+     * Older direct consumers may omit this port; they retain snapshot
+     * behaviour through the `settings` fallback.
+     */
+    currentSettings?(): P2PSyncSetting;
     db: PouchDB.Database<EntryDoc>;
     simpleStore: SimpleStore<unknown>;
     runFiniteReplicationActivity?: AsyncActivityRunner["run"];
@@ -113,6 +126,11 @@ export interface ReplicatorHostEnv extends ReplicatorHost {
     automationCoordinator?: P2PAutomationCoordinator;
 
     processReplicatedDocs(docs: Array<PouchDB.Core.ExistingDocument<EntryDoc>>): void | Promise<void>;
+}
+
+/** Resolve policy settings without weakening the immutable room snapshot. */
+export function resolveCurrentP2PSettings(env: ReplicatorHostEnv): P2PSyncSetting {
+    return env.currentSettings?.() ?? env.settings;
 }
 
 export type Advertisement = {

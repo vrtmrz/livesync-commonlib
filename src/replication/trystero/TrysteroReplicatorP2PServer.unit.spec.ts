@@ -204,4 +204,33 @@ describe("P2PHost transport configuration and ownership", () => {
         await expect(host.evaluatePeerAcceptance("denied")).resolves.toBe("rejected");
         await expect(host.evaluatePeerAcceptance("unknown")).resolves.toBe("unknown");
     });
+
+    it("reads current automatic admission policy without replacing the host", async () => {
+        const sessionSettings = {
+            P2P_Enabled: true,
+            P2P_AutoAccepting: 0,
+            P2P_AutoAcceptingPeers: "",
+            P2P_AutoDenyingPeers: "",
+            P2P_IsHeadless: true,
+        };
+        const currentSettings = { ...sessionSettings };
+        const host = new P2PHost({
+            events: createLiveSyncEventHub(),
+            simpleStore: {
+                get: vi.fn(async () => undefined),
+                set: vi.fn(async () => undefined),
+                delete: vi.fn(async () => undefined),
+                keys: vi.fn(async () => []),
+            },
+            settings: sessionSettings,
+            currentSettings: () => currentSettings,
+        } as any);
+        host.onAdvertisement({ peerId: "peer-a", name: "Device A", platform: "test" }, "peer-a");
+
+        await expect(host.evaluatePeerAcceptance("peer-a")).resolves.toBe("undecided");
+        currentSettings.P2P_AutoAcceptingPeers = "Device A";
+        await expect(host.evaluatePeerAcceptance("peer-a")).resolves.toBe("accepted");
+        currentSettings.P2P_AutoDenyingPeers = "Device A";
+        await expect(host.evaluatePeerAcceptance("peer-a")).resolves.toBe("rejected");
+    });
 });

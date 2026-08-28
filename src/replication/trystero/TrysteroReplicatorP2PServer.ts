@@ -3,6 +3,7 @@ import { AutoAccepting, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } 
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger";
 import {
     DIRECTION_RESPONSE,
+    resolveCurrentP2PSettings,
     type ReplicatorHostEnv,
     type FullFilledDeviceInfo,
     ResponsePreventedError,
@@ -249,8 +250,13 @@ export class TrysteroReplicatorP2PServer {
         return this._env.settings;
     }
 
+    /** Latest admission and enablement policy for this room. */
+    get currentSettings() {
+        return resolveCurrentP2PSettings(this._env);
+    }
+
     get isEnabled() {
-        return this.settings.P2P_Enabled;
+        return this.currentSettings.P2P_Enabled;
     }
 
     get deviceInfo(): FullFilledDeviceInfo {
@@ -385,10 +391,11 @@ You can chose as follows:
         }
         const accepted = await this.acceptedPeers.get(peerName);
         if (accepted !== undefined && accepted !== null) return accepted ? "accepted" : "rejected";
-        const isAcceptable = (await this._acceptablePeers.update(this.settings)).value.some((e) => e.test(peerName));
-        const isDeny = (await this._shouldDenyPeers.update(this.settings)).value.some((e) => e.test(peerName));
+        const currentSettings = { ...this.currentSettings };
+        const isAcceptable = (await this._acceptablePeers.update(currentSettings)).value.some((e) => e.test(peerName));
+        const isDeny = (await this._shouldDenyPeers.update(currentSettings)).value.some((e) => e.test(peerName));
         if (isDeny) return "rejected";
-        if (isAcceptable || this.settings.P2P_AutoAccepting === AutoAccepting.ALL) return "accepted";
+        if (isAcceptable || currentSettings.P2P_AutoAccepting === AutoAccepting.ALL) return "accepted";
         return "undecided";
     }
 
@@ -404,7 +411,7 @@ You can chose as follows:
             return true;
         }
         if (acceptance === "rejected" || acceptance === "unknown") return false;
-        if (this.settings.P2P_IsHeadless) return false;
+        if (this.currentSettings.P2P_IsHeadless) return false;
         return await this.confirmUserToAccept(peerId);
     }
 

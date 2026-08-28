@@ -7,6 +7,7 @@ import {
     NO_INTERACTION,
     PEER_REPLICATION_READINESS,
     REPLICATION_COMPLETED,
+    REPLACE_SAME_KIND_REPLICATOR,
     USER_INITIATED_REPLICATION_AUTHORITY,
     supportedOpenReplicationContinuous,
     supportedOpenReplicationOneShot,
@@ -15,9 +16,13 @@ import {
     type ActiveReplicatorContext,
     type ReplicatorProviderDefinition,
 } from "@lib/replication/ReplicatorProvider.ts";
+import { NO_REMOTE_RESOURCE_CAPABILITIES } from "@lib/replication/RemoteResource.ts";
 import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P, type RemoteType } from "@lib/common/types.ts";
 
 class TestReplicationService extends ReplicationService<ServiceContext> {}
+
+const testConfigurationIdentity = (setting: { activeConfigurationId?: string; remoteType: string }) =>
+    setting.activeConfigurationId || setting.remoteType;
 
 function createTypedDependencies(result: boolean | void = true) {
     const openReplication = vi.fn().mockResolvedValue(result);
@@ -29,7 +34,11 @@ function createTypedDependencies(result: boolean | void = true) {
         diagnosticName: "CouchDB",
         readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
         isConfigured: () => true,
+        configurationIdentity: testConfigurationIdentity,
+        sameKindReconciliation: REPLACE_SAME_KIND_REPLICATOR,
         create: async () => replicator as never,
+        remoteResources: NO_REMOTE_RESOURCE_CAPABILITIES,
+        remoteAdministration: CAPABILITY_NOT_APPLICABLE,
         userInitiatedOneShot: supportedOpenReplicationOneShot(),
         unattendedOneShot: supportedOpenReplicationUnattended(),
         continuous: supportedOpenReplicationContinuous(),
@@ -42,7 +51,7 @@ function createTypedDependencies(result: boolean | void = true) {
     const getUnresolvedMessages = Object.assign(vi.fn().mockResolvedValue([]), {
         addHandler: vi.fn(),
     });
-    const getActiveReplicatorContext = vi.fn(() => activeContext);
+    const acquireActiveReplicatorContext = vi.fn(async () => activeContext);
     const getActiveReplicator = vi.fn(() => replicator);
     const dependencies = {
         APIService: { isOnline: true, addLog: vi.fn() },
@@ -55,7 +64,7 @@ function createTypedDependencies(result: boolean | void = true) {
             commitPendingFileEvents: vi.fn().mockResolvedValue(true),
         },
         replicatorService: {
-            getActiveReplicatorContext,
+            acquireActiveReplicatorContext,
             getActiveReplicator,
             runFiniteReplicationActivity,
         },
@@ -67,7 +76,7 @@ function createTypedDependencies(result: boolean | void = true) {
         activeContext,
         dependencies,
         getActiveReplicator,
-        getActiveReplicatorContext,
+        acquireActiveReplicatorContext,
         openReplication,
         replicator,
         runFiniteReplicationActivity,
@@ -88,6 +97,8 @@ function createReadinessDependencies(kind: RemoteType, typed = true) {
             diagnosticName: kind || "CouchDB",
             readiness: kind === REMOTE_P2P ? PEER_REPLICATION_READINESS : CENTRAL_REMOTE_REPLICATION_READINESS,
             isConfigured: () => true,
+            configurationIdentity: testConfigurationIdentity,
+            sameKindReconciliation: REPLACE_SAME_KIND_REPLICATOR,
             create: async () => replicator as never,
             userInitiatedOneShot: supportedOpenReplicationOneShot(),
             unattendedOneShot: supportedOpenReplicationUnattended(),
@@ -114,7 +125,7 @@ function createReadinessDependencies(kind: RemoteType, typed = true) {
         databaseService: {},
         fileProcessingService: { commitPendingFileEvents },
         replicatorService: {
-            getActiveReplicatorContext: vi.fn(() => (typed ? activeContext : undefined)),
+            acquireActiveReplicatorContext: vi.fn(async () => (typed ? activeContext : undefined)),
             getActiveReplicator: vi.fn(() => replicator),
             runFiniteReplicationActivity: vi.fn(async (task: () => unknown) => await task()),
         },
@@ -189,14 +200,14 @@ describe("ReplicationService typed provider roles", () => {
             },
         };
         const getContext = vi
-            .fn<() => ActiveReplicatorContext | undefined>()
-            .mockReturnValueOnce(firstContext)
-            .mockReturnValueOnce(secondContext);
+            .fn<() => Promise<ActiveReplicatorContext | undefined>>()
+            .mockResolvedValueOnce(firstContext)
+            .mockResolvedValueOnce(secondContext);
         (
             dependencies.replicatorService as unknown as {
-                getActiveReplicatorContext: typeof getContext;
+                acquireActiveReplicatorContext: typeof getContext;
             }
-        ).getActiveReplicatorContext = getContext;
+        ).acquireActiveReplicatorContext = getContext;
         const service = new TestReplicationService(new ServiceContext(), dependencies);
 
         await expect(service.replicateUnattended({ trigger: "resume", interaction: NO_INTERACTION })).resolves.toBe(
@@ -215,8 +226,10 @@ describe("ReplicationService typed provider roles", () => {
     it("returns an explicit blocked result when no active replicator exists", async () => {
         const { dependencies } = createTypedDependencies(true);
         (
-            dependencies.replicatorService as unknown as { getActiveReplicatorContext: () => undefined }
-        ).getActiveReplicatorContext = () => undefined;
+            dependencies.replicatorService as unknown as {
+                acquireActiveReplicatorContext: () => Promise<undefined>;
+            }
+        ).acquireActiveReplicatorContext = async () => undefined;
         (dependencies.replicatorService as unknown as { getActiveReplicator: () => undefined }).getActiveReplicator =
             () => undefined;
         const service = new TestReplicationService(new ServiceContext(), dependencies);
@@ -270,20 +283,33 @@ describe("ReplicationService typed provider roles", () => {
     it.each([REMOTE_COUCHDB, REMOTE_MINIO] as const)(
         "retains central-remote Security Seed preparation for typed %s unattended work",
         async (kind) => {
-            const { dependencies } = createReadinessDependencies(kind);
+            const { dependencies, events } = createReadinessDependencies(kind);
             const service = new TestReplicationService(new ServiceContext(), dependencies);
             const ensureSecuritySeed = vi.fn();
             const prepareSecuritySeed = vi.fn(async () => {
+                events.push("central-remote-security-seed");
                 ensureSecuritySeed();
                 return true;
             });
+            const generalBeforeReplicate = vi.fn(async () => {
+                events.push("general-before-replicate");
+                return true;
+            });
             service.onPrepareCentralRemoteReplication.addHandler(prepareSecuritySeed);
+            service.onBeforeReplicate.addHandler(generalBeforeReplicate);
 
             await expect(
                 service.replicateUnattended({ trigger: "resume", interaction: NO_INTERACTION })
             ).resolves.toEqual({ status: "completed" });
 
             expect(ensureSecuritySeed).toHaveBeenCalledOnce();
+            expect(events).toEqual([
+                "app-ready",
+                "pending-file-events",
+                "central-remote-security-seed",
+                "general-before-replicate",
+                "open",
+            ]);
         }
     );
 
@@ -315,13 +341,13 @@ describe("ReplicationService typed provider roles", () => {
     });
 
     it("treats a continuous void result as an accepted start", async () => {
-        const { dependencies, getActiveReplicatorContext } = createTypedDependencies(undefined);
+        const { dependencies, acquireActiveReplicatorContext } = createTypedDependencies(undefined);
         const service = new TestReplicationService(new ServiceContext(), dependencies);
 
         await expect(service.startContinuous({ trigger: "daemon", interaction: NO_INTERACTION })).resolves.toEqual({
             status: "completed",
         });
-        expect(getActiveReplicatorContext).toHaveBeenCalledOnce();
+        expect(acquireActiveReplicatorContext).toHaveBeenCalledOnce();
     });
 
     it("stops the captured active transfer without readiness or finite activity checks", async () => {
@@ -354,8 +380,8 @@ describe("ReplicationService typed provider roles", () => {
     });
 
     it("distinguishes an uncomposed legacy replicator from no active replicator", async () => {
-        const { dependencies, terminateSync, getActiveReplicatorContext } = createTypedDependencies();
-        getActiveReplicatorContext.mockReturnValue(undefined);
+        const { dependencies, terminateSync, acquireActiveReplicatorContext } = createTypedDependencies();
+        acquireActiveReplicatorContext.mockResolvedValue(undefined);
         const service = new TestReplicationService(new ServiceContext(), dependencies);
 
         await expect(service.stopActiveTransfer()).resolves.toEqual({
@@ -367,9 +393,9 @@ describe("ReplicationService typed provider roles", () => {
     });
 
     it("returns a blocked result when there is no active replicator", async () => {
-        const { dependencies, getActiveReplicator, getActiveReplicatorContext, terminateSync } =
+        const { dependencies, getActiveReplicator, acquireActiveReplicatorContext, terminateSync } =
             createTypedDependencies();
-        getActiveReplicatorContext.mockReturnValue(undefined);
+        acquireActiveReplicatorContext.mockResolvedValue(undefined);
         getActiveReplicator.mockReturnValue(undefined);
         const service = new TestReplicationService(new ServiceContext(), dependencies);
 
@@ -400,6 +426,7 @@ describe("ReplicationService activity boundary", () => {
                 commitPendingFileEvents: vi.fn().mockResolvedValue(true),
             },
             replicatorService: {
+                acquireActiveReplicatorContext: async () => undefined,
                 getActiveReplicator: () => ({ openReplication }),
                 runFiniteReplicationActivity,
             },
@@ -504,6 +531,7 @@ describe("ReplicationService full upload", () => {
             databaseService: {},
             fileProcessingService: {},
             replicatorService: {
+                acquireActiveReplicatorContext: async () => undefined,
                 getActiveReplicator: () => ({
                     isChunkSendingSupported: true,
                     sendChunks,
@@ -541,6 +569,7 @@ describe("ReplicationService rebuild maintenance", () => {
             },
             fileProcessingService: {},
             replicatorService: {
+                acquireActiveReplicatorContext: async () => undefined,
                 getActiveReplicator: vi.fn(() => ({ replicateAllToServer, replicateAllFromServer })),
             },
             settingService: {

@@ -26,6 +26,8 @@ const profile: RemoteConfiguration = upsertRemoteConfigurationInPlace(settings, 
 
 The helper serialises the connection fields into the profile URI. When `activate` is true, it selects that profile through `activeConfigurationId` and projects the profile back onto the compatibility fields. The host still owns persistence, restart policy, credential acquisition, and user confirmation.
 
+A Setup URI is a compatibility and persistence representation, not the active Replicator identity. Each provider must instead project the effective fields which bind its own connection resources. Either representation can contain connection credentials and must remain private; do not log it or use it as a display label.
+
 ## Identity and display names
 
 Profile IDs are opaque identity. Omit `id` to allocate a new one and preserve every existing profile. Pass a known `id` only when deliberately updating that profile.
@@ -43,6 +45,8 @@ There is no special profile named or identified as `default`. The selected main 
 - Use `{ activateForP2P: true }` to select a P2P profile without changing the main remote.
 
 The outgoing message bound and connection path are ordinary P2P profile properties retained in its connection URI. Separate profiles may intentionally share a Group ID and credentials while selecting different transport compatibility values; only the profile selected by `P2P_ActiveRemoteConfigurationId` supplies the active flat P2P projection.
+
+The selected profile ID is persisted identity, not an effective transport fingerprint. Selecting another P2P profile which projects the same effective room and transport values retains the current room; a change to those effective values replaces it. Profile presentation and selection changes therefore remain separate from transport lifecycle comparison.
 
 Selecting a profile updates the compatibility fields immediately. Existing replication services may therefore continue to consume those fields while profile-aware hosts treat the profile map and selection IDs as authoritative persisted state.
 

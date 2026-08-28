@@ -26,6 +26,7 @@ function createServiceHarness() {
         P2P_AutoAccepting: 0,
         P2P_AutoAcceptingPeers: "",
         P2P_AutoDenyingPeers: "",
+        P2P_ActiveRemoteConfigurationId: "p2p-profile-a",
         P2P_AppID: "app-a",
         P2P_roomID: "room-a",
         P2P_passphrase: "pass-a",
@@ -38,7 +39,19 @@ function createServiceHarness() {
         P2P_useDiagRTC: false,
         P2P_IsHeadless: true,
     };
-    let database = { name: "db-a" };
+    const createDatabase = (name: string) => ({
+        name,
+        changes: vi.fn(() => {
+            const feed = {
+                cancel: vi.fn(),
+                removeAllListeners: vi.fn(),
+                on: vi.fn(),
+            };
+            feed.on.mockReturnValue(feed);
+            return feed;
+        }),
+    });
+    let database = createDatabase("db-a");
     const simpleStore = {
         get: vi.fn(async () => undefined),
         set: vi.fn(async () => undefined),
@@ -81,7 +94,7 @@ function createServiceHarness() {
         settings,
         runFiniteReplicationActivity,
         replaceDatabase: (name: string) => {
-            database = { name };
+            database = createDatabase(name);
         },
     };
 }
@@ -173,6 +186,78 @@ describe("P2P service room ownership", () => {
         expect(lifecycle).toEqual(["open", "close", "open"]);
     });
 
+    it("retains the room when only the selected profile or dynamic policy changes", async () => {
+        const roomLifecycle = mockRoomTransport();
+        const { lifecycle, transportLifecycle, settings } = createServiceHarness();
+
+        await transportLifecycle.connect();
+        settings.P2P_ActiveRemoteConfigurationId = "p2p-profile-b";
+        settings.P2P_AutoStart = false;
+        settings.P2P_AutoBroadcast = true;
+        settings.P2P_AutoSyncPeers = "peer-a";
+        settings.P2P_AutoWatchPeers = "peer-b";
+        settings.P2P_SyncOnReplication = "peer-c";
+        settings.P2P_AutoAccepting = 1;
+        settings.P2P_AutoAcceptingPeers = "peer-d";
+        settings.P2P_AutoDenyingPeers = "peer-e";
+        settings.P2P_IsHeadless = false;
+
+        await lifecycle.reconcileAutoStart(settings as never);
+
+        expect(roomLifecycle).toEqual(["open"]);
+    });
+
+    it("retains completed automatic baselines when profile selection preserves the peer namespace", async () => {
+        mockRoomTransport();
+        const { compatibilityReplicator, transportLifecycle, settings } = createServiceHarness();
+        settings.P2P_AutoSyncPeers = "peer-a";
+        settings.P2P_AutoAccepting = 1;
+        await transportLifecycle.connect();
+        const publishedReplicator = compatibilityReplicator.rawReplicator;
+        const sync = vi.spyOn(publishedReplicator!, "sync").mockResolvedValue({ status: "completed", ok: true });
+        const peer = { peerId: "peer-id", name: "peer-a", platform: "test" };
+        (compatibilityReplicator.rawHost as any)._knownAdvertisements.set(peer.peerId, peer);
+
+        await publishedReplicator?.onNewPeer(peer);
+        settings.P2P_ActiveRemoteConfigurationId = "p2p-profile-b";
+        await transportLifecycle.connect();
+        await publishedReplicator?.onNewPeer(peer);
+
+        expect(compatibilityReplicator.rawReplicator).toBe(publishedReplicator);
+        expect(sync).toHaveBeenCalledOnce();
+    });
+
+    it("retains the room when a transport list changes only in representation", async () => {
+        const roomLifecycle = mockRoomTransport();
+        const { transportLifecycle, settings } = createServiceHarness();
+
+        await transportLifecycle.connect();
+        settings.P2P_relays = " wss://relay.example.com, ";
+        await transportLifecycle.connect();
+
+        expect(roomLifecycle).toEqual(["open"]);
+    });
+
+    it("reconciles automatic broadcast on the current room without replacing it", async () => {
+        const roomLifecycle = mockRoomTransport();
+        const enableBroadcast = vi.spyOn(TrysteroReplicator.prototype, "enableBroadcastChanges");
+        const disableBroadcast = vi.spyOn(TrysteroReplicator.prototype, "disableBroadcastChanges");
+        const { lifecycle, transportLifecycle, settings } = createServiceHarness();
+
+        await transportLifecycle.connect();
+        enableBroadcast.mockClear();
+        disableBroadcast.mockClear();
+
+        settings.P2P_AutoBroadcast = true;
+        await lifecycle.reconcileAutoStart(settings as never);
+        settings.P2P_AutoBroadcast = false;
+        await lifecycle.reconcileAutoStart(settings as never);
+
+        expect(roomLifecycle).toEqual(["open"]);
+        expect(enableBroadcast).toHaveBeenCalledOnce();
+        expect(disableBroadcast).toHaveBeenCalledOnce();
+    });
+
     it("replaces the room when the local database identity changes", async () => {
         const lifecycle = mockRoomTransport();
         const { transportLifecycle, replaceDatabase } = createServiceHarness();
@@ -197,16 +282,16 @@ describe("P2P service room ownership", () => {
         expect(publishedReplicator?.db).toBe(sessionDatabase);
     });
 
-    it("keeps a published room session bound to the settings which created it", async () => {
+    it("keeps a published room session bound to the transport settings which created it", async () => {
         mockRoomTransport();
         const { compatibilityReplicator, transportLifecycle, settings } = createServiceHarness();
 
         await transportLifecycle.connect();
         const publishedReplicator = compatibilityReplicator.rawReplicator;
 
-        settings.P2P_AutoSyncPeers = "peer-b";
+        settings.P2P_roomID = "room-b";
 
-        expect(publishedReplicator?.settings.P2P_AutoSyncPeers).toBe("");
+        expect(publishedReplicator?.settings.P2P_roomID).toBe("room-a");
     });
 
     it("does not publish a candidate whose binding changed while it opened", async () => {

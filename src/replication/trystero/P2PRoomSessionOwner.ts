@@ -5,12 +5,6 @@ import {
     SETTING_KEY_P2P_DEVICE_NAME,
     type ObsidianLiveSyncSettings,
 } from "@lib/common/types";
-import {
-    hasValidP2PTurnServerUrl,
-    normaliseP2PConnectionPath,
-    normaliseP2PMaxWirePayloadBytes,
-} from "@lib/common/models/setting.p2p";
-import { P2PConnectionPaths } from "@lib/common/models/setting.const";
 import type { AsyncActivityOptions } from "@lib/interfaces/AsyncActivityRunner";
 import type { LiveSyncReplicatorEnv } from "@lib/replication/LiveSyncAbstractReplicator";
 import type { EntryDoc } from "@lib/common/types";
@@ -18,9 +12,11 @@ import { P2PRoomSession } from "./P2PRoomSession";
 import type { ReplicatorHostEnv } from "./types";
 import { P2PAutomationCoordinator } from "./P2PAutomationCoordinator";
 import { PEER_REPLICATION_READINESS } from "@lib/replication/ReplicatorProvider";
+import { getP2PReplicatorConfigurationIdentity } from "./p2pReplicatorConfigurationIdentity";
 
 type P2PRoomSessionBinding = {
     readonly database: PouchDB.Database<EntryDoc>;
+    readonly enabled: boolean;
     readonly settings: ObsidianLiveSyncSettings;
     readonly deviceName: string;
     readonly signature: string;
@@ -135,6 +131,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
             }
             const binding = this.getEffectiveBinding();
             if (this.current?.host.isServing && this.bindingsMatch(this.activeBinding, binding)) {
+                this.reconcileCurrentSessionPolicy(this.current);
                 Logger("P2P replicator is already open.");
                 return;
             }
@@ -149,12 +146,14 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
                 if (!candidate.host.isServing) {
                     throw new Error("The P2P room did not start serving.");
                 }
-                if (!this.hasRoomDemand() || !this.bindingsMatch(binding, this.getEffectiveBinding())) {
+                const currentBinding = this.getEffectiveBinding();
+                if (!currentBinding.enabled || !this.hasRoomDemand() || !this.bindingsMatch(binding, currentBinding)) {
                     await candidate.retire();
                     return;
                 }
                 this.current = candidate;
                 this.activeBinding = binding;
+                this.reconcileCurrentSessionPolicy(candidate);
             } catch (error) {
                 await candidate?.retire(error).catch((retirementError: unknown) => {
                     Logger(retirementError, LOG_LEVEL_VERBOSE);
@@ -198,24 +197,18 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         return current?.database === candidate.database && current.signature === candidate.signature;
     }
 
-    /** Capture every input whose change invalidates session-owned resources. */
+    /** Capture immutable session inputs while keeping policy live. */
     private getEffectiveBinding(): P2PRoomSessionBinding {
         const settings = {
             ...(this.env.services.setting.currentSettings() as ObsidianLiveSyncSettings),
         };
-        const configuredPath = normaliseP2PConnectionPath(settings.P2P_connectionPath);
-        const effectivePath =
-            configuredPath === P2PConnectionPaths.Relay && hasValidP2PTurnServerUrl(settings.P2P_turnServers ?? "")
-                ? P2PConnectionPaths.Relay
-                : P2PConnectionPaths.Automatic;
         const deviceName =
             this.env.services.config.getSmallConfig(SETTING_KEY_P2P_DEVICE_NAME) ||
             this.env.services.vault.getVaultName();
         const database = this.env.services.database.localDatabase.localDatabase;
         this.automationCoordinator.reconcileIdentity(
             JSON.stringify([
-                settings.P2P_ActiveRemoteConfigurationId,
-                settings.P2P_AppID,
+                settings.P2P_AppID || "self-hosted-livesync",
                 settings.P2P_roomID,
                 settings.P2P_passphrase,
             ]),
@@ -223,33 +216,16 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         );
         return {
             database,
+            enabled: settings.P2P_Enabled,
             settings,
             deviceName,
-            signature: JSON.stringify([
-                settings.P2P_Enabled,
-                settings.P2P_ActiveRemoteConfigurationId,
-                settings.P2P_AppID,
-                settings.P2P_roomID,
-                settings.P2P_passphrase,
-                settings.P2P_relays,
-                settings.P2P_turnServers,
-                settings.P2P_turnUsername,
-                settings.P2P_turnCredential,
-                normaliseP2PMaxWirePayloadBytes(settings.P2P_maxWirePayloadBytes),
-                effectivePath,
-                settings.P2P_useDiagRTC ?? false,
-                settings.P2P_AutoStart,
-                settings.P2P_AutoBroadcast,
-                settings.P2P_AutoSyncPeers,
-                settings.P2P_AutoWatchPeers,
-                settings.P2P_SyncOnReplication,
-                settings.P2P_AutoAccepting,
-                settings.P2P_AutoAcceptingPeers,
-                settings.P2P_AutoDenyingPeers,
-                settings.P2P_IsHeadless ?? false,
-                deviceName,
-            ]),
+            signature: JSON.stringify([getP2PReplicatorConfigurationIdentity(settings), deviceName]),
         };
+    }
+
+    /** Apply policy which can change without retiring the room session. */
+    private reconcileCurrentSessionPolicy(session: P2PRoomSession): void {
+        session.replicator.reconcileAutoBroadcast(this.env.services.setting.currentSettings().P2P_AutoBroadcast);
     }
 
     private buildSessionEnv(binding: P2PRoomSessionBinding): ReplicatorHostEnv {
@@ -258,6 +234,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
             events: services.context.events,
             translate: services.context.translate,
             settings: binding.settings,
+            currentSettings: () => services.setting.currentSettings(),
             db: binding.database,
             get simpleStore() {
                 return services.keyValueDB.openSimpleStore("p2p-sync");
