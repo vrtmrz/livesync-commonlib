@@ -105,7 +105,7 @@ describe("useP2PReplicatorFeature", () => {
         expect(close).toHaveBeenCalledTimes(2);
     });
 
-    it("keeps one P2P service owner while active adapters are reacquired", async () => {
+    it("keeps stable narrow views over one P2P service context while active adapters are reacquired", async () => {
         const events = createLiveSyncEventHub();
         let definitions: ReplicatorProviderDefinitionMap | undefined;
         const handler = { addHandler: vi.fn() };
@@ -137,18 +137,35 @@ describe("useP2PReplicatorFeature", () => {
 
         const openReplicationUIFactory = vi.fn(() => vi.fn(async () => true));
         const result = useP2PReplicatorFeature(host, openReplicationUIFactory);
-        const stableOwner = result.transportLifecycle;
+        const stableViews = {
+            transportLifecycle: result.transportLifecycle,
+            peerDirectory: result.peerDirectory,
+            peerAdmission: result.peerAdmission,
+            targetedTransfer: result.targetedTransfer,
+            changeRelay: result.changeRelay,
+            configurationExchange: result.configurationExchange,
+            diagnostics: result.diagnostics,
+        };
 
-        expect(stableOwner).toBeDefined();
-        expect(result.peerDirectory).toBe(stableOwner);
-        expect(result.peerAdmission).toBe(stableOwner);
-        expect(result.targetedTransfer).toBe(stableOwner);
-        expect(result.changeRelay).toBe(stableOwner);
-        expect(result.configurationExchange).toBe(stableOwner);
-        expect(result.diagnostics).toBe(stableOwner);
+        expect(result.transportLifecycle).toBe(stableViews.transportLifecycle);
+        expect(result.peerDirectory).toBe(stableViews.peerDirectory);
+        expect(result.peerAdmission).toBe(stableViews.peerAdmission);
+        expect(result.targetedTransfer).toBe(stableViews.targetedTransfer);
+        expect(result.changeRelay).toBe(stableViews.changeRelay);
+        expect(result.configurationExchange).toBe(stableViews.configurationExchange);
+        expect(result.diagnostics).toBe(stableViews.diagnostics);
 
         const compatibilityReplicator = result.replicator;
-        expect(openReplicationUIFactory).toHaveBeenCalledWith(compatibilityReplicator, stableOwner);
+        expect(openReplicationUIFactory).toHaveBeenCalledOnce();
+        expect(openReplicationUIFactory.mock.calls[0][0]).toBe(compatibilityReplicator);
+        const uiViews = openReplicationUIFactory.mock.calls[0][1];
+        expect(uiViews.transportLifecycle).toBe(stableViews.transportLifecycle);
+        expect(uiViews.peerDirectory).toBe(stableViews.peerDirectory);
+        expect(uiViews.peerAdmission).toBe(stableViews.peerAdmission);
+        expect(uiViews.targetedTransfer).toBe(stableViews.targetedTransfer);
+        expect(uiViews.changeRelay).toBe(stableViews.changeRelay);
+        expect(uiViews.configurationExchange).toBe(stableViews.configurationExchange);
+        expect(uiViews.diagnostics).toBe(stableViews.diagnostics);
         const close = vi.spyOn(compatibilityReplicator, "close").mockResolvedValue(undefined);
         const closeReplication = vi.spyOn(compatibilityReplicator, "closeReplication");
         const definition = definitions?.get(REMOTE_P2P);
@@ -161,8 +178,16 @@ describe("useP2PReplicatorFeature", () => {
         expect(secondAdapter).not.toBe(firstAdapter);
         firstAdapter?.closeReplication();
         expect(result.replicator).toBe(compatibilityReplicator);
+        expect(result.transportLifecycle).toBe(stableViews.transportLifecycle);
+        expect(result.targetedTransfer).toBe(stableViews.targetedTransfer);
         expect(close).not.toHaveBeenCalled();
         expect(closeReplication).not.toHaveBeenCalled();
+
+        await stableViews.transportLifecycle.disconnect();
+        await expect(stableViews.targetedTransfer.synchroniseConfiguredTargets()).resolves.toEqual({
+            status: "blocked",
+            reason: "not-ready",
+        });
     });
 
     it("keeps a compatibility-facade disconnect as an automatic-start veto while allowing rebuild continuation", async () => {
