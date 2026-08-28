@@ -13,8 +13,9 @@ This design document records the implemented Commonlib Trystero P2P service. It 
 
 The P2P composition deliberately separates stable host policy from one replaceable room membership:
 
-- `useP2PReplicatorFeature` composes one stable `LiveSyncP2PService` for the host lifetime and registers non-owning active-provider adapters over it;
-- `LiveSyncP2PService` owns explicit-connect and explicit-disconnect intent, the disconnect veto, application lifecycle generation, delayed AutoStart work, and the seven public contract views;
+- `useP2PReplicatorFeature` creates one P2P service composition for the host lifetime and registers non-owning active-provider adapters over it;
+- the service composition holds seven stable contract views and one host lifecycle view over a private context;
+- the private context owns explicit-connect and explicit-disconnect intent, the disconnect veto, application lifecycle generation, delayed AutoStart work, and the resource references shared by those views;
 - `P2PRoomSessionOwner` owns persistent and finite room demands, serialised room construction and retirement, effective-binding comparison, publication of the current session, and the stable `P2PAutomationCoordinator`;
 - `P2PAutomationCoordinator` owns baseline-transfer de-duplication across room replacement, including in-flight work until settlement and completed peer baselines for the current automation generation and logical database identity;
 - each `P2PRoomSession` owns one Trystero room binding, its LiveSync RPC surface, advertisements, client proxies, diagnostics, its session-lifetime controller, and the finite replication operations admitted through that room; and
@@ -25,30 +26,34 @@ The implemented ownership topology is:
 ```text
 host composition
 └── useP2PReplicatorFeature()
-    └── LiveSyncP2PService                         stable policy and public-view owner
-        ├── seven focused views                    non-owning capability projections
+    └── P2P service composition                    stable projection identity
+        ├── host lifecycle view                    host-only application lifecycle operations
+        ├── seven focused views                    stable, non-owning capability projections
         ├── compatibility Replicator               deprecated, non-owning façade
-        └── P2PRoomSessionOwner                    stable session owner and lifecycle queue
-            ├── P2PAutomationCoordinator           stable across room replacement
-            └── current P2PRoomSession             replaceable room-membership owner
-                ├── P2PHost and TrysteroReplicator session-bound RPC and transfer state
-                └── Trystero room                  membership and action namespace
-                    └── Trystero runtime           shared relay clients and physical peers
+        └── private P2P service context            stable policy and shared references
+            └── P2PRoomSessionOwner                stable session owner and lifecycle queue
+                ├── P2PAutomationCoordinator       stable across room replacement
+                └── current P2PRoomSession         replaceable room-membership owner
+                    ├── P2PHost and TrysteroReplicator
+                    │                               session-bound RPC and transfer state
+                    └── Trystero room              membership and action namespace
+                        └── Trystero runtime       shared relay clients and physical peers
 ```
 
-Only `P2PRoomSessionOwner` constructs, publishes, replaces, and retires the current `P2PRoomSession`. `LiveSyncP2PService` owns the intent which changes the owner's demand set; views, active-provider adapters, and the compatibility Replicator do not acquire session ownership.
+Only `P2PRoomSessionOwner` constructs, publishes, replaces, and retires the current `P2PRoomSession`. Module-level service operations change its demand set through the private context. Views, active-provider adapters, the host lifecycle projection, and the compatibility Replicator do not acquire session ownership.
 
-| Owner                      | State which survives room replacement                                                            | State retired with one room session                                                                                                |
-| -------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `LiveSyncP2PService`       | explicit-disconnect veto, lifecycle generation, contract-view identity                           | delayed AutoStart callback is cancelled or invalidated before lifecycle retirement                                                 |
-| `P2PRoomSessionOwner`      | persistent and finite room-demand bookkeeping, lifecycle queue, automation coordinator           | published session and its effective binding                                                                                        |
-| `P2PAutomationCoordinator` | completed baseline peer names for the current generation and in-flight promises until settlement | none merely because a room session retires; a lifecycle or identity change clears completed records and prevents stale publication |
-| `P2PRoomSession`           | none                                                                                             | room, host, Replicator, advertisements, clients, callbacks, feeds, and admitted finite-operation controllers                       |
-| Trystero                   | implementation-owned relay clients and potentially shared physical peers                         | the departed LiveSync room's membership, action namespace, and callbacks are detached through the Trystero room API                |
+| Owner                       | State which survives room replacement                                                            | State retired with one room session                                                                                                |
+| --------------------------- | ------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------- |
+| P2P service composition     | stable lifecycle and contract-view identity                                                      | none                                                                                                                               |
+| private P2P service context | explicit-disconnect veto and lifecycle generation                                                | delayed AutoStart callback is cancelled or invalidated before lifecycle retirement                                                 |
+| `P2PRoomSessionOwner`       | persistent and finite room-demand bookkeeping, lifecycle queue, and automation coordinator       | published session and its effective binding                                                                                        |
+| `P2PAutomationCoordinator`  | completed baseline peer names for the current generation and in-flight promises until settlement | none merely because a room session retires; a lifecycle or identity change clears completed records and prevents stale publication |
+| `P2PRoomSession`            | none                                                                                             | room, host, Replicator, advertisements, clients, callbacks, feeds, and admitted finite-operation controllers                       |
+| Trystero                    | implementation-owned relay clients and potentially shared physical peers                         | the departed LiveSync room's membership, action namespace, and callbacks are detached through the Trystero room API                |
 
 Ordinary consumers use the seven focused views returned by the service feature. They do not receive the room session, raw host, raw peer connection, or concrete Replicator. `ReplicatorService` receives a fresh non-owning active adapter when it selects P2P as the main remote. Disposing or replacing that adapter neither leaves the service-owned room nor cancels work owned by another service consumer. The explicit stop capability cancels current finite transfers without retiring the room.
 
-The seven view getters currently return the same stable `LiveSyncP2PService` object. They are capability boundaries for consumers, not separately allocated owners. A consumer receives only the views it needs.
+The seven stable view objects close over the same private context, but do not expose that context or one another. They are capability boundaries for consumers, not separately allocated owners. A consumer receives only the views it needs.
 
 | View                       | Implemented responsibility                                                                                               |
 | -------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
@@ -68,7 +73,7 @@ The optional host UI factory is an explicit compatibility boundary. Commonlib su
 
 Acquiring a finite room demand opens or reuses a session and then supplies that session to the operation. `P2PRoomSession.runFiniteOperation()` has a different responsibility: it admits one abortable transfer into an already owned session. It does not acquire or release a room demand. Configured-target discovery and execution are admitted as one such session operation, so retirement cancels and awaits the outer orchestration as well as any peer transfer which it has started. This separation prevents the settlement of one transfer from closing a room retained by AutoStart or another operation.
 
-`LiveSyncP2PService` owns the explicit-disconnect veto. A finite demand or AutoStart cannot reopen the room while that veto is set. A later explicit connect clears it. A completed Rebuild may acquire the distinct `rebuild-continuation` demand because that action continues an already authorised workflow; it does not clear the veto for later AutoStart work.
+The private service state owns the explicit-disconnect veto. A finite demand or AutoStart cannot reopen the room while that veto is set. A later explicit connect clears it. A completed Rebuild may acquire the distinct `rebuild-continuation` demand because that action continues an already authorised workflow; it does not clear the veto for later AutoStart work.
 
 AutoStart is scheduled against the current application lifecycle generation. Suspension, unload, explicit disconnect, and other lifecycle closes invalidate the generation and clear the delayed callback. The callback re-reads current settings before it asks the owner to add the `automatic` demand. WebPeer and other maintained hosts dispatch the shared resumed-lifecycle hook rather than scheduling a second raw room open.
 
@@ -100,7 +105,7 @@ Configuration exchange and diagnostic reads are session-scoped requests, but are
 
 ## Normal close
 
-The transport lifecycle view delegates an explicit disconnect to `LiveSyncP2PService`. The service sets its disconnect veto, invalidates delayed automation, and asks `P2PRoomSessionOwner.close()` to clear every current demand and serialise retirement with any in-flight open operation. Retirement stops LiveSync-owned work, closes the RPC room, calls `room.leave()`, clears instance references, pauses relay reconnection, and closes the current Nostr relay WebSockets.
+The transport lifecycle view delegates an explicit disconnect to its module-level service operation. That operation sets the private disconnect veto, invalidates delayed automation, and asks `P2PRoomSessionOwner.close()` to clear every current demand and serialise retirement with any in-flight open operation. Retirement stops LiveSync-owned work, closes the RPC room, calls `room.leave()`, clears instance references, pauses relay reconnection, and closes the current Nostr relay WebSockets.
 
 Normal close deliberately does not call `close()` on the `RTCPeerConnection` values returned by `room.getPeers()`. Trystero 0.25 may share a physical peer across rooms. Leaving a room detaches its callbacks and action namespace, while Trystero may retain the idle physical peer for approximately 123 seconds for reuse. The retained peer cannot carry traffic for the departed room.
 
@@ -119,7 +124,7 @@ It is therefore a logical LiveSync disconnection and a physical signalling-serve
 
 ## Reconnection and replacement
 
-An explicit connect resumes Trystero relay reconnection before joining the configured room. Active-provider adapter acquisition is independent of that room lifecycle and cannot replace or close the service owner.
+An explicit connect resumes Trystero relay reconnection before joining the configured room. Active-provider adapter acquisition is independent of that room lifecycle and cannot replace or close the service context.
 
 The room-session owner compares the selected profile, effective room and transport settings, session-bound automation settings, device identity, and local database object on every open. An unchanged binding keeps the serving transport, while a changed binding serialises retirement of the complete session before opening and publishing its replacement. Each transport binding and session-bound Replicator capture their P2P settings, device identity, and database object when they are created; later service lookups cannot replace those captured values while retirement is settling. Host callbacks which deliberately inspect current policy settings remain outside this transport-binding isolation. After the candidate room opens, the owner rechecks the current binding and publishes the candidate only when it still matches. This prevents changed credentials, policy, or database state from being applied partly to the former room or exposed through a stale candidate. No fixed close-to-open delay is required: lifecycle operations are serialised, and peer readiness is observed through discovery.
 

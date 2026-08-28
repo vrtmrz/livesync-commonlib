@@ -5,6 +5,7 @@ import type { P2PSyncSetting } from "@lib/common/types";
 import type { LiveSyncTrysteroReplicator } from "./LiveSyncTrysteroReplicator";
 import { EVENT_ADVERTISEMENT_RECEIVED, EVENT_DEVICE_LEAVED, EVENT_REQUEST_STATUS } from "./TrysteroReplicatorP2PServer";
 import type { Advertisement } from "./types";
+import type { P2PServiceLifecycle } from "@lib/p2p/P2PService";
 
 /**
  * Minimal interface that a P2P replicator instance should satisfy for addP2PEventHandlers to work.
@@ -23,13 +24,11 @@ export interface P2PReplicatorLike {
     readonly server?: { isServing?: boolean };
 }
 
-/** Stable service lifecycle used by maintained host compositions. */
-export interface P2PServiceEventTarget {
-    requestStatus(): void;
-    openAfterDatabaseRebuild(): Promise<void>;
-    closeForLifecycle(): Promise<void>;
-    reconcileAutoStart(settings: P2PSyncSetting): Promise<void>;
-}
+/** Host lifecycle subset consumed by the legacy event bridge. */
+export type P2PServiceEventTarget = Pick<
+    P2PServiceLifecycle,
+    "requestStatus" | "openAfterDatabaseRebuild" | "closeForLifecycle" | "reconcileAutoStart"
+>;
 
 /** Resolves the replicator which currently owns P2P state. */
 export type P2PEventTarget = P2PReplicatorLike | P2PServiceEventTarget;

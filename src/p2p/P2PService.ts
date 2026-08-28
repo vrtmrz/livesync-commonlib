@@ -142,7 +142,7 @@ export interface P2PDiagnostics {
     getPeerConnectionMetrics(peerId: string): Promise<P2PPeerConnectionMetrics | undefined>;
 }
 
-/** Seven narrow contract views backed by one stable P2P state owner. */
+/** Seven narrow contract views backed by one private P2P service context. */
 export interface P2PServiceViews {
     readonly transportLifecycle: P2PTransportLifecycle;
     readonly peerDirectory: P2PPeerDirectory;
@@ -154,252 +154,269 @@ export interface P2PServiceViews {
 }
 
 /**
- * Stable P2P service owner composed by a host.
- *
- * Every view returns this same object. The compatibility Replicator remains a
- * temporary migration surface, while active Replicator adapters are separate,
- * non-owning handles over this service.
+ * Host-only lifecycle operations which are deliberately absent from ordinary
+ * P2P capability views.
  */
-export class LiveSyncP2PService
-    implements
-        P2PServiceViews,
-        P2PTransportLifecycle,
-        P2PPeerDirectory,
-        P2PPeerAdmission,
-        P2PTargetedTransfer,
-        P2PChangeRelay,
-        P2PConfigurationExchange,
-        P2PDiagnostics
-{
+export interface P2PServiceLifecycle {
+    requestStatus(): void;
+    openAfterDatabaseRebuild(): Promise<void>;
+    closeForLifecycle(): Promise<void>;
+    reconcileAutoStart(settings: Pick<ObsidianLiveSyncSettings, "P2P_Enabled" | "P2P_AutoStart">): Promise<void>;
+    scheduleAutoStart(delayMs?: number): void;
+}
+
+/** Host composition result. Ordinary consumers receive only `views`. */
+export interface P2PServiceComposition {
+    /** Deprecated compatibility surface for consumers which still require it. */
     readonly compatibilityReplicator: LiveSyncTrysteroReplicator;
-    private readonly roomSessionOwner: P2PRoomSessionOwner;
-    private explicitDisconnectVeto = false;
-    private lifecycleGeneration = 0;
-    private delayedAutoStart: CompatTimeoutHandle | undefined;
+    /** Stable capability projections over the private service context. */
+    readonly views: P2PServiceViews;
+    /** Host lifecycle operations which are not ordinary P2P capabilities. */
+    readonly lifecycle: P2PServiceLifecycle;
+    /** Create a non-owning adapter for the active Replicator selection. */
+    createActiveReplicator(): LiveSyncAbstractReplicator;
+}
 
-    constructor(private readonly env: LiveSyncTrysteroReplicatorEnv) {
-        this.roomSessionOwner = new P2PRoomSessionOwner(env);
-        this.compatibilityReplicator = new LiveSyncTrysteroReplicator(env, this.createCompatibilitySessionAccess());
+interface P2PServiceState {
+    explicitDisconnectVeto: boolean;
+    lifecycleGeneration: number;
+    delayedAutoStart: CompatTimeoutHandle | undefined;
+}
+
+/** Private state and resource references shared by every stable view. */
+interface P2PServiceContext {
+    readonly env: LiveSyncTrysteroReplicatorEnv;
+    readonly roomSessionOwner: P2PRoomSessionOwner;
+    readonly compatibilityReplicator: LiveSyncTrysteroReplicator;
+    readonly state: P2PServiceState;
+}
+
+function connect(owner: P2PRoomSessionOwner, state: P2PServiceState): Promise<void> {
+    state.explicitDisconnectVeto = false;
+    return owner.setPersistentDemand("explicit", true);
+}
+
+function clearDelayedAutoStart(state: P2PServiceState): void {
+    if (state.delayedAutoStart !== undefined) {
+        compatGlobal.clearTimeout(state.delayedAutoStart);
+        state.delayedAutoStart = undefined;
     }
+}
 
-    /** Keep legacy open and close calls within the stable service's intent policy. */
-    private createCompatibilitySessionAccess(): P2PRoomSessionAccess {
-        const owner = this.roomSessionOwner;
+function cancelDelayedAutomation(owner: P2PRoomSessionOwner, state: P2PServiceState): void {
+    state.lifecycleGeneration += 1;
+    owner.beginAutomationLifecycle();
+    clearDelayedAutoStart(state);
+}
+
+function disconnect(owner: P2PRoomSessionOwner, state: P2PServiceState): Promise<void> {
+    state.explicitDisconnectVeto = true;
+    cancelDelayedAutomation(owner, state);
+    return owner.close();
+}
+
+function openAfterDatabaseRebuild(owner: P2PRoomSessionOwner): Promise<void> {
+    return owner.setPersistentDemand("rebuild-continuation", true);
+}
+
+function closeForLifecycle(owner: P2PRoomSessionOwner, state: P2PServiceState): Promise<void> {
+    cancelDelayedAutomation(owner, state);
+    return owner.close();
+}
+
+function reconcileAutoStart(
+    context: P2PServiceContext,
+    settings: Pick<ObsidianLiveSyncSettings, "P2P_Enabled" | "P2P_AutoStart">
+): Promise<void> {
+    if (!settings.P2P_Enabled || !settings.P2P_AutoStart) {
+        return context.roomSessionOwner.setPersistentDemand("automatic", false);
+    }
+    if (context.state.explicitDisconnectVeto) return Promise.resolve();
+    return context.roomSessionOwner.setPersistentDemand("automatic", true);
+}
+
+function scheduleAutoStart(context: P2PServiceContext, delayMs: number = 100): void {
+    clearDelayedAutoStart(context.state);
+    const generation = context.state.lifecycleGeneration;
+    context.state.delayedAutoStart = compatGlobal.setTimeout(() => {
+        context.state.delayedAutoStart = undefined;
+        if (generation !== context.state.lifecycleGeneration) return;
+        void reconcileAutoStart(context, context.env.services.setting.currentSettings());
+    }, delayMs);
+}
+
+function runWithFiniteRoomDemand<T>(
+    context: P2PServiceContext,
+    task: (session: P2PRoomSession) => T | PromiseLike<T>
+): Promise<T> {
+    if (context.state.explicitDisconnectVeto) {
+        return Promise.reject(new Error("The P2P room was explicitly disconnected."));
+    }
+    return context.roomSessionOwner.runWithFiniteDemand(task);
+}
+
+async function synchroniseConfiguredTargets(context: P2PServiceContext): Promise<ReplicationOutcome> {
+    if (context.state.explicitDisconnectVeto) return replicationBlocked("not-ready");
+    try {
+        const result = await context.roomSessionOwner.runWithFiniteDemand((session) =>
+            session.runFiniteOperation((signal) => session.replicator.replicateFromCommand(false, undefined, signal))
+        );
+        if (result.status === "completed") return REPLICATION_COMPLETED;
+        if (result.status === "cancelled") return REPLICATION_CANCELLED;
+        if (result.status === "blocked") return replicationBlocked("provider-not-configured");
         return {
-            get currentSession() {
-                return owner.currentSession;
-            },
-            get isConnected() {
-                return owner.isConnected;
-            },
-            cancelActiveTransfers: () => owner.cancelActiveTransfers(),
-            open: () => this.connect(),
-            close: () => this.disconnect(),
+            status: "partial",
+            detail: { kind: "p2p-configured-targets", targets: result.targets },
         };
+    } catch (error) {
+        return replicationFailed(error);
     }
+}
 
-    get transportLifecycle(): P2PTransportLifecycle {
-        return this;
-    }
+function pullFromPeer(
+    context: P2PServiceContext,
+    peerId: string,
+    options: { readonly showNotice?: boolean; readonly skipOrdinaryReplicationPolicy?: boolean } = {}
+): Promise<P2PReplicationResult> {
+    return runWithFiniteRoomDemand(context, (session) =>
+        context.env.services.replicator.runFiniteReplicationActivity(
+            () =>
+                session.replicator.replicateFrom(
+                    peerId,
+                    options.showNotice ?? false,
+                    false,
+                    options.skipOrdinaryReplicationPolicy ?? false
+                ),
+            { label: "replication" }
+        )
+    );
+}
 
-    get peerDirectory(): P2PPeerDirectory {
-        return this;
-    }
+function requestPushToPeer(context: P2PServiceContext, peerId: string): Promise<P2PReplicationResult> {
+    return runWithFiniteRoomDemand(context, (session) =>
+        context.env.services.replicator.runBoundedRemoteActivity(
+            () => session.replicator.requestSynchroniseToPeer(peerId),
+            { label: "replication" }
+        )
+    );
+}
 
-    get peerAdmission(): P2PPeerAdmission {
-        return this;
-    }
+function synchroniseWithPeer(
+    context: P2PServiceContext,
+    peerId: string,
+    showNotice: boolean = false
+): Promise<P2PReplicationResult> {
+    return runWithFiniteRoomDemand(context, (session) =>
+        context.env.services.replicator.runFiniteReplicationActivity(
+            () => session.replicator.sync(peerId, showNotice),
+            { label: "replication" }
+        )
+    );
+}
 
-    get targetedTransfer(): P2PTargetedTransfer {
-        return this;
-    }
+async function getPeerConnectionMetrics(
+    context: P2PServiceContext,
+    peerId: string
+): Promise<P2PPeerConnectionMetrics | undefined> {
+    const peerConnection = context.compatibilityReplicator.rawHost?.room?.getPeers()[peerId];
+    if (!peerConnection) return undefined;
+    const metrics = await getPeerConnectionStats(`p2p-service-${peerId}`, peerConnection);
+    return metrics ? projectP2PPeerConnectionMetrics(metrics) : undefined;
+}
 
-    get changeRelay(): P2PChangeRelay {
-        return this;
-    }
+function createCompatibilitySessionAccess(owner: P2PRoomSessionOwner, state: P2PServiceState): P2PRoomSessionAccess {
+    return {
+        get currentSession() {
+            return owner.currentSession;
+        },
+        get isConnected() {
+            return owner.isConnected;
+        },
+        cancelActiveTransfers: () => owner.cancelActiveTransfers(),
+        open: () => connect(owner, state),
+        close: () => disconnect(owner, state),
+    };
+}
 
-    get configurationExchange(): P2PConfigurationExchange {
-        return this;
-    }
+function createServiceViews(context: P2PServiceContext): P2PServiceViews {
+    const transportLifecycle: P2PTransportLifecycle = {
+        get isConnected() {
+            return context.roomSessionOwner.isConnected;
+        },
+        connect: () => connect(context.roomSessionOwner, context.state),
+        disconnect: () => disconnect(context.roomSessionOwner, context.state),
+    };
+    const peerDirectory: P2PPeerDirectory = {
+        getPeers: () => context.compatibilityReplicator.knownAdvertisements,
+    };
+    const peerAdmission: P2PPeerAdmission = {
+        makeDecision: (decision) => context.compatibilityReplicator.makeDecision(decision),
+        revokeDecision: (decision) => context.compatibilityReplicator.revokeDecision(decision),
+    };
+    const targetedTransfer: P2PTargetedTransfer = {
+        pullFromPeer: (peerId, options) => pullFromPeer(context, peerId, options),
+        requestPushToPeer: (peerId) => requestPushToPeer(context, peerId),
+        synchroniseWithPeer: (peerId, showNotice) => synchroniseWithPeer(context, peerId, showNotice),
+        synchroniseConfiguredTargets: () => synchroniseConfiguredTargets(context),
+    };
+    const changeRelay: P2PChangeRelay = {
+        watchPeer: (peerId) => context.compatibilityReplicator.watchPeer(peerId),
+        unwatchPeer: (peerId) => context.compatibilityReplicator.unwatchPeer(peerId),
+        enableBroadcastChanges: () => context.compatibilityReplicator.enableBroadcastChanges(),
+        disableBroadcastChanges: () => context.compatibilityReplicator.disableBroadcastChanges(),
+    };
+    const configurationExchange: P2PConfigurationExchange = {
+        getRemoteConfiguration: (peerId) => context.compatibilityReplicator.getRemoteConfig(peerId),
+    };
+    const diagnostics: P2PDiagnostics = {
+        requestStatus: () => context.compatibilityReplicator.requestStatus(),
+        getPeerConnectionMetrics: (peerId) => getPeerConnectionMetrics(context, peerId),
+    };
+    return {
+        transportLifecycle,
+        peerDirectory,
+        peerAdmission,
+        targetedTransfer,
+        changeRelay,
+        configurationExchange,
+        diagnostics,
+    };
+}
 
-    get diagnostics(): P2PDiagnostics {
-        return this;
-    }
+function createServiceLifecycle(context: P2PServiceContext): P2PServiceLifecycle {
+    return {
+        requestStatus: () => context.compatibilityReplicator.requestStatus(),
+        openAfterDatabaseRebuild: () => openAfterDatabaseRebuild(context.roomSessionOwner),
+        closeForLifecycle: () => closeForLifecycle(context.roomSessionOwner, context.state),
+        reconcileAutoStart: (settings) => reconcileAutoStart(context, settings),
+        scheduleAutoStart: (delayMs) => scheduleAutoStart(context, delayMs),
+    };
+}
 
-    get isConnected(): boolean {
-        return this.roomSessionOwner.isConnected;
-    }
-
-    connect(): Promise<void> {
-        this.explicitDisconnectVeto = false;
-        return this.roomSessionOwner.setPersistentDemand("explicit", true);
-    }
-
-    disconnect(): Promise<void> {
-        this.explicitDisconnectVeto = true;
-        this.cancelDelayedAutomation();
-        return this.roomSessionOwner.close();
-    }
-
-    /** Reopen after a rebuild which already owns that lifecycle continuation. */
-    openAfterDatabaseRebuild(): Promise<void> {
-        return this.roomSessionOwner.setPersistentDemand("rebuild-continuation", true);
-    }
-
-    /** Retire the current room without changing explicit user intent. */
-    closeForLifecycle(): Promise<void> {
-        this.cancelDelayedAutomation();
-        return this.roomSessionOwner.close();
-    }
-
-    /** Apply the persisted AutoStart policy without overriding an explicit disconnect. */
-    reconcileAutoStart(settings: Pick<ObsidianLiveSyncSettings, "P2P_Enabled" | "P2P_AutoStart">): Promise<void> {
-        if (!settings.P2P_Enabled || !settings.P2P_AutoStart) {
-            return this.roomSessionOwner.setPersistentDemand("automatic", false);
-        }
-        if (this.explicitDisconnectVeto) {
-            return Promise.resolve();
-        }
-        return this.roomSessionOwner.setPersistentDemand("automatic", true);
-    }
-
-    /** Schedule AutoStart work within the current application lifecycle generation. */
-    scheduleAutoStart(delayMs: number = 100): void {
-        this.clearDelayedAutoStart();
-        const generation = this.lifecycleGeneration;
-        this.delayedAutoStart = compatGlobal.setTimeout(() => {
-            this.delayedAutoStart = undefined;
-            if (generation !== this.lifecycleGeneration) return;
-            const settings = this.env.services.setting.currentSettings();
-            void this.reconcileAutoStart(settings);
-        }, delayMs);
-    }
-
-    /** Invalidate delayed automatic work scheduled by an earlier lifecycle. */
-    cancelDelayedAutomation(): void {
-        this.lifecycleGeneration += 1;
-        this.roomSessionOwner.beginAutomationLifecycle();
-        this.clearDelayedAutoStart();
-    }
-
-    private clearDelayedAutoStart(): void {
-        if (this.delayedAutoStart !== undefined) {
-            compatGlobal.clearTimeout(this.delayedAutoStart);
-            this.delayedAutoStart = undefined;
-        }
-    }
-
-    private runWithFiniteRoomDemand<T>(task: (session: P2PRoomSession) => T | PromiseLike<T>): Promise<T> {
-        if (this.explicitDisconnectVeto) {
-            return Promise.reject(new Error("The P2P room was explicitly disconnected."));
-        }
-        return this.roomSessionOwner.runWithFiniteDemand(task);
-    }
-
-    /** Run the configured unattended P2P target set without peer-selection UI. */
-    async synchroniseConfiguredTargets(): Promise<ReplicationOutcome> {
-        if (this.explicitDisconnectVeto) return replicationBlocked("not-ready");
-        try {
-            const result = await this.roomSessionOwner.runWithFiniteDemand((session) =>
-                session.runFiniteOperation((signal) =>
-                    session.replicator.replicateFromCommand(false, undefined, signal)
-                )
-            );
-            if (result.status === "completed") return REPLICATION_COMPLETED;
-            if (result.status === "cancelled") return REPLICATION_CANCELLED;
-            if (result.status === "blocked") return replicationBlocked("provider-not-configured");
-            return {
-                status: "partial",
-                detail: { kind: "p2p-configured-targets", targets: result.targets },
-            };
-        } catch (error) {
-            return replicationFailed(error);
-        }
-    }
-
-    getPeers(): readonly Advertisement[] {
-        return this.compatibilityReplicator.knownAdvertisements;
-    }
-
-    async makeDecision(decision: AcceptanceDecision): Promise<void> {
-        await this.compatibilityReplicator.makeDecision(decision);
-    }
-
-    async revokeDecision(decision: RevokeAcceptanceDecision): Promise<void> {
-        await this.compatibilityReplicator.revokeDecision(decision);
-    }
-
-    pullFromPeer(
-        peerId: string,
-        options: { readonly showNotice?: boolean; readonly skipOrdinaryReplicationPolicy?: boolean } = {}
-    ): Promise<P2PReplicationResult> {
-        return this.runWithFiniteRoomDemand((session) =>
-            this.env.services.replicator.runFiniteReplicationActivity(
-                () =>
-                    session.replicator.replicateFrom(
-                        peerId,
-                        options.showNotice ?? false,
-                        false,
-                        options.skipOrdinaryReplicationPolicy ?? false
-                    ),
-                { label: "replication" }
-            )
-        );
-    }
-
-    requestPushToPeer(peerId: string): Promise<P2PReplicationResult> {
-        return this.runWithFiniteRoomDemand((session) =>
-            this.env.services.replicator.runBoundedRemoteActivity(
-                () => session.replicator.requestSynchroniseToPeer(peerId),
-                { label: "replication" }
-            )
-        );
-    }
-
-    synchroniseWithPeer(peerId: string, showNotice: boolean = false): Promise<P2PReplicationResult> {
-        return this.runWithFiniteRoomDemand((session) =>
-            this.env.services.replicator.runFiniteReplicationActivity(
-                () => session.replicator.sync(peerId, showNotice),
-                { label: "replication" }
-            )
-        );
-    }
-
-    watchPeer(peerId: string): void {
-        this.compatibilityReplicator.watchPeer(peerId);
-    }
-
-    unwatchPeer(peerId: string): void {
-        this.compatibilityReplicator.unwatchPeer(peerId);
-    }
-
-    enableBroadcastChanges(): void {
-        this.compatibilityReplicator.enableBroadcastChanges();
-    }
-
-    disableBroadcastChanges(): void {
-        this.compatibilityReplicator.disableBroadcastChanges();
-    }
-
-    getRemoteConfiguration(peerId: string): Promise<ObsidianLiveSyncSettings | false> {
-        return this.compatibilityReplicator.getRemoteConfig(peerId);
-    }
-
-    requestStatus(): void {
-        this.compatibilityReplicator.requestStatus();
-    }
-
-    async getPeerConnectionMetrics(peerId: string): Promise<P2PPeerConnectionMetrics | undefined> {
-        const peerConnection = this.compatibilityReplicator.rawHost?.room?.getPeers()[peerId];
-        if (!peerConnection) return undefined;
-        const metrics = await getPeerConnectionStats(`p2p-service-${peerId}`, peerConnection);
-        return metrics ? projectP2PPeerConnectionMetrics(metrics) : undefined;
-    }
-
-    /** Create a fresh active handle which cannot retire this service's room. */
-    createActiveReplicator(): LiveSyncAbstractReplicator {
-        return new P2PActiveReplicatorAdapter(this.env, this.compatibilityReplicator);
-    }
+/**
+ * Compose stable capability views over one private P2P service context.
+ *
+ * `P2PRoomSessionOwner` remains the resource owner. The returned composition
+ * object is host wiring, not a capability façade for ordinary consumers.
+ */
+export function createP2PService(env: LiveSyncTrysteroReplicatorEnv): P2PServiceComposition {
+    const roomSessionOwner = new P2PRoomSessionOwner(env);
+    const state: P2PServiceState = {
+        explicitDisconnectVeto: false,
+        lifecycleGeneration: 0,
+        delayedAutoStart: undefined,
+    };
+    const compatibilityReplicator = new LiveSyncTrysteroReplicator(
+        env,
+        createCompatibilitySessionAccess(roomSessionOwner, state)
+    );
+    const context: P2PServiceContext = { env, roomSessionOwner, compatibilityReplicator, state };
+    return {
+        compatibilityReplicator,
+        views: createServiceViews(context),
+        lifecycle: createServiceLifecycle(context),
+        createActiveReplicator: () => new P2PActiveReplicatorAdapter(env, compatibilityReplicator),
+    };
 }
 
 /** Active-provider adapter over the stable P2P service compatibility surface. */

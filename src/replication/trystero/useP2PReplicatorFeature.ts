@@ -3,7 +3,7 @@ import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import type { LiveSyncTrysteroReplicator } from "./LiveSyncTrysteroReplicator";
 import { type UseP2PReplicatorResult } from "./UseP2PReplicatorResult";
 import { addP2PEventHandlers } from "./addP2PEventHandlers";
-import { LiveSyncP2PService, type P2PServiceViews } from "@lib/p2p/P2PService";
+import { createP2PService, type P2PServiceViews } from "@lib/p2p/P2PService";
 import {
     CAPABILITY_NOT_APPLICABLE,
     PEER_REPLICATION_READINESS,
@@ -34,8 +34,8 @@ export type OpenReplicationUIFactory = (
 export type OpenRebuildUIFactory = OpenReplicationUIFactory;
 
 /**
- * Compose one P2P service owner and register non-owning active provider
- * adapters over it.
+ * Compose one private P2P service context and register non-owning active
+ * provider adapters over it.
  *
  * The returned views remain valid for the host composition lifetime. The
  * compatibility facade is retained only for consumers which have not yet
@@ -62,17 +62,18 @@ export function useP2PReplicatorFeature(
     openReplicationUIFactory?: OpenReplicationUIFactory,
     openRebuildUIFactory?: OpenRebuildUIFactory
 ): UseP2PReplicatorResult {
-    const service = new LiveSyncP2PService({
+    const service = createP2PService({
         services: host.services,
     });
     const replicator = service.compatibilityReplicator;
+    const { views, lifecycle } = service;
 
     const configureReplicator = (instance: LiveSyncTrysteroReplicator) => {
         if (openReplicationUIFactory) {
-            instance.env.openReplicationUI = openReplicationUIFactory(instance, service);
+            instance.env.openReplicationUI = openReplicationUIFactory(instance, views);
         }
         if (openRebuildUIFactory) {
-            instance.env.openRebuildUI = openRebuildUIFactory(instance, service);
+            instance.env.openRebuildUI = openRebuildUIFactory(instance, views);
         }
     };
     configureReplicator(replicator);
@@ -99,7 +100,7 @@ export function useP2PReplicatorFeature(
         if (request.interaction.kind !== "forbidden") {
             return replicationBlocked("interaction-required");
         }
-        return await service.synchroniseConfiguredTargets();
+        return await views.targetedTransfer.synchroniseConfiguredTargets();
     };
 
     host.services.replicator.registerReplicatorProviderDefinitions(
@@ -118,48 +119,23 @@ export function useP2PReplicatorFeature(
         })
     );
 
-    const activeReplicator: UseP2PReplicatorResult = {
-        get replicator() {
-            return replicator;
-        },
-        get transportLifecycle() {
-            return service.transportLifecycle;
-        },
-        get peerDirectory() {
-            return service.peerDirectory;
-        },
-        get peerAdmission() {
-            return service.peerAdmission;
-        },
-        get targetedTransfer() {
-            return service.targetedTransfer;
-        },
-        get changeRelay() {
-            return service.changeRelay;
-        },
-        get configurationExchange() {
-            return service.configurationExchange;
-        },
-        get diagnostics() {
-            return service.diagnostics;
-        },
-    };
-    addP2PEventHandlers(service, host.services.context.events);
+    const activeReplicator: UseP2PReplicatorResult = { replicator, ...views };
+    addP2PEventHandlers(lifecycle, host.services.context.events);
 
     // Lifecycle bindings (replication should be closed).
 
     host.services.appLifecycle.onUnload.addHandler(async () => {
-        await service.closeForLifecycle();
+        await lifecycle.closeForLifecycle();
         return true;
     });
 
     host.services.appLifecycle.onSuspending.addHandler(async () => {
-        await service.closeForLifecycle();
+        await lifecycle.closeForLifecycle();
         return true;
     });
 
     const closeForDatabaseLifecycle = async () => {
-        await service.closeForLifecycle();
+        await lifecycle.closeForLifecycle();
         return true;
     };
     host.services.databaseEvents.onResetDatabase.addHandler(closeForDatabaseLifecycle);
@@ -168,7 +144,7 @@ export function useP2PReplicatorFeature(
 
     // And, reopen if auto-start is enabled when app is resumed.
     host.services.appLifecycle.onResumed.addHandler(() => {
-        service.scheduleAutoStart();
+        lifecycle.scheduleAutoStart();
         return Promise.resolve(true);
     });
 
