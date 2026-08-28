@@ -1,7 +1,9 @@
 export {
     CAPABILITY_NOT_APPLICABLE,
     CAPABILITY_NOT_IMPLEMENTED,
+    CENTRAL_REMOTE_REPLICATION_READINESS,
     NO_INTERACTION,
+    PEER_REPLICATION_READINESS,
     REPLICATION_CANCELLED,
     REPLICATION_COMPLETED,
     USER_INITIATED_REPLICATION_AUTHORITY,
@@ -34,6 +36,7 @@ export type {
     ReplicationFailed,
     ReplicationInteraction,
     ReplicationOutcome,
+    ReplicationReadinessRequirements,
     ReplicationPartial,
     ReplicatorProviderDefinition,
     ReplicatorProviderDefinitionMap,

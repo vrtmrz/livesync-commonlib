@@ -16,6 +16,8 @@ import type { LiveSyncReplicatorEnv } from "@lib/replication/LiveSyncAbstractRep
 import type { EntryDoc } from "@lib/common/types";
 import { P2PRoomSession } from "./P2PRoomSession";
 import type { ReplicatorHostEnv } from "./types";
+import { P2PAutomationCoordinator } from "./P2PAutomationCoordinator";
+import { PEER_REPLICATION_READINESS } from "@lib/replication/ReplicatorProvider";
 
 type P2PRoomSessionBinding = {
     readonly database: PouchDB.Database<EntryDoc>;
@@ -35,6 +37,9 @@ export interface P2PRoomSessionAccess {
     close(): Promise<void>;
 }
 
+/** Persistent reasons for which the service keeps a P2P room available. */
+export type P2PPersistentRoomDemand = "explicit" | "automatic" | "rebuild-continuation";
+
 /**
  * Owns the one published P2P room session used by a stable P2P service.
  *
@@ -44,7 +49,9 @@ export interface P2PRoomSessionAccess {
 export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
     private current?: P2PRoomSession;
     private lifecycleOperation: Promise<void> = Promise.resolve();
-    private shouldBeOpen = false;
+    private readonly persistentDemands = new Set<P2PPersistentRoomDemand>();
+    private readonly finiteDemands = new Set<symbol>();
+    private readonly automationCoordinator = new P2PAutomationCoordinator();
     private activeBinding?: P2PRoomSessionBinding;
 
     constructor(
@@ -64,14 +71,68 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         this.current?.cancelActiveTransfers();
     }
 
+    /** Retire automatic baseline history owned by the previous app lifecycle. */
+    beginAutomationLifecycle(): void {
+        this.automationCoordinator.beginLifecycle();
+    }
+
     async open(): Promise<void> {
-        if (!this.env.services.setting.currentSettings().P2P_Enabled) {
-            Logger(this.env.services.context.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
-            return;
+        await this.setPersistentDemand("explicit", true);
+    }
+
+    /** Reconcile one long-lived reason for keeping the room available. */
+    async setPersistentDemand(demand: P2PPersistentRoomDemand, active: boolean): Promise<void> {
+        const enabled = this.env.services.setting.currentSettings().P2P_Enabled;
+        if (active && enabled) {
+            this.persistentDemands.add(demand);
+        } else {
+            this.persistentDemands.delete(demand);
         }
-        this.shouldBeOpen = true;
+        if (active && !enabled) {
+            Logger(this.env.services.context.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
+        }
+        await this.reconcileTransport();
+    }
+
+    /**
+     * Keep the room available only for the lifetime of one finite operation.
+     *
+     * The token is internal to the owner. Releasing it cannot close a room
+     * retained by another finite operation or by a persistent policy demand.
+     */
+    async runWithFiniteDemand<T>(task: (session: P2PRoomSession) => T | PromiseLike<T>): Promise<T> {
+        if (!this.env.services.setting.currentSettings().P2P_Enabled) {
+            throw new Error("P2P is not enabled.");
+        }
+        const demand = Symbol("p2p-finite-room-demand");
+        this.finiteDemands.add(demand);
+        try {
+            await this.reconcileTransport();
+            if (!this.finiteDemands.has(demand)) {
+                throw new Error("The P2P room demand was retired before the operation started.");
+            }
+            const session = this.current;
+            if (!session?.host.isServing) {
+                throw new Error("The P2P room could not be opened for the finite operation.");
+            }
+            return await task(session);
+        } finally {
+            if (this.finiteDemands.delete(demand)) {
+                await this.reconcileTransport();
+            }
+        }
+    }
+
+    private async reconcileTransport(): Promise<void> {
         await this.enqueueLifecycleOperation(async () => {
-            if (!this.shouldBeOpen) return;
+            if (!this.env.services.setting.currentSettings().P2P_Enabled) {
+                this.persistentDemands.clear();
+                this.finiteDemands.clear();
+            }
+            if (!this.hasRoomDemand()) {
+                await this.closeTransport();
+                return;
+            }
             const binding = this.getEffectiveBinding();
             if (this.current?.host.isServing && this.bindingsMatch(this.activeBinding, binding)) {
                 Logger("P2P replicator is already open.");
@@ -88,7 +149,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
                 if (!candidate.host.isServing) {
                     throw new Error("The P2P room did not start serving.");
                 }
-                if (!this.shouldBeOpen || !this.bindingsMatch(binding, this.getEffectiveBinding())) {
+                if (!this.hasRoomDemand() || !this.bindingsMatch(binding, this.getEffectiveBinding())) {
                     await candidate.retire();
                     return;
                 }
@@ -107,10 +168,15 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
     }
 
     async close(): Promise<void> {
-        this.shouldBeOpen = false;
+        this.persistentDemands.clear();
+        this.finiteDemands.clear();
         await this.enqueueLifecycleOperation(async () => {
             await this.closeTransport();
         });
+    }
+
+    private hasRoomDemand(): boolean {
+        return this.persistentDemands.size > 0 || this.finiteDemands.size > 0;
     }
 
     private enqueueLifecycleOperation(operation: () => Promise<void>): Promise<void> {
@@ -145,8 +211,18 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         const deviceName =
             this.env.services.config.getSmallConfig(SETTING_KEY_P2P_DEVICE_NAME) ||
             this.env.services.vault.getVaultName();
+        const database = this.env.services.database.localDatabase.localDatabase;
+        this.automationCoordinator.reconcileIdentity(
+            JSON.stringify([
+                settings.P2P_ActiveRemoteConfigurationId,
+                settings.P2P_AppID,
+                settings.P2P_roomID,
+                settings.P2P_passphrase,
+            ]),
+            database
+        );
         return {
-            database: this.env.services.database.localDatabase.localDatabase,
+            database,
             settings,
             deviceName,
             signature: JSON.stringify([
@@ -196,7 +272,8 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
             runFiniteReplicationActivity: <T>(task: () => T | PromiseLike<T>, options?: AsyncActivityOptions) =>
                 services.replicator.runFiniteReplicationActivity(task, options),
             canStartOrdinaryReplication: (showMessage: boolean = false) =>
-                services.replication.onCheckReplicationReady(showMessage),
+                services.replication.isReplicationReady(showMessage, PEER_REPLICATION_READINESS),
+            automationCoordinator: this.automationCoordinator,
             processReplicatedDocs: async (docs) => {
                 const currentSettings = services.setting.currentSettings();
                 if (currentSettings.suspendParseReplicationResult) {

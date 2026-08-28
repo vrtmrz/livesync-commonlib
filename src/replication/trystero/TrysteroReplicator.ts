@@ -6,12 +6,20 @@ import type { Confirm } from "@lib/interfaces/Confirm";
 import { type Advertisement, type ReplicatorHostEnv } from "./types";
 import { scheduleOnceIfDuplicated, serialized, skipIfDuplicated } from "octagonal-wheels/concurrency/lock_v2";
 import { delay, fireAndForget } from "octagonal-wheels/promises";
-import { EVENT_P2P_REPLICATOR_PROGRESS, EVENT_P2P_REPLICATOR_STATUS, P2PHost } from "./TrysteroReplicatorP2PServer";
+import {
+    EVENT_ADVERTISEMENT_RECEIVED,
+    EVENT_P2P_REPLICATOR_PROGRESS,
+    EVENT_P2P_REPLICATOR_STATUS,
+    P2PHost,
+    type P2PPeerAcceptance,
+} from "./TrysteroReplicatorP2PServer";
 import { encryptWithEphemeralSalt, decryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
 import { sha1 } from "octagonal-wheels/hash/purejs";
 import { isObjectDifferent } from "octagonal-wheels/object";
 import { getRelaySockets, pauseRelayReconnection, resumeRelayReconnection } from "@trystero-p2p/nostr";
 import type { P2PFiniteOperationOwner } from "./P2PRoomSession";
+import { P2PAutomationCoordinator } from "./P2PAutomationCoordinator";
+import { compatGlobal, type CompatTimeoutHandle } from "@lib/common/coreEnvFunctions";
 
 async function encrypt(data: string, passphrase: string) {
     return await encryptWithEphemeralSalt(data, passphrase, true);
@@ -65,6 +73,25 @@ export type P2PReplicationResult =
     | { readonly status: "cancelled"; readonly ok?: false; readonly error?: never }
     | { readonly status: "failed"; readonly ok?: false; readonly error: unknown };
 
+export type P2PConfiguredTargetResult = {
+    readonly name: string;
+    readonly peerId?: string;
+} & (
+    | { readonly status: "completed" }
+    | { readonly status: "cancelled" }
+    | { readonly status: "missing" }
+    | { readonly status: "rejected" }
+    | { readonly status: "undecided" }
+    | { readonly status: "failed"; readonly error: unknown }
+);
+
+/** Explicit result of configured, unattended P2P target synchronisation. */
+export type P2PConfiguredReplicationResult =
+    | { readonly status: "completed"; readonly targets: readonly P2PConfiguredTargetResult[] }
+    | { readonly status: "cancelled"; readonly targets: readonly P2PConfiguredTargetResult[] }
+    | { readonly status: "blocked"; readonly reason: "no-targets"; readonly targets: readonly [] }
+    | { readonly status: "partial"; readonly targets: readonly P2PConfiguredTargetResult[] };
+
 const P2P_REPLICATION_COMPLETED = Object.freeze({ status: "completed", ok: true } as const);
 const P2P_REPLICATION_CANCELLED = Object.freeze({ status: "cancelled" } as const);
 
@@ -102,6 +129,7 @@ export class TrysteroReplicator {
     _env: ReplicatorHostEnv;
     private readonly finiteOperationOwner?: P2PFiniteOperationOwner;
     private disposed = false;
+    private readonly fallbackAutomationCoordinator = new P2PAutomationCoordinator();
 
     server?: P2PHost;
     replicationStatus() {
@@ -125,6 +153,10 @@ export class TrysteroReplicator {
     }
     get translate() {
         return this._env.translate;
+    }
+
+    private get automationCoordinator(): P2PAutomationCoordinator {
+        return this._env.automationCoordinator ?? this.fallbackAutomationCoordinator;
     }
 
     private async runFiniteReplicationActivity<T>(task: () => T | PromiseLike<T>): Promise<T> {
@@ -238,10 +270,19 @@ export class TrysteroReplicator {
     }
     async onNewPeer(peer: Advertisement) {
         const peerName = peer.name;
-        if (this.autoSyncPeers.some((e) => e.test(peerName))) {
-            await this.runFiniteReplicationActivity(() => this.sync(peer.peerId));
+        const shouldAutoSync = this.autoSyncPeers.some((e) => e.test(peerName));
+        const shouldAutoWatch = this.autoWatchPeers.some((e) => e.test(peerName));
+        if (!shouldAutoSync && !shouldAutoWatch) return;
+
+        const acceptance = await this.server?.evaluatePeerAcceptance(peer.peerId);
+        if (acceptance !== "accepted") return;
+
+        if (shouldAutoSync) {
+            await this.automationCoordinator.runBaseline(peerName, () =>
+                this.runFiniteReplicationActivity(() => this.sync(peer.peerId))
+            );
         }
-        if (this.autoWatchPeers.some((e) => e.test(peerName))) {
+        if (shouldAutoWatch && (await this.getRemoteIsBroadcasting(peer.peerId)) === true) {
             this.watchPeer(peer.peerId);
         }
     }
@@ -864,37 +905,109 @@ export class TrysteroReplicator {
         return true;
     }
 
-    async replicateFromCommand(showResult: boolean = false) {
-        const r = await skipIfDuplicated("replicateFromCommand", async () => {
-            const logLevel = showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
-            if (!this._env.settings.P2P_Enabled) {
-                Logger(this.translate("P2P.NotEnabled"), logLevel);
-                return Promise.resolve(false);
+    private configuredPeerNames(): string[] {
+        return [...new Set(this._env.settings.P2P_SyncOnReplication.split(",").map((name) => name.trim()))].filter(
+            Boolean
+        );
+    }
+
+    private findAdvertisement(peerName: string): Advertisement | undefined {
+        return this.knownAdvertisements.find((advertisement) => advertisement.name === peerName);
+    }
+
+    private async waitForConfiguredAdvertisements(
+        peerNames: readonly string[],
+        timeoutMs: number,
+        signal?: AbortSignal
+    ): Promise<void> {
+        const allPresent = () => peerNames.every((name) => this.findAdvertisement(name) !== undefined);
+        if (allPresent() || timeoutMs <= 0 || signal?.aborted) return;
+
+        await new Promise<void>((resolve) => {
+            let timeout: CompatTimeoutHandle | undefined;
+            let detachAdvertisement = (): void => undefined;
+            const finish = () => {
+                detachAdvertisement();
+                signal?.removeEventListener("abort", finish);
+                if (timeout !== undefined) compatGlobal.clearTimeout(timeout);
+                resolve();
+            };
+            detachAdvertisement = this._env.events.onEvent(EVENT_ADVERTISEMENT_RECEIVED, () => {
+                if (allPresent()) finish();
+            });
+            signal?.addEventListener("abort", finish, { once: true });
+            timeout = compatGlobal.setTimeout(finish, timeoutMs);
+            if (allPresent() || signal?.aborted) finish();
+        });
+    }
+
+    private configuredTargetResult(
+        name: string,
+        peerId: string,
+        result: P2PReplicationResult
+    ): P2PConfiguredTargetResult {
+        if (result.status === "completed") return { name, peerId, status: "completed" };
+        if (result.status === "cancelled") return { name, peerId, status: "cancelled" };
+        return { name, peerId, status: "failed", error: result.error };
+    }
+
+    /** Synchronise configured peer targets without opening peer-selection UI. */
+    async replicateFromCommand(
+        showResult: boolean = false,
+        discoveryTimeoutMs: number = 5000,
+        callerSignal?: AbortSignal
+    ): Promise<P2PConfiguredReplicationResult> {
+        const logLevel = showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
+        if (!this._env.settings.P2P_Enabled) {
+            Logger(this.translate("P2P.NotEnabled"), logLevel);
+            return { status: "blocked", reason: "no-targets", targets: [] };
+        }
+        const peerNames = this.configuredPeerNames();
+        if (peerNames.length === 0) {
+            Logger(this.translate("P2P.NoAutoSyncPeers"), LOG_LEVEL_NOTICE);
+            return { status: "blocked", reason: "no-targets", targets: [] };
+        }
+
+        await this.waitForConfiguredAdvertisements(peerNames, discoveryTimeoutMs, callerSignal);
+        const targets: P2PConfiguredTargetResult[] = [];
+        for (const peerName of peerNames) {
+            if (callerSignal?.aborted) {
+                targets.push({ name: peerName, status: "cancelled" });
+                continue;
             }
-            // throw new Error("Method not implemented.");
-            const peers = this._env.settings.P2P_SyncOnReplication.split(",")
-                .map((e) => e.trim())
-                .filter((e) => e);
-            if (peers.length == 0) {
-                Logger(this.translate("P2P.NoAutoSyncPeers"), LOG_LEVEL_NOTICE);
-                return Promise.resolve(false);
+            const advertisement = this.findAdvertisement(peerName);
+            if (!advertisement) {
+                Logger(this.translate(`P2P.SeemsOffline`, { name: peerName }), logLevel);
+                targets.push({ name: peerName, status: "missing" });
+                continue;
             }
 
-            for (const peer of peers) {
-                const peerId = this.knownAdvertisements.find((e) => e.name == peer)?.peerId;
-                if (!peerId) {
-                    Logger(this.translate(`P2P.SeemsOffline`, { name: peer }), logLevel);
-                } else {
-                    Logger(this.translate(`P2P.SyncStartedWith`, { name: peer }), logLevel);
-                    await this.sync(peerId, showResult);
-                }
+            const acceptance: P2PPeerAcceptance =
+                (await this.server?.evaluatePeerAcceptance(advertisement.peerId)) ?? "unknown";
+            if (acceptance !== "accepted") {
+                targets.push({
+                    name: peerName,
+                    peerId: advertisement.peerId,
+                    status: acceptance === "rejected" ? "rejected" : acceptance === "undecided" ? "undecided" : "missing",
+                });
+                continue;
             }
-            Logger(this.translate("P2P.SyncCompleted"), logLevel);
-            return Promise.resolve(true);
-        });
-        if (r === null) {
-            Logger(this.translate("P2P.SyncAlreadyRunning"), LOG_LEVEL_NOTICE);
+
+            Logger(this.translate(`P2P.SyncStartedWith`, { name: peerName }), logLevel);
+            const result = await this.automationCoordinator.runBaseline(peerName, () =>
+                this.sync(advertisement.peerId, showResult, callerSignal)
+            );
+            targets.push(this.configuredTargetResult(peerName, advertisement.peerId, result));
         }
+
+        if (targets.every((target) => target.status === "completed")) {
+            Logger(this.translate("P2P.SyncCompleted"), logLevel);
+            return { status: "completed", targets };
+        }
+        if (targets.every((target) => target.status === "cancelled")) {
+            return { status: "cancelled", targets };
+        }
+        return { status: "partial", targets };
     }
 
     disconnectFromServer() {

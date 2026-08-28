@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
     CAPABILITY_NOT_APPLICABLE,
     CAPABILITY_NOT_IMPLEMENTED,
+    CENTRAL_REMOTE_REPLICATION_READINESS,
     NO_INTERACTION,
     REPLICATION_COMPLETED,
     USER_INITIATED_REPLICATION_AUTHORITY,
@@ -118,6 +119,7 @@ describe("replicator provider contract", () => {
         const couch: ReplicatorProviderDefinition<typeof REMOTE_COUCHDB> = {
             kind: REMOTE_COUCHDB,
             diagnosticName: "CouchDB",
+            readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
             isConfigured: () => true,
             create: async () => false,
             userInitiatedOneShot: supportedOpenReplicationOneShot(),
@@ -128,6 +130,7 @@ describe("replicator provider contract", () => {
         const minio: ReplicatorProviderDefinition<typeof REMOTE_MINIO> = {
             kind: REMOTE_MINIO,
             diagnosticName: "Object Storage",
+            readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
             isConfigured: () => true,
             create: async () => false,
             userInitiatedOneShot: supportedOpenReplicationOneShot(),

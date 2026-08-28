@@ -12,6 +12,60 @@ afterEach(() => {
 });
 
 describe("useP2PReplicatorFeature", () => {
+    it("does not reopen a suspended room from a delayed automatic-start callback", async () => {
+        vi.useFakeTimers();
+        try {
+            const events = createLiveSyncEventHub();
+            const settings = {
+                remoteType: REMOTE_P2P,
+                P2P_Enabled: true,
+                P2P_AutoStart: true,
+            };
+            const onSuspending = { addHandler: vi.fn() };
+            const onResumed = { addHandler: vi.fn() };
+            const handler = { addHandler: vi.fn() };
+            const host = {
+                services: {
+                    context: { events },
+                    setting: {
+                        currentSettings: vi.fn(() => settings),
+                        suspendExtraSync: handler,
+                    },
+                    replicator: {
+                        registerReplicatorProviderDefinitions: vi.fn(),
+                    },
+                    appLifecycle: {
+                        onUnload: handler,
+                        onSuspending,
+                        onResumed,
+                    },
+                    databaseEvents: {
+                        onResetDatabase: handler,
+                        onCloseDatabase: handler,
+                        onDatabaseInitialisation: handler,
+                    },
+                },
+                serviceModules: {},
+            } as unknown as Parameters<typeof useP2PReplicatorFeature>[0];
+
+            useP2PReplicatorFeature(host);
+            const setPersistentDemand = vi
+                .spyOn(P2PRoomSessionOwner.prototype, "setPersistentDemand")
+                .mockResolvedValue(undefined);
+            const close = vi.spyOn(P2PRoomSessionOwner.prototype, "close").mockResolvedValue(undefined);
+
+            await onResumed.addHandler.mock.calls[0][0]();
+            await onSuspending.addHandler.mock.calls[0][0]();
+            expect(close).toHaveBeenCalledOnce();
+
+            await vi.runOnlyPendingTimersAsync();
+
+            expect(setPersistentDemand).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("retires the stable room before database reset or close proceeds", async () => {
         const events = createLiveSyncEventHub();
         const handler = { addHandler: vi.fn() };
@@ -81,7 +135,8 @@ describe("useP2PReplicatorFeature", () => {
             serviceModules: {},
         } as unknown as Parameters<typeof useP2PReplicatorFeature>[0];
 
-        const result = useP2PReplicatorFeature(host);
+        const openReplicationUIFactory = vi.fn(() => vi.fn(async () => true));
+        const result = useP2PReplicatorFeature(host, openReplicationUIFactory);
         const stableOwner = result.transportLifecycle;
 
         expect(stableOwner).toBeDefined();
@@ -93,6 +148,7 @@ describe("useP2PReplicatorFeature", () => {
         expect(result.diagnostics).toBe(stableOwner);
 
         const compatibilityReplicator = result.replicator;
+        expect(openReplicationUIFactory).toHaveBeenCalledWith(compatibilityReplicator, stableOwner);
         const close = vi.spyOn(compatibilityReplicator, "close").mockResolvedValue(undefined);
         const closeReplication = vi.spyOn(compatibilityReplicator, "closeReplication");
         const definition = definitions?.get(REMOTE_P2P);
@@ -142,7 +198,9 @@ describe("useP2PReplicatorFeature", () => {
         } as unknown as Parameters<typeof useP2PReplicatorFeature>[0];
 
         const result = useP2PReplicatorFeature(host);
-        const open = vi.spyOn(P2PRoomSessionOwner.prototype, "open").mockResolvedValue(undefined);
+        const setPersistentDemand = vi
+            .spyOn(P2PRoomSessionOwner.prototype, "setPersistentDemand")
+            .mockResolvedValue(undefined);
         const close = vi.spyOn(P2PRoomSessionOwner.prototype, "close").mockResolvedValue(undefined);
 
         await result.replicator.close();
@@ -150,17 +208,58 @@ describe("useP2PReplicatorFeature", () => {
         await Promise.resolve();
 
         expect(close).toHaveBeenCalledOnce();
-        expect(open).not.toHaveBeenCalled();
+        expect(setPersistentDemand).not.toHaveBeenCalled();
 
         events.emitEvent(EVENT_DATABASE_REBUILT);
-        await vi.waitFor(() => expect(open).toHaveBeenCalledOnce());
+        await vi.waitFor(() => expect(setPersistentDemand).toHaveBeenCalledWith("rebuild-continuation", true));
 
         settings.P2P_Enabled = false;
         settings.P2P_AutoStart = false;
         events.emitEvent(EVENT_SETTING_SAVED, settings as never);
 
-        await vi.waitFor(() => expect(close).toHaveBeenCalledTimes(2));
-        expect(open).toHaveBeenCalledOnce();
+        await vi.waitFor(() => expect(setPersistentDemand).toHaveBeenCalledTimes(2));
+        expect(setPersistentDemand).toHaveBeenNthCalledWith(1, "rebuild-continuation", true);
+        expect(setPersistentDemand).toHaveBeenNthCalledWith(2, "automatic", false);
+        expect(close).toHaveBeenCalledOnce();
+    });
+
+    it("declares unattended P2P replication as supported", () => {
+        const events = createLiveSyncEventHub();
+        let definitions: ReplicatorProviderDefinitionMap | undefined;
+        const handler = { addHandler: vi.fn() };
+        const host = {
+            services: {
+                context: { events },
+                setting: {
+                    currentSettings: vi.fn(() => ({
+                        remoteType: REMOTE_P2P,
+                        P2P_Enabled: true,
+                        P2P_AutoStart: false,
+                    })),
+                    suspendExtraSync: handler,
+                },
+                replicator: {
+                    registerReplicatorProviderDefinitions: vi.fn((value) => {
+                        definitions = value;
+                    }),
+                },
+                appLifecycle: {
+                    onUnload: handler,
+                    onSuspending: handler,
+                    onResumed: handler,
+                },
+                databaseEvents: {
+                    onResetDatabase: handler,
+                    onCloseDatabase: handler,
+                    onDatabaseInitialisation: handler,
+                },
+            },
+            serviceModules: {},
+        } as unknown as Parameters<typeof useP2PReplicatorFeature>[0];
+
+        useP2PReplicatorFeature(host);
+
+        expect(definitions?.get(REMOTE_P2P)?.unattendedOneShot.kind).toBe("supported");
     });
 
     it("does not route session-owned peer events through the global compatibility bridge", async () => {
@@ -202,7 +301,6 @@ describe("useP2PReplicatorFeature", () => {
         expect(definition?.isConfigured({ remoteType: REMOTE_P2P, P2P_Enabled: true } as never)).toBe(true);
         expect(definition?.isConfigured({ remoteType: REMOTE_P2P, P2P_Enabled: false } as never)).toBe(false);
         expect(definition?.userInitiatedOneShot.kind).toBe("supported");
-        expect(definition?.unattendedOneShot.kind).toBe("not-implemented");
         expect(definition?.continuous.kind).toBe("not-applicable");
         expect(definition?.stopActiveTransfer.kind).toBe("supported");
         if (definition?.stopActiveTransfer.kind !== "supported") {

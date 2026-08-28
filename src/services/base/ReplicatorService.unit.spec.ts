@@ -6,6 +6,7 @@ import { REMOTE_COUCHDB, REMOTE_MINIO } from "@lib/common/types.ts";
 import type { LiveSyncAbstractReplicator } from "@lib/replication/LiveSyncAbstractReplicator.ts";
 import {
     CAPABILITY_NOT_APPLICABLE,
+    CENTRAL_REMOTE_REPLICATION_READINESS,
     defineReplicatorProviderDefinitions,
     supportedOpenReplicationContinuous,
     supportedOpenReplicationOneShot,
@@ -162,6 +163,7 @@ describe("ReplicatorService lifecycle", () => {
         const definition: ReplicatorProviderDefinition<typeof REMOTE_MINIO> = {
             kind: REMOTE_MINIO,
             diagnosticName: "Object Storage",
+            readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
             isConfigured: vi.fn(() => true),
             create: vi.fn(async () => providerReplicator),
             userInitiatedOneShot: supportedOpenReplicationOneShot(),
@@ -222,6 +224,7 @@ describe("ReplicatorService lifecycle", () => {
         const definition: ReplicatorProviderDefinition<typeof REMOTE_MINIO> = {
             kind: REMOTE_MINIO,
             diagnosticName: "Object Storage",
+            readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
             isConfigured: vi.fn(() => false),
             create: vi.fn(async () => {
                 throw new Error("must not be constructed");
@@ -273,6 +276,7 @@ describe("ReplicatorService lifecycle", () => {
         const definition: ReplicatorProviderDefinition<typeof REMOTE_MINIO> = {
             kind: REMOTE_MINIO,
             diagnosticName: "Object Storage",
+            readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
             isConfigured: vi.fn(() => configured),
             create: vi.fn(async () => replicator),
             userInitiatedOneShot: supportedOpenReplicationOneShot(),
@@ -334,6 +338,7 @@ describe("ReplicatorService lifecycle", () => {
         const minio: ReplicatorProviderDefinition<typeof REMOTE_MINIO> = {
             kind: REMOTE_MINIO,
             diagnosticName: "Object Storage",
+            readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
             isConfigured: () => true,
             create: vi.fn(async () => oldReplicator),
             userInitiatedOneShot: supportedOpenReplicationOneShot(),
@@ -344,6 +349,7 @@ describe("ReplicatorService lifecycle", () => {
         const couch: ReplicatorProviderDefinition<typeof REMOTE_COUCHDB> = {
             kind: REMOTE_COUCHDB,
             diagnosticName: "CouchDB",
+            readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
             isConfigured: () => true,
             create: vi.fn(async () => newReplicator),
             userInitiatedOneShot: supportedOpenReplicationOneShot(),

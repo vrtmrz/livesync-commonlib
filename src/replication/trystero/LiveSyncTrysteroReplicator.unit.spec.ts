@@ -104,6 +104,24 @@ describe("LiveSyncTrysteroReplicator remote preferred tweak values", () => {
 });
 
 describe("LiveSyncTrysteroReplicator manual replication", () => {
+    it("preserves the underlying result through headless command and openReplication", async () => {
+        const underlyingResult = {
+            status: "partial" as const,
+            targets: [{ name: "peer-a", status: "missing" as const }],
+        };
+        const replicateFromCommand = vi.fn(async () => underlyingResult);
+        const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
+        const { replicator } = createReplicatorWithSession({ replicator: { replicateFromCommand } });
+        (replicator as any).env.services.replicator.runFiniteReplicationActivity = runFiniteReplicationActivity;
+
+        const commandResult = await replicator.replicateFromCommand(true);
+        const openReplicationResult = await replicator.openReplication({} as RemoteDBSettings, false, true, false);
+        expect([commandResult, openReplicationResult]).toEqual([false, false]);
+
+        expect(replicateFromCommand).toHaveBeenNthCalledWith(1, true);
+        expect(replicateFromCommand).toHaveBeenNthCalledWith(2, true);
+    });
+
     it("requests transfer cancellation without closing the room", () => {
         const cancelActiveTransfers = vi.fn();
         const retire = vi.fn();
@@ -116,7 +134,7 @@ describe("LiveSyncTrysteroReplicator manual replication", () => {
     });
 
     it("runs a finite command-triggered synchronisation through the shared activity boundary", async () => {
-        const replicateFromCommand = vi.fn(async () => undefined);
+        const replicateFromCommand = vi.fn(async () => ({ status: "completed" as const, targets: [] }));
         const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
         const { replicator } = createReplicatorWithSession({ replicator: { replicateFromCommand } });
         (replicator as any).env.services.replicator.runFiniteReplicationActivity = runFiniteReplicationActivity;

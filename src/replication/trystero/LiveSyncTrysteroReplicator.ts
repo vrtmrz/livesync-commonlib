@@ -106,11 +106,12 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
 
     async replicateFromCommand(showResult: boolean = false) {
         const replicator = this.sessionOwner.currentSession?.replicator;
-        if (!replicator) return;
-        await this.env.services.replicator.runFiniteReplicationActivity(
+        if (!replicator) return false;
+        const result = await this.env.services.replicator.runFiniteReplicationActivity(
             () => replicator.replicateFromCommand(showResult),
             { label: "replication" }
         );
+        return result.status === "completed";
     }
 
     async replicateFrom(peerId: string, showNotice: boolean = false, skipOrdinaryReplicationPolicy = false) {
@@ -195,7 +196,8 @@ export class LiveSyncTrysteroReplicator extends LiveSyncAbstractReplicator {
             Logger(this.translate("P2P.ReplicatorInstanceMissing"), logLevel);
             return false;
         }
-        await replicator.replicateFromCommand(showResult);
+        const result = await replicator.replicateFromCommand(showResult);
+        return result.status === "completed";
     }
 
     tryConnectRemote(_setting: RemoteDBSettings, _showResult?: boolean): Promise<boolean> {

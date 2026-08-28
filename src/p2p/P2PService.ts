@@ -18,7 +18,16 @@ import type {
     RevokeAcceptanceDecision,
 } from "@lib/replication/trystero/TrysteroReplicatorP2PServer";
 import type { Advertisement } from "@lib/replication/trystero/types";
+import type { P2PRoomSession } from "@lib/replication/trystero/P2PRoomSession";
 import { P2PRoomSessionOwner, type P2PRoomSessionAccess } from "@lib/replication/trystero/P2PRoomSessionOwner";
+import { compatGlobal, type CompatTimeoutHandle } from "@lib/common/coreEnvFunctions";
+import {
+    REPLICATION_CANCELLED,
+    REPLICATION_COMPLETED,
+    replicationBlocked,
+    replicationFailed,
+    type ReplicationOutcome,
+} from "@lib/replication/ReplicatorProvider";
 
 /** Candidate details projected from browser RTC statistics. */
 export interface P2PCandidateSummary {
@@ -110,6 +119,8 @@ export interface P2PTargetedTransfer {
     ): Promise<P2PReplicationResult>;
     requestPushToPeer(peerId: string): Promise<P2PReplicationResult>;
     synchroniseWithPeer(peerId: string, showNotice?: boolean): Promise<P2PReplicationResult>;
+    /** Synchronise the persisted target set without interactive peer selection. */
+    synchroniseConfiguredTargets(): Promise<ReplicationOutcome>;
 }
 
 /** Controls watch and broadcast behaviour attached to the current room session. */
@@ -163,6 +174,8 @@ export class LiveSyncP2PService
     readonly compatibilityReplicator: LiveSyncTrysteroReplicator;
     private readonly roomSessionOwner: P2PRoomSessionOwner;
     private explicitDisconnectVeto = false;
+    private lifecycleGeneration = 0;
+    private delayedAutoStart: CompatTimeoutHandle | undefined;
 
     constructor(private readonly env: LiveSyncTrysteroReplicatorEnv) {
         this.roomSessionOwner = new P2PRoomSessionOwner(env);
@@ -219,33 +232,89 @@ export class LiveSyncP2PService
 
     connect(): Promise<void> {
         this.explicitDisconnectVeto = false;
-        return this.roomSessionOwner.open();
+        return this.roomSessionOwner.setPersistentDemand("explicit", true);
     }
 
     disconnect(): Promise<void> {
         this.explicitDisconnectVeto = true;
+        this.cancelDelayedAutomation();
         return this.roomSessionOwner.close();
     }
 
     /** Reopen after a rebuild which already owns that lifecycle continuation. */
     openAfterDatabaseRebuild(): Promise<void> {
-        return this.roomSessionOwner.open();
+        return this.roomSessionOwner.setPersistentDemand("rebuild-continuation", true);
     }
 
     /** Retire the current room without changing explicit user intent. */
     closeForLifecycle(): Promise<void> {
+        this.cancelDelayedAutomation();
         return this.roomSessionOwner.close();
     }
 
     /** Apply the persisted AutoStart policy without overriding an explicit disconnect. */
     reconcileAutoStart(settings: Pick<ObsidianLiveSyncSettings, "P2P_Enabled" | "P2P_AutoStart">): Promise<void> {
         if (!settings.P2P_Enabled || !settings.P2P_AutoStart) {
-            return this.roomSessionOwner.close();
+            return this.roomSessionOwner.setPersistentDemand("automatic", false);
         }
         if (this.explicitDisconnectVeto) {
             return Promise.resolve();
         }
-        return this.roomSessionOwner.open();
+        return this.roomSessionOwner.setPersistentDemand("automatic", true);
+    }
+
+    /** Schedule AutoStart work within the current application lifecycle generation. */
+    scheduleAutoStart(delayMs: number = 100): void {
+        this.clearDelayedAutoStart();
+        const generation = this.lifecycleGeneration;
+        this.delayedAutoStart = compatGlobal.setTimeout(() => {
+            this.delayedAutoStart = undefined;
+            if (generation !== this.lifecycleGeneration) return;
+            const settings = this.env.services.setting.currentSettings();
+            void this.reconcileAutoStart(settings);
+        }, delayMs);
+    }
+
+    /** Invalidate delayed automatic work scheduled by an earlier lifecycle. */
+    cancelDelayedAutomation(): void {
+        this.lifecycleGeneration += 1;
+        this.roomSessionOwner.beginAutomationLifecycle();
+        this.clearDelayedAutoStart();
+    }
+
+    private clearDelayedAutoStart(): void {
+        if (this.delayedAutoStart !== undefined) {
+            compatGlobal.clearTimeout(this.delayedAutoStart);
+            this.delayedAutoStart = undefined;
+        }
+    }
+
+    private runWithFiniteRoomDemand<T>(task: (session: P2PRoomSession) => T | PromiseLike<T>): Promise<T> {
+        if (this.explicitDisconnectVeto) {
+            return Promise.reject(new Error("The P2P room was explicitly disconnected."));
+        }
+        return this.roomSessionOwner.runWithFiniteDemand(task);
+    }
+
+    /** Run the configured unattended P2P target set without peer-selection UI. */
+    async synchroniseConfiguredTargets(): Promise<ReplicationOutcome> {
+        if (this.explicitDisconnectVeto) return replicationBlocked("not-ready");
+        try {
+            const result = await this.roomSessionOwner.runWithFiniteDemand((session) =>
+                session.runFiniteOperation((signal) =>
+                    session.replicator.replicateFromCommand(false, undefined, signal)
+                )
+            );
+            if (result.status === "completed") return REPLICATION_COMPLETED;
+            if (result.status === "cancelled") return REPLICATION_CANCELLED;
+            if (result.status === "blocked") return replicationBlocked("provider-not-configured");
+            return {
+                status: "partial",
+                detail: { kind: "p2p-configured-targets", targets: result.targets },
+            };
+        } catch (error) {
+            return replicationFailed(error);
+        }
     }
 
     getPeers(): readonly Advertisement[] {
@@ -264,19 +333,36 @@ export class LiveSyncP2PService
         peerId: string,
         options: { readonly showNotice?: boolean; readonly skipOrdinaryReplicationPolicy?: boolean } = {}
     ): Promise<P2PReplicationResult> {
-        return this.compatibilityReplicator.replicateFrom(
-            peerId,
-            options.showNotice ?? false,
-            options.skipOrdinaryReplicationPolicy ?? false
+        return this.runWithFiniteRoomDemand((session) =>
+            this.env.services.replicator.runFiniteReplicationActivity(
+                () =>
+                    session.replicator.replicateFrom(
+                        peerId,
+                        options.showNotice ?? false,
+                        false,
+                        options.skipOrdinaryReplicationPolicy ?? false
+                    ),
+                { label: "replication" }
+            )
         );
     }
 
     requestPushToPeer(peerId: string): Promise<P2PReplicationResult> {
-        return this.compatibilityReplicator.requestSynchroniseToPeer(peerId);
+        return this.runWithFiniteRoomDemand((session) =>
+            this.env.services.replicator.runBoundedRemoteActivity(
+                () => session.replicator.requestSynchroniseToPeer(peerId),
+                { label: "replication" }
+            )
+        );
     }
 
     synchroniseWithPeer(peerId: string, showNotice: boolean = false): Promise<P2PReplicationResult> {
-        return this.compatibilityReplicator.sync(peerId, showNotice);
+        return this.runWithFiniteRoomDemand((session) =>
+            this.env.services.replicator.runFiniteReplicationActivity(
+                () => session.replicator.sync(peerId, showNotice),
+                { label: "replication" }
+            )
+        );
     }
 
     watchPeer(peerId: string): void {

@@ -40,6 +40,7 @@ import type {
     InteractionAuthority,
     ReplicatorProviderDefinitionMap,
     ReplicationOutcome,
+    ReplicationReadinessRequirements,
     UnattendedOneShotRequest,
     UserInitiatedOneShotRequest,
 } from "@lib/replication/ReplicatorProvider.ts";
@@ -207,11 +208,13 @@ export interface IReplicationService {
     processOptionalSynchroniseResult(doc: LoadedEntry): Promise<boolean>;
     processVirtualDocument(docs: PouchDB.Core.ExistingDocument<EntryDoc>): Promise<boolean>;
     onBeforeReplicate(showMessage: boolean): Promise<boolean>;
+    /** Prepare provider state which exists only for the central remote. */
+    onPrepareCentralRemoteReplication(showMessage: boolean): Promise<boolean>;
     checkConnectionFailure(): Promise<boolean | "CHECKAGAIN" | undefined>;
 
     /** Lightweight, idempotent policy checks which every replication entry point may invoke. */
     onCheckReplicationReady(showMessage: boolean): Promise<boolean>;
-    isReplicationReady(showMessage: boolean): Promise<boolean>;
+    isReplicationReady(showMessage: boolean, readiness?: ReplicationReadinessRequirements): Promise<boolean>;
     replicateUserInitiated(request?: UserInitiatedOneShotRequest): Promise<ReplicationOutcome>;
     replicateUnattended(request: UnattendedOneShotRequest): Promise<ReplicationOutcome>;
     replicateUnattendedByEvent(request: UnattendedOneShotRequest): Promise<ReplicationOutcome>;

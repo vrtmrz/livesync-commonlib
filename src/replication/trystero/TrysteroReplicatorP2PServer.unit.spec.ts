@@ -143,4 +143,65 @@ describe("P2PHost transport configuration and ownership", () => {
         expect(peerLeft).not.toHaveBeenCalled();
         expect(status).not.toHaveBeenCalled();
     });
+
+    it("reports an undecided peer without opening the acceptance dialogue", async () => {
+        const confirmUserToAccept = vi.fn(async () => true);
+        const host = new P2PHost({
+            events: createLiveSyncEventHub(),
+            simpleStore: {
+                get: vi.fn(async () => undefined),
+                set: vi.fn(async () => undefined),
+                delete: vi.fn(async () => undefined),
+                keys: vi.fn(async () => []),
+            },
+            settings: {
+                P2P_Enabled: true,
+                P2P_AutoAccepting: 0,
+                P2P_AutoAcceptingPeers: "",
+                P2P_AutoDenyingPeers: "",
+                P2P_IsHeadless: false,
+            },
+        } as any);
+        host.onAdvertisement({ peerId: "peer-a", name: "Device A", platform: "test" }, "peer-a");
+        vi.spyOn(host, "confirmUserToAccept").mockImplementation(confirmUserToAccept);
+
+        await expect(host.evaluatePeerAcceptance("peer-a")).resolves.toBe("undecided");
+
+        expect(confirmUserToAccept).not.toHaveBeenCalled();
+    });
+
+    it("reports persisted, temporary, automatic, denied, and unknown peer acceptance explicitly", async () => {
+        const decisions = new Map<string, boolean>([["Persisted device", true]]);
+        const host = new P2PHost({
+            events: createLiveSyncEventHub(),
+            simpleStore: {
+                get: vi.fn(async (key: string) => decisions.get(key.replace(/^p2p-device-decisions-/, ""))),
+                set: vi.fn(async () => undefined),
+                delete: vi.fn(async () => undefined),
+                keys: vi.fn(async () => []),
+            },
+            settings: {
+                P2P_Enabled: true,
+                P2P_AutoAccepting: 0,
+                P2P_AutoAcceptingPeers: "Automatic device, Denied device",
+                P2P_AutoDenyingPeers: "Denied device",
+                P2P_IsHeadless: true,
+            },
+        } as any);
+        const advertisements = [
+            { peerId: "persisted", name: "Persisted device", platform: "test" },
+            { peerId: "temporary", name: "Temporary device", platform: "test" },
+            { peerId: "automatic", name: "Automatic device", platform: "test" },
+            { peerId: "denied", name: "Denied device", platform: "test" },
+        ];
+        for (const peer of advertisements) host.onAdvertisement(peer, peer.peerId);
+        host.temporaryAcceptedPeers.set("temporary", false);
+        vi.spyOn(host.acceptedPeers, "get").mockImplementation(async (name) => decisions.get(name));
+
+        await expect(host.evaluatePeerAcceptance("persisted")).resolves.toBe("accepted");
+        await expect(host.evaluatePeerAcceptance("temporary")).resolves.toBe("rejected");
+        await expect(host.evaluatePeerAcceptance("automatic")).resolves.toBe("accepted");
+        await expect(host.evaluatePeerAcceptance("denied")).resolves.toBe("rejected");
+        await expect(host.evaluatePeerAcceptance("unknown")).resolves.toBe("unknown");
+    });
 });

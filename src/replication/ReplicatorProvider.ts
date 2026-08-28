@@ -141,6 +141,21 @@ export type ReplicationOutcome =
     | ReplicationPartial
     | ReplicationFailed;
 
+/** Preparation required before an ordinary operation may use a provider. */
+export interface ReplicationReadinessRequirements {
+    readonly centralRemotePreparation: "required" | "not-applicable";
+}
+
+/** Shared readiness contract for providers backed by the central remote. */
+export const CENTRAL_REMOTE_REPLICATION_READINESS = Object.freeze({
+    centralRemotePreparation: "required",
+} as const satisfies ReplicationReadinessRequirements);
+
+/** Shared readiness contract for peer-to-peer providers without a central remote. */
+export const PEER_REPLICATION_READINESS = Object.freeze({
+    centralRemotePreparation: "not-applicable",
+} as const satisfies ReplicationReadinessRequirements);
+
 /** Return whether a typed replication result represents completed work. */
 export function isReplicationCompleted(outcome: ReplicationOutcome): outcome is ReplicationCompleted {
     return outcome.status === "completed";
@@ -202,6 +217,7 @@ export type StopActiveTransferRunner = (replicator: LiveSyncAbstractReplicator) 
 export interface ReplicatorProviderDefinition<TKind extends RemoteType = RemoteType> {
     readonly kind: TKind;
     readonly diagnosticName: string;
+    readonly readiness: ReplicationReadinessRequirements;
     readonly isConfigured: (setting: ObsidianLiveSyncSettings) => boolean;
     /** Construct a replicator from the fully merged effective settings. */
     readonly create: (setting: ObsidianLiveSyncSettings) => Promise<LiveSyncAbstractReplicator | undefined | false>;

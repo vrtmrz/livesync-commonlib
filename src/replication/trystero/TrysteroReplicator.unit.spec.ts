@@ -1,7 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import { TrysteroReplicator } from "./TrysteroReplicator";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
-import { EVENT_P2P_REPLICATOR_STATUS } from "./TrysteroReplicatorP2PServer";
+import {
+    EVENT_ADVERTISEMENT_RECEIVED,
+    EVENT_P2P_REPLICATOR_STATUS,
+    type P2PPeerAcceptance,
+    type P2PHost,
+} from "./TrysteroReplicatorP2PServer";
+import type { Advertisement } from "./types";
 
 function createReplicator(settings: Record<string, unknown> = {}) {
     const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
@@ -11,6 +17,7 @@ function createReplicator(settings: Record<string, unknown> = {}) {
             events,
             translate: (key: string) => key,
             settings: {
+                P2P_Enabled: true,
                 P2P_AutoSyncPeers: "",
                 P2P_AutoWatchPeers: "",
                 ...settings,
@@ -25,9 +32,21 @@ function createReplicator(settings: Record<string, unknown> = {}) {
         } as any,
         {
             _knownAdvertisements: new Map(),
+            evaluatePeerAcceptance: vi.fn(async () => "accepted"),
         } as any
     );
     return { events, replicator, runFiniteReplicationActivity };
+}
+
+function createAdvertisementServer(advertisements: Advertisement[] = []) {
+    const knownAdvertisements = new Map(advertisements.map((advertisement) => [advertisement.peerId, advertisement]));
+    return {
+        _knownAdvertisements: knownAdvertisements,
+        get knownAdvertisements() {
+            return [...knownAdvertisements.values()];
+        },
+        evaluatePeerAcceptance: vi.fn(async () => "accepted" as const),
+    };
 }
 
 describe("TrysteroReplicator automatic remote activity", () => {
@@ -148,7 +167,7 @@ describe("TrysteroReplicator automatic remote activity", () => {
         const { replicator, runFiniteReplicationActivity } = createReplicator({
             P2P_AutoSyncPeers: "peer-a",
         });
-        const sync = vi.spyOn(replicator, "sync").mockResolvedValue(undefined);
+        const sync = vi.spyOn(replicator, "sync").mockResolvedValue({ status: "completed", ok: true });
 
         await replicator.onNewPeer({ peerId: "peer-id", name: "peer-a", platform: "test" });
 
@@ -162,6 +181,7 @@ describe("TrysteroReplicator automatic remote activity", () => {
         const { replicator } = createReplicator({
             P2P_AutoWatchPeers: "peer-a",
         });
+        vi.spyOn(replicator, "getRemoteIsBroadcasting").mockResolvedValue(true);
         const watchPeer = vi.spyOn(replicator, "watchPeer");
 
         await replicator.onNewPeer({ peerId: "peer-id", name: "peer-a", platform: "test" });
@@ -204,11 +224,112 @@ describe("TrysteroReplicator automatic remote activity", () => {
             P2P_AutoSyncPeers: "peer-a",
         });
         (replicator as any)._env.runFiniteReplicationActivity = undefined;
-        const sync = vi.spyOn(replicator, "sync").mockResolvedValue(undefined);
+        const sync = vi.spyOn(replicator, "sync").mockResolvedValue({ status: "completed", ok: true });
 
         await replicator.onNewPeer({ peerId: "peer-id", name: "peer-a", platform: "test" });
 
         expect(sync).toHaveBeenCalledWith("peer-id");
+    });
+
+    it("waits for a delayed configured-target advertisement before synchronising", async () => {
+        vi.useFakeTimers();
+        try {
+            const { events, replicator } = createReplicator({
+                P2P_SyncOnReplication: "peer-a",
+            });
+            const server = createAdvertisementServer();
+            replicator.server = server as unknown as P2PHost;
+            const peer: Advertisement = { peerId: "peer-id", name: "peer-a", platform: "test" };
+            const sync = vi.spyOn(replicator, "sync").mockResolvedValue({ status: "completed", ok: true });
+
+            const resultPromise = replicator.replicateFromCommand(true);
+            await vi.advanceTimersByTimeAsync(100);
+            expect(sync).not.toHaveBeenCalled();
+
+            server._knownAdvertisements.set(peer.peerId, peer);
+            events.emitEvent(EVENT_ADVERTISEMENT_RECEIVED, peer);
+
+            await expect(resultPromise).resolves.toEqual({
+                status: "completed",
+                targets: [{ name: "peer-a", peerId: "peer-id", status: "completed" }],
+            });
+            expect(sync).toHaveBeenCalledWith(peer.peerId, true, undefined);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it.each([
+        ["denied", "rejected"],
+        ["undecided", "undecided"],
+    ] as const)(
+        "returns an explicit failure for a configured %s target without opening admission UI",
+        async (_label, decision: P2PPeerAcceptance) => {
+            const { replicator } = createReplicator({
+                P2P_SyncOnReplication: "peer-a",
+            });
+            const peer: Advertisement = { peerId: "peer-id", name: "peer-a", platform: "test" };
+            const confirmUserToAccept = vi.fn(async () => true);
+            const server = {
+                ...createAdvertisementServer([peer]),
+                evaluatePeerAcceptance: vi.fn(async () => decision),
+                confirmUserToAccept,
+            };
+            replicator.server = server as unknown as P2PHost;
+            const sync = vi.spyOn(replicator, "sync").mockResolvedValue({ status: "completed", ok: true });
+
+            const result = await replicator.replicateFromCommand(true);
+            expect(sync).not.toHaveBeenCalled();
+            expect(confirmUserToAccept).not.toHaveBeenCalled();
+            expect(result).toEqual({
+                status: "partial",
+                targets: [{ name: "peer-a", peerId: "peer-id", status: decision }],
+            });
+        }
+    );
+
+    it("deduplicates a configured target and AutoSync request into one baseline synchronisation", async () => {
+        const { replicator } = createReplicator({
+            P2P_AutoSyncPeers: "peer-a",
+            P2P_SyncOnReplication: "peer-a",
+        });
+        const peer: Advertisement = { peerId: "peer-id", name: "peer-a", platform: "test" };
+        const server = createAdvertisementServer([peer]);
+        replicator.server = server as unknown as P2PHost;
+
+        let releasePull!: () => void;
+        const pullGate = new Promise<void>((resolve) => {
+            releasePull = resolve;
+        });
+        let pullStarted!: () => void;
+        const pullStartedPromise = new Promise<void>((resolve) => {
+            pullStarted = resolve;
+        });
+        const replicateFrom = vi.spyOn(replicator, "replicateFrom").mockImplementation(async () => {
+            pullStarted();
+            await pullGate;
+            return { status: "completed", ok: true };
+        });
+        const requestSynchroniseToPeer = vi
+            .spyOn(replicator, "requestSynchroniseToPeer")
+            .mockResolvedValue({ status: "completed", ok: true });
+
+        const configured = replicator.replicateFromCommand(true);
+        await pullStartedPromise;
+        const automatic = replicator.onNewPeer(peer);
+        await Promise.resolve();
+
+        expect(replicateFrom).toHaveBeenCalledOnce();
+
+        releasePull();
+        await expect(configured).resolves.toEqual({
+            status: "completed",
+            targets: [{ name: "peer-a", peerId: "peer-id", status: "completed" }],
+        });
+        await automatic;
+
+        expect(replicateFrom).toHaveBeenCalledOnce();
+        expect(requestSynchroniseToPeer).toHaveBeenCalledOnce();
     });
 
     it("does not pull from a peer when the host replication policy rejects it", async () => {

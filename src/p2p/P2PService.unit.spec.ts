@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DiagRTCPeerConnectionMetrics } from "@lib/rpc/transports/DiagRTCPeerConnections.types";
 import { LiveSyncP2PService, projectP2PPeerConnectionMetrics } from "./P2PService";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
+import { LiveSyncTrysteroReplicator } from "@lib/replication/trystero/LiveSyncTrysteroReplicator";
 import { TrysteroReplicator } from "@lib/replication/trystero/TrysteroReplicator";
 import { addP2PEventHandlers } from "@lib/replication/trystero/addP2PEventHandlers";
 
@@ -44,6 +45,7 @@ function createServiceHarness() {
         delete: vi.fn(async () => undefined),
         keys: vi.fn(async () => []),
     };
+    const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
     const service = new LiveSyncP2PService({
         services: {
             context,
@@ -60,7 +62,7 @@ function createServiceHarness() {
             vault: { getVaultName: () => "vault-a" },
             API: { getPlatform: () => "test", confirm: {} },
             replicator: {
-                runFiniteReplicationActivity: async (task: () => unknown) => await task(),
+                runFiniteReplicationActivity,
                 runBoundedRemoteActivity: async (task: () => unknown) => await task(),
             },
             replication: {
@@ -74,6 +76,7 @@ function createServiceHarness() {
         context,
         service,
         settings,
+        runFiniteReplicationActivity,
         replaceDatabase: (name: string) => {
             database = { name };
         },
@@ -274,5 +277,134 @@ describe("P2P service room ownership", () => {
 
         expect(onNewPeer).toHaveBeenCalledOnce();
         expect(onPeerLeaved).toHaveBeenCalledOnce();
+    });
+
+    it("holds a finite-only room for the operation and releases it after settlement", async () => {
+        const lifecycle = mockRoomTransport();
+        const { service, settings } = createServiceHarness();
+        settings.P2P_AutoStart = false;
+        const operationSettled = createDeferred();
+        const replicateFrom = vi.spyOn(TrysteroReplicator.prototype, "replicateFrom").mockImplementation(async () => {
+            await operationSettled.promise;
+            return { status: "completed", ok: true };
+        });
+
+        const operation = service.pullFromPeer("peer-a");
+        await vi.waitFor(() => expect(replicateFrom).toHaveBeenCalledOnce());
+
+        try {
+            expect(lifecycle).toEqual(["open"]);
+
+            operationSettled.resolve();
+            await expect(operation).resolves.toEqual({ status: "completed", ok: true });
+            await vi.waitFor(() => expect(lifecycle).toEqual(["open", "close"]));
+        } finally {
+            operationSettled.resolve();
+            await operation.catch(() => undefined);
+        }
+    });
+
+    it("does not let finite-operation release close a room retained by AutoStart policy", async () => {
+        const lifecycle = mockRoomTransport();
+        const { service, settings } = createServiceHarness();
+        await service.reconcileAutoStart(settings as never);
+        const operationSettled = createDeferred();
+        const replicateFrom = vi.spyOn(TrysteroReplicator.prototype, "replicateFrom").mockImplementation(async () => {
+            await operationSettled.promise;
+            return { status: "completed", ok: true };
+        });
+
+        const operation = service.pullFromPeer("peer-a");
+        await vi.waitFor(() => expect(replicateFrom).toHaveBeenCalledOnce());
+        operationSettled.resolve();
+
+        await expect(operation).resolves.toEqual({ status: "completed", ok: true });
+        expect(lifecycle).toEqual(["open"]);
+
+        settings.P2P_AutoStart = false;
+        await service.reconcileAutoStart(settings as never);
+        expect(lifecycle).toEqual(["open", "close"]);
+    });
+
+    it("keeps public peer transfers bound to the session admitted by the room owner", async () => {
+        mockRoomTransport();
+        const { service } = createServiceHarness();
+        const completed = { status: "completed", ok: true } as const;
+        const pull = vi.spyOn(TrysteroReplicator.prototype, "replicateFrom").mockResolvedValue(completed);
+        const push = vi.spyOn(TrysteroReplicator.prototype, "requestSynchroniseToPeer").mockResolvedValue(completed);
+        const synchronise = vi.spyOn(TrysteroReplicator.prototype, "sync").mockResolvedValue(completed);
+        const compatibilityPull = vi
+            .spyOn(LiveSyncTrysteroReplicator.prototype, "replicateFrom")
+            .mockResolvedValue(completed);
+        const compatibilityPush = vi
+            .spyOn(LiveSyncTrysteroReplicator.prototype, "requestSynchroniseToPeer")
+            .mockResolvedValue(completed);
+        const compatibilitySynchronise = vi
+            .spyOn(LiveSyncTrysteroReplicator.prototype, "sync")
+            .mockResolvedValue(completed);
+
+        await service.connect();
+        await expect(service.pullFromPeer("peer-a")).resolves.toEqual(completed);
+        await expect(service.requestPushToPeer("peer-a")).resolves.toEqual(completed);
+        await expect(service.synchroniseWithPeer("peer-a")).resolves.toEqual(completed);
+
+        expect(pull).toHaveBeenCalledOnce();
+        expect(push).toHaveBeenCalledOnce();
+        expect(synchronise).toHaveBeenCalledOnce();
+        expect(compatibilityPull).not.toHaveBeenCalled();
+        expect(compatibilityPush).not.toHaveBeenCalled();
+        expect(compatibilitySynchronise).not.toHaveBeenCalled();
+    });
+
+    it("binds configured-target discovery to the admitted session lifetime", async () => {
+        mockRoomTransport();
+        const { service, settings } = createServiceHarness();
+        settings.P2P_AutoStart = false;
+        settings.P2P_SyncOnReplication = "peer-a";
+        const legacyRelease = createDeferred();
+        let operationSignal: AbortSignal | undefined;
+        const replicateFromCommand = vi
+            .spyOn(TrysteroReplicator.prototype, "replicateFromCommand")
+            .mockImplementation(async (_showResult, _discoveryTimeoutMs, callerSignal) => {
+                operationSignal = callerSignal;
+                if (callerSignal) {
+                    if (!callerSignal.aborted) {
+                        await new Promise<void>((resolve) =>
+                            callerSignal.addEventListener("abort", () => resolve(), { once: true })
+                        );
+                    }
+                } else {
+                    await legacyRelease.promise;
+                }
+                return { status: "cancelled", targets: [] };
+            });
+
+        const operation = service.synchroniseConfiguredTargets();
+        await vi.waitFor(() => expect(replicateFromCommand).toHaveBeenCalledOnce());
+
+        try {
+            expect(operationSignal).toBeDefined();
+            await service.disconnect();
+            expect(operationSignal?.aborted).toBe(true);
+            await expect(operation).resolves.toMatchObject({ status: "cancelled" });
+        } finally {
+            legacyRelease.resolve();
+            await operation.catch(() => undefined);
+        }
+    });
+
+    it("keeps direct bidirectional synchronisation within one finite activity boundary", async () => {
+        mockRoomTransport();
+        const { service, settings, runFiniteReplicationActivity } = createServiceHarness();
+        settings.P2P_AutoStart = false;
+        vi.spyOn(TrysteroReplicator.prototype, "sync").mockResolvedValue({ status: "completed", ok: true });
+
+        await expect(service.synchroniseWithPeer("peer-a", true)).resolves.toEqual({
+            status: "completed",
+            ok: true,
+        });
+
+        expect(runFiniteReplicationActivity).toHaveBeenCalledOnce();
+        expect(runFiniteReplicationActivity.mock.calls[0][1]).toEqual({ label: "replication" });
     });
 });

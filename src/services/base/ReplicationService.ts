@@ -20,6 +20,7 @@ import { createInstanceLogFunction, MARK_LOG_NETWORK_ERROR, type LogFunction } f
 import type { LiveSyncAbstractReplicator } from "@lib/replication/LiveSyncAbstractReplicator";
 import {
     NO_INTERACTION,
+    CENTRAL_REMOTE_REPLICATION_READINESS,
     USER_INITIATED_REPLICATION_AUTHORITY,
     replicationBlocked,
     replicationFailed,
@@ -28,6 +29,7 @@ import {
     type ContinuousReplicationRequest,
     type InteractionAuthority,
     type ReplicationOutcome,
+    type ReplicationReadinessRequirements,
     type UnattendedOneShotRequest,
     type UserInitiatedOneShotRequest,
 } from "@lib/replication/ReplicatorProvider.ts";
@@ -111,6 +113,10 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
      */
     readonly onBeforeReplicate = handlers<IReplicationService>().bailFirstFailure("onBeforeReplicate");
 
+    /** Provider preparation which applies only to the central remote. */
+    readonly onPrepareCentralRemoteReplication =
+        handlers<IReplicationService>().bailFirstFailure("onPrepareCentralRemoteReplication");
+
     /**
      * Lightweight, repeatable policy checks shared by every replication entry point.
      * Handlers must remain idempotent because a high-level replication may cross
@@ -122,7 +128,10 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
      *  Check if the replication is ready to start.
      * @param showMessage Whether to show messages to the user.
      */
-    async isReplicationReady(showMessage: boolean = false): Promise<boolean> {
+    async isReplicationReady(
+        showMessage: boolean = false,
+        readiness: ReplicationReadinessRequirements = CENTRAL_REMOTE_REPLICATION_READINESS
+    ): Promise<boolean> {
         if (!this.appLifecycleService.isReady()) {
             this._log(`Not ready`);
             return false;
@@ -151,7 +160,11 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             this.showError("Network is offline", showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
             return false;
         }
-        if (!(await this.onBeforeReplicate(showMessage))) {
+        if (
+            (readiness.centralRemotePreparation === "required" &&
+                !(await this.onPrepareCentralRemoteReplication(showMessage))) ||
+            !(await this.onBeforeReplicate(showMessage))
+        ) {
             // check for tagged network errors for filtering by NetworkWarningStyles
             const hasNetworkError = (await this.appLifecycleService.getUnresolvedMessages())
                 .flat()
@@ -250,7 +263,9 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
                 ? replicationBlocked("provider-not-composed")
                 : replicationBlocked("no-active-replicator");
         }
-        if (!(await this.isReplicationReady(showMessage))) return replicationBlocked("not-ready");
+        if (!(await this.isReplicationReady(showMessage, context.provider.readiness))) {
+            return replicationBlocked("not-ready");
+        }
         return context;
     }
 

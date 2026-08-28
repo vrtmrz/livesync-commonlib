@@ -5,6 +5,7 @@ import type { Confirm } from "@lib/interfaces/Confirm";
 import type { AsyncActivityRunner } from "@lib/interfaces/AsyncActivityRunner";
 import type { LiveSyncEventHub } from "@lib/hub/hub";
 import type { MessageTranslator } from "@lib/services/base/MessageTranslator";
+import type { P2PAutomationCoordinator } from "./P2PAutomationCoordinator";
 
 export const DIRECTION_REQUEST = "request";
 export type DIRECTION_REQUEST = typeof DIRECTION_REQUEST;
@@ -108,6 +109,8 @@ export interface ReplicatorHostEnv extends ReplicatorHost {
     runFiniteReplicationActivity?: AsyncActivityRunner["run"];
     /** Lightweight, repeatable host policy checked before ordinary P2P replication starts. */
     canStartOrdinaryReplication?(showMessage?: boolean): Promise<boolean>;
+    /** Stable automatic-transfer state supplied by the owning P2P service. */
+    automationCoordinator?: P2PAutomationCoordinator;
 
     processReplicatedDocs(docs: Array<PouchDB.Core.ExistingDocument<EntryDoc>>): void | Promise<void>;
 }

@@ -1,5 +1,5 @@
 import { type Room, selfId, joinRoom } from "@trystero-p2p/nostr";
-import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } from "@lib/common/types";
+import { AutoAccepting, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } from "@lib/common/types";
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger";
 import {
     DIRECTION_RESPONSE,
@@ -43,6 +43,8 @@ export type RevokeAcceptanceDecision = {
     peerId: string;
     name: string;
 };
+/** Non-interactive result of evaluating the persisted and automatic peer policy. */
+export type P2PPeerAcceptance = "accepted" | "rejected" | "undecided" | "unknown";
 export type P2PServerInfo = {
     isConnected: boolean;
     knownAdvertisements: PeerInfo[];
@@ -369,26 +371,40 @@ You can chose as follows:
         },
     });
 
-    async isAcceptablePeer(peerId: string) {
-        if (!this.isEnabled) return undefined;
+    /**
+     * Evaluate peer admission without opening a dialogue or changing a stored
+     * decision. Unattended automation uses this boundary before starting RPC.
+     */
+    async evaluatePeerAcceptance(peerId: string): Promise<P2PPeerAcceptance> {
+        if (!this.isEnabled) return "unknown";
         const peerInfo = this._knownAdvertisements.get(peerId);
-        if (!peerInfo) return false;
+        if (!peerInfo) return "unknown";
         const peerName = peerInfo.name;
-        if (this.temporaryAcceptedPeers.has(peerId)) return this.temporaryAcceptedPeers.get(peerId);
+        if (this.temporaryAcceptedPeers.has(peerId)) {
+            return this.temporaryAcceptedPeers.get(peerId) ? "accepted" : "rejected";
+        }
         const accepted = await this.acceptedPeers.get(peerName);
-        if (accepted !== undefined && accepted !== null) return accepted;
+        if (accepted !== undefined && accepted !== null) return accepted ? "accepted" : "rejected";
         const isAcceptable = (await this._acceptablePeers.update(this.settings)).value.some((e) => e.test(peerName));
         const isDeny = (await this._shouldDenyPeers.update(this.settings)).value.some((e) => e.test(peerName));
+        if (isDeny) return "rejected";
+        if (isAcceptable || this.settings.P2P_AutoAccepting === AutoAccepting.ALL) return "accepted";
+        return "undecided";
+    }
 
-        if (isAcceptable) {
-            if (isDeny) return false;
-            this.temporaryAcceptedPeers.set(peerId, true);
-            void this.dispatchConnectionStatus();
+    async isAcceptablePeer(peerId: string) {
+        const acceptance = await this.evaluatePeerAcceptance(peerId);
+        if (acceptance === "accepted") {
+            const peerName = this._knownAdvertisements.get(peerId)?.name;
+            const persisted = peerName ? await this.acceptedPeers.get(peerName) : undefined;
+            if (!this.temporaryAcceptedPeers.has(peerId) && persisted == null) {
+                this.temporaryAcceptedPeers.set(peerId, true);
+                void this.dispatchConnectionStatus();
+            }
             return true;
         }
-        if (this.settings.P2P_IsHeadless) {
-            return false;
-        }
+        if (acceptance === "rejected" || acceptance === "unknown") return false;
+        if (this.settings.P2P_IsHeadless) return false;
         return await this.confirmUserToAccept(peerId);
     }
 

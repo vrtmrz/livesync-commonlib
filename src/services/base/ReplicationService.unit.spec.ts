@@ -3,7 +3,9 @@ import { ReplicationService, type ReplicationServiceDependencies } from "./Repli
 import { ServiceContext } from "./ServiceBase.ts";
 import {
     CAPABILITY_NOT_APPLICABLE,
+    CENTRAL_REMOTE_REPLICATION_READINESS,
     NO_INTERACTION,
+    PEER_REPLICATION_READINESS,
     REPLICATION_COMPLETED,
     USER_INITIATED_REPLICATION_AUTHORITY,
     supportedOpenReplicationContinuous,
@@ -13,7 +15,7 @@ import {
     type ActiveReplicatorContext,
     type ReplicatorProviderDefinition,
 } from "@lib/replication/ReplicatorProvider.ts";
-import { REMOTE_COUCHDB } from "@lib/common/types.ts";
+import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P, type RemoteType } from "@lib/common/types.ts";
 
 class TestReplicationService extends ReplicationService<ServiceContext> {}
 
@@ -25,6 +27,7 @@ function createTypedDependencies(result: boolean | void = true) {
     const provider: ReplicatorProviderDefinition<typeof REMOTE_COUCHDB> = {
         kind: REMOTE_COUCHDB,
         diagnosticName: "CouchDB",
+        readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
         isConfigured: () => true,
         create: async () => replicator as never,
         userInitiatedOneShot: supportedOpenReplicationOneShot(),
@@ -70,6 +73,54 @@ function createTypedDependencies(result: boolean | void = true) {
         runFiniteReplicationActivity,
         terminateSync,
     };
+}
+
+function createReadinessDependencies(kind: RemoteType, typed = true) {
+    const events: string[] = [];
+    const openReplication = vi.fn(async () => {
+        events.push("open");
+        return true;
+    });
+    const replicator = { openReplication };
+    const activeContext: ActiveReplicatorContext = {
+        provider: {
+            kind,
+            diagnosticName: kind || "CouchDB",
+            readiness: kind === REMOTE_P2P ? PEER_REPLICATION_READINESS : CENTRAL_REMOTE_REPLICATION_READINESS,
+            isConfigured: () => true,
+            create: async () => replicator as never,
+            userInitiatedOneShot: supportedOpenReplicationOneShot(),
+            unattendedOneShot: supportedOpenReplicationUnattended(),
+            continuous: CAPABILITY_NOT_APPLICABLE,
+            stopActiveTransfer: CAPABILITY_NOT_APPLICABLE,
+        },
+        replicator: replicator as never,
+    };
+    const appReady = vi.fn(() => {
+        events.push("app-ready");
+        return true;
+    });
+    const commitPendingFileEvents = vi.fn(async () => {
+        events.push("pending-file-events");
+        return true;
+    });
+    const settings = { versionUpFlash: "", syncMinimumInterval: 0 };
+    const getUnresolvedMessages = Object.assign(vi.fn().mockResolvedValue([]), {
+        addHandler: vi.fn(),
+    });
+    const dependencies = {
+        APIService: { isOnline: true, addLog: vi.fn() },
+        appLifecycleService: { isReady: appReady, getUnresolvedMessages },
+        databaseService: {},
+        fileProcessingService: { commitPendingFileEvents },
+        replicatorService: {
+            getActiveReplicatorContext: vi.fn(() => (typed ? activeContext : undefined)),
+            getActiveReplicator: vi.fn(() => replicator),
+            runFiniteReplicationActivity: vi.fn(async (task: () => unknown) => await task()),
+        },
+        settingService: { currentSettings: vi.fn(() => settings) },
+    } as unknown as ReplicationServiceDependencies;
+    return { activeContext, appReady, dependencies, events, openReplication, settings };
 }
 
 describe("ReplicationService typed provider roles", () => {
@@ -174,6 +225,81 @@ describe("ReplicationService typed provider roles", () => {
             status: "blocked",
             reason: "no-active-replicator",
         });
+    });
+
+    it("keeps ordinary readiness gates for typed P2P unattended work without preparing a central-remote Security Seed", async () => {
+        const { appReady, dependencies, events, openReplication } = createReadinessDependencies(REMOTE_P2P);
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+        const lightweightCheck = vi.fn(async () => {
+            events.push("lightweight-check");
+            return true;
+        });
+        const ensureSecuritySeed = vi.fn();
+        const prepareSecuritySeed = vi.fn(async () => {
+            events.push("central-remote-security-seed");
+            ensureSecuritySeed();
+            return true;
+        });
+        const generalBeforeReplicate = vi.fn(async () => {
+            events.push("general-before-replicate");
+            return true;
+        });
+        service.onCheckReplicationReady.addHandler(lightweightCheck);
+        service.onPrepareCentralRemoteReplication.addHandler(prepareSecuritySeed);
+        service.onBeforeReplicate.addHandler(generalBeforeReplicate);
+
+        await expect(service.replicateUnattended({ trigger: "resume", interaction: NO_INTERACTION })).resolves.toEqual({
+            status: "completed",
+        });
+
+        expect(appReady).toHaveBeenCalledOnce();
+        expect(lightweightCheck).toHaveBeenCalledWith(false);
+        expect(dependencies.fileProcessingService.commitPendingFileEvents).toHaveBeenCalledOnce();
+        expect(generalBeforeReplicate).toHaveBeenCalledOnce();
+        expect(openReplication).toHaveBeenCalledOnce();
+        expect(ensureSecuritySeed).not.toHaveBeenCalled();
+        expect(events).toEqual([
+            "app-ready",
+            "lightweight-check",
+            "pending-file-events",
+            "general-before-replicate",
+            "open",
+        ]);
+    });
+
+    it.each([REMOTE_COUCHDB, REMOTE_MINIO] as const)(
+        "retains central-remote Security Seed preparation for typed %s unattended work",
+        async (kind) => {
+            const { dependencies } = createReadinessDependencies(kind);
+            const service = new TestReplicationService(new ServiceContext(), dependencies);
+            const ensureSecuritySeed = vi.fn();
+            const prepareSecuritySeed = vi.fn(async () => {
+                ensureSecuritySeed();
+                return true;
+            });
+            service.onPrepareCentralRemoteReplication.addHandler(prepareSecuritySeed);
+
+            await expect(
+                service.replicateUnattended({ trigger: "resume", interaction: NO_INTERACTION })
+            ).resolves.toEqual({ status: "completed" });
+
+            expect(ensureSecuritySeed).toHaveBeenCalledOnce();
+        }
+    );
+
+    it("retains central-remote Security Seed preparation for legacy readiness", async () => {
+        const { dependencies } = createReadinessDependencies(REMOTE_COUCHDB, false);
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+        const ensureSecuritySeed = vi.fn();
+        const prepareSecuritySeed = vi.fn(async () => {
+            ensureSecuritySeed();
+            return true;
+        });
+        service.onPrepareCentralRemoteReplication.addHandler(prepareSecuritySeed);
+
+        await expect(service.replicate(true)).resolves.toBe(true);
+
+        expect(ensureSecuritySeed).toHaveBeenCalledOnce();
     });
 
     it("does not invoke a not-applicable continuous role", async () => {

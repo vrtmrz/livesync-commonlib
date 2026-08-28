@@ -3,25 +3,31 @@ import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import type { LiveSyncTrysteroReplicator } from "./LiveSyncTrysteroReplicator";
 import { type UseP2PReplicatorResult } from "./UseP2PReplicatorResult";
 import { addP2PEventHandlers } from "./addP2PEventHandlers";
-import { compatGlobal } from "@lib/common/coreEnvFunctions";
-import { LiveSyncP2PService } from "@lib/p2p/P2PService";
+import { LiveSyncP2PService, type P2PServiceViews } from "@lib/p2p/P2PService";
 import {
     CAPABILITY_NOT_APPLICABLE,
-    CAPABILITY_NOT_IMPLEMENTED,
+    PEER_REPLICATION_READINESS,
     defineReplicatorProviderDefinitions,
     outcomeFromFiniteOpenReplication,
     replicationBlocked,
     replicationFailed,
     supportedStopActiveTransfer,
     type UserInitiatedOneShotRunner,
+    type UnattendedOneShotRunner,
 } from "@lib/replication";
 
 /**
- * Factory type: given a replicator instance, returns the openReplicationUI callback for that instance.
- * Injected by the host platform (e.g. Obsidian). CLI/headless environments omit this.
+ * Factory type: given the compatibility Replicator and the stable service
+ * views, returns the openReplicationUI callback for that instance.
+ *
+ * The Replicator remains available for rebuild-specific compatibility work;
+ * modal lifecycle, status, and ordinary actions should use the narrow views.
+ * Injected by the host platform (for example, Obsidian). CLI and headless
+ * environments omit this.
  */
 export type OpenReplicationUIFactory = (
-    replicator: LiveSyncTrysteroReplicator
+    replicator: LiveSyncTrysteroReplicator,
+    p2p: P2PServiceViews
 ) => (showResult: boolean) => Promise<boolean | void>;
 
 /** Same shape as OpenReplicationUIFactory, used for the rebuild/replicateAllFromServer flow. */
@@ -63,10 +69,10 @@ export function useP2PReplicatorFeature(
 
     const configureReplicator = (instance: LiveSyncTrysteroReplicator) => {
         if (openReplicationUIFactory) {
-            instance.env.openReplicationUI = openReplicationUIFactory(instance);
+            instance.env.openReplicationUI = openReplicationUIFactory(instance, service);
         }
         if (openRebuildUIFactory) {
-            instance.env.openRebuildUI = openRebuildUIFactory(instance);
+            instance.env.openRebuildUI = openRebuildUIFactory(instance, service);
         }
     };
     configureReplicator(replicator);
@@ -89,16 +95,23 @@ export function useP2PReplicatorFeature(
             return replicationFailed(error);
         }
     };
+    const unattendedOneShot: UnattendedOneShotRunner = async (_instance, _setting, request) => {
+        if (request.interaction.kind !== "forbidden") {
+            return replicationBlocked("interaction-required");
+        }
+        return await service.synchroniseConfiguredTargets();
+    };
 
     host.services.replicator.registerReplicatorProviderDefinitions(
         defineReplicatorProviderDefinitions([REMOTE_P2P] as const, {
             [REMOTE_P2P]: {
                 kind: REMOTE_P2P,
                 diagnosticName: "P2P",
+                readiness: PEER_REPLICATION_READINESS,
                 isConfigured: (settings) => settings.remoteType === REMOTE_P2P && settings.P2P_Enabled,
                 create: createP2PReplicator,
                 userInitiatedOneShot: { kind: "supported", run: userInitiatedOneShot },
-                unattendedOneShot: CAPABILITY_NOT_IMPLEMENTED,
+                unattendedOneShot: { kind: "supported", run: unattendedOneShot },
                 continuous: CAPABILITY_NOT_APPLICABLE,
                 stopActiveTransfer: supportedStopActiveTransfer(),
             },
@@ -155,10 +168,7 @@ export function useP2PReplicatorFeature(
 
     // And, reopen if auto-start is enabled when app is resumed.
     host.services.appLifecycle.onResumed.addHandler(() => {
-        const settings = host.services.setting.currentSettings();
-        if (settings.P2P_Enabled && settings.P2P_AutoStart) {
-            compatGlobal.setTimeout((): void => void service.reconcileAutoStart(settings), 100);
-        }
+        service.scheduleAutoStart();
         return Promise.resolve(true);
     });
 
