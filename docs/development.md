@@ -16,6 +16,12 @@ The source tree is larger than the supported package surface. Consumers may impo
 
 Files elsewhere under `src` are implementation details unless a focused entry re-exports them or the compatibility inventory names them. Do not use the source layout, TypeScript path aliases, or the presence of generated declarations as evidence of a supported consumer import.
 
+## Service composition
+
+Choose between an existing Service handler, a serviceFeature, a ServiceModule, and a focused resource-owning class by dependency direction and ownership rather than by the presence of mutable state. A serviceFeature may retain bounded private state and return a narrow consumer view. Use a ServiceModule only when several consumers need the same long-lived operational capability or lifecycle.
+
+See [Service feature composition](service-feature-composition.md) for the decision table, current examples, state-ownership rules, legacy Module boundary, and London School testing guidance.
+
 ## Local validation
 
 For a complete local package gate, run:
