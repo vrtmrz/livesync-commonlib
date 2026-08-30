@@ -45,7 +45,9 @@ export interface PreferredTweakProbe {
 /**
  * An owned reader for the remote Security Seed used to derive replication keys.
  *
- * Reading the seed may create missing remote synchronisation parameters. The
+ * Each read observes the remote for this resource's settings snapshot rather
+ * than reusing process-cached parameters from an earlier workflow. Reading the
+ * seed may create explicitly missing remote synchronisation parameters. The
  * caller must therefore treat this as a bounded remote operation and dispose
  * the resource in `finally`.
  */

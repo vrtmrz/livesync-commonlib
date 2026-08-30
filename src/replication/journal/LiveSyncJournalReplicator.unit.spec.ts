@@ -9,6 +9,7 @@ import { LiveSyncJournalReplicator } from "./LiveSyncJournalReplicator.ts";
 import { MinioStorageAdapter } from "./objectstore/MinioStorageAdapter.ts";
 import { JournalSyncCore } from "./JournalSyncCore.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase.ts";
+import { defaultLogger, setGlobalLogFunction } from "@lib/common/logger.ts";
 import {
     CENTRAL_COMPATIBILITY_REJECTION_REASONS,
     centralCompatibilityRejected,
@@ -160,7 +161,6 @@ describe("LiveSyncJournalReplicator replication compatibility state", () => {
         expect(replicator.tweakSettingsMismatched).toBe(false);
         expect(replicator.preferredTweakValue).toBeUndefined();
     });
-
 });
 
 describe("LiveSyncJournalReplicator compatibility milestone", () => {
@@ -209,7 +209,9 @@ describe("LiveSyncJournalReplicator compatibility milestone", () => {
         const failure = new Error("compatibility milestone unavailable");
         const { replicator, uploadJson } = createReplicator({ status: "unavailable", error: failure });
 
-        await expect(replicator.ensureBucketIsCompatible("device-node", compatibilityVersionRange)).rejects.toBe(failure);
+        await expect(replicator.ensureBucketIsCompatible("device-node", compatibilityVersionRange)).rejects.toBe(
+            failure
+        );
 
         expect(uploadJson).not.toHaveBeenCalled();
     });
@@ -280,6 +282,44 @@ describe("LiveSyncJournalReplicator finite resource ownership", () => {
         replicator.closeReplication();
 
         expect(setupJournalSyncClient).not.toHaveBeenCalled();
+    });
+
+    it("does not report replication closed when disposing a resource-only Replicator", () => {
+        const replicator = new LiveSyncJournalReplicator({} as never);
+        const dispose = vi.fn();
+        replicator._client = { dispose } as never;
+        replicator.updateInfo = vi.fn();
+        const logs: Array<{ message: unknown; level?: number }> = [];
+        setGlobalLogFunction((message, level) => logs.push({ message, level }));
+
+        try {
+            replicator.closeReplication();
+
+            expect(dispose).toHaveBeenCalledOnce();
+            expect(logs.some(({ message }) => message === "Replication closed")).toBe(false);
+        } finally {
+            setGlobalLogFunction(defaultLogger);
+        }
+    });
+
+    it("reports replication closed after entering a Journal transfer", async () => {
+        const replicator = new LiveSyncJournalReplicator({} as never);
+        const client = { dispose: vi.fn(), sync: vi.fn(async () => true) };
+        replicator._client = client as never;
+        replicator.updateInfo = vi.fn();
+        vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue(client as never);
+        vi.spyOn(replicator, "checkReplicationConnectivity").mockResolvedValue(true);
+        const logs: Array<{ message: unknown; level?: number }> = [];
+        setGlobalLogFunction((message, level) => logs.push({ message, level }));
+
+        try {
+            await replicator.openReplication({} as never, false, false);
+            replicator.closeReplication();
+
+            expect(logs.some(({ message }) => message === "Replication closed")).toBe(true);
+        } finally {
+            setGlobalLogFunction(defaultLogger);
+        }
     });
 
     it("disposes an existing Journal client when replication closes", () => {

@@ -1,6 +1,12 @@
 import type PouchDB from "pouchdb-core";
 import { TweakValuesShouldMatchedTemplate, type EntryDoc, type ObsidianLiveSyncSettings } from "@lib/common/types";
-import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
+import {
+    LOG_LEVEL_INFO,
+    LOG_LEVEL_NOTICE,
+    LOG_LEVEL_VERBOSE,
+    Logger,
+    type LOG_LEVEL,
+} from "octagonal-wheels/common/logger";
 import { replicateShim, type ProgressInfo } from "@lib/pouchdb/ReplicatorShim";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import { resolveCurrentP2PSettings, type Advertisement, type ReplicatorHostEnv } from "./types";
@@ -702,28 +708,28 @@ export class TrysteroReplicator {
             : await this.requestAuthenticate(remotePeer);
         if (authenticated !== true) {
             if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
-            Logger("Peer rejected the connection", LOG_LEVEL_NOTICE, "p2p-replicator");
+            Logger("Peer rejected the connection", logLevel, "p2p-replicator");
             return p2pReplicationFailed(new Error("Peer rejected the connection"));
         }
 
         let tweaksMatched: boolean;
         try {
             tweaksMatched = signal
-                ? await this.checkTweakValues(remotePeer, signal)
-                : await this.checkTweakValues(remotePeer);
+                ? await this.checkTweakValues(remotePeer, signal, logLevel)
+                : await this.checkTweakValues(remotePeer, undefined, logLevel);
         } catch (error) {
             if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
             throw error;
         }
         if (tweaksMatched !== true) {
             if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
-            Logger("Tweak values are not matched", LOG_LEVEL_NOTICE, "p2p-replicator");
+            Logger("Tweak values are not matched", logLevel, "p2p-replicator");
             return p2pReplicationFailed(new Error("Tweak values are not matched"));
         }
 
         Logger(`P2P Replicating from ${remotePeer}`, logLevel, "p2p-replicator");
         if (this._replicateFromPeers.has(remotePeer)) {
-            Logger(`Replication from ${remotePeer} is already in progress`, LOG_LEVEL_NOTICE, "p2p-replicator");
+            Logger(`Replication from ${remotePeer} is already in progress`, logLevel, "p2p-replicator");
             return p2pReplicationFailed(new Error("Replication from this peer is already in progress"));
         }
         this._replicateFromPeers.add(remotePeer);
@@ -874,14 +880,15 @@ export class TrysteroReplicator {
             return false;
         }
     }
-    async checkTweakValues(peerId: string, signal?: AbortSignal) {
+    /** Compare peer settings without exceeding the presentation authority of the initiating call. */
+    async checkTweakValues(peerId: string, signal?: AbortSignal, logLevel: LOG_LEVEL = LOG_LEVEL_NOTICE) {
         if (!this.server) {
-            Logger("Server is not available", LOG_LEVEL_NOTICE);
+            Logger("Server is not available", logLevel);
             return false;
         }
         const peerPlatform = this.server.knownAdvertisements.find((e) => e.peerId == peerId)?.platform;
         if (peerPlatform == null) {
-            Logger("Peer is not found", LOG_LEVEL_NOTICE);
+            Logger("Peer is not found", logLevel);
             return false;
         }
         if (this.platform === "pseudo-replicator") {
@@ -905,14 +912,14 @@ export class TrysteroReplicator {
         if (thisTweakValues.passphrase !== tweakValues.passphrase) {
             Logger(
                 "Replication cancelled: Passphrase is not matched\nCannot replicate to a remote database until the problem is resolved.",
-                LOG_LEVEL_NOTICE
+                logLevel
             );
             return false;
         }
 
         Logger(
             "Some mismatched configuration have been detected... Please check settings for efficient replication.",
-            LOG_LEVEL_NOTICE
+            logLevel
         );
         return true;
     }
@@ -976,7 +983,7 @@ export class TrysteroReplicator {
         }
         const peerNames = this.configuredPeerNames();
         if (peerNames.length === 0) {
-            Logger(this.translate("P2P.NoAutoSyncPeers"), LOG_LEVEL_NOTICE);
+            Logger(this.translate("P2P.NoAutoSyncPeers"), logLevel);
             return { status: "blocked", reason: "no-targets", targets: [] };
         }
 

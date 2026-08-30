@@ -18,10 +18,7 @@ import { Logger } from "@lib/common/logger.ts";
 import { JournalSyncCore } from "./JournalSyncCore.ts";
 import { MinioStorageAdapter } from "./objectstore/MinioStorageAdapter.ts";
 
-import {
-    LiveSyncAbstractReplicator,
-    type RemoteDBStatus,
-} from "@lib/replication/LiveSyncAbstractReplicator.ts";
+import { LiveSyncAbstractReplicator, type RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";
 import { ensureRemoteIsCompatible, type ENSURE_DB_RESULT } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import type { CheckPointInfo } from "./JournalSyncTypes.ts";
 import type { SimpleStore } from "@lib/common/utils.ts";
@@ -64,6 +61,8 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         return this.env.services.keyValueDB.simpleStore as SimpleStore<CheckPointInfo>;
     }
     _client!: JournalSyncCore;
+    /** Whether this instance has entered a Journal transfer since its last close. */
+    private hasEnteredReplication = false;
 
     async getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
         return await this.setupJournalSyncClient(setting).getReplicationPBKDF2Salt(refresh);
@@ -155,6 +154,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         ) {
             return false;
         }
+        this.hasEnteredReplication = true;
         return await client.sync(showResult);
     }
 
@@ -174,13 +174,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             decision = next;
         };
         try {
-            const result = await this.openReplication(
-                setting,
-                false,
-                showResult,
-                ignoreCleanLock,
-                recordDecision
-            );
+            const result = await this.openReplication(setting, false, showResult, ignoreCleanLock, recordDecision);
             return outcomeFromFiniteOpenReplication(result, centralCompatibilityRecoveryHint(decision));
         } catch (error) {
             return replicationFailed(error, centralCompatibilityRecoveryHint(decision));
@@ -190,12 +184,14 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     async replicateAllToServer(setting: RemoteDBSettings, showingNotice?: boolean) {
         const client = this.setupJournalSyncClient(setting);
         if (!(await this.checkReplicationConnectivity(false, false, !!showingNotice, setting, client))) return false;
+        this.hasEnteredReplication = true;
         return await client.sendLocalJournal(showingNotice);
     }
 
     async replicateAllFromServer(setting: RemoteDBSettings, showingNotice?: boolean) {
         const client = this.setupJournalSyncClient(setting);
         if (!(await this.checkReplicationConnectivity(false, false, !!showingNotice, setting, client))) return false;
+        this.hasEnteredReplication = true;
         return await client.receiveRemoteJournal(showingNotice);
     }
 
@@ -276,9 +272,13 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     closeReplication() {
         // A never-used trial Replicator owns no Journal client. Closing it must
         // not construct the resource which this method is meant to release.
+        const reportClosure = this.hasEnteredReplication;
+        this.hasEnteredReplication = false;
         this._client?.dispose();
         this.syncStatus = "CLOSED";
-        Logger("Replication closed");
+        if (reportClosure) {
+            Logger("Replication closed");
+        }
         this.updateInfo();
     }
 

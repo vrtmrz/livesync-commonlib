@@ -3,6 +3,7 @@ import { ReplicatorService, type ReplicatorServiceDependencies } from "./Replica
 import { ServiceContext } from "./ServiceBase.ts";
 import type { AsyncActivityOptions, AsyncActivityRunner } from "@lib/interfaces/AsyncActivityRunner.ts";
 import { REMOTE_COUCHDB, REMOTE_MINIO } from "@lib/common/types.ts";
+import { defaultLogger, LOG_LEVEL_INFO, setGlobalLogFunction } from "@lib/common/logger.ts";
 import type { LiveSyncAbstractReplicator } from "@lib/replication/LiveSyncAbstractReplicator.ts";
 import {
     CAPABILITY_NOT_APPLICABLE,
@@ -39,6 +40,19 @@ const NO_TEST_REMOTE_OPERATIONS = {
 
 function eventHook() {
     return { addHandler: vi.fn() };
+}
+
+function captureGlobalLogs() {
+    const entries: Array<{ message: unknown; level?: number; key?: string }> = [];
+    setGlobalLogFunction((message, level, key) => entries.push({ message, level, key }));
+    return {
+        entries,
+        restore: () => setGlobalLogFunction(defaultLogger),
+    };
+}
+
+function infoMessages(entries: Array<{ message: unknown; level?: number }>): string[] {
+    return entries.filter((entry) => entry.level === LOG_LEVEL_INFO).map((entry) => String(entry.message));
 }
 
 function createService(activityRunner?: AsyncActivityRunner) {
@@ -140,6 +154,51 @@ function createProviderFixture(
 }
 
 describe("ReplicatorService lifecycle", () => {
+    it("does not announce a database reset when no active publication exists", async () => {
+        const service = createService();
+        const logs = captureGlobalLogs();
+        try {
+            await expect(service.onCloseActiveReplication()).resolves.toBe(true);
+
+            expect(infoMessages(logs.entries).some((message) => message.includes("database reset"))).toBe(false);
+        } finally {
+            logs.restore();
+        }
+    });
+
+    it("does not announce a configuration closure when no active publication exists", async () => {
+        const lifecycle = createLifecycleService(() => ({
+            remoteType: REMOTE_COUCHDB,
+            activeConfigurationId: "profile-a",
+        }));
+        const logs = captureGlobalLogs();
+        try {
+            await expect(lifecycle.realiseSettings()).resolves.toBe(false);
+
+            expect(infoMessages(logs.entries).some((message) => message.includes("Configuration changed"))).toBe(false);
+        } finally {
+            logs.restore();
+        }
+    });
+
+    it("does not label application unload as a database reset", async () => {
+        const currentSettings = {
+            remoteType: REMOTE_COUCHDB,
+            activeConfigurationId: "profile-a",
+        };
+        const lifecycle = createProviderFixture(() => currentSettings);
+        await lifecycle.realiseSettings();
+
+        const logs = captureGlobalLogs();
+        try {
+            await expect(lifecycle.unloadReplicator()).resolves.toBe(true);
+
+            expect(infoMessages(logs.entries).some((message) => message.includes("database reset"))).toBe(false);
+        } finally {
+            logs.restore();
+        }
+    });
+
     function createInitialisingService() {
         let realiseSettings!: () => Promise<boolean>;
         const initializeDatabaseForReplication = vi.fn().mockResolvedValue(true);
@@ -185,8 +244,7 @@ describe("ReplicatorService lifecycle", () => {
     }
 
     it("initialises a candidate local node before publication", async () => {
-        const { initializeDatabaseForReplication, realiseSettings, replicator, service } =
-            createInitialisingService();
+        const { initializeDatabaseForReplication, realiseSettings, replicator, service } = createInitialisingService();
 
         await expect(realiseSettings()).resolves.toBe(true);
 
@@ -721,7 +779,9 @@ describe("ReplicatorService lifecycle", () => {
         );
 
         await realiseSettings();
-        const administration = service.runCentralRemoteAdministration({ action: CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.LOCK });
+        const administration = service.runCentralRemoteAdministration({
+            action: CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.LOCK,
+        });
         void administration.catch(() => undefined);
         await administrationStarted;
 

@@ -192,16 +192,15 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         retirement.complete();
     }
 
-    private async disposeReplicatorNow(reason: "database reset" | "configuration transition" = "database reset") {
-        this._log(
-            reason === "database reset"
-                ? "Detect database reset, closing active replicator if exists."
-                : "Configuration changed, closing active replicator if exists."
-        );
+    private async disposeReplicatorNow(reason?: "configuration transition") {
         const retirement = await this.quiesceActiveReplicator();
-        if (retirement) {
-            await this.closeRetiringReplicator(retirement);
-        }
+        if (!retirement) return true;
+        this._log(
+            reason === "configuration transition"
+                ? "Configuration changed, closing active replicator."
+                : "Closing active replicator."
+        );
+        await this.closeRetiringReplicator(retirement);
         // To flush e2ee salts, device id, and other information kept in the replicator instance, to avoid potential database corruption after reset.
         return true;
     }

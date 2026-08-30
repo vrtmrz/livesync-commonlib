@@ -221,11 +221,13 @@ describe("LiveSyncLocalDB reset lifecycle", () => {
             env: {
                 services: {
                     replicator: {
-                        getActiveReplicator: vi.fn(() => ({
-                            closeReplication: vi.fn(() => {
-                                order.push("replication");
-                            }),
-                        })),
+                        onCloseActiveReplication: vi.fn(async () => {
+                            order.push("replication");
+                        }),
+                        getActiveReplicator: vi.fn(() => {
+                            order.push("replication");
+                            return { closeReplication: vi.fn() };
+                        }),
                     },
                     databaseEvents: {
                         onResetDatabase: vi.fn(async () => {
@@ -252,6 +254,70 @@ describe("LiveSyncLocalDB reset lifecycle", () => {
         expect(order).toEqual(["replication", "reset", "managers", "destroy", "initialise"]);
     });
 
+    it("uses the Replicator owner boundary and waits for retirement before dependent teardown", async () => {
+        const order: string[] = [];
+        let releaseRetirement!: () => void;
+        const retirement = new Promise<void>((resolve) => {
+            releaseRetirement = resolve;
+        });
+        const onCloseActiveReplication = vi.fn(async () => {
+            order.push("retirement-started");
+            await retirement;
+            order.push("retirement-finished");
+            return true;
+        });
+        const getActiveReplicator = vi.fn(() => undefined);
+        const teardownManagers = vi.fn(async () => {
+            order.push("managers");
+        });
+        const destroy = vi.fn(async () => {
+            order.push("destroy");
+        });
+        const subject = Object.create(LiveSyncLocalDB.prototype) as LiveSyncLocalDB;
+        Object.assign(subject, {
+            isReady: true,
+            _managers: { teardownManagers },
+            env: {
+                services: {
+                    replicator: { onCloseActiveReplication, getActiveReplicator },
+                    databaseEvents: {
+                        onResetDatabase: vi.fn(async () => {
+                            order.push("reset");
+                            return true;
+                        }),
+                    },
+                },
+            },
+            localDatabase: { destroy },
+            initializeDatabase: vi.fn(async () => {
+                order.push("initialise");
+                return true;
+            }),
+            _log: vi.fn(),
+        });
+
+        const reset = subject.resetDatabase();
+        await Promise.resolve();
+
+        expect(onCloseActiveReplication).toHaveBeenCalledOnce();
+        expect(getActiveReplicator).not.toHaveBeenCalled();
+        expect(teardownManagers).not.toHaveBeenCalled();
+        expect(destroy).not.toHaveBeenCalled();
+        expect(order).toEqual(["retirement-started"]);
+
+        releaseRetirement();
+        await expect(reset).resolves.toBe(true);
+
+        expect(order).toEqual([
+            "retirement-started",
+            "retirement-finished",
+            "reset",
+            "managers",
+            "destroy",
+            "initialise",
+        ]);
+    });
+
     it("clears physical readiness when a reset hook rejects the transition", async () => {
         const destroy = vi.fn(async () => undefined);
         const subject = Object.create(LiveSyncLocalDB.prototype) as LiveSyncLocalDB;
@@ -263,6 +329,7 @@ describe("LiveSyncLocalDB reset lifecycle", () => {
             env: {
                 services: {
                     replicator: {
+                        onCloseActiveReplication: vi.fn(async () => true),
                         getActiveReplicator: vi.fn(() => undefined),
                     },
                     databaseEvents: {
@@ -293,6 +360,7 @@ describe("LiveSyncLocalDB reset lifecycle", () => {
             env: {
                 services: {
                     replicator: {
+                        onCloseActiveReplication: vi.fn(async () => true),
                         getActiveReplicator: vi.fn(() => undefined),
                     },
                     databaseEvents: {
@@ -337,6 +405,8 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
             }),
         };
         const closeReplication = vi.fn();
+        const onCloseActiveReplication = vi.fn(async () => true);
+        const getActiveReplicator = vi.fn(() => ({ closeReplication }));
         const onCloseDatabase = vi.fn(async () => true);
         const onUnloadDatabase = vi.fn(async () => true);
         const context = createServiceContext();
@@ -359,11 +429,21 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
                 } as never,
                 replicator: {
                     finiteReplicationActivityCount: { value: 0 },
-                    getActiveReplicator: vi.fn(() => ({ closeReplication })),
+                    onCloseActiveReplication,
+                    getActiveReplicator,
                 } as never,
             },
         });
-        return { closeReplication, database, onCloseDatabase, onDatabaseInitialisation, onUnloadDatabase, subject };
+        return {
+            closeReplication,
+            database,
+            getActiveReplicator,
+            onCloseActiveReplication,
+            onCloseDatabase,
+            onDatabaseInitialisation,
+            onUnloadDatabase,
+            subject,
+        };
     }
 
     beforeEach(() => {
@@ -373,14 +453,17 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
 
     it("rolls back physical readiness when a required ready handler rejects the transition", async () => {
         const onDatabaseHasReady = vi.fn(async () => false);
-        const { closeReplication, database, onUnloadDatabase, subject } = createSubject(onDatabaseHasReady);
+        const { closeReplication, database, getActiveReplicator, onCloseActiveReplication, onUnloadDatabase, subject } =
+            createSubject(onDatabaseHasReady);
 
         await expect(subject.initializeDatabase()).resolves.toBe(false);
 
         expect(subject.isReady).toBe(false);
         expect(database.close).toHaveBeenCalledOnce();
         expect(managerLifecycle.teardown).toHaveBeenCalled();
-        expect(closeReplication).toHaveBeenCalled();
+        expect(onCloseActiveReplication).toHaveBeenCalledOnce();
+        expect(getActiveReplicator).not.toHaveBeenCalled();
+        expect(closeReplication).not.toHaveBeenCalled();
         expect(onUnloadDatabase).toHaveBeenCalledWith(subject);
 
         await subject.close();
@@ -455,7 +538,8 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
 
     it("does not tear down dependencies twice when a ready handler closes the database", async () => {
         const onDatabaseHasReady = vi.fn<() => Promise<boolean>>();
-        const { closeReplication, database, onUnloadDatabase, subject } = createSubject(onDatabaseHasReady);
+        const { closeReplication, database, getActiveReplicator, onCloseActiveReplication, onUnloadDatabase, subject } =
+            createSubject(onDatabaseHasReady);
         onDatabaseHasReady.mockImplementation(async () => {
             await database.close();
             return true;
@@ -466,7 +550,9 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
         expect(subject.isReady).toBe(false);
         expect(database.close).toHaveBeenCalledOnce();
         expect(managerLifecycle.teardown).toHaveBeenCalledOnce();
-        expect(closeReplication).toHaveBeenCalledOnce();
+        expect(onCloseActiveReplication).toHaveBeenCalledOnce();
+        expect(getActiveReplicator).not.toHaveBeenCalled();
+        expect(closeReplication).not.toHaveBeenCalled();
         expect(onUnloadDatabase).toHaveBeenCalledOnce();
     });
 
@@ -495,6 +581,19 @@ describe("LiveSyncLocalDB initialisation readiness", () => {
         await subject.close();
 
         expect(order).toEqual(["handler", "database"]);
+    });
+
+    it("uses owner retirement during close without probing for a missing active publication", async () => {
+        const { closeReplication, getActiveReplicator, onCloseActiveReplication, subject } = createSubject(
+            async () => true
+        );
+        await expect(subject.initializeDatabase()).resolves.toBe(true);
+
+        await subject.close();
+
+        expect(onCloseActiveReplication).toHaveBeenCalledOnce();
+        expect(getActiveReplicator).not.toHaveBeenCalled();
+        expect(closeReplication).not.toHaveBeenCalled();
     });
 
     it("still closes the physical database when close cleanup reports failure", async () => {

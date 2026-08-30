@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { TrysteroReplicator } from "./TrysteroReplicator";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
+import { defaultLogger, LOG_LEVEL_NOTICE, setGlobalLogFunction } from "@lib/common/logger";
 import {
     EVENT_ADVERTISEMENT_RECEIVED,
     EVENT_P2P_REPLICATOR_STATUS,
@@ -53,7 +54,126 @@ function createAdvertisementServer(advertisements: Advertisement[] = []) {
     };
 }
 
+function captureGlobalLogs() {
+    const entries: Array<{ message: unknown; level?: number; key?: string }> = [];
+    setGlobalLogFunction((message, level, key) => entries.push({ message, level, key }));
+    return {
+        entries,
+        restore: () => setGlobalLogFunction(defaultLogger),
+    };
+}
+
+function hasNotice(entries: Array<{ level?: number }>): boolean {
+    return entries.some((entry) => entry.level === LOG_LEVEL_NOTICE);
+}
+
 describe("TrysteroReplicator automatic remote activity", () => {
+    it.each([
+        [false, false],
+        [true, true],
+    ] as const)("uses the call authority for a no-target command (%s)", async (showResult, expectNotice) => {
+        const { replicator } = createReplicator();
+        const logs = captureGlobalLogs();
+        try {
+            await expect(replicator.replicateFromCommand(showResult, 0)).resolves.toEqual({
+                status: "blocked",
+                reason: "no-targets",
+                targets: [],
+            });
+
+            expect(hasNotice(logs.entries)).toBe(expectNotice);
+        } finally {
+            logs.restore();
+        }
+    });
+
+    it.each([
+        [false, false],
+        [true, true],
+    ] as const)("uses the call authority for an authentication settlement (%s)", async (showNotice, expectNotice) => {
+        const { replicator } = createReplicator();
+        vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(false);
+        const logs = captureGlobalLogs();
+        try {
+            await expect(replicator.replicateFrom("peer-id", showNotice)).resolves.toMatchObject({
+                status: "failed",
+                error: expect.any(Error),
+            });
+
+            expect(hasNotice(logs.entries)).toBe(expectNotice);
+        } finally {
+            logs.restore();
+        }
+    });
+
+    it.each([
+        [false, false],
+        [true, true],
+    ] as const)("uses the call authority for a tweak settlement (%s)", async (showNotice, expectNotice) => {
+        const { replicator } = createReplicator();
+        vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+        vi.spyOn(replicator, "checkTweakValues").mockResolvedValue(false);
+        const logs = captureGlobalLogs();
+        try {
+            await expect(replicator.replicateFrom("peer-id", showNotice)).resolves.toMatchObject({
+                status: "failed",
+                error: expect.any(Error),
+            });
+
+            expect(hasNotice(logs.entries)).toBe(expectNotice);
+        } finally {
+            logs.restore();
+        }
+    });
+
+    it.each([
+        [false, false],
+        [true, true],
+    ] as const)("propagates call authority through a real tweak mismatch (%s)", async (showNotice, expectNotice) => {
+        const { replicator } = createReplicator();
+        vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+        vi.spyOn(replicator, "getTweakSettings").mockResolvedValue({ passphrase: "local" } as never);
+        (replicator as any).server = {
+            knownAdvertisements: [{ peerId: "peer-id", platform: "test" }],
+            serverPeerId: "local-peer",
+            getConnection: vi.fn(() => ({
+                invokeRemoteObjectFunction: vi.fn(async () => ({ passphrase: "remote" })),
+            })),
+        };
+        const logs = captureGlobalLogs();
+        try {
+            await expect(replicator.replicateFrom("peer-id", showNotice)).resolves.toMatchObject({
+                status: "failed",
+                error: expect.any(Error),
+            });
+
+            expect(hasNotice(logs.entries)).toBe(expectNotice);
+        } finally {
+            logs.restore();
+        }
+    });
+
+    it.each([
+        [false, false],
+        [true, true],
+    ] as const)("uses the call authority for an overlap settlement (%s)", async (showNotice, expectNotice) => {
+        const { replicator } = createReplicator();
+        vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+        vi.spyOn(replicator, "checkTweakValues").mockResolvedValue(true);
+        replicator._replicateFromPeers.add("peer-id");
+        const logs = captureGlobalLogs();
+        try {
+            await expect(replicator.replicateFrom("peer-id", showNotice)).resolves.toMatchObject({
+                status: "failed",
+                error: expect.any(Error),
+            });
+
+            expect(hasNotice(logs.entries)).toBe(expectNotice);
+        } finally {
+            logs.restore();
+        }
+    });
+
     it("releases host-lifetime resources when terminally disposed", async () => {
         const { events, replicator } = createReplicator();
         const close = vi.spyOn(replicator, "close").mockResolvedValue(undefined);
