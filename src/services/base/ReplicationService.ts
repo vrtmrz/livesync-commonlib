@@ -4,6 +4,7 @@ import {
     LOG_LEVEL_VERBOSE,
     type LOG_LEVEL,
     type ObsidianLiveSyncSettings,
+    type RemoteDBSettings,
 } from "@lib/common/types";
 import { handlers } from "@lib/services/lib/HandlerUtils";
 import type {
@@ -17,28 +18,70 @@ import type {
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
-import type { LiveSyncAbstractReplicator } from "@lib/replication/LiveSyncAbstractReplicator";
 import {
     NO_INTERACTION,
     CENTRAL_REMOTE_REPLICATION_READINESS,
     USER_INITIATED_REPLICATION_AUTHORITY,
+    isReplicationCompleted,
     replicationBlocked,
+    replicationFailed,
+    outcomeFromFiniteOpenReplication,
+    type ActiveReplicatorContext,
     type ContinuousReplicationRequest,
     type ReplicationOutcome,
     type ReplicationReadinessRequirements,
     type UnattendedOneShotRequest,
     type UserInitiatedOneShotRequest,
 } from "@lib/replication/ReplicatorProvider.ts";
+import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
 import { UnresolvedErrorManager } from "./UnresolvedErrorManager";
 import type { AppLifecycleService } from "./AppLifecycleService";
 import { isLockAcquired, shareRunningResult } from "octagonal-wheels/concurrency/lock";
 import { createReplicationReadinessEvaluator, type ReplicationReadinessEvaluator } from "./ReplicationReadiness.ts";
 import { TypedReplicationCoordinator } from "./TypedReplicationCoordinator.ts";
+import { asCopy } from "@lib/common/utils.object.ts";
 
 /**
  * Event-triggered replication interval forecasted time.
  */
 const REPLICATION_ON_EVENT_FORECASTED_TIME = 5000;
+
+const DIRECTIONAL_REPLICATION = Object.freeze({
+    UPLOAD: "upload",
+    DOWNLOAD: "download",
+} as const);
+
+type DirectionalReplication = (typeof DIRECTIONAL_REPLICATION)[keyof typeof DIRECTIONAL_REPLICATION];
+
+interface DirectionalReplicationAdapter extends ReplicatorInstance {
+    replicateAllToServer?(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>;
+    replicateAllFromServer?(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>;
+}
+
+interface LegacyCentralRemoteAdministrationAdapter extends ReplicatorInstance {
+    markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean): Promise<void>;
+    markRemoteResolved(setting: RemoteDBSettings): Promise<void>;
+}
+
+async function runDirectionalReplication(
+    context: ActiveReplicatorContext,
+    setting: RemoteDBSettings,
+    direction: DirectionalReplication,
+    showingNotice: boolean
+): Promise<ReplicationOutcome> {
+    const candidate = context.replicator as DirectionalReplicationAdapter;
+    const operation =
+        direction === DIRECTIONAL_REPLICATION.UPLOAD
+            ? candidate.replicateAllToServer?.bind(candidate)
+            : candidate.replicateAllFromServer?.bind(candidate);
+    if (!operation) return replicationBlocked("capability-not-applicable");
+    try {
+        const result = await operation(setting, showingNotice);
+        return outcomeFromFiniteOpenReplication(result);
+    } catch (error) {
+        return replicationFailed(error);
+    }
+}
 
 export interface ReplicationServiceDependencies {
     APIService: IAPIService;
@@ -110,7 +153,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             replicatorService: this.replicatorService,
             currentSettings: () => this.settingService.currentSettings(),
             checkReadiness: (showMessage, readiness) => this.isReplicationReady(showMessage, readiness),
-            handleFailure: (showMessage, interaction) => this.onReplicationFailed(showMessage, interaction),
+            handleFailure: (request) => this.onReplicationFailed(request),
             recordFiniteAttempt: () => {
                 this.previousReplicated = Date.now();
             },
@@ -239,10 +282,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
     async performReplication(showMessage?: boolean): Promise<boolean | void> {
         const result = await this.performReplicationRequest(showMessage);
         if (!result) {
-            return await this.onReplicationFailed(
-                showMessage,
-                showMessage ? USER_INITIATED_REPLICATION_AUTHORITY : NO_INTERACTION
-            );
+            return false;
         }
         return result;
     }
@@ -269,10 +309,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
                 { label: "replication" }
             );
             if (!result) {
-                return await this.onReplicationFailed(
-                    showMessage,
-                    showMessage ? USER_INITIATED_REPLICATION_AUTHORITY : NO_INTERACTION
-                );
+                return false;
             }
             return result;
         } finally {
@@ -323,55 +360,52 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
     storageApplyingCount = reactiveSource(0);
     replicationResultCount = reactiveSource(0);
 
-    getActiveReplicatorFor(usage: string) {
-        const activeReplicator = this.replicatorService.getActiveReplicator();
-        if (!activeReplicator) {
-            this._log(`Active replicator not found during ${usage}`, LOG_LEVEL_NOTICE);
-            return false;
-        }
-        return activeReplicator;
-    }
-
-    private async performReplicateAllToRemote(showingNotice: boolean): Promise<boolean> {
-        if (!(await this.onBeforeReplicate(showingNotice))) {
+    /**
+     * Dispatch one directional full transfer through one admitted publication.
+     *
+     * Each attempt owns a separate reservation. Compatibility recovery runs
+     * between those reservations, and a retry is admitted only when the exact
+     * first-attempt context remains active. Both attempts use one detached
+     * settings snapshot.
+     */
+    private async performDirectionalReplication(
+        direction: DirectionalReplication,
+        showingNotice: boolean
+    ): Promise<boolean> {
+        if (direction === DIRECTIONAL_REPLICATION.UPLOAD && !(await this.onBeforeReplicate(showingNotice))) {
             this._log(this.context.translate("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_NOTICE);
             return false;
         }
-        const currentSettings = this.settingService.currentSettings();
-        const activeReplicator = this.getActiveReplicatorFor("sending data to remote");
-        if (!activeReplicator) {
-            return false;
-        }
-        const ret = await activeReplicator.replicateAllToServer(currentSettings, showingNotice);
-        if (ret) return true;
-        const checkResult = await this.checkConnectionFailure();
-        if (checkResult == "CHECKAGAIN")
-            return await activeReplicator.replicateAllToServer(currentSettings, showingNotice);
-        return !checkResult;
-    }
+        const setting = asCopy(this.settingService.currentSettings());
+        let expectedContext: ActiveReplicatorContext | undefined;
+        const run = async (): Promise<ReplicationOutcome> => {
+            const admitted = await this.replicatorService.runWithActiveReplicatorContext((context) => {
+                if (expectedContext && context !== expectedContext) {
+                    return replicationBlocked("not-ready");
+                }
+                expectedContext ??= context;
+                return runDirectionalReplication(context, setting, direction, showingNotice);
+            });
+            if (admitted) return admitted;
+            this._log(`Active replicator not found during directional ${direction}`, LOG_LEVEL_NOTICE);
+            return replicationBlocked("no-active-replicator");
+        };
+        const outcome = await run();
+        if (isReplicationCompleted(outcome)) return true;
+        if (outcome.status !== "failed") return false;
 
-    private async performReplicateAllFromRemote(showingNotice: boolean): Promise<boolean> {
-        const activeReplicator = this.getActiveReplicatorFor("fetching data from remote");
-        if (!activeReplicator) {
-            return false;
-        }
-        const currentSettings = this.settingService.currentSettings();
-        const ret = await activeReplicator.replicateAllFromServer(currentSettings, showingNotice);
-        if (ret) return true;
         const checkResult = await this.checkConnectionFailure();
-        if (checkResult == "CHECKAGAIN")
-            return await activeReplicator.replicateAllFromServer(currentSettings, showingNotice);
-        return !checkResult;
+        return checkResult === "CHECKAGAIN" && isReplicationCompleted(await run());
     }
 
     async replicateAllToRemote(showingNotice: boolean = false): Promise<boolean> {
         if (!this.appLifecycleService.isReady()) return false;
-        return await this.performReplicateAllToRemote(showingNotice);
+        return await this.performDirectionalReplication(DIRECTIONAL_REPLICATION.UPLOAD, showingNotice);
     }
 
     async replicateAllFromRemote(showingNotice: boolean = false): Promise<boolean> {
         if (!this.appLifecycleService.isReady()) return false;
-        return await this.performReplicateAllFromRemote(showingNotice);
+        return await this.performDirectionalReplication(DIRECTIONAL_REPLICATION.DOWNLOAD, showingNotice);
     }
 
     /**
@@ -385,7 +419,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             this._log("The selected local database is not ready for the rebuild upload.", LOG_LEVEL_NOTICE);
             return false;
         }
-        return await this.performReplicateAllToRemote(showingNotice);
+        return await this.performDirectionalReplication(DIRECTIONAL_REPLICATION.UPLOAD, showingNotice);
     }
 
     /**
@@ -399,45 +433,52 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             this._log("The selected local database is not ready for the rebuild download.", LOG_LEVEL_NOTICE);
             return false;
         }
-        return await this.performReplicateAllFromRemote(showingNotice);
+        return await this.performDirectionalReplication(DIRECTIONAL_REPLICATION.DOWNLOAD, showingNotice);
+    }
+
+    private getActiveReplicatorFor(usage: string) {
+        const activeReplicator = this.replicatorService.getActiveReplicator();
+        if (!activeReplicator) {
+            this._log(`Active replicator not found during ${usage}`, LOG_LEVEL_NOTICE);
+            return false;
+        }
+        return activeReplicator;
     }
 
     private _getReplicatorAndPerform(
         action: string,
-        perform: (setting: ObsidianLiveSyncSettings, replicator: LiveSyncAbstractReplicator) => Promise<void>
+        perform: (setting: ObsidianLiveSyncSettings, replicator: LegacyCentralRemoteAdministrationAdapter) => Promise<void>
     ) {
         const activeReplicator = this.getActiveReplicatorFor(action);
-        if (!activeReplicator) {
+        if (!activeReplicator) return Promise.resolve();
+        const candidate = activeReplicator as Partial<LegacyCentralRemoteAdministrationAdapter>;
+        if (typeof candidate.markRemoteLocked !== "function" || typeof candidate.markRemoteResolved !== "function") {
+            this._log(`Active replicator does not support ${action}`, LOG_LEVEL_NOTICE);
             return Promise.resolve();
         }
-        const currentSettings = this.settingService.currentSettings();
-        return perform(currentSettings, activeReplicator);
+        return perform(this.settingService.currentSettings(), candidate as LegacyCentralRemoteAdministrationAdapter);
     }
 
     async markLocked(lockByClean: boolean = false): Promise<void> {
         return await this._getReplicatorAndPerform(
             "marking remote locked",
-            async (currentSettings, activeReplicator) => {
-                return await activeReplicator.markRemoteLocked(currentSettings, true, lockByClean);
-            }
+            async (currentSettings, activeReplicator) =>
+                await activeReplicator.markRemoteLocked(currentSettings, true, lockByClean)
         );
     }
 
     async markUnlocked(): Promise<void> {
         return await this._getReplicatorAndPerform(
             "marking remote unlocked",
-            async (currentSettings, activeReplicator) => {
-                return await activeReplicator.markRemoteLocked(currentSettings, false, false);
-            }
+            async (currentSettings, activeReplicator) =>
+                await activeReplicator.markRemoteLocked(currentSettings, false, false)
         );
     }
 
     async markResolved(): Promise<void> {
         return await this._getReplicatorAndPerform(
             "marking remote resolved",
-            async (currentSettings, activeReplicator) => {
-                return await activeReplicator.markRemoteResolved(currentSettings);
-            }
+            async (currentSettings, activeReplicator) => await activeReplicator.markRemoteResolved(currentSettings)
         );
     }
 }

@@ -239,6 +239,22 @@ describe("onNotifyRemoteSizeExceed", () => {
         expect(result).toBe(true);
     });
 
+    it("should skip the check when the active provider has no remote-size reader", async () => {
+        const host = {
+            services: {
+                context: createTranslatedContext(),
+                API: { isOnline: true },
+                replicator: { getActiveReplicator: () => ({}) },
+                setting: {
+                    currentSettings: () => ({ notifyThresholdOfRemoteStorageSize: 800 }),
+                },
+            },
+            serviceModules: {},
+        } as any;
+
+        await expect(onNotifyRemoteSizeExceedFactory(host, logger)()).resolves.toBe(true);
+    });
+
     it("should return true if size is within threshold", async () => {
         const mockAPI = {
             isOnline: true,

@@ -1,28 +1,33 @@
 import type { ObsidianLiveSyncSettings } from "@lib/common/types.ts";
 import {
+    CAPABILITY_SUPPORT_KINDS,
     NO_INTERACTION,
     replicationBlocked,
     replicationFailed,
     type ActiveReplicatorContext,
-    type CapabilitySupport,
     type ContinuousReplicationRequest,
     type InteractionAuthority,
+    type ReplicationFailureRequest,
     type ReplicationOutcome,
     type ReplicationReadinessRequirements,
     type UnattendedOneShotRequest,
     type UserInitiatedOneShotRequest,
 } from "@lib/replication/ReplicatorProvider.ts";
 import type { IReplicatorService } from "./IService.ts";
+import { asCopy } from "@lib/common/utils.object.ts";
 
 /** Collaborators required to execute roles declared by a typed Replicator provider. */
 export interface TypedReplicationCoordinatorDependencies {
     readonly replicatorService: Pick<
         IReplicatorService,
-        "acquireActiveReplicatorContext" | "getActiveReplicator" | "runFiniteReplicationActivity"
+        | "acquireActiveReplicatorContext"
+        | "getActiveReplicator"
+        | "runWithActiveReplicatorContext"
+        | "runFiniteReplicationActivity"
     >;
     readonly currentSettings: () => ObsidianLiveSyncSettings;
     readonly checkReadiness: (showMessage: boolean, readiness: ReplicationReadinessRequirements) => Promise<boolean>;
-    readonly handleFailure: (showMessage: boolean, interaction: InteractionAuthority) => Promise<boolean>;
+    readonly handleFailure: (request: ReplicationFailureRequest) => Promise<boolean>;
     /**
      * Advance the host's finite-attempt clock after readiness admits dispatch.
      *
@@ -61,13 +66,15 @@ export class TypedReplicationCoordinator {
         if ("status" in ready) return ready;
 
         const capability = ready.provider.userInitiatedOneShot;
-        if (capability.kind !== "supported") {
+        if (capability.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
             return this.finishFiniteAttempt(replicationBlocked(capability.reason));
         }
-        const settings = this.dependencies.currentSettings();
+        const settings = Object.freeze(asCopy(this.dependencies.currentSettings()));
         return this.finishFiniteAttempt(
-            await this.runFiniteActivity(
-                () => capability.run(ready.replicator, settings, request),
+            await this.runAdmittedFiniteActivity(
+                ready,
+                (context) => capability.run(context.replicator, settings, request),
+                settings,
                 request.interaction,
                 showMessage
             )
@@ -89,13 +96,15 @@ export class TypedReplicationCoordinator {
         if ("status" in ready) return ready;
 
         const capability = ready.provider.unattendedOneShot;
-        if (capability.kind !== "supported") {
+        if (capability.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
             return this.finishFiniteAttempt(replicationBlocked(capability.reason));
         }
-        const settings = this.dependencies.currentSettings();
+        const settings = Object.freeze(asCopy(this.dependencies.currentSettings()));
         return this.finishFiniteAttempt(
-            await this.runFiniteActivity(
-                () => capability.run(ready.replicator, settings, request),
+            await this.runAdmittedFiniteActivity(
+                ready,
+                (context) => capability.run(context.replicator, settings, request),
+                settings,
                 NO_INTERACTION,
                 false
             )
@@ -120,11 +129,11 @@ export class TypedReplicationCoordinator {
         // Capability support is checked before readiness so an inapplicable
         // role does not trigger unrelated probes or user-facing diagnostics.
         const capability = context.provider.continuous;
-        const blocked = this.capabilityBlocked(capability);
-        if (blocked) return blocked;
+        if (capability.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
+            return replicationBlocked(capability.reason);
+        }
         const ready = await this.acquireReadyContext(false, context);
         if ("status" in ready) return ready;
-        if (capability.kind !== "supported") return replicationBlocked("capability-not-implemented");
         try {
             return await capability.run(ready.replicator, this.dependencies.currentSettings(), request);
         } catch (error) {
@@ -144,18 +153,14 @@ export class TypedReplicationCoordinator {
         if ("status" in context) return context;
 
         const capability = context.provider.stopActiveTransfer;
-        const blocked = this.capabilityBlocked(capability);
-        if (blocked) return blocked;
-        if (capability.kind !== "supported") return replicationBlocked("capability-not-implemented");
+        if (capability.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
+            return replicationBlocked(capability.reason);
+        }
         try {
             return await capability.run(context.replicator);
         } catch (error) {
             return replicationFailed(error);
         }
-    }
-
-    private capabilityBlocked<TRole>(capability: CapabilitySupport<TRole>): ReplicationOutcome | undefined {
-        return capability.kind === "supported" ? undefined : replicationBlocked(capability.reason);
     }
 
     private finishFiniteAttempt(outcome: ReplicationOutcome): ReplicationOutcome {
@@ -187,26 +192,49 @@ export class TypedReplicationCoordinator {
         return context;
     }
 
-    private async runFiniteActivity(
-        run: () => Promise<ReplicationOutcome>,
+    private async runFiniteActivity(run: () => Promise<ReplicationOutcome>): Promise<ReplicationOutcome> {
+        try {
+            return await this.dependencies.replicatorService.runFiniteReplicationActivity(run, {
+                label: "replication",
+            });
+        } catch (error) {
+            return replicationFailed(error);
+        }
+    }
+
+    /**
+     * Reserve the readiness-tested publication for provider dispatch.
+     *
+     * Readiness and settings capture intentionally happen before admission. If
+     * an ownership transition completes in between, the newly admitted context
+     * is rejected instead of running work prepared for an older publication.
+     * Failure recovery runs only after the reservation has been released.
+     */
+    private async runAdmittedFiniteActivity(
+        expectedContext: ActiveReplicatorContext,
+        run: (context: ActiveReplicatorContext) => Promise<ReplicationOutcome>,
+        setting: ObsidianLiveSyncSettings,
         interaction: InteractionAuthority,
         showMessage: boolean
     ): Promise<ReplicationOutcome> {
-        try {
-            const result = await this.dependencies.replicatorService.runFiniteReplicationActivity(run, {
-                label: "replication",
-            });
-            // Failure recovery starts only after the finite activity boundary
-            // has settled, so the host does not count a recovery dialogue as
-            // remote document-delivery work.
-            if (result.status === "failed") {
-                await this.dependencies.handleFailure(showMessage, interaction);
-            }
-            return result;
-        } catch (error) {
-            const result = replicationFailed(error);
-            await this.dependencies.handleFailure(showMessage, interaction);
-            return result;
+        const admitted = await this.dependencies.replicatorService.runWithActiveReplicatorContext((context) =>
+            context === expectedContext ? this.runFiniteActivity(() => run(context)) : replicationBlocked("not-ready")
+        );
+        const result = admitted ?? replicationBlocked("no-active-replicator");
+        // Failure recovery starts only after both finite activity accounting
+        // and publication admission have settled. It may queue lifecycle work
+        // which must never wait on its own reservation.
+        if (result.status === "failed") {
+            await this.dependencies.handleFailure(
+                Object.freeze({
+                    context: expectedContext,
+                    setting,
+                    outcome: result,
+                    showMessage,
+                    interaction,
+                })
+            );
         }
+        return result;
     }
 }

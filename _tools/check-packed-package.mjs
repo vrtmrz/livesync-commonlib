@@ -2,7 +2,7 @@
 
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
@@ -32,6 +32,22 @@ function run(command, args, options = {}) {
     });
 }
 
+async function runCapturedToFile(command, args, outputPath) {
+    const output = await open(outputPath, "w");
+    try {
+        execFileSync(command, args, {
+            cwd: root,
+            env: { ...process.env, NO_COLOR: "1" },
+            stdio: ["ignore", output.fd, "pipe"],
+        });
+    } finally {
+        await output.close();
+    }
+    const captured = await readFile(outputPath, "utf8");
+    await rm(outputPath, { force: true });
+    return captured;
+}
+
 async function writeConsumerFile(relativePath, contents) {
     const path = resolve(consumerDirectory, relativePath);
     await mkdir(dirname(path), { recursive: true });
@@ -42,7 +58,14 @@ await rm(consumerDirectory, { recursive: true, force: true });
 await mkdir(consumerDirectory, { recursive: true });
 await mkdir(artefactDirectory, { recursive: true });
 
-const packed = JSON.parse(run("npm", ["pack", packageDirectory, "--json", "--pack-destination", artefactDirectory]))[0];
+const packResultPath = resolve(artefactDirectory, ".npm-pack-result.json");
+const packed = JSON.parse(
+    await runCapturedToFile(
+        "npm",
+        ["pack", packageDirectory, "--json", "--pack-destination", artefactDirectory],
+        packResultPath
+    )
+)[0];
 assert.equal(packed.name, packageName);
 assert.ok(packed.size > 0, "The packed package must not be empty.");
 const generatedManifest = JSON.parse(await readFile(resolve(packageDirectory, "package.json"), "utf8"));
@@ -200,17 +223,17 @@ import {
 import {
     NO_REMOTE_RESOURCE_CAPABILITIES,
     NO_INTERACTION,
-    REMOTE_ADMINISTRATION_ACTIONS,
-    REMOTE_ADMINISTRATION_FAILURE_REASONS,
+    CENTRAL_COMPATIBILITY_REJECTION_REASONS,
+    CENTRAL_REMOTE_ADMINISTRATION_ACTIONS,
+    CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS,
     REMOTE_RESOURCE_KINDS,
-    REPLACE_SAME_KIND_REPLICATOR,
     isReplicationCompleted,
+    type ReplicatorInstance,
     type ReplicatorConfigurationIdentity,
-    type RemoteAdministrationRequest,
-    type RemoteAdministrationResult,
+    type CentralRemoteAdministrationRequest,
+    type CentralRemoteAdministrationResult,
     type RemoteResourceCapabilities,
     type ReplicationOutcome,
-    type SameKindReplicatorReconciliation,
 } from "${packageName}/replication";
 import type {
     P2PDiagnostics,
@@ -252,14 +275,15 @@ type LegacyRemoteDatabase = Awaited<ReturnType<LiveSyncCouchDBReplicator["_ensur
 const readLegacyRemoteDatabase = (database: LegacyRemoteDatabase) => database.get("document-id");
 const completedOutcome: ReplicationOutcome = { status: "completed" };
 const configurationIdentity: ReplicatorConfigurationIdentity = "profile-a";
-const sameKindReconciliation: SameKindReplicatorReconciliation = REPLACE_SAME_KIND_REPLICATOR;
+const activeReplicatorLifecycle = (replicator: ReplicatorInstance): Promise<void> =>
+    Promise.resolve(replicator.closeReplication());
 const remoteResourceCapabilities: RemoteResourceCapabilities = NO_REMOTE_RESOURCE_CAPABILITIES;
-const remoteAdministrationRequest: RemoteAdministrationRequest = {
-    action: REMOTE_ADMINISTRATION_ACTIONS.LOCK,
+const centralRemoteAdministrationRequest: CentralRemoteAdministrationRequest = {
+    action: CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.LOCK,
 };
-const remoteAdministrationFailure: RemoteAdministrationResult = {
+const centralRemoteAdministrationFailure: CentralRemoteAdministrationResult = {
     status: "verification-failed",
-    reason: REMOTE_ADMINISTRATION_FAILURE_REASONS.POSTCONDITION_MISMATCH,
+    reason: CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS.POSTCONDITION_MISMATCH,
 };
 const securitySeedResourceKind: string = REMOTE_RESOURCE_KINDS.SECURITY_SEED;
 const noInteractionKind: string = NO_INTERACTION.kind;
@@ -291,10 +315,10 @@ void closeRemoteConnection;
 void replicationConnection;
 void readLegacyRemoteDatabase;
 void configurationIdentity;
-void sameKindReconciliation;
+void activeReplicatorLifecycle;
 void remoteResourceCapabilities;
-void remoteAdministrationRequest;
-void remoteAdministrationFailure;
+void centralRemoteAdministrationRequest;
+void centralRemoteAdministrationFailure;
 void securitySeedResourceKind;
 void noInteractionKind;
 void completedCheck;
@@ -345,10 +369,10 @@ assert.equal(typeof remoteConfigurationsApi.upsertRemoteConfigurationInPlace, "f
 assert.equal(typeof p2pApi.useP2PReplicatorFeature, "function");
 assert.equal(typeof p2pApi.useP2PReplicatorCommands, "function");
 assert.equal(replicationApi.NO_INTERACTION.kind, "forbidden");
-assert.equal(replicationApi.REPLACE_SAME_KIND_REPLICATOR.kind, "replace");
+assert.equal(replicationApi.CENTRAL_COMPATIBILITY_REJECTION_REASONS.NODE_LOCKED, "node-locked");
 assert.equal(replicationApi.REMOTE_RESOURCE_KINDS.SECURITY_SEED, "security-seed");
-assert.equal(replicationApi.REMOTE_ADMINISTRATION_ACTIONS.LOCK, "lock");
-assert.equal(replicationApi.REMOTE_ADMINISTRATION_FAILURE_REASONS.POSTCONDITION_MISMATCH, "postcondition-mismatch");
+assert.equal(replicationApi.CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.LOCK, "lock");
+assert.equal(replicationApi.CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS.POSTCONDITION_MISMATCH, "postcondition-mismatch");
 assert.equal(typeof replicationApi.isReplicationCompleted, "function");
 assert.equal(runtimeCompat.compatGlobal, globalThis);
 assert.equal(typeof nodeRuntime.fs.readFileSync, "function");

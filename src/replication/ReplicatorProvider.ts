@@ -1,8 +1,9 @@
 import type { RemoteDBSettings, ObsidianLiveSyncSettings, RemoteType } from "@lib/common/types.ts";
-import type { LiveSyncAbstractReplicator } from "./LiveSyncAbstractReplicator.ts";
+import type { ReplicatorInstance } from "./ReplicatorInstance.ts";
 import { supportedCapability, type CapabilitySupport, type SupportedCapability } from "./ProviderCapability.ts";
 import type { RemoteResourceCapabilities } from "./RemoteResource.ts";
-import type { RemoteAdministrationRunner } from "./RemoteAdministration.ts";
+import type { CentralRemoteAdministrationRunner } from "./CentralRemoteAdministration.ts";
+import type { CentralCompatibilityRecoveryHint } from "./CentralCompatibility.ts";
 
 export {
     CAPABILITY_NOT_APPLICABLE,
@@ -142,6 +143,7 @@ export type ReplicationPartial = {
 export type ReplicationFailed = {
     readonly status: "failed";
     readonly error: unknown;
+    readonly recoveryHint?: CentralCompatibilityRecoveryHint;
 };
 
 /**
@@ -182,24 +184,28 @@ export function replicationBlocked(reason: ReplicationBlockReason): ReplicationB
     return { status: "blocked", reason };
 }
 
-export function replicationFailed(error: unknown): ReplicationFailed {
-    return { status: "failed", error };
+export function replicationFailed(error: unknown, recoveryHint?: CentralCompatibilityRecoveryHint): ReplicationFailed {
+    return {
+        status: "failed",
+        error,
+        ...(recoveryHint === undefined ? {} : { recoveryHint }),
+    };
 }
 
 export type UserInitiatedOneShotRunner = (
-    replicator: LiveSyncAbstractReplicator,
+    replicator: ReplicatorInstance,
     setting: RemoteDBSettings,
     request: UserInitiatedOneShotRequest
 ) => Promise<ReplicationOutcome>;
 
 export type UnattendedOneShotRunner = (
-    replicator: LiveSyncAbstractReplicator,
+    replicator: ReplicatorInstance,
     setting: RemoteDBSettings,
     request: UnattendedOneShotRequest
 ) => Promise<ReplicationOutcome>;
 
 export type ContinuousRunner = (
-    replicator: LiveSyncAbstractReplicator,
+    replicator: ReplicatorInstance,
     setting: RemoteDBSettings,
     request: ContinuousReplicationRequest
 ) => Promise<ReplicationOutcome>;
@@ -209,36 +215,13 @@ export type ContinuousRunner = (
  * replicator. A `completed` outcome confirms that the stop request was
  * accepted; it does not claim rollback of work which had already settled.
  */
-export type StopActiveTransferRunner = (replicator: LiveSyncAbstractReplicator) => Promise<ReplicationOutcome>;
+export type StopActiveTransferRunner = (replicator: ReplicatorInstance) => Promise<ReplicationOutcome>;
 
 /**
  * Opaque provider-owned projection of every setting which binds an active Replicator.
  * It is private comparison state and must not be logged, persisted, or displayed.
  */
 export type ReplicatorConfigurationIdentity = string;
-
-/** Replace the active Replicator when a same-kind configuration identity changes. */
-export const REPLACE_SAME_KIND_REPLICATOR = Object.freeze({ kind: "replace" } as const);
-
-/**
- * Rebind an existing Replicator to new effective settings.
- *
- * The runner must settle only after provider-owned credentials, cached remote
- * state, and other configuration-bound resources can no longer expose the old
- * identity through the rebound instance.
- */
-export type RebindActiveReplicatorRunner = (
-    replicator: LiveSyncAbstractReplicator,
-    setting: ObsidianLiveSyncSettings
-) => Promise<void>;
-
-/** Explicit policy for a configuration change which retains the provider kind. */
-export type SameKindReplicatorReconciliation =
-    | typeof REPLACE_SAME_KIND_REPLICATOR
-    | {
-          readonly kind: "rebind";
-          readonly rebind: RebindActiveReplicatorRunner;
-      };
 
 export interface ReplicatorProviderDefinition<TKind extends RemoteType = RemoteType> {
     readonly kind: TKind;
@@ -247,16 +230,15 @@ export interface ReplicatorProviderDefinition<TKind extends RemoteType = RemoteT
     readonly isConfigured: (setting: RemoteDBSettings) => boolean;
     /** Project the fully merged effective settings to this provider's stable binding identity. */
     readonly configurationIdentity: (setting: RemoteDBSettings) => ReplicatorConfigurationIdentity;
-    /** Reconcile an identity change without relying on provider-kind changes. */
-    readonly sameKindReconciliation: SameKindReplicatorReconciliation;
     /** Construct a replicator from the fully merged effective settings. */
-    readonly create: (setting: ObsidianLiveSyncSettings) => Promise<LiveSyncAbstractReplicator | undefined | false>;
+    readonly create: (setting: ObsidianLiveSyncSettings) => Promise<ReplicatorInstance | undefined | false>;
     /** Exhaustive provider-owned catalogue for finite remote resources. */
     readonly remoteResources: RemoteResourceCapabilities;
-    /** Mutate remote administration state, then verify the provider-specific postcondition. */
-    readonly remoteAdministration: CapabilitySupport<RemoteAdministrationRunner>;
+    /** Optional provider-owned central-remote administration runner. */
+    readonly centralRemoteAdministration?: CapabilitySupport<CentralRemoteAdministrationRunner>;
     readonly userInitiatedOneShot: CapabilitySupport<UserInitiatedOneShotRunner>;
     readonly unattendedOneShot: CapabilitySupport<UnattendedOneShotRunner>;
+    /** Explicit support decision for ordinary long-lived Continuous replication. */
     readonly continuous: CapabilitySupport<ContinuousRunner>;
     readonly stopActiveTransfer: CapabilitySupport<StopActiveTransferRunner>;
 }
@@ -264,7 +246,16 @@ export interface ReplicatorProviderDefinition<TKind extends RemoteType = RemoteT
 /** The atomic pair which identifies the active provider and its replicator. */
 export interface ActiveReplicatorContext<TKind extends RemoteType = RemoteType> {
     readonly provider: ReplicatorProviderDefinition<TKind>;
-    readonly replicator: LiveSyncAbstractReplicator;
+    readonly replicator: ReplicatorInstance;
+}
+
+/** Immutable context passed to provider-independent replication failure handlers. */
+export interface ReplicationFailureRequest {
+    readonly context: ActiveReplicatorContext;
+    readonly setting: ObsidianLiveSyncSettings;
+    readonly outcome: ReplicationFailed;
+    readonly showMessage: boolean;
+    readonly interaction: InteractionAuthority;
 }
 
 export type ReplicatorProviderDefinitionMap = ReadonlyMap<RemoteType, ReplicatorProviderDefinition>;
@@ -307,10 +298,13 @@ export function defineReplicatorProviderDefinitions<const TKind extends readonly
  * Convert a legacy `openReplication` result to the typed finite outcome.
  * `void` is not a success signal for a finite operation.
  */
-export function outcomeFromFiniteOpenReplication(result: void | boolean): ReplicationOutcome {
+export function outcomeFromFiniteOpenReplication(
+    result: void | boolean,
+    recoveryHint?: CentralCompatibilityRecoveryHint
+): ReplicationOutcome {
     return result === true
         ? REPLICATION_COMPLETED
-        : replicationFailed(new Error("The provider did not complete finite replication."));
+        : replicationFailed(new Error("The provider did not complete finite replication."), recoveryHint);
 }
 
 /**

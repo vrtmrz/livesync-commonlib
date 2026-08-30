@@ -1,11 +1,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { REMOTE_COUCHDB } from "@lib/common/types.ts";
-import type { LiveSyncAbstractReplicator } from "@lib/replication/LiveSyncAbstractReplicator.ts";
+import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
 import type { ReplicatorProviderDefinition } from "@lib/replication/ReplicatorProvider.ts";
 import { ActiveReplicatorState } from "./ActiveReplicatorState.ts";
 
-function createReplicator(): LiveSyncAbstractReplicator {
-    return { closeReplication: vi.fn() } as unknown as LiveSyncAbstractReplicator;
+function createReplicator(): ReplicatorInstance {
+    return {
+        initializeDatabaseForReplication: vi.fn().mockResolvedValue(true),
+        openReplication: vi.fn().mockResolvedValue(true),
+        terminateSync: vi.fn(),
+        closeReplication: vi.fn(),
+    };
 }
 
 const provider = {
@@ -42,27 +47,54 @@ describe("ActiveReplicatorState", () => {
         });
     });
 
-    it("takes the complete publication without mutating an earlier context snapshot", () => {
+    it("fences new reservations and drains an admitted reservation before retirement completes", async () => {
         const state = new ActiveReplicatorState();
         const replicator = createReplicator();
         state.publish(provider, replicator, REMOTE_COUCHDB, "profile-a");
         const context = state.current?.context;
+        const reservation = state.reserve();
 
-        expect(state.take()).toBe(replicator);
+        const retirement = state.beginRetirement();
 
         expect(state.current).toBeUndefined();
         expect(context).toEqual({ provider, replicator });
+        expect(reservation?.context).toBe(context);
+        expect(state.reserve()).toBeUndefined();
+        expect(retirement?.publication.replicator).toBe(replicator);
+
+        let settlementObserved = false;
+        const settlement = retirement?.waitForDemandSettlement().then(() => {
+            settlementObserved = true;
+        });
+        await Promise.resolve();
+        expect(settlementObserved).toBe(false);
+
+        reservation?.release();
+        reservation?.release();
+        await settlement;
+        expect(settlementObserved).toBe(true);
+
+        retirement?.complete();
+        retirement?.complete();
     });
 
-    it("discards only the publication which owns the supplied instance", () => {
+    it("does not publish a replacement before the quiescing retirement completes", async () => {
         const state = new ActiveReplicatorState();
-        const active = createReplicator();
-        const unrelated = createReplicator();
-        state.publish(provider, active, REMOTE_COUCHDB, "profile-a");
+        const oldReplicator = createReplicator();
+        const newReplicator = createReplicator();
+        state.publish(provider, oldReplicator, REMOTE_COUCHDB, "profile-a");
 
-        expect(state.discardIfCurrent(unrelated)).toBe(false);
-        expect(state.current?.replicator).toBe(active);
-        expect(state.discardIfCurrent(active)).toBe(true);
-        expect(state.current).toBeUndefined();
+        const retirement = state.beginRetirement();
+
+        expect(() => state.publish(provider, newReplicator, REMOTE_COUCHDB, "profile-b")).toThrow(
+            "retirement has completed"
+        );
+        expect(state.beginRetirement()).toBe(retirement);
+
+        await retirement?.waitForDemandSettlement();
+        retirement?.complete();
+        state.publish(provider, newReplicator, REMOTE_COUCHDB, "profile-b");
+
+        expect(state.current?.replicator).toBe(newReplicator);
     });
 });

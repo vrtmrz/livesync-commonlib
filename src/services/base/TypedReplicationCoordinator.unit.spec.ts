@@ -2,10 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { REMOTE_COUCHDB } from "@lib/common/types.ts";
 import {
     CAPABILITY_NOT_APPLICABLE,
+    CAPABILITY_SUPPORT_KINDS,
     CENTRAL_REMOTE_REPLICATION_READINESS,
     NO_INTERACTION,
     REPLICATION_COMPLETED,
-    REPLACE_SAME_KIND_REPLICATOR,
     USER_INITIATED_REPLICATION_AUTHORITY,
     replicationFailed,
     type ActiveReplicatorContext,
@@ -19,6 +19,7 @@ import {
 
 function createHarness() {
     const replicator = {} as ActiveReplicatorContext["replicator"];
+    const setting = { remoteType: REMOTE_COUCHDB } as const;
     const userInitiated = vi.fn(async () => REPLICATION_COMPLETED);
     const unattended = vi.fn(async () => REPLICATION_COMPLETED);
     const continuous = vi.fn(async () => REPLICATION_COMPLETED);
@@ -29,21 +30,23 @@ function createHarness() {
         readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
         isConfigured: () => true,
         configurationIdentity: () => "configuration-a",
-        sameKindReconciliation: REPLACE_SAME_KIND_REPLICATOR,
         create: async () => replicator,
         remoteResources: NO_REMOTE_RESOURCE_CAPABILITIES,
-        remoteAdministration: CAPABILITY_NOT_APPLICABLE,
-        userInitiatedOneShot: { kind: "supported", run: userInitiated },
-        unattendedOneShot: { kind: "supported", run: unattended },
-        continuous: { kind: "supported", run: continuous },
-        stopActiveTransfer: { kind: "supported", run: stop },
+        userInitiatedOneShot: { kind: CAPABILITY_SUPPORT_KINDS.SUPPORTED, run: userInitiated },
+        unattendedOneShot: { kind: CAPABILITY_SUPPORT_KINDS.SUPPORTED, run: unattended },
+        continuous: { kind: CAPABILITY_SUPPORT_KINDS.SUPPORTED, run: continuous },
+        stopActiveTransfer: { kind: CAPABILITY_SUPPORT_KINDS.SUPPORTED, run: stop },
     };
     const context: ActiveReplicatorContext = { provider, replicator };
     const activityEvents: string[] = [];
+    const runWithActiveReplicatorContext = vi.fn(async (task: (context: ActiveReplicatorContext) => unknown) =>
+        task(context)
+    );
     const dependencies = {
         replicatorService: {
             acquireActiveReplicatorContext: vi.fn(async () => context),
             getActiveReplicator: vi.fn(() => replicator),
+            runWithActiveReplicatorContext,
             runFiniteReplicationActivity: vi.fn(async (task: () => Promise<unknown>) => {
                 activityEvents.push("activity-started");
                 try {
@@ -55,7 +58,7 @@ function createHarness() {
         },
         currentSettings: vi.fn(() => {
             activityEvents.push("settings-read");
-            return { remoteType: REMOTE_COUCHDB };
+            return setting;
         }),
         checkReadiness: vi.fn(async () => true),
         handleFailure: vi.fn(async () => {
@@ -74,6 +77,8 @@ function createHarness() {
         dependencies,
         provider,
         replicator,
+        runWithActiveReplicatorContext,
+        setting,
         stop,
         unattended,
         userInitiated,
@@ -81,6 +86,112 @@ function createHarness() {
 }
 
 describe("TypedReplicationCoordinator", () => {
+    it("admits both finite provider roles through their exact active publication", async () => {
+        const { coordinator, runWithActiveReplicatorContext, unattended, userInitiated } = createHarness();
+
+        await expect(
+            coordinator.runUserInitiated({ trigger: "manual", interaction: USER_INITIATED_REPLICATION_AUTHORITY })
+        ).resolves.toBe(REPLICATION_COMPLETED);
+        await expect(coordinator.runUnattended({ trigger: "resume", interaction: NO_INTERACTION })).resolves.toBe(
+            REPLICATION_COMPLETED
+        );
+
+        expect(runWithActiveReplicatorContext).toHaveBeenCalledTimes(2);
+        expect(userInitiated).toHaveBeenCalledOnce();
+        expect(unattended).toHaveBeenCalledOnce();
+    });
+
+    it("releases a finite publication before invoking failure recovery", async () => {
+        const { activityEvents, context, coordinator, dependencies, provider, runWithActiveReplicatorContext } =
+            createHarness();
+        const failure = replicationFailed(new Error("remote failed"));
+        Object.assign(provider, {
+            unattendedOneShot: {
+                kind: CAPABILITY_SUPPORT_KINDS.SUPPORTED,
+                run: vi.fn(async () => {
+                    activityEvents.push("provider-dispatch");
+                    return failure;
+                }),
+            },
+        });
+        vi.mocked(dependencies.checkReadiness).mockImplementation(async () => {
+            activityEvents.push("readiness");
+            return true;
+        });
+        runWithActiveReplicatorContext.mockImplementation(async (task) => {
+            activityEvents.push("publication-admitted");
+            try {
+                return await task(context);
+            } finally {
+                activityEvents.push("publication-released");
+            }
+        });
+
+        await expect(coordinator.runUnattended({ trigger: "daemon", interaction: NO_INTERACTION })).resolves.toBe(
+            failure
+        );
+
+        expect(activityEvents).toEqual([
+            "readiness",
+            "settings-read",
+            "publication-admitted",
+            "activity-started",
+            "provider-dispatch",
+            "activity-ended",
+            "publication-released",
+            "failure-handled",
+            "finite-attempt-recorded",
+        ]);
+    });
+
+    it("carries the exact failed attempt into recovery after its publication is replaced", async () => {
+        const { context, coordinator, dependencies, provider, setting } = createHarness();
+        const failure = Object.freeze(replicationFailed(new Error("remote failed")));
+        const replacementContext: ActiveReplicatorContext = {
+            provider,
+            replicator: { replacement: true } as never,
+        };
+        let activeContext = context;
+        Object.assign(provider, {
+            unattendedOneShot: {
+                kind: CAPABILITY_SUPPORT_KINDS.SUPPORTED,
+                run: vi.fn(async () => {
+                    activeContext = replacementContext;
+                    return failure;
+                }),
+            },
+        });
+        vi.mocked(dependencies.replicatorService.getActiveReplicator).mockImplementation(
+            () => activeContext.replicator
+        );
+        vi.mocked(dependencies.handleFailure).mockImplementation(async (request: unknown) => {
+            if (typeof request === "object" && request !== null && "context" in request) {
+                const source = (request as { context: ActiveReplicatorContext }).context.replicator as {
+                    recoveryTouched?: boolean;
+                };
+                source.recoveryTouched = true;
+            }
+            return false;
+        });
+
+        await expect(coordinator.runUnattended({ trigger: "daemon", interaction: NO_INTERACTION })).resolves.toBe(
+            failure
+        );
+
+        expect(activeContext).toBe(replacementContext);
+        // Recovery must receive the immutable provider result and its source
+        // publication; it cannot reconstruct either from the replacement.
+        expect(dependencies.handleFailure).toHaveBeenCalledWith({
+            context,
+            setting,
+            outcome: failure,
+            showMessage: false,
+            interaction: NO_INTERACTION,
+        });
+        expect((context.replicator as { recoveryTouched?: boolean }).recoveryTouched).toBe(true);
+        expect((replacementContext.replicator as { recoveryTouched?: boolean }).recoveryTouched).toBeUndefined();
+    });
+
     it("uses one captured context for readiness and unattended capability dispatch", async () => {
         const { context, coordinator, dependencies, unattended } = createHarness();
 
@@ -98,11 +209,30 @@ describe("TypedReplicationCoordinator", () => {
         expect(dependencies.recordFiniteAttempt).toHaveBeenCalledOnce();
     });
 
+    it("does not dispatch work prepared for a publication replaced after readiness", async () => {
+        const { context, coordinator, dependencies, runWithActiveReplicatorContext, unattended } = createHarness();
+        const replacementContext: ActiveReplicatorContext = {
+            ...context,
+            replicator: { replacement: true } as never,
+        };
+        runWithActiveReplicatorContext.mockImplementation(async (task) => await task(replacementContext));
+
+        await expect(coordinator.runUnattended({ trigger: "resume", interaction: NO_INTERACTION })).resolves.toEqual({
+            status: "blocked",
+            reason: "not-ready",
+        });
+
+        expect(dependencies.checkReadiness).toHaveBeenCalledOnce();
+        expect(unattended).not.toHaveBeenCalled();
+        expect(dependencies.replicatorService.runFiniteReplicationActivity).not.toHaveBeenCalled();
+        expect(dependencies.recordFiniteAttempt).toHaveBeenCalledOnce();
+    });
+
     it("finishes finite activity before notifying failure recovery", async () => {
         const { activityEvents, coordinator, dependencies, provider } = createHarness();
         const failure = replicationFailed(new Error("remote failed"));
         Object.assign(provider, {
-            unattendedOneShot: { kind: "supported", run: vi.fn(async () => failure) },
+            unattendedOneShot: { kind: CAPABILITY_SUPPORT_KINDS.SUPPORTED, run: vi.fn(async () => failure) },
         });
 
         await expect(coordinator.runUnattended({ trigger: "daemon", interaction: NO_INTERACTION })).resolves.toBe(
@@ -116,7 +246,13 @@ describe("TypedReplicationCoordinator", () => {
             "failure-handled",
             "finite-attempt-recorded",
         ]);
-        expect(dependencies.handleFailure).toHaveBeenCalledWith(false, NO_INTERACTION);
+        expect(dependencies.handleFailure).toHaveBeenCalledWith({
+            context: expect.anything(),
+            setting: expect.objectContaining({ remoteType: REMOTE_COUCHDB }),
+            outcome: failure,
+            showMessage: false,
+            interaction: NO_INTERACTION,
+        });
         expect(dependencies.recordFiniteAttempt).toHaveBeenCalledOnce();
     });
 
@@ -129,7 +265,7 @@ describe("TypedReplicationCoordinator", () => {
         const failure = replicationFailed(new Error("remote failed"));
         const userInitiated = vi.fn(async () => failure);
         Object.assign(provider, {
-            userInitiatedOneShot: { kind: "supported", run: userInitiated },
+            userInitiatedOneShot: { kind: CAPABILITY_SUPPORT_KINDS.SUPPORTED, run: userInitiated },
         });
 
         await expect(coordinator.runUserInitiated({ trigger: "manual", interaction })).resolves.toBe(failure);
@@ -138,8 +274,14 @@ describe("TypedReplicationCoordinator", () => {
             trigger: "manual",
             interaction,
         });
-        expect(dependencies.handleFailure).toHaveBeenCalledWith(false, interaction);
-        expect(provider.userInitiatedOneShot.kind).toBe("supported");
+        expect(dependencies.handleFailure).toHaveBeenCalledWith({
+            context: expect.anything(),
+            setting: expect.objectContaining({ remoteType: REMOTE_COUCHDB }),
+            outcome: failure,
+            showMessage: false,
+            interaction,
+        });
+        expect(provider.userInitiatedOneShot.kind).toBe(CAPABILITY_SUPPORT_KINDS.SUPPORTED);
     });
 
     it("records a provider-declared finite block after readiness admits dispatch", async () => {

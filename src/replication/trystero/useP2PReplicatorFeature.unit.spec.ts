@@ -4,13 +4,7 @@ import { EVENT_DATABASE_REBUILT, EVENT_SETTING_SAVED } from "@lib/events/coreEve
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import { EVENT_ADVERTISEMENT_RECEIVED } from "./TrysteroReplicatorP2PServer";
 import { useP2PReplicatorFeature } from "./useP2PReplicatorFeature";
-import {
-    NO_INTERACTION,
-    REMOTE_ADMINISTRATION_ACTIONS,
-    REMOTE_ADMINISTRATION_FAILURE_REASONS,
-    REMOTE_ADMINISTRATION_RESULT_STATUSES,
-    type ReplicatorProviderDefinitionMap,
-} from "@lib/replication";
+import { CAPABILITY_SUPPORT_KINDS, NO_INTERACTION, type ReplicatorProviderDefinitionMap } from "@lib/replication";
 import { P2PRoomSessionOwner } from "./P2PRoomSessionOwner";
 
 afterEach(() => {
@@ -290,10 +284,10 @@ describe("useP2PReplicatorFeature", () => {
 
         useP2PReplicatorFeature(host);
 
-        expect(definitions?.get(REMOTE_P2P)?.unattendedOneShot.kind).toBe("supported");
+        expect(definitions?.get(REMOTE_P2P)?.unattendedOneShot.kind).toBe(CAPABILITY_SUPPORT_KINDS.SUPPORTED);
     });
 
-    it("declares P2P administration boundaries without routing session-owned peer events through the global bridge", async () => {
+    it("keeps central facilities outside the P2P provider contract and session events outside the global bridge", async () => {
         const events = createLiveSyncEventHub();
         let definitions: ReplicatorProviderDefinitionMap | undefined;
         const handler = { addHandler: vi.fn() };
@@ -331,10 +325,10 @@ describe("useP2PReplicatorFeature", () => {
         expect(definition?.kind).toBe(REMOTE_P2P);
         expect(definition?.isConfigured({ remoteType: REMOTE_P2P, P2P_Enabled: true } as never)).toBe(true);
         expect(definition?.isConfigured({ remoteType: REMOTE_P2P, P2P_Enabled: false } as never)).toBe(false);
-        expect(definition?.userInitiatedOneShot.kind).toBe("supported");
+        expect(definition?.userInitiatedOneShot.kind).toBe(CAPABILITY_SUPPORT_KINDS.SUPPORTED);
         expect(definition?.continuous.kind).toBe("not-applicable");
-        expect(definition?.stopActiveTransfer.kind).toBe("supported");
-        if (definition?.stopActiveTransfer.kind !== "supported") {
+        expect(definition?.stopActiveTransfer.kind).toBe(CAPABILITY_SUPPORT_KINDS.SUPPORTED);
+        if (definition?.stopActiveTransfer.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
             throw new Error("P2P stop role should be supported");
         }
         const terminateSync = vi.fn();
@@ -345,24 +339,8 @@ describe("useP2PReplicatorFeature", () => {
             remoteType: REMOTE_P2P,
             P2P_Enabled: true,
         } as never);
-        expect(definition?.remoteAdministration.kind).toBe("supported");
-        if (definition?.remoteAdministration.kind !== "supported") {
-            throw new Error("P2P remote administration should preserve the compatibility boundary");
-        }
-        const setting = { remoteType: REMOTE_P2P, P2P_Enabled: true } as never;
-        await expect(
-            definition.remoteAdministration.run(activeAdapter!, setting, {
-                action: REMOTE_ADMINISTRATION_ACTIONS.MARK_RESOLVED,
-            })
-        ).resolves.toEqual({
-            status: REMOTE_ADMINISTRATION_RESULT_STATUSES.VERIFICATION_FAILED,
-            reason: REMOTE_ADMINISTRATION_FAILURE_REASONS.CAPABILITY_NOT_APPLICABLE,
-        });
-        await expect(
-            definition.remoteAdministration.run(activeAdapter!, setting, {
-                action: REMOTE_ADMINISTRATION_ACTIONS.LOCK,
-            })
-        ).rejects.toThrow("P2P replication does not support database lock.");
+        expect("fullTransfers" in (definition ?? {})).toBe(false);
+        expect(definition?.centralRemoteAdministration).toBeUndefined();
 
         events.emitEvent(EVENT_ADVERTISEMENT_RECEIVED, {
             peerId: "peer-a",
@@ -407,8 +385,9 @@ describe("useP2PReplicatorFeature", () => {
 
         useP2PReplicatorFeature(host);
         const definition = definitions?.get(REMOTE_P2P);
-        expect(definition?.userInitiatedOneShot.kind).toBe("supported");
-        if (definition?.userInitiatedOneShot.kind !== "supported") throw new Error("P2P role is not supported");
+        expect(definition?.userInitiatedOneShot.kind).toBe(CAPABILITY_SUPPORT_KINDS.SUPPORTED);
+        if (definition?.userInitiatedOneShot.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED)
+            throw new Error("P2P role is not supported");
         const openReplication = vi.fn();
         const result = await definition.userInitiatedOneShot.run({ openReplication } as never, {} as never, {
             trigger: "manual",
@@ -419,7 +398,7 @@ describe("useP2PReplicatorFeature", () => {
         expect(openReplication).not.toHaveBeenCalled();
     });
 
-    it("creates independent active adapters without replacing the service owner", async () => {
+    it("creates independent active adapters with only active operations without replacing the service owner", async () => {
         const events = createLiveSyncEventHub();
         let definitions: ReplicatorProviderDefinitionMap | undefined;
         const handler = { addHandler: vi.fn() };
@@ -462,5 +441,43 @@ describe("useP2PReplicatorFeature", () => {
         expect(close).not.toHaveBeenCalled();
         expect(firstReplacement).not.toBe(secondReplacement);
         expect(result.replicator).toBe(original);
+
+        if (!firstReplacement || typeof firstReplacement !== "object") {
+            throw new Error("P2P provider did not create an active adapter");
+        }
+        const activeAdapter = firstReplacement as unknown as Record<string, unknown>;
+        for (const method of ["openReplication", "terminateSync", "replicateAllFromServer", "closeReplication"]) {
+            expect(typeof activeAdapter[method]).toBe("function");
+        }
+        const centralOnlyMethods = [
+            "tryConnectRemote",
+            "replicateAllToServer",
+            "tryResetRemoteDatabase",
+            "tryCreateRemoteDatabase",
+            "markRemoteLocked",
+            "markRemoteResolved",
+            "resetRemoteTweakSettings",
+            "setPreferredRemoteTweakSettings",
+            "getRemotePreferredTweakValues",
+            "getConnectedDeviceList",
+            "sendChunks",
+        ];
+        expect(centralOnlyMethods.filter((method) => method in activeAdapter)).toEqual([]);
+
+        const setting = { remoteType: REMOTE_P2P, P2P_Enabled: true } as never;
+        const replicateAllFromServer = vi.spyOn(original, "replicateAllFromServer").mockResolvedValue(true);
+        const fullDownload = activeAdapter.replicateAllFromServer;
+        if (typeof fullDownload !== "function") {
+            throw new Error("P2P active adapter did not expose full download");
+        }
+        await expect(Reflect.apply(fullDownload, firstReplacement, [setting, true])).resolves.toBe(true);
+        expect(replicateAllFromServer).toHaveBeenCalledWith(setting, true);
+
+        const closeAdapter = activeAdapter.closeReplication;
+        if (typeof closeAdapter !== "function") {
+            throw new Error("P2P active adapter did not expose non-owning close");
+        }
+        Reflect.apply(closeAdapter, firstReplacement, []);
+        expect(close).not.toHaveBeenCalled();
     });
 });

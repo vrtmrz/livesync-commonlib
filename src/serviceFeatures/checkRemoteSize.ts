@@ -111,7 +111,17 @@ export function onNotifyRemoteSizeExceedFactory(
             return true;
         }
         const replicator = host.services.replicator.getActiveReplicator();
-        const remoteStat = await replicator?.getRemoteStatus(host.services.setting.currentSettings());
+        const statusReader = replicator as
+            | (typeof replicator & {
+                  getRemoteStatus?: (
+                      setting: ReturnType<typeof host.services.setting.currentSettings>
+                  ) => Promise<false | { estimatedSize?: number }>;
+              })
+            | undefined;
+        const remoteStat =
+            typeof statusReader?.getRemoteStatus === "function"
+                ? await statusReader.getRemoteStatus(host.services.setting.currentSettings())
+                : false;
 
         if (!remoteStat) {
             // If we cannot get the remote status, we should not block subsequent processes.

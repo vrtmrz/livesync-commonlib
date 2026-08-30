@@ -2,7 +2,6 @@ import {
     type EntryDoc,
     type DatabaseConnectingStatus,
     type RemoteDBSettings,
-    type EntryLeaf,
     type EntryNodeInfo,
     NODEINFO_DOCID,
     type TweakValues,
@@ -16,6 +15,7 @@ import { arrayBufferToBase64Single } from "@lib/string_and_binary/convert.ts";
 import type { RequiredServices } from "@lib/interfaces/ServiceModule";
 import type { TranslationParameters } from "@lib/services/base/MessageTranslator";
 import type { CommonlibMessageKey } from "@lib/services/base/CommonlibMessages";
+import type { ReplicatorInstance } from "./ReplicatorInstance.ts";
 // import type { IServiceHub } from "@lib/services/base/IService.ts";
 
 export type ReplicationCallback = (e: PouchDB.Core.ExistingDocument<EntryDoc>[]) => Promise<boolean> | boolean;
@@ -50,7 +50,14 @@ export type RemoteDBStatus = {
     estimatedSize?: number;
 };
 
-export abstract class LiveSyncAbstractReplicator {
+/**
+ * Legacy compatibility facade around the small active Replicator contract.
+ *
+ * New active-provider control flow depends only on {@link ReplicatorInstance}.
+ * The additional abstract members remain temporarily for existing maintenance
+ * and setup consumers and are not capabilities promised by every provider.
+ */
+export abstract class LiveSyncAbstractReplicator implements ReplicatorInstance {
     syncStatus: DatabaseConnectingStatus = "NOT_CONNECTED";
     docArrived = 0;
     docSent = 0;
@@ -174,12 +181,8 @@ export abstract class LiveSyncAbstractReplicator {
     abstract resetRemoteTweakSettings(setting: RemoteDBSettings): Promise<void>;
     abstract setPreferredRemoteTweakSettings(setting: RemoteDBSettings): Promise<void>;
 
-    abstract fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]>;
-
     abstract getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus>;
     abstract getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<RemotePreferredTweakResult>;
-
-    abstract countCompromisedChunks(setting?: RemoteDBSettings): Promise<number | boolean>;
 
     abstract getConnectedDeviceList(
         setting?: RemoteDBSettings

@@ -250,7 +250,13 @@ Please enable them from the settings screen after setup is complete.`,
             this._log("No active replicator found when trying to reset remote database.", LOG_LEVEL_NOTICE);
             return;
         }
-        await currentReplicator.tryResetRemoteDatabase(settings);
+        const resetter = currentReplicator as typeof currentReplicator & {
+            tryResetRemoteDatabase?: (setting: typeof settings) => Promise<void>;
+        };
+        if (typeof resetter.tryResetRemoteDatabase !== "function") {
+            throw new Error("The active replicator does not support resetting a central remote database.");
+        }
+        await resetter.tryResetRemoteDatabase(settings);
     }
 
     // private async _tryCreateRemoteDatabase(): Promise<void> {

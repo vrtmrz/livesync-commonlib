@@ -91,10 +91,6 @@ export class ControlService<T extends ServiceContext = ServiceContext>
         this._unloaded = true;
         const localDatabase = this.services.databaseService.localDatabaseDirect;
         if (localDatabase != null) {
-            const activeReplicator = this.services.replicatorService.getActiveReplicator();
-            if (activeReplicator) {
-                activeReplicator.closeReplication();
-            }
             localDatabase.onunload();
             await localDatabase.close();
         }

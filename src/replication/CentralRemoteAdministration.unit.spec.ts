@@ -1,30 +1,30 @@
 import { describe, expect, it, vi } from "vitest";
 import { REMOTE_COUCHDB } from "@lib/common/types.ts";
-import type { LiveSyncAbstractReplicator } from "./LiveSyncAbstractReplicator.ts";
 import {
-    REMOTE_ADMINISTRATION_ACTIONS,
-    REMOTE_ADMINISTRATION_FAILURE_REASONS,
-    REMOTE_ADMINISTRATION_OBSERVATION_KINDS,
-    REMOTE_ADMINISTRATION_RESULT_STATUSES,
-    applyRemoteAdministrationMutation,
-    milestoneSatisfiesRemoteAdministration,
-    remoteAdministrationVerified,
-} from "./RemoteAdministration.ts";
-import { runRemoteAdministrationWithContext } from "@lib/services/base/RemoteAdministrationCoordinator.ts";
+    CENTRAL_REMOTE_ADMINISTRATION_ACTIONS,
+    CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS,
+    CENTRAL_REMOTE_ADMINISTRATION_OBSERVATION_KINDS,
+    CENTRAL_REMOTE_ADMINISTRATION_RESULT_STATUSES,
+    applyCentralRemoteAdministrationMutation,
+    milestoneSatisfiesCentralRemoteAdministration,
+    centralRemoteAdministrationVerified,
+} from "./CentralRemoteAdministration.ts";
+import { runCentralRemoteAdministrationWithContext } from "@lib/services/base/CentralRemoteAdministrationCoordinator.ts";
 import {
     CAPABILITY_NOT_APPLICABLE,
     CENTRAL_REMOTE_REPLICATION_READINESS,
-    REPLACE_SAME_KIND_REPLICATOR,
     supportedCapability,
     type ReplicatorProviderDefinition,
 } from "./ReplicatorProvider.ts";
+import type { CentralRemoteAdministrationReplicator } from "./CentralRemoteAdministration.ts";
 import { NO_REMOTE_RESOURCE_CAPABILITIES } from "./RemoteResource.ts";
 
 function createReplicator() {
     return {
+        nodeid: "node-1",
         markRemoteResolved: vi.fn(async () => undefined),
         markRemoteLocked: vi.fn(async () => undefined),
-    } as unknown as LiveSyncAbstractReplicator & {
+    } as unknown as CentralRemoteAdministrationReplicator & {
         markRemoteResolved: ReturnType<typeof vi.fn>;
         markRemoteLocked: ReturnType<typeof vi.fn>;
     };
@@ -35,9 +35,17 @@ describe("remote administration contract", () => {
         const replicator = createReplicator();
         const setting = { remoteType: REMOTE_COUCHDB } as never;
 
-        await applyRemoteAdministrationMutation(replicator, setting, REMOTE_ADMINISTRATION_ACTIONS.MARK_RESOLVED);
-        await applyRemoteAdministrationMutation(replicator, setting, REMOTE_ADMINISTRATION_ACTIONS.LOCK);
-        await applyRemoteAdministrationMutation(replicator, setting, REMOTE_ADMINISTRATION_ACTIONS.UNLOCK);
+        await applyCentralRemoteAdministrationMutation(
+            replicator,
+            setting,
+            CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.MARK_RESOLVED
+        );
+        await applyCentralRemoteAdministrationMutation(replicator, setting, CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.LOCK);
+        await applyCentralRemoteAdministrationMutation(
+            replicator,
+            setting,
+            CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.UNLOCK
+        );
 
         expect(replicator.markRemoteResolved).toHaveBeenCalledWith(setting);
         expect(replicator.markRemoteLocked).toHaveBeenNthCalledWith(1, setting, true, false);
@@ -46,31 +54,40 @@ describe("remote administration contract", () => {
 
     it("checks the action-specific milestone postcondition", () => {
         const unlockedAndAccepted = {
-            kind: REMOTE_ADMINISTRATION_OBSERVATION_KINDS.MILESTONE,
+            kind: CENTRAL_REMOTE_ADMINISTRATION_OBSERVATION_KINDS.MILESTONE,
             locked: false,
             accepted: true,
             nodeId: "node-1",
         } as const;
 
         expect(
-            milestoneSatisfiesRemoteAdministration(REMOTE_ADMINISTRATION_ACTIONS.MARK_RESOLVED, unlockedAndAccepted)
+            milestoneSatisfiesCentralRemoteAdministration(
+                CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.MARK_RESOLVED,
+                unlockedAndAccepted
+            )
         ).toBe(true);
-        expect(milestoneSatisfiesRemoteAdministration(REMOTE_ADMINISTRATION_ACTIONS.UNLOCK, unlockedAndAccepted)).toBe(
-            true
-        );
-        expect(milestoneSatisfiesRemoteAdministration(REMOTE_ADMINISTRATION_ACTIONS.LOCK, unlockedAndAccepted)).toBe(
-            false
-        );
+        expect(
+            milestoneSatisfiesCentralRemoteAdministration(
+                CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.UNLOCK,
+                unlockedAndAccepted
+            )
+        ).toBe(true);
+        expect(
+            milestoneSatisfiesCentralRemoteAdministration(
+                CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.LOCK,
+                unlockedAndAccepted
+            )
+        ).toBe(false);
     });
 
     it("returns a typed failure when no active provider context exists", async () => {
         await expect(
-            runRemoteAdministrationWithContext(undefined, { remoteType: REMOTE_COUCHDB } as never, {
-                action: REMOTE_ADMINISTRATION_ACTIONS.MARK_RESOLVED,
+            runCentralRemoteAdministrationWithContext(undefined, { remoteType: REMOTE_COUCHDB } as never, {
+                action: CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.MARK_RESOLVED,
             })
         ).resolves.toEqual({
-            status: REMOTE_ADMINISTRATION_RESULT_STATUSES.VERIFICATION_FAILED,
-            reason: REMOTE_ADMINISTRATION_FAILURE_REASONS.NO_ACTIVE_REPLICATOR,
+            status: CENTRAL_REMOTE_ADMINISTRATION_RESULT_STATUSES.VERIFICATION_FAILED,
+            reason: CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS.NO_ACTIVE_REPLICATOR,
         });
     });
 
@@ -83,10 +100,9 @@ describe("remote administration contract", () => {
             readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
             isConfigured: () => true,
             configurationIdentity: () => "test",
-            sameKindReconciliation: REPLACE_SAME_KIND_REPLICATOR,
             create: async () => replicator,
             remoteResources: NO_REMOTE_RESOURCE_CAPABILITIES,
-            remoteAdministration: supportedCapability(async () => {
+            centralRemoteAdministration: supportedCapability(async () => {
                 throw failure;
             }),
             userInitiatedOneShot: CAPABILITY_NOT_APPLICABLE,
@@ -96,24 +112,28 @@ describe("remote administration contract", () => {
         };
 
         await expect(
-            runRemoteAdministrationWithContext({ provider, replicator }, { remoteType: REMOTE_COUCHDB } as never, {
-                action: REMOTE_ADMINISTRATION_ACTIONS.MARK_RESOLVED,
-            })
+            runCentralRemoteAdministrationWithContext(
+                { provider, replicator },
+                { remoteType: REMOTE_COUCHDB } as never,
+                {
+                    action: CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.MARK_RESOLVED,
+                }
+            )
         ).rejects.toBe(failure);
     });
 
     it("keeps machine results independent of display strings", () => {
-        const result = remoteAdministrationVerified({
-            kind: REMOTE_ADMINISTRATION_OBSERVATION_KINDS.MILESTONE,
+        const result = centralRemoteAdministrationVerified({
+            kind: CENTRAL_REMOTE_ADMINISTRATION_OBSERVATION_KINDS.MILESTONE,
             locked: false,
             accepted: true,
             nodeId: "node-1",
         });
 
         expect(result).toEqual({
-            status: REMOTE_ADMINISTRATION_RESULT_STATUSES.VERIFIED,
+            status: CENTRAL_REMOTE_ADMINISTRATION_RESULT_STATUSES.VERIFIED,
             observation: {
-                kind: REMOTE_ADMINISTRATION_OBSERVATION_KINDS.MILESTONE,
+                kind: CENTRAL_REMOTE_ADMINISTRATION_OBSERVATION_KINDS.MILESTONE,
                 locked: false,
                 accepted: true,
                 nodeId: "node-1",

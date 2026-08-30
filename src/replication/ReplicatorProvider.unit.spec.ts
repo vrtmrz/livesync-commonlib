@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import {
     CAPABILITY_NOT_APPLICABLE,
     CAPABILITY_NOT_IMPLEMENTED,
+    CAPABILITY_SUPPORT_KINDS,
     CENTRAL_REMOTE_REPLICATION_READINESS,
-    REPLACE_SAME_KIND_REPLICATOR,
     NO_INTERACTION,
     REPLICATION_COMPLETED,
     USER_INITIATED_REPLICATION_AUTHORITY,
@@ -11,6 +11,7 @@ import {
     isReplicationCompleted,
     outcomeFromContinuousOpenReplication,
     outcomeFromFiniteOpenReplication,
+    replicationFailed,
     supportedOpenReplicationContinuous,
     supportedOpenReplicationOneShot,
     supportedOpenReplicationUnattended,
@@ -19,13 +20,17 @@ import {
 } from "./index.ts";
 import { NO_REMOTE_RESOURCE_CAPABILITIES } from "./RemoteResource.ts";
 import { REMOTE_COUCHDB, REMOTE_MINIO } from "@lib/common/types.ts";
-import type { LiveSyncAbstractReplicator } from "./LiveSyncAbstractReplicator.ts";
+import type { ReplicatorInstance } from "./ReplicatorInstance.ts";
+import { CENTRAL_COMPATIBILITY_REJECTION_REASONS } from "./CentralCompatibility.ts";
 
 function createReplicator(result: void | boolean) {
     return {
+        initializeDatabaseForReplication: vi.fn().mockResolvedValue(true),
         openReplication: vi.fn().mockResolvedValue(result),
         terminateSync: vi.fn(),
-    } as unknown as LiveSyncAbstractReplicator & {
+        closeReplication: vi.fn(),
+    } as unknown as ReplicatorInstance & {
+        initializeDatabaseForReplication: ReturnType<typeof vi.fn>;
         openReplication: ReturnType<typeof vi.fn>;
         terminateSync: ReturnType<typeof vi.fn>;
     };
@@ -40,6 +45,24 @@ describe("replicator provider contract", () => {
         expect(isReplicationCompleted(outcomeFromFiniteOpenReplication(false))).toBe(false);
     });
 
+    it("attaches a central compatibility recovery hint only to failed finite outcomes", () => {
+        const recoveryHint = {
+            reason: CENTRAL_COMPATIBILITY_REJECTION_REASONS.NODE_LOCKED,
+        } as const;
+
+        expect(outcomeFromFiniteOpenReplication(false, recoveryHint)).toEqual({
+            status: "failed",
+            error: expect.any(Error),
+            recoveryHint,
+        });
+        expect(replicationFailed("failed", recoveryHint)).toEqual({
+            status: "failed",
+            error: "failed",
+            recoveryHint,
+        });
+        expect(outcomeFromFiniteOpenReplication(true, recoveryHint)).toBe(REPLICATION_COMPLETED);
+    });
+
     it("accepts a continuous void result as an accepted start", () => {
         expect(outcomeFromContinuousOpenReplication(undefined)).toBe(REPLICATION_COMPLETED);
         expect(outcomeFromContinuousOpenReplication(true)).toBe(REPLICATION_COMPLETED);
@@ -50,7 +73,7 @@ describe("replicator provider contract", () => {
         const capturedReplicator = createReplicator(true);
         const otherReplicator = createReplicator(true);
         const stop = supportedStopActiveTransfer();
-        if (stop.kind !== "supported") throw new Error("stop role should be supported");
+        if (stop.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) throw new Error("stop role should be supported");
 
         await expect(stop.run(capturedReplicator)).resolves.toBe(REPLICATION_COMPLETED);
 
@@ -65,7 +88,7 @@ describe("replicator provider contract", () => {
             throw error;
         });
         const stop = supportedStopActiveTransfer();
-        if (stop.kind !== "supported") throw new Error("stop role should be supported");
+        if (stop.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) throw new Error("stop role should be supported");
 
         await expect(stop.run(replicator)).resolves.toEqual({ status: "failed", error });
     });
@@ -73,7 +96,7 @@ describe("replicator provider contract", () => {
     it("passes manual and unattended interaction boundaries to the open adapter", async () => {
         const manualReplicator = createReplicator(true);
         const manual = supportedOpenReplicationOneShot();
-        if (manual.kind !== "supported") throw new Error("manual role should be supported");
+        if (manual.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) throw new Error("manual role should be supported");
         const narrowedAuthority = {
             kind: "permitted" as const,
             permissions: { ...USER_INITIATED_REPLICATION_AUTHORITY.permissions, failureRecovery: false },
@@ -86,7 +109,8 @@ describe("replicator provider contract", () => {
 
         const unattendedReplicator = createReplicator(true);
         const unattended = supportedOpenReplicationUnattended();
-        if (unattended.kind !== "supported") throw new Error("unattended role should be supported");
+        if (unattended.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED)
+            throw new Error("unattended role should be supported");
         await unattended.run(unattendedReplicator, {} as never, {
             trigger: "resume",
             interaction: NO_INTERACTION,
@@ -97,7 +121,8 @@ describe("replicator provider contract", () => {
     it("does not authorise interaction for an unattended role", async () => {
         const replicator = createReplicator(true);
         const unattended = supportedOpenReplicationUnattended();
-        if (unattended.kind !== "supported") throw new Error("unattended role should be supported");
+        if (unattended.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED)
+            throw new Error("unattended role should be supported");
         const result = await unattended.run(replicator, {} as never, {
             trigger: "daemon",
             interaction: USER_INITIATED_REPLICATION_AUTHORITY as never,
@@ -124,10 +149,8 @@ describe("replicator provider contract", () => {
             readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
             isConfigured: () => true,
             configurationIdentity: (setting) => setting.activeConfigurationId || setting.remoteType,
-            sameKindReconciliation: REPLACE_SAME_KIND_REPLICATOR,
             create: async () => false,
             remoteResources: NO_REMOTE_RESOURCE_CAPABILITIES,
-            remoteAdministration: CAPABILITY_NOT_APPLICABLE,
             userInitiatedOneShot: supportedOpenReplicationOneShot(),
             unattendedOneShot: supportedOpenReplicationUnattended(),
             continuous: supportedOpenReplicationContinuous(),
@@ -139,10 +162,8 @@ describe("replicator provider contract", () => {
             readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
             isConfigured: () => true,
             configurationIdentity: (setting) => setting.activeConfigurationId || setting.remoteType,
-            sameKindReconciliation: REPLACE_SAME_KIND_REPLICATOR,
             create: async () => false,
             remoteResources: NO_REMOTE_RESOURCE_CAPABILITIES,
-            remoteAdministration: CAPABILITY_NOT_APPLICABLE,
             userInitiatedOneShot: supportedOpenReplicationOneShot(),
             unattendedOneShot: supportedOpenReplicationUnattended(),
             continuous: CAPABILITY_NOT_APPLICABLE,

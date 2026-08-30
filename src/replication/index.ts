@@ -6,7 +6,6 @@ export {
     PEER_REPLICATION_READINESS,
     REPLICATION_CANCELLED,
     REPLICATION_COMPLETED,
-    REPLACE_SAME_KIND_REPLICATOR,
     USER_INITIATED_REPLICATION_AUTHORITY,
     defineReplicatorProviderDefinitions,
     isReplicationCompleted,
@@ -20,6 +19,7 @@ export {
     supportedStopActiveTransfer,
     supportedCapability,
 } from "./ReplicatorProvider.ts";
+export type { ReplicatorInstance } from "./ReplicatorInstance.ts";
 export type {
     ActiveReplicatorContext,
     CapabilitySupport,
@@ -40,11 +40,10 @@ export type {
     ReplicationOutcome,
     ReplicationReadinessRequirements,
     ReplicationPartial,
-    RebindActiveReplicatorRunner,
+    ReplicationFailureRequest,
     ReplicatorConfigurationIdentity,
     ReplicatorProviderDefinition,
     ReplicatorProviderDefinitionMap,
-    SameKindReplicatorReconciliation,
     StopActiveTransferRunner,
     SupportedCapability,
     UnattendedOneShotRequest,
@@ -73,24 +72,27 @@ export type {
     SynchronisationInformationResourceFactory,
 } from "./RemoteResource.ts";
 export {
-    REMOTE_ADMINISTRATION_ACTIONS,
-    REMOTE_ADMINISTRATION_FAILURE_REASONS,
-    REMOTE_ADMINISTRATION_OBSERVATION_KINDS,
-    REMOTE_ADMINISTRATION_RESULT_STATUSES,
-    applyRemoteAdministrationMutation,
-    isRemoteAdministrationVerified,
-    milestoneSatisfiesRemoteAdministration,
-    remoteAdministrationVerificationFailed,
-    remoteAdministrationVerified,
-} from "./RemoteAdministration.ts";
+    CENTRAL_REMOTE_ADMINISTRATION_ACTIONS,
+    CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS,
+    CENTRAL_REMOTE_ADMINISTRATION_OBSERVATION_KINDS,
+    CENTRAL_REMOTE_ADMINISTRATION_RESULT_STATUSES,
+    applyCentralRemoteAdministrationMutation,
+    isCentralRemoteAdministrationVerified,
+    milestoneSatisfiesCentralRemoteAdministration,
+    centralRemoteAdministrationVerificationFailed,
+    centralRemoteAdministrationVerified,
+} from "./CentralRemoteAdministration.ts";
 export type {
-    MilestoneRemoteAdministrationObservation,
-    RemoteAdministrationAction,
-    RemoteAdministrationFailureReason,
-    RemoteAdministrationObservation,
-    RemoteAdministrationRequest,
-    RemoteAdministrationResult,
-    RemoteAdministrationRunner,
-    RemoteAdministrationVerificationFailed,
-    RemoteAdministrationVerified,
-} from "./RemoteAdministration.ts";
+    MilestoneCentralRemoteAdministrationObservation,
+    CentralRemoteAdministrationAction,
+    CentralRemoteAdministrationFailureReason,
+    CentralRemoteAdministrationObservation,
+    CentralRemoteAdministrationRequest,
+    CentralRemoteAdministrationReplicator,
+    CentralRemoteAdministrationResult,
+    CentralRemoteAdministrationRunner,
+    CentralRemoteAdministrationVerificationFailed,
+    CentralRemoteAdministrationVerified,
+} from "./CentralRemoteAdministration.ts";
+export { CENTRAL_COMPATIBILITY_REJECTION_REASONS } from "./CentralCompatibility.ts";
+export type { CentralCompatibilityRecoveryHint, CentralCompatibilityRejectionReason } from "./CentralCompatibility.ts";

@@ -1,11 +1,5 @@
-import type {
-    EntryLeaf,
-    NodeData,
-    ObsidianLiveSyncSettings,
-    RemoteDBSettings,
-    RemotePreferredTweakResult,
-} from "@lib/common/types";
-import { LiveSyncAbstractReplicator, type RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator";
+import type { ObsidianLiveSyncSettings, RemoteDBSettings } from "@lib/common/types";
+import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
 import type { DiagRTCPeerConnectionMetrics } from "@lib/rpc/transports/DiagRTCPeerConnections.types";
 import { getPeerConnectionStats } from "@lib/rpc/transports/DiagRTCPeerConnections.utils";
 import {
@@ -175,7 +169,7 @@ export interface P2PServiceComposition {
     /** Host lifecycle operations which are not ordinary P2P capabilities. */
     readonly lifecycle: P2PServiceLifecycle;
     /** Create a non-owning adapter for the active Replicator selection. */
-    createActiveReplicator(): LiveSyncAbstractReplicator;
+    createActiveReplicator(): ReplicatorInstance;
 }
 
 interface P2PServiceState {
@@ -416,21 +410,16 @@ export function createP2PService(env: LiveSyncTrysteroReplicatorEnv): P2PService
         compatibilityReplicator,
         views: createServiceViews(context),
         lifecycle: createServiceLifecycle(context),
-        createActiveReplicator: () => new P2PActiveReplicatorAdapter(env, compatibilityReplicator),
+        createActiveReplicator: () => new P2PActiveReplicatorAdapter(compatibilityReplicator),
     };
 }
 
-/** Active-provider adapter over the stable P2P service compatibility surface. */
-class P2PActiveReplicatorAdapter extends LiveSyncAbstractReplicator {
-    constructor(
-        env: LiveSyncTrysteroReplicatorEnv,
-        private readonly delegate: LiveSyncTrysteroReplicator
-    ) {
-        super(env);
-    }
+/** Narrow, non-owning active-provider adapter over the stable P2P service owner. */
+class P2PActiveReplicatorAdapter implements ReplicatorInstance {
+    constructor(private readonly delegate: LiveSyncTrysteroReplicator) {}
 
-    getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
-        return this.delegate.getReplicationPBKDF2Salt(setting, refresh);
+    initializeDatabaseForReplication(): Promise<boolean> {
+        return this.delegate.initializeDatabaseForReplication();
     }
 
     terminateSync(): void {
@@ -446,14 +435,6 @@ class P2PActiveReplicatorAdapter extends LiveSyncAbstractReplicator {
         return this.delegate.openReplication(setting, keepAlive, showResult, ignoreCleanLock);
     }
 
-    tryConnectRemote(setting: RemoteDBSettings, showResult?: boolean): Promise<boolean> {
-        return this.delegate.tryConnectRemote(setting, showResult);
-    }
-
-    replicateAllToServer(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean> {
-        return this.delegate.replicateAllToServer(setting, showingNotice);
-    }
-
     replicateAllFromServer(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean> {
         return this.delegate.replicateAllFromServer(setting, showingNotice);
     }
@@ -464,49 +445,4 @@ class P2PActiveReplicatorAdapter extends LiveSyncAbstractReplicator {
         // service's finite-operation registry.
     }
 
-    tryResetRemoteDatabase(setting: RemoteDBSettings): Promise<void> {
-        return this.delegate.tryResetRemoteDatabase(setting);
-    }
-
-    tryCreateRemoteDatabase(setting: RemoteDBSettings): Promise<void> {
-        return this.delegate.tryCreateRemoteDatabase(setting);
-    }
-
-    markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean): Promise<void> {
-        return this.delegate.markRemoteLocked(setting, locked, lockByClean);
-    }
-
-    markRemoteResolved(setting: RemoteDBSettings): Promise<void> {
-        return this.delegate.markRemoteResolved(setting);
-    }
-
-    resetRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
-        return this.delegate.resetRemoteTweakSettings(setting);
-    }
-
-    setPreferredRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
-        return this.delegate.setPreferredRemoteTweakSettings(setting);
-    }
-
-    fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]> {
-        return this.delegate.fetchRemoteChunks(missingChunks, showResult);
-    }
-
-    getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus> {
-        return this.delegate.getRemoteStatus(setting);
-    }
-
-    getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<RemotePreferredTweakResult> {
-        return this.delegate.getRemotePreferredTweakValues(setting);
-    }
-
-    countCompromisedChunks(_setting?: RemoteDBSettings): Promise<number | boolean> {
-        return this.delegate.countCompromisedChunks();
-    }
-
-    getConnectedDeviceList(
-        setting?: RemoteDBSettings
-    ): Promise<false | { node_info: Record<string, NodeData>; accepted_nodes: string[] }> {
-        return this.delegate.getConnectedDeviceList(setting);
-    }
 }

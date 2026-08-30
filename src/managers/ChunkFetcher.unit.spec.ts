@@ -298,6 +298,19 @@ describe("ChunkFetcher", () => {
             expect(mockChunkManager.write).not.toHaveBeenCalled();
         });
 
+        it("reports requested chunks as unavailable when the active provider has no individual chunk reader", async () => {
+            mockReplicatorService.getActiveReplicator.mockReturnValue({} as any);
+            chunkFetcher.queue = ["chunk-1" as DocumentID];
+
+            await chunkFetcher.requestMissingChunks();
+
+            expect(mockChunkManager.write).not.toHaveBeenCalled();
+            expect(mockChunkManager.emitEvent).toHaveBeenCalledWith(
+                EVENT_MISSING_CHUNK_REMOTE,
+                "chunk-1" as DocumentID
+            );
+        });
+
         it("should write fetched chunks to database", async () => {
             const chunks = [createMockLeaf("chunk-1"), createMockLeaf("chunk-2")];
             const mockReplicator = {

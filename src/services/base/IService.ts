@@ -24,7 +24,7 @@ import type {
 } from "@lib/common/types";
 
 import type { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB";
-import type { LiveSyncAbstractReplicator } from "@lib/replication/LiveSyncAbstractReplicator";
+import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance";
 import type { SimpleStore } from "octagonal-wheels/databases/SimpleStoreBase";
 import type { Confirm } from "@lib/interfaces/Confirm";
 import type { ReactiveSource } from "octagonal-wheels/dataobject/reactive";
@@ -37,7 +37,7 @@ import type { OwnedCouchDBConnection, RemoteConnectionOpenOptions } from "./Remo
 import type {
     ActiveReplicatorContext,
     ContinuousReplicationRequest,
-    InteractionAuthority,
+    ReplicationFailureRequest,
     ReplicatorProviderDefinitionMap,
     ReplicationOutcome,
     ReplicationReadinessRequirements,
@@ -45,7 +45,10 @@ import type {
     UserInitiatedOneShotRequest,
 } from "@lib/replication/ReplicatorProvider.ts";
 import type { RemoteResourceKind, RemoteResourceMap } from "@lib/replication/RemoteResource.ts";
-import type { RemoteAdministrationRequest, RemoteAdministrationResult } from "@lib/replication/RemoteAdministration.ts";
+import type {
+    CentralRemoteAdministrationRequest,
+    CentralRemoteAdministrationResult,
+} from "@lib/replication/CentralRemoteAdministration.ts";
 import type { MultipleHandlerFunction } from "@lib/services/lib/HandlerUtils.ts";
 
 declare global {
@@ -176,14 +179,21 @@ export interface IFileProcessingService {
     onStorageFileEvent(): void;
 }
 export interface IReplicatorService {
+    /**
+     * Fence new work, drain admitted work, and close the active Replicator.
+     *
+     * Do not await this command from an admitted active-context callback: the
+     * retirement command waits for that callback to settle.
+     */
     onCloseActiveReplication(): Promise<boolean>;
 
     /**
      * Run host preparation after candidate initialisation and before active publication.
      *
      * This hook runs inside the ownership transition. A handler must not call or await
-     * `acquireActiveReplicatorContext()`, because acquisition waits for that same transition.
-     * Work which requires the new active context belongs after publication.
+     * `acquireActiveReplicatorContext()` or `runWithActiveReplicatorContext()`, because
+     * both wait for that same transition. Work which requires the new active context
+     * belongs after publication.
      */
     onBeforeReplicatorPublication(): Promise<boolean>;
 
@@ -192,22 +202,40 @@ export interface IReplicatorService {
     /** Add the fixed provider definitions composed by the current host. */
     registerReplicatorProviderDefinitions(definitions: ReplicatorProviderDefinitionMap): void;
 
-    /** Return the active provider and replicator as one atomic context. */
-    getActiveReplicatorContext(): ActiveReplicatorContext | undefined;
-
     /** Resolve one provider-owned finite resource without changing active publication. */
     createRemoteResource<TKind extends RemoteResourceKind>(
         kind: TKind,
         setting: RemoteDBSettings
     ): Promise<RemoteResourceMap[TKind] | undefined>;
 
-    /** Apply and verify one typed provider-specific remote-administration action. */
-    runRemoteAdministration(request: RemoteAdministrationRequest): Promise<RemoteAdministrationResult>;
+    /** Apply and verify one typed provider-specific central-remote administration action. */
+    runCentralRemoteAdministration(
+        request: CentralRemoteAdministrationRequest
+    ): Promise<CentralRemoteAdministrationResult>;
 
     /** Wait for queued ownership transitions, then return the published active context. */
     acquireActiveReplicatorContext(): Promise<ActiveReplicatorContext | undefined>;
 
-    getActiveReplicator(): LiveSyncAbstractReplicator | undefined;
+    /**
+     * Run one task against an exact active publication admitted before later transitions.
+     *
+     * Invocation is ordered with replacement and disposal. A later
+     * transition fences new admission, requests transfer cancellation, waits for
+     * admitted tasks, and only then closes the old Replicator. The
+     * callback must not initiate or await settings realisation, database
+     * replacement, Replicator retirement, or another operation which queues that
+     * same lifecycle transition. Stage such recovery after this promise settles.
+     * Terminal plug-in unload uses the same retirement drain before the local
+     * database closes. Reversible host suspension only requests transfer
+     * cancellation and retains the publication, so it is not a retirement fence.
+     *
+     * The callback is not invoked when no typed publication can be admitted.
+     */
+    runWithActiveReplicatorContext<TResult>(
+        task: (context: ActiveReplicatorContext) => TResult | PromiseLike<TResult>
+    ): Promise<TResult | undefined>;
+
+    getActiveReplicator(): ReplicatorInstance | undefined;
     replicationStatics: ReactiveSource<ReplicationStatics>;
     /** Number of finite remote operations currently in progress. */
     boundedRemoteActivityCount: ReactiveSource<number>;
@@ -221,7 +249,7 @@ export interface IReplicatorService {
 
 export type ReplicatorFactoryCallback = (
     settingOverride?: Partial<ObsidianLiveSyncSettings>
-) => Promise<LiveSyncAbstractReplicator | undefined | false>;
+) => Promise<ReplicatorInstance | undefined | false>;
 export type ReplicatorFactoryHandler = MultipleHandlerFunction<ReplicatorFactoryCallback>;
 export interface IReplicationService {
     processSynchroniseResult(doc: MetaEntry): Promise<boolean>;
@@ -275,7 +303,7 @@ export interface IReplicationService {
     performReplication(showMessage?: boolean): Promise<boolean | void>;
     replicate(showMessage?: boolean): Promise<boolean | void>;
     replicateByEvent(showMessage?: boolean): Promise<boolean | void>;
-    onReplicationFailed(showMessage?: boolean, interaction?: InteractionAuthority): Promise<boolean>;
+    onReplicationFailed(request: ReplicationFailureRequest): Promise<boolean>;
     parseSynchroniseResult(docs: Array<PouchDB.Core.ExistingDocument<EntryDoc>>): Promise<boolean>;
     databaseQueueCount: ReactiveSource<number>;
     storageApplyingCount: ReactiveSource<number>;
@@ -457,7 +485,10 @@ export interface ITweakValueService {
 
     checkAndAskResolvingMismatched(preferred: Partial<TweakValues>): Promise<[TweakValues | boolean, boolean]>;
 
-    askResolvingMismatched(preferredSource: TweakValues): Promise<"OK" | "CHECKAGAIN" | "IGNORE">;
+    askResolvingMismatched(
+        preferredSource: TweakValues,
+        updatePreferredRemote?: (setting: ObsidianLiveSyncSettings) => Promise<boolean>
+    ): Promise<"OK" | "CHECKAGAIN" | "IGNORE">;
 
     checkAndAskUseRemoteConfiguration(
         settings: RemoteDBSettings

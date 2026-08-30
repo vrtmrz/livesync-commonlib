@@ -1,7 +1,6 @@
 import {
     type EntryMilestoneInfo,
     type RemoteDBSettings,
-    type EntryLeaf,
     LOG_LEVEL_NOTICE,
     type ChunkVersionRange,
     type DocumentID,
@@ -19,7 +18,10 @@ import { Logger } from "@lib/common/logger.ts";
 import { JournalSyncCore } from "./JournalSyncCore.ts";
 import { MinioStorageAdapter } from "./objectstore/MinioStorageAdapter.ts";
 
-import { LiveSyncAbstractReplicator, type RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator.ts";
+import {
+    LiveSyncAbstractReplicator,
+    type RemoteDBStatus,
+} from "@lib/replication/LiveSyncAbstractReplicator.ts";
 import { ensureRemoteIsCompatible, type ENSURE_DB_RESULT } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import type { CheckPointInfo } from "./JournalSyncTypes.ts";
 import type { SimpleStore } from "@lib/common/utils.ts";
@@ -28,6 +30,20 @@ import { extractObject } from "@lib/common/utils.ts";
 import { clearHandlers } from "@lib/replication/SyncParamsHandler.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 import { JournalStorageReadStatuses } from "./objectstore/JournalStorageAdapter.ts";
+import {
+    CENTRAL_COMPATIBILITY_ACCEPTED,
+    CENTRAL_COMPATIBILITY_NOT_ASSESSED,
+    CENTRAL_COMPATIBILITY_REJECTION_REASONS,
+    centralCompatibilityRejected,
+    centralCompatibilityRecoveryHint,
+    type CentralCompatibilityDecision,
+    type CentralCompatibilityDecisionRecorder,
+} from "@lib/replication/CentralCompatibility.ts";
+import {
+    outcomeFromFiniteOpenReplication,
+    replicationFailed,
+    type ReplicationOutcome,
+} from "@lib/replication/ReplicatorProvider.ts";
 
 const MILSTONE_DOCID = "_00000000-milestone.json";
 
@@ -49,15 +65,11 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
     _client!: JournalSyncCore;
 
-    override async getReplicationPBKDF2Salt(
-        setting: RemoteDBSettings,
-        refresh?: boolean
-    ): Promise<Uint8Array<ArrayBuffer>> {
-        return await this.client.getReplicationPBKDF2Salt(refresh);
+    async getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
+        return await this.setupJournalSyncClient(setting).getReplicationPBKDF2Salt(refresh);
     }
 
-    setupJournalSyncClient() {
-        const settings = this.currentSettings;
+    setupJournalSyncClient(settings: RemoteDBSettings = this.currentSettings) {
         if (this._client) {
             this._client.applyNewConfig(settings, this.simpleStore, this.env);
         } else {
@@ -73,14 +85,24 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
 
     async ensureBucketIsCompatible(
         deviceNodeID: string,
-        currentVersionRange: ChunkVersionRange
+        currentVersionRange: ChunkVersionRange,
+        setting: RemoteDBSettings = this.currentSettings,
+        client: Pick<
+            JournalSyncCore,
+            "downloadJsonWithResult" | "getCheckpointInfo" | "uploadJson"
+        > = this.setupJournalSyncClient(setting)
     ): Promise<ENSURE_DB_RESULT> {
-        const downloadedMilestone = await this.client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
-        const cPointInfo = await this.client.getCheckpointInfo();
+        const milestoneResult = await client.downloadJsonWithResult<EntryMilestoneInfo>(MILSTONE_DOCID);
+        if (milestoneResult.status === JournalStorageReadStatuses.UNAVAILABLE) {
+            throw milestoneResult.error;
+        }
+        const downloadedMilestone =
+            milestoneResult.status === JournalStorageReadStatuses.AVAILABLE ? milestoneResult.value : false;
+        const cPointInfo = await client.getCheckpointInfo();
         const progress = [...(cPointInfo?.receivedFiles || [])].sort().pop() || "";
         return await ensureRemoteIsCompatible(
             downloadedMilestone,
-            this.currentSettings,
+            setting,
             deviceNodeID,
             currentVersionRange,
             {
@@ -91,7 +113,9 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                 progress: progress,
             },
             async (info) => {
-                await this.client.uploadJson(MILSTONE_DOCID, info);
+                if (!(await client.uploadJson(MILSTONE_DOCID, info))) {
+                    throw new Error("Could not upload remote milestone");
+                }
             }
         );
     }
@@ -111,40 +135,104 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         this.client.requestStop();
     }
 
-    async openReplication(setting: RemoteDBSettings, _: boolean, showResult: boolean, ignoreCleanLock = false) {
-        if (!(await this.checkReplicationConnectivity(false, ignoreCleanLock, showResult))) return false;
-        return await this.client.sync(showResult);
+    async openReplication(
+        setting: RemoteDBSettings,
+        _: boolean,
+        showResult: boolean,
+        ignoreCleanLock = false,
+        recordCompatibilityDecision?: CentralCompatibilityDecisionRecorder
+    ) {
+        const client = this.setupJournalSyncClient(setting);
+        if (
+            !(await this.checkReplicationConnectivity(
+                false,
+                ignoreCleanLock,
+                showResult,
+                setting,
+                client,
+                recordCompatibilityDecision
+            ))
+        ) {
+            return false;
+        }
+        return await client.sync(showResult);
+    }
+
+    /**
+     * Run one finite Journal attempt against one settings-bound borrowed client.
+     *
+     * Only a rejection observed by this attempt is projected into recovery;
+     * unavailable storage and later transport failures do not reuse old state.
+     */
+    async openOneShotReplicationWithOutcome(
+        setting: RemoteDBSettings,
+        showResult: boolean,
+        ignoreCleanLock = false
+    ): Promise<ReplicationOutcome> {
+        let decision: CentralCompatibilityDecision = CENTRAL_COMPATIBILITY_NOT_ASSESSED;
+        const recordDecision: CentralCompatibilityDecisionRecorder = (next) => {
+            decision = next;
+        };
+        try {
+            const result = await this.openReplication(
+                setting,
+                false,
+                showResult,
+                ignoreCleanLock,
+                recordDecision
+            );
+            return outcomeFromFiniteOpenReplication(result, centralCompatibilityRecoveryHint(decision));
+        } catch (error) {
+            return replicationFailed(error, centralCompatibilityRecoveryHint(decision));
+        }
     }
 
     async replicateAllToServer(setting: RemoteDBSettings, showingNotice?: boolean) {
-        if (!(await this.checkReplicationConnectivity(false, false, !!showingNotice))) return false;
-        return await this.client.sendLocalJournal(showingNotice);
+        const client = this.setupJournalSyncClient(setting);
+        if (!(await this.checkReplicationConnectivity(false, false, !!showingNotice, setting, client))) return false;
+        return await client.sendLocalJournal(showingNotice);
     }
 
     async replicateAllFromServer(setting: RemoteDBSettings, showingNotice?: boolean) {
-        if (!(await this.checkReplicationConnectivity(false, false, !!showingNotice))) return false;
-        return await this.client.receiveRemoteJournal(showingNotice);
+        const client = this.setupJournalSyncClient(setting);
+        if (!(await this.checkReplicationConnectivity(false, false, !!showingNotice, setting, client))) return false;
+        return await client.receiveRemoteJournal(showingNotice);
     }
 
-    async checkReplicationConnectivity(skipCheck: boolean, ignoreCleanLock = false, showMessage = false) {
-        if (!(await this.client.isAvailable())) {
+    async checkReplicationConnectivity(
+        skipCheck: boolean,
+        ignoreCleanLock = false,
+        showMessage = false,
+        setting: RemoteDBSettings = this.currentSettings,
+        client: JournalSyncCore = this.setupJournalSyncClient(setting),
+        recordCompatibilityDecision?: CentralCompatibilityDecisionRecorder
+    ) {
+        recordCompatibilityDecision?.(CENTRAL_COMPATIBILITY_NOT_ASSESSED);
+        if (!(await client.isAvailable())) {
             return false;
         }
         if (!skipCheck) {
             // Keep compatibility result semantics strict: epoch/cache policy is handled as a separate preflight.
-            await this.client.ensureCheckpointCachesAreFresh();
+            await client.ensureCheckpointCachesAreFresh();
             this.remoteCleaned = false;
             this.remoteLocked = false;
             this.remoteLockedAndDeviceNotAccepted = false;
             this.tweakSettingsMismatched = false;
-            const ensure = await this.ensureBucketIsCompatible(this.nodeid, currentVersionRange);
+            this.preferredTweakValue = undefined;
+            const ensure = await this.ensureBucketIsCompatible(this.nodeid, currentVersionRange, setting, client);
             if (ensure == "INCOMPATIBLE") {
+                recordCompatibilityDecision?.(
+                    centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.INCOMPATIBLE_VERSION)
+                );
                 Logger(
                     "The remote database has no compatibility with the running version. Please upgrade the plugin.",
                     LOG_LEVEL_NOTICE
                 );
                 return false;
             } else if (ensure == "NODE_LOCKED") {
+                recordCompatibilityDecision?.(
+                    centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.NODE_LOCKED)
+                );
                 Logger(
                     "The remote database has been rebuilt or corrupted since we have synchronized last time. Fetch rebuilt DB, explicit unlocking or chunk clean-up is required.",
                     LOG_LEVEL_NOTICE
@@ -158,6 +246,9 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                 if (ignoreCleanLock) {
                     this.remoteLocked = true;
                 } else {
+                    recordCompatibilityDecision?.(
+                        centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.NODE_CLEANED)
+                    );
                     Logger(
                         "The remote database has been cleaned up. Fetch rebuilt DB, explicit unlocking or chunk clean-up is required.",
                         LOG_LEVEL_NOTICE
@@ -170,18 +261,18 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             } else if (ensure == "OK") {
                 /* NO OP FOR NARROWING */
             } else if (ensure[0] == "MISMATCHED") {
+                recordCompatibilityDecision?.(
+                    centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.TWEAK_MISMATCH, ensure[1])
+                );
                 Logger(this.translate("liveSyncReplicator.mismatchedTweakDetected"), LOG_LEVEL_NOTICE);
                 this.tweakSettingsMismatched = true;
                 this.preferredTweakValue = ensure[1];
                 return false;
             }
+            recordCompatibilityDecision?.(CENTRAL_COMPATIBILITY_ACCEPTED);
         }
         return true;
     }
-    async fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]> {
-        return Promise.resolve([]);
-    }
-
     closeReplication() {
         // A never-used trial Replicator owns no Journal client. Closing it must
         // not construct the resource which this method is meant to release.
@@ -194,13 +285,16 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     async tryResetRemoteDatabase(setting: RemoteDBSettings) {
         this.closeReplication();
         try {
-            await this.client.resetBucket();
+            if (!(await this.client.resetBucket())) {
+                throw new Error("Could not reset remote bucket");
+            }
             clearHandlers();
             Logger("Remote Bucket Cleared", LOG_LEVEL_NOTICE);
             await this.tryCreateRemoteDatabase(setting);
         } catch (ex) {
             Logger("Something happened on Remote Bucket Clear", LOG_LEVEL_NOTICE);
             Logger(ex, LOG_LEVEL_NOTICE);
+            throw ex;
         }
     }
 
@@ -208,7 +302,9 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         this.closeReplication();
         Logger("Remote Database Created or Connected", LOG_LEVEL_NOTICE);
         clearHandlers();
-        await this.ensurePBKDF2Salt(setting, true, false);
+        if (!(await this.ensurePBKDF2Salt(setting, true, false))) {
+            throw new Error("Could not ensure PBKDF2 salt (Security Seed)");
+        }
         return await Promise.resolve();
     }
     async markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean) {
@@ -237,7 +333,9 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         } else {
             Logger("Unlock remote bucket to prevent data corruption", LOG_LEVEL_NOTICE);
         }
-        await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone);
+        if (!(await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone))) {
+            throw new Error("Could not upload remote milestone");
+        }
     }
     async markRemoteResolved(setting: RemoteDBSettings) {
         const defInitPoint: EntryMilestoneInfo = {
@@ -258,7 +356,9 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
         remoteMilestone.accepted_nodes = Array.from(new Set([...remoteMilestone.accepted_nodes, this.nodeid]));
         Logger("Mark this device as 'resolved'.", LOG_LEVEL_NOTICE);
-        await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone);
+        if (!(await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone))) {
+            throw new Error("Could not upload remote milestone");
+        }
     }
 
     async tryConnectRemote(setting: RemoteDBSettings, showResult: boolean = true): Promise<boolean> {
@@ -293,19 +393,31 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async setPreferredRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
+        // Preferred-tweak writes are finite trial-settings operations. Do not
+        // borrow or reconfigure the active Journal client.
+        const trialClient = new JournalSyncCore(
+            setting,
+            this.simpleStore,
+            this.env,
+            new MinioStorageAdapter(setting, this.env)
+        );
         try {
-            const remoteMilestone = await this.client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
+            const remoteMilestone = await trialClient.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
             if (!remoteMilestone) {
                 throw new Error("Missing remote milestone");
             }
             remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = extractObject(TweakValuesTemplate, {
                 ...setting,
             }) satisfies TweakValues;
-            Logger(`tweak values on the remote database have been cleared`, LOG_LEVEL_VERBOSE);
-            await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone);
+            Logger(`Preferred tweak values have been registered`, LOG_LEVEL_VERBOSE);
+            if (!(await trialClient.uploadJson(MILSTONE_DOCID, remoteMilestone))) {
+                throw new Error("Could not upload remote milestone");
+            }
         } catch (ex) {
-            Logger(`Could not retrieve remote milestone`, LOG_LEVEL_NOTICE);
+            Logger(`Could not update remote preferred tweak values`, LOG_LEVEL_NOTICE);
             throw ex;
+        } finally {
+            trialClient.dispose();
         }
     }
 
@@ -357,10 +469,6 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         }
     }
 
-    countCompromisedChunks(): Promise<number> {
-        Logger(`Bucket Sync Replicator cannot count compromised chunks`, LOG_LEVEL_VERBOSE);
-        return Promise.resolve(0);
-    }
     getConnectedDeviceList(
         setting?: RemoteDBSettings
     ): Promise<false | { node_info: Record<string, NodeData>; accepted_nodes: string[] }> {

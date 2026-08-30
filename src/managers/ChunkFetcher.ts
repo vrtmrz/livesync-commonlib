@@ -203,8 +203,18 @@ export class ChunkFetcher {
                 Logger("No active replicator was found to request missing chunks.");
                 return;
             }
+            const remoteChunkReader = replicator as typeof replicator & {
+                fetchRemoteChunks?: (missingChunks: string[], showResult: boolean) => Promise<false | EntryLeaf[]>;
+            };
+            if (typeof remoteChunkReader.fetchRemoteChunks !== "function") {
+                Logger("The active replicator does not support fetching individual remote chunks.");
+                for (const chunkID of requestIDs) {
+                    this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
+                }
+                return;
+            }
             // Request the replicator to fetch the missing chunks.
-            const fetched = await replicator.fetchRemoteChunks(requestIDs, false);
+            const fetched = await remoteChunkReader.fetchRemoteChunks(requestIDs, false);
             this.touchClaims(requestIDs);
             if (!fetched) {
                 Logger(`No chunks were found for the following IDs: ${requestIDs.join(", ")}`);
