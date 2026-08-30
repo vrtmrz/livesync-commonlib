@@ -27,6 +27,7 @@ import { AuthorizationHeaderGenerator, generateCredentialObject } from "@lib/rep
 import { parseHeaderValues } from "@lib/common/utils";
 import { sizeToHumanReadable } from "octagonal-wheels/number";
 import { REMOTE_RESOURCE_KINDS } from "@lib/replication";
+import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
 
 const FAST_FETCH_CHECKPOINT_KEY = "fast-fetch-checkpoint";
 const FAST_FETCH_RETRY_DELAYS = [2000, 5000, 10000, 20000];
@@ -35,6 +36,15 @@ type FastFetchCheckpoint = {
     remote: string;
     sequence: number | string;
 };
+
+/** Legacy reset facet used only by the central-remote rebuild workflow. */
+interface CentralRemoteResetter extends ReplicatorInstance {
+    tryResetRemoteDatabase(setting: ReturnType<SettingService["currentSettings"]>): Promise<void>;
+}
+
+function canResetCentralRemote(replicator: ReplicatorInstance): replicator is CentralRemoteResetter {
+    return "tryResetRemoteDatabase" in replicator && typeof replicator.tryResetRemoteDatabase === "function";
+}
 
 export interface ServiceRebuilderDependencies {
     events: LiveSyncEventHub;
@@ -250,13 +260,10 @@ Please enable them from the settings screen after setup is complete.`,
             this._log("No active replicator found when trying to reset remote database.", LOG_LEVEL_NOTICE);
             return;
         }
-        const resetter = currentReplicator as typeof currentReplicator & {
-            tryResetRemoteDatabase?: (setting: typeof settings) => Promise<void>;
-        };
-        if (typeof resetter.tryResetRemoteDatabase !== "function") {
+        if (!canResetCentralRemote(currentReplicator)) {
             throw new Error("The active replicator does not support resetting a central remote database.");
         }
-        await resetter.tryResetRemoteDatabase(settings);
+        await currentReplicator.tryResetRemoteDatabase(settings);
     }
 
     // private async _tryCreateRemoteDatabase(): Promise<void> {

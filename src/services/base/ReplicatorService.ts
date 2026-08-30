@@ -230,8 +230,10 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         return await this.enqueueTransition(() => this.initialiseReplicatorNow());
     }
 
-    private getProviderDefinition(setting: { remoteType: string }): ReplicatorProviderDefinition | undefined {
-        return this._providerDefinitions.get(setting.remoteType as ReplicatorProviderDefinition["kind"]);
+    private getProviderDefinition(
+        setting: Pick<RemoteDBSettings, "remoteType">
+    ): ReplicatorProviderDefinition | undefined {
+        return this._providerDefinitions.get(setting.remoteType);
     }
 
     private async createReplicator(
@@ -351,7 +353,11 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
                     this._unresolvedErrorManager.showError(message, LOG_LEVEL_NOTICE);
                     return false;
                 }
-                if (provider && !this.isCurrentProviderConfiguration(provider, configurationIdentity!)) {
+                if (
+                    provider &&
+                    (configurationIdentity === undefined ||
+                        !this.isCurrentProviderConfiguration(provider, configurationIdentity))
+                ) {
                     await this.discardFailedReplicator(newReplicator);
                     this._unresolvedErrorManager.clearError(message);
                     this._log(

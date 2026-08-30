@@ -80,8 +80,9 @@ export interface CentralRemoteAdministrationReplicator extends ReplicatorInstanc
     markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean): Promise<void>;
 }
 
+/** Provider boundary which must narrow the active instance before mutation. */
 export type CentralRemoteAdministrationRunner = (
-    replicator: CentralRemoteAdministrationReplicator,
+    replicator: ReplicatorInstance,
     setting: RemoteDBSettings,
     request: CentralRemoteAdministrationRequest
 ) => Promise<CentralRemoteAdministrationResult>;

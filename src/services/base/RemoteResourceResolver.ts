@@ -1,8 +1,7 @@
 import type { RemoteDBSettings } from "@lib/common/types.ts";
-import { CAPABILITY_SUPPORT_KINDS, type CapabilitySupport } from "@lib/replication/ProviderCapability.ts";
+import { CAPABILITY_SUPPORT_KINDS } from "@lib/replication/ProviderCapability.ts";
 import type {
     RemoteResourceCapabilities,
-    RemoteResourceFactoryMap,
     RemoteResourceKind,
     RemoteResourceMap,
 } from "@lib/replication/RemoteResource.ts";
@@ -13,7 +12,7 @@ export async function resolveRemoteResource<TKind extends RemoteResourceKind>(
     kind: TKind,
     setting: RemoteDBSettings
 ): Promise<RemoteResourceMap[TKind] | undefined> {
-    const capability = capabilities[kind] as CapabilitySupport<RemoteResourceFactoryMap[TKind]>;
+    const capability = capabilities[kind];
     if (capability.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
         return undefined;
     }

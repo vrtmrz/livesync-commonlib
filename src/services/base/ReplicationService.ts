@@ -63,20 +63,44 @@ interface LegacyCentralRemoteAdministrationAdapter extends ReplicatorInstance {
     markRemoteResolved(setting: RemoteDBSettings): Promise<void>;
 }
 
+function canUploadAll(replicator: ReplicatorInstance): replicator is DirectionalReplicationAdapter & {
+    replicateAllToServer(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>;
+} {
+    return "replicateAllToServer" in replicator && typeof replicator.replicateAllToServer === "function";
+}
+
+function canDownloadAll(replicator: ReplicatorInstance): replicator is DirectionalReplicationAdapter & {
+    replicateAllFromServer(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>;
+} {
+    return "replicateAllFromServer" in replicator && typeof replicator.replicateAllFromServer === "function";
+}
+
+function canAdministerLegacyCentralRemote(
+    replicator: ReplicatorInstance
+): replicator is LegacyCentralRemoteAdministrationAdapter {
+    return (
+        "markRemoteLocked" in replicator &&
+        typeof replicator.markRemoteLocked === "function" &&
+        "markRemoteResolved" in replicator &&
+        typeof replicator.markRemoteResolved === "function"
+    );
+}
+
 async function runDirectionalReplication(
     context: ActiveReplicatorContext,
     setting: RemoteDBSettings,
     direction: DirectionalReplication,
     showingNotice: boolean
 ): Promise<ReplicationOutcome> {
-    const candidate = context.replicator as DirectionalReplicationAdapter;
-    const operation =
-        direction === DIRECTIONAL_REPLICATION.UPLOAD
-            ? candidate.replicateAllToServer?.bind(candidate)
-            : candidate.replicateAllFromServer?.bind(candidate);
-    if (!operation) return replicationBlocked("capability-not-applicable");
     try {
-        const result = await operation(setting, showingNotice);
+        let result: boolean | void;
+        if (direction === DIRECTIONAL_REPLICATION.UPLOAD) {
+            if (!canUploadAll(context.replicator)) return replicationBlocked("capability-not-applicable");
+            result = await context.replicator.replicateAllToServer(setting, showingNotice);
+        } else {
+            if (!canDownloadAll(context.replicator)) return replicationBlocked("capability-not-applicable");
+            result = await context.replicator.replicateAllFromServer(setting, showingNotice);
+        }
         return outcomeFromFiniteOpenReplication(result);
     } catch (error) {
         return replicationFailed(error);
@@ -447,16 +471,18 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
 
     private _getReplicatorAndPerform(
         action: string,
-        perform: (setting: ObsidianLiveSyncSettings, replicator: LegacyCentralRemoteAdministrationAdapter) => Promise<void>
+        perform: (
+            setting: ObsidianLiveSyncSettings,
+            replicator: LegacyCentralRemoteAdministrationAdapter
+        ) => Promise<void>
     ) {
         const activeReplicator = this.getActiveReplicatorFor(action);
         if (!activeReplicator) return Promise.resolve();
-        const candidate = activeReplicator as Partial<LegacyCentralRemoteAdministrationAdapter>;
-        if (typeof candidate.markRemoteLocked !== "function" || typeof candidate.markRemoteResolved !== "function") {
+        if (!canAdministerLegacyCentralRemote(activeReplicator)) {
             this._log(`Active replicator does not support ${action}`, LOG_LEVEL_NOTICE);
             return Promise.resolve();
         }
-        return perform(this.settingService.currentSettings(), candidate as LegacyCentralRemoteAdministrationAdapter);
+        return perform(this.settingService.currentSettings(), activeReplicator);
     }
 
     async markLocked(lockByClean: boolean = false): Promise<void> {

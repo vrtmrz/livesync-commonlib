@@ -58,7 +58,6 @@ import {
     SyncParamsNotFoundError,
     SyncParamsUpdateError,
 } from "@lib/replication/SyncParamsHandler.ts";
-import type { ServiceHub } from "@lib/services/ServiceHub.ts";
 import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
 import type { OwnedCouchDBConnection, RemoteConnectionOpenOptions } from "@lib/services/base/RemoteConnection.ts";
 import {
@@ -154,11 +153,15 @@ async function* genReplication(
     }
 }
 
+/**
+ * Compatibility constructor environment for the CouchDB Replicator facade.
+ *
+ * CouchDB adds only the bounded one-shot preflight policy to the shared
+ * Replicator environment. Active-provider capabilities remain separate.
+ */
 export interface LiveSyncCouchDBReplicatorEnv extends LiveSyncReplicatorEnv {
-    services: ServiceHub;
     /** Internal injection point for the bounded one-shot connectivity preflight. */
     oneShotConnectivityTimeoutMs?: number;
-    // $$getSimpleStore<T>(kind: string): SimpleStore<T>;
 }
 
 /**
@@ -687,7 +690,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             let bulkDocs: EntryLeaf[] = [];
             let bulkDocsSizeBytes = 0;
             let bulkDocsSizeCount = 0;
-            let maxSeq = 0 as number | string;
+            let maxSeq: number | string = 0;
             const tasks: Promise<boolean>[] = [];
             for (const chunk of nowSendChunks) {
                 const jsonLength = te.encode(JSON.stringify(chunk.doc)).byteLength + 32; // (Not sure but means overhead);

@@ -29,19 +29,6 @@ export async function runCentralRemoteAdministrationWithContext(
     if (capability.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
         return centralRemoteAdministrationVerificationFailed(capability.reason);
     }
-    const replicator = context.replicator as typeof context.replicator & {
-        readonly nodeid?: unknown;
-        markRemoteResolved?: unknown;
-        markRemoteLocked?: unknown;
-    };
-    if (
-        typeof replicator.nodeid !== "string" ||
-        typeof replicator.markRemoteResolved !== "function" ||
-        typeof replicator.markRemoteLocked !== "function"
-    ) {
-        return centralRemoteAdministrationVerificationFailed(
-            CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS.CAPABILITY_NOT_APPLICABLE
-        );
-    }
-    return await capability.run(replicator as Parameters<typeof capability.run>[0], setting, request);
+    // The selected provider owns validation of its concrete Replicator shape.
+    return await capability.run(context.replicator, setting, request);
 }

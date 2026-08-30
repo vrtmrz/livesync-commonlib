@@ -200,7 +200,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
     /** Capture immutable session inputs while keeping policy live. */
     private getEffectiveBinding(): P2PRoomSessionBinding {
         const settings = {
-            ...(this.env.services.setting.currentSettings() as ObsidianLiveSyncSettings),
+            ...this.env.services.setting.currentSettings(),
         };
         const deviceName =
             this.env.services.config.getSmallConfig(SETTING_KEY_P2P_DEVICE_NAME) ||

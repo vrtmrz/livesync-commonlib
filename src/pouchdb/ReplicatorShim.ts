@@ -2,12 +2,15 @@ import { serialized } from "octagonal-wheels/concurrency/lock";
 import { Logger } from "@lib/common/logger";
 import { LOG_LEVEL_VERBOSE } from "@lib/common/types";
 
+/** A stored document carrying the change-feed metadata used by the shim. */
 export type SomeDocument<T extends object> = PouchDB.Core.ExistingDocument<T> & PouchDB.Core.ChangesMeta;
 
 /**
- * Minimal subset of the PouchDB public API required by {@link replicateShim}.
- * Both a real `PouchDB.Database` and an {@link RpcPouchDBProxy} satisfy this
- * interface, allowing replication across an RPC transport.
+ * Structural database boundary required by {@link replicateShim}.
+ *
+ * Listing only the operations used by the algorithm lets a local
+ * `PouchDB.Database` and an RPC-backed proxy participate without presenting
+ * the proxy as a complete PouchDB implementation.
  */
 export type PouchDBShim<T extends object> = {
     info: () => Promise<PouchDB.Core.DatabaseInfo>;
@@ -22,6 +25,7 @@ export type PouchDBShim<T extends object> = {
     get: (id: string, options?: PouchDB.Core.GetOptions) => Promise<T & PouchDB.Core.IdMeta & PouchDB.Core.GetMeta>;
 };
 
+/** A local PouchDB database or a structural shim with the same required operations. */
 type CompatibleDatabase<T extends object> = PouchDB.Database<SomeDocument<T>> | PouchDBShim<SomeDocument<T>>;
 
 type ErrorLike = { name?: string; message?: string; reason?: string; error?: unknown };
@@ -61,24 +65,31 @@ export async function upsert<
     }
 }
 
+/** Batch and cancellation policy shared by finite and continuous shim replication. */
 export type ShimReplicationOptionBase = {
     rewind?: boolean;
     batch_size?: number;
     /** Abort before a new batch starts, or after the current batch settles. */
     signal?: AbortSignal;
 };
+
+/** Options for a finite replication which settles after catching up or cancellation. */
 export type ShimReplicationOneShot = {
     live?: false;
     /** Legacy cancellation option retained for existing callers. */
     controller?: AbortController;
 } & ShimReplicationOptionBase;
 
+/** Options for replication which continues watching until its controller cancels it. */
 export type ShimReplicationOptionContinuous = {
     live: true;
     controller: AbortController;
 } & ShimReplicationOptionBase;
 
+/** Selects finite or continuous shim replication. */
 export type ShimReplicationOption = ShimReplicationOneShot | ShimReplicationOptionContinuous;
+
+/** Explicit terminal state returned by {@link replicateShim}. */
 export type ShimReplicationOutcome = ShimReplicationCompleted | ShimReplicationCancelled;
 export type ShimReplicationCompleted = { readonly status: "completed" };
 export type ShimReplicationCancelled = { readonly status: "cancelled" };
@@ -108,10 +119,13 @@ export class ShimReplicationError extends Error {
     }
 }
 
+/** Sequence boundary committed by one successfully written batch. */
 export type ProgressInfo = {
     lastSeq: number;
     maxSeqInBatch: number;
 };
+
+/** Receives the documents and committed sequence boundary for each completed batch. */
 export type ShimReplicationProgressReportFunc<T extends object> = (
     progress: SomeDocument<T>[],
     progressInfo: ProgressInfo
@@ -151,13 +165,12 @@ function sortBySeq<T extends { _id: string }>(
 }
 
 function isSuccessfulBulkDocResult(result: unknown): result is PouchDB.Core.Response {
-    return typeof result === "object" && result !== null && (result as { ok?: unknown }).ok === true;
+    return typeof result === "object" && result !== null && "ok" in result && result.ok === true;
 }
 
 function isCancellationError(error: unknown): boolean {
     if (typeof error !== "object" || error === null) return false;
-    const candidate = error as { code?: unknown; name?: unknown };
-    return candidate.code === "CANCELLED" || candidate.name === "AbortError";
+    return ("code" in error && error.code === "CANCELLED") || ("name" in error && error.name === "AbortError");
 }
 
 /**
@@ -272,12 +285,12 @@ export async function replicateShim<T extends CompatibleDatabase<V>, U extends C
                         ({ id, rev }) => !fetchedRevisionKeys.has(`${id}\u0000${rev}`)
                     );
                     if (unavailableRequests.length > 0) {
-                        const unavailableFailures: ShimReplicationWriteFailure[] = unavailableRequests.map(
+                        const unavailableFailures = unavailableRequests.map<ShimReplicationWriteFailure>(
                             (request, index) => ({
                                 index,
                                 id: request.id,
                                 revision: request.rev,
-                                result: undefined as ShimReplicationWriteFailure["result"],
+                                result: undefined,
                             })
                         );
                         throw new ShimReplicationError(
@@ -296,7 +309,8 @@ export async function replicateShim<T extends CompatibleDatabase<V>, U extends C
                         // normal all-success response.  Conversely, any
                         // returned error is a failed required write.
                         if (isSuccessfulBulkDocResult(result)) return [];
-                        const resultId = (result as { id?: unknown } | undefined)?.id;
+                        const resultId =
+                            typeof result === "object" && result !== null && "id" in result ? result.id : undefined;
                         const owningIndex =
                             typeof resultId === "string" ? fetchedDocs.findIndex((doc) => doc._id === resultId) : -1;
                         const owningDocument = fetchedDocs[owningIndex >= 0 ? owningIndex : index];

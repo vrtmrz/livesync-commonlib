@@ -57,9 +57,13 @@ function getReportValue(report: Record<string, unknown> | undefined, key: string
     return typeof value === "string" || typeof value === "number" ? String(value) : "unknown";
 }
 
+function isUnknownRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null;
+}
+
 function projectCandidate(reports: readonly unknown[], candidateId: string): P2PCandidateSummary | undefined {
     if (candidateId === "unknown") return undefined;
-    const report = reports.map((value) => value as Record<string, unknown>).find((value) => value.id === candidateId);
+    const report = reports.filter(isUnknownRecord).find((value) => value.id === candidateId);
     if (!report) return undefined;
     return {
         id: candidateId,

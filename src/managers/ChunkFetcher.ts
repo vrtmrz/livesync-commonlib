@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf } from "@lib/common/t
 import { type ChunkManager } from "./ChunkManager.ts";
 
 import type { IReplicatorService, ISettingService } from "@lib/services/base/IService.ts";
+import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
 import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
 import { DEFAULT_CHUNK_DELIVERY_STALL_TIMEOUT_MS, type ChunkDeliveryClaim } from "./ChunkDeliveryCoordinator.ts";
 
@@ -25,6 +26,14 @@ type PendingChunkDelivery = {
     claim: ChunkDeliveryClaim;
     resolveActivityBoundary: (entered: boolean) => void;
 };
+
+interface RemoteChunkReader extends ReplicatorInstance {
+    fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]>;
+}
+
+function canFetchRemoteChunks(replicator: ReplicatorInstance): replicator is RemoteChunkReader {
+    return "fetchRemoteChunks" in replicator && typeof replicator.fetchRemoteChunks === "function";
+}
 
 export class ChunkFetcher {
     options: ChunkFetcherOptions;
@@ -203,10 +212,7 @@ export class ChunkFetcher {
                 Logger("No active replicator was found to request missing chunks.");
                 return;
             }
-            const remoteChunkReader = replicator as typeof replicator & {
-                fetchRemoteChunks?: (missingChunks: string[], showResult: boolean) => Promise<false | EntryLeaf[]>;
-            };
-            if (typeof remoteChunkReader.fetchRemoteChunks !== "function") {
+            if (!canFetchRemoteChunks(replicator)) {
                 Logger("The active replicator does not support fetching individual remote chunks.");
                 for (const chunkID of requestIDs) {
                     this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
@@ -214,7 +220,7 @@ export class ChunkFetcher {
                 return;
             }
             // Request the replicator to fetch the missing chunks.
-            const fetched = await remoteChunkReader.fetchRemoteChunks(requestIDs, false);
+            const fetched = await replicator.fetchRemoteChunks(requestIDs, false);
             this.touchClaims(requestIDs);
             if (!fetched) {
                 Logger(`No chunks were found for the following IDs: ${requestIDs.join(", ")}`);

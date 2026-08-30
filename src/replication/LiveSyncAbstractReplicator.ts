@@ -28,6 +28,14 @@ export type ReplicationStat = {
     lastSyncPushSeq: number;
     syncStatus: DatabaseConnectingStatus;
 };
+
+/**
+ * Constructor environment shared by the legacy concrete Replicator facades.
+ *
+ * This compatibility boundary supplies host services to those facades. Active
+ * provider capabilities and their ownership are declared separately by the
+ * replication provider contracts.
+ */
 export interface LiveSyncReplicatorEnv {
     services: RequiredServices<
         | "API"

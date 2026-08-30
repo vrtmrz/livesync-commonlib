@@ -278,13 +278,15 @@ export function defineReplicatorProviderDefinitions<const TKind extends readonly
         throw new Error("Replicator provider kinds must be unique.");
     }
 
-    const definitionEntries = Object.entries(definitions) as Array<[string, ReplicatorProviderDefinition]>;
-    if (definitionEntries.length !== selectedKinds.size) {
+    if (Object.keys(definitions).length !== selectedKinds.size) {
         throw new Error("Replicator provider definitions must match the selected provider kinds.");
     }
 
     const result = new Map<RemoteType, ReplicatorProviderDefinition>();
     for (const kind of kinds) {
+        // TypeScript widens a value iterated from the generic tuple to its
+        // `RemoteType` constraint. The mapped argument above still guarantees
+        // this key, and the following runtime check protects JavaScript callers.
         const definition = definitions[kind as TKind[number]];
         if (!definition || definition.kind !== kind) {
             throw new Error(`Replicator provider definition does not match '${kind}'.`);

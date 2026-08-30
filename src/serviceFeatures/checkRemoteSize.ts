@@ -1,14 +1,30 @@
 import { sizeToHumanReadable } from "octagonal-wheels/number";
-import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/types";
+import {
+    LOG_LEVEL_INFO,
+    LOG_LEVEL_NOTICE,
+    LOG_LEVEL_VERBOSE,
+    type ObsidianLiveSyncSettings,
+} from "@lib/common/types";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { EVENT_REQUEST_CHECK_REMOTE_SIZE } from "@lib/events/coreEvents";
 import { fireAndForget } from "@lib/common/utils";
+import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
 
 const REMOTE_SIZE_NOTICE_DURATION_MS = 5 * 60 * 1000;
 
 type RemoteSizeReviewMode = "notice" | "dialogue";
+
+interface RemoteStatusReader extends ReplicatorInstance {
+    getRemoteStatus(setting: ObsidianLiveSyncSettings): Promise<false | { estimatedSize?: number }>;
+}
+
+function canReadRemoteStatus(replicator: ReplicatorInstance | undefined): replicator is RemoteStatusReader {
+    return (
+        replicator !== undefined && "getRemoteStatus" in replicator && typeof replicator.getRemoteStatus === "function"
+    );
+}
 
 function configureReviewAnchor(anchor: HTMLAnchorElement, label: string, review: () => Promise<unknown>) {
     anchor.href = "#";
@@ -111,17 +127,9 @@ export function onNotifyRemoteSizeExceedFactory(
             return true;
         }
         const replicator = host.services.replicator.getActiveReplicator();
-        const statusReader = replicator as
-            | (typeof replicator & {
-                  getRemoteStatus?: (
-                      setting: ReturnType<typeof host.services.setting.currentSettings>
-                  ) => Promise<false | { estimatedSize?: number }>;
-              })
-            | undefined;
-        const remoteStat =
-            typeof statusReader?.getRemoteStatus === "function"
-                ? await statusReader.getRemoteStatus(host.services.setting.currentSettings())
-                : false;
+        const remoteStat = canReadRemoteStatus(replicator)
+            ? await replicator.getRemoteStatus(host.services.setting.currentSettings())
+            : false;
 
         if (!remoteStat) {
             // If we cannot get the remote status, we should not block subsequent processes.
