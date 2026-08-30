@@ -14,7 +14,7 @@ This design document records the implemented Commonlib Trystero P2P service. It 
 The P2P composition deliberately separates stable host policy from one replaceable room membership:
 
 - `useP2PReplicatorFeature` creates one P2P service composition for the host lifetime and registers non-owning active-provider adapters over it;
-- the service composition holds seven stable contract views and one host lifecycle view over a private context;
+- the service composition holds focused stable contract views and one host lifecycle view over a private context;
 - the private context owns explicit-connect and explicit-disconnect intent, the disconnect veto, application lifecycle generation, delayed AutoStart work, and the resource references shared by those views;
 - `P2PRoomSessionOwner` owns persistent and finite room demands, serialised room construction and retirement, effective-binding comparison, publication of the current session, and the stable `P2PAutomationCoordinator`;
 - `P2PAutomationCoordinator` owns baseline-transfer de-duplication across room replacement, including in-flight work until settlement and completed peer baselines for the current automation generation and logical database identity;
@@ -28,7 +28,7 @@ host composition
 └── useP2PReplicatorFeature()
     └── P2P service composition                    stable projection identity
         ├── host lifecycle view                    host-only application lifecycle operations
-        ├── seven focused views                    stable, non-owning capability projections
+        ├── focused views                          stable, non-owning capability projections
         ├── compatibility Replicator               deprecated, non-owning façade
         └── private P2P service context            stable policy and shared references
             └── P2PRoomSessionOwner                stable session owner and lifecycle queue
@@ -51,19 +51,20 @@ Only `P2PRoomSessionOwner` constructs, publishes, replaces, and retires the curr
 | `P2PRoomSession`            | none                                                                                             | room, host, Replicator, advertisements, clients, callbacks, feeds, and admitted finite-operation controllers                       |
 | Trystero                    | implementation-owned relay clients and potentially shared physical peers                         | the departed LiveSync room's membership, action namespace, and callbacks are detached through the Trystero room API                |
 
-Ordinary consumers use the seven focused views returned by the service feature. They do not receive the room session, raw host, raw peer connection, or concrete Replicator. `ReplicatorService` receives a fresh non-owning active adapter when it selects P2P as the main remote. Disposing or replacing that adapter neither leaves the service-owned room nor cancels work owned by another service consumer. The explicit stop capability cancels current finite transfers without retiring the room.
+Ordinary consumers use the focused views returned by the service feature. They do not receive the room session, raw host, raw peer connection, or concrete Replicator. `ReplicatorService` receives a fresh non-owning active adapter when it selects P2P as the main remote. Disposing or replacing that adapter neither leaves the service-owned room nor cancels work owned by another service consumer. The explicit stop capability cancels current finite transfers without retiring the room.
 
-The seven stable view objects close over the same private context, but do not expose that context or one another. They are capability boundaries for consumers, not separately allocated owners. A consumer receives only the views it needs.
+The stable view objects close over the same private context, but do not expose that context or one another. They are capability boundaries for consumers, not separately allocated owners. A consumer receives only the views it needs.
 
-| View                       | Implemented responsibility                                                                                               |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `P2PTransportLifecycle`    | observe the current connection and accept explicit connect or disconnect intent                                          |
-| `P2PPeerDirectory`         | supply a current peer advertisement snapshot                                                                             |
-| `P2PPeerAdmission`         | apply or revoke temporary and persisted acceptance decisions                                                             |
-| `P2PTargetedTransfer`      | pull, request push, synchronise one peer, or execute the persisted configured-target set without peer-selection dialogue |
-| `P2PChangeRelay`           | watch or unwatch a peer and enable or disable local-change broadcast                                                     |
-| `P2PConfigurationExchange` | retrieve configuration from one explicitly selected peer                                                                 |
-| `P2PDiagnostics`           | request status and project RTC metrics without exposing the room or peer connection                                      |
+| View                          | Implemented responsibility                                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `P2PTransportLifecycle`       | observe the current connection and accept explicit connect or disconnect intent                                          |
+| `P2PConnectionProbeAdmission` | arbitrate a complete Setup signalling check against the current relay binding                                            |
+| `P2PPeerDirectory`            | supply a current peer advertisement snapshot                                                                             |
+| `P2PPeerAdmission`            | apply or revoke temporary and persisted acceptance decisions                                                             |
+| `P2PTargetedTransfer`         | pull, request push, synchronise one peer, or execute the persisted configured-target set without peer-selection dialogue |
+| `P2PChangeRelay`              | watch or unwatch a peer and enable or disable local-change broadcast                                                     |
+| `P2PConfigurationExchange`    | retrieve configuration from one explicitly selected peer                                                                 |
+| `P2PDiagnostics`              | request status and project RTC metrics without exposing the room or peer connection                                      |
 
 The optional host UI factory is an explicit compatibility boundary. Commonlib supplies both the deprecated compatibility Replicator and the stable views. Maintained modal transport and status controls use the views; legacy interactive execution and rebuild-specific setup markers may still use the compatibility Replicator. Receiving that façade does not transfer ownership of the room. `UseP2PReplicatorResult.replicator` remains deprecated for the same bounded migration work.
 
@@ -93,6 +94,22 @@ Missing, rejected, and undecided targets remain visible in the target result rat
 
 Peer replication uses the ordinary common readiness gates, but declares central-remote preparation as not applicable. It therefore retains online, version, pending-file, clean-up, and host policy checks without trying to retrieve or initialise a CouchDB Security Seed. CouchDB and Object Storage providers declare central-remote preparation as required.
 
+## Setup connection-probe admission
+
+The current P2P Setup check establishes only whether its signalling transport can be opened. It does not validate peer discovery, room credentials against another device, or a TURN or WebRTC data path. Self-hosted LiveSync injects the service's `P2PConnectionProbeAdmission` view into every maintained opening of that Setup dialogue.
+
+The view delegates one complete decision to `P2PRoomSessionOwner`'s existing lifecycle queue. It receives the requested relay settings and a continuation which owns any short-lived raw Replicator and temporary database:
+
+- a serving room whose active relay set covers every requested relay settles as `observed-active` without entering the continuation;
+- a serving room which does not cover the requested relay set settles as `blocked` with `active-p2p-relay-binding-conflict`, again without entering the continuation; and
+- an idle owner runs the continuation and does not settle admission until that caller-owned trial has released its resources.
+
+Relay admission shares the transport's split-and-trim projection and compares de-duplicated sets. Ordering, duplicates, and surrounding whitespace therefore do not require another relay for this admission decision. It deliberately does not infer URI canonicalisation which Trystero's relay key does not implement.
+
+The continuation runs while the lifecycle queue owns serialisation. It must not await another lifecycle transition on the same service. A rejected continuation leaves the queue usable for a later request.
+
+This boundary adds no second room owner, process-global relay lease, or reference count. It does not change raw `TrysteroReplicator.dispose()` semantics. Observation and blocking never construct the raw trial, while idle admission keeps construction, probe execution, disposal, and temporary-database destruction inside one awaited continuation.
+
 ## Active transfer cancellation
 
 The provider's active-transfer stop capability asks the current `P2PRoomSession` to cancel every finite replication operation which it has admitted. The request returns after cancellation has been delivered; the operations then settle cooperatively. The session keeps the room, peer discovery, and RPC service available for later work. Stopping an active transfer is therefore distinct from disconnecting or replacing the P2P transport.
@@ -109,7 +126,7 @@ The transport lifecycle view delegates an explicit disconnect to its module-leve
 
 Normal close deliberately does not call `close()` on the `RTCPeerConnection` values returned by `room.getPeers()`. Trystero 0.25 may share a physical peer across rooms. Leaving a room detaches its callbacks and action namespace, while Trystero may retain the idle physical peer for approximately 123 seconds for reuse. The retained peer cannot carry traffic for the departed room.
 
-A host which constructs a raw `TrysteroReplicator` for a finite probe must call `dispose()` when it discards that object. `close()` releases the current transport while preserving host-lifetime subscriptions for a possible later open; `dispose()` performs that close and then releases those subscriptions permanently.
+A host which constructs a raw `TrysteroReplicator` inside an admitted idle trial must call `dispose()` when it discards that object. `close()` releases the current transport while preserving host-lifetime subscriptions for a possible later open; `dispose()` performs that close and then releases those subscriptions permanently.
 
 Likewise, an incoming peer-leave notification removes LiveSync advertisement and client state without directly closing the underlying peer. Trystero decides whether that peer is shared, stale, or ready for destruction.
 
@@ -159,6 +176,7 @@ Commonlib consequently does not expose a forced physical-disconnection command. 
 Maintain all five boundaries when this lifecycle changes:
 
 - Commonlib unit tests must prove that normal close leaves the room without directly closing Trystero-owned peers, that database close handlers all settle before physical close, that disabling P2P cancels a pending open, that removing one policy demand retains a room held by another demand, that concurrent replacement requests leave one current owner, that a changed effective binding replaces a serving transport while an equivalent representation, profile-only change, or policy-only change retains it, that AutoBroadcast is reconciled on that retained room, that a rebuild-owned continuation can reopen independently of an automatic-start veto, and that retired peer callbacks and host subscriptions cannot reach a replacement;
+- connection-probe admission tests must prove compatible active observation, typed blocking before an additional relay is opened, complete idle-trial serialisation and clean-up, representation-insensitive relay coverage, and lifecycle-queue recovery after a rejected trial;
 - target-aware automation tests must prove bounded delayed advertisement discovery, non-interactive acceptance outcomes, explicit partial and blocked results, baseline de-duplication across AutoSync and configured targets, cancellation of delayed AutoStart after suspension, and a finite demand beside an AutoStart-held room;
 - Commonlib rebuild tests must prove that first-device P2P initialisation does not reset a remote database and that an additional-device P2P Fetch performs one explicit peer-selection pass before resuming reflection;
 - the Self-hosted LiveSync Compose P2P lifecycle test must replace a current replicator, rediscover the same real peer, perform bidirectional RPC, and verify transferred content from a separate process;

@@ -42,7 +42,7 @@ The Node and browser entries are platform façades. They keep platform-specific 
 
 The RPC entry exists only while the maintained LiveSync P2P composition depends on the current implementation. Its draft wire protocol and PouchDB bridge are not stable Commonlib 1.0 contracts. RPC is planned to move to Fancy Kit as an independently owned rewrite; new Commonlib consumers should not adopt the transitional entry.
 
-The P2P entry exposes seven narrow views over one service owner, together with the maintained host-composition helpers. New consumers select only the lifecycle, peer-directory, peer-admission, targeted-transfer, change-relay, configuration-exchange, or diagnostic view which they need. The composition result still carries a deprecated concrete Replicator façade while existing panes migrate; new consumers must not depend on that property or reach through it to a raw room or host.
+The P2P entry exposes eight focused views over one service owner, together with the maintained host-composition helpers. New consumers select only the lifecycle, peer-directory, peer-admission, targeted-transfer, change-relay, configuration-exchange, diagnostic, or connection-probe-admission view which they need. The composition result still carries a deprecated concrete Replicator façade while existing panes migrate; new consumers must not depend on that property or reach through it to a raw room or host.
 
 ## Host context and initialisation
 
