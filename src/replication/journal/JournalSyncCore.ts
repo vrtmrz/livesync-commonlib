@@ -91,11 +91,14 @@ export class JournalSyncCore {
 
     async getSyncParameters(): Promise<SyncParameters> {
         try {
-            const downloadedData = await this.storage.download(DOCID_JOURNAL_SYNC_PARAMETERS, true);
-            if (!downloadedData) {
+            const result = await this.storage.downloadWithResult(DOCID_JOURNAL_SYNC_PARAMETERS, true);
+            if (result.status === JournalStorageReadStatuses.NOT_FOUND) {
                 throw new SyncParamsNotFoundError(`Missing sync parameters`);
             }
-            const downloadedSyncParams = JSON.parse(new TextDecoder().decode(downloadedData)) as SyncParameters;
+            if (result.status === JournalStorageReadStatuses.UNAVAILABLE) {
+                throw SyncParamsFetchError.fromError(result.error);
+            }
+            const downloadedSyncParams = JSON.parse(new TextDecoder().decode(result.value)) as SyncParameters;
             return downloadedSyncParams;
         } catch (ex) {
             Logger(`Could not retrieve remote sync parameters`, LOG_LEVEL_INFO);
@@ -324,12 +327,15 @@ export class JournalSyncCore {
                 if (files.length == 0) {
                     break;
                 }
-                await this.storage.deleteFiles(files);
+                if (!(await this.storage.deleteFiles(files))) {
+                    return false;
+                }
             } while (files.length != 0);
             clearHandlers();
         } catch (ex) {
             Logger(`WARNING! Could not delete files.`, LOG_LEVEL_NOTICE, "reset-bucket");
             Logger(ex, LOG_LEVEL_VERBOSE);
+            return false;
         }
 
         const journals = await this._getRemoteJournals();
@@ -337,7 +343,9 @@ export class JournalSyncCore {
             Logger("Nothing to delete!", LOG_LEVEL_NOTICE);
             return true;
         }
-        await this.storage.deleteFiles(journals);
+        if (!(await this.storage.deleteFiles(journals))) {
+            return false;
+        }
         Logger(`${journals.length} items has been deleted!`, LOG_LEVEL_NOTICE);
         await this.resetCheckpointInfo();
         return true;

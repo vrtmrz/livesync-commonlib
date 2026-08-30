@@ -19,6 +19,8 @@ import { CheckPointInfoDefault, type CheckPointInfo } from "./JournalSyncTypes.t
 import { wrappedDeflate, wrappedInflate } from "@lib/pouchdb/compress.ts";
 import { REMOTE_CHUNK_FETCHED } from "@lib/pouchdb/LiveSyncLocalDB.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase.ts";
+import { LiveSyncError } from "@lib/common/LSError.ts";
+import { SyncParamsFetchError, SyncParamsNotFoundError } from "@lib/replication/SyncParamsHandler.ts";
 
 PouchDB.plugin(MemoryAdapter);
 
@@ -105,6 +107,32 @@ describe("JournalSyncCore", () => {
     describe("getSyncParameters", () => {
         it("throws SyncParamsNotFoundError if sync parameters do not exist in storage", async () => {
             await expect(core.getSyncParameters()).rejects.toThrowError("Missing sync parameters");
+        });
+
+        it("does not report an unavailable read as missing sync parameters", async () => {
+            const unavailable = new Error("temporary object-storage failure");
+            vi.mocked(mockStorage.downloadWithResult).mockResolvedValueOnce({
+                status: "unavailable",
+                error: unavailable,
+            });
+
+            const failure = await core.getSyncParameters().catch((error: unknown) => error);
+
+            expect(LiveSyncError.isCausedBy(failure, SyncParamsFetchError)).toBe(true);
+            expect(LiveSyncError.isCausedBy(failure, SyncParamsNotFoundError)).toBe(false);
+            expect(mockStorage.downloadWithResult).toHaveBeenCalledWith(DOCID_JOURNAL_SYNC_PARAMETERS, true);
+            expect(mockStorage.download).not.toHaveBeenCalled();
+        });
+
+        it("does not create or upload synchronisation parameters after an unavailable read", async () => {
+            vi.mocked(mockStorage.downloadWithResult).mockResolvedValue({
+                status: "unavailable",
+                error: new Error("temporary object-storage failure"),
+            });
+
+            await expect(core.getReplicationPBKDF2Salt(true)).rejects.toThrow(SyncParamsFetchError);
+
+            expect(mockStorage.upload).not.toHaveBeenCalled();
         });
 
         it("returns downloaded sync parameters", async () => {
@@ -230,6 +258,23 @@ describe("JournalSyncCore", () => {
             ]);
 
             expect(listener).toHaveBeenCalledWith(expect.objectContaining({ _id: "h:chunk" }));
+        });
+    });
+
+    describe("resetBucket", () => {
+        it("reports failure when deleting listed files returns false", async () => {
+            const listFiles = vi
+                .spyOn(mockStorage, "listFiles")
+                .mockResolvedValueOnce(["journal.jsonl.gz"])
+                .mockResolvedValueOnce([])
+                .mockResolvedValueOnce([]);
+            const deleteFiles = vi.fn(async () => false);
+            mockStorage.deleteFiles = deleteFiles;
+
+            await expect(core.resetBucket()).resolves.toBe(false);
+
+            expect(deleteFiles).toHaveBeenCalledOnce();
+            expect(listFiles).toHaveBeenCalledWith("", 100);
         });
     });
 });
