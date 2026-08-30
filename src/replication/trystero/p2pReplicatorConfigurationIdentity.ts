@@ -3,17 +3,10 @@ import {
     hasValidP2PTurnServerUrl,
     normaliseP2PConnectionPath,
     normaliseP2PMaxWirePayloadBytes,
+    splitP2PRelayUrls,
     splitP2PTurnServerUrls,
 } from "@lib/common/models/setting.p2p.ts";
 import type { RemoteDBSettings } from "@lib/common/types.ts";
-
-function splitRelayUrls(value: string | undefined): string[] {
-    if (!value) return [];
-    return value
-        .split(",")
-        .map((entry) => entry.trim())
-        .filter((entry) => entry.length > 0);
-}
 
 /**
  * Project only values which fix the effective P2P transport generation.
@@ -38,7 +31,7 @@ export function getP2PReplicatorConfigurationIdentity(settings: RemoteDBSettings
         settings.P2P_AppID || "self-hosted-livesync",
         settings.P2P_roomID,
         settings.P2P_passphrase,
-        splitRelayUrls(settings.P2P_relays),
+        splitP2PRelayUrls(settings.P2P_relays),
         turnServers,
         turnAuthentication,
         normaliseP2PMaxWirePayloadBytes(settings.P2P_maxWirePayloadBytes),

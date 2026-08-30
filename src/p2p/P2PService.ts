@@ -22,6 +22,14 @@ import {
     replicationFailed,
     type ReplicationOutcome,
 } from "@lib/replication/ReplicatorProvider";
+import type { P2PConnectionProbeAdmission } from "@lib/replication/trystero/P2PConnectionProbeAdmission";
+
+export { ACTIVE_P2P_RELAY_BINDING_CONFLICT } from "@lib/replication/trystero/P2PConnectionProbeAdmission";
+export type {
+    P2PConnectionProbeAdmission,
+    P2PConnectionProbeAdmissionResult,
+    P2PConnectionProbeSettings,
+} from "@lib/replication/trystero/P2PConnectionProbeAdmission";
 
 /** Candidate details projected from browser RTC statistics. */
 export interface P2PCandidateSummary {
@@ -140,9 +148,10 @@ export interface P2PDiagnostics {
     getPeerConnectionMetrics(peerId: string): Promise<P2PPeerConnectionMetrics | undefined>;
 }
 
-/** Seven narrow contract views backed by one private P2P service context. */
+/** Focused contract views backed by one private P2P service context. */
 export interface P2PServiceViews {
     readonly transportLifecycle: P2PTransportLifecycle;
+    readonly connectionProbe: P2PConnectionProbeAdmission;
     readonly peerDirectory: P2PPeerDirectory;
     readonly peerAdmission: P2PPeerAdmission;
     readonly targetedTransfer: P2PTargetedTransfer;
@@ -345,6 +354,10 @@ function createServiceViews(context: P2PServiceContext): P2PServiceViews {
         connect: () => connect(context.roomSessionOwner, context.state),
         disconnect: () => disconnect(context.roomSessionOwner, context.state),
     };
+    const connectionProbe: P2PConnectionProbeAdmission = {
+        run: (trialSettings, runOwnedTrial) =>
+            context.roomSessionOwner.runConnectionProbe(trialSettings, runOwnedTrial),
+    };
     const peerDirectory: P2PPeerDirectory = {
         getPeers: () => context.compatibilityReplicator.knownAdvertisements,
     };
@@ -373,6 +386,7 @@ function createServiceViews(context: P2PServiceContext): P2PServiceViews {
     };
     return {
         transportLifecycle,
+        connectionProbe,
         peerDirectory,
         peerAdmission,
         targetedTransfer,
@@ -448,5 +462,4 @@ class P2PActiveReplicatorAdapter implements ReplicatorInstance {
         // this adapter therefore cannot close the room, relay sockets, or the
         // service's finite-operation registry.
     }
-
 }

@@ -13,6 +13,12 @@ import type { ReplicatorHostEnv } from "./types";
 import { P2PAutomationCoordinator } from "./P2PAutomationCoordinator";
 import { PEER_REPLICATION_READINESS } from "@lib/replication/ReplicatorProvider";
 import { getP2PReplicatorConfigurationIdentity } from "./p2pReplicatorConfigurationIdentity";
+import {
+    ACTIVE_P2P_RELAY_BINDING_CONFLICT,
+    activeP2PRelayBindingCovers,
+    type P2PConnectionProbeAdmissionResult,
+    type P2PConnectionProbeSettings,
+} from "./P2PConnectionProbeAdmission";
 
 type P2PRoomSessionBinding = {
     readonly database: PouchDB.Database<EntryDoc>;
@@ -119,6 +125,33 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         }
     }
 
+    /** Arbitrate a complete signalling probe on the room lifecycle queue. */
+    runConnectionProbe<T>(
+        trialSettings: P2PConnectionProbeSettings,
+        runOwnedTrial: () => Promise<T>
+    ): Promise<P2PConnectionProbeAdmissionResult<T>> {
+        return this.enqueueLifecycleOperation(async () => {
+            const current = this.current;
+            const activeBinding = this.activeBinding;
+            if (current?.host.isServing && activeBinding) {
+                if (activeP2PRelayBindingCovers(activeBinding.settings, trialSettings)) {
+                    return { status: "observed-active" };
+                }
+                return {
+                    status: "blocked",
+                    reason: ACTIVE_P2P_RELAY_BINDING_CONFLICT,
+                };
+            }
+            if (current) {
+                await this.closeTransport();
+            }
+            return {
+                status: "trial",
+                result: await runOwnedTrial(),
+            };
+        });
+    }
+
     private async reconcileTransport(): Promise<void> {
         await this.enqueueLifecycleOperation(async () => {
             if (!this.env.services.setting.currentSettings().P2P_Enabled) {
@@ -178,9 +211,12 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         return this.persistentDemands.size > 0 || this.finiteDemands.size > 0;
     }
 
-    private enqueueLifecycleOperation(operation: () => Promise<void>): Promise<void> {
+    private enqueueLifecycleOperation<T>(operation: () => Promise<T>): Promise<T> {
         const queued = this.lifecycleOperation.catch((): void => undefined).then(operation);
-        this.lifecycleOperation = queued.catch((): void => undefined);
+        this.lifecycleOperation = queued.then(
+            (): void => undefined,
+            (): void => undefined
+        );
         return queued;
     }
 

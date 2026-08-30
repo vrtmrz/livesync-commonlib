@@ -23,6 +23,15 @@ export function normaliseP2PConnectionPath(value: unknown): P2PConnectionPath {
     return value === P2PConnectionPaths.Relay ? P2PConnectionPaths.Relay : P2PConnectionPaths.Automatic;
 }
 
+/** Split the stored comma-separated signalling relay list without changing its entries. */
+export function splitP2PRelayUrls(value: string | undefined): string[] {
+    if (!value) return [];
+    return value
+        .split(",")
+        .map((entry) => entry.trim())
+        .filter((entry) => entry.length > 0);
+}
+
 /** Split the stored comma-separated TURN server list without changing its entries. */
 export function splitP2PTurnServerUrls(value: string): string[] {
     return value

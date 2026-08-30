@@ -9,7 +9,11 @@ export type {
     P2PServiceViews,
     P2PTargetedTransfer,
     P2PTransportLifecycle,
+    P2PConnectionProbeAdmission,
+    P2PConnectionProbeAdmissionResult,
+    P2PConnectionProbeSettings,
 } from "./P2PService.ts";
+export { ACTIVE_P2P_RELAY_BINDING_CONFLICT } from "./P2PService.ts";
 export { useP2PReplicatorCommands } from "@lib/replication/trystero/useP2PReplicatorCommands.ts";
 export { useP2PReplicatorFeature } from "@lib/replication/trystero/useP2PReplicatorFeature.ts";
 export type {

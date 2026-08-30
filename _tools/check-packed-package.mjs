@@ -236,11 +236,13 @@ import {
     type ReplicationOutcome,
 } from "${packageName}/replication";
 import type {
+    P2PConnectionProbeAdmission,
     P2PDiagnostics,
     P2PPeerConnectionMetrics,
     P2PServiceViews,
     UseP2PReplicatorResult,
 } from "${packageName}/p2p";
+import { ACTIVE_P2P_RELAY_BINDING_CONFLICT } from "${packageName}/p2p";
 import type {
     CouchDBReplicationConnection,
     LiveSyncCouchDBReplicator,
@@ -289,6 +291,8 @@ const securitySeedResourceKind: string = REMOTE_RESOURCE_KINDS.SECURITY_SEED;
 const noInteractionKind: string = NO_INTERACTION.kind;
 const completedCheck: boolean = isReplicationCompleted(completedOutcome);
 const readP2PDiagnostics = (views: P2PServiceViews): P2PDiagnostics => views.diagnostics;
+const readP2PConnectionProbe = (views: P2PServiceViews): P2PConnectionProbeAdmission => views.connectionProbe;
+const p2pRelayBindingConflict: string = ACTIVE_P2P_RELAY_BINDING_CONFLICT;
 const readP2PPeerConnectionMetrics = (
     diagnostics: P2PDiagnostics,
     peerId: string
@@ -323,6 +327,8 @@ void securitySeedResourceKind;
 void noInteractionKind;
 void completedCheck;
 void readP2PDiagnostics;
+void readP2PConnectionProbe;
+void p2pRelayBindingConflict;
 void readP2PPeerConnectionMetrics;
 void readP2PCompatibilityReplicator;
 `
@@ -368,6 +374,7 @@ assert.notEqual(settingsApi.createNewVaultSettings(), settingsApi.NEW_VAULT_SETT
 assert.equal(typeof remoteConfigurationsApi.upsertRemoteConfigurationInPlace, "function");
 assert.equal(typeof p2pApi.useP2PReplicatorFeature, "function");
 assert.equal(typeof p2pApi.useP2PReplicatorCommands, "function");
+assert.equal(p2pApi.ACTIVE_P2P_RELAY_BINDING_CONFLICT, "active-p2p-relay-binding-conflict");
 assert.equal(replicationApi.NO_INTERACTION.kind, "forbidden");
 assert.equal(replicationApi.CENTRAL_COMPATIBILITY_REJECTION_REASONS.NODE_LOCKED, "node-locked");
 assert.equal(replicationApi.REMOTE_RESOURCE_KINDS.SECURITY_SEED, "security-seed");

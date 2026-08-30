@@ -4,6 +4,7 @@ import { P2PConnectionPaths } from "@lib/common/models/setting.const";
 import {
     hasValidP2PTurnServerUrl,
     normaliseP2PConnectionPath,
+    splitP2PRelayUrls,
     splitP2PTurnServerUrls,
 } from "@lib/common/models/setting.p2p";
 import { mixedHash } from "octagonal-wheels/hash/purejs";
@@ -13,9 +14,7 @@ export function generateJoinRoomOptions(settings: P2PConnectionInfo): BaseRoomCo
     const passphraseNumbers = mixedHash(settings.P2P_passphrase, 0);
     const passphrase = passphraseNumbers[0].toString(36) + passphraseNumbers[1].toString(36);
 
-    const relays = settings.P2P_relays.split(",")
-        .map((e) => e.trim())
-        .filter((e) => e.length > 0);
+    const relays = splitP2PRelayUrls(settings.P2P_relays);
 
     const turnServers = splitP2PTurnServerUrls(settings.P2P_turnServers);
     const relayConfig: RelayConfig = {

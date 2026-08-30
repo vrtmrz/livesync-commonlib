@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { DiagRTCPeerConnectionMetrics } from "@lib/rpc/transports/DiagRTCPeerConnections.types";
-import { createP2PService, projectP2PPeerConnectionMetrics } from "./P2PService";
+import { ACTIVE_P2P_RELAY_BINDING_CONFLICT, createP2PService, projectP2PPeerConnectionMetrics } from "./P2PService";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
 import { LiveSyncTrysteroReplicator } from "@lib/replication/trystero/LiveSyncTrysteroReplicator";
 import { TrysteroReplicator } from "@lib/replication/trystero/TrysteroReplicator";
@@ -89,6 +89,7 @@ function createServiceHarness() {
         context,
         compatibilityReplicator: service.compatibilityReplicator,
         lifecycle: service.lifecycle,
+        views: service.views,
         transportLifecycle: service.views.transportLifecycle,
         targetedTransfer: service.views.targetedTransfer,
         settings,
@@ -98,6 +99,115 @@ function createServiceHarness() {
         },
     };
 }
+
+describe("P2P connection probe admission", () => {
+    it("runs an owned trial while no active room can race its global relay lifetime", async () => {
+        const roomLifecycle = mockRoomTransport();
+        const { settings, transportLifecycle, views } = createServiceHarness();
+        const admission = views.connectionProbe;
+        const releaseTrial = createDeferred();
+        const runOwnedTrial = vi.fn(async () => {
+            await releaseTrial.promise;
+            return "trial-result";
+        });
+
+        const trial = admission.run(settings, runOwnedTrial);
+        await vi.waitFor(() => expect(runOwnedTrial).toHaveBeenCalledOnce());
+        const connect = transportLifecycle.connect();
+
+        try {
+            await Promise.resolve();
+            expect(roomLifecycle).toEqual([]);
+            releaseTrial.resolve();
+            await expect(trial).resolves.toEqual({ status: "trial", result: "trial-result" });
+            await connect;
+            expect(roomLifecycle).toEqual(["open"]);
+        } finally {
+            releaseTrial.resolve();
+            await Promise.allSettled([trial, connect]);
+        }
+    });
+
+    it("observes a compatible active signalling relay without constructing a second room", async () => {
+        const roomLifecycle = mockRoomTransport();
+        const { settings, transportLifecycle, views } = createServiceHarness();
+        const admission = views.connectionProbe;
+        await transportLifecycle.connect();
+        const runOwnedTrial = vi.fn(async () => "unexpected-trial");
+
+        await expect(
+            admission.run(
+                {
+                    ...settings,
+                    P2P_roomID: "different-room",
+                    P2P_passphrase: "different-passphrase",
+                },
+                runOwnedTrial
+            )
+        ).resolves.toEqual({ status: "observed-active" });
+
+        expect(runOwnedTrial).not.toHaveBeenCalled();
+        expect(roomLifecycle).toEqual(["open"]);
+    });
+
+    it("blocks a trial which would add a relay socket to an active global binding", async () => {
+        const roomLifecycle = mockRoomTransport();
+        const { settings, transportLifecycle, views } = createServiceHarness();
+        const admission = views.connectionProbe;
+        await transportLifecycle.connect();
+        const runOwnedTrial = vi.fn(async () => "unexpected-trial");
+
+        await expect(
+            admission.run(
+                {
+                    ...settings,
+                    P2P_relays: "wss://another-relay.example.com",
+                },
+                runOwnedTrial
+            )
+        ).resolves.toEqual({
+            status: "blocked",
+            reason: ACTIVE_P2P_RELAY_BINDING_CONFLICT,
+        });
+
+        expect(runOwnedTrial).not.toHaveBeenCalled();
+        expect(roomLifecycle).toEqual(["open"]);
+    });
+
+    it("compares relay bindings as trimmed, de-duplicated URL sets", async () => {
+        const roomLifecycle = mockRoomTransport();
+        const { settings, transportLifecycle, views } = createServiceHarness();
+        settings.P2P_relays = "wss://relay-a.example.com,wss://relay-b.example.com";
+        await transportLifecycle.connect();
+        const runOwnedTrial = vi.fn(async () => "unexpected-trial");
+
+        await expect(
+            views.connectionProbe.run(
+                {
+                    P2P_relays: " wss://relay-b.example.com, wss://relay-a.example.com, wss://relay-b.example.com ",
+                },
+                runOwnedTrial
+            )
+        ).resolves.toEqual({ status: "observed-active" });
+
+        expect(runOwnedTrial).not.toHaveBeenCalled();
+        expect(roomLifecycle).toEqual(["open"]);
+    });
+
+    it("releases lifecycle serialisation after an owned trial fails", async () => {
+        const roomLifecycle = mockRoomTransport();
+        const { settings, transportLifecycle, views } = createServiceHarness();
+
+        await expect(
+            views.connectionProbe.run(settings, async () => {
+                throw new Error("trial failed");
+            })
+        ).rejects.toThrow("trial failed");
+        await transportLifecycle.connect();
+
+        expect(roomLifecycle).toEqual(["open"]);
+    });
+});
 
 function mockRoomTransport() {
     const lifecycle: string[] = [];
