@@ -1,4 +1,4 @@
-import type { S3 } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, type S3 } from "@aws-sdk/client-s3";
 import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import { HttpResponse } from "@smithy/protocol-http";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
@@ -44,6 +44,37 @@ function createAdapter(client: MockS3Client) {
 }
 
 describe("MinioStorageAdapter physical request activity", () => {
+    it("bypasses a retained renderer response for an ignore-cache read after write", async () => {
+        const encoder = new TextEncoder();
+        let stored = encoder.encode("before");
+        let retained: Uint8Array | undefined;
+        const send = vi.fn(async (command: unknown) => {
+            if (command instanceof PutObjectCommand) {
+                stored = command.input.Body as Uint8Array;
+                return {};
+            }
+            if (command instanceof GetObjectCommand) {
+                // Model a renderer which may retain and reuse a `no-cache` response
+                // after the object has been overwritten. `no-store` prevents that entry.
+                const preventsStorage = command.input.ResponseCacheControl === "no-store";
+                const response = preventsStorage || !retained ? stored : retained;
+                if (!preventsStorage) retained = response;
+                return {
+                    Body: {
+                        transformToByteArray: async () => response,
+                    },
+                };
+            }
+            throw new Error("Unexpected Object Storage command");
+        });
+        const { adapter } = createAdapter({ send });
+
+        await expect(adapter.download("control.json", true)).resolves.toEqual(encoder.encode("before"));
+        await expect(adapter.upload("control.json", encoder.encode("after"), "application/json")).resolves.toBe(true);
+
+        await expect(adapter.download("control.json", true)).resolves.toEqual(encoder.encode("after"));
+    });
+
     it("tracks an SDK command while it is in progress", async () => {
         const request = promiseWithResolvers<object>();
         const { adapter, requestCount, responseCount } = createAdapter({ send: vi.fn(() => request.promise) });
