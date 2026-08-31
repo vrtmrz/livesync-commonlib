@@ -38,6 +38,8 @@ Older code does not apply this boundary consistently. Improve it when changing t
 
 Use interaction-based, London School unit tests at a serviceFeature boundary. Verify which collaborator is called, in which order, what is not called after a failure, and which handler receives the composed operation. Test the focused state owner separately for its transitions and invariants. If a unit test requires a broad core fixture, a deep chain of mocks, import-order substitution, or knowledge of unrelated services, stop and review the responsibility and dependency boundary before adding more test machinery. Difficulty writing a clean interaction test is a design-review signal, not a reason to expose more internals.
 
+See [Service feature composition](service-feature-composition.md) for the decision table, current examples, state-ownership rules, legacy Module boundary, and London School testing guidance.
+
 ## Local validation
 
 For a complete local package gate, run:
