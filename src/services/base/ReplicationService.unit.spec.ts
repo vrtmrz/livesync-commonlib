@@ -17,7 +17,7 @@ import {
     type ReplicatorProviderDefinition,
 } from "@lib/replication/ReplicatorProvider.ts";
 import { NO_REMOTE_RESOURCE_CAPABILITIES } from "@lib/replication/RemoteResource.ts";
-import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P, type RemoteType } from "@lib/common/types.ts";
+import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P, type RemoteDBSettings, type RemoteType } from "@lib/common/types.ts";
 
 class TestReplicationService extends ReplicationService<ServiceContext> {}
 
@@ -25,8 +25,8 @@ const testConfigurationIdentity = (setting: { activeConfigurationId?: string; re
     setting.activeConfigurationId || setting.remoteType;
 
 function createDirectionalReplicationContext(replicator: {
-    replicateAllToServer: (...args: never[]) => Promise<boolean>;
-    replicateAllFromServer: (...args: never[]) => Promise<boolean>;
+    replicateAllToServer: (setting: RemoteDBSettings, showingNotice?: boolean) => Promise<boolean>;
+    replicateAllFromServer: (setting: RemoteDBSettings, showingNotice?: boolean) => Promise<boolean>;
 }): ActiveReplicatorContext {
     const provider: ReplicatorProviderDefinition<typeof REMOTE_COUCHDB> = {
         kind: REMOTE_COUCHDB,
@@ -624,10 +624,10 @@ describe("ReplicationService full upload", () => {
 });
 
 describe("ReplicationService rebuild maintenance", () => {
-    function createMaintenanceService({ applicationReady = false, databaseReady = true } = {}) {
+    function createMaintenanceService({ applicationReady = false, databaseReady = true, versionUpFlash = "" } = {}) {
         const transferEvents: string[] = [];
-        const replicateAllToServer = vi.fn(async () => true);
-        const replicateAllFromServer = vi.fn(async () => true);
+        const replicateAllToServer = vi.fn(async (_setting: RemoteDBSettings) => true);
+        const replicateAllFromServer = vi.fn(async (_setting: RemoteDBSettings) => true);
         const context = createDirectionalReplicationContext({ replicateAllToServer, replicateAllFromServer });
         const runWithActiveReplicatorContext = vi.fn(async (task: (context: ActiveReplicatorContext) => unknown) => {
             transferEvents.push("publication-admitted");
@@ -637,6 +637,7 @@ describe("ReplicationService rebuild maintenance", () => {
                 transferEvents.push("publication-released");
             }
         });
+        const settings = { versionUpFlash };
         const dependencies = {
             APIService: { addLog: vi.fn() },
             appLifecycleService: {
@@ -655,7 +656,7 @@ describe("ReplicationService rebuild maintenance", () => {
                 getActiveReplicator: vi.fn(() => ({ replicateAllToServer, replicateAllFromServer })),
             },
             settingService: {
-                currentSettings: vi.fn(() => ({})),
+                currentSettings: vi.fn(() => settings),
             },
         } as unknown as ReplicationServiceDependencies;
         const service = new TestReplicationService(new ServiceContext(), dependencies);
@@ -665,6 +666,7 @@ describe("ReplicationService rebuild maintenance", () => {
             replicateAllToServer,
             runWithActiveReplicatorContext,
             service,
+            settings,
             transferEvents,
         };
     }
@@ -687,6 +689,39 @@ describe("ReplicationService rebuild maintenance", () => {
 
         expect(replicateAllFromServer).toHaveBeenCalledOnce();
         expect(replicateAllToServer).toHaveBeenCalledOnce();
+    });
+
+    it("keeps a compatibility pause persisted while authorising only explicit rebuild transfer snapshots", async () => {
+        const compatibilityPause = "Review database compatibility before ordinary synchronisation.";
+        const { replicateAllFromServer, replicateAllToServer, service, settings } = createMaintenanceService({
+            applicationReady: true,
+            versionUpFlash: compatibilityPause,
+        });
+        replicateAllToServer.mockImplementation(async (setting) => setting.versionUpFlash === "");
+        replicateAllFromServer.mockImplementation(async (setting) => setting.versionUpFlash === "");
+
+        await expect(service.replicateAllToRemote()).resolves.toBe(false);
+        await expect(service.replicateAllFromRemote()).resolves.toBe(false);
+        await expect(service.replicateAllToRemoteForRebuild()).resolves.toBe(true);
+        await expect(service.replicateAllFromRemoteForRebuild()).resolves.toBe(true);
+
+        expect(replicateAllToServer).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({ versionUpFlash: compatibilityPause }),
+            false
+        );
+        expect(replicateAllToServer).toHaveBeenNthCalledWith(2, expect.objectContaining({ versionUpFlash: "" }), false);
+        expect(replicateAllFromServer).toHaveBeenNthCalledWith(
+            1,
+            expect.objectContaining({ versionUpFlash: compatibilityPause }),
+            false
+        );
+        expect(replicateAllFromServer).toHaveBeenNthCalledWith(
+            2,
+            expect.objectContaining({ versionUpFlash: "" }),
+            false
+        );
+        expect(settings.versionUpFlash).toBe(compatibilityPause);
     });
 
     it("keeps a failed rebuild upload failed when no connection-failure handler claims it", async () => {

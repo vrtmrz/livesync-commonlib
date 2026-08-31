@@ -53,6 +53,14 @@ const DIRECTIONAL_REPLICATION = Object.freeze({
 
 type DirectionalReplication = (typeof DIRECTIONAL_REPLICATION)[keyof typeof DIRECTIONAL_REPLICATION];
 
+const DIRECTIONAL_REPLICATION_ADMISSION = Object.freeze({
+    ORDINARY: "ordinary",
+    EXPLICIT_REBUILD: "explicit-rebuild",
+} as const);
+
+type DirectionalReplicationAdmission =
+    (typeof DIRECTIONAL_REPLICATION_ADMISSION)[keyof typeof DIRECTIONAL_REPLICATION_ADMISSION];
+
 interface DirectionalReplicationAdapter extends ReplicatorInstance {
     replicateAllToServer?(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>;
     replicateAllFromServer?(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>;
@@ -394,13 +402,20 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
      */
     private async performDirectionalReplication(
         direction: DirectionalReplication,
-        showingNotice: boolean
+        showingNotice: boolean,
+        admission: DirectionalReplicationAdmission = DIRECTIONAL_REPLICATION_ADMISSION.ORDINARY
     ): Promise<boolean> {
         if (direction === DIRECTIONAL_REPLICATION.UPLOAD && !(await this.onBeforeReplicate(showingNotice))) {
             this._log(this.context.translate("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_NOTICE);
             return false;
         }
         const setting = asCopy(this.settingService.currentSettings());
+        if (admission === DIRECTIONAL_REPLICATION_ADMISSION.EXPLICIT_REBUILD) {
+            // The confirmed recovery may run while ordinary replication stays
+            // paused. Authorise only this detached attempt; persistence and
+            // explicit compatibility acknowledgement remain unchanged.
+            setting.versionUpFlash = "";
+        }
         let expectedContext: ActiveReplicatorContext | undefined;
         const run = async (): Promise<ReplicationOutcome> => {
             const admitted = await this.replicatorService.runWithActiveReplicatorContext((context) => {
@@ -443,7 +458,11 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             this._log("The selected local database is not ready for the rebuild upload.", LOG_LEVEL_NOTICE);
             return false;
         }
-        return await this.performDirectionalReplication(DIRECTIONAL_REPLICATION.UPLOAD, showingNotice);
+        return await this.performDirectionalReplication(
+            DIRECTIONAL_REPLICATION.UPLOAD,
+            showingNotice,
+            DIRECTIONAL_REPLICATION_ADMISSION.EXPLICIT_REBUILD
+        );
     }
 
     /**
@@ -457,7 +476,11 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             this._log("The selected local database is not ready for the rebuild download.", LOG_LEVEL_NOTICE);
             return false;
         }
-        return await this.performDirectionalReplication(DIRECTIONAL_REPLICATION.DOWNLOAD, showingNotice);
+        return await this.performDirectionalReplication(
+            DIRECTIONAL_REPLICATION.DOWNLOAD,
+            showingNotice,
+            DIRECTIONAL_REPLICATION_ADMISSION.EXPLICIT_REBUILD
+        );
     }
 
     private getActiveReplicatorFor(usage: string) {
