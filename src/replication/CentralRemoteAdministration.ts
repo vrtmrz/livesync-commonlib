@@ -23,6 +23,7 @@ export const CENTRAL_REMOTE_ADMINISTRATION_OBSERVATION_KINDS = Object.freeze({
 /** Stable machine reasons which must not be used as display or translation keys. */
 export const CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS = Object.freeze({
     NO_ACTIVE_REPLICATOR: "no-active-replicator",
+    ACTIVE_CONFIGURATION_MISMATCH: "active-configuration-mismatch",
     CAPABILITY_NOT_IMPLEMENTED: CAPABILITY_UNAVAILABLE_REASONS.NOT_IMPLEMENTED,
     CAPABILITY_NOT_APPLICABLE: CAPABILITY_UNAVAILABLE_REASONS.NOT_APPLICABLE,
     LOCAL_IDENTITY_UNAVAILABLE: "local-identity-unavailable",
@@ -37,10 +38,12 @@ export type CentralRemoteAdministrationAction =
 export type CentralRemoteAdministrationFailureReason =
     (typeof CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS)[keyof typeof CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS];
 
+/** One requested mutation of the central milestone protocol. */
 export interface CentralRemoteAdministrationRequest {
     readonly action: CentralRemoteAdministrationAction;
 }
 
+/** Provider-independent projection of a central milestone after mutation. */
 export interface MilestoneCentralRemoteAdministrationObservation {
     readonly kind: typeof CENTRAL_REMOTE_ADMINISTRATION_OBSERVATION_KINDS.MILESTONE;
     readonly locked: boolean;
@@ -50,11 +53,13 @@ export interface MilestoneCentralRemoteAdministrationObservation {
 
 export type CentralRemoteAdministrationObservation = MilestoneCentralRemoteAdministrationObservation;
 
+/** The requested mutation was observed in the provider's central milestone. */
 export interface CentralRemoteAdministrationVerified {
     readonly status: typeof CENTRAL_REMOTE_ADMINISTRATION_RESULT_STATUSES.VERIFIED;
     readonly observation: CentralRemoteAdministrationObservation;
 }
 
+/** The request settled without a verified postcondition. */
 export interface CentralRemoteAdministrationVerificationFailed {
     readonly status: typeof CENTRAL_REMOTE_ADMINISTRATION_RESULT_STATUSES.VERIFICATION_FAILED;
     readonly reason: CentralRemoteAdministrationFailureReason;
@@ -87,12 +92,14 @@ export type CentralRemoteAdministrationRunner = (
     request: CentralRemoteAdministrationRequest
 ) => Promise<CentralRemoteAdministrationResult>;
 
+/** Construct a verified result from the provider's postcondition observation. */
 export function centralRemoteAdministrationVerified(
     observation: CentralRemoteAdministrationObservation
 ): CentralRemoteAdministrationVerified {
     return { status: CENTRAL_REMOTE_ADMINISTRATION_RESULT_STATUSES.VERIFIED, observation };
 }
 
+/** Construct a stable verification failure without converting mutation exceptions. */
 export function centralRemoteAdministrationVerificationFailed(
     reason: CentralRemoteAdministrationFailureReason,
     options: {
@@ -107,6 +114,7 @@ export function centralRemoteAdministrationVerificationFailed(
     };
 }
 
+/** Narrow one settled administration result to its verified arm. */
 export function isCentralRemoteAdministrationVerified(
     result: CentralRemoteAdministrationResult
 ): result is CentralRemoteAdministrationVerified {

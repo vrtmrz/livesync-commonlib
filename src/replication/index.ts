@@ -33,6 +33,7 @@ export type {
     NoInteraction,
     PermittedInteractionPermissions,
     ReplicationBlockReason,
+    ReplicationAttemptFailure,
     ReplicationCancelled,
     ReplicationCompleted,
     ReplicationFailed,

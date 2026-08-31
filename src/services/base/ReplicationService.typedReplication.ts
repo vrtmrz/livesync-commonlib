@@ -2,6 +2,7 @@ import type { ObsidianLiveSyncSettings } from "@lib/common/types.ts";
 import {
     CAPABILITY_SUPPORT_KINDS,
     NO_INTERACTION,
+    isActiveReplicatorContextBoundToSetting,
     replicationBlocked,
     replicationFailed,
     type ActiveReplicatorContext,
@@ -16,12 +17,12 @@ import {
 import type { IReplicatorService } from "./IService.ts";
 import { asCopy } from "@lib/common/utils.object.ts";
 
-/** Collaborators required to execute roles declared by a typed Replicator provider. */
+/** ReplicationService collaborators required to execute typed provider roles. */
 export interface TypedReplicationCoordinatorDependencies {
     readonly replicatorService: Pick<
         IReplicatorService,
         | "acquireActiveReplicatorContext"
-        | "getActiveReplicator"
+        | "hasActiveReplicator"
         | "runWithActiveReplicatorContext"
         | "runFiniteReplicationActivity"
     >;
@@ -116,8 +117,11 @@ export class TypedReplicationCoordinator {
      *
      * Capability applicability is established before readiness, because an
      * inapplicable long-lived role must not trigger unrelated preparation or
-     * diagnostics. Startup failures become typed outcomes without invoking the
-     * finite-operation recovery handler.
+     * diagnostics. After readiness, the short startup call is admitted against
+     * that exact publication. The provider owns the registered long-lived task
+     * after startup settles; it does not retain this admission for its lifetime.
+     * Startup failures become typed outcomes without invoking the finite-operation
+     * recovery handler.
      */
     async startContinuous(request: ContinuousReplicationRequest): Promise<ReplicationOutcome> {
         if (request.interaction.kind !== NO_INTERACTION.kind) {
@@ -134,11 +138,20 @@ export class TypedReplicationCoordinator {
         }
         const ready = await this.acquireReadyContext(false, context);
         if ("status" in ready) return ready;
-        try {
-            return await capability.run(ready.replicator, this.dependencies.currentSettings(), request);
-        } catch (error) {
-            return replicationFailed(error);
-        }
+        const setting = Object.freeze(asCopy(this.dependencies.currentSettings()));
+        const admitted = await this.dependencies.replicatorService.runWithActiveReplicatorContext(
+            async (activeContext) => {
+                if (activeContext !== ready || !isActiveReplicatorContextBoundToSetting(activeContext, setting)) {
+                    return replicationBlocked("not-ready");
+                }
+                try {
+                    return await capability.run(activeContext.replicator, setting, request);
+                } catch (error) {
+                    return replicationFailed(error);
+                }
+            }
+        );
+        return admitted ?? replicationBlocked("no-active-replicator");
     }
 
     /**
@@ -156,11 +169,17 @@ export class TypedReplicationCoordinator {
         if (capability.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
             return replicationBlocked(capability.reason);
         }
-        try {
-            return await capability.run(context.replicator);
-        } catch (error) {
-            return replicationFailed(error);
-        }
+        const admitted = await this.dependencies.replicatorService.runWithActiveReplicatorContext(
+            async (activeContext) => {
+                if (activeContext !== context) return replicationBlocked("not-ready");
+                try {
+                    return await capability.run(activeContext.replicator);
+                } catch (error) {
+                    return replicationFailed(error);
+                }
+            }
+        );
+        return admitted ?? replicationBlocked("no-active-replicator");
     }
 
     private finishFiniteAttempt(outcome: ReplicationOutcome): ReplicationOutcome {
@@ -175,7 +194,7 @@ export class TypedReplicationCoordinator {
         // transitions. Never combine a capability with a later Replicator.
         const context = await this.dependencies.replicatorService.acquireActiveReplicatorContext();
         if (context) return context;
-        return this.dependencies.replicatorService.getActiveReplicator()
+        return this.dependencies.replicatorService.hasActiveReplicator()
             ? replicationBlocked("provider-not-composed")
             : replicationBlocked("no-active-replicator");
     }
@@ -217,9 +236,12 @@ export class TypedReplicationCoordinator {
         interaction: InteractionAuthority,
         showMessage: boolean
     ): Promise<ReplicationOutcome> {
-        const admitted = await this.dependencies.replicatorService.runWithActiveReplicatorContext((context) =>
-            context === expectedContext ? this.runFiniteActivity(() => run(context)) : replicationBlocked("not-ready")
-        );
+        const admitted = await this.dependencies.replicatorService.runWithActiveReplicatorContext((context) => {
+            if (context !== expectedContext || !isActiveReplicatorContextBoundToSetting(context, setting)) {
+                return replicationBlocked("not-ready");
+            }
+            return this.runFiniteActivity(() => run(context));
+        });
         const result = admitted ?? replicationBlocked("no-active-replicator");
         // Failure recovery starts only after both finite activity accounting
         // and publication admission have settled. It may queue lifecycle work

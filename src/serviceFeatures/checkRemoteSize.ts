@@ -1,10 +1,5 @@
 import { sizeToHumanReadable } from "octagonal-wheels/number";
-import {
-    LOG_LEVEL_INFO,
-    LOG_LEVEL_NOTICE,
-    LOG_LEVEL_VERBOSE,
-    type ObsidianLiveSyncSettings,
-} from "@lib/common/types";
+import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type ObsidianLiveSyncSettings } from "@lib/common/types";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
@@ -127,9 +122,7 @@ export function onNotifyRemoteSizeExceedFactory(
             return true;
         }
         const replicator = host.services.replicator.getActiveReplicator();
-        const remoteStat = canReadRemoteStatus(replicator)
-            ? await replicator.getRemoteStatus(host.services.setting.currentSettings())
-            : false;
+        const remoteStat = canReadRemoteStatus(replicator) ? await replicator.getRemoteStatus(settings) : false;
 
         if (!remoteStat) {
             // If we cannot get the remote status, we should not block subsequent processes.
@@ -137,7 +130,7 @@ export function onNotifyRemoteSizeExceedFactory(
             return true;
         }
         const estimatedSize = remoteStat.estimatedSize;
-        if (estimatedSize) {
+        if (estimatedSize !== undefined) {
             const maxSize = settings.notifyThresholdOfRemoteStorageSize * 1024 * 1024;
             if (estimatedSize <= maxSize) {
                 log(

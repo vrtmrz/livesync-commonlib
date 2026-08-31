@@ -6,7 +6,7 @@ import type {
     RemoteResourceMap,
 } from "@lib/replication/RemoteResource.ts";
 
-/** Resolve one typed finite resource without adding a method per provider role. */
+/** Resolve one ReplicatorService-owned finite resource without adding a method per role. */
 export async function resolveRemoteResource<TKind extends RemoteResourceKind>(
     capabilities: RemoteResourceCapabilities,
     kind: TKind,

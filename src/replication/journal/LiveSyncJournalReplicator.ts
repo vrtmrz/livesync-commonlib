@@ -44,6 +44,16 @@ import {
 
 const MILSTONE_DOCID = "_00000000-milestone.json";
 
+type JournalMilestoneReadClient = Pick<JournalSyncCore, "downloadJsonWithResult">;
+
+/** Read a central milestone without converting remote uncertainty into absence. */
+async function readRemoteMilestone(client: JournalMilestoneReadClient): Promise<EntryMilestoneInfo | undefined> {
+    const result = await client.downloadJsonWithResult<EntryMilestoneInfo>(MILSTONE_DOCID);
+    if (result.status === JournalStorageReadStatuses.AVAILABLE) return result.value;
+    if (result.status === JournalStorageReadStatuses.NOT_FOUND) return undefined;
+    throw result.error;
+}
+
 const currentVersionRange: ChunkVersionRange = {
     min: 0,
     max: 2,
@@ -63,6 +73,12 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     _client?: JournalSyncCore;
     /** Whether this instance has entered a Journal transfer since its last close. */
     private hasEnteredReplication = false;
+    /** Transfers whose settlement must be observed by an admitted Stop request. */
+    private activeJournalTransfers?: Set<Promise<boolean>>;
+    /** Shared settlement for repeated Stop requests at the same boundary. */
+    private journalTransferStopSettlement?: Promise<void>;
+    /** Monotonic fence which prevents a preflight crossing a later Stop boundary. */
+    private journalTransferStopGeneration = 0;
 
     async getReplicationPBKDF2Salt(setting: RemoteDBSettings, refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
         return await this.setupJournalSyncClient(setting).getReplicationPBKDF2Salt(refresh);
@@ -130,8 +146,58 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         return Promise.resolve(true);
     }
 
-    terminateSync() {
-        this.client.requestStop();
+    /**
+     * Run one Replicator-owned Journal transfer after any earlier Stop boundary.
+     *
+     * The client owns transfer mechanics, while this Replicator owns the
+     * settlement required by its active-transfer cancellation contract.
+     */
+    private runJournalTransfer(run: (stopGeneration: number) => Promise<boolean>): Promise<boolean> {
+        const stopGeneration = this.journalTransferStopGeneration;
+        let resolveTask!: (value: boolean | PromiseLike<boolean>) => void;
+        let rejectTask!: (reason?: unknown) => void;
+        const task = new Promise<boolean>((resolve, reject) => {
+            resolveTask = resolve;
+            rejectTask = reject;
+        });
+        const activeTransfers = (this.activeJournalTransfers ??= new Set());
+        activeTransfers.add(task);
+        const release = () => activeTransfers.delete(task);
+        void task.then(release, release);
+
+        // Register settlement before starting setup: a synchronous client hook
+        // may re-enter Stop, which must still observe this admitted transfer.
+        void (async () => {
+            const stopping = this.journalTransferStopSettlement;
+            if (stopping) {
+                await stopping;
+            }
+            return await run(stopGeneration);
+        })().then(resolveTask, rejectTask);
+        return task;
+    }
+
+    /** Request client cancellation and await the transfers admitted before this Stop boundary. */
+    terminateSync(): Promise<void> {
+        // Stop is a control over existing work. It must not acquire the lazy
+        // Journal client merely because an unused publication is retiring.
+        this.journalTransferStopGeneration += 1;
+        const client = this._client;
+        client?.requestStop();
+        if (this.journalTransferStopSettlement) {
+            return this.journalTransferStopSettlement;
+        }
+        const activeTransfers = [...(this.activeJournalTransfers ?? [])];
+        if (activeTransfers.length === 0) return Promise.resolve();
+
+        let settlement!: Promise<void>;
+        settlement = Promise.allSettled(activeTransfers).then(() => {
+            if (this.journalTransferStopSettlement === settlement) {
+                this.journalTransferStopSettlement = undefined;
+            }
+        });
+        this.journalTransferStopSettlement = settlement;
+        return settlement;
     }
 
     async openReplication(
@@ -141,21 +207,28 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         ignoreCleanLock = false,
         recordCompatibilityDecision?: CentralCompatibilityDecisionRecorder
     ) {
-        const client = this.setupJournalSyncClient(setting);
-        if (
-            !(await this.checkReplicationConnectivity(
-                false,
-                ignoreCleanLock,
-                showResult,
-                setting,
-                client,
-                recordCompatibilityDecision
-            ))
-        ) {
-            return false;
-        }
-        this.hasEnteredReplication = true;
-        return await client.sync(showResult);
+        return await this.runJournalTransfer(async (stopGeneration) => {
+            const client = this.setupJournalSyncClient(setting);
+            // Setup may synchronously re-enter Stop while admitting the client.
+            // The cancellation fence starts when this attempt enters its
+            // connectivity preflight, not while that client is being obtained.
+            stopGeneration = this.journalTransferStopGeneration;
+            if (
+                !(await this.checkReplicationConnectivity(
+                    false,
+                    ignoreCleanLock,
+                    showResult,
+                    setting,
+                    client,
+                    recordCompatibilityDecision
+                ))
+            ) {
+                return false;
+            }
+            if (stopGeneration !== this.journalTransferStopGeneration) return false;
+            this.hasEnteredReplication = true;
+            return await client.sync(showResult);
+        });
     }
 
     /**
@@ -181,18 +254,73 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         }
     }
 
+    private async runDirectionalReplication(
+        setting: RemoteDBSettings,
+        showingNotice: boolean | undefined,
+        transfer: (client: JournalSyncCore) => Promise<boolean>,
+        recordCompatibilityDecision?: CentralCompatibilityDecisionRecorder
+    ): Promise<boolean> {
+        return await this.runJournalTransfer(async (stopGeneration) => {
+            const client = this.setupJournalSyncClient(setting);
+            stopGeneration = this.journalTransferStopGeneration;
+            if (
+                !(await this.checkReplicationConnectivity(
+                    false,
+                    false,
+                    !!showingNotice,
+                    setting,
+                    client,
+                    recordCompatibilityDecision
+                ))
+            ) {
+                return false;
+            }
+            if (stopGeneration !== this.journalTransferStopGeneration) return false;
+            this.hasEnteredReplication = true;
+            return await transfer(client);
+        });
+    }
+
+    /** Capture only the compatibility decision made by this exact borrowed client. */
+    private async runDirectionalReplicationWithOutcome(
+        setting: RemoteDBSettings,
+        showingNotice: boolean | undefined,
+        transfer: (client: JournalSyncCore) => Promise<boolean>
+    ): Promise<ReplicationOutcome> {
+        let decision: CentralCompatibilityDecision = CENTRAL_COMPATIBILITY_NOT_ASSESSED;
+        const recordDecision: CentralCompatibilityDecisionRecorder = (next) => {
+            decision = next;
+        };
+        try {
+            const result = await this.runDirectionalReplication(setting, showingNotice, transfer, recordDecision);
+            return outcomeFromFiniteOpenReplication(result, centralCompatibilityRecoveryHint(decision));
+        } catch (error) {
+            return replicationFailed(error, centralCompatibilityRecoveryHint(decision));
+        }
+    }
+
     async replicateAllToServer(setting: RemoteDBSettings, showingNotice?: boolean) {
-        const client = this.setupJournalSyncClient(setting);
-        if (!(await this.checkReplicationConnectivity(false, false, !!showingNotice, setting, client))) return false;
-        this.hasEnteredReplication = true;
-        return await client.sendLocalJournal(showingNotice);
+        return await this.runDirectionalReplication(setting, showingNotice, (client) =>
+            client.sendLocalJournal(showingNotice)
+        );
+    }
+
+    async replicateAllToServerWithOutcome(setting: RemoteDBSettings, showingNotice?: boolean) {
+        return await this.runDirectionalReplicationWithOutcome(setting, showingNotice, (client) =>
+            client.sendLocalJournal(showingNotice)
+        );
     }
 
     async replicateAllFromServer(setting: RemoteDBSettings, showingNotice?: boolean) {
-        const client = this.setupJournalSyncClient(setting);
-        if (!(await this.checkReplicationConnectivity(false, false, !!showingNotice, setting, client))) return false;
-        this.hasEnteredReplication = true;
-        return await client.receiveRemoteJournal(showingNotice);
+        return await this.runDirectionalReplication(setting, showingNotice, (client) =>
+            client.receiveRemoteJournal(showingNotice)
+        );
+    }
+
+    async replicateAllFromServerWithOutcome(setting: RemoteDBSettings, showingNotice?: boolean) {
+        return await this.runDirectionalReplicationWithOutcome(setting, showingNotice, (client) =>
+            client.receiveRemoteJournal(showingNotice)
+        );
     }
 
     async checkReplicationConnectivity(
@@ -324,9 +452,10 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             tweak_values: {},
         };
 
+        const client = this.setupJournalSyncClient(setting);
         const remoteMilestone: EntryMilestoneInfo = {
             ...defInitPoint,
-            ...((await this.client.downloadJson(MILSTONE_DOCID)) || {}),
+            ...((await readRemoteMilestone(client)) ?? {}),
         };
         remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
         remoteMilestone.accepted_nodes = [this.nodeid];
@@ -337,7 +466,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         } else {
             Logger("Unlock remote bucket to prevent data corruption", LOG_LEVEL_NOTICE);
         }
-        if (!(await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone))) {
+        if (!(await client.uploadJson(MILSTONE_DOCID, remoteMilestone))) {
             throw new Error("Could not upload remote milestone");
         }
     }
@@ -353,14 +482,15 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             tweak_values: {},
         };
 
+        const client = this.setupJournalSyncClient(setting);
         const remoteMilestone: EntryMilestoneInfo = {
             ...defInitPoint,
-            ...((await this.client.downloadJson(MILSTONE_DOCID)) || {}),
+            ...((await readRemoteMilestone(client)) ?? {}),
         };
         remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
         remoteMilestone.accepted_nodes = Array.from(new Set([...remoteMilestone.accepted_nodes, this.nodeid]));
         Logger("Mark this device as 'resolved'.", LOG_LEVEL_NOTICE);
-        if (!(await this.client.uploadJson(MILSTONE_DOCID, remoteMilestone))) {
+        if (!(await client.uploadJson(MILSTONE_DOCID, remoteMilestone))) {
             throw new Error("Could not upload remote milestone");
         }
     }

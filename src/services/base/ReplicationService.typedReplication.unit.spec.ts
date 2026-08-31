@@ -15,7 +15,7 @@ import { NO_REMOTE_RESOURCE_CAPABILITIES } from "@lib/replication/RemoteResource
 import {
     TypedReplicationCoordinator,
     type TypedReplicationCoordinatorDependencies,
-} from "./TypedReplicationCoordinator.ts";
+} from "./ReplicationService.typedReplication.ts";
 
 function createHarness() {
     const replicator = {} as ActiveReplicatorContext["replicator"];
@@ -37,15 +37,21 @@ function createHarness() {
         continuous: { kind: CAPABILITY_SUPPORT_KINDS.SUPPORTED, run: continuous },
         stopActiveTransfer: { kind: CAPABILITY_SUPPORT_KINDS.SUPPORTED, run: stop },
     };
-    const context: ActiveReplicatorContext = { provider, replicator };
+    const context: ActiveReplicatorContext = {
+        provider,
+        replicator,
+        configurationIdentity: "configuration-a",
+    };
     const activityEvents: string[] = [];
+    const getActiveReplicator = vi.fn(() => replicator);
     const runWithActiveReplicatorContext = vi.fn(async (task: (context: ActiveReplicatorContext) => unknown) =>
         task(context)
     );
     const dependencies = {
         replicatorService: {
             acquireActiveReplicatorContext: vi.fn(async () => context),
-            getActiveReplicator: vi.fn(() => replicator),
+            getActiveReplicator,
+            hasActiveReplicator: vi.fn(() => true),
             runWithActiveReplicatorContext,
             runFiniteReplicationActivity: vi.fn(async (task: () => Promise<unknown>) => {
                 activityEvents.push("activity-started");
@@ -75,6 +81,7 @@ function createHarness() {
         continuous,
         coordinator: new TypedReplicationCoordinator(dependencies),
         dependencies,
+        getActiveReplicator,
         provider,
         replicator,
         runWithActiveReplicatorContext,
@@ -150,6 +157,7 @@ describe("TypedReplicationCoordinator", () => {
         const replacementContext: ActiveReplicatorContext = {
             provider,
             replicator: { replacement: true } as never,
+            configurationIdentity: "configuration-a",
         };
         let activeContext = context;
         Object.assign(provider, {
@@ -161,8 +169,8 @@ describe("TypedReplicationCoordinator", () => {
                 }),
             },
         });
-        vi.mocked(dependencies.replicatorService.getActiveReplicator).mockImplementation(
-            () => activeContext.replicator
+        vi.mocked(dependencies.replicatorService.hasActiveReplicator).mockImplementation(
+            () => activeContext === context
         );
         vi.mocked(dependencies.handleFailure).mockImplementation(async (request: unknown) => {
             if (typeof request === "object" && request !== null && "context" in request) {
@@ -226,6 +234,40 @@ describe("TypedReplicationCoordinator", () => {
         expect(unattended).not.toHaveBeenCalled();
         expect(dependencies.replicatorService.runFiniteReplicationActivity).not.toHaveBeenCalled();
         expect(dependencies.recordFiniteAttempt).toHaveBeenCalledOnce();
+    });
+
+    it("does not dispatch continuous work prepared for a publication replaced after readiness", async () => {
+        const { context, continuous, coordinator, dependencies, runWithActiveReplicatorContext } = createHarness();
+        const replacementContext: ActiveReplicatorContext = {
+            ...context,
+            replicator: { replacement: true } as never,
+        };
+        let markReadinessStarted!: () => void;
+        const readinessStarted = new Promise<void>((resolve) => {
+            markReadinessStarted = resolve;
+        });
+        let releaseReadiness!: () => void;
+        const readinessGate = new Promise<void>((resolve) => {
+            releaseReadiness = resolve;
+        });
+        vi.mocked(dependencies.checkReadiness).mockImplementation(async () => {
+            markReadinessStarted();
+            await readinessGate;
+            return true;
+        });
+        runWithActiveReplicatorContext.mockImplementation(async (task) => await task(replacementContext));
+
+        const start = coordinator.startContinuous({ trigger: "daemon", interaction: NO_INTERACTION });
+        await readinessStarted;
+        releaseReadiness();
+
+        await expect(start).resolves.toEqual({
+            status: "blocked",
+            reason: "not-ready",
+        });
+        expect(dependencies.checkReadiness).toHaveBeenCalledWith(false, context.provider.readiness);
+        expect(runWithActiveReplicatorContext).toHaveBeenCalledOnce();
+        expect(continuous).not.toHaveBeenCalled();
     });
 
     it("finishes finite activity before notifying failure recovery", async () => {
@@ -320,11 +362,25 @@ describe("TypedReplicationCoordinator", () => {
 
         const absent = createHarness();
         vi.mocked(absent.dependencies.replicatorService.acquireActiveReplicatorContext).mockResolvedValue(undefined);
-        vi.mocked(absent.dependencies.replicatorService.getActiveReplicator).mockReturnValue(undefined);
+        vi.mocked(absent.dependencies.replicatorService.hasActiveReplicator).mockReturnValue(false);
         await expect(
             absent.coordinator.runUnattended({ trigger: "resume", interaction: NO_INTERACTION })
         ).resolves.toEqual({ status: "blocked", reason: "no-active-replicator" });
         expect(absent.dependencies.recordFiniteAttempt).not.toHaveBeenCalled();
+    });
+
+    it("returns a silent no-active result when typed acquisition has no provider or Replicator", async () => {
+        const { coordinator, dependencies, getActiveReplicator } = createHarness();
+        vi.mocked(dependencies.replicatorService.acquireActiveReplicatorContext).mockResolvedValue(undefined);
+        const hasActiveReplicator = vi.mocked(dependencies.replicatorService.hasActiveReplicator);
+        hasActiveReplicator.mockReturnValue(false);
+
+        await expect(coordinator.runUnattended({ trigger: "resume", interaction: NO_INTERACTION })).resolves.toEqual({
+            status: "blocked",
+            reason: "no-active-replicator",
+        });
+        expect(hasActiveReplicator).toHaveBeenCalledOnce();
+        expect(getActiveReplicator).not.toHaveBeenCalled();
     });
 
     it("returns an unsupported continuous role before running readiness", async () => {
@@ -362,5 +418,23 @@ describe("TypedReplicationCoordinator", () => {
         expect(dependencies.checkReadiness).not.toHaveBeenCalled();
         expect(dependencies.replicatorService.runFiniteReplicationActivity).not.toHaveBeenCalled();
         expect(dependencies.handleFailure).not.toHaveBeenCalled();
+    });
+
+    it("does not invoke explicit stop on a context retired after capture", async () => {
+        const { context, coordinator, dependencies, replicator, runWithActiveReplicatorContext, stop } =
+            createHarness();
+        const replacementContext: ActiveReplicatorContext = {
+            ...context,
+            replicator: { replacement: true } as never,
+        };
+        runWithActiveReplicatorContext.mockImplementation(async (task) => await task(replacementContext));
+
+        await expect(coordinator.stopActiveTransfer()).resolves.toEqual({
+            status: "blocked",
+            reason: "not-ready",
+        });
+
+        expect(runWithActiveReplicatorContext).toHaveBeenCalledOnce();
+        expect(stop).not.toHaveBeenCalledWith(replicator);
     });
 });

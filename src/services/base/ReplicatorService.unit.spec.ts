@@ -9,6 +9,7 @@ import {
     CAPABILITY_NOT_APPLICABLE,
     CENTRAL_REMOTE_REPLICATION_READINESS,
     defineReplicatorProviderDefinitions,
+    NO_INTERACTION,
     supportedOpenReplicationContinuous,
     supportedOpenReplicationOneShot,
     supportedOpenReplicationUnattended,
@@ -19,10 +20,13 @@ import type { ActiveReplicatorContext } from "@lib/replication/ReplicatorProvide
 import {
     NO_REMOTE_RESOURCE_CAPABILITIES,
     CENTRAL_REMOTE_ADMINISTRATION_ACTIONS,
+    CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS,
+    CENTRAL_REMOTE_ADMINISTRATION_RESULT_STATUSES,
     REMOTE_RESOURCE_KINDS,
     supportedCapability,
     type PreferredTweakProbe,
 } from "@lib/replication";
+import { TypedReplicationCoordinator } from "./ReplicationService.typedReplication.ts";
 
 class TestReplicatorService extends ReplicatorService<ServiceContext> {
     /** Test-only non-owning observation; production callers must acquire a reservation. */
@@ -154,6 +158,14 @@ function createProviderFixture(
 }
 
 describe("ReplicatorService lifecycle", () => {
+    it("classifies missing active state without producing the legacy diagnostic", () => {
+        const service = createService();
+        const showError = vi.spyOn(service._unresolvedErrorManager, "showError");
+
+        expect(service.hasActiveReplicator()).toBe(false);
+        expect(showError).not.toHaveBeenCalled();
+    });
+
     it("does not announce a database reset when no active publication exists", async () => {
         const service = createService();
         const logs = captureGlobalLogs();
@@ -250,6 +262,7 @@ describe("ReplicatorService lifecycle", () => {
 
         expect(initializeDatabaseForReplication).toHaveBeenCalledOnce();
         expect(service.getActiveReplicator()).toBe(replicator);
+        expect(service.hasActiveReplicator()).toBe(true);
     });
 
     it("disposes a candidate when local-node initialisation fails", async () => {
@@ -329,6 +342,120 @@ describe("ReplicatorService lifecycle", () => {
             releaseUse();
         }
         await activeUse;
+    });
+
+    it("waits for a pending continuous start before closing its retiring publication", async () => {
+        let currentSettings = { remoteType: REMOTE_COUCHDB, activeConfigurationId: "profile-a" };
+        let markContinuousStarted!: () => void;
+        const continuousStarted = new Promise<void>((resolve) => {
+            markContinuousStarted = resolve;
+        });
+        let releaseContinuous!: () => void;
+        const continuousGate = new Promise<void>((resolve) => {
+            releaseContinuous = resolve;
+        });
+        const lifecycle = createProviderFixture(() => currentSettings);
+        const openReplication = vi.fn(async () => {
+            markContinuousStarted();
+            await continuousGate;
+        });
+        Object.assign(lifecycle.replicator, { openReplication });
+        await lifecycle.realiseSettings();
+        const coordinator = new TypedReplicationCoordinator({
+            replicatorService: lifecycle.service,
+            currentSettings: () => currentSettings as never,
+            checkReadiness: vi.fn(async () => true),
+            handleFailure: vi.fn(async () => false),
+            recordFiniteAttempt: vi.fn(),
+        });
+
+        const continuous = coordinator.startContinuous({ trigger: "daemon", interaction: NO_INTERACTION });
+        await continuousStarted;
+        currentSettings = { remoteType: REMOTE_COUCHDB, activeConfigurationId: "profile-b" };
+        const replacement = lifecycle.realiseSettings();
+
+        try {
+            await vi.waitFor(() => expect(lifecycle.replicator.terminateSync).toHaveBeenCalledOnce());
+            expect(lifecycle.replicator.closeReplication).not.toHaveBeenCalled();
+        } finally {
+            releaseContinuous();
+        }
+
+        await expect(continuous).resolves.toEqual({ status: "completed" });
+        await expect(replacement).resolves.toBe(true);
+        expect(lifecycle.replicator.closeReplication).toHaveBeenCalledOnce();
+    });
+
+    it("does not combine changed settings with an unattended publication which has not yet been rebound", async () => {
+        let currentSettings = { remoteType: REMOTE_COUCHDB, activeConfigurationId: "profile-a" };
+        const lifecycle = createProviderFixture(() => currentSettings);
+        const openReplication = vi.fn(async () => true);
+        Object.assign(lifecycle.replicator, { openReplication });
+        await lifecycle.realiseSettings();
+        currentSettings = { remoteType: REMOTE_COUCHDB, activeConfigurationId: "profile-b" };
+        const coordinator = new TypedReplicationCoordinator({
+            replicatorService: lifecycle.service,
+            currentSettings: () => currentSettings as never,
+            checkReadiness: vi.fn(async () => true),
+            handleFailure: vi.fn(async () => false),
+            recordFiniteAttempt: vi.fn(),
+        });
+
+        await expect(
+            coordinator.runUnattended({ trigger: "database-event", interaction: NO_INTERACTION })
+        ).resolves.toMatchObject({ status: "blocked" });
+        expect(openReplication).not.toHaveBeenCalled();
+    });
+
+    it("does not combine changed settings with a continuous publication which has not yet been rebound", async () => {
+        let currentSettings = { remoteType: REMOTE_COUCHDB, activeConfigurationId: "profile-a" };
+        const lifecycle = createProviderFixture(() => currentSettings);
+        const openReplication = vi.fn(async () => true);
+        Object.assign(lifecycle.replicator, { openReplication });
+        await lifecycle.realiseSettings();
+        currentSettings = { remoteType: REMOTE_COUCHDB, activeConfigurationId: "profile-b" };
+        const coordinator = new TypedReplicationCoordinator({
+            replicatorService: lifecycle.service,
+            currentSettings: () => currentSettings as never,
+            checkReadiness: vi.fn(async () => true),
+            handleFailure: vi.fn(async () => false),
+            recordFiniteAttempt: vi.fn(),
+        });
+
+        await expect(
+            coordinator.startContinuous({ trigger: "daemon", interaction: NO_INTERACTION })
+        ).resolves.toMatchObject({ status: "blocked" });
+        expect(openReplication).not.toHaveBeenCalled();
+    });
+
+    it("does not administer a publication using settings which have not yet been rebound", async () => {
+        let currentSettings = { remoteType: REMOTE_COUCHDB, activeConfigurationId: "profile-a" };
+        const lifecycle = createProviderFixture(() => currentSettings);
+        const administer = vi.fn(async () => ({
+            status: "verified" as const,
+            observation: {
+                kind: "milestone" as const,
+                locked: true,
+                accepted: true,
+                nodeId: "node-a",
+            },
+        }));
+        Object.assign(lifecycle.definition, {
+            centralRemoteAdministration: supportedCapability(administer),
+        });
+        await lifecycle.realiseSettings();
+        currentSettings = { remoteType: REMOTE_COUCHDB, activeConfigurationId: "profile-b" };
+
+        const result = await lifecycle.service.runCentralRemoteAdministration({
+            action: CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.LOCK,
+        });
+
+        expect(lifecycle.replicator.terminateSync).not.toHaveBeenCalled();
+        expect(administer).not.toHaveBeenCalled();
+        expect(result).toEqual({
+            status: CENTRAL_REMOTE_ADMINISTRATION_RESULT_STATUSES.VERIFICATION_FAILED,
+            reason: CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS.ACTIVE_CONFIGURATION_MISMATCH,
+        });
     });
 
     it("registers unload as terminal quiescing disposal without publishing a replacement", async () => {
@@ -565,6 +692,7 @@ describe("ReplicatorService lifecycle", () => {
         expect(service.getActiveReplicatorContext()).toEqual({
             provider: definition,
             replicator: providerReplicator,
+            configurationIdentity: REMOTE_MINIO,
         });
 
         const conflictingDefinition = { ...definition, diagnosticName: "Other Object Storage" };
@@ -662,7 +790,11 @@ describe("ReplicatorService lifecycle", () => {
 
         expect(definition.create).toHaveBeenCalledOnce();
         expect(replicator.closeReplication).not.toHaveBeenCalled();
-        expect(service.getActiveReplicatorContext()).toEqual({ provider: definition, replicator });
+        expect(service.getActiveReplicatorContext()).toEqual({
+            provider: definition,
+            replicator,
+            configurationIdentity: "profile-a",
+        });
         expect(service.getActiveReplicatorContext()).toBe(currentContext);
     });
 
@@ -720,7 +852,11 @@ describe("ReplicatorService lifecycle", () => {
 
         resolveCandidate(newReplicator);
         await expect(replacement).resolves.toBe(true);
-        await expect(acquisition).resolves.toEqual({ provider: definition, replicator: newReplicator });
+        await expect(acquisition).resolves.toEqual({
+            provider: definition,
+            replicator: newReplicator,
+            configurationIdentity: "profile-b",
+        });
         expect(acquisitionSettled).toBe(true);
         expect(oldReplicator.closeReplication).toHaveBeenCalledOnce();
     });
@@ -790,7 +926,9 @@ describe("ReplicatorService lifecycle", () => {
 
         try {
             await vi.waitFor(() => expect(service.getActiveReplicatorContext()).toBeUndefined());
-            expect(oldReplicator.terminateSync).toHaveBeenCalledOnce();
+            // Administration and later terminal retirement each own an
+            // idempotent stop request for the same publication.
+            expect(oldReplicator.terminateSync).toHaveBeenCalledTimes(2);
             expect(oldReplicator.closeReplication).not.toHaveBeenCalled();
 
             rejectAdministration();
@@ -872,7 +1010,11 @@ describe("ReplicatorService lifecycle", () => {
             expect.objectContaining({ activeConfigurationId: "profile-b" })
         );
         expect(oldReplicator.closeReplication).toHaveBeenCalledOnce();
-        expect(service.getActiveReplicatorContext()).toEqual({ provider: definition, replicator: newReplicator });
+        expect(service.getActiveReplicatorContext()).toEqual({
+            provider: definition,
+            replicator: newReplicator,
+            configurationIdentity: "profile-b",
+        });
     });
 
     it("keeps a failed physical retirement fenced and retries it before replacement", async () => {
@@ -922,7 +1064,11 @@ describe("ReplicatorService lifecycle", () => {
         expect(oldReplicator.terminateSync).toHaveBeenCalledTimes(2);
         expect(oldReplicator.closeReplication).toHaveBeenCalledTimes(2);
         expect(definition.create).toHaveBeenCalledTimes(2);
-        expect(service.getActiveReplicatorContext()).toEqual({ provider: definition, replicator: newReplicator });
+        expect(service.getActiveReplicatorContext()).toEqual({
+            provider: definition,
+            replicator: newReplicator,
+            configurationIdentity: "profile-b",
+        });
     });
 
     it("does not publish a candidate whose selected profile changed while creation was pending", async () => {

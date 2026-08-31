@@ -10,6 +10,7 @@ import { type LogFunction, createInstanceLogFunction } from "@lib/services/lib/l
 import { englishMessageTranslator as $msg } from "@lib/services/base/MessageTranslator";
 import { EVENT_REQUEST_CHECK_REMOTE_SIZE } from "@lib/events/coreEvents";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
+import { LOG_LEVEL_INFO } from "@lib/common/types";
 
 const APIServiceMock = {
     addLog(message: string, level?: any) {
@@ -292,6 +293,35 @@ describe("onNotifyRemoteSizeExceed", () => {
         const result = await handler();
 
         expect(result).toBe(true);
+    });
+
+    it("uses one settings snapshot and reports an observed zero size", async () => {
+        const admittedSettings = {
+            notifyThresholdOfRemoteStorageSize: 800,
+            marker: "admitted",
+        };
+        const laterSettings = {
+            notifyThresholdOfRemoteStorageSize: 800,
+            marker: "later",
+        };
+        const currentSettings = vi.fn().mockReturnValueOnce(admittedSettings).mockReturnValue(laterSettings);
+        const getRemoteStatus = vi.fn().mockResolvedValue({ estimatedSize: 0 });
+        const operationLog = vi.fn() as unknown as LogFunction;
+        const host = {
+            services: {
+                context: createTranslatedContext(),
+                API: { isOnline: true },
+                replicator: { getActiveReplicator: () => ({ getRemoteStatus }) },
+                setting: { currentSettings },
+            },
+            serviceModules: {},
+        } as any;
+
+        await expect(onNotifyRemoteSizeExceedFactory(host, operationLog)()).resolves.toBe(true);
+
+        expect(currentSettings).toHaveBeenCalledOnce();
+        expect(getRemoteStatus).toHaveBeenCalledWith(admittedSettings);
+        expect(operationLog).toHaveBeenCalledWith(expect.any(String), LOG_LEVEL_INFO);
     });
 
     it("defers exceeded-size choices to a clickable notice", async () => {

@@ -71,6 +71,7 @@ import {
 } from "@lib/replication/CentralCompatibility.ts";
 import {
     outcomeFromFiniteOpenReplication,
+    replicationBlocked,
     replicationFailed,
     type ReplicationOutcome,
 } from "@lib/replication/ReplicatorProvider.ts";
@@ -85,6 +86,10 @@ const currentVersionRange: ChunkVersionRange = {
 
 const selectorOnDemandPull = { selector: { type: { $ne: "leaf" } } };
 const DEFAULT_ONE_SHOT_CONNECTIVITY_TIMEOUT_MS = 60_000;
+const ONE_SHOT_REPLICATION_ALREADY_RUNNING = Symbol("one-shot-replication-already-running");
+
+type OneShotReplicationExecution = boolean | typeof ONE_SHOT_REPLICATION_ALREADY_RUNNING;
+type OneShotReplicationContinuation = () => Promise<OneShotReplicationExecution>;
 
 class OneShotConnectivityPreflightTimeoutError extends Error {
     constructor(timeoutMs: number) {
@@ -185,6 +190,14 @@ export interface CouchDBReplicationConnection extends OwnedCouchDBConnection<Ent
 export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     declare env: LiveSyncCouchDBReplicatorEnv;
 
+    /**
+     * Keep Continuous ownership visible before CouchDB has created its live
+     * controller, so a stop request cannot be lost during catch-up.
+     */
+    private continuousTask: Promise<boolean> | undefined;
+    private continuousStopWaiter: Promise<void> | undefined;
+    private continuousStopRequested = false;
+
     isMobile() {
         return this.env.services.API.isMobile();
     }
@@ -244,12 +257,29 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         return Promise.resolve(true);
     }
 
-    terminateSync() {
-        if (!this.controller) {
-            return;
-        }
-        this.controller.abort();
+    /** Abort only the active controller; internal transitions must not await their own task. */
+    private abortController(): void {
+        this.controller?.abort();
         this.controller = undefined;
+    }
+
+    /**
+     * Request cancellation of the current transfer and share the tracked
+     * Continuous settlement when startup has not created a controller yet.
+     */
+    terminateSync(): Promise<void> {
+        const task = this.continuousTask;
+        if (task) {
+            this.continuousStopRequested = true;
+        }
+        this.abortController();
+        if (!task) {
+            return Promise.resolve();
+        }
+        return (this.continuousStopWaiter ??= task.then<void, void>(
+            (): void => undefined,
+            (): void => undefined
+        ));
     }
 
     async openReplication(
@@ -260,6 +290,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     ) {
         if (!this.nodeid) return false;
         if (keepAlive) {
+            // Continuous work is tracked by the provider, but must not retain
+            // the service's publication reservation for its whole lifetime.
             void this.openContinuousReplication(setting, showResult, false);
         } else {
             return this.openOneShotReplication(setting, showResult, false, "sync", ignoreCleanLock);
@@ -277,19 +309,36 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         showResult: boolean,
         ignoreCleanLock = false
     ): Promise<ReplicationOutcome> {
+        return await this.runOneShotReplicationWithOutcome(setting, showResult, "sync", ignoreCleanLock);
+    }
+
+    /** Capture the compatibility decision made by this exact directional connection. */
+    private async runOneShotReplicationWithOutcome(
+        setting: RemoteDBSettings,
+        showResult: boolean,
+        syncMode: "sync" | "pullOnly" | "pushOnly",
+        ignoreCleanLock = false
+    ): Promise<ReplicationOutcome> {
         let decision: CentralCompatibilityDecision = CENTRAL_COMPATIBILITY_NOT_ASSESSED;
         const recordDecision: CentralCompatibilityDecisionRecorder = (next) => {
             decision = next;
         };
         try {
-            const result = await this.openOneShotReplication(
+            const result = await this.runOneShotReplication(
                 setting,
                 showResult,
                 false,
-                "sync",
+                syncMode,
                 ignoreCleanLock,
                 recordDecision
             );
+            if (result === ONE_SHOT_REPLICATION_ALREADY_RUNNING) {
+                // A joining request owns neither the transfer nor its retry or
+                // resurrection continuation. CLI success and exit codes depend
+                // on completed outcomes, although normal CLI orchestration starts
+                // only one OneShot at a time; this protects overlap with other work.
+                return replicationBlocked("replication-in-progress");
+            }
             return outcomeFromFiniteOpenReplication(result, centralCompatibilityRecoveryHint(decision));
         } catch (error) {
             return replicationFailed(error, centralCompatibilityRecoveryHint(decision));
@@ -347,18 +396,18 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         this.syncStatus = "COMPLETED";
         this.updateInfo();
         Logger("Replication completed", showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, showResult ? "sync" : "");
-        this.terminateSync();
+        this.abortController();
     }
     replicationDenied(e: unknown) {
         this.syncStatus = "ERRORED";
         this.updateInfo();
-        this.terminateSync();
+        this.abortController();
         Logger("Replication denied", LOG_LEVEL_NOTICE, "sync");
         Logger(e, LOG_LEVEL_VERBOSE);
     }
     replicationErrored(e: unknown) {
         this.syncStatus = "ERRORED";
-        this.terminateSync();
+        this.abortController();
         this.updateInfo();
         Logger("Replication error", LOG_LEVEL_NOTICE, "sync");
         Logger(e, LOG_LEVEL_VERBOSE);
@@ -476,7 +525,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             Logger(ex, LOG_LEVEL_VERBOSE);
             return "FAILED";
         } finally {
-            this.terminateSync();
+            this.abortController();
             this.controller = undefined;
         }
     }
@@ -730,134 +779,208 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         return true;
     }
 
+    /** Run one finite transfer through the legacy boolean settlement contract. */
     async openOneShotReplication(
         setting: RemoteDBSettings,
         showResult: boolean,
         retrying: boolean,
         syncMode: "sync" | "pullOnly" | "pushOnly",
         ignoreCleanLock = false,
-        recordCompatibilityDecision?: CentralCompatibilityDecisionRecorder
+        recordCompatibilityDecision?: CentralCompatibilityDecisionRecorder,
+        cancellationRequested: () => boolean = () => false
     ): Promise<boolean> {
-        if ((await this.ensurePBKDF2Salt(setting, showResult, !retrying)) === false) {
+        const result = await this.runOneShotReplication(
+            setting,
+            showResult,
+            retrying,
+            syncMode,
+            ignoreCleanLock,
+            recordCompatibilityDecision,
+            cancellationRequested
+        );
+        // The legacy contract has no neutral blocked arm.
+        return result === ONE_SHOT_REPLICATION_ALREADY_RUNNING ? false : result;
+    }
+
+    /**
+     * Run one finite CouchDB transfer and close its owned remote connection.
+     *
+     * The caller which enters the shared task owns Security Seed preparation,
+     * transfer, and any retry or resurrection continuation. A joining caller
+     * waits for the shared step only so it cannot race the owner, then receives
+     * the internal non-admission result without running that continuation.
+     *
+     * Continuous catch-up supplies `cancellationRequested` so a stop observed
+     * during awaited preparation cannot proceed to a later connection or
+     * controller. The admitted owner retains the established transfer behaviour.
+     */
+    private async runOneShotReplication(
+        setting: RemoteDBSettings,
+        showResult: boolean,
+        retrying: boolean,
+        syncMode: "sync" | "pullOnly" | "pushOnly",
+        ignoreCleanLock = false,
+        recordCompatibilityDecision?: CentralCompatibilityDecisionRecorder,
+        cancellationRequested: () => boolean = () => false
+    ): Promise<OneShotReplicationExecution> {
+        if (cancellationRequested()) {
             return false;
         }
-        const next = await shareRunningResult("oneShotReplication", async () => {
-            if (this.controller) {
-                Logger(
-                    this.translate("liveSyncReplicator.replicationInProgress"),
-                    showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
-                    "sync"
-                );
-                return false;
-            }
-            const localDB = this.rawDatabase;
-            Logger(this.translate("liveSyncReplicator.oneShotSyncBegin", { syncMode }));
-            const ret = await this.checkOneShotReplicationConnectivity(
-                setting,
-                false,
-                showResult,
-                ignoreCleanLock,
-                recordCompatibilityDecision
-            );
-            if (ret === false) {
-                Logger(
-                    this.translate("liveSyncReplicator.couldNotConnectToServer"),
-                    showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
-                    "sync"
-                );
-                return false;
-            }
-            const { db, syncOptionBase } = ret;
-            try {
-                this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
-                this.maxPushSeq = Number(`${(await localDB.info()).update_seq}`.split("-")[0]);
-                if (showResult) {
-                    Logger(this.translate("liveSyncReplicator.checkingLastSyncPoint"), LOG_LEVEL_NOTICE, "sync");
+        let ownsSharedAttempt = false;
+        let next: boolean | OneShotReplicationContinuation;
+        try {
+            next = await shareRunningResult("oneShotReplication", async () => {
+                ownsSharedAttempt = true;
+                if (cancellationRequested()) {
+                    return false;
                 }
-                this.syncStatus = "STARTED";
-                this.updateInfo();
-                const docArrivedOnStart = this.docArrived;
-                const docSentOnStart = this.docSent;
-                if (!retrying) {
-                    // If initial replication, save setting to rollback
-                    this.originalSetting = setting;
+                if (
+                    (await this.ensurePBKDF2Salt(setting, showResult, !retrying)) === false ||
+                    cancellationRequested()
+                ) {
+                    return false;
                 }
-                this.terminateSync();
-                const syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc> =
-                    syncMode == "sync"
-                        ? localDB.sync(db, { ...syncOptionBase })
-                        : syncMode == "pullOnly"
-                          ? localDB.replicate.from(db, {
-                                ...syncOptionBase,
-                                ...(setting.readChunksOnline ? selectorOnDemandPull : {}),
-                            })
-                          : syncMode == "pushOnly"
-                            ? localDB.replicate.to(db, { ...syncOptionBase })
-                            : (undefined as never);
-                const syncResult = await this.processSync(
-                    syncHandler,
+                if (this.controller) {
+                    Logger(
+                        this.translate("liveSyncReplicator.replicationInProgress"),
+                        showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
+                        "sync"
+                    );
+                    return false;
+                }
+                const localDB = this.rawDatabase;
+                Logger(this.translate("liveSyncReplicator.oneShotSyncBegin", { syncMode }));
+                const ret = await this.checkOneShotReplicationConnectivity(
+                    setting,
+                    false,
                     showResult,
-                    docSentOnStart,
-                    docArrivedOnStart,
-                    syncMode,
-                    retrying,
-                    false
+                    ignoreCleanLock,
+                    recordCompatibilityDecision
                 );
-                if (syncResult == "DONE") {
-                    return true;
-                }
-                if (syncResult == "CANCELLED") {
-                    return false;
-                }
-                if (syncResult == "FAILED") {
-                    return false;
-                }
-                if (syncResult == "NEED_RESURRECT") {
-                    this.terminateSync();
-                    return async () =>
-                        await this.openOneShotReplication(
-                            this.originalSetting,
-                            showResult,
-                            false,
-                            syncMode,
-                            ignoreCleanLock,
-                            recordCompatibilityDecision
-                        );
-                }
-                if (syncResult == "NEED_RETRY") {
-                    const tempSetting: RemoteDBSettings = JSON.parse(JSON.stringify(setting));
-                    tempSetting.batch_size = Math.ceil(tempSetting.batch_size / 2) + 2;
-                    tempSetting.batches_limit = Math.ceil(tempSetting.batches_limit / 2) + 2;
-                    if (tempSetting.batch_size <= 5 && tempSetting.batches_limit <= 5) {
+                if (ret === false) {
+                    if (!cancellationRequested()) {
                         Logger(
-                            this.translate("liveSyncReplicator.cantReplicateLowerValue"),
-                            showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
+                            this.translate("liveSyncReplicator.couldNotConnectToServer"),
+                            showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO,
+                            "sync"
                         );
+                    }
+                    return false;
+                }
+                const { db, syncOptionBase } = ret;
+                try {
+                    if (cancellationRequested()) {
                         return false;
-                    } else {
-                        Logger(
-                            this.translate("liveSyncReplicator.retryLowerBatchSize", {
-                                batch_size: tempSetting.batch_size.toString(),
-                                batches_limit: tempSetting.batches_limit.toString(),
-                            }),
-                            showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
-                        );
+                    }
+                    this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
+                    this.maxPushSeq = Number(`${(await localDB.info()).update_seq}`.split("-")[0]);
+                    if (cancellationRequested()) {
+                        return false;
+                    }
+                    if (showResult) {
+                        Logger(this.translate("liveSyncReplicator.checkingLastSyncPoint"), LOG_LEVEL_NOTICE, "sync");
+                    }
+                    this.syncStatus = "STARTED";
+                    this.updateInfo();
+                    const docArrivedOnStart = this.docArrived;
+                    const docSentOnStart = this.docSent;
+                    if (!retrying) {
+                        // If initial replication, save setting to rollback
+                        this.originalSetting = setting;
+                    }
+                    this.abortController();
+                    if (cancellationRequested()) {
+                        return false;
+                    }
+                    const syncHandler: PouchDB.Replication.Sync<EntryDoc> | PouchDB.Replication.Replication<EntryDoc> =
+                        syncMode == "sync"
+                            ? localDB.sync(db, { ...syncOptionBase })
+                            : syncMode == "pullOnly"
+                              ? localDB.replicate.from(db, {
+                                    ...syncOptionBase,
+                                    ...(setting.readChunksOnline ? selectorOnDemandPull : {}),
+                                })
+                              : syncMode == "pushOnly"
+                                ? localDB.replicate.to(db, { ...syncOptionBase })
+                                : (undefined as never);
+                    const syncResult = await this.processSync(
+                        syncHandler,
+                        showResult,
+                        docSentOnStart,
+                        docArrivedOnStart,
+                        syncMode,
+                        retrying,
+                        false
+                    );
+                    if (cancellationRequested()) {
+                        return false;
+                    }
+                    if (syncResult == "DONE") {
+                        return true;
+                    }
+                    if (syncResult == "CANCELLED") {
+                        return false;
+                    }
+                    if (syncResult == "FAILED") {
+                        return false;
+                    }
+                    if (syncResult == "NEED_RESURRECT") {
+                        this.abortController();
                         return async () =>
-                            await this.openOneShotReplication(
-                                tempSetting,
+                            await this.runOneShotReplication(
+                                this.originalSetting,
                                 showResult,
-                                true,
+                                false,
                                 syncMode,
                                 ignoreCleanLock,
-                                recordCompatibilityDecision
+                                recordCompatibilityDecision,
+                                cancellationRequested
                             );
                     }
+                    if (syncResult == "NEED_RETRY") {
+                        const tempSetting: RemoteDBSettings = JSON.parse(JSON.stringify(setting));
+                        tempSetting.batch_size = Math.ceil(tempSetting.batch_size / 2) + 2;
+                        tempSetting.batches_limit = Math.ceil(tempSetting.batches_limit / 2) + 2;
+                        if (tempSetting.batch_size <= 5 && tempSetting.batches_limit <= 5) {
+                            Logger(
+                                this.translate("liveSyncReplicator.cantReplicateLowerValue"),
+                                showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
+                            );
+                            return false;
+                        } else {
+                            Logger(
+                                this.translate("liveSyncReplicator.retryLowerBatchSize", {
+                                    batch_size: tempSetting.batch_size.toString(),
+                                    batches_limit: tempSetting.batches_limit.toString(),
+                                }),
+                                showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
+                            );
+                            return async () =>
+                                await this.runOneShotReplication(
+                                    tempSetting,
+                                    showResult,
+                                    true,
+                                    syncMode,
+                                    ignoreCleanLock,
+                                    recordCompatibilityDecision,
+                                    cancellationRequested
+                                );
+                        }
+                    }
+                    return false;
+                } finally {
+                    await this.closeRemoteConnection(ret);
                 }
-                return false;
-            } finally {
-                await this.closeRemoteConnection(ret);
+            });
+        } catch (error) {
+            if (!ownsSharedAttempt) {
+                return ONE_SHOT_REPLICATION_ALREADY_RUNNING;
             }
-        });
+            throw error;
+        }
+        if (!ownsSharedAttempt) {
+            return ONE_SHOT_REPLICATION_ALREADY_RUNNING;
+        }
         if (typeof next === "boolean") {
             return next;
         }
@@ -875,13 +998,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         // Keep its existing behaviour until the host can honour AbortSignal.
         if (setting.useRequestAPI) {
             if (!recordCompatibilityDecision) {
-                return await this.checkReplicationConnectivity(
-                    setting,
-                    false,
-                    skipCheck,
-                    showResult,
-                    ignoreCleanLock
-                );
+                return await this.checkReplicationConnectivity(setting, false, skipCheck, showResult, ignoreCleanLock);
             }
             return await this.checkReplicationConnectivity(
                 setting,
@@ -901,10 +1018,18 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             timeoutMs
         );
         try {
-            return await this.checkReplicationConnectivity(setting, false, skipCheck, showResult, ignoreCleanLock, {
-                signal: controller.signal,
-                allowNativeFallback: false,
-            }, recordCompatibilityDecision);
+            return await this.checkReplicationConnectivity(
+                setting,
+                false,
+                skipCheck,
+                showResult,
+                ignoreCleanLock,
+                {
+                    signal: controller.signal,
+                    allowNativeFallback: false,
+                },
+                recordCompatibilityDecision
+            );
         } finally {
             compatGlobal.clearTimeout(timeout);
         }
@@ -934,8 +1059,16 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         return this.openOneShotReplication(setting, showingNotice ?? false, false, "pushOnly");
     }
 
+    replicateAllToServerWithOutcome(setting: RemoteDBSettings, showingNotice?: boolean) {
+        return this.runOneShotReplicationWithOutcome(setting, showingNotice ?? false, "pushOnly");
+    }
+
     replicateAllFromServer(setting: RemoteDBSettings, showingNotice?: boolean) {
         return this.openOneShotReplication(setting, showingNotice ?? false, false, "pullOnly");
+    }
+
+    replicateAllFromServerWithOutcome(setting: RemoteDBSettings, showingNotice?: boolean) {
+        return this.runOneShotReplicationWithOutcome(setting, showingNotice ?? false, "pullOnly");
     }
 
     private reportConnectivityPreflightTimeout(
@@ -1077,10 +1210,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     // NO OP: FOR NARROWING TYPE
                 } else if (ensure[0] == "MISMATCHED") {
                     recordCompatibilityDecision?.(
-                        centralCompatibilityRejected(
-                            CENTRAL_COMPATIBILITY_REJECTION_REASONS.TWEAK_MISMATCH,
-                            ensure[1]
-                        )
+                        centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.TWEAK_MISMATCH, ensure[1])
                     );
                     Logger(this.translate("liveSyncReplicator.mismatchedTweakDetected"), LOG_LEVEL_NOTICE);
                     this.tweakSettingsMismatched = true;
@@ -1123,13 +1253,44 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
     }
 
-    async openContinuousReplication(
+    openContinuousReplication(setting: RemoteDBSettings, showResult: boolean, retrying: boolean): Promise<boolean> {
+        if (this.continuousTask) {
+            return this.continuousTask;
+        }
+
+        this.continuousStopRequested = false;
+        this.continuousStopWaiter = undefined;
+        let resolveTask!: (value: boolean | PromiseLike<boolean>) => void;
+        let rejectTask!: (reason?: unknown) => void;
+        const task = new Promise<boolean>((resolve, reject) => {
+            resolveTask = resolve;
+            rejectTask = reject;
+        });
+        this.continuousTask = task;
+        void task.then(
+            () => this.clearContinuousTask(task),
+            () => this.clearContinuousTask(task)
+        );
+        void this.runContinuousReplication(setting, showResult, retrying).then(resolveTask, rejectTask);
+        return task;
+    }
+
+    private clearContinuousTask(task: Promise<boolean>): void {
+        if (this.continuousTask !== task) {
+            return;
+        }
+        this.continuousTask = undefined;
+        this.continuousStopWaiter = undefined;
+        this.continuousStopRequested = false;
+    }
+
+    private async runContinuousReplication(
         setting: RemoteDBSettings,
         showResult: boolean,
         retrying: boolean
     ): Promise<boolean> {
         const next = await shareRunningResult("continuousReplication", async () => {
-            if (this.controller) {
+            if (this.continuousStopRequested || this.controller) {
                 Logger(
                     this.translate("liveSyncReplicator.replicationInProgress"),
                     showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
@@ -1139,17 +1300,31 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             const localDB = this.rawDatabase;
             Logger(this.translate("liveSyncReplicator.beforeLiveSync"));
             const caughtUp = await this.env.services.replicator.runFiniteReplicationActivity(
-                () => this.openOneShotReplication(setting, showResult, false, "pullOnly"),
+                () =>
+                    this.openOneShotReplication(
+                        setting,
+                        showResult,
+                        false,
+                        "pullOnly",
+                        false,
+                        undefined,
+                        () => this.continuousStopRequested
+                    ),
                 { label: "replication" }
             );
-            if (caughtUp) {
+            if (caughtUp && !this.continuousStopRequested) {
                 Logger(this.translate("liveSyncReplicator.liveSyncBegin"));
                 const ret = await this.checkReplicationConnectivity(setting, true, false, showResult);
-                if (ret === false) {
-                    Logger(
-                        this.translate("liveSyncReplicator.couldNotConnectToServer"),
-                        showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
-                    );
+                if (ret === false || this.continuousStopRequested) {
+                    if (ret !== false) {
+                        await this.closeRemoteConnection(ret);
+                    }
+                    if (ret === false && !this.continuousStopRequested) {
+                        Logger(
+                            this.translate("liveSyncReplicator.couldNotConnectToServer"),
+                            showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
+                        );
+                    }
                     return false;
                 }
                 if (showResult) {
@@ -1157,9 +1332,15 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 }
                 const { db, syncOption } = ret;
                 try {
+                    if (this.continuousStopRequested) {
+                        return false;
+                    }
                     this.syncStatus = "STARTED";
                     this.maxPullSeq = Number(`${ret.info.update_seq}`.split("-")[0]);
                     this.maxPushSeq = Number(`${(await localDB.info()).update_seq}`.split("-")[0]);
+                    if (this.continuousStopRequested) {
+                        return false;
+                    }
                     this.updateInfo();
                     const docArrivedOnStart = this.docArrived;
                     const docSentOnStart = this.docSent;
@@ -1167,7 +1348,10 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         //TODO if successfully saved, roll back org setting.
                         this.originalSetting = setting;
                     }
-                    this.terminateSync();
+                    this.abortController();
+                    if (this.continuousStopRequested) {
+                        return false;
+                    }
                     const syncHandler = localDB.sync<EntryDoc>(db, {
                         ...syncOption,
                     });
@@ -1181,6 +1365,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         retrying
                     );
 
+                    if (this.continuousStopRequested) {
+                        return false;
+                    }
                     if (syncResult == "DONE") {
                         return true;
                     }
@@ -1188,9 +1375,13 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         return false;
                     }
                     if (syncResult == "NEED_RESURRECT") {
-                        this.terminateSync();
-                        return async () =>
-                            await this.openContinuousReplication(this.originalSetting, showResult, false);
+                        this.abortController();
+                        return async () => {
+                            if (this.continuousStopRequested) {
+                                return false;
+                            }
+                            return await this.runContinuousReplication(this.originalSetting, showResult, false);
+                        };
                     }
                     if (syncResult == "NEED_RETRY") {
                         const tempSetting: RemoteDBSettings = JSON.parse(JSON.stringify(setting));
@@ -1210,7 +1401,12 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                                 }),
                                 showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO
                             );
-                            return async () => await this.openContinuousReplication(tempSetting, showResult, true);
+                            return async () => {
+                                if (this.continuousStopRequested) {
+                                    return false;
+                                }
+                                return await this.runContinuousReplication(tempSetting, showResult, true);
+                            };
                         }
                     }
                 } finally {
@@ -1225,19 +1421,22 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         return await next();
     }
 
-    closeReplication() {
-        if (!this.controller) {
-            return;
+    closeReplication(): Promise<void> {
+        const hadController = !!this.controller;
+        const stopped = this.terminateSync();
+        if (!hadController) {
+            return stopped;
         }
-        this.controller.abort();
-        this.controller = undefined;
         this.syncStatus = "CLOSED";
         Logger(this.translate("liveSyncReplicator.replicationClosed"));
         this.updateInfo();
+        return stopped;
     }
 
     async tryResetRemoteDatabase(setting: RemoteDBSettings) {
-        this.closeReplication();
+        // Cancellation may precede creation of the live controller. Settle the
+        // provider-owned task before starting exclusive remote maintenance.
+        await this.closeReplication();
         const con = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
         if (typeof con == "string") {
             throw new Error(con);
@@ -1255,7 +1454,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         await this.tryCreateRemoteDatabase(setting);
     }
     async tryCreateRemoteDatabase(setting: RemoteDBSettings) {
-        this.closeReplication();
+        await this.closeReplication();
         const con2 = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), true);
 
         if (typeof con2 === "string") {

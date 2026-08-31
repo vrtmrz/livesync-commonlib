@@ -7,21 +7,36 @@ import { MARK_LOG_NETWORK_ERROR, type LogFunction } from "@lib/services/lib/logU
 import type { MessageTranslator } from "./MessageTranslator.ts";
 import { evaluateReadiness, type ReadinessCondition, type ReadinessEvaluationResult } from "./ReadinessEvaluator.ts";
 
-/** Collaborators required to evaluate the common replication readiness sequence. */
-export interface ReplicationReadinessDependencies {
+/** State and policy gates consulted without beginning remote preparation. */
+export interface ReplicationReadinessGates {
     readonly isApplicationReady: () => boolean;
     readonly runPolicyChecks: (showMessage: boolean) => Promise<boolean>;
     readonly currentSettings: () => Pick<ObsidianLiveSyncSettings, "versionUpFlash">;
     readonly isCleanupRunning: () => boolean;
-    readonly commitPendingFileEvents: () => Promise<boolean>;
     readonly isOnline: () => boolean;
+}
+
+/** Ordered operational gates which may release or prepare replication work. */
+export interface ReplicationReadinessPreparation {
+    readonly commitPendingFileEvents: () => Promise<boolean>;
     readonly prepareCentralRemote: (showMessage: boolean) => Promise<boolean>;
     readonly runBeforeReplicate: (showMessage: boolean) => Promise<boolean>;
+}
+
+/** Diagnostic state, presentation, and unresolved-error output for readiness. */
+export interface ReplicationReadinessDiagnostics {
     readonly getUnresolvedMessages: () => Promise<(string | Error)[][]>;
     readonly translate: MessageTranslator;
     readonly log: LogFunction;
     readonly showError: (message: string, maxLogLevel?: LOG_LEVEL) => void;
     readonly clearErrors: () => void;
+}
+
+/** Role-grouped collaborators for the common replication readiness sequence. */
+export interface ReplicationReadinessDependencies {
+    readonly gates: ReplicationReadinessGates;
+    readonly preparation: ReplicationReadinessPreparation;
+    readonly diagnostics: ReplicationReadinessDiagnostics;
 }
 
 export interface ReplicationReadinessContext {
@@ -50,17 +65,18 @@ export type ReplicationReadinessEvaluator = (
 export function createReplicationReadinessEvaluator(
     dependencies: ReplicationReadinessDependencies
 ): ReplicationReadinessEvaluator {
+    const { diagnostics, gates, preparation } = dependencies;
     const reportPreparationFailure = async (): Promise<void> => {
         // A tagged network error already carries its specific diagnostic. Keep
         // the generic module-failure message informational in that case.
-        const hasNetworkError = (await dependencies.getUnresolvedMessages())
+        const hasNetworkError = (await diagnostics.getUnresolvedMessages())
             .flat()
             .some((entry) => typeof entry == "string" && entry.includes(MARK_LOG_NETWORK_ERROR));
-        const message = dependencies.translate("Replicator.Message.SomeModuleFailed");
+        const message = diagnostics.translate("Replicator.Message.SomeModuleFailed");
         if (hasNetworkError) {
-            dependencies.log(message, LOG_LEVEL_INFO);
+            diagnostics.log(message, LOG_LEVEL_INFO);
         } else {
-            dependencies.showError(message, LOG_LEVEL_NOTICE);
+            diagnostics.showError(message, LOG_LEVEL_NOTICE);
         }
     };
 
@@ -68,27 +84,27 @@ export function createReplicationReadinessEvaluator(
         {
             name: "application-ready",
             evaluate: () => {
-                if (dependencies.isApplicationReady()) return true;
-                dependencies.log("Not ready");
+                if (gates.isApplicationReady()) return true;
+                diagnostics.log("Not ready");
                 return false;
             },
         },
         {
             name: "replication-policy-approved",
-            evaluate: ({ showMessage }) => dependencies.runPolicyChecks(showMessage),
+            evaluate: ({ showMessage }) => gates.runPolicyChecks(showMessage),
         },
         {
             name: "local-replication-state-ready",
             evaluate: () => {
                 // Preserve the established settings-read position: after host
                 // policy approval and before cleanup-state evaluation.
-                const currentSettings = dependencies.currentSettings();
-                if (dependencies.isCleanupRunning()) {
-                    dependencies.log(dependencies.translate("Replicator.Message.Cleaned"), LOG_LEVEL_NOTICE);
+                const currentSettings = gates.currentSettings();
+                if (gates.isCleanupRunning()) {
+                    diagnostics.log(diagnostics.translate("Replicator.Message.Cleaned"), LOG_LEVEL_NOTICE);
                     return false;
                 }
                 if (currentSettings.versionUpFlash != "") {
-                    dependencies.log(dependencies.translate("Replicator.Message.VersionUpFlash"), LOG_LEVEL_NOTICE);
+                    diagnostics.log(diagnostics.translate("Replicator.Message.VersionUpFlash"), LOG_LEVEL_NOTICE);
                     return false;
                 }
                 return true;
@@ -96,27 +112,27 @@ export function createReplicationReadinessEvaluator(
         },
         {
             name: "pending-file-events-committed",
-            evaluate: () => dependencies.commitPendingFileEvents(),
+            evaluate: () => preparation.commitPendingFileEvents(),
             onRejected: () => {
-                dependencies.showError(dependencies.translate("Replicator.Message.Pending"), LOG_LEVEL_NOTICE);
+                diagnostics.showError(diagnostics.translate("Replicator.Message.Pending"), LOG_LEVEL_NOTICE);
             },
         },
         {
             name: "network-online",
-            evaluate: () => dependencies.isOnline(),
+            evaluate: () => gates.isOnline(),
             onRejected: ({ showMessage }) => {
-                dependencies.showError("Network is offline", showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
+                diagnostics.showError("Network is offline", showMessage ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO);
             },
         },
         {
             name: "central-remote-prepared",
             appliesTo: ({ requirements }) => requirements.centralRemotePreparation === "required",
-            evaluate: ({ showMessage }) => dependencies.prepareCentralRemote(showMessage),
+            evaluate: ({ showMessage }) => preparation.prepareCentralRemote(showMessage),
             onRejected: reportPreparationFailure,
         },
         {
             name: "general-replication-prepared",
-            evaluate: ({ showMessage }) => dependencies.runBeforeReplicate(showMessage),
+            evaluate: ({ showMessage }) => preparation.runBeforeReplicate(showMessage),
             onRejected: reportPreparationFailure,
         },
     ];
@@ -130,7 +146,7 @@ export function createReplicationReadinessEvaluator(
             },
             conditions,
         });
-        if (result.ready) dependencies.clearErrors();
+        if (result.ready) diagnostics.clearErrors();
         return result;
     };
 }

@@ -10,6 +10,13 @@ export interface ReplicatorInstance {
     /** Initialise local database state required by replication before publication. */
     initializeDatabaseForReplication(): Promise<boolean>;
 
+    /**
+     * Invoke the legacy replication entry point.
+     *
+     * A `void` settlement may mean an accepted long-lived start, while finite
+     * adapters require an explicit `true`. Provider runners convert this
+     * compatibility result to a typed outcome before exposing it to callers.
+     */
     openReplication(
         setting: RemoteDBSettings,
         keepAlive: boolean,

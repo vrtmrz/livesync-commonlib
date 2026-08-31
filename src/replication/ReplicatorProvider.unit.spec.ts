@@ -18,6 +18,7 @@ import {
     supportedStopActiveTransfer,
     type ReplicatorProviderDefinition,
 } from "./index.ts";
+import { isActiveReplicatorContextBoundToSetting } from "./ReplicatorProvider.ts";
 import { NO_REMOTE_RESOURCE_CAPABILITIES } from "./RemoteResource.ts";
 import { REMOTE_COUCHDB, REMOTE_MINIO } from "@lib/common/types.ts";
 import type { ReplicatorInstance } from "./ReplicatorInstance.ts";
@@ -140,6 +141,61 @@ describe("replicator provider contract", () => {
             kind: "not-applicable",
             reason: "capability-not-applicable",
         });
+    });
+
+    it("fails closed when a detached setting no longer belongs to the active binding", () => {
+        const isConfigured = vi.fn(() => true);
+        const configurationIdentity = vi.fn(
+            (setting: { activeConfigurationId?: string; remoteType: string }) =>
+                setting.activeConfigurationId || setting.remoteType
+        );
+        const provider: ReplicatorProviderDefinition<typeof REMOTE_COUCHDB> = {
+            kind: REMOTE_COUCHDB,
+            diagnosticName: "CouchDB",
+            readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
+            isConfigured,
+            configurationIdentity,
+            create: async () => false,
+            remoteResources: NO_REMOTE_RESOURCE_CAPABILITIES,
+            userInitiatedOneShot: supportedOpenReplicationOneShot(),
+            unattendedOneShot: supportedOpenReplicationUnattended(),
+            continuous: supportedOpenReplicationContinuous(),
+            stopActiveTransfer: supportedStopActiveTransfer(),
+        };
+        const context = {
+            provider,
+            replicator: createReplicator(true),
+            configurationIdentity: "profile-a",
+        };
+
+        expect(
+            isActiveReplicatorContextBoundToSetting(context, {
+                remoteType: REMOTE_COUCHDB,
+                activeConfigurationId: "profile-a",
+            } as never)
+        ).toBe(true);
+        expect(
+            isActiveReplicatorContextBoundToSetting(context, {
+                remoteType: REMOTE_COUCHDB,
+                activeConfigurationId: "profile-b",
+            } as never)
+        ).toBe(false);
+        expect(
+            isActiveReplicatorContextBoundToSetting(context, {
+                remoteType: REMOTE_MINIO,
+                activeConfigurationId: "profile-a",
+            } as never)
+        ).toBe(false);
+
+        configurationIdentity.mockImplementationOnce(() => {
+            throw new Error("invalid edited setting");
+        });
+        expect(
+            isActiveReplicatorContextBoundToSetting(context, {
+                remoteType: REMOTE_COUCHDB,
+                activeConfigurationId: "profile-a",
+            } as never)
+        ).toBe(false);
     });
 
     it("requires and validates the selected provider definition subset", () => {

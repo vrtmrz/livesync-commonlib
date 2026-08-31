@@ -19,15 +19,18 @@ import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 import {
+    CAPABILITY_SUPPORT_KINDS,
     NO_INTERACTION,
     CENTRAL_REMOTE_REPLICATION_READINESS,
     USER_INITIATED_REPLICATION_AUTHORITY,
+    isActiveReplicatorContextBoundToSetting,
     isReplicationCompleted,
     replicationBlocked,
     replicationFailed,
     outcomeFromFiniteOpenReplication,
     type ActiveReplicatorContext,
     type ContinuousReplicationRequest,
+    type ReplicationAttemptFailure,
     type ReplicationOutcome,
     type ReplicationReadinessRequirements,
     type UnattendedOneShotRequest,
@@ -37,8 +40,11 @@ import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts"
 import { UnresolvedErrorManager } from "./UnresolvedErrorManager";
 import type { AppLifecycleService } from "./AppLifecycleService";
 import { isLockAcquired, shareRunningResult } from "octagonal-wheels/concurrency/lock";
-import { createReplicationReadinessEvaluator, type ReplicationReadinessEvaluator } from "./ReplicationReadiness.ts";
-import { TypedReplicationCoordinator } from "./TypedReplicationCoordinator.ts";
+import {
+    createReplicationReadinessEvaluator,
+    type ReplicationReadinessEvaluator,
+} from "./ReplicationService.readiness.ts";
+import { TypedReplicationCoordinator } from "./ReplicationService.typedReplication.ts";
 import { asCopy } from "@lib/common/utils.object.ts";
 
 /**
@@ -64,6 +70,8 @@ type DirectionalReplicationAdmission =
 interface DirectionalReplicationAdapter extends ReplicatorInstance {
     replicateAllToServer?(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>;
     replicateAllFromServer?(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>;
+    replicateAllToServerWithOutcome?(setting: RemoteDBSettings, showingNotice?: boolean): Promise<ReplicationOutcome>;
+    replicateAllFromServerWithOutcome?(setting: RemoteDBSettings, showingNotice?: boolean): Promise<ReplicationOutcome>;
 }
 
 interface LegacyCentralRemoteAdministrationAdapter extends ReplicatorInstance {
@@ -77,10 +85,28 @@ function canUploadAll(replicator: ReplicatorInstance): replicator is Directional
     return "replicateAllToServer" in replicator && typeof replicator.replicateAllToServer === "function";
 }
 
+function canUploadAllWithOutcome(replicator: ReplicatorInstance): replicator is DirectionalReplicationAdapter & {
+    replicateAllToServerWithOutcome(setting: RemoteDBSettings, showingNotice?: boolean): Promise<ReplicationOutcome>;
+} {
+    return (
+        "replicateAllToServerWithOutcome" in replicator &&
+        typeof replicator.replicateAllToServerWithOutcome === "function"
+    );
+}
+
 function canDownloadAll(replicator: ReplicatorInstance): replicator is DirectionalReplicationAdapter & {
     replicateAllFromServer(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>;
 } {
     return "replicateAllFromServer" in replicator && typeof replicator.replicateAllFromServer === "function";
+}
+
+function canDownloadAllWithOutcome(replicator: ReplicatorInstance): replicator is DirectionalReplicationAdapter & {
+    replicateAllFromServerWithOutcome(setting: RemoteDBSettings, showingNotice?: boolean): Promise<ReplicationOutcome>;
+} {
+    return (
+        "replicateAllFromServerWithOutcome" in replicator &&
+        typeof replicator.replicateAllFromServerWithOutcome === "function"
+    );
 }
 
 function canAdministerLegacyCentralRemote(
@@ -94,18 +120,48 @@ function canAdministerLegacyCentralRemote(
     );
 }
 
+/** Request and await cooperative stop of the admitted publication's active transfer before a directional operation. */
+async function stopActiveTransferForDirectionalReplication(
+    context: ActiveReplicatorContext
+): Promise<ReplicationOutcome> {
+    const capability = context.provider.stopActiveTransfer;
+    if (capability.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
+        return replicationBlocked(capability.reason);
+    }
+    try {
+        const outcome = await capability.run(context.replicator);
+        // A failed stop is not a failed remote transfer and must not enter the
+        // compatibility-retry path. Report it as unavailable for this attempt.
+        return outcome.status === "failed" ? replicationBlocked("not-ready") : outcome;
+    } catch {
+        return replicationBlocked("not-ready");
+    }
+}
+
 async function runDirectionalReplication(
     context: ActiveReplicatorContext,
     setting: RemoteDBSettings,
     direction: DirectionalReplication,
     showingNotice: boolean
 ): Promise<ReplicationOutcome> {
+    if (!isActiveReplicatorContextBoundToSetting(context, setting)) {
+        return replicationBlocked("not-ready");
+    }
+    const stopOutcome = await stopActiveTransferForDirectionalReplication(context);
+    if (!isReplicationCompleted(stopOutcome)) return stopOutcome;
+
     try {
         let result: boolean | void;
         if (direction === DIRECTIONAL_REPLICATION.UPLOAD) {
+            if (canUploadAllWithOutcome(context.replicator)) {
+                return await context.replicator.replicateAllToServerWithOutcome(setting, showingNotice);
+            }
             if (!canUploadAll(context.replicator)) return replicationBlocked("capability-not-applicable");
             result = await context.replicator.replicateAllToServer(setting, showingNotice);
         } else {
+            if (canDownloadAllWithOutcome(context.replicator)) {
+                return await context.replicator.replicateAllFromServerWithOutcome(setting, showingNotice);
+            }
             if (!canDownloadAll(context.replicator)) return replicationBlocked("capability-not-applicable");
             result = await context.replicator.replicateAllFromServer(setting, showingNotice);
         }
@@ -167,19 +223,25 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             this.context.events
         );
         this._evaluateReadiness = createReplicationReadinessEvaluator({
-            isApplicationReady: () => this.appLifecycleService.isReady(),
-            runPolicyChecks: (showMessage) => this.onCheckReplicationReady(showMessage),
-            currentSettings: () => this.settingService.currentSettings(),
-            isCleanupRunning: () => isLockAcquired("cleanup"),
-            commitPendingFileEvents: () => this.fileProcessing.commitPendingFileEvents(),
-            isOnline: () => this.APIService.isOnline,
-            prepareCentralRemote: (showMessage) => this.onPrepareCentralRemoteReplication(showMessage),
-            runBeforeReplicate: (showMessage) => this.onBeforeReplicate(showMessage),
-            getUnresolvedMessages: () => this.appLifecycleService.getUnresolvedMessages(),
-            translate: (key) => this.context.translate(key),
-            log: this._log,
-            showError: (message, maxLogLevel) => this.showError(message, maxLogLevel),
-            clearErrors: () => this.clearErrors(),
+            gates: {
+                isApplicationReady: () => this.appLifecycleService.isReady(),
+                runPolicyChecks: (showMessage) => this.onCheckReplicationReady(showMessage),
+                currentSettings: () => this.settingService.currentSettings(),
+                isCleanupRunning: () => isLockAcquired("cleanup"),
+                isOnline: () => this.APIService.isOnline,
+            },
+            preparation: {
+                commitPendingFileEvents: () => this.fileProcessing.commitPendingFileEvents(),
+                prepareCentralRemote: (showMessage) => this.onPrepareCentralRemoteReplication(showMessage),
+                runBeforeReplicate: (showMessage) => this.onBeforeReplicate(showMessage),
+            },
+            diagnostics: {
+                getUnresolvedMessages: () => this.appLifecycleService.getUnresolvedMessages(),
+                translate: (key) => this.context.translate(key),
+                log: this._log,
+                showError: (message, maxLogLevel) => this.showError(message, maxLogLevel),
+                clearErrors: () => this.clearErrors(),
+            },
         });
         this._typedReplication = new TypedReplicationCoordinator({
             replicatorService: this.replicatorService,
@@ -409,13 +471,14 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             this._log(this.context.translate("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_NOTICE);
             return false;
         }
-        const setting = asCopy(this.settingService.currentSettings());
+        const detachedSetting = asCopy(this.settingService.currentSettings());
         if (admission === DIRECTIONAL_REPLICATION_ADMISSION.EXPLICIT_REBUILD) {
             // The confirmed recovery may run while ordinary replication stays
             // paused. Authorise only this detached attempt; persistence and
             // explicit compatibility acknowledgement remain unchanged.
-            setting.versionUpFlash = "";
+            detachedSetting.versionUpFlash = "";
         }
+        const setting = Object.freeze(detachedSetting);
         let expectedContext: ActiveReplicatorContext | undefined;
         const run = async (): Promise<ReplicationOutcome> => {
             const admitted = await this.replicatorService.runWithActiveReplicatorContext((context) => {
@@ -433,7 +496,10 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
         if (isReplicationCompleted(outcome)) return true;
         if (outcome.status !== "failed") return false;
 
-        const checkResult = await this.checkConnectionFailure();
+        const failedContext = expectedContext;
+        if (!failedContext) return false;
+        const failure = Object.freeze({ context: failedContext, setting, outcome }) satisfies ReplicationAttemptFailure;
+        const checkResult = await this.checkConnectionFailure(failure);
         return checkResult === "CHECKAGAIN" && isReplicationCompleted(await run());
     }
 

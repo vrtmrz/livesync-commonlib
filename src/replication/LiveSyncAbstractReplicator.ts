@@ -155,7 +155,7 @@ export abstract class LiveSyncAbstractReplicator implements ReplicatorInstance {
         // initialize local node information.
     }
 
-    abstract terminateSync(): void;
+    abstract terminateSync(): void | Promise<void>;
 
     abstract openReplication(
         setting: RemoteDBSettings,
@@ -179,7 +179,7 @@ export abstract class LiveSyncAbstractReplicator implements ReplicatorInstance {
     abstract tryConnectRemote(setting: RemoteDBSettings, showResult?: boolean): Promise<boolean>;
     abstract replicateAllToServer(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>;
     abstract replicateAllFromServer(setting: RemoteDBSettings, showingNotice?: boolean): Promise<boolean>;
-    abstract closeReplication(): void;
+    abstract closeReplication(): void | Promise<void>;
 
     abstract tryResetRemoteDatabase(setting: RemoteDBSettings): Promise<void>;
     abstract tryCreateRemoteDatabase(setting: RemoteDBSettings): Promise<void>;

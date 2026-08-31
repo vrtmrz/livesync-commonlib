@@ -9,6 +9,7 @@ import {
     PEER_REPLICATION_READINESS,
     REPLICATION_COMPLETED,
     USER_INITIATED_REPLICATION_AUTHORITY,
+    supportedCapability,
     supportedOpenReplicationContinuous,
     supportedOpenReplicationOneShot,
     supportedOpenReplicationUnattended,
@@ -39,9 +40,9 @@ function createDirectionalReplicationContext(replicator: {
         userInitiatedOneShot: CAPABILITY_NOT_APPLICABLE,
         unattendedOneShot: CAPABILITY_NOT_APPLICABLE,
         continuous: CAPABILITY_NOT_APPLICABLE,
-        stopActiveTransfer: CAPABILITY_NOT_APPLICABLE,
+        stopActiveTransfer: supportedCapability(async () => REPLICATION_COMPLETED),
     };
-    return { provider, replicator: replicator as never };
+    return { provider, replicator: replicator as never, configurationIdentity: "test" };
 }
 
 function createTypedDependencies(result: boolean | void = true) {
@@ -67,6 +68,7 @@ function createTypedDependencies(result: boolean | void = true) {
     const activeContext: ActiveReplicatorContext = {
         provider,
         replicator: replicator as never,
+        configurationIdentity: REMOTE_COUCHDB,
     };
     const getUnresolvedMessages = Object.assign(vi.fn().mockResolvedValue([]), {
         addHandler: vi.fn(),
@@ -89,11 +91,16 @@ function createTypedDependencies(result: boolean | void = true) {
         replicatorService: {
             acquireActiveReplicatorContext,
             getActiveReplicator,
+            hasActiveReplicator: vi.fn(() => getActiveReplicator() !== undefined),
             runWithActiveReplicatorContext,
             runFiniteReplicationActivity,
         },
         settingService: {
-            currentSettings: vi.fn(() => ({ versionUpFlash: "", syncMinimumInterval: 0 })),
+            currentSettings: vi.fn(() => ({
+                remoteType: REMOTE_COUCHDB,
+                versionUpFlash: "",
+                syncMinimumInterval: 0,
+            })),
         },
     } as unknown as ReplicationServiceDependencies;
     return {
@@ -133,6 +140,7 @@ function createReadinessDependencies(kind: RemoteType, typed = true) {
             stopActiveTransfer: CAPABILITY_NOT_APPLICABLE,
         },
         replicator: replicator as never,
+        configurationIdentity: kind,
     };
     const appReady = vi.fn(() => {
         events.push("app-ready");
@@ -142,7 +150,7 @@ function createReadinessDependencies(kind: RemoteType, typed = true) {
         events.push("pending-file-events");
         return true;
     });
-    const settings = { versionUpFlash: "", syncMinimumInterval: 0 };
+    const settings = { remoteType: kind, versionUpFlash: "", syncMinimumInterval: 0 };
     const getUnresolvedMessages = Object.assign(vi.fn().mockResolvedValue([]), {
         addHandler: vi.fn(),
     });
@@ -267,14 +275,13 @@ describe("ReplicationService typed provider roles", () => {
     });
 
     it("returns an explicit blocked result when no active replicator exists", async () => {
-        const { dependencies } = createTypedDependencies(true);
+        const { dependencies, getActiveReplicator } = createTypedDependencies(true);
         (
             dependencies.replicatorService as unknown as {
                 acquireActiveReplicatorContext: () => Promise<undefined>;
             }
         ).acquireActiveReplicatorContext = async () => undefined;
-        (dependencies.replicatorService as unknown as { getActiveReplicator: () => undefined }).getActiveReplicator =
-            () => undefined;
+        getActiveReplicator.mockReturnValue(undefined);
         const service = new TestReplicationService(new ServiceContext(), dependencies);
 
         await expect(service.replicateUnattended({ trigger: "resume", interaction: NO_INTERACTION })).resolves.toEqual({
@@ -577,6 +584,66 @@ describe("ReplicationService activity boundary", () => {
 });
 
 describe("ReplicationService full upload", () => {
+    it("stops the admitted publication's active transfer before a directional full transfer", async () => {
+        const events: string[] = [];
+        let settleStop!: () => void;
+        const stopGate = new Promise<void>((resolve) => {
+            settleStop = resolve;
+        });
+        const terminateSync = vi.fn(async () => {
+            events.push("active-transfer-stop-requested");
+            await stopGate;
+            events.push("active-transfer-stopped");
+        });
+        const replicateAllToServer = vi.fn(async () => {
+            events.push("directional-transfer-started");
+            return true;
+        });
+        const replicateAllFromServer = vi.fn(async () => true);
+        const replicator = { replicateAllToServer, replicateAllFromServer, terminateSync };
+        const context = createDirectionalReplicationContext(replicator);
+        Object.assign(context.provider, { stopActiveTransfer: supportedStopActiveTransfer() });
+        const runWithActiveReplicatorContext = vi.fn(
+            async (task: (activeContext: ActiveReplicatorContext) => unknown) => await task(context)
+        );
+        const dependencies = {
+            APIService: { addLog: vi.fn() },
+            appLifecycleService: {
+                isReady: () => true,
+                getUnresolvedMessages: Object.assign(vi.fn().mockResolvedValue([]), {
+                    addHandler: vi.fn(),
+                }),
+            },
+            databaseService: {},
+            fileProcessingService: {},
+            replicatorService: {
+                acquireActiveReplicatorContext: vi.fn(async () => context),
+                runWithActiveReplicatorContext,
+                getActiveReplicator: () => replicator,
+            },
+            settingService: { currentSettings: () => ({ remoteType: REMOTE_COUCHDB }) },
+        } as unknown as ReplicationServiceDependencies;
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+
+        const operation = service.replicateAllToRemote();
+        try {
+            await vi.waitFor(() => expect(terminateSync).toHaveBeenCalledOnce());
+            expect(replicateAllToServer).not.toHaveBeenCalled();
+
+            settleStop();
+            await expect(operation).resolves.toBe(true);
+            expect(runWithActiveReplicatorContext).toHaveBeenCalledOnce();
+            expect(events).toEqual([
+                "active-transfer-stop-requested",
+                "active-transfer-stopped",
+                "directional-transfer-started",
+            ]);
+        } finally {
+            settleStop();
+            await Promise.allSettled([operation]);
+        }
+    });
+
     it("uses standard replication without offering the obsolete bulk chunk pre-send", async () => {
         const askYesNoDialog = vi.fn().mockResolvedValue("yes");
         const sendChunks = vi.fn().mockResolvedValue(true);
@@ -609,7 +676,7 @@ describe("ReplicationService full upload", () => {
                 }),
             },
             settingService: {
-                currentSettings: () => ({}),
+                currentSettings: () => ({ remoteType: REMOTE_COUCHDB }),
             },
         } as unknown as ReplicationServiceDependencies;
         const service = new TestReplicationService(new ServiceContext(), dependencies);
@@ -620,6 +687,51 @@ describe("ReplicationService full upload", () => {
         expect(sendChunks).not.toHaveBeenCalled();
         expect(runWithActiveReplicatorContext).toHaveBeenCalledOnce();
         expect(replicateAllToServer).toHaveBeenCalledOnce();
+    });
+
+    it("does not run a directional transfer with settings which have not yet been rebound", async () => {
+        const replicateAllToServer = vi.fn(async () => true);
+        const replicateAllFromServer = vi.fn(async () => true);
+        const context = Object.assign(
+            createDirectionalReplicationContext({ replicateAllToServer, replicateAllFromServer }),
+            { configurationIdentity: "profile-a" }
+        );
+        const stopActiveTransfer = vi.fn(async () => REPLICATION_COMPLETED);
+        Object.assign(context.provider, {
+            configurationIdentity: testConfigurationIdentity,
+            stopActiveTransfer: supportedCapability(stopActiveTransfer),
+        });
+        const runWithActiveReplicatorContext = vi.fn(
+            async (task: (activeContext: ActiveReplicatorContext) => unknown) => await task(context)
+        );
+        const dependencies = {
+            APIService: { addLog: vi.fn() },
+            appLifecycleService: {
+                isReady: () => true,
+                getUnresolvedMessages: Object.assign(vi.fn().mockResolvedValue([]), {
+                    addHandler: vi.fn(),
+                }),
+            },
+            databaseService: {},
+            fileProcessingService: {},
+            replicatorService: {
+                acquireActiveReplicatorContext: vi.fn(async () => context),
+                runWithActiveReplicatorContext,
+                getActiveReplicator: () => context.replicator,
+            },
+            settingService: {
+                currentSettings: () => ({
+                    remoteType: REMOTE_COUCHDB,
+                    activeConfigurationId: "profile-b",
+                }),
+            },
+        } as unknown as ReplicationServiceDependencies;
+        const service = new TestReplicationService(new ServiceContext(), dependencies);
+
+        await expect(service.replicateAllToRemote()).resolves.toBe(false);
+
+        expect(stopActiveTransfer).not.toHaveBeenCalled();
+        expect(replicateAllToServer).not.toHaveBeenCalled();
     });
 });
 
@@ -637,7 +749,7 @@ describe("ReplicationService rebuild maintenance", () => {
                 transferEvents.push("publication-released");
             }
         });
-        const settings = { versionUpFlash };
+        const settings = { remoteType: REMOTE_COUCHDB, versionUpFlash };
         const dependencies = {
             APIService: { addLog: vi.fn() },
             appLifecycleService: {
@@ -785,6 +897,49 @@ describe("ReplicationService rebuild maintenance", () => {
         expect(replacementUpload).not.toHaveBeenCalled();
     });
 
+    it("passes the exact failed directional attempt to compatibility recovery after replacement", async () => {
+        const { context, replicateAllToServer, runWithActiveReplicatorContext, service } = createMaintenanceService();
+        const replacementUpload = vi.fn(async () => true);
+        const replacementContext = createDirectionalReplicationContext({
+            replicateAllToServer: replacementUpload,
+            replicateAllFromServer: vi.fn(async () => true),
+        });
+        type RecoveryMarker = { recoveryTouched?: boolean };
+        type DirectionalRecoveryRequest = {
+            readonly context: ActiveReplicatorContext;
+            readonly setting: RemoteDBSettings;
+            readonly outcome: { readonly status: string };
+        };
+        const failedReplicator = context.replicator as RecoveryMarker;
+        const replacementReplicator = replacementContext.replicator as RecoveryMarker;
+        let activeReplicator = failedReplicator;
+        let recoveryRequest: DirectionalRecoveryRequest | undefined;
+        replicateAllToServer.mockImplementation(async () => {
+            activeReplicator = replacementReplicator;
+            return false;
+        });
+        runWithActiveReplicatorContext
+            .mockImplementationOnce(async (task) => await task(context))
+            .mockImplementation(async (task) => await task(replacementContext));
+        service.checkConnectionFailure.addHandler(async (request?: DirectionalRecoveryRequest) => {
+            recoveryRequest = request;
+            const target = (request?.context.replicator as RecoveryMarker | undefined) ?? activeReplicator;
+            target.recoveryTouched = true;
+            return "CHECKAGAIN";
+        });
+
+        await expect(service.replicateAllToRemoteForRebuild()).resolves.toBe(false);
+
+        expect(recoveryRequest).toMatchObject({
+            context,
+            setting: expect.objectContaining({ versionUpFlash: "" }),
+            outcome: expect.objectContaining({ status: "failed" }),
+        });
+        expect(failedReplicator.recoveryTouched).toBe(true);
+        expect(replacementReplicator.recoveryTouched).toBeUndefined();
+        expect(replacementUpload).not.toHaveBeenCalled();
+    });
+
     it("keeps a failed rebuild download failed when no connection-failure handler claims it", async () => {
         const { replicateAllFromServer, service } = createMaintenanceService();
         replicateAllFromServer.mockResolvedValue(false);
@@ -817,7 +972,7 @@ describe("ReplicationService rebuild maintenance", () => {
                 getActiveReplicator: vi.fn(() => context.replicator),
             },
             settingService: {
-                currentSettings: vi.fn(() => ({})),
+                currentSettings: vi.fn(() => ({ remoteType: REMOTE_COUCHDB })),
             },
         } as unknown as ReplicationServiceDependencies;
         const service = new TestReplicationService(new ServiceContext(), dependencies);

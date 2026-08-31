@@ -9,11 +9,12 @@ import {
     milestoneSatisfiesCentralRemoteAdministration,
     centralRemoteAdministrationVerified,
 } from "./CentralRemoteAdministration.ts";
-import { runCentralRemoteAdministrationWithContext } from "@lib/services/base/CentralRemoteAdministrationCoordinator.ts";
+import { runCentralRemoteAdministrationWithContext } from "@lib/services/base/ReplicatorService.centralRemoteAdministration.ts";
 import {
     CAPABILITY_NOT_APPLICABLE,
     CENTRAL_REMOTE_REPLICATION_READINESS,
     supportedCapability,
+    supportedStopActiveTransfer,
     type ReplicatorProviderDefinition,
 } from "./ReplicatorProvider.ts";
 import type { CentralRemoteAdministrationReplicator } from "./CentralRemoteAdministration.ts";
@@ -22,6 +23,7 @@ import { NO_REMOTE_RESOURCE_CAPABILITIES } from "./RemoteResource.ts";
 function createReplicator() {
     return {
         nodeid: "node-1",
+        terminateSync: vi.fn(),
         markRemoteResolved: vi.fn(async () => undefined),
         markRemoteLocked: vi.fn(async () => undefined),
     } as unknown as CentralRemoteAdministrationReplicator & {
@@ -91,6 +93,68 @@ describe("remote administration contract", () => {
         });
     });
 
+    it("stops the captured publication's active transfer before central administration", async () => {
+        const events: string[] = [];
+        let settleStop!: () => void;
+        const stopGate = new Promise<void>((resolve) => {
+            settleStop = resolve;
+        });
+        const replicator = Object.assign(createReplicator(), {
+            terminateSync: vi.fn(async () => {
+                events.push("active-transfer-stop-requested");
+                await stopGate;
+                events.push("active-transfer-stopped");
+            }),
+        });
+        const administration = vi.fn(async () => {
+            events.push("administration-started");
+            return centralRemoteAdministrationVerified({
+                kind: CENTRAL_REMOTE_ADMINISTRATION_OBSERVATION_KINDS.MILESTONE,
+                locked: true,
+                accepted: true,
+                nodeId: "node-1",
+            });
+        });
+        const provider: ReplicatorProviderDefinition<typeof REMOTE_COUCHDB> = {
+            kind: REMOTE_COUCHDB,
+            diagnosticName: "CouchDB",
+            readiness: CENTRAL_REMOTE_REPLICATION_READINESS,
+            isConfigured: () => true,
+            configurationIdentity: () => "test",
+            create: async () => replicator,
+            remoteResources: NO_REMOTE_RESOURCE_CAPABILITIES,
+            centralRemoteAdministration: supportedCapability(administration),
+            userInitiatedOneShot: CAPABILITY_NOT_APPLICABLE,
+            unattendedOneShot: CAPABILITY_NOT_APPLICABLE,
+            continuous: CAPABILITY_NOT_APPLICABLE,
+            stopActiveTransfer: supportedStopActiveTransfer(),
+        };
+
+        const operation = runCentralRemoteAdministrationWithContext(
+            { provider, replicator, configurationIdentity: "test" },
+            { remoteType: REMOTE_COUCHDB } as never,
+            { action: CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.LOCK }
+        );
+
+        try {
+            await vi.waitFor(() => expect(replicator.terminateSync).toHaveBeenCalledOnce());
+            expect(administration).not.toHaveBeenCalled();
+
+            settleStop();
+            await expect(operation).resolves.toMatchObject({
+                status: CENTRAL_REMOTE_ADMINISTRATION_RESULT_STATUSES.VERIFIED,
+            });
+            expect(events).toEqual([
+                "active-transfer-stop-requested",
+                "active-transfer-stopped",
+                "administration-started",
+            ]);
+        } finally {
+            settleStop();
+            await Promise.allSettled([operation]);
+        }
+    });
+
     it("does not convert a provider mutation exception into a compatibility-maskable result", async () => {
         const failure = new Error("mutation failed");
         const replicator = createReplicator();
@@ -108,12 +172,12 @@ describe("remote administration contract", () => {
             userInitiatedOneShot: CAPABILITY_NOT_APPLICABLE,
             unattendedOneShot: CAPABILITY_NOT_APPLICABLE,
             continuous: CAPABILITY_NOT_APPLICABLE,
-            stopActiveTransfer: CAPABILITY_NOT_APPLICABLE,
+            stopActiveTransfer: supportedStopActiveTransfer(),
         };
 
         await expect(
             runCentralRemoteAdministrationWithContext(
-                { provider, replicator },
+                { provider, replicator, configurationIdentity: "test" },
                 { remoteType: REMOTE_COUCHDB } as never,
                 {
                     action: CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.MARK_RESOLVED,

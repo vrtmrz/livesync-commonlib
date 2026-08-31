@@ -1,11 +1,11 @@
 import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance";
 import type { ActiveReplicatorContext, ReplicatorProviderDefinition } from "@lib/replication/ReplicatorProvider";
 
+/** Atomic service publication used as both the active view and generation identity. */
 export interface ActiveReplicatorPublication {
     readonly replicator: ReplicatorInstance;
     readonly replicatorType: string;
     readonly context: ActiveReplicatorContext | undefined;
-    readonly configurationIdentity: string | undefined;
 }
 
 /** One admitted use of an exact active publication. */
@@ -105,8 +105,10 @@ export class ActiveReplicatorState {
         this.activeOwner = new ActiveReplicatorPublicationOwner({
             replicator,
             replicatorType,
-            context: provider ? { provider, replicator } : undefined,
-            configurationIdentity: provider ? configurationIdentity : undefined,
+            context:
+                provider && configurationIdentity !== undefined
+                    ? { provider, replicator, configurationIdentity }
+                    : undefined,
         });
     }
 

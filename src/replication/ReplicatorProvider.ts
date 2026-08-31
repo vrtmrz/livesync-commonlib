@@ -113,12 +113,14 @@ export interface ContinuousReplicationRequest {
 /** Stable reasons for which a provider role cannot be run. */
 export type ReplicationBlockReason =
     | "no-active-replicator"
+    | "no-targets"
     | "not-ready"
     | "provider-not-composed"
     | "provider-not-configured"
     | "capability-not-implemented"
     | "capability-not-applicable"
     | "interaction-required"
+    | "replication-in-progress"
     | "rate-limited";
 
 /** A finite operation completed without a partial or failed result. */
@@ -204,6 +206,13 @@ export type UnattendedOneShotRunner = (
     request: UnattendedOneShotRequest
 ) => Promise<ReplicationOutcome>;
 
+/**
+ * Register a provider-owned Continuous task and settle its startup request.
+ *
+ * The runner must return after task ownership and pre-controller cancellation
+ * have been registered. It must not retain the caller's active-publication
+ * admission for the lifetime of the long-lived transfer.
+ */
 export type ContinuousRunner = (
     replicator: ReplicatorInstance,
     setting: RemoteDBSettings,
@@ -223,10 +232,15 @@ export type StopActiveTransferRunner = (replicator: ReplicatorInstance) => Promi
  */
 export type ReplicatorConfigurationIdentity = string;
 
+/** One host-composed provider and every role which may use its active instance. */
 export interface ReplicatorProviderDefinition<TKind extends RemoteType = RemoteType> {
+    /** Canonical persisted remote kind used for provider selection. */
     readonly kind: TKind;
+    /** Human-readable diagnostic label; never use it as a machine decision. */
     readonly diagnosticName: string;
+    /** Preparation gates required before an ordinary replication role runs. */
     readonly readiness: ReplicationReadinessRequirements;
+    /** Return whether the effective settings are sufficient to construct this provider. */
     readonly isConfigured: (setting: RemoteDBSettings) => boolean;
     /** Project the fully merged effective settings to this provider's stable binding identity. */
     readonly configurationIdentity: (setting: RemoteDBSettings) => ReplicatorConfigurationIdentity;
@@ -236,26 +250,53 @@ export interface ReplicatorProviderDefinition<TKind extends RemoteType = RemoteT
     readonly remoteResources: RemoteResourceCapabilities;
     /** Optional provider-owned central-remote administration runner. */
     readonly centralRemoteAdministration?: CapabilitySupport<CentralRemoteAdministrationRunner>;
+    /** Finite role carrying explicit user-interaction authority. */
     readonly userInitiatedOneShot: CapabilitySupport<UserInitiatedOneShotRunner>;
+    /** Finite role which must not request user interaction. */
     readonly unattendedOneShot: CapabilitySupport<UnattendedOneShotRunner>;
     /** Explicit support decision for ordinary long-lived Continuous replication. */
     readonly continuous: CapabilitySupport<ContinuousRunner>;
+    /** Bounded cancellation request for transfer work on the active instance. */
     readonly stopActiveTransfer: CapabilitySupport<StopActiveTransferRunner>;
 }
 
-/** The atomic pair which identifies the active provider and its replicator. */
+/** The atomic provider, Replicator, and binding identity published by the owner service. */
 export interface ActiveReplicatorContext<TKind extends RemoteType = RemoteType> {
     readonly provider: ReplicatorProviderDefinition<TKind>;
     readonly replicator: ReplicatorInstance;
+    /** Private comparison state; callers must not log, persist, or display it. */
+    readonly configurationIdentity: ReplicatorConfigurationIdentity;
 }
 
-/** Immutable context passed to provider-independent replication failure handlers. */
-export interface ReplicationFailureRequest {
+/** Immutable source of one failed attempt, safe to carry after its reservation is released. */
+export interface ReplicationAttemptFailure {
     readonly context: ActiveReplicatorContext;
     readonly setting: ObsidianLiveSyncSettings;
     readonly outcome: ReplicationFailed;
+}
+
+/** Immutable failure source plus the interaction authority of its original request. */
+export interface ReplicationFailureRequest extends ReplicationAttemptFailure {
     readonly showMessage: boolean;
     readonly interaction: InteractionAuthority;
+}
+
+/** Return whether one detached setting still belongs to the admitted publication. */
+export function isActiveReplicatorContextBoundToSetting(
+    context: ActiveReplicatorContext,
+    setting: RemoteDBSettings
+): boolean {
+    try {
+        return (
+            setting.remoteType === context.provider.kind &&
+            context.provider.isConfigured(setting) &&
+            context.provider.configurationIdentity(setting) === context.configurationIdentity
+        );
+    } catch {
+        // Invalid or partially edited settings must fail closed instead of
+        // dispatching them through the previously bound Replicator.
+        return false;
+    }
 }
 
 export type ReplicatorProviderDefinitionMap = ReadonlyMap<RemoteType, ReplicatorProviderDefinition>;
@@ -320,6 +361,12 @@ export function outcomeFromContinuousOpenReplication(result: void | boolean): Re
         : REPLICATION_COMPLETED;
 }
 
+/**
+ * Adapt legacy `openReplication` for package and test compatibility.
+ *
+ * Current central providers use exact-outcome wrappers; this
+ * adapter remains for consumers and tests which still expose the legacy role.
+ */
 export function supportedOpenReplicationOneShot(): SupportedCapability<UserInitiatedOneShotRunner> {
     return supportedCapability(async (replicator, setting, request) => {
         try {
@@ -336,6 +383,12 @@ export function supportedOpenReplicationOneShot(): SupportedCapability<UserIniti
     });
 }
 
+/**
+ * Adapt legacy `openReplication` for unattended package and test compatibility.
+ *
+ * Current central providers use exact-outcome wrappers; this
+ * adapter remains for consumers and tests which still expose the legacy role.
+ */
 export function supportedOpenReplicationUnattended(): SupportedCapability<UnattendedOneShotRunner> {
     return supportedCapability(async (replicator, setting, request) => {
         if (request.interaction.kind !== NO_INTERACTION.kind) {

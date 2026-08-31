@@ -37,6 +37,7 @@ import type { OwnedCouchDBConnection, RemoteConnectionOpenOptions } from "./Remo
 import type {
     ActiveReplicatorContext,
     ContinuousReplicationRequest,
+    ReplicationAttemptFailure,
     ReplicationFailureRequest,
     ReplicatorProviderDefinitionMap,
     ReplicationOutcome,
@@ -235,7 +236,22 @@ export interface IReplicatorService {
         task: (context: ActiveReplicatorContext) => TResult | PromiseLike<TResult>
     ): Promise<TResult | undefined>;
 
+    /**
+     * Return the legacy unreserved view of the active Replicator.
+     *
+     * Missing active state retains its established diagnostic. New work must
+     * acquire or admit an `ActiveReplicatorContext` instead.
+     */
     getActiveReplicator(): ReplicatorInstance | undefined;
+    /**
+     * Return whether a compatibility active Replicator exists without
+     * acquiring or returning it.
+     *
+     * This side-effect-free, non-owning predicate exists only for
+     * compatibility-state classification. Work must acquire or admit an
+     * `ActiveReplicatorContext` before using a Replicator.
+     */
+    hasActiveReplicator(): boolean;
     replicationStatics: ReactiveSource<ReplicationStatics>;
     /** Number of finite remote operations currently in progress. */
     boundedRemoteActivityCount: ReactiveSource<number>;
@@ -259,7 +275,7 @@ export interface IReplicationService {
     onBeforeReplicate(showMessage: boolean): Promise<boolean>;
     /** Prepare provider state which exists only for the central remote. */
     onPrepareCentralRemoteReplication(showMessage: boolean): Promise<boolean>;
-    checkConnectionFailure(): Promise<boolean | "CHECKAGAIN" | undefined>;
+    checkConnectionFailure(failure: ReplicationAttemptFailure): Promise<boolean | "CHECKAGAIN" | undefined>;
 
     /** Lightweight, idempotent policy checks which every replication entry point may invoke. */
     onCheckReplicationReady(showMessage: boolean): Promise<boolean>;

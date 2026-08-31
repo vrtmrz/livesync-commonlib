@@ -8,6 +8,7 @@ import {
 import { LiveSyncJournalReplicator } from "./LiveSyncJournalReplicator.ts";
 import { MinioStorageAdapter } from "./objectstore/MinioStorageAdapter.ts";
 import { JournalSyncCore } from "./JournalSyncCore.ts";
+import { JournalStorageReadStatuses } from "./objectstore/JournalStorageAdapter.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase.ts";
 import { defaultLogger, setGlobalLogFunction } from "@lib/common/logger.ts";
 import {
@@ -98,6 +99,31 @@ describe("LiveSyncJournalReplicator replication outcomes", () => {
                 reason: "node-locked",
             },
         });
+    });
+
+    it("retains exact compatibility outcomes for both directional transfers", async () => {
+        const replicator = Object.create(LiveSyncJournalReplicator.prototype) as LiveSyncJournalReplicator;
+        const sendLocalJournal = vi.fn(async () => true);
+        const receiveRemoteJournal = vi.fn(async () => true);
+        vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue({
+            sendLocalJournal,
+            receiveRemoteJournal,
+        } as never);
+        vi.spyOn(replicator, "checkReplicationConnectivity").mockImplementation(async (...args) => {
+            args[5]?.(centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.NODE_LOCKED));
+            return false;
+        });
+
+        await expect(replicator.replicateAllToServerWithOutcome(DEFAULT_SETTINGS, false)).resolves.toMatchObject({
+            status: "failed",
+            recoveryHint: { reason: CENTRAL_COMPATIBILITY_REJECTION_REASONS.NODE_LOCKED },
+        });
+        await expect(replicator.replicateAllFromServerWithOutcome(DEFAULT_SETTINGS, false)).resolves.toMatchObject({
+            status: "failed",
+            recoveryHint: { reason: CENTRAL_COMPATIBILITY_REJECTION_REASONS.NODE_LOCKED },
+        });
+        expect(sendLocalJournal).not.toHaveBeenCalled();
+        expect(receiveRemoteJournal).not.toHaveBeenCalled();
     });
 });
 
@@ -228,6 +254,72 @@ describe("LiveSyncJournalReplicator compatibility milestone", () => {
 });
 
 describe("LiveSyncJournalReplicator remote mutation outcomes", () => {
+    it("initialises a remote lock milestone only after an explicit not-found result", async () => {
+        const replicator = new LiveSyncJournalReplicator({
+            services: {
+                database: { localNodeIdentity: { nodeId: "local-node" } },
+            },
+        } as never);
+        replicator.nodeid = "local-node";
+        const downloadJsonWithResult = vi.fn().mockResolvedValue({
+            status: JournalStorageReadStatuses.NOT_FOUND,
+        });
+        const uploadJson = vi.fn().mockResolvedValue(true);
+        vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue({
+            downloadJsonWithResult,
+            uploadJson,
+        } as never);
+
+        await expect(replicator.markRemoteLocked(DEFAULT_SETTINGS, true, false)).resolves.toBeUndefined();
+
+        expect(uploadJson).toHaveBeenCalledWith(
+            "_00000000-milestone.json",
+            expect.objectContaining({
+                _id: "_00000000-milestone.json",
+                accepted_nodes: ["local-node"],
+                locked: true,
+            })
+        );
+    });
+
+    it.each([
+        [
+            "markRemoteLocked",
+            (replicator: LiveSyncJournalReplicator) => replicator.markRemoteLocked(DEFAULT_SETTINGS, true, false),
+        ],
+        [
+            "markRemoteResolved",
+            (replicator: LiveSyncJournalReplicator) => replicator.markRemoteResolved(DEFAULT_SETTINGS),
+        ],
+    ] as const)(
+        "rejects %s when the typed milestone read is unavailable without uploading a replacement",
+        async (_operation, run) => {
+            const failure = new Error("remote milestone unavailable");
+            const replicator = new LiveSyncJournalReplicator({
+                services: {
+                    database: { localNodeIdentity: { nodeId: "local-node" } },
+                },
+            } as never);
+            const downloadJsonWithResult = vi.fn().mockResolvedValue({
+                status: JournalStorageReadStatuses.UNAVAILABLE,
+                error: failure,
+            });
+            const downloadJson = vi.fn().mockResolvedValue(false);
+            const uploadJson = vi.fn().mockResolvedValue(true);
+            vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue({
+                downloadJson,
+                downloadJsonWithResult,
+                uploadJson,
+            } as never);
+
+            await expect(run(replicator)).rejects.toBe(failure);
+
+            expect(downloadJsonWithResult).toHaveBeenCalledWith("_00000000-milestone.json");
+            expect(downloadJson).not.toHaveBeenCalled();
+            expect(uploadJson).not.toHaveBeenCalled();
+        }
+    );
+
     it("rejects an incomplete remote reset without recreating the remote database", async () => {
         const replicator = new LiveSyncJournalReplicator({} as never);
         const resetBucket = vi.fn().mockResolvedValue(false);
@@ -247,13 +339,19 @@ describe("LiveSyncJournalReplicator remote mutation outcomes", () => {
                 database: { localNodeIdentity: { nodeId: "local-node" } },
             },
         } as never);
-        const downloadJson = vi.fn().mockResolvedValue({ tweak_values: {} });
+        const downloadJsonWithResult = vi.fn().mockResolvedValue({
+            status: JournalStorageReadStatuses.AVAILABLE,
+            value: { tweak_values: {} },
+        });
         const uploadJson = vi.fn().mockResolvedValue(false);
-        vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue({ downloadJson, uploadJson } as never);
+        vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue({
+            downloadJsonWithResult,
+            uploadJson,
+        } as never);
 
         await expect(replicator.markRemoteLocked(DEFAULT_SETTINGS, true, false)).rejects.toBeDefined();
 
-        expect(downloadJson).toHaveBeenCalledOnce();
+        expect(downloadJsonWithResult).toHaveBeenCalledOnce();
         expect(uploadJson).toHaveBeenCalledOnce();
     });
 });
@@ -282,6 +380,154 @@ describe("LiveSyncJournalReplicator finite resource ownership", () => {
         replicator.closeReplication();
 
         expect(setupJournalSyncClient).not.toHaveBeenCalled();
+    });
+
+    it("does not construct a Journal client merely to stop an unused Replicator", () => {
+        const replicator = new LiveSyncJournalReplicator({} as never);
+        const setupJournalSyncClient = vi
+            .spyOn(replicator, "setupJournalSyncClient")
+            .mockReturnValue({ requestStop: vi.fn() } as never);
+
+        replicator.terminateSync();
+
+        expect(setupJournalSyncClient).not.toHaveBeenCalled();
+    });
+
+    it("requests Stop from an existing Journal client", () => {
+        const replicator = new LiveSyncJournalReplicator({} as never);
+        const requestStop = vi.fn();
+        replicator._client = { requestStop } as never;
+
+        replicator.terminateSync();
+
+        expect(requestStop).toHaveBeenCalledOnce();
+    });
+
+    it("does not settle Stop before an active Journal transfer has finished", async () => {
+        let markTransferStarted!: () => void;
+        const transferStarted = new Promise<void>((resolve) => {
+            markTransferStarted = resolve;
+        });
+        let releaseTransfer!: () => void;
+        const transferGate = new Promise<void>((resolve) => {
+            releaseTransfer = resolve;
+        });
+        const sync = vi.fn(async () => {
+            markTransferStarted();
+            await transferGate;
+            return true;
+        });
+        const sendLocalJournal = vi.fn(async () => true);
+        const requestStop = vi.fn();
+        const client = { requestStop, sendLocalJournal, sync };
+        const replicator = new LiveSyncJournalReplicator({} as never);
+        replicator._client = client as never;
+        vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue(client as never);
+        vi.spyOn(replicator, "checkReplicationConnectivity").mockResolvedValue(true);
+
+        const transfer = replicator.openReplication(DEFAULT_SETTINGS, false, false);
+        await transferStarted;
+        let stopSettled = false;
+        const firstStop = replicator.terminateSync();
+        const repeatedStop = replicator.terminateSync();
+        expect(repeatedStop).toBe(firstStop);
+        const stop = Promise.resolve(firstStop).then(() => {
+            stopSettled = true;
+        });
+        const nextTransfer = replicator.replicateAllToServer(DEFAULT_SETTINGS, false);
+        await Promise.resolve();
+
+        try {
+            expect(requestStop).toHaveBeenCalledTimes(2);
+            expect(stopSettled).toBe(false);
+            expect(sendLocalJournal).not.toHaveBeenCalled();
+        } finally {
+            releaseTransfer();
+        }
+
+        await expect(transfer).resolves.toBe(true);
+        await stop;
+        await expect(nextTransfer).resolves.toBe(true);
+        expect(stopSettled).toBe(true);
+        expect(sendLocalJournal).toHaveBeenCalledOnce();
+    });
+
+    it("registers transfer settlement before setup can re-enter Stop", async () => {
+        let releaseConnectivity!: () => void;
+        const connectivityGate = new Promise<void>((resolve) => {
+            releaseConnectivity = resolve;
+        });
+        const requestStop = vi.fn();
+        const client = { requestStop, sync: vi.fn(async () => true) };
+        const replicator = new LiveSyncJournalReplicator({} as never);
+        replicator._client = client as never;
+        let reentrantStop: Promise<void> | undefined;
+        vi.spyOn(replicator, "setupJournalSyncClient").mockImplementation(() => {
+            reentrantStop = replicator.terminateSync();
+            return client as never;
+        });
+        vi.spyOn(replicator, "checkReplicationConnectivity").mockImplementation(async () => {
+            await connectivityGate;
+            return true;
+        });
+
+        const transfer = replicator.openReplication(DEFAULT_SETTINGS, false, false);
+        expect(reentrantStop).toBeDefined();
+        let stopSettled = false;
+        const stop = reentrantStop?.then(() => {
+            stopSettled = true;
+        });
+        await Promise.resolve();
+
+        try {
+            expect(requestStop).toHaveBeenCalledOnce();
+            expect(stopSettled).toBe(false);
+        } finally {
+            releaseConnectivity();
+        }
+
+        await expect(transfer).resolves.toBe(true);
+        await stop;
+        expect(stopSettled).toBe(true);
+    });
+
+    it("does not start Journal sync after Stop while connectivity preflight is pending", async () => {
+        let markPreflightStarted!: () => void;
+        const preflightStarted = new Promise<void>((resolve) => {
+            markPreflightStarted = resolve;
+        });
+        let releasePreflight!: (result: boolean) => void;
+        const preflight = new Promise<boolean>((resolve) => {
+            releasePreflight = resolve;
+        });
+        const sync = vi.fn(async () => true);
+        const requestStop = vi.fn();
+        const client = { requestStop, sync };
+        const replicator = new LiveSyncJournalReplicator({} as never);
+        replicator._client = client as never;
+        vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue(client as never);
+        vi.spyOn(replicator, "checkReplicationConnectivity").mockImplementation(async () => {
+            markPreflightStarted();
+            return await preflight;
+        });
+
+        // Stop must cover the admitted transfer even though setup has not yet
+        // crossed the preflight boundary into the Journal client's sync call.
+        const transfer = replicator.openReplication(DEFAULT_SETTINGS, false, false);
+        await preflightStarted;
+        let stopSettled = false;
+        const stop = replicator.terminateSync().then(() => {
+            stopSettled = true;
+        });
+
+        expect(requestStop).toHaveBeenCalledOnce();
+        expect(stopSettled).toBe(false);
+        releasePreflight(true);
+
+        await expect(transfer).resolves.toBe(false);
+        await stop;
+        expect(stopSettled).toBe(true);
+        expect(sync).not.toHaveBeenCalled();
     });
 
     it("does not report replication closed when disposing a resource-only Replicator", () => {

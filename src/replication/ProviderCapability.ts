@@ -23,6 +23,7 @@ export type NotApplicableCapability = {
     readonly reason: typeof CAPABILITY_UNAVAILABLE_REASONS.NOT_APPLICABLE;
 };
 
+/** One available capability paired with the only runner allowed to perform its role. */
 export type SupportedCapability<TRole> = {
     readonly kind: typeof CAPABILITY_SUPPORT_KINDS.SUPPORTED;
     readonly run: TRole;

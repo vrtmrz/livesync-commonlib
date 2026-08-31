@@ -41,6 +41,7 @@ export type CentralCompatibilityDecision =
 /** Stack-local sink used while a provider owns the connection or client being assessed. */
 export type CentralCompatibilityDecisionRecorder = (decision: CentralCompatibilityDecision) => void;
 
+/** Immutable recovery input projected from the exact failed replication attempt. */
 export interface CentralCompatibilityRecoveryHint {
     readonly reason: CentralCompatibilityRejectionReason;
     readonly preferredTweakValue?: Readonly<TweakValues>;
@@ -66,8 +67,6 @@ export function centralCompatibilityRecoveryHint(
     if (decision.status !== CENTRAL_COMPATIBILITY_STATUSES.REJECTED) return undefined;
     return Object.freeze({
         reason: decision.reason,
-        ...(decision.preferredTweakValue === undefined
-            ? {}
-            : { preferredTweakValue: decision.preferredTweakValue }),
+        ...(decision.preferredTweakValue === undefined ? {} : { preferredTweakValue: decision.preferredTweakValue }),
     });
 }

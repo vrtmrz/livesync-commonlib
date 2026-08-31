@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { REMOTE_COUCHDB } from "@lib/common/types.ts";
 import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
 import type { ReplicatorProviderDefinition } from "@lib/replication/ReplicatorProvider.ts";
-import { ActiveReplicatorState } from "./ActiveReplicatorState.ts";
+import { ActiveReplicatorState } from "./ReplicatorService.activeReplicatorState.ts";
 
 function createReplicator(): ReplicatorInstance {
     return {
@@ -28,8 +28,7 @@ describe("ActiveReplicatorState", () => {
         expect(state.current).toEqual({
             replicator,
             replicatorType: REMOTE_COUCHDB,
-            context: { provider, replicator },
-            configurationIdentity: "profile-a",
+            context: { provider, replicator, configurationIdentity: "profile-a" },
         });
     });
 
@@ -43,7 +42,6 @@ describe("ActiveReplicatorState", () => {
             replicator,
             replicatorType: REMOTE_COUCHDB,
             context: undefined,
-            configurationIdentity: undefined,
         });
     });
 
@@ -57,7 +55,7 @@ describe("ActiveReplicatorState", () => {
         const retirement = state.beginRetirement();
 
         expect(state.current).toBeUndefined();
-        expect(context).toEqual({ provider, replicator });
+        expect(context).toEqual({ provider, replicator, configurationIdentity: "profile-a" });
         expect(reservation?.context).toBe(context);
         expect(state.reserve()).toBeUndefined();
         expect(retirement?.publication.replicator).toBe(replicator);

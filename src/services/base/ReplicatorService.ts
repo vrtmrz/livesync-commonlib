@@ -27,14 +27,14 @@ import {
     ActiveReplicatorState,
     type ActiveReplicatorPublication,
     type ActiveReplicatorRetirement,
-} from "./ActiveReplicatorState.ts";
+} from "./ReplicatorService.activeReplicatorState.ts";
 import type { RemoteResourceKind, RemoteResourceMap } from "@lib/replication/RemoteResource.ts";
-import { resolveRemoteResource } from "./RemoteResourceResolver.ts";
+import { resolveRemoteResource } from "./ReplicatorService.remoteResourceResolver.ts";
 import type {
     CentralRemoteAdministrationRequest,
     CentralRemoteAdministrationResult,
 } from "@lib/replication/CentralRemoteAdministration.ts";
-import { runCentralRemoteAdministrationWithContext } from "./CentralRemoteAdministrationCoordinator.ts";
+import { runCentralRemoteAdministrationWithContext } from "./ReplicatorService.centralRemoteAdministration.ts";
 import { asCopy } from "@lib/common/utils.object.ts";
 
 export interface ReplicatorServiceDependencies {
@@ -201,7 +201,6 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
                 : "Closing active replicator."
         );
         await this.closeRetiringReplicator(retirement);
-        // To flush e2ee salts, device id, and other information kept in the replicator instance, to avoid potential database corruption after reset.
         return true;
     }
 
@@ -315,7 +314,10 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         const isSameProvider =
             replicatorType === activePublication?.replicatorType &&
             (!provider || activePublication.context?.provider === provider);
-        if (isSameProvider && (!provider || configurationIdentity === activePublication?.configurationIdentity)) {
+        if (
+            isSameProvider &&
+            (!provider || configurationIdentity === activePublication?.context?.configurationIdentity)
+        ) {
             // No need to change the replicator.
             this._unresolvedErrorManager.clearError(message);
             this._log("Active replicator has been kept", LOG_LEVEL_VERBOSE);
@@ -482,8 +484,10 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
     );
 
     /**
-     * Get the currently active replicator instance.
-     * If no active replicator, return undefined but that is the fatal situation (on Obsidian).
+     * Return the legacy unreserved view of the active Replicator.
+     *
+     * Missing active state retains its established Notice-level diagnostic.
+     * New work must acquire or admit an `ActiveReplicatorContext` instead.
      */
     getActiveReplicator(): ReplicatorInstance | undefined {
         const message = "No replicator has been activated or has not been initialised yet.";
@@ -494,6 +498,18 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
         }
         this._unresolvedErrorManager.clearError(message);
         return activeReplicator;
+    }
+
+    /**
+     * Classify whether a compatibility active Replicator exists without
+     * acquiring or returning it.
+     *
+     * This side-effect-free, non-owning predicate exists only for
+     * compatibility-state classification. Work must acquire or admit an
+     * `ActiveReplicatorContext` before using a Replicator.
+     */
+    hasActiveReplicator(): boolean {
+        return this._activeReplicatorState.current !== undefined;
     }
 
     replicationStatics = reactiveSource({ ...DEFAULT_REPLICATION_STATICS });
