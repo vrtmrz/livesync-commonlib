@@ -271,6 +271,7 @@ async function copyStaticFiles() {
         "proven-in-use.md",
         "remote-configurations.md",
         "releasing.md",
+        "service-feature-composition.md",
         "settings-lifecycle.md",
     ]) {
         await cp(resolve(root, "docs", document), resolve(packageDirectory, "docs", document));

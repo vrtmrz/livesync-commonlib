@@ -114,6 +114,10 @@ assert.ok(
     "The developer guide linked from the README must be included in the package."
 );
 assert.ok(
+    packed.files.some(({ path }) => path === "docs/service-feature-composition.md"),
+    "The service feature composition guide linked from the developer guide must be included in the package."
+);
+assert.ok(
     packed.files.some(({ path }) => path === "docs/conflict-resolution.md"),
     "The conflict-resolution guide linked from the README must be included in the package."
 );
