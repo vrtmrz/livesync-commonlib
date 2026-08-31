@@ -522,6 +522,8 @@ export class RpcRoom {
         const runner = async () => {
             try {
                 if (ctx.signal.aborted || this.closed) return;
+                // Private registration stores this flag with the matching
+                // handler arm, so it is the discriminant for invocation here.
                 const data = method.cancellationAware
                     ? await (method.handler as RpcCancellationAwareMethodHandler<JsonLike[], JsonLike>)(
                           ctx,

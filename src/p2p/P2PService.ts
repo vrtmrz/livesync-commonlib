@@ -186,7 +186,10 @@ export interface P2PServiceComposition {
 }
 
 interface P2PServiceState {
+    /** User disconnects remain vetoes until an explicit connect. */
     explicitDisconnectVeto: boolean;
+    /** Host lifecycle closure remains a gate until a declared resume boundary. */
+    lifecycleClosed: boolean;
     lifecycleGeneration: number;
     delayedAutoStart: CompatTimeoutHandle | undefined;
 }
@@ -201,6 +204,7 @@ interface P2PServiceContext {
 
 function connect(owner: P2PRoomSessionOwner, state: P2PServiceState): Promise<void> {
     state.explicitDisconnectVeto = false;
+    state.lifecycleClosed = false;
     return owner.setPersistentDemand("explicit", true);
 }
 
@@ -223,11 +227,14 @@ function disconnect(owner: P2PRoomSessionOwner, state: P2PServiceState): Promise
     return owner.close();
 }
 
-function openAfterDatabaseRebuild(owner: P2PRoomSessionOwner): Promise<void> {
+function openAfterDatabaseRebuild(owner: P2PRoomSessionOwner, state: P2PServiceState): Promise<void> {
+    // Rebuild continuation is an explicit host lifecycle resume boundary.
+    state.lifecycleClosed = false;
     return owner.setPersistentDemand("rebuild-continuation", true);
 }
 
 function closeForLifecycle(owner: P2PRoomSessionOwner, state: P2PServiceState): Promise<void> {
+    state.lifecycleClosed = true;
     cancelDelayedAutomation(owner, state);
     return owner.close();
 }
@@ -239,12 +246,15 @@ function reconcileAutoStart(
     if (!settings.P2P_Enabled || !settings.P2P_AutoStart) {
         return context.roomSessionOwner.setPersistentDemand("automatic", false);
     }
-    if (context.state.explicitDisconnectVeto) return Promise.resolve();
+    if (context.state.explicitDisconnectVeto || context.state.lifecycleClosed) return Promise.resolve();
     return context.roomSessionOwner.setPersistentDemand("automatic", true);
 }
 
 function scheduleAutoStart(context: P2PServiceContext, delayMs: number = 100): void {
     clearDelayedAutoStart(context.state);
+    // Scheduling occurs only after the host resumes and therefore establishes
+    // the next lifecycle generation in which AutoStart may reopen the room.
+    context.state.lifecycleClosed = false;
     const generation = context.state.lifecycleGeneration;
     context.state.delayedAutoStart = compatGlobal.setTimeout(() => {
         context.state.delayedAutoStart = undefined;
@@ -260,18 +270,19 @@ function runWithFiniteRoomDemand<T>(
     if (context.state.explicitDisconnectVeto) {
         return Promise.reject(new Error("The P2P room was explicitly disconnected."));
     }
+    if (context.state.lifecycleClosed) return Promise.reject(new Error("The P2P room is not ready."));
     return context.roomSessionOwner.runWithFiniteDemand(task);
 }
 
 async function synchroniseConfiguredTargets(context: P2PServiceContext): Promise<ReplicationOutcome> {
-    if (context.state.explicitDisconnectVeto) return replicationBlocked("not-ready");
+    if (context.state.explicitDisconnectVeto || context.state.lifecycleClosed) return replicationBlocked("not-ready");
     try {
         const result = await context.roomSessionOwner.runWithFiniteDemand((session) =>
             session.runFiniteOperation((signal) => session.replicator.replicateFromCommand(false, undefined, signal))
         );
         if (result.status === "completed") return REPLICATION_COMPLETED;
         if (result.status === "cancelled") return REPLICATION_CANCELLED;
-        if (result.status === "blocked") return replicationBlocked("provider-not-configured");
+        if (result.status === "blocked") return replicationBlocked(result.reason);
         return {
             status: "partial",
             detail: { kind: "p2p-configured-targets", targets: result.targets },
@@ -399,7 +410,7 @@ function createServiceViews(context: P2PServiceContext): P2PServiceViews {
 function createServiceLifecycle(context: P2PServiceContext): P2PServiceLifecycle {
     return {
         requestStatus: () => context.compatibilityReplicator.requestStatus(),
-        openAfterDatabaseRebuild: () => openAfterDatabaseRebuild(context.roomSessionOwner),
+        openAfterDatabaseRebuild: () => openAfterDatabaseRebuild(context.roomSessionOwner, context.state),
         closeForLifecycle: () => closeForLifecycle(context.roomSessionOwner, context.state),
         reconcileAutoStart: (settings) => reconcileAutoStart(context, settings),
         scheduleAutoStart: (delayMs) => scheduleAutoStart(context, delayMs),
@@ -416,6 +427,7 @@ export function createP2PService(env: LiveSyncTrysteroReplicatorEnv): P2PService
     const roomSessionOwner = new P2PRoomSessionOwner(env);
     const state: P2PServiceState = {
         explicitDisconnectVeto: false,
+        lifecycleClosed: false,
         lifecycleGeneration: 0,
         delayedAutoStart: undefined,
     };

@@ -558,6 +558,77 @@ describe("P2P service room ownership", () => {
         }
     });
 
+    it("blocks finite configured-target synchronisation after an awaited lifecycle close", async () => {
+        const roomLifecycle = mockRoomTransport();
+        const { lifecycle, targetedTransfer, transportLifecycle, settings } = createServiceHarness();
+        settings.P2P_AutoStart = false;
+        settings.P2P_SyncOnReplication = "peer-a";
+        const replicateFromCommand = vi
+            .spyOn(TrysteroReplicator.prototype, "replicateFromCommand")
+            .mockResolvedValue({ status: "completed", targets: ["peer-a"] });
+
+        await transportLifecycle.connect();
+        await lifecycle.closeForLifecycle();
+
+        await expect(targetedTransfer.synchroniseConfiguredTargets()).resolves.toEqual({
+            status: "blocked",
+            reason: "not-ready",
+        });
+        expect(roomLifecycle).toEqual(["open", "close"]);
+        expect(replicateFromCommand).not.toHaveBeenCalled();
+    });
+
+    it("does not describe host lifecycle closure as an explicit user disconnect", async () => {
+        mockRoomTransport();
+        const { lifecycle, targetedTransfer, transportLifecycle } = createServiceHarness();
+
+        await transportLifecycle.connect();
+        await lifecycle.closeForLifecycle();
+
+        await expect(targetedTransfer.pullFromPeer("peer-a")).rejects.toThrow("The P2P room is not ready.");
+    });
+
+    it("keeps setting reconciliation blocked until an explicit connect reopens the lifecycle", async () => {
+        const roomLifecycle = mockRoomTransport();
+        const { lifecycle, targetedTransfer, transportLifecycle, settings } = createServiceHarness();
+        const replicateFrom = vi
+            .spyOn(TrysteroReplicator.prototype, "replicateFrom")
+            .mockResolvedValue({ status: "completed", ok: true });
+
+        await transportLifecycle.connect();
+        await lifecycle.closeForLifecycle();
+        await lifecycle.reconcileAutoStart(settings as never);
+        await expect(targetedTransfer.pullFromPeer("peer-a")).rejects.toThrow();
+        expect(roomLifecycle).toEqual(["open", "close"]);
+        expect(replicateFrom).not.toHaveBeenCalled();
+
+        await transportLifecycle.connect();
+        await expect(targetedTransfer.pullFromPeer("peer-a")).resolves.toEqual({ status: "completed", ok: true });
+        expect(roomLifecycle).toEqual(["open", "close", "open"]);
+        expect(replicateFrom).toHaveBeenCalledOnce();
+    });
+
+    it("allows database-rebuild continuation and resumed AutoStart to reopen the lifecycle", async () => {
+        vi.useFakeTimers();
+        try {
+            const roomLifecycle = mockRoomTransport();
+            const { lifecycle, transportLifecycle, settings } = createServiceHarness();
+
+            await transportLifecycle.connect();
+            await lifecycle.closeForLifecycle();
+            await lifecycle.openAfterDatabaseRebuild();
+            expect(roomLifecycle).toEqual(["open", "close", "open"]);
+
+            await lifecycle.closeForLifecycle();
+            lifecycle.scheduleAutoStart(0);
+            await vi.runOnlyPendingTimersAsync();
+            expect(roomLifecycle).toEqual(["open", "close", "open", "close", "open"]);
+            expect(settings.P2P_AutoStart).toBe(true);
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
     it("keeps public peer transfers bound to the session admitted by the room owner", async () => {
         mockRoomTransport();
         const { targetedTransfer, transportLifecycle } = createServiceHarness();
@@ -586,6 +657,23 @@ describe("P2P service room ownership", () => {
         expect(compatibilityPull).not.toHaveBeenCalled();
         expect(compatibilityPush).not.toHaveBeenCalled();
         expect(compatibilitySynchronise).not.toHaveBeenCalled();
+    });
+
+    it("preserves a no-targets block when P2P is enabled but target selection is empty", async () => {
+        mockRoomTransport();
+        const { targetedTransfer, settings } = createServiceHarness();
+        settings.P2P_AutoStart = false;
+        settings.P2P_SyncOnReplication = "";
+        vi.spyOn(TrysteroReplicator.prototype, "replicateFromCommand").mockResolvedValue({
+            status: "blocked",
+            reason: "no-targets",
+            targets: [],
+        });
+
+        await expect(targetedTransfer.synchroniseConfiguredTargets()).resolves.toEqual({
+            status: "blocked",
+            reason: "no-targets",
+        });
     });
 
     it("binds configured-target discovery to the admitted session lifetime", async () => {
