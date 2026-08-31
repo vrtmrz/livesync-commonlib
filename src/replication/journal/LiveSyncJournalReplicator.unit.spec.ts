@@ -339,6 +339,18 @@ describe("LiveSyncJournalReplicator finite resource ownership", () => {
         expect(dispose).toHaveBeenCalledOnce();
     });
 
+    it("releases a disposed Journal client so later remote work cannot reuse it", () => {
+        const replicator = new LiveSyncJournalReplicator({} as never);
+        const dispose = vi.fn();
+        replicator._client = { dispose } as never;
+        replicator.updateInfo = vi.fn();
+
+        replicator.closeReplication();
+
+        expect(dispose).toHaveBeenCalledOnce();
+        expect(replicator._client).toBeUndefined();
+    });
+
     it.each([
         ["successful", () => Promise.resolve({ estimatedSize: 12 }), { estimatedSize: 12 }],
         ["failed", () => Promise.reject(new Error("status unavailable")), undefined],

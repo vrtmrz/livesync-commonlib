@@ -60,7 +60,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     get simpleStore() {
         return this.env.services.keyValueDB.simpleStore as SimpleStore<CheckPointInfo>;
     }
-    _client!: JournalSyncCore;
+    _client?: JournalSyncCore;
     /** Whether this instance has entered a Journal transfer since its last close. */
     private hasEnteredReplication = false;
 
@@ -274,7 +274,11 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         // not construct the resource which this method is meant to release.
         const reportClosure = this.hasEnteredReplication;
         this.hasEnteredReplication = false;
-        this._client?.dispose();
+        const client = this._client;
+        // Detach before disposal so a later lazy access cannot reconfigure and
+        // reuse a client whose storage adapter has already been retired.
+        this._client = undefined;
+        client?.dispose();
         this.syncStatus = "CLOSED";
         if (reportClosure) {
             Logger("Replication closed");
