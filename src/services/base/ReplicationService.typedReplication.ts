@@ -2,6 +2,7 @@ import type { ObsidianLiveSyncSettings } from "@lib/common/types.ts";
 import {
     CAPABILITY_SUPPORT_KINDS,
     NO_INTERACTION,
+    REPLICATION_PROGRESS_PRESENTATIONS,
     isActiveReplicatorContextBoundToSetting,
     replicationBlocked,
     replicationFailed,
@@ -10,6 +11,7 @@ import {
     type InteractionAuthority,
     type ReplicationFailureRequest,
     type ReplicationOutcome,
+    type ReplicationProgressPresentation,
     type ReplicationReadinessRequirements,
     type UnattendedOneShotRequest,
     type UserInitiatedOneShotRequest,
@@ -51,6 +53,8 @@ export interface TypedReplicationCoordinatorDependencies {
  * which callers and reviewers need to see explicitly.
  */
 export class TypedReplicationCoordinator {
+    private oneShotInProgress = false;
+
     constructor(private readonly dependencies: TypedReplicationCoordinatorDependencies) {}
 
     /**
@@ -62,24 +66,26 @@ export class TypedReplicationCoordinator {
      * activity has settled.
      */
     async runUserInitiated(request: UserInitiatedOneShotRequest): Promise<ReplicationOutcome> {
-        const showMessage = request.interaction.kind === "permitted" && request.interaction.permissions.failureRecovery;
-        const ready = await this.acquireReadyContext(showMessage);
-        if ("status" in ready) return ready;
+        return await this.runOneShot(async () => {
+            const showProgress = request.progressPresentation === REPLICATION_PROGRESS_PRESENTATIONS.NOTICE;
+            const ready = await this.acquireReadyContext(showProgress);
+            if ("status" in ready) return ready;
 
-        const capability = ready.provider.userInitiatedOneShot;
-        if (capability.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
-            return this.finishFiniteAttempt(replicationBlocked(capability.reason));
-        }
-        const settings = Object.freeze(asCopy(this.dependencies.currentSettings()));
-        return this.finishFiniteAttempt(
-            await this.runAdmittedFiniteActivity(
-                ready,
-                (context) => capability.run(context.replicator, settings, request),
-                settings,
-                request.interaction,
-                showMessage
-            )
-        );
+            const capability = ready.provider.userInitiatedOneShot;
+            if (capability.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
+                return this.finishFiniteAttempt(replicationBlocked(capability.reason));
+            }
+            const settings = Object.freeze(asCopy(this.dependencies.currentSettings()));
+            return this.finishFiniteAttempt(
+                await this.runAdmittedFiniteActivity(
+                    ready,
+                    (context) => capability.run(context.replicator, settings, request),
+                    settings,
+                    request.interaction,
+                    request.progressPresentation
+                )
+            );
+        });
     }
 
     /**
@@ -93,23 +99,25 @@ export class TypedReplicationCoordinator {
         if (request.interaction.kind !== NO_INTERACTION.kind) {
             return replicationBlocked("interaction-required");
         }
-        const ready = await this.acquireReadyContext(false);
-        if ("status" in ready) return ready;
+        return await this.runOneShot(async () => {
+            const ready = await this.acquireReadyContext(false);
+            if ("status" in ready) return ready;
 
-        const capability = ready.provider.unattendedOneShot;
-        if (capability.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
-            return this.finishFiniteAttempt(replicationBlocked(capability.reason));
-        }
-        const settings = Object.freeze(asCopy(this.dependencies.currentSettings()));
-        return this.finishFiniteAttempt(
-            await this.runAdmittedFiniteActivity(
-                ready,
-                (context) => capability.run(context.replicator, settings, request),
-                settings,
-                NO_INTERACTION,
-                false
-            )
-        );
+            const capability = ready.provider.unattendedOneShot;
+            if (capability.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
+                return this.finishFiniteAttempt(replicationBlocked(capability.reason));
+            }
+            const settings = Object.freeze(asCopy(this.dependencies.currentSettings()));
+            return this.finishFiniteAttempt(
+                await this.runAdmittedFiniteActivity(
+                    ready,
+                    (context) => capability.run(context.replicator, settings, request),
+                    settings,
+                    NO_INTERACTION,
+                    REPLICATION_PROGRESS_PRESENTATIONS.QUIET
+                )
+            );
+        });
     }
 
     /**
@@ -182,6 +190,24 @@ export class TypedReplicationCoordinator {
         return admitted ?? replicationBlocked("no-active-replicator");
     }
 
+    /**
+     * Admit one complete typed OneShot attempt for this service instance.
+     *
+     * Ownership is recorded before the operation reaches its first await and is
+     * retained through readiness, provider work, activity settlement, and
+     * failure handling. Later requests are neither queued nor joined: they
+     * settle immediately so repeated UI actions cannot replay after the owner.
+     */
+    private async runOneShot(run: () => Promise<ReplicationOutcome>): Promise<ReplicationOutcome> {
+        if (this.oneShotInProgress) return replicationBlocked("replication-in-progress");
+        this.oneShotInProgress = true;
+        try {
+            return await run();
+        } finally {
+            this.oneShotInProgress = false;
+        }
+    }
+
     private finishFiniteAttempt(outcome: ReplicationOutcome): ReplicationOutcome {
         // The attempt clock advances after readiness even when the provider
         // declares the role unavailable; this preserves event-rate semantics.
@@ -234,7 +260,7 @@ export class TypedReplicationCoordinator {
         run: (context: ActiveReplicatorContext) => Promise<ReplicationOutcome>,
         setting: ObsidianLiveSyncSettings,
         interaction: InteractionAuthority,
-        showMessage: boolean
+        progressPresentation: ReplicationProgressPresentation
     ): Promise<ReplicationOutcome> {
         const admitted = await this.dependencies.replicatorService.runWithActiveReplicatorContext((context) => {
             if (context !== expectedContext || !isActiveReplicatorContextBoundToSetting(context, setting)) {
@@ -252,7 +278,7 @@ export class TypedReplicationCoordinator {
                     context: expectedContext,
                     setting,
                     outcome: result,
-                    showMessage,
+                    progressPresentation,
                     interaction,
                 })
             );

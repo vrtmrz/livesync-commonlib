@@ -8,6 +8,7 @@ import {
     NO_INTERACTION,
     PEER_REPLICATION_READINESS,
     REPLICATION_COMPLETED,
+    REPLICATION_PROGRESS_PRESENTATIONS,
     USER_INITIATED_REPLICATION_AUTHORITY,
     supportedCapability,
     supportedOpenReplicationContinuous,
@@ -196,7 +197,7 @@ describe("ReplicationService typed provider roles", () => {
             context: activeContext,
             setting: expect.objectContaining({ versionUpFlash: "" }),
             outcome: expect.objectContaining({ status: "failed" }),
-            showMessage: false,
+            progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.QUIET,
             interaction: NO_INTERACTION,
         });
     });
@@ -209,9 +210,13 @@ describe("ReplicationService typed provider roles", () => {
             permissions: { ...USER_INITIATED_REPLICATION_AUTHORITY.permissions, failureRecovery: false },
         };
 
-        await expect(service.replicateUserInitiated({ trigger: "manual", interaction })).resolves.toEqual({
-            status: "completed",
-        });
+        await expect(
+            service.replicateUserInitiated({
+                trigger: "manual",
+                progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.QUIET,
+                interaction,
+            })
+        ).resolves.toEqual({ status: "completed" });
         expect(openReplication).toHaveBeenCalledWith(expect.anything(), false, false, false);
     });
 
@@ -220,7 +225,11 @@ describe("ReplicationService typed provider roles", () => {
         const service = new TestReplicationService(new ServiceContext(), dependencies);
 
         await expect(
-            service.replicateUserInitiated({ trigger: "manual", interaction: NO_INTERACTION })
+            service.replicateUserInitiated({
+                trigger: "manual",
+                progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.QUIET,
+                interaction: NO_INTERACTION,
+            })
         ).resolves.toEqual({ status: "completed" });
         expect(openReplication).toHaveBeenCalledWith(expect.anything(), false, false, false);
     });

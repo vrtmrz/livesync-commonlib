@@ -8,6 +8,7 @@ import {
     CAPABILITY_SUPPORT_KINDS,
     NO_INTERACTION,
     REPLICATION_COMPLETED,
+    REPLICATION_PROGRESS_PRESENTATIONS,
     USER_INITIATED_REPLICATION_AUTHORITY,
     type ReplicatorProviderDefinitionMap,
 } from "@lib/replication";
@@ -432,6 +433,7 @@ describe("useP2PReplicatorFeature", () => {
         const openReplication = vi.fn();
         const result = await definition.userInitiatedOneShot.run({ openReplication } as never, {} as never, {
             trigger: "manual",
+            progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.QUIET,
             interaction: NO_INTERACTION,
         });
 
@@ -450,11 +452,35 @@ describe("useP2PReplicatorFeature", () => {
         await expect(
             definition.userInitiatedOneShot.run({ openReplication } as never, setting, {
                 trigger: "manual",
+                progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.NOTICE,
                 interaction: USER_INITIATED_REPLICATION_AUTHORITY,
             })
         ).resolves.toEqual(REPLICATION_COMPLETED);
 
         expect(openReplication).toHaveBeenCalledWith(setting, false, true, false);
+    });
+
+    it("maps P2P progress presentation independently of recovery authority", async () => {
+        const { definition } = composeP2PProviderForTest();
+        if (definition.userInitiatedOneShot.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
+            throw new Error("P2P user role is not supported");
+        }
+        const setting = { remoteType: REMOTE_P2P, P2P_Enabled: true } as never;
+        const openReplication = vi.fn().mockResolvedValue(true);
+
+        await definition.userInitiatedOneShot.run({ openReplication } as never, setting, {
+            trigger: "manual",
+            progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.QUIET,
+            interaction: USER_INITIATED_REPLICATION_AUTHORITY,
+        });
+        await definition.userInitiatedOneShot.run({ openReplication } as never, setting, {
+            trigger: "manual",
+            progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.NOTICE,
+            interaction: USER_INITIATED_REPLICATION_AUTHORITY,
+        });
+
+        expect(openReplication).toHaveBeenNthCalledWith(1, setting, false, false, false);
+        expect(openReplication).toHaveBeenNthCalledWith(2, setting, false, true, false);
     });
 
     it("keeps an authorised user P2P exception as the failed result of that attempt", async () => {
@@ -468,6 +494,7 @@ describe("useP2PReplicatorFeature", () => {
         await expect(
             definition.userInitiatedOneShot.run({ openReplication } as never, {} as never, {
                 trigger: "manual",
+                progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.NOTICE,
                 interaction: USER_INITIATED_REPLICATION_AUTHORITY,
             })
         ).resolves.toEqual({ status: "failed", error });
@@ -489,10 +516,14 @@ describe("useP2PReplicatorFeature", () => {
             })
         ).resolves.toEqual(REPLICATION_COMPLETED);
         await expect(
-            definition.unattendedOneShot.run({} as never, {} as never, {
-                trigger: "periodic",
-                interaction: USER_INITIATED_REPLICATION_AUTHORITY,
-            } as never)
+            definition.unattendedOneShot.run(
+                {} as never,
+                {} as never,
+                {
+                    trigger: "periodic",
+                    interaction: USER_INITIATED_REPLICATION_AUTHORITY,
+                } as never
+            )
         ).resolves.toEqual({ status: "blocked", reason: "interaction-required" });
 
         expect(synchroniseConfiguredTargets).toHaveBeenCalledOnce();
