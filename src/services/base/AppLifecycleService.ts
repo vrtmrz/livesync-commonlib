@@ -85,6 +85,9 @@ export abstract class AppLifecycleService<T extends ServiceContext = ServiceCont
 
     /**
      * Event triggered when the plug-in is being unloaded.
+     *
+     * Resource owners complete terminal retirement here. `ControlService`
+     * awaits every handler before it closes the local database.
      */
     readonly onUnload = handlers<IAppLifecycleService>().all("onUnload");
     /**
@@ -108,6 +111,7 @@ export abstract class AppLifecycleService<T extends ServiceContext = ServiceCont
 
     /**
      * Event triggered when the application is being suspended (e.g., system sleep).
+     * Suspension is reversible and is not equivalent to terminal unload.
      */
     readonly onSuspending = handlers<IAppLifecycleService>().bailFirstFailure("onSuspending");
 

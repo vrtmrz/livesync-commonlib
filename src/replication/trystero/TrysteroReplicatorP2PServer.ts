@@ -1,8 +1,9 @@
 import { type Room, selfId, joinRoom } from "@trystero-p2p/nostr";
-import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } from "@lib/common/types";
+import { AutoAccepting, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } from "@lib/common/types";
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger";
 import {
     DIRECTION_RESPONSE,
+    resolveCurrentP2PSettings,
     type ReplicatorHostEnv,
     type FullFilledDeviceInfo,
     ResponsePreventedError,
@@ -20,7 +21,7 @@ import { createHostingDB } from "./ProxiedDB";
 import { EVENT_PLATFORM_UNLOADED } from "@lib/events/coreEvents";
 import { shareRunningResult } from "octagonal-wheels/concurrency/lock_v2";
 import { Computed } from "octagonal-wheels/dataobject/Computed";
-import { RpcRoom, type JsonLike, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
+import { RpcRoom, type JsonLike, type RpcRequestContext, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
 import { resolveTrysteroRpcOptions } from "@lib/rpc/transports/TrysteroTransport";
 import { subscribeTrysteroPeerEvents } from "@lib/rpc/transports/trysteroRoomEvents";
 import { toRpcMethodName } from "./rpcCompat";
@@ -28,6 +29,7 @@ import { generateJoinRoomOptions } from "@lib/rpc/transports/trysteroUtils";
 import { subscribeConnectionStatus, subscribeFailureDiagnosis } from "@lib/rpc/transports/DiagRTCPeerConnections";
 import { type DiagRTCStats } from "@lib/rpc/transports/DiagRTCPeerConnections.types";
 import type { SimpleStore } from "@lib/common/utils";
+import { asRpcErrorShape } from "@lib/rpc/errors";
 
 export type PeerInfo = Advertisement & {
     isAccepted: boolean | undefined;
@@ -43,6 +45,8 @@ export type RevokeAcceptanceDecision = {
     peerId: string;
     name: string;
 };
+/** Non-interactive result of evaluating the persisted and automatic peer policy. */
+export type P2PPeerAcceptance = "accepted" | "rejected" | "undecided" | "unknown";
 export type P2PServerInfo = {
     isConnected: boolean;
     knownAdvertisements: PeerInfo[];
@@ -50,6 +54,12 @@ export type P2PServerInfo = {
     roomId: string;
     diag: DiagRTCStats;
 };
+
+/** Peer callbacks bound to one room session rather than the global event hub. */
+export interface P2PSessionPeerHandlers {
+    onAdvertisement(peer: Advertisement): void | Promise<void>;
+    onPeerLeft(peerId: string): void;
+}
 export const EVENT_SERVER_STATUS = "p2p-server-status";
 export const EVENT_MAKE_DECISION = "make-decision-p2p-peer";
 export const EVENT_REVOKE_DECISION = "revoke-decision-p2p-peer";
@@ -61,7 +71,6 @@ export const EVENT_P2P_CONNECTED = "p2p-connected";
 export const EVENT_P2P_DISCONNECTED = "p2p-disconnected";
 export const EVENT_P2P_REPLICATOR_STATUS = "p2p-replicator-status";
 export const EVENT_P2P_REPLICATOR_PROGRESS = "p2p-replicator-progress";
-// const ADVERTISEMENT_REBROADCAST_INTERVAL_MS = 25000;
 declare global {
     interface LSEvents {
         [EVENT_SERVER_STATUS]: P2PServerInfo;
@@ -89,6 +98,9 @@ export class TrysteroReplicatorP2PServer {
 
     protected _peerStatusEventCleanup: (() => void) | undefined = undefined;
     protected _peerFailureAnalysisCleanup: (() => void) | undefined = undefined;
+    private _platformUnloadCleanup: (() => void) | undefined;
+    private _sessionPeerHandlers: P2PSessionPeerHandlers | undefined;
+    private _hostLifetimeEnded = false;
 
     protected _peerConnectionEventCleanup() {
         if (this._peerStatusEventCleanup) {
@@ -148,7 +160,16 @@ export class TrysteroReplicatorP2PServer {
         }
     }
 
+    /** Release subscriptions whose lifetime is the host object rather than one transport join. */
+    dispose(): void {
+        this._hostLifetimeEnded = true;
+        this._platformUnloadCleanup?.();
+        this._platformUnloadCleanup = undefined;
+        this._sessionPeerHandlers = undefined;
+    }
+
     async dispatchConnectionStatus() {
+        if (this._hostLifetimeEnded) return;
         const adsTasks = [...this.knownAdvertisements].map(async (e) => {
             const isAccepted = await this.acceptedPeers.get(e.name);
             const isTemporaryAccepted = this.temporaryAcceptedPeers.get(e.peerId);
@@ -159,6 +180,7 @@ export class TrysteroReplicatorP2PServer {
             };
         });
         const ads = await Promise.all(adsTasks);
+        if (this._hostLifetimeEnded) return;
         this._env.events.emitEvent(EVENT_SERVER_STATUS, {
             isConnected: this.isServing,
             knownAdvertisements: ads,
@@ -171,7 +193,7 @@ export class TrysteroReplicatorP2PServer {
     constructor(env: ReplicatorHostEnv, _serverPeerId = selfId) {
         this._env = env;
         this._serverPeerId = _serverPeerId;
-        this._env.events.onEvent(EVENT_PLATFORM_UNLOADED, () => {
+        this._platformUnloadCleanup = this._env.events.onEvent(EVENT_PLATFORM_UNLOADED, () => {
             void this.shutdown();
         });
         // SimpleStore has no type support now.
@@ -179,6 +201,16 @@ export class TrysteroReplicatorP2PServer {
             this._env.simpleStore as SimpleStore<boolean>,
             "p2p-device-decisions"
         );
+    }
+
+    /** Attach callbacks owned by the current room session and return their disposer. */
+    setSessionPeerHandlers(handlers: P2PSessionPeerHandlers): () => void {
+        this._sessionPeerHandlers = handlers;
+        return () => {
+            if (this._sessionPeerHandlers === handlers) {
+                this._sessionPeerHandlers = undefined;
+            }
+        };
     }
     async makeDecision(decision: AcceptanceDecision) {
         if (decision.decision) {
@@ -219,8 +251,13 @@ export class TrysteroReplicatorP2PServer {
         return this._env.settings;
     }
 
+    /** Latest admission and enablement policy for this room. */
+    get currentSettings() {
+        return resolveCurrentP2PSettings(this._env);
+    }
+
     get isEnabled() {
-        return this.settings.P2P_Enabled;
+        return this.currentSettings.P2P_Enabled;
     }
 
     get deviceInfo(): FullFilledDeviceInfo {
@@ -233,7 +270,6 @@ export class TrysteroReplicatorP2PServer {
     }
 
     _sendAdvertisement?: (data: Advertisement, peerId?: string) => Promise<void>;
-    // _advertisementTimer?: ReturnType<typeof setInterval>;
     sendAdvertisement(peerId?: string) {
         if (!this.isEnabled) return;
         const devInfo = this.deviceInfo;
@@ -248,31 +284,13 @@ export class TrysteroReplicatorP2PServer {
         }
     }
 
-    // startAdvertisementBroadcast() {
-    //     if (this._advertisementTimer) {
-    //         clearInterval(this._advertisementTimer);
-    //     }
-    //     this._advertisementTimer = setInterval(() => {
-    //         if (!this.isServing || !this.isEnabled) {
-    //             return;
-    //         }
-    //         this.sendAdvertisement();
-    //     }, ADVERTISEMENT_REBROADCAST_INTERVAL_MS);
-    // }
-
-    // stopAdvertisementBroadcast() {
-    //     if (this._advertisementTimer) {
-    //         clearInterval(this._advertisementTimer);
-    //         this._advertisementTimer = undefined;
-    //     }
-    // }
-
     _knownAdvertisements = new Map<string, Advertisement>();
     get knownAdvertisements() {
         return [...this._knownAdvertisements.values()];
     }
 
     onAdvertisement(data: Advertisement, peerId: string) {
+        if (this._hostLifetimeEnded) return;
         if (!this.isEnabled) return;
         Logger(`Advertisement from ${peerId}`, LOG_LEVEL_VERBOSE);
         if (peerId === this.serverPeerId) return;
@@ -280,6 +298,9 @@ export class TrysteroReplicatorP2PServer {
         if (data.peerId !== peerId) return;
         this._knownAdvertisements.set(peerId, data);
         void this.dispatchConnectionStatus();
+        void Promise.resolve()
+            .then(() => this._sessionPeerHandlers?.onAdvertisement(data))
+            .catch((error: unknown) => Logger(error, LOG_LEVEL_VERBOSE));
         void this._env.events.emitEvent(EVENT_ADVERTISEMENT_RECEIVED, data);
     }
 
@@ -357,26 +378,41 @@ You can chose as follows:
         },
     });
 
-    async isAcceptablePeer(peerId: string) {
-        if (!this.isEnabled) return undefined;
+    /**
+     * Evaluate peer admission without opening a dialogue or changing a stored
+     * decision. Unattended automation uses this boundary before starting RPC.
+     */
+    async evaluatePeerAcceptance(peerId: string): Promise<P2PPeerAcceptance> {
+        if (!this.isEnabled) return "unknown";
         const peerInfo = this._knownAdvertisements.get(peerId);
-        if (!peerInfo) return false;
+        if (!peerInfo) return "unknown";
         const peerName = peerInfo.name;
-        if (this.temporaryAcceptedPeers.has(peerId)) return this.temporaryAcceptedPeers.get(peerId);
+        if (this.temporaryAcceptedPeers.has(peerId)) {
+            return this.temporaryAcceptedPeers.get(peerId) ? "accepted" : "rejected";
+        }
         const accepted = await this.acceptedPeers.get(peerName);
-        if (accepted !== undefined && accepted !== null) return accepted;
-        const isAcceptable = (await this._acceptablePeers.update(this.settings)).value.some((e) => e.test(peerName));
-        const isDeny = (await this._shouldDenyPeers.update(this.settings)).value.some((e) => e.test(peerName));
+        if (accepted !== undefined && accepted !== null) return accepted ? "accepted" : "rejected";
+        const currentSettings = { ...this.currentSettings };
+        const isAcceptable = (await this._acceptablePeers.update(currentSettings)).value.some((e) => e.test(peerName));
+        const isDeny = (await this._shouldDenyPeers.update(currentSettings)).value.some((e) => e.test(peerName));
+        if (isDeny) return "rejected";
+        if (isAcceptable || currentSettings.P2P_AutoAccepting === AutoAccepting.ALL) return "accepted";
+        return "undecided";
+    }
 
-        if (isAcceptable) {
-            if (isDeny) return false;
-            this.temporaryAcceptedPeers.set(peerId, true);
-            void this.dispatchConnectionStatus();
+    async isAcceptablePeer(peerId: string) {
+        const acceptance = await this.evaluatePeerAcceptance(peerId);
+        if (acceptance === "accepted") {
+            const peerName = this._knownAdvertisements.get(peerId)?.name;
+            const persisted = peerName ? await this.acceptedPeers.get(peerName) : undefined;
+            if (!this.temporaryAcceptedPeers.has(peerId) && persisted == null) {
+                this.temporaryAcceptedPeers.set(peerId, true);
+                void this.dispatchConnectionStatus();
+            }
             return true;
         }
-        if (this.settings.P2P_IsHeadless) {
-            return false;
-        }
+        if (acceptance === "rejected" || acceptance === "unknown") return false;
+        if (this.currentSettings.P2P_IsHeadless) return false;
         return await this.confirmUserToAccept(peerId);
     }
 
@@ -415,6 +451,7 @@ You can chose as follows:
     }
 
     private _onPeerJoin(peerId: string) {
+        if (this._hostLifetimeEnded) return;
         if (!this._room) {
             Logger(`Received peer join event from ${peerId}, but no active room. Ignoring.`, LOG_LEVEL_VERBOSE);
             //
@@ -424,8 +461,12 @@ You can chose as follows:
         this.sendAdvertisement(peerId);
     }
     private _onPeerLeave(peerId: string) {
+        if (this._hostLifetimeEnded) return;
         Logger(`Peer left: ${peerId}`, LOG_LEVEL_VERBOSE);
         this._knownAdvertisements.delete(peerId);
+        void Promise.resolve()
+            .then(() => this._sessionPeerHandlers?.onPeerLeft(peerId))
+            .catch((error: unknown) => Logger(error, LOG_LEVEL_VERBOSE));
         void this._env.events.emitEvent(EVENT_DEVICE_LEAVED, peerId);
         void this.dispatchConnectionStatus();
     }
@@ -488,7 +529,7 @@ You can chose as follows:
         void this.dispatchConnectionStatus();
     }
 
-    async startService(bindings: BindableObject[] = []) {
+    async startService(bindings: BindableObject[] = [], beforeAdvertisement?: () => void) {
         if (!this.isEnabled) {
             Logger(this._env.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
             return;
@@ -498,11 +539,13 @@ You can chose as follows:
         this._bindingObjects.forEach((b) => {
             this.serveObject(b);
         });
+        // Allow a caller to replace an ordinary binding with a specialised
+        // handler before peers are told that this room is ready.
+        beforeAdvertisement?.();
         await Promise.resolve(this.sendAdvertisement());
-        // this.startAdvertisementBroadcast();
     }
 
-    async start(bindings: BindableObject[] = []) {
+    async start(bindings: BindableObject[] = [], beforeAdvertisement?: () => void) {
         await this.shutdown();
         if (!this.settings.P2P_Enabled) {
             Logger(this._env.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
@@ -530,7 +573,7 @@ You can chose as follows:
         this._activeRoomId = roomId;
         this.onAfterJoinRoom();
         void this.dispatchConnectionStatus();
-        await this.startService(bindings);
+        await this.startService(bindings, beforeAdvertisement);
     }
 
     /**
@@ -545,6 +588,18 @@ You can chose as follows:
             return await Promise.resolve(func.apply(this, [peerId, ...args]));
         });
     }
+
+    /** Serve one function whose finite work can observe caller cancellation. */
+    serveCancellationAwareFunction<T extends JsonLike[], U>(
+        type: string,
+        func: (context: RpcRequestContext, peerId: string, ...args: T) => U | Promise<U>
+    ) {
+        this._rpcRoom?.registerCancellable<T, U>(
+            toRpcMethodName(type),
+            async (context, peerId, ...args) => await Promise.resolve(func(context, peerId, ...args))
+        );
+    }
+
     serveObject<T>(obj: BindableObject<T>) {
         const keys = Object.keys(obj) as (keyof BindableObject<T>)[];
         keys.forEach((key) => {
@@ -582,16 +637,21 @@ You can chose as follows:
             Logger(`Serving function: [FAILED] ${data.type} sending back the failure information`, LOG_LEVEL_VERBOSE);
             Logger(e instanceof Error ? e.message : e, LOG_LEVEL_VERBOSE);
 
-            // e is not guaranteed to be serializable, so we need to convert it to a string or a simple object.
-            // TODO: Check it later.
             await this.__send(
-                { type: data.type, seq: data.seq, direction: DIRECTION_RESPONSE, data: undefined, error: e as any },
+                {
+                    type: data.type,
+                    seq: data.seq,
+                    direction: DIRECTION_RESPONSE,
+                    data: undefined,
+                    // This deprecated path predates RpcRoom, but it has the same
+                    // JSON boundary and therefore must not send a native Error.
+                    error: asRpcErrorShape(e),
+                },
                 peerId
             );
         }
     }
     async close() {
-        // this.stopAdvertisementBroadcast();
         this.assignedFunctions.clear();
         this.clients.forEach((client) => client.close());
         this.clients.clear();

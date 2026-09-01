@@ -3,6 +3,7 @@ import { MinioStorageAdapter } from "./MinioStorageAdapter.ts";
 import type { BucketSyncSetting } from "@lib/common/types.ts";
 import type { LiveSyncJournalReplicatorEnv } from "@lib/replication/journal/LiveSyncJournalReplicatorEnv.ts";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
+import { JournalStorageReadStatuses } from "./JournalStorageAdapter.ts";
 
 describe("MinioStorageAdapter Integration Tests", () => {
     const endpoint = process.env.minioEndpoint ?? "http://127.0.0.1:9000";
@@ -10,8 +11,8 @@ describe("MinioStorageAdapter Integration Tests", () => {
     const secretKey = process.env.secretKey ?? "minioadmin";
     const bucket = process.env.bucketName ?? "livesync-test-bucket";
 
-    it("should upload, download, and delete a file", async () => {
-        const settings = {
+    function createSettings(overrides: Partial<BucketSyncSetting> = {}): BucketSyncSetting {
+        return {
             endpoint,
             accessKey,
             secretKey,
@@ -21,12 +22,13 @@ describe("MinioStorageAdapter Integration Tests", () => {
             forcePathStyle: true,
             useCustomRequestHandler: false,
             bucketCustomHeaders: "",
+            ...overrides,
         } as BucketSyncSetting;
+    }
 
+    function createEnvironment() {
         const requestCount = reactiveSource(0);
         const responseCount = reactiveSource(0);
-
-        // Mock env
         const env = {
             services: {
                 API: {
@@ -36,6 +38,12 @@ describe("MinioStorageAdapter Integration Tests", () => {
                 },
             },
         } as unknown as LiveSyncJournalReplicatorEnv;
+        return { env, requestCount, responseCount };
+    }
+
+    it("should upload, download, and delete a file", async () => {
+        const settings = createSettings();
+        const { env, requestCount, responseCount } = createEnvironment();
 
         const adapter = new MinioStorageAdapter(settings, env);
 
@@ -66,6 +74,34 @@ describe("MinioStorageAdapter Integration Tests", () => {
         const filesAfterDelete = await adapter.listFiles("");
         expect(filesAfterDelete).not.toContain(testKey);
         expect(requestCount.value).toBeGreaterThan(0);
+        expect(responseCount.value).toBe(requestCount.value);
+        adapter.dispose();
+    });
+
+    it("preserves real missing-object and unavailable-bucket outcomes", async () => {
+        const { env, requestCount, responseCount } = createEnvironment();
+        const missingObjectAdapter = new MinioStorageAdapter(createSettings(), env);
+        const unavailableBucketAdapter = new MinioStorageAdapter(
+            createSettings({ bucket: `${bucket}-missing-${Date.now()}` }),
+            env
+        );
+
+        try {
+            await expect(
+                missingObjectAdapter.downloadWithResult(`missing-object-${Date.now()}.json`, true)
+            ).resolves.toEqual({ status: JournalStorageReadStatuses.NOT_FOUND });
+            await expect(
+                unavailableBucketAdapter.downloadWithResult("control-object.json", true)
+            ).resolves.toMatchObject({
+                status: JournalStorageReadStatuses.UNAVAILABLE,
+                error: expect.anything(),
+            });
+        } finally {
+            missingObjectAdapter.dispose();
+            unavailableBucketAdapter.dispose();
+        }
+
+        expect(requestCount.value).toBeGreaterThanOrEqual(2);
         expect(responseCount.value).toBe(requestCount.value);
     });
 });

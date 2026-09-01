@@ -3,6 +3,7 @@ import { LiveSyncTrysteroReplicator } from "./LiveSyncTrysteroReplicator";
 import { TrysteroReplicator } from "./TrysteroReplicator";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
 import type { RemoteDBSettings } from "@lib/common/types";
+import { P2PRoomSessionOwner } from "./P2PRoomSessionOwner";
 
 function createDeferred() {
     let resolve!: () => void;
@@ -22,25 +23,70 @@ function createLifecycleReplicator(settings: Record<string, unknown> = { P2P_Ena
             keyValueDB: {
                 openSimpleStore: () => ({}),
             },
+            database: { localDatabase: { localDatabase: {} } },
+            config: { getSmallConfig: () => "device-a" },
+            vault: { getVaultName: () => "vault-a" },
+            API: { getPlatform: () => "test", confirm: {} },
+            replicator: {
+                runFiniteReplicationActivity: async (task: () => unknown) => await task(),
+            },
+            replication: {
+                onCheckReplicationReady: async () => true,
+                parseSynchroniseResult: async () => undefined,
+            },
         },
     } as any);
 }
 
-describe("LiveSyncTrysteroReplicator host environment", () => {
+function createReplicatorWithSession(session: Record<string, unknown>) {
+    const owner = {
+        currentSession: session,
+        isConnected: true,
+        cancelActiveTransfers: vi.fn(() => (session.cancelActiveTransfers as (() => void) | undefined)?.()),
+        open: vi.fn(async () => undefined),
+        close: vi.fn(async () => undefined),
+    };
+    const replicator = new LiveSyncTrysteroReplicator(
+        {
+            services: {
+                context: createServiceContext(),
+                replicator: {
+                    runFiniteReplicationActivity: async (task: () => unknown) => await task(),
+                    runBoundedRemoteActivity: async (task: () => unknown) => await task(),
+                },
+            },
+        } as any,
+        owner as any
+    );
+    return { owner, replicator };
+}
+
+describe("P2PRoomSessionOwner host environment", () => {
     it("forwards raw P2P activity to the shared finite-replication owner", async () => {
         const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
         const translate = vi.fn((key: string) => `translated:${key}`);
-        const replicator = new LiveSyncTrysteroReplicator({
+        const env = {
             services: {
                 context: createServiceContext({ translate }),
                 replicator: { runFiniteReplicationActivity },
             },
-        } as any);
-        const env = (replicator as any)._buildEnv();
+        } as any;
+        const owner = new P2PRoomSessionOwner(env);
+        const database = {};
+        const settings = {};
+        const sessionEnv = (owner as any).buildSessionEnv({
+            database,
+            settings,
+            deviceName: "device-a",
+            signature: "test",
+        });
         const task = vi.fn(() => "done");
 
-        await expect(env.runFiniteReplicationActivity(task, { label: "replication" })).resolves.toBe("done");
-        expect(env.translate("P2P.NotEnabled")).toBe("translated:P2P.NotEnabled");
+        await expect(sessionEnv.runFiniteReplicationActivity(task, { label: "replication" })).resolves.toBe("done");
+        expect(sessionEnv.translate("P2P.NotEnabled")).toBe("translated:P2P.NotEnabled");
+        expect(sessionEnv.db).toBe(database);
+        expect(sessionEnv.settings).toBe(settings);
+        expect(sessionEnv.deviceName).toBe("device-a");
 
         expect(runFiniteReplicationActivity).toHaveBeenCalledWith(task, { label: "replication" });
         expect(translate).toHaveBeenCalledWith("P2P.NotEnabled");
@@ -58,16 +104,40 @@ describe("LiveSyncTrysteroReplicator remote preferred tweak values", () => {
 });
 
 describe("LiveSyncTrysteroReplicator manual replication", () => {
-    it("runs a finite command-triggered synchronisation through the shared activity boundary", async () => {
-        const replicateFromCommand = vi.fn(async () => undefined);
+    it("preserves the underlying result through headless command and openReplication", async () => {
+        const underlyingResult = {
+            status: "partial" as const,
+            targets: [{ name: "peer-a", status: "missing" as const }],
+        };
+        const replicateFromCommand = vi.fn(async () => underlyingResult);
         const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
-        const replicator = new LiveSyncTrysteroReplicator({
-            services: {
-                context: createServiceContext(),
-                replicator: { runFiniteReplicationActivity },
-            },
-        } as any);
-        (replicator as any)._replicator = { replicateFromCommand };
+        const { replicator } = createReplicatorWithSession({ replicator: { replicateFromCommand } });
+        (replicator as any).env.services.replicator.runFiniteReplicationActivity = runFiniteReplicationActivity;
+
+        const commandResult = await replicator.replicateFromCommand(true);
+        const openReplicationResult = await replicator.openReplication({} as RemoteDBSettings, false, true, false);
+        expect([commandResult, openReplicationResult]).toEqual([false, false]);
+
+        expect(replicateFromCommand).toHaveBeenNthCalledWith(1, true);
+        expect(replicateFromCommand).toHaveBeenNthCalledWith(2, true);
+    });
+
+    it("requests transfer cancellation without closing the room", () => {
+        const cancelActiveTransfers = vi.fn();
+        const retire = vi.fn();
+        const { replicator } = createReplicatorWithSession({ cancelActiveTransfers, retire });
+
+        replicator.terminateSync();
+
+        expect(cancelActiveTransfers).toHaveBeenCalledOnce();
+        expect(retire).not.toHaveBeenCalled();
+    });
+
+    it("runs a finite command-triggered synchronisation through the shared activity boundary", async () => {
+        const replicateFromCommand = vi.fn(async () => ({ status: "completed" as const, targets: [] }));
+        const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
+        const { replicator } = createReplicatorWithSession({ replicator: { replicateFromCommand } });
+        (replicator as any).env.services.replicator.runFiniteReplicationActivity = runFiniteReplicationActivity;
 
         await replicator.replicateFromCommand(true);
 
@@ -80,13 +150,8 @@ describe("LiveSyncTrysteroReplicator manual replication", () => {
     it("tracks a direct pull from a peer as finite remote activity", async () => {
         const replicateFrom = vi.fn(async () => ({ ok: true }));
         const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
-        const replicator = new LiveSyncTrysteroReplicator({
-            services: {
-                context: createServiceContext(),
-                replicator: { runFiniteReplicationActivity },
-            },
-        } as any);
-        (replicator as any)._replicator = { replicateFrom };
+        const { replicator } = createReplicatorWithSession({ replicator: { replicateFrom } });
+        (replicator as any).env.services.replicator.runFiniteReplicationActivity = runFiniteReplicationActivity;
 
         await expect(replicator.replicateFrom("peer-a", true)).resolves.toEqual({ ok: true });
 
@@ -99,13 +164,8 @@ describe("LiveSyncTrysteroReplicator manual replication", () => {
     it("marks an explicit rebuild pull so the ordinary replication policy is skipped", async () => {
         const replicateFrom = vi.fn(async () => ({ ok: true }));
         const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
-        const replicator = new LiveSyncTrysteroReplicator({
-            services: {
-                context: createServiceContext(),
-                replicator: { runFiniteReplicationActivity },
-            },
-        } as any);
-        (replicator as any)._replicator = { replicateFrom };
+        const { replicator } = createReplicatorWithSession({ replicator: { replicateFrom } });
+        (replicator as any).env.services.replicator.runFiniteReplicationActivity = runFiniteReplicationActivity;
 
         await expect(replicator.replicateFrom("peer-a", true, true)).resolves.toEqual({ ok: true });
 
@@ -116,13 +176,9 @@ describe("LiveSyncTrysteroReplicator manual replication", () => {
         const requestSynchroniseToPeer = vi.fn(async () => ({ ok: true }));
         const runBoundedRemoteActivity = vi.fn(async (task: () => unknown) => await task());
         const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
-        const replicator = new LiveSyncTrysteroReplicator({
-            services: {
-                context: createServiceContext(),
-                replicator: { runBoundedRemoteActivity, runFiniteReplicationActivity },
-            },
-        } as any);
-        (replicator as any)._replicator = { requestSynchroniseToPeer };
+        const { replicator } = createReplicatorWithSession({ replicator: { requestSynchroniseToPeer } });
+        (replicator as any).env.services.replicator.runBoundedRemoteActivity = runBoundedRemoteActivity;
+        (replicator as any).env.services.replicator.runFiniteReplicationActivity = runFiniteReplicationActivity;
 
         await expect(replicator.requestSynchroniseToPeer("peer-a")).resolves.toEqual({ ok: true });
 

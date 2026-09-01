@@ -1,17 +1,37 @@
 import type PouchDB from "pouchdb-core";
 import { TweakValuesShouldMatchedTemplate, type EntryDoc, type ObsidianLiveSyncSettings } from "@lib/common/types";
-import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
+import {
+    LOG_LEVEL_INFO,
+    LOG_LEVEL_NOTICE,
+    LOG_LEVEL_VERBOSE,
+    Logger,
+    type LOG_LEVEL,
+} from "octagonal-wheels/common/logger";
 import { replicateShim, type ProgressInfo } from "@lib/pouchdb/ReplicatorShim";
 import type { Confirm } from "@lib/interfaces/Confirm";
-import { type Advertisement, type ReplicatorHostEnv } from "./types";
-import { TrysteroConnection } from "./TrysteroReplicatorP2PConnection";
+import { resolveCurrentP2PSettings, type Advertisement, type ReplicatorHostEnv } from "./types";
 import { scheduleOnceIfDuplicated, serialized, skipIfDuplicated } from "octagonal-wheels/concurrency/lock_v2";
 import { delay, fireAndForget } from "octagonal-wheels/promises";
-import { EVENT_P2P_REPLICATOR_PROGRESS, EVENT_P2P_REPLICATOR_STATUS, P2PHost } from "./TrysteroReplicatorP2PServer";
+import {
+    EVENT_ADVERTISEMENT_RECEIVED,
+    EVENT_P2P_REPLICATOR_PROGRESS,
+    EVENT_P2P_REPLICATOR_STATUS,
+    P2PHost,
+    type P2PPeerAcceptance,
+} from "./TrysteroReplicatorP2PServer";
 import { encryptWithEphemeralSalt, decryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
 import { sha1 } from "octagonal-wheels/hash/purejs";
 import { isObjectDifferent } from "octagonal-wheels/object";
 import { getRelaySockets, pauseRelayReconnection, resumeRelayReconnection } from "@trystero-p2p/nostr";
+import type { P2PFiniteOperationOwner } from "./P2PRoomSession";
+import { P2PAutomationCoordinator } from "./P2PAutomationCoordinator";
+import { compatGlobal, type CompatTimeoutHandle } from "@lib/common/coreEnvFunctions";
+import {
+    fromP2PReplicationWireResult,
+    toP2PReplicationWireResult,
+    toP2PWireError,
+    type P2PReplicationWireResult,
+} from "./P2PReplicationWire";
 
 async function encrypt(data: string, passphrase: string) {
     return await encryptWithEphemeralSalt(data, passphrase, true);
@@ -60,6 +80,48 @@ export type P2PReplicationReport = {
       }
 );
 
+/**
+ * In-process outcome of one P2P replication request.
+ *
+ * The failed variant deliberately retains an `Error`-compatible value for
+ * local callers. RPC handlers must convert it to `P2PReplicationWireResult`,
+ * because native `Error` properties do not survive JSON serialisation.
+ */
+export type P2PReplicationResult =
+    | { readonly status: "completed"; readonly ok: true; readonly error?: never }
+    | { readonly status: "cancelled"; readonly ok?: false; readonly error?: never }
+    | { readonly status: "failed"; readonly ok?: false; readonly error: unknown };
+
+export type P2PConfiguredTargetResult = {
+    readonly name: string;
+    readonly peerId?: string;
+} & (
+    | { readonly status: "completed" }
+    | { readonly status: "cancelled" }
+    | { readonly status: "missing" }
+    | { readonly status: "rejected" }
+    | { readonly status: "undecided" }
+    | { readonly status: "failed"; readonly error: unknown }
+);
+
+/** Explicit result of configured, unattended P2P target synchronisation. */
+export type P2PConfiguredReplicationResult =
+    | { readonly status: "completed"; readonly targets: readonly P2PConfiguredTargetResult[] }
+    | { readonly status: "cancelled"; readonly targets: readonly P2PConfiguredTargetResult[] }
+    | { readonly status: "blocked"; readonly reason: "no-targets"; readonly targets: readonly [] }
+    | { readonly status: "partial"; readonly targets: readonly P2PConfiguredTargetResult[] };
+
+const P2P_REPLICATION_COMPLETED = Object.freeze({ status: "completed", ok: true } as const);
+const P2P_REPLICATION_CANCELLED = Object.freeze({ status: "cancelled" } as const);
+
+function p2pReplicationFailed(error: unknown): P2PReplicationResult {
+    return { status: "failed", error };
+}
+
+function isP2PReplicationCancelled(result: P2PReplicationResult): boolean {
+    return result.status === "cancelled";
+}
+
 declare global {
     interface LSEvents {
         [EVENT_P2P_REPLICATOR_STATUS]: P2PReplicatorStatus;
@@ -84,6 +146,9 @@ async function getHashedStringWithCurrentTime(source: string) {
 
 export class TrysteroReplicator {
     _env: ReplicatorHostEnv;
+    private readonly finiteOperationOwner?: P2PFiniteOperationOwner;
+    private disposed = false;
+    private readonly fallbackAutomationCoordinator = new P2PAutomationCoordinator();
 
     server?: P2PHost;
     replicationStatus() {
@@ -92,6 +157,10 @@ export class TrysteroReplicator {
 
     get settings() {
         return this._env.settings;
+    }
+    /** Latest room-local policy settings supplied by the owning host. */
+    get currentSettings() {
+        return resolveCurrentP2PSettings(this._env);
     }
     get db(): PouchDB.Database<EntryDoc> {
         return this._env.db;
@@ -109,6 +178,10 @@ export class TrysteroReplicator {
         return this._env.translate;
     }
 
+    private get automationCoordinator(): P2PAutomationCoordinator {
+        return this._env.automationCoordinator ?? this.fallbackAutomationCoordinator;
+    }
+
     private async runFiniteReplicationActivity<T>(task: () => T | PromiseLike<T>): Promise<T> {
         if (this._env.runFiniteReplicationActivity) {
             return await this._env.runFiniteReplicationActivity(task, { label: "replication" });
@@ -117,13 +190,12 @@ export class TrysteroReplicator {
     }
 
     private async canStartOrdinaryReplication(showMessage: boolean = false): Promise<boolean> {
-        return this._env.canStartOrdinaryReplication
-            ? await this._env.canStartOrdinaryReplication(showMessage)
-            : true;
+        return this._env.canStartOrdinaryReplication ? await this._env.canStartOrdinaryReplication(showMessage) : true;
     }
 
-    constructor(env: ReplicatorHostEnv, server?: P2PHost) {
+    constructor(env: ReplicatorHostEnv, server?: P2PHost, finiteOperationOwner?: P2PFiniteOperationOwner) {
         this._env = env;
+        this.finiteOperationOwner = finiteOperationOwner;
         if (server) {
             this.server = server;
             return;
@@ -144,13 +216,24 @@ export class TrysteroReplicator {
             if (!this.settings.P2P_relays || this.settings.P2P_relays.length === 0) {
                 throw new Error("No relay URIs provided. We need them to establish the P2P connection");
             }
-            this.server = new TrysteroConnection(env);
+            this.server = new P2PHost(env);
         } catch (e) {
             Logger(e instanceof Error ? e.message : "Error while creating TrysteroReplicator", LOG_LEVEL_NOTICE);
             Logger(e, LOG_LEVEL_VERBOSE);
             throw e;
         }
     }
+
+    private async runSessionFiniteOperation<T>(
+        task: (signal?: AbortSignal) => T | PromiseLike<T>,
+        callerSignal?: AbortSignal
+    ): Promise<T> {
+        if (this.finiteOperationOwner) {
+            return await this.finiteOperationOwner.runFiniteOperation(task, callerSignal);
+        }
+        return await task(callerSignal);
+    }
+
     async close() {
         this.requestStatus();
         await this.server?.shutdown();
@@ -161,13 +244,32 @@ export class TrysteroReplicator {
         this.disconnectFromServer();
     }
 
-    async open() {
-        this.allowReconnection();
-        await this.server?.start([this.getCommands()]);
-        this.dispatchStatus();
-        if (this.settings.P2P_AutoBroadcast) {
-            this.enableBroadcastChanges();
+    /** Close the transport and release resources owned for this object's lifetime. */
+    async dispose(): Promise<void> {
+        if (this.disposed) return;
+        this.disposed = true;
+        try {
+            await this.close();
+        } finally {
+            this.server?.dispose();
         }
+    }
+
+    async open() {
+        if (this.disposed) {
+            throw new Error("The P2P Replicator has been disposed.");
+        }
+        this.allowReconnection();
+        const commands = this.getCommands();
+        await this.server?.start([commands], () =>
+            this.server?.serveCancellationAwareFunction<[string], P2PReplicationWireResult>(
+                "reqSync",
+                async ({ signal }, _peerId, fromPeerId) =>
+                    toP2PReplicationWireResult(await this.handleSynchronisationRequest(fromPeerId, signal))
+            )
+        );
+        this.dispatchStatus();
+        this.reconcileAutoBroadcast(this.currentSettings.P2P_AutoBroadcast);
     }
     async makeSureOpened() {
         if (!this.server?.isServing) {
@@ -175,14 +277,14 @@ export class TrysteroReplicator {
         }
     }
     get autoSyncPeers() {
-        const peers = this.settings.P2P_AutoSyncPeers.split(",")
+        const peers = this.currentSettings.P2P_AutoSyncPeers.split(",")
             .map((e) => e.trim())
             .filter((e) => e.length > 0)
             .map((e) => (e.startsWith("~") ? new RegExp(e.substring(1), "i") : new RegExp(`^${e}$`, "i")));
         return peers;
     }
     get autoWatchPeers() {
-        const peers = this.settings.P2P_AutoWatchPeers.split(",")
+        const peers = this.currentSettings.P2P_AutoWatchPeers.split(",")
             .map((e) => e.trim())
             .filter((e) => e.length > 0)
             .map((e) => (e.startsWith("~") ? new RegExp(e.substring(1), "i") : new RegExp(`^${e}$`, "i")));
@@ -190,10 +292,19 @@ export class TrysteroReplicator {
     }
     async onNewPeer(peer: Advertisement) {
         const peerName = peer.name;
-        if (this.autoSyncPeers.some((e) => e.test(peerName))) {
-            await this.runFiniteReplicationActivity(() => this.sync(peer.peerId));
+        const shouldAutoSync = this.autoSyncPeers.some((e) => e.test(peerName));
+        const shouldAutoWatch = this.autoWatchPeers.some((e) => e.test(peerName));
+        if (!shouldAutoSync && !shouldAutoWatch) return;
+
+        const acceptance = await this.server?.evaluatePeerAcceptance(peer.peerId);
+        if (acceptance !== "accepted") return;
+
+        if (shouldAutoSync) {
+            await this.automationCoordinator.runBaseline(peerName, () =>
+                this.runFiniteReplicationActivity(() => this.sync(peer.peerId))
+            );
         }
-        if (this.autoWatchPeers.some((e) => e.test(peerName))) {
+        if (shouldAutoWatch && (await this.getRemoteIsBroadcasting(peer.peerId)) === true) {
             this.watchPeer(peer.peerId);
         }
     }
@@ -226,15 +337,24 @@ export class TrysteroReplicator {
         return allSettings;
     }
 
+    private async handleSynchronisationRequest(
+        fromPeerId: string,
+        signal?: AbortSignal
+    ): Promise<P2PReplicationResult> {
+        if (this._onSetup) {
+            return p2pReplicationFailed(new Error("The setup is in progress"));
+        }
+        return await this.runFiniteReplicationActivity(() =>
+            signal ? this.replicateFrom(fromPeerId, false, false, false, signal) : this.replicateFrom(fromPeerId)
+        );
+    }
+
     getCommands() {
         return {
-            reqSync: async (fromPeerId: string) => {
-                if (this._onSetup) {
-                    return { error: new Error("The setup is in progress") };
-                }
-                const result = await this.runFiniteReplicationActivity(() => this.replicateFrom(fromPeerId));
-                return result;
-            },
+            // The wire-visible command deliberately accepts only serialisable
+            // arguments. RpcRoom supplies cancellation context separately.
+            reqSync: async (fromPeerId: string): Promise<P2PReplicationWireResult> =>
+                toP2PReplicationWireResult(await this.handleSynchronisationRequest(fromPeerId)),
             "!reqAuth": async (fromPeerId: string) => {
                 return await this.server?.isAcceptablePeer(fromPeerId);
             },
@@ -243,13 +363,13 @@ export class TrysteroReplicator {
             },
             onProgress: async (fromPeerId: string) => {
                 if (this._onSetup) {
-                    return { error: new Error("The setup is in progress") };
+                    return { error: toP2PWireError(new Error("The setup is in progress")) };
                 }
                 await this.onUpdateDatabase(fromPeerId);
             },
             getAllConfig: async (fromPeerId: string) => {
                 if (this._onSetup) {
-                    return { error: new Error("The setup is in progress") };
+                    return { error: toP2PWireError(new Error("The setup is in progress")) };
                 }
                 const passphrase = await skipIfDuplicated(`getAllConfig-${fromPeerId}`, async () => {
                     return await this.confirm.askString(
@@ -297,7 +417,7 @@ export class TrysteroReplicator {
             },
             requestBroadcasting: async (peerId: string) => {
                 if (this._onSetup) {
-                    return { error: new Error("The setup is in progress") };
+                    return { error: toP2PWireError(new Error("The setup is in progress")) };
                 }
                 if (this._isBroadcasting) {
                     return true;
@@ -318,7 +438,7 @@ export class TrysteroReplicator {
         };
     }
 
-    async requestAuthenticate(peerId: string) {
+    async requestAuthenticate(peerId: string, signal?: AbortSignal) {
         if (!this.server) return false;
         try {
             const connection = this.server.getConnection(peerId);
@@ -326,7 +446,8 @@ export class TrysteroReplicator {
             const r = await connection.invokeRemoteObjectFunction<ReturnType<typeof this.getCommands>, "!reqAuth">(
                 "!reqAuth",
                 [selfPeerId],
-                20000
+                20000,
+                signal
             );
             return r;
         } catch (e) {
@@ -336,40 +457,40 @@ export class TrysteroReplicator {
         }
     }
 
-    // async selectPeer() {
-    //     if (!this.server) return false;
-    //     const knownPeers = this.server.knownAdvertisements;
-    //     if (knownPeers.length === 0) {
-    //         Logger("No known peers", LOG_LEVEL_VERBOSE);
-    //         return false;
-    //     }
-
-    //     const peers = [...Object.entries(knownPeers)].map(([peerId, info]) => {
-    //         return `${info.peerId}\u2001: (${info.name})`;
-    //     });
-
-    //     const selectedPeer = await this.confirm.askSelectString("Select a peer to replicate", peers);
-    //     if (selectedPeer) return selectedPeer.split("\u2001")[0];
-    //     return false;
-    // }
-
     lastSeq = "" as string | number;
-    async requestSynchroniseToPeer(
-        peerId: string
-    ): Promise<Awaited<ReturnType<ReturnType<typeof this.getCommands>["reqSync"]>>> {
+    async requestSynchroniseToPeer(peerId: string, callerSignal?: AbortSignal): Promise<P2PReplicationResult> {
+        return await this.runSessionFiniteOperation(
+            async (signal) => await this.requestSynchroniseToPeerWithinSession(peerId, signal),
+            callerSignal
+        );
+    }
+
+    private async requestSynchroniseToPeerWithinSession(
+        peerId: string,
+        signal?: AbortSignal
+    ): Promise<P2PReplicationResult> {
         if (!(await this.canStartOrdinaryReplication(false))) {
-            return { error: new Error("Replication is not ready") };
+            return p2pReplicationFailed(new Error("Replication is not ready"));
         }
+        if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
         await delay(25);
+        if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
         if (!this.server) throw new Error("Server is not available");
         // Logger(`P2P requesting remote sync from ${peerId}`, LOG_LEVEL_NOTICE, "p2p-replicator");
         const conn = this.server.getConnection(peerId);
-        const result = await conn.invokeRemoteFunction<
-            [string],
-            Awaited<ReturnType<ReturnType<typeof this.getCommands>["reqSync"]>>
-        >("reqSync", [this.server.serverPeerId], 0);
-        // Logger(`P2P remote sync request returned from ${peerId}`, LOG_LEVEL_NOTICE, "p2p-replicator");
-        return result;
+        try {
+            const result = await conn.invokeRemoteFunction<[string], P2PReplicationWireResult>(
+                "reqSync",
+                [this.server.serverPeerId],
+                0,
+                signal
+            );
+            // Logger(`P2P remote sync request returned from ${peerId}`, LOG_LEVEL_NOTICE, "p2p-replicator");
+            return fromP2PReplicationWireResult(result);
+        } catch (error) {
+            if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
+            throw error;
+        }
     }
 
     async requestSynchroniseToAllAvailablePeers() {
@@ -383,6 +504,7 @@ export class TrysteroReplicator {
     }
 
     dispatchStatus() {
+        if (this.disposed) return;
         this._env.events.emitEvent(EVENT_P2P_REPLICATOR_STATUS, {
             isBroadcasting: this._isBroadcasting,
             replicatingTo: [...this._replicateToPeers],
@@ -446,22 +568,49 @@ export class TrysteroReplicator {
         fireAndForget(async () => await this.notifyProgress());
     }
 
+    /** Apply automatic broadcast policy without restarting this room. */
+    reconcileAutoBroadcast(enabled: boolean): void {
+        if (enabled === this._isBroadcasting) return;
+        if (enabled) {
+            this.enableBroadcastChanges();
+        } else {
+            this.disableBroadcastChanges();
+        }
+    }
+
     get knownAdvertisements() {
         return this.server?.knownAdvertisements ?? [];
     }
     availableReplicationPairs = new Set<string>();
 
-    async sync(remotePeer: string, showNotice: boolean = false) {
-        const from = await this.replicateFrom(remotePeer, showNotice);
-        if (!from || from.error) {
+    async sync(
+        remotePeer: string,
+        showNotice: boolean = false,
+        callerSignal?: AbortSignal
+    ): Promise<P2PReplicationResult> {
+        return await this.runSessionFiniteOperation(
+            async (signal) => await this.syncWithinSession(remotePeer, showNotice, signal),
+            callerSignal
+        );
+    }
+
+    private async syncWithinSession(
+        remotePeer: string,
+        showNotice: boolean,
+        signal?: AbortSignal
+    ): Promise<P2PReplicationResult> {
+        const from = await this.replicateFrom(remotePeer, showNotice, false, false, signal);
+        if (isP2PReplicationCancelled(from)) return from;
+        if (from.error) {
             Logger("Error while replicating from the remote", LOG_LEVEL_VERBOSE);
             Logger(from.error, LOG_LEVEL_VERBOSE);
             return from;
         }
+        if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
         const logLevel = showNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
         Logger(`P2P Replication has been requested to ${remotePeer}`, logLevel, "p2p-replicator");
 
-        const res = await this.requestSynchroniseToPeer(remotePeer);
+        const res = await this.requestSynchroniseToPeer(remotePeer, signal);
         if (res.ok) {
             Logger("P2P Replication has been done", logLevel, "p2p-replicator");
         }
@@ -470,31 +619,10 @@ export class TrysteroReplicator {
             Logger(res.error, LOG_LEVEL_VERBOSE);
         }
         // Logger(`P2P sync finished with ${remotePeer}`, LOG_LEVEL_NOTICE, "p2p-replicator");
+        return res;
     }
 
     _replicateToPeers = new Set<string>();
-    // async replicateTo() {
-    //     await this.makeSureOpened();
-    //     const remotePeer = await this.selectPeer();
-    //     if (!remotePeer) {
-    //         Logger("No peer selected", LOG_LEVEL_VERBOSE);
-    //         return;
-    //     }
-    //     Logger(`P2P Replicating to ${remotePeer}`, LOG_LEVEL_INFO);
-    //     try {
-    //         if (this._replicateToPeers.has(remotePeer)) {
-    //             Logger(`Replication to ${remotePeer} is already in progress`, LOG_LEVEL_VERBOSE);
-    //             return;
-    //         }
-    //         this._replicateToPeers.add(remotePeer);
-    //         this.dispatchStatus();
-    //         return await this.requestSynchroniseToPeer(remotePeer);
-    //     } finally {
-    //         this._replicateToPeers.delete(remotePeer);
-    //         this.dispatchStatus();
-    //     }
-    // }
-
     _replicateFromPeers = new Set<string>();
 
     dispatchReplicationProgress(peerId: string, info?: ProgressInfo) {
@@ -560,29 +688,65 @@ export class TrysteroReplicator {
         remotePeer: string,
         showNotice: boolean = false,
         fromStart = false,
-        skipOrdinaryReplicationPolicy = false
-    ) {
+        skipOrdinaryReplicationPolicy = false,
+        callerSignal?: AbortSignal
+    ): Promise<P2PReplicationResult> {
+        return await this.runSessionFiniteOperation(
+            async (signal) =>
+                await this.replicateFromWithinSession(
+                    remotePeer,
+                    showNotice,
+                    fromStart,
+                    skipOrdinaryReplicationPolicy,
+                    signal
+                ),
+            callerSignal
+        );
+    }
+
+    private async replicateFromWithinSession(
+        remotePeer: string,
+        showNotice: boolean,
+        fromStart: boolean,
+        skipOrdinaryReplicationPolicy: boolean,
+        signal?: AbortSignal
+    ): Promise<P2PReplicationResult> {
         // Explicit Fetch/Rebuild flows have their own destructive-operation
         // confirmation and must remain available while ordinary replication is paused.
         if (!skipOrdinaryReplicationPolicy && !(await this.canStartOrdinaryReplication(showNotice))) {
-            return { error: new Error("Replication is not ready") };
+            return p2pReplicationFailed(new Error("Replication is not ready"));
         }
+        if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
         const logLevel = showNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
         Logger(`P2P Requesting Authentication to ${remotePeer}`, logLevel, "p2p-replicator");
-        if ((await this.requestAuthenticate(remotePeer)) !== true) {
-            Logger("Peer rejected the connection", LOG_LEVEL_NOTICE, "p2p-replicator");
-            return { error: new Error("Peer rejected the connection") };
+        const authenticated = signal
+            ? await this.requestAuthenticate(remotePeer, signal)
+            : await this.requestAuthenticate(remotePeer);
+        if (authenticated !== true) {
+            if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
+            Logger("Peer rejected the connection", logLevel, "p2p-replicator");
+            return p2pReplicationFailed(new Error("Peer rejected the connection"));
         }
 
-        if ((await this.checkTweakValues(remotePeer)) !== true) {
-            Logger("Tweak values are not matched", LOG_LEVEL_NOTICE, "p2p-replicator");
-            return { error: new Error("Tweak values are not matched") };
+        let tweaksMatched: boolean;
+        try {
+            tweaksMatched = signal
+                ? await this.checkTweakValues(remotePeer, signal, logLevel)
+                : await this.checkTweakValues(remotePeer, undefined, logLevel);
+        } catch (error) {
+            if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
+            throw error;
+        }
+        if (tweaksMatched !== true) {
+            if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
+            Logger("Tweak values are not matched", logLevel, "p2p-replicator");
+            return p2pReplicationFailed(new Error("Tweak values are not matched"));
         }
 
         Logger(`P2P Replicating from ${remotePeer}`, logLevel, "p2p-replicator");
         if (this._replicateFromPeers.has(remotePeer)) {
-            Logger(`Replication from ${remotePeer} is already in progress`, LOG_LEVEL_NOTICE, "p2p-replicator");
-            return { error: new Error("Replication from this peer is already in progress") };
+            Logger(`Replication from ${remotePeer} is already in progress`, logLevel, "p2p-replicator");
+            return p2pReplicationFailed(new Error("Replication from this peer is already in progress"));
         }
         this._replicateFromPeers.add(remotePeer);
         this.dispatchStatus();
@@ -592,7 +756,7 @@ export class TrysteroReplicator {
                 throw new Error("Server is not available");
             }
             const connection = this.server.getConnection(remotePeer);
-            const remoteDB = connection.remoteDB;
+            const remoteDB = connection.getRemoteDB(signal);
             Logger(`P2P replicateFrom preparing remote DB info for ${remotePeer}`, LOG_LEVEL_VERBOSE, "p2p-replicator");
             const remoteDBInfo = await remoteDB.info();
             Logger(
@@ -608,7 +772,7 @@ export class TrysteroReplicator {
             );
             Logger(`P2P replicateFrom entering replicateShim for ${remotePeer}`, LOG_LEVEL_VERBOSE, "p2p-replicator");
             // const batchSize = 8;
-            await replicateShim(
+            const outcome = await replicateShim(
                 this.db,
                 remoteDB,
                 async (docs, info) => {
@@ -622,20 +786,25 @@ export class TrysteroReplicator {
                         "p2p-replicator"
                     );
                 },
-                { live: false, rewind: fromStart /*, batch_size: batchSize */ }
+                { live: false, rewind: fromStart, signal /*, batch_size: batchSize */ }
             );
             Logger(`P2P replicateFrom replicateShim returned for ${remotePeer}`, LOG_LEVEL_VERBOSE, "p2p-replicator");
             void this.acknowledgeProgress(remotePeer, undefined);
+            if (outcome.status === "cancelled") {
+                Logger(`P2P Replication from ${remotePeer} has been cancelled`, logLevel, "p2p-replicator");
+                return P2P_REPLICATION_CANCELLED;
+            }
             Logger(`P2P Replication from ${remotePeer} has been completed`, logLevel, "p2p-replicator");
         } catch (e) {
+            if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
             Logger("Error while P2P replicating", logLevel, "p2p-replicator");
             Logger(e, LOG_LEVEL_VERBOSE);
-            return { error: e };
+            return p2pReplicationFailed(e);
         } finally {
             this._replicateFromPeers.delete(remotePeer);
             this.dispatchStatus();
         }
-        return { ok: true };
+        return P2P_REPLICATION_COMPLETED;
     }
     notifyProgress(excludePeerId?: string) {
         if (!this._isBroadcasting) return;
@@ -727,14 +896,15 @@ export class TrysteroReplicator {
             return false;
         }
     }
-    async checkTweakValues(peerId: string) {
+    /** Compare peer settings without exceeding the presentation authority of the initiating call. */
+    async checkTweakValues(peerId: string, signal?: AbortSignal, logLevel: LOG_LEVEL = LOG_LEVEL_NOTICE) {
         if (!this.server) {
-            Logger("Server is not available", LOG_LEVEL_NOTICE);
+            Logger("Server is not available", logLevel);
             return false;
         }
         const peerPlatform = this.server.knownAdvertisements.find((e) => e.peerId == peerId)?.platform;
         if (peerPlatform == null) {
-            Logger("Peer is not found", LOG_LEVEL_NOTICE);
+            Logger("Peer is not found", logLevel);
             return false;
         }
         if (this.platform === "pseudo-replicator") {
@@ -748,7 +918,8 @@ export class TrysteroReplicator {
         const tweakValues = await connection.invokeRemoteObjectFunction<
             ReturnType<typeof this.getCommands>,
             "getTweakSettings"
-        >("getTweakSettings", [this.server.serverPeerId], 5000);
+        >("getTweakSettings", [this.server.serverPeerId], 5000, signal);
+        if (signal?.aborted) return false;
         const thisTweakValues = await this.getTweakSettings("");
         if (!isObjectDifferent(thisTweakValues, tweakValues)) {
             return true;
@@ -757,49 +928,122 @@ export class TrysteroReplicator {
         if (thisTweakValues.passphrase !== tweakValues.passphrase) {
             Logger(
                 "Replication cancelled: Passphrase is not matched\nCannot replicate to a remote database until the problem is resolved.",
-                LOG_LEVEL_NOTICE
+                logLevel
             );
             return false;
         }
 
         Logger(
             "Some mismatched configuration have been detected... Please check settings for efficient replication.",
-            LOG_LEVEL_NOTICE
+            logLevel
         );
         return true;
     }
 
-    async replicateFromCommand(showResult: boolean = false) {
-        const r = await skipIfDuplicated("replicateFromCommand", async () => {
-            const logLevel = showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
-            if (!this._env.settings.P2P_Enabled) {
-                Logger(this.translate("P2P.NotEnabled"), logLevel);
-                return Promise.resolve(false);
+    private configuredPeerNames(): string[] {
+        return [...new Set(this.currentSettings.P2P_SyncOnReplication.split(",").map((name) => name.trim()))].filter(
+            Boolean
+        );
+    }
+
+    private findAdvertisement(peerName: string): Advertisement | undefined {
+        return this.knownAdvertisements.find((advertisement) => advertisement.name === peerName);
+    }
+
+    private async waitForConfiguredAdvertisements(
+        peerNames: readonly string[],
+        timeoutMs: number,
+        signal?: AbortSignal
+    ): Promise<void> {
+        const allPresent = () => peerNames.every((name) => this.findAdvertisement(name) !== undefined);
+        if (allPresent() || timeoutMs <= 0 || signal?.aborted) return;
+
+        await new Promise<void>((resolve) => {
+            let timeout: CompatTimeoutHandle | undefined;
+            let detachAdvertisement = (): void => undefined;
+            const finish = () => {
+                detachAdvertisement();
+                signal?.removeEventListener("abort", finish);
+                if (timeout !== undefined) compatGlobal.clearTimeout(timeout);
+                resolve();
+            };
+            detachAdvertisement = this._env.events.onEvent(EVENT_ADVERTISEMENT_RECEIVED, () => {
+                if (allPresent()) finish();
+            });
+            signal?.addEventListener("abort", finish, { once: true });
+            timeout = compatGlobal.setTimeout(finish, timeoutMs);
+            if (allPresent() || signal?.aborted) finish();
+        });
+    }
+
+    private configuredTargetResult(
+        name: string,
+        peerId: string,
+        result: P2PReplicationResult
+    ): P2PConfiguredTargetResult {
+        if (result.status === "completed") return { name, peerId, status: "completed" };
+        if (result.status === "cancelled") return { name, peerId, status: "cancelled" };
+        return { name, peerId, status: "failed", error: result.error };
+    }
+
+    /** Synchronise configured peer targets without opening peer-selection UI. */
+    async replicateFromCommand(
+        showResult: boolean = false,
+        discoveryTimeoutMs: number = 5000,
+        callerSignal?: AbortSignal
+    ): Promise<P2PConfiguredReplicationResult> {
+        const logLevel = showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
+        if (!this.currentSettings.P2P_Enabled) {
+            Logger(this.translate("P2P.NotEnabled"), logLevel);
+            return { status: "blocked", reason: "no-targets", targets: [] };
+        }
+        const peerNames = this.configuredPeerNames();
+        if (peerNames.length === 0) {
+            Logger(this.translate("P2P.NoAutoSyncPeers"), logLevel);
+            return { status: "blocked", reason: "no-targets", targets: [] };
+        }
+
+        await this.waitForConfiguredAdvertisements(peerNames, discoveryTimeoutMs, callerSignal);
+        const targets: P2PConfiguredTargetResult[] = [];
+        for (const peerName of peerNames) {
+            if (callerSignal?.aborted) {
+                targets.push({ name: peerName, status: "cancelled" });
+                continue;
             }
-            // throw new Error("Method not implemented.");
-            const peers = this._env.settings.P2P_SyncOnReplication.split(",")
-                .map((e) => e.trim())
-                .filter((e) => e);
-            if (peers.length == 0) {
-                Logger(this.translate("P2P.NoAutoSyncPeers"), LOG_LEVEL_NOTICE);
-                return Promise.resolve(false);
+            const advertisement = this.findAdvertisement(peerName);
+            if (!advertisement) {
+                Logger(this.translate(`P2P.SeemsOffline`, { name: peerName }), logLevel);
+                targets.push({ name: peerName, status: "missing" });
+                continue;
             }
 
-            for (const peer of peers) {
-                const peerId = this.knownAdvertisements.find((e) => e.name == peer)?.peerId;
-                if (!peerId) {
-                    Logger(this.translate(`P2P.SeemsOffline`, { name: peer }), logLevel);
-                } else {
-                    Logger(this.translate(`P2P.SyncStartedWith`, { name: peer }), logLevel);
-                    await this.sync(peerId, showResult);
-                }
+            const acceptance: P2PPeerAcceptance =
+                (await this.server?.evaluatePeerAcceptance(advertisement.peerId)) ?? "unknown";
+            if (acceptance !== "accepted") {
+                targets.push({
+                    name: peerName,
+                    peerId: advertisement.peerId,
+                    status:
+                        acceptance === "rejected" ? "rejected" : acceptance === "undecided" ? "undecided" : "missing",
+                });
+                continue;
             }
-            Logger(this.translate("P2P.SyncCompleted"), logLevel);
-            return Promise.resolve(true);
-        });
-        if (r === null) {
-            Logger(this.translate("P2P.SyncAlreadyRunning"), LOG_LEVEL_NOTICE);
+
+            Logger(this.translate(`P2P.SyncStartedWith`, { name: peerName }), logLevel);
+            const result = await this.automationCoordinator.runBaseline(peerName, () =>
+                this.sync(advertisement.peerId, showResult, callerSignal)
+            );
+            targets.push(this.configuredTargetResult(peerName, advertisement.peerId, result));
         }
+
+        if (targets.every((target) => target.status === "completed")) {
+            Logger(this.translate("P2P.SyncCompleted"), logLevel);
+            return { status: "completed", targets };
+        }
+        if (targets.every((target) => target.status === "cancelled")) {
+            return { status: "cancelled", targets };
+        }
+        return { status: "partial", targets };
     }
 
     disconnectFromServer() {

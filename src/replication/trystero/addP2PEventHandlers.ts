@@ -5,11 +5,14 @@ import type { P2PSyncSetting } from "@lib/common/types";
 import type { LiveSyncTrysteroReplicator } from "./LiveSyncTrysteroReplicator";
 import { EVENT_ADVERTISEMENT_RECEIVED, EVENT_DEVICE_LEAVED, EVENT_REQUEST_STATUS } from "./TrysteroReplicatorP2PServer";
 import type { Advertisement } from "./types";
+import type { P2PServiceLifecycle } from "@lib/p2p/P2PService";
 
 /**
  * Minimal interface that a P2P replicator instance should satisfy for addP2PEventHandlers to work.
  */
 export interface P2PReplicatorLike {
+    /** True when peer callbacks are already fenced by the active room session. */
+    readonly handlesPeerEventsWithinSession?: boolean;
     onNewPeer(peer: Advertisement): Promise<void> | void;
     onPeerLeaved(peerId: string): void;
     requestStatus(): void;
@@ -21,59 +24,59 @@ export interface P2PReplicatorLike {
     readonly server?: { isServing?: boolean };
 }
 
+/** Host lifecycle subset consumed by the legacy event bridge. */
+export type P2PServiceEventTarget = Pick<
+    P2PServiceLifecycle,
+    "requestStatus" | "openAfterDatabaseRebuild" | "closeForLifecycle" | "reconcileAutoStart"
+>;
+
 /** Resolves the replicator which currently owns P2P state. */
-export type P2PReplicatorProvider = () => P2PReplicatorLike;
+export type P2PEventTarget = P2PReplicatorLike | P2PServiceEventTarget;
+export type P2PReplicatorProvider = () => P2PEventTarget;
+
+function isServiceEventTarget(target: P2PEventTarget): target is P2PServiceEventTarget {
+    return "reconcileAutoStart" in target;
+}
 
 /**
  * Add event handlers for P2P replication related events.
  * @param source A fixed compatibility instance or a provider for a replaceable replicator.
  */
-export function addP2PEventHandlers(source: P2PReplicatorLike | P2PReplicatorProvider, events: LiveSyncEventHub) {
-    const current = (): P2PReplicatorLike => (typeof source === "function" ? source() : source);
+export function addP2PEventHandlers(source: P2PEventTarget | P2PReplicatorProvider, events: LiveSyncEventHub) {
+    const current = (): P2PEventTarget => (typeof source === "function" ? source() : source);
     events.onEvent(EVENT_ADVERTISEMENT_RECEIVED, (peer) => {
-        void current().onNewPeer(peer);
+        const target = current();
+        if ("onNewPeer" in target && target.handlesPeerEventsWithinSession !== true) void target.onNewPeer(peer);
     });
     // I know that the correct spell is "left"... Miserable
     events.onEvent(EVENT_DEVICE_LEAVED, (peerId) => {
-        current().onPeerLeaved(peerId);
+        const target = current();
+        if ("onPeerLeaved" in target && target.handlesPeerEventsWithinSession !== true) target.onPeerLeaved(peerId);
     });
     events.onEvent(EVENT_REQUEST_STATUS, () => {
         current().requestStatus();
     });
     events.onEvent(EVENT_DATABASE_REBUILT, async () => {
-        await current().open();
+        const target = current();
+        await (isServiceEventTarget(target) ? target.openAfterDatabaseRebuild() : target.open());
     });
     events.onEvent(EVENT_PLATFORM_UNLOADED, () => {
-        void current().close();
+        const target = current();
+        void (isServiceEventTarget(target) ? target.closeForLifecycle() : target.close());
     });
     events.onEvent(EVENT_SETTING_SAVED, async (settings: P2PSyncSetting) => {
-        const instance = current();
+        const target = current();
+        if (isServiceEventTarget(target)) {
+            await target.reconcileAutoStart(settings);
+            return;
+        }
         if (settings.P2P_Enabled && settings.P2P_AutoStart) {
-            await instance.open();
+            await target.open();
             return;
         }
         // close() also cancels an open operation which has not started serving yet.
-        await instance.close();
+        await target.close();
     });
-}
-
-/**
- * open P2P replicator if not opened yet.
- * @param instance
- */
-export async function openP2PReplicator(instance: P2PReplicatorLike) {
-    const isOpen = instance.isServing ?? instance.server?.isServing ?? false;
-    if (!isOpen) {
-        await instance.open();
-    }
-}
-
-/**
- * close P2P replicator
- * @param instance
- */
-export async function closeP2PReplicator(instance: P2PReplicatorLike) {
-    await instance.close();
 }
 
 // Backward-compatible overload: keep accepting LiveSyncTrysteroReplicator directly.

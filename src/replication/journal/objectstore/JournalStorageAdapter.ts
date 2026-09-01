@@ -13,6 +13,8 @@ export type JournalStorageReadResult<T> =
     | { status: typeof JournalStorageReadStatuses.UNAVAILABLE; error: unknown };
 
 export interface IJournalStorage {
+    /** Release transport resources retained by this adapter, when any. */
+    dispose?(): void;
     upload(key: string, data: Uint8Array, mime: string): Promise<boolean>;
     download(key: string, ignoreCache?: boolean): Promise<Uint8Array | false>;
     downloadWithResult(key: string, ignoreCache?: boolean): Promise<JournalStorageReadResult<Uint8Array>>;

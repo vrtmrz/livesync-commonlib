@@ -387,7 +387,8 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                 // return await fetch(url, opts);
             },
         };
-        const setting = this._settingService.currentSettings();
+        const encryptionAlgorithm =
+            connectionOptions.encryptionAlgorithm ?? this._settingService.currentSettings().E2EEAlgorithm;
         let db: PouchDB.Database<EntryDoc>;
         try {
             db = new this._pouchDB<EntryDoc>(uri, conf);
@@ -409,7 +410,7 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
             replicationFilter(db, compression);
             disableEncryption();
             if (passphrase !== "false" && typeof passphrase === "string") {
-                enableEncryption(db, passphrase, useDynamicIterationCount, false, getPBKDF2Salt, setting.E2EEAlgorithm);
+                enableEncryption(db, passphrase, useDynamicIterationCount, false, getPBKDF2Salt, encryptionAlgorithm);
             }
         } catch (ex) {
             await closeAfterConnectionFailure();

@@ -178,6 +178,8 @@ function createExports() {
         "./browser": exportTarget("platform/browser/index"),
         "./context": exportTarget("context"),
         "./node": exportTarget("platform/node/index"),
+        "./p2p": exportTarget("p2p/index"),
+        "./replication": exportTarget("replication/index"),
         "./rpc": exportTarget("rpc/index"),
         "./remote-configurations": exportTarget("remoteConfigurations"),
         "./settings": exportTarget("settings"),
@@ -269,6 +271,7 @@ async function copyStaticFiles() {
         "proven-in-use.md",
         "remote-configurations.md",
         "releasing.md",
+        "service-feature-composition.md",
         "settings-lifecycle.md",
     ]) {
         await cp(resolve(root, "docs", document), resolve(packageDirectory, "docs", document));

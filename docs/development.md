@@ -6,7 +6,8 @@ This document is for Commonlib developers. Package consumers should begin with t
 
 The source tree is larger than the supported package surface. Consumers may import only paths in the generated package export map:
 
-- `src/index.ts`, `src/context.ts`, `src/settings.ts`, `src/remoteConfigurations.ts`, `src/platform/browser/index.ts`, and `src/platform/node/index.ts` define the focused entries;
+- `src/index.ts`, `src/context.ts`, `src/settings.ts`, `src/remoteConfigurations.ts`, `src/p2p/index.ts`, `src/platform/browser/index.ts`, and `src/platform/node/index.ts` define the focused entries;
+- `src/replication/index.ts` defines the focused provider-capability and interaction contract for hosts which compose replication;
 - `src/rpc/index.ts` defines a transitional entry for the existing LiveSync P2P composition, not a stable Commonlib 1.0 contract;
 - `_tools/build-package.mjs` compiles those entries and creates the publishable manifest under `.package`;
 - `docs/migration/downstream-imports.json` is the reviewed inventory from which explicit `compat/*` exports are generated;
@@ -16,9 +17,26 @@ The source tree is larger than the supported package surface. Consumers may impo
 
 Files elsewhere under `src` are implementation details unless a focused entry re-exports them or the compatibility inventory names them. Do not use the source layout, TypeScript path aliases, or the presence of generated declarations as evidence of a supported consumer import.
 
-## Service composition
+## Service composition and state ownership
 
-Choose between an existing Service handler, a serviceFeature, a ServiceModule, and a focused resource-owning class by dependency direction and ownership rather than by the presence of mutable state. A serviceFeature may retain bounded private state and return a narrow consumer view. Use a ServiceModule only when several consumers need the same long-lived operational capability or lifecycle.
+Commonlib uses four related forms of composition. Choose between them by ownership and dependency direction, not merely by whether an implementation has mutable state.
+
+- A **Service** is a long-lived contract in the Service Hub. Add a handler to an existing Service when the behaviour is a simple extension of that contract.
+- A **serviceFeature** is a typed composition function. It accepts only the Services and ServiceModules named by `NecessaryServices`, then registers handlers, commands, lifecycle bindings, or other host glue. It is not added to a runtime registry. A serviceFeature may return a focused view or controller, and may retain bounded private state when that state belongs only to the composed feature.
+- A **ServiceModule** is a long-lived stateful or resource-owning object constructed by the host and shared through the typed `ServiceModules` record. Use one when several consumers need the same operational capability or lifecycle, such as storage access, file handling, or database rebuilding. State alone does not make a ServiceModule necessary.
+- An **AbstractModule** is the legacy application module layer. Existing modules may continue to own application behaviour, but new composition should not acquire the broad core merely to gain lifecycle access or shared dependencies.
+
+When a feature needs state, separate the component which owns that state, its transitions, and its invariants from the code which connects it to application lifecycle events and downstream effects. Give the stateful component narrow collaborators or callbacks rather than the complete Service Hub or application core. Keep application-level handler registration and host-specific presentation in the surrounding serviceFeature. A handler or effect which is part of the state contract, such as querying unresolved errors or reporting their first occurrence, may remain inside the stateful component when its input and output ports are explicit and bounded.
+
+Existing features illustrate this direction:
+
+- `targetFilter.ts` keeps each cache or readiness gate inside the factory which owns the corresponding predicate. `useTargetFilters` composes those predicates and registers them in the required order.
+- `prepareDatabaseForUse.ts` keeps the initialisation sequence independently testable. `usePrepareDatabaseForUse` constructs its error manager and binds the operation to the database lifecycle.
+- the P2P composition keeps durable policy and room-session transitions in focused state owners, while `useP2PReplicatorFeature` connects those owners to Services and exposes narrow consumer views.
+
+Older code does not apply this boundary consistently. Improve it when changing the affected ownership or lifecycle; do not perform an unrelated mechanical conversion merely to change the abstraction name.
+
+Use interaction-based, London School unit tests at a serviceFeature boundary. Verify which collaborator is called, in which order, what is not called after a failure, and which handler receives the composed operation. Test the focused state owner separately for its transitions and invariants. If a unit test requires a broad core fixture, a deep chain of mocks, import-order substitution, or knowledge of unrelated services, stop and review the responsibility and dependency boundary before adding more test machinery. Difficulty writing a clean interaction test is a design-review signal, not a reason to expose more internals.
 
 See [Service feature composition](service-feature-composition.md) for the decision table, current examples, state-ownership rules, legacy Module boundary, and London School testing guidance.
 
@@ -77,19 +95,28 @@ The one-shot CouchDB connectivity preflight is the first bounded consumer. It ap
 
 The active local database identity, settings-selected reset sequence, and lifecycle event phases are specified in [Local database lifecycle](database-lifecycle.md). Extend that document and the focused service and rebuild tests whenever database selection, reset ownership, event ordering, or failure propagation changes.
 
+### Replication control boundaries
+
+`ReplicationService` remains the host-facing façade for handler registration, legacy entry points, mutable counters, event rate limiting, full transfers, and rebuild maintenance. It delegates ordered readiness evaluation and typed provider dispatch to focused collaborators without moving the handler objects, changing their priority semantics, or taking active Replicator ownership from `ReplicatorService`.
+
+`evaluateReadiness` is a domain-neutral, ordered evaluator. Its input states the diagnostic purpose and supplies named conditions; applicable conditions run sequentially, the first rejection short-circuits later work, condition-specific rejection reporting completes before return, and callback exceptions propagate unchanged. `createReplicationReadinessEvaluator` supplies the Replication-specific condition list, including the conditional central-remote preparation gate. Add a new readiness requirement as a named condition with focused ordering and short-circuit tests rather than extending one compound boolean expression.
+
+`TypedReplicationCoordinator` keeps user-initiated, unattended, continuous, and stop roles as explicit control flows. Their interaction authority, readiness position, activity accounting, and failure handling differ, so these roles must not be collapsed into a flag-driven capability table. Share only mechanics whose lifecycle meaning is identical, such as atomic context acquisition and finite activity accounting, and retain a focused sequencing test for each role.
+
 ### P2P composition ownership
 
-`useP2PReplicatorFeature` is the sole owner of the active `LiveSyncTrysteroReplicator` and its lifecycle bindings. It creates or replaces the outer replicator when `ReplicatorService` requests one, closes the previous instance before replacement, shares an in-flight replacement between concurrent callers, and returns a stable result object whose `replicator` property resolves the current instance.
+`useP2PReplicatorFeature` composes one stable P2P service owner, one room-session owner, and their lifecycle bindings. The service exposes focused views, including owner-arbitrated connection-probe admission, over that same state. When `ReplicatorService` requests a P2P Replicator, the provider returns a fresh non-owning adapter. Replacing or disposing that active adapter does not cancel service-owned work or retire the room; the explicit stop capability and transport lifecycle view own those distinct operations. Database reset and explicit close reach the stable service through their pre-destruction lifecycle hooks, so non-ownership by the active adapter cannot leave a room using an unavailable local database.
 
-Consumers must preserve that result object and read `result.replicator` at the point of use. Do not destructure the property into a command, event handler, view, or other long-lived closure: a database reinitialisation or remote-type transition can close and replace the captured instance, and calling `open()` on that obsolete outer object can create a second connection outside the active service state.
+Every composed provider projects its effective connection settings to an opaque configuration identity. A changed identity replaces the active Replicator; there is no same-instance rebind branch. The projection follows provider-owned resource binding rather than the stored Setup URI grammar, and it remains private because it can contain credentials. `ReplicatorService` serialises those transitions, clears the old context before retirement, rechecks the candidate identity after asynchronous initialisation, and publishes the provider and Replicator together. Typed consumers use `acquireActiveReplicatorContext()` when they only need to wait for a queued transition, and `runWithActiveReplicatorContext()` when work must reserve the exact publication against later retirement.
+
+Consumers must request only the focused view which they need. Commands which connect or disconnect consume `transportLifecycle`; P2P Setup consumes `connectionProbe`; peer lists consume `peerDirectory`; RTC inspection consumes `diagnostics`. Ordinary consumers must not receive a raw room, raw host, or concrete Replicator. The result's `replicator` property is a deprecated compatibility façade for panes which have not yet migrated, not the active provider adapter.
 
 The similarly named compositions have narrower roles:
 
-- `useP2PReplicatorCommands` adds host commands and resolves the current instance when a command is checked or invoked;
-- host UI features add views, status presentation, and injected peer-selection callbacks without owning the replicator lifecycle; and
-- the deprecated `useP2PReplicator` entry is a compatibility composition which delegates ownership to `useP2PReplicatorFeature`.
+- `useP2PReplicatorCommands` adds host commands against the transport lifecycle view;
+- host UI features add views, status presentation, and injected peer-selection callbacks without owning the replicator lifecycle.
 
-When registering P2P event handlers for a replaceable instance, pass a provider to `addP2PEventHandlers`. Passing a fixed instance remains supported only for compositions whose instance cannot change. Extend the focused feature, command, event-hub, and compatibility-wrapper tests whenever this ownership boundary changes.
+The compatibility event bridge delegates lifecycle and status requests to the stable service while remaining panes migrate. Peer arrival and departure are handled inside their originating room session; the global peer events remain observational and are not routed into the current session. Do not add another consumer to the compatibility bridge. Extend the focused feature, command, session-fencing, and event-hub tests whenever this ownership boundary changes.
 
 The physical room, WebRTC peer, and relay-socket boundaries are documented in [P2P transport lifecycle](p2p-transport-lifecycle.md). In particular, normal shutdown leaves the Trystero room without closing raw peer connections directly.
 

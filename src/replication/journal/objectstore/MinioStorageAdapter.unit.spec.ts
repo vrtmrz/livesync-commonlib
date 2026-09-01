@@ -1,4 +1,4 @@
-import type { S3 } from "@aws-sdk/client-s3";
+import { GetObjectCommand, PutObjectCommand, type S3 } from "@aws-sdk/client-s3";
 import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import { HttpResponse } from "@smithy/protocol-http";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
@@ -10,6 +10,7 @@ import type { LiveSyncJournalReplicatorEnv } from "@lib/replication/journal/Live
 import { MinioStorageAdapter } from "./MinioStorageAdapter.ts";
 
 type MockS3Client = {
+    destroy?: ReturnType<typeof vi.fn>;
     listObjectsV2?: ReturnType<typeof vi.fn>;
     send: ReturnType<typeof vi.fn>;
 };
@@ -43,6 +44,37 @@ function createAdapter(client: MockS3Client) {
 }
 
 describe("MinioStorageAdapter physical request activity", () => {
+    it("bypasses a retained renderer response for an ignore-cache read after write", async () => {
+        const encoder = new TextEncoder();
+        let stored = encoder.encode("before");
+        let retained: Uint8Array | undefined;
+        const send = vi.fn(async (command: unknown) => {
+            if (command instanceof PutObjectCommand) {
+                stored = command.input.Body as Uint8Array;
+                return {};
+            }
+            if (command instanceof GetObjectCommand) {
+                // Model a renderer which may retain and reuse a `no-cache` response
+                // after the object has been overwritten. `no-store` prevents that entry.
+                const preventsStorage = command.input.ResponseCacheControl === "no-store";
+                const response = preventsStorage || !retained ? stored : retained;
+                if (!preventsStorage) retained = response;
+                return {
+                    Body: {
+                        transformToByteArray: async () => response,
+                    },
+                };
+            }
+            throw new Error("Unexpected Object Storage command");
+        });
+        const { adapter } = createAdapter({ send });
+
+        await expect(adapter.download("control.json", true)).resolves.toEqual(encoder.encode("before"));
+        await expect(adapter.upload("control.json", encoder.encode("after"), "application/json")).resolves.toBe(true);
+
+        await expect(adapter.download("control.json", true)).resolves.toEqual(encoder.encode("after"));
+    });
+
     it("tracks an SDK command while it is in progress", async () => {
         const request = promiseWithResolvers<object>();
         const { adapter, requestCount, responseCount } = createAdapter({ send: vi.fn(() => request.promise) });
@@ -155,5 +187,29 @@ describe("MinioStorageAdapter physical request activity", () => {
         await expect(uploading).resolves.toBe(true);
         expect(requestCount.value).toBe(1);
         expect(responseCount.value).toBe(1);
+    });
+});
+
+describe("MinioStorageAdapter resource ownership", () => {
+    it("destroys its SDK client exactly once when disposed repeatedly", async () => {
+        const destroy = vi.fn();
+        const { adapter } = createAdapter({ destroy, send: vi.fn() });
+
+        await (adapter as any).dispose();
+        await (adapter as any).dispose();
+
+        expect(destroy).toHaveBeenCalledOnce();
+        expect(adapter._instance).toBeUndefined();
+    });
+
+    it("destroys the former SDK client before applying new settings", () => {
+        const destroy = vi.fn();
+        const { adapter } = createAdapter({ destroy, send: vi.fn() });
+
+        adapter.applyNewConfig({ ...adapter._settings, endpoint: "https://replacement.invalid" });
+
+        expect(destroy).toHaveBeenCalledOnce();
+        expect(adapter._instance).toBeUndefined();
+        expect(adapter._settings.endpoint).toBe("https://replacement.invalid");
     });
 });

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import replication from "pouchdb-replication";
@@ -86,6 +86,18 @@ function replicateNative(src: any, target: PouchDB.Database, opts: Record<string
             .on("complete", () => resolve())
             .on("error", (err: unknown) => reject(err));
     });
+}
+
+/** Read the target-side checkpoint written by replicateShim for this database pair. */
+async function readShimCheckpoint(
+    targetDB: PouchDB.Database<object>,
+    sourceDB: PouchDB.Database<object>
+): Promise<PouchDB.Core.ExistingDocument<object>> {
+    const [targetInfo, sourceInfo] = await Promise.all([targetDB.info(), sourceDB.info()]);
+    const markDocument = await sourceDB.get(
+        `_local/replication-checkpoint-mark-${targetInfo.db_name}-${sourceInfo.db_name}`
+    );
+    return await targetDB.get(`_local/replication-checkpoint-${targetInfo.db_name}-${(markDocument as any).mark}`);
 }
 
 // ---------------------------------------------------------------------------
@@ -213,6 +225,54 @@ describe("RPC PouchDB Sync", () => {
 
         roomA.close();
         roomB.close();
+    });
+
+    // -----------------------------------------------------------------------
+    // Cancellation and checkpoint safety
+    // -----------------------------------------------------------------------
+
+    it("checkpoints a begun batch before returning cancelled and starts no later batch", async () => {
+        await dbServer.put({ _id: "cancel-after-first", value: 1 });
+        await dbServer.put({ _id: "must-not-start", value: 2 });
+
+        const changesSpy = vi.spyOn(dbServer, "changes");
+        const controller = new AbortController();
+        let progressCalls = 0;
+
+        await expect(
+            replicateShim(
+                dbLocal,
+                dbServer,
+                async (docs) => {
+                    progressCalls++;
+                    expect(docs.map((doc: any) => doc._id)).toEqual(["cancel-after-first"]);
+                    controller.abort();
+                },
+                { controller, batch_size: 1 }
+            )
+        ).resolves.toMatchObject({ status: "cancelled" });
+
+        expect(progressCalls).toBe(1);
+        expect(changesSpy).toHaveBeenCalledTimes(1);
+        await expect(dbLocal.get("cancel-after-first")).resolves.toMatchObject({ value: 1 });
+        await expect(readShimCheckpoint(dbLocal, dbServer)).resolves.toMatchObject({ since: 1 });
+    });
+
+    it("does not advance the checkpoint when bulkDocs returns a per-document failure", async () => {
+        await dbServer.put({ _id: "failed-write", value: "remote" });
+
+        vi.spyOn(dbLocal, "bulkDocs").mockResolvedValue([
+            { id: "failed-write", error: "forbidden", status: 403 } as any,
+        ]);
+
+        try {
+            await replicateShim(dbLocal, dbServer, () => Promise.resolve());
+        } catch {
+            // A failed batch may be reported by rejection or by a typed outcome;
+            // either way, its checkpoint must remain at the prior sequence.
+        }
+
+        await expect(readShimCheckpoint(dbLocal, dbServer)).resolves.toMatchObject({ since: "" });
     });
 
     // -----------------------------------------------------------------------

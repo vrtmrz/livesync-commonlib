@@ -1,5 +1,5 @@
 import { RpcError } from "./errors";
-import type { JsonLike } from "./types";
+import type { JsonLike, RpcCallOptions } from "./types";
 import type { RpcRoom } from "./RpcRoom";
 
 export class RpcSession {
@@ -11,11 +11,22 @@ export class RpcSession {
         this.peerId = peerId;
     }
 
-    async call<T = JsonLike>(method: string, args: JsonLike[] = [], timeoutMs?: number): Promise<T> {
+    async call<T = JsonLike>(method: string, args?: JsonLike[], timeoutMs?: number): Promise<T>;
+    async call<T = JsonLike>(method: string, args?: JsonLike[], options?: RpcCallOptions): Promise<T>;
+    async call<T = JsonLike>(
+        method: string,
+        args: JsonLike[] | undefined,
+        timeoutOrOptions?: number | RpcCallOptions
+    ): Promise<T>;
+    async call<T = JsonLike>(
+        method: string,
+        args: JsonLike[] = [],
+        timeoutOrOptions?: number | RpcCallOptions
+    ): Promise<T> {
         if (!this.peerId) {
             throw new RpcError("NOT_CONNECTED", "Peer is not connected");
         }
-        return (await this.room.invoke(this.peerId, method, args, timeoutMs)) as T;
+        return (await this.room.invoke(this.peerId, method, args, timeoutOrOptions)) as T;
     }
 
     createProxy<T extends object>(namespace: string): T {

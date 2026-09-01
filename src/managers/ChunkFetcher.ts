@@ -6,6 +6,7 @@ import { DEFAULT_SETTINGS, type DocumentID, type EntryLeaf } from "@lib/common/t
 import { type ChunkManager } from "./ChunkManager.ts";
 
 import type { IReplicatorService, ISettingService } from "@lib/services/base/IService.ts";
+import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
 import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
 import { DEFAULT_CHUNK_DELIVERY_STALL_TIMEOUT_MS, type ChunkDeliveryClaim } from "./ChunkDeliveryCoordinator.ts";
 
@@ -25,6 +26,14 @@ type PendingChunkDelivery = {
     claim: ChunkDeliveryClaim;
     resolveActivityBoundary: (entered: boolean) => void;
 };
+
+interface RemoteChunkReader extends ReplicatorInstance {
+    fetchRemoteChunks(missingChunks: string[], showResult: boolean): Promise<false | EntryLeaf[]>;
+}
+
+function canFetchRemoteChunks(replicator: ReplicatorInstance): replicator is RemoteChunkReader {
+    return "fetchRemoteChunks" in replicator && typeof replicator.fetchRemoteChunks === "function";
+}
 
 export class ChunkFetcher {
     options: ChunkFetcherOptions;
@@ -201,6 +210,13 @@ export class ChunkFetcher {
             const replicator = this.options.replicatorService.getActiveReplicator();
             if (!replicator) {
                 Logger("No active replicator was found to request missing chunks.");
+                return;
+            }
+            if (!canFetchRemoteChunks(replicator)) {
+                Logger("The active replicator does not support fetching individual remote chunks.");
+                for (const chunkID of requestIDs) {
+                    this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
+                }
                 return;
             }
             // Request the replicator to fetch the missing chunks.

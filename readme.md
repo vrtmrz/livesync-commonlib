@@ -28,6 +28,8 @@ The package is ESM-only and declares Node 20 or later. Browser entry points are 
 | `@vrtmrz/livesync-commonlib/context`               | Instance-owned events, translation injection, and host-neutral standard-I/O types | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/browser`               | Rooted File System Access API storage                                             | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/node`                  | Rooted Node storage, Node standard I/O, and selected Node capabilities            | Supported platform façade; keeps Node-only dependencies behind an explicit boundary         |
+| `@vrtmrz/livesync-commonlib/p2p`                   | Host-composed P2P service views and composition helpers                           | Focused, package-tested pre-1.0 contract with a temporary compatibility façade              |
+| `@vrtmrz/livesync-commonlib/replication`           | Provider capabilities, interaction authority, and typed replication outcomes      | Focused, package-tested pre-1.0 host-composition contract                                   |
 | `@vrtmrz/livesync-commonlib/rpc`                   | Existing LiveSync RPC and PouchDB bridge migration                                | Transitional only; not part of the stable Commonlib 1.0 contract                            |
 | `@vrtmrz/livesync-commonlib/remote-configurations` | Multiple-remote profile creation, naming, and selection                           | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/settings`              | New-Vault defaults, stored-setting fallbacks, and settings migration results      | Focused, package-tested pre-1.0 contract                                                    |
@@ -39,6 +41,8 @@ Import only the entry point required by the current runtime. Browser code must n
 The Node and browser entries are platform façades. They keep platform-specific adapters and capabilities behind package-owned boundaries, so a consumer does not have to reproduce those imports or their build and review exceptions. The Node entry's selected built-in-module exports are deliberate parts of that façade. Package checks ensure that the root, context, and browser entries do not load the Node implementation.
 
 The RPC entry exists only while the maintained LiveSync P2P composition depends on the current implementation. Its draft wire protocol and PouchDB bridge are not stable Commonlib 1.0 contracts. RPC is planned to move to Fancy Kit as an independently owned rewrite; new Commonlib consumers should not adopt the transitional entry.
+
+The P2P entry exposes eight focused views over one service owner, together with the maintained host-composition helpers. New consumers select only the lifecycle, peer-directory, peer-admission, targeted-transfer, change-relay, configuration-exchange, diagnostic, or connection-probe-admission view which they need. The composition result still carries a deprecated concrete Replicator façade while existing panes migrate; new consumers must not depend on that property or reach through it to a raw room or host.
 
 ## Host context and initialisation
 
@@ -123,7 +127,7 @@ The package is currently an infrastructure and compatibility boundary. The conte
 
 The accepted replacement direction is an asynchronously created file client with stable `list`, `get`, `put`, `delete`, `watch`, and `close` operations. The operation result, conflict, concurrency, watch checkpoint, retry, and error contracts still require focused decisions and tests before that client can be published.
 
-Package developers should read [the developer guide](docs/development.md). The focused contracts are described in [the storage guide](docs/platform-storage.md), [the standard-I/O guide](docs/platform-standard-io.md), [the settings lifecycle guide](docs/settings-lifecycle.md), [the remote configuration profile guide](docs/remote-configurations.md), and [the conflict-resolution guide](docs/conflict-resolution.md).
+Package developers should read [the developer guide](docs/development.md). The focused contracts are described in [the storage guide](docs/platform-storage.md), [the standard-I/O guide](docs/platform-standard-io.md), [the settings lifecycle guide](docs/settings-lifecycle.md), [the remote configuration profile guide](docs/remote-configurations.md), [the conflict-resolution guide](docs/conflict-resolution.md), and [the P2P transport lifecycle guide](docs/p2p-transport-lifecycle.md).
 
 ## Proven in maintained hosts
 

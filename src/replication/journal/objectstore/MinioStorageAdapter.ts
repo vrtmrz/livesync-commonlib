@@ -39,8 +39,15 @@ export class MinioStorageAdapter implements IJournalStorage {
     }
 
     applyNewConfig(settings: BucketSyncSetting): void {
+        this.dispose();
         this._settings = settings;
-        this._instance = undefined; // Force recreation
+    }
+
+    /** Release the SDK client owned by this adapter. Repeated calls are safe. */
+    dispose(): void {
+        const instance = this._instance;
+        this._instance = undefined;
+        instance?.destroy();
     }
 
     get customHeaders(): [string, string][] {
@@ -145,7 +152,10 @@ export class MinioStorageAdapter implements IJournalStorage {
         const cmd = new GetObjectCommand({
             Bucket: this._settings.bucket,
             Key: `${this._settings.bucketPrefix}${key}`,
-            ...(ignoreCache ? { ResponseCacheControl: "no-cache" } : {}),
+            // The SDK serialises this response override as a signed query parameter.
+            // Control-object reads use `no-store`: `no-cache` may retain the old
+            // response and serve it after a successful PUT in the same renderer.
+            ...(ignoreCache ? { ResponseCacheControl: "no-store" } : {}),
         });
 
         try {

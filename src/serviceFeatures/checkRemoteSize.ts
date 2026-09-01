@@ -1,14 +1,25 @@
 import { sizeToHumanReadable } from "octagonal-wheels/number";
-import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/types";
+import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type ObsidianLiveSyncSettings } from "@lib/common/types";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { EVENT_REQUEST_CHECK_REMOTE_SIZE } from "@lib/events/coreEvents";
 import { fireAndForget } from "@lib/common/utils";
+import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
 
 const REMOTE_SIZE_NOTICE_DURATION_MS = 5 * 60 * 1000;
 
 type RemoteSizeReviewMode = "notice" | "dialogue";
+
+interface RemoteStatusReader extends ReplicatorInstance {
+    getRemoteStatus(setting: ObsidianLiveSyncSettings): Promise<false | { estimatedSize?: number }>;
+}
+
+function canReadRemoteStatus(replicator: ReplicatorInstance | undefined): replicator is RemoteStatusReader {
+    return (
+        replicator !== undefined && "getRemoteStatus" in replicator && typeof replicator.getRemoteStatus === "function"
+    );
+}
 
 function configureReviewAnchor(anchor: HTMLAnchorElement, label: string, review: () => Promise<unknown>) {
     anchor.href = "#";
@@ -111,7 +122,7 @@ export function onNotifyRemoteSizeExceedFactory(
             return true;
         }
         const replicator = host.services.replicator.getActiveReplicator();
-        const remoteStat = await replicator?.getRemoteStatus(host.services.setting.currentSettings());
+        const remoteStat = canReadRemoteStatus(replicator) ? await replicator.getRemoteStatus(settings) : false;
 
         if (!remoteStat) {
             // If we cannot get the remote status, we should not block subsequent processes.
@@ -119,7 +130,7 @@ export function onNotifyRemoteSizeExceedFactory(
             return true;
         }
         const estimatedSize = remoteStat.estimatedSize;
-        if (estimatedSize) {
+        if (estimatedSize !== undefined) {
             const maxSize = settings.notifyThresholdOfRemoteStorageSize * 1024 * 1024;
             if (estimatedSize <= maxSize) {
                 log(

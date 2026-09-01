@@ -110,6 +110,8 @@ export class LiveSyncLocalDB {
         database: PouchDB.Database<EntryDoc>;
         promise: Promise<void>;
     };
+    /** Share owner retirement across every close path for one physical database lifetime. */
+    private activeReplicationClose?: Promise<boolean>;
     private databaseUnloadNotification?: Promise<void>;
     constructor(dbname: string, env: LiveSyncLocalDBEnv) {
         this.auth = {
@@ -141,8 +143,10 @@ export class LiveSyncLocalDB {
         this.isReady = false;
         this.offRemoteChunkFetchedHandler?.();
         this.offRemoteChunkFetchedHandler = undefined;
+        await this.closeActiveReplication();
         if (this.localDatabase != null) {
             const database = this.localDatabase;
+            await this.env.services.databaseEvents.onCloseDatabase(this);
             await database.close();
             if (this.databaseCloseCleanup?.database === database) {
                 await this.databaseCloseCleanup.promise;
@@ -155,9 +159,25 @@ export class LiveSyncLocalDB {
         await this.notifyDatabaseUnload();
     }
 
+    private async closeActiveReplication(): Promise<boolean> {
+        if (this.activeReplicationClose) {
+            return await this.activeReplicationClose;
+        }
+        const closeOperation = this.env.services.replicator.onCloseActiveReplication();
+        this.activeReplicationClose = closeOperation;
+        try {
+            return await closeOperation;
+        } catch (error) {
+            if (this.activeReplicationClose === closeOperation) {
+                this.activeReplicationClose = undefined;
+            }
+            throw error;
+        }
+    }
+
     private async teardownDatabaseDependencies(managers: LiveSyncManagers): Promise<void> {
         try {
-            await Promise.resolve(this.env.services.replicator.getActiveReplicator()?.closeReplication());
+            await this.closeActiveReplication();
         } catch (error) {
             this._log("Failed to close replication while tearing down the local database.", LOG_LEVEL_VERBOSE);
             this._log(error, LOG_LEVEL_VERBOSE);
@@ -224,6 +244,7 @@ export class LiveSyncLocalDB {
                 deterministic_revs: true,
             }
         );
+        this.activeReplicationClose = undefined;
         this.databaseUnloadNotification = undefined;
 
         const manager = new LiveSyncManagers({
@@ -382,12 +403,12 @@ export class LiveSyncLocalDB {
 
     async resetDatabase() {
         this.isReady = false;
-        await this.managers.teardownManagers();
-        this.env.services.replicator.getActiveReplicator()?.closeReplication();
+        await this.closeActiveReplication();
         if (!(await this.env.services.databaseEvents.onResetDatabase(this))) {
             Logger("Database reset has been prevented or failed on some modules.", LOG_LEVEL_NOTICE);
             return false;
         }
+        await this.managers.teardownManagers();
         Logger("Database closed for reset Database.");
         await this.localDatabase.destroy();
         //@ts-ignore

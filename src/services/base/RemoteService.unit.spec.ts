@@ -6,6 +6,7 @@ import { RemoteService } from "./RemoteService";
 import { ServiceContext } from "./ServiceBase";
 import type { SettingService } from "./SettingService";
 import { PouchDB } from "@lib/pouchdb/pouchdb-http";
+import type { E2EEAlgorithm } from "@lib/common/types.ts";
 
 class TestRemoteService extends RemoteService {}
 
@@ -37,7 +38,7 @@ function createService(
         appLifecycle,
         setting,
     });
-    return { APIService, nativeFetch, requestCount, responseCount, service, webCompatFetch };
+    return { APIService, nativeFetch, requestCount, responseCount, service, setting, webCompatFetch };
 }
 
 const databaseInfo = {
@@ -88,20 +89,21 @@ type ConnectWithOptions = (
     customHeaders: Record<string, string>,
     useRequestAPI: boolean,
     getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>,
-    options: { signal?: AbortSignal; allowNativeFallback?: boolean }
+    options: { signal?: AbortSignal; allowNativeFallback?: boolean; encryptionAlgorithm?: E2EEAlgorithm }
 ) => ReturnType<TestRemoteService["connect"]>;
 
 async function connectOwned(
     service: TestRemoteService,
-    options: { signal?: AbortSignal; allowNativeFallback?: boolean } = {},
-    skipInfo = true
+    options: { signal?: AbortSignal; allowNativeFallback?: boolean; encryptionAlgorithm?: E2EEAlgorithm } = {},
+    skipInfo = true,
+    passphrase: string | false = false
 ) {
     const connectWithOptions = service.connect as unknown as ConnectWithOptions;
     const opened = await connectWithOptions.call(
         service,
         "https://example.com/db",
         { username: "user", password: "password", type: "basic" },
-        false,
+        passphrase,
         false,
         false,
         false,
@@ -132,6 +134,22 @@ async function connect(service: TestRemoteService, skipInfo = true) {
 }
 
 describe("RemoteService request activity", () => {
+    it("uses an owner-supplied encryption algorithm without rereading live settings", async () => {
+        const database = {
+            close: vi.fn().mockResolvedValue(undefined),
+            transform: vi.fn(),
+        };
+        const FakePouchDB = vi.fn(function () {
+            return database;
+        });
+        const { service, setting } = createService(() => Promise.reject(new Error("unused")), FakePouchDB as never);
+
+        const opened = await connectOwned(service, { encryptionAlgorithm: "forceV1" }, true, "secret");
+
+        expect(setting.currentSettings).not.toHaveBeenCalled();
+        await (opened as typeof opened & { close(): Promise<void> }).close();
+    });
+
     it("settles an in-flight request when its connection signal is aborted", async () => {
         const fetchStarted = Promise.withResolvers<void>();
         const { service } = createService(

@@ -1,10 +1,13 @@
 import type PouchDB from "pouchdb-core";
+import type { E2EEAlgorithm } from "@lib/common/types.ts";
 
 /**
  * Options which bind requests made through a remote CouchDB connection to the
  * operation which owns it.
  */
 export interface RemoteConnectionOpenOptions {
+    /** Encryption algorithm captured with the settings which own this connection. */
+    readonly encryptionAlgorithm?: E2EEAlgorithm;
     /**
      * Cancels abort-capable requests made through the connection when the
      * owning operation is cancelled.

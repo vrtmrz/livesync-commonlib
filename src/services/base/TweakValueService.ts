@@ -1,4 +1,9 @@
-import type { RemoteDBSettings, RemotePreferredTweakResult, TweakValues } from "@lib/common/types";
+import type {
+    ObsidianLiveSyncSettings,
+    RemoteDBSettings,
+    RemotePreferredTweakResult,
+    TweakValues,
+} from "@lib/common/types";
 import type { ITweakValueService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 
@@ -24,8 +29,12 @@ export abstract class TweakValueService<T extends ServiceContext = ServiceContex
     /**
      * Ask the user to resolve any mismatched tweak values.
      * @param preferredSource The preferred tweak values to resolve against.
+     * @param updatePreferredRemote Optional exact-context writer supplied by the failed operation.
      */
-    abstract askResolvingMismatched(preferredSource: TweakValues): Promise<"OK" | "CHECKAGAIN" | "IGNORE">;
+    abstract askResolvingMismatched(
+        preferredSource: TweakValues,
+        updatePreferredRemote?: (setting: ObsidianLiveSyncSettings) => Promise<boolean>
+    ): Promise<"OK" | "CHECKAGAIN" | "IGNORE">;
 
     /**
      * Check and ask the user to use the remote configuration.
