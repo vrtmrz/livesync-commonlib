@@ -2,6 +2,27 @@
 
 ## Unreleased
 
+## 0.1.20
+
+### Added
+
+- New focused `@vrtmrz/livesync-commonlib/replication` and `@vrtmrz/livesync-commonlib/p2p` package entries expose provider definitions, explicit capability availability, opaque configuration identities, interaction authority, typed replication outcomes, owned finite remote resources, optional central-remote administration, and eight focused P2P service views through package-tested boundaries.
+- A packaged developer guide now explains when to use Service handlers, service features, ServiceModules, private feature contexts, and focused resource owners.
+
+### Changed
+
+- Active Replicator publication is now bound to a provider-owned configuration identity. A changed effective configuration fences new admissions, requests supported transfer cancellation, drains admitted work, closes the previous instance, and only then publishes its replacement. An unchanged identity retains the current instance, and stale asynchronous candidates are discarded.
+- User-initiated, unattended, continuous, and stop operations now have separate capability and interaction contracts. Finite work must report explicit completion, while continuous start retains the legacy permissive `void` settlement only when the provider declares support. `ActiveReplicatorContext.configurationIdentity` is now required, and Replicator termination and closure may settle asynchronously.
+- Replication failure handling now retains the exact failed publication, detached settings, outcome, and interaction authority, preventing a later replacement Replicator from being used to interpret or recover an earlier attempt.
+- P2P now uses one stable service and room-session owner for persistent demand, finite transfers, connection-probe admission, automatic start, replacement, cancellation, and lifecycle reopening. P2P-only participates as a first-class finite Replicator without claiming central-remote milestones or administration.
+- Transitional RPC calls now support abort signals and cancellation-aware handlers. Cancellation is cooperative and does not roll back work which has already settled.
+
+### Fixed
+
+- Journal synchronisation-parameter and milestone reads now distinguish confirmed absence from an unavailable Object Storage backend. Unavailability is propagated and cannot initialise replacement control data or a new Security Seed; stale cached control reads and retired clients are also fenced ([Self-hosted LiveSync issue #1147](https://github.com/vrtmrz/obsidian-livesync/issues/1147)).
+- Failed P2P replication results now preserve a JSON-safe error code, message, and details across RPC instead of losing native `Error` properties as an empty object.
+- Cancelled or partially failed shim replication no longer advances checkpoints beyond an unsettled batch. Missing source revisions and failed bulk writes are reported explicitly.
+
 ## 0.1.19
 
 ### Fixed
