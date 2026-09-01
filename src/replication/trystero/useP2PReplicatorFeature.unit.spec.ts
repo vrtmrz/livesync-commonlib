@@ -4,12 +4,53 @@ import { EVENT_DATABASE_REBUILT, EVENT_SETTING_SAVED } from "@lib/events/coreEve
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import { EVENT_ADVERTISEMENT_RECEIVED } from "./TrysteroReplicatorP2PServer";
 import { useP2PReplicatorFeature } from "./useP2PReplicatorFeature";
-import { CAPABILITY_SUPPORT_KINDS, NO_INTERACTION, type ReplicatorProviderDefinitionMap } from "@lib/replication";
+import {
+    CAPABILITY_SUPPORT_KINDS,
+    NO_INTERACTION,
+    REPLICATION_COMPLETED,
+    USER_INITIATED_REPLICATION_AUTHORITY,
+    type ReplicatorProviderDefinitionMap,
+} from "@lib/replication";
 import { P2PRoomSessionOwner } from "./P2PRoomSessionOwner";
 
 afterEach(() => {
     vi.restoreAllMocks();
 });
+
+function composeP2PProviderForTest() {
+    const events = createLiveSyncEventHub();
+    let definitions: ReplicatorProviderDefinitionMap | undefined;
+    const handler = { addHandler: vi.fn() };
+    const host = {
+        services: {
+            context: { events },
+            setting: {
+                currentSettings: vi.fn(() => ({ remoteType: REMOTE_P2P, P2P_Enabled: true })),
+                suspendExtraSync: handler,
+            },
+            replicator: {
+                registerReplicatorProviderDefinitions: vi.fn((value) => {
+                    definitions = value;
+                }),
+            },
+            appLifecycle: {
+                onUnload: handler,
+                onSuspending: handler,
+                onResumed: handler,
+            },
+            databaseEvents: {
+                onResetDatabase: handler,
+                onCloseDatabase: handler,
+                onDatabaseInitialisation: handler,
+            },
+        },
+        serviceModules: {},
+    } as unknown as Parameters<typeof useP2PReplicatorFeature>[0];
+    const result = useP2PReplicatorFeature(host);
+    const definition = definitions?.get(REMOTE_P2P);
+    if (!definition) throw new Error("P2P provider was not composed");
+    return { definition, result };
+}
 
 describe("useP2PReplicatorFeature", () => {
     it("does not reopen a suspended room from a delayed automatic-start callback", async () => {
@@ -396,6 +437,65 @@ describe("useP2PReplicatorFeature", () => {
 
         expect(result).toEqual({ status: "blocked", reason: "interaction-required" });
         expect(openReplication).not.toHaveBeenCalled();
+    });
+
+    it("maps an authorised user P2P role through its exact finite result contract", async () => {
+        const { definition } = composeP2PProviderForTest();
+        if (definition.userInitiatedOneShot.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
+            throw new Error("P2P user role is not supported");
+        }
+        const setting = { remoteType: REMOTE_P2P, P2P_Enabled: true } as never;
+        const openReplication = vi.fn().mockResolvedValue(true);
+
+        await expect(
+            definition.userInitiatedOneShot.run({ openReplication } as never, setting, {
+                trigger: "manual",
+                interaction: USER_INITIATED_REPLICATION_AUTHORITY,
+            })
+        ).resolves.toEqual(REPLICATION_COMPLETED);
+
+        expect(openReplication).toHaveBeenCalledWith(setting, false, true, false);
+    });
+
+    it("keeps an authorised user P2P exception as the failed result of that attempt", async () => {
+        const { definition } = composeP2PProviderForTest();
+        if (definition.userInitiatedOneShot.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
+            throw new Error("P2P user role is not supported");
+        }
+        const error = new Error("P2P command failed");
+        const openReplication = vi.fn().mockRejectedValue(error);
+
+        await expect(
+            definition.userInitiatedOneShot.run({ openReplication } as never, {} as never, {
+                trigger: "manual",
+                interaction: USER_INITIATED_REPLICATION_AUTHORITY,
+            })
+        ).resolves.toEqual({ status: "failed", error });
+    });
+
+    it("delegates unattended P2P work only when interaction is forbidden", async () => {
+        const { definition, result } = composeP2PProviderForTest();
+        if (definition.unattendedOneShot.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
+            throw new Error("P2P unattended role is not supported");
+        }
+        const synchroniseConfiguredTargets = vi
+            .spyOn(result.targetedTransfer, "synchroniseConfiguredTargets")
+            .mockResolvedValue(REPLICATION_COMPLETED);
+
+        await expect(
+            definition.unattendedOneShot.run({} as never, {} as never, {
+                trigger: "periodic",
+                interaction: NO_INTERACTION,
+            })
+        ).resolves.toEqual(REPLICATION_COMPLETED);
+        await expect(
+            definition.unattendedOneShot.run({} as never, {} as never, {
+                trigger: "periodic",
+                interaction: USER_INITIATED_REPLICATION_AUTHORITY,
+            } as never)
+        ).resolves.toEqual({ status: "blocked", reason: "interaction-required" });
+
+        expect(synchroniseConfiguredTargets).toHaveBeenCalledOnce();
     });
 
     it("creates independent active adapters with only active operations without replacing the service owner", async () => {

@@ -233,4 +233,52 @@ describe("P2PHost transport configuration and ownership", () => {
         currentSettings.P2P_AutoDenyingPeers = "Device A";
         await expect(host.evaluatePeerAcceptance("peer-a")).resolves.toBe("rejected");
     });
+
+    it("materialises automatic acceptance without opening a dialogue", async () => {
+        const host = new P2PHost({
+            events: createLiveSyncEventHub(),
+            simpleStore: {
+                get: vi.fn(async () => undefined),
+                set: vi.fn(async () => undefined),
+                delete: vi.fn(async () => undefined),
+                keys: vi.fn(async () => []),
+            },
+            settings: {
+                P2P_Enabled: true,
+                P2P_IsHeadless: false,
+            },
+        } as any);
+        host._knownAdvertisements.set("peer-a", {
+            peerId: "peer-a",
+            name: "Device A",
+            platform: "test",
+        });
+        vi.spyOn(host, "evaluatePeerAcceptance").mockResolvedValue("accepted");
+        vi.spyOn(host.acceptedPeers, "get").mockResolvedValue(undefined);
+        const dispatchConnectionStatus = vi.spyOn(host, "dispatchConnectionStatus").mockResolvedValue(undefined);
+        const confirmUserToAccept = vi.spyOn(host, "confirmUserToAccept");
+
+        await expect(host.isAcceptablePeer("peer-a")).resolves.toBe(true);
+
+        expect(host.temporaryAcceptedPeers.get("peer-a")).toBe(true);
+        expect(dispatchConnectionStatus).toHaveBeenCalledOnce();
+        expect(confirmUserToAccept).not.toHaveBeenCalled();
+    });
+
+    it("rejects an undecided peer in a headless host without opening a dialogue", async () => {
+        const host = new P2PHost({
+            events: createLiveSyncEventHub(),
+            simpleStore: {},
+            settings: {
+                P2P_Enabled: true,
+                P2P_IsHeadless: true,
+            },
+        } as any);
+        vi.spyOn(host, "evaluatePeerAcceptance").mockResolvedValue("undecided");
+        const confirmUserToAccept = vi.spyOn(host, "confirmUserToAccept");
+
+        await expect(host.isAcceptablePeer("peer-a")).resolves.toBe(false);
+
+        expect(confirmUserToAccept).not.toHaveBeenCalled();
+    });
 });

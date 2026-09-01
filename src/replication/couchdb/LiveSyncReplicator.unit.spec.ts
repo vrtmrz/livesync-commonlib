@@ -529,6 +529,23 @@ describe("LiveSyncCouchDBReplicator remote preferred tweak values", () => {
         expect(connectionClose).toHaveBeenCalledOnce();
     });
 });
+
+function createContinuousTestReplicator(localDatabase: object) {
+    const runFiniteReplicationActivity = vi.fn(async <T>(task: () => Promise<T>) => await task());
+    const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+    replicator.env = {
+        services: {
+            context: createServiceContext(),
+            database: { localDatabase: { localDatabase } },
+            replicator: { runFiniteReplicationActivity },
+        },
+    } as unknown as LiveSyncCouchDBReplicator["env"];
+    replicator.docArrived = 0;
+    replicator.docSent = 0;
+    replicator.updateInfo = vi.fn();
+    return { replicator, runFiniteReplicationActivity };
+}
+
 describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
     it("does not start a connection after continuous replication is stopped before its live controller exists", async () => {
         let markCatchUpStarted!: () => void;
@@ -655,6 +672,74 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             await Promise.allSettled([continuous, stops]);
         }
         expect(connect).not.toHaveBeenCalled();
+    });
+
+    it("closes a live connection acquired after Stop was requested", async () => {
+        const localDatabase = {
+            info: vi.fn().mockResolvedValue({ update_seq: 7 }),
+            sync: vi.fn(() => ({})),
+        };
+        const remoteDatabase = { close: vi.fn().mockResolvedValue(undefined) };
+        const { replicator } = createContinuousTestReplicator(localDatabase);
+        vi.spyOn(replicator, "openOneShotReplication").mockResolvedValue(true);
+        const connectivityStarted = Promise.withResolvers<void>();
+        const releaseConnectivity = Promise.withResolvers<void>();
+        vi.spyOn(replicator, "checkReplicationConnectivity").mockImplementation(async () => {
+            connectivityStarted.resolve();
+            await releaseConnectivity.promise;
+            return {
+                db: remoteDatabase,
+                info: { update_seq: 9 },
+                close: () => remoteDatabase.close(),
+                syncOption: {},
+            } as never;
+        });
+
+        const continuous = replicator.openContinuousReplication({} as RemoteDBSettings, false, false);
+        await connectivityStarted.promise;
+        const stop = replicator.terminateSync();
+        releaseConnectivity.resolve();
+
+        await expect(Promise.all([continuous, stop])).resolves.toEqual([false, undefined]);
+        expect(remoteDatabase.close).toHaveBeenCalledOnce();
+        expect(localDatabase.info).not.toHaveBeenCalled();
+        expect(localDatabase.sync).not.toHaveBeenCalled();
+    });
+
+    it("does not start a retry continuation after Stop settles a live transfer", async () => {
+        const localDatabase = {
+            info: vi.fn().mockResolvedValue({ update_seq: 7 }),
+            sync: vi.fn(() => ({})),
+        };
+        const remoteDatabase = { close: vi.fn().mockResolvedValue(undefined) };
+        const { replicator } = createContinuousTestReplicator(localDatabase);
+        const catchUp = vi.spyOn(replicator, "openOneShotReplication").mockResolvedValue(true);
+        vi.spyOn(replicator, "checkReplicationConnectivity").mockResolvedValue({
+            db: remoteDatabase,
+            info: { update_seq: 9 },
+            close: () => remoteDatabase.close(),
+            syncOption: {},
+        } as never);
+        const transferStarted = Promise.withResolvers<void>();
+        const releaseTransfer = Promise.withResolvers<void>();
+        vi.spyOn(replicator, "processSync").mockImplementation(async () => {
+            transferStarted.resolve();
+            await releaseTransfer.promise;
+            return "NEED_RETRY";
+        });
+
+        const continuous = replicator.openContinuousReplication(
+            { batch_size: 20, batches_limit: 20 } as RemoteDBSettings,
+            false,
+            false
+        );
+        await transferStarted.promise;
+        const stop = replicator.terminateSync();
+        releaseTransfer.resolve();
+
+        await expect(Promise.all([continuous, stop])).resolves.toEqual([false, undefined]);
+        expect(catchUp).toHaveBeenCalledOnce();
+        expect(remoteDatabase.close).toHaveBeenCalledOnce();
     });
 
     it("exposes the initial pull-only catch-up as finite replication activity", async () => {
