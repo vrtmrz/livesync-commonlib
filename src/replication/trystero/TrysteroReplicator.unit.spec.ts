@@ -9,6 +9,36 @@ import {
     type P2PHost,
 } from "./TrysteroReplicatorP2PServer";
 import type { Advertisement } from "./types";
+import { RpcRoom, type JsonLike, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
+import { toRpcMethodName } from "./rpcCompat";
+import { fromP2PReplicationWireResult } from "./P2PReplicationWire";
+
+function createRpcRoomPair() {
+    let receiveA: ((message: RpcWireMessage, peerId: string) => void) | undefined;
+    let receiveB: ((message: RpcWireMessage, peerId: string) => void) | undefined;
+    const transportA: TransportAdapter = {
+        send: (message) => receiveB?.(message, "peer-a"),
+        onMessage: (handler) => {
+            receiveA = handler;
+            return () => {
+                if (receiveA === handler) receiveA = undefined;
+            };
+        },
+    };
+    const transportB: TransportAdapter = {
+        send: (message) => receiveA?.(message, "peer-b"),
+        onMessage: (handler) => {
+            receiveB = handler;
+            return () => {
+                if (receiveB === handler) receiveB = undefined;
+            };
+        },
+    };
+    return {
+        roomA: new RpcRoom({ transport: transportA }),
+        roomB: new RpcRoom({ transport: transportB }),
+    };
+}
 
 function createReplicator(settings: Record<string, unknown> = {}) {
     const runFiniteReplicationActivity = vi.fn(async (task: () => unknown) => await task());
@@ -220,6 +250,81 @@ describe("TrysteroReplicator automatic remote activity", () => {
         expect(start).toHaveBeenCalledOnce();
         expect(registrationOrder).toEqual(["room-opened", "cancellable-handler", "advertised"]);
         expect(replicateFrom).toHaveBeenCalledWith("source-peer", false, false, false, controller.signal);
+    });
+
+    it("preserves a failed synchronisation reason through the RpcRoom JSON boundary", async () => {
+        const { roomA, roomB } = createRpcRoomPair();
+        try {
+            const { replicator: source } = createReplicator();
+            source.setOnSetup();
+            (source as any).server = {
+                start: vi.fn(async (_bindings: unknown[], beforeAdvertisement?: () => void) => beforeAdvertisement?.()),
+                serveCancellationAwareFunction: vi.fn(
+                    (
+                        type: string,
+                        handler: (
+                            context: { signal: AbortSignal },
+                            peerId: string,
+                            fromPeerId: string
+                        ) => Promise<unknown>
+                    ) => roomB.registerCancellable(toRpcMethodName(type), handler as any)
+                ),
+            };
+            await source.open();
+
+            const { replicator: requester } = createReplicator();
+            (requester as any).server = {
+                serverPeerId: "peer-a",
+                getConnection: vi.fn(() => ({
+                    invokeRemoteFunction: (type: string, args: JsonLike[], _timeout: number, signal?: AbortSignal) =>
+                        roomA.session("peer-b").call(toRpcMethodName(type), args, { timeoutMs: 1_000, signal }),
+                })),
+            };
+
+            const result = await requester.requestSynchroniseToPeer("peer-b");
+
+            expect(result.status).toBe("failed");
+            if (result.status !== "failed") throw new Error("Expected failed P2P replication");
+            expect(result.error).toBeInstanceOf(Error);
+            expect(result.error).toMatchObject({
+                message: "The setup is in progress",
+            });
+        } finally {
+            roomA.close();
+            roomB.close();
+        }
+    });
+
+    it("turns a legacy malformed wire failure into an explicit local Error", () => {
+        const result = fromP2PReplicationWireResult({ status: "failed", error: {} as never });
+
+        expect(result.status).toBe("failed");
+        if (result.status !== "failed") throw new Error("Expected failed P2P replication");
+        expect(result.error).toBeInstanceOf(Error);
+        expect(result.error).toMatchObject({
+            message: "The remote peer reported a replication failure without a usable reason.",
+        });
+    });
+
+    it("decomposes auxiliary setup errors before they enter successful RPC data", async () => {
+        const { replicator } = createReplicator();
+        replicator.setOnSetup();
+        const commands = replicator.getCommands();
+
+        const results = await Promise.all([
+            commands.onProgress("peer-id"),
+            commands.getAllConfig("peer-id"),
+            commands.requestBroadcasting("peer-id"),
+        ]);
+
+        for (const result of results) {
+            expect(JSON.parse(JSON.stringify(result))).toEqual({
+                error: {
+                    code: "REMOTE_ERROR",
+                    message: "The setup is in progress",
+                },
+            });
+        }
     });
 
     it("does not request the reverse transfer after the pull is cancelled", async () => {

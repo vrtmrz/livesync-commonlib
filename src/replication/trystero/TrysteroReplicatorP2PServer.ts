@@ -29,6 +29,7 @@ import { generateJoinRoomOptions } from "@lib/rpc/transports/trysteroUtils";
 import { subscribeConnectionStatus, subscribeFailureDiagnosis } from "@lib/rpc/transports/DiagRTCPeerConnections";
 import { type DiagRTCStats } from "@lib/rpc/transports/DiagRTCPeerConnections.types";
 import type { SimpleStore } from "@lib/common/utils";
+import { asRpcErrorShape } from "@lib/rpc/errors";
 
 export type PeerInfo = Advertisement & {
     isAccepted: boolean | undefined;
@@ -636,10 +637,16 @@ You can chose as follows:
             Logger(`Serving function: [FAILED] ${data.type} sending back the failure information`, LOG_LEVEL_VERBOSE);
             Logger(e instanceof Error ? e.message : e, LOG_LEVEL_VERBOSE);
 
-            // e is not guaranteed to be serializable, so we need to convert it to a string or a simple object.
-            // TODO: Check it later.
             await this.__send(
-                { type: data.type, seq: data.seq, direction: DIRECTION_RESPONSE, data: undefined, error: e as any },
+                {
+                    type: data.type,
+                    seq: data.seq,
+                    direction: DIRECTION_RESPONSE,
+                    data: undefined,
+                    // This deprecated path predates RpcRoom, but it has the same
+                    // JSON boundary and therefore must not send a native Error.
+                    error: asRpcErrorShape(e),
+                },
                 peerId
             );
         }

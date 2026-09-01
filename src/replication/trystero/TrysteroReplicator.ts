@@ -26,6 +26,12 @@ import { getRelaySockets, pauseRelayReconnection, resumeRelayReconnection } from
 import type { P2PFiniteOperationOwner } from "./P2PRoomSession";
 import { P2PAutomationCoordinator } from "./P2PAutomationCoordinator";
 import { compatGlobal, type CompatTimeoutHandle } from "@lib/common/coreEnvFunctions";
+import {
+    fromP2PReplicationWireResult,
+    toP2PReplicationWireResult,
+    toP2PWireError,
+    type P2PReplicationWireResult,
+} from "./P2PReplicationWire";
 
 async function encrypt(data: string, passphrase: string) {
     return await encryptWithEphemeralSalt(data, passphrase, true);
@@ -74,6 +80,13 @@ export type P2PReplicationReport = {
       }
 );
 
+/**
+ * In-process outcome of one P2P replication request.
+ *
+ * The failed variant deliberately retains an `Error`-compatible value for
+ * local callers. RPC handlers must convert it to `P2PReplicationWireResult`,
+ * because native `Error` properties do not survive JSON serialisation.
+ */
 export type P2PReplicationResult =
     | { readonly status: "completed"; readonly ok: true; readonly error?: never }
     | { readonly status: "cancelled"; readonly ok?: false; readonly error?: never }
@@ -249,9 +262,10 @@ export class TrysteroReplicator {
         this.allowReconnection();
         const commands = this.getCommands();
         await this.server?.start([commands], () =>
-            this.server?.serveCancellationAwareFunction<[string], P2PReplicationResult>(
+            this.server?.serveCancellationAwareFunction<[string], P2PReplicationWireResult>(
                 "reqSync",
-                async ({ signal }, _peerId, fromPeerId) => await this.handleSynchronisationRequest(fromPeerId, signal)
+                async ({ signal }, _peerId, fromPeerId) =>
+                    toP2PReplicationWireResult(await this.handleSynchronisationRequest(fromPeerId, signal))
             )
         );
         this.dispatchStatus();
@@ -339,8 +353,8 @@ export class TrysteroReplicator {
         return {
             // The wire-visible command deliberately accepts only serialisable
             // arguments. RpcRoom supplies cancellation context separately.
-            reqSync: async (fromPeerId: string): Promise<P2PReplicationResult> =>
-                await this.handleSynchronisationRequest(fromPeerId),
+            reqSync: async (fromPeerId: string): Promise<P2PReplicationWireResult> =>
+                toP2PReplicationWireResult(await this.handleSynchronisationRequest(fromPeerId)),
             "!reqAuth": async (fromPeerId: string) => {
                 return await this.server?.isAcceptablePeer(fromPeerId);
             },
@@ -349,13 +363,13 @@ export class TrysteroReplicator {
             },
             onProgress: async (fromPeerId: string) => {
                 if (this._onSetup) {
-                    return { error: new Error("The setup is in progress") };
+                    return { error: toP2PWireError(new Error("The setup is in progress")) };
                 }
                 await this.onUpdateDatabase(fromPeerId);
             },
             getAllConfig: async (fromPeerId: string) => {
                 if (this._onSetup) {
-                    return { error: new Error("The setup is in progress") };
+                    return { error: toP2PWireError(new Error("The setup is in progress")) };
                 }
                 const passphrase = await skipIfDuplicated(`getAllConfig-${fromPeerId}`, async () => {
                     return await this.confirm.askString(
@@ -403,7 +417,7 @@ export class TrysteroReplicator {
             },
             requestBroadcasting: async (peerId: string) => {
                 if (this._onSetup) {
-                    return { error: new Error("The setup is in progress") };
+                    return { error: toP2PWireError(new Error("The setup is in progress")) };
                 }
                 if (this._isBroadcasting) {
                     return true;
@@ -465,12 +479,14 @@ export class TrysteroReplicator {
         // Logger(`P2P requesting remote sync from ${peerId}`, LOG_LEVEL_NOTICE, "p2p-replicator");
         const conn = this.server.getConnection(peerId);
         try {
-            const result = await conn.invokeRemoteFunction<
-                [string],
-                Awaited<ReturnType<ReturnType<typeof this.getCommands>["reqSync"]>>
-            >("reqSync", [this.server.serverPeerId], 0, signal);
+            const result = await conn.invokeRemoteFunction<[string], P2PReplicationWireResult>(
+                "reqSync",
+                [this.server.serverPeerId],
+                0,
+                signal
+            );
             // Logger(`P2P remote sync request returned from ${peerId}`, LOG_LEVEL_NOTICE, "p2p-replicator");
-            return result;
+            return fromP2PReplicationWireResult(result);
         } catch (error) {
             if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
             throw error;

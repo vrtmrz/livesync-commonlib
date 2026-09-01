@@ -83,6 +83,26 @@ describe("P2PHost transport configuration and ownership", () => {
         });
     });
 
+    it("decomposes a deprecated RPC handler error before sending it", async () => {
+        const host = new P2PHost({
+            events: createLiveSyncEventHub(),
+            simpleStore: {},
+            settings: { P2P_Enabled: true },
+        } as any);
+        host.assignedFunctions.set("fail", () => {
+            throw new Error("legacy failure");
+        });
+        const send = vi.spyOn(host, "__send").mockResolvedValue(undefined);
+
+        await host.__onRequest({ type: "fail", direction: "request", seq: 1, args: [] }, "peer-a");
+
+        const payload = send.mock.calls[0][0];
+        expect(JSON.parse(JSON.stringify(payload.error))).toEqual({
+            code: "REMOTE_ERROR",
+            message: "legacy failure",
+        });
+    });
+
     it("keeps its platform-unload subscription across a transport shutdown", async () => {
         const events = createLiveSyncEventHub();
         const host = new P2PHost({
