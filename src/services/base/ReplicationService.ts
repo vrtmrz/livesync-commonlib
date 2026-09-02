@@ -22,6 +22,7 @@ import {
     CAPABILITY_SUPPORT_KINDS,
     NO_INTERACTION,
     CENTRAL_REMOTE_REPLICATION_READINESS,
+    REPLICATION_PROGRESS_PRESENTATIONS,
     USER_INITIATED_REPLICATION_AUTHORITY,
     isActiveReplicatorContextBoundToSetting,
     isReplicationCompleted,
@@ -312,6 +313,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
     async replicateUserInitiated(
         request: UserInitiatedOneShotRequest = {
             trigger: "manual",
+            progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.NOTICE,
             interaction: USER_INITIATED_REPLICATION_AUTHORITY,
         }
     ): Promise<ReplicationOutcome> {

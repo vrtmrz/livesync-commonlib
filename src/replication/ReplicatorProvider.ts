@@ -92,9 +92,25 @@ export type ReplicationInteraction = NoInteraction | UserInitiatedReplicationAut
 /** Authority carried through a replication request and its failure path. */
 export type InteractionAuthority = ReplicationInteraction;
 
-/** A request made by an explicitly user-initiated one-shot command. */
+/** Stable host presentation choices for routine OneShot progress. */
+export const REPLICATION_PROGRESS_PRESENTATIONS = Object.freeze({
+    QUIET: "quiet",
+    NOTICE: "notice",
+} as const);
+
+export type ReplicationProgressPresentation =
+    (typeof REPLICATION_PROGRESS_PRESENTATIONS)[keyof typeof REPLICATION_PROGRESS_PRESENTATIONS];
+
+/**
+ * A request made by an explicitly user-initiated one-shot command.
+ *
+ * Progress presentation is independent of interaction authority: a quiet
+ * command may still open an authorised peer-selection or failure-recovery
+ * dialogue when the operation requires a decision.
+ */
 export interface UserInitiatedOneShotRequest {
     readonly trigger: "manual";
+    readonly progressPresentation: ReplicationProgressPresentation;
     readonly interaction: InteractionAuthority;
 }
 
@@ -275,9 +291,9 @@ export interface ReplicationAttemptFailure {
     readonly outcome: ReplicationFailed;
 }
 
-/** Immutable failure source plus the interaction authority of its original request. */
+/** Immutable failure source plus presentation and interaction policy from its original request. */
 export interface ReplicationFailureRequest extends ReplicationAttemptFailure {
-    readonly showMessage: boolean;
+    readonly progressPresentation: ReplicationProgressPresentation;
     readonly interaction: InteractionAuthority;
 }
 
@@ -373,7 +389,7 @@ export function supportedOpenReplicationOneShot(): SupportedCapability<UserIniti
             const result = await replicator.openReplication(
                 setting,
                 false,
-                request.interaction.kind === "permitted" && request.interaction.permissions.failureRecovery,
+                request.progressPresentation === REPLICATION_PROGRESS_PRESENTATIONS.NOTICE,
                 false
             );
             return outcomeFromFiniteOpenReplication(result);

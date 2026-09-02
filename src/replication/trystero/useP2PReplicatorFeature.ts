@@ -8,6 +8,7 @@ import {
     CAPABILITY_NOT_APPLICABLE,
     NO_REMOTE_RESOURCE_CAPABILITIES,
     PEER_REPLICATION_READINESS,
+    REPLICATION_PROGRESS_PRESENTATIONS,
     defineReplicatorProviderDefinitions,
     outcomeFromFiniteOpenReplication,
     replicationBlocked,
@@ -91,7 +92,7 @@ export function useP2PReplicatorFeature(
             const result = await instance.openReplication(
                 setting,
                 false,
-                request.interaction.permissions.failureRecovery,
+                request.progressPresentation === REPLICATION_PROGRESS_PRESENTATIONS.NOTICE,
                 false
             );
             return outcomeFromFiniteOpenReplication(result);

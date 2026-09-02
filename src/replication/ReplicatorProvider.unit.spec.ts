@@ -6,6 +6,7 @@ import {
     CENTRAL_REMOTE_REPLICATION_READINESS,
     NO_INTERACTION,
     REPLICATION_COMPLETED,
+    REPLICATION_PROGRESS_PRESENTATIONS,
     USER_INITIATED_REPLICATION_AUTHORITY,
     defineReplicatorProviderDefinitions,
     isReplicationCompleted,
@@ -104,6 +105,7 @@ describe("replicator provider contract", () => {
         };
         await manual.run(manualReplicator, {} as never, {
             trigger: "manual",
+            progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.QUIET,
             interaction: narrowedAuthority,
         });
         expect(manualReplicator.openReplication).toHaveBeenCalledWith({}, false, false, false);

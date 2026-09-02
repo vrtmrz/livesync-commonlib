@@ -6,6 +6,7 @@ import {
     CENTRAL_REMOTE_REPLICATION_READINESS,
     NO_INTERACTION,
     REPLICATION_COMPLETED,
+    REPLICATION_PROGRESS_PRESENTATIONS,
     USER_INITIATED_REPLICATION_AUTHORITY,
     replicationFailed,
     type ActiveReplicatorContext,
@@ -92,12 +93,24 @@ function createHarness() {
     };
 }
 
+function createDeferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    const promise = new Promise<T>((settle) => {
+        resolve = settle;
+    });
+    return { promise, resolve };
+}
+
 describe("TypedReplicationCoordinator", () => {
     it("admits both finite provider roles through their exact active publication", async () => {
         const { coordinator, runWithActiveReplicatorContext, unattended, userInitiated } = createHarness();
 
         await expect(
-            coordinator.runUserInitiated({ trigger: "manual", interaction: USER_INITIATED_REPLICATION_AUTHORITY })
+            coordinator.runUserInitiated({
+                trigger: "manual",
+                progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.NOTICE,
+                interaction: USER_INITIATED_REPLICATION_AUTHORITY,
+            })
         ).resolves.toBe(REPLICATION_COMPLETED);
         await expect(coordinator.runUnattended({ trigger: "resume", interaction: NO_INTERACTION })).resolves.toBe(
             REPLICATION_COMPLETED
@@ -107,6 +120,49 @@ describe("TypedReplicationCoordinator", () => {
         expect(userInitiated).toHaveBeenCalledOnce();
         expect(unattended).toHaveBeenCalledOnce();
     });
+
+    it.each([
+        { owner: "user", contender: "user" },
+        { owner: "user", contender: "unattended" },
+        { owner: "unattended", contender: "user" },
+        { owner: "unattended", contender: "unattended" },
+    ] as const)(
+        "blocks a later $contender OneShot request while another $owner request owns the attempt",
+        async ({ owner, contender }) => {
+            const { coordinator, dependencies, unattended, userInitiated } = createHarness();
+            const ownerEntered = createDeferred<void>();
+            const releaseOwner = createDeferred<void>();
+            const ownerRunner = owner === "user" ? userInitiated : unattended;
+            ownerRunner.mockImplementationOnce(async () => {
+                ownerEntered.resolve();
+                await releaseOwner.promise;
+                return REPLICATION_COMPLETED;
+            });
+            const run = (role: "user" | "unattended") =>
+                role === "user"
+                    ? coordinator.runUserInitiated({
+                          trigger: "manual",
+                          progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.QUIET,
+                          interaction: USER_INITIATED_REPLICATION_AUTHORITY,
+                      })
+                    : coordinator.runUnattended({ trigger: "periodic", interaction: NO_INTERACTION });
+
+            const ownerAttempt = run(owner);
+            await ownerEntered.promise;
+            try {
+                await expect(run(contender)).resolves.toEqual({
+                    status: "blocked",
+                    reason: "replication-in-progress",
+                });
+                expect(dependencies.checkReadiness).toHaveBeenCalledOnce();
+                expect(userInitiated).toHaveBeenCalledTimes(owner === "user" ? 1 : 0);
+                expect(unattended).toHaveBeenCalledTimes(owner === "unattended" ? 1 : 0);
+            } finally {
+                releaseOwner.resolve();
+                await ownerAttempt;
+            }
+        }
+    );
 
     it("releases a finite publication before invoking failure recovery", async () => {
         const { activityEvents, context, coordinator, dependencies, provider, runWithActiveReplicatorContext } =
@@ -193,7 +249,7 @@ describe("TypedReplicationCoordinator", () => {
             context,
             setting,
             outcome: failure,
-            showMessage: false,
+            progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.QUIET,
             interaction: NO_INTERACTION,
         });
         expect((context.replicator as { recoveryTouched?: boolean }).recoveryTouched).toBe(true);
@@ -292,13 +348,13 @@ describe("TypedReplicationCoordinator", () => {
             context: expect.anything(),
             setting: expect.objectContaining({ remoteType: REMOTE_COUCHDB }),
             outcome: failure,
-            showMessage: false,
+            progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.QUIET,
             interaction: NO_INTERACTION,
         });
         expect(dependencies.recordFiniteAttempt).toHaveBeenCalledOnce();
     });
 
-    it("passes narrowed user authority to the provider and failure boundary", async () => {
+    it("passes narrowed user authority and independent presentation to the provider and failure boundary", async () => {
         const { coordinator, dependencies, provider } = createHarness();
         const interaction = {
             kind: "permitted" as const,
@@ -310,17 +366,24 @@ describe("TypedReplicationCoordinator", () => {
             userInitiatedOneShot: { kind: CAPABILITY_SUPPORT_KINDS.SUPPORTED, run: userInitiated },
         });
 
-        await expect(coordinator.runUserInitiated({ trigger: "manual", interaction })).resolves.toBe(failure);
+        await expect(
+            coordinator.runUserInitiated({
+                trigger: "manual",
+                progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.NOTICE,
+                interaction,
+            })
+        ).resolves.toBe(failure);
 
         expect(userInitiated).toHaveBeenCalledWith(expect.anything(), expect.anything(), {
             trigger: "manual",
+            progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.NOTICE,
             interaction,
         });
         expect(dependencies.handleFailure).toHaveBeenCalledWith({
             context: expect.anything(),
             setting: expect.objectContaining({ remoteType: REMOTE_COUCHDB }),
             outcome: failure,
-            showMessage: false,
+            progressPresentation: REPLICATION_PROGRESS_PRESENTATIONS.NOTICE,
             interaction,
         });
         expect(provider.userInitiatedOneShot.kind).toBe(CAPABILITY_SUPPORT_KINDS.SUPPORTED);
