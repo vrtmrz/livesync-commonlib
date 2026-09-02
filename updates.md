@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## 0.1.21
+
+### Changed
+
+- User-initiated OneShot requests now choose an explicit `quiet` or `notice` progress presentation independently of interaction authority. `UserInitiatedOneShotRequest.progressPresentation` is required, and `ReplicationFailureRequest.progressPresentation` replaces `showMessage` so failure handling retains the caller's presentation choice.
+
+### Fixed
+
+- OneShot admission is now reserved before the first asynchronous readiness check. Additional user-initiated or unattended requests while an attempt is active settle immediately with `replication-in-progress` instead of queuing another replication after it completes.
+
 ## 0.1.20
 
 ### Added
