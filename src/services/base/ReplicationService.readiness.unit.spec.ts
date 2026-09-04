@@ -2,7 +2,6 @@ import { describe, expect, it, vi } from "vitest";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE } from "@lib/common/types.ts";
 import { CENTRAL_REMOTE_REPLICATION_READINESS, PEER_REPLICATION_READINESS } from "@lib/replication";
 import { MARK_LOG_NETWORK_ERROR } from "@lib/services/lib/logUtils.ts";
-import { englishMessageTranslator } from "@lib/services/base/MessageTranslator.ts";
 import {
     createReplicationReadinessEvaluator,
     type ReplicationReadinessDependencies,
@@ -115,7 +114,6 @@ describe("createReplicationReadinessEvaluator", () => {
     it("reports a descriptive diagnostic when the application is not ready", async () => {
         const { dependencies, evaluate } = createHarness();
         vi.mocked(dependencies.gates.isApplicationReady).mockReturnValue(false);
-        vi.mocked(dependencies.diagnostics.translate).mockImplementation(englishMessageTranslator);
 
         await expect(evaluate()).resolves.toEqual({
             ready: false,
@@ -123,7 +121,7 @@ describe("createReplicationReadinessEvaluator", () => {
             rejectedCondition: "application-ready",
         });
 
-        expect(dependencies.diagnostics.translate).toHaveBeenCalledWith("Replicator.Message.ApplicationNotReady");
+        expect(dependencies.diagnostics.translate).not.toHaveBeenCalled();
         expect(dependencies.diagnostics.log).toHaveBeenCalledWith(
             "Replication is not ready because application initialisation has not completed."
         );

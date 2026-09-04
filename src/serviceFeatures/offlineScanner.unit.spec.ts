@@ -27,7 +27,7 @@ import { prepareDatabaseForUse } from "./prepareDatabaseForUse";
 import { type LogFunction, createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import type { MetaEntry, UXFileInfoStub, FilePathWithPrefix, ObsidianLiveSyncSettings } from "@lib/common/types";
-import { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE } from "@lib/common/types";
+import { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/types";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
 
 const APIServiceMock = {
@@ -38,13 +38,6 @@ const APIServiceMock = {
 
 function createLogger(name: string): LogFunction {
     return createInstanceLogFunction(name, APIServiceMock as any);
-}
-
-function createErrorManagerMock() {
-    return {
-        showError: vi.fn(),
-        clearError: vi.fn(),
-    };
 }
 
 describe("convertCase", () => {
@@ -1552,7 +1545,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
+        await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
             mode: FullScanModes.DB_APPLY,
             extraOnRemote: ExtraOnRemote.DELETE_LOCAL_MISSING,
         });
@@ -1626,7 +1619,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
         } as any;
 
         await expect(
-            synchroniseAllFilesBetweenDBandStorage(host, xLogger, createErrorManagerMock() as any, {
+            synchroniseAllFilesBetweenDBandStorage(host, xLogger, {} as any, {
                 mode: FullScanModes.DB_APPLY,
                 extraOnRemote: ExtraOnRemote.DELETE_LOCAL_MISSING,
             })
@@ -1691,7 +1684,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
+        await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
             mode: FullScanModes.DB_APPLY,
             extraOnRemote: ExtraOnRemote.DELETE_LOCAL_MISSING,
         });
@@ -1770,7 +1763,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
+        const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
             mode: FullScanModes.NEWER_WINS,
         });
 
@@ -1845,26 +1838,16 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
         } as any;
 
         try {
-            const firstResult = await synchroniseAllFilesBetweenDBandStorage(
-                host,
-                logger,
-                createErrorManagerMock() as any,
-                {
-                    mode: FullScanModes.DB_APPLY,
-                }
-            );
+            const firstResult = await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+                mode: FullScanModes.DB_APPLY,
+            });
             await vi.runAllTimersAsync();
             const persistedAfterSkip = { ...persistedFileStatus };
 
             sizeLimitActive = false;
-            const secondResult = await synchroniseAllFilesBetweenDBandStorage(
-                host,
-                logger,
-                createErrorManagerMock() as any,
-                {
-                    mode: FullScanModes.NEWER_WINS,
-                }
-            );
+            const secondResult = await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+                mode: FullScanModes.NEWER_WINS,
+            });
 
             expect(firstResult).toBe(true);
             expect(secondResult).toBe(true);
@@ -1942,7 +1925,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
         } as any;
 
         try {
-            const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
+            const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
                 mode: FullScanModes.NEWER_WINS,
             });
             await vi.runAllTimersAsync();
@@ -2011,7 +1994,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
+        await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
             mode: FullScanModes.NEWER_WINS,
         });
 
@@ -2077,7 +2060,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
+        const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
             mode: FullScanModes.NEWER_WINS,
         });
 
@@ -2154,7 +2137,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
+        const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
             mode: FullScanModes.NEWER_WINS,
         });
 
@@ -2233,7 +2216,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             const firstResult = await synchroniseAllFilesBetweenDBandStorage(
                 host,
                 logSpy as unknown as LogFunction,
-                createErrorManagerMock() as any,
+                {} as any,
                 { mode: FullScanModes.DB_APPLY }
             );
             await vi.runAllTimersAsync();
@@ -2242,7 +2225,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             const secondResult = await synchroniseAllFilesBetweenDBandStorage(
                 host,
                 logSpy as unknown as LogFunction,
-                createErrorManagerMock() as any,
+                {} as any,
                 { mode: FullScanModes.NEWER_WINS }
             );
             await vi.runAllTimersAsync();
@@ -2318,14 +2301,9 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        const result = await synchroniseAllFilesBetweenDBandStorage(
-            host,
-            logSpy as unknown as LogFunction,
-            createErrorManagerMock() as any,
-            {
-                mode: FullScanModes.NEWER_WINS,
-            }
-        );
+        const result = await synchroniseAllFilesBetweenDBandStorage(host, logSpy as unknown as LogFunction, {} as any, {
+            mode: FullScanModes.NEWER_WINS,
+        });
 
         expect(result).toBe(false);
         expect(deleteFileFromDBMock).toHaveBeenCalledWith("gone.md");
@@ -2400,7 +2378,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
+        await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
             mode: FullScanModes.NEWER_WINS,
         });
 
@@ -2460,7 +2438,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
                 },
             } as any;
 
-            await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
+            await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
                 mode: FullScanModes.NEWER_WINS,
             });
 
@@ -2662,6 +2640,7 @@ describe("performFullScan", () => {
     });
 
     it("keeps failed reflections strict by default but can complete an ordinary readiness scan", async () => {
+        const log = vi.fn() as unknown as LogFunction;
         const errorManager = {
             showError: vi.fn(),
             clearError: vi.fn(),
@@ -2730,32 +2709,29 @@ describe("performFullScan", () => {
             },
         } as any;
 
-        const result = await performFullScan(host, logger, errorManager as any, {
+        const result = await performFullScan(host, log, errorManager as any, {
             mode: FullScanModes.DB_APPLY,
         });
 
         expect(result).toBe(false);
         expect(host.services.keyValueDB.kvDB.set).toHaveBeenCalledWith("initialized", true);
 
-        const ordinaryStartupResult = await performFullScan(host, logger, errorManager as any, {
+        const ordinaryStartupResult = await performFullScan(host, log, errorManager as any, {
             mode: FullScanModes.DB_APPLY,
             continueOnFileFailure: true,
         });
 
         expect(ordinaryStartupResult).toBe(true);
-        expect(errorManager.showError).toHaveBeenCalledWith(expect.stringContaining("missing.md"), LOG_LEVEL_NOTICE);
-
-        const failureMessage = errorManager.showError.mock.calls.at(-1)?.[0];
-        expect(failureMessage).toEqual(expect.any(String));
+        expect(errorManager.showError).not.toHaveBeenCalled();
+        expect(log).toHaveBeenCalledWith("Failed to synchronise missing.md", LOG_LEVEL_VERBOSE);
         host.serviceModules.fileHandler.dbToStorage.mockResolvedValue(true);
 
         await expect(
-            performFullScan(host, logger, errorManager as any, {
+            performFullScan(host, log, errorManager as any, {
                 mode: FullScanModes.DB_APPLY,
                 continueOnFileFailure: true,
             })
         ).resolves.toBe(true);
-        expect(errorManager.clearError).toHaveBeenCalledWith(failureMessage);
     });
 });
 
@@ -2850,7 +2826,7 @@ describe("prepareDatabaseForUse", () => {
         const result = await prepareDatabaseForUse(host, logger, errorManager as any, false, true, false);
 
         expect(result).toBe(false);
-        expect(errorManager.showError).toHaveBeenCalledWith(expect.stringContaining("failed"), LOG_LEVEL_NOTICE);
+        expect(errorManager.showError).not.toHaveBeenCalled();
     });
 });
 

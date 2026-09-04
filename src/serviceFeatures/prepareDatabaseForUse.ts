@@ -1,25 +1,11 @@
-import { LOG_LEVEL_NOTICE } from "octagonal-wheels/common/logger";
+import { LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 
-const preparationFailureMessages = new WeakMap<UnresolvedErrorManager, string>();
-
-function reportPreparationFailure(errorManager: UnresolvedErrorManager, message: string): false {
-    const previousMessage = preparationFailureMessages.get(errorManager);
-    if (previousMessage !== undefined && previousMessage !== message) {
-        errorManager.clearError(previousMessage);
-    }
-    errorManager.showError(message, LOG_LEVEL_NOTICE);
-    preparationFailureMessages.set(errorManager, message);
+function reportPreparationFailure(log: LogFunction, message: string): false {
+    log(message, LOG_LEVEL_VERBOSE);
     return false;
-}
-
-function clearPreparationFailure(errorManager: UnresolvedErrorManager): void {
-    const previousMessage = preparationFailureMessages.get(errorManager);
-    if (previousMessage === undefined) return;
-    errorManager.clearError(previousMessage);
-    preparationFailureMessages.delete(errorManager);
 }
 
 /**
@@ -58,44 +44,36 @@ export async function prepareDatabaseForUse(
             }))
         ) {
             return reportPreparationFailure(
-                errorManager,
-                host.services.context.translate("DatabasePreparation.Message.OpenFailed")
+                log,
+                "Database preparation stopped because the local database could not be opened."
             );
         }
         if (!host.services.database.isDatabaseReady()) {
             return reportPreparationFailure(
-                errorManager,
-                host.services.context.translate("DatabasePreparation.Message.DatabaseNotReady")
+                log,
+                "Database preparation stopped because the local database is not ready."
             );
         }
         if (!(await host.services.vault.scanVault(showingNotice, ignoreSuspending, continueOnFileFailure))) {
-            return reportPreparationFailure(
-                errorManager,
-                host.services.context.translate("DatabasePreparation.Message.ScanFailed")
-            );
+            return reportPreparationFailure(log, "Database preparation stopped because the Vault scan failed.");
         }
         if (!(await host.services.databaseEvents.onDatabaseInitialised(showingNotice))) {
             return reportPreparationFailure(
-                errorManager,
-                host.services.context.translate("DatabasePreparation.Message.InitialisationStepFailed")
+                log,
+                "Database preparation stopped because an initialisation handler failed."
             );
         }
         // Run queued event once.
         if (!(await host.services.fileProcessing.commitPendingFileEvents())) {
             return reportPreparationFailure(
-                errorManager,
-                host.services.context.translate("DatabasePreparation.Message.PendingEventsFailed")
+                log,
+                "Database preparation stopped because pending file events could not be committed."
             );
         }
-        clearPreparationFailure(errorManager);
         appLifecycle.markIsReady();
         return true;
     } catch (error) {
-        const reason = error instanceof Error ? error.message : String(error);
-        reportPreparationFailure(
-            errorManager,
-            host.services.context.translate("DatabasePreparation.Message.UnexpectedFailure", { reason })
-        );
+        log(error, LOG_LEVEL_VERBOSE);
         throw error;
     }
 }

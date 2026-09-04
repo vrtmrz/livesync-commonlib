@@ -129,7 +129,7 @@ The same result applies when `sync-newer` finds an existing storage file and att
 
 By default, the complete scan returns `false` when any pair is `failed`, and returns `true` when every pair is either `completed` or `skipped`. Quarantined entries do not enter this aggregate, so a strict `true` means that no selected pair failed rather than that every discovered entry was resolved or that storage and the database fully converge.
 
-`continueOnFileFailure` is an explicit host completion policy. When it is `true`, the scanner still processes every selected pair, records each failed path in its unresolved warning, preserves every failed pair and its retry state, and then returns `true` from the aggregate boundary. A later scan which processes every selected pair successfully clears that warning. The option does not turn a failed pair into `completed`, create success events or last-seen evidence, bypass a rejected scan precondition, or accept an exception raised before the aggregate boundary.
+`continueOnFileFailure` is an explicit host completion policy. When it is `true`, the scanner still processes every selected pair, logs each failed path at verbose level, preserves every failed pair and its retry state, and then returns `true` from the aggregate boundary. The existing completion log records the total failed count. The option does not turn a failed pair into `completed`, create success events or last-seen evidence, bypass a rejected scan precondition, or accept an exception raised before the aggregate boundary.
 
 Self-hosted LiveSync enables this policy only for ordinary Obsidian start-up, where one unavailable path must not prevent unaffected files from synchronising. Fast Setup, Fetch, Rebuild, direct scans, and CLI mirror or daemon paths retain the strict default.
 
@@ -143,7 +143,7 @@ Focused two-pass coverage starts with a `DB_APPLY` reflection whose file handler
 - the database mtime does not enter the last-seen map; and
 - `deleteFileFromDB` is not called.
 
-Full-scan coverage also verifies that the strict default returns `false`, an ordinary-start-up scan which explicitly continues returns `true` without losing the warning which lists the affected path, and a later clean scan clears that warning.
+Full-scan coverage also verifies that the strict default returns `false`, an ordinary-start-up scan which explicitly continues returns `true` while logging the affected path at verbose level, and a later clean scan returns `true`.
 
 A second two-pass case starts with a `db-only` entry skipped by the size limit. It then removes that limit and verifies that the entry is reflected to storage rather than misclassified as an offline local deletion. Coverage for an existing storage file verifies that a failed `sync-newer` reflection retains the observed storage mtime, and full-scan coverage verifies that the aggregate failure reaches its caller after scanner initialisation completes.
 

@@ -24,7 +24,6 @@ import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/l
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
-import { englishMessageTranslator, type MessageTranslator } from "@lib/services/base/MessageTranslator";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
 import { serialized } from "octagonal-wheels/concurrency/lock";
@@ -955,41 +954,6 @@ type FilePairState = "storage-only" | "db-only" | "db-only-deleted" | "both" | "
 
 type FilePairAction = "update-db" | "update-storage" | "sync-newer" | "delete-local" | "delete-db" | "skip";
 
-const MAX_FILE_FAILURE_PATHS_IN_WARNING = 3;
-const fileFailureMessages = new WeakMap<UnresolvedErrorManager, string>();
-
-function updateFileFailureWarning(
-    translate: MessageTranslator,
-    errorManager: UnresolvedErrorManager,
-    failedPaths: FilePathWithPrefix[]
-): void {
-    const previousMessage = fileFailureMessages.get(errorManager);
-    if (failedPaths.length === 0) {
-        if (previousMessage !== undefined) {
-            errorManager.clearError(previousMessage);
-            fileFailureMessages.delete(errorManager);
-        }
-        return;
-    }
-
-    const distinctPaths = unique(failedPaths);
-    const paths = distinctPaths
-        .slice(0, MAX_FILE_FAILURE_PATHS_IN_WARNING)
-        .map((path) => `- ${path.replaceAll("\r", "\\r").replaceAll("\n", "\\n")}`)
-        .join("\n");
-    const message =
-        distinctPaths.length === 1
-            ? translate("OfflineScanner.Message.OneFileFailed", { paths })
-            : translate("OfflineScanner.Message.MultipleFilesFailed", {
-                  count: `${distinctPaths.length}`,
-                  paths,
-              });
-    if (previousMessage === message) return;
-    if (previousMessage !== undefined) errorManager.clearError(previousMessage);
-    errorManager.showError(message, LOG_LEVEL_NOTICE);
-    fileFailureMessages.set(errorManager, message);
-}
-
 function isDeletedEntry(entry: MetaEntry): boolean {
     return entry.deleted || entry._deleted || false;
 }
@@ -1217,7 +1181,6 @@ export async function synchroniseAllFilesBetweenDBandStorage(
     let skippedCount = 0;
     let failedCount = 0;
     let processedCount = 0;
-    const failedPaths: FilePathWithPrefix[] = [];
     for await (const { path, result } of withConcurrency(
         pairs,
         async (e) => {
@@ -1225,7 +1188,7 @@ export async function synchroniseAllFilesBetweenDBandStorage(
             try {
                 return { path, result: await processFilePair(host, log, e, options) };
             } catch (ex) {
-                log(`Error while synchronising ${path}`, LOG_LEVEL_NOTICE);
+                log(`Error while synchronising files`, LOG_LEVEL_NOTICE);
                 log(ex, LOG_LEVEL_VERBOSE);
                 return { path, result: FilePairProcessResults.FAILED };
             }
@@ -1242,7 +1205,7 @@ export async function synchroniseAllFilesBetweenDBandStorage(
                 break;
             case FilePairProcessResults.FAILED:
                 failedCount++;
-                failedPaths.push(path);
+                log(`Failed to synchronise ${path}`, LOG_LEVEL_VERBOSE);
                 break;
         }
         if (processedCount % 25 === 0) {
@@ -1259,7 +1222,6 @@ export async function synchroniseAllFilesBetweenDBandStorage(
         "syncAll"
     );
     saveFileStatus(host, true);
-    updateFileFailureWarning(host.services.context.translate ?? englishMessageTranslator, errorManager, failedPaths);
     return failedCount === 0 || options.continueOnFileFailure === true;
 }
 

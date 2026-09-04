@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { prepareDatabaseForUse, usePrepareDatabaseForUse } from "./prepareDatabaseForUse";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
+import { LOG_LEVEL_VERBOSE } from "@lib/common/types";
 
 const APIServiceMock = {
     addLog(message: string, level?: any) {
@@ -134,13 +135,18 @@ describe("prepareDatabaseForUse readiness", () => {
 
     it("keeps the application unready when the Vault scan fails", async () => {
         const { errorManager, host, isReady } = createPreparation({ scan: false });
+        const log = vi.fn();
 
-        await expect(prepareDatabaseForUse(host, vi.fn(), errorManager as any)).resolves.toBe(false);
+        await expect(prepareDatabaseForUse(host, log, errorManager as any)).resolves.toBe(false);
 
         expect(isReady()).toBe(false);
         expect(host.services.appLifecycle.resetIsReady).toHaveBeenCalledTimes(1);
         expect(host.services.appLifecycle.resetIsReady).toHaveBeenCalledWith();
-        expect(errorManager.showError).toHaveBeenCalledWith(expect.stringContaining("scan"), expect.anything());
+        expect(errorManager.showError).not.toHaveBeenCalled();
+        expect(log).toHaveBeenCalledWith(
+            "Database preparation stopped because the Vault scan failed.",
+            LOG_LEVEL_VERBOSE
+        );
         expect(host.services.databaseEvents.onDatabaseInitialised).not.toHaveBeenCalled();
         expect(host.services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
         expect(host.services.appLifecycle.markIsReady).not.toHaveBeenCalled();
@@ -148,11 +154,16 @@ describe("prepareDatabaseForUse readiness", () => {
 
     it("keeps the application unready when the post-scan initialisation hook reports failure", async () => {
         const { errorManager, host, isReady } = createPreparation({ initialised: false });
+        const log = vi.fn();
 
-        await expect(prepareDatabaseForUse(host, vi.fn(), errorManager as any)).resolves.toBe(false);
+        await expect(prepareDatabaseForUse(host, log, errorManager as any)).resolves.toBe(false);
 
         expect(isReady()).toBe(false);
-        expect(errorManager.showError).toHaveBeenCalled();
+        expect(errorManager.showError).not.toHaveBeenCalled();
+        expect(log).toHaveBeenCalledWith(
+            "Database preparation stopped because an initialisation handler failed.",
+            LOG_LEVEL_VERBOSE
+        );
         expect(host.services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
         expect(host.services.appLifecycle.markIsReady).not.toHaveBeenCalled();
     });
@@ -160,12 +171,14 @@ describe("prepareDatabaseForUse readiness", () => {
     it("keeps the application unready when the post-scan initialisation hook throws", async () => {
         const { errorManager, host, isReady } = createPreparation();
         const error = new Error("post-scan initialisation failed");
+        const log = vi.fn();
         host.services.databaseEvents.onDatabaseInitialised.mockRejectedValueOnce(error);
 
-        await expect(prepareDatabaseForUse(host, vi.fn(), errorManager as any)).rejects.toBe(error);
+        await expect(prepareDatabaseForUse(host, log, errorManager as any)).rejects.toBe(error);
 
         expect(isReady()).toBe(false);
-        expect(errorManager.showError).toHaveBeenCalledWith(expect.stringContaining(error.message), expect.anything());
+        expect(errorManager.showError).not.toHaveBeenCalled();
+        expect(log).toHaveBeenCalledWith(error, LOG_LEVEL_VERBOSE);
         expect(host.services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
         expect(host.services.appLifecycle.markIsReady).not.toHaveBeenCalled();
     });
