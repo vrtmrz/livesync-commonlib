@@ -44,5 +44,5 @@ export abstract class DatabaseEventService<T extends ServiceContext = ServiceCon
      * @param reopenDatabase Whether to reopen the database if it is already open.
      * @param ignoreSuspending Whether to ignore any suspending state.
      */
-    readonly initialiseDatabase = handlers<IDatabaseEventService>().bailFirstFailure("initialiseDatabase");
+    readonly initialiseDatabase = handlers<IDatabaseEventService>().bailFirstFailureWithResult("initialiseDatabase");
 }

@@ -27,7 +27,7 @@ import { prepareDatabaseForUse } from "./prepareDatabaseForUse";
 import { type LogFunction, createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import type { MetaEntry, UXFileInfoStub, FilePathWithPrefix, ObsidianLiveSyncSettings } from "@lib/common/types";
-import { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE } from "@lib/common/types";
+import { LOG_LEVEL_DEBUG, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "@lib/common/types";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
 
 const APIServiceMock = {
@@ -2476,7 +2476,10 @@ describe("performFullScan", () => {
             serviceModules: {},
         } as any;
 
-        const result = await performFullScan(host, logger, errorManager as any, false, false);
+        const result = await performFullScan(host, logger, errorManager as any, {
+            mode: FullScanModes.NEWER_WINS,
+            continueOnFileFailure: true,
+        });
 
         expect(result).toBe(false);
     });
@@ -2636,7 +2639,8 @@ describe("performFullScan", () => {
         expect(host.serviceModules.storageAccess.restoreState).toHaveBeenCalled();
     });
 
-    it("should return false after completing a scan which contains a failed reflection", async () => {
+    it("keeps failed reflections strict by default but reports them to an ordinary readiness caller", async () => {
+        const log = vi.fn() as unknown as LogFunction;
         const errorManager = {
             showError: vi.fn(),
             clearError: vi.fn(),
@@ -2682,8 +2686,8 @@ describe("performFullScan", () => {
                 },
                 database: {
                     localDatabase: {
-                        findAllDocs: vi.fn().mockReturnValue(mockFindAllDocs()),
-                        findAllNormalDocs: vi.fn().mockReturnValue(mockFindAllNormalDocs()),
+                        findAllDocs: vi.fn().mockImplementation(() => mockFindAllDocs()),
+                        findAllNormalDocs: vi.fn().mockImplementation(() => mockFindAllNormalDocs()),
                         isReady: true,
                     },
                 },
@@ -2705,12 +2709,32 @@ describe("performFullScan", () => {
             },
         } as any;
 
-        const result = await performFullScan(host, logger, errorManager as any, {
+        const result = await performFullScan(host, log, errorManager as any, {
             mode: FullScanModes.DB_APPLY,
         });
 
         expect(result).toBe(false);
         expect(host.services.keyValueDB.kvDB.set).toHaveBeenCalledWith("initialized", true);
+
+        const ordinaryStartupResult = await performFullScan(host, log, errorManager as any, {
+            mode: FullScanModes.DB_APPLY,
+            continueOnFileFailure: true,
+        });
+
+        expect(ordinaryStartupResult).toBe("completed-with-file-failures");
+        expect(errorManager.showError).not.toHaveBeenCalled();
+        expect(log).toHaveBeenCalledWith(
+            "Offline scan failed to synchronise missing.md between storage and the local database; this path remains eligible for a later scan.",
+            LOG_LEVEL_VERBOSE
+        );
+        host.serviceModules.fileHandler.dbToStorage.mockResolvedValue(true);
+
+        await expect(
+            performFullScan(host, log, errorManager as any, {
+                mode: FullScanModes.DB_APPLY,
+                continueOnFileFailure: true,
+            })
+        ).resolves.toBe(true);
     });
 });
 
@@ -2805,7 +2829,7 @@ describe("prepareDatabaseForUse", () => {
         const result = await prepareDatabaseForUse(host, logger, errorManager as any, false, true, false);
 
         expect(result).toBe(false);
-        expect(errorManager.showError).toHaveBeenCalledWith(expect.stringContaining("failed"), LOG_LEVEL_NOTICE);
+        expect(errorManager.showError).not.toHaveBeenCalled();
     });
 });
 

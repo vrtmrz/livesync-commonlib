@@ -51,6 +51,7 @@ import type {
     CentralRemoteAdministrationResult,
 } from "@lib/replication/CentralRemoteAdministration.ts";
 import type { MultipleHandlerFunction } from "@lib/services/lib/HandlerUtils.ts";
+import type { VaultScanResult } from "./VaultScanResult.ts";
 
 declare global {
     interface OPTIONAL_SYNC_FEATURES {
@@ -161,7 +162,12 @@ export interface IDatabaseEventService {
 
     onResetDatabase(db: LiveSyncLocalDB): Promise<boolean>;
 
-    initialiseDatabase(showingNotice?: boolean, reopenDatabase?: boolean, ignoreSuspending?: boolean): Promise<boolean>;
+    initialiseDatabase(
+        showingNotice?: boolean,
+        reopenDatabase?: boolean,
+        ignoreSuspending?: boolean,
+        continueOnFileFailure?: boolean
+    ): Promise<VaultScanResult>;
 }
 export interface IKeyValueDBService {
     openSimpleStore<T>(kind: string): SimpleStore<T>;
@@ -520,7 +526,11 @@ export interface IVaultService {
 
     getVaultName(): string;
 
-    scanVault(showingNotice?: boolean, ignoreSuspending?: boolean): Promise<boolean>;
+    scanVault(
+        showingNotice?: boolean,
+        ignoreSuspending?: boolean,
+        continueOnFileFailure?: boolean
+    ): Promise<VaultScanResult>;
 
     isIgnoredByIgnoreFile(file: string | UXFileInfoStub): Promise<boolean>;
 

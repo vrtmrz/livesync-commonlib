@@ -111,6 +111,23 @@ describe("createReplicationReadinessEvaluator", () => {
         expect(dependencies.preparation.runBeforeReplicate).not.toHaveBeenCalled();
     });
 
+    it("reports a descriptive diagnostic when the application is not ready", async () => {
+        const { dependencies, evaluate } = createHarness();
+        vi.mocked(dependencies.gates.isApplicationReady).mockReturnValue(false);
+
+        await expect(evaluate()).resolves.toEqual({
+            ready: false,
+            purpose: "replication",
+            rejectedCondition: "application-ready",
+        });
+
+        expect(dependencies.diagnostics.translate).not.toHaveBeenCalled();
+        expect(dependencies.diagnostics.log).toHaveBeenCalledWith(
+            "Replication is not ready because application initialisation has not completed."
+        );
+        expect(dependencies.diagnostics.log).not.toHaveBeenCalledWith("Not ready");
+    });
+
     it("does not run general preparation after required central preparation fails", async () => {
         const { dependencies, evaluate } = createHarness();
         vi.mocked(dependencies.preparation.prepareCentralRemote).mockResolvedValue(false);

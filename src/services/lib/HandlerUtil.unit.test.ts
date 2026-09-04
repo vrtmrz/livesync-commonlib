@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
     Binder,
     LazyBinder,
@@ -6,11 +6,13 @@ import {
     Dispatch,
     DispatchParallel,
     AllHandler,
+    AllWithResultHandler,
     ParallelAllHandler,
     AnySuccessHandler,
     FirstResultHandler,
     bindableFunction,
     allFunction,
+    bailFirstFailureWithResultFunction,
     anySuccessFunction,
     handlers,
 } from "./HandlerUtils";
@@ -418,6 +420,61 @@ describe("AllHandler", () => {
     });
 });
 
+describe("AllWithResultHandler", () => {
+    type Result = boolean | "completed-with-file-failures";
+
+    it("should return true when no handlers are registered", async () => {
+        const handler = new AllWithResultHandler<[], Result>("test");
+
+        await expect(handler.invoke()).resolves.toBe(true);
+    });
+
+    it("should return true when every handler succeeds", async () => {
+        const handler = new AllWithResultHandler<[], Result>("test");
+        handler.addHandler(async () => true);
+        handler.addHandler(async () => true);
+
+        await expect(handler.invoke()).resolves.toBe(true);
+    });
+
+    it("should preserve a non-boolean result after later handlers succeed", async () => {
+        const handler = new AllWithResultHandler<[], Result>("test");
+        const calls: string[] = [];
+        handler.addHandler(async () => {
+            calls.push("partial");
+            return "completed-with-file-failures";
+        });
+        handler.addHandler(async () => {
+            calls.push("success");
+            return true;
+        });
+
+        await expect(handler.invoke()).resolves.toBe("completed-with-file-failures");
+        expect(calls).toEqual(["partial", "success"]);
+    });
+
+    it("should let a later false result veto a preserved result", async () => {
+        const handler = new AllWithResultHandler<[], Result>("test");
+        const rejectedTail = vi.fn(async () => true);
+        handler.addHandler(async () => "completed-with-file-failures");
+        handler.addHandler(async () => false);
+        handler.addHandler(rejectedTail);
+
+        await expect(handler.invoke()).resolves.toBe(false);
+        expect(rejectedTail).not.toHaveBeenCalled();
+    });
+
+    it("should treat an exception as a failure", async () => {
+        const handler = new AllWithResultHandler<[], Result>("test");
+        handler.addHandler(async () => "completed-with-file-failures");
+        handler.addHandler(async () => {
+            throw new Error("handler error");
+        });
+
+        await expect(handler.invoke()).resolves.toBe(false);
+    });
+});
+
 describe("ParallelAllHandler", () => {
     describe("invoke", () => {
         it("should return true when all handlers return true in parallel", async () => {
@@ -593,6 +650,17 @@ describe("allFunction", () => {
             const result = await func();
             expect(result).toBe(true);
         });
+    });
+});
+
+describe("bailFirstFailureWithResultFunction", () => {
+    it("should expose a preserved result through the bound function", async () => {
+        type Result = boolean | "completed-with-file-failures";
+        const func = bailFirstFailureWithResultFunction<() => Promise<Result>>();
+        func.addHandler(async () => "completed-with-file-failures");
+        func.addHandler(async () => true);
+
+        await expect(func()).resolves.toBe("completed-with-file-failures");
     });
 });
 

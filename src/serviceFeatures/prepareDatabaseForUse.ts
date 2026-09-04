@@ -1,7 +1,13 @@
-import { LOG_LEVEL_NOTICE } from "octagonal-wheels/common/logger";
+import { LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
+import { VaultScanResults, type VaultScanResult } from "@lib/services/base/VaultScanResult.ts";
+
+function reportPreparationFailure(log: LogFunction, message: string): false {
+    log(message, LOG_LEVEL_VERBOSE);
+    return false;
+}
 
 /**
  * Initialise the database and trigger a full vault scan.
@@ -11,7 +17,8 @@ import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/l
  * @param showingNotice Whether to show notices during initialisation
  * @param reopenDatabase Whether to reopen the database connection
  * @param ignoreSuspending Whether to ignore suspension settings
- * @returns True if initialisation succeeded
+ * @param continueOnFileFailure Whether individual file failures may satisfy application readiness
+ * @returns The initialisation outcome, including accepted individual file failures
  */
 
 export async function prepareDatabaseForUse(
@@ -23,38 +30,60 @@ export async function prepareDatabaseForUse(
     errorManager: UnresolvedErrorManager,
     showingNotice: boolean = false,
     reopenDatabase: boolean = true,
-    ignoreSuspending: boolean = false
-): Promise<boolean> {
+    ignoreSuspending: boolean = false,
+    continueOnFileFailure: boolean = false
+): Promise<VaultScanResult> {
     const appLifecycle = host.services.appLifecycle;
     appLifecycle.resetIsReady();
 
-    if (
-        reopenDatabase &&
-        !(await host.services.database.openDatabase({
-            databaseEvents: host.services.databaseEvents,
-            replicator: host.services.replicator,
-        }))
-    ) {
-        return false;
+    try {
+        if (
+            reopenDatabase &&
+            !(await host.services.database.openDatabase({
+                databaseEvents: host.services.databaseEvents,
+                replicator: host.services.replicator,
+            }))
+        ) {
+            return reportPreparationFailure(
+                log,
+                "Database preparation stopped because the local database could not be opened."
+            );
+        }
+        if (!host.services.database.isDatabaseReady()) {
+            return reportPreparationFailure(
+                log,
+                "Database preparation stopped because the local database is not ready."
+            );
+        }
+        const scanResult = await host.services.vault.scanVault(showingNotice, ignoreSuspending, continueOnFileFailure);
+        if (scanResult === VaultScanResults.FAILED) {
+            return reportPreparationFailure(log, "Database preparation stopped because the Vault scan failed.");
+        }
+        if (scanResult === VaultScanResults.COMPLETED_WITH_FILE_FAILURES && continueOnFileFailure !== true) {
+            return reportPreparationFailure(
+                log,
+                "Database preparation stopped because the Vault scan could not process every file."
+            );
+        }
+        if (!(await host.services.databaseEvents.onDatabaseInitialised(showingNotice))) {
+            return reportPreparationFailure(
+                log,
+                "Database preparation stopped because an initialisation handler failed."
+            );
+        }
+        // Run queued event once.
+        if (!(await host.services.fileProcessing.commitPendingFileEvents())) {
+            return reportPreparationFailure(
+                log,
+                "Database preparation stopped because pending file events could not be committed."
+            );
+        }
+        appLifecycle.markIsReady();
+        return scanResult;
+    } catch (error) {
+        log(error, LOG_LEVEL_VERBOSE);
+        throw error;
     }
-    if (!host.services.database.isDatabaseReady()) {
-        return false;
-    }
-    if (!(await host.services.vault.scanVault(showingNotice, ignoreSuspending))) {
-        return false;
-    }
-    const ERR_INITIALISATION_FAILED = `Initializing database has been failed on some module!`;
-    if (!(await host.services.databaseEvents.onDatabaseInitialised(showingNotice))) {
-        errorManager.showError(ERR_INITIALISATION_FAILED, LOG_LEVEL_NOTICE);
-        return false;
-    }
-    errorManager.clearError(ERR_INITIALISATION_FAILED);
-    // Run queued event once.
-    if (!(await host.services.fileProcessing.commitPendingFileEvents())) {
-        return false;
-    }
-    appLifecycle.markIsReady();
-    return true;
 }
 
 /**
@@ -83,9 +112,18 @@ export function usePrepareDatabaseForUse(
     const initialiseDatabaseHandler = async (
         showingNotice: boolean = false,
         reopenDatabase: boolean = true,
-        ignoreSuspending: boolean = false
-    ): Promise<boolean> => {
-        return await prepareDatabaseForUse(host, log, errorManager, showingNotice, reopenDatabase, ignoreSuspending);
+        ignoreSuspending: boolean = false,
+        continueOnFileFailure: boolean = false
+    ): Promise<VaultScanResult> => {
+        return await prepareDatabaseForUse(
+            host,
+            log,
+            errorManager,
+            showingNotice,
+            reopenDatabase,
+            ignoreSuspending,
+            continueOnFileFailure
+        );
     };
 
     // Bind handlers to lifecycle events

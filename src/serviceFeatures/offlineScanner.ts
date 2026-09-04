@@ -27,6 +27,10 @@ import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManage
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
 import { serialized } from "octagonal-wheels/concurrency/lock";
+import { VaultScanResults, type VaultScanResult } from "@lib/services/base/VaultScanResult.ts";
+
+export { VaultScanResults };
+export type { VaultScanResult };
 
 /**
  * Outcome of processing one storage/database pair during an offline scan.
@@ -937,6 +941,12 @@ export interface FullScanOptions {
     omitEvents?: boolean;
     showingNotice?: boolean;
     ignoreSuspending?: boolean;
+    /**
+     * Allow a completed scan containing individual file-pair failures to
+     * satisfy ordinary application readiness. Scan preconditions remain
+     * strict, and failed pairs remain retryable.
+     */
+    continueOnFileFailure?: boolean;
 }
 
 export type FullScanMode = (typeof FullScanModes)[keyof typeof FullScanModes];
@@ -1136,7 +1146,7 @@ async function processFilePair(
  * @param log Logging function
  * @param errorManager Error manager
  * @param options Full scan options
- * @returns True when every pair completed or was deliberately skipped; false when any pair failed
+ * @returns The scan result for all file pairs
  */
 export async function synchroniseAllFilesBetweenDBandStorage(
     host: NecessaryServices<
@@ -1146,7 +1156,7 @@ export async function synchroniseAllFilesBetweenDBandStorage(
     log: LogFunction,
     errorManager: UnresolvedErrorManager,
     options: FullScanOptions
-): Promise<boolean> {
+): Promise<VaultScanResult> {
     const settings = host.services.setting.currentSettings();
     const showingNotice = options.showingNotice ?? false;
     await loadFileStatus(host);
@@ -1175,15 +1185,16 @@ export async function synchroniseAllFilesBetweenDBandStorage(
     let skippedCount = 0;
     let failedCount = 0;
     let processedCount = 0;
-    for await (const result of withConcurrency(
+    for await (const { path, result } of withConcurrency(
         pairs,
         async (e) => {
+            const path = e.file?.path ?? getPathFromEntry(host, e.doc);
             try {
-                return await processFilePair(host, log, e, options);
+                return { path, result: await processFilePair(host, log, e, options) };
             } catch (ex) {
                 log(`Error while synchronising files`, LOG_LEVEL_NOTICE);
                 log(ex, LOG_LEVEL_VERBOSE);
-                return FilePairProcessResults.FAILED;
+                return { path, result: FilePairProcessResults.FAILED };
             }
         },
         10
@@ -1198,6 +1209,10 @@ export async function synchroniseAllFilesBetweenDBandStorage(
                 break;
             case FilePairProcessResults.FAILED:
                 failedCount++;
+                log(
+                    `Offline scan failed to synchronise ${path} between storage and the local database; this path remains eligible for a later scan.`,
+                    LOG_LEVEL_VERBOSE
+                );
                 break;
         }
         if (processedCount % 25 === 0) {
@@ -1214,7 +1229,10 @@ export async function synchroniseAllFilesBetweenDBandStorage(
         "syncAll"
     );
     saveFileStatus(host, true);
-    return failedCount === 0;
+    if (failedCount === 0) return VaultScanResults.COMPLETED;
+    return options.continueOnFileFailure === true
+        ? VaultScanResults.COMPLETED_WITH_FILE_FAILURES
+        : VaultScanResults.FAILED;
 }
 
 export function normaliseFullScanOptions(
@@ -1330,9 +1348,9 @@ function getFileMTimeFromMap(key: string): number | undefined {
  * @param host Services container
  * @param log Logging function
  * @param errorManager Error manager
- * @param showingNotice Whether to show notices during scanning
- * @param ignoreSuspending Whether to ignore suspension settings
- * @returns True when the scan was permitted and no selected pair failed
+ * @param showingNoticeOrOptions Full-scan options, or the legacy notice flag
+ * @param ignoreSuspending Legacy suspension flag used with the notice flag
+ * @returns The scan outcome, including accepted individual file failures
  */
 export async function performFullScan(
     host: NecessaryServices<
@@ -1342,7 +1360,7 @@ export async function performFullScan(
     log: LogFunction,
     errorManager: UnresolvedErrorManager,
     options?: Partial<FullScanOptions>
-): Promise<boolean>;
+): Promise<VaultScanResult>;
 export async function performFullScan(
     host: NecessaryServices<
         "setting" | "vault" | "path" | "fileProcessing" | "database" | "keyValueDB",
@@ -1352,7 +1370,7 @@ export async function performFullScan(
     errorManager: UnresolvedErrorManager,
     showingNotice?: boolean,
     ignoreSuspending?: boolean
-): Promise<boolean>;
+): Promise<VaultScanResult>;
 export async function performFullScan(
     host: NecessaryServices<
         "setting" | "vault" | "path" | "fileProcessing" | "database" | "keyValueDB",
@@ -1362,7 +1380,7 @@ export async function performFullScan(
     errorManager: UnresolvedErrorManager,
     showingNoticeOrOptions: Partial<FullScanOptions> | boolean = false,
     ignoreSuspending: boolean = false
-): Promise<boolean> {
+): Promise<VaultScanResult> {
     const options = normaliseFullScanOptions(showingNoticeOrOptions, ignoreSuspending);
     const showingNotice = options.showingNotice ?? false;
     const shouldIgnoreSuspending = options.ignoreSuspending ?? false;
@@ -1420,8 +1438,16 @@ export function useOfflineScanner(
     const errorManager = new UnresolvedErrorManager(host.services.appLifecycle, host.services.context.events);
 
     // Handler for vault scanning
-    const handleScanVault = async (showingNotice?: boolean, ignoreSuspending: boolean = false): Promise<boolean> => {
-        return await performFullScan(host, log, errorManager, showingNotice, ignoreSuspending);
+    const handleScanVault = async (
+        showingNotice?: boolean,
+        ignoreSuspending: boolean = false,
+        continueOnFileFailure: boolean = false
+    ): Promise<VaultScanResult> => {
+        return await performFullScan(host, log, errorManager, {
+            showingNotice,
+            ignoreSuspending,
+            continueOnFileFailure,
+        });
     };
     // Bind handlers to lifecycle events
     host.services.vault.scanVault.addHandler(handleScanVault);
