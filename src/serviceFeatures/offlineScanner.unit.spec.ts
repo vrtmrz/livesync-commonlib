@@ -2723,7 +2723,10 @@ describe("performFullScan", () => {
 
         expect(ordinaryStartupResult).toBe(true);
         expect(errorManager.showError).not.toHaveBeenCalled();
-        expect(log).toHaveBeenCalledWith("Failed to synchronise missing.md", LOG_LEVEL_VERBOSE);
+        expect(log).toHaveBeenCalledWith(
+            "Offline scan failed to synchronise missing.md between storage and the local database; this path remains eligible for a later scan.",
+            LOG_LEVEL_VERBOSE
+        );
         host.serviceModules.fileHandler.dbToStorage.mockResolvedValue(true);
 
         await expect(

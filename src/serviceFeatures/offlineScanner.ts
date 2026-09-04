@@ -1205,7 +1205,10 @@ export async function synchroniseAllFilesBetweenDBandStorage(
                 break;
             case FilePairProcessResults.FAILED:
                 failedCount++;
-                log(`Failed to synchronise ${path}`, LOG_LEVEL_VERBOSE);
+                log(
+                    `Offline scan failed to synchronise ${path} between storage and the local database; this path remains eligible for a later scan.`,
+                    LOG_LEVEL_VERBOSE
+                );
                 break;
         }
         if (processedCount % 25 === 0) {
