@@ -78,7 +78,7 @@ export async function prepareDatabaseForUse(
     reopenDatabase = true,
     ignoreSuspending = false,
     continueOnFileFailure = false
-): Promise<boolean> {
+): Promise<VaultScanResult> {
     // Open, scan, run completion handlers, commit pending events, and mark ready.
 }
 ```
@@ -107,7 +107,9 @@ export function usePrepareDatabaseForUse(host: PrepareDatabaseHost): void {
 
 Test the operation's sequencing and failure short-circuiting separately from the handler registration. This keeps a lifecycle rename from forcing every domain test through an application-shaped fixture.
 
-Database preparation and full scanning remain strict by default. A host may set `continueOnFileFailure` only when its ordinary start-up policy deliberately permits readiness after individual file-pair failures. That option does not admit a failed scan precondition or a later initialisation step, and explicit recovery workflows retain the default.
+Database preparation and full scanning remain strict by default. A host may set `continueOnFileFailure` only when its ordinary start-up policy deliberately permits readiness after individual file-pair failures. In that case, the operation returns `completed-with-file-failures` after all later initialisation steps succeed; it does not collapse the result into `true`. That option does not admit a failed scan precondition or a later initialisation step, and explicit recovery workflows retain the default.
+
+The `scanVault` and `initialiseDatabase` services use a failure-veto result aggregator for this contract. It preserves the first non-boolean continuation result but still invokes later handlers, so a later `false` result or exception rejects the operation. `firstResult` is not suitable here because it would return the partial result before those handlers can veto it.
 
 ## Keep feature-local state private
 

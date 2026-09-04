@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
     Binder,
     LazyBinder,
@@ -6,6 +6,7 @@ import {
     Dispatch,
     DispatchParallel,
     AllHandler,
+    AllWithResultHandler,
     ParallelAllHandler,
     AnySuccessHandler,
     FirstResultHandler,
@@ -415,6 +416,53 @@ describe("AllHandler", () => {
             expect(result).toBe(false);
             expect(callCount).toBe(1);
         });
+    });
+});
+
+describe("AllWithResultHandler", () => {
+    type Result = boolean | "completed-with-file-failures";
+
+    it("should return true when no handlers are registered", async () => {
+        const handler = new AllWithResultHandler<[], Result>("test");
+
+        await expect(handler.invoke()).resolves.toBe(true);
+    });
+
+    it("should preserve a non-boolean result after later handlers succeed", async () => {
+        const handler = new AllWithResultHandler<[], Result>("test");
+        const calls: string[] = [];
+        handler.addHandler(async () => {
+            calls.push("partial");
+            return "completed-with-file-failures";
+        });
+        handler.addHandler(async () => {
+            calls.push("success");
+            return true;
+        });
+
+        await expect(handler.invoke()).resolves.toBe("completed-with-file-failures");
+        expect(calls).toEqual(["partial", "success"]);
+    });
+
+    it("should let a later false result veto a preserved result", async () => {
+        const handler = new AllWithResultHandler<[], Result>("test");
+        const rejectedTail = vi.fn(async () => true);
+        handler.addHandler(async () => "completed-with-file-failures");
+        handler.addHandler(async () => false);
+        handler.addHandler(rejectedTail);
+
+        await expect(handler.invoke()).resolves.toBe(false);
+        expect(rejectedTail).not.toHaveBeenCalled();
+    });
+
+    it("should treat an exception as a failure", async () => {
+        const handler = new AllWithResultHandler<[], Result>("test");
+        handler.addHandler(async () => "completed-with-file-failures");
+        handler.addHandler(async () => {
+            throw new Error("handler error");
+        });
+
+        await expect(handler.invoke()).resolves.toBe(false);
     });
 });
 

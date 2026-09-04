@@ -2,6 +2,7 @@ import { LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
+import { VaultScanResults, type VaultScanResult } from "@lib/services/base/VaultScanResult.ts";
 
 function reportPreparationFailure(log: LogFunction, message: string): false {
     log(message, LOG_LEVEL_VERBOSE);
@@ -17,7 +18,7 @@ function reportPreparationFailure(log: LogFunction, message: string): false {
  * @param reopenDatabase Whether to reopen the database connection
  * @param ignoreSuspending Whether to ignore suspension settings
  * @param continueOnFileFailure Whether individual file failures may satisfy application readiness
- * @returns True if initialisation succeeded
+ * @returns The initialisation outcome, including accepted individual file failures
  */
 
 export async function prepareDatabaseForUse(
@@ -31,7 +32,7 @@ export async function prepareDatabaseForUse(
     reopenDatabase: boolean = true,
     ignoreSuspending: boolean = false,
     continueOnFileFailure: boolean = false
-): Promise<boolean> {
+): Promise<VaultScanResult> {
     const appLifecycle = host.services.appLifecycle;
     appLifecycle.resetIsReady();
 
@@ -54,8 +55,15 @@ export async function prepareDatabaseForUse(
                 "Database preparation stopped because the local database is not ready."
             );
         }
-        if (!(await host.services.vault.scanVault(showingNotice, ignoreSuspending, continueOnFileFailure))) {
+        const scanResult = await host.services.vault.scanVault(showingNotice, ignoreSuspending, continueOnFileFailure);
+        if (scanResult === VaultScanResults.FAILED) {
             return reportPreparationFailure(log, "Database preparation stopped because the Vault scan failed.");
+        }
+        if (scanResult === VaultScanResults.COMPLETED_WITH_FILE_FAILURES && continueOnFileFailure !== true) {
+            return reportPreparationFailure(
+                log,
+                "Database preparation stopped because the Vault scan could not process every file."
+            );
         }
         if (!(await host.services.databaseEvents.onDatabaseInitialised(showingNotice))) {
             return reportPreparationFailure(
@@ -71,7 +79,7 @@ export async function prepareDatabaseForUse(
             );
         }
         appLifecycle.markIsReady();
-        return true;
+        return scanResult;
     } catch (error) {
         log(error, LOG_LEVEL_VERBOSE);
         throw error;
@@ -106,7 +114,7 @@ export function usePrepareDatabaseForUse(
         reopenDatabase: boolean = true,
         ignoreSuspending: boolean = false,
         continueOnFileFailure: boolean = false
-    ): Promise<boolean> => {
+    ): Promise<VaultScanResult> => {
         return await prepareDatabaseForUse(
             host,
             log,

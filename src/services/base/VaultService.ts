@@ -47,7 +47,7 @@ export abstract class VaultService<T extends ServiceContext = ServiceContext>
      * @param showingNotice Whether to show a notice to the user.
      * @param ignoreSuspending Whether to ignore any suspending state.
      */
-    readonly scanVault = handlers<IVaultService>().bailFirstFailure("scanVault");
+    readonly scanVault = handlers<IVaultService>().bailFirstFailureWithResult("scanVault");
 
     /**
      * Check if a file is ignored by the ignore file (e.g., .gitignore, .obsidianignore).

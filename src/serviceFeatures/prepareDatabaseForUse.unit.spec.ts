@@ -118,19 +118,34 @@ describe("prepareDatabaseForUse readiness", () => {
 
     it("allows ordinary database preparation to continue after individual file scan failures", async () => {
         const { errorManager, host, isReady, timeline } = createPreparation();
-        host.services.vault.scanVault.mockImplementationOnce(
-            async (_showingNotice: boolean, _ignoreSuspending: boolean, continueOnFileFailure?: boolean) => {
-                timeline.push("scan-vault");
-                return continueOnFileFailure === true;
-            }
-        );
+        host.services.vault.scanVault.mockImplementationOnce(async () => {
+            timeline.push("scan-vault");
+            return "completed-with-file-failures";
+        });
 
         await expect(prepareDatabaseForUse(host, vi.fn(), errorManager as any, false, true, false, true)).resolves.toBe(
-            true
+            "completed-with-file-failures"
         );
 
         expect(host.services.vault.scanVault).toHaveBeenCalledWith(false, false, true);
         expect(isReady()).toBe(true);
+    });
+
+    it("keeps database preparation strict when the Vault scan reports individual file failures", async () => {
+        const { errorManager, host, isReady } = createPreparation();
+        const log = vi.fn();
+        host.services.vault.scanVault.mockResolvedValueOnce("completed-with-file-failures");
+
+        await expect(prepareDatabaseForUse(host, log, errorManager as any)).resolves.toBe(false);
+
+        expect(isReady()).toBe(false);
+        expect(log).toHaveBeenCalledWith(
+            "Database preparation stopped because the Vault scan could not process every file.",
+            LOG_LEVEL_VERBOSE
+        );
+        expect(host.services.databaseEvents.onDatabaseInitialised).not.toHaveBeenCalled();
+        expect(host.services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
+        expect(host.services.appLifecycle.markIsReady).not.toHaveBeenCalled();
     });
 
     it("keeps the application unready when the Vault scan fails", async () => {

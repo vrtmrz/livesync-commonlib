@@ -2639,7 +2639,7 @@ describe("performFullScan", () => {
         expect(host.serviceModules.storageAccess.restoreState).toHaveBeenCalled();
     });
 
-    it("keeps failed reflections strict by default but can complete an ordinary readiness scan", async () => {
+    it("keeps failed reflections strict by default but reports them to an ordinary readiness caller", async () => {
         const log = vi.fn() as unknown as LogFunction;
         const errorManager = {
             showError: vi.fn(),
@@ -2721,7 +2721,7 @@ describe("performFullScan", () => {
             continueOnFileFailure: true,
         });
 
-        expect(ordinaryStartupResult).toBe(true);
+        expect(ordinaryStartupResult).toBe("completed-with-file-failures");
         expect(errorManager.showError).not.toHaveBeenCalled();
         expect(log).toHaveBeenCalledWith(
             "Offline scan failed to synchronise missing.md between storage and the local database; this path remains eligible for a later scan.",

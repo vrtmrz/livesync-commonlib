@@ -11,7 +11,7 @@ This document defines the developer contract for `synchroniseAllFilesBetweenDBan
 
 Before applying the host's target-file policy, the scanner validates each decoded Metadata document against its actual local document ID. Consistent internal, customisation, and plug-in storage namespaces remain owned by their dedicated features. A namespace disagreement, or a normal-file ID which does not match the ID derived from its recorded path, is quarantined.
 
-The malformed Metadata entry never enters pair processing. If consistent, selected Metadata represents the same case-normalised path, that entry and its storage file continue through the established path-based flow. Otherwise, the storage path is also quarantined. The scanner performs no storage write, database deletion, or last-seen update for an unresolved path, and it retains expired logical deletion history whose identity is inconsistent. This does not add a fourth pair result: quarantined entries do not enter pair processing, and the established Boolean scan result retains its meaning.
+The malformed Metadata entry never enters pair processing. If consistent, selected Metadata represents the same case-normalised path, that entry and its storage file continue through the established path-based flow. Otherwise, the storage path is also quarantined. The scanner performs no storage write, database deletion, or last-seen update for an unresolved path, and it retains expired logical deletion history whose identity is inconsistent. This does not add a fourth pair result: quarantined entries do not enter pair processing, and the complete-scan result retains its meaning.
 
 `inspectMetadataDocumentIdentities` provides the separate read-only, actual-ID-first report used by a host repair interface. `repairMetadataDocumentIdentity` revalidates one exact source revision, clears its last-seen state, writes and verifies the expected target, and only then tombstones the obsolete ID. It does not provide batch repair. An exact target left by an interrupted attempt permits the same one-entry repair to finish safely.
 
@@ -29,7 +29,7 @@ The tables below cover only paths which remain after identity validation, the ho
 6. after the first permitted invocation reaches its aggregate-result boundary, record `initialized = true`; and
 7. return the aggregate pair result under the caller's selected handling of file failures.
 
-The `initialized` marker records that a full-scan invocation has reached its aggregate-result boundary and that later invocations may restore stored storage-event operations. It is not a successful-scan marker: the first invocation records it after an aggregate `false` result as well as after `true`. An exception before the aggregate result is produced does not reach that write.
+The `initialized` marker records that a full-scan invocation has reached its aggregate-result boundary and that later invocations may restore stored storage-event operations. It is not a successful-scan marker: the first invocation records it after an aggregate `false` result, `true`, or an accepted partial result. An exception before the aggregate result is produced does not reach that write.
 
 Storage-event restoration is a bounded start-up recovery step. Restored events bypass their former batch delay, but `restoreState()` waits for their actual file operations to finish and preserves snapshot sentinel ordering before the file collections are compared. Saved events run first because a deletion or rename can carry operation intent which is no longer visible in the current storage listing. An individual restored operation failure is logged and does not prevent the scan from examining the resulting current state. The following full scan then makes the final reconciliation decision.
 
@@ -129,7 +129,9 @@ The same result applies when `sync-newer` finds an existing storage file and att
 
 By default, the complete scan returns `false` when any pair is `failed`, and returns `true` when every pair is either `completed` or `skipped`. Quarantined entries do not enter this aggregate, so a strict `true` means that no selected pair failed rather than that every discovered entry was resolved or that storage and the database fully converge.
 
-`continueOnFileFailure` is an explicit host completion policy. When it is `true`, the scanner still processes every selected pair, logs each failed path at verbose level, preserves every failed pair and its retry state, and then returns `true` from the aggregate boundary. The existing completion log records the total failed count. The option does not turn a failed pair into `completed`, create success events or last-seen evidence, bypass a rejected scan precondition, or accept an exception raised before the aggregate boundary.
+`continueOnFileFailure` is an explicit host completion policy. When it is `true`, the scanner still processes every selected pair, logs each failed path at verbose level, preserves every failed pair and its retry state, and then returns `completed-with-file-failures` from the aggregate boundary. The existing completion log records the total failed count. The option does not turn a failed pair into `completed`, create success events or last-seen evidence, bypass a rejected scan precondition, or accept an exception raised before the aggregate boundary.
+
+`VaultScanResult` therefore has three outcomes: `false` for a rejected or strict failure, `true` for a complete scan without pair failures, and `completed-with-file-failures` when the caller explicitly accepts readiness after one or more pair failures. The non-boolean outcome lets the host present an actionable warning without making Commonlib responsible for user-facing notices.
 
 Self-hosted LiveSync enables this policy only for ordinary Obsidian start-up, where one unavailable path must not prevent unaffected files from synchronising. Fast Setup, Fetch, Rebuild, direct scans, and CLI mirror or daemon paths retain the strict default.
 
@@ -143,7 +145,7 @@ Focused two-pass coverage starts with a `DB_APPLY` reflection whose file handler
 - the database mtime does not enter the last-seen map; and
 - `deleteFileFromDB` is not called.
 
-Full-scan coverage also verifies that the strict default returns `false`, an ordinary-start-up scan which explicitly continues returns `true` while logging the affected path at verbose level, and a later clean scan returns `true`.
+Full-scan coverage also verifies that the strict default returns `false`, an ordinary-start-up scan which explicitly continues returns `completed-with-file-failures` while logging the affected path at verbose level, and a later clean scan returns `true`.
 
 A second two-pass case starts with a `db-only` entry skipped by the size limit. It then removes that limit and verifies that the entry is reflected to storage rather than misclassified as an offline local deletion. Coverage for an existing storage file verifies that a failed `sync-newer` reflection retains the observed storage mtime, and full-scan coverage verifies that the aggregate failure reaches its caller after scanner initialisation completes.
 
