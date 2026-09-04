@@ -12,6 +12,7 @@ import {
     FirstResultHandler,
     bindableFunction,
     allFunction,
+    bailFirstFailureWithResultFunction,
     anySuccessFunction,
     handlers,
 } from "./HandlerUtils";
@@ -428,6 +429,14 @@ describe("AllWithResultHandler", () => {
         await expect(handler.invoke()).resolves.toBe(true);
     });
 
+    it("should return true when every handler succeeds", async () => {
+        const handler = new AllWithResultHandler<[], Result>("test");
+        handler.addHandler(async () => true);
+        handler.addHandler(async () => true);
+
+        await expect(handler.invoke()).resolves.toBe(true);
+    });
+
     it("should preserve a non-boolean result after later handlers succeed", async () => {
         const handler = new AllWithResultHandler<[], Result>("test");
         const calls: string[] = [];
@@ -641,6 +650,17 @@ describe("allFunction", () => {
             const result = await func();
             expect(result).toBe(true);
         });
+    });
+});
+
+describe("bailFirstFailureWithResultFunction", () => {
+    it("should expose a preserved result through the bound function", async () => {
+        type Result = boolean | "completed-with-file-failures";
+        const func = bailFirstFailureWithResultFunction<() => Promise<Result>>();
+        func.addHandler(async () => "completed-with-file-failures");
+        func.addHandler(async () => true);
+
+        await expect(func()).resolves.toBe("completed-with-file-failures");
     });
 });
 

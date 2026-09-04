@@ -148,6 +148,19 @@ describe("prepareDatabaseForUse readiness", () => {
         expect(host.services.appLifecycle.markIsReady).not.toHaveBeenCalled();
     });
 
+    it("does not let an accepted partial scan hide a later initialisation failure", async () => {
+        const { errorManager, host, isReady } = createPreparation({ initialised: false });
+        host.services.vault.scanVault.mockResolvedValueOnce("completed-with-file-failures");
+
+        await expect(prepareDatabaseForUse(host, vi.fn(), errorManager as any, false, true, false, true)).resolves.toBe(
+            false
+        );
+
+        expect(isReady()).toBe(false);
+        expect(host.services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
+        expect(host.services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+    });
+
     it("keeps the application unready when the Vault scan fails", async () => {
         const { errorManager, host, isReady } = createPreparation({ scan: false });
         const log = vi.fn();

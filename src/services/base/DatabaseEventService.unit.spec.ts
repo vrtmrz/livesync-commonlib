@@ -1,8 +1,19 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { createServiceContext } from "./ServiceBase";
 import { InjectableDatabaseEventService } from "../implements/injectable/InjectableDatabaseEventService";
+import { VaultScanResults } from "./VaultScanResult";
 
 describe("DatabaseEventService", () => {
+    it("preserves a partial initialisation result after later handlers succeed", async () => {
+        const service = new InjectableDatabaseEventService(createServiceContext());
+        const laterHandler = vi.fn(async () => VaultScanResults.COMPLETED);
+        service.initialiseDatabase.addHandler(async () => VaultScanResults.COMPLETED_WITH_FILE_FAILURES);
+        service.initialiseDatabase.addHandler(laterHandler);
+
+        await expect(service.initialiseDatabase()).resolves.toBe(VaultScanResults.COMPLETED_WITH_FILE_FAILURES);
+        expect(laterHandler).toHaveBeenCalledOnce();
+    });
+
     it("settles every close handler even when an earlier handler fails", async () => {
         const service = new InjectableDatabaseEventService(createServiceContext());
         const calls: string[] = [];
