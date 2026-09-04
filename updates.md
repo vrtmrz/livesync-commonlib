@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- An ordinary host start-up may explicitly continue after individual offline-scan file failures without marking those pairs as completed or losing their retry state. Affected paths remain visible through the unresolved-message contract, while recovery and CLI scans retain strict completion by default ([Self-hosted LiveSync issue #1164](https://github.com/vrtmrz/obsidian-livesync/issues/1164)).
+- Database-preparation failures now emit a specific unresolved diagnostic, while replication reports incomplete application initialisation instead of the bare 'Not ready' diagnostic.
+
 ## 0.1.21
 
 ### Changed

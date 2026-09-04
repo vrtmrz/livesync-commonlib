@@ -24,6 +24,7 @@ import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/l
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
+import { englishMessageTranslator, type MessageTranslator } from "@lib/services/base/MessageTranslator";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
 import { serialized } from "octagonal-wheels/concurrency/lock";
@@ -937,6 +938,12 @@ export interface FullScanOptions {
     omitEvents?: boolean;
     showingNotice?: boolean;
     ignoreSuspending?: boolean;
+    /**
+     * Allow a completed scan containing individual file-pair failures to
+     * satisfy ordinary application readiness. Scan preconditions remain
+     * strict, and failed pairs remain retryable.
+     */
+    continueOnFileFailure?: boolean;
 }
 
 export type FullScanMode = (typeof FullScanModes)[keyof typeof FullScanModes];
@@ -947,6 +954,41 @@ type FilePair =
 type FilePairState = "storage-only" | "db-only" | "db-only-deleted" | "both" | "both-db-deleted";
 
 type FilePairAction = "update-db" | "update-storage" | "sync-newer" | "delete-local" | "delete-db" | "skip";
+
+const MAX_FILE_FAILURE_PATHS_IN_WARNING = 3;
+const fileFailureMessages = new WeakMap<UnresolvedErrorManager, string>();
+
+function updateFileFailureWarning(
+    translate: MessageTranslator,
+    errorManager: UnresolvedErrorManager,
+    failedPaths: FilePathWithPrefix[]
+): void {
+    const previousMessage = fileFailureMessages.get(errorManager);
+    if (failedPaths.length === 0) {
+        if (previousMessage !== undefined) {
+            errorManager.clearError(previousMessage);
+            fileFailureMessages.delete(errorManager);
+        }
+        return;
+    }
+
+    const distinctPaths = unique(failedPaths);
+    const paths = distinctPaths
+        .slice(0, MAX_FILE_FAILURE_PATHS_IN_WARNING)
+        .map((path) => `- ${path.replaceAll("\r", "\\r").replaceAll("\n", "\\n")}`)
+        .join("\n");
+    const message =
+        distinctPaths.length === 1
+            ? translate("OfflineScanner.Message.OneFileFailed", { paths })
+            : translate("OfflineScanner.Message.MultipleFilesFailed", {
+                  count: `${distinctPaths.length}`,
+                  paths,
+              });
+    if (previousMessage === message) return;
+    if (previousMessage !== undefined) errorManager.clearError(previousMessage);
+    errorManager.showError(message, LOG_LEVEL_NOTICE);
+    fileFailureMessages.set(errorManager, message);
+}
 
 function isDeletedEntry(entry: MetaEntry): boolean {
     return entry.deleted || entry._deleted || false;
@@ -1136,7 +1178,7 @@ async function processFilePair(
  * @param log Logging function
  * @param errorManager Error manager
  * @param options Full scan options
- * @returns True when every pair completed or was deliberately skipped; false when any pair failed
+ * @returns True when every pair completed or was deliberately skipped, or when the caller explicitly accepts pair failures
  */
 export async function synchroniseAllFilesBetweenDBandStorage(
     host: NecessaryServices<
@@ -1175,15 +1217,17 @@ export async function synchroniseAllFilesBetweenDBandStorage(
     let skippedCount = 0;
     let failedCount = 0;
     let processedCount = 0;
-    for await (const result of withConcurrency(
+    const failedPaths: FilePathWithPrefix[] = [];
+    for await (const { path, result } of withConcurrency(
         pairs,
         async (e) => {
+            const path = e.file?.path ?? getPathFromEntry(host, e.doc);
             try {
-                return await processFilePair(host, log, e, options);
+                return { path, result: await processFilePair(host, log, e, options) };
             } catch (ex) {
-                log(`Error while synchronising files`, LOG_LEVEL_NOTICE);
+                log(`Error while synchronising ${path}`, LOG_LEVEL_NOTICE);
                 log(ex, LOG_LEVEL_VERBOSE);
-                return FilePairProcessResults.FAILED;
+                return { path, result: FilePairProcessResults.FAILED };
             }
         },
         10
@@ -1198,6 +1242,7 @@ export async function synchroniseAllFilesBetweenDBandStorage(
                 break;
             case FilePairProcessResults.FAILED:
                 failedCount++;
+                failedPaths.push(path);
                 break;
         }
         if (processedCount % 25 === 0) {
@@ -1214,7 +1259,8 @@ export async function synchroniseAllFilesBetweenDBandStorage(
         "syncAll"
     );
     saveFileStatus(host, true);
-    return failedCount === 0;
+    updateFileFailureWarning(host.services.context.translate ?? englishMessageTranslator, errorManager, failedPaths);
+    return failedCount === 0 || options.continueOnFileFailure === true;
 }
 
 export function normaliseFullScanOptions(
@@ -1330,9 +1376,9 @@ function getFileMTimeFromMap(key: string): number | undefined {
  * @param host Services container
  * @param log Logging function
  * @param errorManager Error manager
- * @param showingNotice Whether to show notices during scanning
- * @param ignoreSuspending Whether to ignore suspension settings
- * @returns True when the scan was permitted and no selected pair failed
+ * @param showingNoticeOrOptions Full-scan options, or the legacy notice flag
+ * @param ignoreSuspending Legacy suspension flag used with the notice flag
+ * @returns True when the scan was permitted and its selected handling of file failures was satisfied
  */
 export async function performFullScan(
     host: NecessaryServices<
@@ -1420,8 +1466,16 @@ export function useOfflineScanner(
     const errorManager = new UnresolvedErrorManager(host.services.appLifecycle, host.services.context.events);
 
     // Handler for vault scanning
-    const handleScanVault = async (showingNotice?: boolean, ignoreSuspending: boolean = false): Promise<boolean> => {
-        return await performFullScan(host, log, errorManager, showingNotice, ignoreSuspending);
+    const handleScanVault = async (
+        showingNotice?: boolean,
+        ignoreSuspending: boolean = false,
+        continueOnFileFailure: boolean = false
+    ): Promise<boolean> => {
+        return await performFullScan(host, log, errorManager, {
+            showingNotice,
+            ignoreSuspending,
+            continueOnFileFailure,
+        });
     };
     // Bind handlers to lifecycle events
     host.services.vault.scanVault.addHandler(handleScanVault);

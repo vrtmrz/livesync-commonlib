@@ -115,12 +115,32 @@ describe("prepareDatabaseForUse readiness", () => {
         ]);
     });
 
+    it("allows ordinary database preparation to continue after individual file scan failures", async () => {
+        const { errorManager, host, isReady, timeline } = createPreparation();
+        host.services.vault.scanVault.mockImplementationOnce(
+            async (_showingNotice: boolean, _ignoreSuspending: boolean, continueOnFileFailure?: boolean) => {
+                timeline.push("scan-vault");
+                return continueOnFileFailure === true;
+            }
+        );
+
+        await expect(prepareDatabaseForUse(host, vi.fn(), errorManager as any, false, true, false, true)).resolves.toBe(
+            true
+        );
+
+        expect(host.services.vault.scanVault).toHaveBeenCalledWith(false, false, true);
+        expect(isReady()).toBe(true);
+    });
+
     it("keeps the application unready when the Vault scan fails", async () => {
         const { errorManager, host, isReady } = createPreparation({ scan: false });
 
         await expect(prepareDatabaseForUse(host, vi.fn(), errorManager as any)).resolves.toBe(false);
 
         expect(isReady()).toBe(false);
+        expect(host.services.appLifecycle.resetIsReady).toHaveBeenCalledTimes(1);
+        expect(host.services.appLifecycle.resetIsReady).toHaveBeenCalledWith();
+        expect(errorManager.showError).toHaveBeenCalledWith(expect.stringContaining("scan"), expect.anything());
         expect(host.services.databaseEvents.onDatabaseInitialised).not.toHaveBeenCalled();
         expect(host.services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
         expect(host.services.appLifecycle.markIsReady).not.toHaveBeenCalled();
@@ -145,6 +165,7 @@ describe("prepareDatabaseForUse readiness", () => {
         await expect(prepareDatabaseForUse(host, vi.fn(), errorManager as any)).rejects.toBe(error);
 
         expect(isReady()).toBe(false);
+        expect(errorManager.showError).toHaveBeenCalledWith(expect.stringContaining(error.message), expect.anything());
         expect(host.services.fileProcessing.commitPendingFileEvents).not.toHaveBeenCalled();
         expect(host.services.appLifecycle.markIsReady).not.toHaveBeenCalled();
     });

@@ -1,8 +1,8 @@
 ---
-date: 2026-08-30
-commonlib-version: "0.1.20"
-self-hosted-livesync-version: "1.0.21"
-status: accepted
+date: 2026-09-04
+commonlib-version: "0.1.21"
+self-hosted-livesync-version: "1.0.24"
+status: unreleased
 ---
 
 # Service feature composition
@@ -76,7 +76,8 @@ export async function prepareDatabaseForUse(
     errorManager: UnresolvedErrorManager,
     showingNotice = false,
     reopenDatabase = true,
-    ignoreSuspending = false
+    ignoreSuspending = false,
+    continueOnFileFailure = false
 ): Promise<boolean> {
     // Open, scan, run completion handlers, commit pending events, and mark ready.
 }
@@ -90,13 +91,23 @@ export function usePrepareDatabaseForUse(host: PrepareDatabaseHost): void {
     const errorManager = new UnresolvedErrorManager(host.services.appLifecycle, host.services.context.events);
 
     host.services.databaseEvents.initialiseDatabase.addHandler(
-        (showingNotice = false, reopenDatabase = true, ignoreSuspending = false) =>
-            prepareDatabaseForUse(host, log, errorManager, showingNotice, reopenDatabase, ignoreSuspending)
+        (showingNotice = false, reopenDatabase = true, ignoreSuspending = false, continueOnFileFailure = false) =>
+            prepareDatabaseForUse(
+                host,
+                log,
+                errorManager,
+                showingNotice,
+                reopenDatabase,
+                ignoreSuspending,
+                continueOnFileFailure
+            )
     );
 }
 ```
 
 Test the operation's sequencing and failure short-circuiting separately from the handler registration. This keeps a lifecycle rename from forcing every domain test through an application-shaped fixture.
+
+Database preparation and full scanning remain strict by default. A host may set `continueOnFileFailure` only when its ordinary start-up policy deliberately permits readiness after individual file-pair failures. That option does not admit a failed scan precondition or a later initialisation step, and explicit recovery workflows retain the default.
 
 ## Keep feature-local state private
 

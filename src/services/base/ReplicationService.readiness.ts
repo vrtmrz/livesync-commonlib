@@ -85,7 +85,7 @@ export function createReplicationReadinessEvaluator(
             name: "application-ready",
             evaluate: () => {
                 if (gates.isApplicationReady()) return true;
-                diagnostics.log("Not ready");
+                diagnostics.log(diagnostics.translate("Replicator.Message.ApplicationNotReady"));
                 return false;
             },
         },

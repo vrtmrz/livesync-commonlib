@@ -161,7 +161,12 @@ export interface IDatabaseEventService {
 
     onResetDatabase(db: LiveSyncLocalDB): Promise<boolean>;
 
-    initialiseDatabase(showingNotice?: boolean, reopenDatabase?: boolean, ignoreSuspending?: boolean): Promise<boolean>;
+    initialiseDatabase(
+        showingNotice?: boolean,
+        reopenDatabase?: boolean,
+        ignoreSuspending?: boolean,
+        continueOnFileFailure?: boolean
+    ): Promise<boolean>;
 }
 export interface IKeyValueDBService {
     openSimpleStore<T>(kind: string): SimpleStore<T>;
@@ -520,7 +525,7 @@ export interface IVaultService {
 
     getVaultName(): string;
 
-    scanVault(showingNotice?: boolean, ignoreSuspending?: boolean): Promise<boolean>;
+    scanVault(showingNotice?: boolean, ignoreSuspending?: boolean, continueOnFileFailure?: boolean): Promise<boolean>;
 
     isIgnoredByIgnoreFile(file: string | UXFileInfoStub): Promise<boolean>;
 

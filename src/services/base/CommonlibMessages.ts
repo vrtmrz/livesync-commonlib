@@ -46,6 +46,16 @@ export const commonlibEnglishMessages = {
     "Custom headers for requesting the bucket. e.g. `x-custom-header1: value1\n x-custom-header2: value2`":
         "Custom headers for requesting the bucket. e.g. `x-custom-header1: value1\n x-custom-header2: value2`",
     "Data Compression": "Data Compression",
+    "DatabasePreparation.Message.DatabaseNotReady":
+        "The local database did not become ready during application initialisation.",
+    "DatabasePreparation.Message.InitialisationStepFailed":
+        "Database preparation failed because an initialisation step did not complete.",
+    "DatabasePreparation.Message.OpenFailed":
+        "The local database could not be opened during application initialisation.",
+    "DatabasePreparation.Message.PendingEventsFailed":
+        "Pending file events could not be committed during database preparation.",
+    "DatabasePreparation.Message.ScanFailed": "The initial Vault scan could not be completed.",
+    "DatabasePreparation.Message.UnexpectedFailure": "Database preparation failed: ${reason}",
     "Database Name": "Database Name",
     "Database suffix": "Database suffix",
     "Delay conflict resolution of inactive files": "Delay conflict resolution of inactive files",
@@ -201,6 +211,10 @@ export const commonlibEnglishMessages = {
         "Number of batches to process at a time. Defaults to 40. Minimum is 2. This along with batch size controls how many docs are kept in memory at a time.",
     "Number of changes to sync at a time. Defaults to 50. Minimum is 2.":
         "Number of changes to sync at a time. Defaults to 50. Minimum is 2.",
+    "OfflineScanner.Message.MultipleFilesFailed":
+        "The Vault scan could not process ${count} files. They can be retried during a later scan. Affected paths include:\n${paths}",
+    "OfflineScanner.Message.OneFileFailed":
+        "The Vault scan could not process this file. It can be retried during a later scan:\n${paths}",
     "P2P.AskPassphraseForDecrypt":
         "The remote peer shared the configuration. Please input the passphrase to decrypt the configuration.",
     "P2P.AskPassphraseForShare":
@@ -231,6 +245,8 @@ export const commonlibEnglishMessages = {
         "Reducing the frequency with which on-disk changes are reflected into the DB",
     Region: "Region",
     "Remote server type": "Remote server type",
+    "Replicator.Message.ApplicationNotReady":
+        "Replication is not ready because application initialisation has not completed.",
     "Replicator.Message.Cleaned": "Database cleaning up is in process. replication has been cancelled",
     "Replicator.Message.InitialiseFatalError": "No replicator is available, this is the fatal error.",
     "Replicator.Message.Pending": "Some file events are pending. Replication has been cancelled.",

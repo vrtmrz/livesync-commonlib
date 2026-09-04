@@ -40,6 +40,13 @@ function createLogger(name: string): LogFunction {
     return createInstanceLogFunction(name, APIServiceMock as any);
 }
 
+function createErrorManagerMock() {
+    return {
+        showError: vi.fn(),
+        clearError: vi.fn(),
+    };
+}
+
 describe("convertCase", () => {
     it("should return path as-is when handleFilenameCaseSensitive is true", () => {
         const settings = {
@@ -1545,7 +1552,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+        await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
             mode: FullScanModes.DB_APPLY,
             extraOnRemote: ExtraOnRemote.DELETE_LOCAL_MISSING,
         });
@@ -1619,7 +1626,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
         } as any;
 
         await expect(
-            synchroniseAllFilesBetweenDBandStorage(host, xLogger, {} as any, {
+            synchroniseAllFilesBetweenDBandStorage(host, xLogger, createErrorManagerMock() as any, {
                 mode: FullScanModes.DB_APPLY,
                 extraOnRemote: ExtraOnRemote.DELETE_LOCAL_MISSING,
             })
@@ -1684,7 +1691,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+        await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
             mode: FullScanModes.DB_APPLY,
             extraOnRemote: ExtraOnRemote.DELETE_LOCAL_MISSING,
         });
@@ -1763,7 +1770,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+        const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
             mode: FullScanModes.NEWER_WINS,
         });
 
@@ -1838,16 +1845,26 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
         } as any;
 
         try {
-            const firstResult = await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
-                mode: FullScanModes.DB_APPLY,
-            });
+            const firstResult = await synchroniseAllFilesBetweenDBandStorage(
+                host,
+                logger,
+                createErrorManagerMock() as any,
+                {
+                    mode: FullScanModes.DB_APPLY,
+                }
+            );
             await vi.runAllTimersAsync();
             const persistedAfterSkip = { ...persistedFileStatus };
 
             sizeLimitActive = false;
-            const secondResult = await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
-                mode: FullScanModes.NEWER_WINS,
-            });
+            const secondResult = await synchroniseAllFilesBetweenDBandStorage(
+                host,
+                logger,
+                createErrorManagerMock() as any,
+                {
+                    mode: FullScanModes.NEWER_WINS,
+                }
+            );
 
             expect(firstResult).toBe(true);
             expect(secondResult).toBe(true);
@@ -1925,7 +1942,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
         } as any;
 
         try {
-            const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+            const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
                 mode: FullScanModes.NEWER_WINS,
             });
             await vi.runAllTimersAsync();
@@ -1994,7 +2011,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+        await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
             mode: FullScanModes.NEWER_WINS,
         });
 
@@ -2060,7 +2077,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+        const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
             mode: FullScanModes.NEWER_WINS,
         });
 
@@ -2137,7 +2154,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+        const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
             mode: FullScanModes.NEWER_WINS,
         });
 
@@ -2216,7 +2233,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             const firstResult = await synchroniseAllFilesBetweenDBandStorage(
                 host,
                 logSpy as unknown as LogFunction,
-                {} as any,
+                createErrorManagerMock() as any,
                 { mode: FullScanModes.DB_APPLY }
             );
             await vi.runAllTimersAsync();
@@ -2225,7 +2242,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             const secondResult = await synchroniseAllFilesBetweenDBandStorage(
                 host,
                 logSpy as unknown as LogFunction,
-                {} as any,
+                createErrorManagerMock() as any,
                 { mode: FullScanModes.NEWER_WINS }
             );
             await vi.runAllTimersAsync();
@@ -2301,9 +2318,14 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        const result = await synchroniseAllFilesBetweenDBandStorage(host, logSpy as unknown as LogFunction, {} as any, {
-            mode: FullScanModes.NEWER_WINS,
-        });
+        const result = await synchroniseAllFilesBetweenDBandStorage(
+            host,
+            logSpy as unknown as LogFunction,
+            createErrorManagerMock() as any,
+            {
+                mode: FullScanModes.NEWER_WINS,
+            }
+        );
 
         expect(result).toBe(false);
         expect(deleteFileFromDBMock).toHaveBeenCalledWith("gone.md");
@@ -2378,7 +2400,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
             },
         } as any;
 
-        await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+        await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
             mode: FullScanModes.NEWER_WINS,
         });
 
@@ -2438,7 +2460,7 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
                 },
             } as any;
 
-            await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+            await synchroniseAllFilesBetweenDBandStorage(host, logger, createErrorManagerMock() as any, {
                 mode: FullScanModes.NEWER_WINS,
             });
 
@@ -2476,7 +2498,10 @@ describe("performFullScan", () => {
             serviceModules: {},
         } as any;
 
-        const result = await performFullScan(host, logger, errorManager as any, false, false);
+        const result = await performFullScan(host, logger, errorManager as any, {
+            mode: FullScanModes.NEWER_WINS,
+            continueOnFileFailure: true,
+        });
 
         expect(result).toBe(false);
     });
@@ -2636,7 +2661,7 @@ describe("performFullScan", () => {
         expect(host.serviceModules.storageAccess.restoreState).toHaveBeenCalled();
     });
 
-    it("should return false after completing a scan which contains a failed reflection", async () => {
+    it("keeps failed reflections strict by default but can complete an ordinary readiness scan", async () => {
         const errorManager = {
             showError: vi.fn(),
             clearError: vi.fn(),
@@ -2682,8 +2707,8 @@ describe("performFullScan", () => {
                 },
                 database: {
                     localDatabase: {
-                        findAllDocs: vi.fn().mockReturnValue(mockFindAllDocs()),
-                        findAllNormalDocs: vi.fn().mockReturnValue(mockFindAllNormalDocs()),
+                        findAllDocs: vi.fn().mockImplementation(() => mockFindAllDocs()),
+                        findAllNormalDocs: vi.fn().mockImplementation(() => mockFindAllNormalDocs()),
                         isReady: true,
                     },
                 },
@@ -2711,6 +2736,26 @@ describe("performFullScan", () => {
 
         expect(result).toBe(false);
         expect(host.services.keyValueDB.kvDB.set).toHaveBeenCalledWith("initialized", true);
+
+        const ordinaryStartupResult = await performFullScan(host, logger, errorManager as any, {
+            mode: FullScanModes.DB_APPLY,
+            continueOnFileFailure: true,
+        });
+
+        expect(ordinaryStartupResult).toBe(true);
+        expect(errorManager.showError).toHaveBeenCalledWith(expect.stringContaining("missing.md"), LOG_LEVEL_NOTICE);
+
+        const failureMessage = errorManager.showError.mock.calls.at(-1)?.[0];
+        expect(failureMessage).toEqual(expect.any(String));
+        host.serviceModules.fileHandler.dbToStorage.mockResolvedValue(true);
+
+        await expect(
+            performFullScan(host, logger, errorManager as any, {
+                mode: FullScanModes.DB_APPLY,
+                continueOnFileFailure: true,
+            })
+        ).resolves.toBe(true);
+        expect(errorManager.clearError).toHaveBeenCalledWith(failureMessage);
     });
 });
 
