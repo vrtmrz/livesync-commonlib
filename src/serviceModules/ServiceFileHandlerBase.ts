@@ -885,13 +885,15 @@ export abstract class ServiceFileHandlerBase
             this._log(`Rename event for ${path} has no source path`, LOG_LEVEL_VERBOSE);
             return false;
         }
-        const eventPaths = type === "RENAME" ? [path, eventItem.oldPath as FilePathWithPrefix] : [path];
+        const relatedPath = type === "RENAME" ? eventItem.oldPath : type === "DELETE" ? eventItem.renameTarget : undefined;
+        const eventPaths = relatedPath === undefined ? [path] : [path, relatedPath as FilePathWithPrefix];
         return await this.serializedByFileEventPaths(eventPaths, async () => {
             switch (type) {
                 case "CREATE":
                 case "CHANGED":
                     return await this.storeFileToDB(item.args.file);
                 case "DELETE":
+                    if (!(await this.canRecordStorageDeletion(item))) return true;
                     return await this.deleteFileFromDB(item.args.file);
                 case "RENAME":
                     return await this.renameFileInDB(
@@ -906,6 +908,57 @@ export abstract class ServiceFileHandlerBase
                     return false;
             }
         });
+    }
+
+    private async canRecordStorageDeletion(item: FileEventItem): Promise<boolean> {
+        const path = item.args.file.path;
+        try {
+            const current = await this.storage.getStub(path);
+            let excludedRenameTarget: UXFileInfoStub | null = null;
+            if (item.args.renameTarget !== undefined) {
+                const targetPath = item.args.renameTarget as FilePathWithPrefix;
+                const targetItem = await this.storage.getStub(targetPath);
+                const target = this.getExactCurrentFile(targetItem, targetPath);
+                if (targetItem !== null && !target) {
+                    this._log(`Preserved ${path}: the rename target no longer resolves to ${targetPath}`, LOG_LEVEL_NOTICE);
+                    return false;
+                }
+                // A collision can temporarily reject a destination. Only selection
+                // policy or a current size limit establishes a move out of scope.
+                const targetIsSelected =
+                    !shouldBeIgnored(targetPath) &&
+                    (await this.vault.isTargetFile(targetPath, { skipCaseCollisionCheck: true })) &&
+                    !(target && this.vault.isFileSizeTooLarge(target.stat.size));
+                if (targetIsSelected) {
+                    this._log(`Preserved ${path}: rename target ${targetPath} is still selected`, LOG_LEVEL_NOTICE);
+                    return false;
+                }
+                excludedRenameTarget = target;
+            }
+            if (current === null) return true;
+            if (!isFolderInfo(current)) {
+                const [currentId, deletedId] = await Promise.all([
+                    this.path.path2id(current.path),
+                    this.path.path2id(path),
+                ]);
+                if (currentId !== deletedId) return true;
+                // A deliberate case-only move out of selection removes the DB
+                // entry, even though its excluded destination shares that ID.
+                if (
+                    excludedRenameTarget &&
+                    this.storage.normalisePath(current.path) !== this.storage.normalisePath(path) &&
+                    this.storage.normalisePath(current.path) === this.storage.normalisePath(excludedRenameTarget.path)
+                ) {
+                    return true;
+                }
+            }
+            this._log(`Preserved ${path}: a current storage item contradicts its deletion event`, LOG_LEVEL_NOTICE);
+            return false;
+        } catch (ex) {
+            this._log(`Could not validate deletion of ${path}; preserved the database entry`, LOG_LEVEL_NOTICE);
+            this._log(ex, LOG_LEVEL_VERBOSE);
+            return false;
+        }
     }
 
     private async serializedByFileEventPaths<T>(
@@ -936,7 +989,8 @@ export abstract class ServiceFileHandlerBase
             return true;
         }
 
-        const eventPaths = type === "RENAME" ? [path, eventItem.oldPath as FilePathWithPrefix] : [path];
+        const relatedPath = type === "RENAME" ? eventItem.oldPath : type === "DELETE" ? eventItem.renameTarget : undefined;
+        const eventPaths = relatedPath === undefined ? [path] : [path, relatedPath as FilePathWithPrefix];
         return await this.serializedByFileEventPaths(eventPaths, async (isSameDocument) => {
             let action: RestoredFileEventAction;
             try {
@@ -973,6 +1027,11 @@ export abstract class ServiceFileHandlerBase
                     : { kind: "none" };
             }
             case "DELETE": {
+                if (item.args.renameTarget !== undefined) {
+                    return (await this.canRecordStorageDeletion(item)) && (await this.canApplyRestoredDeletion(path))
+                        ? { kind: "delete", path: path as FilePath }
+                        : { kind: "none" };
+                }
                 const current = await this.storage.getStub(path);
                 return current === null && (await this.canApplyRestoredDeletion(path))
                     ? { kind: "delete", path: path as FilePath }

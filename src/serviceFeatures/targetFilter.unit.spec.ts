@@ -2,6 +2,8 @@ import { describe, it, expect, beforeAll } from "vitest";
 
 import { isAcceptedAlwaysFactory } from "./targetFilter";
 import { type LogFunction, createInstanceLogFunction } from "@lib/services/lib/logUtils";
+import { handlers } from "@lib/services/lib/HandlerUtils";
+import type { IVaultService } from "@lib/services/base/IService";
 const APIServiceMock = {
     addLog(message: string, level?: any) {
         // For testing, we can simply log to console or store logs in an array if needed.
@@ -86,6 +88,25 @@ describe("isAcceptedInFilenameDuplication", () => {
         // update totalStorageFileEventCount to trigger file count map update
         host.services.fileProcessing.totalStorageFileEventCount++;
         expect(await handler("b.txt")).toBe(false);
+    });
+
+    it("can inspect selection independently of temporary filename collisions", async () => {
+        const host = createHost({ caseInsensitive: true });
+        const handler = isAcceptedInFilenameDuplicationFactory(host, logger);
+
+        expect(await handler("a.md", { skipCaseCollisionCheck: true })).toBe(true);
+        expect(await handler("a.md")).toBe(false);
+    });
+
+    it("still applies other target policies when inspecting without case-collision rejection", async () => {
+        const host = createHost({ caseInsensitive: true });
+        const isTargetFile = handlers<IVaultService>().bailFirstFailure("isTargetFile");
+        isTargetFile.addHandler(isAcceptedInFilenameDuplicationFactory(host, logger));
+        isTargetFile.addHandler(async (file) => file !== "a.md");
+
+        expect(await isTargetFile("a.md", { skipCaseCollisionCheck: true })).toBe(false);
+        expect(await isTargetFile("A.md", { skipCaseCollisionCheck: true })).toBe(true);
+        expect(await isTargetFile("A.md")).toBe(false);
     });
 });
 

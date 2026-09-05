@@ -826,6 +826,7 @@ describe("StorageEventManagerBase", () => {
                     type: "DELETE",
                     args: expect.objectContaining({
                         oldPath: undefined,
+                        renameTarget: "excluded.txt",
                         file: expect.objectContaining({ path: "old.md", deleted: true }),
                     }),
                 })

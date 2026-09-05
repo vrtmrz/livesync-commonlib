@@ -126,6 +126,14 @@ assert.ok(
     "The maintained-host evidence linked from the README must be included in the package."
 );
 assert.ok(
+    packed.files.some(({ path }) => path === "docs/storage-events-and-reflection.md"),
+    "The storage-event contract linked from the developer guide must be included in the package."
+);
+assert.ok(
+    packed.files.some(({ path }) => path === "docs/offline-scanner.md"),
+    "The stored-event contract linked from the storage-event guide must be included in the package."
+);
+assert.ok(
     packed.files.some(({ path }) => path === "docs/releasing.md"),
     "The release guide linked from the developer guide must be included in the package."
 );

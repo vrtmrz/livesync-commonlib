@@ -40,6 +40,10 @@ Commonlib's confirmation contract can also convey a host-neutral vertical action
 
 Self-hosted LiveSync's Obsidian and browser dialogue hosts now share an application-owned `SvelteDialogSession` lifecycle. They continue to consume Commonlib's dialogue types and manager base, but no maintained LiveSync path uses `SvelteDialogMixIn`. The dynamic-inheritance helper remains available through the compatibility boundary and is deprecated in favour of host-owned composition.
 
+Commonlib's storage-event tests verify that a current file with the same canonical document ID suppresses a watcher deletion, while observed absence still permits deletion and inspection failure preserves Metadata. Rename-derived deletions retain their destination and distinguish deliberate target exclusion from transient filename collision rejection, including after snapshot restoration. A separate reflection test preserves incoming logical-deletion behaviour. These injected-boundary tests establish the [storage-event admission contract](storage-events-and-reflection.md), not the native event ordering of an external folder rename in a particular Obsidian version.
+
+The downstream `E2E_OBSIDIAN_ONLY_PARENT_CASE_DELETION` scenario additionally exercises an external parent-directory case change in real Linux Obsidian 1.12.7. With released Commonlib 0.1.21, native `create` events for the new paths followed by `delete` events for the old paths produce logically deleted Metadata. With the unreleased guard installed from its checked package artefact, the same sequence preserves Metadata, Chunks, and unchanged content locally, in CouchDB, on a second Vault, and after restart. This establishes the tested build's deletion protection, not full directory rename support or confirmation in the reporter's Obsidian 1.13.7 environment.
+
 ## CLI
 
 The CLI extends the same neutral context with its database path and injected `StandardIo` in `src/apps/cli/services/NodeServiceContext.ts`. Its entry point creates the Node standard-I/O adapter once and passes it to command composition, while unit tests provide stream-independent fakes for parsing, prompts, standard output, and standard error.

@@ -247,6 +247,7 @@ export abstract class StorageEventManagerBase<
                 args: {
                     file: file,
                     oldPath: type === "RENAME" ? oldPath : undefined,
+                    ...(param.type === "RENAME" && type === "DELETE" ? { renameTarget: param.file.path } : {}),
                     cache,
                     ctx,
                 },

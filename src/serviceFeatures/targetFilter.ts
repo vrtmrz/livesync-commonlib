@@ -5,6 +5,7 @@ import { isAcceptedAll } from "@lib/string_and_binary/path";
 import { Computed } from "octagonal-wheels/dataobject/Computed";
 
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
+import type { IVaultService } from "@lib/services/base/IService";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 
 /**
@@ -49,7 +50,11 @@ export function isAcceptedInFilenameDuplicationFactory(
         },
     });
 
-    return async function isAcceptedInFilenameDuplication(file: string | UXFileInfoStub): Promise<boolean> {
+    return async function isAcceptedInFilenameDuplication(
+        file: string | UXFileInfoStub,
+        options?: Parameters<IVaultService["isTargetFile"]>[1]
+    ): Promise<boolean> {
+        if (options?.skipCaseCollisionCheck) return true;
         const fileCountMap = (
             await fileCountMapComputed.update(host.services.fileProcessing.totalStorageFileEventCount)
         ).value;
