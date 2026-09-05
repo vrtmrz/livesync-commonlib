@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## 0.1.23
+
+### Fixed
+
+- Watcher deletions are now revalidated against current storage before they can logically delete file Metadata. A stale `DELETE` for a file which remains present under the same canonical document ID, including separate `CREATE` and `DELETE` notifications from an external case-only parent-directory rename, is suppressed; confirmed absence retains the existing deletion behaviour, and storage-inspection failures preserve Metadata. Rename-derived deletions retain their explicit destination semantics, while replicated logical deletions and explicit database deletions remain unchanged ([Self-hosted LiveSync issue #1168](https://github.com/vrtmrz/obsidian-livesync/issues/1168)). This does not add general folder-rename handling or path-case convergence.
+
 ## 0.1.22
 
 ### Fixed

@@ -1,17 +1,16 @@
 ---
 date: 2026-09-05
-commonlib-version: "0.1.22"
+commonlib-version: "0.1.23"
 self-hosted-livesync-version: "1.0.25"
-status: unreleased
 ---
 
 # Storage events and database-to-storage reflection
 
 This note separates storage-to-database event handling from
-database-to-storage reflection. It describes the unreleased guard against a
-stale `DELETE` notification logically deleting Metadata while the same file is
-still present in storage. The version fields identify the reviewed release
-baselines, not releases which contain this change.
+database-to-storage reflection. It describes the Commonlib 0.1.23 guard against
+a stale `DELETE` notification logically deleting Metadata while the same file
+is still present in storage. The version fields identify the reviewed source
+versions.
 
 ## Processing directions
 
