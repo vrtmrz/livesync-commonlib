@@ -265,6 +265,7 @@ async function copyStaticFiles() {
     for (const document of [
         "conflict-resolution.md",
         "development.md",
+        "offline-scanner.md",
         "p2p-transport-lifecycle.md",
         "platform-standard-io.md",
         "platform-storage.md",
@@ -273,6 +274,7 @@ async function copyStaticFiles() {
         "releasing.md",
         "service-feature-composition.md",
         "settings-lifecycle.md",
+        "storage-events-and-reflection.md",
     ]) {
         await cp(resolve(root, "docs", document), resolve(packageDirectory, "docs", document));
     }

@@ -534,7 +534,11 @@ export interface IVaultService {
 
     isIgnoredByIgnoreFile(file: string | UXFileInfoStub): Promise<boolean>;
 
-    isTargetFile(file: string | UXFileInfoStub): Promise<boolean>;
+    isTargetFile(
+        file: string | UXFileInfoStub,
+        /** Inspect selection policy without treating a filename collision as an exclusion. */
+        options?: { skipCaseCollisionCheck?: boolean }
+    ): Promise<boolean>;
 
     isTargetFileInExtra(file: string | UXFileInfoStub): Promise<boolean>;
 

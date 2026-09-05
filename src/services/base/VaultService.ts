@@ -58,7 +58,7 @@ export abstract class VaultService<T extends ServiceContext = ServiceContext>
     /**
      * Check if a file is a target file for synchronisation.
      * @param file The file path or file info stub to check.
-     * @param keepFileCheckList Whether to keep the file in the check list.
+     * @param options Optional selection inspection without filename collision rejection.
      */
     readonly isTargetFile = handlers<IVaultService>().bailFirstFailure("isTargetFile");
 

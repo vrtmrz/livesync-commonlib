@@ -59,6 +59,8 @@ export type FileEventArgs = {
     file: UXFileInfoStub | UXInternalFileInfoStub;
     cache?: CacheData;
     oldPath?: string;
+    /** The destination of a rename converted to DELETE after target filtering. */
+    renameTarget?: string;
     ctx?: unknown;
 };
 export type FileEventItem = {
