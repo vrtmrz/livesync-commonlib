@@ -432,6 +432,29 @@ describe("ServiceFileHandlerBase current storage deletions", () => {
         }
     );
 
+    it.each([false, true])(
+        "does not infer an excluded rename target from an ordinary deletion (restored: %s)",
+        async (restored) => {
+            const saved = createStorageStub("parent/test3/note.md", "unchanged body");
+            const current = createStorageStub("parent/Test3/note.md", "unchanged body");
+            const { processFileEvent, deleteFileFromDB, vault } = createRestoredEventHandler({
+                caseInsensitiveIds: true,
+                currentItems: { [saved.path]: current },
+                isTargetFile: (path) => path === saved.path,
+            });
+
+            await processFileEvent({
+                type: "DELETE",
+                args: { file: saved },
+                key: "ordinary-delete-with-excluded-current-path",
+                ...(restored ? { restoredFromPreviousRuntime: true } : {}),
+            });
+
+            expect(deleteFileFromDB).not.toHaveBeenCalled();
+            expect(vault.isTargetFile.mock.calls.map(([path]) => path)).not.toContain(current.path);
+        }
+    );
+
     it("does not interpret a storage inspection failure as permission to delete", async () => {
         const saved = createStorageStub("note.md", "body");
         const { processFileEvent, storageAccess, deleteFileFromDB } = createRestoredEventHandler();

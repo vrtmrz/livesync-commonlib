@@ -873,6 +873,7 @@ describe("StorageEventManagerBase", () => {
 
             expect(dependencies.fileProcessing.onStorageFileEvent).toHaveBeenCalled();
             expect(enqueueSpy).toHaveBeenCalled();
+            expect(enqueueSpy.mock.calls[0]?.[0].args.renameTarget).toBeUndefined();
         });
 
         it("should use cached data when provided", async () => {

@@ -21,6 +21,13 @@ rename from a selected path to a rejected path becomes a `DELETE` with an
 old-path deleted stub and the destination in `FileEventArgs.renameTarget`.
 A rename from an excluded path to a selected path becomes a `CREATE`.
 
+`renameTarget` is recorded only when one incoming `RENAME` is converted in
+this way. It is not inferred by pairing independent `CREATE` and `DELETE`
+notifications. A `DELETE` without it cannot establish that a current same-ID
+file is the deliberately excluded destination of a rename. The ordinary
+current-storage check therefore suppresses that deletion, even when the
+current file's path would itself be excluded from synchronisation.
+
 `ServiceFileHandlerBase` serialises this work by the canonical document ID
 derived from each path. Before a watcher `DELETE` reaches `deleteFileFromDB`,
 the handler rechecks current storage under that lock. Rename-derived deletions
@@ -45,9 +52,9 @@ deletion operations.
 | Event intent | Current storage observation | Admitted operation |
 | --- | --- | --- |
 | Watcher `CREATE` or `CHANGED` | A selected regular file is present | Keep the existing storage-to-database write. |
-| Watcher `DELETE` | A current file resolves to the same canonical document ID, or a folder occupies the path | Suppress the database deletion. |
-| Watcher `DELETE` | The host lookup reports no current item, or a file belonging to a distinct document ID | Use the existing deletion operation. |
-| Watcher `DELETE` | Lookup fails | Leave the database unchanged; failure is unknown, not absence. |
+| Watcher `DELETE` without `renameTarget` | A current file resolves to the same canonical document ID, including at an excluded path, or a folder occupies the path | Suppress the database deletion; no rename destination is known. |
+| Watcher `DELETE` without `renameTarget` | The host lookup reports no current item, or a file belonging to a distinct document ID | Use the existing deletion operation. |
+| Watcher `DELETE` without `renameTarget` | Lookup fails | Leave the database unchanged; failure is unknown, not absence. |
 | `RENAME` converted to `DELETE` | The destination is still selected when case-collision rejection is omitted | Suppress the database deletion. |
 | `RENAME` converted to `DELETE` | The destination is deliberately excluded, and the source is absent | Apply the old document's deletion. |
 | Case-only `RENAME` converted to `DELETE` | Source lookup resolves to the exact deliberately excluded destination, not the original path | Apply the old document's deletion despite the shared ID. |
@@ -78,10 +85,11 @@ an atomic filesystem transaction.
 ## Verification and scope
 
 Focused unit tests cover a current canonical file, absence, lookup failure,
-distinct document IDs, retained rename destinations, transient collision
-rejection, deliberate exclusion, and source recreation. Live and restored
-deletions are exercised separately. A database-to-storage test also verifies
-that an incoming logical deletion can still remove unchanged storage content.
+distinct document IDs, an excluded same-ID file without inferred rename
+intent, retained rename destinations, transient collision rejection,
+deliberate exclusion, and source recreation. Live and restored deletions are
+exercised separately. A database-to-storage test also verifies that an
+incoming logical deletion can still remove unchanged storage content.
 
 These tests do not establish the native watcher event sequence reported in
 Issue 1168. Real-runtime verification belongs to the host and must distinguish
