@@ -634,7 +634,7 @@ export class LiveSyncLocalDB {
     async putDBEntry(note: SavingEntry, onlyChunks?: boolean, conflictBaseRev?: string) {
         return await this.managers.entryManager.putDBEntry(note, onlyChunks, conflictBaseRev);
     }
-    async putDBEntryWithLiveBaseRevision(note: SavingEntry, baseRevision: string, onlyChunks?: boolean) {
+    async putDBEntryWithLiveBaseRevision(note: SavingEntry, baseRevision: string | undefined, onlyChunks?: boolean) {
         return await this.managers.entryManager.putDBEntryWithLiveBaseRevision(note, baseRevision, onlyChunks);
     }
 

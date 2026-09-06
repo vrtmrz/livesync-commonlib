@@ -272,6 +272,16 @@ const directRuntimeOptions: DirectFileManipulatorRuntimeOptions = { fetch: globa
 const directType: typeof DirectFileManipulator = DirectFileManipulator;
 const createDirect = (options: DirectFileManipulatorOptions): DirectFileManipulator =>
     new DirectFileManipulator(options, directRuntimeOptions);
+const conditionalDirectWrite = (
+    direct: DirectFileManipulator,
+    note: Parameters<DirectFileManipulator["liveSyncLocalDB"]["putDBEntryWithLiveBaseRevision"]>[0],
+    revision: string
+) => {
+    direct.liveSyncLocalDB.putDBEntryWithLiveBaseRevision(note, undefined);
+    direct.liveSyncLocalDB.putDBEntryWithLiveBaseRevision(note, revision);
+    // @ts-expect-error Creation requires an explicit undefined base.
+    direct.liveSyncLocalDB.putDBEntryWithLiveBaseRevision(note);
+};
 const fileSystemAccessOptions = {} as CreateFileSystemAccessStorageOptions;
 const fileSystemAccessFactory: typeof createFileSystemAccessStorage = createFileSystemAccessStorage;
 const prepared = prepareSettingsForLoad(undefined);
@@ -318,6 +328,7 @@ void directOptions;
 void directRuntimeOptions;
 void directType;
 void createDirect;
+void conditionalDirectWrite;
 void fileSystemAccessOptions;
 void fileSystemAccessFactory;
 void migrationState;

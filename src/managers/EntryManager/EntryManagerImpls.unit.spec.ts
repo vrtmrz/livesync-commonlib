@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
+import { promiseWithResolvers } from "octagonal-wheels/promises";
 import {
     createChunks,
     putDBEntry,
@@ -493,6 +494,139 @@ describe("EntryManagerImpls", () => {
             }
         });
 
+        it("creates without an own _rev property and reads the content back", async () => {
+            const entry = createSavingEntry("create-only-test", "Created content");
+            const host = createHost(mockSettingService, mockPathService);
+            const put = vi.spyOn(db, "put");
+
+            const result = await putDBEntryWithLiveBaseRevision(
+                host,
+                { localDatabase: db, chunkManager, hashManager, splitter },
+                entry,
+                undefined
+            );
+
+            expect(result).not.toBe(false);
+            const metadataCall = put.mock.calls.find(([doc]) => doc._id === entry._id);
+            expect(metadataCall).toBeDefined();
+            expect(Object.hasOwn(metadataCall![0], "_rev")).toBe(false);
+            expect(metadataCall).toHaveLength(1);
+            const loaded = await getDBEntryByPath(host, { localDatabase: db, chunkManager }, entry.path);
+            expect(loaded).not.toBe(false);
+            if (loaded !== false) {
+                await expect(isDocContentSame(loaded.data, "Created content")).resolves.toBe(true);
+            }
+        });
+
+        it("refuses create-only writes against a live document without adding a branch", async () => {
+            const entry = createSavingEntry("existing-create-test", "Existing content");
+            const host = createHost(mockSettingService, mockPathService);
+            const managers = { localDatabase: db, chunkManager, hashManager, splitter };
+            const original = await putDBEntry(host, managers, entry);
+            expect(original).not.toBe(false);
+            if (original === false) return;
+
+            expect(
+                await putDBEntryWithLiveBaseRevision(
+                    host,
+                    managers,
+                    { ...entry, data: createTextBlob("Losing content") },
+                    undefined
+                )
+            ).toBe(false);
+
+            const current = await db.get(entry._id, { conflicts: true });
+            expect([current._rev, ...(current._conflicts ?? [])]).toEqual([original.rev]);
+            const loaded = await getDBEntryByPath(host, { localDatabase: db, chunkManager }, entry.path);
+            expect(loaded).not.toBe(false);
+            if (loaded !== false) {
+                await expect(isDocContentSame(loaded.data, "Existing content")).resolves.toBe(true);
+            }
+        });
+
+        it("loses create-only CAS when an independent writer wins before the metadata put", async () => {
+            const entry = createSavingEntry("racing-create-test", "Delayed content");
+            const host = createHost(mockSettingService, mockPathService);
+            const managers = { localDatabase: db, chunkManager, hashManager, splitter };
+            const winnerChunks = await createChunks(managers, entry.path, {
+                ...entry,
+                data: createTextBlob("Independent content"),
+            });
+            expect(winnerChunks).not.toBe(false);
+            if (winnerChunks === false) return;
+
+            // The shared store and both handles are destroyed by afterEach.
+            const independent = new PouchDB<EntryDoc>(db.name, { adapter: "memory" });
+            const gate = promiseWithResolvers<void>();
+            const atPut = promiseWithResolvers<PouchDB.Core.PutDocument<EntryDoc>>();
+            const originalPut = db.put.bind(db);
+            const put = vi.spyOn(db, "put").mockImplementation(async (doc, options) => {
+                if (doc._id === entry._id) {
+                    atPut.resolve(doc);
+                    await gate.promise;
+                }
+                return options === undefined ? originalPut(doc) : originalPut(doc, options);
+            });
+            const delayed = putDBEntryWithLiveBaseRevision(host, managers, entry, undefined);
+            try {
+                const pending = await atPut.promise;
+                expect(Object.hasOwn(pending, "_rev")).toBe(false);
+                const winner = await independent.put({
+                    ...pending,
+                    children: winnerChunks,
+                    size: "Independent content".length,
+                    mtime: entry.mtime + 1,
+                });
+                gate.resolve();
+                expect(await delayed).toBe(false);
+                const current = await independent.get(entry._id, { conflicts: true });
+                expect([current._rev, ...(current._conflicts ?? [])]).toEqual([winner.rev]);
+                const loaded = await getDBEntryByPath(host, { localDatabase: db, chunkManager }, entry.path);
+                expect(loaded).not.toBe(false);
+                if (loaded !== false) {
+                    await expect(isDocContentSame(loaded.data, "Independent content")).resolves.toBe(true);
+                }
+            } finally {
+                gate.resolve();
+                try {
+                    await delayed;
+                } finally {
+                    put.mockRestore();
+                }
+            }
+        });
+
+        it.each([true, false])("revives a native PouchDB tombstone with explicit base: %s", async (explicitBase) => {
+            const entry = createSavingEntry("native-tombstone-test", "Original content");
+            const host = createHost(mockSettingService, mockPathService);
+            const managers = { localDatabase: db, chunkManager, hashManager, splitter };
+            const original = await putDBEntry(host, managers, entry);
+            expect(original).not.toBe(false);
+            if (original === false) return;
+            const tombstone = await db.remove(entry._id, original.rev);
+
+            const restored = await putDBEntryWithLiveBaseRevision(
+                host,
+                managers,
+                {
+                    ...entry,
+                    data: createTextBlob("Revived content"),
+                },
+                explicitBase ? tombstone.rev : undefined
+            );
+
+            expect(restored).not.toBe(false);
+            if (restored === false) return;
+            const current = await db.get(entry._id, { conflicts: true });
+            expect([current._rev, ...(current._conflicts ?? [])]).toEqual([restored.rev]);
+            expect(restored.rev).toMatch(/^3-/);
+            const loaded = await getDBEntryByPath(host, { localDatabase: db, chunkManager }, entry.path);
+            expect(loaded).not.toBe(false);
+            if (loaded !== false) {
+                await expect(isDocContentSame(loaded.data, "Revived content")).resolves.toBe(true);
+            }
+        });
+
         it("advances an exact live leaf without replacing another conflict leaf", async () => {
             const entry = createSavingEntry("live-base-test", "Shared base");
             const host = createHost(mockSettingService, mockPathService);
@@ -588,6 +722,15 @@ describe("EntryManagerImpls", () => {
             expect(deleted).not.toBe(false);
             if (deleted === false) return;
             await expect(db.get(entry._id)).resolves.toMatchObject({ _rev: deleted.rev, deleted: true });
+
+            expect(
+                await putDBEntryWithLiveBaseRevision(
+                    host,
+                    managers,
+                    { ...entry, data: createTextBlob("Cannot create over a logical deletion") },
+                    undefined
+                )
+            ).toBe(false);
 
             const restored = await putDBEntryWithLiveBaseRevision(
                 host,
