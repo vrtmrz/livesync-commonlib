@@ -41,7 +41,7 @@ type NecessaryManagers<T extends keyof Managers> = Pick<Managers, T>;
 type PutDBEntryRevisionTarget =
     | { mode: "latest" }
     | { mode: "force-base"; baseRevision: string }
-    | { mode: "live-base"; baseRevision: string };
+    | { mode: "live-base"; baseRevision: string | undefined };
 
 export async function createChunks(
     managers: NecessaryManagers<"chunkManager" | "hashManager" | "splitter">,
@@ -168,16 +168,18 @@ export async function putDBEntry(
 }
 
 /**
- * Store an entry below an exact revision only while that revision remains a live leaf.
+ * Create an entry with an explicit undefined base, or advance an exact current leaf revision.
  *
  * PouchDB's ordinary MVCC write is the authority for this check. A 409 response means that the
- * base has already been advanced, so the caller receives `false` and can retry from fresh state.
+ * document already exists or the base has been advanced, so the caller receives `false`.
+ * An undefined base omits `_rev`; native PouchDB tombstones can therefore be recreated.
+ * `onlyChunks` skips the metadata put and does not perform the revision check.
  */
 export async function putDBEntryWithLiveBaseRevision(
     host: NecessaryServicesInterfaces<"path" | "setting", never>,
     managers: NecessaryManagers<"localDatabase" | "chunkManager" | "hashManager" | "splitter">,
     note: SavingEntry,
-    baseRevision: string,
+    baseRevision: string | undefined,
     onlyChunks?: boolean
 ) {
     try {
@@ -250,7 +252,9 @@ async function putDBEntryInternal(
         return (
             (await serialized("file:" + filename, async () => {
                 if (revisionTarget.mode !== "latest") {
-                    newDoc._rev = revisionTarget.baseRevision;
+                    if (revisionTarget.baseRevision !== undefined) {
+                        newDoc._rev = revisionTarget.baseRevision;
+                    }
                 } else {
                     try {
                         const old = await localDatabase.get(newDoc._id);

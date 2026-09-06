@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Direct database consumers can now pass explicit `undefined` to `putDBEntryWithLiveBaseRevision` for atomic creation through ordinary PouchDB conflict checking. Metadata omits `_rev`, so a competing live document causes failure without being overwritten or gaining a conflict branch. Existing exact-revision updates and deliberate force writes are unchanged; native PouchDB tombstones retain their recreation semantics.
+
 ## 0.1.23
 
 ### Fixed

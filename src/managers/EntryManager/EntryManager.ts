@@ -117,7 +117,7 @@ export class EntryManager {
         return await putDBEntry(this.serviceHost, this, note, onlyChunks, conflictBaseRev);
     }
 
-    async putDBEntryWithLiveBaseRevision(note: SavingEntry, baseRevision: string, onlyChunks?: boolean) {
+    async putDBEntryWithLiveBaseRevision(note: SavingEntry, baseRevision: string | undefined, onlyChunks?: boolean) {
         return await putDBEntryWithLiveBaseRevision(this.serviceHost, this, note, baseRevision, onlyChunks);
     }
 }

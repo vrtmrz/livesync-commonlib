@@ -88,6 +88,14 @@ Hosts may construct the namespaced store handle during service composition, befo
 
 When a record is absent, the implementation reconstructs it only if the current storage bytes match exactly one available revision body. No match, or more than one match, leaves the branch identity unknown.
 
+## Create-only and exact-revision writes
+
+An initialised `DirectFileManipulator` imported from `@vrtmrz/livesync-commonlib` exposes `liveSyncLocalDB.putDBEntryWithLiveBaseRevision(note, baseRevision)`. Its required base is `string | undefined`: a string advances that exact current leaf; explicit `undefined` creates by omitting `_rev` from an ordinary PouchDB metadata put. If another writer creates the same ID first, the operation returns `false` without overwriting its content or adding a conflict branch. This check applies at the receiving database, not across independently writable replicas.
+
+Logical deletions (`deleted: true`) still occupy their ID and require an exact base for revival. Native PouchDB tombstones (`_deleted: true`) can be revived with their revision or recreated without one under ordinary PouchDB semantics; create-only does not mean that the ID has never existed. Stale bases return `false`, which also remains the existing result for skipped or unsuccessful writes rather than a distinct conflict result type.
+
+The optional third argument, `onlyChunks`, skips the metadata put and revision check when true. Losing writes can leave shared chunks for separate garbage collection. Default and deliberate force-base writes retain their existing behavior.
+
 ## Operations while a conflict exists
 
 With a proven displayed revision:
