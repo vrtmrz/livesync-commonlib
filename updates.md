@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+## 0.1.24
+
+8th September, 2026
+
+### Added
+
+- The `/settings` entry now exports `assessTweakCompatibility`, providing effective setting values, directional adoption changes, and reconstruction requirements for host recovery interfaces.
+
+### Changed
+
+- Central replication treats an absent `handleFilenameCaseSensitive` value as `false`. Explicit `false` versus missing remains compatible; explicit `true` versus missing now rejects replication and requires resolution.
+
+### Fixed
+
+- CouchDB and Object Storage recovery hints now retain the exact compatibility assessment from the failed attempt, allowing hosts to use the same decision when presenting recovery choices ([Self-hosted LiveSync issue #1180](https://github.com/vrtmrz/obsidian-livesync/issues/1180)).
+- Directional replication retries now use the settings saved during recovery while retaining the check against the original active Replicator context.
+
 ## 0.1.23
 
 ### Fixed
