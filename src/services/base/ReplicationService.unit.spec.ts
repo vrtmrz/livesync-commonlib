@@ -886,6 +886,25 @@ describe("ReplicationService rebuild maintenance", () => {
         ]);
     });
 
+    it("captures a fresh settings snapshot for a compatibility retry", async () => {
+        const { replicateAllToServer, service, settings } = createMaintenanceService();
+        replicateAllToServer.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
+        service.checkConnectionFailure.addHandler(async () => {
+            Object.assign(settings, { customChunkSize: 60 });
+            return "CHECKAGAIN";
+        });
+
+        await expect(service.replicateAllToRemoteForRebuild()).resolves.toBe(true);
+
+        const firstSetting = replicateAllToServer.mock.calls[0][0];
+        const retrySetting = replicateAllToServer.mock.calls[1][0];
+        expect(firstSetting).not.toBe(retrySetting);
+        expect(firstSetting.customChunkSize).toBeUndefined();
+        expect(retrySetting.customChunkSize).toBe(60);
+        expect(Object.isFrozen(firstSetting)).toBe(true);
+        expect(Object.isFrozen(retrySetting)).toBe(true);
+    });
+
     it("does not retry a full transfer against a replacement publication", async () => {
         const { context, replicateAllToServer, runWithActiveReplicatorContext, service } = createMaintenanceService();
         const replacementUpload = vi.fn(async () => true);

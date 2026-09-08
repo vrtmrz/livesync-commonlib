@@ -18,6 +18,7 @@ import type {
     RemoteDBSettings,
     RemotePreferredTweakResult,
     SettingsMigrationState,
+    TweakAssessment,
     TweakValues,
     UXFileInfo,
     UXFileInfoStub,
@@ -505,11 +506,15 @@ export interface ISettingService {
 export interface ITweakValueService {
     fetchRemotePreferred(trialSetting: RemoteDBSettings): Promise<RemotePreferredTweakResult>;
 
-    checkAndAskResolvingMismatched(preferred: Partial<TweakValues>): Promise<[TweakValues | boolean, boolean]>;
+    checkAndAskResolvingMismatched(
+        preferred: Partial<TweakValues>,
+        assessment?: TweakAssessment
+    ): Promise<[TweakValues | boolean, boolean]>;
 
     askResolvingMismatched(
         preferredSource: TweakValues,
-        updatePreferredRemote?: (setting: ObsidianLiveSyncSettings) => Promise<boolean>
+        updatePreferredRemote?: (setting: ObsidianLiveSyncSettings) => Promise<boolean>,
+        assessment?: TweakAssessment
     ): Promise<"OK" | "CHECKAGAIN" | "IGNORE">;
 
     checkAndAskUseRemoteConfiguration(

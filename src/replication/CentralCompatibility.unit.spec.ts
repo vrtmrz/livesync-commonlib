@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TweakValues } from "@lib/common/types.ts";
+import { assessTweakCompatibility } from "@lib/common/models/tweak.compatibility.ts";
 import {
     CENTRAL_COMPATIBILITY_ACCEPTED,
     CENTRAL_COMPATIBILITY_NOT_ASSESSED,
@@ -16,16 +17,20 @@ describe("central compatibility decisions", () => {
 
     it("copies a rejected tweak decision into one immutable recovery hint", () => {
         const preferred = { customChunkSize: 60 } as TweakValues;
+        const assessment = assessTweakCompatibility({ customChunkSize: 0 }, preferred);
         const decision = centralCompatibilityRejected(
             CENTRAL_COMPATIBILITY_REJECTION_REASONS.TWEAK_MISMATCH,
-            preferred
+            preferred,
+            assessment
         );
         preferred.customChunkSize = 120;
 
         expect(centralCompatibilityRecoveryHint(decision)).toEqual({
             reason: CENTRAL_COMPATIBILITY_REJECTION_REASONS.TWEAK_MISMATCH,
             preferredTweakValue: { customChunkSize: 60 },
+            tweakAssessment: assessment,
         });
+        expect(centralCompatibilityRecoveryHint(decision)?.tweakAssessment).toBe(assessment);
         expect(Object.isFrozen(decision)).toBe(true);
         expect(Object.isFrozen(decision.preferredTweakValue)).toBe(true);
     });

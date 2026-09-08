@@ -12,6 +12,7 @@ import {
     RemotePreferredTweakNotConfiguredReasons,
     type RemotePreferredTweakResult,
     RemotePreferredTweakStatuses,
+    type TweakAssessment,
 } from "@lib/common/types.ts";
 import { Logger } from "@lib/common/logger.ts";
 
@@ -105,7 +106,8 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         client: Pick<
             JournalSyncCore,
             "downloadJsonWithResult" | "getCheckpointInfo" | "uploadJson"
-        > = this.setupJournalSyncClient(setting)
+        > = this.setupJournalSyncClient(setting),
+        recordTweakAssessment?: (assessment: TweakAssessment) => void
     ): Promise<ENSURE_DB_RESULT> {
         const milestoneResult = await client.downloadJsonWithResult<EntryMilestoneInfo>(MILSTONE_DOCID);
         if (milestoneResult.status === JournalStorageReadStatuses.UNAVAILABLE) {
@@ -131,7 +133,8 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                 if (!(await client.uploadJson(MILSTONE_DOCID, info))) {
                     throw new Error("Could not upload remote milestone");
                 }
-            }
+            },
+            recordTweakAssessment
         );
     }
 
@@ -343,7 +346,16 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             this.remoteLockedAndDeviceNotAccepted = false;
             this.tweakSettingsMismatched = false;
             this.preferredTweakValue = undefined;
-            const ensure = await this.ensureBucketIsCompatible(this.nodeid, currentVersionRange, setting, client);
+            let tweakAssessment: TweakAssessment | undefined;
+            const ensure = await this.ensureBucketIsCompatible(
+                this.nodeid,
+                currentVersionRange,
+                setting,
+                client,
+                (assessment) => {
+                    tweakAssessment = assessment;
+                }
+            );
             if (ensure == "INCOMPATIBLE") {
                 recordCompatibilityDecision?.(
                     centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.INCOMPATIBLE_VERSION)
@@ -386,7 +398,11 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                 /* NO OP FOR NARROWING */
             } else if (ensure[0] == "MISMATCHED") {
                 recordCompatibilityDecision?.(
-                    centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.TWEAK_MISMATCH, ensure[1])
+                    centralCompatibilityRejected(
+                        CENTRAL_COMPATIBILITY_REJECTION_REASONS.TWEAK_MISMATCH,
+                        ensure[1],
+                        tweakAssessment
+                    )
                 );
                 Logger(this.translate("liveSyncReplicator.mismatchedTweakDetected"), LOG_LEVEL_NOTICE);
                 this.tweakSettingsMismatched = true;

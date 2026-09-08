@@ -1,5 +1,6 @@
 import type PouchDB from "pouchdb-core";
 import { TweakValuesShouldMatchedTemplate, type EntryDoc, type ObsidianLiveSyncSettings } from "@lib/common/types";
+import { assessTweakCompatibility } from "@lib/common/models/tweak.compatibility.ts";
 import {
     LOG_LEVEL_INFO,
     LOG_LEVEL_NOTICE,
@@ -21,7 +22,6 @@ import {
 } from "./TrysteroReplicatorP2PServer";
 import { encryptWithEphemeralSalt, decryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
 import { sha1 } from "octagonal-wheels/hash/purejs";
-import { isObjectDifferent } from "octagonal-wheels/object";
 import { getRelaySockets, pauseRelayReconnection, resumeRelayReconnection } from "@trystero-p2p/nostr";
 import type { P2PFiniteOperationOwner } from "./P2PRoomSession";
 import { P2PAutomationCoordinator } from "./P2PAutomationCoordinator";
@@ -921,10 +921,6 @@ export class TrysteroReplicator {
         >("getTweakSettings", [this.server.serverPeerId], 5000, signal);
         if (signal?.aborted) return false;
         const thisTweakValues = await this.getTweakSettings("");
-        if (!isObjectDifferent(thisTweakValues, tweakValues)) {
-            return true;
-        }
-
         if (thisTweakValues.passphrase !== tweakValues.passphrase) {
             Logger(
                 "Replication cancelled: Passphrase is not matched\nCannot replicate to a remote database until the problem is resolved.",
@@ -932,6 +928,9 @@ export class TrysteroReplicator {
             );
             return false;
         }
+
+        const tweakAssessment = assessTweakCompatibility(thisTweakValues, tweakValues);
+        if (!tweakAssessment.representationDiffers) return true;
 
         Logger(
             "Some mismatched configuration have been detected... Please check settings for efficient replication.",

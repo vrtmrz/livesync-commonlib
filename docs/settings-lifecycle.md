@@ -72,6 +72,25 @@ Two other values deliberately remain unset until their owning lifecycle supplies
 
 The standard Commonlib `SettingService` performs this preparation automatically. Hosts which use that service can inspect `getSettingsMigrationState()` after `loadSettings()` instead of calling the function themselves.
 
+## Assessing synchronisation tweaks
+
+Use `assessTweakCompatibility(current, preferred)` from the focused `/settings` entry when comparing the synchronisation settings advertised by two sides. The result contains immutable, whitelisted snapshots, one entry for each compared setting, and directional `adoptPreferred` and `adoptCurrent` change sets. Each entry keeps the raw value and key-presence state separately from the effective value.
+
+```ts
+import { assessTweakCompatibility } from "@vrtmrz/livesync-commonlib/settings";
+
+const assessment = assessTweakCompatibility(localTweaks, remoteTweaks);
+if (assessment.alignment === "mismatched") {
+    host.requestTweakResolution(assessment);
+}
+```
+
+An absent or `undefined` `handleFilenameCaseSensitive` value has the established effective value `false`. It is therefore equal to an explicit `false` value, while an explicit `true` value is mismatched. The historical defaults in `TweakValuesDefault` receive the same treatment. A missing value without a proven historical default is reported as `unadvertised` and does not by itself make `alignment` mismatched. Explicit `false`, `0`, and empty-string values remain advertised values.
+
+The transition change sets never contain `undefined`. They can fill a missing target from an advertised source, and can use a proven effective default when that changes the target's effective value. Each transition reports `none`, `recommended`, or `required` reconstruction impact and identifies the settings which contribute that impact. Commonlib does not apply the transition, save settings, start Fetch or Rebuild, or grant permission to retry an operation.
+
+`representationDiffers` reports raw value or key-presence differences among the compared settings. The maintained P2P transport uses this to preserve its warning for representational differences while continuing replication after ordinary tweak differences; passphrase authentication remains a separate rejection check.
+
 ## Review and downgrade boundary
 
 A migration may report `requiresSyncReview` when automatic synchronisation should wait for a human decision. Commonlib reports that requirement but does not disable synchronisation settings, persist an acknowledgement, display a dialogue, or decide whether replication may proceed. Those are host-local responsibilities because one device must not acknowledge a safety review for another device through synchronised settings.
@@ -82,6 +101,6 @@ The settings schema version is independent of the package version and of any rem
 
 ## Tests owned by Commonlib
 
-The settings lifecycle unit tests cover blank stores, representative legacy choices, migration idempotence, legacy file-name case normalisation, legacy review state, future-schema downgrade protection, and the distinction between new-Vault recommendations and stored-setting fallbacks. The packed-package test imports the focused `/settings` entry from a clean consumer and checks its declarations and runtime exports.
+The settings lifecycle unit tests cover blank stores, representative legacy choices, migration idempotence, legacy file-name case normalisation, legacy review state, future-schema downgrade protection, and the distinction between new-Vault recommendations and stored-setting fallbacks. Tweak-assessment tests cover effective defaults, unadvertised values, directional change sets, reconstruction impact, raw representation differences, immutable snapshots, and document-ID case behaviour. The packed-package test imports the focused `/settings` entry from a clean consumer and checks its declarations and runtime exports.
 
 Hosts remain responsible for testing when setup is classified as new, how local review acknowledgement is stored, how replication is gated, and how their settings interface presents the result.

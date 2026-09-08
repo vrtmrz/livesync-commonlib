@@ -26,6 +26,7 @@ import {
     RemotePreferredTweakNotConfiguredReasons,
     type RemotePreferredTweakResult,
     RemotePreferredTweakStatuses,
+    type TweakAssessment,
 } from "@lib/common/types.ts";
 import {
     resolveWithIgnoreKnownError,
@@ -1161,12 +1162,16 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     progress: progress,
                 } satisfies DeviceInfo;
 
+                let tweakAssessment: TweakAssessment | undefined;
                 const ensure = await ensureDatabaseIsCompatible(
                     dbRet.db,
                     setting,
                     this.nodeid,
                     currentVersionRange,
-                    info
+                    info,
+                    (assessment) => {
+                        tweakAssessment = assessment;
+                    }
                 );
                 if (ensure == "INCOMPATIBLE") {
                     recordCompatibilityDecision?.(
@@ -1210,7 +1215,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     // NO OP: FOR NARROWING TYPE
                 } else if (ensure[0] == "MISMATCHED") {
                     recordCompatibilityDecision?.(
-                        centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.TWEAK_MISMATCH, ensure[1])
+                        centralCompatibilityRejected(
+                            CENTRAL_COMPATIBILITY_REJECTION_REASONS.TWEAK_MISMATCH,
+                            ensure[1],
+                            tweakAssessment
+                        )
                     );
                     Logger(this.translate("liveSyncReplicator.mismatchedTweakDetected"), LOG_LEVEL_NOTICE);
                     this.tweakSettingsMismatched = true;

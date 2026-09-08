@@ -97,6 +97,50 @@ function hasNotice(entries: Array<{ level?: number }>): boolean {
     return entries.some((entry) => entry.level === LOG_LEVEL_NOTICE);
 }
 
+describe("TrysteroReplicator tweak compatibility", () => {
+    it.each([
+        [false, "matched"],
+        [true, "mismatched"],
+    ] as const)(
+        "warns and continues for an explicit filename-case value when the peer omits it (%s, %s)",
+        async (handleFilenameCaseSensitive) => {
+            const { replicator } = createReplicator();
+            vi.spyOn(replicator, "getTweakSettings").mockResolvedValue({
+                passphrase: "same",
+                handleFilenameCaseSensitive,
+            } as never);
+            (replicator as any).server = {
+                knownAdvertisements: [{ peerId: "peer-id", platform: "test" }],
+                serverPeerId: "local-peer",
+                getConnection: vi.fn(() => ({
+                    invokeRemoteObjectFunction: vi.fn(async () => ({ passphrase: "same" })),
+                })),
+            };
+            const logs = captureGlobalLogs();
+            try {
+                await expect(replicator.checkTweakValues("peer-id")).resolves.toBe(true);
+                expect(hasNotice(logs.entries)).toBe(true);
+            } finally {
+                logs.restore();
+            }
+        }
+    );
+
+    it("continues to reject a passphrase hash mismatch", async () => {
+        const { replicator } = createReplicator();
+        vi.spyOn(replicator, "getTweakSettings").mockResolvedValue({ passphrase: "local" } as never);
+        (replicator as any).server = {
+            knownAdvertisements: [{ peerId: "peer-id", platform: "test" }],
+            serverPeerId: "local-peer",
+            getConnection: vi.fn(() => ({
+                invokeRemoteObjectFunction: vi.fn(async () => ({ passphrase: "remote" })),
+            })),
+        };
+
+        await expect(replicator.checkTweakValues("peer-id")).resolves.toBe(false);
+    });
+});
+
 describe("TrysteroReplicator automatic remote activity", () => {
     it.each([
         [false, false],

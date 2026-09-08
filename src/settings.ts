@@ -26,6 +26,16 @@ export {
     type SettingsMigrationReviewReason,
     type SettingsMigrationState,
 } from "./common/models/setting.lifecycle.ts";
+export { assessTweakCompatibility } from "./common/models/tweak.compatibility.ts";
+export type {
+    TweakAssessment,
+    TweakAssessmentEntry,
+    TweakAssessmentRelation,
+    TweakAssessmentValue,
+    TweakTransition,
+    TweakTransitionReason,
+} from "./common/models/tweak.compatibility.ts";
+export type { TweakReconstruction, TweakValues } from "./common/models/tweak.definition.ts";
 export type {
     ObsidianLiveSyncSettings,
     RemoteDBSettings,

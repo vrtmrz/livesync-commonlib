@@ -224,9 +224,11 @@ import { splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
 import {
     NEW_VAULT_SETTINGS,
     SETTINGS_SCHEMA_DEFAULTS,
+    assessTweakCompatibility,
     createNewVaultSettings,
     prepareSettingsForLoad,
     type SettingsMigrationState,
+    type TweakAssessment,
 } from "${packageName}/settings";
 import {
     upsertRemoteConfigurationInPlace,
@@ -279,6 +281,10 @@ const migrationState: SettingsMigrationState = prepared;
 const newVaultSetting = NEW_VAULT_SETTINGS.usePluginSyncV2;
 const schemaFallback = SETTINGS_SCHEMA_DEFAULTS.usePluginSyncV2;
 const mutableNewVaultSettings = createNewVaultSettings();
+const tweakAssessment: TweakAssessment = assessTweakCompatibility(
+    { handleFilenameCaseSensitive: true },
+    {}
+);
 const remoteConfigurationOptions: UpsertRemoteConfigurationOptions = { activate: true };
 const remoteConfigurationUpsert: typeof upsertRemoteConfigurationInPlace = upsertRemoteConfigurationInPlace;
 const remoteConnectionOptions: RemoteConnectionOpenOptions = { allowNativeFallback: false };
@@ -324,6 +330,7 @@ void migrationState;
 void newVaultSetting;
 void schemaFallback;
 void mutableNewVaultSettings;
+void tweakAssessment;
 void remoteConfigurationOptions;
 void remoteConfigurationUpsert;
 void remoteConnectionOptions;
@@ -383,6 +390,10 @@ assert.equal(settingsApi.NEW_VAULT_SETTINGS.usePluginSyncV2, true);
 assert.equal(settingsApi.SETTINGS_SCHEMA_DEFAULTS.usePluginSyncV2, false);
 assert.equal(settingsApi.prepareSettingsForLoad(undefined).isNewVault, true);
 assert.notEqual(settingsApi.createNewVaultSettings(), settingsApi.NEW_VAULT_SETTINGS);
+assert.equal(
+    settingsApi.assessTweakCompatibility({ handleFilenameCaseSensitive: true }, {}).alignment,
+    "mismatched"
+);
 assert.equal(typeof remoteConfigurationsApi.upsertRemoteConfigurationInPlace, "function");
 assert.equal(typeof p2pApi.useP2PReplicatorFeature, "function");
 assert.equal(typeof p2pApi.useP2PReplicatorCommands, "function");
