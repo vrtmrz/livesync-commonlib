@@ -1,4 +1,4 @@
-import type { TweakValues } from "@lib/common/types.ts";
+import type { TweakAssessment, TweakValues } from "@lib/common/types.ts";
 
 /** Stable machine states for one central-remote compatibility assessment. */
 export const CENTRAL_COMPATIBILITY_STATUSES = Object.freeze({
@@ -30,6 +30,7 @@ export interface CentralCompatibilityRejected {
     readonly status: typeof CENTRAL_COMPATIBILITY_STATUSES.REJECTED;
     readonly reason: CentralCompatibilityRejectionReason;
     readonly preferredTweakValue?: Readonly<TweakValues>;
+    readonly tweakAssessment?: TweakAssessment;
 }
 
 /** Immutable result produced by one provider-local compatibility assessment. */
@@ -45,11 +46,13 @@ export type CentralCompatibilityDecisionRecorder = (decision: CentralCompatibili
 export interface CentralCompatibilityRecoveryHint {
     readonly reason: CentralCompatibilityRejectionReason;
     readonly preferredTweakValue?: Readonly<TweakValues>;
+    readonly tweakAssessment?: TweakAssessment;
 }
 
 export function centralCompatibilityRejected(
     reason: CentralCompatibilityRejectionReason,
-    preferredTweakValue?: TweakValues
+    preferredTweakValue?: Readonly<TweakValues>,
+    tweakAssessment?: TweakAssessment
 ): CentralCompatibilityRejected {
     return Object.freeze({
         status: CENTRAL_COMPATIBILITY_STATUSES.REJECTED,
@@ -57,6 +60,7 @@ export function centralCompatibilityRejected(
         ...(preferredTweakValue === undefined
             ? {}
             : { preferredTweakValue: Object.freeze({ ...preferredTweakValue }) }),
+        ...(tweakAssessment === undefined ? {} : { tweakAssessment }),
     });
 }
 
@@ -68,5 +72,6 @@ export function centralCompatibilityRecoveryHint(
     return Object.freeze({
         reason: decision.reason,
         ...(decision.preferredTweakValue === undefined ? {} : { preferredTweakValue: decision.preferredTweakValue }),
+        ...(decision.tweakAssessment === undefined ? {} : { tweakAssessment: decision.tweakAssessment }),
     });
 }

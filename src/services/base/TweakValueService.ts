@@ -2,6 +2,7 @@ import type {
     ObsidianLiveSyncSettings,
     RemoteDBSettings,
     RemotePreferredTweakResult,
+    TweakAssessment,
     TweakValues,
 } from "@lib/common/types";
 import type { ITweakValueService } from "./IService";
@@ -23,17 +24,23 @@ export abstract class TweakValueService<T extends ServiceContext = ServiceContex
     /**
      * Check and ask the user to resolve any mismatched tweak values.
      * @param preferred The preferred tweak values to check against.
+     * @param assessment The exact compatibility assessment from the calling operation, when available.
      */
-    abstract checkAndAskResolvingMismatched(preferred: Partial<TweakValues>): Promise<[TweakValues | boolean, boolean]>;
+    abstract checkAndAskResolvingMismatched(
+        preferred: Partial<TweakValues>,
+        assessment?: TweakAssessment
+    ): Promise<[TweakValues | boolean, boolean]>;
 
     /**
      * Ask the user to resolve any mismatched tweak values.
      * @param preferredSource The preferred tweak values to resolve against.
      * @param updatePreferredRemote Optional exact-context writer supplied by the failed operation.
+     * @param assessment The exact compatibility assessment from the failed operation, when available.
      */
     abstract askResolvingMismatched(
         preferredSource: TweakValues,
-        updatePreferredRemote?: (setting: ObsidianLiveSyncSettings) => Promise<boolean>
+        updatePreferredRemote?: (setting: ObsidianLiveSyncSettings) => Promise<boolean>,
+        assessment?: TweakAssessment
     ): Promise<"OK" | "CHECKAGAIN" | "IGNORE">;
 
     /**

@@ -1,9 +1,21 @@
 import { describe, it, expect } from "vitest";
 import { MinioStorageAdapter } from "./MinioStorageAdapter.ts";
-import type { BucketSyncSetting } from "@lib/common/types.ts";
+import {
+    DEFAULT_SETTINGS,
+    DEVICE_ID_PREFERRED,
+    MILESTONE_DOCID,
+    type BucketSyncSetting,
+    type EntryMilestoneInfo,
+    type RemoteDBSettings,
+} from "@lib/common/types.ts";
 import type { LiveSyncJournalReplicatorEnv } from "@lib/replication/journal/LiveSyncJournalReplicatorEnv.ts";
 import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import { JournalStorageReadStatuses } from "./JournalStorageAdapter.ts";
+import { LiveSyncJournalReplicator } from "../LiveSyncJournalReplicator.ts";
+import {
+    CENTRAL_COMPATIBILITY_REJECTION_REASONS,
+    type CentralCompatibilityDecision,
+} from "@lib/replication/CentralCompatibility.ts";
 
 describe("MinioStorageAdapter Integration Tests", () => {
     const endpoint = process.env.minioEndpoint ?? "http://127.0.0.1:9000";
@@ -102,6 +114,102 @@ describe("MinioStorageAdapter Integration Tests", () => {
         }
 
         expect(requestCount.value).toBeGreaterThanOrEqual(2);
+        expect(responseCount.value).toBe(requestCount.value);
+    });
+
+    it("rejects a real Object Storage connection when filename-case semantics differ", async () => {
+        const bucketPrefix = `tweak-compatibility-${Date.now()}-${Math.random().toString(36).slice(2)}/`;
+        const settings = {
+            ...DEFAULT_SETTINGS,
+            ...createSettings({ bucketPrefix }),
+            handleFilenameCaseSensitive: true,
+        } as RemoteDBSettings;
+        const requestCount = reactiveSource(0);
+        const responseCount = reactiveSource(0);
+        const checkpoints = new Map<string, unknown>();
+        const env = {
+            services: {
+                API: {
+                    getAppVersion: () => "integration-test",
+                    getPluginVersion: () => "integration-test",
+                    getCustomFetchHandler: () => undefined,
+                    requestCount,
+                    responseCount,
+                },
+                context: { translate: (key: string) => key },
+                keyValueDB: {
+                    simpleStore: {
+                        get: async (key: string) => checkpoints.get(key),
+                        set: async (key: string, value: unknown) => {
+                            checkpoints.set(key, value);
+                        },
+                    },
+                },
+                replication: { parseSynchroniseResult: async () => true },
+                replicator: { replicationStatics: reactiveSource(undefined) },
+                setting: { currentSettings: () => settings },
+                vault: {
+                    getVaultName: () => "integration-device",
+                    vaultName: () => "integration-vault",
+                },
+            },
+        } as unknown as LiveSyncJournalReplicatorEnv;
+        const administration = new MinioStorageAdapter(settings as BucketSyncSetting, env);
+        const milestone: EntryMilestoneInfo = {
+            _id: MILESTONE_DOCID,
+            type: "milestoneinfo",
+            created: Date.now(),
+            locked: false,
+            accepted_nodes: ["remote-node"],
+            node_chunk_info: { "remote-node": { min: 0, max: 2400, current: 2 } },
+            node_info: {
+                "remote-node": {
+                    app_version: "integration-test",
+                    plugin_version: "integration-test",
+                    vault_name: "integration-vault",
+                    device_name: "remote-device",
+                    progress: "",
+                    last_connected: Date.now(),
+                },
+            },
+            tweak_values: { [DEVICE_ID_PREFERRED]: {} },
+        };
+        const replicator = new LiveSyncJournalReplicator(env);
+        replicator.nodeid = "local-node";
+        let decision: CentralCompatibilityDecision | undefined;
+
+        try {
+            expect(
+                await administration.upload(
+                    "_00000000-milestone.json",
+                    new TextEncoder().encode(JSON.stringify(milestone)),
+                    "application/json"
+                )
+            ).toBe(true);
+
+            await expect(
+                replicator.checkReplicationConnectivity(false, false, false, settings, undefined, (next) => {
+                    decision = next;
+                })
+            ).resolves.toBe(false);
+            expect(decision).toMatchObject({
+                status: "rejected",
+                reason: CENTRAL_COMPATIBILITY_REJECTION_REASONS.TWEAK_MISMATCH,
+                preferredTweakValue: {},
+                tweakAssessment: {
+                    alignment: "mismatched",
+                    currentValues: expect.objectContaining({ handleFilenameCaseSensitive: true }),
+                    preferredValues: {},
+                },
+            });
+        } finally {
+            await replicator.closeReplication();
+            const files = await administration.listFiles("");
+            if (files.length > 0) await administration.deleteFiles(files);
+            administration.dispose();
+        }
+
+        expect(requestCount.value).toBeGreaterThan(0);
         expect(responseCount.value).toBe(requestCount.value);
     });
 });

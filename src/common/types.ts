@@ -221,6 +221,15 @@ import {
     type RemotePreferredTweakResult,
 } from "./models/tweak.definition.ts";
 import type {
+    TweakAssessment,
+    TweakAssessmentEntry,
+    TweakAssessmentRelation,
+    TweakAssessmentValue,
+    TweakTransition,
+    TweakTransitionReason,
+} from "./models/tweak.compatibility.ts";
+import type { TweakReconstruction } from "./models/tweak.definition.ts";
+import type {
     diff_result_leaf,
     dmp_result,
     diff_result,
@@ -374,6 +383,15 @@ export { confDesc };
 
 export { TweakValuesTemplate };
 export type { TweakValues };
+export type {
+    TweakAssessment,
+    TweakAssessmentEntry,
+    TweakAssessmentRelation,
+    TweakAssessmentValue,
+    TweakReconstruction,
+    TweakTransition,
+    TweakTransitionReason,
+};
 export { DEVICE_ID_PREFERRED };
 export { RemotePreferredTweakStatuses };
 export type { RemotePreferredTweakStatus };

@@ -461,8 +461,8 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
      *
      * Each attempt owns a separate reservation. Compatibility recovery runs
      * between those reservations, and a retry is admitted only when the exact
-     * first-attempt context remains active. Both attempts use one detached
-     * settings snapshot.
+     * first-attempt context remains active. Each attempt uses a detached settings
+     * snapshot, and a compatibility retry captures its snapshot after recovery.
      */
     private async performDirectionalReplication(
         direction: DirectionalReplication,
@@ -473,28 +473,31 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
             this._log(this.context.translate("Replicator.Message.SomeModuleFailed"), LOG_LEVEL_NOTICE);
             return false;
         }
-        const detachedSetting = asCopy(this.settingService.currentSettings());
-        if (admission === DIRECTIONAL_REPLICATION_ADMISSION.EXPLICIT_REBUILD) {
-            // The confirmed recovery may run while ordinary replication stays
-            // paused. Authorise only this detached attempt; persistence and
-            // explicit compatibility acknowledgement remain unchanged.
-            detachedSetting.versionUpFlash = "";
-        }
-        const setting = Object.freeze(detachedSetting);
+        const captureSetting = (): Readonly<ObsidianLiveSyncSettings> => {
+            const detachedSetting = asCopy(this.settingService.currentSettings());
+            if (admission === DIRECTIONAL_REPLICATION_ADMISSION.EXPLICIT_REBUILD) {
+                // The confirmed recovery may run while ordinary replication stays
+                // paused. Authorise only this detached attempt; persistence and
+                // explicit compatibility acknowledgement remain unchanged.
+                detachedSetting.versionUpFlash = "";
+            }
+            return Object.freeze(detachedSetting);
+        };
+        const setting = captureSetting();
         let expectedContext: ActiveReplicatorContext | undefined;
-        const run = async (): Promise<ReplicationOutcome> => {
+        const run = async (attemptSetting: Readonly<ObsidianLiveSyncSettings>): Promise<ReplicationOutcome> => {
             const admitted = await this.replicatorService.runWithActiveReplicatorContext((context) => {
                 if (expectedContext && context !== expectedContext) {
                     return replicationBlocked("not-ready");
                 }
                 expectedContext ??= context;
-                return runDirectionalReplication(context, setting, direction, showingNotice);
+                return runDirectionalReplication(context, attemptSetting, direction, showingNotice);
             });
             if (admitted) return admitted;
             this._log(`Active replicator not found during directional ${direction}`, LOG_LEVEL_NOTICE);
             return replicationBlocked("no-active-replicator");
         };
-        const outcome = await run();
+        const outcome = await run(setting);
         if (isReplicationCompleted(outcome)) return true;
         if (outcome.status !== "failed") return false;
 
@@ -502,7 +505,7 @@ export abstract class ReplicationService<T extends ServiceContext = ServiceConte
         if (!failedContext) return false;
         const failure = Object.freeze({ context: failedContext, setting, outcome }) satisfies ReplicationAttemptFailure;
         const checkResult = await this.checkConnectionFailure(failure);
-        return checkResult === "CHECKAGAIN" && isReplicationCompleted(await run());
+        return checkResult === "CHECKAGAIN" && isReplicationCompleted(await run(captureSetting()));
     }
 
     async replicateAllToRemote(showingNotice: boolean = false): Promise<boolean> {

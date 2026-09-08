@@ -4,14 +4,14 @@ import {
     MILESTONE_DOCID as MILESTONE_DOC_ID,
     type RemoteDBSettings,
     type ChunkVersionRange,
-    TweakValuesShouldMatchedTemplate,
     TweakValuesTemplate,
     type TweakValues,
     DEVICE_ID_PREFERRED,
-    TweakValuesDefault,
     type DeviceInfo,
+    type TweakAssessment,
 } from "@lib/common/types.ts";
 import { extractObject, isObjectDifferent, resolveWithIgnoreKnownError } from "@lib/common/utils.ts";
+import { assessTweakCompatibility } from "@lib/common/models/tweak.compatibility.ts";
 
 // This interface is expected to be unnecessary because of the change in dependency direction
 
@@ -42,7 +42,8 @@ export async function ensureRemoteIsCompatible(
     deviceNodeID: string,
     currentVersionRange: ChunkVersionRange,
     nodeDeviceInfo: DeviceInfo,
-    updateCallback: (info: EntryMilestoneInfo) => Promise<void>
+    updateCallback: (info: EntryMilestoneInfo) => Promise<void>,
+    recordTweakAssessment?: (assessment: TweakAssessment) => void
 ): Promise<ENSURE_DB_RESULT> {
     const now = Date.now();
     const baseMilestone: EntryMilestoneInfo = {
@@ -143,15 +144,9 @@ export async function ensureRemoteIsCompatible(
         // If there is no preferred tweak, set my own as preferred at first.
         const preferred_tweak = remoteMilestone.tweak_values?.[DEVICE_ID_PREFERRED] ?? currentTweakValues;
         const current_tweak = currentTweakValues as TweakValues;
-        const preferred_should_matched = extractObject(TweakValuesShouldMatchedTemplate, {
-            ...TweakValuesDefault,
-            ...preferred_tweak,
-        });
-        const current_should_matched = extractObject(TweakValuesShouldMatchedTemplate, {
-            ...TweakValuesDefault,
-            ...current_tweak,
-        });
-        if (isObjectDifferent(preferred_should_matched, current_should_matched, true)) {
+        const tweakAssessment = assessTweakCompatibility(current_tweak, preferred_tweak);
+        recordTweakAssessment?.(tweakAssessment);
+        if (tweakAssessment.alignment === "mismatched") {
             return ["MISMATCHED", preferred_tweak];
         }
     }
@@ -174,7 +169,8 @@ export async function ensureDatabaseIsCompatible(
     setting: RemoteDBSettings,
     deviceNodeID: string,
     currentVersionRange: ChunkVersionRange,
-    nodeDeviceInfo: DeviceInfo
+    nodeDeviceInfo: DeviceInfo,
+    recordTweakAssessment?: (assessment: TweakAssessment) => void
 ): Promise<ENSURE_DB_RESULT> {
     const remoteMilestone = await resolveWithIgnoreKnownError<EntryMilestoneInfo | false>(
         db.get(MILESTONE_DOC_ID),
@@ -188,7 +184,8 @@ export async function ensureDatabaseIsCompatible(
         nodeDeviceInfo,
         async (info) => {
             await db.put(info);
-        }
+        },
+        recordTweakAssessment
     );
     return ret;
 }
