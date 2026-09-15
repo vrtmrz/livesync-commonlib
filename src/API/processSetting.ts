@@ -146,12 +146,7 @@ const necessaryErasureProperties: ErasureProperties[] = [
     "configPassphraseStore",
     "encryptedCouchDBConnection",
     "encryptedPassphrase",
-    "encryptedP2PIceServerSource",
 ];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 /**
  * Generate setup URI with encrypted settings
@@ -169,13 +164,6 @@ export async function encodeSettingsToSetupURI(
     removeProperties: ErasureProperties[] = ["pluginSyncExtendedSetting"],
     skipDefaultValue = false
 ) {
-    if (
-        !settingString.P2P_iceServerSource &&
-        typeof settingString.encryptedP2PIceServerSource === "string" &&
-        settingString.encryptedP2PIceServerSource !== ""
-    ) {
-        throw new Error("Managed P2P source data must be decrypted before creating a Setup URI.");
-    }
     const setting = {
         ...settingString,
     };
@@ -194,11 +182,6 @@ export async function encodeSettingsToSetupURI(
         delete setting[prop];
     }
     for (const prop of necessaryErasureProperties) {
-        if (prop === "encryptedP2PIceServerSource") {
-            delete setting[prop];
-            continue;
-        }
-        if (!(prop in setting)) continue;
         //@ts-ignore
         setting[prop] = "";
     }
@@ -207,24 +190,11 @@ export async function encodeSettingsToSetupURI(
     return uri;
 }
 
-async function decryptSetupPayload(uri: string, passphrase: string, base: string): Promise<unknown> {
-    const trimmedURI = uri.trim();
-    if (!trimmedURI.startsWith(base)) {
-        throw new Error(`Unsupported Setup URI. Expected ${base}`);
-    }
-    const encryptedSetting = trimmedURI.substring(base.length);
-    const decrypted = await decryptString(decodeURIComponent(encryptedSetting), passphrase);
-    return JSON.parse(decrypted) as unknown;
-}
-
-/** Decrypt and validate the ordinary Setup URI payload. */
 export async function decodeSettingsFromSetupURI(uri: string, passphrase: string) {
+    const encryptedSetting = uri.substring(configURIBase.length);
+    const decrypted = await decryptString(decodeURIComponent(encryptedSetting), passphrase);
     try {
-        const payload = await decryptSetupPayload(uri, passphrase, configURIBase);
-        if (!isRecord(payload)) {
-            throw new Error("Decrypted Setup URI payload is not an object.");
-        }
-        return payload as unknown as ObsidianLiveSyncSettings;
+        return JSON.parse(decrypted) as ObsidianLiveSyncSettings;
     } catch {
         // JSON parsing errors can include decrypted credentials in their message.
         Logger(`Failed to parse settings from decrypted data`, LOG_LEVEL_NOTICE);

@@ -251,13 +251,5 @@ describe("P2PRoomSessionOwner managed ICE server lifecycle", () => {
         expect(createSession.mock.calls[0][0].iceServers?.[0].credential).toBe("current-secret");
     });
 
-    it("rejects an encrypted source which is unavailable at runtime instead of using manual TURN", async () => {
-        const { createSession, owner, settings } = createOwnerHarness({});
-        settings.P2P_iceServerSource = undefined as any;
-        (settings as typeof settings & { encryptedP2PIceServerSource: string }).encryptedP2PIceServerSource =
-            "encrypted-source";
 
-        await expect(owner.open()).rejects.toMatchObject({ code: "configuration", retryable: false });
-        expect(createSession).not.toHaveBeenCalled();
-    });
 });

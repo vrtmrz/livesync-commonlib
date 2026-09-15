@@ -163,7 +163,6 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     // Keep this appended after the existing maximum index so older QR payloads
     // continue to decode while new payloads carry the selected source.
     P2P_iceServerSource: 165,
-    encryptedP2PIceServerSource: -1,
     syncInternalFileOverwritePatterns: 153,
     useOnlyLocalChunk: 154,
     maxMTimeForReflectEvents: 155,

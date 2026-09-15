@@ -1,4 +1,4 @@
-import { hasManagedP2PIceServerSource, isIceServerSourceConfiguration } from "@lib/common/models/setting.p2p";
+import { isIceServerSourceConfiguration, isManualIceServerSourceConfiguration } from "@lib/common/models/setting.p2p";
 
 /** ICE servers resolved for one P2P room generation. */
 export interface IceServerConfiguration {
@@ -120,7 +120,7 @@ export function getIceServerSourceIdentity(source: unknown): string {
         throw configurationError("The selected ICE server source configuration is invalid.");
     }
     const configuration = cloneSourceConfiguration(source.configuration);
-    if (!hasManagedP2PIceServerSource({ P2P_iceServerSource: source })) return "manual";
+    if (isManualIceServerSourceConfiguration(source)) return "manual";
     return JSON.stringify([source.version, source.id, configuration]);
 }
 
@@ -140,7 +140,7 @@ export function resolveIceServerSelection(
         throw configurationError("The selected ICE server source identifier is invalid.");
     }
     const configuration = cloneSourceConfiguration(source.configuration);
-    if (!hasManagedP2PIceServerSource({ P2P_iceServerSource: source })) {
+    if (isManualIceServerSourceConfiguration(source)) {
         return { kind: "manual", identity: "manual" };
     }
     const factory = Object.prototype.hasOwnProperty.call(catalogue, source.id) ? catalogue[source.id] : undefined;

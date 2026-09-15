@@ -39,7 +39,6 @@ export function generateJoinRoomOptions(
     const turnServers = splitP2PTurnServerUrls(settings.P2P_turnServers);
     const managedSourceSelected = hasManagedP2PIceServerSource({
         P2P_iceServerSource: settings.P2P_iceServerSource,
-        encryptedP2PIceServerSource: settings.encryptedP2PIceServerSource,
     });
     if (managedSourceSelected && resolvedIceServers === undefined) {
         throw new IceServerSourceError(

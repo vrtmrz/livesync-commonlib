@@ -209,4 +209,9 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
             setGlobalLogFunction(defaultLogger);
         }
     });
+
+    it("propagates Setup URI decryption failures", async () => {
+        await expect(decodeSettingsFromSetupURI(`${configURIBase}not-encrypted`, "setup-pass"))
+            .rejects.toThrow("Unsupported encryption format");
+    });
 });

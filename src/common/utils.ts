@@ -617,12 +617,7 @@ export function pickP2PSyncSettings(setting: Partial<ObsidianLiveSyncSettings> &
         P2P_turnCredential: setting.P2P_turnCredential,
         P2P_maxWirePayloadBytes: normaliseP2PMaxWirePayloadBytes(setting.P2P_maxWirePayloadBytes),
         P2P_connectionPath: normaliseP2PConnectionPath(setting.P2P_connectionPath),
-        ...(setting.P2P_iceServerSource
-            ? { P2P_iceServerSource: cloneIceServerSourceConfiguration(setting.P2P_iceServerSource) }
-            : {}),
-        ...(setting.encryptedP2PIceServerSource !== undefined
-            ? { encryptedP2PIceServerSource: setting.encryptedP2PIceServerSource }
-            : {}),
+        P2P_iceServerSource: cloneIceServerSourceConfiguration(setting.P2P_iceServerSource),
     };
 }
 

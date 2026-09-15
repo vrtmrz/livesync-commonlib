@@ -640,13 +640,6 @@ export interface P2PConnectionInfo {
     P2P_iceServerSource?: IceServerSourceConfiguration;
 
     /**
-     * Encrypted persisted form of {@link P2P_iceServerSource}.
-     * This is populated only in the saved settings document and is restored
-     * before a loaded settings object is activated.
-     */
-    encryptedP2PIceServerSource?: string;
-
-    /**
      * Maximum serialised RPC wire payload sent through Trystero before
      * Commonlib splits it. Applies to outgoing messages.
      */

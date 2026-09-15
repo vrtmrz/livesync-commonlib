@@ -504,17 +504,6 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
             this.env.services.config.getSmallConfig(SETTING_KEY_P2P_DEVICE_NAME) ||
             this.env.services.vault.getVaultName();
         const database = this.env.services.database.localDatabase.localDatabase;
-        if (
-            settings.P2P_iceServerSource === undefined &&
-            typeof settings.encryptedP2PIceServerSource === "string" &&
-            settings.encryptedP2PIceServerSource !== ""
-        ) {
-            throw new IceServerSourceError(
-                "configuration",
-                "The encrypted ICE server source configuration is not available.",
-                false
-            );
-        }
         const iceServerSelection = resolveIceServerSelection(
             settings.P2P_iceServerSource,
             this.options.iceServerSources

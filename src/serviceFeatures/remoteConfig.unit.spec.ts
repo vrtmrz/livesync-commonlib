@@ -200,7 +200,6 @@ describe("Remote Configuration Activation", () => {
             remoteType: REMOTE_P2P,
             activeConfigurationId: "managed",
             P2P_iceServerSource: managedSource,
-            encryptedP2PIceServerSource: "encrypted-old-source",
             remoteConfigurations: {
                 manual: {
                     id: "manual",
@@ -213,7 +212,6 @@ describe("Remote Configuration Activation", () => {
 
         expect(activateRemoteConfiguration(settings, "manual")).toBe(settings);
         expect(settings.P2P_iceServerSource).toBeUndefined();
-        expect(settings.encryptedP2PIceServerSource).toBeUndefined();
         expect(settings.P2P_roomID).toBe("manual-room");
     });
 
@@ -223,7 +221,6 @@ describe("Remote Configuration Activation", () => {
             remoteType: REMOTE_COUCHDB,
             P2P_ActiveRemoteConfigurationId: "managed",
             P2P_iceServerSource: managedSource,
-            encryptedP2PIceServerSource: "encrypted-old-source",
             remoteConfigurations: {
                 manual: {
                     id: "manual",
@@ -236,7 +233,6 @@ describe("Remote Configuration Activation", () => {
 
         expect(activateP2PRemoteConfiguration(settings, "manual")).toBe(settings);
         expect(settings.P2P_iceServerSource).toBeUndefined();
-        expect(settings.encryptedP2PIceServerSource).toBeUndefined();
         expect(settings.P2P_roomID).toBe("manual-room");
         expect(settings.remoteType).toBe(REMOTE_COUCHDB);
     });

@@ -1,7 +1,6 @@
 import type { JWTAlgorithm } from "@lib/common/models/auth.type";
 import type { CouchDBConnection, BucketSyncSetting, P2PConnectionInfo } from "./models/setting.type";
 import {
-    cloneIceServerSourceConfiguration,
     isIceServerSourceConfiguration,
     isManualIceServerSourceConfiguration,
     normaliseP2PConnectionPath,
@@ -197,7 +196,7 @@ export class ConnectionStringParser {
             if (!isIceServerSourceConfiguration(decoded)) {
                 throw new Error("Invalid managed P2P source descriptor.");
             }
-            source = cloneIceServerSourceConfiguration(decoded);
+            source = decoded;
         }
 
         return {
@@ -213,16 +212,13 @@ export class ConnectionStringParser {
             P2P_turnCredential: searchParams.get("turnPass") || "",
             P2P_maxWirePayloadBytes: normaliseP2PMaxWirePayloadBytes(Number(searchParams.get("maxWirePayloadBytes"))),
             P2P_connectionPath: normaliseP2PConnectionPath(searchParams.get("connectionPath")),
-            ...(source ? { P2P_iceServerSource: source } : {}),
+            P2P_iceServerSource: source,
         };
     }
 
     private static serializeP2P(settings: P2PConnectionInfo): string {
         const source = settings.P2P_iceServerSource;
         const isManagedSource = isIceServerSourceConfiguration(source) && !isManualIceServerSourceConfiguration(source);
-        if (settings.encryptedP2PIceServerSource && !source) {
-            throw new Error("The managed P2P source is encrypted and must be decrypted before serialisation.");
-        }
         if (source !== undefined && !isIceServerSourceConfiguration(source)) {
             throw new Error("Invalid managed P2P source descriptor.");
         }

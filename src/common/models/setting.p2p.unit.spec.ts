@@ -18,7 +18,7 @@ describe("P2P ICE source settings", () => {
         ).toBe(true);
     });
 
-    it("finds managed sources in inactive profiles for sharing decisions", () => {
+    it("does not treat an inactive profile as the selected source", () => {
         expect(
             hasManagedP2PIceServerSource({
                 P2P_iceServerSource: undefined,
@@ -27,8 +27,8 @@ describe("P2P ICE source settings", () => {
                         uri: "sls+p2p://room?source=%7B%7D",
                     },
                 },
-            })
-        ).toBe(true);
+            } as any)
+        ).toBe(false);
     });
 
     it("does not let inactive profiles provide selected TURN configuration", () => {
@@ -36,7 +36,6 @@ describe("P2P ICE source settings", () => {
             hasP2PTurnConfiguration({
                 P2P_turnServers: "",
                 P2P_iceServerSource: undefined,
-                encryptedP2PIceServerSource: undefined,
                 remoteConfigurations: {
                     inactive: {
                         uri: "sls+p2p://room?source=%7B%7D",

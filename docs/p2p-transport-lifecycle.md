@@ -1,6 +1,6 @@
 ---
 date: 2026-09-15
-commonlib-version: "0.1.25-dev.turn-credentials.4"
+commonlib-version: "0.1.25-dev.turn-credentials.5"
 self-hosted-livesync-version: "1.0.28"
 status: unreleased
 ---
@@ -223,18 +223,17 @@ directly. Plain QR sharing carries `P2P_iceServerSource` at its stable compact
 setting index and preserves inactive profiles through `remoteConfigurations`.
 Hosts must use the shared encoder and decoder, reject unsupported or malformed
 source descriptors, and redact all source configuration in diagnostics.
-Optional settings encryption covers both profile URIs and the top-level source
-projection.
+The source is persisted only in the ordinary P2P profile URI, using the
+existing optional configuration encryption. `P2P_iceServerSource` is the
+in-memory and sharing projection restored by profile activation during
+settings load or profile selection. There is no separate encrypted source
+field, and a source draft without a Group ID is not persisted.
 
-For a selected managed source, the persisted snapshot retains the complete
-connection in its profile and preserves the ordinary P2P enablement, automatic
-start, Group ID, and passphrase projection. The source descriptor itself
-remains protected in its encrypted persisted sibling.
-A compatible load restores enablement, automatic start, Group ID, passphrase,
-and the decrypted source descriptor. Runtime settings and setting-saved
-notifications retain the effective connection values. Manual selections keep
-their existing persistence behaviour, including when other managed profiles are
-inactive.
+The saved snapshot preserves the ordinary P2P enablement, automatic start,
+Group ID, and passphrase fields. Runtime settings and setting-saved
+notifications retain the effective source configuration. Manual selections
+keep their existing persistence behaviour, including when other managed
+profiles are inactive.
 
 ## Verification
 
