@@ -246,6 +246,81 @@ describe("ConnectionStringParser P2P", () => {
         expect(parsed.settings.P2P_maxWirePayloadBytes).toBe(15 * 1024);
         expect(parsed.settings.P2P_connectionPath).toBe("automatic");
     });
+
+    it("uses the versioned URI and preserves managed source descriptors", () => {
+        const source = {
+            version: 1,
+            id: "cloudflare",
+            configuration: {
+                turnKeyId: "key-id",
+                apiToken: "secret-token",
+            },
+        };
+        const uri = ConnectionStringParser.serialize({
+            type: "p2p",
+            settings: {
+                ...{
+                    P2P_Enabled: true,
+                    P2P_roomID: "managed-room",
+                    P2P_passphrase: "room-passphrase",
+                    P2P_relays: "wss://relay.example",
+                    P2P_AppID: "self-hosted-livesync",
+                    P2P_AutoStart: true,
+                    P2P_AutoBroadcast: false,
+                    P2P_turnServers: "",
+                    P2P_turnUsername: "",
+                    P2P_turnCredential: "",
+                },
+                P2P_iceServerSource: source,
+            },
+        });
+
+        expect(uri.startsWith("sls+p2p-v2://")).toBe(true);
+        expect(uri).toContain("source=");
+        expect(uri).toContain("secret-token");
+
+        const parsed = ConnectionStringParser.parse(uri);
+        if (parsed.type !== "p2p") throw new Error("Expected p2p type");
+        expect(parsed.settings.P2P_iceServerSource).toEqual(source);
+        expect(parsed.settings.P2P_roomID).toBe("managed-room");
+    });
+
+    it("preserves unsupported source versions and identifiers without treating them as manual", () => {
+        const source = {
+            version: 99,
+            id: "future-provider",
+            configuration: { opaque: "value" },
+        };
+        const uri = ConnectionStringParser.serialize({
+            type: "p2p",
+            settings: {
+                P2P_Enabled: true,
+                P2P_roomID: "future-room",
+                P2P_passphrase: "",
+                P2P_relays: "",
+                P2P_AppID: "self-hosted-livesync",
+                P2P_AutoStart: false,
+                P2P_AutoBroadcast: false,
+                P2P_turnServers: "turn:manual.example:3478",
+                P2P_turnUsername: "manual-user",
+                P2P_turnCredential: "manual-pass",
+                P2P_iceServerSource: source,
+            },
+        });
+
+        expect(uri.startsWith("sls+p2p-v2://")).toBe(true);
+        const parsed = ConnectionStringParser.parse(uri);
+        if (parsed.type !== "p2p") throw new Error("Expected p2p type");
+        expect(parsed.settings.P2P_iceServerSource).toEqual(source);
+    });
+
+    it("rejects managed source data hidden in a legacy P2P URI", () => {
+        expect(() =>
+            ConnectionStringParser.parse(
+                "sls+p2p://room?source=%7B%22version%22%3A1%2C%22id%22%3A%22cloudflare%22%2C%22configuration%22%3A%7B%7D%7D"
+            )
+        ).toThrow(/sls\+p2p-v2/);
+    });
 });
 
 describe("ConnectionStringParser S3", () => {
@@ -288,5 +363,23 @@ describe("ConnectionStringParser S3", () => {
         expect(parsed.settings.useCustomRequestHandler).toBe(true);
         expect(parsed.settings.bucketCustomHeaders).toBe("x-amz-meta-test:1");
         expect(parsed.settings.forcePathStyle).toBe(false);
+    });
+});
+
+
+describe("connection-string error privacy", () => {
+    it.each([
+        "sls+p2p-v2://?source=%7B%22apiToken%22%3A%22private-token%22%7D",
+        "invalid://?source=%7B%22apiToken%22%3A%22private-token%22%7D",
+    ])("omits supplied credentials from malformed URI errors", (uri) => {
+        let failure: unknown;
+        try {
+            ConnectionStringParser.parse(uri);
+        } catch (error) {
+            failure = error;
+        }
+        expect(failure).toBeInstanceOf(Error);
+        expect(String(failure)).not.toContain("private-token");
+        expect(String(failure)).not.toContain("apiToken");
     });
 });

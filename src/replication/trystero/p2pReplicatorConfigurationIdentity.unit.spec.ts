@@ -99,4 +99,65 @@ describe("P2P Replicator configuration identity", () => {
             })
         ).toBe(identity);
     });
+
+    it("includes managed source configuration while excluding inactive manual TURN fields", () => {
+        const settings = configuredSettings({
+            P2P_iceServerSource: {
+                version: 1,
+                id: "managed",
+                configuration: { apiToken: "token-a", turnKeyId: "key-a" },
+            },
+        });
+        const identity = getP2PReplicatorConfigurationIdentity(settings);
+
+        expect(
+            getP2PReplicatorConfigurationIdentity({
+                ...settings,
+                P2P_turnServers: "turns:inactive.example.test",
+                P2P_turnUsername: "inactive-user",
+                P2P_turnCredential: "inactive-secret",
+            })
+        ).toBe(identity);
+        expect(
+            getP2PReplicatorConfigurationIdentity({
+                ...settings,
+                P2P_iceServerSource: {
+                    version: 1,
+                    id: "managed",
+                    configuration: { apiToken: "token-b", turnKeyId: "key-a" },
+                },
+            })
+        ).not.toBe(identity);
+        expect(
+            getP2PReplicatorConfigurationIdentity({
+                ...settings,
+                P2P_iceServerSource: {
+                    version: 1,
+                    id: "managed",
+                    configuration: { turnKeyId: "key-a", apiToken: "token-a" },
+                },
+            })
+        ).toBe(identity);
+    });
+
+    it("keeps relay-only policy effective for a managed source without manual TURN fields", () => {
+        const settings = configuredSettings({
+            P2P_turnServers: "",
+            P2P_turnUsername: "",
+            P2P_turnCredential: "",
+            P2P_iceServerSource: {
+                version: 1,
+                id: "managed",
+                configuration: { apiToken: "token-a" },
+            },
+            P2P_connectionPath: P2PConnectionPaths.Relay,
+        });
+
+        expect(
+            getP2PReplicatorConfigurationIdentity({
+                ...settings,
+                P2P_connectionPath: P2PConnectionPaths.Automatic,
+            })
+        ).not.toBe(getP2PReplicatorConfigurationIdentity(settings));
+    });
 });

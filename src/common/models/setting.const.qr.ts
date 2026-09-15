@@ -160,6 +160,10 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     P2P_turnServers: 150,
     P2P_turnUsername: 151,
     P2P_turnCredential: 152,
+    // Managed ICE source descriptors contain provider credentials and must use
+    // an encrypted Setup URI rather than plain QR sharing.
+    P2P_iceServerSource: -1,
+    encryptedP2PIceServerSource: -1,
     syncInternalFileOverwritePatterns: 153,
     useOnlyLocalChunk: 154,
     maxMTimeForReflectEvents: 155,

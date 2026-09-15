@@ -1,7 +1,7 @@
 ---
-date: 2026-08-28
-commonlib-version: "0.1.20"
-self-hosted-livesync-version: "1.0.21"
+date: 2026-09-15
+commonlib-version: "0.1.25-dev.turn-credentials.3"
+self-hosted-livesync-version: "1.0.28"
 status: unreleased
 ---
 
@@ -172,6 +172,64 @@ An additional-device Fetch uses one explicit peer-selection pass. The selected p
 Do not close the raw values returned by `room.getPeers()`. Both closing them before room departure and closing captured values after departure have prevented the same peer from being rediscovered within 60 seconds in the real-transport replacement test.
 
 Commonlib consequently does not expose a forced physical-disconnection command. Such an operation requires a future Trystero API which removes and destroys peers through its shared-peer manager, followed by proof that immediate reconnection remains possible.
+
+## Optional ICE server sources
+
+The `/p2p` entry exports `IceServerSource`, `IceServerConfiguration`,
+`IceServerSourceFactoryCatalogue`, and `IceServerSourceError`. A host supplies
+its catalogue as the fourth argument to `useP2PReplicatorFeature`:
+
+```ts
+useP2PReplicatorFeature(core, openReplicationUiFactory, openRebuildUiFactory, {
+    iceServerSources: {
+        example: (configuration) => createExampleSource(configuration, hostFetch),
+    },
+});
+```
+
+The factory receives the selected profile's source configuration. Its
+`acquire(signal)` returns `{ iceServers, expiresAt }`, where `expiresAt` is an
+absolute Unix time in milliseconds. Managed results require a finite expiry;
+`null` is reserved for the manual configuration contract. Factories and HTTP dependencies belong to the host. Existing consumers
+which omit the catalogue retain manual TURN configuration. An unknown source
+or descriptor version produces a configuration error before a room opens.
+
+`P2PRoomSessionOwner` holds issued credentials in memory and compares the
+selected source's complete configuration when deciding whether a room can be
+reused. Matching settings and usable cached credentials retain the room.
+Expired credentials cause the next reconciliation to retire the old room,
+acquire credentials, and open its replacement. Disconnect, settings changes,
+and suspension cancel or invalidate pending acquisition; a late result cannot
+publish an obsolete room. Issued credentials never populate persisted manual
+TURN settings.
+
+There is no periodic renewal, per-peer acquisition hook, or update of a live
+`RTCPeerConnection`. Internal Trystero reconnection within an existing room
+does not recheck expiry. A host can use the existing disconnect/connect flow
+if a long-lived room needs fresh credentials. Trystero retains ownership of
+physical peers and its offer pool.
+
+Room retirement may cancel a transfer. The next replication attempt uses the
+existing database checkpoint and revision comparison, retaining saved Metadata
+and Chunks. This is document-level continuation; a partial network message may
+be resent. An unfinished automatic baseline remains eligible under the existing
+peer policy, while an interrupted manual operation requires another request.
+
+The P2P source descriptor is versioned separately from the data protocol.
+Managed profiles use `sls+p2p-v2://`; encrypted Setup sharing uses
+`obsidian://setuplivesync-v2?settings=` and a versioned envelope. Hosts must use
+the shared encoder and decoder, reject unsupported versions, and redact all
+source configuration in diagnostics. Plain QR sharing rejects managed
+profiles, including inactive profiles. Optional settings encryption covers
+both profile URIs and the top-level source projection.
+
+For a selected managed source, the persisted snapshot retains the complete
+connection in its versioned profile and disables the legacy P2P projection.
+A compatible load restores enablement, automatic start, Group ID, and passphrase
+from that profile. Older consumers which reject the profile therefore cannot
+join using stale legacy fields. Runtime settings and setting-saved notifications
+retain the effective connection values. Manual selections keep their existing
+persistence behaviour, including when other managed profiles are inactive.
 
 ## Verification
 

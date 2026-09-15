@@ -19,6 +19,19 @@ import {
     type P2PConnectionProbeAdmissionResult,
     type P2PConnectionProbeSettings,
 } from "./P2PConnectionProbeAdmission";
+import {
+    ICE_SERVER_ACQUISITION_TIMEOUT_MS,
+    ICE_SERVER_MINIMUM_REMAINING_LIFETIME_MS,
+    IceServerSourceError,
+    getIceServerSourceIdentity,
+    resolveIceServerSelection,
+    toSafeIceServerSourceError,
+    validateIceServerConfiguration,
+    type IceServerConfiguration,
+    type IceServerSource,
+    type IceServerSourceFactoryCatalogue,
+    type ResolvedIceServerSelection,
+} from "@lib/p2p/IceServerSource";
 
 type P2PRoomSessionBinding = {
     readonly database: PouchDB.Database<EntryDoc>;
@@ -26,9 +39,28 @@ type P2PRoomSessionBinding = {
     readonly settings: ObsidianLiveSyncSettings;
     readonly deviceName: string;
     readonly signature: string;
+    readonly iceServerSelection: ResolvedIceServerSelection;
 };
 
 type P2PRoomSessionFactory = (env: ReplicatorHostEnv) => P2PRoomSession;
+
+type CachedIceServerConfiguration = {
+    readonly sourceIdentity: string;
+    readonly configuration: IceServerConfiguration;
+};
+
+type PendingIceServerAcquisition = {
+    readonly sourceIdentity: string;
+    readonly controller: AbortController;
+};
+
+export interface P2PRoomSessionOwnerOptions {
+    readonly iceServerSources?: IceServerSourceFactoryCatalogue;
+}
+
+class StaleRoomReconciliationError extends Error {}
+
+const P2P_ROOM_OPEN_TIMEOUT_MS = 30_000;
 
 /** Session operations shared by the stable service and its compatibility facade. */
 export interface P2PRoomSessionAccess {
@@ -55,10 +87,14 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
     private readonly finiteDemands = new Set<symbol>();
     private readonly automationCoordinator = new P2PAutomationCoordinator();
     private activeBinding?: P2PRoomSessionBinding;
+    private cachedIceServerConfiguration?: CachedIceServerConfiguration;
+    private pendingIceServerAcquisition?: PendingIceServerAcquisition;
+    private runtimeGeneration = 0;
 
     constructor(
         private readonly env: LiveSyncReplicatorEnv,
-        private readonly createSession: P2PRoomSessionFactory = (sessionEnv) => new P2PRoomSession(sessionEnv)
+        private readonly createSession: P2PRoomSessionFactory = (sessionEnv) => new P2PRoomSession(sessionEnv),
+        private readonly options: P2PRoomSessionOwnerOptions = {}
     ) {}
 
     get currentSession(): P2PRoomSession | undefined {
@@ -93,6 +129,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         if (active && !enabled) {
             Logger(this.env.services.context.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
         }
+        this.fenceCredentialStateForCurrentSettings(enabled);
         await this.reconcileTransport();
     }
 
@@ -108,6 +145,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         }
         const demand = Symbol("p2p-finite-room-demand");
         this.finiteDemands.add(demand);
+        this.fenceCredentialStateForCurrentSettings(true);
         try {
             await this.reconcileTransport();
             if (!this.finiteDemands.has(demand)) {
@@ -162,8 +200,20 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
                 await this.closeTransport();
                 return;
             }
-            const binding = this.getEffectiveBinding();
-            if (this.current?.host.isServing && this.bindingsMatch(this.activeBinding, binding)) {
+            let binding: P2PRoomSessionBinding;
+            try {
+                binding = this.getEffectiveBinding();
+            } catch (error) {
+                const safeError = toSafeIceServerSourceError(error);
+                await this.closeTransport();
+                this.reportIceServerSourceError(safeError);
+                throw safeError;
+            }
+            if (
+                this.current?.host.isServing &&
+                this.bindingsMatch(this.activeBinding, binding) &&
+                this.credentialsRemainUsable(binding.iceServerSelection)
+            ) {
                 this.reconcileCurrentSessionPolicy(this.current);
                 Logger("P2P replicator is already open.");
                 return;
@@ -173,14 +223,30 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
             }
 
             let candidate: P2PRoomSession | undefined;
+            const operationGeneration = this.runtimeGeneration;
             try {
-                candidate = this.createSession(this.buildSessionEnv(binding));
-                await candidate.open();
+                const iceServerConfiguration = await this.resolveIceServerConfiguration(
+                    binding.iceServerSelection,
+                    operationGeneration
+                );
+                this.assertReconciliationCurrent(binding, operationGeneration, iceServerConfiguration);
+                candidate = this.createSession(this.buildSessionEnv(binding, iceServerConfiguration));
+                if (binding.iceServerSelection.kind === "managed") {
+                    await this.withRoomOpenDeadline(candidate.open());
+                } else {
+                    await candidate.open();
+                }
                 if (!candidate.host.isServing) {
                     throw new Error("The P2P room did not start serving.");
                 }
                 const currentBinding = this.getEffectiveBinding();
-                if (!currentBinding.enabled || !this.hasRoomDemand() || !this.bindingsMatch(binding, currentBinding)) {
+                if (
+                    !currentBinding.enabled ||
+                    !this.hasRoomDemand() ||
+                    !this.bindingsMatch(binding, currentBinding) ||
+                    operationGeneration !== this.runtimeGeneration ||
+                    !this.configurationRemainsUsable(iceServerConfiguration)
+                ) {
                     await candidate.retire();
                     return;
                 }
@@ -189,12 +255,28 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
                 this.reconcileCurrentSessionPolicy(candidate);
             } catch (error) {
                 await candidate?.retire(error).catch((retirementError: unknown) => {
-                    Logger(retirementError, LOG_LEVEL_VERBOSE);
+                    if (binding.iceServerSelection.kind === "managed") {
+                        Logger("The managed P2P room could not be retired cleanly.", LOG_LEVEL_VERBOSE);
+                    } else {
+                        Logger(retirementError, LOG_LEVEL_VERBOSE);
+                    }
                 });
-                Logger(error instanceof Error ? error.message : "Error while opening P2P connection", LOG_LEVEL_NOTICE);
-                Logger(error, LOG_LEVEL_VERBOSE);
                 this.current = undefined;
                 this.activeBinding = undefined;
+                if (error instanceof StaleRoomReconciliationError || operationGeneration !== this.runtimeGeneration) {
+                    return;
+                }
+                if (error instanceof IceServerSourceError) {
+                    this.reportIceServerSourceError(error);
+                    throw error;
+                }
+                if (binding.iceServerSelection.kind === "managed") {
+                    Logger("The P2P room could not be opened with the acquired ICE credentials.", LOG_LEVEL_NOTICE);
+                    Logger("Managed P2P room opening failed; error details were omitted.", LOG_LEVEL_VERBOSE);
+                    return;
+                }
+                Logger(error instanceof Error ? error.message : "Error while opening P2P connection", LOG_LEVEL_NOTICE);
+                Logger(error, LOG_LEVEL_VERBOSE);
             }
         });
     }
@@ -202,6 +284,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
     async close(): Promise<void> {
         this.persistentDemands.clear();
         this.finiteDemands.clear();
+        this.invalidateCredentialRuntimeState();
         await this.enqueueLifecycleOperation(async () => {
             await this.closeTransport();
         });
@@ -233,6 +316,185 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         return current?.database === candidate.database && current.signature === candidate.signature;
     }
 
+    private credentialsRemainUsable(selection: ResolvedIceServerSelection): boolean {
+        if (selection.kind === "manual") return true;
+        const cached = this.cachedIceServerConfiguration;
+        return cached?.sourceIdentity === selection.identity && this.configurationRemainsUsable(cached.configuration);
+    }
+
+    private configurationRemainsUsable(configuration: IceServerConfiguration | undefined): boolean {
+        if (configuration === undefined || configuration.expiresAt === null) return true;
+        return configuration.expiresAt > Date.now() + ICE_SERVER_MINIMUM_REMAINING_LIFETIME_MS;
+    }
+
+    private fenceCredentialStateForCurrentSettings(enabled: boolean): void {
+        if (!enabled) {
+            this.invalidateCredentialRuntimeState();
+            return;
+        }
+        let sourceIdentity: string;
+        try {
+            sourceIdentity = getIceServerSourceIdentity(
+                this.env.services.setting.currentSettings().P2P_iceServerSource
+            );
+        } catch {
+            this.invalidateCredentialRuntimeState();
+            return;
+        }
+        const cacheChanged =
+            this.cachedIceServerConfiguration !== undefined &&
+            this.cachedIceServerConfiguration.sourceIdentity !== sourceIdentity;
+        const pendingChanged =
+            this.pendingIceServerAcquisition !== undefined &&
+            this.pendingIceServerAcquisition.sourceIdentity !== sourceIdentity;
+        if (cacheChanged || pendingChanged) this.invalidateCredentialRuntimeState();
+    }
+
+    private invalidateCredentialRuntimeState(): void {
+        this.runtimeGeneration += 1;
+        this.cachedIceServerConfiguration = undefined;
+        const pending = this.pendingIceServerAcquisition;
+        this.pendingIceServerAcquisition = undefined;
+        if (pending && !pending.controller.signal.aborted) {
+            pending.controller.abort(
+                new IceServerSourceError("unavailable", "The ICE server acquisition was cancelled.", true)
+            );
+        }
+    }
+
+    private async resolveIceServerConfiguration(
+        selection: ResolvedIceServerSelection,
+        operationGeneration: number
+    ): Promise<IceServerConfiguration | undefined> {
+        if (selection.kind === "manual") return undefined;
+
+        const cached = this.cachedIceServerConfiguration;
+        if (cached?.sourceIdentity === selection.identity && this.configurationRemainsUsable(cached.configuration)) {
+            return cached.configuration;
+        }
+        this.cachedIceServerConfiguration = undefined;
+
+        let source: IceServerSource;
+        try {
+            source = selection.factory(selection.configuration);
+            if (!source || typeof source.acquire !== "function") {
+                throw new IceServerSourceError(
+                    "configuration",
+                    "The ICE server source factory returned an invalid source.",
+                    false
+                );
+            }
+        } catch (error) {
+            throw toSafeIceServerSourceError(error);
+        }
+
+        const controller = new AbortController();
+        const pending: PendingIceServerAcquisition = {
+            sourceIdentity: selection.identity,
+            controller,
+        };
+        this.pendingIceServerAcquisition = pending;
+        try {
+            const acquired = await this.acquireWithDeadline(source, controller);
+            const validated = validateIceServerConfiguration(acquired, { managed: true });
+            this.assertReconciliationCurrent(undefined, operationGeneration, validated, selection.identity);
+            this.cachedIceServerConfiguration = {
+                sourceIdentity: selection.identity,
+                configuration: validated,
+            };
+            return validated;
+        } finally {
+            if (this.pendingIceServerAcquisition === pending) {
+                this.pendingIceServerAcquisition = undefined;
+            }
+        }
+    }
+
+    private acquireWithDeadline(source: IceServerSource, controller: AbortController): Promise<IceServerConfiguration> {
+        const acquisition = Promise.resolve()
+            .then(() => source.acquire(controller.signal))
+            .catch((error: unknown) => {
+                throw toSafeIceServerSourceError(error);
+            });
+        return new Promise<IceServerConfiguration>((resolve, reject) => {
+            let settled = false;
+            const finish = (operation: () => void) => {
+                if (settled) return;
+                settled = true;
+                globalThis.clearTimeout(timeout);
+                controller.signal.removeEventListener("abort", onAbort);
+                operation();
+            };
+            const onAbort = () =>
+                finish(() =>
+                    reject(
+                        controller.signal.reason instanceof IceServerSourceError
+                            ? controller.signal.reason
+                            : new IceServerSourceError("unavailable", "The ICE server acquisition was cancelled.", true)
+                    )
+                );
+            const timeout = globalThis.setTimeout(() => {
+                controller.abort(
+                    new IceServerSourceError("unavailable", "The ICE server acquisition timed out.", true)
+                );
+            }, ICE_SERVER_ACQUISITION_TIMEOUT_MS);
+            controller.signal.addEventListener("abort", onAbort, { once: true });
+            if (controller.signal.aborted) onAbort();
+            acquisition.then(
+                (configuration) => finish(() => resolve(configuration)),
+                (error: unknown) => finish(() => reject(toSafeIceServerSourceError(error)))
+            );
+        });
+    }
+
+    private async withRoomOpenDeadline(opening: Promise<void>): Promise<void> {
+        let timeout: ReturnType<typeof globalThis.setTimeout> | undefined;
+        try {
+            await Promise.race([
+                opening,
+                new Promise<never>((_resolve, reject) => {
+                    timeout = globalThis.setTimeout(
+                        () => reject(new Error("The P2P room opening timed out.")),
+                        P2P_ROOM_OPEN_TIMEOUT_MS
+                    );
+                }),
+            ]);
+        } finally {
+            if (timeout !== undefined) globalThis.clearTimeout(timeout);
+        }
+    }
+
+    private assertReconciliationCurrent(
+        binding: P2PRoomSessionBinding | undefined,
+        operationGeneration: number,
+        configuration?: IceServerConfiguration,
+        sourceIdentity?: string
+    ): void {
+        if (operationGeneration !== this.runtimeGeneration || !this.hasRoomDemand()) {
+            throw new StaleRoomReconciliationError();
+        }
+        const currentBinding = this.getEffectiveBinding();
+        if (!currentBinding.enabled) throw new StaleRoomReconciliationError();
+        if (binding && !this.bindingsMatch(binding, currentBinding)) throw new StaleRoomReconciliationError();
+        if (sourceIdentity !== undefined && currentBinding.iceServerSelection.identity !== sourceIdentity) {
+            throw new StaleRoomReconciliationError();
+        }
+        if (!this.configurationRemainsUsable(configuration)) throw new StaleRoomReconciliationError();
+    }
+
+    private reportIceServerSourceError(error: IceServerSourceError): void {
+        Logger(error.message, LOG_LEVEL_NOTICE);
+        Logger(
+            {
+                name: error.name,
+                code: error.code,
+                retryable: error.retryable,
+                message: error.message,
+            },
+            LOG_LEVEL_VERBOSE
+        );
+    }
+
     /** Capture immutable session inputs while keeping policy live. */
     private getEffectiveBinding(): P2PRoomSessionBinding {
         const settings = {
@@ -242,6 +504,21 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
             this.env.services.config.getSmallConfig(SETTING_KEY_P2P_DEVICE_NAME) ||
             this.env.services.vault.getVaultName();
         const database = this.env.services.database.localDatabase.localDatabase;
+        if (
+            settings.P2P_iceServerSource === undefined &&
+            typeof settings.encryptedP2PIceServerSource === "string" &&
+            settings.encryptedP2PIceServerSource !== ""
+        ) {
+            throw new IceServerSourceError(
+                "configuration",
+                "The encrypted ICE server source configuration is not available.",
+                false
+            );
+        }
+        const iceServerSelection = resolveIceServerSelection(
+            settings.P2P_iceServerSource,
+            this.options.iceServerSources
+        );
         this.automationCoordinator.reconcileIdentity(
             JSON.stringify([
                 settings.P2P_AppID || "self-hosted-livesync",
@@ -256,6 +533,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
             settings,
             deviceName,
             signature: JSON.stringify([getP2PReplicatorConfigurationIdentity(settings), deviceName]),
+            iceServerSelection,
         };
     }
 
@@ -264,12 +542,16 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         session.replicator.reconcileAutoBroadcast(this.env.services.setting.currentSettings().P2P_AutoBroadcast);
     }
 
-    private buildSessionEnv(binding: P2PRoomSessionBinding): ReplicatorHostEnv {
+    private buildSessionEnv(
+        binding: P2PRoomSessionBinding,
+        iceServerConfiguration?: IceServerConfiguration
+    ): ReplicatorHostEnv {
         const services = this.env.services;
         return {
             events: services.context.events,
             translate: services.context.translate,
             settings: binding.settings,
+            iceServers: iceServerConfiguration?.iceServers,
             currentSettings: () => services.setting.currentSettings(),
             db: binding.database,
             get simpleStore() {

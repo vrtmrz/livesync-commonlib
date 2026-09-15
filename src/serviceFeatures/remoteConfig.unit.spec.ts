@@ -3,10 +3,13 @@ import {
     migrateLegacyRemoteConfigurationsInPlace,
     migrateToMultipleRemoteConfigurations,
     activateRemoteConfiguration,
+    activateP2PRemoteConfiguration,
     upsertRemoteConfigurationInPlace,
     useRemoteConfiguration,
 } from "@lib/serviceFeatures/remoteConfig";
 import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
+import { ConnectionStringParser } from "@lib/common/ConnectionString";
+import { P2P_DEFAULT_SETTINGS } from "@lib/common/models/setting.const.defaults";
 import type { ObsidianLiveSyncSettings } from "@lib/common/models/setting.type";
 
 describe("Remote Configuration Migration", () => {
@@ -148,6 +151,23 @@ describe("Remote Configuration Migration", () => {
 });
 
 describe("Remote Configuration Activation", () => {
+    const managedSource = {
+        version: 1,
+        id: "cloudflare",
+        configuration: { turnKeyId: "key-id", apiToken: "api-token" },
+    };
+
+    function createP2PProfileURI(roomID: string, source?: typeof managedSource): string {
+        return ConnectionStringParser.serialize({
+            type: "p2p",
+            settings: {
+                ...P2P_DEFAULT_SETTINGS,
+                P2P_roomID: roomID,
+                P2P_iceServerSource: source,
+            },
+        });
+    }
+
     it("should correctly set settings when activating a remote configuration", () => {
         const settings = {
             remoteConfigurations: {
@@ -172,6 +192,53 @@ describe("Remote Configuration Activation", () => {
         expect(settings.couchDB_DBNAME).toBe("db");
         expect(settings.couchDB_USER).toBe("user");
         expect(settings.couchDB_PASSWORD).toBe("pass");
+    });
+
+    it("clears the previous managed source when activating a manual profile", () => {
+        const settings = {
+            ...P2P_DEFAULT_SETTINGS,
+            remoteType: REMOTE_P2P,
+            activeConfigurationId: "managed",
+            P2P_iceServerSource: managedSource,
+            encryptedP2PIceServerSource: "encrypted-old-source",
+            remoteConfigurations: {
+                manual: {
+                    id: "manual",
+                    name: "Manual P2P",
+                    uri: createP2PProfileURI("manual-room"),
+                    isEncrypted: false,
+                },
+            },
+        } as ObsidianLiveSyncSettings;
+
+        expect(activateRemoteConfiguration(settings, "manual")).toBe(settings);
+        expect(settings.P2P_iceServerSource).toBeUndefined();
+        expect(settings.encryptedP2PIceServerSource).toBeUndefined();
+        expect(settings.P2P_roomID).toBe("manual-room");
+    });
+
+    it("clears the previous managed source when activating a manual P2P profile", () => {
+        const settings = {
+            ...P2P_DEFAULT_SETTINGS,
+            remoteType: REMOTE_COUCHDB,
+            P2P_ActiveRemoteConfigurationId: "managed",
+            P2P_iceServerSource: managedSource,
+            encryptedP2PIceServerSource: "encrypted-old-source",
+            remoteConfigurations: {
+                manual: {
+                    id: "manual",
+                    name: "Manual P2P",
+                    uri: createP2PProfileURI("manual-room"),
+                    isEncrypted: false,
+                },
+            },
+        } as ObsidianLiveSyncSettings;
+
+        expect(activateP2PRemoteConfiguration(settings, "manual")).toBe(settings);
+        expect(settings.P2P_iceServerSource).toBeUndefined();
+        expect(settings.encryptedP2PIceServerSource).toBeUndefined();
+        expect(settings.P2P_roomID).toBe("manual-room");
+        expect(settings.remoteType).toBe(REMOTE_COUCHDB);
     });
 
     it("should return false if configuration ID is not found", () => {

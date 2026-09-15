@@ -137,7 +137,7 @@ export class TrysteroReplicatorP2PServer {
                     `Some error has been occurred while leaving the room, but possibly can be ignored`,
                     LOG_LEVEL_VERBOSE
                 );
-                Logger(ex, LOG_LEVEL_VERBOSE);
+                this.logTransportError(ex);
             }
             this._room = undefined;
             this._env.events.emitEvent(EVENT_P2P_DISCONNECTED);
@@ -156,7 +156,7 @@ export class TrysteroReplicatorP2PServer {
             this._rpcRoom = undefined;
         } catch (ex) {
             Logger(`Some error has been occurred while shutting down the server`, LOG_LEVEL_INFO);
-            Logger(ex, LOG_LEVEL_VERBOSE);
+            this.logTransportError(ex);
         }
     }
 
@@ -551,7 +551,7 @@ You can chose as follows:
             Logger(this._env.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
             return;
         }
-        const options = generateJoinRoomOptions(this.settings);
+        const options = generateJoinRoomOptions(this.settings, this._env.iceServers);
         const roomId = this.settings.P2P_roomID;
         this._peerConnectionEventCleanup();
         this._peerStatusEventCleanup = subscribeConnectionStatus((status) => {
@@ -566,7 +566,7 @@ You can chose as follows:
             handshakeTimeoutMs: 30000,
             onJoinError: (error) => {
                 Logger("Some peer Failed to join Trystero room");
-                Logger(error, LOG_LEVEL_VERBOSE);
+                this.logTransportError(error);
             },
         });
         await this.setRoom(room);
@@ -574,6 +574,14 @@ You can chose as follows:
         this.onAfterJoinRoom();
         void this.dispatchConnectionStatus();
         await this.startService(bindings, beforeAdvertisement);
+    }
+
+    private logTransportError(error: unknown): void {
+        if (this._env.iceServers !== undefined) {
+            Logger("Managed P2P transport error details were omitted.", LOG_LEVEL_VERBOSE);
+            return;
+        }
+        Logger(error, LOG_LEVEL_VERBOSE);
     }
 
     /**

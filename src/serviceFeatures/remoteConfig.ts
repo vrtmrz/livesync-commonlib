@@ -1,6 +1,11 @@
 import { LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE, type LOG_LEVEL } from "@lib/common/logger";
 import { ConnectionStringParser, type RemoteConfigurationResult } from "@lib/common/ConnectionString";
-import type { ObsidianLiveSyncSettings, RemoteConfiguration, RemoteDBSettings } from "@lib/common/models/setting.type";
+import type {
+    ObsidianLiveSyncSettings,
+    P2PConnectionInfo,
+    RemoteConfiguration,
+    RemoteDBSettings,
+} from "@lib/common/models/setting.type";
 import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
@@ -114,6 +119,16 @@ function toRemoteConfigurationResult(
         return { type, settings };
     }
     return { type, settings };
+}
+
+/** Apply a parsed P2P profile, clearing stale managed state for an explicit manual profile. */
+function applyP2PConnectionInfo(settings: ObsidianLiveSyncSettings, parsed: P2PConnectionInfo): void {
+    const hasSourceDescriptor = Object.prototype.hasOwnProperty.call(parsed, "P2P_iceServerSource");
+    if (!hasSourceDescriptor) {
+        settings.P2P_iceServerSource = undefined;
+        settings.encryptedP2PIceServerSource = undefined;
+    }
+    Object.assign(settings, parsed);
 }
 
 /**
@@ -297,7 +312,7 @@ export function activateRemoteConfiguration(
             Object.assign(settings, parsed.settings);
         } else if (parsed.type === "p2p") {
             settings.remoteType = REMOTE_P2P;
-            Object.assign(settings, parsed.settings);
+            applyP2PConnectionInfo(settings, parsed.settings);
         }
         return settings;
     } catch {
@@ -323,7 +338,7 @@ export function activateP2PRemoteConfiguration(
         }
         const currentRemoteType = settings.remoteType;
         settings.P2P_ActiveRemoteConfigurationId = id;
-        Object.assign(settings, parsed.settings);
+        applyP2PConnectionInfo(settings, parsed.settings);
         settings.remoteType = currentRemoteType;
         return settings;
     } catch {

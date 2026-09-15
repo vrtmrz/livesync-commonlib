@@ -30,6 +30,8 @@ export const P2P_DEFAULT_SETTINGS: P2PSyncSetting = {
     P2P_turnServers: "",
     P2P_turnUsername: "",
     P2P_turnCredential: "",
+    P2P_iceServerSource: undefined,
+    encryptedP2PIceServerSource: "",
     P2P_maxWirePayloadBytes: P2PMessageSizePresets.Standard,
     P2P_connectionPath: P2PConnectionPaths.Automatic,
     P2P_useDiagRTC: false,

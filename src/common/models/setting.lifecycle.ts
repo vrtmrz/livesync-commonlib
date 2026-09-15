@@ -4,6 +4,7 @@ import {
     SETTING_VERSION_INITIAL,
     SETTING_VERSION_SUPPORT_CASE_INSENSITIVE,
 } from "./setting.const";
+import { cloneIceServerSourceConfiguration, isIceServerSourceConfiguration } from "./setting.p2p";
 import type { ObsidianLiveSyncSettings } from "./setting.type";
 
 export const SettingsMigrationReviewCodes = {
@@ -64,9 +65,13 @@ function cloneSettings(
     source: Partial<ObsidianLiveSyncSettings>,
     fallbacks: ObsidianLiveSyncSettings
 ): ObsidianLiveSyncSettings {
+    const sourceDescriptor = source.P2P_iceServerSource;
     return {
         ...fallbacks,
         ...source,
+        P2P_iceServerSource: isIceServerSourceConfiguration(sourceDescriptor)
+            ? cloneIceServerSourceConfiguration(sourceDescriptor)
+            : sourceDescriptor,
         remoteConfigurations: Object.fromEntries(
             Object.entries(source.remoteConfigurations ?? fallbacks.remoteConfigurations).map(([id, config]) => [
                 id,
@@ -156,9 +161,7 @@ export function prepareSettingsForLoad(
     }
 
     if (targetVersion !== CURRENT_SETTING_VERSION) {
-        throw new Error(
-            `No setting migration reaches schema ${CURRENT_SETTING_VERSION} from schema ${sourceVersion}.`
-        );
+        throw new Error(`No setting migration reaches schema ${CURRENT_SETTING_VERSION} from schema ${sourceVersion}.`);
     }
 
     // Keep the configured-state inference used before 1.0. A non-empty

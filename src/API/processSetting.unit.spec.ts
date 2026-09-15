@@ -1,7 +1,16 @@
-import { describe, it, expect } from "vitest";
-import { encodeSettingsToQRCodeData, decodeSettingsFromQRCodeData } from "@lib/API/processSetting";
-import { DEFAULT_SETTINGS } from "@lib/common/types";
+import { describe, it, expect, vi } from "vitest";
+import {
+    decodeSettingsFromSetupURI,
+    decodeSettingsFromSetupURIV2,
+    encodeSettingsToQRCodeData,
+    encodeSettingsToSetupURI,
+    SETUP_SETTINGS_ENVELOPE_VERSION,
+    decodeSettingsFromQRCodeData,
+} from "@lib/API/processSetting";
+import { configURIBase, configURIBaseV2, DEFAULT_SETTINGS } from "@lib/common/types";
 import type { RemoteConfiguration } from "@lib/common/models/setting.type";
+import { encryptString } from "@lib/encryption/stringEncryption";
+import { defaultLogger, setGlobalLogFunction } from "octagonal-wheels/common/logger";
 
 describe("QR Codec Round-Trip Test with Real Data", () => {
     it("preserves sleep preferences in Setup URI data", () => {
@@ -103,5 +112,79 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
         expect(decodedSettings.encrypt).toBe(originalSettings.encrypt);
         expect(decodedSettings.passphrase).toBe(originalSettings.passphrase);
         expect(decodedSettings.usePathObfuscation).toBe(originalSettings.usePathObfuscation);
+    });
+
+    it("rejects managed source profiles from plain QR sharing", () => {
+        expect(() =>
+            encodeSettingsToQRCodeData({
+                ...DEFAULT_SETTINGS,
+                P2P_iceServerSource: {
+                    version: 1,
+                    id: "cloudflare",
+                    configuration: { turnKeyId: "key", apiToken: "secret" },
+                },
+            })
+        ).toThrow(/encrypted Setup URI/i);
+    });
+
+    it("uses and validates the v2 encrypted Setup URI envelope for managed sources", async () => {
+        const settings = {
+            ...DEFAULT_SETTINGS,
+            activeConfigurationId: "couch",
+            P2P_ActiveRemoteConfigurationId: "p2p",
+            P2P_DevicePeerName: "receiver-device",
+            P2P_iceServerSource: {
+                version: 1,
+                id: "cloudflare",
+                configuration: { turnKeyId: "key", apiToken: "secret" },
+            },
+        };
+
+        const uri = await encodeSettingsToSetupURI(settings, "setup-pass", [], false);
+        expect(uri.startsWith(configURIBaseV2)).toBe(true);
+        expect(uri.startsWith(configURIBase)).toBe(false);
+
+        const envelope = await decodeSettingsFromSetupURIV2(uri, "setup-pass");
+        expect(envelope).toMatchObject({ version: SETUP_SETTINGS_ENVELOPE_VERSION });
+        expect(envelope && envelope.settings.P2P_iceServerSource).toEqual(settings.P2P_iceServerSource);
+        expect(envelope && envelope.settings.P2P_ActiveRemoteConfigurationId).toBe("p2p");
+        expect(envelope && envelope.settings.P2P_DevicePeerName).toBe("receiver-device");
+
+        const decoded = await decodeSettingsFromSetupURI(uri, "setup-pass");
+        expect(decoded && decoded.P2P_iceServerSource).toEqual(settings.P2P_iceServerSource);
+    });
+
+    it("keeps legacy Setup URI output and decoding for manual settings", async () => {
+        const settings = {
+            ...DEFAULT_SETTINGS,
+            P2P_roomID: "manual-room",
+            P2P_turnServers: "turn:example.test:3478",
+        };
+        const uri = await encodeSettingsToSetupURI(settings, "setup-pass", [], false);
+        expect(uri.startsWith(configURIBase)).toBe(true);
+        expect(uri.startsWith(configURIBaseV2)).toBe(false);
+        const decoded = await decodeSettingsFromSetupURI(uri, "setup-pass");
+        expect(decoded && decoded.P2P_roomID).toBe("manual-room");
+        expect(decoded && "encryptedP2PIceServerSource" in decoded).toBe(false);
+    });
+
+    it("does not log provider tokens from malformed v2 Setup payloads", async () => {
+        const token = "turn-key-api-token-that-must-not-be-logged";
+        const malformedPayload = `{"version":2,"settings":{"P2P_iceServerSource":{"version":1,"id":"cloudflare","configuration":{"apiToken":"${token}"}}}BROKEN`;
+        const encrypted = await encryptString(malformedPayload, "setup-pass");
+        const logger = vi.fn();
+        setGlobalLogFunction(logger);
+        try {
+            const result = await decodeSettingsFromSetupURIV2(
+                `${configURIBaseV2}${encodeURIComponent(encrypted)}`,
+                "setup-pass"
+            );
+            expect(result).toBe(false);
+            const messages = logger.mock.calls.map(([message]) => String(message)).join("\n");
+            expect(messages).toContain("Failed to decode versioned settings from Setup URI");
+            expect(messages).not.toContain(token);
+        } finally {
+            setGlobalLogFunction(defaultLogger);
+        }
     });
 });

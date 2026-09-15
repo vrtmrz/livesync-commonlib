@@ -1,4 +1,120 @@
 import { P2PConnectionPaths, P2PMessageSizePresets, type P2PConnectionPath } from "./setting.const";
+import type { IceServerSourceConfiguration, P2PConnectionInfo } from "./setting.type";
+
+const MANUAL_ICE_SERVER_SOURCE_ID = "manual";
+const MANAGED_P2P_URI_PREFIX = "sls+p2p-v2://";
+
+type P2PSourceSettings = {
+    P2P_iceServerSource?: unknown;
+    encryptedP2PIceServerSource?: unknown;
+    remoteConfigurations?: Record<string, { uri?: unknown } | undefined>;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Check the common envelope without interpreting service-specific fields.
+ * Unknown source identifiers and versions deliberately pass this check so
+ * that hosts can preserve them and report an explicit unsupported source.
+ */
+export function isIceServerSourceConfiguration(value: unknown): value is IceServerSourceConfiguration {
+    if (!isRecord(value)) return false;
+    return (
+        typeof value.id === "string" &&
+        value.id.trim().length > 0 &&
+        typeof value.version === "number" &&
+        Number.isSafeInteger(value.version) &&
+        value.version >= 0 &&
+        isRecord(value.configuration)
+    );
+}
+
+/** A manual descriptor is recognised only at the version reserved for it. */
+export function isManualIceServerSourceConfiguration(value: IceServerSourceConfiguration): boolean {
+    return value.version === 1 && value.id.trim().toLowerCase() === MANUAL_ICE_SERVER_SOURCE_ID;
+}
+
+/** Clone a source descriptor before it crosses a settings ownership boundary. */
+export function cloneIceServerSourceConfiguration(
+    value: IceServerSourceConfiguration | undefined
+): IceServerSourceConfiguration | undefined {
+    if (!value) return undefined;
+
+    const cloneConfigurationValue = (configurationValue: unknown): unknown => {
+        if (Array.isArray(configurationValue)) return configurationValue.map(cloneConfigurationValue);
+        if (isRecord(configurationValue)) {
+            return Object.fromEntries(
+                Object.entries(configurationValue).map(([key, nestedValue]) => [
+                    key,
+                    cloneConfigurationValue(nestedValue),
+                ])
+            );
+        }
+        return configurationValue;
+    };
+
+    return {
+        version: value.version,
+        id: value.id,
+        configuration: cloneConfigurationValue(value.configuration) as Record<string, unknown>,
+    };
+}
+
+/**
+ * Report whether settings contain a managed ICE source.
+ *
+ * The optional remote configuration scan is intentional: inactive P2P
+ * profiles also need to take the encrypted Setup URI sharing route. A saved
+ * encrypted top-level source is considered managed until it is decrypted, so
+ * callers cannot silently treat an unavailable profile as manual.
+ */
+export function hasManagedP2PIceServerSource(settings: P2PSourceSettings): boolean {
+    if (typeof settings.encryptedP2PIceServerSource === "string" && settings.encryptedP2PIceServerSource !== "") {
+        return true;
+    }
+
+    const source = settings.P2P_iceServerSource;
+    if (isIceServerSourceConfiguration(source)) {
+        if (!isManualIceServerSourceConfiguration(source)) return true;
+    } else if (source !== undefined && source !== null) {
+        // Preserve an invalid non-manual value as managed for safety. The
+        // source catalogue will reject it explicitly instead of selecting
+        // manual TURN fields as a fallback.
+        return true;
+    }
+
+    for (const configuration of Object.values(settings.remoteConfigurations ?? {})) {
+        if (typeof configuration?.uri === "string" && configuration.uri.startsWith(MANAGED_P2P_URI_PREFIX)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * Report whether a P2P profile has a usable manual TURN endpoint or a managed
+ * source descriptor. STUN-only profiles remain false.
+ */
+export function hasP2PTurnConfiguration(
+    settings: Partial<
+        Pick<P2PConnectionInfo, "P2P_turnServers" | "P2P_iceServerSource" | "encryptedP2PIceServerSource">
+    >
+): boolean {
+    // Deliberately project only the selected P2P source. A full settings
+    // object may also contain inactive managed profiles, which do not provide
+    // TURN configuration for the currently selected transport.
+    if (
+        hasManagedP2PIceServerSource({
+            P2P_iceServerSource: settings.P2P_iceServerSource,
+            encryptedP2PIceServerSource: settings.encryptedP2PIceServerSource,
+        })
+    ) {
+        return true;
+    }
+    return typeof settings.P2P_turnServers === "string" && hasValidP2PTurnServerUrl(settings.P2P_turnServers);
+}
 
 /**
  * Return a safe outgoing RPC wire-payload bound for Trystero.

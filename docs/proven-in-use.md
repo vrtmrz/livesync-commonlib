@@ -70,6 +70,20 @@ The Obsidian plug-in, CLI, WebApp, and WebPeer compose P2P ownership through `us
 
 Commonlib's focused P2P compatibility tests establish legacy defaulting, bounded outgoing message sizes, connection-string and QR-setting round trips, application of the configured bound across its Trystero server and client surfaces, relay-only ICE mapping when a valid TURN URL is present, and replacement of a serving transport when an effective compatibility value changes. They do not prove that a particular network path requires a smaller preset or that a configured TURN service can allocate a relay. Self-hosted LiveSync owns profile selection, user-facing controls, and real-Obsidian composition; device- and network-specific connectivity remains downstream or reporter-environment evidence.
 
+The optional ICE server source contract extends the same P2P composition with
+host-owned credential factories. Focused tests cover expiry during room reuse,
+cancellation of pending acquisition, settings identity, safe errors, managed
+profile and encrypted Setup URI round trips, and persistence encryption.
+Self-hosted LiveSync supplies the Cloudflare source and settings UI. Mocked HTTP
+and injected room tests establish these boundaries. On 15 September 2026,
+LiveSync with Commonlib `0.1.25-dev.turn-credentials.3` additionally verified
+real Cloudflare issuance and note replication between two isolated Obsidian
+1.12.7 instances on one Linux host. Both endpoints selected relay candidates;
+an explicit disconnect and reconnect acquired credentials again and allowed a
+note to be synchronised in the reverse direction. Natural expiry, interruption
+during a batch, mobile lifecycle, and different-network connectivity retain
+separate runtime validation requirements for this unreleased integration.
+
 Focused room-session and RPC tests additionally establish that a manual stop delivers cancellation to every concurrent finite replication while leaving the room reusable, that session retirement rejects new work and awaits admitted work before leaving, and that caller cancellation reaches a cancellation-aware incoming RPC handler. The replication-shim tests establish cancellation at safe batch boundaries and preserve the checkpoint for an atomic database write which has already settled. Self-hosted LiveSync composes the provider stop capability into its manual command; physical transport interruption and operating-system process termination remain host and runtime boundaries rather than rollback guarantees.
 
 This is evidence that the current package boundary can be consumed without the Obsidian host, but it is not yet a recommended standalone Commonlib client factory. The high-level lifecycle, readiness, error, and disposal contract remains future package work after Self-hosted LiveSync 1.0 rather than a gate for that release.

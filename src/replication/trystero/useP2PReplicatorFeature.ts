@@ -19,6 +19,7 @@ import {
     type UnattendedOneShotRunner,
 } from "@lib/replication";
 import { getP2PReplicatorConfigurationIdentity } from "./p2pReplicatorConfigurationIdentity.ts";
+import type { IceServerSourceFactoryCatalogue } from "@lib/p2p/IceServerSource.ts";
 
 /**
  * Factory type: given the compatibility Replicator and the stable service
@@ -36,6 +37,11 @@ export type OpenReplicationUIFactory = (
 
 /** Same shape as OpenReplicationUIFactory, used for the rebuild/replicateAllFromServer flow. */
 export type OpenRebuildUIFactory = OpenReplicationUIFactory;
+
+/** Optional host integrations for the P2P room lifecycle. */
+export interface P2PReplicatorFeatureOptions {
+    readonly iceServerSources?: IceServerSourceFactoryCatalogue;
+}
 
 /**
  * Compose one private P2P service context and register non-owning active
@@ -64,11 +70,15 @@ export function useP2PReplicatorFeature(
         never
     >,
     openReplicationUIFactory?: OpenReplicationUIFactory,
-    openRebuildUIFactory?: OpenRebuildUIFactory
+    openRebuildUIFactory?: OpenRebuildUIFactory,
+    options: P2PReplicatorFeatureOptions = {}
 ): UseP2PReplicatorResult {
-    const service = createP2PService({
-        services: host.services,
-    });
+    const service = createP2PService(
+        {
+            services: host.services,
+        },
+        options
+    );
     const replicator = service.compatibilityReplicator;
     const { views, lifecycle } = service;
 

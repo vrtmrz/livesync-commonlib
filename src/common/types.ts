@@ -79,6 +79,7 @@ import {
     type EncryptionSettings,
     type HashAlgorithm,
     type HasSettings,
+    type IceServerSourceConfiguration,
     type LocalDBSettings,
     type ObsidianLiveSyncSettings,
     type P2PConnectionInfo,
@@ -111,7 +112,12 @@ import {
     type P2PConnectionPath,
 } from "./models/setting.const.ts";
 import {
+    cloneIceServerSourceConfiguration,
+    hasManagedP2PIceServerSource,
+    hasP2PTurnConfiguration,
     hasValidP2PTurnServerUrl,
+    isIceServerSourceConfiguration,
+    isManualIceServerSourceConfiguration,
     isValidP2PTurnServerUrl,
     normaliseP2PConnectionPath,
     normaliseP2PMaxWirePayloadBytes,
@@ -175,6 +181,7 @@ import type {
 import {
     SETTING_KEY_P2P_DEVICE_NAME,
     configURIBase,
+    configURIBaseV2,
     configURIBaseQR,
     SuffixDatabaseName,
     ExtraSuffixIndexedDB,
@@ -294,9 +301,14 @@ export {
     type RemoteType,
     AutoAccepting,
 };
-export type { P2PConnectionInfo, P2PConnectionPath, P2PSyncSetting };
+export type { IceServerSourceConfiguration, P2PConnectionInfo, P2PConnectionPath, P2PSyncSetting };
 export {
+    cloneIceServerSourceConfiguration,
+    hasManagedP2PIceServerSource,
+    hasP2PTurnConfiguration,
     hasValidP2PTurnServerUrl,
+    isIceServerSourceConfiguration,
+    isManualIceServerSourceConfiguration,
     isValidP2PTurnServerUrl,
     normaliseP2PConnectionPath,
     normaliseP2PMaxWirePayloadBytes,
@@ -487,4 +499,11 @@ export { DOCID_JOURNAL_SYNC_PARAMETERS };
 export type { SyncParameters };
 export { DEFAULT_SYNC_PARAMETERS };
 
-export { SETTING_KEY_P2P_DEVICE_NAME, configURIBase, configURIBaseQR, SuffixDatabaseName, ExtraSuffixIndexedDB };
+export {
+    SETTING_KEY_P2P_DEVICE_NAME,
+    configURIBase,
+    configURIBaseV2,
+    configURIBaseQR,
+    SuffixDatabaseName,
+    ExtraSuffixIndexedDB,
+};

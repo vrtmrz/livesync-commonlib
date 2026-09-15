@@ -5,6 +5,10 @@ import {
     LOG_LEVEL_VERBOSE,
     SALT_OF_PASSPHRASE,
     SETTING_KEY_P2P_DEVICE_NAME,
+    cloneIceServerSourceConfiguration,
+    hasManagedP2PIceServerSource,
+    isIceServerSourceConfiguration,
+    isManualIceServerSourceConfiguration,
     prepareSettingsForLoad,
     type BucketSyncSetting,
     type ConfigPassphraseStore,
@@ -23,6 +27,7 @@ import {
     activateRemoteConfiguration,
     migrateLegacyRemoteConfigurationsInPlace,
     migrateP2PActiveRemoteConfigurationIdInPlace,
+    upsertRemoteConfigurationInPlace,
 } from "@lib/serviceFeatures/remoteConfig";
 import { ConnectionStringParser } from "@lib/common/ConnectionString";
 
@@ -203,7 +208,13 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             remoteConfigurations: Object.fromEntries(
                 Object.entries(this.settings.remoteConfigurations || {}).map(([id, config]) => [id, { ...config }])
             ),
+            P2P_iceServerSource: cloneIceServerSourceConfiguration(this.settings.P2P_iceServerSource),
         };
+        if (!settings.P2P_iceServerSource && settings.encryptedP2PIceServerSource) {
+            const message = "Managed P2P ICE source is unavailable for encryption. Settings were not saved.";
+            this._log(message, LOG_LEVEL_URGENT);
+            throw new Error(message);
+        }
         const hookResults = await this.onBeforeSaveSettingData(settings, previousSettings);
         for (const patch of hookResults) {
             if (patch instanceof Error || !patch) continue;
@@ -216,9 +227,24 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             this.setSmallConfig(SETTING_KEY_P2P_DEVICE_NAME, settings.P2P_DevicePeerName.trim());
             settings.P2P_DevicePeerName = "";
         }
-        if (this.usedPassphrase == "" && !(await this.getPassphrase(settings))) {
+        const passphraseAvailable = this.usedPassphrase != "" || (await this.getPassphrase(settings));
+        let managedP2PSourceSelected = false;
+        if (!passphraseAvailable) {
+            if (hasManagedP2PIceServerSource(settings)) {
+                const message = "Failed to retrieve a passphrase for managed P2P source data. Settings were not saved.";
+                this._log(message, LOG_LEVEL_URGENT);
+                throw new Error(message);
+            }
             this._log("Failed to retrieve passphrase. data.json contains unencrypted items!", LOG_LEVEL_NOTICE);
         } else {
+            managedP2PSourceSelected = this.prepareManagedP2PRemoteConfiguration(settings);
+            if (managedP2PSourceSelected) {
+                settings.P2P_Enabled = false;
+                settings.P2P_AutoStart = false;
+                settings.P2P_roomID = "";
+                settings.P2P_passphrase = "";
+            }
+            await this.encryptP2PIceServerSource(settings);
             if (
                 settings.couchDB_PASSWORD != "" ||
                 settings.couchDB_URI != "" ||
@@ -270,7 +296,58 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         }
         await this.saveData(settings);
         this._lastPersistedSettings = this.cloneSettings(this.settings);
-        void this.onSettingSaved(settings);
+        void this.onSettingSaved(managedP2PSourceSelected ? this.cloneSettings(this.settings) : settings);
+    }
+
+    /**
+     * Preserve a selected managed P2P connection in a v2 profile before the
+     * legacy flat projection is removed from the saved copy.
+     */
+    private prepareManagedP2PRemoteConfiguration(settings: ObsidianLiveSyncSettings): boolean {
+        const source = settings.P2P_iceServerSource;
+        if (source === undefined || (isIceServerSourceConfiguration(source) && isManualIceServerSourceConfiguration(source))) {
+            return false;
+        }
+        if (!isIceServerSourceConfiguration(source)) {
+            const message = "Managed P2P ICE source is invalid. Settings were not saved.";
+            this._log(message, LOG_LEVEL_URGENT);
+            throw new Error(message);
+        }
+
+        // A source can be stored before a usable P2P group is configured. Keep
+        // that source encrypted, but do not manufacture a room profile.
+        if (typeof settings.P2P_roomID !== "string" || settings.P2P_roomID.trim() === "") {
+            return true;
+        }
+
+        const selectedID = settings.P2P_ActiveRemoteConfigurationId?.trim();
+        let reusableProfileID: string | undefined;
+        if (selectedID) {
+            const selected = settings.remoteConfigurations?.[selectedID];
+            if (selected && !selected.isEncrypted) {
+                try {
+                    const parsed = ConnectionStringParser.parse(selected.uri);
+                    if (parsed.type === "p2p") reusableProfileID = selectedID;
+                } catch {
+                    // Allocate a new profile when the selected entry cannot be
+                    // validated as a P2P profile. Existing entries remain intact.
+                }
+            }
+        }
+
+        try {
+            const profile = upsertRemoteConfigurationInPlace(
+                settings,
+                "p2p",
+                reusableProfileID ? { id: reusableProfileID } : undefined
+            );
+            settings.P2P_ActiveRemoteConfigurationId = profile.id;
+        } catch {
+            const message = "Failed to serialise the managed P2P remote configuration. Settings were not saved.";
+            this._log(message, LOG_LEVEL_URGENT);
+            throw new Error(message);
+        }
+        return true;
     }
 
     private async encryptRemoteConfigurationUris(settings: ObsidianLiveSyncSettings): Promise<void> {
@@ -279,8 +356,23 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             if (config.isEncrypted || config.uri.trim() === "") {
                 continue;
             }
-            const encryptedURI = await this.encryptConfigurationItem(config.uri, settings);
+            let encryptedURI: string;
+            try {
+                encryptedURI = await this.encryptConfigurationItem(config.uri, settings);
+            } catch (error) {
+                if (config.uri.trim().startsWith("sls+p2p-v2://")) {
+                    const message = `Failed to encrypt managed P2P remote configuration '${id}'. Settings were not saved.`;
+                    this._log(message, LOG_LEVEL_URGENT);
+                    throw new Error(message);
+                }
+                throw error;
+            }
             if (encryptedURI === "") {
+                if (config.uri.trim().startsWith("sls+p2p-v2://")) {
+                    const message = `Failed to encrypt managed P2P remote configuration '${id}'. Settings were not saved.`;
+                    this._log(message, LOG_LEVEL_URGENT);
+                    throw new Error(message);
+                }
                 this._log(
                     `Failed to encrypt remote configuration '${id}'. This entry will be saved in plain text.`,
                     LOG_LEVEL_URGENT
@@ -293,6 +385,49 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                 isEncrypted: true,
             };
         }
+    }
+
+    /**
+     * Encrypt the managed source projection before writing the settings
+     * document. The in-memory source remains available to the runtime; only
+     * the saved copy is replaced by the established encrypted sibling field.
+     */
+    private async encryptP2PIceServerSource(settings: ObsidianLiveSyncSettings): Promise<void> {
+        const source = settings.P2P_iceServerSource;
+        if (!source) {
+            return;
+        }
+        if (isIceServerSourceConfiguration(source) && isManualIceServerSourceConfiguration(source)) {
+            settings.encryptedP2PIceServerSource = "";
+            return;
+        }
+
+        let serialisedSource: string;
+        try {
+            serialisedSource = JSON.stringify(source);
+        } catch {
+            serialisedSource = "";
+        }
+        if (!serialisedSource) {
+            const message = "Failed to serialise the managed P2P ICE source. Settings were not saved.";
+            this._log(message, LOG_LEVEL_URGENT);
+            throw new Error(message);
+        }
+        let encrypted: string;
+        try {
+            encrypted = await this.encryptConfigurationItem(serialisedSource, settings);
+        } catch {
+            const message = "Failed to encrypt the managed P2P ICE source. Settings were not saved.";
+            this._log(message, LOG_LEVEL_URGENT);
+            throw new Error(message);
+        }
+        if (encrypted === "") {
+            const message = "Failed to encrypt the managed P2P ICE source. Settings were not saved.";
+            this._log(message, LOG_LEVEL_URGENT);
+            throw new Error(message);
+        }
+        settings.encryptedP2PIceServerSource = encrypted;
+        settings.P2P_iceServerSource = undefined;
     }
 
     private async decryptRemoteConfigurationUris(
@@ -494,6 +629,12 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                     LOG_LEVEL_URGENT
                 );
             }
+            if (settings.encryptedP2PIceServerSource) {
+                this._log(
+                    "Encrypted managed P2P ICE source found, but passphrase is unavailable. Verify configuration before syncing.",
+                    LOG_LEVEL_URGENT
+                );
+            }
         } else {
             if (settings.encryptedCouchDBConnection) {
                 const keys = [
@@ -526,6 +667,20 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                         //@ts-ignore
                         settings[key] = "";
                     }
+                }
+            }
+            if (settings.encryptedP2PIceServerSource) {
+                const encrypted = settings.encryptedP2PIceServerSource;
+                const decrypted = this.tryDecodeJson(
+                    await this.decryptConfigurationItem(encrypted, passphrase)
+                ) as ObsidianLiveSyncSettings["P2P_iceServerSource"];
+                if (isIceServerSourceConfiguration(decrypted)) {
+                    settings.P2P_iceServerSource = cloneIceServerSourceConfiguration(decrypted);
+                } else {
+                    this._log(
+                        "Failed to decrypt managed P2P ICE source from data.json! Verify configuration before syncing.",
+                        LOG_LEVEL_URGENT
+                    );
                 }
             }
             if (settings.encrypt && settings.encryptedPassphrase) {
@@ -564,6 +719,25 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
 
         this.settings = await this.decryptSettings(settings);
 
+        if (prepared.isFromFutureSchema) {
+            const source = this.settings.P2P_iceServerSource;
+            const managedSourcePresent =
+                typeof this.settings.encryptedP2PIceServerSource === "string" &&
+                this.settings.encryptedP2PIceServerSource !== "";
+            const managedSourceSelected =
+                source !== undefined &&
+                (!isIceServerSourceConfiguration(source) || !isManualIceServerSourceConfiguration(source));
+            const managedRemoteProfilePresent = hasManagedP2PIceServerSource(this.settings);
+            if (managedSourcePresent || managedSourceSelected || managedRemoteProfilePresent) {
+                this._log(
+                    "Managed P2P ICE source was retained in a future settings schema and will not be activated.",
+                    LOG_LEVEL_NOTICE
+                );
+                this.settings.P2P_iceServerSource = undefined;
+                this.settings.encryptedP2PIceServerSource = "future-settings-schema";
+            }
+        }
+
         // I wonder can we call here.
         this.onDisplayLanguageChanged?.(this.settings.displayLanguage);
 
@@ -578,7 +752,11 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         // Keep runtime legacy fields in sync with the active remote configuration.
         // Replication and status checks still consume these fields.
         const activeConfigurationId = this.settings.activeConfigurationId;
-        if (activeConfigurationId && this.settings.remoteConfigurations?.[activeConfigurationId]) {
+        if (
+            !prepared.isFromFutureSchema &&
+            activeConfigurationId &&
+            this.settings.remoteConfigurations?.[activeConfigurationId]
+        ) {
             const activated = activateRemoteConfiguration(this.settings, activeConfigurationId);
             if (!activated) {
                 this._log(
@@ -594,7 +772,11 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         }
 
         const p2pActiveConfigurationId = this.settings.P2P_ActiveRemoteConfigurationId;
-        if (p2pActiveConfigurationId && this.settings.remoteConfigurations?.[p2pActiveConfigurationId]) {
+        if (
+            !prepared.isFromFutureSchema &&
+            p2pActiveConfigurationId &&
+            this.settings.remoteConfigurations?.[p2pActiveConfigurationId]
+        ) {
             const activatedP2P = activateP2PRemoteConfiguration(this.settings, p2pActiveConfigurationId);
             if (!activatedP2P) {
                 this._log(
@@ -661,6 +843,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     private cloneSettings(settings: ObsidianLiveSyncSettings): ObsidianLiveSyncSettings {
         return {
             ...settings,
+            P2P_iceServerSource: cloneIceServerSourceConfiguration(settings.P2P_iceServerSource),
             remoteConfigurations: Object.fromEntries(
                 Object.entries(settings.remoteConfigurations || {}).map(([id, config]) => [id, { ...config }])
             ),

@@ -23,6 +23,7 @@ import {
     type ReplicationOutcome,
 } from "@lib/replication/ReplicatorProvider";
 import type { P2PConnectionProbeAdmission } from "@lib/replication/trystero/P2PConnectionProbeAdmission";
+import type { IceServerSourceFactoryCatalogue } from "./IceServerSource";
 
 export { ACTIVE_P2P_RELAY_BINDING_CONFLICT } from "@lib/replication/trystero/P2PConnectionProbeAdmission";
 export type {
@@ -183,6 +184,11 @@ export interface P2PServiceComposition {
     readonly lifecycle: P2PServiceLifecycle;
     /** Create a non-owning adapter for the active Replicator selection. */
     createActiveReplicator(): ReplicatorInstance;
+}
+
+/** Optional host dependencies used by the private P2P service composition. */
+export interface P2PServiceOptions {
+    readonly iceServerSources?: IceServerSourceFactoryCatalogue;
 }
 
 interface P2PServiceState {
@@ -423,8 +429,11 @@ function createServiceLifecycle(context: P2PServiceContext): P2PServiceLifecycle
  * `P2PRoomSessionOwner` remains the resource owner. The returned composition
  * object is host wiring, not a capability façade for ordinary consumers.
  */
-export function createP2PService(env: LiveSyncTrysteroReplicatorEnv): P2PServiceComposition {
-    const roomSessionOwner = new P2PRoomSessionOwner(env);
+export function createP2PService(
+    env: LiveSyncTrysteroReplicatorEnv,
+    options: P2PServiceOptions = {}
+): P2PServiceComposition {
+    const roomSessionOwner = new P2PRoomSessionOwner(env, undefined, options);
     const state: P2PServiceState = {
         explicitDisconnectVeto: false,
         lifecycleClosed: false,

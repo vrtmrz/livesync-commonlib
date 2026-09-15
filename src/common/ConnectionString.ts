@@ -1,6 +1,12 @@
 import type { JWTAlgorithm } from "@lib/common/models/auth.type";
 import type { CouchDBConnection, BucketSyncSetting, P2PConnectionInfo } from "./models/setting.type";
-import { normaliseP2PConnectionPath, normaliseP2PMaxWirePayloadBytes } from "./models/setting.p2p";
+import {
+    cloneIceServerSourceConfiguration,
+    isIceServerSourceConfiguration,
+    isManualIceServerSourceConfiguration,
+    normaliseP2PConnectionPath,
+    normaliseP2PMaxWirePayloadBytes,
+} from "./models/setting.p2p";
 
 export type RemoteConfigurationResult =
     | { type: "couchdb"; settings: CouchDBConnection }
@@ -17,7 +23,7 @@ const PROXY_SCHEME = "https";
 function parseSlsUri(uriString: string): { url: URL; subscheme: string } {
     const match = uriString.match(/^sls\+([^:]+):(.*)$/);
     if (!match) {
-        throw new Error(`Unsupported URI: ${uriString}`);
+        throw new Error("Unsupported URI");
     }
     const subscheme = match[1];
     const rest = match[2];
@@ -36,16 +42,16 @@ export class ConnectionStringParser {
     static parse(uriString: string): RemoteConfigurationResult {
         const match = uriString.match(/^sls\+([^:]+):/);
         if (!match) {
-            throw new Error(`Unsupported URI: ${uriString}`);
+            throw new Error("Unsupported URI");
         }
         const subscheme = match[1];
 
         // P2P keeps the original non-special-scheme parsing because the room ID
         // can contain characters that special-scheme URL hosts cannot represent.
-        if (subscheme === "p2p") {
+        if (subscheme === "p2p" || subscheme === "p2p-v2") {
             return {
                 type: "p2p",
-                settings: this.parseP2P(uriString),
+                settings: this.parseP2P(uriString, subscheme === "p2p-v2"),
             };
         }
 
@@ -63,7 +69,7 @@ export class ConnectionStringParser {
                     settings: this.parseS3(url),
                 };
             default:
-                throw new Error(`Unsupported protocol: sls+${subscheme}`);
+                throw new Error("Unsupported protocol");
         }
     }
 
@@ -152,11 +158,13 @@ export class ConnectionStringParser {
         return withSlsScheme(newUrl, "s3");
     }
 
-    private static parseP2P(uriString: string): P2PConnectionInfo {
-        const match = uriString.match(/^sls\+p2p:\/\/([^?#]+)(?:\?([^#]*))?(?:#(.*))?$/);
-        if (!match) {
-            throw new Error(`Invalid P2P URI: ${uriString}`);
-        }
+    private static parseP2P(uriString: string, managedSourceFormat: boolean): P2PConnectionInfo {
+        const match = uriString.match(
+            managedSourceFormat
+                ? /^sls\+p2p-v2:\/\/([^?#]+)(?:\?([^#]*))?(?:#(.*))?$/
+                : /^sls\+p2p:\/\/([^?#]+)(?:\?([^#]*))?(?:#(.*))?$/
+        );
+        if (!match) throw new Error("Invalid P2P URI");
         const authority = match[1];
         const queryString = match[2] || "";
 
@@ -177,6 +185,30 @@ export class ConnectionStringParser {
         }
 
         const searchParams = new URLSearchParams(queryString);
+        // `source` is the canonical field. Accept the descriptive alias while
+        // reading so imports from early v2 previews remain recoverable.
+        const sourceValue = searchParams.get("source") ?? searchParams.get("iceServerSource");
+        if (!managedSourceFormat && sourceValue !== null) {
+            throw new Error("Managed P2P source data requires an sls+p2p-v2:// connection string.");
+        }
+
+        let source: P2PConnectionInfo["P2P_iceServerSource"];
+        if (managedSourceFormat) {
+            if (!sourceValue) {
+                throw new Error("Managed P2P connection string is missing its source descriptor.");
+            }
+            let decoded: unknown;
+            try {
+                decoded = JSON.parse(sourceValue) as unknown;
+            } catch {
+                throw new Error("Invalid managed P2P source descriptor.");
+            }
+            if (!isIceServerSourceConfiguration(decoded)) {
+                throw new Error("Invalid managed P2P source descriptor.");
+            }
+            source = cloneIceServerSourceConfiguration(decoded);
+        }
+
         return {
             P2P_Enabled: searchParams.get("enabled") !== "false",
             P2P_roomID: decodeURIComponent(host),
@@ -190,10 +222,19 @@ export class ConnectionStringParser {
             P2P_turnCredential: searchParams.get("turnPass") || "",
             P2P_maxWirePayloadBytes: normaliseP2PMaxWirePayloadBytes(Number(searchParams.get("maxWirePayloadBytes"))),
             P2P_connectionPath: normaliseP2PConnectionPath(searchParams.get("connectionPath")),
+            ...(source ? { P2P_iceServerSource: source } : {}),
         };
     }
 
     private static serializeP2P(settings: P2PConnectionInfo): string {
+        const source = settings.P2P_iceServerSource;
+        const isManagedSource = isIceServerSourceConfiguration(source) && !isManualIceServerSourceConfiguration(source);
+        if (settings.encryptedP2PIceServerSource && !source) {
+            throw new Error("The managed P2P source is encrypted and must be decrypted before serialisation.");
+        }
+        if (source !== undefined && !isIceServerSourceConfiguration(source)) {
+            throw new Error("Invalid managed P2P source descriptor.");
+        }
         const searchParams = new URLSearchParams();
         if (!settings.P2P_Enabled) searchParams.set("enabled", "false");
         searchParams.set("relays", settings.P2P_relays);
@@ -208,10 +249,13 @@ export class ConnectionStringParser {
             String(normaliseP2PMaxWirePayloadBytes(settings.P2P_maxWirePayloadBytes))
         );
         searchParams.set("connectionPath", normaliseP2PConnectionPath(settings.P2P_connectionPath));
+        if (isManagedSource) {
+            searchParams.set("source", JSON.stringify(source));
+        }
 
         const credentials = settings.P2P_passphrase ? `:${encodeURIComponent(settings.P2P_passphrase)}@` : "";
         const host = encodeURIComponent(settings.P2P_roomID);
         const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
-        return `sls+p2p://${credentials}${host}${query}`;
+        return `sls+p2p${isManagedSource ? "-v2" : ""}://${credentials}${host}${query}`;
     }
 }
