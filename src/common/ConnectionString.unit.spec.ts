@@ -247,7 +247,7 @@ describe("ConnectionStringParser P2P", () => {
         expect(parsed.settings.P2P_connectionPath).toBe("automatic");
     });
 
-    it("uses the versioned URI and preserves managed source descriptors", () => {
+    it("uses the ordinary URI and preserves managed source descriptors", () => {
         const source = {
             version: 1,
             id: "cloudflare",
@@ -275,7 +275,7 @@ describe("ConnectionStringParser P2P", () => {
             },
         });
 
-        expect(uri.startsWith("sls+p2p-v2://")).toBe(true);
+        expect(uri.startsWith("sls+p2p://")).toBe(true);
         expect(uri).toContain("source=");
         expect(uri).toContain("secret-token");
 
@@ -308,18 +308,18 @@ describe("ConnectionStringParser P2P", () => {
             },
         });
 
-        expect(uri.startsWith("sls+p2p-v2://")).toBe(true);
+        expect(uri.startsWith("sls+p2p://")).toBe(true);
         const parsed = ConnectionStringParser.parse(uri);
         if (parsed.type !== "p2p") throw new Error("Expected p2p type");
         expect(parsed.settings.P2P_iceServerSource).toEqual(source);
     });
 
-    it("rejects managed source data hidden in a legacy P2P URI", () => {
+    it("rejects malformed managed source data in an ordinary P2P URI", () => {
         expect(() =>
             ConnectionStringParser.parse(
-                "sls+p2p://room?source=%7B%22version%22%3A1%2C%22id%22%3A%22cloudflare%22%2C%22configuration%22%3A%7B%7D%7D"
+                "sls+p2p://room?source=%7B%22version%22%3A1%2C%22id%22%3A%22cloudflare%22%2C%22configuration%22%3A%5B%5D%7D"
             )
-        ).toThrow(/sls\+p2p-v2/);
+        ).toThrow(/Invalid managed P2P source descriptor/);
     });
 });
 
@@ -369,7 +369,7 @@ describe("ConnectionStringParser S3", () => {
 
 describe("connection-string error privacy", () => {
     it.each([
-        "sls+p2p-v2://?source=%7B%22apiToken%22%3A%22private-token%22%7D",
+        "sls+p2p://room?source=%7B%22apiToken%22%3A%22private-token%22%7D",
         "invalid://?source=%7B%22apiToken%22%3A%22private-token%22%7D",
     ])("omits supplied credentials from malformed URI errors", (uri) => {
         let failure: unknown;

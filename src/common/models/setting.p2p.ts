@@ -2,7 +2,7 @@ import { P2PConnectionPaths, P2PMessageSizePresets, type P2PConnectionPath } fro
 import type { IceServerSourceConfiguration, P2PConnectionInfo } from "./setting.type";
 
 const MANUAL_ICE_SERVER_SOURCE_ID = "manual";
-const MANAGED_P2P_URI_PREFIX = "sls+p2p-v2://";
+const P2P_URI_PREFIX = "sls+p2p://";
 
 type P2PSourceSettings = {
     P2P_iceServerSource?: unknown;
@@ -12,6 +12,14 @@ type P2PSourceSettings = {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasManagedP2PSourceInURI(uri: unknown): boolean {
+    if (typeof uri !== "string" || !uri.startsWith(P2P_URI_PREFIX)) return false;
+    const queryStart = uri.indexOf("?");
+    if (queryStart < 0) return false;
+    const query = uri.slice(queryStart + 1).split("#", 1)[0];
+    return new URLSearchParams(query).has("source");
 }
 
 /**
@@ -66,7 +74,7 @@ export function cloneIceServerSourceConfiguration(
  * Report whether settings contain a managed ICE source.
  *
  * The optional remote configuration scan is intentional: inactive P2P
- * profiles also need to take the encrypted Setup URI sharing route. A saved
+ * profiles also contain source credentials which reports must redact. A saved
  * encrypted top-level source is considered managed until it is decrypted, so
  * callers cannot silently treat an unavailable profile as manual.
  */
@@ -86,9 +94,7 @@ export function hasManagedP2PIceServerSource(settings: P2PSourceSettings): boole
     }
 
     for (const configuration of Object.values(settings.remoteConfigurations ?? {})) {
-        if (typeof configuration?.uri === "string" && configuration.uri.startsWith(MANAGED_P2P_URI_PREFIX)) {
-            return true;
-        }
+        if (hasManagedP2PSourceInURI(configuration?.uri)) return true;
     }
     return false;
 }

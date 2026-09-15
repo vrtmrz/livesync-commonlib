@@ -238,12 +238,6 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             this._log("Failed to retrieve passphrase. data.json contains unencrypted items!", LOG_LEVEL_NOTICE);
         } else {
             managedP2PSourceSelected = this.prepareManagedP2PRemoteConfiguration(settings);
-            if (managedP2PSourceSelected) {
-                settings.P2P_Enabled = false;
-                settings.P2P_AutoStart = false;
-                settings.P2P_roomID = "";
-                settings.P2P_passphrase = "";
-            }
             await this.encryptP2PIceServerSource(settings);
             if (
                 settings.couchDB_PASSWORD != "" ||
@@ -299,10 +293,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         void this.onSettingSaved(managedP2PSourceSelected ? this.cloneSettings(this.settings) : settings);
     }
 
-    /**
-     * Preserve a selected managed P2P connection in a v2 profile before the
-     * legacy flat projection is removed from the saved copy.
-     */
+    /** Preserve a selected managed P2P connection in the profile map before saving. */
     private prepareManagedP2PRemoteConfiguration(settings: ObsidianLiveSyncSettings): boolean {
         const source = settings.P2P_iceServerSource;
         if (source === undefined || (isIceServerSourceConfiguration(source) && isManualIceServerSourceConfiguration(source))) {
@@ -356,11 +347,12 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             if (config.isEncrypted || config.uri.trim() === "") {
                 continue;
             }
+            const managedP2PProfile = this.hasManagedP2PProfileURI(config.uri);
             let encryptedURI: string;
             try {
                 encryptedURI = await this.encryptConfigurationItem(config.uri, settings);
             } catch (error) {
-                if (config.uri.trim().startsWith("sls+p2p-v2://")) {
+                if (managedP2PProfile) {
                     const message = `Failed to encrypt managed P2P remote configuration '${id}'. Settings were not saved.`;
                     this._log(message, LOG_LEVEL_URGENT);
                     throw new Error(message);
@@ -368,7 +360,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                 throw error;
             }
             if (encryptedURI === "") {
-                if (config.uri.trim().startsWith("sls+p2p-v2://")) {
+                if (managedP2PProfile) {
                     const message = `Failed to encrypt managed P2P remote configuration '${id}'. Settings were not saved.`;
                     this._log(message, LOG_LEVEL_URGENT);
                     throw new Error(message);
@@ -385,6 +377,15 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                 isEncrypted: true,
             };
         }
+    }
+
+    private hasManagedP2PProfileURI(uri: string): boolean {
+        const trimmed = uri.trim();
+        if (!trimmed.startsWith("sls+p2p://")) return false;
+        const queryStart = trimmed.indexOf("?");
+        if (queryStart < 0) return false;
+        const query = trimmed.slice(queryStart + 1).split("#", 1)[0];
+        return new URLSearchParams(query).has("source");
     }
 
     /**

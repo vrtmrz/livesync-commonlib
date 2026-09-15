@@ -48,10 +48,10 @@ export class ConnectionStringParser {
 
         // P2P keeps the original non-special-scheme parsing because the room ID
         // can contain characters that special-scheme URL hosts cannot represent.
-        if (subscheme === "p2p" || subscheme === "p2p-v2") {
+        if (subscheme === "p2p") {
             return {
                 type: "p2p",
-                settings: this.parseP2P(uriString, subscheme === "p2p-v2"),
+                settings: this.parseP2P(uriString),
             };
         }
 
@@ -158,12 +158,8 @@ export class ConnectionStringParser {
         return withSlsScheme(newUrl, "s3");
     }
 
-    private static parseP2P(uriString: string, managedSourceFormat: boolean): P2PConnectionInfo {
-        const match = uriString.match(
-            managedSourceFormat
-                ? /^sls\+p2p-v2:\/\/([^?#]+)(?:\?([^#]*))?(?:#(.*))?$/
-                : /^sls\+p2p:\/\/([^?#]+)(?:\?([^#]*))?(?:#(.*))?$/
-        );
+    private static parseP2P(uriString: string): P2PConnectionInfo {
+        const match = uriString.match(/^sls\+p2p:\/\/([^?#]+)(?:\?([^#]*))?(?:#(.*))?$/);
         if (!match) throw new Error("Invalid P2P URI");
         const authority = match[1];
         const queryString = match[2] || "";
@@ -185,15 +181,10 @@ export class ConnectionStringParser {
         }
 
         const searchParams = new URLSearchParams(queryString);
-        // `source` is the canonical field. Accept the descriptive alias while
-        // reading so imports from early v2 previews remain recoverable.
-        const sourceValue = searchParams.get("source") ?? searchParams.get("iceServerSource");
-        if (!managedSourceFormat && sourceValue !== null) {
-            throw new Error("Managed P2P source data requires an sls+p2p-v2:// connection string.");
-        }
+        const sourceValue = searchParams.get("source");
 
         let source: P2PConnectionInfo["P2P_iceServerSource"];
-        if (managedSourceFormat) {
+        if (sourceValue !== null) {
             if (!sourceValue) {
                 throw new Error("Managed P2P connection string is missing its source descriptor.");
             }
@@ -256,6 +247,6 @@ export class ConnectionStringParser {
         const credentials = settings.P2P_passphrase ? `:${encodeURIComponent(settings.P2P_passphrase)}@` : "";
         const host = encodeURIComponent(settings.P2P_roomID);
         const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
-        return `sls+p2p${isManagedSource ? "-v2" : ""}://${credentials}${host}${query}`;
+        return `sls+p2p://${credentials}${host}${query}`;
     }
 }

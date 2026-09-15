@@ -1,5 +1,5 @@
 import qrcode from "qrcode-generator";
-import { configURIBase, configURIBaseQR, configURIBaseV2, hasManagedP2PIceServerSource } from "@lib/common/types";
+import { configURIBase, configURIBaseQR } from "@lib/common/types";
 import { decodeAnyArray, encodeAnyArray } from "octagonal-wheels/object";
 import {
     DEFAULT_SETTINGS,
@@ -16,12 +16,6 @@ import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
  * @param settings settings to encode
  */
 export function encodeSettingsToQRCodeData(settings: ObsidianLiveSyncSettings) {
-    if (hasManagedP2PIceServerSource(settings)) {
-        throw new Error(
-            "Managed P2P source profiles cannot be shared as a plain QR code. Use an encrypted Setup URI instead."
-        );
-    }
-
     const fullIndexes = Object.entries(KeyIndexOfSettings) as [keyof ObsidianLiveSyncSettings, number][];
 
     // Find the maximum index to properly size the array
@@ -79,12 +73,6 @@ export function decodeSettingsFromQRCodeData(qr: string): ObsidianLiveSyncSettin
         Logger(
             `Warning: ${skippedSettings.length} settings were skipped during QR decode (array length: ${settingArr.length}): ${skippedSettings.slice(0, 5).join(", ")}${skippedSettings.length > 5 ? "..." : ""}`,
             LOG_LEVEL_VERBOSE
-        );
-    }
-
-    if (hasManagedP2PIceServerSource(newSettings)) {
-        throw new Error(
-            "Managed P2P source profiles cannot be imported from a plain QR code. Use an encrypted Setup URI instead."
         );
     }
 
@@ -161,14 +149,6 @@ const necessaryErasureProperties: ErasureProperties[] = [
     "encryptedP2PIceServerSource",
 ];
 
-export const SETUP_SETTINGS_ENVELOPE_VERSION = 2 as const;
-
-/** Versioned payload used by Setup URIs which include managed P2P sources. */
-export interface SetupSettingsEnvelope {
-    version: typeof SETUP_SETTINGS_ENVELOPE_VERSION;
-    settings: ObsidianLiveSyncSettings;
-}
-
 function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -196,7 +176,6 @@ export async function encodeSettingsToSetupURI(
     ) {
         throw new Error("Managed P2P source data must be decrypted before creating a Setup URI.");
     }
-    const managedSourcePresent = hasManagedP2PIceServerSource(settingString);
     const setting = {
         ...settingString,
     };
@@ -223,14 +202,8 @@ export async function encodeSettingsToSetupURI(
         //@ts-ignore
         setting[prop] = "";
     }
-    const payload: ObsidianLiveSyncSettings | SetupSettingsEnvelope = managedSourcePresent
-        ? {
-              version: SETUP_SETTINGS_ENVELOPE_VERSION,
-              settings: setting,
-          }
-        : setting;
-    const encryptedSetting = encodeURIComponent(await encryptString(JSON.stringify(payload), passphrase));
-    const uri = `${managedSourcePresent ? configURIBaseV2 : configURIBase}${encryptedSetting} `;
+    const encryptedSetting = encodeURIComponent(await encryptString(JSON.stringify(setting), passphrase));
+    const uri = `${configURIBase}${encryptedSetting} `;
     return uri;
 }
 
@@ -244,47 +217,17 @@ async function decryptSetupPayload(uri: string, passphrase: string, base: string
     return JSON.parse(decrypted) as unknown;
 }
 
-/**
- * Decrypt and validate the versioned Setup URI envelope used for managed P2P
- * sources. A false result means the URI was not a valid v2 envelope.
- */
-export async function decodeSettingsFromSetupURIV2(
-    uri: string,
-    passphrase: string
-): Promise<SetupSettingsEnvelope | false> {
-    try {
-        const payload = await decryptSetupPayload(uri, passphrase, configURIBaseV2);
-        if (!isRecord(payload) || payload.version !== SETUP_SETTINGS_ENVELOPE_VERSION || !isRecord(payload.settings)) {
-            return false;
-        }
-        return {
-            version: SETUP_SETTINGS_ENVELOPE_VERSION,
-            settings: payload.settings as unknown as ObsidianLiveSyncSettings,
-        };
-    } catch {
-        // Keep decryption and parsing failures opaque: a malformed payload can
-        // contain provider credentials, and error objects are not safe logs.
-        Logger(`Failed to decode versioned settings from Setup URI`, LOG_LEVEL_NOTICE);
-        return false;
-    }
-}
-
-/** Decrypt either a legacy Setup URI or the validated managed-source v2 form. */
+/** Decrypt and validate the ordinary Setup URI payload. */
 export async function decodeSettingsFromSetupURI(uri: string, passphrase: string) {
-    const trimmedURI = uri.trim();
-    if (trimmedURI.startsWith(configURIBaseV2)) {
-        const envelope = await decodeSettingsFromSetupURIV2(trimmedURI, passphrase);
-        return envelope ? envelope.settings : false;
-    }
     try {
-        const payload = await decryptSetupPayload(trimmedURI, passphrase, configURIBase);
+        const payload = await decryptSetupPayload(uri, passphrase, configURIBase);
         if (!isRecord(payload)) {
             throw new Error("Decrypted Setup URI payload is not an object.");
         }
         return payload as unknown as ObsidianLiveSyncSettings;
-    } catch (e) {
+    } catch {
+        // JSON parsing errors can include decrypted credentials in their message.
         Logger(`Failed to parse settings from decrypted data`, LOG_LEVEL_NOTICE);
-        Logger(e, LOG_LEVEL_VERBOSE);
         return false;
     }
 }

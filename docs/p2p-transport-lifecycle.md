@@ -1,6 +1,6 @@
 ---
 date: 2026-09-15
-commonlib-version: "0.1.25-dev.turn-credentials.3"
+commonlib-version: "0.1.25-dev.turn-credentials.4"
 self-hosted-livesync-version: "1.0.28"
 status: unreleased
 ---
@@ -216,20 +216,25 @@ be resent. An unfinished automatic baseline remains eligible under the existing
 peer policy, while an interrupted manual operation requires another request.
 
 The P2P source descriptor is versioned separately from the data protocol.
-Managed profiles use `sls+p2p-v2://`; encrypted Setup sharing uses
-`obsidian://setuplivesync-v2?settings=` and a versioned envelope. Hosts must use
-the shared encoder and decoder, reject unsupported versions, and redact all
-source configuration in diagnostics. Plain QR sharing rejects managed
-profiles, including inactive profiles. Optional settings encryption covers
-both profile URIs and the top-level source projection.
+Managed profiles use the ordinary `sls+p2p://` URI with the source descriptor
+as an additional query field. Encrypted Setup sharing uses the ordinary
+`obsidian://setuplivesync?settings=` URI and encrypts the settings object
+directly. Plain QR sharing carries `P2P_iceServerSource` at its stable compact
+setting index and preserves inactive profiles through `remoteConfigurations`.
+Hosts must use the shared encoder and decoder, reject unsupported or malformed
+source descriptors, and redact all source configuration in diagnostics.
+Optional settings encryption covers both profile URIs and the top-level source
+projection.
 
 For a selected managed source, the persisted snapshot retains the complete
-connection in its versioned profile and disables the legacy P2P projection.
-A compatible load restores enablement, automatic start, Group ID, and passphrase
-from that profile. Older consumers which reject the profile therefore cannot
-join using stale legacy fields. Runtime settings and setting-saved notifications
-retain the effective connection values. Manual selections keep their existing
-persistence behaviour, including when other managed profiles are inactive.
+connection in its profile and preserves the ordinary P2P enablement, automatic
+start, Group ID, and passphrase projection. The source descriptor itself
+remains protected in its encrypted persisted sibling.
+A compatible load restores enablement, automatic start, Group ID, passphrase,
+and the decrypted source descriptor. Runtime settings and setting-saved
+notifications retain the effective connection values. Manual selections keep
+their existing persistence behaviour, including when other managed profiles are
+inactive.
 
 ## Verification
 

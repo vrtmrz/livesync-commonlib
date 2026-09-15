@@ -24,7 +24,7 @@ describe("P2P ICE source settings", () => {
                 P2P_iceServerSource: undefined,
                 remoteConfigurations: {
                     inactive: {
-                        uri: "sls+p2p-v2://room?source=%7B%7D",
+                        uri: "sls+p2p://room?source=%7B%7D",
                     },
                 },
             })
@@ -39,7 +39,7 @@ describe("P2P ICE source settings", () => {
                 encryptedP2PIceServerSource: undefined,
                 remoteConfigurations: {
                     inactive: {
-                        uri: "sls+p2p-v2://room?source=%7B%7D",
+                        uri: "sls+p2p://room?source=%7B%7D",
                     },
                 },
             } as any)

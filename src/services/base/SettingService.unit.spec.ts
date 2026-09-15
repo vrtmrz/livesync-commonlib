@@ -269,7 +269,7 @@ describe("SettingService", () => {
         expect(restored.remoteConfigurations.p2p.uri).toBe(profileURI);
     });
 
-    it("blocks the old flat P2P projection only in the saved managed snapshot", async () => {
+    it("preserves the flat P2P projection in the saved managed snapshot", async () => {
         const service = createService();
         service.settings = {
             ...service.settings,
@@ -305,10 +305,10 @@ describe("SettingService", () => {
         await service.saveSettingData();
 
         expect(service.lastSavedSetting).toMatchObject({
-            P2P_Enabled: false,
-            P2P_AutoStart: false,
-            P2P_roomID: "",
-            P2P_passphrase: "",
+            P2P_Enabled: true,
+            P2P_AutoStart: true,
+            P2P_roomID: "managed-room",
+            P2P_passphrase: "managed-passphrase",
             activeConfigurationId: "central",
             P2P_ActiveRemoteConfigurationId: "p2p",
         });
@@ -363,7 +363,7 @@ describe("SettingService", () => {
         await service.saveSettingData();
         const persisted = service.lastSavedSetting;
         expect(persisted?.remoteConfigurations.p2p.isEncrypted).toBe(true);
-        expect(persisted?.P2P_Enabled).toBe(false);
+        expect(persisted?.P2P_Enabled).toBe(true);
 
         const restored = createService();
         vi.spyOn(restored as any, "loadData").mockResolvedValue(persisted);
@@ -400,7 +400,7 @@ describe("SettingService", () => {
         expect(profileIds).toHaveLength(1);
         const profileID = profileIds[0];
         expect(persisted?.P2P_ActiveRemoteConfigurationId).toBe(profileID);
-        expect(persisted?.P2P_Enabled).toBe(false);
+        expect(persisted?.P2P_Enabled).toBe(true);
 
         const incomplete = createService();
         incomplete.settings = {

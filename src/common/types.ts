@@ -181,7 +181,6 @@ import type {
 import {
     SETTING_KEY_P2P_DEVICE_NAME,
     configURIBase,
-    configURIBaseV2,
     configURIBaseQR,
     SuffixDatabaseName,
     ExtraSuffixIndexedDB,
@@ -502,7 +501,6 @@ export { DEFAULT_SYNC_PARAMETERS };
 export {
     SETTING_KEY_P2P_DEVICE_NAME,
     configURIBase,
-    configURIBaseV2,
     configURIBaseQR,
     SuffixDatabaseName,
     ExtraSuffixIndexedDB,

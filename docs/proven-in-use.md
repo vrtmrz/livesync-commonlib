@@ -73,7 +73,7 @@ Commonlib's focused P2P compatibility tests establish legacy defaulting, bounded
 The optional ICE server source contract extends the same P2P composition with
 host-owned credential factories. Focused tests cover expiry during room reuse,
 cancellation of pending acquisition, settings identity, safe errors, managed
-profile and encrypted Setup URI round trips, and persistence encryption.
+profile, Setup URI, and QR round trips, and persistence encryption.
 Self-hosted LiveSync supplies the Cloudflare source and settings UI. Mocked HTTP
 and injected room tests establish these boundaries. On 15 September 2026,
 LiveSync with Commonlib `0.1.25-dev.turn-credentials.3` additionally verified
