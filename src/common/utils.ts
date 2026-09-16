@@ -613,6 +613,9 @@ export function pickP2PSyncSettings(setting: Partial<ObsidianLiveSyncSettings> &
         P2P_turnCredential: setting.P2P_turnCredential,
         P2P_maxWirePayloadBytes: normaliseP2PMaxWirePayloadBytes(setting.P2P_maxWirePayloadBytes),
         P2P_connectionPath: normaliseP2PConnectionPath(setting.P2P_connectionPath),
+        P2P_managedType: setting.P2P_managedType,
+        P2P_managedId: setting.P2P_managedId,
+        P2P_managedToken: setting.P2P_managedToken,
     };
 }
 

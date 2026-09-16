@@ -111,7 +111,10 @@ import {
     type P2PConnectionPath,
 } from "./models/setting.const.ts";
 import {
+    hasManagedP2PTurnConfiguration,
+    hasP2PTurnConfiguration,
     hasValidP2PTurnServerUrl,
+    omitP2PRuntimeSettings,
     isValidP2PTurnServerUrl,
     normaliseP2PConnectionPath,
     normaliseP2PMaxWirePayloadBytes,
@@ -296,7 +299,10 @@ export {
 };
 export type { P2PConnectionInfo, P2PConnectionPath, P2PSyncSetting };
 export {
+    hasManagedP2PTurnConfiguration,
+    hasP2PTurnConfiguration,
     hasValidP2PTurnServerUrl,
+    omitP2PRuntimeSettings,
     isValidP2PTurnServerUrl,
     normaliseP2PConnectionPath,
     normaliseP2PMaxWirePayloadBytes,
@@ -487,4 +493,10 @@ export { DOCID_JOURNAL_SYNC_PARAMETERS };
 export type { SyncParameters };
 export { DEFAULT_SYNC_PARAMETERS };
 
-export { SETTING_KEY_P2P_DEVICE_NAME, configURIBase, configURIBaseQR, SuffixDatabaseName, ExtraSuffixIndexedDB };
+export {
+    SETTING_KEY_P2P_DEVICE_NAME,
+    configURIBase,
+    configURIBaseQR,
+    SuffixDatabaseName,
+    ExtraSuffixIndexedDB,
+};

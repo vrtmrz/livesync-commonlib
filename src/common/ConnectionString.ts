@@ -1,6 +1,9 @@
 import type { JWTAlgorithm } from "@lib/common/models/auth.type";
 import type { CouchDBConnection, BucketSyncSetting, P2PConnectionInfo } from "./models/setting.type";
-import { normaliseP2PConnectionPath, normaliseP2PMaxWirePayloadBytes } from "./models/setting.p2p";
+import {
+    normaliseP2PConnectionPath,
+    normaliseP2PMaxWirePayloadBytes,
+} from "./models/setting.p2p";
 
 export type RemoteConfigurationResult =
     | { type: "couchdb"; settings: CouchDBConnection }
@@ -17,7 +20,7 @@ const PROXY_SCHEME = "https";
 function parseSlsUri(uriString: string): { url: URL; subscheme: string } {
     const match = uriString.match(/^sls\+([^:]+):(.*)$/);
     if (!match) {
-        throw new Error(`Unsupported URI: ${uriString}`);
+        throw new Error("Unsupported URI");
     }
     const subscheme = match[1];
     const rest = match[2];
@@ -36,7 +39,7 @@ export class ConnectionStringParser {
     static parse(uriString: string): RemoteConfigurationResult {
         const match = uriString.match(/^sls\+([^:]+):/);
         if (!match) {
-            throw new Error(`Unsupported URI: ${uriString}`);
+            throw new Error("Unsupported URI");
         }
         const subscheme = match[1];
 
@@ -63,7 +66,7 @@ export class ConnectionStringParser {
                     settings: this.parseS3(url),
                 };
             default:
-                throw new Error(`Unsupported protocol: sls+${subscheme}`);
+                throw new Error("Unsupported protocol");
         }
     }
 
@@ -154,9 +157,7 @@ export class ConnectionStringParser {
 
     private static parseP2P(uriString: string): P2PConnectionInfo {
         const match = uriString.match(/^sls\+p2p:\/\/([^?#]+)(?:\?([^#]*))?(?:#(.*))?$/);
-        if (!match) {
-            throw new Error(`Invalid P2P URI: ${uriString}`);
-        }
+        if (!match) throw new Error("Invalid P2P URI");
         const authority = match[1];
         const queryString = match[2] || "";
 
@@ -190,6 +191,9 @@ export class ConnectionStringParser {
             P2P_turnCredential: searchParams.get("turnPass") || "",
             P2P_maxWirePayloadBytes: normaliseP2PMaxWirePayloadBytes(Number(searchParams.get("maxWirePayloadBytes"))),
             P2P_connectionPath: normaliseP2PConnectionPath(searchParams.get("connectionPath")),
+            P2P_managedType: searchParams.get("managedType") || undefined,
+            P2P_managedId: searchParams.get("managedId") || undefined,
+            P2P_managedToken: searchParams.get("token") || undefined,
         };
     }
 
@@ -208,6 +212,9 @@ export class ConnectionStringParser {
             String(normaliseP2PMaxWirePayloadBytes(settings.P2P_maxWirePayloadBytes))
         );
         searchParams.set("connectionPath", normaliseP2PConnectionPath(settings.P2P_connectionPath));
+        if (settings.P2P_managedType) searchParams.set("managedType", settings.P2P_managedType);
+        if (settings.P2P_managedId) searchParams.set("managedId", settings.P2P_managedId);
+        if (settings.P2P_managedToken) searchParams.set("token", settings.P2P_managedToken);
 
         const credentials = settings.P2P_passphrase ? `:${encodeURIComponent(settings.P2P_passphrase)}@` : "";
         const host = encodeURIComponent(settings.P2P_roomID);

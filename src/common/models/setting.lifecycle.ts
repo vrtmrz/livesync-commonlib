@@ -5,6 +5,7 @@ import {
     SETTING_VERSION_SUPPORT_CASE_INSENSITIVE,
 } from "./setting.const";
 import type { ObsidianLiveSyncSettings } from "./setting.type";
+import { omitP2PRuntimeSettings } from "./setting.p2p";
 
 export const SettingsMigrationReviewCodes = {
     LegacyUpdatePending: "legacy-update-review-pending",
@@ -64,18 +65,19 @@ function cloneSettings(
     source: Partial<ObsidianLiveSyncSettings>,
     fallbacks: ObsidianLiveSyncSettings
 ): ObsidianLiveSyncSettings {
+    const persistableSource = omitP2PRuntimeSettings(source);
     return {
         ...fallbacks,
-        ...source,
+        ...persistableSource,
         remoteConfigurations: Object.fromEntries(
-            Object.entries(source.remoteConfigurations ?? fallbacks.remoteConfigurations).map(([id, config]) => [
+            Object.entries(persistableSource.remoteConfigurations ?? fallbacks.remoteConfigurations).map(([id, config]) => [
                 id,
                 { ...config },
             ])
         ),
         pluginSyncExtendedSetting: {
             ...fallbacks.pluginSyncExtendedSetting,
-            ...source.pluginSyncExtendedSetting,
+            ...persistableSource.pluginSyncExtendedSetting,
         },
     };
 }

@@ -1,4 +1,33 @@
 import { P2PConnectionPaths, P2PMessageSizePresets, type P2PConnectionPath } from "./setting.const";
+import type { P2PConnectionInfo, P2PSyncSetting } from "./setting.type";
+
+/** Report whether the selected P2P settings request host-managed TURN credentials. */
+export function hasManagedP2PTurnConfiguration(
+    settings: Partial<Pick<P2PConnectionInfo, "P2P_managedType">>
+): boolean {
+    return typeof settings.P2P_managedType === "string" && settings.P2P_managedType.trim().length > 0;
+}
+
+/** Remove connection-only ICE credentials before settings cross a serialisation boundary. */
+export function omitP2PRuntimeSettings<T extends Partial<P2PSyncSetting>>(
+    settings: T
+): Omit<T, "P2P_iceServers" | "P2P_iceServersExpiresAt"> {
+    const { P2P_iceServers: _iceServers, P2P_iceServersExpiresAt: _expiresAt, ...persistable } = settings;
+    return persistable;
+}
+
+/**
+ * Report whether a P2P profile has a usable manual TURN endpoint or requests
+ * host-managed TURN credentials. STUN-only profiles remain false.
+ */
+export function hasP2PTurnConfiguration(
+    settings: Partial<Pick<P2PConnectionInfo, "P2P_turnServers" | "P2P_managedType">>
+): boolean {
+    return (
+        hasManagedP2PTurnConfiguration(settings) ||
+        (typeof settings.P2P_turnServers === "string" && hasValidP2PTurnServerUrl(settings.P2P_turnServers))
+    );
+}
 
 /**
  * Return a safe outgoing RPC wire-payload bound for Trystero.

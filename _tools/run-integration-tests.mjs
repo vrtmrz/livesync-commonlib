@@ -68,9 +68,9 @@ function waitForCouchDb() {
     });
 }
 
-function waitForMinio() {
-    const url = new URL("/minio/health/live", integrationEnvironment.minioEndpoint);
-    return waitForHttpService("MinIO", url);
+function waitForRustFs() {
+    const url = new URL("/health/ready", integrationEnvironment.minioEndpoint);
+    return waitForHttpService("RustFS", url);
 }
 
 const compose = (...args) => run("docker", ["compose", "--file", composeFile, ...args]);
@@ -79,7 +79,7 @@ let failure;
 try {
     if (manageServices) {
         await compose("up", "--detach", "couchdb", "minio");
-        await Promise.all([waitForCouchDb(), waitForMinio()]);
+        await Promise.all([waitForCouchDb(), waitForRustFs()]);
         await compose("run", "--rm", "minio-init");
     }
 

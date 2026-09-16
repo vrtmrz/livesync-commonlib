@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## 0.1.25
+
+16th September, 2026
+
+### Added
+
+- Optional `prepareP2PSettings` hook for hosts to supply ICE servers and credential expiry for each P2P room.
+- Host-defined TURN provider settings in existing P2P profiles, Setup URIs, and QR codes.
+
+### Changed
+
+- Keep host-issued ICE credentials in memory and acquire fresh credentials when room reconciliation detects expiry or after explicit reconnection.
+- Require encrypted storage for managed P2P profile credentials.
+- Use digest-pinned RustFS images for managed integration tests.
+
 ## 0.1.24
 
 8th September, 2026

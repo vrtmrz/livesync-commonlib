@@ -5,6 +5,7 @@ import {
     LOG_LEVEL_VERBOSE,
     SALT_OF_PASSPHRASE,
     SETTING_KEY_P2P_DEVICE_NAME,
+    omitP2PRuntimeSettings,
     prepareSettingsForLoad,
     type BucketSyncSetting,
     type ConfigPassphraseStore,
@@ -198,12 +199,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     async saveSettingData() {
         this.saveDeviceAndVaultName();
         const previousSettings = this._lastPersistedSettings ?? this.cloneSettings(this.settings);
-        const settings = {
-            ...this.settings,
-            remoteConfigurations: Object.fromEntries(
-                Object.entries(this.settings.remoteConfigurations || {}).map(([id, config]) => [id, { ...config }])
-            ),
-        };
+        const settings = this.cloneSettings(this.settings);
         const hookResults = await this.onBeforeSaveSettingData(settings, previousSettings);
         for (const patch of hookResults) {
             if (patch instanceof Error || !patch) continue;
@@ -216,7 +212,17 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             this.setSmallConfig(SETTING_KEY_P2P_DEVICE_NAME, settings.P2P_DevicePeerName.trim());
             settings.P2P_DevicePeerName = "";
         }
+        delete settings.P2P_managedType;
+        delete settings.P2P_managedId;
+        delete settings.P2P_managedToken;
         if (this.usedPassphrase == "" && !(await this.getPassphrase(settings))) {
+            if (
+                Object.values(settings.remoteConfigurations).some((config) => this.hasManagedP2PProfileURI(config.uri))
+            ) {
+                const message = "Failed to retrieve a passphrase for managed P2P source data. Settings were not saved.";
+                this._log(message, LOG_LEVEL_URGENT);
+                throw new Error(message);
+            }
             this._log("Failed to retrieve passphrase. data.json contains unencrypted items!", LOG_LEVEL_NOTICE);
         } else {
             if (
@@ -279,8 +285,24 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             if (config.isEncrypted || config.uri.trim() === "") {
                 continue;
             }
-            const encryptedURI = await this.encryptConfigurationItem(config.uri, settings);
+            const managedP2PProfile = this.hasManagedP2PProfileURI(config.uri);
+            let encryptedURI: string;
+            try {
+                encryptedURI = await this.encryptConfigurationItem(config.uri, settings);
+            } catch (error) {
+                if (managedP2PProfile) {
+                    const message = `Failed to encrypt managed P2P remote configuration '${id}'. Settings were not saved.`;
+                    this._log(message, LOG_LEVEL_URGENT);
+                    throw new Error(message);
+                }
+                throw error;
+            }
             if (encryptedURI === "") {
+                if (managedP2PProfile) {
+                    const message = `Failed to encrypt managed P2P remote configuration '${id}'. Settings were not saved.`;
+                    this._log(message, LOG_LEVEL_URGENT);
+                    throw new Error(message);
+                }
                 this._log(
                     `Failed to encrypt remote configuration '${id}'. This entry will be saved in plain text.`,
                     LOG_LEVEL_URGENT
@@ -293,6 +315,15 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                 isEncrypted: true,
             };
         }
+    }
+
+    private hasManagedP2PProfileURI(uri: string): boolean {
+        const trimmed = uri.trim();
+        if (!trimmed.startsWith("sls+p2p://")) return false;
+        const queryStart = trimmed.indexOf("?");
+        if (queryStart < 0) return false;
+        const query = trimmed.slice(queryStart + 1).split("#", 1)[0];
+        return (new URLSearchParams(query).get("managedType") ?? "").trim().length > 0;
     }
 
     private async decryptRemoteConfigurationUris(
@@ -398,7 +429,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         try {
             this.settings = await this.adjustSettings({
                 ...this.settings,
-                ...partial,
+                ...omitP2PRuntimeSettings(partial),
             });
         } catch (ex) {
             this._log("Error in applying external settings: ", LOG_LEVEL_URGENT);
@@ -660,10 +691,10 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
 
     private cloneSettings(settings: ObsidianLiveSyncSettings): ObsidianLiveSyncSettings {
         return {
-            ...settings,
+            ...omitP2PRuntimeSettings(settings),
             remoteConfigurations: Object.fromEntries(
                 Object.entries(settings.remoteConfigurations || {}).map(([id, config]) => [id, { ...config }])
             ),
-        };
+        } as ObsidianLiveSyncSettings;
     }
 }

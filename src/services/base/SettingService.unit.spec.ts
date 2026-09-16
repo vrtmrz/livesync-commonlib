@@ -46,6 +46,36 @@ function createService(onDisplayLanguageChanged?: (language: ObsidianLiveSyncSet
     return service;
 }
 
+const MANAGED_FIELDS = {
+    P2P_managedType: "CF",
+    P2P_managedId: "key-id",
+    P2P_managedToken: "secret-token",
+};
+
+function managedP2PProfileURI(settings: ObsidianLiveSyncSettings): string {
+    return ConnectionStringParser.serialize({
+        type: "p2p",
+        settings: {
+            ...settings,
+            P2P_roomID: settings.P2P_roomID || "managed-room",
+            ...MANAGED_FIELDS,
+        },
+    });
+}
+
+function centralProfileURI(settings: ObsidianLiveSyncSettings): string {
+    return ConnectionStringParser.serialize({
+        type: "couchdb",
+        settings: {
+            ...settings,
+            couchDB_URI: "http://localhost:5984",
+            couchDB_USER: "user",
+            couchDB_PASSWORD: "password",
+            couchDB_DBNAME: "vault",
+        },
+    });
+}
+
 describe("SettingService", () => {
     it("delegates the loaded display language to the host", async () => {
         const onDisplayLanguageChanged = vi.fn();
@@ -95,6 +125,33 @@ describe("SettingService", () => {
         expect(adjusted.activeConfigurationId).toBe("legacy-couchdb");
     });
 
+    it("migrates flat CouchDB and managed P2P settings into one P2P profile", async () => {
+        const service = createService();
+        vi.spyOn(service as any, "loadData").mockResolvedValue({
+            ...DEFAULT_SETTINGS,
+            remoteType: REMOTE_COUCHDB,
+            couchDB_URI: "https://couchdb.example.test",
+            couchDB_DBNAME: "review-vault",
+            couchDB_USER: "review-user",
+            couchDB_PASSWORD: "review-password",
+            P2P_Enabled: true,
+            P2P_roomID: "review-room",
+            P2P_passphrase: "review-passphrase",
+            ...MANAGED_FIELDS,
+            remoteConfigurations: {},
+            activeConfigurationId: "",
+            P2P_ActiveRemoteConfigurationId: "",
+        });
+
+        await service.loadSettings();
+
+        const p2pProfiles = Object.values(service.currentSettings().remoteConfigurations).filter((profile) =>
+            profile.uri.startsWith("sls+p2p://")
+        );
+        expect(p2pProfiles).toHaveLength(1);
+        expect(service.currentSettings().P2P_ActiveRemoteConfigurationId).toBe("legacy-p2p");
+    });
+
     it("applyExternalSettings should merge current settings and migrate imported legacy remote settings", async () => {
         const service = createService();
         const saveSpy = vi.spyOn(service, "saveSettingData").mockResolvedValue();
@@ -138,6 +195,158 @@ describe("SettingService", () => {
         expect(persisted).toBeDefined();
         expect(persisted?.remoteConfigurations.r1.isEncrypted).toBe(true);
         expect(persisted?.remoteConfigurations.r1.uri).not.toBe(plainURI);
+    });
+
+    it("preserves the legacy plaintext fallback when a non-managed URI cannot be encrypted", async () => {
+        const service = createService();
+        const plainURI = "sls+http://user:password@localhost:5984/?db=vault";
+        service.settings = {
+            ...service.settings,
+            remoteConfigurations: {
+                r1: {
+                    id: "r1",
+                    name: "Primary",
+                    uri: plainURI,
+                    isEncrypted: false,
+                },
+            },
+        };
+        vi.spyOn(service, "encryptConfigurationItem").mockResolvedValue("");
+
+        await service.saveSettingData();
+
+        expect(service.lastSavedSetting?.remoteConfigurations.r1.uri).toBe(plainURI);
+        expect(service.lastSavedSetting?.remoteConfigurations.r1.isEncrypted).toBe(false);
+    });
+
+    it("fails closed when a managed profile URI cannot be encrypted", async () => {
+        const service = createService();
+        const managedURI = ConnectionStringParser.serialize({
+            type: "p2p",
+            settings: {
+                ...service.settings,
+                P2P_roomID: "managed-room",
+                ...MANAGED_FIELDS,
+            },
+        });
+        service.settings = {
+            ...service.settings,
+            remoteConfigurations: {
+                p2p: {
+                    id: "p2p",
+                    name: "Managed P2P",
+                    uri: managedURI,
+                    isEncrypted: false,
+                },
+            },
+        };
+        vi.spyOn(service, "encryptConfigurationItem").mockResolvedValue("");
+
+        await expect(service.saveSettingData()).rejects.toThrow(/managed P2P remote configuration/i);
+        expect(service.lastSavedSetting).toBeUndefined();
+    });
+
+    it("omits managed credentials from profile encryption failures", async () => {
+        const service = createService();
+        service.settings = {
+            ...service.settings,
+            remoteConfigurations: {
+                p2p: {
+                    id: "p2p",
+                    name: "Managed P2P",
+                    uri: managedP2PProfileURI(service.settings),
+                    isEncrypted: false,
+                },
+            },
+        };
+        vi.spyOn(service, "encryptConfigurationItem").mockRejectedValue(new Error("secret-token"));
+        const log = vi.spyOn(service, "_log");
+
+        await expect(service.saveSettingData()).rejects.toThrow("Failed to encrypt managed P2P remote configuration");
+
+        expect(log.mock.calls.flat().map(String).join("\n")).not.toContain("secret-token");
+        expect(service.lastSavedSetting).toBeUndefined();
+    });
+
+    it("persists managed settings only in its P2P profile and restores them on load", async () => {
+        const service = createService();
+        const managedSettings = {
+            ...service.settings,
+            remoteType: REMOTE_COUCHDB,
+            activeConfigurationId: "central",
+            P2P_ActiveRemoteConfigurationId: "p2p",
+            P2P_Enabled: true,
+            P2P_AutoStart: true,
+            P2P_roomID: "managed-room",
+            P2P_passphrase: "managed-passphrase",
+            ...MANAGED_FIELDS,
+        };
+        service.settings = {
+            ...managedSettings,
+            remoteConfigurations: {
+                central: { id: "central", name: "Central", uri: centralProfileURI(managedSettings), isEncrypted: false },
+                p2p: { id: "p2p", name: "P2P", uri: managedP2PProfileURI(managedSettings), isEncrypted: false },
+            },
+        };
+        let notified: ObsidianLiveSyncSettings | undefined;
+        service.onSettingSaved.addHandler(async (settings) => {
+            notified = settings;
+            return true;
+        });
+
+        await service.saveSettingData();
+
+        const persisted = service.lastSavedSetting!;
+        expect(persisted).not.toHaveProperty("P2P_managedType");
+        expect(persisted).not.toHaveProperty("P2P_managedId");
+        expect(persisted).not.toHaveProperty("P2P_managedToken");
+        expect(JSON.stringify(persisted)).not.toContain("secret-token");
+        expect(persisted.remoteConfigurations.p2p.isEncrypted).toBe(true);
+        expect(service.currentSettings().remoteConfigurations.p2p.isEncrypted).toBe(false);
+        expect(notified).not.toHaveProperty("P2P_managedToken");
+
+        const restored = createService();
+        vi.spyOn(restored as any, "loadData").mockResolvedValue(persisted);
+        await restored.loadSettings();
+        expect(restored.currentSettings()).toMatchObject({
+            remoteType: REMOTE_COUCHDB,
+            activeConfigurationId: "central",
+            P2P_ActiveRemoteConfigurationId: "p2p",
+            P2P_Enabled: true,
+            P2P_AutoStart: true,
+            P2P_roomID: "managed-room",
+            P2P_passphrase: "managed-passphrase",
+            ...MANAGED_FIELDS,
+        });
+    });
+
+    it("omits runtime ICE and duplicate managed projections when saving", async () => {
+        const service = createService();
+        service.settings = {
+            ...service.settings,
+            ...MANAGED_FIELDS,
+            P2P_iceServers: [{ urls: "turn:turn.example.com", credential: "issued-secret" }],
+            P2P_iceServersExpiresAt: 123_456,
+        };
+
+        await service.saveSettingData();
+        expect(service.lastSavedSetting).not.toHaveProperty("P2P_iceServers");
+        expect(service.lastSavedSetting).not.toHaveProperty("P2P_iceServersExpiresAt");
+        expect(service.lastSavedSetting).not.toHaveProperty("P2P_managedType");
+        expect(service.lastSavedSetting).not.toHaveProperty("P2P_managedId");
+        expect(service.lastSavedSetting).not.toHaveProperty("P2P_managedToken");
+    });
+
+    it("discards runtime ICE fields from imported settings", async () => {
+        const service = createService();
+
+        await service.applyExternalSettings({
+            P2P_iceServers: [{ urls: "turn:external.example.com", credential: "external-secret" }],
+            P2P_iceServersExpiresAt: 999_999,
+        });
+
+        expect(service.currentSettings()).not.toHaveProperty("P2P_iceServers");
+        expect(service.currentSettings()).not.toHaveProperty("P2P_iceServersExpiresAt");
     });
 
     it("saveSettingData should not mutate in-memory remote configuration URIs", async () => {

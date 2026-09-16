@@ -13,7 +13,11 @@ import type {
 } from "@lib/replication/trystero/TrysteroReplicatorP2PServer";
 import type { Advertisement } from "@lib/replication/trystero/types";
 import type { P2PRoomSession } from "@lib/replication/trystero/P2PRoomSession";
-import { P2PRoomSessionOwner, type P2PRoomSessionAccess } from "@lib/replication/trystero/P2PRoomSessionOwner";
+import {
+    P2PRoomSessionOwner,
+    type P2PRoomSessionAccess,
+    type PrepareP2PSettings,
+} from "@lib/replication/trystero/P2PRoomSessionOwner";
 import { compatGlobal, type CompatTimeoutHandle } from "@lib/common/coreEnvFunctions";
 import {
     REPLICATION_CANCELLED,
@@ -185,6 +189,13 @@ export interface P2PServiceComposition {
     createActiveReplicator(): ReplicatorInstance;
 }
 
+/** Optional host dependencies used by the private P2P service composition. */
+export interface P2PServiceOptions {
+    readonly prepareP2PSettings?: PrepareP2PSettings;
+}
+
+export type { PrepareP2PSettings };
+
 interface P2PServiceState {
     /** User disconnects remain vetoes until an explicit connect. */
     explicitDisconnectVeto: boolean;
@@ -239,15 +250,21 @@ function closeForLifecycle(owner: P2PRoomSessionOwner, state: P2PServiceState): 
     return owner.close();
 }
 
-function reconcileAutoStart(
+async function reconcileAutoStart(
     context: P2PServiceContext,
     settings: Pick<ObsidianLiveSyncSettings, "P2P_Enabled" | "P2P_AutoStart">
 ): Promise<void> {
     if (!settings.P2P_Enabled || !settings.P2P_AutoStart) {
-        return context.roomSessionOwner.setPersistentDemand("automatic", false);
+        await context.roomSessionOwner.setPersistentDemand("automatic", false);
+        return;
     }
-    if (context.state.explicitDisconnectVeto || context.state.lifecycleClosed) return Promise.resolve();
-    return context.roomSessionOwner.setPersistentDemand("automatic", true);
+    if (context.state.explicitDisconnectVeto || context.state.lifecycleClosed) return;
+    try {
+        await context.roomSessionOwner.setPersistentDemand("automatic", true);
+    } catch {
+        // Automatic lifecycle entry points cannot surface a rejected promise.
+        // The room owner has already emitted a credential-safe failure message.
+    }
 }
 
 function scheduleAutoStart(context: P2PServiceContext, delayMs: number = 100): void {
@@ -423,8 +440,11 @@ function createServiceLifecycle(context: P2PServiceContext): P2PServiceLifecycle
  * `P2PRoomSessionOwner` remains the resource owner. The returned composition
  * object is host wiring, not a capability façade for ordinary consumers.
  */
-export function createP2PService(env: LiveSyncTrysteroReplicatorEnv): P2PServiceComposition {
-    const roomSessionOwner = new P2PRoomSessionOwner(env);
+export function createP2PService(
+    env: LiveSyncTrysteroReplicatorEnv,
+    options: P2PServiceOptions = {}
+): P2PServiceComposition {
+    const roomSessionOwner = new P2PRoomSessionOwner(env, undefined, options);
     const state: P2PServiceState = {
         explicitDisconnectVeto: false,
         lifecycleClosed: false,

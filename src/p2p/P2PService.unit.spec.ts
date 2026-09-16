@@ -629,6 +629,51 @@ describe("P2P service room ownership", () => {
         }
     });
 
+    it("handles a rejected delayed AutoStart connection", async () => {
+        const context = createServiceContext();
+        const settings = {
+            ...createServiceHarness().settings,
+            P2P_managedType: "CF",
+            P2P_managedId: "key-id",
+            P2P_managedToken: "token",
+        };
+        const service = createP2PService(
+            {
+                services: {
+                    context,
+                    setting: { currentSettings: () => settings },
+                    database: { localDatabase: { localDatabase: { name: "db" } } },
+                    keyValueDB: { openSimpleStore: () => ({}) },
+                    config: { getSmallConfig: () => "device" },
+                    vault: { getVaultName: () => "vault" },
+                    API: { getPlatform: () => "test", confirm: {} },
+                    replicator: { runFiniteReplicationActivity: async (task: () => unknown) => await task() },
+                    replication: {
+                        onCheckReplicationReady: async () => true,
+                        parseSynchroniseResult: async () => undefined,
+                    },
+                },
+            } as any,
+            {
+                prepareP2PSettings: async () => Promise.reject(new Error("credential request rejected")),
+            }
+        );
+        let unhandled: unknown;
+        const onUnhandled = (error: unknown) => {
+            unhandled = error;
+        };
+        process.prependOnceListener("unhandledRejection", onUnhandled);
+
+        try {
+            service.lifecycle.scheduleAutoStart(0);
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            expect(unhandled).toBeUndefined();
+        } finally {
+            process.removeListener("unhandledRejection", onUnhandled);
+            await service.lifecycle.closeForLifecycle();
+        }
+    });
+
     it("keeps public peer transfers bound to the session admitted by the room owner", async () => {
         mockRoomTransport();
         const { targetedTransfer, transportLifecycle } = createServiceHarness();

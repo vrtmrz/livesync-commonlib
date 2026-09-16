@@ -1,7 +1,14 @@
-import { describe, it, expect } from "vitest";
-import { encodeSettingsToQRCodeData, decodeSettingsFromQRCodeData } from "@lib/API/processSetting";
-import { DEFAULT_SETTINGS } from "@lib/common/types";
+import { describe, it, expect, vi } from "vitest";
+import {
+    decodeSettingsFromSetupURI,
+    encodeSettingsToQRCodeData,
+    encodeSettingsToSetupURI,
+    decodeSettingsFromQRCodeData,
+} from "@lib/API/processSetting";
+import { configURIBase, DEFAULT_SETTINGS } from "@lib/common/types";
 import type { RemoteConfiguration } from "@lib/common/models/setting.type";
+import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
+import { defaultLogger, setGlobalLogFunction } from "octagonal-wheels/common/logger";
 
 describe("QR Codec Round-Trip Test with Real Data", () => {
     it("preserves sleep preferences in Setup URI data", () => {
@@ -103,5 +110,144 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
         expect(decodedSettings.encrypt).toBe(originalSettings.encrypt);
         expect(decodedSettings.passphrase).toBe(originalSettings.passphrase);
         expect(decodedSettings.usePathObfuscation).toBe(originalSettings.usePathObfuscation);
+    });
+
+    it("preserves managed credentials through P2P profiles in plain QR data", () => {
+        const profileURI = "sls+p2p://inactive-room?managedType=CF&managedId=key&token=secret";
+        const settings = {
+            ...DEFAULT_SETTINGS,
+            P2P_managedType: "CF",
+            P2P_managedId: "key",
+            P2P_managedToken: "secret",
+            remoteConfigurations: {
+                inactive: {
+                    id: "inactive",
+                    name: "Inactive managed P2P",
+                    uri: profileURI,
+                    isEncrypted: false,
+                } satisfies RemoteConfiguration,
+            },
+            P2P_ActiveRemoteConfigurationId: "inactive",
+        };
+
+        const decoded = decodeSettingsFromQRCodeData(encodeSettingsToQRCodeData(settings));
+
+        expect(decoded.P2P_managedType).toBeUndefined();
+        expect(decoded.P2P_managedId).toBeUndefined();
+        expect(decoded.P2P_managedToken).toBeUndefined();
+        expect(decoded.remoteConfigurations.inactive?.uri).toBe(profileURI);
+        expect(decoded.remoteConfigurations.inactive?.uri).toContain("secret");
+    });
+
+    it("omits runtime ICE fields from plain QR data", () => {
+        const decoded = decodeSettingsFromQRCodeData(
+            encodeSettingsToQRCodeData({
+                ...DEFAULT_SETTINGS,
+                P2P_iceServers: [{ urls: "turn:turn.example.com", credential: "issued-secret" }],
+                P2P_iceServersExpiresAt: 123_456,
+            })
+        );
+
+        expect(decoded).not.toHaveProperty("P2P_iceServers");
+        expect(decoded).not.toHaveProperty("P2P_iceServersExpiresAt");
+    });
+
+    it("uses the ordinary encrypted Setup URI payload for managed P2P profiles", async () => {
+        const profileURI = "sls+p2p://managed-room?managedType=CF&managedId=key&token=secret";
+        const settings = {
+            ...DEFAULT_SETTINGS,
+            activeConfigurationId: "couch",
+            P2P_ActiveRemoteConfigurationId: "p2p",
+            P2P_DevicePeerName: "receiver-device",
+            P2P_managedType: "CF",
+            P2P_managedId: "key",
+            P2P_managedToken: "secret",
+            P2P_iceServers: [{ urls: "turn:turn.example.com", credential: "issued-secret" }],
+            P2P_iceServersExpiresAt: 123_456,
+            remoteConfigurations: {
+                p2p: {
+                    id: "p2p",
+                    name: "Managed P2P",
+                    uri: profileURI,
+                    isEncrypted: false,
+                },
+            },
+        };
+
+        const uri = await encodeSettingsToSetupURI(settings, "setup-pass", [], false);
+        expect(uri.startsWith(configURIBase)).toBe(true);
+
+        const encrypted = decodeURIComponent(uri.trim().slice(configURIBase.length));
+        const payload = JSON.parse(await decryptString(encrypted, "setup-pass"));
+        expect(payload).not.toHaveProperty("P2P_managedType");
+        expect(payload).not.toHaveProperty("P2P_managedId");
+        expect(payload).not.toHaveProperty("P2P_managedToken");
+        expect(payload).not.toHaveProperty("P2P_iceServers");
+        expect(payload).not.toHaveProperty("P2P_iceServersExpiresAt");
+        expect(payload.remoteConfigurations.p2p.uri).toBe(profileURI);
+        expect(payload.activeConfigurationId).toBe("couch");
+        expect(payload.P2P_ActiveRemoteConfigurationId).toBe("p2p");
+        expect(payload.P2P_DevicePeerName).toBe("receiver-device");
+        expect(payload).not.toHaveProperty("version");
+        expect(payload).not.toHaveProperty("settings");
+
+        const decoded = await decodeSettingsFromSetupURI(uri, "setup-pass");
+        expect(decoded && decoded.remoteConfigurations.p2p.uri).toBe(profileURI);
+    });
+
+    it("keeps legacy Setup URI output and decoding for manual settings", async () => {
+        const settings = {
+            ...DEFAULT_SETTINGS,
+            P2P_roomID: "manual-room",
+            P2P_turnServers: "turn:example.test:3478",
+        };
+        const uri = await encodeSettingsToSetupURI(settings, "setup-pass", [], false);
+        expect(uri.startsWith(configURIBase)).toBe(true);
+        const decoded = await decodeSettingsFromSetupURI(uri, "setup-pass");
+        expect(decoded && decoded.P2P_roomID).toBe("manual-room");
+        expect(decoded && "P2P_iceServers" in decoded).toBe(false);
+    });
+
+    it("discards runtime ICE fields from incoming Setup URI data", async () => {
+        const encrypted = await encryptString(
+            JSON.stringify({
+                ...DEFAULT_SETTINGS,
+                P2P_iceServers: [{ urls: "turn:external.example.com", credential: "external-secret" }],
+                P2P_iceServersExpiresAt: 999_999,
+            }),
+            "setup-pass"
+        );
+
+        const decoded = await decodeSettingsFromSetupURI(
+            `${configURIBase}${encodeURIComponent(encrypted)}`,
+            "setup-pass"
+        );
+
+        expect(decoded).not.toHaveProperty("P2P_iceServers");
+        expect(decoded).not.toHaveProperty("P2P_iceServersExpiresAt");
+    });
+
+    it.each(["structured", "bare"])("does not log provider tokens from malformed %s Setup payloads", async (kind) => {
+        const token = "TURNSECRET";
+        const malformedPayload = kind === "bare"
+            ? token
+            : `{"P2P_managedToken":"${token}"}BROKEN`;
+        const encrypted = await encryptString(malformedPayload, "setup-pass");
+        const logger = vi.fn();
+        setGlobalLogFunction(logger);
+        try {
+            const result = await decodeSettingsFromSetupURI(`${configURIBase}${encodeURIComponent(encrypted)}`, "setup-pass");
+            expect(result).toBe(false);
+            const messages = logger.mock.calls.map(([message]) => String(message)).join("\n");
+            expect(messages).toContain("Failed to parse settings from decrypted data");
+            expect(messages).not.toContain(token);
+        } finally {
+            setGlobalLogFunction(defaultLogger);
+        }
+    });
+
+    it("propagates Setup URI decryption failures", async () => {
+        await expect(decodeSettingsFromSetupURI(`${configURIBase}not-encrypted`, "setup-pass"))
+            .rejects.toThrow("Unsupported encryption format");
     });
 });
