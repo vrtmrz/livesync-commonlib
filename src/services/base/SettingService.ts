@@ -199,12 +199,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     async saveSettingData() {
         this.saveDeviceAndVaultName();
         const previousSettings = this._lastPersistedSettings ?? this.cloneSettings(this.settings);
-        const settings = {
-            ...omitP2PRuntimeSettings(this.settings),
-            remoteConfigurations: Object.fromEntries(
-                Object.entries(this.settings.remoteConfigurations || {}).map(([id, config]) => [id, { ...config }])
-            ),
-        } as ObsidianLiveSyncSettings;
+        const settings = this.cloneSettings(this.settings);
         const hookResults = await this.onBeforeSaveSettingData(settings, previousSettings);
         for (const patch of hookResults) {
             if (patch instanceof Error || !patch) continue;
