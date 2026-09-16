@@ -1,5 +1,10 @@
 import type PouchDB from "pouchdb-core";
-import { TweakValuesShouldMatchedTemplate, type EntryDoc, type ObsidianLiveSyncSettings } from "@lib/common/types";
+import {
+    TweakValuesShouldMatchedTemplate,
+    omitP2PRuntimeSettings,
+    type EntryDoc,
+    type ObsidianLiveSyncSettings,
+} from "@lib/common/types";
 import { assessTweakCompatibility } from "@lib/common/models/tweak.compatibility.ts";
 import {
     LOG_LEVEL_INFO,
@@ -380,12 +385,15 @@ export class TrysteroReplicator {
                     );
                 });
                 const setting = {
-                    ...this.settings,
+                    ...omitP2PRuntimeSettings(this.settings),
                     configPassphraseStore: "",
                     encryptedCouchDBConnection: "",
                     encryptedPassphrase: "",
                     pluginSyncExtendedSetting: {},
                 } as Partial<ObsidianLiveSyncSettings>;
+                delete setting.P2P_managedType;
+                delete setting.P2P_managedId;
+                delete setting.P2P_managedToken;
                 if (!passphrase || passphrase.trim() == "") {
                     Logger(
                         "Passphrase is required to transfer the configuration. The peer cannot be decrypt the config\nIf you repeatedly receive unintended configuration-sharing requests, change the RPC channel immediately. It allows you to leave the connection and disappear, while they are trying brute force attack for the decoy on their local.",
@@ -889,7 +897,7 @@ export class TrysteroReplicator {
             const decryptedConfig = JSON.parse(
                 await decrypt(encryptedConfig as string, passphrase)
             ) as ObsidianLiveSyncSettings;
-            return decryptedConfig;
+            return omitP2PRuntimeSettings(decryptedConfig) as ObsidianLiveSyncSettings;
         } catch (e) {
             Logger("Error while decrypting the configuration", LOG_LEVEL_NOTICE);
             Logger(e, LOG_LEVEL_VERBOSE);

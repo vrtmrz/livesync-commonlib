@@ -1,6 +1,6 @@
 ---
-date: 2026-09-15
-commonlib-version: "0.1.25-dev.turn-credentials.5"
+date: 2026-09-16
+commonlib-version: "0.1.25-dev.turn-credentials.6"
 self-hosted-livesync-version: "1.0.28"
 status: unreleased
 ---
@@ -173,41 +173,57 @@ Do not close the raw values returned by `room.getPeers()`. Both closing them bef
 
 Commonlib consequently does not expose a forced physical-disconnection command. Such an operation requires a future Trystero API which removes and destroys peers through its shared-peer manager, followed by proof that immediate reconnection remains possible.
 
-## Optional ICE server sources
+## Optional host preparation
 
-The `/p2p` entry exports `IceServerSource`, `IceServerConfiguration`,
-`IceServerSourceFactoryCatalogue`, and `IceServerSourceError`. A host supplies
-its catalogue as the fourth argument to `useP2PReplicatorFeature`:
+The `/p2p` entry exposes the optional `prepareP2PSettings(settings, signal)`
+hook through `P2PReplicatorFeatureOptions` and `P2PServiceOptions`. The hook
+receives the requested settings snapshot before a new room is created. It may
+return `P2P_iceServers` and `P2P_iceServersExpiresAt`; the latter is an absolute
+Unix time in milliseconds. Commonlib copies only those two runtime values onto
+its own connection snapshot, so changes to room identity or other static
+settings in the returned object cannot rewrite the requested binding.
 
 ```ts
 useP2PReplicatorFeature(core, openReplicationUiFactory, openRebuildUiFactory, {
-    iceServerSources: {
-        example: (configuration) => createExampleSource(configuration, hostFetch),
-    },
+    prepareP2PSettings: async (settings, signal) => ({
+        ...settings,
+        ...(await prepareHostIceSettings(settings, signal)),
+    }),
 });
 ```
 
-The factory receives the selected profile's source configuration. Its
-`acquire(signal)` returns `{ iceServers, expiresAt }`, where `expiresAt` is an
-absolute Unix time in milliseconds. Managed results require a finite expiry;
-`null` is reserved for the manual configuration contract. Factories and HTTP dependencies belong to the host. Existing consumers
-which omit the catalogue retain manual TURN configuration. An unknown source
-or descriptor version produces a configuration error before a room opens.
+The hook is called for every new room when supplied, including manual profiles;
+a manual host branch can return the settings unchanged. A consumer which omits
+the hook retains existing manual TURN behaviour. A non-empty
+`P2P_managedType` explicitly requests host preparation and fails safely when
+the hook is absent or does not return usable TURN settings. Provider choice,
+HTTP requests, response validation, timeouts within the provider call, and
+credential-safe error detail belong to the host. Commonlib checks only that a
+managed result has a TURN route and a finite expiry beyond the 30-second room
+establishment margin.
 
-`P2PRoomSessionOwner` holds issued credentials in memory and compares the
-selected source's complete configuration when deciding whether a room can be
-reused. Matching settings and usable cached credentials retain the room.
-Expired credentials cause the next reconciliation to retire the old room,
-acquire credentials, and open its replacement. Disconnect, settings changes,
-and suspension cancel or invalidate pending acquisition; a late result cannot
-publish an obsolete room. Issued credentials never populate persisted manual
-TURN settings.
+A host can also return a non-empty ICE override without selecting a managed
+provider. This supports ordinary STUN-only or TURN settings, and does not
+require an expiry. When the host supplies an expiry, Commonlib applies the same
+30-second establishment margin. A runtime override used with relay-only routing
+must contain a TURN route; Commonlib rejects it rather than silently changing
+the route policy. The host remains responsible for validating the individual
+ICE server values.
 
-There is no periodic renewal, per-peer acquisition hook, or update of a live
-`RTCPeerConnection`. Internal Trystero reconnection within an existing room
-does not recheck expiry. A host can use the existing disconnect/connect flow
-if a long-lived room needs fresh credentials. Trystero retains ownership of
-physical peers and its offer pool.
+`P2PRoomSessionOwner` retains prepared settings only in the active room's
+immutable connection snapshot. Matching requested settings and usable runtime
+credentials retain that room. An expiry inside the margin causes the next
+reconciliation to retire the room, prepare another snapshot, and open its
+replacement. Explicit reconnect always prepares again. Disconnect, settings
+changes, and suspension abort or invalidate pending preparation; a late result
+cannot publish an obsolete room. Preparation and room opening both have bounded
+owner waits.
+
+There is no periodic renewal, per-peer preparation, provider retry engine, or
+update of a live `RTCPeerConnection`. Internal Trystero reconnection within an
+existing room does not recheck expiry. A host can use the existing
+disconnect/connect flow when a long-lived room needs fresh credentials.
+Trystero retains ownership of physical peers and its offer pool.
 
 Room retirement may cancel a transfer. The next replication attempt uses the
 existing database checkpoint and revision comparison, retaining saved Metadata
@@ -215,25 +231,28 @@ and Chunks. This is document-level continuation; a partial network message may
 be resent. An unfinished automatic baseline remains eligible under the existing
 peer policy, while an interrupted manual operation requires another request.
 
-The P2P source descriptor is versioned separately from the data protocol.
-Managed profiles use the ordinary `sls+p2p://` URI with the source descriptor
-as an additional query field. Encrypted Setup sharing uses the ordinary
-`obsidian://setuplivesync?settings=` URI and encrypts the settings object
-directly. Plain QR sharing carries `P2P_iceServerSource` at its stable compact
-setting index and preserves inactive profiles through `remoteConfigurations`.
-Hosts must use the shared encoder and decoder, reject unsupported or malformed
-source descriptors, and redact all source configuration in diagnostics.
-The source is persisted only in the ordinary P2P profile URI, using the
-existing optional configuration encryption. `P2P_iceServerSource` is the
-in-memory and sharing projection restored by profile activation during
-settings load or profile selection. There is no separate encrypted source
-field, and a source draft without a Group ID is not persisted.
+Managed profiles use the ordinary `sls+p2p://` URI query fields
+`managedType`, `managedId`, and `token`. Commonlib preserves the corresponding
+`P2P_managedType`, `P2P_managedId`, and `P2P_managedToken` scalar projections
+when it parses, serialises, or activates a profile. Provider names and the
+meaning of identifiers and tokens remain host-defined.
 
-The saved snapshot preserves the ordinary P2P enablement, automatic start,
-Group ID, and passphrase fields. Runtime settings and setting-saved
-notifications retain the effective source configuration. Manual selections
-keep their existing persistence behaviour, including when other managed
-profiles are inactive.
+The token is persisted only inside the selected P2P profile URI, using the
+existing whole-profile encryption. General settings saves omit the three
+duplicate top-level projections and never synthesise a profile from flat
+fields. Explicit profile operations own URI updates. Flat-settings migration
+creates and selects `legacy-p2p` once, including when CouchDB remains the main
+remote. An encryption failure refuses to replace a managed profile with
+plaintext data.
+
+Encrypted Setup sharing and plain QR sharing already include
+`remoteConfigurations`, so they carry managed settings through the profile
+without new compact fields. Storage, Setup, QR, configuration exchange, and
+external-import boundaries omit `P2P_iceServers` and
+`P2P_iceServersExpiresAt`. Setup, QR, and configuration exchange also omit the
+duplicate top-level provider projections. Runtime credentials therefore do not
+become a later connection override. Hosts must redact tokens, issued
+credentials, and provider responses from logs and reports.
 
 ## Verification
 
@@ -244,7 +263,8 @@ Maintain all five boundaries when this lifecycle changes:
 - target-aware automation tests must prove bounded delayed advertisement discovery, non-interactive acceptance outcomes, explicit partial and blocked results, baseline de-duplication across AutoSync and configured targets, cancellation of delayed AutoStart after suspension, and a finite demand beside an AutoStart-held room;
 - Commonlib rebuild tests must prove that first-device P2P initialisation does not reset a remote database and that an additional-device P2P Fetch performs one explicit peer-selection pass before resuming reflection;
 - the Self-hosted LiveSync Compose P2P lifecycle test must replace a current replicator, rediscover the same real peer, perform bidirectional RPC, and verify transferred content from a separate process;
-- the Self-hosted LiveSync real-Obsidian P2P Setup URI workflow must generate the second-device URI on the first device, accept both peer directions visibly, and verify a two-way note round-trip; and
+- the Self-hosted LiveSync real-Obsidian P2P Setup URI workflow must generate the second-device URI on the first device, accept both peer directions visibly, and verify a two-way note round-trip;
+- prepared-settings tests must prove managed TURN and expiry requirements, an unmanaged STUN-only override without expiry, relay-only rejection without TURN, immutable requested values, cancellation, expiry replacement, and late-result fencing; and
 - the relay-disconnect test must observe the original WebSocket reach `CLOSED`, remain closed while reconnection is paused, and be replaced after reconnection resumes.
 
 The corresponding product decision and rejected alternatives are recorded in Self-hosted LiveSync's P2P room and transport lifecycle ADR.

@@ -1,14 +1,13 @@
 import type { BaseRoomConfig, RelayConfig } from "@trystero-p2p/nostr";
-import type { P2PConnectionInfo } from "@lib/common/models/setting.type";
+import type { P2PConnectionInfo, P2PSyncSetting } from "@lib/common/models/setting.type";
 import { P2PConnectionPaths } from "@lib/common/models/setting.const";
 import {
-    hasManagedP2PIceServerSource,
+    hasManagedP2PTurnConfiguration,
     hasValidP2PTurnServerUrl,
     normaliseP2PConnectionPath,
     splitP2PRelayUrls,
     splitP2PTurnServerUrls,
 } from "@lib/common/models/setting.p2p";
-import { IceServerSourceError } from "@lib/p2p/IceServerSource";
 import { mixedHash } from "octagonal-wheels/hash/purejs";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 import { createDiagRTCPeerConnectionConstructor } from "./DiagRTCPeerConnections";
@@ -28,8 +27,8 @@ function copyIceServers(iceServers: readonly RTCIceServer[]): RTCIceServer[] {
 }
 
 export function generateJoinRoomOptions(
-    settings: P2PConnectionInfo,
-    resolvedIceServers?: readonly RTCIceServer[]
+    settings: P2PConnectionInfo &
+        Partial<Pick<P2PSyncSetting, "P2P_iceServers" | "P2P_iceServersExpiresAt">>
 ): BaseRoomConfig {
     const passphraseNumbers = mixedHash(settings.P2P_passphrase, 0);
     const passphrase = passphraseNumbers[0].toString(36) + passphraseNumbers[1].toString(36);
@@ -37,15 +36,23 @@ export function generateJoinRoomOptions(
     const relays = splitP2PRelayUrls(settings.P2P_relays);
 
     const turnServers = splitP2PTurnServerUrls(settings.P2P_turnServers);
-    const managedSourceSelected = hasManagedP2PIceServerSource({
-        P2P_iceServerSource: settings.P2P_iceServerSource,
-    });
-    if (managedSourceSelected && resolvedIceServers === undefined) {
-        throw new IceServerSourceError(
-            "configuration",
-            "The selected ICE server source requires resolved credentials.",
-            false
-        );
+    const managedTurnSelected = hasManagedP2PTurnConfiguration(settings);
+    const preparedIceServers = settings.P2P_iceServers;
+    if (preparedIceServers !== undefined && preparedIceServers.length === 0) {
+        throw new Error("Prepared ICE servers must not be empty.");
+    }
+    if (managedTurnSelected && preparedIceServers === undefined) {
+        throw new Error("The selected managed TURN configuration requires prepared ICE servers.");
+    }
+    if (managedTurnSelected && preparedIceServers && !containsTurnUrl(preparedIceServers)) {
+        throw new Error("The prepared ICE servers do not contain a TURN route.");
+    }
+    if (
+        preparedIceServers !== undefined &&
+        normaliseP2PConnectionPath(settings.P2P_connectionPath) === P2PConnectionPaths.Relay &&
+        !containsTurnUrl(preparedIceServers)
+    ) {
+        throw new Error("Relay-only P2P requires a prepared TURN route.");
     }
     const relayConfig: RelayConfig = {
         manualReconnection: true,
@@ -62,9 +69,9 @@ export function generateJoinRoomOptions(
     } else if (typeof compatGlobal.RTCPeerConnection !== "undefined") {
         options.rtcPolyfill = compatGlobal.RTCPeerConnection;
     }
-    if (resolvedIceServers !== undefined) {
-        options.turnConfig = copyIceServers(resolvedIceServers);
-    } else if (!managedSourceSelected && turnServers.length > 0) {
+    if (preparedIceServers !== undefined) {
+        options.turnConfig = copyIceServers(preparedIceServers);
+    } else if (!managedTurnSelected && turnServers.length > 0) {
         options.turnConfig = [
             {
                 urls: turnServers,
@@ -75,9 +82,9 @@ export function generateJoinRoomOptions(
     }
     if (
         normaliseP2PConnectionPath(settings.P2P_connectionPath) === P2PConnectionPaths.Relay &&
-        (resolvedIceServers !== undefined
-            ? containsTurnUrl(resolvedIceServers)
-            : !managedSourceSelected && hasValidP2PTurnServerUrl(settings.P2P_turnServers))
+        (preparedIceServers !== undefined
+            ? containsTurnUrl(preparedIceServers)
+            : !managedTurnSelected && hasValidP2PTurnServerUrl(settings.P2P_turnServers))
     ) {
         options.rtcConfig = {
             iceTransportPolicy: "relay",

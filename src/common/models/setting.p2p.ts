@@ -1,62 +1,30 @@
 import { P2PConnectionPaths, P2PMessageSizePresets, type P2PConnectionPath } from "./setting.const";
-import type { IceServerSourceConfiguration, P2PConnectionInfo } from "./setting.type";
+import type { P2PConnectionInfo, P2PSyncSetting } from "./setting.type";
 
-const MANUAL_ICE_SERVER_SOURCE_ID = "manual";
+/** Report whether the selected P2P settings request host-managed TURN credentials. */
+export function hasManagedP2PTurnConfiguration(
+    settings: Partial<Pick<P2PConnectionInfo, "P2P_managedType">>
+): boolean {
+    return typeof settings.P2P_managedType === "string" && settings.P2P_managedType.trim().length > 0;
+}
 
-type P2PSourceSettings = {
-    P2P_iceServerSource?: unknown;
-};
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
+/** Remove connection-only ICE credentials before settings cross a serialisation boundary. */
+export function omitP2PRuntimeSettings<T extends Partial<P2PSyncSetting>>(
+    settings: T
+): Omit<T, "P2P_iceServers" | "P2P_iceServersExpiresAt"> {
+    const { P2P_iceServers: _iceServers, P2P_iceServersExpiresAt: _expiresAt, ...persistable } = settings;
+    return persistable;
 }
 
 /**
- * Check the common envelope without interpreting service-specific fields.
- * Unknown source identifiers and versions deliberately pass this check so
- * that hosts can preserve them and report an explicit unsupported source.
- */
-export function isIceServerSourceConfiguration(value: unknown): value is IceServerSourceConfiguration {
-    if (!isRecord(value)) return false;
-    return (
-        typeof value.id === "string" &&
-        value.id.trim().length > 0 &&
-        typeof value.version === "number" &&
-        Number.isSafeInteger(value.version) &&
-        value.version >= 0 &&
-        isRecord(value.configuration)
-    );
-}
-
-/** A manual descriptor is recognised only at the version reserved for it. */
-export function isManualIceServerSourceConfiguration(value: IceServerSourceConfiguration): boolean {
-    return value.version === 1 && value.id.trim().toLowerCase() === MANUAL_ICE_SERVER_SOURCE_ID;
-}
-
-/** Clone a source descriptor before it crosses a settings ownership boundary. */
-export function cloneIceServerSourceConfiguration(
-    value: IceServerSourceConfiguration | undefined
-): IceServerSourceConfiguration | undefined {
-    return value === undefined ? undefined : (JSON.parse(JSON.stringify(value)) as IceServerSourceConfiguration);
-}
-
-/** Report whether the selected P2P settings require a managed ICE source. */
-export function hasManagedP2PIceServerSource(settings: P2PSourceSettings): boolean {
-    const source = settings.P2P_iceServerSource;
-    if (source === undefined || source === null) return false;
-    // Invalid explicit selections must reach source validation rather than use manual credentials.
-    return !isIceServerSourceConfiguration(source) || !isManualIceServerSourceConfiguration(source);
-}
-
-/**
- * Report whether a P2P profile has a usable manual TURN endpoint or a managed
- * source descriptor. STUN-only profiles remain false.
+ * Report whether a P2P profile has a usable manual TURN endpoint or requests
+ * host-managed TURN credentials. STUN-only profiles remain false.
  */
 export function hasP2PTurnConfiguration(
-    settings: Partial<Pick<P2PConnectionInfo, "P2P_turnServers" | "P2P_iceServerSource">>
+    settings: Partial<Pick<P2PConnectionInfo, "P2P_turnServers" | "P2P_managedType">>
 ): boolean {
     return (
-        hasManagedP2PIceServerSource(settings) ||
+        hasManagedP2PTurnConfiguration(settings) ||
         (typeof settings.P2P_turnServers === "string" && hasValidP2PTurnServerUrl(settings.P2P_turnServers))
     );
 }

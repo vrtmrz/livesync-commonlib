@@ -551,7 +551,7 @@ You can chose as follows:
             Logger(this._env.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
             return;
         }
-        const options = generateJoinRoomOptions(this.settings, this._env.iceServers);
+        const options = generateJoinRoomOptions(this.settings);
         const roomId = this.settings.P2P_roomID;
         this._peerConnectionEventCleanup();
         this._peerStatusEventCleanup = subscribeConnectionStatus((status) => {
@@ -577,7 +577,7 @@ You can chose as follows:
     }
 
     private logTransportError(error: unknown): void {
-        if (this._env.iceServers !== undefined) {
+        if (this.settings.P2P_iceServers !== undefined) {
             Logger("Managed P2P transport error details were omitted.", LOG_LEVEL_VERBOSE);
             return;
         }

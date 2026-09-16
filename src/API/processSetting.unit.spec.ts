@@ -9,7 +9,6 @@ import { configURIBase, DEFAULT_SETTINGS } from "@lib/common/types";
 import type { RemoteConfiguration } from "@lib/common/models/setting.type";
 import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
 import { defaultLogger, setGlobalLogFunction } from "octagonal-wheels/common/logger";
-import { decodeAnyArray, encodeAnyArray } from "octagonal-wheels/object";
 
 describe("QR Codec Round-Trip Test with Real Data", () => {
     it("preserves sleep preferences in Setup URI data", () => {
@@ -113,16 +112,13 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
         expect(decodedSettings.usePathObfuscation).toBe(originalSettings.usePathObfuscation);
     });
 
-    it("preserves managed source credentials and inactive P2P profiles in plain QR data", () => {
-        const source = {
-            version: 1,
-            id: "cloudflare",
-            configuration: { turnKeyId: "key", apiToken: "secret" },
-        };
-        const profileURI = `sls+p2p://inactive-room?source=${encodeURIComponent(JSON.stringify(source))}`;
+    it("preserves managed credentials through P2P profiles in plain QR data", () => {
+        const profileURI = "sls+p2p://inactive-room?managedType=CF&managedId=key&token=secret";
         const settings = {
             ...DEFAULT_SETTINGS,
-            P2P_iceServerSource: source,
+            P2P_managedType: "CF",
+            P2P_managedId: "key",
+            P2P_managedToken: "secret",
             remoteConfigurations: {
                 inactive: {
                     id: "inactive",
@@ -136,29 +132,45 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
 
         const decoded = decodeSettingsFromQRCodeData(encodeSettingsToQRCodeData(settings));
 
-        expect(decoded.P2P_iceServerSource).toEqual(source);
+        expect(decoded.P2P_managedType).toBeUndefined();
+        expect(decoded.P2P_managedId).toBeUndefined();
+        expect(decoded.P2P_managedToken).toBeUndefined();
         expect(decoded.remoteConfigurations.inactive?.uri).toBe(profileURI);
         expect(decoded.remoteConfigurations.inactive?.uri).toContain("secret");
     });
 
-    it("uses the default source when an older QR payload lacks the appended field", () => {
-        const values = decodeAnyArray(encodeSettingsToQRCodeData({ ...DEFAULT_SETTINGS, P2P_roomID: "existing-room" }));
-        values.length = 165;
-        const decoded = decodeSettingsFromQRCodeData(encodeAnyArray(values));
-        expect(decoded.P2P_iceServerSource).toEqual(DEFAULT_SETTINGS.P2P_iceServerSource);
-        expect(decoded.P2P_roomID).toBe("existing-room");
+    it("omits runtime ICE fields from plain QR data", () => {
+        const decoded = decodeSettingsFromQRCodeData(
+            encodeSettingsToQRCodeData({
+                ...DEFAULT_SETTINGS,
+                P2P_iceServers: [{ urls: "turn:turn.example.com", credential: "issued-secret" }],
+                P2P_iceServersExpiresAt: 123_456,
+            })
+        );
+
+        expect(decoded).not.toHaveProperty("P2P_iceServers");
+        expect(decoded).not.toHaveProperty("P2P_iceServersExpiresAt");
     });
 
-    it("uses the ordinary encrypted Setup URI payload for managed sources", async () => {
+    it("uses the ordinary encrypted Setup URI payload for managed P2P profiles", async () => {
+        const profileURI = "sls+p2p://managed-room?managedType=CF&managedId=key&token=secret";
         const settings = {
             ...DEFAULT_SETTINGS,
             activeConfigurationId: "couch",
             P2P_ActiveRemoteConfigurationId: "p2p",
             P2P_DevicePeerName: "receiver-device",
-            P2P_iceServerSource: {
-                version: 1,
-                id: "cloudflare",
-                configuration: { turnKeyId: "key", apiToken: "secret" },
+            P2P_managedType: "CF",
+            P2P_managedId: "key",
+            P2P_managedToken: "secret",
+            P2P_iceServers: [{ urls: "turn:turn.example.com", credential: "issued-secret" }],
+            P2P_iceServersExpiresAt: 123_456,
+            remoteConfigurations: {
+                p2p: {
+                    id: "p2p",
+                    name: "Managed P2P",
+                    uri: profileURI,
+                    isEncrypted: false,
+                },
             },
         };
 
@@ -167,7 +179,12 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
 
         const encrypted = decodeURIComponent(uri.trim().slice(configURIBase.length));
         const payload = JSON.parse(await decryptString(encrypted, "setup-pass"));
-        expect(payload.P2P_iceServerSource).toEqual(settings.P2P_iceServerSource);
+        expect(payload).not.toHaveProperty("P2P_managedType");
+        expect(payload).not.toHaveProperty("P2P_managedId");
+        expect(payload).not.toHaveProperty("P2P_managedToken");
+        expect(payload).not.toHaveProperty("P2P_iceServers");
+        expect(payload).not.toHaveProperty("P2P_iceServersExpiresAt");
+        expect(payload.remoteConfigurations.p2p.uri).toBe(profileURI);
         expect(payload.activeConfigurationId).toBe("couch");
         expect(payload.P2P_ActiveRemoteConfigurationId).toBe("p2p");
         expect(payload.P2P_DevicePeerName).toBe("receiver-device");
@@ -175,7 +192,7 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
         expect(payload).not.toHaveProperty("settings");
 
         const decoded = await decodeSettingsFromSetupURI(uri, "setup-pass");
-        expect(decoded && decoded.P2P_iceServerSource).toEqual(settings.P2P_iceServerSource);
+        expect(decoded && decoded.remoteConfigurations.p2p.uri).toBe(profileURI);
     });
 
     it("keeps legacy Setup URI output and decoding for manual settings", async () => {
@@ -188,14 +205,33 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
         expect(uri.startsWith(configURIBase)).toBe(true);
         const decoded = await decodeSettingsFromSetupURI(uri, "setup-pass");
         expect(decoded && decoded.P2P_roomID).toBe("manual-room");
-        expect(decoded && "encryptedP2PIceServerSource" in decoded).toBe(false);
+        expect(decoded && "P2P_iceServers" in decoded).toBe(false);
+    });
+
+    it("discards runtime ICE fields from incoming Setup URI data", async () => {
+        const encrypted = await encryptString(
+            JSON.stringify({
+                ...DEFAULT_SETTINGS,
+                P2P_iceServers: [{ urls: "turn:external.example.com", credential: "external-secret" }],
+                P2P_iceServersExpiresAt: 999_999,
+            }),
+            "setup-pass"
+        );
+
+        const decoded = await decodeSettingsFromSetupURI(
+            `${configURIBase}${encodeURIComponent(encrypted)}`,
+            "setup-pass"
+        );
+
+        expect(decoded).not.toHaveProperty("P2P_iceServers");
+        expect(decoded).not.toHaveProperty("P2P_iceServersExpiresAt");
     });
 
     it.each(["structured", "bare"])("does not log provider tokens from malformed %s Setup payloads", async (kind) => {
         const token = "TURNSECRET";
         const malformedPayload = kind === "bare"
             ? token
-            : `{"P2P_iceServerSource":{"version":1,"id":"cloudflare","configuration":{"apiToken":"${token}"}}}BROKEN`;
+            : `{"P2P_managedToken":"${token}"}BROKEN`;
         const encrypted = await encryptString(malformedPayload, "setup-pass");
         const logger = vi.fn();
         setGlobalLogFunction(logger);

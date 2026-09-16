@@ -247,15 +247,7 @@ describe("ConnectionStringParser P2P", () => {
         expect(parsed.settings.P2P_connectionPath).toBe("automatic");
     });
 
-    it("uses the ordinary URI and preserves managed source descriptors", () => {
-        const source = {
-            version: 1,
-            id: "cloudflare",
-            configuration: {
-                turnKeyId: "key-id",
-                apiToken: "secret-token",
-            },
-        };
+    it("uses the ordinary URI and preserves managed provider scalars", () => {
         const uri = ConnectionStringParser.serialize({
             type: "p2p",
             settings: {
@@ -271,26 +263,28 @@ describe("ConnectionStringParser P2P", () => {
                     P2P_turnUsername: "",
                     P2P_turnCredential: "",
                 },
-                P2P_iceServerSource: source,
+                P2P_managedType: "CF",
+                P2P_managedId: "key-id",
+                P2P_managedToken: "secret-token",
             },
         });
 
         expect(uri.startsWith("sls+p2p://")).toBe(true);
-        expect(uri).toContain("source=");
+        expect(uri).toContain("managedType=CF");
+        expect(uri).toContain("managedId=key-id");
         expect(uri).toContain("secret-token");
 
         const parsed = ConnectionStringParser.parse(uri);
         if (parsed.type !== "p2p") throw new Error("Expected p2p type");
-        expect(parsed.settings.P2P_iceServerSource).toEqual(source);
+        expect(parsed.settings).toMatchObject({
+            P2P_managedType: "CF",
+            P2P_managedId: "key-id",
+            P2P_managedToken: "secret-token",
+        });
         expect(parsed.settings.P2P_roomID).toBe("managed-room");
     });
 
-    it("preserves unsupported source versions and identifiers without treating them as manual", () => {
-        const source = {
-            version: 99,
-            id: "future-provider",
-            configuration: { opaque: "value" },
-        };
+    it("preserves unknown managed provider types for host-side handling", () => {
         const uri = ConnectionStringParser.serialize({
             type: "p2p",
             settings: {
@@ -304,22 +298,20 @@ describe("ConnectionStringParser P2P", () => {
                 P2P_turnServers: "turn:manual.example:3478",
                 P2P_turnUsername: "manual-user",
                 P2P_turnCredential: "manual-pass",
-                P2P_iceServerSource: source,
+                P2P_managedType: "future-provider",
+                P2P_managedId: "opaque-id",
+                P2P_managedToken: "opaque-token",
             },
         });
 
         expect(uri.startsWith("sls+p2p://")).toBe(true);
         const parsed = ConnectionStringParser.parse(uri);
         if (parsed.type !== "p2p") throw new Error("Expected p2p type");
-        expect(parsed.settings.P2P_iceServerSource).toEqual(source);
-    });
-
-    it("rejects malformed managed source data in an ordinary P2P URI", () => {
-        expect(() =>
-            ConnectionStringParser.parse(
-                "sls+p2p://room?source=%7B%22version%22%3A1%2C%22id%22%3A%22cloudflare%22%2C%22configuration%22%3A%5B%5D%7D"
-            )
-        ).toThrow(/Invalid managed P2P source descriptor/);
+        expect(parsed.settings).toMatchObject({
+            P2P_managedType: "future-provider",
+            P2P_managedId: "opaque-id",
+            P2P_managedToken: "opaque-token",
+        });
     });
 });
 
@@ -368,10 +360,8 @@ describe("ConnectionStringParser S3", () => {
 
 
 describe("connection-string error privacy", () => {
-    it.each([
-        "sls+p2p://room?source=%7B%22apiToken%22%3A%22private-token%22%7D",
-        "invalid://?source=%7B%22apiToken%22%3A%22private-token%22%7D",
-    ])("omits supplied credentials from malformed URI errors", (uri) => {
+    it("omits supplied credentials from unsupported URI errors", () => {
+        const uri = "invalid://?token=private-token";
         let failure: unknown;
         try {
             ConnectionStringParser.parse(uri);
@@ -380,6 +370,6 @@ describe("connection-string error privacy", () => {
         }
         expect(failure).toBeInstanceOf(Error);
         expect(String(failure)).not.toContain("private-token");
-        expect(String(failure)).not.toContain("apiToken");
+        expect(String(failure)).not.toContain("token");
     });
 });

@@ -561,19 +561,6 @@ export enum AutoAccepting {
     ALL = 1,
 }
 
-/**
- * Versioned, service-independent configuration for acquiring ICE servers.
- *
- * Commonlib preserves unknown source identifiers and versions. The host which
- * owns the source catalogue is responsible for deciding whether a descriptor
- * can be activated.
- */
-export interface IceServerSourceConfiguration {
-    version: number;
-    id: string;
-    configuration: Record<string, unknown>;
-}
-
 export interface P2PConnectionInfo {
     /**
      * Indicates whether P2P connection is enabled.
@@ -632,12 +619,14 @@ export interface P2PConnectionInfo {
      */
     P2P_turnCredential: string;
 
-    /**
-     * Optional source for obtaining short-lived ICE server credentials.
-     * An absent source, or the `manual` source, uses the existing manual TURN
-     * fields above. Unknown descriptors are retained for host-side validation.
-     */
-    P2P_iceServerSource?: IceServerSourceConfiguration;
+    /** Host-defined managed TURN provider type. */
+    P2P_managedType?: string;
+
+    /** Host-defined managed TURN provider identifier. */
+    P2P_managedId?: string;
+
+    /** Host-defined managed TURN provider token. */
+    P2P_managedToken?: string;
 
     /**
      * Maximum serialised RPC wire payload sent through Trystero before
@@ -666,6 +655,12 @@ export interface P2PSyncSetting extends P2PConnectionInfo {
     P2P_AutoDenyingPeers: string;
 
     P2P_IsHeadless?: boolean;
+
+    /** ICE servers prepared for one room connection. Never persist or share this value. */
+    P2P_iceServers?: readonly RTCIceServer[];
+
+    /** Absolute Unix timestamp in milliseconds for the prepared ICE servers. */
+    P2P_iceServersExpiresAt?: number;
 }
 
 /**

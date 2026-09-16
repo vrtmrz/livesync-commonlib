@@ -71,6 +71,9 @@ export function migrateLegacyRemoteConfigurationsInPlace(
               ? "legacy-p2p"
               : "legacy-couchdb";
     settings.activeConfigurationId = settings.remoteConfigurations[preferredId] ? preferredId : createdIds[0];
+    if (settings.remoteConfigurations["legacy-p2p"]) {
+        settings.P2P_ActiveRemoteConfigurationId = "legacy-p2p";
+    }
     return true;
 }
 

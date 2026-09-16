@@ -13,7 +13,11 @@ import type {
 } from "@lib/replication/trystero/TrysteroReplicatorP2PServer";
 import type { Advertisement } from "@lib/replication/trystero/types";
 import type { P2PRoomSession } from "@lib/replication/trystero/P2PRoomSession";
-import { P2PRoomSessionOwner, type P2PRoomSessionAccess } from "@lib/replication/trystero/P2PRoomSessionOwner";
+import {
+    P2PRoomSessionOwner,
+    type P2PRoomSessionAccess,
+    type PrepareP2PSettings,
+} from "@lib/replication/trystero/P2PRoomSessionOwner";
 import { compatGlobal, type CompatTimeoutHandle } from "@lib/common/coreEnvFunctions";
 import {
     REPLICATION_CANCELLED,
@@ -23,7 +27,6 @@ import {
     type ReplicationOutcome,
 } from "@lib/replication/ReplicatorProvider";
 import type { P2PConnectionProbeAdmission } from "@lib/replication/trystero/P2PConnectionProbeAdmission";
-import type { IceServerSourceFactoryCatalogue } from "./IceServerSource";
 
 export { ACTIVE_P2P_RELAY_BINDING_CONFLICT } from "@lib/replication/trystero/P2PConnectionProbeAdmission";
 export type {
@@ -188,8 +191,10 @@ export interface P2PServiceComposition {
 
 /** Optional host dependencies used by the private P2P service composition. */
 export interface P2PServiceOptions {
-    readonly iceServerSources?: IceServerSourceFactoryCatalogue;
+    readonly prepareP2PSettings?: PrepareP2PSettings;
 }
+
+export type { PrepareP2PSettings };
 
 interface P2PServiceState {
     /** User disconnects remain vetoes until an explicit connect. */
@@ -245,15 +250,21 @@ function closeForLifecycle(owner: P2PRoomSessionOwner, state: P2PServiceState): 
     return owner.close();
 }
 
-function reconcileAutoStart(
+async function reconcileAutoStart(
     context: P2PServiceContext,
     settings: Pick<ObsidianLiveSyncSettings, "P2P_Enabled" | "P2P_AutoStart">
 ): Promise<void> {
     if (!settings.P2P_Enabled || !settings.P2P_AutoStart) {
-        return context.roomSessionOwner.setPersistentDemand("automatic", false);
+        await context.roomSessionOwner.setPersistentDemand("automatic", false);
+        return;
     }
-    if (context.state.explicitDisconnectVeto || context.state.lifecycleClosed) return Promise.resolve();
-    return context.roomSessionOwner.setPersistentDemand("automatic", true);
+    if (context.state.explicitDisconnectVeto || context.state.lifecycleClosed) return;
+    try {
+        await context.roomSessionOwner.setPersistentDemand("automatic", true);
+    } catch {
+        // Automatic lifecycle entry points cannot surface a rejected promise.
+        // The room owner has already emitted a credential-safe failure message.
+    }
 }
 
 function scheduleAutoStart(context: P2PServiceContext, delayMs: number = 100): void {

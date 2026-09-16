@@ -160,9 +160,11 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     P2P_turnServers: 150,
     P2P_turnUsername: 151,
     P2P_turnCredential: 152,
-    // Keep this appended after the existing maximum index so older QR payloads
-    // continue to decode while new payloads carry the selected source.
-    P2P_iceServerSource: 165,
+    P2P_managedType: -1,
+    P2P_managedId: -1,
+    P2P_managedToken: -1,
+    P2P_iceServers: -1,
+    P2P_iceServersExpiresAt: -1,
     syncInternalFileOverwritePatterns: 153,
     useOnlyLocalChunk: 154,
     maxMTimeForReflectEvents: 155,

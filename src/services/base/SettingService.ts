@@ -5,8 +5,7 @@ import {
     LOG_LEVEL_VERBOSE,
     SALT_OF_PASSPHRASE,
     SETTING_KEY_P2P_DEVICE_NAME,
-    cloneIceServerSourceConfiguration,
-    hasManagedP2PIceServerSource,
+    omitP2PRuntimeSettings,
     prepareSettingsForLoad,
     type BucketSyncSetting,
     type ConfigPassphraseStore,
@@ -25,7 +24,6 @@ import {
     activateRemoteConfiguration,
     migrateLegacyRemoteConfigurationsInPlace,
     migrateP2PActiveRemoteConfigurationIdInPlace,
-    upsertRemoteConfigurationInPlace,
 } from "@lib/serviceFeatures/remoteConfig";
 import { ConnectionStringParser } from "@lib/common/ConnectionString";
 
@@ -202,12 +200,11 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         this.saveDeviceAndVaultName();
         const previousSettings = this._lastPersistedSettings ?? this.cloneSettings(this.settings);
         const settings = {
-            ...this.settings,
+            ...omitP2PRuntimeSettings(this.settings),
             remoteConfigurations: Object.fromEntries(
                 Object.entries(this.settings.remoteConfigurations || {}).map(([id, config]) => [id, { ...config }])
             ),
-            P2P_iceServerSource: cloneIceServerSourceConfiguration(this.settings.P2P_iceServerSource),
-        };
+        } as ObsidianLiveSyncSettings;
         const hookResults = await this.onBeforeSaveSettingData(settings, previousSettings);
         for (const patch of hookResults) {
             if (patch instanceof Error || !patch) continue;
@@ -220,8 +217,9 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             this.setSmallConfig(SETTING_KEY_P2P_DEVICE_NAME, settings.P2P_DevicePeerName.trim());
             settings.P2P_DevicePeerName = "";
         }
-        this.prepareManagedP2PRemoteConfiguration(settings);
-        delete settings.P2P_iceServerSource;
+        delete settings.P2P_managedType;
+        delete settings.P2P_managedId;
+        delete settings.P2P_managedToken;
         if (this.usedPassphrase == "" && !(await this.getPassphrase(settings))) {
             if (
                 Object.values(settings.remoteConfigurations).some((config) => this.hasManagedP2PProfileURI(config.uri))
@@ -283,23 +281,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         }
         await this.saveData(settings);
         this._lastPersistedSettings = this.cloneSettings(this.settings);
-        void this.onSettingSaved({
-            ...settings,
-            P2P_iceServerSource: cloneIceServerSourceConfiguration(this.settings.P2P_iceServerSource),
-        });
-    }
-
-    /** Store the source in the ordinary P2P profile before saving its encrypted URI. */
-    private prepareManagedP2PRemoteConfiguration(settings: ObsidianLiveSyncSettings): void {
-        if (!hasManagedP2PIceServerSource(settings) || !settings.P2P_roomID.trim()) return;
-        const selectedID = settings.P2P_ActiveRemoteConfigurationId;
-        const selected = settings.remoteConfigurations[selectedID];
-        const id =
-            selected && !selected.isEncrypted && selected.uri.startsWith("sls+p2p://") ? selectedID : undefined;
-        const profile = upsertRemoteConfigurationInPlace(settings, "p2p", { id });
-        settings.P2P_ActiveRemoteConfigurationId = profile.id;
-        this.settings.P2P_ActiveRemoteConfigurationId = profile.id;
-        this.settings.remoteConfigurations = { ...settings.remoteConfigurations };
+        void this.onSettingSaved(settings);
     }
 
     private async encryptRemoteConfigurationUris(settings: ObsidianLiveSyncSettings): Promise<void> {
@@ -346,7 +328,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         const queryStart = trimmed.indexOf("?");
         if (queryStart < 0) return false;
         const query = trimmed.slice(queryStart + 1).split("#", 1)[0];
-        return new URLSearchParams(query).has("source");
+        return (new URLSearchParams(query).get("managedType") ?? "").trim().length > 0;
     }
 
     private async decryptRemoteConfigurationUris(
@@ -452,7 +434,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         try {
             this.settings = await this.adjustSettings({
                 ...this.settings,
-                ...partial,
+                ...omitP2PRuntimeSettings(partial),
             });
         } catch (ex) {
             this._log("Error in applying external settings: ", LOG_LEVEL_URGENT);
@@ -714,11 +696,10 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
 
     private cloneSettings(settings: ObsidianLiveSyncSettings): ObsidianLiveSyncSettings {
         return {
-            ...settings,
-            P2P_iceServerSource: cloneIceServerSourceConfiguration(settings.P2P_iceServerSource),
+            ...omitP2PRuntimeSettings(settings),
             remoteConfigurations: Object.fromEntries(
                 Object.entries(settings.remoteConfigurations || {}).map(([id, config]) => [id, { ...config }])
             ),
-        };
+        } as ObsidianLiveSyncSettings;
     }
 }

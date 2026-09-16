@@ -141,7 +141,7 @@ describe("prepareSettingsForLoad", () => {
             .sort();
 
         expect(differingKeys).toEqual(["handleFilenameCaseSensitive", "usePluginSyncV2"]);
-        expect(deliberatelyUnsetKeys).toEqual(["P2P_iceServerSource", "autoAcceptCompatibleTweak", "isConfigured", "tweakModified"]);
+        expect(deliberatelyUnsetKeys).toEqual(["autoAcceptCompatibleTweak", "isConfigured", "tweakModified"]);
     });
 
     it("keeps remote-specific recommendations separate from the new-Vault base", () => {

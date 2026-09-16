@@ -3,8 +3,13 @@ import {
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_VERBOSE,
     SETTING_KEY_P2P_DEVICE_NAME,
+    hasManagedP2PTurnConfiguration,
+    omitP2PRuntimeSettings,
     type ObsidianLiveSyncSettings,
+    type P2PSyncSetting,
 } from "@lib/common/types";
+import { P2PConnectionPaths } from "@lib/common/models/setting.const";
+import { normaliseP2PConnectionPath } from "@lib/common/models/setting.p2p";
 import type { AsyncActivityOptions } from "@lib/interfaces/AsyncActivityRunner";
 import type { LiveSyncReplicatorEnv } from "@lib/replication/LiveSyncAbstractReplicator";
 import type { EntryDoc } from "@lib/common/types";
@@ -19,19 +24,6 @@ import {
     type P2PConnectionProbeAdmissionResult,
     type P2PConnectionProbeSettings,
 } from "./P2PConnectionProbeAdmission";
-import {
-    ICE_SERVER_ACQUISITION_TIMEOUT_MS,
-    ICE_SERVER_MINIMUM_REMAINING_LIFETIME_MS,
-    IceServerSourceError,
-    getIceServerSourceIdentity,
-    resolveIceServerSelection,
-    toSafeIceServerSourceError,
-    validateIceServerConfiguration,
-    type IceServerConfiguration,
-    type IceServerSource,
-    type IceServerSourceFactoryCatalogue,
-    type ResolvedIceServerSelection,
-} from "@lib/p2p/IceServerSource";
 
 type P2PRoomSessionBinding = {
     readonly database: PouchDB.Database<EntryDoc>;
@@ -39,28 +31,27 @@ type P2PRoomSessionBinding = {
     readonly settings: ObsidianLiveSyncSettings;
     readonly deviceName: string;
     readonly signature: string;
-    readonly iceServerSelection: ResolvedIceServerSelection;
 };
 
 type P2PRoomSessionFactory = (env: ReplicatorHostEnv) => P2PRoomSession;
 
-type CachedIceServerConfiguration = {
-    readonly sourceIdentity: string;
-    readonly configuration: IceServerConfiguration;
-};
-
-type PendingIceServerAcquisition = {
-    readonly sourceIdentity: string;
+type PendingP2PSettingsPreparation = {
+    readonly signature: string;
     readonly controller: AbortController;
 };
 
+/** Prepare connection-only P2P settings for one room generation. */
+export type PrepareP2PSettings = (settings: Readonly<P2PSyncSetting>, signal: AbortSignal) => Promise<P2PSyncSetting>;
+
 export interface P2PRoomSessionOwnerOptions {
-    readonly iceServerSources?: IceServerSourceFactoryCatalogue;
+    readonly prepareP2PSettings?: PrepareP2PSettings;
 }
 
 class StaleRoomReconciliationError extends Error {}
 
 const P2P_ROOM_OPEN_TIMEOUT_MS = 30_000;
+export const P2P_SETTINGS_PREPARATION_TIMEOUT_MS = 30_000;
+export const P2P_ICE_SERVER_EXPIRY_MARGIN_MS = 30_000;
 
 /** Session operations shared by the stable service and its compatibility facade. */
 export interface P2PRoomSessionAccess {
@@ -87,8 +78,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
     private readonly finiteDemands = new Set<symbol>();
     private readonly automationCoordinator = new P2PAutomationCoordinator();
     private activeBinding?: P2PRoomSessionBinding;
-    private cachedIceServerConfiguration?: CachedIceServerConfiguration;
-    private pendingIceServerAcquisition?: PendingIceServerAcquisition;
+    private pendingPreparation?: PendingP2PSettingsPreparation;
     private runtimeGeneration = 0;
 
     constructor(
@@ -129,7 +119,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         if (active && !enabled) {
             Logger(this.env.services.context.translate("P2P.NotEnabled"), LOG_LEVEL_NOTICE);
         }
-        this.fenceCredentialStateForCurrentSettings(enabled);
+        this.fencePreparationForCurrentSettings(enabled);
         await this.reconcileTransport();
     }
 
@@ -145,7 +135,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         }
         const demand = Symbol("p2p-finite-room-demand");
         this.finiteDemands.add(demand);
-        this.fenceCredentialStateForCurrentSettings(true);
+        this.fencePreparationForCurrentSettings(true);
         try {
             await this.reconcileTransport();
             if (!this.finiteDemands.has(demand)) {
@@ -200,19 +190,11 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
                 await this.closeTransport();
                 return;
             }
-            let binding: P2PRoomSessionBinding;
-            try {
-                binding = this.getEffectiveBinding();
-            } catch (error) {
-                const safeError = toSafeIceServerSourceError(error);
-                await this.closeTransport();
-                this.reportIceServerSourceError(safeError);
-                throw safeError;
-            }
+            const binding = this.getEffectiveBinding();
             if (
                 this.current?.host.isServing &&
                 this.bindingsMatch(this.activeBinding, binding) &&
-                this.credentialsRemainUsable(binding.iceServerSelection)
+                this.connectionSettingsRemainUsable(this.activeBinding?.settings)
             ) {
                 this.reconcileCurrentSessionPolicy(this.current);
                 Logger("P2P replicator is already open.");
@@ -225,13 +207,11 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
             let candidate: P2PRoomSession | undefined;
             const operationGeneration = this.runtimeGeneration;
             try {
-                const iceServerConfiguration = await this.resolveIceServerConfiguration(
-                    binding.iceServerSelection,
-                    operationGeneration
-                );
-                this.assertReconciliationCurrent(binding, operationGeneration, iceServerConfiguration);
-                candidate = this.createSession(this.buildSessionEnv(binding, iceServerConfiguration));
-                if (binding.iceServerSelection.kind === "managed") {
+                const connectionSettings = await this.prepareConnectionSettings(binding, operationGeneration);
+                this.assertReconciliationCurrent(binding, operationGeneration, connectionSettings);
+                const connectionBinding = { ...binding, settings: connectionSettings };
+                candidate = this.createSession(this.buildSessionEnv(connectionBinding));
+                if (hasManagedP2PTurnConfiguration(binding.settings)) {
                     await this.withRoomOpenDeadline(candidate.open());
                 } else {
                     await candidate.open();
@@ -245,17 +225,17 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
                     !this.hasRoomDemand() ||
                     !this.bindingsMatch(binding, currentBinding) ||
                     operationGeneration !== this.runtimeGeneration ||
-                    !this.configurationRemainsUsable(iceServerConfiguration)
+                    !this.connectionSettingsRemainUsable(connectionSettings)
                 ) {
                     await candidate.retire();
                     return;
                 }
                 this.current = candidate;
-                this.activeBinding = binding;
+                this.activeBinding = connectionBinding;
                 this.reconcileCurrentSessionPolicy(candidate);
             } catch (error) {
                 await candidate?.retire(error).catch((retirementError: unknown) => {
-                    if (binding.iceServerSelection.kind === "managed") {
+                    if (hasManagedP2PTurnConfiguration(binding.settings)) {
                         Logger("The managed P2P room could not be retired cleanly.", LOG_LEVEL_VERBOSE);
                     } else {
                         Logger(retirementError, LOG_LEVEL_VERBOSE);
@@ -266,14 +246,10 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
                 if (error instanceof StaleRoomReconciliationError || operationGeneration !== this.runtimeGeneration) {
                     return;
                 }
-                if (error instanceof IceServerSourceError) {
-                    this.reportIceServerSourceError(error);
-                    throw error;
-                }
-                if (binding.iceServerSelection.kind === "managed") {
-                    Logger("The P2P room could not be opened with the acquired ICE credentials.", LOG_LEVEL_NOTICE);
-                    Logger("Managed P2P room opening failed; error details were omitted.", LOG_LEVEL_VERBOSE);
-                    return;
+                if (hasManagedP2PTurnConfiguration(binding.settings)) {
+                    Logger("The managed P2P room could not be prepared or opened.", LOG_LEVEL_NOTICE);
+                    Logger("Managed P2P room failure details were omitted.", LOG_LEVEL_VERBOSE);
+                    throw new Error("The managed P2P room could not be prepared or opened.");
                 }
                 Logger(error instanceof Error ? error.message : "Error while opening P2P connection", LOG_LEVEL_NOTICE);
                 Logger(error, LOG_LEVEL_VERBOSE);
@@ -284,7 +260,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
     async close(): Promise<void> {
         this.persistentDemands.clear();
         this.finiteDemands.clear();
-        this.invalidateCredentialRuntimeState();
+        this.invalidatePreparation();
         await this.enqueueLifecycleOperation(async () => {
             await this.closeTransport();
         });
@@ -316,107 +292,91 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         return current?.database === candidate.database && current.signature === candidate.signature;
     }
 
-    private credentialsRemainUsable(selection: ResolvedIceServerSelection): boolean {
-        if (selection.kind === "manual") return true;
-        const cached = this.cachedIceServerConfiguration;
-        return cached?.sourceIdentity === selection.identity && this.configurationRemainsUsable(cached.configuration);
+    private connectionSettingsRemainUsable(settings: P2PSyncSetting | undefined): boolean {
+        if (!settings) return false;
+        const managed = hasManagedP2PTurnConfiguration(settings);
+        const iceServers = settings.P2P_iceServers;
+        if (iceServers === undefined) return !managed;
+        if (!this.hasUsableIceServer(iceServers)) return false;
+        const hasTurnServer = this.hasUsableTurnServer(iceServers);
+        if (managed && !hasTurnServer) return false;
+        if (normaliseP2PConnectionPath(settings.P2P_connectionPath) === P2PConnectionPaths.Relay && !hasTurnServer) {
+            return false;
+        }
+        const expiresAt = settings.P2P_iceServersExpiresAt;
+        if (expiresAt === undefined) return !managed;
+        return Number.isFinite(expiresAt) && expiresAt > Date.now() + P2P_ICE_SERVER_EXPIRY_MARGIN_MS;
     }
 
-    private configurationRemainsUsable(configuration: IceServerConfiguration | undefined): boolean {
-        if (configuration === undefined || configuration.expiresAt === null) return true;
-        return configuration.expiresAt > Date.now() + ICE_SERVER_MINIMUM_REMAINING_LIFETIME_MS;
-    }
-
-    private fenceCredentialStateForCurrentSettings(enabled: boolean): void {
+    private fencePreparationForCurrentSettings(enabled: boolean): void {
         if (!enabled) {
-            this.invalidateCredentialRuntimeState();
+            this.invalidatePreparation();
             return;
         }
-        let sourceIdentity: string;
-        try {
-            sourceIdentity = getIceServerSourceIdentity(
-                this.env.services.setting.currentSettings().P2P_iceServerSource
-            );
-        } catch {
-            this.invalidateCredentialRuntimeState();
-            return;
-        }
-        const cacheChanged =
-            this.cachedIceServerConfiguration !== undefined &&
-            this.cachedIceServerConfiguration.sourceIdentity !== sourceIdentity;
         const pendingChanged =
-            this.pendingIceServerAcquisition !== undefined &&
-            this.pendingIceServerAcquisition.sourceIdentity !== sourceIdentity;
-        if (cacheChanged || pendingChanged) this.invalidateCredentialRuntimeState();
+            this.pendingPreparation !== undefined &&
+            this.pendingPreparation.signature !== this.getEffectiveBinding().signature;
+        if (pendingChanged) this.invalidatePreparation();
     }
 
-    private invalidateCredentialRuntimeState(): void {
+    private invalidatePreparation(): void {
         this.runtimeGeneration += 1;
-        this.cachedIceServerConfiguration = undefined;
-        const pending = this.pendingIceServerAcquisition;
-        this.pendingIceServerAcquisition = undefined;
+        const pending = this.pendingPreparation;
+        this.pendingPreparation = undefined;
         if (pending && !pending.controller.signal.aborted) {
-            pending.controller.abort(
-                new IceServerSourceError("unavailable", "The ICE server acquisition was cancelled.", true)
-            );
+            pending.controller.abort(new Error("The P2P settings preparation was cancelled."));
         }
     }
 
-    private async resolveIceServerConfiguration(
-        selection: ResolvedIceServerSelection,
+    private async prepareConnectionSettings(
+        binding: P2PRoomSessionBinding,
         operationGeneration: number
-    ): Promise<IceServerConfiguration | undefined> {
-        if (selection.kind === "manual") return undefined;
-
-        const cached = this.cachedIceServerConfiguration;
-        if (cached?.sourceIdentity === selection.identity && this.configurationRemainsUsable(cached.configuration)) {
-            return cached.configuration;
-        }
-        this.cachedIceServerConfiguration = undefined;
-
-        let source: IceServerSource;
-        try {
-            source = selection.factory(selection.configuration);
-            if (!source || typeof source.acquire !== "function") {
-                throw new IceServerSourceError(
-                    "configuration",
-                    "The ICE server source factory returned an invalid source.",
-                    false
-                );
-            }
-        } catch (error) {
-            throw toSafeIceServerSourceError(error);
+    ): Promise<ObsidianLiveSyncSettings> {
+        const managed = hasManagedP2PTurnConfiguration(binding.settings);
+        const prepare = this.options.prepareP2PSettings;
+        if (!prepare) {
+            if (managed) throw new Error("The selected managed TURN configuration is not supported by this host.");
+            return binding.settings;
         }
 
         const controller = new AbortController();
-        const pending: PendingIceServerAcquisition = {
-            sourceIdentity: selection.identity,
+        const pending: PendingP2PSettingsPreparation = {
+            signature: binding.signature,
             controller,
         };
-        this.pendingIceServerAcquisition = pending;
+        this.pendingPreparation = pending;
         try {
-            const acquired = await this.acquireWithDeadline(source, controller);
-            const validated = validateIceServerConfiguration(acquired, { managed: true });
-            this.assertReconciliationCurrent(undefined, operationGeneration, validated, selection.identity);
-            this.cachedIceServerConfiguration = {
-                sourceIdentity: selection.identity,
-                configuration: validated,
+            const prepared = await this.prepareWithDeadline(prepare, binding.settings, controller);
+            if (prepared.P2P_iceServers === undefined && prepared.P2P_iceServersExpiresAt === undefined) {
+                if (managed) throw new Error("The prepared managed TURN settings do not include ICE servers.");
+                return binding.settings;
+            }
+            const iceServers = this.copyPreparedIceServers(prepared.P2P_iceServers);
+            const expiresAt = prepared.P2P_iceServersExpiresAt;
+            const connectionSettings: ObsidianLiveSyncSettings = {
+                ...binding.settings,
+                P2P_iceServers: iceServers,
+                P2P_iceServersExpiresAt: expiresAt,
             };
-            return validated;
+            if (!this.connectionSettingsRemainUsable(connectionSettings)) {
+                throw new Error("The prepared managed TURN settings are missing usable ICE servers or expiry.");
+            }
+            this.assertReconciliationCurrent(binding, operationGeneration, connectionSettings);
+            return connectionSettings;
         } finally {
-            if (this.pendingIceServerAcquisition === pending) {
-                this.pendingIceServerAcquisition = undefined;
+            if (this.pendingPreparation === pending) {
+                this.pendingPreparation = undefined;
             }
         }
     }
 
-    private acquireWithDeadline(source: IceServerSource, controller: AbortController): Promise<IceServerConfiguration> {
-        const acquisition = Promise.resolve()
-            .then(() => source.acquire(controller.signal))
-            .catch((error: unknown) => {
-                throw toSafeIceServerSourceError(error);
-            });
-        return new Promise<IceServerConfiguration>((resolve, reject) => {
+    private prepareWithDeadline(
+        prepare: PrepareP2PSettings,
+        settings: P2PSyncSetting,
+        controller: AbortController
+    ): Promise<P2PSyncSetting> {
+        const preparation = Promise.resolve().then(() => prepare(Object.freeze({ ...settings }), controller.signal));
+        return new Promise<P2PSyncSetting>((resolve, reject) => {
             let settled = false;
             const finish = (operation: () => void) => {
                 if (settled) return;
@@ -428,23 +388,50 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
             const onAbort = () =>
                 finish(() =>
                     reject(
-                        controller.signal.reason instanceof IceServerSourceError
+                        controller.signal.reason instanceof Error
                             ? controller.signal.reason
-                            : new IceServerSourceError("unavailable", "The ICE server acquisition was cancelled.", true)
+                            : new Error("The P2P settings preparation was cancelled.")
                     )
                 );
             const timeout = globalThis.setTimeout(() => {
-                controller.abort(
-                    new IceServerSourceError("unavailable", "The ICE server acquisition timed out.", true)
-                );
-            }, ICE_SERVER_ACQUISITION_TIMEOUT_MS);
+                controller.abort(new Error("The P2P settings preparation timed out."));
+            }, P2P_SETTINGS_PREPARATION_TIMEOUT_MS);
             controller.signal.addEventListener("abort", onAbort, { once: true });
             if (controller.signal.aborted) onAbort();
-            acquisition.then(
-                (configuration) => finish(() => resolve(configuration)),
-                (error: unknown) => finish(() => reject(toSafeIceServerSourceError(error)))
+            preparation.then(
+                (prepared) => finish(() => resolve(prepared)),
+                () => finish(() => reject(new Error("The P2P settings preparation failed.")))
             );
         });
+    }
+
+    private copyPreparedIceServers(iceServers: readonly RTCIceServer[] | undefined): readonly RTCIceServer[] {
+        if (!Array.isArray(iceServers) || iceServers.length === 0) return [];
+        return iceServers.map((server) => ({
+            urls: typeof server.urls === "string" ? server.urls : [...server.urls],
+            ...(server.username === undefined ? {} : { username: server.username }),
+            ...(server.credential === undefined ? {} : { credential: server.credential }),
+        }));
+    }
+
+    private hasUsableIceServer(iceServers: readonly RTCIceServer[] | undefined): boolean {
+        return (
+            Array.isArray(iceServers) &&
+            iceServers.some((server) => {
+                const urls = typeof server?.urls === "string" ? [server.urls] : server?.urls;
+                return Array.isArray(urls) && urls.some((url) => typeof url === "string" && url.trim().length > 0);
+            })
+        );
+    }
+
+    private hasUsableTurnServer(iceServers: readonly RTCIceServer[] | undefined): boolean {
+        return (
+            Array.isArray(iceServers) &&
+            iceServers.some((server) => {
+                const urls = typeof server?.urls === "string" ? [server.urls] : server?.urls;
+                return Array.isArray(urls) && urls.some((url) => typeof url === "string" && /^turns?:/iu.test(url));
+            })
+        );
     }
 
     private async withRoomOpenDeadline(opening: Promise<void>): Promise<void> {
@@ -467,8 +454,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
     private assertReconciliationCurrent(
         binding: P2PRoomSessionBinding | undefined,
         operationGeneration: number,
-        configuration?: IceServerConfiguration,
-        sourceIdentity?: string
+        connectionSettings?: P2PSyncSetting
     ): void {
         if (operationGeneration !== this.runtimeGeneration || !this.hasRoomDemand()) {
             throw new StaleRoomReconciliationError();
@@ -476,38 +462,20 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         const currentBinding = this.getEffectiveBinding();
         if (!currentBinding.enabled) throw new StaleRoomReconciliationError();
         if (binding && !this.bindingsMatch(binding, currentBinding)) throw new StaleRoomReconciliationError();
-        if (sourceIdentity !== undefined && currentBinding.iceServerSelection.identity !== sourceIdentity) {
+        if (connectionSettings && !this.connectionSettingsRemainUsable(connectionSettings)) {
             throw new StaleRoomReconciliationError();
         }
-        if (!this.configurationRemainsUsable(configuration)) throw new StaleRoomReconciliationError();
-    }
-
-    private reportIceServerSourceError(error: IceServerSourceError): void {
-        Logger(error.message, LOG_LEVEL_NOTICE);
-        Logger(
-            {
-                name: error.name,
-                code: error.code,
-                retryable: error.retryable,
-                message: error.message,
-            },
-            LOG_LEVEL_VERBOSE
-        );
     }
 
     /** Capture immutable session inputs while keeping policy live. */
     private getEffectiveBinding(): P2PRoomSessionBinding {
-        const settings = {
+        const settings = omitP2PRuntimeSettings({
             ...this.env.services.setting.currentSettings(),
-        };
+        }) as ObsidianLiveSyncSettings;
         const deviceName =
             this.env.services.config.getSmallConfig(SETTING_KEY_P2P_DEVICE_NAME) ||
             this.env.services.vault.getVaultName();
         const database = this.env.services.database.localDatabase.localDatabase;
-        const iceServerSelection = resolveIceServerSelection(
-            settings.P2P_iceServerSource,
-            this.options.iceServerSources
-        );
         this.automationCoordinator.reconcileIdentity(
             JSON.stringify([
                 settings.P2P_AppID || "self-hosted-livesync",
@@ -522,7 +490,6 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
             settings,
             deviceName,
             signature: JSON.stringify([getP2PReplicatorConfigurationIdentity(settings), deviceName]),
-            iceServerSelection,
         };
     }
 
@@ -531,16 +498,12 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         session.replicator.reconcileAutoBroadcast(this.env.services.setting.currentSettings().P2P_AutoBroadcast);
     }
 
-    private buildSessionEnv(
-        binding: P2PRoomSessionBinding,
-        iceServerConfiguration?: IceServerConfiguration
-    ): ReplicatorHostEnv {
+    private buildSessionEnv(binding: P2PRoomSessionBinding): ReplicatorHostEnv {
         const services = this.env.services;
         return {
             events: services.context.events,
             translate: services.context.translate,
             settings: binding.settings,
-            iceServers: iceServerConfiguration?.iceServers,
             currentSettings: () => services.setting.currentSettings(),
             db: binding.database,
             get simpleStore() {

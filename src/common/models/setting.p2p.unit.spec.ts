@@ -1,57 +1,37 @@
 import { describe, expect, it } from "vitest";
-import {
-    hasManagedP2PIceServerSource,
-    hasP2PTurnConfiguration,
-    isManualIceServerSourceConfiguration,
-} from "./setting.p2p";
+import { hasManagedP2PTurnConfiguration, hasP2PTurnConfiguration, omitP2PRuntimeSettings } from "./setting.p2p";
 
-describe("P2P ICE source settings", () => {
-    it("recognises a managed descriptor in the selected profile", () => {
-        expect(
-            hasManagedP2PIceServerSource({
-                P2P_iceServerSource: {
-                    version: 1,
-                    id: "cloudflare",
-                    configuration: { turnKeyId: "key", apiToken: "token" },
-                },
-            })
-        ).toBe(true);
-    });
-
-    it("does not treat an inactive profile as the selected source", () => {
-        expect(
-            hasManagedP2PIceServerSource({
-                P2P_iceServerSource: undefined,
-                remoteConfigurations: {
-                    inactive: {
-                        uri: "sls+p2p://room?source=%7B%7D",
-                    },
-                },
-            } as any)
-        ).toBe(false);
+describe("P2P managed TURN settings", () => {
+    it("recognises a non-empty managed provider type", () => {
+        expect(hasManagedP2PTurnConfiguration({ P2P_managedType: "CF" })).toBe(true);
+        expect(hasManagedP2PTurnConfiguration({ P2P_managedType: "" })).toBe(false);
+        expect(hasManagedP2PTurnConfiguration({})).toBe(false);
     });
 
     it("does not let inactive profiles provide selected TURN configuration", () => {
         expect(
             hasP2PTurnConfiguration({
                 P2P_turnServers: "",
-                P2P_iceServerSource: undefined,
                 remoteConfigurations: {
-                    inactive: {
-                        uri: "sls+p2p://room?source=%7B%7D",
-                    },
+                    inactive: { uri: "sls+p2p://room?managedType=CF" },
                 },
             } as any)
         ).toBe(false);
     });
 
-    it("recognises manual mode only for its reserved descriptor version", () => {
-        expect(isManualIceServerSourceConfiguration({ version: 1, id: "manual", configuration: {} })).toBe(true);
-        expect(isManualIceServerSourceConfiguration({ version: 99, id: "manual", configuration: {} })).toBe(false);
-        expect(
-            hasManagedP2PIceServerSource({
-                P2P_iceServerSource: { version: 99, id: "manual", configuration: {} },
-            })
-        ).toBe(true);
+    it("removes runtime ICE fields without changing provider selection", () => {
+        const projected = omitP2PRuntimeSettings({
+            P2P_managedType: "CF",
+            P2P_managedId: "key-id",
+            P2P_managedToken: "secret-token",
+            P2P_iceServers: [{ urls: "turn:turn.example.com", credential: "issued-secret" }],
+            P2P_iceServersExpiresAt: 123_456,
+        });
+
+        expect(projected).toEqual({
+            P2P_managedType: "CF",
+            P2P_managedId: "key-id",
+            P2P_managedToken: "secret-token",
+        });
     });
 });

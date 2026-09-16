@@ -19,7 +19,7 @@ import {
     type UnattendedOneShotRunner,
 } from "@lib/replication";
 import { getP2PReplicatorConfigurationIdentity } from "./p2pReplicatorConfigurationIdentity.ts";
-import type { IceServerSourceFactoryCatalogue } from "@lib/p2p/IceServerSource.ts";
+import type { PrepareP2PSettings } from "@lib/p2p/P2PService.ts";
 
 /**
  * Factory type: given the compatibility Replicator and the stable service
@@ -40,7 +40,7 @@ export type OpenRebuildUIFactory = OpenReplicationUIFactory;
 
 /** Optional host integrations for the P2P room lifecycle. */
 export interface P2PReplicatorFeatureOptions {
-    readonly iceServerSources?: IceServerSourceFactoryCatalogue;
+    readonly prepareP2PSettings?: PrepareP2PSettings;
 }
 
 /**

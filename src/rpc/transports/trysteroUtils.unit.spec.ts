@@ -33,11 +33,9 @@ describe("generateJoinRoomOptions ICE configuration", () => {
     it("uses ephemeral ICE servers without mutating persisted manual fields and keeps relay-only policy", () => {
         const settings: P2PConnectionInfo = {
             ...MANUAL_SETTINGS,
-            P2P_iceServerSource: {
-                version: 1,
-                id: "managed",
-                configuration: { apiToken: "persisted-token" },
-            },
+            P2P_managedType: "CF",
+            P2P_managedId: "key-id",
+            P2P_managedToken: "persisted-token",
         };
         const issuedServers = [
             {
@@ -47,7 +45,11 @@ describe("generateJoinRoomOptions ICE configuration", () => {
             },
         ];
 
-        const options = generateJoinRoomOptions(settings, issuedServers);
+        const options = generateJoinRoomOptions({
+            ...settings,
+            P2P_iceServers: issuedServers,
+            P2P_iceServersExpiresAt: Date.now() + 120_000,
+        });
 
         expect(options.turnConfig).toEqual(issuedServers);
         expect(options.turnConfig).not.toBe(issuedServers);
@@ -63,12 +65,19 @@ describe("generateJoinRoomOptions ICE configuration", () => {
         expect(() =>
             generateJoinRoomOptions({
                 ...MANUAL_SETTINGS,
-                P2P_iceServerSource: {
-                    version: 1,
-                    id: "managed",
-                    configuration: { apiToken: "persisted-token" },
-                },
+                P2P_managedType: "CF",
+                P2P_managedId: "key-id",
+                P2P_managedToken: "persisted-token",
             })
-        ).toThrow("requires resolved credentials");
+        ).toThrow("requires prepared ICE servers");
+    });
+
+    it("rejects a STUN-only runtime override when relay-only routing is requested", () => {
+        expect(() =>
+            generateJoinRoomOptions({
+                ...MANUAL_SETTINGS,
+                P2P_iceServers: [{ urls: "stun:stun.example.com" }],
+            })
+        ).toThrow("requires a prepared TURN route");
     });
 });

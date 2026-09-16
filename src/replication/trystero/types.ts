@@ -110,8 +110,6 @@ export interface ReplicatorHostEnv extends ReplicatorHost {
      * use this snapshot so one session cannot mix transport generations.
      */
     settings: P2PSyncSetting;
-    /** Ephemeral ICE servers resolved for this room generation. */
-    iceServers?: readonly RTCIceServer[];
     /**
      * Return the latest host settings for policy evaluated on an open room.
      *

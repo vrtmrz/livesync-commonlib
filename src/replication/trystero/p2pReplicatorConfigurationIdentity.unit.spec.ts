@@ -100,13 +100,11 @@ describe("P2P Replicator configuration identity", () => {
         ).toBe(identity);
     });
 
-    it("includes managed source configuration while excluding inactive manual TURN fields", () => {
+    it("includes managed provider scalars while excluding inactive manual TURN and runtime ICE fields", () => {
         const settings = configuredSettings({
-            P2P_iceServerSource: {
-                version: 1,
-                id: "managed",
-                configuration: { apiToken: "token-a", turnKeyId: "key-a" },
-            },
+            P2P_managedType: "CF",
+            P2P_managedId: "key-a",
+            P2P_managedToken: "token-a",
         });
         const identity = getP2PReplicatorConfigurationIdentity(settings);
 
@@ -116,40 +114,32 @@ describe("P2P Replicator configuration identity", () => {
                 P2P_turnServers: "turns:inactive.example.test",
                 P2P_turnUsername: "inactive-user",
                 P2P_turnCredential: "inactive-secret",
+                P2P_iceServers: [{ urls: "turn:runtime.example.test", credential: "runtime-secret" }],
+                P2P_iceServersExpiresAt: 123_456,
             })
         ).toBe(identity);
         expect(
             getP2PReplicatorConfigurationIdentity({
                 ...settings,
-                P2P_iceServerSource: {
-                    version: 1,
-                    id: "managed",
-                    configuration: { apiToken: "token-b", turnKeyId: "key-a" },
-                },
+                P2P_managedToken: "token-b",
             })
         ).not.toBe(identity);
         expect(
             getP2PReplicatorConfigurationIdentity({
                 ...settings,
-                P2P_iceServerSource: {
-                    version: 1,
-                    id: "managed",
-                    configuration: { turnKeyId: "key-a", apiToken: "token-a" },
-                },
+                P2P_managedId: "key-b",
             })
-        ).toBe(identity);
+        ).not.toBe(identity);
     });
 
-    it("keeps relay-only policy effective for a managed source without manual TURN fields", () => {
+    it("keeps relay-only policy effective for managed TURN without manual TURN fields", () => {
         const settings = configuredSettings({
             P2P_turnServers: "",
             P2P_turnUsername: "",
             P2P_turnCredential: "",
-            P2P_iceServerSource: {
-                version: 1,
-                id: "managed",
-                configuration: { apiToken: "token-a" },
-            },
+            P2P_managedType: "CF",
+            P2P_managedId: "key-a",
+            P2P_managedToken: "token-a",
             P2P_connectionPath: P2PConnectionPaths.Relay,
         });
 

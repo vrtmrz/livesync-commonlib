@@ -1,8 +1,6 @@
 import type { JWTAlgorithm } from "@lib/common/models/auth.type";
 import type { CouchDBConnection, BucketSyncSetting, P2PConnectionInfo } from "./models/setting.type";
 import {
-    isIceServerSourceConfiguration,
-    isManualIceServerSourceConfiguration,
     normaliseP2PConnectionPath,
     normaliseP2PMaxWirePayloadBytes,
 } from "./models/setting.p2p";
@@ -180,25 +178,6 @@ export class ConnectionStringParser {
         }
 
         const searchParams = new URLSearchParams(queryString);
-        const sourceValue = searchParams.get("source");
-
-        let source: P2PConnectionInfo["P2P_iceServerSource"];
-        if (sourceValue !== null) {
-            if (!sourceValue) {
-                throw new Error("Managed P2P connection string is missing its source descriptor.");
-            }
-            let decoded: unknown;
-            try {
-                decoded = JSON.parse(sourceValue) as unknown;
-            } catch {
-                throw new Error("Invalid managed P2P source descriptor.");
-            }
-            if (!isIceServerSourceConfiguration(decoded)) {
-                throw new Error("Invalid managed P2P source descriptor.");
-            }
-            source = decoded;
-        }
-
         return {
             P2P_Enabled: searchParams.get("enabled") !== "false",
             P2P_roomID: decodeURIComponent(host),
@@ -212,16 +191,13 @@ export class ConnectionStringParser {
             P2P_turnCredential: searchParams.get("turnPass") || "",
             P2P_maxWirePayloadBytes: normaliseP2PMaxWirePayloadBytes(Number(searchParams.get("maxWirePayloadBytes"))),
             P2P_connectionPath: normaliseP2PConnectionPath(searchParams.get("connectionPath")),
-            P2P_iceServerSource: source,
+            P2P_managedType: searchParams.get("managedType") || undefined,
+            P2P_managedId: searchParams.get("managedId") || undefined,
+            P2P_managedToken: searchParams.get("token") || undefined,
         };
     }
 
     private static serializeP2P(settings: P2PConnectionInfo): string {
-        const source = settings.P2P_iceServerSource;
-        const isManagedSource = isIceServerSourceConfiguration(source) && !isManualIceServerSourceConfiguration(source);
-        if (source !== undefined && !isIceServerSourceConfiguration(source)) {
-            throw new Error("Invalid managed P2P source descriptor.");
-        }
         const searchParams = new URLSearchParams();
         if (!settings.P2P_Enabled) searchParams.set("enabled", "false");
         searchParams.set("relays", settings.P2P_relays);
@@ -236,9 +212,9 @@ export class ConnectionStringParser {
             String(normaliseP2PMaxWirePayloadBytes(settings.P2P_maxWirePayloadBytes))
         );
         searchParams.set("connectionPath", normaliseP2PConnectionPath(settings.P2P_connectionPath));
-        if (isManagedSource) {
-            searchParams.set("source", JSON.stringify(source));
-        }
+        if (settings.P2P_managedType) searchParams.set("managedType", settings.P2P_managedType);
+        if (settings.P2P_managedId) searchParams.set("managedId", settings.P2P_managedId);
+        if (settings.P2P_managedToken) searchParams.set("token", settings.P2P_managedToken);
 
         const credentials = settings.P2P_passphrase ? `:${encodeURIComponent(settings.P2P_passphrase)}@` : "";
         const host = encodeURIComponent(settings.P2P_roomID);

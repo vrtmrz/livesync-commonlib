@@ -79,7 +79,6 @@ import {
     type EncryptionSettings,
     type HashAlgorithm,
     type HasSettings,
-    type IceServerSourceConfiguration,
     type LocalDBSettings,
     type ObsidianLiveSyncSettings,
     type P2PConnectionInfo,
@@ -112,12 +111,10 @@ import {
     type P2PConnectionPath,
 } from "./models/setting.const.ts";
 import {
-    cloneIceServerSourceConfiguration,
-    hasManagedP2PIceServerSource,
+    hasManagedP2PTurnConfiguration,
     hasP2PTurnConfiguration,
     hasValidP2PTurnServerUrl,
-    isIceServerSourceConfiguration,
-    isManualIceServerSourceConfiguration,
+    omitP2PRuntimeSettings,
     isValidP2PTurnServerUrl,
     normaliseP2PConnectionPath,
     normaliseP2PMaxWirePayloadBytes,
@@ -300,14 +297,12 @@ export {
     type RemoteType,
     AutoAccepting,
 };
-export type { IceServerSourceConfiguration, P2PConnectionInfo, P2PConnectionPath, P2PSyncSetting };
+export type { P2PConnectionInfo, P2PConnectionPath, P2PSyncSetting };
 export {
-    cloneIceServerSourceConfiguration,
-    hasManagedP2PIceServerSource,
+    hasManagedP2PTurnConfiguration,
     hasP2PTurnConfiguration,
     hasValidP2PTurnServerUrl,
-    isIceServerSourceConfiguration,
-    isManualIceServerSourceConfiguration,
+    omitP2PRuntimeSettings,
     isValidP2PTurnServerUrl,
     normaliseP2PConnectionPath,
     normaliseP2PMaxWirePayloadBytes,

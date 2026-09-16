@@ -50,9 +50,9 @@ it("passes the optional fourth argument into the private P2P service composition
             onDatabaseInitialisation: handler,
         },
     };
-    const iceServerSources = { managed: vi.fn() };
+    const prepareP2PSettings = vi.fn();
 
-    useP2PReplicatorFeature({ services, serviceModules: {} } as any, undefined, undefined, { iceServerSources });
+    useP2PReplicatorFeature({ services, serviceModules: {} } as any, undefined, undefined, { prepareP2PSettings });
 
-    expect(createP2PService).toHaveBeenCalledWith({ services }, { iceServerSources });
+    expect(createP2PService).toHaveBeenCalledWith({ services }, { prepareP2PSettings });
 });

@@ -115,6 +115,7 @@ describe("Remote Configuration Migration", () => {
         expect(configs["legacy-s3"]?.uri).toContain("sls+s3://");
         expect(configs["legacy-p2p"]?.uri).toContain("sls+p2p://");
         expect(mockSettings.activeConfigurationId).toBe("legacy-s3");
+        expect(mockSettings.P2P_ActiveRemoteConfigurationId).toBe("legacy-p2p");
     });
 
     it("should not migrate if remoteConfigurations is already populated", async () => {
@@ -151,19 +152,19 @@ describe("Remote Configuration Migration", () => {
 });
 
 describe("Remote Configuration Activation", () => {
-    const managedSource = {
-        version: 1,
-        id: "cloudflare",
-        configuration: { turnKeyId: "key-id", apiToken: "api-token" },
+    const managedSettings = {
+        P2P_managedType: "CF",
+        P2P_managedId: "key-id",
+        P2P_managedToken: "api-token",
     };
 
-    function createP2PProfileURI(roomID: string, source?: typeof managedSource): string {
+    function createP2PProfileURI(roomID: string, managed = false): string {
         return ConnectionStringParser.serialize({
             type: "p2p",
             settings: {
                 ...P2P_DEFAULT_SETTINGS,
                 P2P_roomID: roomID,
-                P2P_iceServerSource: source,
+                ...(managed ? managedSettings : {}),
             },
         });
     }
@@ -199,7 +200,7 @@ describe("Remote Configuration Activation", () => {
             ...P2P_DEFAULT_SETTINGS,
             remoteType: REMOTE_P2P,
             activeConfigurationId: "managed",
-            P2P_iceServerSource: managedSource,
+            ...managedSettings,
             remoteConfigurations: {
                 manual: {
                     id: "manual",
@@ -211,7 +212,9 @@ describe("Remote Configuration Activation", () => {
         } as ObsidianLiveSyncSettings;
 
         expect(activateRemoteConfiguration(settings, "manual")).toBe(settings);
-        expect(settings.P2P_iceServerSource).toBeUndefined();
+        expect(settings.P2P_managedType).toBeUndefined();
+        expect(settings.P2P_managedId).toBeUndefined();
+        expect(settings.P2P_managedToken).toBeUndefined();
         expect(settings.P2P_roomID).toBe("manual-room");
     });
 
@@ -220,7 +223,7 @@ describe("Remote Configuration Activation", () => {
             ...P2P_DEFAULT_SETTINGS,
             remoteType: REMOTE_COUCHDB,
             P2P_ActiveRemoteConfigurationId: "managed",
-            P2P_iceServerSource: managedSource,
+            ...managedSettings,
             remoteConfigurations: {
                 manual: {
                     id: "manual",
@@ -232,7 +235,9 @@ describe("Remote Configuration Activation", () => {
         } as ObsidianLiveSyncSettings;
 
         expect(activateP2PRemoteConfiguration(settings, "manual")).toBe(settings);
-        expect(settings.P2P_iceServerSource).toBeUndefined();
+        expect(settings.P2P_managedType).toBeUndefined();
+        expect(settings.P2P_managedId).toBeUndefined();
+        expect(settings.P2P_managedToken).toBeUndefined();
         expect(settings.P2P_roomID).toBe("manual-room");
         expect(settings.remoteType).toBe(REMOTE_COUCHDB);
     });

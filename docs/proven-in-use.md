@@ -70,22 +70,35 @@ The Obsidian plug-in, CLI, WebApp, and WebPeer compose P2P ownership through `us
 
 Commonlib's focused P2P compatibility tests establish legacy defaulting, bounded outgoing message sizes, connection-string and QR-setting round trips, application of the configured bound across its Trystero server and client surfaces, relay-only ICE mapping when a valid TURN URL is present, and replacement of a serving transport when an effective compatibility value changes. They do not prove that a particular network path requires a smaller preset or that a configured TURN service can allocate a relay. Self-hosted LiveSync owns profile selection, user-facing controls, and real-Obsidian composition; device- and network-specific connectivity remains downstream or reporter-environment evidence.
 
-The optional ICE server source contract extends the same P2P composition with
-host-owned credential factories. Focused tests cover expiry during room reuse,
-cancellation of pending acquisition, settings identity, safe errors, managed
-profile, Setup URI, and QR round trips, and persistence encryption. Source
-credentials are saved only in the profile URI; load tests verify restoration
-through the existing profile activation, independent remote selections, and
-updates to the same profile across repeated saves.
-Self-hosted LiveSync supplies the Cloudflare source and settings UI. Mocked HTTP
-and injected room tests establish these boundaries. On 15 September 2026,
-LiveSync with Commonlib `0.1.25-dev.turn-credentials.3` additionally verified
-real Cloudflare issuance and note replication between two isolated Obsidian
-1.12.7 instances on one Linux host. Both endpoints selected relay candidates;
-an explicit disconnect and reconnect acquired credentials again and allowed a
-note to be synchronised in the reverse direction. Natural expiry, interruption
-during a batch, mobile lifecycle, and different-network connectivity retain
-separate runtime validation requirements for this unreleased integration.
+The optional P2P settings-preparation hook lets a host supply connection-only
+ICE servers without adding provider logic to Commonlib. Focused Commonlib tests
+cover immutable requested settings, provider-scalar identity, room reuse before
+expiry, replacement inside the 30-second expiry margin, explicit reconnect,
+bounded preparation, cancellation, late-result fencing, manual compatibility,
+an unmanaged STUN-only override without provider metadata or expiry,
+relay-only rejection without TURN, relay-only mapping with TURN, and omission
+of runtime credentials from persistence and sharing. Profile tests cover the
+`managedType`, `managedId`, and `token` URI fields, one-profile flat migration,
+activation, whole-profile encryption, and failure without plaintext
+replacement.
+
+Self-hosted LiveSync supplies the Cloudflare HTTP function, response validation,
+provider selection, settings UI, and host hook. Mocked HTTP and injected-room
+tests establish those boundaries without calling Cloudflare. On 16 September
+2026, two isolated Obsidian 1.12.7 instances on one Linux host exercised the
+exact `0.1.25-dev.turn-credentials.6` package. Both acquired real Cloudflare
+credentials and selected relay candidates, and a note reached the receiving
+Vault. Explicit disconnection and reconnection issued fresh credentials,
+selected relay candidates at both endpoints again, and allowed a second note
+to reach the other Vault. A separate real-Obsidian check with dummy credentials
+verified encrypted profile persistence and restoration after restart, with
+issued ICE credentials excluded from saved settings.
+
+Natural TTL expiry, interruption during a replication batch, mobile lifecycle,
+mixed manual and managed peers, and different-network connectivity retain
+separate downstream runtime validation requirements. The live-provider check
+establishes issuance and explicit reconnection for the tested package; it does
+not establish those additional behaviours or the eventual published artefact.
 
 Focused room-session and RPC tests additionally establish that a manual stop delivers cancellation to every concurrent finite replication while leaving the room reusable, that session retirement rejects new work and awaits admitted work before leaving, and that caller cancellation reaches a cancellation-aware incoming RPC handler. The replication-shim tests establish cancellation at safe batch boundaries and preserve the checkpoint for an atomic database write which has already settled. Self-hosted LiveSync composes the provider stop capability into its manual command; physical transport interruption and operating-system process termination remain host and runtime boundaries rather than rollback guarantees.
 
