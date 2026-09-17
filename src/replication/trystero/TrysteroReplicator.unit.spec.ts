@@ -12,6 +12,7 @@ import type { Advertisement } from "./types";
 import { RpcRoom, type JsonLike, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
 import { toRpcMethodName } from "./rpcCompat";
 import { fromP2PReplicationWireResult } from "./P2PReplicationWire";
+import { decryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
 
 function createRpcRoomPair() {
     let receiveA: ((message: RpcWireMessage, peerId: string) => void) | undefined;
@@ -369,6 +370,31 @@ describe("TrysteroReplicator automatic remote activity", () => {
                 },
             });
         }
+    });
+
+    it("excludes runtime ICE and duplicate managed projections from shared configuration", async () => {
+        const profileURI = "sls+p2p://room?managedType=CF&managedId=key-id&token=profile-token";
+        const { replicator } = createReplicator({
+            P2P_managedType: "CF",
+            P2P_managedId: "key-id",
+            P2P_managedToken: "top-level-token",
+            P2P_iceServers: [{ urls: "turn:turn.example.com", credential: "issued-secret" }],
+            P2P_iceServersExpiresAt: 123_456,
+            remoteConfigurations: {
+                p2p: { id: "p2p", name: "Managed P2P", uri: profileURI, isEncrypted: false },
+            },
+        });
+        (replicator as any)._env.confirm.askString = vi.fn(async () => "share-pass");
+
+        const encrypted = await replicator.getCommands().getAllConfig("peer-id");
+        const shared = JSON.parse(await decryptWithEphemeralSalt(encrypted as string, "share-pass"));
+
+        expect(shared).not.toHaveProperty("P2P_managedType");
+        expect(shared).not.toHaveProperty("P2P_managedId");
+        expect(shared).not.toHaveProperty("P2P_managedToken");
+        expect(shared).not.toHaveProperty("P2P_iceServers");
+        expect(shared).not.toHaveProperty("P2P_iceServersExpiresAt");
+        expect(shared.remoteConfigurations.p2p.uri).toBe(profileURI);
     });
 
     it("does not request the reverse transfer after the pull is cancelled", async () => {

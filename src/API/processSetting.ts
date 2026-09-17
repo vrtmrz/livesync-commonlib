@@ -5,6 +5,7 @@ import {
     DEFAULT_SETTINGS,
     KeyIndexOfSettings,
     LOG_LEVEL_NOTICE,
+    omitP2PRuntimeSettings,
     type ObsidianLiveSyncSettings,
 } from "@lib/common/types";
 import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
@@ -16,6 +17,7 @@ import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
  * @param settings settings to encode
  */
 export function encodeSettingsToQRCodeData(settings: ObsidianLiveSyncSettings) {
+    settings = omitP2PRuntimeSettings(settings) as ObsidianLiveSyncSettings;
     const fullIndexes = Object.entries(KeyIndexOfSettings) as [keyof ObsidianLiveSyncSettings, number][];
 
     // Find the maximum index to properly size the array
@@ -76,7 +78,7 @@ export function decodeSettingsFromQRCodeData(qr: string): ObsidianLiveSyncSettin
         );
     }
 
-    return newSettings;
+    return omitP2PRuntimeSettings(newSettings) as ObsidianLiveSyncSettings;
 }
 
 export enum OutputFormat {
@@ -164,9 +166,12 @@ export async function encodeSettingsToSetupURI(
     removeProperties: ErasureProperties[] = ["pluginSyncExtendedSetting"],
     skipDefaultValue = false
 ) {
-    const setting = {
-        ...settingString,
+    const setting: Partial<ObsidianLiveSyncSettings> = {
+        ...omitP2PRuntimeSettings(settingString),
     };
+    delete setting.P2P_managedType;
+    delete setting.P2P_managedId;
+    delete setting.P2P_managedToken;
     if (skipDefaultValue) {
         const keys = Object.keys(setting) as (keyof ObsidianLiveSyncSettings)[];
         for (const k of keys) {
@@ -194,10 +199,10 @@ export async function decodeSettingsFromSetupURI(uri: string, passphrase: string
     const encryptedSetting = uri.substring(configURIBase.length);
     const decrypted = await decryptString(decodeURIComponent(encryptedSetting), passphrase);
     try {
-        return JSON.parse(decrypted) as ObsidianLiveSyncSettings;
-    } catch (e) {
+        return omitP2PRuntimeSettings(JSON.parse(decrypted) as ObsidianLiveSyncSettings);
+    } catch {
+        // JSON parsing errors can include decrypted credentials in their message.
         Logger(`Failed to parse settings from decrypted data`, LOG_LEVEL_NOTICE);
-        Logger(e, LOG_LEVEL_VERBOSE);
         return false;
     }
 }

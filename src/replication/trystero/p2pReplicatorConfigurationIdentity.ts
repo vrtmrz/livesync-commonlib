@@ -1,6 +1,7 @@
 import { P2PConnectionPaths } from "@lib/common/models/setting.const.ts";
 import {
     hasValidP2PTurnServerUrl,
+    hasManagedP2PTurnConfiguration,
     normaliseP2PConnectionPath,
     normaliseP2PMaxWirePayloadBytes,
     splitP2PRelayUrls,
@@ -16,15 +17,19 @@ import type { RemoteDBSettings } from "@lib/common/types.ts";
  * credentials and must not be logged, persisted, or displayed.
  */
 export function getP2PReplicatorConfigurationIdentity(settings: RemoteDBSettings): string {
+    const managedTurnSelected = hasManagedP2PTurnConfiguration(settings);
     const turnServerValue = settings.P2P_turnServers ?? "";
     const turnServers = splitP2PTurnServerUrls(turnServerValue);
     const configuredPath = normaliseP2PConnectionPath(settings.P2P_connectionPath);
     const effectivePath =
-        configuredPath === P2PConnectionPaths.Relay && hasValidP2PTurnServerUrl(turnServerValue)
+        configuredPath === P2PConnectionPaths.Relay &&
+        (managedTurnSelected || hasValidP2PTurnServerUrl(turnServerValue))
             ? P2PConnectionPaths.Relay
             : P2PConnectionPaths.Automatic;
     const turnAuthentication =
-        turnServers.length > 0 ? [settings.P2P_turnUsername, settings.P2P_turnCredential] : undefined;
+        !managedTurnSelected && turnServers.length > 0
+            ? [settings.P2P_turnUsername, settings.P2P_turnCredential]
+            : undefined;
 
     return JSON.stringify([
         "p2p",
@@ -32,8 +37,11 @@ export function getP2PReplicatorConfigurationIdentity(settings: RemoteDBSettings
         settings.P2P_roomID,
         settings.P2P_passphrase,
         splitP2PRelayUrls(settings.P2P_relays),
-        turnServers,
+        managedTurnSelected ? undefined : turnServers,
         turnAuthentication,
+        managedTurnSelected
+            ? [settings.P2P_managedType, settings.P2P_managedId, settings.P2P_managedToken]
+            : undefined,
         normaliseP2PMaxWirePayloadBytes(settings.P2P_maxWirePayloadBytes),
         effectivePath,
         settings.P2P_useDiagRTC ?? false,
