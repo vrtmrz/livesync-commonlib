@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-## 0.1.26-rc.0
+## 0.1.26
 
 17th September, 2026
 
