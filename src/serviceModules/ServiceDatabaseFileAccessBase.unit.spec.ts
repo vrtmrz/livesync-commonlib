@@ -72,6 +72,20 @@ describe("ServiceDatabaseFileAccessBase.hasContentInRevisionHistory", () => {
         await Promise.all(databases.splice(0).map((database) => database.destroy()));
     });
 
+    it("matches only current leaves, even when an ancestor has identical content", async () => {
+        const id = "current-leaves.md" as DocumentID;
+        const path = "current-leaves.md" as FilePathWithPrefix;
+        const database = new PouchDB<EntryDoc>(`current-leaves-${++databaseSequence}`, { adapter: "memory" });
+        databases.push(database);
+        const root = await database.put(createEntry(id, path, "old content"));
+        await database.put({ ...createEntry(id, path, "new content"), _rev: root.rev });
+        const service = createService(database, id);
+
+        await expect(service.findContentRevisions(path, "old content")).resolves.toContain(root.rev);
+        await expect(service.findLiveContentRevisions(path, "old content")).resolves.toEqual([]);
+        await expect(service.findLiveContentRevisions(path, "new content")).resolves.toHaveLength(1);
+    });
+
     it("recognises content from a resolved losing branch as synchronised history", async () => {
         databaseSequence += 1;
         const source = new PouchDB<EntryDoc>(`revision-history-source-${databaseSequence}`, { adapter: "memory" });

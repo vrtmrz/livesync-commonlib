@@ -3,7 +3,10 @@ import type { FilePathWithPrefix, LoadedEntry, MetaEntry, UXFileInfo, UXFileInfo
 export interface DatabaseFileAccess {
     delete: (file: UXFileInfoStub | FilePathWithPrefix, rev?: string) => Promise<boolean>;
     store: (file: UXFileInfo, force?: boolean, skipCheck?: boolean) => Promise<boolean>;
-    /** Store a file as a child of an exact revision and return the created revision. */
+    /**
+     * Store a child of the exact supplied revision, even after that branch has advanced.
+     * An undefined base uses the current winner. Return the created revision, or `false`.
+     */
     storeWithBaseRevision: (
         file: UXFileInfo,
         baseRevision: string | undefined,
@@ -19,8 +22,18 @@ export interface DatabaseFileAccess {
      * write without creating a Metadata successor.
      */
     storeWithLiveBaseRevision: (file: UXFileInfo, baseRevision: string, skipCheck?: boolean) => Promise<string | false>;
+    /**
+     * Preserve content of unknown ancestry as a fresh parentless revision of the same document.
+     * Existing branches remain intact; no historical byte match is used as the parent.
+     * Return the created revision, or `false` when no Metadata revision was stored.
+     */
+    storeIndependentRevision: (file: UXFileInfo, skipCheck?: boolean) => Promise<string | false>;
     storeAsConflictedRevision: (file: UXFileInfo, currentRev: string, skipCheck?: boolean) => Promise<boolean>;
-    /** Preserve unknown storage content as a conflict and return its exact revision. */
+    /**
+     * Store a sibling of `currentRev` below its parent and return the created revision.
+     * Return `false` if that parent is unavailable. Use `storeIndependentRevision`
+     * when the storage content has no known ancestor.
+     */
     storeAsConflictedRevisionWithResult: (
         file: UXFileInfo,
         currentRev: string,
@@ -44,6 +57,19 @@ export interface DatabaseFileAccess {
         content: string | string[] | Blob | ArrayBuffer,
         currentRev?: string
     ) => Promise<string[]>;
+    /**
+     * Return current, non-deleted leaf revisions whose decoded content matches the supplied bytes.
+     * Include the winning and conflicting leaves, but never their ancestors. Read only locally
+     * available Chunks, without requesting remote data or waiting for missing Chunks to arrive.
+     *
+     * A unique match can recover provenance; several matches avoid a duplicate write but leave
+     * its origin ambiguous. An empty result means no match was confirmed, including when data
+     * could not be read. This read neither records provenance nor reserves a leaf for a later write.
+     */
+    findLiveContentRevisions: (
+        file: UXFileInfoStub | FilePathWithPrefix,
+        content: string | string[] | Blob | ArrayBuffer
+    ) => Promise<string[]>;
     fetch: (
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,
@@ -56,11 +82,17 @@ export interface DatabaseFileAccess {
         rev?: string,
         skipCheck?: boolean
     ) => Promise<MetaEntry | false>;
+    /**
+     * Load a revision's content, or return `false` when it cannot be loaded.
+     * `localOnly` overrides `waitForReady`: missing Chunks cause failure without remote requests
+     * or waiting for delivery, so provenance checks can use only content already available locally.
+     */
     fetchEntry: (
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,
         waitForReady?: boolean,
-        skipCheck?: boolean
+        skipCheck?: boolean,
+        localOnly?: boolean
     ) => Promise<LoadedEntry | false>;
     getConflictedRevs: (file: UXFileInfoStub | FilePathWithPrefix) => Promise<string[]>;
 }

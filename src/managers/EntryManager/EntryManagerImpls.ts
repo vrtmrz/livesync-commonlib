@@ -25,6 +25,7 @@ import type { LayeredChunkManager as ChunkManager } from "@lib/managers/LayeredC
 import type { ChunkWriteOptions } from "@lib/managers/LayeredChunkManager/types";
 import { serialized } from "octagonal-wheels/concurrency/lock";
 import { createTextBlob, getFileRegExp, isTextBlob } from "@lib/common/utils";
+import { compatGlobal } from "@lib/common/coreEnvFunctions";
 import type { NecessaryServicesInterfaces } from "@lib/interfaces/ServiceModule";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb";
 import { stripAllPrefixes } from "@lib/string_and_binary/path";
@@ -38,10 +39,16 @@ type Managers = {
     localDatabase: PouchDB.Database<EntryDoc>;
 };
 type NecessaryManagers<T extends keyof Managers> = Pick<Managers, T>;
+/** Select ancestry and stale-base handling when writing document metadata. */
 type PutDBEntryRevisionTarget =
+    /** Use the current winning revision, retaining the legacy forced-write behaviour. */
     | { mode: "latest" }
+    /** Branch from this exact revision, even when it has already acquired children. */
     | { mode: "force-base"; baseRevision: string }
-    | { mode: "live-base"; baseRevision: string };
+    /** Advance this exact live leaf through MVCC; a stale base must fail with 409. */
+    | { mode: "live-base"; baseRevision: string }
+    /** Preserve unknown ancestry as a fresh, parentless branch of the same document. */
+    | { mode: "independent-root" };
 
 export async function createChunks(
     managers: NecessaryManagers<"chunkManager" | "hashManager" | "splitter">,
@@ -193,6 +200,20 @@ export async function putDBEntryWithLiveBaseRevision(
     }
 }
 
+/**
+ * Preserve content with unknown ancestry as a fresh parentless revision of the same document.
+ * Store the body as Chunks as usual, then insert a Metadata root with a random revision ID using
+ * `new_edits: false`. This retains existing branches without reusing an identical historical root.
+ * Return the Metadata write result, or `false` when the entry cannot be stored.
+ */
+export async function putDBEntryAsIndependentRoot(
+    host: NecessaryServicesInterfaces<"path" | "setting", never>,
+    managers: NecessaryManagers<"localDatabase" | "chunkManager" | "hashManager" | "splitter">,
+    note: SavingEntry
+) {
+    return await putDBEntryInternal(host, managers, note, false, { mode: "independent-root" });
+}
+
 async function putDBEntryInternal(
     host: NecessaryServicesInterfaces<"path" | "setting", never>,
     managers: NecessaryManagers<"localDatabase" | "chunkManager" | "hashManager" | "splitter">,
@@ -249,9 +270,13 @@ async function putDBEntryInternal(
 
         return (
             (await serialized("file:" + filename, async () => {
-                if (revisionTarget.mode !== "latest") {
+                if (revisionTarget.mode === "force-base" || revisionTarget.mode === "live-base") {
+                    // An explicit base identifies the branch the caller edited. Do not
+                    // replace it with the winner; the write below controls stale-base policy.
                     newDoc._rev = revisionTarget.baseRevision;
-                } else {
+                } else if (revisionTarget.mode === "latest") {
+                    // Legacy callers use whichever revision currently wins. A missing
+                    // document starts a new tree through PouchDB's normal write path.
                     try {
                         const old = await localDatabase.get(newDoc._id);
                         newDoc._rev = old._rev;
@@ -263,6 +288,25 @@ async function putDBEntryInternal(
                         }
                     }
                 }
+                if (revisionTarget.mode === "independent-root") {
+                    // new_edits:false imports an exact revision tree. A fresh random ID
+                    // keeps this root distinct even when its metadata and chunk references
+                    // match a historical root. PouchDB's usual deterministic MD5 would
+                    // reuse that revision, which cannot preserve a new independent branch.
+                    // This API accepts the supplied ID; it does not require an MD5 digest.
+                    const randomBytes = compatGlobal.crypto.getRandomValues(new Uint8Array(16));
+                    const rootId = Array.from(randomBytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+                    newDoc._rev = `1-${rootId}`;
+                    const imported = { ...newDoc, _revisions: { start: 1, ids: [rootId] } };
+                    await localDatabase.bulkDocs([imported], { new_edits: false });
+                    const stored = await localDatabase.get(newDoc._id, { rev: newDoc._rev });
+                    return stored._rev === newDoc._rev
+                        ? { id: newDoc._id, ok: true, rev: newDoc._rev }
+                        : false;
+                }
+                // Only live-base relies on ordinary MVCC to reject an advanced base.
+                // force:true deliberately preserves an edit as a child of its supplied
+                // base, even after replication has added another child to that revision.
                 const r =
                     revisionTarget.mode === "live-base"
                         ? await localDatabase.put<PlainEntry | NewEntry>(newDoc)
@@ -437,10 +481,18 @@ function canFetchRemotely(settings: ObsidianLiveSyncSettings) {
     return true;
 }
 /**
- * Decide how to retrieve chunks based on settings and waitForReady flag.
+ * Decide how to retrieve chunks based on settings and the caller's read policy.
  * `waitForReady` allows an already-observable finite delivery lifecycle to finish.
+ * `localOnly` overrides both settings and waiting for provenance comparisons.
  */
-export function computeChunkRetrievalMethod(waitForReady: boolean, settings: ObsidianLiveSyncSettings) {
+export function computeChunkRetrievalMethod(
+    waitForReady: boolean,
+    settings: ObsidianLiveSyncSettings,
+    localOnly = false
+) {
+    if (localOnly) {
+        return { waitForDelivery: false, preventRemoteRequest: true };
+    }
     const isOnDemandFetchEnabled = canFetchRemotely(settings);
     if (!waitForReady) {
         // Normally this requests an immediate local result. CouchDB on-demand
@@ -471,7 +523,8 @@ async function respondEntryFromMeta(
     filename: FilePathWithPrefix | FilePath,
     meta: NewEntry | PlainEntry,
     dump: boolean,
-    waitForReady: boolean
+    waitForReady: boolean,
+    localOnly = false
 ) {
     const dispFilename = stripAllPrefixes(filename);
     const deleted = meta.deleted ?? meta._deleted ?? undefined;
@@ -505,7 +558,7 @@ async function respondEntryFromMeta(
             edenChunks = Object.fromEntries(chunks.map((e) => [e._id, e]));
         }
 
-        const { waitForDelivery, preventRemoteRequest } = computeChunkRetrievalMethod(waitForReady, settings);
+        const { waitForDelivery, preventRemoteRequest } = computeChunkRetrievalMethod(waitForReady, settings, localOnly);
 
         const childrenKeys = [...meta.children] as DocumentID[];
         const chunks = await chunkManager.read(
@@ -565,7 +618,8 @@ export async function getDBEntryFromMeta(
     { localDatabase, chunkManager }: NecessaryManagers<"localDatabase" | "chunkManager">,
     meta: LoadedEntry | MetaEntry,
     dump = false,
-    waitForReady = true
+    waitForReady = true,
+    localOnly = false
 ) {
     const filename = host.services.path.id2path(meta._id, meta);
     if (!isTargetFile(host, filename)) {
@@ -586,7 +640,8 @@ export async function getDBEntryFromMeta(
             filename,
             meta,
             dump,
-            waitForReady
+            waitForReady,
+            localOnly
         );
     }
     return false;
@@ -598,11 +653,12 @@ export async function getDBEntryByPath(
     opt?: PouchDB.Core.GetOptions,
     dump = false,
     waitForReady = true,
-    includeDeleted = false
+    includeDeleted = false,
+    localOnly = false
 ) {
     const meta = await getDBEntryMetaByPath(host, managers, path, opt, includeDeleted);
     if (meta) {
-        return await getDBEntryFromMeta(host, managers, meta, dump, waitForReady);
+        return await getDBEntryFromMeta(host, managers, meta, dump, waitForReady, localOnly);
     } else {
         return false;
     }
