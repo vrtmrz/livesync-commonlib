@@ -284,6 +284,22 @@ export const globalConcurrencyController = Semaphore(50);
 export function determineTypeFromBlob(data: Blob): "newnote" | "plain" {
     return isTextBlob(data) ? "plain" : "newnote";
 }
+
+/**
+ * Whether remediation mode is active.
+ *
+ * While a modification-time limit is configured, Commonlib refuses every reconciliation scan
+ * between the storage and the local database and keeps storage events unqueued, so that a state
+ * being recovered is not overwritten by the current one. A host therefore stays unready while the
+ * limit is configured, because readiness depends upon that refused scan. Applying the limit to the
+ * documents which arrive is the responsibility of the host.
+ * @param settings Settings to inspect
+ * @returns `true` when a modification-time limit is configured.
+ */
+export function isRemediationModeActive(settings: Pick<ObsidianLiveSyncSettings, "maxMTimeForReflectEvents">): boolean {
+    return (settings.maxMTimeForReflectEvents ?? 0) > 0;
+}
+
 export function determineType(
     path: string,
     data: string | string[] | Uint8Array | ArrayBuffer | Blob
