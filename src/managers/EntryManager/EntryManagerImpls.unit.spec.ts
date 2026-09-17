@@ -1,10 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
+import replication from "pouchdb-replication";
 import {
     createChunks,
     putDBEntry,
     putDBEntryWithLiveBaseRevision,
+    putDBEntryAsIndependentRoot,
     isTargetFile,
     prepareChunk,
     getDBEntryMetaByPath,
@@ -42,9 +44,12 @@ import { createTextBlob, isDocContentSame } from "@lib/common/utils";
 import type { NecessaryServicesInterfaces } from "@lib/interfaces/ServiceModule";
 import type { WriteResult } from "@lib/managers/LayeredChunkManager/types";
 import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
+import { EntryManager } from "./EntryManager";
+import { ConflictManager } from "@lib/managers/ConflictManager";
 
 // Set up PouchDB with memory adapter
 PouchDB.plugin(MemoryAdapter);
+PouchDB.plugin(replication);
 let dbCounter = 0;
 
 /**
@@ -542,6 +547,74 @@ describe("EntryManagerImpls", () => {
             expect(liveLeaves).not.toContain(secondLeaf.rev);
         });
 
+        it("keeps an independent root distinct from matching history through replication", async () => {
+            const entry = createSavingEntry("independent-root.md", "# Note\nKeep\n");
+            const host = createHost(mockSettingService, mockPathService);
+            const managers = { localDatabase: db, chunkManager, hashManager, splitter };
+            const original = await putDBEntry(host, managers, entry);
+            expect(original).not.toBe(false);
+            if (original === false) return;
+            const advanced = await putDBEntry(host, managers, {
+                ...entry, data: createTextBlob("# Note\nKeep\nRemote addition\n"), mtime: entry.mtime + 1,
+            });
+            expect(advanced).not.toBe(false);
+            if (advanced === false) return;
+
+            const independent = await putDBEntryAsIndependentRoot(host, managers, {
+                // Match the historical document's metadata as well as its bytes.
+                // A deterministic hash would otherwise reuse the old root.
+                ...entry, data: createTextBlob("# Note\nKeep\n"),
+            });
+            expect(independent).not.toBe(false);
+            if (independent === false) return;
+            expect(independent.rev).toMatch(/^1-[0-9a-f]{32}$/);
+            expect(independent.rev).not.toBe(original.rev);
+            const live = await db.get(entry._id, { conflicts: true });
+            expect([live._rev, ...(live._conflicts ?? [])]).toEqual(
+                expect.arrayContaining([advanced.rev, independent.rev])
+            );
+            const root = await db.get(entry._id, { rev: independent.rev, revs: true });
+            expect(root._revisions?.ids).toHaveLength(1);
+            const entryManager = new EntryManager({
+                database: db, chunkManager, hashManager, splitter,
+                pathService: mockPathService, settingService: mockSettingService,
+            });
+            const merger = new ConflictManager({ database: db, entryManager, pathService: mockPathService });
+            const merge = await merger.tryAutoMerge(entry.path, true);
+            expect(merge).not.toHaveProperty("result");
+
+            const replica = new PouchDB<EntryDoc>(`independent-root-replica-${++dbCounter}`, { adapter: "memory" });
+            try {
+                await db.replicate.to(replica);
+                const replicated = await replica.get(entry._id, { conflicts: true });
+                expect([replicated._rev, ...(replicated._conflicts ?? [])]).toEqual(
+                    expect.arrayContaining([advanced.rev, independent.rev])
+                );
+                await expect(replica.get(entry._id, { rev: independent.rev })).resolves.toMatchObject({
+                    _rev: independent.rev, mtime: entry.mtime,
+                });
+            } finally {
+                await replica.destroy();
+            }
+        });
+
+        it("compares local chunks without waiting for delivery or requesting remote chunks", async () => {
+            const entry = createSavingEntry("local-only-comparison.md", "Stored content");
+            const host = createHost(mockSettingService, mockPathService);
+            const managers = { localDatabase: db, chunkManager, hashManager, splitter };
+            await putDBEntry(host, managers, entry);
+            const read = vi.spyOn(chunkManager, "read");
+
+            await expect(getDBEntryByPath(host, managers, entry.path, undefined, false, true, false, true))
+                .resolves.not.toBe(false);
+
+            expect(read).toHaveBeenCalledWith(
+                expect.any(Array),
+                expect.objectContaining({ waitForDelivery: false, preventRemoteRequest: true }),
+                expect.any(Object)
+            );
+        });
+
         it("refuses to store below a revision which is no longer a live leaf", async () => {
             const entry = createSavingEntry("stale-live-base-test", "Initial content");
             const host = createHost(mockSettingService, mockPathService);
@@ -958,6 +1031,22 @@ describe("EntryManagerImpls", () => {
     });
 
     describe("computeChunkRetrievalMethod", () => {
+        it.each(
+            [REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P].flatMap((remoteType) =>
+                [false, true].flatMap((waitForReady) =>
+                    [false, true].map((useOnlyLocalChunk) => ({ remoteType, waitForReady, useOnlyLocalChunk }))
+                )
+            )
+        )("makes local-only reads immediate for $remoteType, wait=$waitForReady, local=$useOnlyLocalChunk", ({
+            remoteType, waitForReady, useOnlyLocalChunk,
+        }) => {
+            const settings = { ...DEFAULT_SETTINGS, remoteType, useOnlyLocalChunk };
+            expect(computeChunkRetrievalMethod(waitForReady, settings, true)).toEqual({
+                waitForDelivery: false,
+                preventRemoteRequest: true,
+            });
+        });
+
         it.each([
             {
                 expected: { preventRemoteRequest: false, waitForDelivery: true },

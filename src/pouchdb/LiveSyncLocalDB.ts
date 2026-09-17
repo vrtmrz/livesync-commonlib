@@ -614,16 +614,18 @@ export class LiveSyncLocalDB {
         opt?: PouchDB.Core.GetOptions,
         dump = false,
         waitForReady = true,
-        includeDeleted = false
+        includeDeleted = false,
+        localOnly = false
     ): Promise<false | LoadedEntry> {
-        return await this.managers.entryManager.getDBEntry(path, opt, dump, waitForReady, includeDeleted);
+        return await this.managers.entryManager.getDBEntry(path, opt, dump, waitForReady, includeDeleted, localOnly);
     }
     async getDBEntryFromMeta(
         meta: LoadedEntry | MetaEntry,
         dump = false,
-        waitForReady = true
+        waitForReady = true,
+        localOnly = false
     ): Promise<false | LoadedEntry> {
-        return await this.managers.entryManager.getDBEntryFromMeta(meta, dump, waitForReady);
+        return await this.managers.entryManager.getDBEntryFromMeta(meta, dump, waitForReady, localOnly);
     }
     async deleteDBEntry(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
         return await this.managers.entryManager.deleteDBEntry(path, opt);
@@ -636,6 +638,10 @@ export class LiveSyncLocalDB {
     }
     async putDBEntryWithLiveBaseRevision(note: SavingEntry, baseRevision: string, onlyChunks?: boolean) {
         return await this.managers.entryManager.putDBEntryWithLiveBaseRevision(note, baseRevision, onlyChunks);
+    }
+    /** Preserve existing branches and delegate a fresh root write to the entry manager. */
+    async putDBEntryAsIndependentRoot(note: SavingEntry) {
+        return await this.managers.entryManager.putDBEntryAsIndependentRoot(note);
     }
 
     async getConflictedDoc(path: FilePathWithPrefix, rev: string): Promise<false | diff_result_leaf> {

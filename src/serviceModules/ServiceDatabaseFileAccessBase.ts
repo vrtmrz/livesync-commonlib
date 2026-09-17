@@ -33,10 +33,16 @@ export interface ServiceDatabaseFileAccessDependencies {
     database: DatabaseService;
 }
 
+/** Metadata write policy; chunk-only repairs do not create a document revision. */
 type StoreRevisionTarget =
+    /** Keep the ordinary content comparison and current-winner write policy. */
     | { mode: "default" }
+    /** Always write below the supplied revision, including an ancestor; undefined retains the legacy winner policy. */
     | { mode: "force-base"; baseRevision: string | undefined }
-    | { mode: "live-base"; baseRevision: string };
+    /** Advance only the specified live leaf; return false if another write has already advanced it. */
+    | { mode: "live-base"; baseRevision: string }
+    /** Import a fresh root under the same document ID without inferring any parent. */
+    | { mode: "independent-root" };
 
 export class ServiceDatabaseFileAccessBase
     extends ServiceModuleBase<ServiceDatabaseFileAccessDependencies>
@@ -91,6 +97,7 @@ export class ServiceDatabaseFileAccessBase
     async store(file: UXFileInfo, force: boolean = false, skipCheck?: boolean): Promise<boolean> {
         return (await this.__store(file, force, skipCheck, false)) !== false;
     }
+    /** Force a child below the supplied base, even if advanced; an undefined base uses the winner. */
     async storeWithBaseRevision(
         file: UXFileInfo,
         baseRevision: string | undefined,
@@ -102,6 +109,7 @@ export class ServiceDatabaseFileAccessBase
         });
         return result !== null && typeof result === "object" && "rev" in result ? result.rev : false;
     }
+    /** Extend a current leaf with ordinary MVCC; an advanced base returns `false`. */
     async storeWithLiveBaseRevision(
         file: UXFileInfo,
         baseRevision: string,
@@ -113,9 +121,18 @@ export class ServiceDatabaseFileAccessBase
         });
         return result !== null && typeof result === "object" && "rev" in result ? result.rev : false;
     }
+    /**
+     * Store Chunks and a fresh Metadata root for content with unknown ancestry.
+     * Return its exact revision for provenance, or `false` if no Metadata write succeeded.
+     */
+    async storeIndependentRevision(file: UXFileInfo, skipCheck?: boolean): Promise<string | false> {
+        const result = await this.__store(file, true, skipCheck, false, { mode: "independent-root" });
+        return result !== null && typeof result === "object" && "rev" in result ? result.rev : false;
+    }
     async storeAsConflictedRevision(file: UXFileInfo, currentRev: string, skipCheck?: boolean): Promise<boolean> {
         return (await this.storeAsConflictedRevisionWithResult(file, currentRev, skipCheck)) !== false;
     }
+    /** Create a sibling of the selected revision; refuse when its parent cannot be found. */
     async storeAsConflictedRevisionWithResult(
         file: UXFileInfo,
         currentRev: string,
@@ -128,6 +145,7 @@ export class ServiceDatabaseFileAccessBase
         }
         return await this.storeWithBaseRevision(file, conflictBaseRev, skipCheck);
     }
+    /** Record a logical deletion below the displayed branch and return its exact revision. */
     async storeDeletionWithBaseRevision(
         file: UXFileInfoStub | FilePathWithPrefix,
         baseRevision: string
@@ -232,6 +250,8 @@ export class ServiceDatabaseFileAccessBase
         const msg = `STORAGE -> DB (${datatype}) `;
         const isNotChanged = await serialized("file-" + fullPath, async () => {
             if (revisionTarget.mode !== "default") {
+                // Equality with the winner cannot cancel an explicit branch write:
+                // the selected parent, or the absence of a parent, is part of its intent.
                 return false;
             }
             if (force) {
@@ -276,7 +296,9 @@ export class ServiceDatabaseFileAccessBase
             return true;
         }
         const ret: false | PouchDB.Core.Response =
-            revisionTarget.mode === "live-base"
+            revisionTarget.mode === "independent-root"
+                ? await this.database.localDatabase.putDBEntryAsIndependentRoot(d)
+                : revisionTarget.mode === "live-base"
                 ? await this.database.localDatabase.putDBEntryWithLiveBaseRevision(
                       d,
                       revisionTarget.baseRevision,
@@ -294,6 +316,7 @@ export class ServiceDatabaseFileAccessBase
         return ret;
     }
 
+    /** Reconstruct the immediate parent ID from revision history, or return `false` if unavailable. */
     private async getParentRev(file: UXFileInfoStub | FilePathWithPrefix, rev: string): Promise<string | false> {
         const filename = getDatabasePathFromUXFileInfo(file);
         try {
@@ -313,6 +336,11 @@ export class ServiceDatabaseFileAccessBase
         }
     }
 
+    /**
+     * Search available revision bodies across branches and their ancestors.
+     * `stopAfterFirstMatch` serves existence checks without decoding the remaining candidates.
+     * Historical matches alone do not establish the origin of current storage content.
+     */
     private async findContentRevisionsInternal(
         file: UXFileInfoStub | FilePathWithPrefix,
         content: string | string[] | Blob | ArrayBuffer,
@@ -380,6 +408,7 @@ export class ServiceDatabaseFileAccessBase
         return [];
     }
 
+    /** Find matching content throughout available history, including non-leaf revisions. */
     async findContentRevisions(
         file: UXFileInfoStub | FilePathWithPrefix,
         content: string | string[] | Blob | ArrayBuffer,
@@ -389,6 +418,48 @@ export class ServiceDatabaseFileAccessBase
             return [];
         }
         return await this.findContentRevisionsInternal(file, content, currentRev);
+    }
+
+    /**
+     * Find live leaves which already represent these bytes, for deduplication when provenance
+     * is unknown. `open_revs` includes conflicting branches; both deletion markers are excluded.
+     * Unlike the historical search, ancestors cannot match and missing Chunks are not fetched.
+     * A read failure yields no confirmed match. Callers decide whether the result identifies a
+     * unique origin; this method does not mutate provenance or hold the revision tree stable.
+     */
+    async findLiveContentRevisions(
+        file: UXFileInfoStub | FilePathWithPrefix,
+        content: string | string[] | Blob | ArrayBuffer
+    ): Promise<string[]> {
+        if (!(await this.checkIsTargetFile(file))) return [];
+        const filename = getDatabasePathFromUXFileInfo(file);
+        try {
+            const current = await this.database.localDatabase.getDBEntryMeta(filename, undefined, true);
+            if (current === false) return [];
+            type OpenRevision = { ok?: { _rev?: string; deleted?: boolean; _deleted?: boolean } };
+            const leaves = (await this.database.localDatabase.getRaw(current._id, {
+                open_revs: "all",
+            } as PouchDB.Core.GetOptions)) as unknown as OpenRevision[];
+            if (!Array.isArray(leaves)) return [];
+            const matches: string[] = [];
+            for (const leaf of leaves) {
+                const rev = leaf.ok?._rev;
+                if (!rev || leaf.ok?.deleted || leaf.ok?._deleted) continue;
+                // The final argument makes this a local-only comparison, even with waitForReady set.
+                const entry = await this.database.localDatabase.getDBEntry(filename, { rev }, false, true, true, true);
+                if (entry !== false && !entry.deleted && !entry._deleted &&
+                    await isDocContentSame(readContent(entry), content)) {
+                    matches.push(rev);
+                }
+            }
+            return matches;
+        } catch (ex) {
+            // A changing revision tree or unavailable chunk leaves the base
+            // unknown; it never proves that a local file was unchanged.
+            this._log(`Could not check live revision content for ${filename}`, LOG_LEVEL_VERBOSE);
+            this._log(ex, LOG_LEVEL_VERBOSE);
+            return [];
+        }
     }
 
     async hasContentInRevisionHistory(
@@ -466,12 +537,13 @@ export class ServiceDatabaseFileAccessBase
     async fetchEntryFromMeta(
         meta: MetaEntry,
         waitForReady: boolean = true,
-        skipCheck = false
+        skipCheck = false,
+        localOnly = false
     ): Promise<LoadedEntry | false> {
         if (skipCheck && !(await this.checkIsTargetFile(meta.path))) {
             return false;
         }
-        const doc = await this.database.localDatabase.getDBEntryFromMeta(meta, false, waitForReady);
+        const doc = await this.database.localDatabase.getDBEntryFromMeta(meta, false, waitForReady, localOnly);
         if (doc === false) {
             return false;
         }
@@ -481,7 +553,8 @@ export class ServiceDatabaseFileAccessBase
         file: UXFileInfoStub | FilePathWithPrefix,
         rev?: string,
         waitForReady: boolean = true,
-        skipCheck = false
+        skipCheck = false,
+        localOnly = false
     ): Promise<LoadedEntry | false> {
         if (skipCheck && !(await this.checkIsTargetFile(file))) {
             return false;
@@ -490,7 +563,7 @@ export class ServiceDatabaseFileAccessBase
         if (entry === false) {
             return false;
         }
-        const doc = await this.fetchEntryFromMeta(entry, waitForReady, true);
+        const doc = await this.fetchEntryFromMeta(entry, waitForReady, true, localOnly);
         return doc;
     }
     async deleteFromDBbyPath(fullPath: FilePath | FilePathWithPrefix, rev?: string): Promise<boolean> {

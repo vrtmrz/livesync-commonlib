@@ -1776,6 +1776,40 @@ describe("StorageEventManagerBase", () => {
             expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalledTimes(2);
         }, 10000);
 
+        it("resumes an unrelated file after hot-file waiters release the processing slots", async () => {
+            let releaseHotFile!: () => void;
+            const hotGate = new Promise<void>((resolve) => { releaseHotFile = resolve; });
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent);
+            process.mockImplementation(async (item) => {
+                if (item.args.file.path === "hot-queue.md") await hotGate;
+                return true;
+            });
+            const event = (path: string, index: number): FileEventItem => ({
+                type: "CHANGED",
+                args: { file: adapter.converter.toFileInfo(createMockFile(path, path)) },
+                key: `queue-${index}`,
+                skipBatchWait: true,
+            });
+            const hot = Array.from({ length: 5 }, (_, index) =>
+                manager.processFileEvent(event("hot-queue.md", index))
+            );
+            const unrelated = manager.processFileEvent(event("unrelated-queue.md", 5));
+            try {
+                // The host counts lock waiters against its existing global limit.
+                // This records the limitation separately from per-document locking.
+                await vi.waitFor(() => {
+                    expect(manager["concurrentProcessing"].waiting).toBe(1);
+                    expect(process).toHaveBeenCalledTimes(1);
+                });
+                expect(process.mock.calls[0][0].args.file.path).toBe("hot-queue.md");
+            } finally {
+                releaseHotFile();
+                await Promise.all([...hot, unrelated]);
+            }
+            expect(process).toHaveBeenCalledTimes(6);
+            expect(process.mock.calls.some(([item]) => item.args.file.path === "unrelated-queue.md")).toBe(true);
+        });
+
         it("should properly release semaphore even when processing fails", async () => {
             vi.mocked(dependencies.fileProcessing.processFileEvent).mockRejectedValueOnce(
                 new Error("Processing failed")

@@ -2,9 +2,9 @@ import type { FilePathWithPrefix } from "@lib/common/types";
 import type { SimpleStore } from "@lib/common/utils";
 
 export type FileReflectionProvenanceRecord = {
-    /** Exact database revision which most recently produced the storage state. */
+    /** Exact revision most recently saved from or reflected in storage; the base for subsequent edits. */
     revision: string;
-    /** Raw modification time observed from this device's storage after reflection. */
+    /** Raw modification time of the saved snapshot or storage observed after reflection. */
     observedStorageMtime?: number;
 };
 

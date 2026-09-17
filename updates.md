@@ -2,6 +2,20 @@
 
 ## Unreleased
 
+## 0.1.26
+
+17th September, 2026
+
+### Fixed
+
+- An unchanged local file is now recognised through its recorded revision, preventing stale content from being saved as a child of a newer database version. Genuine edits extend the recorded revision, including intentional reverts to historical content ([Self-hosted LiveSync issue #994](https://github.com/vrtmrz/obsidian-livesync/issues/994)).
+- Local content with unknown ancestry is preserved as a fresh independent branch unless a current non-deleted leaf already contains the same bytes. Incoming updates use the same checks before replacing unsynchronised content.
+
+### Changed
+
+- File saves and incoming reflection share a lock per document. Renames acquire source and target locks in a consistent order, and conflict callbacks run after locks are released so immediate resolution can safely call the file handler again.
+- Ordinary saves read the file body once after acquiring the document lock and retain that snapshot until the database write completes. Later edits are handled by subsequent operations; startup recovery and incoming overwrite protection retain their rechecks.
+
 ## 0.1.25
 
 16th September, 2026
