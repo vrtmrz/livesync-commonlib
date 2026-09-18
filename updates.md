@@ -2,6 +2,19 @@
 
 ## Unreleased
 
+## 0.1.27
+
+18th September, 2026
+
+### Added
+
+- The `/replication` entry now exports `PROVIDER_OWNED_CENTRAL_REMOTE_REPLICATION_READINESS` for central providers that prepare the Security Seed within each transfer.
+
+### Fixed
+
+- Object Storage Journal transfers now read fresh synchronisation parameters before compatibility checks can write a milestone, then reuse that result for the checkpoint epoch and encrypted files. An unavailable parameter read stops the transfer before remote writes.
+- Journal releases its transfer-scoped parameter cache after every outcome and on configuration or resource reset, without clearing another remote's cached parameters.
+
 ## 0.1.26
 
 17th September, 2026
