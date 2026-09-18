@@ -35,8 +35,8 @@ import {
 } from "./objectstore/JournalStorageAdapter.ts";
 
 import {
-    clearHandlers,
-    createSyncParamsHanderForServer,
+    createSyncParamsHandler,
+    type SyncParamsHandler,
     SyncParamsFetchError,
     SyncParamsNotFoundError,
     SyncParamsUpdateError,
@@ -80,6 +80,7 @@ export class JournalSyncCore {
     env: LiveSyncJournalReplicatorEnv;
     store: SimpleStore<CheckPointInfo>;
     requestedStop = false;
+    private syncParamsHandler?: SyncParamsHandler;
 
     getInitialSyncParameters(): Promise<SyncParameters> {
         return Promise.resolve({
@@ -139,7 +140,6 @@ export class JournalSyncCore {
         this.store = store;
         this.hash = this.getHash(settings);
         this.storage = storage;
-        clearHandlers();
     }
 
     async downloadJson<T>(key: string): Promise<T | false> {
@@ -191,7 +191,7 @@ export class JournalSyncCore {
         this.store = store;
         this.hash = this.getHash(settings);
         this.storage.applyNewConfig(settings);
-        clearHandlers();
+        this.resetAllCaches();
     }
 
     updateInfo(info: Partial<ReplicationStat>) {
@@ -244,12 +244,11 @@ export class JournalSyncCore {
     }
 
     resetAllCaches(): void {
-        clearHandlers();
+        this.syncParamsHandler = undefined;
     }
 
     async resetCheckpointInfo() {
         await this.updateCheckPointInfo((info) => ({ ...CheckPointInfoDefault }));
-        clearHandlers();
     }
 
     private getJournalEpochFromSyncParams(params: SyncParameters): string {
@@ -257,13 +256,11 @@ export class JournalSyncCore {
     }
 
     async ensureCheckpointCachesAreFresh(): Promise<void> {
-        let journalEpoch = "";
-        try {
-            const params = await this.getSyncParameters();
-            journalEpoch = this.getJournalEpochFromSyncParams(params);
-        } catch {
-            return;
-        }
+        // This fresh read also prepares the Security Seed before compatibility
+        // checks can write a milestone. Encrypted files reuse this snapshot.
+        const params = await this.getSyncParamsHandler().fetch(true);
+        if (!params) throw new SyncParamsFetchError("Could not prepare Journal synchronisation parameters");
+        const journalEpoch = this.getJournalEpochFromSyncParams(params);
 
         const current = await this.getCheckpointInfo();
         if (current.journalEpoch === journalEpoch) {
@@ -312,7 +309,6 @@ export class JournalSyncCore {
             receivedFiles: new Set<string>(),
             sentFiles: new Set<string>(),
         }));
-        clearHandlers();
     }
 
     async isAvailable(): Promise<boolean> {
@@ -320,6 +316,7 @@ export class JournalSyncCore {
     }
 
     async resetBucket(): Promise<boolean> {
+        this.resetAllCaches();
         let files = [] as string[];
         try {
             do {
@@ -331,7 +328,6 @@ export class JournalSyncCore {
                     return false;
                 }
             } while (files.length != 0);
-            clearHandlers();
         } catch (ex) {
             Logger(`WARNING! Could not delete files.`, LOG_LEVEL_NOTICE, "reset-bucket");
             Logger(ex, LOG_LEVEL_VERBOSE);
@@ -356,13 +352,15 @@ export class JournalSyncCore {
     }
 
     async getReplicationPBKDF2Salt(refresh?: boolean): Promise<Uint8Array<ArrayBuffer>> {
-        const server = this.getRemoteKey();
-        const manager = createSyncParamsHanderForServer(server, {
+        return await this.getSyncParamsHandler().getPBKDF2Salt(refresh);
+    }
+
+    private getSyncParamsHandler(): SyncParamsHandler {
+        return (this.syncParamsHandler ??= createSyncParamsHandler({
             put: (params: SyncParameters) => this.putSyncParameters(params),
             get: () => this.getSyncParameters(),
             create: () => this.getInitialSyncParameters(),
-        });
-        return await manager.getPBKDF2Salt(refresh);
+        }));
     }
 
     isEncryptionPrevented(fileName: string): boolean {
@@ -921,6 +919,7 @@ export class JournalSyncCore {
     /** Stop this Journal operation owner and release its storage transport. */
     dispose(): void {
         this.requestStop();
+        this.resetAllCaches();
         this.storage.dispose?.();
     }
 }

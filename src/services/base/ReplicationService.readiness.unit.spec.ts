@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE } from "@lib/common/types.ts";
-import { CENTRAL_REMOTE_REPLICATION_READINESS, PEER_REPLICATION_READINESS } from "@lib/replication";
+import {
+    CENTRAL_REMOTE_REPLICATION_READINESS,
+    PEER_REPLICATION_READINESS,
+    PROVIDER_OWNED_CENTRAL_REMOTE_REPLICATION_READINESS,
+} from "@lib/replication";
 import { MARK_LOG_NETWORK_ERROR } from "@lib/services/lib/logUtils.ts";
 import {
     createReplicationReadinessEvaluator,
@@ -89,6 +93,18 @@ describe("createReplicationReadinessEvaluator", () => {
             ready: true,
             purpose: "replication",
         });
+
+        expect(dependencies.preparation.prepareCentralRemote).not.toHaveBeenCalled();
+        expect(calls).toContain("pending-file-events");
+        expect(calls).toContain("before-replicate");
+    });
+
+    it("runs common gates while a central provider owns its own Security Seed preparation", async () => {
+        const { calls, dependencies, evaluate } = createHarness();
+
+        await expect(
+            evaluate({ requirements: PROVIDER_OWNED_CENTRAL_REMOTE_REPLICATION_READINESS })
+        ).resolves.toEqual({ ready: true, purpose: "replication" });
 
         expect(dependencies.preparation.prepareCentralRemote).not.toHaveBeenCalled();
         expect(calls).toContain("pending-file-events");

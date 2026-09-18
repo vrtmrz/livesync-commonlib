@@ -79,10 +79,27 @@ describe("LiveSyncJournalReplicator replication outcomes", () => {
         vi.spyOn(replicator, "checkReplicationConnectivity").mockResolvedValue(true);
         vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue({
             sync,
+            resetAllCaches: vi.fn(),
         } as never);
 
         await expect(replicator.openReplication(DEFAULT_SETTINGS, false, false)).resolves.toBe(false);
         expect(sync).toHaveBeenCalledWith(false);
+    });
+
+    it("discards prepared parameters after a failed Journal transfer", async () => {
+        const replicator = Object.create(LiveSyncJournalReplicator.prototype) as LiveSyncJournalReplicator;
+        const client = {
+            resetAllCaches: vi.fn(),
+            sync: vi.fn(async () => {
+                throw new Error("transfer failed");
+            }),
+        };
+        vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue(client as never);
+        vi.spyOn(replicator, "checkReplicationConnectivity").mockResolvedValue(true);
+
+        await expect(replicator.openReplication(DEFAULT_SETTINGS, false, false)).rejects.toThrow("transfer failed");
+
+        expect(client.resetAllCaches).toHaveBeenCalledOnce();
     });
 
     it("projects this attempt's compatibility rejection into its failed outcome", async () => {
@@ -108,6 +125,7 @@ describe("LiveSyncJournalReplicator replication outcomes", () => {
         vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue({
             sendLocalJournal,
             receiveRemoteJournal,
+            resetAllCaches: vi.fn(),
         } as never);
         vi.spyOn(replicator, "checkReplicationConnectivity").mockImplementation(async (...args) => {
             args[5]?.(centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.NODE_LOCKED));
@@ -153,6 +171,7 @@ describe("LiveSyncJournalReplicator replication compatibility state", () => {
             ensureCheckpointCachesAreFresh: vi.fn(async () => undefined),
             getCheckpointInfo: vi.fn(async () => ({ receivedFiles: new Set<string>() })),
             isAvailable: vi.fn(async () => true),
+            resetAllCaches: vi.fn(),
             sync: vi.fn(async () => true),
             uploadJson: vi.fn(async () => true),
         };
@@ -419,7 +438,7 @@ describe("LiveSyncJournalReplicator finite resource ownership", () => {
         });
         const sendLocalJournal = vi.fn(async () => true);
         const requestStop = vi.fn();
-        const client = { requestStop, sendLocalJournal, sync };
+        const client = { requestStop, resetAllCaches: vi.fn(), sendLocalJournal, sync };
         const replicator = new LiveSyncJournalReplicator({} as never);
         replicator._client = client as never;
         vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue(client as never);
@@ -458,7 +477,7 @@ describe("LiveSyncJournalReplicator finite resource ownership", () => {
             releaseConnectivity = resolve;
         });
         const requestStop = vi.fn();
-        const client = { requestStop, sync: vi.fn(async () => true) };
+        const client = { requestStop, resetAllCaches: vi.fn(), sync: vi.fn(async () => true) };
         const replicator = new LiveSyncJournalReplicator({} as never);
         replicator._client = client as never;
         let reentrantStop: Promise<void> | undefined;
@@ -502,7 +521,7 @@ describe("LiveSyncJournalReplicator finite resource ownership", () => {
         });
         const sync = vi.fn(async () => true);
         const requestStop = vi.fn();
-        const client = { requestStop, sync };
+        const client = { requestStop, resetAllCaches: vi.fn(), sync };
         const replicator = new LiveSyncJournalReplicator({} as never);
         replicator._client = client as never;
         vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue(client as never);
@@ -550,7 +569,7 @@ describe("LiveSyncJournalReplicator finite resource ownership", () => {
 
     it("reports replication closed after entering a Journal transfer", async () => {
         const replicator = new LiveSyncJournalReplicator({} as never);
-        const client = { dispose: vi.fn(), sync: vi.fn(async () => true) };
+        const client = { dispose: vi.fn(), resetAllCaches: vi.fn(), sync: vi.fn(async () => true) };
         replicator._client = client as never;
         replicator.updateInfo = vi.fn();
         vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue(client as never);
