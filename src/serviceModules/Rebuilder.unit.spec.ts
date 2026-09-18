@@ -642,6 +642,61 @@ describe("ServiceRebuilder readiness boundary", () => {
         expect(settings.suspendParseReplicationResult).toBe(true);
     });
 
+    it("finalises a rebuild in remediation mode and keeps the host restricted", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.maxMTimeForReflectEvents = Date.parse("2026-09-01T00:00:00Z");
+        // Remediation mode refuses every reconciliation scan, so requesting one can only fail.
+        services.vault.scanVault.mockResolvedValue(false);
+
+        await expect(rebuilder.finishRebuild()).resolves.toBe(true);
+
+        expect(services.vault.scanVault).not.toHaveBeenCalled();
+        expect(services.setting.saveSettingData).toHaveBeenCalled();
+        expect(settings.suspendParseReplicationResult).toBe(false);
+        expect(settings.suspendFileWatching).toBe(false);
+        expect(services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+    });
+
+    it("fetches in remediation mode without storing the current files of the Vault first", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.maxMTimeForReflectEvents = Date.parse("2026-09-01T00:00:00Z");
+        services.vault.scanVault.mockResolvedValue(false);
+        // The user keeps the configured limit instead of clearing it.
+        services.UI.confirm.askSelectStringDialogue.mockResolvedValue("I understand, proceed");
+
+        await rebuilder.$fetchLocal();
+
+        expect(services.vault.scanVault).not.toHaveBeenCalled();
+        expect(services.fileHandler.createAllChunks).not.toHaveBeenCalled();
+        expect(services.databaseEvents.onDatabaseInitialised).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllFromRemoteForRebuild).toHaveBeenCalledTimes(2);
+        expect(settings.suspendParseReplicationResult).toBe(false);
+        expect(services.appLifecycle.markIsReady).not.toHaveBeenCalled();
+    });
+
+    it("resumes ordinary fetch behaviour when the restriction is cleared instead of kept", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.maxMTimeForReflectEvents = Date.parse("2026-09-01T00:00:00Z");
+        services.UI.confirm.askSelectStringDialogue.mockResolvedValue("Clear restriction and proceed");
+
+        await rebuilder.$fetchLocal();
+
+        expect(settings.maxMTimeForReflectEvents).toBe(0);
+        expect(services.vault.scanVault).toHaveBeenCalled();
+        expect(services.appLifecycle.markIsReady).toHaveBeenCalled();
+    });
+
+    it("refuses to rebuild in remediation mode before the local database is reset", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.maxMTimeForReflectEvents = Date.parse("2026-09-01T00:00:00Z");
+
+        await expect(rebuilder.$rebuildEverything()).rejects.toThrow(/remediation mode/i);
+
+        expect(services.database.resetDatabase).not.toHaveBeenCalled();
+        expect(services.database.resetDatabaseForCurrentSettings).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllToRemoteForRebuild).not.toHaveBeenCalled();
+    });
+
     it("keeps application readiness and reflection suspended when the final replication pre-check rejects", async () => {
         const { rebuilder, services, settings } = createRebuilder();
         services.replication.onBeforeReplicate.mockResolvedValueOnce(false);
