@@ -22,10 +22,6 @@
   "include": ["src/**/*.ts", "src/**/*.d.ts", "vitest.config.ts"],
   "exclude": [
     "apps",
-    "src/cli",
-    "src/**/*.integration.spec.ts",
-    "src/**/*.integration.test.ts",
-    "src/**/*.unit.spec.ts",
-    "src/**/*.unit.test.ts"
+    "src/cli"
   ]
 }

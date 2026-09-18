@@ -61,7 +61,8 @@ type SyncParametersWithDecoded = SyncParameters & {
     pbkdf2saltDecoded?: Uint8Array<ArrayBuffer>;
 };
 
-function createSyncParamsHandler({ put, get, create }: CreateSyncParamsHanderOptions): SyncParamsHandler {
+/** Create a handler owned by one operation rather than the process-wide server cache. */
+export function createSyncParamsHandler({ put, get, create }: CreateSyncParamsHanderOptions): SyncParamsHandler {
     // To cache the fetched synchronisation parameters, we re-use the promise to save memory consumption.
     let taskFetchParameters: Promise<SyncParametersWithDecoded | false> | undefined = undefined;
 

@@ -25,7 +25,6 @@ import type { CheckPointInfo } from "./JournalSyncTypes.ts";
 import type { SimpleStore } from "@lib/common/utils.ts";
 
 import { extractObject } from "@lib/common/utils.ts";
-import { clearHandlers } from "@lib/replication/SyncParamsHandler.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 import { JournalStorageReadStatuses } from "./objectstore/JournalStorageAdapter.ts";
 import {
@@ -212,25 +211,29 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     ) {
         return await this.runJournalTransfer(async (stopGeneration) => {
             const client = this.setupJournalSyncClient(setting);
-            // Setup may synchronously re-enter Stop while admitting the client.
-            // The cancellation fence starts when this attempt enters its
-            // connectivity preflight, not while that client is being obtained.
-            stopGeneration = this.journalTransferStopGeneration;
-            if (
-                !(await this.checkReplicationConnectivity(
-                    false,
-                    ignoreCleanLock,
-                    showResult,
-                    setting,
-                    client,
-                    recordCompatibilityDecision
-                ))
-            ) {
-                return false;
+            try {
+                // Setup may synchronously re-enter Stop while admitting the client.
+                // The cancellation fence starts when this attempt enters its
+                // connectivity preflight, not while that client is being obtained.
+                stopGeneration = this.journalTransferStopGeneration;
+                if (
+                    !(await this.checkReplicationConnectivity(
+                        false,
+                        ignoreCleanLock,
+                        showResult,
+                        setting,
+                        client,
+                        recordCompatibilityDecision
+                    ))
+                ) {
+                    return false;
+                }
+                if (stopGeneration !== this.journalTransferStopGeneration) return false;
+                this.hasEnteredReplication = true;
+                return await client.sync(showResult);
+            } finally {
+                client.resetAllCaches();
             }
-            if (stopGeneration !== this.journalTransferStopGeneration) return false;
-            this.hasEnteredReplication = true;
-            return await client.sync(showResult);
         });
     }
 
@@ -265,22 +268,26 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     ): Promise<boolean> {
         return await this.runJournalTransfer(async (stopGeneration) => {
             const client = this.setupJournalSyncClient(setting);
-            stopGeneration = this.journalTransferStopGeneration;
-            if (
-                !(await this.checkReplicationConnectivity(
-                    false,
-                    false,
-                    !!showingNotice,
-                    setting,
-                    client,
-                    recordCompatibilityDecision
-                ))
-            ) {
-                return false;
+            try {
+                stopGeneration = this.journalTransferStopGeneration;
+                if (
+                    !(await this.checkReplicationConnectivity(
+                        false,
+                        false,
+                        !!showingNotice,
+                        setting,
+                        client,
+                        recordCompatibilityDecision
+                    ))
+                ) {
+                    return false;
+                }
+                if (stopGeneration !== this.journalTransferStopGeneration) return false;
+                this.hasEnteredReplication = true;
+                return await transfer(client);
+            } finally {
+                client.resetAllCaches();
             }
-            if (stopGeneration !== this.journalTransferStopGeneration) return false;
-            this.hasEnteredReplication = true;
-            return await transfer(client);
         });
     }
 
@@ -436,7 +443,6 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             if (!(await this.client.resetBucket())) {
                 throw new Error("Could not reset remote bucket");
             }
-            clearHandlers();
             Logger("Remote Bucket Cleared", LOG_LEVEL_NOTICE);
             await this.tryCreateRemoteDatabase(setting);
         } catch (ex) {
@@ -449,7 +455,6 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     async tryCreateRemoteDatabase(setting: RemoteDBSettings) {
         this.closeReplication();
         Logger("Remote Database Created or Connected", LOG_LEVEL_NOTICE);
-        clearHandlers();
         if (!(await this.ensurePBKDF2Salt(setting, true, false))) {
             throw new Error("Could not ensure PBKDF2 salt (Security Seed)");
         }

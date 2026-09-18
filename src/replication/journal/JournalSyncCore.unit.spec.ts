@@ -20,7 +20,11 @@ import { wrappedDeflate, wrappedInflate } from "@lib/pouchdb/compress.ts";
 import { REMOTE_CHUNK_FETCHED } from "@lib/pouchdb/LiveSyncLocalDB.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase.ts";
 import { LiveSyncError } from "@lib/common/LSError.ts";
-import { SyncParamsFetchError, SyncParamsNotFoundError } from "@lib/replication/SyncParamsHandler.ts";
+import {
+    createSyncParamsHanderForServer,
+    SyncParamsFetchError,
+    SyncParamsNotFoundError,
+} from "@lib/replication/SyncParamsHandler.ts";
 
 PouchDB.plugin(MemoryAdapter);
 
@@ -40,6 +44,7 @@ describe("JournalSyncCore", () => {
         context = createServiceContext();
 
         mockStorage = {
+            applyNewConfig: vi.fn(),
             upload: vi.fn(async (file: string, buffer: Uint8Array) => {
                 virtualStorage.set(file, buffer);
                 return true;
@@ -142,6 +147,110 @@ describe("JournalSyncCore", () => {
             const fetched = await core.getSyncParameters();
             expect(fetched.pbkdf2salt).toBe("salt");
         });
+    });
+
+    it("reuses the fresh Journal parameter read for the first encrypted file", async () => {
+        const params = {
+            protocolVersion: ProtocolVersions.ADVANCED_E2EE,
+            pbkdf2salt: btoa("0123456789abcdef0123456789abcdef"),
+        };
+        virtualStorage.set(DOCID_JOURNAL_SYNC_PARAMETERS, new TextEncoder().encode(JSON.stringify(params)));
+
+        await core.ensureCheckpointCachesAreFresh();
+        await core.getReplicationPBKDF2Salt();
+
+        expect(mockStorage.downloadWithResult).toHaveBeenCalledTimes(1);
+    });
+
+    it("refreshes the Journal parameters for the next transfer", async () => {
+        const firstSalt = btoa("0123456789abcdef0123456789abcdef");
+        const nextSalt = btoa("fedcba9876543210fedcba9876543210");
+        const storeParams = (pbkdf2salt: string) =>
+            virtualStorage.set(
+                DOCID_JOURNAL_SYNC_PARAMETERS,
+                new TextEncoder().encode(
+                    JSON.stringify({ protocolVersion: ProtocolVersions.ADVANCED_E2EE, pbkdf2salt })
+                )
+            );
+        storeParams(firstSalt);
+        await core.ensureCheckpointCachesAreFresh();
+        expect(await core.getReplicationPBKDF2Salt()).toEqual(
+            new TextEncoder().encode("0123456789abcdef0123456789abcdef")
+        );
+
+        core.resetAllCaches();
+        storeParams(nextSalt);
+        await core.ensureCheckpointCachesAreFresh();
+
+        expect(await core.getReplicationPBKDF2Salt()).toEqual(
+            new TextEncoder().encode("fedcba9876543210fedcba9876543210")
+        );
+        expect(mockStorage.downloadWithResult).toHaveBeenCalledTimes(2);
+    });
+
+    it("keeps one Journal client's prepared parameters when another client is constructed", async () => {
+        const params = {
+            protocolVersion: ProtocolVersions.ADVANCED_E2EE,
+            pbkdf2salt: btoa("0123456789abcdef0123456789abcdef"),
+        };
+        virtualStorage.set(DOCID_JOURNAL_SYNC_PARAMETERS, new TextEncoder().encode(JSON.stringify(params)));
+
+        await core.ensureCheckpointCachesAreFresh();
+        new JournalSyncCore(core._settings, core.store, env, mockStorage);
+        await core.getReplicationPBKDF2Salt();
+
+        expect(mockStorage.downloadWithResult).toHaveBeenCalledTimes(1);
+    });
+
+    it("does not evict another server's parameter handler during Journal setup", () => {
+        const key = `other-server-${dbCounter}`;
+        const options = {
+            get: vi.fn(async () => ({ protocolVersion: ProtocolVersions.ADVANCED_E2EE, pbkdf2salt: "salt" })),
+            put: vi.fn(async () => true),
+            create: vi.fn(async () => ({ protocolVersion: ProtocolVersions.ADVANCED_E2EE, pbkdf2salt: "" })),
+        };
+        const existingHandler = createSyncParamsHanderForServer(key, options);
+
+        new JournalSyncCore(core._settings, core.store, env, mockStorage);
+        core.applyNewConfig(core._settings, core.store, env);
+
+        expect(createSyncParamsHanderForServer(key, options)).toBe(existingHandler);
+    });
+
+    it("stops before any remote write when Journal parameters are unavailable", async () => {
+        vi.mocked(mockStorage.downloadWithResult).mockResolvedValue({
+            status: "unavailable",
+            error: new Error("temporary object-storage failure"),
+        });
+
+        await expect(core.ensureCheckpointCachesAreFresh()).rejects.toThrow(SyncParamsFetchError);
+
+        expect(mockStorage.upload).not.toHaveBeenCalled();
+    });
+
+    it("keeps the fresh parameter snapshot when a changed epoch resets Journal checkpoints", async () => {
+        const params = {
+            protocolVersion: ProtocolVersions.ADVANCED_E2EE,
+            pbkdf2salt: btoa("0123456789abcdef0123456789abcdef"),
+        };
+        virtualStorage.set(DOCID_JOURNAL_SYNC_PARAMETERS, new TextEncoder().encode(JSON.stringify(params)));
+        vi.mocked(core.store.get).mockResolvedValue({
+            ...CheckPointInfoDefault,
+            journalEpoch: "old-epoch",
+            sentFiles: new Set(["last-sent-file"]),
+        });
+
+        await core.ensureCheckpointCachesAreFresh();
+        await core.getReplicationPBKDF2Salt();
+
+        expect(mockStorage.downloadWithResult).toHaveBeenCalledTimes(1);
+        expect(core.store.set).toHaveBeenCalledWith(
+            expect.any(String),
+            expect.objectContaining({
+                journalEpoch: `${params.protocolVersion}:${params.pbkdf2salt}`,
+                sentFiles: new Set(),
+            })
+        );
     });
 
     describe("downloadJsonWithResult", () => {

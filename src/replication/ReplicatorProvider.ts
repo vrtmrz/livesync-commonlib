@@ -180,12 +180,17 @@ export type ReplicationOutcome =
 
 /** Preparation required before an ordinary operation may use a provider. */
 export interface ReplicationReadinessRequirements {
-    readonly centralRemotePreparation: "required" | "not-applicable";
+    readonly centralRemotePreparation: "required" | "provider-owned" | "not-applicable";
 }
 
 /** Shared readiness contract for providers backed by the central remote. */
 export const CENTRAL_REMOTE_REPLICATION_READINESS = Object.freeze({
     centralRemotePreparation: "required",
+} as const satisfies ReplicationReadinessRequirements);
+
+/** Central provider which prepares its Security Seed within each transfer. */
+export const PROVIDER_OWNED_CENTRAL_REMOTE_REPLICATION_READINESS = Object.freeze({
+    centralRemotePreparation: "provider-owned",
 } as const satisfies ReplicationReadinessRequirements);
 
 /** Shared readiness contract for peer-to-peer providers without a central remote. */
