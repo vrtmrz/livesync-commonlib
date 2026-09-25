@@ -936,6 +936,10 @@ export const ExtraOnLocal = {
 
 export interface FullScanOptions {
     mode: FullScanMode;
+    /** Maximum number of file pairs processed at once. Defaults to ten. */
+    fileConcurrency?: number;
+    /** Observe file-pair activity without exposing file paths or content. */
+    onFileActivity?: (event: { phase: "start" | "finish"; size: number }) => void;
     extraOnLocal?: (typeof ExtraOnLocal)[keyof typeof ExtraOnLocal];
     extraOnRemote?: (typeof ExtraOnRemote)[keyof typeof ExtraOnRemote];
     omitEvents?: boolean;
@@ -1185,19 +1189,35 @@ export async function synchroniseAllFilesBetweenDBandStorage(
     let skippedCount = 0;
     let failedCount = 0;
     let processedCount = 0;
+    const fileConcurrency = options.fileConcurrency ?? 10;
+    if (!Number.isInteger(fileConcurrency) || fileConcurrency < 1 || fileConcurrency > 10) {
+        throw new RangeError("File scan concurrency must be between one and ten.");
+    }
+    const reportActivity = (phase: "start" | "finish", size: number) => {
+        try {
+            options.onFileActivity?.({ phase, size });
+        } catch (ex) {
+            log("File scan activity observer failed", LOG_LEVEL_VERBOSE);
+            log(ex, LOG_LEVEL_VERBOSE);
+        }
+    };
     for await (const { path, result } of withConcurrency(
         pairs,
         async (e) => {
             const path = e.file?.path ?? getPathFromEntry(host, e.doc);
+            const size = Math.max(0, e.doc?.size ?? e.file?.stat.size ?? 0);
+            reportActivity("start", size);
             try {
                 return { path, result: await processFilePair(host, log, e, options) };
             } catch (ex) {
                 log(`Error while synchronising files`, LOG_LEVEL_NOTICE);
                 log(ex, LOG_LEVEL_VERBOSE);
                 return { path, result: FilePairProcessResults.FAILED };
+            } finally {
+                reportActivity("finish", size);
             }
         },
-        10
+        fileConcurrency
     )) {
         processedCount++;
         switch (result) {
@@ -1432,7 +1452,8 @@ export function useOfflineScanner(
         | "keyValueDB"
         | "replicator",
         "storageAccess" | "fileHandler"
-    >
+    >,
+    scanOptions: Pick<FullScanOptions, "fileConcurrency" | "onFileActivity"> = {}
 ) {
     const log = createInstanceLogFunction("SF:OfflineScanner", host.services.API);
     const errorManager = new UnresolvedErrorManager(host.services.appLifecycle, host.services.context.events);
@@ -1444,6 +1465,7 @@ export function useOfflineScanner(
         continueOnFileFailure: boolean = false
     ): Promise<VaultScanResult> => {
         return await performFullScan(host, log, errorManager, {
+            ...scanOptions,
             showingNotice,
             ignoreSuspending,
             continueOnFileFailure,

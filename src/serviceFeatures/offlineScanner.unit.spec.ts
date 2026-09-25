@@ -1475,6 +1475,57 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
         logger = createLogger("TestLogger");
     });
 
+    it("limits file-pair work to one task while reporting only aggregate sizes", async () => {
+        let active = 0;
+        let peak = 0;
+        const activity: Array<{ phase: "start" | "finish"; size: number }> = [];
+        const files = [1, 2, 3].map((size) => ({ path: `file-${size}.md`, stat: { size, mtime: 1 } }));
+        const host = {
+            services: {
+                context: createServiceContext(),
+                setting: { currentSettings: () => ({ handleFilenameCaseSensitive: true }) },
+                vault: {
+                    isTargetFile: async () => true,
+                    isValidPath: () => true,
+                    isFileSizeTooLarge: () => false,
+                },
+                path: { getPath: (doc: any) => doc.path, path2id: async (path: string) => path },
+                fileProcessing: {},
+                database: { localDatabase: { findAllNormalDocs: async function* () {} } },
+                keyValueDB: { kvDB: { get: async () => ({}), set: async () => {} } },
+            },
+            serviceModules: {
+                storageAccess: { getFiles: async () => files, delete: async () => {} },
+                fileHandler: {
+                    storeFileToDB: async () => {
+                        active++;
+                        peak = Math.max(peak, active);
+                        await new Promise((resolve) => setTimeout(resolve, 1));
+                        active--;
+                        return true;
+                    },
+                },
+            },
+        } as any;
+
+        await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+            mode: FullScanModes.NEWER_WINS,
+            extraOnLocal: ExtraOnLocal.APPEND_STORAGE_ONLY,
+            fileConcurrency: 1,
+            onFileActivity: (event) => activity.push(event),
+        });
+
+        expect(peak).toBe(1);
+        expect(activity).toEqual([
+            { phase: "start", size: 1 },
+            { phase: "finish", size: 1 },
+            { phase: "start", size: 2 },
+            { phase: "finish", size: 2 },
+            { phase: "start", size: 3 },
+            { phase: "finish", size: 3 },
+        ]);
+    });
+
     it("should process mixed file-set actions in db-apply mode", async () => {
         const deleteMock = vi.fn().mockResolvedValue(undefined);
         const dbToStorageMock = vi.fn().mockResolvedValue(true);
