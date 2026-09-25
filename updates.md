@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Equal-time offline scans now record the current revision for an untracked file only when its bytes match the current, conflict-free database content. A later incoming update can then replace the unchanged file without creating a false conflict; existing revision records and genuine local edits retain their conservative conflict handling ([Self-hosted LiveSync issue #1207](https://github.com/vrtmrz/obsidian-livesync/issues/1207)).
+
 ## 0.1.27
 
 18th September, 2026
