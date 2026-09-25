@@ -138,6 +138,111 @@ function createHandler(
     };
 }
 
+describe("ServiceFileHandlerBase.tryRecordUntrackedFileRevision", () => {
+    function fixture(localBody = "same content", databaseBody = "same content") {
+        return createHandler(localBody, databaseBody, false, EVEN, true);
+    }
+
+    it("records matching current content without writing a file or database revision", async () => {
+        const { handler, storageStub, databaseFileAccess, storageAccess, provenance } = fixture();
+
+        await expect(handler.tryRecordUntrackedFileRevision(storageStub, "2-remote")).resolves.toBe(true);
+
+        expect(provenance.set).toHaveBeenCalledExactlyOnceWith("note.md", {
+            revision: "2-remote", observedStorageMtime: storageStub.stat.mtime,
+        });
+        expect(databaseFileAccess.storeWithBaseRevision).not.toHaveBeenCalled();
+        expect(databaseFileAccess.storeIndependentRevision).not.toHaveBeenCalled();
+        expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
+    });
+
+    it("keeps an existing displayed revision even when current bytes match another revision", async () => {
+        const { handler, storageStub, databaseFileAccess, provenance } = fixture();
+        provenance.get.mockResolvedValue({ revision: "1-displayed" });
+
+        await expect(handler.tryRecordUntrackedFileRevision(storageStub, "2-remote")).resolves.toBe(false);
+
+        expect(databaseFileAccess.fetchEntry).not.toHaveBeenCalled();
+        expect(provenance.set).not.toHaveBeenCalled();
+    });
+
+    it("does not treat a provenance read failure as a missing record", async () => {
+        const { handler, storageStub, databaseFileAccess, provenance } = fixture();
+        provenance.get.mockRejectedValue(new Error("store unavailable"));
+
+        await expect(handler.tryRecordUntrackedFileRevision(storageStub, "2-remote")).resolves.toBe(false);
+
+        expect(databaseFileAccess.fetchEntry).not.toHaveBeenCalled();
+        expect(provenance.set).not.toHaveBeenCalled();
+    });
+
+    it("leaves an equal-time local edit unrecorded", async () => {
+        const { handler, storageStub, provenance } = fixture("local edit", "current database content");
+
+        await expect(handler.tryRecordUntrackedFileRevision(storageStub, "2-remote")).resolves.toBe(false);
+
+        expect(provenance.set).not.toHaveBeenCalled();
+    });
+
+    it("leaves a conflicted revision tree unrecorded", async () => {
+        const { handler, storageStub, databaseFileAccess, provenance } = fixture();
+        databaseFileAccess.getConflictedRevs.mockResolvedValue(["2-other"]);
+
+        await expect(handler.tryRecordUntrackedFileRevision(storageStub, "2-remote")).resolves.toBe(false);
+
+        expect(provenance.set).not.toHaveBeenCalled();
+    });
+
+    it("leaves an unreadable current body unrecorded", async () => {
+        const { handler, storageStub, databaseFileAccess, provenance } = fixture();
+        databaseFileAccess.fetchEntry.mockResolvedValue(false);
+
+        await expect(handler.tryRecordUntrackedFileRevision(storageStub, "2-remote")).resolves.toBe(false);
+
+        expect(provenance.set).not.toHaveBeenCalled();
+    });
+
+    it("rejects a database revision which advances during verification", async () => {
+        const { handler, storageStub, databaseFileAccess, provenance } = fixture();
+        databaseFileAccess.fetchEntryMeta
+            .mockResolvedValueOnce(createMeta("note.md", "same content", "2-remote"))
+            .mockResolvedValueOnce(createMeta("note.md", "new content", "3-new"));
+
+        await expect(handler.tryRecordUntrackedFileRevision(storageStub, "2-remote")).resolves.toBe(false);
+
+        expect(provenance.set).not.toHaveBeenCalled();
+    });
+
+    it("rejects an external storage edit during verification", async () => {
+        const { handler, storageStub, storageAccess, provenance } = fixture();
+        storageAccess.getStub
+            .mockResolvedValueOnce(storageStub)
+            .mockResolvedValueOnce(createStorageFile("note.md", "edited while checking"));
+
+        await expect(handler.tryRecordUntrackedFileRevision(storageStub, "2-remote")).resolves.toBe(false);
+
+        expect(provenance.set).not.toHaveBeenCalled();
+    });
+
+    it("does not replace a record created during verification", async () => {
+        const { handler, storageStub, provenance } = fixture();
+        provenance.get
+            .mockResolvedValueOnce(undefined)
+            .mockResolvedValueOnce({ revision: "1-displayed" });
+
+        await expect(handler.tryRecordUntrackedFileRevision(storageStub, "2-remote")).resolves.toBe(false);
+
+        expect(provenance.set).not.toHaveBeenCalled();
+    });
+
+    it("reports a failed record write as unrecorded", async () => {
+        const { handler, storageStub, provenance } = fixture();
+        provenance.set.mockRejectedValue(new Error("store unavailable"));
+
+        await expect(handler.tryRecordUntrackedFileRevision(storageStub, "2-remote")).resolves.toBe(false);
+    });
+});
+
 function createRenameHandler(caseInsensitive: boolean, oldEntry: MetaEntry | false = createMeta("old.md", "body")) {
     let processFileEvent: ((item: FileEventItem) => Promise<boolean>) | undefined;
     const databaseFileAccess = {

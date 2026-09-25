@@ -352,6 +352,43 @@ export abstract class ServiceFileHandlerBase
         }
         return readFile;
     }
+
+    async tryRecordUntrackedFileRevision(
+        info: UXFileInfoStub | UXFileInfo,
+        expectedRevision: string
+    ): Promise<boolean> {
+        if (!this.fileReflectionProvenance || !expectedRevision) return false;
+        const path = getStoragePathFromUXFileInfo(info);
+        try {
+            return await this.serializedByFileEventPaths([path], async () => {
+                const provenance = this.fileReflectionProvenance!;
+                // A recorded branch remains authoritative, even when its
+                // current bytes happen to match the database winner.
+                if (await provenance.get(path)) return false;
+                const stub = await this.storage.getStub(path);
+                if (!stub || isFolderInfo(stub) || stub.path !== path) return false;
+                const file = await this.readFileFromStub(stub);
+                const current = await this.db.fetchEntryMeta(path, undefined, true);
+                if (!current || current._rev !== expectedRevision || current.deleted || current._deleted) return false;
+                if ((await this.db.getConflictedRevs(path)).length > 0) return false;
+                const entry = await this.db.fetchEntry(path, expectedRevision, true, true, true);
+                if (!entry || entry._rev !== expectedRevision || entry.deleted || entry._deleted) return false;
+                if (!await isDocContentSame(readContent(entry), file.body)) return false;
+
+                const latest = await this.db.fetchEntryMeta(path, undefined, true);
+                if (!latest || latest._rev !== expectedRevision || latest.deleted || latest._deleted) return false;
+                if ((await this.db.getConflictedRevs(path)).length > 0) return false;
+                if (!await this.currentStorageSnapshotMatches(file, undefined)) return false;
+                if (await provenance.get(path)) return false;
+                await provenance.set(path, { revision: expectedRevision, observedStorageMtime: file.stat.mtime });
+                return true;
+            });
+        } catch (ex) {
+            this._log(`Could not record unchanged file provenance for ${path}`, LOG_LEVEL_VERBOSE);
+            this._log(ex, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+    }
     private async infoToStub<T extends UXFileInfoStub | UXFileInfo | UXInternalFileInfoStub>(
         info: null | T | FilePathWithPrefix | FilePath
     ): Promise<T | UXFileInfoStub | null> {
