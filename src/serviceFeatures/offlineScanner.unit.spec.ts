@@ -995,9 +995,10 @@ describe("syncFileBetweenDBandStorage", () => {
         expect(dbToStorageMock).toHaveBeenCalledWith(doc, "test.md", false);
     });
 
-    it("should do nothing when files are equal", async () => {
+    it("checks missing file provenance when modification times are equal", async () => {
         const storeFileToDBMock = vi.fn();
         const dbToStorageMock = vi.fn();
+        const tryRecordUntrackedFileRevision = vi.fn().mockResolvedValue(true);
         const getPathMock = vi.fn().mockReturnValue("test.md");
 
         const host = {
@@ -1024,6 +1025,7 @@ describe("syncFileBetweenDBandStorage", () => {
                 fileHandler: {
                     storeFileToDB: storeFileToDBMock,
                     dbToStorage: dbToStorageMock,
+                    tryRecordUntrackedFileRevision,
                 },
             },
         } as any;
@@ -1035,6 +1037,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         const doc = {
             _id: "test",
+            _rev: "2-current",
             path: "test.md",
             size: 100,
         } as MetaEntry;
@@ -1045,6 +1048,7 @@ describe("syncFileBetweenDBandStorage", () => {
 
         expect(storeFileToDBMock).not.toHaveBeenCalled();
         expect(dbToStorageMock).not.toHaveBeenCalled();
+        expect(tryRecordUntrackedFileRevision).toHaveBeenCalledExactlyOnceWith(file, "2-current");
     });
     it("should handle if document cannot be found in database", async () => {
         const storeFileToDBMock = vi.fn();

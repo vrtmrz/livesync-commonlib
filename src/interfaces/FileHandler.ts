@@ -4,6 +4,13 @@ import type { UXFileInfo, UXFileInfoStub, UXInternalFileInfoStub } from "@lib/co
 export interface IFileHandler {
     readFileFromStub(file: UXFileInfoStub | UXFileInfo): Promise<UXFileInfo>;
 
+    /**
+     * Record an untracked, unchanged file during an equal-time scan.
+     * Return true only when the exact current revision was recorded. This
+     * operation never stores a document revision or writes to storage.
+     */
+    tryRecordUntrackedFileRevision(info: UXFileInfoStub | UXFileInfo, expectedRevision: string): Promise<boolean>;
+
     storeFileToDB(
         info: UXFileInfoStub | UXFileInfo | UXInternalFileInfoStub | FilePathWithPrefix,
         force?: boolean,

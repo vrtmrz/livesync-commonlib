@@ -654,6 +654,9 @@ export async function syncFileBetweenDBandStorage(
                 return FilePairProcessResults.SKIPPED;
             }
         case EVEN:
+            if (doc._rev) {
+                await host.serviceModules.fileHandler.tryRecordUntrackedFileRevision(file, doc._rev);
+            }
             log("STORAGE == DB :" + file.path + "", LOG_LEVEL_DEBUG);
             return FilePairProcessResults.COMPLETED;
         default:

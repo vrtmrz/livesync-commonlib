@@ -138,6 +138,12 @@ By default, the complete scan returns `false` when any pair is `failed`, and ret
 
 Self-hosted LiveSync enables this policy only for ordinary Obsidian start-up, where one unavailable path must not prevent unaffected files from synchronising. Fast Setup, Fetch, Rebuild, direct scans, and CLI mirror or daemon paths retain the strict default.
 
+## Equal-time files without a recorded revision
+
+An equal modification time does not establish that the storage file is unchanged. Before completing such a pair, the scanner asks the file handler to record its current database revision if device-local provenance is absent. The handler reads the actual storage and database content under its document lock and records the revision only when both contain the same bytes, the database has no conflicting leaf, and its current revision agrees with the one observed by the scan. It rechecks the storage snapshot, database revision, and absent provenance before writing the record. This operation writes neither storage content nor a database revision.
+
+An existing provenance record keeps its branch identity even when the file bytes match another revision. An unreadable record, unavailable content, differing bytes, a competing branch, or a changing snapshot leaves provenance untouched. The scan still completes that equal-time pair; a later file event or incoming reflection retains the ordinary conservative conflict policy. If the local database has already advanced past the file's content, the equal-time repair cannot establish its earlier origin.
+
 ## Result-state verification
 
 Focused two-pass coverage starts with a `DB_APPLY` reflection whose file handler returns `false`, persists the resulting scanner state, and then runs `NEWER_WINS`. It verifies that:
@@ -149,6 +155,8 @@ Focused two-pass coverage starts with a `DB_APPLY` reflection whose file handler
 - `deleteFileFromDB` is not called.
 
 Full-scan coverage also verifies that the strict default returns `false`, an ordinary-start-up scan which explicitly continues returns `completed-with-file-failures` while logging the affected path at verbose level, and a later clean scan returns `true`.
+
+The equal-time regression uses real in-memory PouchDB and the file handler. It checks missing and recorded provenance with unchanged files and genuine local edits, then advances the database and reflects the incoming revision. Focused handler tests cover provenance read and write failures, unreadable current content, an existing conflict, and storage or database changes during verification.
 
 A second two-pass case starts with a `db-only` entry skipped by the size limit. It then removes that limit and verifies that the entry is reflected to storage rather than misclassified as an offline local deletion. Coverage for an existing storage file verifies that a failed `sync-newer` reflection retains the observed storage mtime, and full-scan coverage verifies that the aggregate failure reaches its caller after scanner initialisation completes.
 
