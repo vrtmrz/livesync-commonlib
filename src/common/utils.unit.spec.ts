@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { pickP2PSyncSettings } from "./utils";
+import { isRemediationModeActive, pickP2PSyncSettings } from "./utils";
 
 describe("pickP2PSyncSettings managed TURN state", () => {
     it("preserves the managed provider scalars", () => {
@@ -24,5 +24,16 @@ describe("pickP2PSyncSettings managed TURN state", () => {
             P2P_managedId: "key-id",
             P2P_managedToken: "secret-token",
         });
+    });
+});
+
+describe("isRemediationModeActive", () => {
+    it.each([
+        ["a configured limit", { maxMTimeForReflectEvents: Date.parse("2026-09-01T00:00:00Z") }, true],
+        ["no limit", { maxMTimeForReflectEvents: 0 }, false],
+        ["a missing limit", {} as { maxMTimeForReflectEvents: number }, false],
+        ["a negative limit", { maxMTimeForReflectEvents: -1 }, false],
+    ])("reports %s", (_label, settings, expected) => {
+        expect(isRemediationModeActive(settings)).toBe(expected);
     });
 });

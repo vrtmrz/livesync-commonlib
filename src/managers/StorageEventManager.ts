@@ -11,7 +11,7 @@ import {
     type UXFolderInfo,
     type UXInternalFileInfoStub,
 } from "@lib/common/types.ts";
-import { delay, fireAndForget, throttle } from "@lib/common/utils.ts";
+import { delay, fireAndForget, isRemediationModeActive, throttle } from "@lib/common/utils.ts";
 import { type FileEventItem } from "@lib/common/types.ts";
 import { serialized, skipIfDuplicated } from "octagonal-wheels/concurrency/lock";
 import { isWaitingForTimeout } from "octagonal-wheels/concurrency/task";
@@ -153,7 +153,7 @@ export abstract class StorageEventManagerBase<
         const settings = this.settings;
         if (!settings.isConfigured) return;
         if (settings.suspendFileWatching) return;
-        if (settings.maxMTimeForReflectEvents > 0) {
+        if (isRemediationModeActive(settings)) {
             return;
         }
         this.fileProcessing.onStorageFileEvent();

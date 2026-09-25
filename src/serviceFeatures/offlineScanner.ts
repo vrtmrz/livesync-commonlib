@@ -18,7 +18,7 @@ import {
     type AnyEntry,
 } from "@lib/common/types";
 
-import { compareMTime, isAnyNote } from "@lib/common/utils";
+import { compareMTime, isAnyNote, isRemediationModeActive } from "@lib/common/utils";
 import { shouldBeIgnored, stripAllPrefixes } from "@lib/string_and_binary/path";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
@@ -696,7 +696,7 @@ export function canProceedScan(
 
     // Check if in remediation mode
     const MSG_IN_REMEDIATION = `Started in remediation Mode! (Max mtime for reflect events is set). Synchronising between the storage and the local database is now prevented.`;
-    if (settings.maxMTimeForReflectEvents > 0) {
+    if (isRemediationModeActive(settings)) {
         errorManager.showError(MSG_IN_REMEDIATION, LOG_LEVEL_NOTICE);
         return false;
     }
