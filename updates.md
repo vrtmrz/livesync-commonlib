@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixed
+
+- Preserve colons within ordinary file names through path normalisation, Metadata ID conversion, file selection, and storage reflection. Only recognised leading path namespaces are stripped; Darwin and Linux filename validation now permits colons, while Windows and Android validation remains unchanged ([Self-hosted LiveSync issue #1206](https://github.com/vrtmrz/obsidian-livesync/issues/1206)).
+
 ## 0.1.27
 
 18th September, 2026

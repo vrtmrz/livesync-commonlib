@@ -331,7 +331,7 @@ export function isTargetFile(host: NecessaryServicesInterfaces<"setting", never>
     const file = filenameSrc.startsWith(ICHeader) ? filenameSrc.substring(ICHeader.length) : filenameSrc;
     if (file.startsWith(ICXHeader)) return true;
     if (file.startsWith(PSCHeader)) return true;
-    if (file.includes(":")) {
+    if (file.startsWith(IDPrefixes.Chunk) || file.startsWith(IDPrefixes.Obfuscated)) {
         return false;
     }
     if (!settings.syncInternalFiles) {
