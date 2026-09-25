@@ -9,7 +9,7 @@ import type {
 } from "@lib/common/types";
 import type { IPathService, ISettingService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
-import { addPrefix, id2path_base, path2id_base } from "@lib/string_and_binary/path";
+import { addPrefix, expandFilePathPrefix, id2path_base, path2id_base } from "@lib/string_and_binary/path";
 import { isInternalMetadata, stripInternalMetadataPrefix } from "@lib/common/typeUtils";
 import type { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 
@@ -42,23 +42,16 @@ export abstract class PathService<T extends ServiceContext = ServiceContext>
     }
     private _id2path(id: DocumentID, entry?: EntryHasPath): FilePathWithPrefix {
         const filename = id2path_base(id, entry);
-        const temp = filename.split(":");
-        const path = temp.pop();
-        const normalizedPath = this.normalizePath(path as FilePath);
-        temp.push(normalizedPath);
-        const fixedPath = temp.join(":") as FilePathWithPrefix;
-        return fixedPath;
+        const [prefix, path] = expandFilePathPrefix(filename);
+        return (prefix + this.normalizePath(path)) as FilePathWithPrefix;
     }
     private async _path2id(
         filename: FilePathWithPrefix | FilePath,
         obfuscatePassphrase: string | false,
         caseInsensitive: boolean
     ): Promise<DocumentID> {
-        const temp = filename.split(":");
-        const path = temp.pop();
-        const normalizedPath = this.normalizePath(path as FilePath);
-        temp.push(normalizedPath);
-        const fixedPath = temp.join(":") as FilePathWithPrefix;
+        const [prefix, path] = expandFilePathPrefix(filename);
+        const fixedPath = (prefix + this.normalizePath(path)) as FilePathWithPrefix;
 
         const out = await path2id_base(fixedPath, obfuscatePassphrase, caseInsensitive);
         return out;

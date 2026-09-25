@@ -18,6 +18,7 @@ import {
 import { memorizeFuncWithLRUCache } from "@lib/common/utils.ts";
 import { uint8ArrayToHexString, writeString } from "./convert.ts";
 import { unique } from "octagonal-wheels/collection.js";
+import { CHeader, ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
 // --- path utilities
 export function isValidFilenameInWidows(filename: string): boolean {
     // eslint-disable-next-line no-control-regex
@@ -29,13 +30,12 @@ export function isValidFilenameInWidows(filename: string): boolean {
 }
 export function isValidFilenameInDarwin(filename: string): boolean {
     // eslint-disable-next-line no-control-regex
-    const regex = /[\u0000-\u001f]|[:]/g;
+    const regex = /[\u0000-\u001f]/g;
     return !regex.test(filename);
 }
 export function isValidFilenameInLinux(filename: string): boolean {
-    // In the specification, `:` could be accepted, LiveSync should ignore this for make things simple.
     // eslint-disable-next-line no-control-regex
-    const regex = /[\u0000-\u001f]|[:]/g;
+    const regex = /[\u0000-\u001f]/g;
     return !regex.test(filename);
 }
 export function isValidFilenameInAndroid(filename: string): boolean {
@@ -46,37 +46,31 @@ export function isValidFilenameInAndroid(filename: string): boolean {
 }
 
 export function isFilePath(path: FilePath | FilePathWithPrefix): path is FilePath {
-    if (path.indexOf(":") === -1) return true;
-    return false;
+    return expandFilePathPrefix(path)[0] === "";
 }
 export function stripAllPrefixes(prefixedPath: FilePathWithPrefix): FilePath {
-    if (isFilePath(prefixedPath)) return prefixedPath;
-    const [, body] = expandFilePathPrefix(prefixedPath);
-    return stripAllPrefixes(body);
+    // A file path has one namespace; further colons belong to its name.
+    return stripPrefix(prefixedPath);
 }
 export function addPrefix(path: FilePath | FilePathWithPrefix, prefix: string): FilePathWithPrefix {
     if (prefix && path.startsWith(prefix)) return path;
     return `${prefix ?? ""}${path}` as FilePathWithPrefix;
 }
 export function expandFilePathPrefix(path: FilePathWithPrefix | FilePath): [string, FilePathWithPrefix] {
-    let [prefix, body] = path.split(":", 2);
-    if (!body) {
-        body = prefix;
-        prefix = "";
-    } else {
-        prefix = prefix + ":";
+    for (const prefix of [ICHeader, ICXHeader, PSCHeader]) {
+        if (path.startsWith(prefix)) {
+            return [prefix, path.substring(prefix.length) as FilePathWithPrefix];
+        }
     }
-    return [prefix, body as FilePathWithPrefix];
+    return ["", path];
 }
 export function expandDocumentIDPrefix(id: DocumentID): [string, FilePathWithPrefix] {
-    let [prefix, body] = id.split(":", 2);
-    if (!body) {
-        body = prefix;
-        prefix = "";
-    } else {
-        prefix = prefix + ":";
+    for (const prefix of [CHeader, PREFIX_OBFUSCATED]) {
+        if (id.startsWith(prefix)) {
+            return [prefix, id.substring(prefix.length) as FilePathWithPrefix];
+        }
     }
-    return [prefix, body as FilePathWithPrefix];
+    return expandFilePathPrefix(id as string as FilePathWithPrefix);
 }
 
 const _hashString = memorizeFuncWithLRUCache(async (key: string) => {
@@ -141,11 +135,7 @@ export function getPathWithoutPrefix(entry: AnyEntry) {
     return stripAllPrefixes(f);
 }
 export function stripPrefix(prefixedPath: FilePathWithPrefix): FilePath {
-    const [prefix, body] = prefixedPath.split(":", 2);
-    if (!body) {
-        return prefix as FilePath;
-    }
-    return body as FilePath;
+    return expandFilePathPrefix(prefixedPath)[1] as FilePath;
 }
 
 export function shouldBeIgnored(filename: string): boolean {

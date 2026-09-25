@@ -9,6 +9,7 @@
 - Fetching in remediation mode no longer stores the files currently in the storage into the database first. Staging them would publish the state being replaced, and the preparation scan it requires is refused in this mode anyway.
 - Finalising a rebuild in remediation mode persists the resumed reflection settings but no longer marks the application ready, because readiness would claim a scan which the mode refuses. The host stays as restricted as it is during an ordinary start in this mode, so a consumer which applies received documents only once ready needs its own allowance for the mode.
 - Rebuilding is refused while remediation mode is active, before the local database is reset. Rebuilding publishes the current storage as the remote, which is the opposite of restoring an earlier state.
+- Preserve colons within ordinary file names through path normalisation, Metadata ID conversion, file selection, and storage reflection. Only recognised leading path namespaces are stripped; Darwin and Linux filename validation now permits colons, while Windows and Android validation remains unchanged ([Self-hosted LiveSync issue #1206](https://github.com/vrtmrz/obsidian-livesync/issues/1206)).
 
 ## 0.1.27
 

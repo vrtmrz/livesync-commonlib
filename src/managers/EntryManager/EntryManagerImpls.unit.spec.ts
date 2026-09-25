@@ -171,11 +171,28 @@ describe("EntryManagerImpls", () => {
             expect(result).toBe(true);
         });
 
-        it("should return false for files with colon", () => {
-            const host = createHost(mockSettingService);
-            const result = isTargetFile(host, "test:invalid.md");
-            expect(result).toBe(false);
+        it.each(["test:invalid.md", "Folder/Poem: Example.md", "Folder/A:B:C.md"])(
+            "accepts an ordinary colon path: %s",
+            (path) => {
+                const host = createHost(mockSettingService);
+                expect(isTargetFile(host, path)).toBe(true);
+            }
+        );
+
+        it("applies selection patterns to the complete colon path", () => {
+            const services = createMockServices({ syncOnlyRegEx: "^allowed/", syncIgnoreRegEx: "Poem:" });
+            const host = createHost(services.mockSettingService);
+            expect(isTargetFile(host, "allowed/Note: Example.md")).toBe(true);
+            expect(isTargetFile(host, "allowed/Poem: Example.md")).toBe(false);
+            expect(isTargetFile(host, "other/Note: Example.md")).toBe(false);
         });
+
+        it.each(["h:chunk-id", "f:obfuscated-id", "i:f:obfuscated-id"])(
+            "keeps document IDs outside file selection: %s",
+            (id) => {
+                expect(isTargetFile(createHost(mockSettingService), id)).toBe(false);
+            }
+        );
 
         it("should respect syncOnlyRegEx setting", () => {
             const services = createMockServices({
@@ -685,13 +702,17 @@ describe("EntryManagerImpls", () => {
             }
         });
 
-        it("should skip non-target files", async () => {
+        it.each([false, true])("stores a colon path unless explicitly excluded: %s", async (excluded) => {
             const entry = createSavingEntry("invalid:file", "Should be skipped");
+            mockSettingService.currentSettings().syncIgnoreRegEx = excluded ? "^invalid:" : "";
             const host = createHost(mockSettingService, mockPathService);
 
             const result = await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
 
-            expect(result).toBe(false);
+            expect(result !== false).toBe(!excluded);
+            if (!excluded) {
+                expect(await db.get(entry._id)).toMatchObject({ path: "invalid:file" });
+            }
         });
 
     });
@@ -730,6 +751,7 @@ describe("EntryManagerImpls", () => {
         });
 
         it("should return false for non-target files", async () => {
+            mockSettingService.currentSettings().syncIgnoreRegEx = "^invalid:";
             const host = createHost(mockSettingService, mockPathService);
 
             const meta = await getDBEntryMetaByPath(
@@ -837,7 +859,8 @@ describe("EntryManagerImpls", () => {
             }
         });
 
-        it("should handle non-target files", async () => {
+        it.each([false, true])("reads colon metadata unless explicitly excluded: %s", async (excluded) => {
+            mockSettingService.currentSettings().syncIgnoreRegEx = excluded ? "^invalid:" : "";
             const host = createHost(mockSettingService, mockPathService);
 
             const fakeMeta: LoadedEntry = {
@@ -855,7 +878,10 @@ describe("EntryManagerImpls", () => {
 
             const result = await getDBEntryFromMeta(host, { localDatabase: db, chunkManager }, fakeMeta);
 
-            expect(result).toBe(false);
+            expect(result !== false).toBe(!excluded);
+            if (!excluded) {
+                expect(result).toMatchObject({ path: "invalid:file", data: [] });
+            }
         });
     });
 
@@ -1456,30 +1482,20 @@ describe("EntryManagerImpls", () => {
             const r3 = await getDBEntryMetaByPath(host, { localDatabase: db }, entry.path);
             expect(r3).toBe(false);
         });
-        const prefixMap = {
-            [ICHeader]: true,
-            [ICXHeader]: false,
-            [PSCHeader]: false,
-        };
-        it("should handle specific special files by default", async () => {
+        it.each([ICHeader, ICXHeader, PSCHeader])("stores a leading colon within the %s namespace", async (prefix) => {
             const services = createMockServices();
             const mockSettingService = services.mockSettingService;
             const mockPathService = services.mockPathService;
             const host = createHost(mockSettingService, mockPathService);
-            for (const prefix in prefixMap) {
-                const path = `${prefix}:test.md` as FilePathWithPrefix;
-                const entry = createSavingEntry(path, "This entry will be saved");
-                // Save entry
-                const rawResult = await putDBEntry(
-                    host,
-                    { localDatabase: db, chunkManager, hashManager, splitter },
-                    entry
-                );
-                // Get metadata
-                const result = !rawResult;
-                // console.log(`Testing path: ${path}, expected: ${prefixMap[prefix as keyof typeof prefixMap]}, got: ${result}`);
-                expect(result).toBe(prefixMap[prefix as keyof typeof prefixMap]);
-            }
+            const path = `${prefix}:test.md` as FilePathWithPrefix;
+            const entry = createSavingEntry(path, "This entry will be saved");
+            const rawResult = await putDBEntry(
+                host,
+                { localDatabase: db, chunkManager, hashManager, splitter },
+                entry
+            );
+            expect(rawResult).not.toBe(false);
+            expect(await db.get(entry._id)).toMatchObject({ path });
         });
         it("should handle specific revision to deleted entries", async () => {
             const services = createMockServices();
