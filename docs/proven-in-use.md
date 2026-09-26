@@ -10,6 +10,8 @@ The code paths below identify the maintained Self-hosted LiveSync composition po
 
 Unreleased colon-path regression tests establish that Commonlib preserves ordinary file paths through Metadata storage, Chunk retrieval, and storage reflection, with path obfuscation enabled or disabled. They use real PouchDB with injected storage. This result does not establish which filenames a host's file-creation API accepts; that boundary requires host runtime verification.
 
+Commonlib's encryption unit tests verify that an obfuscated Metadata document retains its document ID while its HKDF-encrypted path and file properties round-trip, and that V1-obfuscated paths remain readable through the fallback. Real Obsidian synchronisation with encryption and path obfuscation remains a downstream runtime check.
+
 The plug-in extends the neutral `ServiceContext` with Obsidian-owned capabilities in `src/modules/services/ObsidianServiceContext.ts`. One context instance carries the LiveSync-owned translator and event hub through the Service Hub rather than placing those dependencies in Commonlib globals. Commonlib supplies its typed English fallback when another host omits the translator.
 
 The consumer contract in `test/contracts/serviceContext.ts` checks shared result semantics and exact context identity across the composed services. The real-Obsidian suite documented in `test/e2e-obsidian/README.md` then covers plug-in loading, representative Svelte dialogue mounts, Vault reflection, CouchDB and Object Storage synchronisation, a two-device P2P Setup URI round-trip, two-Vault behaviour, and other Obsidian-owned boundaries.

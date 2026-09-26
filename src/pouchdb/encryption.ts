@@ -243,11 +243,10 @@ async function outgoingDecryptHKDF(
         }
     }
     if (isObfuscatedEntry(loadDoc)) {
-        const path = getPath(loadDoc);
         if (isEncryptedMeta(loadDoc)) {
             const pbkdf2salt = await getPBKDF2Salt();
             try {
-                const metadata = await decryptMetaWithHKDF(path, passphrase, pbkdf2salt);
+                const metadata = await decryptMetaWithHKDF(loadDoc.path, passphrase, pbkdf2salt);
                 for (const key of Object.keys(metadata)) {
                     (loadDoc as unknown as Record<string, unknown>)[key] = metadata[key as keyof EncryptProps];
                 }
@@ -256,14 +255,17 @@ async function outgoingDecryptHKDF(
                 Logger(ex);
                 throw ex;
             }
-        } else if (isPathProbablyObfuscated(path)) {
-            // As a fallback, try to decrypt with V1 method. This part will eventually be removed.
-            const decryptedPath = await tryDecryptV1AsFallback(path, passphrase, useDynamicIterationCount);
-            if (decryptedPath === false) {
-                Logger(`${MESSAGE_FALLBACK_DECRYPT_FAILED} on Path`, LOG_LEVEL_NOTICE);
-                throw new Error(MESSAGE_FALLBACK_DECRYPT_FAILED);
+        } else {
+            const path = getPath(loadDoc);
+            if (isPathProbablyObfuscated(path)) {
+                // As a fallback, try to decrypt with V1 method. This part will eventually be removed.
+                const decryptedPath = await tryDecryptV1AsFallback(path, passphrase, useDynamicIterationCount);
+                if (decryptedPath === false) {
+                    Logger(`${MESSAGE_FALLBACK_DECRYPT_FAILED} on Path`, LOG_LEVEL_NOTICE);
+                    throw new Error(MESSAGE_FALLBACK_DECRYPT_FAILED);
+                }
+                loadDoc.path = decryptedPath as FilePathWithPrefix;
             }
-            loadDoc.path = decryptedPath as FilePathWithPrefix;
         }
     }
     let readEden: EntryWithEden["eden"] = {};
