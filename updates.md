@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.29-rc.0
+
+26th September, 2026
+
 ### Fixed
 
 - HKDF-encrypted Metadata now decrypts its stored path without treating the encrypted field as a document ID, restoring synchronisation with path obfuscation. The encrypted format and legacy V1 path fallback are unchanged.
