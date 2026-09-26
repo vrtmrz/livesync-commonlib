@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
+import { E2EEAlgorithms, type DocumentID, type FilePathWithPrefix, type PlainEntry } from "@lib/common/types";
+import { getConfiguredFunctionsForEncryption } from "./encryption";
 import { fetchChangesForInitialSync } from "./StreamingFetch";
 
 PouchDB.plugin(MemoryAdapter);
 
 const fetchMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@lib/common/coreEnvFunctions", () => ({
+vi.mock("@lib/common/coreEnvFunctions", async (importOriginal) => ({
+    ...(await importOriginal<typeof import("@lib/common/coreEnvFunctions")>()),
     _fetch: fetchMock,
 }));
 
@@ -119,6 +122,44 @@ afterEach(async () => {
 });
 
 describe("fetchChangesForInitialSync", () => {
+    it("decrypts HKDF metadata before persisting and checkpointing an obfuscated document", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-hkdf-metadata");
+        const salt = new Uint8Array(16);
+        const { incoming, outgoing } = getConfiguredFunctionsForEncryption(
+            "fast-fetch-metadata-secret",
+            false,
+            false,
+            async () => salt,
+            E2EEAlgorithms.V2
+        );
+        const document: PlainEntry = {
+            _id: `f:${"d".repeat(64)}` as DocumentID,
+            path: "Folder/Poem: Example.md" as FilePathWithPrefix,
+            type: "plain",
+            ctime: 10,
+            mtime: 20,
+            size: 30,
+            children: [],
+            eden: {},
+        };
+        const encrypted = await incoming(document);
+        expect("path" in encrypted && encrypted.path.startsWith("/\\:")).toBe(true);
+        queueChangesFeed(1, 1, [
+            JSON.stringify({
+                seq: 1,
+                id: document._id,
+                changes: [{ rev: "1-test" }],
+                doc: { ...encrypted, _rev: "1-test" },
+            }),
+        ]);
+        const checkpoints: Array<string | number> = [];
+
+        await fetchInitial(localDB, outgoing, (sequence) => checkpoints.push(sequence));
+
+        await expect(localDB.get(document._id)).resolves.toMatchObject(document);
+        expect(checkpoints.at(-1)).toBe(1);
+    });
+
     it("sends custom headers on every request without allowing them to override authorisation", async () => {
         const localDB = createLocalDatabase("streaming-fetch-custom-headers");
         const customHeaders = {
