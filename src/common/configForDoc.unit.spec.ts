@@ -83,12 +83,54 @@ describe("Doctor translation boundary", () => {
     });
 
     it.each([
-        { remoteType: REMOTE_COUCHDB, encrypt: true, usePathObfuscation: true, E2EEAlgorithm: E2EEAlgorithms.V2, encryptInternalMetadata: false, recommended: true },
-        { remoteType: REMOTE_COUCHDB, encrypt: true, usePathObfuscation: true, E2EEAlgorithm: E2EEAlgorithms.V2, encryptInternalMetadata: true, recommended: false },
-        { remoteType: REMOTE_COUCHDB, encrypt: false, usePathObfuscation: true, E2EEAlgorithm: E2EEAlgorithms.V2, encryptInternalMetadata: false, recommended: false },
-        { remoteType: REMOTE_COUCHDB, encrypt: true, usePathObfuscation: false, E2EEAlgorithm: E2EEAlgorithms.V2, encryptInternalMetadata: false, recommended: false },
-        { remoteType: REMOTE_COUCHDB, encrypt: true, usePathObfuscation: true, E2EEAlgorithm: E2EEAlgorithms.V1, encryptInternalMetadata: false, recommended: false },
-        { remoteType: REMOTE_MINIO, encrypt: true, usePathObfuscation: true, E2EEAlgorithm: E2EEAlgorithms.V2, encryptInternalMetadata: false, recommended: false },
+        {
+            remoteType: REMOTE_COUCHDB,
+            encrypt: true,
+            usePathObfuscation: true,
+            E2EEAlgorithm: E2EEAlgorithms.V2,
+            encryptInternalMetadata: false,
+            recommended: true,
+        },
+        {
+            remoteType: REMOTE_COUCHDB,
+            encrypt: true,
+            usePathObfuscation: true,
+            E2EEAlgorithm: E2EEAlgorithms.V2,
+            encryptInternalMetadata: true,
+            recommended: false,
+        },
+        {
+            remoteType: REMOTE_COUCHDB,
+            encrypt: false,
+            usePathObfuscation: true,
+            E2EEAlgorithm: E2EEAlgorithms.V2,
+            encryptInternalMetadata: false,
+            recommended: false,
+        },
+        {
+            remoteType: REMOTE_COUCHDB,
+            encrypt: true,
+            usePathObfuscation: false,
+            E2EEAlgorithm: E2EEAlgorithms.V2,
+            encryptInternalMetadata: false,
+            recommended: false,
+        },
+        {
+            remoteType: REMOTE_COUCHDB,
+            encrypt: true,
+            usePathObfuscation: true,
+            E2EEAlgorithm: E2EEAlgorithms.V1,
+            encryptInternalMetadata: false,
+            recommended: false,
+        },
+        {
+            remoteType: REMOTE_MINIO,
+            encrypt: true,
+            usePathObfuscation: true,
+            E2EEAlgorithm: E2EEAlgorithms.V2,
+            encryptInternalMetadata: false,
+            recommended: false,
+        },
     ])("recommends internal Metadata encryption only when its prerequisites hold: %j", (condition) => {
         const { recommended, ...settings } = condition;
         const result = checkUnsuitableValues({ ...NEW_VAULT_SETTINGS, ...settings });
@@ -138,6 +180,9 @@ describe("Doctor translation boundary", () => {
             { confirm: confirm as never, translate: ((key: string) => key) as never },
             settings,
             { localRebuild: RebuildOptions.AutomaticAcceptable, remoteRebuild: RebuildOptions.AutomaticAcceptable }
+        );
+        expect(confirm.askSelectStringDialogue.mock.calls[1][1][0]).toBe(
+            "Enable without rebuilding — update every other device first"
         );
         expect(result.settings.encryptInternalMetadata).toBe(true);
         expect(result.settings.doctorProcessedVersion).toBe("1.0.1");

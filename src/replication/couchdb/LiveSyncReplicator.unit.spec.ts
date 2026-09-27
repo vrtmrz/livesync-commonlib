@@ -11,6 +11,7 @@ import {
     type RemoteDBSettings,
 } from "@lib/common/types.ts";
 import { defaultLogger, setGlobalLogFunction } from "@lib/common/logger.ts";
+import * as compatibility from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import * as negotiation from "@lib/pouchdb/negotiation.ts";
 import { clearHandlers } from "@lib/replication/SyncParamsHandler.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
@@ -21,6 +22,52 @@ import {
 } from "@lib/replication/CentralCompatibility.ts";
 
 describe("LiveSyncCouchDBReplicator initialisation", () => {
+    it.each(["OK", "LOCKED", "NODE_LOCKED"] as const)(
+        "declares the write feature only for an admitted writer (%s)",
+        async (admission) => {
+            const remoteDatabase = { close: vi.fn().mockResolvedValue(undefined) };
+            const replicator = createOneShotReplicator(remoteDatabase);
+            vi.mocked(replicator.checkReplicationConnectivity).mockRestore();
+            replicator.env.services.API = {
+                isMobile: () => false,
+                getAppVersion: () => "test",
+                getPluginVersion: () => "test",
+            } as never;
+            replicator.env.services.vault = { vaultName: () => "test", getVaultName: () => "test" } as never;
+            replicator.env.services.database.localNodeIdentity = { nodeId: "writer" } as never;
+            vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
+                db: remoteDatabase,
+                info: { update_seq: 0 },
+                close: remoteDatabase.close,
+            } as never);
+            const version = vi.spyOn(negotiation, "checkRemoteVersion").mockResolvedValue(true);
+            const admit = vi.spyOn(compatibility, "ensureDatabaseIsCompatible").mockResolvedValue(admission);
+            const declare = vi.spyOn(negotiation, "declareRemoteFeatures").mockResolvedValue(true);
+            try {
+                const result = await replicator.checkReplicationConnectivity(
+                    {
+                        versionUpFlash: "",
+                        couchDB_URI: "https://example.test",
+                        couchDB_DBNAME: "remote",
+                        encrypt: true,
+                        usePathObfuscation: true,
+                        E2EEAlgorithm: E2EEAlgorithms.V2,
+                        encryptInternalMetadata: true,
+                    } as RemoteDBSettings,
+                    false,
+                    false,
+                    false
+                );
+                expect(result !== false).toBe(admission !== "NODE_LOCKED");
+                expect(declare).toHaveBeenCalledTimes(admission === "NODE_LOCKED" ? 0 : 1);
+            } finally {
+                version.mockRestore();
+                admit.mockRestore();
+                declare.mockRestore();
+            }
+        }
+    );
+
     it("allows a remote-only connection check before the local database is ready", async () => {
         const getLocalDatabase = vi.fn(() => {
             throw new Error("Local database is not ready yet.");
@@ -418,14 +465,19 @@ describe("LiveSyncCouchDBReplicator connection settings", () => {
             encryptInternalMetadata: false,
         });
 
-        await replicator.connectRemoteCouchDBWithSetting({
-            ...setting,
-            encrypt: true,
-            E2EEAlgorithm: E2EEAlgorithms.V2,
-            usePathObfuscation: true,
-            encryptInternalMetadata: true,
-            passphrase: "secret",
-        }, false, false, true);
+        await replicator.connectRemoteCouchDBWithSetting(
+            {
+                ...setting,
+                encrypt: true,
+                E2EEAlgorithm: E2EEAlgorithms.V2,
+                usePathObfuscation: true,
+                encryptInternalMetadata: true,
+                passphrase: "secret",
+            },
+            false,
+            false,
+            true
+        );
 
         expect(connect.mock.calls[1][11]).toMatchObject({
             encryptionAlgorithm: E2EEAlgorithms.V2,

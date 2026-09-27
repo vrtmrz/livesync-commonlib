@@ -212,7 +212,7 @@ export const DoctorRegulationV1_0_1: DoctorRegulation = {
                 settings.encrypt === true &&
                 settings.usePathObfuscation === true &&
                 settings.E2EEAlgorithm === E2EEAlgorithms.V2,
-            reason: "E2EE V2 and Property Encryption can also protect Hidden File Sync and Customisation Sync Metadata. This affects future writes; manually rebuild the remote database to protect existing Metadata, and update every synchronising client before enabling it.",
+            reason: "E2EE V2 and Property Encryption can also protect Hidden File Sync and Customisation Sync Metadata. This affects future writes; manually rebuild the remote database to protect existing Metadata, and update every synchronising client before enabling it, including devices currently running LiveSync.",
         },
     },
 };
@@ -362,7 +362,11 @@ export async function performDoctorConsultation(
                 [RuleLevel.Must]: translate("Doctor.Level.Must"),
             };
             const level = value.level ? levelMap[value.level] : "Unknown";
-            const options = [OPT_FIX] as [typeof OPT_FIX | typeof OPT_SKIP | typeof OPTION_FIX_WITHOUT_REBUILD];
+            const fix =
+                key === "encryptInternalMetadata"
+                    ? "Enable without rebuilding — update every other device first"
+                    : OPT_FIX;
+            const options: string[] = [fix];
             let askRebuild = false;
             let askRebuildLocal = false;
             if (value.requireRebuild) {
@@ -409,14 +413,14 @@ export async function performDoctorConsultation(
                         current: `${++idx}`,
                         total: `${issueItems.length}`,
                     }),
-                    defaultAction: OPT_FIX,
+                    defaultAction: fix,
                 }
             );
 
-            if (ret == OPT_FIX || ret == OPTION_FIX_WITHOUT_REBUILD) {
+            if (ret == fix || ret == OPTION_FIX_WITHOUT_REBUILD) {
                 //@ts-ignore
                 applySettings[key] = value.value;
-                if (ret == OPT_FIX) {
+                if (ret == fix) {
                     shouldRebuild = shouldRebuild || askRebuild || false;
                     shouldRebuildLocal = shouldRebuildLocal || askRebuildLocal || false;
                 }

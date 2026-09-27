@@ -90,8 +90,7 @@ or retrying; never replace another writer's requirements with a stale snapshot.
 The used-feature set is retained when a writer turns its corresponding setting
 off. Older documents or revisions may still depend on that feature. Removing
 a requirement needs a verified data-history transition, such as an explicit
-reconstruction which removes that representation. A manually shortened list
-does not clear requirements already observed in a local database.
+reconstruction which removes that representation. Manually shortening the declaration is not a supported migration.
 
 This is a client compatibility contract, not CouchDB access control. It cannot
 retrofit checks into legacy direct-access clients or revoke requests which a
@@ -100,59 +99,35 @@ server has already accepted.
 ## Admission and changes during replication
 
 Use the same assessment before ordinary replication, Fast Fetch, direct file
-access, and cleaned-remote recovery before counting Chunk references. The host's
-received-document path also uses that assessment. Checking only when a
-connection opens is insufficient
-for a connection which remains active whilst another client enables a feature.
+access, and cleaned-remote recovery before counting Chunk references. Declare
+required write features after admission, including for the writer accepted by a
+Rebuild lock. A locked-out device cannot declare or upload a new representation.
 
-| Observed change | Required action |
-| --- | --- |
-| Only `_rev`, list order, or duplicate entries change | Keep the semantic assessment; no compatibility interruption is required |
-| Requirements change and remain supported | Reassess the requirements and any affected shared writer settings; continue when those checks succeed |
-| An unknown feature or unsupported generation appears | Block new affected work, request transfer cancellation, and report the unsupported requirements |
-| The control document is malformed or deleted | Block affected work and report invalid control information |
-| A previously observed requirement disappears | Keep local requirements until an explicit, verified data-history transition establishes that they are no longer needed |
+The remote document is the source of requirements. The milestone retains its
+participant, Tweak comparison, and lock responsibilities. Hosts do not need a
+second persistent feature list or rejection history in KV storage.
 
-Inspect the control documents in a received batch before admitting that batch's
-file changes to host processing. The control document may be the last item in
-the batch. Reassess against the physical database and operation owner which
-produced the event; a late callback for a retired database must not change the
-state of its replacement.
+The existing received-version handler also uses the shared assessment. An
+unknown identifier, unsupported generation, or malformed document requests
+Replicator retirement and reports the reason. Supported requirements do not
+interrupt the connection merely because the revision or feature list changed.
+Do not await retirement inside the change callback: the owner may be waiting
+for that callback to settle before it can drain and close the operation.
 
-On rejection, establish the compatibility block synchronously before requesting
-asynchronous retirement. New synchronisation and queued file reflection must
-observe the block. Work waiting on another operation rechecks
-compatibility before beginning another write. Known metadata-only updates must
-not repeatedly retire a healthy connection or duplicate a Notice.
+A received notification can follow persistence to the local database. The
+handler is a best-effort response to an exceptional live change; it does not
+fence every queued file application or atomically revoke admitted requests.
+Use the established rollout workflow: update every synchronising client, enable
+the preference, and perform the strongly recommended manual Rebuild. Rebuild
+uses the existing remote lock. Merely changing the preference does not lock the
+remote, so continuing without rebuilding requires compatible devices first,
+including those with an active connection.
 
-The Replicator owner remains responsible for transfer cancellation, draining
-admitted work, and physical close. A received-document callback must not await
-retirement when retirement is waiting for the operation which delivered that
-callback. Use the existing ownership transition, with the immediate compatibility
-block providing the separate protection for subsequent work.
-
-### Limits and recovery
-
-A replication change notification can follow persistence to the local database.
-The block does not promise to prevent every unsupported byte from entering that
-database, undo completed writes, or cancel a server-accepted request atomically.
-Already-started operations settle under their owners; further operations are
-withheld at their admission or commit boundaries.
-
-Preserve unprocessed documents or durable reconciliation information. Do not
-discard a pending item and then assume ordinary replication will emit it again:
-its checkpoint may already cover the document. Restart restores the block from
-the database's requirements before queued reflection or ordinary
-synchronisation proceeds.
-The host persists its blocked pending-work snapshot before the received-change
-callback settles, without waiting for Replicator retirement in that callback.
-
-Recovery requires a compatible client and a fresh assessment of remote and
-local state. Retained work must then be reprocessed with the supported decoder
-or reacquired through a defined recovery path. Do not clear the block merely
-because the notification was dismissed, a feature name was removed remotely,
-or the connection was replaced. Do not silently rewind replication checkpoints
-or reconstruct databases as a side effect of this check.
+The next connection assesses the current remote declaration, including after
+restart. Existing host snapshot and startup behaviour remain unchanged. After
+updating, use the host's normal reconciliation or Fetch facilities as needed;
+this contract does not add permanent local rejection flags or repair unrelated
+snapshot inconsistencies.
 
 ## First feature: encrypted internal Metadata
 
@@ -181,20 +156,16 @@ malformed lists, legacy absence, new-generation absence, duplicate and reordered
 entries, concurrent updates, and preservation of existing fields. Use a made-up
 future identifier so the test does not depend on a known feature's label.
 
-Protect runtime behaviour with tests for initial admission, feature-only changes
-at the same protocol generation, control records at either end of a batch,
-queued and waiting work, transfer cancellation, absence of retirement deadlock,
-stale callbacks, restart, retained work after checkpoint advancement, direct
-access, Fast Fetch, and maintenance.
+Protect runtime behaviour with tests for initial admission, an admitted writer
+on a locked remote, unknown names received at the same generation, and
+retirement without a circular wait. Keep direct access, Fast Fetch, and
+maintenance admission checks covered. Host tests should preserve existing
+startup and queue semantics, including snapshot failures.
 
-The released code already observes numeric version changes. A focused host
-processor probe found that requesting retirement alone does not establish a
-file-application block. Host unit coverage must therefore verify both effects;
-calling a retirement mock is not proof that reflection has stopped.
-
-Use a real CouchDB and downstream Obsidian and CLI tests to validate actual
-delivery, cancellation, persistence, and recovery. Unit tests establish the
-stated contracts and do not establish transport cancellation timing.
+Use real CouchDB and downstream Obsidian and CLI tests to validate encrypted
+Metadata, file restoration, receipt of a changed declaration, and rejection
+before synchronisation after restart. These checks do not establish atomic
+cancellation timing or automatic recovery under a future compatible client.
 
 Related contracts: [local database lifecycle](database-lifecycle.md) and
 [settings lifecycle](settings-lifecycle.md).

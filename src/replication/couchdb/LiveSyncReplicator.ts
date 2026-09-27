@@ -356,12 +356,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         e: PouchDB.Replication.SyncResult<EntryDoc>,
         showResult: boolean,
         docSentOnStart: number,
-        docArrivedOnStart: number,
-        sourceDatabase?: PouchDB.Database<EntryDoc>
+        docArrivedOnStart: number
     ) {
         try {
             if (e.direction == "pull") {
-                await this.env.services.replication.parseSynchroniseResult(e.change.docs, sourceDatabase);
+                await this.env.services.replication.parseSynchroniseResult(e.change.docs);
                 this.docArrived += e.change.docs.length;
             } else {
                 this.docSent += e.change.docs.length;
@@ -429,8 +428,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         docArrivedOnStart: number,
         syncMode: "sync" | "pullOnly" | "pushOnly",
         retrying: boolean,
-        reportCancelledAsDone = true,
-        sourceDatabase?: PouchDB.Database<EntryDoc>
+        reportCancelledAsDone = true
     ): Promise<"DONE" | "NEED_RETRY" | "NEED_RESURRECT" | "FAILED" | "CANCELLED"> {
         const controller = new AbortController();
         if (this.controller) {
@@ -455,7 +453,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                             } else {
                                 this.lastSyncPushSeq = Number(`${e.change.last_seq}`.split("-")[0]);
                             }
-                            await this.replicationChangeDetected(e, showResult, docSentOnStart, docArrivedOnStart, sourceDatabase);
+                            await this.replicationChangeDetected(e, showResult, docSentOnStart, docArrivedOnStart);
                         } else {
                             if (syncMode == "pullOnly") {
                                 this.lastSyncPullSeq = Number(`${e.last_seq}`.split("-")[0]);
@@ -463,8 +461,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                                     { direction: "pull", change: e },
                                     showResult,
                                     docSentOnStart,
-                                    docArrivedOnStart,
-                                    sourceDatabase
+                                    docArrivedOnStart
                                 );
                             } else if (syncMode == "pushOnly") {
                                 this.lastSyncPushSeq = Number(`${e.last_seq}`.split("-")[0]);
@@ -473,8 +470,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                                     { direction: "push", change: e },
                                     showResult,
                                     docSentOnStart,
-                                    docArrivedOnStart,
-                                    sourceDatabase
+                                    docArrivedOnStart
                                 );
                             }
                         }
@@ -916,8 +912,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         docArrivedOnStart,
                         syncMode,
                         retrying,
-                        false,
-                        localDB
+                        false
                     );
                     if (cancellationRequested()) {
                         return false;
@@ -1233,7 +1228,6 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     return false;
                 }
                 if (
-                    !this.remoteLocked &&
                     usesEncryptedInternalMetadata(setting) &&
                     !(await declareRemoteFeatures(dbRet.db, [ENCRYPTED_INTERNAL_METADATA_FEATURE]))
                 ) {
@@ -1387,9 +1381,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         docSentOnStart,
                         docArrivedOnStart,
                         syncMode,
-                        retrying,
-                        true,
-                        localDB
+                        retrying
                     );
 
                     if (this.continuousStopRequested) {
