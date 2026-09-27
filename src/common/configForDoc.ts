@@ -212,7 +212,7 @@ export const DoctorRegulationV1_0_1: DoctorRegulation = {
                 settings.encrypt === true &&
                 settings.usePathObfuscation === true &&
                 settings.E2EEAlgorithm === E2EEAlgorithms.V2,
-            reason: "E2EE V2 and Property Encryption can also protect Hidden File Sync and Customisation Sync Metadata. This affects future writes; manually rebuild the remote database to protect existing Metadata, and update every synchronising client before enabling it, including devices currently running LiveSync.",
+            reason: "E2EE V2 and Property Encryption can also protect file properties used by Hidden File Sync and Customisation Sync. This affects future writes; manually rebuild the remote database to protect existing properties, and update every synchronising client before enabling it, including devices currently running LiveSync.",
         },
     },
 };

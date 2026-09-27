@@ -99,9 +99,9 @@ export const commonlibEnglishMessages = {
         "Enable this option to automatically apply the most recent change to documents even when it conflicts",
     "Encrypt contents on the remote database. If you use the plugin's synchronization feature, enabling this is recommended.":
         "Encrypt contents on the remote database. If you use the plugin's synchronization feature, enabling this is recommended.",
-    "Encrypt internal file Metadata": "Encrypt internal file Metadata",
-    "Encrypt paths, times, sizes, and Chunk references for Hidden File Sync and Customisation Sync. This affects future writes; manually rebuild the remote database to protect existing Metadata. Requires E2EE V2, Property Encryption, and compatible clients on every device.":
-        "Encrypt paths, times, sizes, and Chunk references for Hidden File Sync and Customisation Sync. This affects future writes; manually rebuild the remote database to protect existing Metadata. Requires E2EE V2, Property Encryption, and compatible clients on every device.",
+    "Encrypt internal file Properties": "Encrypt internal file Properties",
+    "Encrypt file properties (paths, times, sizes, and Chunk references) used by Hidden File Sync and Customisation Sync. This affects future writes; manually rebuild the remote database to protect existing properties. Requires E2EE V2, Property Encryption, and compatible clients on every device.":
+        "Encrypt file properties (paths, times, sizes, and Chunk references) used by Hidden File Sync and Customisation Sync. This affects future writes; manually rebuild the remote database to protect existing properties. Requires E2EE V2, Property Encryption, and compatible clients on every device.",
     "Encrypting sensitive configuration items": "Encrypting sensitive configuration items",
     "Encryption passphrase. If changed, you should overwrite the server's database with the new (encrypted) files.":
         "Encryption passphrase. If changed, you should overwrite the server's database with the new (encrypted) files.",
