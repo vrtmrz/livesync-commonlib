@@ -200,8 +200,8 @@ export const DoctorRegulationV1_0_0: DoctorRegulation = {
     },
 };
 
-export const DoctorRegulationV1_0_1: DoctorRegulation = {
-    version: "1.0.1",
+export const DoctorRegulationV1_0_33: DoctorRegulation = {
+    version: "1.0.33",
     rules: {
         ...DoctorRegulationV1_0_0.rules,
         encryptInternalMetadata: {
@@ -217,7 +217,7 @@ export const DoctorRegulationV1_0_1: DoctorRegulation = {
     },
 };
 
-export const DoctorRegulation = DoctorRegulationV1_0_1;
+export const DoctorRegulation = DoctorRegulationV1_0_33;
 
 export function checkUnsuitableValues(
     setting: Partial<ObsidianLiveSyncSettings>,

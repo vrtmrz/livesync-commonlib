@@ -28,7 +28,7 @@ describe("Doctor translation boundary", () => {
             enableCompression: true,
         });
 
-        expect(DoctorRegulation.version).toBe("1.0.1");
+        expect(DoctorRegulation.version).toBe("1.0.33");
         expect(result.rules.enableCompression).toBeUndefined();
     });
 
@@ -131,6 +131,14 @@ describe("Doctor translation boundary", () => {
             encryptInternalMetadata: false,
             recommended: false,
         },
+        {
+            remoteType: REMOTE_P2P,
+            encrypt: true,
+            usePathObfuscation: true,
+            E2EEAlgorithm: E2EEAlgorithms.V2,
+            encryptInternalMetadata: false,
+            recommended: false,
+        },
     ])("recommends internal Metadata encryption only when its prerequisites hold: %j", (condition) => {
         const { recommended, ...settings } = condition;
         const result = checkUnsuitableValues({ ...NEW_VAULT_SETTINGS, ...settings });
@@ -185,7 +193,7 @@ describe("Doctor translation boundary", () => {
             "Enable without rebuilding — update every other device first"
         );
         expect(result.settings.encryptInternalMetadata).toBe(true);
-        expect(result.settings.doctorProcessedVersion).toBe("1.0.1");
+        expect(result.settings.doctorProcessedVersion).toBe("1.0.33");
         expect(result.shouldRebuild).toBe(false);
         expect(result.shouldRebuildLocal).toBe(false);
         expect(confirm.askYesNoDialog).not.toHaveBeenCalled();
