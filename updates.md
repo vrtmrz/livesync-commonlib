@@ -6,16 +6,16 @@
 
 ### Added
 
-- You can now keep the file properties used by Hidden File Sync and Customisation Sync private in CouchDB.
+- We can now keep the file properties used by Hidden File Sync and Customisation Sync private in CouchDB.
     - **Encrypt internal file Properties** extends E2EE V2 and Property Encryption to their paths, times, sizes, and Chunk references.
     - Existing configurations keep this preference disabled. New Vaults enable it for use when the required encryption settings are active.
     - Update every synchronising device before enabling it. It protects future writes; a manual remote Rebuild is strongly recommended to protect existing properties.
-- You can now see which unsupported feature prevents a client from synchronising with CouchDB.
+- We can now see which unsupported feature prevents a client from synchronising with CouchDB.
     - Clients check the features recorded by the remote database before transferring data, and report any identifiers they do not recognise.
 
 ### Fixed
 
-- Fast Fetch now preserves your local database when the remote requires unsupported features.
+- Fast Fetch now preserves our local database when the remote requires unsupported features.
     - Compatibility is checked before resetting the local database, including when resuming an interrupted Fetch.
 - Manual CouchDB Chunk transfers now stop when compatibility checks fail.
     - Bulk Chunk sending and direct remote Chunk fetching now respect the same rejection as ordinary synchronisation.
