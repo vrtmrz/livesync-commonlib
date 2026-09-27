@@ -1,4 +1,4 @@
-import { LOG_LEVEL_INFO, Logger } from "@lib/common/logger";
+import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, Logger } from "@lib/common/logger";
 import {
     LOG_LEVEL_VERBOSE,
     SYNCINFO_ID,
@@ -7,57 +7,111 @@ import {
     type EntryVersionInfo,
     type SyncInfo,
 } from "@lib/common/types";
-import { resolveWithIgnoreKnownError } from "@lib/common/utils";
 import { isErrorOfMissingDoc } from "./utils_couchdb";
+import {
+    assessRemoteFeatureDocument,
+    describeRemoteFeatureRejection,
+    ENCRYPTED_INTERNAL_METADATA_FEATURE,
+    REMOTE_FEATURE_GENERATION,
+} from "./remoteFeatureCompatibility";
 
 export const checkRemoteVersion = async (
     db: PouchDB.Database,
     migrate: (from: number, to: number) => Promise<boolean>,
-    barrier: number = VER
+    barrier: number = VER,
+    requiredFeatures: readonly string[] = []
 ): Promise<boolean> => {
     try {
         const versionInfo = (await db.get(VERSIONING_DOCID)) as EntryVersionInfo;
-        if (versionInfo.type != "versioninfo") {
+        const assessment = assessRemoteFeatureDocument(versionInfo);
+        if (assessment.status === "older-generation") {
+            if (assessment.version >= barrier) return true;
+            if (!(await migrate(assessment.version, barrier))) return false;
+            if (!(await bumpRemoteVersion(db, barrier))) return false;
+            return requiredFeatures.length === 0 || await declareRemoteFeatures(db, requiredFeatures);
+        }
+        if (assessment.status !== "supported") {
+            Logger(describeRemoteFeatureRejection(assessment), LOG_LEVEL_NOTICE);
             return false;
         }
-        // const salt = versionInfo?.pbkdf2salt;
-        const version = versionInfo.version;
-        if (version < barrier) {
-            const versionUpResult = await migrate(version, barrier);
-            if (versionUpResult) {
-                await bumpRemoteVersion(db);
-                return true;
-            }
-        }
-        // setPBKDF2Salt(salt);
-        if (version == barrier) return true;
-        return false;
+        if (versionInfo.version < barrier) return false;
+        return requiredFeatures.length === 0 || await declareRemoteFeatures(db, requiredFeatures);
     } catch (ex) {
         if (isErrorOfMissingDoc(ex)) {
-            if (await bumpRemoteVersion(db)) {
-                return true;
-            }
-            return false;
+            const info = await db.info();
+            if (info.doc_count > 0) return false;
+            return await bumpRemoteVersion(db, requiredFeatures.length ? REMOTE_FEATURE_GENERATION : VER, requiredFeatures);
         }
         throw ex;
     }
 };
-export const bumpRemoteVersion = async (db: PouchDB.Database, barrier: number = VER): Promise<boolean> => {
-    const vi: EntryVersionInfo = {
-        _id: VERSIONING_DOCID,
-        version: barrier,
-        type: "versioninfo",
-        // pbkdf2salt: "", // this will be set later.
-    };
-    const versionInfo = await resolveWithIgnoreKnownError<EntryVersionInfo>(db.get(VERSIONING_DOCID), vi);
-    if (versionInfo.type != "versioninfo") {
-        return false;
+export const bumpRemoteVersion = async (
+    db: PouchDB.Database,
+    barrier: number = VER,
+    usedFeatures: readonly string[] = []
+): Promise<boolean> => {
+    for (let attempt = 0; attempt < 4; attempt++) {
+        let current: EntryVersionInfo | undefined;
+        try {
+            current = (await db.get(VERSIONING_DOCID)) as EntryVersionInfo;
+        } catch (error) {
+            if (!isErrorOfMissingDoc(error)) throw error;
+        }
+        if (current) {
+            const assessment = assessRemoteFeatureDocument(current);
+            if (assessment.status !== "supported" && assessment.status !== "older-generation") {
+                Logger(describeRemoteFeatureRejection(assessment), LOG_LEVEL_NOTICE);
+                return false;
+            }
+            if (current.version >= barrier) {
+                return usedFeatures.length === 0 || await declareRemoteFeatures(db, usedFeatures);
+            }
+        }
+        const next: EntryVersionInfo = {
+            ...current,
+            _id: VERSIONING_DOCID,
+            version: barrier,
+            type: "versioninfo",
+            ...(barrier >= REMOTE_FEATURE_GENERATION ? { used_features: [...new Set(usedFeatures)] } : {}),
+        };
+        try {
+            await db.put(next);
+            return true;
+        } catch (error) {
+            if (typeof error !== "object" || error === null || !("status" in error) || error.status !== 409) {
+                throw error;
+            }
+        }
     }
-    vi._rev = versionInfo._rev;
-
-    await db.put(vi);
-    return true;
+    return false;
 };
+
+export async function declareRemoteFeatures(db: PouchDB.Database, requiredFeatures: readonly string[]): Promise<boolean> {
+    const requested = [...new Set(requiredFeatures)];
+    if (requested.some((name) => name !== ENCRYPTED_INTERNAL_METADATA_FEATURE)) {
+        throw new Error("A writer requested an unsupported remote feature.");
+    }
+    if (requested.length === 0) return true;
+    for (let attempt = 0; attempt < 4; attempt++) {
+        const current = (await db.get(VERSIONING_DOCID)) as EntryVersionInfo;
+        const assessment = assessRemoteFeatureDocument(current);
+        if (assessment.status !== "supported") {
+            Logger(describeRemoteFeatureRejection(assessment), LOG_LEVEL_NOTICE);
+            return false;
+        }
+        const usedFeatures = [...new Set([...assessment.usedFeatures, ...requested])];
+        if (current.version === REMOTE_FEATURE_GENERATION && usedFeatures.length === assessment.usedFeatures.length) {
+            return true;
+        }
+        try {
+            await db.put({ ...current, version: REMOTE_FEATURE_GENERATION, used_features: usedFeatures });
+            return true;
+        } catch (ex) {
+            if (typeof ex !== "object" || ex === null || !("status" in ex) || ex.status !== 409) throw ex;
+        }
+    }
+    return false;
+}
 
 export const checkSyncInfo = async (db: PouchDB.Database): Promise<boolean> => {
     try {

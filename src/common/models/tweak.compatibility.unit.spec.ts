@@ -13,6 +13,16 @@ import { path2id_base } from "@lib/string_and_binary/path.ts";
 import type { FilePath } from "./db.type.ts";
 
 describe("assessTweakCompatibility", () => {
+    it("detects the internal Metadata writer preference without requiring reconstruction", () => {
+        const assessment = assessTweakCompatibility(
+            { encryptInternalMetadata: true } as TweakValues,
+            {} as TweakValues
+        );
+        expect(assessment.alignment).toBe("mismatched");
+        expect(assessment.adoptPreferred.changes).toMatchObject({ encryptInternalMetadata: false });
+        expect(assessment.adoptPreferred.reconstruction).toBe("none");
+    });
+
     it.each([
         {
             current: { handleFilenameCaseSensitive: false },
@@ -183,6 +193,7 @@ describe("legacy tweak compatibility projections", () => {
             longLineThreshold: 250,
             encrypt: false,
             usePathObfuscation: false,
+            encryptInternalMetadata: false,
             enableCompression: false,
             useEden: false,
             customChunkSize: 0,
@@ -207,6 +218,7 @@ describe("legacy tweak compatibility projections", () => {
         expect(CompatibleButLossyChanges).toEqual(["hashAlg", "customChunkSize", "chunkSplitterVersion"]);
         expect(IncompatibleChangesInSpecificPattern).toEqual([]);
         expect(TweakValuesDefault).toEqual({
+            encryptInternalMetadata: false,
             usePluginSyncV2: false,
             E2EEAlgorithm: "v2",
             chunkSplitterVersion: "v3-rabin-karp",

@@ -12,7 +12,6 @@ import {
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_VERBOSE,
     DEVICE_ID_PREFERRED,
-    TweakValuesTemplate,
     type DocumentID,
     type TweakValues,
     type CouchDBCredentials,
@@ -31,18 +30,21 @@ import {
 import {
     resolveWithIgnoreKnownError,
     globalConcurrencyController,
-    extractObject,
     wrapException,
     sizeToHumanReadable,
     arrayToChunkedArray,
     parseHeaderValues,
 } from "@lib/common/utils.ts";
 import { Logger } from "@lib/common/logger.ts";
-import { checkRemoteVersion, countCompromisedChunks } from "@lib/pouchdb/negotiation.ts";
+import { checkRemoteVersion, countCompromisedChunks, declareRemoteFeatures } from "@lib/pouchdb/negotiation.ts";
+import {
+    ENCRYPTED_INTERNAL_METADATA_FEATURE,
+    usesEncryptedInternalMetadata,
+} from "@lib/pouchdb/remoteFeatureCompatibility.ts";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import { preprocessOutgoing } from "@lib/pouchdb/encryption.ts";
 
-import { ensureDatabaseIsCompatible } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
+import { ensureDatabaseIsCompatible, getEffectiveTweakValues } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import {
     LiveSyncAbstractReplicator,
     type LiveSyncReplicatorEnv,
@@ -354,11 +356,12 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         e: PouchDB.Replication.SyncResult<EntryDoc>,
         showResult: boolean,
         docSentOnStart: number,
-        docArrivedOnStart: number
+        docArrivedOnStart: number,
+        sourceDatabase?: PouchDB.Database<EntryDoc>
     ) {
         try {
             if (e.direction == "pull") {
-                await this.env.services.replication.parseSynchroniseResult(e.change.docs);
+                await this.env.services.replication.parseSynchroniseResult(e.change.docs, sourceDatabase);
                 this.docArrived += e.change.docs.length;
             } else {
                 this.docSent += e.change.docs.length;
@@ -426,7 +429,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         docArrivedOnStart: number,
         syncMode: "sync" | "pullOnly" | "pushOnly",
         retrying: boolean,
-        reportCancelledAsDone = true
+        reportCancelledAsDone = true,
+        sourceDatabase?: PouchDB.Database<EntryDoc>
     ): Promise<"DONE" | "NEED_RETRY" | "NEED_RESURRECT" | "FAILED" | "CANCELLED"> {
         const controller = new AbortController();
         if (this.controller) {
@@ -451,7 +455,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                             } else {
                                 this.lastSyncPushSeq = Number(`${e.change.last_seq}`.split("-")[0]);
                             }
-                            await this.replicationChangeDetected(e, showResult, docSentOnStart, docArrivedOnStart);
+                            await this.replicationChangeDetected(e, showResult, docSentOnStart, docArrivedOnStart, sourceDatabase);
                         } else {
                             if (syncMode == "pullOnly") {
                                 this.lastSyncPullSeq = Number(`${e.last_seq}`.split("-")[0]);
@@ -459,7 +463,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                                     { direction: "pull", change: e },
                                     showResult,
                                     docSentOnStart,
-                                    docArrivedOnStart
+                                    docArrivedOnStart,
+                                    sourceDatabase
                                 );
                             } else if (syncMode == "pushOnly") {
                                 this.lastSyncPushSeq = Number(`${e.last_seq}`.split("-")[0]);
@@ -468,7 +473,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                                     { direction: "push", change: e },
                                     showResult,
                                     docSentOnStart,
-                                    docArrivedOnStart
+                                    docArrivedOnStart,
+                                    sourceDatabase
                                 );
                             }
                         }
@@ -621,9 +627,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
         // To create salt
         const connectivity = await this.checkReplicationConnectivity(setting, false, false, false, false);
-        if (connectivity !== false) {
-            await this.closeRemoteConnection(connectivity);
-        }
+        if (connectivity === false) return false;
+        await this.closeRemoteConnection(connectivity);
         Logger(`Bulk sending chunks to remote database...`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
         const remoteMilestone = await remoteDB.get(MILESTONE_DOCID);
         const remoteID = (remoteMilestone as { created?: number })?.created ?? 0;
@@ -911,7 +916,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         docArrivedOnStart,
                         syncMode,
                         retrying,
-                        false
+                        false,
+                        localDB
                     );
                     if (cancellationRequested()) {
                         return false;
@@ -1226,6 +1232,16 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     this.preferredTweakValue = ensure[1];
                     return false;
                 }
+                if (
+                    !this.remoteLocked &&
+                    usesEncryptedInternalMetadata(setting) &&
+                    !(await declareRemoteFeatures(dbRet.db, [ENCRYPTED_INTERNAL_METADATA_FEATURE]))
+                ) {
+                    recordCompatibilityDecision?.(
+                        centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.INCOMPATIBLE_VERSION)
+                    );
+                    return false;
+                }
                 recordCompatibilityDecision?.(CENTRAL_COMPATIBILITY_ACCEPTED);
             }
             const syncOptionBase: PouchDB.Replication.SyncOptions = {
@@ -1371,7 +1387,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         docSentOnStart,
                         docArrivedOnStart,
                         syncMode,
-                        retrying
+                        retrying,
+                        true,
+                        localDB
                     );
 
                     if (this.continuousStopRequested) {
@@ -1606,7 +1624,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             customHeaders,
             settings.useRequestAPI,
             async () => await this.getReplicationPBKDF2Salt(settings),
-            { ...connectionOptions, encryptionAlgorithm: settings.E2EEAlgorithm }
+            {
+                ...connectionOptions,
+                encryptionAlgorithm: settings.E2EEAlgorithm,
+                encryptInternalMetadata: usesEncryptedInternalMetadata(settings),
+            }
         );
     }
 
@@ -1704,6 +1726,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return false;
         }
         return await this.withRemoteConnection(ret, async (db) => {
+            if (!(await checkRemoteVersion(db, this.migrate.bind(this), VER))) return false;
             const remoteChunks = await db.allDocs({ keys: missingChunks, include_docs: true });
             const errorRows = remoteChunks.rows.filter((e) => "error" in e);
             if (errorRows.length > 0) {
@@ -1792,7 +1815,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             // check local database hash status and remote replicate hash status
             try {
                 const remoteMilestone = (await db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
-                remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = extractObject(TweakValuesTemplate, { ...setting });
+                remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = getEffectiveTweakValues(setting);
                 await db.put(remoteMilestone);
                 Logger(`Preferred tweak values has been registered`, LOG_LEVEL_VERBOSE);
             } catch (ex) {

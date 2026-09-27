@@ -30,6 +30,10 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         name: "Property Encryption",
         desc: "If enabled, the file properties will be encrypted in the remote database. This is useful for protecting sensitive information in file paths, sizes, and IDs of its chunks. If you are using V1 E2EE, this only obfuscates the file path.",
     },
+    encryptInternalMetadata: {
+        name: "Encrypt internal file Metadata",
+        desc: "Encrypt paths, times, sizes, and Chunk references for Hidden File Sync and Customisation Sync. This affects future writes; manually rebuild the remote database to protect existing Metadata. Requires E2EE V2, Property Encryption, and compatible clients on every device.",
+    },
     enableCompression: {
         name: "Data Compression",
         level: LEVEL_ADVANCED,

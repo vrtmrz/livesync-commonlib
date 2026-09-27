@@ -100,3 +100,11 @@ export type {
 } from "./CentralRemoteAdministration.ts";
 export { CENTRAL_COMPATIBILITY_REJECTION_REASONS } from "./CentralCompatibility.ts";
 export type { CentralCompatibilityRecoveryHint, CentralCompatibilityRejectionReason } from "./CentralCompatibility.ts";
+export {
+    assessRemoteFeatureDocument,
+    describeRemoteFeatureRejection,
+    ENCRYPTED_INTERNAL_METADATA_FEATURE,
+    REMOTE_FEATURE_GENERATION,
+    usesEncryptedInternalMetadata,
+} from "../pouchdb/remoteFeatureCompatibility.ts";
+export type { RemoteFeatureAssessment } from "../pouchdb/remoteFeatureCompatibility.ts";

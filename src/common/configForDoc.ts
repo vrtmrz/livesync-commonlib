@@ -200,7 +200,24 @@ export const DoctorRegulationV1_0_0: DoctorRegulation = {
     },
 };
 
-export const DoctorRegulation = DoctorRegulationV1_0_0;
+export const DoctorRegulationV1_0_1: DoctorRegulation = {
+    version: "1.0.1",
+    rules: {
+        ...DoctorRegulationV1_0_0.rules,
+        encryptInternalMetadata: {
+            value: true,
+            level: RuleLevel.Recommended,
+            detectionFunc: (settings) =>
+                settings.remoteType === REMOTE_COUCHDB &&
+                settings.encrypt === true &&
+                settings.usePathObfuscation === true &&
+                settings.E2EEAlgorithm === E2EEAlgorithms.V2,
+            reason: "E2EE V2 and Property Encryption can also protect Hidden File Sync and Customisation Sync Metadata. This affects future writes; manually rebuild the remote database to protect existing Metadata, and update every synchronising client before enabling it.",
+        },
+    },
+};
+
+export const DoctorRegulation = DoctorRegulationV1_0_1;
 
 export function checkUnsuitableValues(
     setting: Partial<ObsidianLiveSyncSettings>,
@@ -414,9 +431,14 @@ export async function performDoctorConsultation(
                 ...applySettings,
             };
         }
+        // Accepting the V2 recommendation can make the Metadata rule applicable
+        // only after this consultation's initial issue list was built.
+        const newlyApplicableMetadataRule = checkUnsuitableValues(settings).rules.encryptInternalMetadata !== undefined;
         if (skipped == 0) {
-            settings.doctorProcessedVersion = r.version;
-            isModified = true;
+            if (!newlyApplicableMetadataRule) {
+                settings.doctorProcessedVersion = r.version;
+                isModified = true;
+            }
         } else {
             if (
                 (await env.confirm.askYesNoDialog(translate("Doctor.Message.SomeSkipped"), {

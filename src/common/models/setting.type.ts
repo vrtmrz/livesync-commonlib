@@ -695,6 +695,9 @@ export interface EncryptionSettings {
      */
     usePathObfuscation: boolean;
 
+    /** Encrypt the Metadata of obfuscated internal files and Customisation Sync entries. */
+    encryptInternalMetadata: boolean;
+
     /**
      * The algorithm used for hashing the passphrase.
      * This is used for E2EE.

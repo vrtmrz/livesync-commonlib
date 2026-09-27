@@ -208,6 +208,17 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
         expect(decoded && "P2P_iceServers" in decoded).toBe(false);
     });
 
+    it("completes an old Setup URI without the internal Metadata preference as false", async () => {
+        const payload: Partial<typeof DEFAULT_SETTINGS> = { ...DEFAULT_SETTINGS };
+        delete payload.encryptInternalMetadata;
+        const encrypted = await encryptString(JSON.stringify(payload), "setup-pass");
+        const decoded = await decodeSettingsFromSetupURI(
+            `${configURIBase}${encodeURIComponent(encrypted)}`,
+            "setup-pass"
+        );
+        expect(decoded && decoded.encryptInternalMetadata).toBe(false);
+    });
+
     it("discards runtime ICE fields from incoming Setup URI data", async () => {
         const encrypted = await encryptString(
             JSON.stringify({

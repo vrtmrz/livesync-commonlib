@@ -382,7 +382,7 @@ describe("LiveSyncCouchDBReplicator connection settings", () => {
         await expect(connection).resolves.toBe("Empty passphrases cannot be used without explicit permission");
     });
 
-    it("uses the supplied setting's encryption algorithm for the owned connection", async () => {
+    it("projects the supplied setting's effective encryption options into the owned connection", async () => {
         const connect = vi.fn().mockResolvedValue("unused");
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
         replicator.env = {
@@ -415,6 +415,21 @@ describe("LiveSyncCouchDBReplicator connection settings", () => {
         expect(connect.mock.calls[0][11]).toEqual({
             allowNativeFallback: false,
             encryptionAlgorithm: E2EEAlgorithms.ForceV1,
+            encryptInternalMetadata: false,
+        });
+
+        await replicator.connectRemoteCouchDBWithSetting({
+            ...setting,
+            encrypt: true,
+            E2EEAlgorithm: E2EEAlgorithms.V2,
+            usePathObfuscation: true,
+            encryptInternalMetadata: true,
+            passphrase: "secret",
+        }, false, false, true);
+
+        expect(connect.mock.calls[1][11]).toMatchObject({
+            encryptionAlgorithm: E2EEAlgorithms.V2,
+            encryptInternalMetadata: true,
         });
     });
 });
@@ -1565,7 +1580,8 @@ describe("LiveSyncCouchDBReplicator chunk sending settlement and connection owne
             seqStatusMap: {},
             _rev: undefined,
         });
-        vi.spyOn(replicator, "checkReplicationConnectivity").mockResolvedValue(false);
+        vi.spyOn(replicator, "checkReplicationConnectivity").mockResolvedValue({ db: remoteDatabase } as never);
+        vi.spyOn(replicator, "closeRemoteConnection").mockResolvedValue(undefined);
         vi.spyOn(replicator, "updateMaxTransferredSeqOnChunks").mockResolvedValue({} as never);
 
         return { remoteDatabase, replicator };
@@ -1579,6 +1595,18 @@ describe("LiveSyncCouchDBReplicator chunk sending settlement and connection owne
             replicator.sendChunks({ sendChunksBulkMaxSize: 1 } as RemoteDBSettings, remoteDatabase as never, false, 0)
         ).resolves.toBe(false);
         expect(remoteDatabase.bulkDocs).toHaveBeenCalledOnce();
+    });
+
+    it("does not send chunks when the remote compatibility preflight rejects the operation", async () => {
+        const bulkDocs = vi.fn().mockResolvedValue([]);
+        const { remoteDatabase, replicator } = createChunkSendingFixture(1, bulkDocs);
+        vi.mocked(replicator.checkReplicationConnectivity).mockResolvedValueOnce(false);
+
+        await expect(
+            replicator.sendChunks({ sendChunksBulkMaxSize: 1 } as RemoteDBSettings, remoteDatabase as never, false, 0)
+        ).resolves.toBe(false);
+        expect(bulkDocs).not.toHaveBeenCalled();
+        expect(remoteDatabase.get).not.toHaveBeenCalled();
     });
 
     it("does not carry the previous final batch into the next queued group", async () => {
@@ -1619,6 +1647,10 @@ describe("LiveSyncCouchDBReplicator chunk sending settlement and connection owne
             db: remoteDatabase,
             close: connectionClose,
         } as never);
+        vi.spyOn(replicator, "checkReplicationConnectivity").mockResolvedValue({
+            db: remoteDatabase,
+            close: vi.fn().mockResolvedValue(undefined),
+        } as never);
 
         await expect(replicator.sendChunks({} as RemoteDBSettings, undefined, false)).rejects.toThrow(
             "milestone failed"
@@ -1635,6 +1667,35 @@ describe("LiveSyncCouchDBReplicator chunk sending settlement and connection owne
 });
 
 describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
+    it("does not fetch chunks from a database using an unknown feature", async () => {
+        const remoteDatabase = {
+            get: vi.fn(async () => ({
+                _id: VERSIONING_DOCID,
+                type: "versioninfo",
+                version: 13,
+                used_features: ["future-format-v7"],
+            })),
+            allDocs: vi.fn(async () => ({ rows: [] })),
+        };
+        const connectionClose = vi.fn().mockResolvedValue(undefined);
+        const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.env = {
+            services: {
+                API: { isMobile: () => false },
+                context: createServiceContext(),
+                setting: { currentSettings: () => ({}) },
+            },
+        } as unknown as LiveSyncCouchDBReplicator["env"];
+        vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
+            db: remoteDatabase,
+            close: connectionClose,
+        } as never);
+
+        await expect(replicator.fetchRemoteChunks(["h:pending"], false)).resolves.toBe(false);
+        expect(remoteDatabase.allDocs).not.toHaveBeenCalled();
+        expect(connectionClose).toHaveBeenCalledOnce();
+    });
+
     it("preserves available chunks when another row in the same batch is missing", async () => {
         const availableChunk = {
             _id: "h:available" as DocumentID,
@@ -1666,7 +1727,7 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
             },
         } as unknown as LiveSyncCouchDBReplicator["env"];
         const connect = vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
-            db: { allDocs },
+            db: { get: vi.fn(async () => ({ _id: VERSIONING_DOCID, type: "versioninfo", version: VER })), allDocs },
             close: connectionClose,
         } as never);
         const readSetting = { couchDB_URI: "https://snapshot.example.test" } as RemoteDBSettings;
@@ -1688,6 +1749,7 @@ describe("LiveSyncCouchDBReplicator remote chunk fetching", () => {
 
     it("closes its remote database when chunk fetching succeeds or fails", async () => {
         const remoteDatabase = {
+            get: vi.fn(async () => ({ _id: VERSIONING_DOCID, type: "versioninfo", version: VER })),
             allDocs: vi.fn().mockResolvedValueOnce({ rows: [] }).mockRejectedValueOnce(new Error("chunk fetch failed")),
         };
         const connectionClose = vi.fn().mockResolvedValue(undefined);

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 
-import type { FilePath } from "@lib/common/types.ts";
+import { VERSIONING_DOCID, type FilePath } from "@lib/common/types.ts";
 import { path2id_base } from "@lib/string_and_binary/path.ts";
 import type { HeadlessDatabaseService } from "@lib/services/implements/headless/HeadlessDatabaseService.ts";
 import { ServiceContext } from "@lib/services/base/ServiceBase.ts";
@@ -37,6 +37,31 @@ type GetBoundDatabaseService = (
 ) => typeof HeadlessDatabaseService;
 
 describe("DirectFileManipulator", () => {
+    it("rejects direct access to a remote with an unknown used feature", async () => {
+        const ready = promiseWithResolvers<void>();
+        const refreshSettings = vi.fn();
+        const manipulator = {
+            services: { appLifecycle: { onReady: vi.fn().mockResolvedValue(undefined) } },
+            options: { encryptInternalMetadata: false },
+            settings: { encryptInternalMetadata: false },
+            liveSyncLocalDB: {
+                initializeDatabase: vi.fn().mockResolvedValue(true),
+                localDatabase: {
+                    get: vi.fn(async () => ({
+                        _id: VERSIONING_DOCID, type: "versioninfo", version: 13,
+                        used_features: ["future-format-v2"],
+                    })),
+                },
+                refreshSettings,
+            },
+            ready,
+        } as unknown as DirectFileManipulator;
+
+        await DirectFileManipulator.prototype.init.call(manipulator);
+        await expect(ready.promise).rejects.toThrow("Direct database version or features are not compatible.");
+        expect(refreshSettings).not.toHaveBeenCalled();
+    });
+
     it("reports initialisation failures through the ready promise", async () => {
         const failure = new Error("CouchDB initialisation failed");
         const ready = promiseWithResolvers<void>();

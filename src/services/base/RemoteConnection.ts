@@ -8,6 +8,8 @@ import type { E2EEAlgorithm } from "@lib/common/types.ts";
 export interface RemoteConnectionOpenOptions {
     /** Encryption algorithm captured with the settings which own this connection. */
     readonly encryptionAlgorithm?: E2EEAlgorithm;
+    /** Apply HKDF Metadata encryption to obfuscated internal entries on writes. */
+    readonly encryptInternalMetadata?: boolean;
     /**
      * Cancels abort-capable requests made through the connection when the
      * owning operation is cancelled.

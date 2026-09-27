@@ -327,7 +327,10 @@ export interface IReplicationService {
     replicate(showMessage?: boolean): Promise<boolean | void>;
     replicateByEvent(showMessage?: boolean): Promise<boolean | void>;
     onReplicationFailed(request: ReplicationFailureRequest): Promise<boolean>;
-    parseSynchroniseResult(docs: Array<PouchDB.Core.ExistingDocument<EntryDoc>>): Promise<boolean>;
+    parseSynchroniseResult(
+        docs: Array<PouchDB.Core.ExistingDocument<EntryDoc>>,
+        sourceDatabase?: PouchDB.Database<EntryDoc>
+    ): Promise<boolean>;
     databaseQueueCount: ReactiveSource<number>;
     storageApplyingCount: ReactiveSource<number>;
     replicationResultCount: ReactiveSource<number>;

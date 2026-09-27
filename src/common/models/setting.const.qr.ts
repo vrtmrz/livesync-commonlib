@@ -177,4 +177,5 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     P2P_useDiagRTC: -1, // Do not encode into the QR Code.
     P2P_maxWirePayloadBytes: 163,
     P2P_connectionPath: 164,
+    encryptInternalMetadata: 165,
 } as const;

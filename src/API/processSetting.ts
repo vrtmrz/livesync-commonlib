@@ -199,7 +199,13 @@ export async function decodeSettingsFromSetupURI(uri: string, passphrase: string
     const encryptedSetting = uri.substring(configURIBase.length);
     const decrypted = await decryptString(decodeURIComponent(encryptedSetting), passphrase);
     try {
-        return omitP2PRuntimeSettings(JSON.parse(decrypted) as ObsidianLiveSyncSettings);
+        const imported = JSON.parse(decrypted) as ObsidianLiveSyncSettings;
+        return omitP2PRuntimeSettings({
+            ...imported,
+            encryptInternalMetadata: typeof imported.encryptInternalMetadata === "boolean"
+                ? imported.encryptInternalMetadata
+                : false,
+        });
     } catch {
         // JSON parsing errors can include decrypted credentials in their message.
         Logger(`Failed to parse settings from decrypted data`, LOG_LEVEL_NOTICE);

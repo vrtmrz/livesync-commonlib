@@ -21,7 +21,13 @@ import {
     DOCID_SYNC_PARAMETERS,
     type E2EEAlgorithm,
     E2EEAlgorithms,
+    VER,
 } from "@lib/common/types.ts";
+import { checkRemoteVersion } from "@lib/pouchdb/negotiation.ts";
+import {
+    ENCRYPTED_INTERNAL_METADATA_FEATURE,
+    usesEncryptedInternalMetadata,
+} from "@lib/pouchdb/remoteFeatureCompatibility.ts";
 
 import { PouchDB } from "@lib/pouchdb/pouchdb-http.ts";
 import { LiveSyncLocalDB, type LiveSyncLocalDBEnv } from "@lib/pouchdb/LiveSyncLocalDB.ts";
@@ -59,6 +65,7 @@ export type DirectFileManipulatorOptions = {
     passphrase: string | undefined;
     database: string;
     obfuscatePassphrase: string | undefined;
+    encryptInternalMetadata?: boolean;
     useDynamicIterationCount?: boolean;
     customChunkSize?: number;
     minimumChunkSize?: number;
@@ -127,6 +134,17 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
             await this.services.appLifecycle.onReady();
             if (!(await this.liveSyncLocalDB.initializeDatabase())) {
                 throw new Error("Direct database initialisation was rejected.");
+            }
+            const requiredFeatures = usesEncryptedInternalMetadata(this.settings)
+                ? [ENCRYPTED_INTERNAL_METADATA_FEATURE]
+                : [];
+            if (!(await checkRemoteVersion(
+                this.liveSyncLocalDB.localDatabase,
+                async () => false,
+                VER,
+                requiredFeatures
+            ))) {
+                throw new Error("Direct database version or features are not compatible.");
             }
             this.liveSyncLocalDB.refreshSettings();
             this.ready.resolve();
@@ -256,7 +274,8 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 this.options.useDynamicIterationCount ?? false,
                 false,
                 async () => await this.getReplicationPBKDF2Salt(this.getSettings()),
-                this.options.E2EEAlgorithm ?? E2EEAlgorithms.V2
+                this.options.E2EEAlgorithm ?? E2EEAlgorithms.V2,
+                usesEncryptedInternalMetadata(this.settings)
             );
         }
         return Promise.resolve(true);
@@ -307,6 +326,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
                 handleFilenameCaseSensitive:
                     this.options.handleFilenameCaseSensitive ?? DEFAULT_SETTINGS.handleFilenameCaseSensitive,
                 usePathObfuscation: !!this.options.obfuscatePassphrase,
+                encryptInternalMetadata: this.options.encryptInternalMetadata ?? false,
                 E2EEAlgorithm: this.options.E2EEAlgorithm ?? E2EEAlgorithms.V2,
             },
         };
