@@ -1,5 +1,11 @@
 # Updates
 
+## Unreleased
+
+### Added
+
+- `AppLifecycleService.markIsReady()` now emits `EVENT_APPLICATION_READY` on the service context's event channel when it establishes application readiness, after ordinary initialisation and after a fetch or rebuild completes. A host which holds work until the application is ready can continue it then; nothing signalled the transition before, so held work waited for an unrelated event ([Self-hosted LiveSync issue #1200](https://github.com/vrtmrz/obsidian-livesync/issues/1200)).
+
 ## 0.1.30
 
 27th September, 2026
