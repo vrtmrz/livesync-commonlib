@@ -7,9 +7,11 @@ import { EVENT_DATABASE_REBUILT } from "@lib/events/coreEvents";
 import { REMOTE_RESOURCE_KINDS } from "@lib/replication";
 
 const fetchChangesForInitialSyncMock = vi.hoisted(() => vi.fn());
+const checkRemoteFeaturesForInitialSyncMock = vi.hoisted(() => vi.fn(async () => undefined));
 
 vi.mock("@lib/pouchdb/StreamingFetch", () => ({
     fetchChangesForInitialSync: fetchChangesForInitialSyncMock,
+    checkRemoteFeaturesForInitialSync: checkRemoteFeaturesForInitialSyncMock,
     isRetryableStreamingFetchFailure: (error: unknown) =>
         Boolean((error as { retryable?: boolean } | undefined)?.retryable),
 }));
@@ -253,6 +255,28 @@ describe("ServiceRebuilder event isolation", () => {
         await rebuilder.resetLocalDatabase();
 
         expect(listener).toHaveBeenCalledOnce();
+    });
+});
+
+describe("ServiceRebuilder fast fetch admission", () => {
+    it.each([false, true])("rejects unknown features before changing the local database (resume: %s)", async (resume) => {
+        const { rebuilder, services } = createRebuilder();
+        if (resume) {
+            (rebuilder as any).saveFastFetchCheckpoint("https://example.com/db", "previous-sequence");
+        }
+        fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
+        const rejection = new Error("Unknown features are in use: future-feature");
+        checkRemoteFeaturesForInitialSyncMock.mockRejectedValueOnce(rejection);
+
+        await expect(rebuilder.$fetchLocalDBFast(false)).rejects.toBe(rejection);
+
+        expect(services.appLifecycle.resetIsReady).not.toHaveBeenCalled();
+        expect(services.database.resetDatabaseForCurrentSettings).not.toHaveBeenCalled();
+        expect(services.database.resetDatabase).not.toHaveBeenCalled();
+        expect(services.database.openDatabase).not.toHaveBeenCalled();
+        expect(fetchChangesForInitialSyncMock).not.toHaveBeenCalled();
+        expect(services.replication.markResolved).not.toHaveBeenCalled();
+        expect(services.setting.deleteSmallConfig).not.toHaveBeenCalled();
     });
 });
 

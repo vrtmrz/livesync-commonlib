@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { VERSIONING_DOCID } from "@lib/common/types";
-import { bumpRemoteVersion, checkRemoteVersion } from "./negotiation";
+import { bumpRemoteVersion, checkRemoteVersion, declareRemoteFeatures } from "./negotiation";
 import { assessRemoteFeatureDocument, describeRemoteFeatureRejection } from "./remoteFeatureCompatibility";
 
 function versionDatabase(version: number, used_features?: unknown) {
@@ -17,9 +17,15 @@ function versionDatabase(version: number, used_features?: unknown) {
 }
 
 describe("remote feature compatibility", () => {
-    it("accepts a supported feature in the new remote generation", async () => {
-        const db = versionDatabase(13, ["encrypted-internal-metadata-v1"]);
+    it("accepts generation 13 with a declared feature when feature writes are disabled", async () => {
+        const features = ["encrypted-internal-metadata-v1"];
+        const db = versionDatabase(13, features);
         await expect(checkRemoteVersion(db, vi.fn(async () => false))).resolves.toBe(true);
+        expect(db.put).not.toHaveBeenCalled();
+        await expect(db.get(VERSIONING_DOCID)).resolves.toMatchObject({
+            version: 13,
+            used_features: features,
+        });
     });
 
     it("rejects an undeclared feature list in the legacy generation", async () => {
@@ -105,5 +111,76 @@ describe("remote feature compatibility", () => {
 
         await expect(bumpRemoteVersion(db, 12)).resolves.toBe(true);
         expect(db.put).toHaveBeenCalledOnce();
+    });
+
+    it.each([false, true])("re-reads a 409 conflict and preserves fields (feature already declared: %s)", async (declared) => {
+        const feature = "encrypted-internal-metadata-v1";
+        const concurrent: Record<string, unknown> = {
+            _id: VERSIONING_DOCID,
+            _rev: "2-concurrent",
+            type: "versioninfo",
+            version: declared ? 13 : 12,
+            ...(declared ? { used_features: [feature] } : {}),
+            retained_field: "keep-concurrent-value",
+        };
+        let current: Record<string, unknown> = {
+            _id: VERSIONING_DOCID,
+            _rev: "1-stale",
+            type: "versioninfo",
+            version: 12,
+            retained_field: "stale-value",
+        };
+        let rejectFirstPut = true;
+        const db = {
+            get: vi.fn(async () => current),
+            put: vi.fn(async (document: unknown) => {
+                if (rejectFirstPut) {
+                    rejectFirstPut = false;
+                    current = concurrent;
+                    throw { status: 409 };
+                }
+                current = document as Record<string, unknown>;
+                return { ok: true };
+            }),
+        } as unknown as PouchDB.Database;
+
+        await expect(declareRemoteFeatures(db, [feature])).resolves.toBe(true);
+        expect(db.get).toHaveBeenCalledTimes(2);
+        expect(db.put).toHaveBeenCalledTimes(declared ? 1 : 2);
+        expect(current).toEqual({ ...concurrent, version: 13, used_features: [feature] });
+
+        await expect(declareRemoteFeatures(db, [feature])).resolves.toBe(true);
+        expect(db.get).toHaveBeenCalledTimes(3);
+        expect(db.put).toHaveBeenCalledTimes(declared ? 1 : 2);
+        expect(current).toEqual({ ...concurrent, version: 13, used_features: [feature] });
+    });
+
+    it("rejects and preserves an unknown feature added during a 409 conflict", async () => {
+        const concurrent: Record<string, unknown> = {
+            _id: VERSIONING_DOCID,
+            _rev: "2-concurrent",
+            type: "versioninfo",
+            version: 13,
+            used_features: ["unknown-future-feature"],
+            retained_field: "keep-concurrent-value",
+        };
+        let current: Record<string, unknown> = {
+            _id: VERSIONING_DOCID,
+            _rev: "1-stale",
+            type: "versioninfo",
+            version: 12,
+        };
+        const db = {
+            get: vi.fn(async () => current),
+            put: vi.fn(async () => {
+                current = concurrent;
+                throw { status: 409 };
+            }),
+        } as unknown as PouchDB.Database;
+
+        await expect(declareRemoteFeatures(db, ["encrypted-internal-metadata-v1"])).resolves.toBe(false);
+        expect(db.get).toHaveBeenCalledTimes(2);
+        expect(db.put).toHaveBeenCalledOnce();
+        expect(current).toEqual(concurrent);
     });
 });

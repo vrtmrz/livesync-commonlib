@@ -103,6 +103,12 @@ access, and cleaned-remote recovery before counting Chunk references. Declare
 required write features after admission, including for the writer accepted by a
 Rebuild lock. A locked-out device cannot declare or upload a new representation.
 
+Fast Fetch reads the version document with its configured HTTP credentials and
+custom headers before opening or resetting the local database, including when
+resuming a checkpoint. Rejection leaves local data and the checkpoint intact.
+An empty remote and legacy generations retain their existing completion and
+migration paths; a missing version document in a populated remote is rejected.
+
 The remote document is the source of requirements. The milestone retains its
 participant, Tweak comparison, and lock responsibilities. Hosts do not need a
 second persistent feature list or rejection history in KV storage.
