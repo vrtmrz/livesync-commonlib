@@ -177,6 +177,8 @@ export function prepareSettingsForLoad(
     // invent a case-sensitive policy or require an unnecessary rebuild.
     const normalisedFilenameCase = typeof migrated.handleFilenameCaseSensitive !== "boolean";
     if (normalisedFilenameCase) migrated = { ...migrated, handleFilenameCaseSensitive: false };
+    const normalisedInternalMetadata = typeof migrated.encryptInternalMetadata !== "boolean";
+    if (normalisedInternalMetadata) migrated = { ...migrated, encryptInternalMetadata: false };
 
     return {
         settings: cloneSettings(migrated, SETTINGS_SCHEMA_DEFAULTS),
@@ -184,7 +186,7 @@ export function prepareSettingsForLoad(
         targetVersion,
         isNewVault: false,
         isFromFutureSchema: false,
-        changed: sourceVersion !== targetVersion || normalisedConfiguredState || normalisedFilenameCase,
+        changed: sourceVersion !== targetVersion || normalisedConfiguredState || normalisedFilenameCase || normalisedInternalMetadata,
         requiresSyncReview: reviewReasons.length > 0,
         reviewReasons,
     };

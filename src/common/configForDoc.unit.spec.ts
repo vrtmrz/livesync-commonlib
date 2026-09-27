@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
     DEFAULT_SETTINGS,
+    E2EEAlgorithms,
     NEW_VAULT_SETTINGS,
     PREFERRED_JOURNAL_SYNC,
     PREFERRED_SETTING_SELF_HOSTED,
@@ -27,7 +28,7 @@ describe("Doctor translation boundary", () => {
             enableCompression: true,
         });
 
-        expect(DoctorRegulation.version).toBe("1.0.0");
+        expect(DoctorRegulation.version).toBe("1.0.33");
         expect(result.rules.enableCompression).toBeUndefined();
     });
 
@@ -81,6 +82,69 @@ describe("Doctor translation boundary", () => {
         expect(result.rules.customChunkSize).toBeUndefined();
     });
 
+    it.each([
+        {
+            remoteType: REMOTE_COUCHDB,
+            encrypt: true,
+            usePathObfuscation: true,
+            E2EEAlgorithm: E2EEAlgorithms.V2,
+            encryptInternalMetadata: false,
+            recommended: true,
+        },
+        {
+            remoteType: REMOTE_COUCHDB,
+            encrypt: true,
+            usePathObfuscation: true,
+            E2EEAlgorithm: E2EEAlgorithms.V2,
+            encryptInternalMetadata: true,
+            recommended: false,
+        },
+        {
+            remoteType: REMOTE_COUCHDB,
+            encrypt: false,
+            usePathObfuscation: true,
+            E2EEAlgorithm: E2EEAlgorithms.V2,
+            encryptInternalMetadata: false,
+            recommended: false,
+        },
+        {
+            remoteType: REMOTE_COUCHDB,
+            encrypt: true,
+            usePathObfuscation: false,
+            E2EEAlgorithm: E2EEAlgorithms.V2,
+            encryptInternalMetadata: false,
+            recommended: false,
+        },
+        {
+            remoteType: REMOTE_COUCHDB,
+            encrypt: true,
+            usePathObfuscation: true,
+            E2EEAlgorithm: E2EEAlgorithms.V1,
+            encryptInternalMetadata: false,
+            recommended: false,
+        },
+        {
+            remoteType: REMOTE_MINIO,
+            encrypt: true,
+            usePathObfuscation: true,
+            E2EEAlgorithm: E2EEAlgorithms.V2,
+            encryptInternalMetadata: false,
+            recommended: false,
+        },
+        {
+            remoteType: REMOTE_P2P,
+            encrypt: true,
+            usePathObfuscation: true,
+            E2EEAlgorithm: E2EEAlgorithms.V2,
+            encryptInternalMetadata: false,
+            recommended: false,
+        },
+    ])("recommends internal Metadata encryption only when its prerequisites hold: %j", (condition) => {
+        const { recommended, ...settings } = condition;
+        const result = checkUnsuitableValues({ ...NEW_VAULT_SETTINGS, ...settings });
+        expect(Boolean(result.rules.encryptInternalMetadata)).toBe(recommended);
+    });
+
     it("uses the translator supplied by the host", async () => {
         const translate = vi.fn((key: string) => `translated:${key}`);
         const settings = {
@@ -105,5 +169,60 @@ describe("Doctor translation boundary", () => {
 
         expect(result.isModified).toBe(false);
         expect(translate).toHaveBeenCalledWith("Doctor.Message.NoIssues");
+    });
+
+    it("applies an accepted Metadata recommendation without scheduling a rebuild", async () => {
+        const settings = {
+            ...NEW_VAULT_SETTINGS,
+            encrypt: true,
+            usePathObfuscation: true,
+            encryptInternalMetadata: false,
+            customChunkSize: 60,
+            doctorProcessedVersion: "1.0.0",
+        };
+        const confirm = {
+            askSelectStringDialogue: vi.fn(async (_message: string, options: string[]) => options[0]),
+            askYesNoDialog: vi.fn(),
+        };
+        const result = await performDoctorConsultation(
+            { confirm: confirm as never, translate: ((key: string) => key) as never },
+            settings,
+            { localRebuild: RebuildOptions.AutomaticAcceptable, remoteRebuild: RebuildOptions.AutomaticAcceptable }
+        );
+        expect(confirm.askSelectStringDialogue.mock.calls[1][1][0]).toBe(
+            "Enable without rebuilding — update every other device first"
+        );
+        expect(result.settings.encryptInternalMetadata).toBe(true);
+        expect(result.settings.doctorProcessedVersion).toBe("1.0.33");
+        expect(result.shouldRebuild).toBe(false);
+        expect(result.shouldRebuildLocal).toBe(false);
+        expect(confirm.askYesNoDialog).not.toHaveBeenCalled();
+    });
+
+    it("leaves the new recommendation available after accepting E2EE V2", async () => {
+        const settings = {
+            ...NEW_VAULT_SETTINGS,
+            encrypt: true,
+            usePathObfuscation: true,
+            E2EEAlgorithm: E2EEAlgorithms.V1,
+            encryptInternalMetadata: false,
+            customChunkSize: 60,
+            doctorProcessedVersion: "1.0.0",
+        };
+        const confirm = {
+            askSelectStringDialogue: vi.fn(async (_message: string, options: string[]) => options[0]),
+            askYesNoDialog: vi.fn(),
+        };
+        const env = { confirm: confirm as never, translate: ((key: string) => key) as never };
+        const options = {
+            localRebuild: RebuildOptions.AutomaticAcceptable,
+            remoteRebuild: RebuildOptions.AutomaticAcceptable,
+        };
+        const first = await performDoctorConsultation(env, settings, options);
+        expect(first.settings.E2EEAlgorithm).toBe(E2EEAlgorithms.V2);
+        expect(first.settings.encryptInternalMetadata).toBe(false);
+        expect(first.settings.doctorProcessedVersion).toBe("1.0.0");
+        const second = await performDoctorConsultation(env, first.settings, options);
+        expect(second.settings.encryptInternalMetadata).toBe(true);
     });
 });

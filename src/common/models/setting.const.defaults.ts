@@ -66,6 +66,7 @@ export const SETTINGS_SCHEMA_DEFAULTS: ObsidianLiveSyncSettings = {
     encrypt: false,
     passphrase: "",
     usePathObfuscation: false,
+    encryptInternalMetadata: false,
     doNotDeleteFolder: false,
     resolveConflictsByNewerFile: false,
     batchSave: false,
@@ -214,6 +215,7 @@ export const SETTINGS_SCHEMA_DEFAULTS: ObsidianLiveSyncSettings = {
 export const NEW_VAULT_SETTINGS: ObsidianLiveSyncSettings = {
     ...SETTINGS_SCHEMA_DEFAULTS,
     ...PREFERRED_BASE,
+    encryptInternalMetadata: true,
     remoteConfigurations: {},
     pluginSyncExtendedSetting: {},
 };

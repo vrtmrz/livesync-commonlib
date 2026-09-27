@@ -410,7 +410,15 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
             replicationFilter(db, compression);
             disableEncryption();
             if (passphrase !== "false" && typeof passphrase === "string") {
-                enableEncryption(db, passphrase, useDynamicIterationCount, false, getPBKDF2Salt, encryptionAlgorithm);
+                enableEncryption(
+                    db,
+                    passphrase,
+                    useDynamicIterationCount,
+                    false,
+                    getPBKDF2Salt,
+                    encryptionAlgorithm,
+                    connectionOptions.encryptInternalMetadata ?? false
+                );
             }
         } catch (ex) {
             await closeAfterConnectionFailure();

@@ -26,6 +26,7 @@ export const TweakCompatibilityRules = Object.freeze([
     { key: "longLineThreshold", templateValue: 250, reconstruction: "none" },
     { key: "encrypt", templateValue: false, reconstruction: "required" },
     { key: "usePathObfuscation", templateValue: false, reconstruction: "required" },
+    { key: "encryptInternalMetadata", templateValue: false, reconstruction: "none", knownDefault: false },
     { key: "enableCompression", templateValue: false, reconstruction: "none" },
     { key: "useEden", templateValue: false, reconstruction: "none" },
     { key: "customChunkSize", templateValue: 0, reconstruction: "recommended", compatibleLossyOrder: 1 },

@@ -21,7 +21,11 @@ import { EVENT_DATABASE_REBUILT } from "@lib/events/coreEvents";
 import { ServiceModuleBase } from "@lib/serviceModules/ServiceModuleBase";
 import type { ControlService } from "@lib/services/base/ControlService";
 import type { IFileProcessingService } from "@lib/services/base/IService";
-import { fetchChangesForInitialSync, isRetryableStreamingFetchFailure } from "@lib/pouchdb/StreamingFetch";
+import {
+    checkRemoteFeaturesForInitialSync,
+    fetchChangesForInitialSync,
+    isRetryableStreamingFetchFailure,
+} from "@lib/pouchdb/StreamingFetch";
 import { getConfiguredFunctionsForEncryption } from "@lib/pouchdb/encryption";
 import { AuthorizationHeaderGenerator, generateCredentialObject } from "@lib/replication/httplib";
 import { isRemediationModeActive, parseHeaderValues } from "@lib/common/utils";
@@ -490,10 +494,16 @@ Are you sure you wish to proceed?`;
         settings: ReturnType<SettingService["currentSettings"]>,
         autoResume: boolean
     ) {
-        this.appLifecycle.resetIsReady();
         const remote =
             settings.couchDB_URI.replace(/\/+$/, "") +
             (settings.couchDB_DBNAME == "" ? "" : "/" + settings.couchDB_DBNAME);
+        const authHeader = await new AuthorizationHeaderGenerator().getAuthorizationHeader(
+            generateCredentialObject(settings)
+        );
+        const customHeaders = parseHeaderValues(settings.couchDB_CustomHeaders);
+        await checkRemoteFeaturesForInitialSync(remote, authHeader, customHeaders);
+
+        this.appLifecycle.resetIsReady();
         let checkpoint = this.getFastFetchCheckpoint(remote);
 
         await this.suspendReflectingDatabase();
@@ -543,11 +553,6 @@ Are you sure you wish to proceed?`;
                 () => securitySeed.read(),
                 settings.E2EEAlgorithm
             );
-
-            const authHeader = await new AuthorizationHeaderGenerator().getAuthorizationHeader(
-                generateCredentialObject(settings)
-            );
-            const customHeaders = parseHeaderValues(settings.couchDB_CustomHeaders);
 
             for (let attempt = 0; ; attempt++) {
                 try {

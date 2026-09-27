@@ -119,6 +119,10 @@ New profile-management code can create or update a CouchDB, Object Storage, or P
 
 See [the remote configuration profile guide](docs/remote-configurations.md) for creation, activation, P2P selection, legacy import, persistence, and verification responsibilities.
 
+## Remote database feature compatibility
+
+CouchDB stores the representations already in use as feature identifiers in its version document. Assess that document before synchronisation or direct file operations, and retain unknown identifiers for host diagnostics. See [the remote feature compatibility contract](docs/remote-feature-compatibility.md) for the wire format, update rules, and recovery boundaries.
+
 ## Contract scope
 
 The package is currently an infrastructure and compatibility boundary. The context, rooted-storage, standard-I/O, and revision-tree safety contracts have focused cross-platform, instance-isolation, or real-PouchDB tests. Platform details which cannot be shared, such as file timestamp fidelity and browser permission handling, remain host concerns and are documented separately.
@@ -127,7 +131,7 @@ The package is currently an infrastructure and compatibility boundary. The conte
 
 The accepted replacement direction is an asynchronously created file client with stable `list`, `get`, `put`, `delete`, `watch`, and `close` operations. The operation result, conflict, concurrency, watch checkpoint, retry, and error contracts still require focused decisions and tests before that client can be published.
 
-Package developers should read [the developer guide](docs/development.md). The focused contracts are described in [the storage guide](docs/platform-storage.md), [the standard-I/O guide](docs/platform-standard-io.md), [the settings lifecycle guide](docs/settings-lifecycle.md), [the remote configuration profile guide](docs/remote-configurations.md), [the conflict-resolution guide](docs/conflict-resolution.md), and [the P2P transport lifecycle guide](docs/p2p-transport-lifecycle.md).
+Package developers should read [the developer guide](docs/development.md). The focused contracts are described in [the storage guide](docs/platform-storage.md), [the standard-I/O guide](docs/platform-standard-io.md), [the settings lifecycle guide](docs/settings-lifecycle.md), [the remote configuration profile guide](docs/remote-configurations.md), [the remote feature compatibility contract](docs/remote-feature-compatibility.md), [the conflict-resolution guide](docs/conflict-resolution.md), and [the P2P transport lifecycle guide](docs/p2p-transport-lifecycle.md).
 
 ## Proven in maintained hosts
 

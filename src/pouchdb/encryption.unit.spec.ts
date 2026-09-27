@@ -1,9 +1,69 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { E2EEAlgorithms, type DocumentID, type FilePathWithPrefix, type PlainEntry } from "@lib/common/types";
 import { enableEncryption, getConfiguredFunctionsForEncryption } from "./encryption";
 import { PouchDB } from "./pouchdb-test";
+import { path2id_base } from "@lib/string_and_binary/path";
 
 describe("HKDF encrypted metadata", () => {
+    it.each(["i:", "ix:", "ps:"] as const)(
+        "does not newly encrypt %s Metadata when internal Metadata protection is disabled",
+        async (prefix) => {
+            const salt = new Uint8Array(16);
+            const getSalt = vi.fn(async () => salt);
+            const passphrase = "internal-metadata-disabled-secret";
+            const path = `${prefix}.obsidian/private.json` as FilePathWithPrefix;
+            const document: PlainEntry = {
+                _id: await path2id_base(path, passphrase, false),
+                path,
+                type: "plain",
+                ctime: 10,
+                mtime: 20,
+                size: 30,
+                children: ["h:+private-chunk"],
+                eden: {},
+            };
+            const { incoming } = getConfiguredFunctionsForEncryption(
+                passphrase, false, false, getSalt, E2EEAlgorithms.V2
+            );
+
+            await expect(incoming(document)).resolves.toEqual(document);
+            expect(getSalt).not.toHaveBeenCalled();
+        }
+    );
+
+    it.each(["i:", "ix:", "ps:"] as const)(
+        "encrypts and restores %s Metadata when internal Metadata protection is enabled",
+        async (prefix) => {
+            const salt = new Uint8Array(16);
+            const passphrase = "internal-metadata-round-trip-secret";
+            const path = `${prefix}.obsidian/private.json` as FilePathWithPrefix;
+            const document: PlainEntry = {
+                _id: await path2id_base(path, passphrase, false),
+                path,
+                type: "plain",
+                ctime: 10,
+                mtime: 20,
+                size: 30,
+                children: ["h:+private-chunk"],
+                eden: {},
+            };
+            const writer = getConfiguredFunctionsForEncryption(
+                passphrase, false, false, async () => salt, E2EEAlgorithms.V2, true
+            );
+            const readerWithPreferenceOff = getConfiguredFunctionsForEncryption(
+                passphrase, false, false, async () => salt, E2EEAlgorithms.V2
+            );
+
+            const encrypted = await writer.incoming(document);
+            expect(encrypted).toMatchObject({
+                _id: document._id, ctime: 0, mtime: 0, size: 0, children: [],
+            });
+            expect("path" in encrypted && encrypted.path.startsWith("/\\:")).toBe(true);
+            expect(JSON.stringify(encrypted)).not.toContain(path);
+            await expect(readerWithPreferenceOff.outgoing(encrypted)).resolves.toMatchObject(document);
+        }
+    );
+
     it("restores an obfuscated document from its encrypted metadata path", async () => {
         const salt = new Uint8Array(16);
         const { incoming, outgoing } = getConfiguredFunctionsForEncryption(

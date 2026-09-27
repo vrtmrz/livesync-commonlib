@@ -2,6 +2,8 @@ import { _fetch } from "@lib/common/coreEnvFunctions";
 import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
 import type { EntryDoc } from "@lib/common/models/db.definition";
 import type { AnyEntry, EntryLeaf } from "@lib/common/models/db.type";
+import { VERSIONING_DOCID } from "@lib/common/types";
+import { assessRemoteFeatureDocument, describeRemoteFeatureRejection } from "./remoteFeatureCompatibility";
 
 interface CouchChangeLine {
     seq: number | string;
@@ -138,6 +140,40 @@ async function readResponseText(response: Response, operation: string): Promise<
     } catch (error) {
         throw transportFailure(operation, error);
     }
+}
+
+/** Check remote feature requirements before Fast Fetch opens or resets the local database. */
+export async function checkRemoteFeaturesForInitialSync(
+    remoteDbUrl: string,
+    authHeader: string,
+    customHeaders?: Record<string, string>
+): Promise<void> {
+    const headers = new Headers(customHeaders);
+    headers.set("Accept", "application/json");
+    headers.set("Authorization", authHeader);
+    const url = new URL(`${remoteDbUrl}/_all_docs`);
+    url.searchParams.set("keys", JSON.stringify([VERSIONING_DOCID]));
+    url.searchParams.set("include_docs", "true");
+    const operation = "check remote feature requirements";
+    const response = await fetchResponse(url.toString(), { headers }, operation);
+    const text = await readResponseText(response, operation);
+    let result: { total_rows?: number; rows?: Array<{ key?: string; error?: string; doc?: unknown }> };
+    try {
+        result = JSON.parse(text);
+    } catch (cause) {
+        throw new StreamingFetchFailure("protocol", "The remote feature response is invalid.", false, { cause });
+    }
+    if (!Array.isArray(result?.rows) || result.rows.length !== 1 || result.rows[0]?.key !== VERSIONING_DOCID) {
+        throw new StreamingFetchFailure("protocol", "The remote feature response is invalid.", false);
+    }
+    const row = result.rows[0];
+    // An empty remote is initialised by the existing completion path. A missing
+    // version document in a populated remote must not erase the local database.
+    if (result.total_rows === 0 && row.error === "not_found") return;
+    const assessment = assessRemoteFeatureDocument(row.doc);
+    // Keep legacy migration in the existing Replicator completion path.
+    if (assessment.status === "supported" || assessment.status === "older-generation") return;
+    throw new StreamingFetchFailure("protocol", describeRemoteFeatureRejection(assessment), false);
 }
 
 async function saveCheckpoint(

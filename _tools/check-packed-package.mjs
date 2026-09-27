@@ -146,6 +146,10 @@ assert.ok(
     "The remote configuration guide linked from the README must be included in the package."
 );
 assert.ok(
+    packed.files.some(({ path }) => path === "docs/remote-feature-compatibility.md"),
+    "The remote feature compatibility contract must be included in the package."
+);
+assert.ok(
     packed.files.some(({ path }) => path === "docs/p2p-transport-lifecycle.md"),
     "The P2P transport lifecycle guide linked from the developer guide must be included in the package."
 );

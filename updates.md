@@ -1,6 +1,17 @@
 # Updates
 
-## Unreleased
+## 0.1.30
+
+27th September, 2026
+
+### Added
+
+- CouchDB version documents can declare the features used by their data. Generation 13 introduces `used_features`; readers reject unknown identifiers and malformed declarations, while writers retain existing declarations and add a feature before using its representation.
+- E2EE V2 can encrypt the Metadata for obfuscated Hidden File Sync and Customisation Sync entries. Readers accept both encrypted and plaintext Metadata, independently of the current write preference. Existing settings keep the preference disabled, while new Vaults enable it for use when E2EE V2 and Property Encryption are active.
+
+### Fixed
+
+- Bulk Chunk sending and direct remote Chunk fetching now stop when their compatibility check rejects a database. Shared Tweak comparison uses the effective internal Metadata preference, avoiding an irrelevant mismatch when its prerequisites are inactive or the remote is Object Storage.
 
 ## 0.1.29
 

@@ -6,7 +6,6 @@ import {
     type DocumentID,
     LOG_LEVEL_VERBOSE,
     DEVICE_ID_PREFERRED,
-    TweakValuesTemplate,
     type TweakValues,
     type NodeData,
     RemotePreferredTweakNotConfiguredReasons,
@@ -24,7 +23,7 @@ import { ensureRemoteIsCompatible, type ENSURE_DB_RESULT } from "@lib/pouchdb/Li
 import type { CheckPointInfo } from "./JournalSyncTypes.ts";
 import type { SimpleStore } from "@lib/common/utils.ts";
 
-import { extractObject } from "@lib/common/utils.ts";
+import { getEffectiveTweakValues } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 import { JournalStorageReadStatuses } from "./objectstore/JournalStorageAdapter.ts";
 import {
@@ -561,9 +560,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             if (!remoteMilestone) {
                 throw new Error("Missing remote milestone");
             }
-            remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = extractObject(TweakValuesTemplate, {
-                ...setting,
-            }) satisfies TweakValues;
+            remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = getEffectiveTweakValues(setting) satisfies TweakValues;
             Logger(`Preferred tweak values have been registered`, LOG_LEVEL_VERBOSE);
             if (!(await trialClient.uploadJson(MILSTONE_DOCID, remoteMilestone))) {
                 throw new Error("Could not upload remote milestone");

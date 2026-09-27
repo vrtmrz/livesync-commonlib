@@ -16,6 +16,17 @@ import { prepareSettingsForLoad, SettingsMigrationReviewCodes } from "./setting.
 import type { ObsidianLiveSyncSettings } from "./setting.type";
 
 describe("prepareSettingsForLoad", () => {
+    it("enables internal Metadata protection only for genuinely new settings", () => {
+        expect(prepareSettingsForLoad(undefined).settings.encryptInternalMetadata).toBe(true);
+        const existing = prepareSettingsForLoad({
+            settingVersion: CURRENT_SETTING_VERSION,
+            liveSync: true,
+        });
+        expect(existing.settings.encryptInternalMetadata).toBe(false);
+        expect(existing.changed).toBe(true);
+        expect(prepareSettingsForLoad(existing.settings).changed).toBe(false);
+    });
+
     it("uses an independent copy of the new-Vault defaults for a blank store", () => {
         const prepared = prepareSettingsForLoad(undefined);
 
@@ -140,7 +151,7 @@ describe("prepareSettingsForLoad", () => {
             .filter((key) => NEW_VAULT_SETTINGS[key as keyof ObsidianLiveSyncSettings] === undefined)
             .sort();
 
-        expect(differingKeys).toEqual(["handleFilenameCaseSensitive", "usePluginSyncV2"]);
+        expect(differingKeys).toEqual(["encryptInternalMetadata", "handleFilenameCaseSensitive", "usePluginSyncV2"]);
         expect(deliberatelyUnsetKeys).toEqual(["autoAcceptCompatibleTweak", "isConfigured", "tweakModified"]);
     });
 

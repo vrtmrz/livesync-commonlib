@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
-import { E2EEAlgorithms, type DocumentID, type FilePathWithPrefix, type PlainEntry } from "@lib/common/types";
+import { E2EEAlgorithms, VERSIONING_DOCID, type DocumentID, type FilePathWithPrefix, type PlainEntry } from "@lib/common/types";
 import { getConfiguredFunctionsForEncryption } from "./encryption";
-import { fetchChangesForInitialSync } from "./StreamingFetch";
+import { checkRemoteFeaturesForInitialSync, fetchChangesForInitialSync } from "./StreamingFetch";
 
 PouchDB.plugin(MemoryAdapter);
 
@@ -76,6 +76,17 @@ function changesStatus(available: number, lastSequence: string | number) {
         pending: available - results.length,
         last_seq: lastSequence,
     };
+}
+
+function remoteFeatureResponse(document?: unknown, totalRows = 1): Response {
+    return new Response(JSON.stringify({
+        total_rows: totalRows,
+        rows: [
+            document === undefined
+                ? { key: VERSIONING_DOCID, error: "not_found" }
+                : { key: VERSIONING_DOCID, doc: document },
+        ],
+    }));
 }
 
 function queueChangesFeed(
@@ -514,6 +525,106 @@ describe("fetchChangesForInitialSync", () => {
 
         await expect(fetchInitial(localDB)).rejects.toMatchObject({
             name: "StreamingFetchFailure",
+            stage: "transport",
+            retryable: true,
+        });
+    });
+});
+
+describe("checkRemoteFeaturesForInitialSync", () => {
+    it.each(["not JSON", "null", '{"rows":[null]}'])("rejects a malformed response: %s", async (body) => {
+        fetchMock.mockResolvedValueOnce(new Response(body));
+        await expect(checkRemoteFeaturesForInitialSync(remoteDbUrl, "Basic test")).rejects.toMatchObject({
+            stage: "protocol",
+            retryable: false,
+        });
+    });
+
+    const versionInfo = (version: number, used_features?: unknown, deleted = false) => ({
+        _id: VERSIONING_DOCID,
+        type: "versioninfo",
+        version,
+        ...(used_features === undefined ? {} : { used_features }),
+        ...(deleted ? { _deleted: true } : {}),
+    });
+
+    it("rejects any unknown feature name, including beside a known feature", async () => {
+        fetchMock.mockResolvedValueOnce(remoteFeatureResponse(
+            versionInfo(13, ["encrypted-internal-metadata-v1", "future-index-v2"])
+        ));
+
+        await expect(checkRemoteFeaturesForInitialSync(remoteDbUrl, "Basic test")).rejects.toMatchObject({
+            stage: "protocol",
+            retryable: false,
+            message: expect.stringContaining("future-index-v2"),
+        });
+    });
+
+    it.each([
+        ["generation 13 without a feature list", versionInfo(13)],
+        ["a future generation", versionInfo(14, [])],
+        ["a deleted generation 13 document", versionInfo(13, [], true)],
+    ])("rejects %s", async (_label, document) => {
+        fetchMock.mockResolvedValueOnce(remoteFeatureResponse(document));
+
+        await expect(checkRemoteFeaturesForInitialSync(remoteDbUrl, "Basic test")).rejects.toMatchObject({
+            stage: "protocol",
+            retryable: false,
+        });
+    });
+
+    it("rejects a missing version document in a populated remote", async () => {
+        fetchMock.mockResolvedValueOnce(remoteFeatureResponse(undefined, 1));
+
+        await expect(checkRemoteFeaturesForInitialSync(remoteDbUrl, "Basic test")).rejects.toMatchObject({
+            stage: "protocol",
+            retryable: false,
+        });
+    });
+
+    it.each([
+        ["an empty remote", remoteFeatureResponse(undefined, 0)],
+        ["legacy generation 11", remoteFeatureResponse(versionInfo(11))],
+        ["generation 12", remoteFeatureResponse(versionInfo(12))],
+        [
+            "generation 13 with the supported feature",
+            remoteFeatureResponse(versionInfo(13, ["encrypted-internal-metadata-v1"])),
+        ],
+    ])("allows %s", async (_label, response) => {
+        fetchMock.mockResolvedValueOnce(response);
+
+        await expect(checkRemoteFeaturesForInitialSync(remoteDbUrl, "Basic test")).resolves.toBeUndefined();
+    });
+
+    it("sends the version query with authentication and custom headers", async () => {
+        fetchMock.mockResolvedValueOnce(remoteFeatureResponse(versionInfo(12)));
+
+        await checkRemoteFeaturesForInitialSync(remoteDbUrl, "Basic expected", {
+            "X-Custom-Header": "custom-value",
+            authorization: "Bearer must-not-win",
+        });
+
+        const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+        const requestURL = new URL(url);
+        const headers = new Headers(init.headers);
+        expect(requestURL.pathname).toBe("/db/_all_docs");
+        expect(JSON.parse(requestURL.searchParams.get("keys") ?? "null")).toEqual([VERSIONING_DOCID]);
+        expect(requestURL.searchParams.get("include_docs")).toBe("true");
+        expect(headers.get("Authorization")).toBe("Basic expected");
+        expect(headers.get("X-Custom-Header")).toBe("custom-value");
+        expect(headers.get("Accept")).toBe("application/json");
+    });
+
+    it("classifies authentication and transport failures", async () => {
+        fetchMock.mockResolvedValueOnce(new Response("unauthorised", { status: 401 }));
+        await expect(checkRemoteFeaturesForInitialSync(remoteDbUrl, "Basic test")).rejects.toMatchObject({
+            stage: "authentication",
+            retryable: false,
+            status: 401,
+        });
+
+        fetchMock.mockRejectedValueOnce(new Error("network unavailable"));
+        await expect(checkRemoteFeaturesForInitialSync(remoteDbUrl, "Basic test")).rejects.toMatchObject({
             stage: "transport",
             retryable: true,
         });

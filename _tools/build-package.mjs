@@ -271,6 +271,7 @@ async function copyStaticFiles() {
         "platform-storage.md",
         "proven-in-use.md",
         "remote-configurations.md",
+        "remote-feature-compatibility.md",
         "releasing.md",
         "service-feature-composition.md",
         "settings-lifecycle.md",

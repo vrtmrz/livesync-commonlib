@@ -9,9 +9,18 @@ import {
     DEVICE_ID_PREFERRED,
     type DeviceInfo,
     type TweakAssessment,
+    REMOTE_COUCHDB,
 } from "@lib/common/types.ts";
 import { extractObject, isObjectDifferent, resolveWithIgnoreKnownError } from "@lib/common/utils.ts";
 import { assessTweakCompatibility } from "@lib/common/models/tweak.compatibility.ts";
+import { usesEncryptedInternalMetadata } from "./remoteFeatureCompatibility.ts";
+
+export function getEffectiveTweakValues(setting: RemoteDBSettings): TweakValues {
+    return {
+        ...extractObject(TweakValuesTemplate, setting),
+        encryptInternalMetadata: setting.remoteType === REMOTE_COUCHDB && usesEncryptedInternalMetadata(setting),
+    };
+}
 
 // This interface is expected to be unnecessary because of the change in dependency direction
 
@@ -65,7 +74,7 @@ export async function ensureRemoteIsCompatible(
     let remoteMilestone = infoSrc;
     if (!remoteMilestone) remoteMilestone = baseMilestone;
 
-    const currentTweakValues = extractObject(TweakValuesTemplate, setting);
+    const currentTweakValues = getEffectiveTweakValues(setting);
 
     remoteMilestone.node_chunk_info = { ...baseMilestone.node_chunk_info, ...remoteMilestone.node_chunk_info };
     let writeMilestone =

@@ -12,7 +12,6 @@ import {
     LOG_LEVEL_NOTICE,
     LOG_LEVEL_VERBOSE,
     DEVICE_ID_PREFERRED,
-    TweakValuesTemplate,
     type DocumentID,
     type TweakValues,
     type CouchDBCredentials,
@@ -31,18 +30,21 @@ import {
 import {
     resolveWithIgnoreKnownError,
     globalConcurrencyController,
-    extractObject,
     wrapException,
     sizeToHumanReadable,
     arrayToChunkedArray,
     parseHeaderValues,
 } from "@lib/common/utils.ts";
 import { Logger } from "@lib/common/logger.ts";
-import { checkRemoteVersion, countCompromisedChunks } from "@lib/pouchdb/negotiation.ts";
+import { checkRemoteVersion, countCompromisedChunks, declareRemoteFeatures } from "@lib/pouchdb/negotiation.ts";
+import {
+    ENCRYPTED_INTERNAL_METADATA_FEATURE,
+    usesEncryptedInternalMetadata,
+} from "@lib/pouchdb/remoteFeatureCompatibility.ts";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import { preprocessOutgoing } from "@lib/pouchdb/encryption.ts";
 
-import { ensureDatabaseIsCompatible } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
+import { ensureDatabaseIsCompatible, getEffectiveTweakValues } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import {
     LiveSyncAbstractReplicator,
     type LiveSyncReplicatorEnv,
@@ -621,9 +623,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         }
         // To create salt
         const connectivity = await this.checkReplicationConnectivity(setting, false, false, false, false);
-        if (connectivity !== false) {
-            await this.closeRemoteConnection(connectivity);
-        }
+        if (connectivity === false) return false;
+        await this.closeRemoteConnection(connectivity);
         Logger(`Bulk sending chunks to remote database...`, showResult ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO, "fetch");
         const remoteMilestone = await remoteDB.get(MILESTONE_DOCID);
         const remoteID = (remoteMilestone as { created?: number })?.created ?? 0;
@@ -1226,6 +1227,15 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     this.preferredTweakValue = ensure[1];
                     return false;
                 }
+                if (
+                    usesEncryptedInternalMetadata(setting) &&
+                    !(await declareRemoteFeatures(dbRet.db, [ENCRYPTED_INTERNAL_METADATA_FEATURE]))
+                ) {
+                    recordCompatibilityDecision?.(
+                        centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.INCOMPATIBLE_VERSION)
+                    );
+                    return false;
+                }
                 recordCompatibilityDecision?.(CENTRAL_COMPATIBILITY_ACCEPTED);
             }
             const syncOptionBase: PouchDB.Replication.SyncOptions = {
@@ -1606,7 +1616,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             customHeaders,
             settings.useRequestAPI,
             async () => await this.getReplicationPBKDF2Salt(settings),
-            { ...connectionOptions, encryptionAlgorithm: settings.E2EEAlgorithm }
+            {
+                ...connectionOptions,
+                encryptionAlgorithm: settings.E2EEAlgorithm,
+                encryptInternalMetadata: usesEncryptedInternalMetadata(settings),
+            }
         );
     }
 
@@ -1704,6 +1718,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return false;
         }
         return await this.withRemoteConnection(ret, async (db) => {
+            if (!(await checkRemoteVersion(db, this.migrate.bind(this), VER))) return false;
             const remoteChunks = await db.allDocs({ keys: missingChunks, include_docs: true });
             const errorRows = remoteChunks.rows.filter((e) => "error" in e);
             if (errorRows.length > 0) {
@@ -1792,7 +1807,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             // check local database hash status and remote replicate hash status
             try {
                 const remoteMilestone = (await db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
-                remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = extractObject(TweakValuesTemplate, { ...setting });
+                remoteMilestone.tweak_values[DEVICE_ID_PREFERRED] = getEffectiveTweakValues(setting);
                 await db.put(remoteMilestone);
                 Logger(`Preferred tweak values has been registered`, LOG_LEVEL_VERBOSE);
             } catch (ex) {

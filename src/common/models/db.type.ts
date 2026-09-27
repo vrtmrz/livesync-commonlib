@@ -155,6 +155,7 @@ export type EntryChunkPack = DatabaseEntry & {
 export interface EntryVersionInfo extends DatabaseEntry {
     type: EntryTypes["VERSION_INFO"];
     version: number;
+    used_features?: string[];
 }
 export interface EntryHasPath {
     path: FilePathWithPrefix | FilePath;

@@ -5,7 +5,7 @@ import type {
     RemoteDBSettings,
     TweakValues,
 } from "@lib/common/types.ts";
-import { DEVICE_ID_PREFERRED, MILESTONE_DOCID } from "@lib/common/types.ts";
+import { DEVICE_ID_PREFERRED, E2EEAlgorithms, MILESTONE_DOCID, REMOTE_COUCHDB, REMOTE_MINIO } from "@lib/common/types.ts";
 import { ensureRemoteIsCompatible } from "./LiveSyncDBFunctions.ts";
 
 const VERSION_RANGE = { min: 0, max: 2 } as const;
@@ -39,6 +39,31 @@ function milestone(preferred: TweakValues): EntryMilestoneInfo {
 }
 
 describe("ensureRemoteIsCompatible", () => {
+    it.each([
+        [REMOTE_COUCHDB, false],
+        [REMOTE_MINIO, true],
+    ])("does not advertise inactive internal Metadata encryption for %s", async (remoteType, encrypt) => {
+        const recordAssessment = vi.fn();
+        const result = await ensureRemoteIsCompatible(
+            milestone({ encryptInternalMetadata: false }),
+            {
+                remoteType,
+                encrypt,
+                usePathObfuscation: false,
+                E2EEAlgorithm: E2EEAlgorithms.V2,
+                encryptInternalMetadata: true,
+            } as RemoteDBSettings,
+            "local",
+            VERSION_RANGE,
+            DEVICE_INFO,
+            vi.fn(async () => {}),
+            recordAssessment
+        );
+
+        expect(result).toBe("OK");
+        expect(recordAssessment.mock.calls[0][0].currentValues.encryptInternalMetadata).toBe(false);
+    });
+
     it("rejects an explicit case-sensitive setting when the preferred setting is missing", async () => {
         const preferred: TweakValues = {};
         const recordAssessment = vi.fn();
