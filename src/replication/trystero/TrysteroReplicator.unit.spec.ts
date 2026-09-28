@@ -12,7 +12,7 @@ import type { Advertisement } from "./types";
 import { RpcRoom, type JsonLike, type RpcWireMessage, type TransportAdapter } from "@lib/rpc";
 import { toRpcMethodName } from "./rpcCompat";
 import { fromP2PReplicationWireResult } from "./P2PReplicationWire";
-import { decryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
+import { decryptWithEphemeralSalt, encryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
 
 function createRpcRoomPair() {
     let receiveA: ((message: RpcWireMessage, peerId: string) => void) | undefined;
@@ -98,15 +98,52 @@ function hasNotice(entries: Array<{ level?: number }>): boolean {
     return entries.some((entry) => entry.level === LOG_LEVEL_NOTICE);
 }
 
+describe("TrysteroReplicator configuration import", () => {
+    async function importConfiguration(configuration: Record<string, unknown>) {
+        const { replicator } = createReplicator();
+        const encrypted = await encryptWithEphemeralSalt(JSON.stringify(configuration), "transfer-passphrase", true);
+        replicator._env.confirm.askString = vi.fn(async () => "transfer-passphrase");
+        replicator.server = {
+            serverPeerId: "local-peer",
+            getConnection: () => ({ invokeRemoteFunction: async () => encrypted }),
+        } as unknown as P2PHost;
+        return replicator.getRemoteConfig("remote-peer");
+    }
+
+    it("completes a legacy configuration without inheriting the receiving device's ID key", async () => {
+        const imported = await importConfiguration({ encrypt: true, usePathObfuscation: true, passphrase: "e2ee" });
+        expect(imported).not.toBe(false);
+        const receivingSettings = { idDerivationVersion: 1, idDerivationKey: "ab".repeat(32) };
+        expect({ ...receivingSettings, ...imported }).toMatchObject({ idDerivationVersion: 0, idDerivationKey: "" });
+    });
+
+    it("imports the saved ID key without deriving it again", async () => {
+        const configuration = { idDerivationVersion: 1, idDerivationKey: "ab".repeat(32) };
+        expect(await importConfiguration(configuration)).toMatchObject(configuration);
+    });
+
+    it.each([
+        { idDerivationVersion: 1 },
+        { idDerivationVersion: 1, idDerivationKey: "invalid" },
+        { idDerivationVersion: 2, idDerivationKey: "ab".repeat(32) },
+    ])("rejects an incomplete or unsupported imported ID configuration (%o)", async (configuration) => {
+        expect(await importConfiguration(configuration)).toBe(false);
+    });
+});
+
 describe("TrysteroReplicator tweak compatibility", () => {
     it("rejects a peer using a different independent ID key without sending the key", async () => {
         const key = "ab".repeat(32);
         const { replicator } = createReplicator({
+            encrypt: true,
+            usePathObfuscation: true,
             passphrase: "same",
             idDerivationVersion: 1,
             idDerivationKey: key,
         });
         const { replicator: remote } = createReplicator({
+            encrypt: true,
+            usePathObfuscation: true,
             passphrase: "same",
             idDerivationVersion: 1,
             idDerivationKey: "cd".repeat(32),
@@ -123,6 +160,33 @@ describe("TrysteroReplicator tweak compatibility", () => {
             })),
         };
         await expect(replicator.checkTweakValues("peer-id")).resolves.toBe(false);
+    });
+
+    it("allows different ID keys when both peers use only keyed Chunk IDs", async () => {
+        const { replicator } = createReplicator({
+            encrypt: true,
+            usePathObfuscation: false,
+            passphrase: "same",
+            idDerivationVersion: 1,
+            idDerivationKey: "ab".repeat(32),
+        });
+        const { replicator: remote } = createReplicator({
+            encrypt: true,
+            usePathObfuscation: false,
+            passphrase: "same",
+            idDerivationVersion: 1,
+            idDerivationKey: "cd".repeat(32),
+        });
+        (replicator as any).server = {
+            knownAdvertisements: [{ peerId: "peer-id", platform: "test" }],
+            serverPeerId: "local-peer",
+            getConnection: vi.fn(() => ({
+                invokeRemoteObjectFunction: vi.fn(async (_name: string, args: string[]) =>
+                    remote.getTweakSettings(args[0])
+                ),
+            })),
+        };
+        await expect(replicator.checkTweakValues("peer-id")).resolves.toBe(true);
     });
 
     it.each([

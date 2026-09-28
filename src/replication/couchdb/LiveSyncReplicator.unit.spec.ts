@@ -59,6 +59,8 @@ describe("LiveSyncCouchDBReplicator initialisation", () => {
                 false
             );
             expect(result).toBe(false);
+            expect(version).not.toHaveBeenCalled();
+            expect(admit).not.toHaveBeenCalled();
             expect(declare).not.toHaveBeenCalled();
         } finally {
             version.mockRestore();
@@ -71,7 +73,10 @@ describe("LiveSyncCouchDBReplicator initialisation", () => {
     it.each(["OK", "LOCKED", "NODE_LOCKED"] as const)(
         "declares the write feature only for an admitted writer (%s)",
         async (admission) => {
-            const remoteDatabase = { close: vi.fn().mockResolvedValue(undefined) };
+            const remoteDatabase = {
+                close: vi.fn().mockResolvedValue(undefined),
+                allDocs: vi.fn().mockResolvedValue({ rows: [] }),
+            };
             const replicator = createOneShotReplicator(remoteDatabase);
             vi.mocked(replicator.checkReplicationConnectivity).mockRestore();
             replicator.env.services.API = {

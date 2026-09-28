@@ -17,7 +17,7 @@ export function requiredRemoteFeatures(setting: {
 }): string[] {
     const features: string[] = [];
     if (usesEncryptedInternalMetadata(setting)) features.push(ENCRYPTED_INTERNAL_METADATA_FEATURE);
-    if (configuredIdKey(setting)) features.push(INDEPENDENT_ID_DERIVATION_FEATURE);
+    if (setting.encrypt && configuredIdKey(setting)) features.push(INDEPENDENT_ID_DERIVATION_FEATURE);
     return features;
 }
 

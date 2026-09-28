@@ -76,8 +76,45 @@ export async function ensureRemoteIsCompatible(
     if (!remoteMilestone) remoteMilestone = baseMilestone;
 
     const currentTweakValues = getEffectiveTweakValues(setting);
+    const nodeChunkInfo = { ...baseMilestone.node_chunk_info, ...remoteMilestone.node_chunk_info };
 
-    remoteMilestone.node_chunk_info = { ...baseMilestone.node_chunk_info, ...remoteMilestone.node_chunk_info };
+    // Check compatibility before publishing this node's settings to the remote milestone.
+    let globalMin = currentVersionRange.min;
+    let globalMax = currentVersionRange.max;
+    for (const nodeId of remoteMilestone.accepted_nodes) {
+        if (nodeId == deviceNodeID) continue;
+        if (nodeId in nodeChunkInfo) {
+            const nodeInfo = nodeChunkInfo[nodeId];
+            globalMin = Math.max(nodeInfo.min, globalMin);
+            globalMax = Math.min(nodeInfo.max, globalMax);
+        } else {
+            globalMin = 0;
+            globalMax = 0;
+        }
+    }
+
+    if (globalMax < globalMin && !setting.ignoreVersionCheck) {
+        return "INCOMPATIBLE";
+    }
+
+    const preferred_tweak = remoteMilestone.tweak_values?.[DEVICE_ID_PREFERRED] ?? currentTweakValues;
+    const tweakAssessment = assessTweakCompatibility(currentTweakValues, preferred_tweak);
+    if (tweakAssessment.entries.some(({ key, relation }) => key === "idDerivationVersion" && relation === "different")) {
+        return "ID_KEY_MISMATCH";
+    }
+
+    if (!setting.disableCheckingConfigMismatch) {
+        recordTweakAssessment?.(tweakAssessment);
+        if (tweakAssessment.alignment === "mismatched") {
+            return ["MISMATCHED", preferred_tweak];
+        }
+    }
+
+    if (remoteMilestone.locked && remoteMilestone.accepted_nodes.indexOf(deviceNodeID) == -1) {
+        return remoteMilestone.cleaned ? "NODE_CLEANED" : "NODE_LOCKED";
+    }
+
+    remoteMilestone.node_chunk_info = nodeChunkInfo;
     let writeMilestone =
         remoteMilestone.node_chunk_info[deviceNodeID].min != currentVersionRange.min ||
         remoteMilestone.node_chunk_info[deviceNodeID].max != currentVersionRange.max ||
@@ -122,56 +159,7 @@ export async function ensureRemoteIsCompatible(
         await updateCallback(remoteMilestone);
     }
 
-    // Check compatibility and make sure available version
-    //
-    // v min of A                  v max of A
-    // |   v  min of B             |   v max of B
-    // |   |                       |   |
-    // |   |<---   We can use  --->|   |
-    // |   |                       |   |
-    // If globalMin and globalMax is suitable, we can upgrade.
-    let globalMin = currentVersionRange.min;
-    let globalMax = currentVersionRange.max;
-    for (const nodeId of remoteMilestone.accepted_nodes) {
-        if (nodeId == deviceNodeID) continue;
-        if (nodeId in remoteMilestone.node_chunk_info) {
-            const nodeInfo = remoteMilestone.node_chunk_info[nodeId];
-            globalMin = Math.max(nodeInfo.min, globalMin);
-            globalMax = Math.min(nodeInfo.max, globalMax);
-        } else {
-            globalMin = 0;
-            globalMax = 0;
-        }
-    }
-
-    if (globalMax < globalMin) {
-        if (!setting.ignoreVersionCheck) {
-            return "INCOMPATIBLE";
-        }
-    }
-
-    if (!setting.disableCheckingConfigMismatch) {
-        // If there is no preferred tweak, set my own as preferred at first.
-        const preferred_tweak = remoteMilestone.tweak_values?.[DEVICE_ID_PREFERRED] ?? currentTweakValues;
-        const current_tweak = currentTweakValues as TweakValues;
-        const tweakAssessment = assessTweakCompatibility(current_tweak, preferred_tweak);
-        recordTweakAssessment?.(tweakAssessment);
-        if (tweakAssessment.alignment === "mismatched") {
-            return ["MISMATCHED", preferred_tweak];
-        }
-    }
-
-    if (remoteMilestone.locked) {
-        if (remoteMilestone.accepted_nodes.indexOf(deviceNodeID) == -1) {
-            if (remoteMilestone.cleaned) {
-                return "NODE_CLEANED";
-            }
-            return "NODE_LOCKED";
-        }
-        return "LOCKED";
-    }
-
-    return "OK";
+    return remoteMilestone.locked ? "LOCKED" : "OK";
 }
 
 export async function ensureDatabaseIsCompatible(

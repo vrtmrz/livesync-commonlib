@@ -18,7 +18,14 @@ export {
     PREFERRED_SETTING_SELF_HOSTED,
 } from "./common/models/setting.const.preferred.ts";
 export { CURRENT_SETTING_VERSION } from "./common/models/setting.const.ts";
-export { deriveIdKey, configuredIdKey, ID_DERIVATION_VERSION } from "./common/idDerivation.ts";
+export {
+    deriveIdKey,
+    deriveOrImportIdKey,
+    formatIdRecoveryCode,
+    configuredIdKey,
+    ID_DERIVATION_VERSION,
+    ID_RECOVERY_CODE_PREFIX,
+} from "./common/idDerivation.ts";
 export {
     prepareSettingsForLoad,
     SettingsMigrationReviewCodes,

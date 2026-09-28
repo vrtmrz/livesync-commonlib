@@ -38,6 +38,15 @@ describe("remote feature compatibility", () => {
         })).toEqual({ status: "supported", usedFeatures: features });
     });
 
+    it("does not declare independent ID support while E2EE is off", () => {
+        expect(requiredRemoteFeatures({
+            encrypt: false,
+            usePathObfuscation: true,
+            idDerivationVersion: 1,
+            idDerivationKey: "ab".repeat(32),
+        })).toEqual([]);
+    });
+
     it("accepts generation 13 with a declared feature when feature writes are disabled", async () => {
         const features = ["encrypted-internal-metadata-v1"];
         const db = versionDatabase(13, features);

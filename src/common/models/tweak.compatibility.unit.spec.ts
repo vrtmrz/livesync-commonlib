@@ -11,14 +11,56 @@ import {
 import { assessTweakCompatibility } from "./tweak.compatibility.ts";
 import { path2id_base } from "@lib/string_and_binary/path.ts";
 import type { FilePath } from "./db.type.ts";
+import { DEFAULT_SETTINGS } from "./setting.const.defaults.ts";
+import { configuredIdKey } from "../idDerivation.ts";
 
 describe("assessTweakCompatibility", () => {
+    it.each([false, true])(
+        "preserves each ID configuration when adopting ordinary tweaks (obfuscation: %s)",
+        (usePathObfuscation) => {
+            const keyed = {
+                ...DEFAULT_SETTINGS,
+                encrypt: true,
+                usePathObfuscation,
+                idDerivationVersion: 1 as const,
+                idDerivationKey: "ab".repeat(32),
+                hashAlg: "xxhash64" as const,
+            };
+            const legacy = {
+                ...keyed,
+                idDerivationVersion: 0 as const,
+                idDerivationKey: "",
+                hashAlg: "xxhash32" as const,
+            };
+            const assessment = assessTweakCompatibility(keyed, legacy);
+
+            expect(assessment.onlyCompatibleLossyDifferences).toBe(!usePathObfuscation);
+            expect(assessment.adoptPreferred.changes).not.toHaveProperty("idDerivationVersion");
+            expect(assessment.adoptCurrent.changes).not.toHaveProperty("idDerivationVersion");
+            expect(assessment.adoptPreferred.changes.hashAlg).toBe("xxhash32");
+            expect(assessment.adoptCurrent.changes.hashAlg).toBe("xxhash64");
+            expect(configuredIdKey({ ...keyed, ...assessment.adoptPreferred.changes })).toBe(keyed.idDerivationKey);
+            expect(configuredIdKey({ ...legacy, ...assessment.adoptCurrent.changes })).toBe(false);
+        }
+    );
+
     it("requires review for different ID modes without publishing the ID key", () => {
         const assessment = assessTweakCompatibility({ idDerivationVersion: 1 }, {});
         expect(assessment.alignment).toBe("mismatched");
         expect(assessment.adoptPreferred.reconstruction).toBe("required");
         expect(assessment.adoptCurrent.reconstruction).toBe("required");
         expect(Object.keys(TweakValuesTemplate)).not.toContain("idDerivationKey");
+    });
+
+    it("allows different Chunk ID modes when neither side uses keyed document IDs", () => {
+        const assessment = assessTweakCompatibility(
+            { encrypt: true, usePathObfuscation: false, idDerivationVersion: 1 },
+            { encrypt: true, usePathObfuscation: false, idDerivationVersion: 0 }
+        );
+        expect(assessment.alignment).toBe("matched");
+        expect(assessment.representationDiffers).toBe(true);
+        expect(assessment.adoptPreferred.reconstruction).toBe("none");
+        expect(assessment.adoptCurrent.reconstruction).toBe("none");
     });
 
     it("detects the internal Metadata writer preference without requiring reconstruction", () => {

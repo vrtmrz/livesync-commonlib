@@ -5,16 +5,29 @@ import { path2id_base } from "@lib/string_and_binary/path.ts";
 import { E2EEAlgorithms } from "@lib/common/types.ts";
 import { PouchDB } from "./pouchdb-test.ts";
 import { enableEncryption } from "./encryption.ts";
-import { assessRemoteDocumentIds } from "./remoteIdCompatibility.ts";
+import { assessRemoteDocumentIds as assessRemoteDocumentIdsWithPathService } from "./remoteIdCompatibility.ts";
+import { PathServiceCompat } from "@lib/services/implements/injectable/InjectablePathService.ts";
+import { ServiceContext } from "@lib/services/base/ServiceBase.ts";
+import type { ISettingService } from "@lib/services/base/IService.ts";
 
 const key = "ab".repeat(32);
 const baseSetting = {
+    encrypt: true,
     idDerivationVersion: 1,
     idDerivationKey: key,
     usePathObfuscation: true,
     passphrase: "content-passphrase",
     handleFilenameCaseSensitive: false,
 } as RemoteDBSettings;
+
+function assessRemoteDocumentIds(db: PouchDBType.Database<EntryDoc>, setting: RemoteDBSettings) {
+    const pathService = new PathServiceCompat(new ServiceContext(), {
+        settingService: { currentSettings: () => setting } as ISettingService,
+    });
+    return assessRemoteDocumentIdsWithPathService(db, setting, (path) =>
+        pathService.path2idWithSettings(path, setting)
+    );
+}
 
 function mockDatabase(id?: string) {
     return {
@@ -24,6 +37,12 @@ function mockDatabase(id?: string) {
 }
 
 describe("remote document ID agreement", () => {
+    it("accepts a legacy document when the configured ID generation is also legacy", async () => {
+        const setting = { ...baseSetting, idDerivationVersion: 0 as const, idDerivationKey: "" };
+        const id = await path2id_base("Notes/One.md" as FilePathWithPrefix, setting.passphrase, true);
+        expect(await assessRemoteDocumentIds(mockDatabase(id), setting)).toBe("matching");
+    });
+
     it("accepts an existing document derived with the configured key", async () => {
         const id = await path2id_base("Notes/One.md" as FilePathWithPrefix, baseSetting.passphrase, true, key);
         const db = mockDatabase(id);
@@ -40,6 +59,21 @@ describe("remote document ID agreement", () => {
         );
         const db = mockDatabase(id);
         expect(await assessRemoteDocumentIds(db, baseSetting)).toBe("mismatched");
+    });
+
+    it("accepts a stored path that is normalised by the path service before ID generation", async () => {
+        const canonical = "Notes/Draft/One.md" as FilePathWithPrefix;
+        const id = await path2id_base(canonical, baseSetting.passphrase, true, key);
+        const db = {
+            allDocs: vi.fn().mockResolvedValue({ rows: [{ id }] }),
+            get: vi.fn().mockResolvedValue({ _id: id, type: "plain", path: "Notes\\Draft//One.md" }),
+        } as unknown as PouchDBType.Database<EntryDoc>;
+        expect(await assessRemoteDocumentIds(db, baseSetting)).toBe("matching");
+    });
+
+    it("skips keyed document verification while E2EE is off", async () => {
+        const id = await path2id_base("Notes/One.md" as FilePathWithPrefix, baseSetting.passphrase, true, key);
+        expect(await assessRemoteDocumentIds(mockDatabase(id), { ...baseSetting, encrypt: false })).toBe("unverified");
     });
 
     it("rejects mixed document identities even after a matching sample", async () => {

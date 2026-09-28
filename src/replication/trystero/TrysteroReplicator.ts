@@ -345,13 +345,16 @@ export class TrysteroReplicator {
             }
         }
         const idSettings = this.currentSettings as P2PSyncSetting &
-            Partial<Pick<EncryptionSettings, "idDerivationVersion" | "idDerivationKey">>;
+            Partial<Pick<EncryptionSettings, "idDerivationVersion" | "idDerivationKey" | "encrypt" | "usePathObfuscation">>;
         const idDerivationVersion = idSettings.idDerivationVersion ?? 0;
         const idKey = configuredIdKey({ idDerivationVersion, idDerivationKey: idSettings.idDerivationKey ?? "" });
         return {
             ...allSettings,
             idDerivationVersion,
-            idDerivationProof: idKey ? await computeKeyedId(idKey, "peer-agreement", fromPeerId) : "",
+            idDerivationProof:
+                idKey && idSettings.encrypt && idSettings.usePathObfuscation
+                    ? await computeKeyedId(idKey, "peer-agreement", fromPeerId)
+                    : "",
         };
     }
 
@@ -910,7 +913,13 @@ export class TrysteroReplicator {
             const decryptedConfig = JSON.parse(
                 await decrypt(encryptedConfig as string, passphrase)
             ) as ObsidianLiveSyncSettings;
-            return omitP2PRuntimeSettings(decryptedConfig) as ObsidianLiveSyncSettings;
+            const settings = {
+                ...decryptedConfig,
+                idDerivationVersion: decryptedConfig.idDerivationVersion ?? 0,
+                idDerivationKey: decryptedConfig.idDerivationKey ?? "",
+            };
+            configuredIdKey(settings);
+            return omitP2PRuntimeSettings(settings) as ObsidianLiveSyncSettings;
         } catch (e) {
             Logger("Error while decrypting the configuration", LOG_LEVEL_NOTICE);
             Logger(e, LOG_LEVEL_VERBOSE);
@@ -954,8 +963,18 @@ export class TrysteroReplicator {
         }
 
         if (
-            (thisTweakValues.idDerivationVersion ?? 0) !== (tweakValues.idDerivationVersion ?? 0) ||
-            (thisTweakValues.idDerivationProof ?? "") !== (tweakValues.idDerivationProof ?? "")
+            thisTweakValues.encrypt !== tweakValues.encrypt ||
+            thisTweakValues.usePathObfuscation !== tweakValues.usePathObfuscation
+        ) {
+            Logger("Replication cancelled: The encryption or path obfuscation settings do not match this peer.", logLevel);
+            return false;
+        }
+
+        if (
+            thisTweakValues.encrypt &&
+            thisTweakValues.usePathObfuscation &&
+            ((thisTweakValues.idDerivationVersion ?? 0) !== (tweakValues.idDerivationVersion ?? 0) ||
+                (thisTweakValues.idDerivationProof ?? "") !== (tweakValues.idDerivationProof ?? ""))
         ) {
             Logger("Replication cancelled: The ID derivation settings do not match this peer.", logLevel);
             return false;

@@ -135,10 +135,15 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
             if (!(await this.liveSyncLocalDB.initializeDatabase())) {
                 throw new Error("Direct database initialisation was rejected.");
             }
-            const idCompatibility = await assessRemoteDocumentIds(this.liveSyncLocalDB.localDatabase, {
+            const idSettings = {
                 ...this.settings,
                 passphrase: this.options.obfuscatePassphrase || this.settings.passphrase,
-            });
+            };
+            const idCompatibility = await assessRemoteDocumentIds(
+                this.liveSyncLocalDB.localDatabase,
+                idSettings,
+                (path) => this.services.path.path2idWithSettings(path, idSettings)
+            );
             if (idCompatibility === "mismatched") {
                 throw new Error("Direct database document IDs do not match the configured ID key.");
             }

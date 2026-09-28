@@ -30,6 +30,28 @@ describe("PathService", () => {
         expect(first).toMatch(/^i:f:[0-9a-f]{64}$/u);
     });
 
+    it("uses legacy document IDs while E2EE is off without discarding the saved ID key", async () => {
+        const settings: ObsidianLiveSyncSettings = {
+            ...DEFAULT_SETTINGS,
+            encrypt: false,
+            passphrase: "legacy path passphrase",
+            usePathObfuscation: true,
+            idDerivationVersion: 1,
+            idDerivationKey: "ab".repeat(32),
+        };
+        const service = new PathServiceCompat(new ServiceContext(), {
+            settingService: { currentSettings: () => settings } as ISettingService,
+        });
+        const path = "Notes/One.md" as FilePathWithPrefix;
+
+        expect(await service.path2id(path)).toBe(await path2id_base(path, settings.passphrase, true));
+        settings.encrypt = true;
+        expect(await service.path2id(path)).not.toBe(await path2id_base(path, settings.passphrase, true));
+        settings.encrypt = false;
+        expect(await service.path2id(path)).toBe(await path2id_base(path, settings.passphrase, true));
+        expect(settings.idDerivationKey).toBe("ab".repeat(32));
+    });
+
     it.each(["", "i:", "ix:"])("normalises the whole path after the %s namespace", async (prefix) => {
         const settingService = {
             currentSettings: () => ({ ...DEFAULT_SETTINGS, handleFilenameCaseSensitive: true }),

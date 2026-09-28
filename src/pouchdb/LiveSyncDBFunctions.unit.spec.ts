@@ -39,6 +39,32 @@ function milestone(preferred: TweakValues): EntryMilestoneInfo {
 }
 
 describe("ensureRemoteIsCompatible", () => {
+    it.each([false, true])(
+        "rejects document ID modes separately from ordinary tweaks (checks disabled: %s)",
+        async (disableCheckingConfigMismatch) => {
+            const remote = milestone({ encrypt: true, usePathObfuscation: true, idDerivationVersion: 1 });
+            const before = structuredClone(remote);
+            const update = vi.fn(async () => {});
+            const result = await ensureRemoteIsCompatible(
+                remote,
+                {
+                    encrypt: true,
+                    usePathObfuscation: true,
+                    idDerivationVersion: 0,
+                    disableCheckingConfigMismatch,
+                } as RemoteDBSettings,
+                "new-node",
+                VERSION_RANGE,
+                DEVICE_INFO,
+                update
+            );
+
+            expect(result).toBe("ID_KEY_MISMATCH");
+            expect(update).not.toHaveBeenCalled();
+            expect(remote).toEqual(before);
+        }
+    );
+
     it.each([
         [REMOTE_COUCHDB, false],
         [REMOTE_MINIO, true],
@@ -85,6 +111,43 @@ describe("ensureRemoteIsCompatible", () => {
             currentValues: { handleFilenameCaseSensitive: true },
             preferredValues: {},
         });
+    });
+
+    it("does not update the milestone when the preferred configuration rejects admission", async () => {
+        const remote = milestone({ handleFilenameCaseSensitive: false });
+        const update = vi.fn(async () => {});
+
+        await expect(
+            ensureRemoteIsCompatible(
+                remote,
+                { handleFilenameCaseSensitive: true } as RemoteDBSettings,
+                "new-node",
+                VERSION_RANGE,
+                DEVICE_INFO,
+                update
+            )
+        ).resolves.toEqual(["MISMATCHED", remote.tweak_values[DEVICE_ID_PREFERRED]]);
+        expect(update).not.toHaveBeenCalled();
+    });
+
+    it("admits a different Chunk ID mode when both sides keep document paths visible", async () => {
+        const remote = milestone({ encrypt: true, usePathObfuscation: false, idDerivationVersion: 0 });
+
+        await expect(
+            ensureRemoteIsCompatible(
+                remote,
+                {
+                    encrypt: true,
+                    usePathObfuscation: false,
+                    idDerivationVersion: 1,
+                    idDerivationKey: "ab".repeat(32),
+                } as RemoteDBSettings,
+                "new-node",
+                VERSION_RANGE,
+                DEVICE_INFO,
+                vi.fn(async () => {})
+            )
+        ).resolves.toBe("OK");
     });
 
     it.each([

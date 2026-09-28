@@ -4,6 +4,7 @@ import type {
     FilePathWithPrefix,
     FilePath,
     AnyEntry,
+    RemoteDBSettings,
     UXFileInfo,
     UXFileInfoStub,
 } from "@lib/common/types";
@@ -80,15 +81,31 @@ export abstract class PathService<T extends ServiceContext = ServiceContext>
      * @param prefix The prefix to use for the document ID.
      */
     async path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID> {
+        return this.path2idWithSettings(filename, this.settings, prefix);
+    }
+
+    /** Convert a path using the caller's settings snapshot and this host's path normalisation. */
+    async path2idWithSettings(
+        filename: FilePathWithPrefix | FilePath,
+        setting: Pick<
+            RemoteDBSettings,
+            | "encrypt"
+            | "usePathObfuscation"
+            | "passphrase"
+            | "handleFilenameCaseSensitive"
+            | "idDerivationVersion"
+            | "idDerivationKey"
+        >,
+        prefix?: string
+    ): Promise<DocumentID> {
         const destPath = addPrefix(filename, prefix ?? "");
-        const setting = this.settings;
         const pathObfuscationPassphrase =
             this.getPathObfuscationPassphrase?.() ?? (setting.usePathObfuscation ? setting.passphrase : false);
         return await this._path2id(
             destPath,
             pathObfuscationPassphrase,
             !setting.handleFilenameCaseSensitive,
-            configuredIdKey(setting) || undefined
+            (setting.encrypt && configuredIdKey(setting)) || undefined
         );
     }
 

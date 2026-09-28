@@ -3,6 +3,7 @@ import { hexStringToUint8Array, uint8ArrayToHexString } from "@lib/string_and_bi
 import type { EncryptionSettings } from "@lib/common/models/setting.type.ts";
 
 export const ID_DERIVATION_VERSION = 1;
+export const ID_RECOVERY_CODE_PREFIX = "sls-id-v1:";
 const SOURCE_SALT = new TextEncoder().encode("self-hosted-livesync:id-source:v1");
 const SOURCE_ITERATIONS = 310_000;
 const HEX_KEY = /^[0-9a-f]{64}$/u;
@@ -26,6 +27,24 @@ export async function deriveIdKey(source: string): Promise<string> {
         256
     );
     return uint8ArrayToHexString(new Uint8Array(bits));
+}
+
+/** Export a saved key in a format which can be imported without deriving it again. */
+export function formatIdRecoveryCode(key: string): string {
+    if (!HEX_KEY.test(key)) throw new Error("The configured ID key is invalid.");
+    return `${ID_RECOVERY_CODE_PREFIX}${key}`;
+}
+
+/** Treat a tagged recovery code as a saved key; derive ordinary source strings. */
+export async function deriveOrImportIdKey(input: string): Promise<string> {
+    const candidate = input.trim();
+    if (candidate.startsWith(ID_RECOVERY_CODE_PREFIX)) {
+        const key = candidate.slice(ID_RECOVERY_CODE_PREFIX.length);
+        if (!HEX_KEY.test(key)) throw new Error("The ID recovery code is invalid.");
+        return key;
+    }
+    if (candidate.startsWith("sls-id-v")) throw new Error("The ID recovery code version is unsupported.");
+    return await deriveIdKey(input);
 }
 
 /** Return the independent ID key, rejecting an incomplete new-mode setting. */
