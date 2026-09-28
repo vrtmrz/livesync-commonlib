@@ -19,6 +19,7 @@ import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import { isCloudantURI } from "@lib/pouchdb/utils_couchdb";
 import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
+import { encryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
 import {
     activateP2PRemoteConfiguration,
     activateRemoteConfiguration,
@@ -269,7 +270,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                 settings.endpoint = "";
             }
             if (settings.encrypt && settings.passphrase != "") {
-                settings.encryptedPassphrase = await this.encryptConfigurationItem(settings.passphrase, settings);
+                settings.encryptedPassphrase = await this.encryptPlainConfigurationItem(settings.passphrase, settings);
                 settings.passphrase = "";
             }
             await this.encryptRemoteConfigurationUris(settings);
@@ -487,8 +488,18 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         return false;
     }
     async encryptConfigurationItem(src: string, settings: ObsidianLiveSyncSettings) {
+        return this.encryptConfigurationItemWith(src, settings, encryptString);
+    }
+    private async encryptPlainConfigurationItem(src: string, settings: ObsidianLiveSyncSettings) {
+        return this.encryptConfigurationItemWith(src, settings, encryptWithEphemeralSalt);
+    }
+    private async encryptConfigurationItemWith(
+        src: string,
+        settings: ObsidianLiveSyncSettings,
+        encrypt: (source: string, passphrase: string) => Promise<string>
+    ) {
         if (this.usedPassphrase != "") {
-            return await encryptString(src, this.usedPassphrase + SALT_OF_PASSPHRASE);
+            return await encrypt(src, this.usedPassphrase + SALT_OF_PASSPHRASE);
         }
 
         const passphrase = await this.getPassphrase(settings);
@@ -499,7 +510,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             );
             return "";
         }
-        const dec = await encryptString(src, passphrase + SALT_OF_PASSPHRASE);
+        const dec = await encrypt(src, passphrase + SALT_OF_PASSPHRASE);
         if (dec) {
             this.usedPassphrase = passphrase;
             return dec;

@@ -197,6 +197,35 @@ describe("SettingService", () => {
         expect(persisted?.remoteConfigurations.r1.uri).not.toBe(plainURI);
     });
 
+    it.each([
+        ["ordinary-passphrase", false],
+        ["%example", false],
+        ["%example", true],
+        ["%$example", false],
+    ])(
+        "encrypts and restores an E2EE passphrase %s with cached storage key %s",
+        async (passphrase, cacheStorageKey) => {
+            const service = createService();
+            service.settings = { ...service.settings, encrypt: true, passphrase };
+            if (cacheStorageKey) {
+                const existing = await service.encryptConfigurationItem("existing", service.settings);
+                expect(await service.decryptConfigurationItem(existing, "*")).toBe("existing");
+            }
+
+            await service.saveSettingData();
+
+            const persisted = service.lastSavedSetting!;
+            expect(persisted.passphrase).toBe("");
+            expect(persisted.encryptedPassphrase).not.toBe(passphrase);
+            expect(JSON.stringify(persisted)).not.toContain(passphrase);
+
+            const restored = createService();
+            vi.spyOn(restored as any, "loadData").mockResolvedValue(persisted);
+            await restored.loadSettings();
+            expect(restored.currentSettings().passphrase).toBe(passphrase);
+        }
+    );
+
     it("preserves the legacy plaintext fallback when a non-managed URI cannot be encrypted", async () => {
         const service = createService();
         const plainURI = "sls+http://user:password@localhost:5984/?db=vault";
