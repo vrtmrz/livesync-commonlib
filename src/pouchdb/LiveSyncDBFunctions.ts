@@ -30,6 +30,7 @@ export function getEffectiveTweakValues(setting: RemoteDBSettings): TweakValues 
 export type ENSURE_DB_RESULT =
     | "OK"
     | "INCOMPATIBLE"
+    | "ID_KEY_MISMATCH"
     | "LOCKED"
     | "NODE_LOCKED"
     | "NODE_CLEANED"

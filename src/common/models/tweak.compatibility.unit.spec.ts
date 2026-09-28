@@ -13,6 +13,14 @@ import { path2id_base } from "@lib/string_and_binary/path.ts";
 import type { FilePath } from "./db.type.ts";
 
 describe("assessTweakCompatibility", () => {
+    it("requires review for different ID modes without publishing the ID key", () => {
+        const assessment = assessTweakCompatibility({ idDerivationVersion: 1 }, {});
+        expect(assessment.alignment).toBe("mismatched");
+        expect(assessment.adoptPreferred.reconstruction).toBe("required");
+        expect(assessment.adoptCurrent.reconstruction).toBe("required");
+        expect(Object.keys(TweakValuesTemplate)).not.toContain("idDerivationKey");
+    });
+
     it("detects the internal Metadata writer preference without requiring reconstruction", () => {
         const assessment = assessTweakCompatibility(
             { encryptInternalMetadata: true } as TweakValues,
@@ -99,11 +107,14 @@ describe("assessTweakCompatibility", () => {
     });
 
     it("preserves the established enum and boolean defaults", () => {
-        const assessment = assessTweakCompatibility({}, {
-            usePluginSyncV2: TweakValuesDefault.usePluginSyncV2,
-            E2EEAlgorithm: TweakValuesDefault.E2EEAlgorithm,
-            chunkSplitterVersion: TweakValuesDefault.chunkSplitterVersion,
-        });
+        const assessment = assessTweakCompatibility(
+            {},
+            {
+                usePluginSyncV2: TweakValuesDefault.usePluginSyncV2,
+                E2EEAlgorithm: TweakValuesDefault.E2EEAlgorithm,
+                chunkSplitterVersion: TweakValuesDefault.chunkSplitterVersion,
+            }
+        );
 
         for (const key of ["usePluginSyncV2", "E2EEAlgorithm", "chunkSplitterVersion"] as const) {
             expect(assessment.entries.find((entry) => entry.key === key)).toMatchObject({
@@ -193,6 +204,7 @@ describe("legacy tweak compatibility projections", () => {
             longLineThreshold: 250,
             encrypt: false,
             usePathObfuscation: false,
+            idDerivationVersion: 0,
             encryptInternalMetadata: false,
             enableCompression: false,
             useEden: false,
@@ -212,12 +224,14 @@ describe("legacy tweak compatibility projections", () => {
         expect(IncompatibleChanges).toEqual([
             "encrypt",
             "usePathObfuscation",
+            "idDerivationVersion",
             "useDynamicIterationCount",
             "handleFilenameCaseSensitive",
         ]);
         expect(CompatibleButLossyChanges).toEqual(["hashAlg", "customChunkSize", "chunkSplitterVersion"]);
         expect(IncompatibleChangesInSpecificPattern).toEqual([]);
         expect(TweakValuesDefault).toEqual({
+            idDerivationVersion: 0,
             encryptInternalMetadata: false,
             usePluginSyncV2: false,
             E2EEAlgorithm: "v2",

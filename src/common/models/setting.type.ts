@@ -89,6 +89,9 @@ interface EncryptedUserSettings {
      */
     encryptedPassphrase: string;
 
+    /** Encrypted copy of the independent ID key in local persisted settings. */
+    encryptedIdDerivationKey: string;
+
     /**
      * The encrypted connection details for CouchDB.
      */
@@ -688,6 +691,12 @@ export interface EncryptionSettings {
      * The passphrase used for E2EE.
      */
     passphrase: string;
+
+    /** Zero preserves the historical passphrase-derived ID scheme. */
+    idDerivationVersion: 0 | 1;
+
+    /** A 256-bit key encoded as lower-case hex; never the source string. */
+    idDerivationKey: string;
 
     /**
      * Indicates whether path obfuscation is used.

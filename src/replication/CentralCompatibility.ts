@@ -13,6 +13,7 @@ export const CENTRAL_COMPATIBILITY_REJECTION_REASONS = Object.freeze({
     NODE_LOCKED: "node-locked",
     NODE_CLEANED: "node-cleaned",
     TWEAK_MISMATCH: "tweak-mismatch",
+    ID_DERIVATION_MISMATCH: "id-derivation-mismatch",
 } as const);
 
 export type CentralCompatibilityRejectionReason =

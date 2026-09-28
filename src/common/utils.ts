@@ -613,6 +613,8 @@ export function pickEncryptionSettings(setting: ObsidianLiveSyncSettings | Encry
         passphrase: setting.passphrase,
         usePathObfuscation: setting.usePathObfuscation,
         encryptInternalMetadata: setting.encryptInternalMetadata,
+        idDerivationVersion: setting.idDerivationVersion,
+        idDerivationKey: setting.idDerivationKey,
     };
 }
 export function pickP2PSyncSettings(setting: Partial<ObsidianLiveSyncSettings> & P2PConnectionInfo): P2PConnectionInfo {

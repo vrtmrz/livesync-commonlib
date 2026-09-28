@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { VERSIONING_DOCID } from "@lib/common/types";
 import { bumpRemoteVersion, checkRemoteVersion, declareRemoteFeatures } from "./negotiation";
-import { assessRemoteFeatureDocument, describeRemoteFeatureRejection } from "./remoteFeatureCompatibility";
+import { assessRemoteFeatureDocument, describeRemoteFeatureRejection, requiredRemoteFeatures } from "./remoteFeatureCompatibility";
 
 function versionDatabase(version: number, used_features?: unknown) {
     const document = {
@@ -17,6 +17,27 @@ function versionDatabase(version: number, used_features?: unknown) {
 }
 
 describe("remote feature compatibility", () => {
+    it("declares independent ID support and accepts its feature identifier", async () => {
+        const features = requiredRemoteFeatures({
+            encrypt: true,
+            usePathObfuscation: true,
+            E2EEAlgorithm: "v2",
+            encryptInternalMetadata: false,
+            idDerivationVersion: 1,
+            idDerivationKey: "f3205cc41d24116d8c2484993c9d9a2e667373af338ba02f2ee71199adb82f2e",
+        });
+        expect(features).toEqual(["independent-id-derivation-v1"]);
+        const db = versionDatabase(12);
+        await expect(checkRemoteVersion(db, vi.fn(async () => false), 12, features)).resolves.toBe(true);
+        expect(db.put).toHaveBeenCalledWith(expect.objectContaining({ version: 13, used_features: features }));
+        expect(assessRemoteFeatureDocument({
+            _id: VERSIONING_DOCID,
+            type: "versioninfo",
+            version: 13,
+            used_features: features,
+        })).toEqual({ status: "supported", usedFeatures: features });
+    });
+
     it("accepts generation 13 with a declared feature when feature writes are disabled", async () => {
         const features = ["encrypted-internal-metadata-v1"];
         const db = versionDatabase(13, features);

@@ -27,6 +27,7 @@ import {
     migrateP2PActiveRemoteConfigurationIdInPlace,
 } from "@lib/serviceFeatures/remoteConfig";
 import { ConnectionStringParser } from "@lib/common/ConnectionString";
+import { configuredIdKey } from "@lib/common/idDerivation";
 
 export interface SettingServiceDependencies {
     APIService: IAPIService;
@@ -206,6 +207,32 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             if (patch instanceof Error || !patch) continue;
             Object.assign(settings, patch);
             Object.assign(this.settings, patch);
+        }
+        const idKey = configuredIdKey(settings);
+        if (settings.idDerivationVersion === 1) {
+            if (idKey === false) {
+                throw new Error("The configured ID derivation key is unavailable.");
+            }
+            let passphrase: string | false = this.usedPassphrase;
+            if (passphrase === "") {
+                passphrase = await this.getPassphrase(settings);
+            }
+            if (passphrase === false || passphrase === "") {
+                const message = "Failed to retrieve a passphrase for the ID derivation key. Settings were not saved.";
+                this._log(message, LOG_LEVEL_URGENT);
+                throw new Error(message);
+            }
+            const encryptedIdKey = await encryptString(idKey, passphrase + SALT_OF_PASSPHRASE);
+            if (encryptedIdKey === "") {
+                const message = "Failed to encrypt the ID derivation key. Settings were not saved.";
+                this._log(message, LOG_LEVEL_URGENT);
+                throw new Error(message);
+            }
+            settings.encryptedIdDerivationKey = encryptedIdKey;
+            settings.idDerivationKey = "";
+            this.usedPassphrase = passphrase;
+        } else {
+            settings.encryptedIdDerivationKey = "";
         }
         settings.deviceAndVaultName = "";
         if (settings.P2P_DevicePeerName && settings.P2P_DevicePeerName.trim() !== "") {
@@ -524,7 +551,27 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
      * @param settings The settings to decrypt.
      */
     async decryptSettings(settings: ObsidianLiveSyncSettings): Promise<ObsidianLiveSyncSettings> {
+        if (settings.idDerivationVersion !== 1) {
+            configuredIdKey(settings);
+        } else if (!settings.encryptedIdDerivationKey) {
+            throw new Error("The configured ID derivation key is missing or unavailable.");
+        }
         const passphrase = await this.getPassphrase(settings);
+        if (settings.idDerivationVersion === 1) {
+            if (passphrase === false || passphrase === "") {
+                throw new Error("The configured ID derivation key cannot be decrypted without a passphrase.");
+            }
+            const decryptedIdKey = await this.decryptConfigurationItem(settings.encryptedIdDerivationKey, passphrase);
+            if (decryptedIdKey === false) {
+                throw new Error("The configured ID derivation key could not be decrypted.");
+            }
+            try {
+                configuredIdKey({ ...settings, idDerivationKey: decryptedIdKey });
+            } catch {
+                throw new Error("The configured ID derivation key is invalid.");
+            }
+            settings.idDerivationKey = decryptedIdKey;
+        }
         if (passphrase === false) {
             this._log("No passphrase found for data.json! Verify configuration before syncing.", LOG_LEVEL_URGENT);
             const hasEncryptedRemoteConfigurations = Object.values(settings.remoteConfigurations || {}).some(

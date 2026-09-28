@@ -62,6 +62,41 @@ describe("DirectFileManipulator", () => {
         expect(refreshSettings).not.toHaveBeenCalled();
     });
 
+    it("rejects a different remote document ID before declaring the feature", async () => {
+        const ready = promiseWithResolvers<void>();
+        const refreshSettings = vi.fn();
+        const idDerivationKey = "ab".repeat(32);
+        const wrongId = await path2id_base("note.md" as FilePath, "secret", true, "cd".repeat(32));
+        const db = {
+            allDocs: vi.fn().mockResolvedValue({ rows: [{ id: wrongId }] }),
+            get: vi.fn().mockResolvedValue({ _id: wrongId, type: "plain", path: "note.md" }),
+            put: vi.fn(),
+        };
+        const manipulator = {
+            services: { appLifecycle: { onReady: vi.fn().mockResolvedValue(undefined) } },
+            options: { obfuscatePassphrase: "secret" },
+            settings: {
+                encrypt: true,
+                passphrase: "secret",
+                usePathObfuscation: true,
+                handleFilenameCaseSensitive: false,
+                idDerivationVersion: 1,
+                idDerivationKey,
+            },
+            liveSyncLocalDB: {
+                initializeDatabase: vi.fn().mockResolvedValue(true),
+                localDatabase: db,
+                refreshSettings,
+            },
+            ready,
+        } as unknown as DirectFileManipulator;
+
+        await DirectFileManipulator.prototype.init.call(manipulator);
+        await expect(ready.promise).rejects.toThrow("Direct database document IDs do not match the configured ID key.");
+        expect(db.put).not.toHaveBeenCalled();
+        expect(refreshSettings).not.toHaveBeenCalled();
+    });
+
     it("reports initialisation failures through the ready promise", async () => {
         const failure = new Error("CouchDB initialisation failed");
         const ready = promiseWithResolvers<void>();

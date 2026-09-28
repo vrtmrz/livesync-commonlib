@@ -3,7 +3,9 @@ import {
     TweakValuesShouldMatchedTemplate,
     omitP2PRuntimeSettings,
     type EntryDoc,
+    type EncryptionSettings,
     type ObsidianLiveSyncSettings,
+    type P2PSyncSetting,
 } from "@lib/common/types";
 import { assessTweakCompatibility } from "@lib/common/models/tweak.compatibility.ts";
 import {
@@ -31,6 +33,9 @@ import { getRelaySockets, pauseRelayReconnection, resumeRelayReconnection } from
 import type { P2PFiniteOperationOwner } from "./P2PRoomSession";
 import { P2PAutomationCoordinator } from "./P2PAutomationCoordinator";
 import { compatGlobal, type CompatTimeoutHandle } from "@lib/common/coreEnvFunctions";
+import { computeKeyedId, configuredIdKey } from "@lib/common/idDerivation.ts";
+import { getWebCrypto } from "@lib/mods.ts";
+import { uint8ArrayToHexString } from "@lib/string_and_binary/convert.ts";
 import {
     fromP2PReplicationWireResult,
     toP2PReplicationWireResult,
@@ -339,7 +344,15 @@ export class TrysteroReplicator {
                 delete allSettings[key as keyof ObsidianLiveSyncSettings];
             }
         }
-        return allSettings;
+        const idSettings = this.currentSettings as P2PSyncSetting &
+            Partial<Pick<EncryptionSettings, "idDerivationVersion" | "idDerivationKey">>;
+        const idDerivationVersion = idSettings.idDerivationVersion ?? 0;
+        const idKey = configuredIdKey({ idDerivationVersion, idDerivationKey: idSettings.idDerivationKey ?? "" });
+        return {
+            ...allSettings,
+            idDerivationVersion,
+            idDerivationProof: idKey ? await computeKeyedId(idKey, "peer-agreement", fromPeerId) : "",
+        };
     }
 
     private async handleSynchronisationRequest(
@@ -923,17 +936,28 @@ export class TrysteroReplicator {
         }
 
         const connection = this.server.getConnection(peerId);
+        const challengeBytes = new Uint8Array(16);
+        (await getWebCrypto()).getRandomValues(challengeBytes);
+        const challenge = uint8ArrayToHexString(challengeBytes);
         const tweakValues = await connection.invokeRemoteObjectFunction<
             ReturnType<typeof this.getCommands>,
             "getTweakSettings"
-        >("getTweakSettings", [this.server.serverPeerId], 5000, signal);
+        >("getTweakSettings", [challenge], 5000, signal);
         if (signal?.aborted) return false;
-        const thisTweakValues = await this.getTweakSettings("");
+        const thisTweakValues = await this.getTweakSettings(challenge);
         if (thisTweakValues.passphrase !== tweakValues.passphrase) {
             Logger(
                 "Replication cancelled: Passphrase is not matched\nCannot replicate to a remote database until the problem is resolved.",
                 logLevel
             );
+            return false;
+        }
+
+        if (
+            (thisTweakValues.idDerivationVersion ?? 0) !== (tweakValues.idDerivationVersion ?? 0) ||
+            (thisTweakValues.idDerivationProof ?? "") !== (tweakValues.idDerivationProof ?? "")
+        ) {
+            Logger("Replication cancelled: The ID derivation settings do not match this peer.", logLevel);
             return false;
         }
 

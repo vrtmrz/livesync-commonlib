@@ -1,9 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { CURRENT_SETTING_VERSION, DEFAULT_SETTINGS, REMOTE_COUCHDB } from "@lib/common/types";
+import { CURRENT_SETTING_VERSION, DEFAULT_SETTINGS, REMOTE_COUCHDB, SALT_OF_PASSPHRASE } from "@lib/common/types";
 import { SettingService } from "./SettingService";
 import { ServiceContext } from "./ServiceBase";
 import type { ObsidianLiveSyncSettings } from "@lib/common/types";
 import { ConnectionStringParser } from "@lib/common/ConnectionString";
+import { encryptString } from "@lib/encryption/stringEncryption";
 
 class TestSettingService extends SettingService<ServiceContext> {
     lastSavedSetting?: ObsidianLiveSyncSettings;
@@ -77,6 +78,92 @@ function centralProfileURI(settings: ObsidianLiveSyncSettings): string {
 }
 
 describe("SettingService", () => {
+    it("encrypts the ID derivation key before persisting version 1 settings", async () => {
+        const service = createService();
+        const key = "ab".repeat(32);
+        service.settings = {
+            ...service.settings,
+            idDerivationVersion: 1,
+            idDerivationKey: key,
+        };
+
+        await service.saveSettingData();
+
+        expect(service.lastSavedSetting?.idDerivationKey).toBe("");
+        const encrypted = service.lastSavedSetting?.encryptedIdDerivationKey ?? "";
+        expect(encrypted).not.toBe("");
+        await expect(service.decryptConfigurationItem(encrypted, "*")).resolves.toBe(key);
+    });
+
+    it("does not save version 1 settings when the ID key is invalid", async () => {
+        const service = createService();
+        service.settings = {
+            ...service.settings,
+            idDerivationVersion: 1,
+            idDerivationKey: "not-a-256-bit-key",
+        };
+
+        await expect(service.saveSettingData()).rejects.toThrow("configured ID derivation");
+        expect(service.lastSavedSetting).toBeUndefined();
+    });
+
+    it("does not persist version 1 settings when the configuration passphrase is unavailable", async () => {
+        const service = createService();
+        service.settings = {
+            ...service.settings,
+            idDerivationVersion: 1,
+            idDerivationKey: "cd".repeat(32),
+        };
+        vi.spyOn(service, "getPassphrase").mockResolvedValue(false);
+
+        await expect(service.saveSettingData()).rejects.toThrow("Settings were not saved");
+        expect(service.lastSavedSetting).toBeUndefined();
+    });
+
+    it("decrypts the ID derivation key before using loaded version 1 settings", async () => {
+        const service = createService();
+        const key = "ef".repeat(32);
+        const encryptedIdDerivationKey = await encryptString(key, "*" + SALT_OF_PASSPHRASE);
+
+        const loaded = await service.decryptSettings({
+            ...DEFAULT_SETTINGS,
+            idDerivationVersion: 1,
+            idDerivationKey: "",
+            encryptedIdDerivationKey,
+        });
+
+        expect(loaded.idDerivationKey).toBe(key);
+    });
+
+    it("rejects loaded version 1 settings when the configuration passphrase is unavailable", async () => {
+        const service = createService();
+        vi.spyOn(service, "getPassphrase").mockResolvedValue(false);
+
+        await expect(
+            service.decryptSettings({
+                ...DEFAULT_SETTINGS,
+                idDerivationVersion: 1,
+                idDerivationKey: "",
+                encryptedIdDerivationKey: "persisted-ciphertext",
+            })
+        ).rejects.toThrow("cannot be decrypted without a passphrase");
+    });
+
+    it.each(["", "not-encrypted"])(
+        "rejects a version 1 setting with unavailable encrypted key data",
+        async (encryptedIdDerivationKey) => {
+            const service = createService();
+            await expect(
+                service.decryptSettings({
+                    ...DEFAULT_SETTINGS,
+                    idDerivationVersion: 1,
+                    idDerivationKey: "",
+                    encryptedIdDerivationKey,
+                })
+            ).rejects.toThrow("configured ID derivation key");
+        }
+    );
+
     it("delegates the loaded display language to the host", async () => {
         const onDisplayLanguageChanged = vi.fn();
         const service = createService(onDisplayLanguageChanged);
@@ -313,7 +400,12 @@ describe("SettingService", () => {
         service.settings = {
             ...managedSettings,
             remoteConfigurations: {
-                central: { id: "central", name: "Central", uri: centralProfileURI(managedSettings), isEncrypted: false },
+                central: {
+                    id: "central",
+                    name: "Central",
+                    uri: centralProfileURI(managedSettings),
+                    isEncrypted: false,
+                },
                 p2p: { id: "p2p", name: "P2P", uri: managedP2PProfileURI(managedSettings), isEncrypted: false },
             },
         };

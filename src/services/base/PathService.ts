@@ -10,6 +10,7 @@ import type {
 import type { IPathService, ISettingService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { addPrefix, expandFilePathPrefix, id2path_base, path2id_base } from "@lib/string_and_binary/path";
+import { configuredIdKey } from "@lib/common/idDerivation.ts";
 import { isInternalMetadata, stripInternalMetadataPrefix } from "@lib/common/typeUtils";
 import type { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 
@@ -48,12 +49,13 @@ export abstract class PathService<T extends ServiceContext = ServiceContext>
     private async _path2id(
         filename: FilePathWithPrefix | FilePath,
         obfuscatePassphrase: string | false,
-        caseInsensitive: boolean
+        caseInsensitive: boolean,
+        idDerivationKey?: string
     ): Promise<DocumentID> {
         const [prefix, path] = expandFilePathPrefix(filename);
         const fixedPath = (prefix + this.normalizePath(path)) as FilePathWithPrefix;
 
-        const out = await path2id_base(fixedPath, obfuscatePassphrase, caseInsensitive);
+        const out = await path2id_base(fixedPath, obfuscatePassphrase, caseInsensitive, idDerivationKey);
         return out;
     }
     /**
@@ -81,12 +83,12 @@ export abstract class PathService<T extends ServiceContext = ServiceContext>
         const destPath = addPrefix(filename, prefix ?? "");
         const setting = this.settings;
         const pathObfuscationPassphrase =
-            this.getPathObfuscationPassphrase?.() ??
-            (setting.usePathObfuscation ? setting.passphrase : false);
+            this.getPathObfuscationPassphrase?.() ?? (setting.usePathObfuscation ? setting.passphrase : false);
         return await this._path2id(
             destPath,
             pathObfuscationPassphrase,
-            !setting.handleFilenameCaseSensitive
+            !setting.handleFilenameCaseSensitive,
+            configuredIdKey(setting) || undefined
         );
     }
 

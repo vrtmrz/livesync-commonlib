@@ -37,10 +37,8 @@ import {
 } from "@lib/common/utils.ts";
 import { Logger } from "@lib/common/logger.ts";
 import { checkRemoteVersion, countCompromisedChunks, declareRemoteFeatures } from "@lib/pouchdb/negotiation.ts";
-import {
-    ENCRYPTED_INTERNAL_METADATA_FEATURE,
-    usesEncryptedInternalMetadata,
-} from "@lib/pouchdb/remoteFeatureCompatibility.ts";
+import { requiredRemoteFeatures, usesEncryptedInternalMetadata } from "@lib/pouchdb/remoteFeatureCompatibility.ts";
+import { assessRemoteDocumentIds } from "@lib/pouchdb/remoteIdCompatibility.ts";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import { preprocessOutgoing } from "@lib/pouchdb/encryption.ts";
 
@@ -1212,6 +1210,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         this.remoteCleaned = true;
                         return false;
                     }
+                } else if (ensure == "ID_KEY_MISMATCH") {
+                    recordCompatibilityDecision?.(
+                        centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.ID_DERIVATION_MISMATCH)
+                    );
+                    return false;
                 } else if (ensure == "OK") {
                     // NO OP: FOR NARROWING TYPE
                 } else if (ensure[0] == "MISMATCHED") {
@@ -1227,10 +1230,23 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     this.preferredTweakValue = ensure[1];
                     return false;
                 }
+                const idCompatibility = await assessRemoteDocumentIds(dbRet.db, setting);
+                if (idCompatibility === "mismatched") {
+                    recordCompatibilityDecision?.(
+                        centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.ID_DERIVATION_MISMATCH)
+                    );
+                    Logger("The remote document IDs do not match the configured ID key.", LOG_LEVEL_NOTICE);
+                    return false;
+                }
                 if (
-                    usesEncryptedInternalMetadata(setting) &&
-                    !(await declareRemoteFeatures(dbRet.db, [ENCRYPTED_INTERNAL_METADATA_FEATURE]))
+                    idCompatibility === "unverified" &&
+                    setting.idDerivationVersion === 1 &&
+                    setting.usePathObfuscation
                 ) {
+                    Logger("No remote document was available to verify the configured ID key.", LOG_LEVEL_INFO);
+                }
+                const requiredFeatures = requiredRemoteFeatures(setting);
+                if (requiredFeatures.length > 0 && !(await declareRemoteFeatures(dbRet.db, requiredFeatures))) {
                     recordCompatibilityDecision?.(
                         centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.INCOMPATIBLE_VERSION)
                     );

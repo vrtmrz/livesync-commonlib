@@ -1,8 +1,9 @@
 import type { HashAlgorithm } from "@lib/common/models/setting.type.ts";
 import { FallbackWasmHashManager, XXHash32RawHashManager, XXHash64HashManager } from "./XXHashHashManager.ts";
 import { FallbackPureJSHashManager, PureJSHashManager, SHA1HashManager } from "./PureJSHashManager.ts";
-import { HashManagerCore, type HashManagerCoreOptions } from "./HashManagerCore.ts";
+import { HashEncryptedPrefix, HashManagerCore, type HashManagerCoreOptions } from "./HashManagerCore.ts";
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
+import { computeKeyedId, configuredIdKey } from "@lib/common/idDerivation.ts";
 /**
  * List of available hash managers.
  * For compatibility, please retain fallback managers.
@@ -89,8 +90,17 @@ export class HashManager extends HashManagerCore {
      * @returns The hash value (returned as a Promise)
      */
     override async computeHash(piece: string): Promise<string> {
-        // await this.initialise();
+        const settings = this.options.settingService.currentSettings();
+        const key = configuredIdKey(settings);
+        if (settings.encrypt && key) {
+            return HashEncryptedPrefix + (await computeKeyedId(key, "chunk", piece));
+        }
         return await this.manager.computeHash(piece);
+    }
+
+    usesIndependentIdKey(): boolean {
+        const settings = this.options.settingService.currentSettings();
+        return settings.encrypt && configuredIdKey(settings) !== false;
     }
 
     /**
@@ -110,6 +120,8 @@ export class HashManager extends HashManagerCore {
      * @returns The hash value (returned as a Promise)
      */
     computeHashWithEncryption(piece: string): Promise<string> {
+        const key = configuredIdKey(this.options.settingService.currentSettings());
+        if (key) return computeKeyedId(key, "chunk", piece);
         return this.manager.computeHashWithEncryption(piece);
     }
 }

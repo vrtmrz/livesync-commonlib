@@ -300,9 +300,7 @@ async function putDBEntryInternal(
                     const imported = { ...newDoc, _revisions: { start: 1, ids: [rootId] } };
                     await localDatabase.bulkDocs([imported], { new_edits: false });
                     const stored = await localDatabase.get(newDoc._id, { rev: newDoc._rev });
-                    return stored._rev === newDoc._rev
-                        ? { id: newDoc._id, ok: true, rev: newDoc._rev }
-                        : false;
+                    return stored._rev === newDoc._rev ? { id: newDoc._id, ok: true, rev: newDoc._rev } : false;
                 }
                 // Only live-base relies on ordinary MVCC to reject an advanced base.
                 // force:true deliberately preserves an edit as a child of its supplied
@@ -353,6 +351,12 @@ export async function prepareChunk(
     { chunkManager, hashManager }: NecessaryManagers<"chunkManager" | "hashManager">,
     piece: string
 ): Promise<GeneratedChunk> {
+    if (hashManager.usesIndependentIdKey()) {
+        const id = `${IDPrefixes.Chunk}${await hashManager.computeHash(piece)}` as DocumentID;
+        const cached = chunkManager.getCachedChunk(id);
+        return { isNew: !cached || cached.data !== piece, id, piece };
+    }
+
     const cachedChunkId = chunkManager.getChunkIDFromCache(piece);
     if (cachedChunkId !== false) {
         return { isNew: false, id: cachedChunkId, piece: piece };
@@ -558,7 +562,11 @@ async function respondEntryFromMeta(
             edenChunks = Object.fromEntries(chunks.map((e) => [e._id, e]));
         }
 
-        const { waitForDelivery, preventRemoteRequest } = computeChunkRetrievalMethod(waitForReady, settings, localOnly);
+        const { waitForDelivery, preventRemoteRequest } = computeChunkRetrievalMethod(
+            waitForReady,
+            settings,
+            localOnly
+        );
 
         const childrenKeys = [...meta.children] as DocumentID[];
         const chunks = await chunkManager.read(

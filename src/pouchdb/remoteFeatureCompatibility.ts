@@ -1,9 +1,25 @@
 import { E2EEAlgorithms, VERSIONING_DOCID } from "@lib/common/types";
+import { configuredIdKey } from "@lib/common/idDerivation.ts";
 
 export const REMOTE_FEATURE_GENERATION = 13;
 export const ENCRYPTED_INTERNAL_METADATA_FEATURE = "encrypted-internal-metadata-v1";
+export const INDEPENDENT_ID_DERIVATION_FEATURE = "independent-id-derivation-v1";
 
-const supportedFeatures = new Set([ENCRYPTED_INTERNAL_METADATA_FEATURE]);
+export const supportedFeatures = new Set([ENCRYPTED_INTERNAL_METADATA_FEATURE, INDEPENDENT_ID_DERIVATION_FEATURE]);
+
+export function requiredRemoteFeatures(setting: {
+    encrypt?: boolean;
+    usePathObfuscation?: boolean;
+    E2EEAlgorithm?: string;
+    encryptInternalMetadata?: boolean;
+    idDerivationVersion: 0 | 1;
+    idDerivationKey: string;
+}): string[] {
+    const features: string[] = [];
+    if (usesEncryptedInternalMetadata(setting)) features.push(ENCRYPTED_INTERNAL_METADATA_FEATURE);
+    if (configuredIdKey(setting)) features.push(INDEPENDENT_ID_DERIVATION_FEATURE);
+    return features;
+}
 
 export function usesEncryptedInternalMetadata(setting: {
     encrypt?: boolean;
@@ -11,8 +27,12 @@ export function usesEncryptedInternalMetadata(setting: {
     E2EEAlgorithm?: string;
     encryptInternalMetadata?: boolean;
 }): boolean {
-    return setting.encryptInternalMetadata === true && setting.encrypt === true &&
-        setting.usePathObfuscation === true && setting.E2EEAlgorithm === E2EEAlgorithms.V2;
+    return (
+        setting.encryptInternalMetadata === true &&
+        setting.encrypt === true &&
+        setting.usePathObfuscation === true &&
+        setting.E2EEAlgorithm === E2EEAlgorithms.V2
+    );
 }
 
 export type RemoteFeatureAssessment =
@@ -47,9 +67,7 @@ export function assessRemoteFeatureDocument(document: unknown): RemoteFeatureAss
     }
     const usedFeatures = [...new Set(value.used_features as string[])];
     const identifiers = usedFeatures.filter((name) => !supportedFeatures.has(name));
-    return identifiers.length > 0
-        ? { status: "unknown-features", identifiers }
-        : { status: "supported", usedFeatures };
+    return identifiers.length > 0 ? { status: "unknown-features", identifiers } : { status: "supported", usedFeatures };
 }
 
 export function describeRemoteFeatureRejection(assessment: RemoteFeatureAssessment): string {

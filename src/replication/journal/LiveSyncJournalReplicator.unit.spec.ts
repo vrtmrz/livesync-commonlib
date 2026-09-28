@@ -11,6 +11,8 @@ import { JournalSyncCore } from "./JournalSyncCore.ts";
 import { JournalStorageReadStatuses } from "./objectstore/JournalStorageAdapter.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase.ts";
 import { defaultLogger, setGlobalLogFunction } from "@lib/common/logger.ts";
+import { decryptString } from "@lib/encryption/stringEncryption.ts";
+import { computeKeyedId } from "@lib/common/idDerivation.ts";
 import {
     CENTRAL_COMPATIBILITY_REJECTION_REASONS,
     centralCompatibilityRejected,
@@ -206,6 +208,27 @@ describe("LiveSyncJournalReplicator replication compatibility state", () => {
         expect(replicator.tweakSettingsMismatched).toBe(false);
         expect(replicator.preferredTweakValue).toBeUndefined();
     });
+
+    it("rejects a keyed Journal from legacy mode even when tweak checks are disabled", async () => {
+        const { client, replicator, setting } = createConnectivityReplicator();
+        setting.disableCheckingConfigMismatch = true;
+        replicator.nodeid = "legacy-node";
+        const milestone = {
+            _id: "_00000000-milestone.json",
+            type: "milestoneinfo",
+            created: Date.now(),
+            locked: false,
+            accepted_nodes: ["keyed-node"],
+            node_chunk_info: { "keyed-node": { min: 3, max: 3, current: 3 } },
+            node_info: {},
+            tweak_values: { [DEVICE_ID_PREFERRED]: { idDerivationVersion: 1 } },
+        } as EntryMilestoneInfo;
+        client.downloadJsonWithResult.mockImplementation(async () => ({ status: "available", value: milestone }) as never);
+
+        await expect(replicator.checkReplicationConnectivity(false, false, false, setting, client as never)).resolves.toBe(
+            false
+        );
+    });
 });
 
 describe("LiveSyncJournalReplicator compatibility milestone", () => {
@@ -248,6 +271,41 @@ describe("LiveSyncJournalReplicator compatibility milestone", () => {
 
         expect(downloadJsonWithResult).toHaveBeenCalledWith("_00000000-milestone.json");
         expect(uploadJson).toHaveBeenCalledOnce();
+    });
+
+    it("encrypts the first ID proof and rejects a different key on the next connection", async () => {
+        const key = "ab".repeat(32);
+        const setting = {
+            ...DEFAULT_SETTINGS,
+            encrypt: true,
+            passphrase: "content-passphrase",
+            usePathObfuscation: true,
+            idDerivationVersion: 1,
+            idDerivationKey: key,
+        } as RemoteDBSettings;
+        const first = createReplicator({ status: "not-found" });
+        await expect(
+            first.replicator.ensureBucketIsCompatible("first-node", { min: 3, max: 3, current: 3 }, setting)
+        ).resolves.toBe("OK");
+        const milestone = first.uploadJson.mock.calls[0][1] as EntryMilestoneInfo;
+        expect(milestone.encrypted_id_derivation_proof).toBeTruthy();
+        expect(JSON.stringify(milestone)).not.toContain(key);
+        expect(await decryptString(milestone.encrypted_id_derivation_proof!, setting.passphrase)).toBe(
+            await computeKeyedId(key, "remote-agreement", "journal-milestone-v1")
+        );
+
+        const second = createReplicator({ status: "available", value: milestone });
+        await expect(
+            second.replicator.ensureBucketIsCompatible(
+                "second-node",
+                { min: 3, max: 3, current: 3 },
+                {
+                    ...setting,
+                    idDerivationKey: "cd".repeat(32),
+                }
+            )
+        ).resolves.toBe("ID_KEY_MISMATCH");
+        expect(second.uploadJson).not.toHaveBeenCalled();
     });
 
     it("does not initialise or write a compatibility milestone after an unavailable read", async () => {

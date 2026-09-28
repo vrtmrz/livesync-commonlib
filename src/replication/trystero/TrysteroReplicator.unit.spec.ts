@@ -99,6 +99,32 @@ function hasNotice(entries: Array<{ level?: number }>): boolean {
 }
 
 describe("TrysteroReplicator tweak compatibility", () => {
+    it("rejects a peer using a different independent ID key without sending the key", async () => {
+        const key = "ab".repeat(32);
+        const { replicator } = createReplicator({
+            passphrase: "same",
+            idDerivationVersion: 1,
+            idDerivationKey: key,
+        });
+        const { replicator: remote } = createReplicator({
+            passphrase: "same",
+            idDerivationVersion: 1,
+            idDerivationKey: "cd".repeat(32),
+        });
+        const localTweak = await replicator.getTweakSettings("challenge");
+        expect(JSON.stringify(localTweak)).not.toContain(key);
+        (replicator as any).server = {
+            knownAdvertisements: [{ peerId: "peer-id", platform: "test" }],
+            serverPeerId: "local-peer",
+            getConnection: vi.fn(() => ({
+                invokeRemoteObjectFunction: vi.fn(async (_name: string, args: string[]) =>
+                    remote.getTweakSettings(args[0])
+                ),
+            })),
+        };
+        await expect(replicator.checkTweakValues("peer-id")).resolves.toBe(false);
+    });
+
     it.each([
         [false, "matched"],
         [true, "mismatched"],
