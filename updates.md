@@ -1,5 +1,14 @@
 # Updates
 
+## 0.1.31
+
+28th September, 2026
+
+### Fixed
+
+- E2EE passphrases beginning with `%` are now encrypted before settings are saved, preventing plain-text storage and loss of the passphrase after a restart in Self-hosted LiveSync ([issue #1221](https://github.com/vrtmrz/obsidian-livesync/issues/1221)).
+    - On an already affected device, re-enter the passphrase used to encrypt its existing data after updating. An existing plain-text value cannot be safely treated as encrypted data.
+
 ## 0.1.30
 
 27th September, 2026
