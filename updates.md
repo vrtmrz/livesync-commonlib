@@ -1,5 +1,18 @@
 # Updates
 
+## 0.1.32-next.0
+
+28th September, 2026
+
+### Added
+
+- Setup URIs can now be generated for the current fixed seven-day UTC window. The generator returns the exact end time, and the reader uses the entered passphrase and its current window without storing a time or mode marker in the URI.
+- An explicit Persistent mode keeps the existing encrypted URI format and passphrase, so clients which already read that format can still open it.
+
+### Changed
+
+- The Setup URI reader tries both the current Ephemeral window and the original passphrase for encrypted URIs. An unreadable URI has one generic opening failure, whether its passphrase is wrong, its time window differs, or its ciphertext is damaged. This time condition does not revoke settings or credentials already imported.
+
 ## 0.1.31
 
 28th September, 2026

@@ -33,7 +33,7 @@ Before publication, run the downstream workflow against an exact Self-hosted Liv
 
 ## Preparing a release
 
-Choose the version explicitly. Use a prerelease such as `0.1.0-rc.0` when registry installation must be validated before the first stable version. Package-proof versions are local artefacts and cannot be staged.
+Choose the version explicitly. Prefer a `-next.N` prerelease, such as `0.1.32-next.0`, when registry installation must be validated before the stable version. Reserve `-rc.N` for an explicitly chosen release candidate. Package-proof versions are local artefacts and cannot be staged.
 
 Prepare both stable releases and pre-releases on a reviewed pull request based on `main`. A pre-release may be staged from the exact reviewed pull-request branch commit so that the registry artefact can be validated in Self-hosted LiveSync before the Commonlib change is merged. A stable release must be staged only after its exact reviewed release commit is present on `main`.
 

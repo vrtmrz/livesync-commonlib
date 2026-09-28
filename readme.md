@@ -33,6 +33,7 @@ The package is ESM-only and declares Node 20 or later. Browser entry points are 
 | `@vrtmrz/livesync-commonlib/rpc`                   | Existing LiveSync RPC and PouchDB bridge migration                                | Transitional only; not part of the stable Commonlib 1.0 contract                            |
 | `@vrtmrz/livesync-commonlib/remote-configurations` | Multiple-remote profile creation, naming, and selection                           | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/settings`              | New-Vault defaults, stored-setting fallbacks, and settings migration results      | Focused, package-tested pre-1.0 contract                                                    |
+| `@vrtmrz/livesync-commonlib/setup-uri`             | Encrypted Setup URI generation, availability, and import                          | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/compat/*`              | Exact legacy imports still required by existing clients                           | Migration-only; paths may be removed as consumers migrate                                   |
 | `@vrtmrz/livesync-commonlib/package.json`          | Package metadata for tooling                                                      | Metadata export, not a runtime API                                                          |
 
@@ -112,6 +113,10 @@ See [the standard-I/O contract](docs/platform-standard-io.md) for host compositi
 New-Vault recommendations are deliberately separate from the conservative values used to complete older stored settings. The focused settings entry also reports migrations and safety-review requirements without changing a user's synchronisation choices or persisting a device-local acknowledgement.
 
 See [the settings lifecycle guide](docs/settings-lifecycle.md) before initialising, importing, resetting, or migrating settings.
+
+## Setup URI sharing
+
+The focused Setup URI entry offers an Ephemeral mode bound to the current fixed seven-day window and a Persistent mode compatible with existing readers. Both use the same URI structure. See [the Setup URI sharing guide](docs/setup-uri.md) for the availability boundary, import behaviour, and compatibility limits.
 
 ## Remote connection profiles
 

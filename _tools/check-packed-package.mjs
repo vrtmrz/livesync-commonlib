@@ -375,6 +375,7 @@ const before = {
 const contextApi = await import("${packageName}/context");
 const rootApi = await import("${packageName}");
 const settingsApi = await import("${packageName}/settings");
+const setupUriApi = await import("${packageName}/setup-uri");
 const remoteConfigurationsApi = await import("${packageName}/remote-configurations");
 const p2pApi = await import("${packageName}/p2p");
 const replicationApi = await import("${packageName}/replication");
@@ -390,6 +391,9 @@ assert.equal(
     "increase to 800MB"
 );
 assert.equal(typeof rootApi.DirectFileManipulator, "function");
+assert.equal(typeof setupUriApi.encodeTimeBoundSetupURI, "function");
+assert.equal(typeof setupUriApi.getTimeBoundSetupURIUsableUntil, "function");
+assert.equal(typeof setupUriApi.isTimeBoundSetupURIUsableNow, "function");
 assert.equal(settingsApi.NEW_VAULT_SETTINGS.usePluginSyncV2, true);
 assert.equal(settingsApi.SETTINGS_SCHEMA_DEFAULTS.usePluginSyncV2, false);
 assert.equal(settingsApi.prepareSettingsForLoad(undefined).isNewVault, true);
@@ -615,10 +619,11 @@ assert.deepEqual(
         "./replication",
         "./rpc",
         "./settings",
+        "./setup-uri",
     ],
     "The focused package surface must remain explicit."
 );
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 10);
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 11);
 
 console.log(
     JSON.stringify(
