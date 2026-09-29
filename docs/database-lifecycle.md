@@ -42,9 +42,12 @@ Readiness is not one state. The current implementation exposes the following dis
 | `DatabaseEventService.onDatabaseInitialised()` | The wider initialisation path has completed its requested database-open and Vault-scan phases                                                                                    | That current batch waits have been released or that queued storage events have finished processing                                            |
 | `Rebuilder.finishRebuild()`                    | The owning fetch has staged reflection resumption and completed its final scan and replication pre-check when required, released the current batch waits, and persisted settings | That every buffered or follow-up file event has finished; it establishes application readiness only when all required phases succeed          |
 | `AppLifecycleService.isReady()`                | Ordinary initialisation or explicit rebuild completion has accepted every required phase through the current batch-wait release                                                  | Future remote availability or a full drain of every queued file operation                                                                     |
+| `EVENT_APPLICATION_READY`                      | `AppLifecycleService.markIsReady()` has changed `isReady()` to true, on the event channel of the service context                                                                 | That work held until readiness has continued; a host which holds such work resumes it from this event                                         |
 | `AppLifecycleService.onReady()`                | A host dispatches its plug-in or application lifecycle notification                                                                                                              | A change to `AppLifecycleService.isReady()`; the event and the boolean readiness flag are separate compatibility surfaces                     |
 
 `LiveSyncLocalDB.isReady` is cleared before an explicit close or reset, and by the PouchDB `close` event. `AppLifecycleService.isReady()` is cleared when ordinary initialisation or a local fetch or rebuild begins. It remains clear when opening the settings-selected database or any later required completion phase fails.
+
+`EVENT_APPLICATION_READY` is emitted only when `markIsReady()` changes the flag, after the flag is set, so every initialisation, fetch, or rebuild which establishes readiness emits it once. Clearing readiness emits nothing, and a fetch finalised in remediation mode emits nothing because it does not establish readiness. A host which holds work until the application is ready, such as applying received documents, can continue that work from this event; nothing else signals the transition, and `AppLifecycleService.onReady()` is a separate host notification.
 
 The ordinary `prepareDatabaseForUse()` sequence is:
 
@@ -58,7 +61,7 @@ The ordinary `prepareDatabaseForUse()` sequence is:
 8. restore stored storage-event operations when applicable, and scan the Vault;
 9. dispatch `onDatabaseInitialised()`;
 10. request release of current file-event batch waits; and
-11. set application readiness.
+11. set application readiness, which emits `EVENT_APPLICATION_READY`.
 
 The historical `commitPendingFileEvents()` name is stronger than its result contract. Its maintained handler releases the batch waits which exist when the call begins. It does not wait for every buffered event, already running file operation, or follow-up event to finish. Application readiness follows this existing call, which removes the premature-ready window without adding another scan or another I/O pass, but does not establish a full queue-drain guarantee.
 
