@@ -19,6 +19,7 @@ import { memorizeFuncWithLRUCache } from "@lib/common/utils.ts";
 import { uint8ArrayToHexString, writeString } from "./convert.ts";
 import { unique } from "octagonal-wheels/collection.js";
 import { CHeader, ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
+import { computeKeyedId } from "@lib/common/idDerivation.ts";
 // --- path utilities
 export function isValidFilenameInWidows(filename: string): boolean {
     // eslint-disable-next-line no-control-regex
@@ -88,7 +89,8 @@ function hashString(key: string) {
 export async function path2id_base(
     filenameSrc: FilePathWithPrefix | FilePath,
     obfuscatePassphrase: string | false,
-    caseInsensitive: boolean
+    caseInsensitive: boolean,
+    idDerivationKey?: string
 ): Promise<DocumentID> {
     if (filenameSrc.startsWith(PREFIX_OBFUSCATED)) return `${filenameSrc}` as DocumentID;
     let filename = `${filenameSrc}`;
@@ -108,9 +110,9 @@ export async function path2id_base(
     const [prefix, body] = expandFilePathPrefix(x as FilePathWithPrefix);
     // Already Hashed
     if (body.startsWith(PREFIX_OBFUSCATED)) return (newPrefix + x) as DocumentID;
-    const hashedPassphrase = await hashString(obfuscatePassphrase);
-    // Hash it!
-    const out = await hashString(`${hashedPassphrase}:${filename}`);
+    const out = idDerivationKey
+        ? await computeKeyedId(idDerivationKey, "document", filename)
+        : await hashString(`${await hashString(obfuscatePassphrase)}:${filename}`);
     return (prefix + newPrefix + out) as DocumentID;
 }
 

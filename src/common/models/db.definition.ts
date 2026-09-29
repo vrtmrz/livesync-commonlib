@@ -52,6 +52,7 @@ export interface EntryMilestoneInfo extends DatabaseEntry {
     cleaned?: boolean;
     node_chunk_info: { [key: NodeKey]: ChunkVersionRange };
     tweak_values: { [key: NodeKey]: TweakValues };
+    encrypted_id_derivation_proof?: string;
 }
 
 export interface EntryNodeInfo extends DatabaseEntry {

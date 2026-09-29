@@ -63,6 +63,7 @@ async function fixture() {
         pathService: pathService as unknown as EntryManagerOptions["pathService"],
         chunkManager: chunkManager as unknown as EntryManagerOptions["chunkManager"],
         hashManager: {
+            usesIndependentIdKey: () => false,
             computeHash: async (value: string) => createHash("sha256").update(value).digest("hex"),
         } as EntryManagerOptions["hashManager"],
         splitter: {

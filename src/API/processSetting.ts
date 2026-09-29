@@ -10,6 +10,7 @@ import {
 } from "@lib/common/types";
 import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
 import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
+import { configuredIdKey } from "@lib/common/idDerivation";
 
 /**
  * Encode settings to a tiny array to encode in QRCode,
@@ -18,6 +19,7 @@ import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
  */
 export function encodeSettingsToQRCodeData(settings: ObsidianLiveSyncSettings) {
     settings = omitP2PRuntimeSettings(settings) as ObsidianLiveSyncSettings;
+    configuredIdKey(settings);
     const fullIndexes = Object.entries(KeyIndexOfSettings) as [keyof ObsidianLiveSyncSettings, number][];
 
     // Find the maximum index to properly size the array
@@ -78,6 +80,7 @@ export function decodeSettingsFromQRCodeData(qr: string): ObsidianLiveSyncSettin
         );
     }
 
+    configuredIdKey(newSettings);
     return omitP2PRuntimeSettings(newSettings) as ObsidianLiveSyncSettings;
 }
 
@@ -195,6 +198,7 @@ const necessaryErasureProperties: ErasureProperties[] = [
     "configPassphraseStore",
     "encryptedCouchDBConnection",
     "encryptedPassphrase",
+    "encryptedIdDerivationKey",
 ];
 
 /**
@@ -216,6 +220,10 @@ export async function encodeSettingsToSetupURI(
     const setting: Partial<ObsidianLiveSyncSettings> = {
         ...omitP2PRuntimeSettings(settingString),
     };
+    configuredIdKey({
+        idDerivationVersion: setting.idDerivationVersion ?? 0,
+        idDerivationKey: setting.idDerivationKey ?? "",
+    });
     delete setting.P2P_managedType;
     delete setting.P2P_managedId;
     delete setting.P2P_managedToken;
@@ -301,12 +309,15 @@ export async function decodeSettingsFromSetupURI(uri: string, passphrase: string
     }
     try {
         const imported = JSON.parse(decrypted) as ObsidianLiveSyncSettings;
-        return omitP2PRuntimeSettings({
+        const settings = {
             ...imported,
-            encryptInternalMetadata: typeof imported.encryptInternalMetadata === "boolean"
-                ? imported.encryptInternalMetadata
-                : false,
-        });
+            encryptInternalMetadata:
+                typeof imported.encryptInternalMetadata === "boolean" ? imported.encryptInternalMetadata : false,
+            idDerivationVersion: imported.idDerivationVersion ?? 0,
+            idDerivationKey: imported.idDerivationKey ?? "",
+        };
+        configuredIdKey(settings);
+        return omitP2PRuntimeSettings(settings);
     } catch {
         // JSON parsing errors can include decrypted credentials in their message.
         Logger(`Failed to parse settings from decrypted data`, LOG_LEVEL_NOTICE);

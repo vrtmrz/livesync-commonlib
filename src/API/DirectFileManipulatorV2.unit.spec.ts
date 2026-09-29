@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
 
-import { VERSIONING_DOCID, type FilePath } from "@lib/common/types.ts";
+import { VERSIONING_DOCID, type FilePath, type RemoteDBSettings } from "@lib/common/types.ts";
 import { path2id_base } from "@lib/string_and_binary/path.ts";
 import type { HeadlessDatabaseService } from "@lib/services/implements/headless/HeadlessDatabaseService.ts";
 import { ServiceContext } from "@lib/services/base/ServiceBase.ts";
+import { PathServiceCompat } from "@lib/services/implements/injectable/InjectablePathService.ts";
+import type { ISettingService } from "@lib/services/base/IService.ts";
 
 const loggerCalls = vi.hoisted(() => vi.fn());
 const pouchDBCalls = vi.hoisted(
@@ -61,6 +63,60 @@ describe("DirectFileManipulator", () => {
         await expect(ready.promise).rejects.toThrow("Direct database version or features are not compatible.");
         expect(refreshSettings).not.toHaveBeenCalled();
     });
+
+    it.each([
+        { idDerivationVersion: 1 as const, idDerivationKey: "ab".repeat(32) },
+        { idDerivationVersion: 0 as const, idDerivationKey: "" },
+    ])(
+        "rejects a different remote document ID before declaring the feature (local version: $idDerivationVersion)",
+        async (idSettings) => {
+            const ready = promiseWithResolvers<void>();
+            const refreshSettings = vi.fn();
+            const wrongId = await path2id_base("note.md" as FilePath, "secret", true, "cd".repeat(32));
+            const db = {
+                allDocs: vi.fn().mockResolvedValue({ rows: [{ id: wrongId }] }),
+                get: vi.fn(async (id: string) =>
+                    id === VERSIONING_DOCID
+                        ? {
+                              _id: VERSIONING_DOCID,
+                              type: "versioninfo",
+                              version: 13,
+                              used_features: ["independent-id-derivation-v1"],
+                          }
+                        : { _id: wrongId, type: "plain", path: "note.md" }
+                ),
+                put: vi.fn(),
+            };
+            const settings = {
+                encrypt: true,
+                passphrase: "secret",
+                usePathObfuscation: true,
+                handleFilenameCaseSensitive: false,
+                ...idSettings,
+            } as RemoteDBSettings;
+            const path = new PathServiceCompat(new ServiceContext(), {
+                settingService: { currentSettings: () => settings } as ISettingService,
+            });
+            const manipulator = {
+                services: { appLifecycle: { onReady: vi.fn().mockResolvedValue(undefined) }, path },
+                options: { obfuscatePassphrase: "secret" },
+                settings,
+                liveSyncLocalDB: {
+                    initializeDatabase: vi.fn().mockResolvedValue(true),
+                    localDatabase: db,
+                    refreshSettings,
+                },
+                ready,
+            } as unknown as DirectFileManipulator;
+
+            await DirectFileManipulator.prototype.init.call(manipulator);
+            await expect(ready.promise).rejects.toThrow(
+                "Direct database document IDs do not match the configured ID key."
+            );
+            expect(db.put).not.toHaveBeenCalled();
+            expect(refreshSettings).not.toHaveBeenCalled();
+        }
+    );
 
     it("reports initialisation failures through the ready promise", async () => {
         const failure = new Error("CouchDB initialisation failed");

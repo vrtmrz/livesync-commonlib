@@ -9,6 +9,8 @@ export const EVENT_FILE_SAVED = "file-saved";
 export const EVENT_LEAF_ACTIVE_CHANGED = "leaf-active-changed";
 
 export const EVENT_DATABASE_REBUILT = "database-rebuilt";
+/** Emitted by `AppLifecycleService.markIsReady()` each time it establishes application readiness. */
+export const EVENT_APPLICATION_READY = "application-ready";
 
 export const EVENT_LOG_ADDED = "log-added";
 
@@ -45,6 +47,7 @@ declare global {
         [EVENT_FILE_RENAMED]: { newPath: FilePathWithPrefix; old: FilePathWithPrefix };
 
         [EVENT_DATABASE_REBUILT]: undefined;
+        [EVENT_APPLICATION_READY]: undefined;
         [EVENT_REQUEST_OPEN_P2P_SETTINGS]: undefined;
         [EVENT_LEAF_ACTIVE_CHANGED]: undefined;
         [EVENT_REQUEST_OPEN_SETUP_URI]: undefined;

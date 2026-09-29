@@ -1,3 +1,4 @@
+import { EVENT_APPLICATION_READY } from "@lib/events/coreEvents";
 import { handlers } from "@lib/services/lib/HandlerUtils";
 import type { IAppLifecycleService, ISettingService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
@@ -156,9 +157,13 @@ export abstract class AppLifecycleService<T extends ServiceContext = ServiceCont
 
     /**
      * Mark the plug-in as ready.
+     * Establishing readiness emits `EVENT_APPLICATION_READY` on the context's event channel, so a host can
+     * continue work it held while the plug-in was not ready. Marking a plug-in which is already ready emits nothing.
      */
     markIsReady(): void {
+        if (this._isReady) return;
         this._isReady = true;
+        this.context.events.emitEvent(EVENT_APPLICATION_READY);
     }
 
     /**
