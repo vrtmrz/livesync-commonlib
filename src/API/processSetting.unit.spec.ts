@@ -3,6 +3,9 @@ import {
     decodeSettingsFromSetupURI,
     encodeSettingsToQRCodeData,
     encodeSettingsToSetupURI,
+    encodeTimeBoundSetupURI,
+    getTimeBoundSetupURIUsableUntil,
+    isTimeBoundSetupURIUsableNow,
     decodeSettingsFromQRCodeData,
 } from "@lib/API/processSetting";
 import { configURIBase, DEFAULT_SETTINGS } from "@lib/common/types";
@@ -322,5 +325,118 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
         await expect(decodeSettingsFromSetupURI(`${configURIBase}not-encrypted`, "setup-pass")).rejects.toThrow(
             "Unsupported encryption format"
         );
+    });
+});
+
+describe("Time-bound Setup URI compatibility", () => {
+    const settings = {
+        ...DEFAULT_SETTINGS,
+        isConfigured: true,
+        couchDB_URI: "https://example.invalid",
+        couchDB_PASSWORD: "synthetic-secret",
+    };
+    const passphrase = "setup-pass";
+    const createdAt = Date.parse("2026-09-28T12:00:00Z");
+    const endOfWindow = Date.parse("2026-10-01T00:00:00Z");
+
+    it("reports the exact end of the window before generation", () => {
+        const clock = vi.spyOn(Date, "now").mockReturnValue(createdAt);
+        try {
+            expect(getTimeBoundSetupURIUsableUntil()).toBe(endOfWindow);
+            clock.mockReturnValue(endOfWindow);
+            expect(getTimeBoundSetupURIUsableUntil()).toBe(endOfWindow + 604_800_000);
+            clock.mockReturnValue(Number.NaN);
+            expect(getTimeBoundSetupURIUsableUntil).toThrow("Invalid Setup URI clock");
+        } finally {
+            clock.mockRestore();
+        }
+    });
+
+    it("makes Persistent readable by the existing passphrase and wire format", async () => {
+        const generated = await encodeTimeBoundSetupURI(settings, passphrase, { mode: "persistent" });
+
+        expect(generated.usableUntil).toBeNull();
+        const encrypted = decodeURIComponent(generated.uri.trim().slice(configURIBase.length));
+        expect(encrypted.startsWith("%$")).toBe(true);
+        const oldReaderSettings = JSON.parse(await decryptString(encrypted, passphrase));
+        expect(oldReaderSettings.couchDB_PASSWORD).toBe(settings.couchDB_PASSWORD);
+    });
+
+    it("opens Ephemeral only within its fixed UTC window", async () => {
+        const clock = vi.spyOn(Date, "now").mockReturnValue(createdAt);
+        try {
+            const generated = await encodeTimeBoundSetupURI(settings, passphrase, { mode: "ephemeral" });
+            expect(generated.usableUntil).toBe(endOfWindow);
+            expect(isTimeBoundSetupURIUsableNow(generated.usableUntil)).toBe(true);
+            const encrypted = decodeURIComponent(generated.uri.trim().slice(configURIBase.length));
+            expect(encrypted.startsWith("%$")).toBe(true);
+            await expect(decryptString(encrypted, passphrase)).rejects.toThrow();
+            expect((await decodeSettingsFromSetupURI(generated.uri.trim(), passphrase)).couchDB_PASSWORD).toBe(
+                settings.couchDB_PASSWORD
+            );
+
+            clock.mockReturnValue(endOfWindow);
+            expect(isTimeBoundSetupURIUsableNow(generated.usableUntil)).toBe(false);
+            await expect(decodeSettingsFromSetupURI(generated.uri.trim(), passphrase)).rejects.toThrow();
+            clock.mockReturnValue(createdAt - 604_800_000);
+            expect(isTimeBoundSetupURIUsableNow(generated.usableUntil)).toBe(false);
+        } finally {
+            clock.mockRestore();
+        }
+    });
+
+    it("keeps existing URIs readable in the updated reader", async () => {
+        const legacy = await encodeSettingsToSetupURI(settings, passphrase);
+        const clock = vi.spyOn(Date, "now").mockReturnValue(endOfWindow + 100 * 604_800_000);
+        try {
+            const decoded = await decodeSettingsFromSetupURI(legacy.trim(), passphrase);
+            expect(decoded.couchDB_PASSWORD).toBe(settings.couchDB_PASSWORD);
+        } finally {
+            clock.mockRestore();
+        }
+    });
+
+    it("keeps Persistent readable when the device clock is invalid", async () => {
+        const clock = vi.spyOn(Date, "now").mockReturnValue(Number.NaN);
+        try {
+            const generated = await encodeTimeBoundSetupURI(settings, passphrase, { mode: "persistent" });
+            expect(isTimeBoundSetupURIUsableNow(generated.usableUntil)).toBe(true);
+            const decoded = await decodeSettingsFromSetupURI(generated.uri.trim(), passphrase);
+            expect(decoded.couchDB_PASSWORD).toBe(settings.couchDB_PASSWORD);
+        } finally {
+            clock.mockRestore();
+        }
+    });
+
+    it("uses the specified full-length Ephemeral passphrase derivation", async () => {
+        const window = 1_234;
+        const clock = vi.spyOn(Date, "now").mockReturnValue(window * 604_800_000 + 1);
+        try {
+            const generated = await encodeTimeBoundSetupURI(settings, "test-passphrase");
+            const encrypted = decodeURIComponent(generated.uri.trim().slice(configURIBase.length));
+            const payload = await decryptString(
+                encrypted,
+                "b39361c51f0b7bd835554db1dffbc9a540fb30789aa62bf53e39e07d1073013b"
+            );
+            expect(JSON.parse(payload).couchDB_PASSWORD).toBe(settings.couchDB_PASSWORD);
+        } finally {
+            clock.mockRestore();
+        }
+    });
+
+    it("returns one generic opening failure for a wrong passphrase or an old window", async () => {
+        const clock = vi.spyOn(Date, "now").mockReturnValue(createdAt);
+        try {
+            const generated = await encodeTimeBoundSetupURI(settings, passphrase);
+            await expect(decodeSettingsFromSetupURI(generated.uri.trim(), "wrong-passphrase")).rejects.toThrow(
+                "Cannot open Setup URI"
+            );
+            clock.mockReturnValue(endOfWindow);
+            await expect(decodeSettingsFromSetupURI(generated.uri.trim(), passphrase)).rejects.toThrow(
+                "Cannot open Setup URI"
+            );
+        } finally {
+            clock.mockRestore();
+        }
     });
 });

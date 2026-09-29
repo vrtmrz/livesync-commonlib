@@ -183,6 +183,7 @@ function createExports() {
         "./rpc": exportTarget("rpc/index"),
         "./remote-configurations": exportTarget("remoteConfigurations"),
         "./settings": exportTarget("settings"),
+        "./setup-uri": exportTarget("setupUri"),
     };
     for (const sourcePath of inventory.compatibility) {
         exports[`./compat/${sourcePath}`] =
@@ -275,6 +276,7 @@ async function copyStaticFiles() {
         "releasing.md",
         "service-feature-composition.md",
         "settings-lifecycle.md",
+        "setup-uri.md",
         "storage-events-and-reflection.md",
     ]) {
         await cp(resolve(root, "docs", document), resolve(packageDirectory, "docs", document));
