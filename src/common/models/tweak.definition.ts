@@ -26,6 +26,7 @@ export const TweakCompatibilityRules = Object.freeze([
     { key: "longLineThreshold", templateValue: 250, reconstruction: "none" },
     { key: "encrypt", templateValue: false, reconstruction: "required" },
     { key: "usePathObfuscation", templateValue: false, reconstruction: "required" },
+    { key: "idDerivationVersion", templateValue: 0, reconstruction: "required", knownDefault: 0 },
     { key: "encryptInternalMetadata", templateValue: false, reconstruction: "none", knownDefault: false },
     { key: "enableCompression", templateValue: false, reconstruction: "none" },
     { key: "useEden", templateValue: false, reconstruction: "none" },
@@ -134,9 +135,9 @@ export const TweakValuesRecommendedTemplate: Partial<ObsidianLiveSyncSettings> =
 } satisfies Partial<ObsidianLiveSyncSettings>;
 export const TweakValuesDefault: Partial<ObsidianLiveSyncSettings> = {
     ...Object.fromEntries(
-        TweakCompatibilityRules.filter((rule) => "knownDefault" in rule && rule.key !== "handleFilenameCaseSensitive").map(
-            ({ key, knownDefault }) => [key, knownDefault]
-        )
+        TweakCompatibilityRules.filter(
+            (rule) => "knownDefault" in rule && rule.key !== "handleFilenameCaseSensitive"
+        ).map(({ key, knownDefault }) => [key, knownDefault])
     ),
     tweakModified: DEFAULT_SETTINGS.tweakModified,
 } satisfies Partial<ObsidianLiveSyncSettings>;

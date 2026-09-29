@@ -26,6 +26,8 @@ import type { SimpleStore } from "@lib/common/utils.ts";
 import { getEffectiveTweakValues } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 import { JournalStorageReadStatuses } from "./objectstore/JournalStorageAdapter.ts";
+import { computeKeyedId, configuredIdKey } from "@lib/common/idDerivation.ts";
+import { decryptString, encryptString } from "@lib/encryption/stringEncryption.ts";
 import {
     CENTRAL_COMPATIBILITY_ACCEPTED,
     CENTRAL_COMPATIBILITY_NOT_ASSESSED,
@@ -58,6 +60,12 @@ const currentVersionRange: ChunkVersionRange = {
     max: 2,
     current: 2,
 };
+
+function journalVersionRange(setting: RemoteDBSettings): ChunkVersionRange {
+    return configuredIdKey(setting) && setting.encrypt && setting.usePathObfuscation
+        ? { min: 3, max: 3, current: 3 }
+        : currentVersionRange;
+}
 
 export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     declare env: LiveSyncJournalReplicatorEnv;
@@ -113,6 +121,31 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         }
         const downloadedMilestone =
             milestoneResult.status === JournalStorageReadStatuses.AVAILABLE ? milestoneResult.value : false;
+        const idKey = configuredIdKey(setting);
+        let encryptedProof: string | undefined;
+        const preferredTweak = downloadedMilestone && downloadedMilestone.tweak_values?.[DEVICE_ID_PREFERRED];
+        if (
+            preferredTweak?.idDerivationVersion === 1 &&
+            preferredTweak.usePathObfuscation === true &&
+            (!idKey || !setting.encrypt || !setting.usePathObfuscation)
+        ) {
+            return "ID_KEY_MISMATCH";
+        }
+        if (idKey && setting.encrypt && setting.usePathObfuscation) {
+            const expected = await computeKeyedId(idKey, "remote-agreement", "journal-milestone-v1");
+            const stored = downloadedMilestone && downloadedMilestone.encrypted_id_derivation_proof;
+            if (stored) {
+                try {
+                    if ((await decryptString(stored, setting.passphrase)) !== expected) return "ID_KEY_MISMATCH";
+                } catch {
+                    return "ID_KEY_MISMATCH";
+                }
+            } else if (downloadedMilestone) {
+                return "ID_KEY_MISMATCH";
+            } else {
+                encryptedProof = await encryptString(expected, setting.passphrase);
+            }
+        }
         const cPointInfo = await client.getCheckpointInfo();
         const progress = [...(cPointInfo?.receivedFiles || [])].sort().pop() || "";
         return await ensureRemoteIsCompatible(
@@ -128,6 +161,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                 progress: progress,
             },
             async (info) => {
+                if (encryptedProof) info.encrypted_id_derivation_proof = encryptedProof;
                 if (!(await client.uploadJson(MILSTONE_DOCID, info))) {
                     throw new Error("Could not upload remote milestone");
                 }
@@ -355,7 +389,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             let tweakAssessment: TweakAssessment | undefined;
             const ensure = await this.ensureBucketIsCompatible(
                 this.nodeid,
-                currentVersionRange,
+                journalVersionRange(setting),
                 setting,
                 client,
                 (assessment) => {
@@ -370,6 +404,12 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                     "The remote database has no compatibility with the running version. Please upgrade the plugin.",
                     LOG_LEVEL_NOTICE
                 );
+                return false;
+            } else if (ensure == "ID_KEY_MISMATCH") {
+                recordCompatibilityDecision?.(
+                    centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.ID_DERIVATION_MISMATCH)
+                );
+                Logger("The remote ID derivation key does not match this device.", LOG_LEVEL_NOTICE);
                 return false;
             } else if (ensure == "NODE_LOCKED") {
                 recordCompatibilityDecision?.(
@@ -459,6 +499,14 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         }
         return await Promise.resolve();
     }
+
+    private async createInitialIdDerivationProof(setting: RemoteDBSettings): Promise<string | undefined> {
+        const idKey = configuredIdKey(setting);
+        if (!idKey || !setting.encrypt || !setting.usePathObfuscation) return undefined;
+        const proof = await computeKeyedId(idKey, "remote-agreement", "journal-milestone-v1");
+        return await encryptString(proof, setting.passphrase);
+    }
+
     async markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean) {
         const defInitPoint: EntryMilestoneInfo = {
             _id: MILSTONE_DOCID as DocumentID,
@@ -467,15 +515,18 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             locked: locked,
             cleaned: lockByClean,
             accepted_nodes: [this.nodeid],
-            node_chunk_info: { [this.nodeid]: currentVersionRange },
+            node_chunk_info: { [this.nodeid]: journalVersionRange(setting) },
             node_info: {},
             tweak_values: {},
         };
 
         const client = this.setupJournalSyncClient(setting);
+        const existingMilestone = await readRemoteMilestone(client);
+        const initialProof = existingMilestone ? undefined : await this.createInitialIdDerivationProof(setting);
         const remoteMilestone: EntryMilestoneInfo = {
             ...defInitPoint,
-            ...((await readRemoteMilestone(client)) ?? {}),
+            ...(existingMilestone ?? {}),
+            ...(initialProof ? { encrypted_id_derivation_proof: initialProof } : {}),
         };
         remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
         remoteMilestone.accepted_nodes = [this.nodeid];
@@ -497,15 +548,18 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             created: Date.now(),
             locked: false,
             accepted_nodes: [this.nodeid],
-            node_chunk_info: { [this.nodeid]: currentVersionRange },
+            node_chunk_info: { [this.nodeid]: journalVersionRange(setting) },
             node_info: {},
             tweak_values: {},
         };
 
         const client = this.setupJournalSyncClient(setting);
+        const existingMilestone = await readRemoteMilestone(client);
+        const initialProof = existingMilestone ? undefined : await this.createInitialIdDerivationProof(setting);
         const remoteMilestone: EntryMilestoneInfo = {
             ...defInitPoint,
-            ...((await readRemoteMilestone(client)) ?? {}),
+            ...(existingMilestone ?? {}),
+            ...(initialProof ? { encrypted_id_derivation_proof: initialProof } : {}),
         };
         remoteMilestone.node_chunk_info = { ...defInitPoint.node_chunk_info, ...remoteMilestone.node_chunk_info };
         remoteMilestone.accepted_nodes = Array.from(new Set([...remoteMilestone.accepted_nodes, this.nodeid]));

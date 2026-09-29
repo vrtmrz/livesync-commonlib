@@ -41,6 +41,22 @@ const generateHashManager = (settings: RemoteDBSettings) => {
 };
 
 describe("HashManager", () => {
+    it("keeps encrypted Chunk IDs stable when only the E2EE passphrase changes", async () => {
+        const settings = {
+            ...DEFAULT_SETTINGS,
+            encrypt: true,
+            passphrase: "first E2EE passphrase",
+            idDerivationVersion: 1 as const,
+            idDerivationKey: "f3205cc41d24116d8c2484993c9d9a2e667373af338ba02f2ee71199adb82f2e",
+        };
+        const manager = generateHashManager(settings);
+        await manager.initialise();
+        const first = await manager.computeHash("sample chunk");
+        expect(first).toBe("+c277e863054a30ef61beed1a3165b999a093d73e8282859cd6d0a6e61c95dfdf");
+        settings.passphrase = "second E2EE passphrase";
+        expect(await manager.computeHash("sample chunk")).toBe(first);
+    });
+
     describe.each(Object.values(HashAlgorithms))("HashManager for %s", (hashAlg) => {
         let manager: HashManager;
         let managerWithEncryption: HashManager;

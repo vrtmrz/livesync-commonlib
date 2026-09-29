@@ -4,12 +4,14 @@ import type {
     FilePathWithPrefix,
     FilePath,
     AnyEntry,
+    RemoteDBSettings,
     UXFileInfo,
     UXFileInfoStub,
 } from "@lib/common/types";
 import type { IPathService, ISettingService } from "./IService";
 import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { addPrefix, expandFilePathPrefix, id2path_base, path2id_base } from "@lib/string_and_binary/path";
+import { configuredIdKey } from "@lib/common/idDerivation.ts";
 import { isInternalMetadata, stripInternalMetadataPrefix } from "@lib/common/typeUtils";
 import type { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 
@@ -48,12 +50,13 @@ export abstract class PathService<T extends ServiceContext = ServiceContext>
     private async _path2id(
         filename: FilePathWithPrefix | FilePath,
         obfuscatePassphrase: string | false,
-        caseInsensitive: boolean
+        caseInsensitive: boolean,
+        idDerivationKey?: string
     ): Promise<DocumentID> {
         const [prefix, path] = expandFilePathPrefix(filename);
         const fixedPath = (prefix + this.normalizePath(path)) as FilePathWithPrefix;
 
-        const out = await path2id_base(fixedPath, obfuscatePassphrase, caseInsensitive);
+        const out = await path2id_base(fixedPath, obfuscatePassphrase, caseInsensitive, idDerivationKey);
         return out;
     }
     /**
@@ -78,15 +81,31 @@ export abstract class PathService<T extends ServiceContext = ServiceContext>
      * @param prefix The prefix to use for the document ID.
      */
     async path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID> {
+        return this.path2idWithSettings(filename, this.settings, prefix);
+    }
+
+    /** Convert a path using the caller's settings snapshot and this host's path normalisation. */
+    async path2idWithSettings(
+        filename: FilePathWithPrefix | FilePath,
+        setting: Pick<
+            RemoteDBSettings,
+            | "encrypt"
+            | "usePathObfuscation"
+            | "passphrase"
+            | "handleFilenameCaseSensitive"
+            | "idDerivationVersion"
+            | "idDerivationKey"
+        >,
+        prefix?: string
+    ): Promise<DocumentID> {
         const destPath = addPrefix(filename, prefix ?? "");
-        const setting = this.settings;
         const pathObfuscationPassphrase =
-            this.getPathObfuscationPassphrase?.() ??
-            (setting.usePathObfuscation ? setting.passphrase : false);
+            this.getPathObfuscationPassphrase?.() ?? (setting.usePathObfuscation ? setting.passphrase : false);
         return await this._path2id(
             destPath,
             pathObfuscationPassphrase,
-            !setting.handleFilenameCaseSensitive
+            !setting.handleFilenameCaseSensitive,
+            (setting.encrypt && configuredIdKey(setting)) || undefined
         );
     }
 

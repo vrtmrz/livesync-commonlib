@@ -116,7 +116,8 @@ function transition(
         const shouldFillMissingTarget = !targetAdvertised && sourceAdvertised;
         if (source.effectiveValue === undefined || (!effectiveValueDiffers && !shouldFillMissingTarget)) continue;
 
-        changes[entry.key] = source.effectiveValue;
+        // ID versions describe compatibility; adopting one requires the separately shared key.
+        if (entry.key !== "idDerivationVersion") changes[entry.key] = source.effectiveValue;
         if (entry.relation === "equal") continue;
 
         const effect = reconstructionForTransition(entry.key, target.effectiveValue, source.effectiveValue);
@@ -144,6 +145,9 @@ export function assessTweakCompatibility(
     const currentValues = snapshotTweakValues(current);
     const preferredValues = snapshotTweakValues(preferred);
     let representationDiffers = false;
+    const currentUsesKeyedDocumentIds = currentValues.encrypt !== false && currentValues.usePathObfuscation !== false;
+    const preferredUsesKeyedDocumentIds =
+        preferredValues.encrypt !== false && preferredValues.usePathObfuscation !== false;
 
     const entries = TweakCompatibilityRules.map((rule): TweakAssessmentEntry => {
         const knownDefault = "knownDefault" in rule ? rule.knownDefault : undefined;
@@ -152,7 +156,9 @@ export function assessTweakCompatibility(
         const currentAdvertised = currentValue.present && currentValue.rawValue !== undefined;
         const preferredAdvertised = preferredValue.present && preferredValue.rawValue !== undefined;
         let relation: TweakAssessmentRelation;
-        if ((!currentAdvertised || !preferredAdvertised) && knownDefault === undefined) {
+        if (rule.key === "idDerivationVersion" && !currentUsesKeyedDocumentIds && !preferredUsesKeyedDocumentIds) {
+            relation = "equal";
+        } else if ((!currentAdvertised || !preferredAdvertised) && knownDefault === undefined) {
             relation = "unadvertised";
         } else {
             relation = currentValue.effectiveValue === preferredValue.effectiveValue ? "equal" : "different";

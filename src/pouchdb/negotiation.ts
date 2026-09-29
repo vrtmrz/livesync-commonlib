@@ -11,7 +11,7 @@ import { isErrorOfMissingDoc } from "./utils_couchdb";
 import {
     assessRemoteFeatureDocument,
     describeRemoteFeatureRejection,
-    ENCRYPTED_INTERNAL_METADATA_FEATURE,
+    supportedFeatures,
     REMOTE_FEATURE_GENERATION,
 } from "./remoteFeatureCompatibility";
 
@@ -28,19 +28,23 @@ export const checkRemoteVersion = async (
             if (assessment.version >= barrier) return true;
             if (!(await migrate(assessment.version, barrier))) return false;
             if (!(await bumpRemoteVersion(db, barrier))) return false;
-            return requiredFeatures.length === 0 || await declareRemoteFeatures(db, requiredFeatures);
+            return requiredFeatures.length === 0 || (await declareRemoteFeatures(db, requiredFeatures));
         }
         if (assessment.status !== "supported") {
             Logger(describeRemoteFeatureRejection(assessment), LOG_LEVEL_NOTICE);
             return false;
         }
         if (versionInfo.version < barrier) return false;
-        return requiredFeatures.length === 0 || await declareRemoteFeatures(db, requiredFeatures);
+        return requiredFeatures.length === 0 || (await declareRemoteFeatures(db, requiredFeatures));
     } catch (ex) {
         if (isErrorOfMissingDoc(ex)) {
             const info = await db.info();
             if (info.doc_count > 0) return false;
-            return await bumpRemoteVersion(db, requiredFeatures.length ? REMOTE_FEATURE_GENERATION : VER, requiredFeatures);
+            return await bumpRemoteVersion(
+                db,
+                requiredFeatures.length ? REMOTE_FEATURE_GENERATION : VER,
+                requiredFeatures
+            );
         }
         throw ex;
     }
@@ -64,7 +68,7 @@ export const bumpRemoteVersion = async (
                 return false;
             }
             if (current.version >= barrier) {
-                return usedFeatures.length === 0 || await declareRemoteFeatures(db, usedFeatures);
+                return usedFeatures.length === 0 || (await declareRemoteFeatures(db, usedFeatures));
             }
         }
         const next: EntryVersionInfo = {
@@ -86,9 +90,12 @@ export const bumpRemoteVersion = async (
     return false;
 };
 
-export async function declareRemoteFeatures(db: PouchDB.Database, requiredFeatures: readonly string[]): Promise<boolean> {
+export async function declareRemoteFeatures(
+    db: PouchDB.Database,
+    requiredFeatures: readonly string[]
+): Promise<boolean> {
     const requested = [...new Set(requiredFeatures)];
-    if (requested.some((name) => name !== ENCRYPTED_INTERNAL_METADATA_FEATURE)) {
+    if (requested.some((name) => !supportedFeatures.has(name))) {
         throw new Error("A writer requested an unsupported remote feature.");
     }
     if (requested.length === 0) return true;
