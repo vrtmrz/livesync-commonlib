@@ -59,6 +59,8 @@ export class LiveSyncManagers {
 
     async teardownManagers() {
         this.log("Teardown LiveSync Managers...", LOG_LEVEL_VERBOSE);
+        this.hashManager?.clearCaches();
+        this.entryManager?.hashManager?.clearCaches();
         if (this.changeManager) {
             this.changeManager.teardown();
             this.changeManager = undefined!;
@@ -151,9 +153,13 @@ export class LiveSyncManagers {
 
     clearCaches() {
         this.chunkManager?.clearCaches();
+        this.hashManager?.clearCaches();
+        this.entryManager?.hashManager?.clearCaches();
     }
 
     async prepareHashFunction() {
+        this.hashManager?.clearCaches();
+        this.entryManager?.hashManager?.clearCaches();
         this.hashManager = new HashManager({
             settingService: this.options.settingService,
         });

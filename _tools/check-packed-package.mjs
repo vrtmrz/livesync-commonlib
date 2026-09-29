@@ -69,6 +69,10 @@ const packed = JSON.parse(
 assert.equal(packed.name, packageName);
 assert.ok(packed.size > 0, "The packed package must not be empty.");
 const generatedManifest = JSON.parse(await readFile(resolve(packageDirectory, "package.json"), "utf8"));
+assert.ok(
+    Object.hasOwn(generatedManifest.exports, "./hashing"),
+    "Chunk hashing must be available through the focused hashing entry."
+);
 const declaredBinTargets = new Set(
     (typeof generatedManifest.bin === "string"
         ? [generatedManifest.bin]
@@ -225,6 +229,7 @@ import {
     type CreateFileSystemAccessStorageOptions,
 } from "${packageName}/browser";
 import { splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
+import { HashManager, type HashManagerCoreOptions } from "${packageName}/hashing";
 import {
     NEW_VAULT_SETTINGS,
     SETTINGS_SCHEMA_DEFAULTS,
@@ -320,6 +325,10 @@ const readP2PPeerConnectionMetrics = (
     peerId: string
 ): Promise<P2PPeerConnectionMetrics | undefined> => diagnostics.getPeerConnectionMetrics(peerId);
 const readP2PCompatibilityReplicator = (result: UseP2PReplicatorResult) => result.replicator;
+const createHashManager = (options: HashManagerCoreOptions): HashManager => new HashManager(options);
+const computeChunkHash = (manager: HashManager, value: string): Promise<string> => manager.computeHash(value);
+void createHashManager;
+void computeChunkHash;
 void context;
 void contextContract;
 void untranslated;
@@ -375,6 +384,7 @@ const before = {
 const contextApi = await import("${packageName}/context");
 const rootApi = await import("${packageName}");
 const settingsApi = await import("${packageName}/settings");
+const hashingApi = await import("${packageName}/hashing");
 const setupUriApi = await import("${packageName}/setup-uri");
 const remoteConfigurationsApi = await import("${packageName}/remote-configurations");
 const p2pApi = await import("${packageName}/p2p");
@@ -391,6 +401,22 @@ assert.equal(
     "increase to 800MB"
 );
 assert.equal(typeof rootApi.DirectFileManipulator, "function");
+assert.deepEqual(Object.keys(hashingApi), ["HashManager"]);
+const hashSettings = {
+    ...settingsApi.DEFAULT_SETTINGS,
+    encrypt: true,
+    passphrase: "test",
+    hashAlg: "xxhash64",
+    idDerivationVersion: 1,
+    idDerivationKey: "ab".repeat(32),
+};
+const hashManager = new hashingApi.HashManager({ settingService: { currentSettings: () => hashSettings } });
+assert.equal(await hashManager.initialise(), true);
+assert.equal(
+    await hashManager.computeHash("r".repeat(256)),
+    "+9223e53d99e80c29effee9e95e38ed168d13c14f717054f9e996a1cd0a597000"
+);
+hashManager.clearCaches();
 assert.equal(typeof setupUriApi.encodeTimeBoundSetupURI, "function");
 assert.equal(typeof setupUriApi.getTimeBoundSetupURIUsableUntil, "function");
 assert.equal(typeof setupUriApi.isTimeBoundSetupURIUsableNow, "function");
@@ -478,6 +504,11 @@ void storage;
 `
 );
 await writeConsumerFile(
+    "browser-hashing.ts",
+    `export { HashManager } from "${packageName}/hashing";
+`
+);
+await writeConsumerFile(
     "browser-worker.ts",
     `export { initialiseWorkerModule, splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
 `
@@ -546,6 +577,18 @@ assert.ok(
     "The File System Access storage entry must not load Node-only host APIs."
 );
 
+const hashingBundle = await build({
+    absWorkingDir: consumerDirectory,
+    bundle: true,
+    conditions: ["browser"],
+    entryPoints: [resolve(consumerDirectory, "browser-hashing.ts")],
+    external: ["crypto"],
+    format: "esm",
+    logLevel: "silent",
+    platform: "browser",
+    write: false,
+});
+
 const workerBundle = await build({
     absWorkingDir: consumerDirectory,
     bundle: true,
@@ -612,6 +655,7 @@ assert.deepEqual(
         ".",
         "./browser",
         "./context",
+        "./hashing",
         "./node",
         "./p2p",
         "./package.json",
@@ -623,7 +667,7 @@ assert.deepEqual(
     ],
     "The focused package surface must remain explicit."
 );
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 11);
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 12);
 
 console.log(
     JSON.stringify(
@@ -634,6 +678,7 @@ console.log(
             unpackedBytes: packed.unpackedSize,
             contextBundleBytes: contextBundle.outputFiles[0].contents.length,
             browserStorageBundleBytes: browserStorageBundle.outputFiles[0].contents.length,
+            hashingBundleBytes: hashingBundle.outputFiles[0].contents.length,
             workerBundleBytes: workerBundle.outputFiles[0].contents.length,
         },
         null,

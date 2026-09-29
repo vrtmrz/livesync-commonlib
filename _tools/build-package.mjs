@@ -177,6 +177,7 @@ function createExports() {
         ".": exportTarget("index"),
         "./browser": exportTarget("platform/browser/index"),
         "./context": exportTarget("context"),
+        "./hashing": exportTarget("hashing"),
         "./node": exportTarget("platform/node/index"),
         "./p2p": exportTarget("p2p/index"),
         "./replication": exportTarget("replication/index"),
