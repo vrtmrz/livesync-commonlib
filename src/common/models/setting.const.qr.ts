@@ -178,4 +178,7 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     P2P_maxWirePayloadBytes: 163,
     P2P_connectionPath: 164,
     encryptInternalMetadata: 165,
+    idDerivationVersion: 166,
+    idDerivationKey: 167,
+    encryptedIdDerivationKey: -1,
 } as const;

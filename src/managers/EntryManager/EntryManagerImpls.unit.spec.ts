@@ -245,6 +245,26 @@ describe("EntryManagerImpls", () => {
     });
 
     describe("prepareChunk", () => {
+        it("does not reuse a legacy cached ID for a newly configured key", async () => {
+            const piece = "content cached under the previous generator";
+            const oldChunk = await prepareChunk({ chunkManager, hashManager }, piece);
+            await chunkManager.write([{ _id: oldChunk.id, data: piece, type: "leaf" }], {}, "test" as DocumentID);
+
+            const settings = mockSettingService.currentSettings();
+            settings.encrypt = true;
+            settings.idDerivationVersion = 1;
+            settings.idDerivationKey = "f3205cc41d24116d8c2484993c9d9a2e667373af338ba02f2ee71199adb82f2e";
+            const newChunk = await prepareChunk({ chunkManager, hashManager }, piece);
+
+            expect(newChunk.isNew).toBe(true);
+            expect(newChunk.id).not.toBe(oldChunk.id);
+            expect(newChunk.id).toMatch(/^h:\+[0-9a-f]{64}$/u);
+
+            await chunkManager.write([{ _id: newChunk.id, data: piece, type: "leaf" }], {}, "test" as DocumentID);
+            const reused = await prepareChunk({ chunkManager, hashManager }, piece);
+            expect(reused).toEqual({ isNew: false, id: newChunk.id, piece });
+        });
+
         it("should generate new chunk ID for new piece", async () => {
             const piece = "test data for chunk";
             const result = await prepareChunk({ chunkManager, hashManager }, piece);

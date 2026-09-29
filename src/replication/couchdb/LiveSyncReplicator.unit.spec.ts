@@ -13,6 +13,7 @@ import {
 import { defaultLogger, setGlobalLogFunction } from "@lib/common/logger.ts";
 import * as compatibility from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import * as negotiation from "@lib/pouchdb/negotiation.ts";
+import * as remoteIds from "@lib/pouchdb/remoteIdCompatibility.ts";
 import { clearHandlers } from "@lib/replication/SyncParamsHandler.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
 import { LiveSyncCouchDBReplicator } from "./LiveSyncReplicator.ts";
@@ -22,10 +23,60 @@ import {
 } from "@lib/replication/CentralCompatibility.ts";
 
 describe("LiveSyncCouchDBReplicator initialisation", () => {
+    it("rejects a mismatched remote document ID before declaring the feature", async () => {
+        const remoteDatabase = { close: vi.fn().mockResolvedValue(undefined) };
+        const replicator = createOneShotReplicator(remoteDatabase);
+        vi.mocked(replicator.checkReplicationConnectivity).mockRestore();
+        replicator.env.services.API = {
+            isMobile: () => false,
+            getAppVersion: () => "test",
+            getPluginVersion: () => "test",
+        } as never;
+        replicator.env.services.vault = { vaultName: () => "test", getVaultName: () => "test" } as never;
+        replicator.env.services.database.localNodeIdentity = { nodeId: "writer" } as never;
+        vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
+            db: remoteDatabase,
+            info: { update_seq: 0 },
+            close: remoteDatabase.close,
+        } as never);
+        const version = vi.spyOn(negotiation, "checkRemoteVersion").mockResolvedValue(true);
+        const admit = vi.spyOn(compatibility, "ensureDatabaseIsCompatible").mockResolvedValue("OK");
+        const assess = vi.spyOn(remoteIds, "assessRemoteDocumentIds").mockResolvedValue("mismatched");
+        const declare = vi.spyOn(negotiation, "declareRemoteFeatures").mockResolvedValue(true);
+        try {
+            const result = await replicator.checkReplicationConnectivity(
+                {
+                    versionUpFlash: "",
+                    couchDB_URI: "https://example.test",
+                    couchDB_DBNAME: "remote",
+                    encrypt: true,
+                    usePathObfuscation: true,
+                    idDerivationVersion: 1,
+                    idDerivationKey: "ab".repeat(32),
+                } as RemoteDBSettings,
+                false,
+                false,
+                false
+            );
+            expect(result).toBe(false);
+            expect(version).not.toHaveBeenCalled();
+            expect(admit).not.toHaveBeenCalled();
+            expect(declare).not.toHaveBeenCalled();
+        } finally {
+            version.mockRestore();
+            admit.mockRestore();
+            assess.mockRestore();
+            declare.mockRestore();
+        }
+    });
+
     it.each(["OK", "LOCKED", "NODE_LOCKED"] as const)(
         "declares the write feature only for an admitted writer (%s)",
         async (admission) => {
-            const remoteDatabase = { close: vi.fn().mockResolvedValue(undefined) };
+            const remoteDatabase = {
+                close: vi.fn().mockResolvedValue(undefined),
+                allDocs: vi.fn().mockResolvedValue({ rows: [] }),
+            };
             const replicator = createOneShotReplicator(remoteDatabase);
             vi.mocked(replicator.checkReplicationConnectivity).mockRestore();
             replicator.env.services.API = {

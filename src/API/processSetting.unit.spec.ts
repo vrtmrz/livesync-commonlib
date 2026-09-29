@@ -37,6 +37,28 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
         expect(decoded.P2P_connectionPath).toBe("relay");
     });
 
+    it("shares the derived ID key and version in QR data without the persisted wrapper", () => {
+        const key = "34".repeat(32);
+        const decoded = decodeSettingsFromQRCodeData(
+            encodeSettingsToQRCodeData({
+                ...DEFAULT_SETTINGS,
+                idDerivationVersion: 1,
+                idDerivationKey: key,
+                encryptedIdDerivationKey: "persisted-encrypted-wrapper",
+            })
+        );
+
+        expect(decoded.idDerivationVersion).toBe(1);
+        expect(decoded.idDerivationKey).toBe(key);
+        expect(decoded.encryptedIdDerivationKey).toBe("");
+    });
+
+    it("rejects an incomplete ID configuration before encoding QR data", () => {
+        expect(() =>
+            encodeSettingsToQRCodeData({ ...DEFAULT_SETTINGS, idDerivationVersion: 1, idDerivationKey: "" })
+        ).toThrow();
+    });
+
     it("should preserve remoteConfigurations through encode/decode cycle", () => {
         // Dummy test data with remoteConfigurations
         // Note: In production, this would load from actual user settings containing multiple remoteConfigurations
@@ -208,15 +230,53 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
         expect(decoded && "P2P_iceServers" in decoded).toBe(false);
     });
 
-    it("completes an old Setup URI without the internal Metadata preference as false", async () => {
+    it("shares the derived ID key and version in Setup URIs without the persisted wrapper", async () => {
+        const key = "12".repeat(32);
+        const uri = await encodeSettingsToSetupURI(
+            {
+                ...DEFAULT_SETTINGS,
+                idDerivationVersion: 1,
+                idDerivationKey: key,
+                encryptedIdDerivationKey: "persisted-encrypted-wrapper",
+            },
+            "setup-pass",
+            [],
+            false
+        );
+
+        const encrypted = decodeURIComponent(uri.trim().slice(configURIBase.length));
+        const payload = JSON.parse(await decryptString(encrypted, "setup-pass"));
+        expect(payload.idDerivationVersion).toBe(1);
+        expect(payload.idDerivationKey).toBe(key);
+        expect(payload.encryptedIdDerivationKey).toBe("");
+
+        const decoded = await decodeSettingsFromSetupURI(uri, "setup-pass");
+        expect(decoded && decoded.idDerivationVersion).toBe(1);
+        expect(decoded && decoded.idDerivationKey).toBe(key);
+    });
+
+    it("completes an old Setup URI without the new preferences as legacy defaults", async () => {
         const payload: Partial<typeof DEFAULT_SETTINGS> = { ...DEFAULT_SETTINGS };
         delete payload.encryptInternalMetadata;
+        delete payload.idDerivationVersion;
+        delete payload.idDerivationKey;
         const encrypted = await encryptString(JSON.stringify(payload), "setup-pass");
         const decoded = await decodeSettingsFromSetupURI(
             `${configURIBase}${encodeURIComponent(encrypted)}`,
             "setup-pass"
         );
         expect(decoded && decoded.encryptInternalMetadata).toBe(false);
+        expect(decoded && decoded.idDerivationVersion).toBe(0);
+        expect(decoded && decoded.idDerivationKey).toBe("");
+    });
+
+    it("rejects a Setup URI with a version but no derived key", async () => {
+        const payload: Partial<typeof DEFAULT_SETTINGS> = { ...DEFAULT_SETTINGS, idDerivationVersion: 1 };
+        delete payload.idDerivationKey;
+        const encrypted = await encryptString(JSON.stringify(payload), "setup-pass");
+        await expect(
+            decodeSettingsFromSetupURI(`${configURIBase}${encodeURIComponent(encrypted)}`, "setup-pass")
+        ).resolves.toBe(false);
     });
 
     it("discards runtime ICE fields from incoming Setup URI data", async () => {
@@ -240,14 +300,15 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
 
     it.each(["structured", "bare"])("does not log provider tokens from malformed %s Setup payloads", async (kind) => {
         const token = "TURNSECRET";
-        const malformedPayload = kind === "bare"
-            ? token
-            : `{"P2P_managedToken":"${token}"}BROKEN`;
+        const malformedPayload = kind === "bare" ? token : `{"P2P_managedToken":"${token}"}BROKEN`;
         const encrypted = await encryptString(malformedPayload, "setup-pass");
         const logger = vi.fn();
         setGlobalLogFunction(logger);
         try {
-            const result = await decodeSettingsFromSetupURI(`${configURIBase}${encodeURIComponent(encrypted)}`, "setup-pass");
+            const result = await decodeSettingsFromSetupURI(
+                `${configURIBase}${encodeURIComponent(encrypted)}`,
+                "setup-pass"
+            );
             expect(result).toBe(false);
             const messages = logger.mock.calls.map(([message]) => String(message)).join("\n");
             expect(messages).toContain("Failed to parse settings from decrypted data");
@@ -258,7 +319,8 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
     });
 
     it("propagates Setup URI decryption failures", async () => {
-        await expect(decodeSettingsFromSetupURI(`${configURIBase}not-encrypted`, "setup-pass"))
-            .rejects.toThrow("Unsupported encryption format");
+        await expect(decodeSettingsFromSetupURI(`${configURIBase}not-encrypted`, "setup-pass")).rejects.toThrow(
+            "Unsupported encryption format"
+        );
     });
 });

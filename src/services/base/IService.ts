@@ -111,6 +111,19 @@ export interface IPathService {
     id2path(id: DocumentID, entry?: EntryHasPath, stripPrefix?: boolean): FilePathWithPrefix;
 
     path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID>;
+    path2idWithSettings(
+        filename: FilePathWithPrefix | FilePath,
+        setting: Pick<
+            RemoteDBSettings,
+            | "encrypt"
+            | "usePathObfuscation"
+            | "passphrase"
+            | "handleFilenameCaseSensitive"
+            | "idDerivationVersion"
+            | "idDerivationKey"
+        >,
+        prefix?: string
+    ): Promise<DocumentID>;
     getPath(entry: AnyEntry): FilePathWithPrefix;
     markChangesAreSame(
         old: UXFileInfo | AnyEntry | FilePathWithPrefix,

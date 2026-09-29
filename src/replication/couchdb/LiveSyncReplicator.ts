@@ -37,10 +37,8 @@ import {
 } from "@lib/common/utils.ts";
 import { Logger } from "@lib/common/logger.ts";
 import { checkRemoteVersion, countCompromisedChunks, declareRemoteFeatures } from "@lib/pouchdb/negotiation.ts";
-import {
-    ENCRYPTED_INTERNAL_METADATA_FEATURE,
-    usesEncryptedInternalMetadata,
-} from "@lib/pouchdb/remoteFeatureCompatibility.ts";
+import { requiredRemoteFeatures, usesEncryptedInternalMetadata } from "@lib/pouchdb/remoteFeatureCompatibility.ts";
+import { assessRemoteDocumentIds } from "@lib/pouchdb/remoteIdCompatibility.ts";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import { preprocessOutgoing } from "@lib/pouchdb/encryption.ts";
 
@@ -63,6 +61,7 @@ import {
 } from "@lib/replication/SyncParamsHandler.ts";
 import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
 import type { OwnedCouchDBConnection, RemoteConnectionOpenOptions } from "@lib/services/base/RemoteConnection.ts";
+import type { IPathService } from "@lib/services/base/IService.ts";
 import {
     CENTRAL_COMPATIBILITY_ACCEPTED,
     CENTRAL_COMPATIBILITY_NOT_ASSESSED,
@@ -164,10 +163,11 @@ async function* genReplication(
 /**
  * Compatibility constructor environment for the CouchDB Replicator facade.
  *
- * CouchDB adds only the bounded one-shot preflight policy to the shared
- * Replicator environment. Active-provider capabilities remain separate.
+ * CouchDB needs the host path service for remote ID checks and adds the
+ * bounded one-shot preflight policy. Active-provider capabilities remain separate.
  */
 export interface LiveSyncCouchDBReplicatorEnv extends LiveSyncReplicatorEnv {
+    services: LiveSyncReplicatorEnv["services"] & { path: IPathService };
     /** Internal injection point for the bounded one-shot connectivity preflight. */
     oneShotConnectivityTimeoutMs?: number;
 }
@@ -1147,6 +1147,23 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 this.remoteLockedAndDeviceNotAccepted = false;
                 this.tweakSettingsMismatched = false;
                 this.preferredTweakValue = undefined;
+                const idCompatibility = await assessRemoteDocumentIds(dbRet.db, setting, (path) =>
+                    this.env.services.path.path2idWithSettings(path, setting)
+                );
+                if (idCompatibility === "mismatched") {
+                    recordCompatibilityDecision?.(
+                        centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.ID_DERIVATION_MISMATCH)
+                    );
+                    Logger("The remote document IDs do not match the configured ID key.", LOG_LEVEL_NOTICE);
+                    return false;
+                }
+                if (
+                    idCompatibility === "unverified" &&
+                    setting.idDerivationVersion === 1 &&
+                    setting.usePathObfuscation
+                ) {
+                    Logger("No remote document was available to verify the configured ID key.", LOG_LEVEL_INFO);
+                }
                 if (!(await checkRemoteVersion(dbRet.db, this.migrate.bind(this), VER))) {
                     recordCompatibilityDecision?.(
                         centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.INCOMPATIBLE_VERSION)
@@ -1212,6 +1229,11 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                         this.remoteCleaned = true;
                         return false;
                     }
+                } else if (ensure == "ID_KEY_MISMATCH") {
+                    recordCompatibilityDecision?.(
+                        centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.ID_DERIVATION_MISMATCH)
+                    );
+                    return false;
                 } else if (ensure == "OK") {
                     // NO OP: FOR NARROWING TYPE
                 } else if (ensure[0] == "MISMATCHED") {
@@ -1227,10 +1249,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     this.preferredTweakValue = ensure[1];
                     return false;
                 }
-                if (
-                    usesEncryptedInternalMetadata(setting) &&
-                    !(await declareRemoteFeatures(dbRet.db, [ENCRYPTED_INTERNAL_METADATA_FEATURE]))
-                ) {
+                const requiredFeatures = requiredRemoteFeatures(setting);
+                if (requiredFeatures.length > 0 && !(await declareRemoteFeatures(dbRet.db, requiredFeatures))) {
                     recordCompatibilityDecision?.(
                         centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.INCOMPATIBLE_VERSION)
                     );
