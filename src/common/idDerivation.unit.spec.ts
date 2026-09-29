@@ -30,10 +30,20 @@ describe("independent ID derivation", () => {
 
     it("uses the full key and distinct purposes for content and paths", async () => {
         await expect(computeKeyedId(key, "chunk", "sample chunk")).resolves.toBe(
-            "c277e863054a30ef61beed1a3165b999a093d73e8282859cd6d0a6e61c95dfdf"
+            "5868bc5fff9c1537ad5e6dfdf016b46daad9cf3827cb607150aa9e3feaaf36ce"
         );
         await expect(computeKeyedId(key, "document", "sample chunk")).resolves.toBe(
             "a2a525f9d994e83f29588ad43513be468e137135a88689cd0790e48834d9d3f3"
+        );
+    });
+
+    it("uses the same UTF-8 Chunk input on every device without normalising its contents", async () => {
+        await expect(computeKeyedId(key, "chunk", "試験用の文字列📄")).resolves.toBe(
+            "e779967dd509ab655bea444877337860a1d4eeba718995df2546050d75f06d2f"
+        );
+        expect(await computeKeyedId(key, "chunk", "cafe\u0301")).not.toBe(await computeKeyedId(key, "chunk", "café"));
+        expect(await computeKeyedId("ab".repeat(32), "chunk", "sample chunk")).not.toBe(
+            await computeKeyedId(key, "chunk", "sample chunk")
         );
     });
 

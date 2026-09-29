@@ -1,5 +1,33 @@
 # Updates
 
+## 0.1.33
+
+29th September, 2026
+
+I was a little concerned about performance, so I have made some adjustments. Please note that releases tagged `next` on npm may be unstable.
+
+### Added
+
+- We can now use the database's Chunk ID calculation through the focused `/hashing` entry, which exports `HashManager` and `HashManagerCoreOptions`.
+
+### Changed
+
+- Generating independent Chunk IDs now processes large Chunks more efficiently by applying xxHash64 before HMAC-SHA-256 and reusing a prepared Chunk key.
+    - This replaces the independent Chunk calculation introduced in `0.1.32` on `next`. Document IDs, agreement proofs, saved settings, and recovery codes retain their existing formats.
+    - Chunk collision resistance is bounded by the 64-bit prehash; the full HMAC output does not increase that limit.
+
+### Fixed
+
+- A reused `HashManager` now honours the current E2EE setting when selecting encrypted or plain Chunk calculation. Turning E2EE off preserves the saved independent key for later reuse and releases its cached preparation.
+
+### Included from 0.1.32 on next
+
+- Optional independent keys for encrypted Chunk IDs and obfuscated Metadata document IDs, with recovery codes and configuration sharing through encrypted Setup URIs and P2P.
+    - The key can be retained across E2EE passphrase changes and suspended while E2EE is off. Existing configurations without a key retain legacy generation.
+    - Connections check document ID compatibility before changing remote control documents, and ordinary Tweak alignment preserves local ID settings.
+- Application readiness events after ordinary initialisation and completed Fetch or Rebuild operations, so hosts can resume work waiting for readiness.
+- Setup URIs for a fixed seven-day UTC window, alongside Persistent URIs compatible with existing readers. The reader accepts the current window or the original Persistent format and reports a generic opening failure. Expiry does not revoke settings or credentials already imported.
+
 ## 0.1.32
 
 29th September, 2026

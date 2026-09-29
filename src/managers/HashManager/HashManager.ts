@@ -3,7 +3,7 @@ import { FallbackWasmHashManager, XXHash32RawHashManager, XXHash64HashManager } 
 import { FallbackPureJSHashManager, PureJSHashManager, SHA1HashManager } from "./PureJSHashManager.ts";
 import { HashEncryptedPrefix, HashManagerCore, type HashManagerCoreOptions } from "./HashManagerCore.ts";
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger.ts";
-import { computeKeyedId, configuredIdKey } from "@lib/common/idDerivation.ts";
+import { createChunkIdGenerator, configuredIdKey } from "@lib/common/idDerivation.ts";
 /**
  * List of available hash managers.
  * For compatibility, please retain fallback managers.
@@ -27,6 +27,24 @@ export class HashManager extends HashManagerCore {
      * Instance of the hash manager currently in use.
      */
     manager: HashManagerCore = undefined!;
+    private chunkIdGenerator?: { key: string; task: ReturnType<typeof createChunkIdGenerator> };
+
+    clearCaches(): void {
+        this.chunkIdGenerator = undefined;
+    }
+
+    private async computeIndependentChunkId(key: string, piece: string): Promise<string> {
+        let cached = this.chunkIdGenerator;
+        if (cached?.key !== key) {
+            const entry = { key, task: createChunkIdGenerator(key) };
+            this.chunkIdGenerator = cached = entry;
+            void entry.task.catch(() => {
+                if (this.chunkIdGenerator === entry) this.clearCaches();
+            });
+        }
+        const generate = await cached.task;
+        return await generate(piece);
+    }
 
     /**
      * Checks whether the specified hash algorithm is available.
@@ -93,14 +111,19 @@ export class HashManager extends HashManagerCore {
         const settings = this.options.settingService.currentSettings();
         const key = configuredIdKey(settings);
         if (settings.encrypt && key) {
-            return HashEncryptedPrefix + (await computeKeyedId(key, "chunk", piece));
+            return HashEncryptedPrefix + (await this.computeIndependentChunkId(key, piece));
         }
-        return await this.manager.computeHash(piece);
+        this.clearCaches();
+        return settings.encrypt
+            ? HashEncryptedPrefix + (await this.manager.computeHashWithEncryption(piece))
+            : await this.manager.computeHashWithoutEncryption(piece);
     }
 
     usesIndependentIdKey(): boolean {
         const settings = this.options.settingService.currentSettings();
-        return settings.encrypt && configuredIdKey(settings) !== false;
+        const active = settings.encrypt && configuredIdKey(settings) !== false;
+        if (!active) this.clearCaches();
+        return active;
     }
 
     /**
@@ -121,7 +144,8 @@ export class HashManager extends HashManagerCore {
      */
     computeHashWithEncryption(piece: string): Promise<string> {
         const key = configuredIdKey(this.options.settingService.currentSettings());
-        if (key) return computeKeyedId(key, "chunk", piece);
+        if (key) return this.computeIndependentChunkId(key, piece);
+        this.clearCaches();
         return this.manager.computeHashWithEncryption(piece);
     }
 }

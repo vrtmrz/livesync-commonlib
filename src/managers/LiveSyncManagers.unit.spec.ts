@@ -5,12 +5,46 @@ vi.mock("@lib/managers/ChunkFetcher.ts", () => ({ ChunkFetcher: class {} }));
 vi.mock("@lib/managers/ChunkManager.ts", () => ({ ChunkManager: class {} }));
 vi.mock("@lib/managers/ConflictManager.ts", () => ({ ConflictManager: class {} }));
 vi.mock("@lib/managers/EntryManager/EntryManager.ts", () => ({ EntryManager: class {} }));
-vi.mock("@lib/managers/HashManager/HashManager.ts", () => ({ HashManager: class {} }));
+vi.mock("@lib/managers/HashManager/HashManager.ts", () => ({
+    HashManager: class {
+        clearCaches = vi.fn();
+        initialise = vi.fn().mockResolvedValue(true);
+    },
+}));
 vi.mock("@lib/ContentSplitter/ContentSplitters.ts", () => ({ ContentSplitter: class {} }));
 
 import { LiveSyncManagers } from "./LiveSyncManagers";
 
 describe("LiveSyncManagers", () => {
+    it("releases ID keys from both the current hash manager and the entry manager when retiring them", async () => {
+        const managers = new LiveSyncManagers({
+            database: {} as never,
+            databaseService: {} as never,
+            settingService: {} as never,
+            pathService: {} as never,
+            replicatorService: { finiteReplicationActivityCount: 0 } as never,
+            APIService: { addLog() {} } as never,
+        });
+        const original = managers.hashManager;
+        const entryHashManager = { clearCaches: vi.fn() };
+        managers.entryManager = { hashManager: entryHashManager } as never;
+        managers.chunkManager = { clearCaches: vi.fn(), destroy: vi.fn() } as never;
+        managers.changeManager = undefined!;
+        managers.chunkFetcher = undefined!;
+
+        managers.clearCaches();
+        expect(original.clearCaches).toHaveBeenCalledTimes(1);
+        expect(entryHashManager.clearCaches).toHaveBeenCalledTimes(1);
+        await managers.prepareHashFunction();
+        expect(original.clearCaches).toHaveBeenCalledTimes(2);
+        expect(entryHashManager.clearCaches).toHaveBeenCalledTimes(2);
+        expect(managers.hashManager).not.toBe(original);
+
+        await managers.teardownManagers();
+        expect(managers.hashManager.clearCaches).toHaveBeenCalledTimes(1);
+        expect(entryHashManager.clearCaches).toHaveBeenCalledTimes(3);
+    });
+
     it("uses the database instance supplied by its owner", () => {
         const databaseService = Object.defineProperty({}, "localDatabase", {
             get() {
