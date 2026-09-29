@@ -6,6 +6,15 @@
 
 - `AppLifecycleService.markIsReady()` now emits `EVENT_APPLICATION_READY` on the service context's event channel when it establishes application readiness, after ordinary initialisation and after a fetch or rebuild completes. A host which holds work until the application is ready can continue it then; nothing signalled the transition before, so held work waited for an unrelated event ([Self-hosted LiveSync issue #1200](https://github.com/vrtmrz/obsidian-livesync/issues/1200)).
 
+## 0.1.31
+
+28th September, 2026
+
+### Fixed
+
+- E2EE passphrases beginning with `%` are now encrypted before settings are saved, preventing plain-text storage and loss of the passphrase after a restart in Self-hosted LiveSync ([issue #1221](https://github.com/vrtmrz/obsidian-livesync/issues/1221)).
+    - On an already affected device, re-enter the passphrase used to encrypt its existing data after updating. An existing plain-text value cannot be safely treated as encrypted data.
+
 ## 0.1.30
 
 27th September, 2026
