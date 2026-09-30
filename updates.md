@@ -2,9 +2,13 @@
 
 ## Unreleased
 
+## 0.1.34
+
+30th September, 2026
+
 ### Added
 
-- Hosts can now distinguish initial and retrying on-demand Chunk reads while retaining a total pending count for lifecycle deferral.
+- We can now distinguish initial and retrying on-demand Chunk reads while retaining a total pending count for lifecycle deferral.
     - The compatibility stores expose an atomic `chunkFetchCounts` snapshot with `initial` and `retrying` counts. `collectingChunks` continues to count all accepted pending Chunk identifiers.
 
 ### Fixed
@@ -13,6 +17,19 @@
     - A first successful omission schedules a retry. While finite replication remains active, per-identifier delays increase from two seconds to ten seconds, and physical fetch concurrency is released between attempts.
     - Finite replication completion interrupts backoff for a local recheck and a final remote probe where needed. A final successful omission then settles the current read.
     - Pending counts now include queueing and retry delays, without counting duplicate requests or retry attempts as additional identifiers.
+
+### Included from 0.1.32 and 0.1.33 on next
+
+- Optional independent keys let us retain encrypted Chunk IDs and obfuscated Metadata document IDs across E2EE passphrase changes.
+    - Recovery codes, encrypted Setup URIs, and P2P configuration sharing carry the ID configuration. Connections check document ID compatibility before changing remote control documents, and ordinary Tweak alignment preserves local ID settings.
+    - Turning E2EE off retains the saved key while suspending independent ID derivation. Existing configurations without a key keep legacy generation.
+- Independent Chunk ID calculation handles large Chunks more efficiently, and hosts can reuse the shared hash manager through the focused `/hashing` entry.
+    - Chunk calculation applies xxHash64 before HMAC-SHA-256 and reuses a prepared Chunk key. This replaces the independent Chunk calculation introduced in `0.1.32` on `next`; document IDs, agreement proofs, saved settings, and recovery codes retain their existing formats.
+    - Chunk collision resistance remains bounded by the 64-bit prehash. A reused `HashManager` honours the current E2EE setting and releases cached key preparation when E2EE is disabled.
+- Hosts can resume work waiting for application readiness after ordinary initialisation and completed Fetch or Rebuild operations.
+    - `AppLifecycleService.markIsReady()` emits `EVENT_APPLICATION_READY` on the service context's event channel.
+- Setup URIs can use a fixed seven-day UTC window while retaining Persistent URIs compatible with existing readers.
+    - The reader accepts the current window or the original Persistent format and reports a generic opening failure. Expiry does not revoke settings or credentials already imported.
 
 ## 0.1.33
 
