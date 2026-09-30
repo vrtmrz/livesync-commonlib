@@ -1,5 +1,5 @@
 import { reactiveSource, type ReactiveSource } from "octagonal-wheels/dataobject/reactive";
-import { delay } from "octagonal-wheels/promises";
+import { delay, promiseWithResolvers } from "octagonal-wheels/promises";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -98,6 +98,99 @@ describe("chunk arrival quiescence", () => {
         await vi.waitFor(() => expect(fetchRemoteChunks).toHaveBeenCalledOnce());
 
         await expect(readPromise).resolves.toEqual([expect.objectContaining(chunk)]);
+    });
+
+    it("keeps a missing delivery active until one delayed retry can fetch the chunk", async () => {
+        vi.useFakeTimers();
+        try {
+            const chunk = createChunk("chunk-1");
+            fetchRemoteChunks.mockResolvedValueOnce([]).mockResolvedValueOnce([chunk]);
+            let settled = false;
+
+            const readPromise = chunkManager.read([chunk._id], { waitForDelivery: true });
+            void readPromise.then(() => {
+                settled = true;
+            });
+            await vi.waitFor(() => expect(fetchRemoteChunks).toHaveBeenCalledOnce());
+
+            expect(settled).toBe(false);
+            expect(boundedRemoteActivityCount.value).toBe(1);
+
+            await vi.advanceTimersByTimeAsync(3_000);
+            await vi.waitFor(() => expect(fetchRemoteChunks).toHaveBeenCalledTimes(2));
+
+            expect(fetchRemoteChunks).toHaveBeenNthCalledWith(2, [chunk._id], false);
+            await expect(readPromise).resolves.toEqual([expect.objectContaining(chunk)]);
+            await vi.waitFor(() => expect(boundedRemoteActivityCount.value).toBe(0));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("returns unavailable only after the delayed retry also misses the chunk", async () => {
+        vi.useFakeTimers();
+        try {
+            fetchRemoteChunks.mockResolvedValue([]);
+
+            const readPromise = chunkManager.read(["chunk-1" as DocumentID], { waitForDelivery: true });
+            await vi.waitFor(() => expect(fetchRemoteChunks).toHaveBeenCalledOnce());
+
+            expect(boundedRemoteActivityCount.value).toBe(1);
+
+            await vi.advanceTimersByTimeAsync(3_000);
+
+            await expect(readPromise).resolves.toEqual([false]);
+            expect(fetchRemoteChunks).toHaveBeenCalledTimes(2);
+            await vi.waitFor(() => expect(boundedRemoteActivityCount.value).toBe(0));
+        } finally {
+            vi.useRealTimers();
+        }
+    });
+
+    it("keeps a later read claimed when an earlier partial batch finishes its retry", async () => {
+        vi.useFakeTimers();
+        const chunk = createChunk("chunk-1");
+        const missingId = "chunk-2" as DocumentID;
+        const refetch = promiseWithResolvers<EntryLeaf[]>();
+        try {
+            vi.mocked(settingService.currentSettings).mockReturnValue({
+                ...settingService.currentSettings(),
+                concurrencyOfReadChunksOnline: 2,
+            });
+            vi.spyOn(chunkManager, "write").mockRejectedValueOnce(new Error("local write failed"));
+            fetchRemoteChunks
+                .mockResolvedValueOnce([chunk])
+                .mockImplementationOnce(() => refetch.promise)
+                .mockResolvedValueOnce([]);
+
+            const firstRead = chunkManager.read([chunk._id, missingId], { waitForDelivery: true });
+            await vi.waitFor(() => {
+                expect(fetchRemoteChunks).toHaveBeenCalledOnce();
+                expect(chunkManager.deliveryCoordinator.isClaimActiveFor(chunk._id)).toBe(false);
+            });
+
+            const laterRead = chunkManager.read([chunk._id], { skipCache: true, waitForDelivery: true });
+            await vi.waitFor(() => expect(fetchRemoteChunks).toHaveBeenNthCalledWith(2, [chunk._id], false));
+            expect(boundedRemoteActivityCount.value).toBe(2);
+
+            await vi.advanceTimersByTimeAsync(3_000);
+            await expect(firstRead).resolves.toEqual([expect.objectContaining(chunk), false]);
+            await vi.waitFor(() => expect(chunkFetcher.currentProcessing).toBe(1));
+
+            expect(chunkManager.deliveryCoordinator.isClaimActiveFor(chunk._id)).toBe(true);
+            expect(boundedRemoteActivityCount.value).toBe(1);
+
+            refetch.resolve([chunk]);
+            await expect(laterRead).resolves.toEqual([expect.objectContaining(chunk)]);
+            await vi.waitFor(() => expect(boundedRemoteActivityCount.value).toBe(0));
+        } finally {
+            refetch.resolve([chunk]);
+            try {
+                await vi.waitFor(() => expect(chunkFetcher.currentProcessing).toBe(0));
+            } finally {
+                vi.useRealTimers();
+            }
+        }
     });
 
     it("keeps the delivery activity open through local persistence", async () => {

@@ -1,5 +1,19 @@
 # Updates
 
+## Unreleased
+
+### Added
+
+- Hosts can now distinguish initial and retrying on-demand Chunk reads while retaining a total pending count for lifecycle deferral.
+    - The compatibility stores expose an atomic `chunkFetchCounts` snapshot with `initial` and `retrying` counts. `collectingChunks` continues to count all accepted pending Chunk identifiers.
+
+### Fixed
+
+- On-demand Chunk reads now retry temporary remote omissions before reporting the Chunk as unavailable.
+    - A first successful omission schedules a retry. While finite replication remains active, per-identifier delays increase from two seconds to ten seconds, and physical fetch concurrency is released between attempts.
+    - Finite replication completion interrupts backoff for a local recheck and a final remote probe where needed. A final successful omission then settles the current read.
+    - Pending counts now include queueing and retry delays, without counting duplicate requests or retry attempts as additional identifiers.
+
 ## 0.1.33
 
 29th September, 2026

@@ -8,6 +8,7 @@ export type LockStats = {
 };
 export const lockStats = reactiveSource({ pending: [], running: [], count: 0 });
 export const collectingChunks = reactiveSource(0);
+export const chunkFetchCounts = reactiveSource({ initial: 0, retrying: 0 });
 export const pluginScanningCount = reactiveSource(0);
 export const hiddenFilesProcessingCount = reactiveSource(0);
 export const hiddenFilesEventCount = reactiveSource(0);
