@@ -10,6 +10,11 @@ import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts"
 import { compatGlobal } from "@lib/common/coreEnvFunctions.ts";
 import { DEFAULT_CHUNK_DELIVERY_STALL_TIMEOUT_MS, type ChunkDeliveryClaim } from "./ChunkDeliveryCoordinator.ts";
 import { chunkFetchCounts, collectingChunks } from "@lib/mock_and_interop/stores";
+import {
+    classifyFetchedChunks,
+    decideMissingChunkAction,
+    type FetchedChunkClassification,
+} from "./chunkFetcher.helper.ts";
 
 export const EVENT_MISSING_CHUNKS = "missingChunks";
 export const EVENT_MISSING_CHUNK_REMOTE = "missingChunkRemote";
@@ -21,8 +26,6 @@ export type ChunkFetcherOptions = {
     deliveryStallTimeoutMs?: number;
 };
 const BATCH_SIZE = 100; // Number of chunks to fetch in one request
-const REMOTE_MISSING_RETRY_STEP_MS = 2_000;
-const REMOTE_MISSING_RETRY_MAX_DELAY_MS = 10_000;
 
 type PendingChunkDelivery = {
     activityBoundaryEntered: Promise<boolean>;
@@ -306,6 +309,54 @@ export class ChunkFetcher {
         }
     }
 
+    private logFetchedChunks(
+        requestedIds: readonly DocumentID[],
+        { chunks, invalidChunks }: FetchedChunkClassification
+    ): void {
+        if (invalidChunks.length > 0) {
+            Logger(
+                `Some fetched chunks are invalid and will be ignored: (${invalidChunks.length} / ${chunks.length + invalidChunks.length}).`,
+                LOG_LEVEL_VERBOSE
+            );
+            for (const chunk of invalidChunks) {
+                Logger(`Invalid chunk: ${JSON.stringify(chunk)}`, LOG_LEVEL_VERBOSE);
+            }
+        }
+        if (chunks.length === 0) {
+            Logger(`No valid chunks were found for the following IDs: ${requestedIds.join(", ")}`);
+        }
+    }
+
+    private applyMissingChunkResults(
+        missingIds: readonly DocumentID[],
+        requestClaims: ReadonlyMap<DocumentID, PendingChunkFetch>,
+        requestCompletionVersion: number
+    ): void {
+        for (const chunkID of this.getActiveClaimIds(missingIds, requestClaims)) {
+            const pending = requestClaims.get(chunkID)!;
+            const completedDuringRequest = requestCompletionVersion !== this.finiteCompletionVersion;
+            const action = decideMissingChunkAction({
+                missingResponses: pending.missingResponses,
+                finiteReplicationActive: this.chunkManager.deliveryCoordinator.isFiniteReplicationActive(),
+                completedDuringRequest,
+            });
+            if (action.kind === "missing") {
+                this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
+                this.settleClaim(chunkID, pending);
+            } else {
+                pending.missingResponses = action.missingResponses;
+                pending.inFlight = false;
+                pending.nextRequestAt = Date.now() + action.delayMs;
+                this.queue.push(chunkID);
+                Logger(
+                    `Remote chunk is not available yet; retrying ${chunkID} in ${action.delayMs} ms.`,
+                    LOG_LEVEL_VERBOSE
+                );
+            }
+        }
+        this.updatePendingCount();
+    }
+
     /**
      * Processing requests
      */
@@ -380,30 +431,9 @@ export class ChunkFetcher {
                 }
                 return;
             }
-            function isValidChunk(chunk: Partial<EntryLeaf>): chunk is EntryLeaf {
-                return chunk && typeof chunk?._id === "string" && typeof chunk?.data === "string";
-            }
-            const chunks = fetched.filter((chunk) => isValidChunk(chunk));
-            if (chunks.length !== fetched.length) {
-                Logger(
-                    `Some fetched chunks are invalid and will be ignored: (${fetched.length - chunks.length} / ${fetched.length}).`,
-                    LOG_LEVEL_VERBOSE
-                );
-                for (const chunk of fetched) {
-                    if (!isValidChunk(chunk)) {
-                        Logger(`Invalid chunk: ${JSON.stringify(chunk)}`, LOG_LEVEL_VERBOSE);
-                    }
-                }
-            }
-            if (chunks.length === 0) {
-                Logger(`No valid chunks were found for the following IDs: ${pendingIDs.join(", ")}`);
-            }
-            const validIDs = new Set(chunks.map((chunk) => chunk._id));
-            const observedIDs = new Set(
-                fetched.map((chunk) => chunk?._id).filter((id): id is DocumentID => typeof id === "string")
-            );
-            const missingIDs = pendingIDs.filter((id) => !observedIDs.has(id));
-            const invalidIDs = pendingIDs.filter((id) => observedIDs.has(id) && !validIDs.has(id));
+            const classification = classifyFetchedChunks(pendingIDs, fetched);
+            this.logFetchedChunks(pendingIDs, classification);
+            const { chunks, missingIds, invalidIds } = classification;
             try {
                 if (chunks.length > 0) {
                     Logger(`Writing fetched chunks (${chunks.length}) to the database...`);
@@ -434,40 +464,13 @@ export class ChunkFetcher {
                     this.chunkManager.emitEvent(EVENT_CHUNK_FETCHED, chunk);
                     this.settleClaim(chunk._id, requestClaims.get(chunk._id));
                 }
-                for (const invalidID of this.getActiveClaimIds(invalidIDs, requestClaims)) {
+                for (const invalidID of this.getActiveClaimIds(invalidIds, requestClaims)) {
                     this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, invalidID);
                     this.settleClaim(invalidID, requestClaims.get(invalidID));
                 }
             }
 
-            for (const chunkID of this.getActiveClaimIds(missingIDs, requestClaims)) {
-                const pending = requestClaims.get(chunkID)!;
-                const completedDuringRequest = requestCompletionVersion !== this.finiteCompletionVersion;
-                const isFinalProbe =
-                    pending.missingResponses > 0 &&
-                    !this.chunkManager.deliveryCoordinator.isFiniteReplicationActive() &&
-                    !completedDuringRequest;
-                if (isFinalProbe) {
-                    this.chunkManager.emitEvent(EVENT_MISSING_CHUNK_REMOTE, chunkID);
-                    this.settleClaim(chunkID, pending);
-                } else {
-                    pending.missingResponses++;
-                    pending.inFlight = false;
-                    const retryDelay = completedDuringRequest
-                        ? 0
-                        : Math.min(
-                              pending.missingResponses * REMOTE_MISSING_RETRY_STEP_MS,
-                              REMOTE_MISSING_RETRY_MAX_DELAY_MS
-                          );
-                    pending.nextRequestAt = Date.now() + retryDelay;
-                    this.queue.push(chunkID);
-                    Logger(
-                        `Remote chunk is not available yet; retrying ${chunkID} in ${retryDelay} ms.`,
-                        LOG_LEVEL_VERBOSE
-                    );
-                }
-            }
-            this.updatePendingCount();
+            this.applyMissingChunkResults(missingIds, requestClaims, requestCompletionVersion);
         } catch (error) {
             Logger("An error occurred while fetching remote chunks.", LOG_LEVEL_VERBOSE);
             Logger(error, LOG_LEVEL_VERBOSE);
