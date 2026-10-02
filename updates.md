@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.35
+
+2nd October, 2026
+
 ### Fixed
 
 - Harden handling of sensitive values when serialising configuration.
