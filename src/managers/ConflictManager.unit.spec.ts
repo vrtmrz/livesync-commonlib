@@ -175,6 +175,36 @@ describe("ConflictManager", () => {
         await db.destroy();
     });
 
+    it("retains named properties when merging JSON revisions", async () => {
+        const marker = "livesyncSyntheticJSONConflictMarker";
+        const before = Object.getOwnPropertyDescriptors(Object.prototype);
+        const path = "synthetic-properties.json" as FilePathWithPrefix;
+        const left = JSON.parse(
+            JSON.stringify({
+                container: {
+                    ["__proto__"]: { [marker]: "synthetic" },
+                    constructor: { prototype: { [marker]: "synthetic" } },
+                },
+            })
+        );
+        try {
+            await createSharedBaseConflict(
+                db,
+                path,
+                '{"container":{}}',
+                JSON.stringify(left),
+                '{"container":{},"ordinary":"synthetic"}'
+            );
+            const merged = await conflictManager.mergeObject(path, "1-base", "2-left", "2-right");
+            expect(Object.getOwnPropertyDescriptors(Object.prototype)).toEqual(before);
+            expect(merged).not.toBe(false);
+            expect(JSON.parse(merged as string)).toEqual({ ...left, ordinary: "synthetic" });
+        } finally {
+            Reflect.deleteProperty(Object.prototype, marker);
+            Object.defineProperties(Object.prototype, before);
+        }
+    });
+
     describe("Initialization", () => {
         it("should initialize successfully", () => {
             expect(conflictManager).toBeDefined();
