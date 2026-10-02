@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## 0.1.35
+
+2nd October, 2026
+
+### Fixed
+
+- Harden handling of sensitive values when serialising configuration.
+- Harden JSON patch and merge handling.
+
 ## 0.1.34
 
 30th September, 2026

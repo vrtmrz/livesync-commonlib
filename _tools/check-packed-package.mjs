@@ -537,6 +537,48 @@ run(
     { cwd: consumerDirectory, capture: false }
 );
 
+await writeConsumerFile(
+    "settings-policy-types.ts",
+    await readFile(resolve(root, "_tools/fixtures/settings-policy-types.ts"), "utf8")
+);
+await writeConsumerFile(
+    "tsconfig.settings-policy.json",
+    `${JSON.stringify(
+        {
+            extends: "./tsconfig.json",
+            compilerOptions: {
+                target: "ES2018",
+                module: "ESNext",
+                moduleResolution: "Bundler",
+                exactOptionalPropertyTypes: true,
+                lib: [
+                    "es2018",
+                    "DOM",
+                    "ES5",
+                    "ES6",
+                    "ES7",
+                    "es2019.array",
+                    "ES2021.WeakRef",
+                    "ES2020.BigInt",
+                    "ESNext.Intl",
+                ],
+            },
+            include: ["settings-policy-types.ts"],
+        },
+        null,
+        2
+    )}\n`
+);
+run(
+    process.execPath,
+    [
+        resolve(root, "node_modules/typescript/bin/tsc"),
+        "-p",
+        resolve(consumerDirectory, "tsconfig.settings-policy.json"),
+    ],
+    { cwd: consumerDirectory, capture: false }
+);
+
 const contextBundle = await build({
     absWorkingDir: consumerDirectory,
     bundle: true,

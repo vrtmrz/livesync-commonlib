@@ -45,3 +45,13 @@ export type {
 } from "./common/models/tweak.compatibility.ts";
 export type { TweakReconstruction, TweakValues } from "./common/models/tweak.definition.ts";
 export type { ObsidianLiveSyncSettings, RemoteDBSettings, RemoteTypeSettings } from "./common/models/setting.type.ts";
+export {
+    SETTINGS_PROPERTY_POLICY,
+    SettingPolicies,
+    createMarkdownSettings,
+    mergeMarkdownSettings,
+    type SettingPropertyPolicy,
+    type MarkdownSettings,
+    type CredentialFreeMarkdownSettings,
+    type PersistedSettings,
+} from "./common/models/setting.policy.ts";

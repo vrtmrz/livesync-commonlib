@@ -3,6 +3,19 @@ const MARK_DELETED = `${MARK_OPERATOR}__DELETED`;
 const MARK_ISARRAY = `${MARK_OPERATOR}__ARRAY`;
 const MARK_SWAPPED = `${MARK_OPERATOR}__SWAP`;
 
+function hasOwnProperty(target: object, key: PropertyKey) {
+    return Object.prototype.hasOwnProperty.call(target, key);
+}
+
+function setOwnProperty(target: object, key: PropertyKey, value: unknown) {
+    Object.defineProperty(target, key, {
+        value,
+        enumerable: true,
+        configurable: true,
+        writable: true,
+    });
+}
+
 interface ObjectWithID {
     id: string;
 }
@@ -39,21 +52,21 @@ export function generatePatchObj(
     for (const [key, value] of newEntries) {
         if (!tempMap.has(key)) {
             //New
-            ret[key] = value;
+            setOwnProperty(ret, key, value);
             tempMap.delete(key);
         } else {
             //Exists
             const v = tempMap.get(key);
             if (typeof v !== typeof value || Array.isArray(v) !== Array.isArray(value)) {
                 //if type is not match, replace completely.
-                ret[key] = { [MARK_SWAPPED]: value };
+                setOwnProperty(ret, key, { [MARK_SWAPPED]: value });
             } else {
                 if (v === null && value === null) {
                     // NO OP.
                 } else if (v === null && value !== null) {
-                    ret[key] = { [MARK_SWAPPED]: value };
+                    setOwnProperty(ret, key, { [MARK_SWAPPED]: value });
                 } else if (v !== null && value === null) {
-                    ret[key] = { [MARK_SWAPPED]: value };
+                    setOwnProperty(ret, key, { [MARK_SWAPPED]: value });
                 } else if (
                     typeof v == "object" &&
                     typeof value == "object" &&
@@ -64,7 +77,7 @@ export function generatePatchObj(
                         v as Record<string | number | symbol, unknown>,
                         value as Record<string | number | symbol, unknown>
                     );
-                    if (Object.keys(wk).length > 0) ret[key] = wk;
+                    if (Object.keys(wk).length > 0) setOwnProperty(ret, key, wk);
                 } else if (
                     typeof v == "object" &&
                     typeof value == "object" &&
@@ -72,14 +85,14 @@ export function generatePatchObj(
                     Array.isArray(value)
                 ) {
                     const wk = generatePatchUnorderedArray(v, value);
-                    if (Object.keys(wk).length > 0) ret[key] = wk;
+                    if (Object.keys(wk).length > 0) setOwnProperty(ret, key, wk);
                 } else if (typeof v != "object" && typeof value != "object") {
                     if (JSON.stringify(tempMap.get(key)) !== JSON.stringify(value)) {
-                        ret[key] = value;
+                        setOwnProperty(ret, key, value);
                     }
                 } else {
                     if (JSON.stringify(tempMap.get(key)) !== JSON.stringify(value)) {
-                        ret[key] = { [MARK_SWAPPED]: value };
+                        setOwnProperty(ret, key, { [MARK_SWAPPED]: value });
                     }
                 }
             }
@@ -88,7 +101,7 @@ export function generatePatchObj(
     }
     //Not used item, means deleted one
     for (const [key] of tempMap) {
-        ret[key] = MARK_DELETED;
+        setOwnProperty(ret, key, MARK_DELETED);
     }
     return ret;
 }
@@ -100,21 +113,21 @@ export function applyPatch(
     const ret = from;
     const patches = Object.entries(patch);
     for (const [key, value] of patches) {
-        if (value == MARK_DELETED) {
+        if (value === MARK_DELETED) {
             delete ret[key];
             continue;
         }
         if (value === null) {
-            ret[key] = null;
+            setOwnProperty(ret, key, null);
             continue;
         }
         if (typeof value == "object") {
-            if (MARK_SWAPPED in value) {
-                ret[key] = (value as Record<string, unknown>)[MARK_SWAPPED];
+            if (hasOwnProperty(value, MARK_SWAPPED)) {
+                setOwnProperty(ret, key, (value as Record<string, unknown>)[MARK_SWAPPED]);
                 continue;
             }
-            if (MARK_ISARRAY in value) {
-                if (!(key in ret)) ret[key] = [];
+            if (hasOwnProperty(value, MARK_ISARRAY)) {
+                if (!hasOwnProperty(ret, key)) setOwnProperty(ret, key, []);
                 if (!Array.isArray(ret[key])) {
                     throw new Error("Patch target type is mismatched (array to something)");
                 }
@@ -124,19 +137,23 @@ export function applyPatch(
                     (value as Record<string, unknown>)[MARK_ISARRAY] as Record<string | number | symbol, unknown>
                 );
                 const appliedArray = objectToUnorderedArray(appliedObject as Record<string, ObjectWithID>);
-                ret[key] = [...appliedArray];
+                setOwnProperty(ret, key, [...appliedArray]);
             } else {
-                if (!(key in ret)) {
-                    ret[key] = value;
+                if (!hasOwnProperty(ret, key)) {
+                    setOwnProperty(ret, key, value);
                     continue;
                 }
-                ret[key] = applyPatch(
-                    ret[key] as Record<string | number | symbol, unknown>,
-                    value as Record<string | number | symbol, unknown>
+                setOwnProperty(
+                    ret,
+                    key,
+                    applyPatch(
+                        ret[key] as Record<string | number | symbol, unknown>,
+                        value as Record<string | number | symbol, unknown>
+                    )
                 );
             }
         } else {
-            ret[key] = value;
+            setOwnProperty(ret, key, value);
         }
     }
     return ret;
@@ -153,17 +170,21 @@ export function mergeObject(
     }
 
     for (const [key, v] of newEntries) {
-        if (key in ret) {
+        if (hasOwnProperty(ret, key)) {
             const value = ret[key];
             if (typeof v !== typeof value || Array.isArray(v) !== Array.isArray(value)) {
                 //if type is not match, replace completely.
-                ret[key] = v;
+                setOwnProperty(ret, key, v);
             } else {
                 if (typeof v == "object" && typeof value == "object" && !Array.isArray(v) && !Array.isArray(value)) {
                     // TODO: Null handling
-                    ret[key] = mergeObject(
-                        v as Record<string | number | symbol, unknown>,
-                        value as Record<string | number | symbol, unknown>
+                    setOwnProperty(
+                        ret,
+                        key,
+                        mergeObject(
+                            v as Record<string | number | symbol, unknown>,
+                            value as Record<string | number | symbol, unknown>
+                        )
                     );
                 } else if (
                     typeof v == "object" &&
@@ -171,13 +192,13 @@ export function mergeObject(
                     Array.isArray(v) &&
                     Array.isArray(value)
                 ) {
-                    ret[key] = [...new Set([...(v as Array<unknown>), ...(value as Array<unknown>)])];
+                    setOwnProperty(ret, key, [...new Set([...(v as Array<unknown>), ...(value as Array<unknown>)])]);
                 } else {
-                    ret[key] = v;
+                    setOwnProperty(ret, key, v);
                 }
             }
         } else {
-            ret[key] = v;
+            setOwnProperty(ret, key, v);
         }
     }
     const retSorted = Object.fromEntries(Object.entries(ret).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)));

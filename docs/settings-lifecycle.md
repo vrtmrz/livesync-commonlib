@@ -72,6 +72,18 @@ Two other values deliberately remain unset until their owning lifecycle supplies
 
 The standard Commonlib `SettingService` performs this preparation automatically. Hosts which use that service can inspect `getSettingsMigrationState()` after `loadSettings()` instead of calling the function themselves.
 
+## Preparing settings for persistence and Markdown
+
+`SettingService` prepares a separate settings object before calling the host's persistence handler. Object Storage credentials, CouchDB credentials, JWT values, and authentication headers share the existing `encryptedCouchDBConnection` payload. Encryption runs when any protected connection property is present, including when every CouchDB property is empty. The same policy supplies the properties encrypted, cleared before saving, and restored on loading. Older plaintext settings and encrypted payloads without newer properties remain readable.
+
+An unavailable configuration passphrase or an empty connection-encryption result stops the save before the host's persistence handler receives the object. Remote profile URI encryption also stops on failure when a configuration passphrase is explicitly selected. The previous persisted settings remain intact. Removing all connection values clears an older encrypted payload only after it can be decrypted, preserving recovery after a failed decryption. Profile names, IDs, and selections remain ordinary settings; profile URIs are encrypted separately.
+
+The focused `/settings` entry exports `SETTINGS_PROPERTY_POLICY` and the named `SettingPolicies` constants. Every schema property requires an explicit policy, including ordinary properties classified as `SettingPolicies.Default`. Adding a required or optional property without updating the table fails type checking. The named constants define the supported combinations of Markdown and persistence behaviour.
+
+Hosts can use `createMarkdownSettings(settings)` to prepare an export. Its default follows `writeCredentialsForSettingSync`; an explicit boolean overrides that choice. When credentials are disabled, it omits credentials, the whole `remoteConfigurations` object, and both active-profile selections. When credentials are enabled, it retains the complete profile object and selections. Encrypted local payloads and runtime-only properties are always omitted. `mergeMarkdownSettings(incoming, current)` preserves omitted local values when importing a credential-free document.
+
+`PersistedSettings` and `MarkdownSettings` carry preparation tags, so ordinary runtime settings cannot be passed directly to a handler which requires those types. `CredentialFreeMarkdownSettings` additionally excludes credential properties. These types check preparation boundaries; runtime policy checks and encryption tests establish the actual saved contents.
+
 ## Assessing synchronisation tweaks
 
 Use `assessTweakCompatibility(current, preferred)` from the focused `/settings` entry when comparing the synchronisation settings advertised by two sides. The result contains immutable, whitelisted snapshots, one entry for each compared setting, and directional `adoptPreferred` and `adoptCurrent` change sets. Each entry keeps the raw value and key-presence state separately from the effective value.
@@ -101,6 +113,6 @@ The settings schema version is independent of the package version and of any rem
 
 ## Tests owned by Commonlib
 
-The settings lifecycle unit tests cover blank stores, representative legacy choices, migration idempotence, legacy file-name case normalisation, legacy review state, future-schema downgrade protection, and the distinction between new-Vault recommendations and stored-setting fallbacks. Tweak-assessment tests cover effective defaults, unadvertised values, directional change sets, reconstruction impact, raw representation differences, immutable snapshots, and document-ID case behaviour. The packed-package test imports the focused `/settings` entry from a clean consumer and checks its declarations and runtime exports.
+The settings lifecycle unit tests cover blank stores, representative legacy choices, migration idempotence, legacy file-name case normalisation, legacy review state, future-schema downgrade protection, and the distinction between new-Vault recommendations and stored-setting fallbacks. Credential tests cover Object Storage-only persistence, JWT and header restoration, legacy settings, removed credentials, encryption failures, conditional whole-profile Markdown export, and preservation of local values on import. Tweak-assessment tests cover effective defaults, unadvertised values, directional change sets, reconstruction impact, raw representation differences, immutable snapshots, and document-ID case behaviour. The packed-package test imports the focused `/settings` entry from a clean consumer and checks its declarations and runtime exports. Its ES2018 compile fixture checks missing policies and attempts to bypass prepared output types.
 
 Hosts remain responsible for testing when setup is classified as new, how local review acknowledgement is stored, how replication is gated, and how their settings interface presents the result.
