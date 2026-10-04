@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.36
+
+4th October, 2026
+
 ### Fixed
 
 - Encrypted CouchDB replication can continue after a remote Rebuild retains document revisions.
