@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Encrypted CouchDB replication can continue after a remote Rebuild retains document revisions.
+    - CouchDB connections bypass browser HTTP caching so earlier ciphertext is not reused after Security Seed replacement.
+
 ## 0.1.35
 
 2nd October, 2026

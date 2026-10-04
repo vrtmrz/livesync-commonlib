@@ -330,9 +330,10 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                         // }
                         // this.clearErrors();
                         const signal = connectionScope.combine(opts?.signal);
+                        // A rebuild can replace ciphertext while preserving document revision ETags.
                         const response = await this.performFetch(
                             requestSrc,
-                            { ...opts, headers, signal },
+                            { ...opts, headers, signal, cache: "no-store" },
                             useRequestAPI ? FetchMethod.native : FetchMethod.webCompat
                         );
                         return response;
@@ -352,7 +353,11 @@ export abstract class RemoteService<T extends ServiceContext = ServiceContext>
                             //     ...opts,
                             //     headers,
                             // });
-                            const resp2 = await this.performFetch(requestSrc, { ...opts, headers }, FetchMethod.native);
+                            const resp2 = await this.performFetch(
+                                requestSrc,
+                                { ...opts, headers, cache: "no-store" },
+                                FetchMethod.native
+                            );
                             if (resp2.status / 100 == 2) {
                                 this.showError(
                                     "The request was successful by API. But the native fetch API failed! Please check CORS settings on the remote database!. While this condition, you cannot enable LiveSync",
