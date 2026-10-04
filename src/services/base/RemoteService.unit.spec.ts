@@ -6,7 +6,15 @@ import { RemoteService } from "./RemoteService";
 import { ServiceContext } from "./ServiceBase";
 import type { SettingService } from "./SettingService";
 import { PouchDB } from "@lib/pouchdb/pouchdb-http";
-import type { E2EEAlgorithm } from "@lib/common/types.ts";
+import {
+    E2EEAlgorithms,
+    type DocumentID,
+    type E2EEAlgorithm,
+    type EntryLeaf,
+    type FilePathWithPrefix,
+    type PlainEntry,
+} from "@lib/common/types.ts";
+import { getConfiguredFunctionsForEncryption } from "@lib/pouchdb/encryption.ts";
 
 class TestRemoteService extends RemoteService {}
 
@@ -134,6 +142,79 @@ async function connect(service: TestRemoteService, skipInfo = true) {
 }
 
 describe("RemoteService request activity", () => {
+    it.each(["Metadata", "chunk"] as const)(
+        "reads current encrypted %s after a rebuild preserves its ID and revision",
+        async (kind) => {
+            const passphrase = "remote-cache-regression-secret";
+            const document =
+                kind === "Metadata"
+                    ? ({
+                          _id: `f:${"a".repeat(64)}` as DocumentID,
+                          _rev: "1-preserved-revision",
+                          path: "example.md" as FilePathWithPrefix,
+                          type: "plain",
+                          ctime: 10,
+                          mtime: 20,
+                          size: 30,
+                          children: [],
+                          eden: {},
+                      } satisfies PlainEntry)
+                    : ({
+                          _id: "h:+cached-chunk" as DocumentID,
+                          _rev: "1-preserved-revision",
+                          type: "leaf",
+                          data: "unchanged content",
+                      } satisfies EntryLeaf);
+            let seed = new Uint8Array(32).fill(1);
+            const writer = getConfiguredFunctionsForEncryption(
+                passphrase,
+                false,
+                false,
+                async () => seed,
+                E2EEAlgorithms.V2,
+                true
+            );
+            let serverDocument = await writer.incoming(document);
+            // An earlier connection left this response in the browser HTTP cache.
+            const cachedDocument = structuredClone(serverDocument);
+            const { service } = createService(async (_request, options) => {
+                // CouchDB validates a cached response with its revision ETag.
+                const bypassCache = options?.cache === "no-store" || options?.cache === "reload";
+                const response =
+                    !bypassCache && cachedDocument._rev === serverDocument._rev ? cachedDocument : serverDocument;
+                return new Response(JSON.stringify(response), {
+                    headers: { "content-type": "application/json", etag: `"${response._rev}"` },
+                });
+            });
+            const opened = await service.connect(
+                "https://example.com/db",
+                { username: "user", password: "password", type: "basic" },
+                false,
+                passphrase,
+                false,
+                false,
+                true,
+                false,
+                {},
+                false,
+                async () => seed
+            );
+            expect(typeof opened).not.toBe("string");
+            if (typeof opened === "string") throw new Error(opened);
+            try {
+                await expect(opened.db.get(document._id)).resolves.toMatchObject(document);
+                seed = new Uint8Array(32).fill(2);
+                serverDocument = await writer.incoming(document);
+                expect(serverDocument._rev).toBe(cachedDocument._rev);
+                expect(serverDocument).not.toEqual(cachedDocument);
+
+                await expect(opened.db.get(document._id)).resolves.toMatchObject(document);
+            } finally {
+                await opened.close();
+            }
+        }
+    );
+
     it("uses an owner-supplied encryption algorithm without rereading live settings", async () => {
         const database = {
             close: vi.fn().mockResolvedValue(undefined),
