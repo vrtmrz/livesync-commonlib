@@ -119,7 +119,7 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
     },
     configPassphrase: {
         name: "Passphrase of sensitive configuration items",
-        desc: "This passphrase will not be copied to another device. It will be set to `Default` until you configure it again.",
+        desc: "SettingService.ConfigurationPassphraseDeviceLocalDescription",
     },
     configPassphraseStore: {
         name: "Encrypting sensitive configuration items",

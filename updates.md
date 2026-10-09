@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Fixed
+
+- We can change the passphrase protecting sensitive settings without reusing a key cached for another mode.
+    - `SettingService.changeConfigurationEncryption()` prepares all protected values with one key and serialises the update with ordinary saves. Failed writes attempt to restore the previous device key and do not signal success.
+- Hosts can request a missing or unusable custom configuration passphrase before settings initialisation continues.
+    - Input uses the existing masked confirmation capability. Only validated keys are saved; cancellation retains the encrypted settings and stops that load. Invalid independent ID keys remain rejected.
+
 ## 0.1.36
 
 4th October, 2026
