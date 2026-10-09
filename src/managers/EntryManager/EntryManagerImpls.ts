@@ -380,13 +380,20 @@ export async function getDBEntryMetaByPath(
     const id = await host.services.path.path2id(path);
     try {
         let obj: EntryDocResponse | null = null;
-        if (opt) {
+        try {
             obj = await localDatabase.get(id, opt);
-        } else {
-            obj = await localDatabase.get(id);
+        } catch (ex) {
+            if (!includeDeleted || opt?.rev !== undefined || !isErrorOfMissingDoc(ex)) throw ex;
+            // A normal get hides a deleted winner. The keyed index still exposes
+            // its current revision, which can be read explicitly. Do not use the
+            // incoming deletion revision: a live winner may have replaced it.
+            const result = await localDatabase.allDocs({ keys: [id] });
+            const row = result.rows[0];
+            if (!row || !("value" in row) || !row.value.rev) return false;
+            obj = await localDatabase.get(id, { ...opt, rev: row.value.rev });
         }
         const deleted: boolean | undefined =
-            (obj as unknown as { deleted?: boolean })?.deleted ?? obj._deleted ?? undefined;
+            obj._deleted || (obj as unknown as { deleted?: boolean }).deleted;
         if (!includeDeleted && deleted) return false;
         if (obj.type && obj.type == "leaf") {
             //do nothing for leaf;
