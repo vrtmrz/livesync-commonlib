@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.38
+
+11th October, 2026
+
 ### Fixed
 
 - We can change the passphrase protecting sensitive settings without reusing a key cached for another mode.
