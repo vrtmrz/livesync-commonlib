@@ -4,6 +4,7 @@ import type {
     AnyEntry,
     AUTO_MERGED,
     CouchDBCredentials,
+    ConfigPassphraseStore,
     diff_result,
     DocumentID,
     EntryDoc,
@@ -496,6 +497,9 @@ export interface ISettingService {
     ): Promise<(Partial<ObsidianLiveSyncSettings> | void)[]>;
 
     saveSettingData(): Promise<void>;
+
+    /** Save a new configuration wrapper and its device-local key, retaining the protected values. */
+    changeConfigurationEncryption(store: ConfigPassphraseStore, passphrase?: string): Promise<void>;
 
     currentSettings(): ObsidianLiveSyncSettings;
 

@@ -17,7 +17,12 @@ import { ServiceBase, type ServiceContext } from "./ServiceBase";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import { isCloudantURI } from "@lib/pouchdb/utils_couchdb";
 import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
-import { encryptWithEphemeralSalt } from "octagonal-wheels/encryption/hkdf";
+import { encryptWithEphemeralSalt, HKDF_SALTED_ENCRYPTED_PREFIX } from "octagonal-wheels/encryption/hkdf";
+import {
+    ENCRYPT_V1_PREFIX_PROBABLY,
+    ENCRYPT_V2_PREFIX,
+    ENCRYPT_V3_PREFIX,
+} from "octagonal-wheels/encryption/encryption";
 import {
     activateP2PRemoteConfiguration,
     activateRemoteConfiguration,
@@ -42,6 +47,16 @@ export interface SettingServiceDependencies {
     /** Optional host hook for applying the loaded display language to its catalogue. */
     onDisplayLanguageChanged?: (language: ObsidianLiveSyncSettings["displayLanguage"]) => void;
 }
+
+interface PreparedSettingSave {
+    persisted: PersistedSettings;
+    runtime: ObsidianLiveSyncSettings;
+    patch: Partial<ObsidianLiveSyncSettings>;
+    passphrase: string | false;
+}
+
+class ConfigurationPassphraseError extends Error {}
+
 export abstract class SettingService<T extends ServiceContext = ServiceContext>
     extends ServiceBase<T>
     implements ISettingService
@@ -71,6 +86,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
 
     private _lastPersistedSettings?: ObsidianLiveSyncSettings;
     private _settingsMigrationState?: SettingsMigrationState;
+    private saveQueue: Promise<void> = Promise.resolve();
 
     getSettingsMigrationState(): SettingsMigrationState | undefined {
         return this._settingsMigrationState;
@@ -206,31 +222,140 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     /**
      * Save the current settings to storage.
      */
-    async saveSettingData() {
-        this.saveDeviceAndVaultName();
+    saveSettingData(): Promise<void> {
+        return this.serialiseSave(async () => {
+            const prepared = await this.prepareSettingSave(this.cloneSettings(this.settings));
+            await this.writePreparedSettings(prepared);
+            this.commitPreparedSettings(prepared);
+        });
+    }
+
+    private serialiseSave(operation: () => Promise<void>): Promise<void> {
+        const result = this.saveQueue.then(operation);
+        this.saveQueue = result.catch((): void => undefined);
+        return result;
+    }
+
+    /** Change the configuration wrapper without changing the protected plaintext values. */
+    changeConfigurationEncryption(store: ConfigPassphraseStore, passphrase?: string): Promise<void> {
+        const result = this.serialiseSave(async () => {
+            if (store !== "" && store !== "LOCALSTORAGE" && store !== "ASK_AT_LAUNCH") {
+                throw new Error("The configuration passphrase storage mode is unsupported.");
+            }
+            const oldLocalKey = this.getDeviceLocalConfig("ls-setting-passphrase");
+            const settings = this.cloneSettings(this.settings);
+            let targetKey: string | false;
+            if (store === "LOCALSTORAGE") {
+                targetKey = passphrase ?? oldLocalKey ?? false;
+            } else if (store === "") {
+                targetKey = "*";
+            } else {
+                targetKey = await this.getSavingPassphrase({ ...settings, configPassphraseStore: store });
+            }
+            if (!targetKey) {
+                throw new Error("A configuration passphrase is required. Settings were not saved.");
+            }
+
+            await this.prepareConfigurationKeyChange(settings, targetKey);
+            settings.configPassphraseStore = store;
+            const prepared = await this.prepareSettingSave(settings, targetKey);
+            const changesLocalKey = store === "LOCALSTORAGE" && targetKey !== oldLocalKey;
+            try {
+                if (changesLocalKey) this.setDeviceLocalConfig("ls-setting-passphrase", targetKey);
+                await this.writePreparedSettings(prepared);
+            } catch (error) {
+                if (changesLocalKey) this.restoreConfigurationPassphrase(oldLocalKey, error);
+                throw error;
+            }
+            this.settings.configPassphraseStore = store;
+            this.commitPreparedSettings(prepared);
+        });
+        return result.catch((error: unknown) => {
+            this._log(this.context.translate("SettingService.ConfigurationEncryptionSaveFailed"), LOG_LEVEL_URGENT);
+            throw error;
+        });
+    }
+
+    private restoreConfigurationPassphrase(previous: string | null, cause: unknown): void {
+        try {
+            if (previous) this.setDeviceLocalConfig("ls-setting-passphrase", previous);
+            else this.deleteDeviceLocalConfig("ls-setting-passphrase");
+        } catch {
+            const message = this.context.translate("SettingService.ConfigurationPassphraseRollbackFailed");
+            this._log(message, LOG_LEVEL_URGENT);
+            throw new Error(message, { cause });
+        }
+    }
+
+    private async prepareConfigurationKeyChange(settings: ObsidianLiveSyncSettings, targetKey: string): Promise<void> {
+        for (const config of Object.values(settings.remoteConfigurations)) {
+            if (config.isEncrypted && this.isPlainConfigurationUri(config.uri)) config.isEncrypted = false;
+        }
+        const hasCiphertext = this.hasProtectedConfiguration(settings);
+        if (!hasCiphertext) return;
+        const oldKey = await this.getSavingPassphrase(settings);
+        const failure = () => new Error(this.context.translate("SettingService.ConfigurationCouldNotBeDecrypted"));
+        if (!oldKey) throw failure();
+        if (settings.encryptedCouchDBConnection) {
+            const connection = this.tryDecodeJson(
+                await this.decryptConfigurationItem(settings.encryptedCouchDBConnection, oldKey)
+            );
+            if (!restoreConnectionSettings(this.cloneSettings(settings), connection)) throw failure();
+            settings.encryptedCouchDBConnection = "";
+        }
+        if (settings.encryptedPassphrase) {
+            const plaintext = await this.decryptConfigurationItem(settings.encryptedPassphrase, oldKey);
+            if (plaintext === false) throw failure();
+            settings.encryptedPassphrase = requireConfigurationCiphertext(
+                await this.encryptPlainConfigurationItem(plaintext, settings, targetKey)
+            );
+        }
+        if (settings.idDerivationVersion === 1 && settings.encryptedIdDerivationKey) {
+            const idKey = await this.decryptConfigurationItem(settings.encryptedIdDerivationKey, oldKey);
+            if (idKey === false) throw failure();
+            configuredIdKey({ ...settings, idDerivationKey: idKey });
+        }
+        for (const config of Object.values(settings.remoteConfigurations)) {
+            if (!config.isEncrypted) continue;
+            const plaintext = await this.decryptConfigurationItem(config.uri, oldKey);
+            if (plaintext === false) {
+                try {
+                    ConnectionStringParser.parse(config.uri);
+                } catch {
+                    throw failure();
+                }
+            } else {
+                config.uri = plaintext;
+            }
+            config.isEncrypted = false;
+        }
+    }
+
+    private async prepareSettingSave(
+        settings: ObsidianLiveSyncSettings,
+        selectedPassphrase?: string
+    ): Promise<PreparedSettingSave> {
         const previousSettings = this._lastPersistedSettings ?? this.cloneSettings(this.settings);
-        const settings = this.cloneSettings(this.settings);
         const hookResults = await this.onBeforeSaveSettingData(settings, previousSettings);
+        const savedPatch: Partial<ObsidianLiveSyncSettings> = {};
         for (const patch of hookResults) {
             if (patch instanceof Error || !patch) continue;
             Object.assign(settings, patch);
-            Object.assign(this.settings, patch);
+            Object.assign(savedPatch, patch);
         }
+        const runtime = this.cloneSettings(settings);
         const idKey = configuredIdKey(settings);
+        const configurationPassphrase = selectedPassphrase ?? (await this.getSavingPassphrase(settings));
         if (settings.idDerivationVersion === 1) {
             if (idKey === false) {
                 throw new Error("The configured ID derivation key is unavailable.");
             }
-            let passphrase: string | false = this.usedPassphrase;
-            if (passphrase === "") {
-                passphrase = await this.getPassphrase(settings);
-            }
-            if (passphrase === false || passphrase === "") {
+            if (!configurationPassphrase) {
                 const message = "Failed to retrieve a passphrase for the ID derivation key. Settings were not saved.";
                 this._log(message, LOG_LEVEL_URGENT);
                 throw new Error(message);
             }
-            const encryptedIdKey = await encryptString(idKey, passphrase + SALT_OF_PASSPHRASE);
+            const encryptedIdKey = await encryptString(idKey, configurationPassphrase + SALT_OF_PASSPHRASE);
             if (encryptedIdKey === "") {
                 const message = "Failed to encrypt the ID derivation key. Settings were not saved.";
                 this._log(message, LOG_LEVEL_URGENT);
@@ -238,18 +363,14 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             }
             settings.encryptedIdDerivationKey = encryptedIdKey;
             settings.idDerivationKey = "";
-            this.usedPassphrase = passphrase;
         } else {
             settings.encryptedIdDerivationKey = "";
         }
         settings.deviceAndVaultName = "";
         if (settings.P2P_DevicePeerName && settings.P2P_DevicePeerName.trim() !== "") {
-            this._log("Saving device peer name to small config");
-            this.setSmallConfig(SETTING_KEY_P2P_DEVICE_NAME, settings.P2P_DevicePeerName.trim());
             settings.P2P_DevicePeerName = "";
         }
         omitUnpersistedSettings(settings);
-        const configurationPassphrase = this.usedPassphrase || (await this.getPassphrase(settings));
         if (!configurationPassphrase) {
             if (
                 Object.values(settings.remoteConfigurations).some((config) => this.hasManagedP2PProfileURI(config.uri))
@@ -274,7 +395,11 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         } else {
             if (hasConnectionSettings(settings)) {
                 settings.encryptedCouchDBConnection = requireConfigurationCiphertext(
-                    await this.encryptConfigurationItem(JSON.stringify(selectConnectionSettings(settings)), settings)
+                    await this.encryptConfigurationItem(
+                        JSON.stringify(selectConnectionSettings(settings)),
+                        settings,
+                        configurationPassphrase
+                    )
                 );
                 clearConnectionSettings(settings);
             } else if (settings.encryptedCouchDBConnection) {
@@ -287,19 +412,38 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             }
             if (settings.encrypt && settings.passphrase != "") {
                 settings.encryptedPassphrase = requireConfigurationCiphertext(
-                    await this.encryptPlainConfigurationItem(settings.passphrase, settings)
+                    await this.encryptPlainConfigurationItem(settings.passphrase, settings, configurationPassphrase)
                 );
                 settings.passphrase = "";
             }
-            await this.encryptRemoteConfigurationUris(settings);
+            await this.encryptRemoteConfigurationUris(settings, configurationPassphrase);
         }
         const persisted = prepareSettingsForPersistence(settings);
-        await this.saveData(persisted);
-        this._lastPersistedSettings = this.cloneSettings(this.settings);
-        void this.onSettingSaved(settings);
+        return { persisted, runtime, patch: savedPatch, passphrase: configurationPassphrase };
     }
 
-    private async encryptRemoteConfigurationUris(settings: ObsidianLiveSyncSettings): Promise<void> {
+    private async writePreparedSettings(prepared: PreparedSettingSave): Promise<void> {
+        this.saveDeviceAndVaultName();
+        if (prepared.runtime.P2P_DevicePeerName?.trim()) {
+            this.setSmallConfig(SETTING_KEY_P2P_DEVICE_NAME, prepared.runtime.P2P_DevicePeerName.trim());
+        }
+        await this.saveData(prepared.persisted);
+    }
+
+    private commitPreparedSettings(prepared: PreparedSettingSave): void {
+        Object.assign(this.settings, prepared.patch);
+        this.settings.encryptedCouchDBConnection = prepared.persisted.encryptedCouchDBConnection;
+        this.settings.encryptedPassphrase = prepared.persisted.encryptedPassphrase;
+        this.settings.encryptedIdDerivationKey = prepared.persisted.encryptedIdDerivationKey;
+        this._lastPersistedSettings = prepared.runtime;
+        if (prepared.passphrase) this.rememberPassphrase(prepared.runtime, prepared.passphrase);
+        void this.onSettingSaved(prepared.persisted);
+    }
+
+    private async encryptRemoteConfigurationUris(
+        settings: ObsidianLiveSyncSettings,
+        passphrase: string
+    ): Promise<void> {
         const configs = settings.remoteConfigurations || {};
         for (const [id, config] of Object.entries(configs)) {
             if (config.isEncrypted || config.uri.trim() === "") {
@@ -308,7 +452,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             const managedP2PProfile = this.hasManagedP2PProfileURI(config.uri);
             let encryptedURI: string;
             try {
-                encryptedURI = await this.encryptConfigurationItem(config.uri, settings);
+                encryptedURI = await this.encryptConfigurationItem(config.uri, settings, passphrase);
             } catch (error) {
                 if (managedP2PProfile) {
                     const message = `Failed to encrypt managed P2P remote configuration '${id}'. Settings were not saved.`;
@@ -354,7 +498,8 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     private async decryptRemoteConfigurationUris(
         settings: ObsidianLiveSyncSettings,
         passphrase: string
-    ): Promise<void> {
+    ): Promise<boolean> {
+        let verified = false;
         const configs = settings.remoteConfigurations || {};
         for (const [id, config] of Object.entries(configs)) {
             if (!config.isEncrypted) {
@@ -387,7 +532,9 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                 uri: decryptedURI,
                 isEncrypted: false,
             };
+            verified = true;
         }
+        return verified;
     }
 
     /**
@@ -483,26 +630,42 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         const methods: Record<ConfigPassphraseStore, () => Promise<string | false>> = {
             "": () => Promise.resolve("*"),
             LOCALSTORAGE: () => Promise.resolve(this.getDeviceLocalConfig("ls-setting-passphrase") ?? false),
-            ASK_AT_LAUNCH: () => this.APIService.confirm.askString("Passphrase", "passphrase", ""),
+            ASK_AT_LAUNCH: () =>
+                this.APIService.confirm.askString(
+                    this.context.translate("SettingService.ConfigurationPassphraseTitle"),
+                    "passphrase",
+                    "",
+                    true
+                ),
         };
         const method = settings.configPassphraseStore;
         const methodFunc = method in methods ? methods[method] : methods[""];
         return methodFunc();
     }
 
-    private usedPassphrase = "";
+    private usedPassphrase?: { store: ConfigPassphraseStore; value: string };
+
+    private getSavingPassphrase(settings: ObsidianLiveSyncSettings): Promise<string | false> {
+        if (settings.configPassphraseStore === "ASK_AT_LAUNCH" && this.usedPassphrase?.store === "ASK_AT_LAUNCH") {
+            return Promise.resolve(this.usedPassphrase.value);
+        }
+        return this.getPassphrase(settings);
+    }
+
+    private rememberPassphrase(settings: ObsidianLiveSyncSettings, passphrase: string): void {
+        this.usedPassphrase = { store: settings.configPassphraseStore, value: passphrase };
+    }
     /**
      * Clear any used passphrase from memory.
      */
     clearUsedPassphrase(): void {
-        this.usedPassphrase = "";
+        this.usedPassphrase = undefined;
     }
 
     async decryptConfigurationItem(encrypted: string, passphrase: string) {
         try {
             const dec = await decryptString(encrypted, passphrase + SALT_OF_PASSPHRASE);
             if (dec) {
-                this.usedPassphrase = passphrase;
                 return dec;
             }
         } catch (ex) {
@@ -511,23 +674,20 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         }
         return false;
     }
-    async encryptConfigurationItem(src: string, settings: ObsidianLiveSyncSettings) {
-        return this.encryptConfigurationItemWith(src, settings, encryptString);
+    async encryptConfigurationItem(src: string, settings: ObsidianLiveSyncSettings, passphrase?: string) {
+        return this.encryptConfigurationItemWith(src, settings, encryptString, passphrase);
     }
-    private async encryptPlainConfigurationItem(src: string, settings: ObsidianLiveSyncSettings) {
-        return this.encryptConfigurationItemWith(src, settings, encryptWithEphemeralSalt);
+    private async encryptPlainConfigurationItem(src: string, settings: ObsidianLiveSyncSettings, passphrase?: string) {
+        return this.encryptConfigurationItemWith(src, settings, encryptWithEphemeralSalt, passphrase);
     }
     private async encryptConfigurationItemWith(
         src: string,
         settings: ObsidianLiveSyncSettings,
-        encrypt: (source: string, passphrase: string) => Promise<string>
+        encrypt: (source: string, passphrase: string) => Promise<string>,
+        selectedPassphrase?: string
     ) {
-        if (this.usedPassphrase != "") {
-            return await encrypt(src, this.usedPassphrase + SALT_OF_PASSPHRASE);
-        }
-
-        const passphrase = await this.getPassphrase(settings);
-        if (passphrase === false) {
+        const passphrase = selectedPassphrase ?? (await this.getSavingPassphrase(settings));
+        if (!passphrase) {
             this._log(
                 "Failed to obtain passphrase when saving data.json! Please verify the configuration.",
                 LOG_LEVEL_URGENT
@@ -536,7 +696,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         }
         const dec = await encrypt(src, passphrase + SALT_OF_PASSPHRASE);
         if (dec) {
-            this.usedPassphrase = passphrase;
+            if (selectedPassphrase === undefined) this.rememberPassphrase(settings, passphrase);
             return dec;
         }
 
@@ -548,19 +708,28 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
      * @param settings The settings to decrypt.
      */
     async decryptSettings(settings: ObsidianLiveSyncSettings): Promise<ObsidianLiveSyncSettings> {
-        if (settings.idDerivationVersion !== 1) {
-            configuredIdKey(settings);
-        } else if (!settings.encryptedIdDerivationKey) {
-            throw new Error("The configured ID derivation key is missing or unavailable.");
-        }
+        this.validateStoredIdConfiguration(settings);
         const passphrase = await this.getPassphrase(settings);
+        const result = await this.decryptSettingsWithPassphrase(settings, passphrase);
+        if (result.verified && passphrase) this.rememberPassphrase(settings, passphrase);
+        return result.settings;
+    }
+
+    private async decryptSettingsWithPassphrase(
+        settings: ObsidianLiveSyncSettings,
+        passphrase: string | false
+    ): Promise<{ settings: ObsidianLiveSyncSettings; verified: boolean }> {
+        let verified = false;
+        this.validateStoredIdConfiguration(settings);
         if (settings.idDerivationVersion === 1) {
             if (passphrase === false || passphrase === "") {
-                throw new Error("The configured ID derivation key cannot be decrypted without a passphrase.");
+                throw new ConfigurationPassphraseError(
+                    "The configured ID derivation key cannot be decrypted without a passphrase."
+                );
             }
             const decryptedIdKey = await this.decryptConfigurationItem(settings.encryptedIdDerivationKey, passphrase);
             if (decryptedIdKey === false) {
-                throw new Error("The configured ID derivation key could not be decrypted.");
+                throw new ConfigurationPassphraseError("The configured ID derivation key could not be decrypted.");
             }
             try {
                 configuredIdKey({ ...settings, idDerivationKey: decryptedIdKey });
@@ -568,6 +737,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                 throw new Error("The configured ID derivation key is invalid.");
             }
             settings.idDerivationKey = decryptedIdKey;
+            verified = true;
         }
         if (passphrase === false) {
             this._log("No passphrase found for data.json! Verify configuration before syncing.", LOG_LEVEL_URGENT);
@@ -591,6 +761,8 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                         LOG_LEVEL_URGENT
                     );
                     clearConnectionSettings(settings);
+                } else {
+                    verified = true;
                 }
             }
             if (settings.encrypt && settings.encryptedPassphrase) {
@@ -598,6 +770,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                 const decrypted = await this.decryptConfigurationItem(encrypted, passphrase);
                 if (decrypted) {
                     settings.passphrase = decrypted;
+                    verified = true;
                 } else {
                     this._log(
                         "Failed to decrypt passphrase from data.json! Ensure configuration is correct before syncing with remote.",
@@ -606,9 +779,93 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                     settings.passphrase = "";
                 }
             }
-            await this.decryptRemoteConfigurationUris(settings, passphrase);
+            verified = (await this.decryptRemoteConfigurationUris(settings, passphrase)) || verified;
         }
-        return settings;
+        return { settings, verified };
+    }
+
+    private hasProtectedConfiguration(settings: ObsidianLiveSyncSettings): boolean {
+        return !!(
+            settings.encryptedCouchDBConnection ||
+            (settings.encrypt && settings.encryptedPassphrase) ||
+            settings.encryptedIdDerivationKey ||
+            Object.values(settings.remoteConfigurations || {}).some(
+                (config) => config.isEncrypted && !this.isPlainConfigurationUri(config.uri)
+            )
+        );
+    }
+
+    private validateStoredIdConfiguration(settings: ObsidianLiveSyncSettings): void {
+        if (settings.idDerivationVersion !== 1) {
+            configuredIdKey(settings);
+        } else if (!settings.encryptedIdDerivationKey) {
+            throw new Error("The configured ID derivation key is missing or unavailable.");
+        }
+    }
+
+    private isPlainConfigurationUri(uri: string): boolean {
+        try {
+            ConnectionStringParser.parse(uri);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    private async loadConfiguration(settings: ObsidianLiveSyncSettings): Promise<ObsidianLiveSyncSettings> {
+        if (settings.configPassphraseStore !== "LOCALSTORAGE" || !this.hasProtectedConfiguration(settings)) {
+            return this.decryptSettings(settings);
+        }
+        if (settings.idDerivationVersion === 1) {
+            const ciphertext = settings.encryptedIdDerivationKey;
+            if (
+                ![HKDF_SALTED_ENCRYPTED_PREFIX, ENCRYPT_V1_PREFIX_PROBABLY, ENCRYPT_V2_PREFIX, ENCRYPT_V3_PREFIX].some(
+                    (prefix) => ciphertext?.startsWith(prefix)
+                )
+            ) {
+                throw new Error("The configured ID derivation key is missing or unavailable.");
+            }
+        } else {
+            configuredIdKey(settings);
+        }
+        const previous = this.getDeviceLocalConfig("ls-setting-passphrase");
+        let candidate: string | false = previous || false;
+        let retry = false;
+        while (true) {
+            if (candidate) {
+                try {
+                    const result = await this.decryptSettingsWithPassphrase(this.cloneSettings(settings), candidate);
+                    if (result.verified) {
+                        if (candidate !== previous) {
+                            try {
+                                this.setDeviceLocalConfig("ls-setting-passphrase", candidate);
+                            } catch (error) {
+                                this.restoreConfigurationPassphrase(previous, error);
+                                throw error;
+                            }
+                        }
+                        this.rememberPassphrase(settings, candidate);
+                        return result.settings;
+                    }
+                } catch (error) {
+                    if (!(error instanceof ConfigurationPassphraseError)) throw error;
+                }
+                retry = true;
+            }
+            candidate = await this.APIService.confirm.askString(
+                this.context.translate(
+                    retry
+                        ? "SettingService.ConfigurationPassphraseRetryTitle"
+                        : "SettingService.ConfigurationPassphraseTitle"
+                ),
+                "passphrase",
+                "",
+                true
+            );
+            if (!candidate) {
+                throw new Error(this.context.translate("SettingService.ConfigurationPassphraseCancelled"));
+            }
+        }
     }
 
     async loadSettings(): Promise<void> {
@@ -627,7 +884,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             }
         }
 
-        this.settings = await this.decryptSettings(settings);
+        this.settings = await this.loadConfiguration(settings);
 
         // I wonder can we call here.
         this.onDisplayLanguageChanged?.(this.settings.displayLanguage);
