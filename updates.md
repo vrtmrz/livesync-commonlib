@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+## 0.1.39
+
+13th October, 2026
+
+### Maintenance
+
+- We now require a patched Markdown parser and update compatible dependencies with available security fixes.
+    - Raised `markdown-it` to `^14.3.2` and `minimatch` to `^10.2.6`. Refreshed Vitest, `source-map-js`, `brace-expansion`, and `devalue` within their existing major versions.
+    - Our packed browser worker also includes the updated brace expansion implementation.
+    - Existing consumer lockfiles may also need to refresh `brace-expansion` to a patched version allowed by their dependency ranges.
+    - PouchDB still pins `uuid@8.3.2`; its existing audit finding remains.
+
 ## 0.1.38
 
 11th October, 2026
