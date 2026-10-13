@@ -13,6 +13,10 @@
 - Hosts can request a missing or unusable custom configuration passphrase before settings initialisation continues.
     - Input uses the existing masked confirmation capability. Only validated keys are saved; cancellation retains the encrypted settings and stops that load. Invalid independent ID keys remain rejected.
 
+### Maintenance
+
+- Our shared utility dependency now uses `octagonal-wheels@0.1.55`, including the EventHub abort-signal and registration-scoped disposer fixes from 0.1.54.
+
 ## 0.1.36
 
 4th October, 2026
