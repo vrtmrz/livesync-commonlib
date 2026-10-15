@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Fixed
+
+- Node storage consumers can retain a file's creation time across in-place edits where the filesystem supplies it.
+    - `stat` and `trystat` prefer a positive `birthtimeMs` and retain the `ctimeMs` fallback otherwise. The `/node` entry exports `getNodeFileCreationTime` so hosts can use the same integer-millisecond conversion.
+    - This does not preserve creation time across file replacement or restore a creation time supplied in write options.
+
 ## 0.1.39
 
 13th October, 2026

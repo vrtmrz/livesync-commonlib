@@ -33,6 +33,7 @@ export const isBuiltin = nodeIsBuiltin;
 export {
     NodeStorageAdapter,
     createNodeStorage,
+    getNodeFileCreationTime,
     validateStoragePath,
     type CreateNodeStorageOptions,
     type NodeStorageStat,

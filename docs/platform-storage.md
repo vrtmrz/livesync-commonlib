@@ -39,6 +39,8 @@ await storage.write('notes/example.md', '# Example');
 
 `rootPath` may be absolute or process-relative. The host should normally resolve and validate configuration before constructing the adapter.
 
+Node storage reports creation time from a positive `birthtimeMs`, falling back to `ctimeMs` when birth time is unavailable. Timestamps are rounded down to integer milliseconds. Hosts converting native Node stats can use `getNodeFileCreationTime` from the `/node` entry for the same conversion. Some platforms already return change time as birth time, so this fallback cannot guarantee a stable creation time there. Replacing a file can also change its birth time. Write options preserve modification time; the Node adapter does not restore creation time from `ctime`.
+
 The Node adapter rejects symbolic-link components which it observes in an adapter path before an operation. File opens also use `O_NOFOLLOW` for the final component where the platform exposes that flag. These checks protect against invalid paths and symbolic links which already exist when an operation begins. Its concrete `rename(sourcePath, targetPath)` operation validates both paths before providing the atomic rename expected by Node hosts.
 
 The host-selected `rootPath` is a trust boundary, not an operating-system filesystem sandbox. The adapter assumes that an untrusted local process cannot replace that root or its descendants concurrently with an operation. A host which grants another local actor write access to the tree must not rely on the adapter as a privilege boundary.
