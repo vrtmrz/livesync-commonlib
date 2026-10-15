@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.40
+
+15th October, 2026
+
 ### Fixed
 
 - Node storage consumers can retain a file's creation time across in-place edits where the filesystem supplies it.
