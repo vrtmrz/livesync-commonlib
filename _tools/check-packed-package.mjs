@@ -444,6 +444,8 @@ assert.equal(typeof nodeRuntime.fsPromises.readFile, "function");
 assert.equal(typeof nodeRuntime.path.join, "function");
 assert.equal(typeof nodeRuntime.readline.createInterface, "function");
 assert.equal(typeof nodeRuntime.createNodeStandardIo, "function");
+assert.equal(nodeRuntime.getNodeFileCreationTime({ birthtimeMs: 1000.9, ctimeMs: 2000.8 }), 1000);
+assert.equal(nodeRuntime.getNodeFileCreationTime({ birthtimeMs: 0, ctimeMs: 2000.8 }), 2000);
 assert.equal(typeof nodeRuntime.fileURLToPath, "function");
 assert.ok(nodeRuntime.builtinModules.includes("fs"));
 assert.equal(nodeRuntime.isBuiltin("stream"), true);

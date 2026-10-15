@@ -1,4 +1,5 @@
 import { constants as nodeFsConstants } from "node:fs";
+import type { Stats } from "node:fs";
 import * as nodeFsPromises from "node:fs/promises";
 import type { FileHandle } from "node:fs/promises";
 import * as nodePath from "node:path";
@@ -8,6 +9,11 @@ import type { IStorageAdapter } from "@lib/serviceModules/adapters/IStorageAdapt
 import { validateStoragePath } from "../storagePath.ts";
 
 export type NodeStorageStat = UXStat;
+
+/** Read creation time in integer milliseconds, using change time when birth time is unavailable. */
+export function getNodeFileCreationTime(stat: Pick<Stats, "birthtimeMs" | "ctimeMs">): number {
+    return Math.floor(stat.birthtimeMs > 0 ? stat.birthtimeMs : stat.ctimeMs);
+}
 
 const NO_FOLLOW = (nodeFsConstants as typeof nodeFsConstants & { O_NOFOLLOW?: number }).O_NOFOLLOW ?? 0;
 
@@ -73,7 +79,7 @@ export class NodeStorageAdapter implements IStorageAdapter<NodeStorageStat> {
             return {
                 size: stat.size,
                 mtime: Math.floor(stat.mtimeMs),
-                ctime: Math.floor(stat.ctimeMs),
+                ctime: getNodeFileCreationTime(stat),
                 type: stat.isDirectory() ? "folder" : "file",
             };
         } catch (error) {
