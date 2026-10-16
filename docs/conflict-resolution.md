@@ -18,7 +18,7 @@ A1
 
 Resolving a conflict writes the selected or merged result on one branch and deletes every losing live leaf which the resolver has observed. Deleted leaves remain part of the tree until compaction removes their bodies. A stale client can therefore receive the resolved branch and the tombstone for a branch whose old content is still present in its storage.
 
-Metadata reads which explicitly include deleted entries also return a current PouchDB `_deleted` winner. An ordinary read still excludes deleted entries, and a request for an unavailable specific revision does not fall back to the current winner. Incoming file reflection uses the current winner and rechecks it before deleting storage, so an older deletion notification does not override a subsequent restoration. Existing conflict and unsynchronised-edit protection still applies.
+Metadata reads which explicitly include deleted entries also return a current PouchDB `_deleted` winner. An ordinary read still excludes deleted entries, and a request for an unavailable specific revision does not fall back to the current winner. A deleted-winner lookup rechecks the winning revision after fetching its body. If it changes, the lookup follows the new winner for at most three attempts and returns no entry if it cannot establish a stable revision. Incoming file reflection uses the current winner and rechecks it before deleting storage, so an older deletion notification does not override a subsequent restoration. Existing conflict and unsynchronised-edit protection still applies.
 
 ## Chunk reachability during conflicts
 

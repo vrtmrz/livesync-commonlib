@@ -387,13 +387,24 @@ export async function getDBEntryMetaByPath(
             // A normal get hides a deleted winner. The keyed index still exposes
             // its current revision, which can be read explicitly. Do not use the
             // incoming deletion revision: a live winner may have replaced it.
-            const result = await localDatabase.allDocs({ keys: [id] });
-            const row = result.rows[0];
-            if (!row || !("value" in row) || !row.value.rev) return false;
-            obj = await localDatabase.get(id, { ...opt, rev: row.value.rev });
+            for (let attempt = 0; attempt < 3; attempt++) {
+                const result = await localDatabase.allDocs({ keys: [id] });
+                const row = result.rows[0];
+                if (!row || !("value" in row) || !row.value.rev) return false;
+                const candidate = await localDatabase.get(id, { ...opt, rev: row.value.rev });
+                // Fetching an indexed revision can race with a restoration.
+                // Confirm the winner again before returning it as current.
+                const current = (await localDatabase.allDocs({ keys: [id] })).rows[0];
+                if (!current || !("value" in current) || !current.value.rev) return false;
+                if (current.value.rev === candidate._rev) {
+                    obj = candidate;
+                    break;
+                }
+            }
+            // Continuous changes cannot establish a current revision safely.
+            if (!obj) return false;
         }
-        const deleted: boolean | undefined =
-            obj._deleted || (obj as unknown as { deleted?: boolean }).deleted;
+        const deleted: boolean | undefined = obj._deleted || (obj as unknown as { deleted?: boolean }).deleted;
         if (!includeDeleted && deleted) return false;
         if (obj.type && obj.type == "leaf") {
             //do nothing for leaf;

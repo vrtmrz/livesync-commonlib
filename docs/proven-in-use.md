@@ -8,7 +8,7 @@ The code paths below identify the maintained Self-hosted LiveSync composition po
 
 ## Obsidian plug-in
 
-Unreleased deletion tests exercise `deleteMetadataOfDeletedFiles` enabled and disabled with two in-memory PouchDB replicas and injected file storage. They verify deletion and rename reflection, preservation of genuine local edits, and restoration before or during a deleted-winner lookup. These tests cover the Commonlib file handler and revision lookup, including the latest-revision check before deletion; they do not exercise Obsidian file watchers or a remote CouchDB server.
+Unreleased deletion tests exercise `deleteMetadataOfDeletedFiles` enabled and disabled with two in-memory PouchDB replicas and injected file storage. They verify deletion and rename reflection, preservation of genuine local edits, and restoration before or during a deleted-winner lookup, including the final revision check before deletion. They also verify that missing provenance or a compacted base preserves local storage, and that continuously advancing deleted revisions do not return stale Metadata. These tests cover the Commonlib file handler and revision lookup, including the latest-revision check before deletion; they do not exercise Obsidian file watchers or a remote CouchDB server.
 
 Unreleased configuration-encryption tests cover changing the wrapper key without changing connection, E2EE, profile, or independent ID values. They also cover custom-key input before loading, failed writes, concurrent saves, cancellation, and unreadable-payload retention. Commonlib owns these service results. LiveSync owns the Apply controls, setting-tab registration, and database startup order; actual Apply and restart behaviour requires its focused real-Obsidian scenario.
 

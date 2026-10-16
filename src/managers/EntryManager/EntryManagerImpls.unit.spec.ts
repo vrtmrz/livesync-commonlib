@@ -898,6 +898,26 @@ describe("EntryManagerImpls", () => {
             expect(meta && meta.deleted).not.toBe(true);
         });
 
+        it("refuses a stale deleted winner when its revision keeps advancing during lookup", async () => {
+            const entry = createSavingEntry("changing-deleted-winner", "Original content");
+            const services = createMockServices({ deleteMetadataOfDeletedFiles: true });
+            const host = createHost(services.mockSettingService, mockPathService);
+            await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
+            await deleteDBEntryByPath(host, { localDatabase: db }, entry.path);
+            const get = db.get.bind(db);
+            vi.spyOn(db, "get").mockImplementation(async (id, options) => {
+                const doc = await get(id, options);
+                if (options?.rev && doc._deleted) {
+                    await db.put({ ...doc, mtime: (doc.mtime ?? 0) + 1 });
+                }
+                return doc;
+            });
+
+            await expect(getDBEntryMetaByPath(host, { localDatabase: db }, entry.path, undefined, true)).resolves.toBe(
+                false
+            );
+        });
+
         it("propagates database errors other than missing documents", async () => {
             const host = createHost(mockSettingService, mockPathService);
             const error = new Error("Database unavailable");

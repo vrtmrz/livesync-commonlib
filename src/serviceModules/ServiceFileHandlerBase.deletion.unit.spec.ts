@@ -269,3 +269,64 @@ describe("deleted-winner lookup races", () => {
         expect(receiver.reflection.get(oldPath)?.revision).toBe((await receiver.db.get(oldPath))._rev);
     });
 });
+
+describe("deleted-winner revalidation", () => {
+    it("keeps a restoration replicated during the final deleted-winner revalidation", async () => {
+        const { source, receiver } = await fixture(true);
+        const incoming = await deleteAndReplicate(source, receiver, true);
+        const restored = makeFile(oldPath, "Restored during final deletion check\n", initialTime + 10_000);
+        expect(await source.access.storeWithBaseRevision(restored, incoming._rev, true)).not.toBe(false);
+        const fetchEntryMeta = receiver.access.fetchEntryMeta.bind(receiver.access);
+        const allDocs = receiver.db.allDocs.bind(receiver.db);
+        let latestMetadataReads = 0;
+        let restoredDuringFinalCheck = false;
+        vi.spyOn(receiver.access, "fetchEntryMeta").mockImplementation(async (file, rev, skipCheck) => {
+            if (rev === undefined && ++latestMetadataReads === 2) {
+                vi.spyOn(receiver.db, "allDocs").mockImplementationOnce(async (options) => {
+                    const deletedSnapshot = await allDocs(options);
+                    await receiver.db.replicate.from(source.db);
+                    const winner = await receiver.db.get(oldPath);
+                    expect(winner._deleted || winner.deleted).not.toBe(true);
+                    restoredDuringFinalCheck = true;
+                    return deletedSnapshot;
+                });
+            }
+            return await fetchEntryMeta(file, rev, skipCheck);
+        });
+
+        expect(await receiver.handler._anyProcessReplicatedDoc(incoming)).toBe(true);
+
+        expect(restoredDuringFinalCheck).toBe(true);
+        const current = await receiver.db.get(oldPath);
+        expect(current._deleted || current.deleted).not.toBe(true);
+        expect(Number(current._rev?.split("-")[0])).toBe(3);
+        expect(receiver.storageAccess.deleteVaultItem).not.toHaveBeenCalled();
+        expect(await receiver.files.get(oldPath)?.body.text()).toBe("Restored during final deletion check\n");
+    });
+
+    it("preserves storage when its displayed revision record is missing", async () => {
+        const { source, receiver } = await fixture(true);
+        receiver.reflection.clear();
+        const incoming = await deleteAndReplicate(source, receiver, true);
+
+        expect(await receiver.handler._anyProcessReplicatedDoc(incoming)).toBe(true);
+
+        expect(receiver.storageAccess.deleteVaultItem).not.toHaveBeenCalled();
+        expect(await receiver.files.get(oldPath)?.body.text()).toBe(original);
+        expect(receiver.conflict.queueCheckFor).toHaveBeenCalledWith(oldPath);
+    });
+
+    it("preserves storage after compaction removes the displayed base body", async () => {
+        const { source, receiver } = await fixture(true);
+        const baseRevision = receiver.reflection.get(oldPath)!.revision;
+        const incoming = await deleteAndReplicate(source, receiver, true);
+        await receiver.db.compact();
+        await expect(receiver.db.get(oldPath, { rev: baseRevision })).rejects.toMatchObject({ status: 404 });
+
+        expect(await receiver.handler._anyProcessReplicatedDoc(incoming)).toBe(true);
+
+        expect(receiver.storageAccess.deleteVaultItem).not.toHaveBeenCalled();
+        expect(await receiver.files.get(oldPath)?.body.text()).toBe(original);
+        expect(receiver.conflict.queueCheckFor).toHaveBeenCalledWith(oldPath);
+    });
+});
