@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
+import HttpAdapter from "pouchdb-adapter-http";
 import replication from "pouchdb-replication";
 import {
     createChunks,
@@ -49,6 +50,7 @@ import { ConflictManager } from "@lib/managers/ConflictManager";
 
 // Set up PouchDB with memory adapter
 PouchDB.plugin(MemoryAdapter);
+PouchDB.plugin(HttpAdapter);
 PouchDB.plugin(replication);
 let dbCounter = 0;
 
@@ -738,6 +740,36 @@ describe("EntryManagerImpls", () => {
     });
 
     describe("getDBEntryMetaByPath", () => {
+        it("reads Metadata through the HTTP adapter when options are omitted", async () => {
+            const host = createHost(mockSettingService, mockPathService);
+            const entry = createSavingEntry("http-metadata.md", "HTTP Metadata content");
+            await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
+            const stored = await db.get(entry._id);
+            const fetchMetadata = vi.fn(async () =>
+                new Response(JSON.stringify(stored), {
+                    status: 200,
+                    headers: { "content-type": "application/json" },
+                })
+            );
+            const remote = new PouchDB<EntryDoc>("http://couchdb.test/metadata-options", {
+                skip_setup: true,
+                fetch: fetchMetadata,
+            });
+            try {
+                const meta = await getDBEntryMetaByPath(host, { localDatabase: remote }, entry.path);
+
+                expect(meta).toMatchObject({
+                    _id: entry._id,
+                    _rev: stored._rev,
+                    path: entry.path,
+                    children: (stored as PlainEntry).children,
+                });
+                expect(fetchMetadata).toHaveBeenCalledOnce();
+            } finally {
+                await remote.close();
+            }
+        });
+
         it("should retrieve entry metadata", async () => {
             const entry = createSavingEntry("meta-test", "Test data");
             const host = createHost(mockSettingService, mockPathService);
@@ -803,7 +835,7 @@ describe("EntryManagerImpls", () => {
             );
             expect(metaWithDeleted).not.toBe(false);
         });
-        it("should exclude deleted entries if real deletion requested", async () => {
+        it("includes a hard-deleted winner only when deleted metadata is requested", async () => {
             const entry = createSavingEntry("deleted-test", "Will be deleted");
             const services = createMockServices({
                 deleteMetadataOfDeletedFiles: true,
@@ -824,7 +856,110 @@ describe("EntryManagerImpls", () => {
                 undefined,
                 true // includeDeleted
             );
-            expect(metaWithDeleted).toBe(false);
+            expect(metaWithDeleted).toMatchObject({ _id: entry._id, path: entry.path, deleted: true });
+        });
+
+        it("returns false for a missing document even when deleted metadata is requested", async () => {
+            const host = createHost(mockSettingService, mockPathService);
+            await expect(getDBEntryMetaByPath(
+                host, { localDatabase: db }, "missing.md" as FilePathWithPrefix, undefined, true
+            )).resolves.toBe(false);
+        });
+
+        it("honours the PouchDB deletion flag when the logical deletion flag is false", async () => {
+            const entry = createSavingEntry("hard-deleted-only", "Original content");
+            const host = createHost(mockSettingService, mockPathService);
+            await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
+            const original = await db.get(entry._id);
+            const current = await db.put({ ...original, deleted: false });
+            await deleteDBEntryByPath(host, { localDatabase: db }, entry.path, { rev: current.rev });
+
+            const meta = await getDBEntryMetaByPath(host, { localDatabase: db }, entry.path, undefined, true);
+            expect(meta).toMatchObject({ _id: entry._id, deleted: true });
+            await expect(getDBEntryMetaByPath(host, { localDatabase: db }, entry.path)).resolves.toBe(false);
+        });
+
+        it("does not replace a missing explicit revision with the current winner", async () => {
+            const entry = createSavingEntry("missing-revision", "Current content");
+            const host = createHost(mockSettingService, mockPathService);
+            await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
+            const allDocs = vi.spyOn(db, "allDocs");
+
+            await expect(getDBEntryMetaByPath(
+                host, { localDatabase: db }, entry.path, { rev: "9-unavailable" }, true
+            )).resolves.toBe(false);
+            expect(allDocs).not.toHaveBeenCalled();
+        });
+
+        it("preserves revision information options when looking up a deleted winner", async () => {
+            const entry = createSavingEntry("deleted-history", "Original content");
+            const services = createMockServices({ deleteMetadataOfDeletedFiles: true });
+            const host = createHost(services.mockSettingService, mockPathService);
+            await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
+            const original = await db.get(entry._id);
+            await deleteDBEntryByPath(host, { localDatabase: db }, entry.path);
+
+            const meta = await getDBEntryMetaByPath(
+                host, { localDatabase: db }, entry.path, { revs: true, revs_info: true, conflicts: true }, true
+            );
+            expect(meta).toMatchObject({
+                deleted: true,
+                _revisions: { start: 2 },
+                _revs_info: expect.arrayContaining([{ rev: original._rev, status: "available" }]),
+            });
+        });
+
+        it("reads a live winner restored between the initial get and the index lookup", async () => {
+            const entry = createSavingEntry("restored-during-lookup", "Original content");
+            const services = createMockServices({ deleteMetadataOfDeletedFiles: true });
+            const host = createHost(services.mockSettingService, mockPathService);
+            await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
+            const original = await db.get(entry._id);
+            await deleteDBEntryByPath(host, { localDatabase: db }, entry.path);
+            const index = await db.allDocs({ keys: [entry._id] });
+            const deletedRevision = index.rows[0].value.rev;
+            const allDocs = db.allDocs.bind(db);
+            let restoredRevision: string | undefined;
+            vi.spyOn(db, "allDocs").mockImplementationOnce(async () => {
+                restoredRevision = (await db.put({ ...original, _rev: deletedRevision })).rev;
+                return await allDocs({ keys: [entry._id] });
+            });
+
+            const meta = await getDBEntryMetaByPath(host, { localDatabase: db }, entry.path, undefined, true);
+            expect(meta).toMatchObject({ _rev: restoredRevision });
+            expect(meta && meta.deleted).not.toBe(true);
+        });
+
+        it("refuses a stale deleted winner when its revision keeps advancing during lookup", async () => {
+            const entry = createSavingEntry("changing-deleted-winner", "Original content");
+            const services = createMockServices({ deleteMetadataOfDeletedFiles: true });
+            const host = createHost(services.mockSettingService, mockPathService);
+            await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
+            await deleteDBEntryByPath(host, { localDatabase: db }, entry.path);
+            const get = db.get.bind(db);
+            vi.spyOn(db, "get").mockImplementation(async (id, options) => {
+                const doc = await get(id, options);
+                if (options?.rev && doc._deleted) {
+                    await db.put({ ...doc, mtime: (doc.mtime ?? 0) + 1 });
+                }
+                return doc;
+            });
+
+            await expect(getDBEntryMetaByPath(host, { localDatabase: db }, entry.path, undefined, true)).resolves.toBe(
+                false
+            );
+        });
+
+        it("propagates database errors other than missing documents", async () => {
+            const host = createHost(mockSettingService, mockPathService);
+            const error = new Error("Database unavailable");
+            vi.spyOn(db, "get").mockRejectedValueOnce(error);
+            const allDocs = vi.spyOn(db, "allDocs");
+
+            await expect(getDBEntryMetaByPath(
+                host, { localDatabase: db }, "note.md" as FilePathWithPrefix, undefined, true
+            )).rejects.toBe(error);
+            expect(allDocs).not.toHaveBeenCalled();
         });
 
         it("should include deleted entries when requested", async () => {

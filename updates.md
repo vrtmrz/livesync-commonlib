@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Fixed
+
+- Hosts can reflect deletion and rename operations when deleted Metadata is removed.
+    - Metadata reads which include deleted entries retrieve the current PouchDB tombstone and revalidate its revision, including when a restoration arrives during the final deletion check.
+
 ## 0.1.40
 
 15th October, 2026
