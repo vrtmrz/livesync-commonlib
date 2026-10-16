@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## 0.1.41
+
+16th October, 2026
+
 ### Fixed
 
 - Hosts can reflect deletion and rename operations when deleted Metadata is removed.
