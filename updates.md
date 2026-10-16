@@ -2,6 +2,43 @@
 
 ## Unreleased
 
+## 0.1.40
+
+15th October, 2026
+
+### Fixed
+
+- Node storage consumers can retain a file's creation time across in-place edits where the filesystem supplies it.
+    - `stat` and `trystat` prefer a positive `birthtimeMs` and retain the `ctimeMs` fallback otherwise. The `/node` entry exports `getNodeFileCreationTime` so hosts can use the same integer-millisecond conversion.
+    - This does not preserve creation time across file replacement or restore a creation time supplied in write options.
+
+## 0.1.39
+
+13th October, 2026
+
+### Maintenance
+
+- We now require a patched Markdown parser and update compatible dependencies with available security fixes.
+    - Raised `markdown-it` to `^14.3.2` and `minimatch` to `^10.2.6`. Refreshed Vitest, `source-map-js`, `brace-expansion`, and `devalue` within their existing major versions.
+    - Our packed browser worker also includes the updated brace expansion implementation.
+    - Existing consumer lockfiles may also need to refresh `brace-expansion` to a patched version allowed by their dependency ranges.
+    - PouchDB still pins `uuid@8.3.2`; its existing audit finding remains.
+
+## 0.1.38
+
+11th October, 2026
+
+### Fixed
+
+- We can change the passphrase protecting sensitive settings without reusing a key cached for another mode.
+    - `SettingService.changeConfigurationEncryption()` prepares all protected values with one key and serialises the update with ordinary saves. Failed writes attempt to restore the previous device key and do not signal success.
+- Hosts can request a missing or unusable custom configuration passphrase before settings initialisation continues.
+    - Input uses the existing masked confirmation capability. Only validated keys are saved; cancellation retains the encrypted settings and stops that load. Invalid independent ID keys remain rejected.
+
+### Maintenance
+
+- Our shared utility dependency now uses `octagonal-wheels@0.1.55`, including the EventHub abort-signal and registration-scoped disposer fixes from 0.1.54.
+
 ## 0.1.36
 
 4th October, 2026

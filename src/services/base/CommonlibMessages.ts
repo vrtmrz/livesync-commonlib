@@ -5,6 +5,19 @@
  * these messages so that symbolic keys are never exposed to users.
  */
 export const commonlibEnglishMessages = {
+    "SettingService.ConfigurationPassphraseDeviceLocalDescription":
+        "This passphrase stays on this device. When another device needs to decrypt protected settings without a saved key, enter the same passphrase at start-up.",
+    "SettingService.ConfigurationPassphraseTitle": "Configuration passphrase",
+    "SettingService.ConfigurationPassphraseRetryTitle":
+        "Configuration could not be decrypted. Enter the configuration passphrase again.",
+    "SettingService.ConfigurationPassphraseCancelled":
+        "Configuration passphrase entry was cancelled or unavailable. Start-up was stopped; saved settings were retained.",
+    "SettingService.ConfigurationEncryptionSaveFailed":
+        "Configuration encryption could not be saved. Verify the saved settings and device key before retrying.",
+    "SettingService.ConfigurationPassphraseRollbackFailed":
+        "The configuration passphrase could not be restored after a write failure. Verify the saved settings and device key before retrying.",
+    "SettingService.ConfigurationCouldNotBeDecrypted":
+        "Existing configuration could not be decrypted. The configuration key was not changed.",
     "(BETA) Always overwrite with a newer file": "(BETA) Always overwrite with a newer file",
     "(Beta) Use ignore files": "(Beta) Use ignore files",
     "(Days passed, 0 to disable automatic-deletion)": "(Days passed, 0 to disable automatic-deletion)",
