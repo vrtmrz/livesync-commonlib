@@ -381,7 +381,11 @@ export async function getDBEntryMetaByPath(
     try {
         let obj: EntryDocResponse | null = null;
         try {
-            obj = await localDatabase.get(id, opt);
+            if (opt) {
+                obj = await localDatabase.get(id, opt);
+            } else {
+                obj = await localDatabase.get(id);
+            }
         } catch (ex) {
             if (!includeDeleted || opt?.rev !== undefined || !isErrorOfMissingDoc(ex)) throw ex;
             // A normal get hides a deleted winner. The keyed index still exposes

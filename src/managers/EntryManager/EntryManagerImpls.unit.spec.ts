@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
+import HttpAdapter from "pouchdb-adapter-http";
 import replication from "pouchdb-replication";
 import {
     createChunks,
@@ -49,6 +50,7 @@ import { ConflictManager } from "@lib/managers/ConflictManager";
 
 // Set up PouchDB with memory adapter
 PouchDB.plugin(MemoryAdapter);
+PouchDB.plugin(HttpAdapter);
 PouchDB.plugin(replication);
 let dbCounter = 0;
 
@@ -738,6 +740,36 @@ describe("EntryManagerImpls", () => {
     });
 
     describe("getDBEntryMetaByPath", () => {
+        it("reads Metadata through the HTTP adapter when options are omitted", async () => {
+            const host = createHost(mockSettingService, mockPathService);
+            const entry = createSavingEntry("http-metadata.md", "HTTP Metadata content");
+            await putDBEntry(host, { localDatabase: db, chunkManager, hashManager, splitter }, entry);
+            const stored = await db.get(entry._id);
+            const fetchMetadata = vi.fn(async () =>
+                new Response(JSON.stringify(stored), {
+                    status: 200,
+                    headers: { "content-type": "application/json" },
+                })
+            );
+            const remote = new PouchDB<EntryDoc>("http://couchdb.test/metadata-options", {
+                skip_setup: true,
+                fetch: fetchMetadata,
+            });
+            try {
+                const meta = await getDBEntryMetaByPath(host, { localDatabase: remote }, entry.path);
+
+                expect(meta).toMatchObject({
+                    _id: entry._id,
+                    _rev: stored._rev,
+                    path: entry.path,
+                    children: (stored as PlainEntry).children,
+                });
+                expect(fetchMetadata).toHaveBeenCalledOnce();
+            } finally {
+                await remote.close();
+            }
+        });
+
         it("should retrieve entry metadata", async () => {
             const entry = createSavingEntry("meta-test", "Test data");
             const host = createHost(mockSettingService, mockPathService);
