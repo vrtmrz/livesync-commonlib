@@ -30,7 +30,7 @@ After the conflict is resolved, the deleted losing branch and no-longer-needed m
 
 Commonlib follows these rules:
 
-- compare file content byte-for-byte; a path, size, modification time, or revision generation is not proof of identity;
+- never treat a path, size, modification time, or revision generation as proof of content identity;
 - use the nearest `available` revision shared by both leaves as the base for three-way merge;
 - retain a manual conflict when the common revision or a required body is missing or compacted;
 - recognise an unchanged file through its exact readable file-reflection revision or the saved SHA-256 hash and byte length of that snapshot;
@@ -51,10 +51,11 @@ After a resolution has propagated, an exact recorded revision can still identify
 | One side deletes content which the other leaves unchanged                       | Preserve the deletion.                                                      |
 | One side deletes content which the other modifies                               | Retain a manual conflict.                                                   |
 | A receiving file matches its exact readable recorded revision                   | Apply the propagated result under the existing conflict policy.             |
+| A receiving file matches its saved content hash and byte length                 | Apply the propagated result under the existing conflict policy, even after its recorded revision is pruned. |
 | A receiving file differs from its readable recorded revision                    | Preserve the edit as a child of that revision.                              |
 | Origin is unknown and no current non-deleted leaf matches                        | Preserve a fresh independent root for host conflict resolution.             |
 | Origin is unknown and current non-deleted leaves already contain the bytes       | Avoid duplicate storage; infer provenance only for a unique match.          |
-| A body or common ancestor is missing or compacted                               | Retain a manual conflict.                                                   |
+| A required merge body or common ancestor is missing or compacted                | Retain a manual conflict.                                                   |
 | Content is binary or otherwise not semantically mergeable                       | Leave the selection policy to the host; Commonlib cannot infer user intent. |
 
 ## Stale and concurrent resolutions
@@ -88,6 +89,8 @@ The record is updated after a successful database-to-storage reflection or stora
 Old records remain readable. An equal-time scan can add content evidence when the recorded revision is still the conflict-free current revision and its bytes match storage. An ordinary unchanged save can also upgrade its verified current record. These upgrades revalidate storage and provenance after hashing; an unrelated branch or an unreadable revision is never certified from the current file. A hashing failure leaves legacy revision evidence, so overwrite protection remains conservative.
 
 Hashing is serialised across files to bound simultaneous whole-file buffers. The public `computeFileContentHash(Blob)` helper includes reading the Blob and Web Crypto SHA-256; the handler reuses results only for the same immutable Blob. It still allocates a whole-file buffer and Web Crypto may copy it, so serialisation does not imply constant memory use.
+
+The [file-reflection content hash decision](file-reflection-content-hash.md) records why this evidence uses SHA-256, the measured comparison with xxHash64, and the conditions for reconsidering that choice.
 
 File-handler saves and reflections share a lock for the same Metadata document, held from snapshot acquisition through provenance recording. Different documents can proceed concurrently. An ordinary save keeps one captured body and its recorded base through the database write; a later local edit is processed as a subsequent change, without rereading the file to certify that it remained unchanged. The handler acquires the lock before loading a file body from storage. Rename operations acquire both document locks in a consistent order, and internal calls reuse the caller's lock rather than acquiring it again. Host conflict-check hooks run after the locks are released, allowing a hook to await another file-handler operation on the same document. Host queues may count document-lock waiters against their concurrency limits, so a burst for one document can temporarily delay unrelated files.
 
