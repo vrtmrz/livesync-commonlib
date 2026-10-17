@@ -1,11 +1,17 @@
 import { E2EEAlgorithms, VERSIONING_DOCID } from "@lib/common/types";
 import { configuredIdKey } from "@lib/common/idDerivation.ts";
+import { getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
 
 export const REMOTE_FEATURE_GENERATION = 13;
 export const ENCRYPTED_INTERNAL_METADATA_FEATURE = "encrypted-internal-metadata-v1";
 export const INDEPENDENT_ID_DERIVATION_FEATURE = "independent-id-derivation-v1";
+export const NFC_PATH_IDENTITY_FEATURE = "nfc-path-identity-v1";
 
-export const supportedFeatures = new Set([ENCRYPTED_INTERNAL_METADATA_FEATURE, INDEPENDENT_ID_DERIVATION_FEATURE]);
+export const supportedFeatures = new Set([
+    ENCRYPTED_INTERNAL_METADATA_FEATURE,
+    INDEPENDENT_ID_DERIVATION_FEATURE,
+    NFC_PATH_IDENTITY_FEATURE,
+]);
 
 export function requiredRemoteFeatures(setting: {
     encrypt?: boolean;
@@ -14,9 +20,11 @@ export function requiredRemoteFeatures(setting: {
     encryptInternalMetadata?: boolean;
     idDerivationVersion: 0 | 1;
     idDerivationKey: string;
+    pathNormalizationVersion?: number;
 }): string[] {
     const features: string[] = [];
     if (usesEncryptedInternalMetadata(setting)) features.push(ENCRYPTED_INTERNAL_METADATA_FEATURE);
+    if (getPathNormalizationVersion(setting) === 1) features.push(NFC_PATH_IDENTITY_FEATURE);
     if (setting.encrypt && configuredIdKey(setting)) features.push(INDEPENDENT_ID_DERIVATION_FEATURE);
     return features;
 }

@@ -4,6 +4,7 @@ import type { EntryDoc } from "@lib/common/models/db.definition";
 import type { AnyEntry, EntryLeaf } from "@lib/common/models/db.type";
 import { VERSIONING_DOCID } from "@lib/common/types";
 import { assessRemoteFeatureDocument, describeRemoteFeatureRejection } from "./remoteFeatureCompatibility";
+import { assertMatchingPathIdentityFeature } from "./pathIdentityCompatibility";
 
 interface CouchChangeLine {
     seq: number | string;
@@ -146,7 +147,8 @@ async function readResponseText(response: Response, operation: string): Promise<
 export async function checkRemoteFeaturesForInitialSync(
     remoteDbUrl: string,
     authHeader: string,
-    customHeaders?: Record<string, string>
+    customHeaders?: Record<string, string>,
+    settings: { pathNormalizationVersion?: number } = {}
 ): Promise<void> {
     const headers = new Headers(customHeaders);
     headers.set("Accept", "application/json");
@@ -171,6 +173,7 @@ export async function checkRemoteFeaturesForInitialSync(
     // version document in a populated remote must not erase the local database.
     if (result.total_rows === 0 && row.error === "not_found") return;
     const assessment = assessRemoteFeatureDocument(row.doc);
+    assertMatchingPathIdentityFeature(row.doc, settings);
     // Keep legacy migration in the existing Replicator completion path.
     if (assessment.status === "supported" || assessment.status === "older-generation") return;
     throw new StreamingFetchFailure("protocol", describeRemoteFeatureRejection(assessment), false);

@@ -139,6 +139,8 @@ See [the remote configuration profile guide](docs/remote-configurations.md) for 
 
 CouchDB stores the representations already in use as feature identifiers in its version document. Assess that document before synchronisation or direct file operations, and retain unknown identifiers for host diagnostics. See [the remote feature compatibility contract](docs/remote-feature-compatibility.md) for the wire format, update rules, and recovery boundaries.
 
+The maintained CLI and Obsidian hosts can opt into [Unicode NFC path identity](docs/unicode-path-identity.md) with CouchDB. Existing databases require an explicit Rebuild or Fetch migration before using it.
+
 ## Contract scope
 
 The package is currently an infrastructure and compatibility boundary. The context, rooted-storage, standard-I/O, and revision-tree safety contracts have focused cross-platform, instance-isolation, or real-PouchDB tests. Platform details which cannot be shared, such as file timestamp fidelity and browser permission handling, remain host concerns and are documented separately.

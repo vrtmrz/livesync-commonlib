@@ -114,15 +114,7 @@ export interface IPathService {
     path2id(filename: FilePathWithPrefix | FilePath, prefix?: string): Promise<DocumentID>;
     path2idWithSettings(
         filename: FilePathWithPrefix | FilePath,
-        setting: Pick<
-            RemoteDBSettings,
-            | "encrypt"
-            | "usePathObfuscation"
-            | "passphrase"
-            | "handleFilenameCaseSensitive"
-            | "idDerivationVersion"
-            | "idDerivationKey"
-        >,
+        setting: PathIDSettings,
         prefix?: string
     ): Promise<DocumentID>;
     getPath(entry: AnyEntry): FilePathWithPrefix;
@@ -141,6 +133,18 @@ export interface IPathService {
         mtimes: number[]
     ): undefined | typeof EVEN;
 }
+
+export type PathIDSettings = Pick<
+    RemoteDBSettings,
+    | "encrypt"
+    | "usePathObfuscation"
+    | "passphrase"
+    | "handleFilenameCaseSensitive"
+    | "idDerivationVersion"
+    | "idDerivationKey"
+> &
+    Partial<Pick<RemoteDBSettings, "pathNormalizationVersion">>;
+
 export interface openDatabaseParameters {
     replicator: ReplicatorService;
     databaseEvents: DatabaseEventService;

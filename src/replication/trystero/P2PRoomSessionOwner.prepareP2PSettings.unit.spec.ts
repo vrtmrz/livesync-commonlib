@@ -93,6 +93,23 @@ afterEach(() => {
 });
 
 describe("P2PRoomSessionOwner prepared settings lifecycle", () => {
+    it("retires an existing room and rejects finite demand when path identity changes to NFC", async () => {
+        const { owner, sessions, settings } = createOwnerHarness();
+        settings.P2P_managedType = "";
+
+        await owner.open();
+        expect(sessions).toHaveLength(1);
+
+        settings.pathNormalizationVersion = 1;
+        await owner.setPersistentDemand("explicit", true);
+
+        expect(sessions).toHaveLength(1);
+        expect(sessions[0].retire).toHaveBeenCalledOnce();
+        await expect(owner.runWithFiniteDemand(async () => undefined)).rejects.toThrow(
+            "P2P does not support NFC path identity."
+        );
+    });
+
     it("reuses an equivalent serving room while its prepared settings remain usable", async () => {
         let now = 1_000_000;
         vi.spyOn(Date, "now").mockImplementation(() => now);

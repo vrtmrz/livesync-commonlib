@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { REMOTE_COUCHDB, REMOTE_P2P } from "@lib/common/models/setting.const";
+import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
 import { FlagFilesHumanReadable } from "@lib/common/models/redflag.const";
 import { ServiceRebuilder } from "./Rebuilder";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import { EVENT_DATABASE_REBUILT } from "@lib/events/coreEvents";
 import { REMOTE_RESOURCE_KINDS } from "@lib/replication";
+import { VERSIONING_DOCID } from "@lib/common/types";
 
 const fetchChangesForInitialSyncMock = vi.hoisted(() => vi.fn());
 const checkRemoteFeaturesForInitialSyncMock = vi.hoisted(() => vi.fn(async () => undefined));
@@ -43,7 +44,13 @@ function createRebuilder(initialDatabaseSuffix = "") {
         suspendFileWatching: true,
         suspendParseReplicationResult: true,
     } as any;
+    const remoteDB = {
+        get: vi.fn(async () => ({ _id: VERSIONING_DOCID, type: "versioninfo", version: 12 })),
+        allDocs: vi.fn(async () => ({ rows: [] })),
+        info: vi.fn(async () => ({ doc_count: 0 })),
+    };
     const localDB = {
+        get: vi.fn().mockRejectedValue({ status: 404, name: "not_found" }),
         info: vi.fn(async () => ({ doc_count: 1 })),
         allDocs: vi.fn(async () => ({ total_rows: 1 })),
     };
@@ -62,6 +69,7 @@ function createRebuilder(initialDatabaseSuffix = "") {
         API: {
             addLog: vi.fn(),
             getAppID: vi.fn(() => "app"),
+            isMobile: vi.fn(() => false),
         },
         setting: {
             currentSettings: vi.fn(() => settings),
@@ -100,7 +108,7 @@ function createRebuilder(initialDatabaseSuffix = "") {
                 return true;
             }),
             isDatabaseReady: vi.fn(() => true),
-            localDatabase: { localDatabase: localDB },
+            localDatabase: { localDatabase: localDB, findAllDocs: vi.fn(async function* () {}) },
         },
         databaseEvents: {
             initialiseDatabase: vi.fn(async () => undefined),
@@ -143,14 +151,23 @@ function createRebuilder(initialDatabaseSuffix = "") {
                 askSelectStringDialogue: vi.fn(async () => "Cancel operation"),
             },
         },
-        remote: {},
+        remote: {
+            connect: vi.fn(async () => ({ db: remoteDB, close: vi.fn(async () => undefined) })),
+        },
         storageAccess: {
+            getFileNames: vi.fn(async () => [] as string[]),
             clearTouched: vi.fn(),
             writeFileAuto: vi.fn(async () => undefined),
             delete: vi.fn(async () => undefined),
         },
         vault: {
             scanVault: vi.fn(async () => true),
+            isTargetFile: vi.fn(async () => true),
+        },
+        path: {
+            path2id: vi.fn(async (path: string) =>
+                settings.pathNormalizationVersion === 1 ? path.normalize("NFC").toLowerCase() : path.toLowerCase()
+            ),
         },
         fileProcessing: {
             commitPendingFileEvents: vi.fn(async () => true),
@@ -167,6 +184,7 @@ function createRebuilder(initialDatabaseSuffix = "") {
         activityFinished,
         runBoundedRemoteActivity,
         resetDatabaseTargets,
+        remoteDB,
     };
 }
 
@@ -219,6 +237,121 @@ describe("ServiceRebuilder scheduled restart flags", () => {
         expect(services.appLifecycle.setSuspended).toHaveBeenNthCalledWith(1, true);
         expect(services.appLifecycle.setSuspended).toHaveBeenNthCalledWith(2, false);
         expect(services.appLifecycle.performRestart).not.toHaveBeenCalled();
+    });
+});
+
+describe("ServiceRebuilder NFC path preflight", () => {
+    it("does not resume a Fast Fetch checkpoint from a different path identity mode", () => {
+        const { rebuilder, settings } = createRebuilder();
+        (rebuilder as any).saveFastFetchCheckpoint("https://example.com/db", "legacy-sequence");
+        settings.pathNormalizationVersion = 1;
+
+        expect((rebuilder as any).getFastFetchCheckpoint("https://example.com/db")).toBeUndefined();
+    });
+
+    it("rejects a remote-only rebuild before reset if local Metadata still uses legacy identity", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.pathNormalizationVersion = 1;
+        Object.assign(services.database.localDatabase.localDatabase, {
+            get: vi.fn().mockRejectedValue({ status: 404, name: "not_found" }),
+            allDocs: vi.fn().mockResolvedValue({
+                rows: [
+                    {
+                        id: "note.md",
+                        doc: {
+                            _id: "note.md",
+                            path: "note.md",
+                            type: "plain",
+                        },
+                    },
+                ],
+            }),
+        });
+
+        await expect(rebuilder.rebuildRemote()).rejects.toThrow(/path identity/);
+
+        expect(services.replication.markLocked).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllToRemote).not.toHaveBeenCalled();
+    });
+
+    it("refuses to merge separate Metadata documents when rebuilding", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.pathNormalizationVersion = 1;
+        services.database.localDatabase.findAllDocs = vi.fn(async function* () {
+            yield { _id: "caf\u00e9.md", path: "Caf\u00e9.md" };
+            yield { _id: "cafe\u0301.md", path: "Cafe\u0301.md" };
+        }) as never;
+
+        await expect(rebuilder.rebuildEverything()).rejects.toThrow(/collision/i);
+
+        expect(services.database.resetDatabaseForCurrentSettings).not.toHaveBeenCalled();
+        expect(services.replication.markLocked).not.toHaveBeenCalled();
+    });
+
+    it("checks remote path identity before Standard Fetch resets local data", async () => {
+        const { rebuilder, services, remoteDB } = createRebuilder();
+        remoteDB.get.mockResolvedValueOnce({
+            _id: VERSIONING_DOCID,
+            type: "versioninfo",
+            version: 13,
+            used_features: ["nfc-path-identity-v1"],
+        } as never);
+
+        await expect(rebuilder.fetchLocal()).rejects.toThrow(/path identity/);
+
+        expect(services.database.resetDatabaseForCurrentSettings).not.toHaveBeenCalled();
+        expect(services.replication.markResolved).not.toHaveBeenCalled();
+    });
+
+    it("checks storage collisions without waiting for an unopened database", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.pathNormalizationVersion = 1;
+        services.database.isDatabaseReady.mockReturnValue(false);
+        services.storageAccess.getFileNames.mockResolvedValue(["Caf\u00e9.md", "Cafe\u0301.md"]);
+        services.vault.isTargetFile.mockImplementation(async () => {
+            throw new Error("database not ready");
+        });
+
+        await expect(rebuilder.rebuildEverything()).rejects.toThrow(/collision/i);
+        expect(services.vault.isTargetFile).not.toHaveBeenCalled();
+        expect(services.database.resetDatabaseForCurrentSettings).not.toHaveBeenCalled();
+    });
+
+    it("preserves both databases when two storage paths have one NFC identity", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.pathNormalizationVersion = 1;
+        services.storageAccess.getFileNames.mockResolvedValue(["Caf\u00e9/note.md", "Cafe\u0301/note.md"]);
+
+        await expect(rebuilder.rebuildEverything()).rejects.toThrow(/collision/i);
+
+        expect(services.database.resetDatabaseForCurrentSettings).not.toHaveBeenCalled();
+        expect(services.replication.markLocked).not.toHaveBeenCalled();
+        expect(services.setting.suspendExtraSync).not.toHaveBeenCalled();
+    });
+
+    it.each([REMOTE_MINIO, REMOTE_P2P])(
+        "refuses NFC reconstruction for unsupported transport %s",
+        async (remoteType) => {
+            const { rebuilder, services, settings } = createRebuilder();
+            settings.pathNormalizationVersion = 1;
+            settings.remoteType = remoteType;
+
+            await expect(rebuilder.rebuildEverything()).rejects.toThrow(/CouchDB/);
+
+            expect(services.database.resetDatabaseForCurrentSettings).not.toHaveBeenCalled();
+            expect(services.replication.markLocked).not.toHaveBeenCalled();
+        }
+    );
+
+    it("refuses Standard Fetch before resetting local data when storage identities collide", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.pathNormalizationVersion = 1;
+        services.storageAccess.getFileNames.mockResolvedValue(["Caf\u00e9.md", "Cafe\u0301.md"]);
+
+        await expect(rebuilder.fetchLocal()).rejects.toThrow(/collision/i);
+
+        expect(services.database.resetDatabaseForCurrentSettings).not.toHaveBeenCalled();
+        expect(services.replication.markResolved).not.toHaveBeenCalled();
     });
 });
 

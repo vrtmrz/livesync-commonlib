@@ -54,6 +54,25 @@ function composeP2PProviderForTest() {
 }
 
 describe("useP2PReplicatorFeature", () => {
+    it("does not admit NFC path identity as a configured primary P2P transport", () => {
+        const { definition } = composeP2PProviderForTest();
+
+        expect(
+            definition.isConfigured({
+                remoteType: REMOTE_P2P,
+                P2P_Enabled: true,
+                pathNormalizationVersion: 0,
+            } as never)
+        ).toBe(true);
+        expect(
+            definition.isConfigured({
+                remoteType: REMOTE_P2P,
+                P2P_Enabled: true,
+                pathNormalizationVersion: 1,
+            } as never)
+        ).toBe(false);
+    });
+
     it("does not reopen a suspended room from a delayed automatic-start callback", async () => {
         vi.useFakeTimers();
         try {

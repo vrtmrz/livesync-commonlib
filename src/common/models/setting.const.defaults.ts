@@ -67,6 +67,7 @@ export const SETTINGS_SCHEMA_DEFAULTS: ObsidianLiveSyncSettings = {
     passphrase: "",
     idDerivationVersion: 0,
     idDerivationKey: "",
+    pathNormalizationVersion: 0,
     usePathObfuscation: false,
     encryptInternalMetadata: false,
     doNotDeleteFolder: false,

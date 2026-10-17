@@ -20,6 +20,7 @@ import {
 
 import { compareMTime, isAnyNote, isRemediationModeActive } from "@lib/common/utils";
 import { shouldBeIgnored, stripAllPrefixes } from "@lib/string_and_binary/path";
+import { getPathNormalizationVersion, normalisePathForIdentity } from "@lib/common/pathNormalization";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
@@ -705,7 +706,7 @@ export function canProceedScan(
 }
 
 /**
- * Convert file path to lower case if the settings indicate that filename case should be handled insensitively.
+ * Normalise the logical comparison key and lower case it when filename case should be handled insensitively.
  * @param settings
  * @param path
  * @returns
@@ -714,10 +715,11 @@ export function convertCase<T extends FilePathWithPrefix>(
     settings: ObsidianLiveSyncSettings,
     path: T
 ): FilePathWithPrefixLC {
+    const normalisedPath = normalisePathForIdentity(path, getPathNormalizationVersion(settings));
     if (settings.handleFilenameCaseSensitive) {
-        return path as FilePathWithPrefixLC;
+        return normalisedPath as FilePathWithPrefixLC;
     }
-    return (path as string).toLowerCase() as FilePathWithPrefixLC;
+    return normalisedPath.toLowerCase() as FilePathWithPrefixLC;
 }
 
 export async function collectFilesOnStorage(

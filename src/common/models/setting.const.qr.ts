@@ -180,5 +180,6 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     encryptInternalMetadata: 165,
     idDerivationVersion: 166,
     idDerivationKey: 167,
+    pathNormalizationVersion: 168,
     encryptedIdDerivationKey: -1,
 } as const;

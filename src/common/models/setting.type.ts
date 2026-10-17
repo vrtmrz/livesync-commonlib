@@ -678,6 +678,15 @@ export interface RemoteTypeSettings {
 
 export type E2EEAlgorithm = (typeof E2EEAlgorithms)[keyof typeof E2EEAlgorithms] | "";
 
+/** Path identity modes retained in persisted settings and shared tweak snapshots. */
+export type PathNormalizationVersion = 0 | 1;
+
+/** Identity settings for mapping logical paths to remote document IDs. */
+export interface PathIdentitySettings {
+    /** Zero preserves legacy path identity; one applies Unicode NFC before ID derivation. */
+    pathNormalizationVersion: PathNormalizationVersion;
+}
+
 /**
  * Represents the settings used for End-to-End encryption.
  */
@@ -1122,6 +1131,7 @@ interface ObsidianLiveSyncSettings_PluginSetting
 export type RemoteDBSettings = CouchDBConnection &
     BucketSyncSetting &
     RemoteTypeSettings &
+    PathIdentitySettings &
     EncryptionSettings &
     ChunkSettings &
     EdenSettings &

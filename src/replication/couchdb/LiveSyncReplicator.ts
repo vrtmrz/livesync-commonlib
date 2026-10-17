@@ -1141,6 +1141,16 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         // Keep ownership here until the fully checked connection is returned.
         let ownershipTransferred = false;
         try {
+            try {
+                await assertDatabasePathIdentity(dbRet.db, setting);
+                await assertDatabasePathIdentity(this.env.services.database.localDatabase.localDatabase, setting);
+            } catch (error) {
+                recordCompatibilityDecision?.(
+                    centralCompatibilityRejected(CENTRAL_COMPATIBILITY_REJECTION_REASONS.INCOMPATIBLE_VERSION)
+                );
+                Logger(error, LOG_LEVEL_NOTICE);
+                return false;
+            }
             if (!skipCheck) {
                 this.remoteCleaned = false;
                 this.remoteLocked = false;
@@ -1981,3 +1991,4 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         });
     }
 }
+import { assertDatabasePathIdentity } from "@lib/pouchdb/pathIdentityCompatibility";

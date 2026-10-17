@@ -47,6 +47,32 @@ describe("remote feature compatibility", () => {
         })).toEqual([]);
     });
 
+    it.each([
+        { encrypt: false, usePathObfuscation: false, handleFilenameCaseSensitive: false },
+        { encrypt: true, usePathObfuscation: false, handleFilenameCaseSensitive: true },
+        { encrypt: true, usePathObfuscation: true, handleFilenameCaseSensitive: false },
+    ])("declares NFC path identity independently of encryption and case handling: %j", (mode) => {
+        expect(
+            requiredRemoteFeatures({
+                ...mode,
+                pathNormalizationVersion: 1,
+                idDerivationVersion: 0,
+                idDerivationKey: "",
+            })
+        ).toEqual(["nfc-path-identity-v1"]);
+    });
+
+    it("keeps an absent path identity version in the legacy remote feature mode", () => {
+        expect(
+            requiredRemoteFeatures({
+                encrypt: false,
+                usePathObfuscation: false,
+                idDerivationVersion: 0,
+                idDerivationKey: "",
+            })
+        ).toEqual([]);
+    });
+
     it("accepts generation 13 with a declared feature when feature writes are disabled", async () => {
         const features = ["encrypted-internal-metadata-v1"];
         const db = versionDatabase(13, features);

@@ -24,6 +24,7 @@ import type { CheckPointInfo } from "./JournalSyncTypes.ts";
 import type { SimpleStore } from "@lib/common/utils.ts";
 
 import { getEffectiveTweakValues } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
+import { getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 import { JournalStorageReadStatuses } from "./objectstore/JournalStorageAdapter.ts";
 import { computeKeyedId, configuredIdKey } from "@lib/common/idDerivation.ts";
@@ -92,6 +93,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     setupJournalSyncClient(settings: RemoteDBSettings = this.currentSettings) {
+        this.assertLegacyPathIdentity(settings);
         if (this._client) {
             this._client.applyNewConfig(settings, this.simpleStore, this.env);
         } else {
@@ -371,16 +373,18 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         ignoreCleanLock = false,
         showMessage = false,
         setting: RemoteDBSettings = this.currentSettings,
-        client: JournalSyncCore = this.setupJournalSyncClient(setting),
+        client?: JournalSyncCore,
         recordCompatibilityDecision?: CentralCompatibilityDecisionRecorder
     ) {
         recordCompatibilityDecision?.(CENTRAL_COMPATIBILITY_NOT_ASSESSED);
-        if (!(await client.isAvailable())) {
+        if (!this.supportsLegacyPathIdentity(setting)) return false;
+        const activeClient = client ?? this.setupJournalSyncClient(setting);
+        if (!(await activeClient.isAvailable())) {
             return false;
         }
         if (!skipCheck) {
             // Keep compatibility result semantics strict: epoch/cache policy is handled as a separate preflight.
-            await client.ensureCheckpointCachesAreFresh();
+            await activeClient.ensureCheckpointCachesAreFresh();
             this.remoteCleaned = false;
             this.remoteLocked = false;
             this.remoteLockedAndDeviceNotAccepted = false;
@@ -391,7 +395,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                 this.nodeid,
                 journalVersionRange(setting),
                 setting,
-                client,
+                activeClient,
                 (assessment) => {
                     tweakAssessment = assessment;
                 }
@@ -477,6 +481,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async tryResetRemoteDatabase(setting: RemoteDBSettings) {
+        this.assertLegacyPathIdentity(setting);
         this.closeReplication();
         try {
             if (!(await this.client.resetBucket())) {
@@ -492,6 +497,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async tryCreateRemoteDatabase(setting: RemoteDBSettings) {
+        this.assertLegacyPathIdentity(setting);
         this.closeReplication();
         Logger("Remote Database Created or Connected", LOG_LEVEL_NOTICE);
         if (!(await this.ensurePBKDF2Salt(setting, true, false))) {
@@ -508,6 +514,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean) {
+        this.assertLegacyPathIdentity(setting);
         const defInitPoint: EntryMilestoneInfo = {
             _id: MILSTONE_DOCID as DocumentID,
             type: "milestoneinfo",
@@ -542,6 +549,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         }
     }
     async markRemoteResolved(setting: RemoteDBSettings) {
+        this.assertLegacyPathIdentity(setting);
         const defInitPoint: EntryMilestoneInfo = {
             _id: MILSTONE_DOCID as DocumentID,
             type: "milestoneinfo",
@@ -571,8 +579,10 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
 
     async tryConnectRemote(setting: RemoteDBSettings, showResult: boolean = true): Promise<boolean> {
         const endpoint = setting.endpoint;
-        const testClient = new MinioStorageAdapter(setting, this.env);
+        let testClient: MinioStorageAdapter | undefined;
         try {
+            this.assertLegacyPathIdentity(setting);
+            testClient = new MinioStorageAdapter(setting, this.env);
             await testClient.listFiles("", 1);
             Logger(`Connected to ${endpoint} successfully!`, LOG_LEVEL_NOTICE);
             return true;
@@ -581,11 +591,12 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
             Logger(ex, LOG_LEVEL_NOTICE);
             return false;
         } finally {
-            testClient.dispose();
+            testClient?.dispose();
         }
     }
 
     async resetRemoteTweakSettings(setting: RemoteDBSettings) {
+        this.assertLegacyPathIdentity(setting);
         try {
             const remoteMilestone = await this.client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
             if (!remoteMilestone) {
@@ -601,6 +612,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async setPreferredRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
+        this.assertLegacyPathIdentity(setting);
         // Preferred-tweak writes are finite trial-settings operations. Do not
         // borrow or reconfigure the active Journal client.
         const trialClient = new JournalSyncCore(
@@ -628,6 +640,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<RemotePreferredTweakResult> {
+        this.assertLegacyPathIdentity(setting);
         // Preferred-tweak inspection is a finite trial-settings operation. Do
         // not borrow or reconfigure the active Journal client.
         const trialClient = new JournalSyncCore(
@@ -667,11 +680,22 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus> {
+        this.assertLegacyPathIdentity(setting);
         const testClient = new MinioStorageAdapter(setting, this.env);
         try {
             return await testClient.getUsage();
         } finally {
             testClient.dispose();
+        }
+    }
+
+    private supportsLegacyPathIdentity(setting: RemoteDBSettings): boolean {
+        return getPathNormalizationVersion(setting) === 0;
+    }
+
+    private assertLegacyPathIdentity(setting: RemoteDBSettings): void {
+        if (!this.supportsLegacyPathIdentity(setting)) {
+            throw new Error("Object Storage does not support NFC path identity.");
         }
     }
 

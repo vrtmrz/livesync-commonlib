@@ -4,6 +4,9 @@
 
 ### Fixed
 
+- Hosts can opt into NFC path identity for CouchDB synchronisation, so composed and decomposed Unicode paths derive the same document ID. Existing settings retain legacy identity until an explicit Rebuild or Fetch migration.
+    - Reconstruction checks distinct file and Metadata identities before resetting a database. Journal, P2P, and direct file access refuse the new mode.
+
 - Unchanged files can receive incoming updates after their recorded database revision has been pruned, without creating false conflicts ([Self-hosted LiveSync issue #1207](https://github.com/vrtmrz/obsidian-livesync/issues/1207)).
     - Device-local provenance retains the saved content's SHA-256 hash and byte length. Legacy records gain this evidence only after their exact content is verified; genuine edits remain protected.
 

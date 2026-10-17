@@ -586,6 +586,28 @@ describe("EntryManagerImpls", () => {
             expect(liveLeaves).not.toContain(secondLeaf.rev);
         });
 
+        it("does not add Metadata or Chunks when NFC is enabled over a populated legacy database", async () => {
+            const manager = new EntryManager({
+                database: db,
+                chunkManager,
+                hashManager,
+                splitter,
+                pathService: mockPathService,
+                settingService: mockSettingService,
+            });
+            expect(await manager.putDBEntry(createSavingEntry("Cafe\u0301.md", "Existing content"))).not.toBe(false);
+            const before = await db.info();
+            mockSettingService.currentSettings().pathNormalizationVersion = 1;
+
+            await expect(manager.putDBEntry(createSavingEntry("Caf\u00e9.md", "Changed content"))).rejects.toThrow(
+                /path identity/
+            );
+
+            expect((await db.info()).update_seq).toBe(before.update_seq);
+            expect((await db.info()).doc_count).toBe(before.doc_count);
+            await expect(db.get("Caf\u00e9.md")).rejects.toMatchObject({ status: 404 });
+        });
+
         it("keeps an independent root distinct from matching history through replication", async () => {
             const entry = createSavingEntry("independent-root.md", "# Note\nKeep\n");
             const host = createHost(mockSettingService, mockPathService);

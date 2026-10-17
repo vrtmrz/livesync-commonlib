@@ -36,6 +36,7 @@ import type { VaultService } from "@lib/services/base/VaultService.ts";
 import { getStoragePathFromUXFileInfo } from "@lib/common/typeUtils";
 import { EVEN } from "@lib/common/models/shared.const.symbols";
 import { tryGetFilePath } from "@lib/common/utils.doc";
+import { getPathNormalizationVersion, normalisePathForIdentity } from "@lib/common/pathNormalization";
 import type {
     FileReflectionProvenance,
     FileReflectionProvenanceRecord,
@@ -149,16 +150,22 @@ export abstract class ServiceFileHandlerBase
         return this.storageAccess;
     }
 
+    private getProvenancePath(path: FilePathWithPrefix): FilePathWithPrefix {
+        return normalisePathForIdentity(
+            path, getPathNormalizationVersion(this.setting.currentSettings())
+        ) as FilePathWithPrefix;
+    }
+
     private async getProvenance(path: FilePathWithPrefix): Promise<FileReflectionProvenanceRecord | undefined> {
         if (!this.fileReflectionProvenance) return undefined;
         try {
-            const record = await this.fileReflectionProvenance.get(path);
+            const record = await this.fileReflectionProvenance.get(this.getProvenancePath(path));
             if (!record) return undefined;
             const entry = await this.db.fetchEntryMeta(path, record.revision, true);
             if (entry && !entry._deleted && !entry.deleted) {
                 return record;
             }
-            if (!hasContentHash(record)) await this.fileReflectionProvenance.delete(path);
+            if (!hasContentHash(record)) await this.fileReflectionProvenance.delete(this.getProvenancePath(path));
         } catch (ex) {
             // Store readiness is owned by the host lifecycle. Do not wait or
             // retry here: that can hang failed initialisation or become
@@ -197,7 +204,7 @@ export abstract class ServiceFileHandlerBase
     ): Promise<void> {
         if (!this.fileReflectionProvenance || !revision) return;
         try {
-            await this.fileReflectionProvenance.set(path, {
+            await this.fileReflectionProvenance.set(this.getProvenancePath(path), {
                 revision,
                 observedStorageMtime,
                 ...(evidence ?? await this.contentEvidence(content)),
@@ -211,7 +218,7 @@ export abstract class ServiceFileHandlerBase
     private async deleteProvenance(path: FilePathWithPrefix): Promise<void> {
         if (!this.fileReflectionProvenance) return;
         try {
-            await this.fileReflectionProvenance.delete(path);
+            await this.fileReflectionProvenance.delete(this.getProvenancePath(path));
         } catch (ex) {
             this._log(`Could not delete file reflection provenance for ${path}`, LOG_LEVEL_VERBOSE);
             this._log(ex, LOG_LEVEL_VERBOSE);
@@ -325,7 +332,7 @@ export abstract class ServiceFileHandlerBase
      */
     private async readProvenanceSnapshot(path: FilePathWithPrefix): Promise<FileReflectionProvenanceRecord | undefined> {
         try {
-            const record = await this.fileReflectionProvenance?.get(path);
+            const record = await this.fileReflectionProvenance?.get(this.getProvenancePath(path));
             return record ? { ...record } : undefined;
         } catch {
             return undefined;
@@ -412,9 +419,10 @@ export abstract class ServiceFileHandlerBase
         try {
             return await this.serializedByFileEventPaths([path], async () => {
                 const provenance = this.fileReflectionProvenance!;
+                const provenancePath = this.getProvenancePath(path);
                 // A recorded branch remains authoritative, even when its
                 // current bytes happen to match the database winner.
-                const existing = await provenance.get(path);
+                const existing = await provenance.get(provenancePath);
                 const observed = existing ? { ...existing } : undefined;
                 if (observed && (observed.revision !== expectedRevision || hasContentHash(observed))) return false;
                 const stub = await this.storage.getStub(path);
@@ -433,8 +441,8 @@ export abstract class ServiceFileHandlerBase
                 if (!latest || latest._rev !== expectedRevision || latest.deleted || latest._deleted) return false;
                 if ((await this.db.getConflictedRevs(path)).length > 0) return false;
                 if (!await this.currentStorageSnapshotMatches(file, observed)) return false;
-                if (!sameProvenance(await provenance.get(path), observed)) return false;
-                await provenance.set(path, { revision: expectedRevision, observedStorageMtime: file.stat.mtime, ...evidence });
+                if (!sameProvenance(await provenance.get(provenancePath), observed)) return false;
+                await provenance.set(provenancePath, { revision: expectedRevision, observedStorageMtime: file.stat.mtime, ...evidence });
                 return true;
             });
         } catch (ex) {
@@ -1149,20 +1157,36 @@ export abstract class ServiceFileHandlerBase
                 );
                 return false;
             }
-            if (getParentPath(existDoc.path) !== getParentPath(path)) {
-                this._log(
-                    `Refusing to apply a filename case change across differently cased parent directories: ${existDoc.path} -> ${path}`,
-                    LOG_LEVEL_NOTICE
-                );
-                return false;
+            const pathNormalizationVersion = getPathNormalizationVersion(settings);
+            const sameNormalisedPath =
+                pathNormalizationVersion === 1 &&
+                normalisePathForIdentity(existDoc.path, pathNormalizationVersion) ===
+                    normalisePathForIdentity(path, pathNormalizationVersion);
+            if (!sameNormalisedPath) {
+                const existingParent = getParentPath(existDoc.path);
+                const targetParent = getParentPath(path);
+                const sameNormalisedParent =
+                    pathNormalizationVersion === 1 &&
+                    normalisePathForIdentity(existingParent, pathNormalizationVersion) ===
+                        normalisePathForIdentity(targetParent, pathNormalizationVersion);
+                if (existingParent !== targetParent && !sameNormalisedParent) {
+                    this._log(
+                        `Refusing to apply a filename case change across differently cased parent directories: ${existDoc.path} -> ${path}`,
+                        LOG_LEVEL_NOTICE
+                    );
+                    return false;
+                }
+                const renamedFile = await this.storage.renameFile(existDoc, path);
+                if (!renamedFile) {
+                    this._log(
+                        `Could not apply the stored filename case: ${existDoc.path} -> ${path}`,
+                        LOG_LEVEL_NOTICE
+                    );
+                    return false;
+                }
+                await this.deleteProvenance(existDoc.path);
+                existDoc = renamedFile;
             }
-            const renamedFile = await this.storage.renameFile(existDoc, path);
-            if (!renamedFile) {
-                this._log(`Could not apply the stored filename case: ${existDoc.path} -> ${path}`, LOG_LEVEL_NOTICE);
-                return false;
-            }
-            await this.deleteProvenance(existDoc.path);
-            existDoc = renamedFile;
         }
         // Okay, the file is exist on the database. Let's check the file is exist on the storage.
         const docRead = await this.db.fetchEntryFromMeta(docEntry);

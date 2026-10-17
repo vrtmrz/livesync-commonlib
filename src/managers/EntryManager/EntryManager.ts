@@ -12,6 +12,7 @@ import type { ContentSplitter } from "@lib/ContentSplitter/ContentSplitters";
 import type { HashManager } from "@lib/managers/HashManager/HashManager";
 import type { GeneratedChunk } from "@lib/pouchdb/LiveSyncLocalDB";
 import type { IPathService, ISettingService } from "@lib/services/base/IService";
+import { assertDatabasePathIdentity } from "@lib/pouchdb/pathIdentityCompatibility";
 import {
     deleteDBEntryByPath,
     getDBEntryByPath,
@@ -109,22 +110,31 @@ export class EntryManager {
     }
 
     async deleteDBEntry(path: FilePathWithPrefix | FilePath, opt?: PouchDB.Core.GetOptions): Promise<boolean> {
+        await this.checkPathIdentity();
         return await deleteDBEntryByPath(this.serviceHost, this, path, opt);
     }
 
     async storeDeletionAtRevision(path: FilePathWithPrefix | FilePath, baseRevision: string) {
+        await this.checkPathIdentity();
         return await storeDeletionByPathAtRevision(this.serviceHost, this, path, baseRevision);
     }
 
     async putDBEntry(note: SavingEntry, onlyChunks?: boolean, conflictBaseRev?: string) {
+        await this.checkPathIdentity();
         return await putDBEntry(this.serviceHost, this, note, onlyChunks, conflictBaseRev);
     }
 
     async putDBEntryWithLiveBaseRevision(note: SavingEntry, baseRevision: string, onlyChunks?: boolean) {
+        await this.checkPathIdentity();
         return await putDBEntryWithLiveBaseRevision(this.serviceHost, this, note, baseRevision, onlyChunks);
     }
     /** Store unknown ancestry as a fresh root; return the Metadata write result or `false`. */
     async putDBEntryAsIndependentRoot(note: SavingEntry) {
+        await this.checkPathIdentity();
         return await putDBEntryAsIndependentRoot(this.serviceHost, this, note);
+    }
+
+    private async checkPathIdentity(): Promise<void> {
+        await assertDatabasePathIdentity(this.localDatabase, this.options.settingService.currentSettings(), true);
     }
 }

@@ -26,6 +26,8 @@ export {
     ID_DERIVATION_VERSION,
     ID_RECOVERY_CODE_PREFIX,
 } from "./common/idDerivation.ts";
+export { getPathNormalizationVersion, normalisePathForIdentity } from "./common/pathNormalization.ts";
+export type { PathNormalizationVersion, PathIdentitySettings } from "./common/models/setting.type.ts";
 export {
     prepareSettingsForLoad,
     SettingsMigrationReviewCodes,

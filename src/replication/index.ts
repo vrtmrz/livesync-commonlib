@@ -104,6 +104,7 @@ export {
     assessRemoteFeatureDocument,
     describeRemoteFeatureRejection,
     ENCRYPTED_INTERNAL_METADATA_FEATURE,
+    NFC_PATH_IDENTITY_FEATURE,
     REMOTE_FEATURE_GENERATION,
     usesEncryptedInternalMetadata,
 } from "../pouchdb/remoteFeatureCompatibility.ts";

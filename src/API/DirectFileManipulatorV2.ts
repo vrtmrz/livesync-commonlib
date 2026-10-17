@@ -19,12 +19,18 @@ import {
     DEFAULT_SYNC_PARAMETERS,
     ProtocolVersions,
     DOCID_SYNC_PARAMETERS,
+    VERSIONING_DOCID,
     type E2EEAlgorithm,
     E2EEAlgorithms,
     VER,
 } from "@lib/common/types.ts";
 import { checkRemoteVersion } from "@lib/pouchdb/negotiation.ts";
-import { requiredRemoteFeatures, usesEncryptedInternalMetadata } from "@lib/pouchdb/remoteFeatureCompatibility.ts";
+import {
+    assessRemoteFeatureDocument,
+    NFC_PATH_IDENTITY_FEATURE,
+    requiredRemoteFeatures,
+    usesEncryptedInternalMetadata,
+} from "@lib/pouchdb/remoteFeatureCompatibility.ts";
 import { assessRemoteDocumentIds } from "@lib/pouchdb/remoteIdCompatibility.ts";
 
 import { PouchDB } from "@lib/pouchdb/pouchdb-http.ts";
@@ -146,6 +152,15 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
             );
             if (idCompatibility === "mismatched") {
                 throw new Error("Direct database document IDs do not match the configured ID key.");
+            }
+            try {
+                const versionInfo = await this.liveSyncLocalDB.localDatabase.get(VERSIONING_DOCID);
+                const assessment = assessRemoteFeatureDocument(versionInfo);
+                if (assessment.status === "supported" && assessment.usedFeatures.includes(NFC_PATH_IDENTITY_FEATURE)) {
+                    throw new Error("Direct database version or features are not compatible.");
+                }
+            } catch (error) {
+                if (!isErrorOfMissingDoc(error)) throw error;
             }
             const requiredFeatures = requiredRemoteFeatures(this.settings);
             if (

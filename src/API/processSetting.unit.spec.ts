@@ -14,6 +14,25 @@ import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
 import { defaultLogger, setGlobalLogFunction } from "octagonal-wheels/common/logger";
 
 describe("QR Codec Round-Trip Test with Real Data", () => {
+    it("shares the NFC path identity version in QR data", () => {
+        const decoded = decodeSettingsFromQRCodeData(
+            encodeSettingsToQRCodeData({
+                ...DEFAULT_SETTINGS,
+                pathNormalizationVersion: 1,
+            })
+        );
+        expect(decoded.pathNormalizationVersion).toBe(1);
+    });
+
+    it("rejects an unknown path identity before encoding QR data", () => {
+        expect(() =>
+            encodeSettingsToQRCodeData({
+                ...DEFAULT_SETTINGS,
+                pathNormalizationVersion: 2 as 1,
+            })
+        ).toThrow(/path normalisation version/);
+    });
+
     it("preserves sleep preferences in Setup URI data", () => {
         const encoded = encodeSettingsToQRCodeData({
             ...DEFAULT_SETTINGS,

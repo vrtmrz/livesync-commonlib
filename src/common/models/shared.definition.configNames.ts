@@ -78,6 +78,11 @@ export const configurationNames: Partial<Record<keyof ObsidianLiveSyncSettings, 
         name: "Handle files as Case-Sensitive",
         desc: "If this enabled, All files are handled as case-Sensitive (Previous behaviour).",
     },
+    pathNormalizationVersion: {
+        name: "Path identity mode",
+        desc: "CouchDB only. Version 0 preserves legacy path identity; version 1 uses Unicode NFC. Physical file names stay unchanged. Update every device and stop synchronisation, then Rebuild both databases from a complete authoritative Vault and Fetch on the other devices. Resolve colliding file names first. P2P and Object Storage do not support version 1.",
+        isAdvanced: true,
+    },
     doNotUseFixedRevisionForChunks: {
         name: "Content-derived chunk revisions (obsolete setting)",
         desc: "Chunk revisions are always derived from their content. This stored key is retained only for compatibility.",
