@@ -316,17 +316,26 @@ describe("deleted-winner revalidation", () => {
         expect(receiver.conflict.queueCheckFor).toHaveBeenCalledWith(oldPath);
     });
 
-    it("preserves storage after compaction removes the displayed base body", async () => {
+    it.each(["legacy", "unchanged", "edited"])("handles %s storage after compaction removes the displayed base body", async (mode) => {
         const { source, receiver } = await fixture(true);
         const baseRevision = receiver.reflection.get(oldPath)!.revision;
+        if (mode === "legacy") receiver.reflection.set(oldPath, { revision: baseRevision });
+        const content = mode === "edited" ? original + "Local edit\n" : original;
+        if (mode === "edited") receiver.files.set(oldPath, makeFile(oldPath, content));
         const incoming = await deleteAndReplicate(source, receiver, true);
         await receiver.db.compact();
         await expect(receiver.db.get(oldPath, { rev: baseRevision })).rejects.toMatchObject({ status: 404 });
 
         expect(await receiver.handler._anyProcessReplicatedDoc(incoming)).toBe(true);
 
-        expect(receiver.storageAccess.deleteVaultItem).not.toHaveBeenCalled();
-        expect(await receiver.files.get(oldPath)?.body.text()).toBe(original);
-        expect(receiver.conflict.queueCheckFor).toHaveBeenCalledWith(oldPath);
+        if (mode === "unchanged") {
+            expect(receiver.storageAccess.deleteVaultItem).toHaveBeenCalledWith(oldPath);
+            expect(receiver.files.has(oldPath)).toBe(false);
+            expect(receiver.reflection.has(oldPath)).toBe(false);
+        } else {
+            expect(receiver.storageAccess.deleteVaultItem).not.toHaveBeenCalled();
+            expect(await receiver.files.get(oldPath)?.body.text()).toBe(content);
+            expect(receiver.conflict.queueCheckFor).toHaveBeenCalledWith(oldPath);
+        }
     });
 });

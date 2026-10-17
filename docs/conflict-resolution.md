@@ -33,14 +33,14 @@ Commonlib follows these rules:
 - compare file content byte-for-byte; a path, size, modification time, or revision generation is not proof of identity;
 - use the nearest `available` revision shared by both leaves as the base for three-way merge;
 - retain a manual conflict when the common revision or a required body is missing or compacted;
-- recognise an unchanged file by comparing its bytes with its exact readable file-reflection provenance;
+- recognise an unchanged file through its exact readable file-reflection revision or the saved SHA-256 hash and byte length of that snapshot;
 - save a genuine edit as a child of that recorded revision, even when a newer database winner exists;
 - deduplicate unknown-origin content against current non-deleted leaves, preserving differing content as a fresh independent root under the same document ID; and
 - never select the newest modification time as a package-level default.
 
 Ordinary saving and incoming reflection share this classification. A historical byte match alone cannot distinguish an unchanged stale file from an intentional revert, and a prefix or suffix relationship does not prove which version the user edited. Unknown-origin content must not acquire an inferred parent from the current winner or its parent.
 
-After a resolution has propagated, an exact recorded revision can still identify unchanged content below a deleted losing leaf. The resolved winner may replace those bytes under the existing reflection policy. If the recorded body is unavailable, the file follows the conservative unknown-origin path. General history-query helpers remain available for callers with separate contracts, including existing deletion and rename recovery; ordinary save and overwrite protection do not scan all historical bodies.
+After a resolution has propagated, an exact recorded revision can still identify unchanged content below a deleted losing leaf. The resolved winner may replace those bytes under the existing reflection policy. If neither the recorded body nor valid matching content evidence is available, the file follows the conservative unknown-origin path. General history-query helpers remain available for callers with separate contracts, including existing deletion and rename recovery; ordinary save and overwrite protection do not scan all historical bodies.
 
 ## Resolution classes
 
@@ -76,12 +76,18 @@ A host must not apply a dialogue result after either compared revision has cease
 The compatibility implementation accepts an injected, device-local `FileReflectionProvenance` capability owned by the database-to-storage composition rather than by a filesystem adapter. Maintained hosts persist:
 
 ```text
-path -> { revision, observedStorageMtime? }
+path -> { revision, observedStorageMtime?, contentHash?, contentSize? }
 ```
 
 `revision` is the exact database revision most recently saved from or reflected in this device's storage. It identifies the base for subsequent local edits, rather than certifying that the current file still contains those bytes. `observedStorageMtime` is the raw modification time of the saved snapshot or the file observed after reflection. It is neither rounded nor compared across devices, and it is diagnostic only: revision identity never comes from a timestamp, path, size, or content hash.
 
-The record is updated only after a successful database-to-storage reflection or storage-to-database write. A plain read does not change provenance. A record remains authoritative when a user edits the displayed file to bytes which happen to equal another branch; content equality must not silently change the branch being extended.
+The record is updated after a successful database-to-storage reflection or storage-to-database write, or after verifying an exact unchanged revision. A plain read does not change provenance. A record remains authoritative when a user edits the displayed file to bytes which happen to equal another branch; content equality must not silently change the branch being extended.
+
+`contentHash` is an algorithm-tagged SHA-256 digest (`sha256:<lowercase hexadecimal>`) of the exact immutable content saved or reflected; `contentSize` is its byte length. Together they let the handler recognise unchanged content after PouchDB prunes the recorded revision. They do not recreate missing revision ancestry or authorise attaching an edited file to an unavailable base. Unsupported or malformed evidence follows the legacy comparison path.
+
+Old records remain readable. An equal-time scan can add content evidence when the recorded revision is still the conflict-free current revision and its bytes match storage. An ordinary unchanged save can also upgrade its verified current record. These upgrades revalidate storage and provenance after hashing; an unrelated branch or an unreadable revision is never certified from the current file. A hashing failure leaves legacy revision evidence, so overwrite protection remains conservative.
+
+Hashing is serialised across files to bound simultaneous whole-file buffers. The public `computeFileContentHash(Blob)` helper includes reading the Blob and Web Crypto SHA-256; the handler reuses results only for the same immutable Blob. It still allocates a whole-file buffer and Web Crypto may copy it, so serialisation does not imply constant memory use.
 
 File-handler saves and reflections share a lock for the same Metadata document, held from snapshot acquisition through provenance recording. Different documents can proceed concurrently. An ordinary save keeps one captured body and its recorded base through the database write; a later local edit is processed as a subsequent change, without rereading the file to certify that it remained unchanged. The handler acquires the lock before loading a file body from storage. Rename operations acquire both document locks in a consistent order, and internal calls reuse the caller's lock rather than acquiring it again. Host conflict-check hooks run after the locks are released, allowing a hook to await another file-handler operation on the same document. Host queues may count document-lock waiters against their concurrency limits, so a burst for one document can temporarily delay unrelated files.
 
@@ -91,13 +97,13 @@ User-directed reconciliation may select any exact current live revision, includi
 
 `storeWithBaseRevision()` is the force-write primitive for deliberately preserving a branch below an exact revision, including a revision which is no longer a leaf. It must not be used when an operation means 'advance this revision only if it is still current'. For that compare-and-store boundary, `storeWithLiveBaseRevision()` uses PouchDB's ordinary revision check and returns `false` if the supplied base has already been advanced. Any current revision-tree leaf is eligible, including a non-winning conflict leaf or a logical-deletion leaf. The caller must refresh its state after refusal rather than silently falling back to the deterministic winner.
 
-`storeIndependentRevision()` explicitly preserves unknown-origin content through `putDBEntryAsIndependentRoot()`. Passing an undefined base to `storeWithBaseRevision()` retains its existing latest-revision behaviour and does not create an independent root. `findLiveContentRevisions()` compares only current non-deleted leaves using locally available chunks. Additional provenance comparisons also use local-only retrieval, so they do not introduce remote chunk requests or delivery waits; a missing body leads to preservation rather than an inferred base.
+`storeIndependentRevision()` explicitly preserves unknown-origin content through `putDBEntryAsIndependentRoot()`. Passing an undefined base to `storeWithBaseRevision()` retains its existing latest-revision behaviour and does not create an independent root. `findLiveContentRevisions()` compares only current non-deleted leaves using locally available chunks. Additional provenance comparisons also use local-only retrieval, so they do not introduce remote chunk requests or delivery waits; a missing body without matching saved content evidence leads to preservation rather than an inferred base.
 
 A successful non-deleted reconciliation records the exact selected or newly created revision as provenance. Applying a logical deletion removes the storage item and its provenance record. Deletion provenance is not retained indefinitely: an absent storage item and a current logical-deletion winner already agree and need no further reconciliation.
 
 Hosts may construct the namespaced store handle during service composition, before its backing database is open. Store operations begin only after the host's storage lifecycle is ready. They fail rather than wait when that lifecycle contract is violated, because an implicit readiness wait could hang after failed initialisation or wait on its own initialisation handler. Database reset is a transient unavailable boundary; the host must avoid file processing during it and reconstruct derived provenance after reopening.
 
-For ordinary saving and incoming reflection, an absent or unreadable recorded base permits reconstruction only from exactly one matching current non-deleted leaf. Multiple matches avoid duplicate storage without guessing branch identity. No current match creates a fresh independent root, even when an ancestor has the same bytes. Deletion and rename retain their existing provenance-recovery contracts.
+For ordinary saving and incoming reflection, an absent or unreadable recorded base without matching saved content evidence permits reconstruction only from exactly one matching current non-deleted leaf. Multiple matches avoid duplicate storage without guessing branch identity. No current match creates a fresh independent root, even when an ancestor has the same bytes. Deletion and rename retain their existing provenance-recovery contracts.
 
 An unchanged stale file is not saved below the winner. When the database has advanced without a conflict, the existing database-to-storage path reflects it; a conflict instead remains subject to the host's reflection and resolution policy. Independent roots retain the file's modification time and use the existing Metadata/Chunks format, with fresh revision identifiers and reusable chunks. They have no shared ancestor with unrelated existing branches, including after replication. This does not disable a host's explicit newer-file option.
 

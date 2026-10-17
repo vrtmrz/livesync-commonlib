@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Fixed
+
+- Unchanged files can receive incoming updates after their recorded database revision has been pruned, without creating false conflicts ([Self-hosted LiveSync issue #1207](https://github.com/vrtmrz/obsidian-livesync/issues/1207)).
+    - Device-local provenance retains the saved content's SHA-256 hash and byte length. Legacy records gain this evidence only after their exact content is verified; genuine edits remain protected.
+
+### Added
+
+- Hosts can calculate and benchmark exact file-content hashes through `computeFileContentHash(Blob)` in the `/hashing` entry.
+
 ## 0.1.41
 
 16th October, 2026

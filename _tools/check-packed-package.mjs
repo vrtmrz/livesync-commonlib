@@ -229,7 +229,7 @@ import {
     type CreateFileSystemAccessStorageOptions,
 } from "${packageName}/browser";
 import { splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
-import { HashManager, type HashManagerCoreOptions } from "${packageName}/hashing";
+import { HashManager, computeFileContentHash, type HashManagerCoreOptions } from "${packageName}/hashing";
 import {
     NEW_VAULT_SETTINGS,
     SETTINGS_SCHEMA_DEFAULTS,
@@ -329,6 +329,8 @@ const createHashManager = (options: HashManagerCoreOptions): HashManager => new 
 const computeChunkHash = (manager: HashManager, value: string): Promise<string> => manager.computeHash(value);
 void createHashManager;
 void computeChunkHash;
+const fileHash: Promise<\`sha256:\${string}\`> = computeFileContentHash(new Blob(["abc"]));
+void fileHash;
 void context;
 void contextContract;
 void untranslated;
@@ -401,7 +403,9 @@ assert.equal(
     "increase to 800MB"
 );
 assert.equal(typeof rootApi.DirectFileManipulator, "function");
-assert.deepEqual(Object.keys(hashingApi), ["HashManager"]);
+assert.deepEqual(Object.keys(hashingApi).sort(), ["HashManager", "computeFileContentHash"]);
+assert.equal(await hashingApi.computeFileContentHash(new Blob(["abc"])),
+    "sha256:ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad");
 const hashSettings = {
     ...settingsApi.DEFAULT_SETTINGS,
     encrypt: true,
@@ -507,7 +511,7 @@ void storage;
 );
 await writeConsumerFile(
     "browser-hashing.ts",
-    `export { HashManager } from "${packageName}/hashing";
+    `export { HashManager, computeFileContentHash } from "${packageName}/hashing";
 `
 );
 await writeConsumerFile(
