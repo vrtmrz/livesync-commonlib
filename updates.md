@@ -1,6 +1,8 @@
 # Updates
 
-## Unreleased
+## 0.1.42
+
+17th October, 2026
 
 ### Fixed
 
