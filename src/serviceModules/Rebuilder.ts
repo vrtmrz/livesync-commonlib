@@ -20,7 +20,13 @@ import type { LiveSyncEventHub } from "@lib/hub/hub";
 import { EVENT_DATABASE_REBUILT } from "@lib/events/coreEvents";
 import { ServiceModuleBase } from "@lib/serviceModules/ServiceModuleBase";
 import type { ControlService } from "@lib/services/base/ControlService";
-import type { IFileProcessingService } from "@lib/services/base/IService";
+import type { IFileProcessingService, IPathService } from "@lib/services/base/IService";
+import { getPathNormalizationVersion } from "@lib/common/pathNormalization";
+import { assertMetadataPathIdentities, assertUniqueStoragePathIdentities } from "@lib/common/pathIdentity";
+import { VERSIONING_DOCID } from "@lib/common/types";
+import { assertDatabasePathIdentity, assertMatchingPathIdentityFeature } from "@lib/pouchdb/pathIdentityCompatibility";
+import { assessRemoteFeatureDocument, describeRemoteFeatureRejection } from "@lib/pouchdb/remoteFeatureCompatibility";
+import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb";
 import {
     checkRemoteFeaturesForInitialSync,
     fetchChangesForInitialSync,
@@ -39,6 +45,7 @@ const FAST_FETCH_RETRY_DELAYS = [2000, 5000, 10000, 20000];
 type FastFetchCheckpoint = {
     remote: string;
     sequence: number | string;
+    pathNormalizationVersion?: number;
 };
 
 /** Legacy reset facet used only by the central-remote rebuild workflow. */
@@ -66,6 +73,7 @@ export interface ServiceRebuilderDependencies {
     fileHandler: IFileHandler;
     fileProcessing: IFileProcessingService;
     control: ControlService;
+    path: IPathService;
 }
 
 export class ServiceRebuilder extends ServiceModuleBase<ServiceRebuilderDependencies> implements Rebuilder {
@@ -84,6 +92,7 @@ export class ServiceRebuilder extends ServiceModuleBase<ServiceRebuilderDependen
     private fileHandler: IFileHandler;
     private fileProcessing: IFileProcessingService;
     private control: ControlService;
+    private path: IPathService;
     constructor(services: ServiceRebuilderDependencies) {
         super(services);
         this.events = services.events;
@@ -101,6 +110,7 @@ export class ServiceRebuilder extends ServiceModuleBase<ServiceRebuilderDependen
         this.fileHandler = services.fileHandler;
         this.fileProcessing = services.fileProcessing;
         this.control = services.control;
+        this.path = services.path;
         services.database.onDatabaseReset.addHandler(this._onResetLocalDatabase.bind(this));
         // services.remote.tryResetDatabase.setHandler(this._tryResetRemoteDatabase.bind(this));
         // services.remote.tryCreateDatabase.setHandler(this._tryCreateRemoteDatabase.bind(this));
@@ -133,6 +143,7 @@ Please enable them from the settings screen after setup is complete.`,
         );
     }
     async rebuildRemote() {
+        await this.checkPathIdentitiesBeforeReconstruction(true);
         await this.replicator.runBoundedRemoteActivity(() => this.performRemoteRebuild(), {
             label: "rebuild-remote",
         });
@@ -164,6 +175,7 @@ Please enable them from the settings screen after setup is complete.`,
     }
 
     async rebuildEverything() {
+        await this.checkPathIdentitiesBeforeReconstruction(false);
         await this.replicator.runBoundedRemoteActivity(() => this.performRebuildEverything(), {
             label: "rebuild-everything",
         });
@@ -224,6 +236,72 @@ Please enable them from the settings screen after setup is complete.`,
 
     $rebuildEverything(): Promise<void> {
         return this.rebuildEverything();
+    }
+
+    private async checkPathIdentitiesBeforeReconstruction(requireMatchingIds: boolean): Promise<void> {
+        const settings = this.setting.currentSettings();
+        if (requireMatchingIds && this.database.isDatabaseReady()) {
+            await assertDatabasePathIdentity(this.database.localDatabase.localDatabase, settings);
+        }
+        if (getPathNormalizationVersion(settings) === 0) return;
+        if (settings.remoteType !== REMOTE_COUCHDB) {
+            throw new Error("NFC path identity is supported only with CouchDB. No database has been reset.");
+        }
+        const paths = await this.storageAccess.getFileNames();
+        const selected = [];
+        const databaseReady = this.database.isDatabaseReady();
+        for (const path of paths) {
+            if (!databaseReady || (await this.vault.isTargetFile(path, { skipCaseCollisionCheck: true })))
+                selected.push(path);
+        }
+        await assertUniqueStoragePathIdentities(selected, this.path);
+        if (databaseReady) {
+            await assertMetadataPathIdentities(
+                this.database.localDatabase.findAllDocs(),
+                this.path,
+                requireMatchingIds
+            );
+        }
+    }
+
+    private async checkRemotePathIdentityBeforeFetch(): Promise<void> {
+        const settings = this.setting.currentSettings();
+        if (settings.remoteType !== REMOTE_COUCHDB) return;
+        const remote =
+            settings.couchDB_URI.replace(/\/+$/, "") +
+            (settings.couchDB_DBNAME === "" ? "" : "/" + settings.couchDB_DBNAME);
+        const connection = await this.remote.connect(
+            remote,
+            generateCredentialObject(settings),
+            settings.disableRequestURI || this.API.isMobile(),
+            false,
+            false,
+            false,
+            true,
+            false,
+            parseHeaderValues(settings.couchDB_CustomHeaders),
+            settings.useRequestAPI,
+            async () => {
+                throw new Error("A version document does not require decryption.");
+            }
+        );
+        if (typeof connection === "string") throw new Error(connection);
+        try {
+            let document;
+            try {
+                document = await connection.db.get(VERSIONING_DOCID);
+            } catch (error) {
+                if (!isErrorOfMissingDoc(error) || (await connection.db.info()).doc_count !== 0) throw error;
+                return;
+            }
+            const assessment = assessRemoteFeatureDocument(document);
+            if (assessment.status !== "supported" && assessment.status !== "older-generation") {
+                throw new Error(describeRemoteFeatureRejection(assessment));
+            }
+            assertMatchingPathIdentityFeature(document, settings);
+        } finally {
+            await connection.close();
+        }
     }
 
     $fetchLocal(makeLocalChunkBeforeSync?: boolean, preventMakeLocalFilesBeforeSync?: boolean): Promise<void> {
@@ -377,6 +455,8 @@ Please enable them from the settings screen after setup is complete.`,
     }
 
     async fetchLocal(makeLocalChunkBeforeSync?: boolean, preventMakeLocalFilesBeforeSync?: boolean, autoResume = true) {
+        await this.checkPathIdentitiesBeforeReconstruction(false);
+        await this.checkRemotePathIdentityBeforeFetch();
         await this.setting.suspendExtraSync();
         // await this.askUseNewAdapter();
         await this.setting.applyPartial({
@@ -501,7 +581,8 @@ Are you sure you wish to proceed?`;
             generateCredentialObject(settings)
         );
         const customHeaders = parseHeaderValues(settings.couchDB_CustomHeaders);
-        await checkRemoteFeaturesForInitialSync(remote, authHeader, customHeaders);
+        await this.checkPathIdentitiesBeforeReconstruction(false);
+        await checkRemoteFeaturesForInitialSync(remote, authHeader, customHeaders, settings);
 
         this.appLifecycle.resetIsReady();
         let checkpoint = this.getFastFetchCheckpoint(remote);
@@ -687,7 +768,11 @@ Are you sure you wish to proceed?`;
 
         try {
             const checkpoint = JSON.parse(rawCheckpoint) as Partial<FastFetchCheckpoint>;
-            if (checkpoint.remote === remote && checkpoint.sequence !== undefined) {
+            if (
+                checkpoint.remote === remote &&
+                checkpoint.sequence !== undefined &&
+                getPathNormalizationVersion(checkpoint) === getPathNormalizationVersion(this.setting.currentSettings())
+            ) {
                 return {
                     remote,
                     sequence: checkpoint.sequence,
@@ -701,7 +786,14 @@ Are you sure you wish to proceed?`;
     }
 
     private saveFastFetchCheckpoint(remote: string, sequence: number | string) {
-        this.setting.setSmallConfig(FAST_FETCH_CHECKPOINT_KEY, JSON.stringify({ remote, sequence }));
+        this.setting.setSmallConfig(
+            FAST_FETCH_CHECKPOINT_KEY,
+            JSON.stringify({
+                remote,
+                sequence,
+                pathNormalizationVersion: getPathNormalizationVersion(this.setting.currentSettings()),
+            })
+        );
     }
 
     private clearFastFetchCheckpoint() {

@@ -80,6 +80,16 @@ describe("settings property policy", () => {
         expect(output).not.toHaveProperty("unexpectedCredential");
     });
 
+    it("shares path identity settings under the existing credential-sharing option", () => {
+        const original = { ...settings(), idDerivationVersion: 1 as const, pathNormalizationVersion: 1 as const };
+        const withoutCredentials = createMarkdownSettings(original, false);
+        const withCredentials = createMarkdownSettings(original, true);
+
+        expect(withoutCredentials).not.toHaveProperty("idDerivationVersion");
+        expect(withoutCredentials).not.toHaveProperty("pathNormalizationVersion");
+        expect(withCredentials).toMatchObject({ idDerivationVersion: 1, pathNormalizationVersion: 1 });
+    });
+
     it("retains named profile IDs when connection sharing is enabled", () => {
         const original = { ...settings(), remoteConfigurations: profilesWithSpecialIds() };
         const output = createMarkdownSettings(original, true);

@@ -11,6 +11,7 @@ import {
 import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
 import { LOG_LEVEL_VERBOSE, Logger } from "octagonal-wheels/common/logger";
 import { configuredIdKey } from "@lib/common/idDerivation";
+import { getPathNormalizationVersion } from "@lib/common/pathNormalization";
 
 /**
  * Encode settings to a tiny array to encode in QRCode,
@@ -20,6 +21,7 @@ import { configuredIdKey } from "@lib/common/idDerivation";
 export function encodeSettingsToQRCodeData(settings: ObsidianLiveSyncSettings) {
     settings = omitP2PRuntimeSettings(settings) as ObsidianLiveSyncSettings;
     configuredIdKey(settings);
+    getPathNormalizationVersion(settings);
     const fullIndexes = Object.entries(KeyIndexOfSettings) as [keyof ObsidianLiveSyncSettings, number][];
 
     // Find the maximum index to properly size the array
@@ -81,6 +83,7 @@ export function decodeSettingsFromQRCodeData(qr: string): ObsidianLiveSyncSettin
     }
 
     configuredIdKey(newSettings);
+    newSettings.pathNormalizationVersion = getPathNormalizationVersion(newSettings);
     return omitP2PRuntimeSettings(newSettings) as ObsidianLiveSyncSettings;
 }
 
@@ -220,6 +223,7 @@ export async function encodeSettingsToSetupURI(
     const setting: Partial<ObsidianLiveSyncSettings> = {
         ...omitP2PRuntimeSettings(settingString),
     };
+    getPathNormalizationVersion(setting);
     configuredIdKey({
         idDerivationVersion: setting.idDerivationVersion ?? 0,
         idDerivationKey: setting.idDerivationKey ?? "",
@@ -315,6 +319,7 @@ export async function decodeSettingsFromSetupURI(uri: string, passphrase: string
                 typeof imported.encryptInternalMetadata === "boolean" ? imported.encryptInternalMetadata : false,
             idDerivationVersion: imported.idDerivationVersion ?? 0,
             idDerivationKey: imported.idDerivationKey ?? "",
+            pathNormalizationVersion: getPathNormalizationVersion(imported),
         };
         configuredIdKey(settings);
         return omitP2PRuntimeSettings(settings);

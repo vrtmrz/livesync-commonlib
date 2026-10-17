@@ -145,6 +145,7 @@ export const SETTINGS_PROPERTY_POLICY = {
     encrypt: SettingPolicies.Default,
     passphrase: SettingPolicies.E2EEPassphrase,
     idDerivationVersion: SettingPolicies.MarkdownCredentials,
+    pathNormalizationVersion: SettingPolicies.MarkdownCredentials,
     idDerivationKey: SettingPolicies.IdDerivationKey,
     usePathObfuscation: SettingPolicies.Default,
     encryptInternalMetadata: SettingPolicies.Default,

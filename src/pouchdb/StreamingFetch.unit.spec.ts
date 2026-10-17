@@ -532,6 +532,23 @@ describe("fetchChangesForInitialSync", () => {
 });
 
 describe("checkRemoteFeaturesForInitialSync", () => {
+    it.each([
+        { local: 0, features: ["nfc-path-identity-v1"] },
+        { local: 1, features: [] },
+    ])("rejects a path identity mismatch before fetching ($local)", async ({ local, features }) => {
+        fetchMock.mockResolvedValueOnce(
+            remoteFeatureResponse({
+                _id: VERSIONING_DOCID,
+                type: "versioninfo",
+                version: 13,
+                used_features: features,
+            })
+        );
+        await expect(
+            checkRemoteFeaturesForInitialSync(remoteDbUrl, "Basic test", undefined, { pathNormalizationVersion: local })
+        ).rejects.toThrow(/path identity/);
+    });
+
     it.each(["not JSON", "null", '{"rows":[null]}'])("rejects a malformed response: %s", async (body) => {
         fetchMock.mockResolvedValueOnce(new Response(body));
         await expect(checkRemoteFeaturesForInitialSync(remoteDbUrl, "Basic test")).rejects.toMatchObject({

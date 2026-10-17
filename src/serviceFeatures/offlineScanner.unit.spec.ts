@@ -62,6 +62,36 @@ describe("convertCase", () => {
 
         expect(result).toBe("test/file.md");
     });
+
+    it("normalises identity paths only in version one for both filename case modes", () => {
+        const nfcPath = "Caf\u00e9/Note.md";
+        const nfdPath = nfcPath.normalize("NFD");
+
+        expect(
+            convertCase(
+                { handleFilenameCaseSensitive: true, pathNormalizationVersion: 0 } as ObsidianLiveSyncSettings,
+                nfdPath as FilePathWithPrefix
+            )
+        ).toBe(nfdPath);
+        expect(
+            convertCase(
+                { handleFilenameCaseSensitive: false, pathNormalizationVersion: 0 } as ObsidianLiveSyncSettings,
+                nfdPath as FilePathWithPrefix
+            )
+        ).toBe(nfdPath.toLowerCase());
+        expect(
+            convertCase(
+                { handleFilenameCaseSensitive: true, pathNormalizationVersion: 1 } as ObsidianLiveSyncSettings,
+                nfdPath as FilePathWithPrefix
+            )
+        ).toBe(nfcPath);
+        expect(
+            convertCase(
+                { handleFilenameCaseSensitive: false, pathNormalizationVersion: 1 } as ObsidianLiveSyncSettings,
+                nfdPath as FilePathWithPrefix
+            )
+        ).toBe(nfcPath.toLowerCase());
+    });
 });
 
 describe("getPathFromEntry", () => {
@@ -1477,6 +1507,88 @@ describe("synchroniseAllFilesBetweenDBandStorage", () => {
 
     beforeAll(() => {
         logger = createLogger("TestLogger");
+    });
+
+    it("deletes an NFD storage file when its NFC Metadata entry is deleted in path identity version one", async () => {
+        vi.useFakeTimers();
+        const nfcPath = "Caf\u00e9/Note.md";
+        const nfdPath = nfcPath.normalize("NFD");
+        const storageFile = { path: nfdPath, stat: { size: 100, mtime: 5000 } };
+        const deleteStorageFile = vi.fn().mockResolvedValue(undefined);
+        const storeFileToDB = vi.fn();
+        const dbToStorage = vi.fn();
+
+        async function* mockFindAllNormalDocs() {
+            yield {
+                _id: nfcPath,
+                path: nfcPath,
+                size: 100,
+                mtime: 10000,
+                deleted: true,
+                type: "newnote",
+                children: [],
+            };
+        }
+
+        const host = {
+            services: {
+                context: createServiceContext(),
+                setting: {
+                    currentSettings: () => ({
+                        handleFilenameCaseSensitive: true,
+                        pathNormalizationVersion: 1,
+                    }),
+                },
+                vault: {
+                    isTargetFile: vi.fn().mockResolvedValue(true),
+                    isValidPath: vi.fn().mockReturnValue(true),
+                    isFileSizeTooLarge: vi.fn().mockReturnValue(false),
+                },
+                path: {
+                    getPath: vi.fn((doc: any) => doc.path),
+                    path2id: vi.fn(async (path: string) => path),
+                },
+                fileProcessing: {},
+                database: {
+                    localDatabase: {
+                        findAllNormalDocs: vi.fn().mockReturnValue(mockFindAllNormalDocs()),
+                    },
+                },
+                keyValueDB: {
+                    kvDB: {
+                        get: vi.fn().mockResolvedValue({}),
+                        set: vi.fn().mockResolvedValue(undefined),
+                    },
+                },
+            },
+            serviceModules: {
+                storageAccess: {
+                    getFiles: vi.fn().mockResolvedValue([storageFile]),
+                    delete: deleteStorageFile,
+                },
+                fileHandler: {
+                    dbToStorage,
+                    storeFileToDB,
+                    deleteFileFromDB: vi.fn(),
+                },
+            },
+        } as any;
+
+        try {
+            const result = await synchroniseAllFilesBetweenDBandStorage(host, logger, {} as any, {
+                mode: FullScanModes.NEWER_WINS,
+                extraOnLocal: ExtraOnLocal.DELETE_DB_DELETED,
+            });
+            await vi.runAllTimersAsync();
+
+            expect(result).toBe(true);
+            expect(storeFileToDB).not.toHaveBeenCalled();
+            expect(deleteStorageFile).toHaveBeenCalledOnce();
+            expect(deleteStorageFile).toHaveBeenCalledWith(nfdPath, true);
+            expect(dbToStorage).not.toHaveBeenCalled();
+        } finally {
+            vi.useRealTimers();
+        }
     });
 
     it("should process mixed file-set actions in db-apply mode", async () => {

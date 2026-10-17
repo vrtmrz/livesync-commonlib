@@ -56,6 +56,7 @@ describe("isAcceptedInFilenameDuplication", () => {
             services: {
                 vault: mockVault,
                 fileProcessing: mockFileProcessing,
+                setting: { currentSettings: () => ({ pathNormalizationVersion: 0 }) },
             },
             serviceModules: {
                 storageAccess: mockStorageAccess,
@@ -111,6 +112,39 @@ describe("isAcceptedInFilenameDuplication", () => {
 });
 
 import { isAcceptedByLocalDBFactory } from "./targetFilter";
+describe("NFC filename duplication", () => {
+    function setup(caseInsensitive: boolean) {
+        const settings = { pathNormalizationVersion: 1 };
+        const files = ["Caf\u00e9.md", "Cafe\u0301.md"];
+        const host = {
+            services: {
+                setting: { currentSettings: () => settings },
+                vault: { shouldCheckCaseInsensitively: () => caseInsensitive },
+                fileProcessing: { totalStorageFileEventCount: 0 },
+            },
+            serviceModules: { storageAccess: { getFileNames: async () => files } },
+        } as any;
+        return { settings, files, handler: isAcceptedInFilenameDuplicationFactory(host, createLogger("NFC")) };
+    }
+
+    it.each([false, true])(
+        "rejects both canonical equivalents with case-insensitive mode %s",
+        async (caseInsensitive) => {
+            const { handler } = setup(caseInsensitive);
+            expect(await handler("Caf\u00e9.md")).toBe(false);
+            expect(await handler("Cafe\u0301.md")).toBe(false);
+        }
+    );
+
+    it("refreshes its collision policy when the normalisation setting changes without a file event", async () => {
+        const { handler, settings } = setup(false);
+        settings.pathNormalizationVersion = 0;
+        expect(await handler("Caf\u00e9.md")).toBe(true);
+        settings.pathNormalizationVersion = 1;
+        expect(await handler("Caf\u00e9.md")).toBe(false);
+    });
+});
+
 describe("isAcceptedByLocalDB", () => {
     let logger: LogFunction;
     beforeAll(() => {

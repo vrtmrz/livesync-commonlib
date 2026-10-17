@@ -64,6 +64,39 @@ describe("DirectFileManipulator", () => {
         expect(refreshSettings).not.toHaveBeenCalled();
     });
 
+    it("rejects direct access to a remote using NFC path identity", async () => {
+        const ready = promiseWithResolvers<void>();
+        const refreshSettings = vi.fn();
+        const db = {
+            get: vi.fn(async () => ({
+                _id: VERSIONING_DOCID,
+                type: "versioninfo",
+                version: 13,
+                used_features: ["nfc-path-identity-v1"],
+            })),
+            allDocs: vi.fn(),
+            put: vi.fn(),
+        };
+        const manipulator = {
+            services: { appLifecycle: { onReady: vi.fn().mockResolvedValue(undefined) } },
+            options: { encryptInternalMetadata: false },
+            settings: { encryptInternalMetadata: false },
+            liveSyncLocalDB: {
+                initializeDatabase: vi.fn().mockResolvedValue(true),
+                localDatabase: db,
+                refreshSettings,
+            },
+            ready,
+        } as unknown as DirectFileManipulator;
+
+        await DirectFileManipulator.prototype.init.call(manipulator);
+
+        await expect(ready.promise).rejects.toThrow("Direct database version or features are not compatible.");
+        expect(db.get).toHaveBeenCalledOnce();
+        expect(db.put).not.toHaveBeenCalled();
+        expect(refreshSettings).not.toHaveBeenCalled();
+    });
+
     it.each([
         { idDerivationVersion: 1 as const, idDerivationKey: "ab".repeat(32) },
         { idDerivationVersion: 0 as const, idDerivationKey: "" },

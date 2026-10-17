@@ -63,6 +63,68 @@ describe("PathService", () => {
         expect(service.id2path(input as DocumentID)).toBe(expected);
     });
 
+    it.each([
+        { encrypt: false, usePathObfuscation: false, idDerivationVersion: 0, idDerivationKey: "" },
+        { encrypt: true, usePathObfuscation: false, idDerivationVersion: 1, idDerivationKey: "ab".repeat(32) },
+        {
+            encrypt: true,
+            usePathObfuscation: true,
+            idDerivationVersion: 1,
+            idDerivationKey: "ab".repeat(32),
+            passphrase: "identity-secret",
+        },
+    ])("uses NFC only for the document ID while preserving its namespace prefix: %j", async (mode) => {
+        const settingService = {
+            currentSettings: () => ({ ...DEFAULT_SETTINGS, handleFilenameCaseSensitive: true }),
+        } as unknown as ISettingService;
+        const service = new PathServiceCompat(new ServiceContext(), { settingService });
+        const settings = {
+            ...DEFAULT_SETTINGS,
+            ...mode,
+            handleFilenameCaseSensitive: true,
+            pathNormalizationVersion: 1,
+        };
+        const nfcPath = "i:Caf\u00e9/Note.md" as FilePathWithPrefix;
+        const nfdPath = "i:Cafe\u0301/Note.md" as FilePathWithPrefix;
+        const nfcId = await service.path2idWithSettings(nfcPath, settings);
+
+        await expect(service.path2idWithSettings(nfdPath, settings)).resolves.toBe(nfcId);
+        expect(nfcId.startsWith("i:")).toBe(true);
+        expect(service.id2path(nfdPath as DocumentID)).toBe(nfdPath);
+    });
+
+    it("preserves legacy document IDs when the path normalisation version is absent or zero", async () => {
+        const settingService = {
+            currentSettings: () => ({ ...DEFAULT_SETTINGS, handleFilenameCaseSensitive: true }),
+        } as unknown as ISettingService;
+        const service = new PathServiceCompat(new ServiceContext(), { settingService });
+        const nfcPath = "Caf\u00e9/Note.md" as FilePathWithPrefix;
+        const nfdPath = "Cafe\u0301/Note.md" as FilePathWithPrefix;
+        const legacySettings = { ...DEFAULT_SETTINGS, handleFilenameCaseSensitive: true };
+        const explicitLegacySettings = { ...legacySettings, pathNormalizationVersion: 0 };
+
+        await expect(service.path2idWithSettings(nfcPath, legacySettings)).resolves.not.toBe(
+            await service.path2idWithSettings(nfdPath, legacySettings)
+        );
+        await expect(service.path2idWithSettings(nfcPath, explicitLegacySettings)).resolves.not.toBe(
+            await service.path2idWithSettings(nfdPath, explicitLegacySettings)
+        );
+    });
+
+    it("rejects unsupported path normalisation versions", async () => {
+        const settingService = {
+            currentSettings: () => ({ ...DEFAULT_SETTINGS, handleFilenameCaseSensitive: true }),
+        } as unknown as ISettingService;
+        const service = new PathServiceCompat(new ServiceContext(), { settingService });
+
+        await expect(
+            service.path2idWithSettings("Note.md" as FilePathWithPrefix, {
+                ...DEFAULT_SETTINGS,
+                pathNormalizationVersion: 2,
+            })
+        ).rejects.toThrow(/unsupported path normalisation version/i);
+    });
+
     it("uses an optional host path-obfuscation passphrase without changing the settings default", async () => {
         const settings: ObsidianLiveSyncSettings = {
             ...DEFAULT_SETTINGS,

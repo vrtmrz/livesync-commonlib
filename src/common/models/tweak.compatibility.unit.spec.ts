@@ -63,6 +63,51 @@ describe("assessTweakCompatibility", () => {
         expect(assessment.adoptCurrent.reconstruction).toBe("none");
     });
 
+    it.each([
+        { encrypt: false, usePathObfuscation: false },
+        { encrypt: true, usePathObfuscation: false },
+        { encrypt: true, usePathObfuscation: true },
+    ])("requires reconstruction for path identity changes regardless of cryptographic settings: %j", (mode) => {
+        const assessment = assessTweakCompatibility(
+            { ...mode, pathNormalizationVersion: 1 },
+            { ...mode, pathNormalizationVersion: 0 }
+        );
+        const entry = assessment.entries.find(({ key }) => key === "pathNormalizationVersion");
+
+        expect(assessment.alignment).toBe("mismatched");
+        expect(entry).toMatchObject({
+            current: { effectiveValue: 1 },
+            preferred: { effectiveValue: 0 },
+            relation: "different",
+        });
+        expect(assessment.adoptPreferred.reconstruction).toBe("required");
+        expect(assessment.adoptCurrent.reconstruction).toBe("required");
+        expect(assessment.adoptPreferred.reasons).toContainEqual({
+            key: "pathNormalizationVersion",
+            reconstruction: "required",
+        });
+        expect(assessment.adoptCurrent.reasons).toContainEqual({
+            key: "pathNormalizationVersion",
+            reconstruction: "required",
+        });
+    });
+
+    it("treats an absent path identity version as legacy version zero", () => {
+        const assessment = assessTweakCompatibility(
+            { encrypt: false, pathNormalizationVersion: 0 },
+            { encrypt: false }
+        );
+
+        expect(assessment.alignment).toBe("matched");
+        expect(assessment.entries.find(({ key }) => key === "pathNormalizationVersion")).toMatchObject({
+            current: { present: true, effectiveValue: 0 },
+            preferred: { present: false, effectiveValue: 0 },
+            relation: "equal",
+        });
+        expect(assessment.adoptPreferred.reconstruction).toBe("none");
+        expect(assessment.adoptCurrent.reconstruction).toBe("none");
+    });
+
     it("detects the internal Metadata writer preference without requiring reconstruction", () => {
         const assessment = assessTweakCompatibility(
             { encryptInternalMetadata: true } as TweakValues,
@@ -247,6 +292,7 @@ describe("legacy tweak compatibility projections", () => {
             encrypt: false,
             usePathObfuscation: false,
             idDerivationVersion: 0,
+            pathNormalizationVersion: 0,
             encryptInternalMetadata: false,
             enableCompression: false,
             useEden: false,
@@ -267,6 +313,7 @@ describe("legacy tweak compatibility projections", () => {
             "encrypt",
             "usePathObfuscation",
             "idDerivationVersion",
+            "pathNormalizationVersion",
             "useDynamicIterationCount",
             "handleFilenameCaseSensitive",
         ]);
@@ -274,6 +321,7 @@ describe("legacy tweak compatibility projections", () => {
         expect(IncompatibleChangesInSpecificPattern).toEqual([]);
         expect(TweakValuesDefault).toEqual({
             idDerivationVersion: 0,
+            pathNormalizationVersion: 0,
             encryptInternalMetadata: false,
             usePluginSyncV2: false,
             E2EEAlgorithm: "v2",

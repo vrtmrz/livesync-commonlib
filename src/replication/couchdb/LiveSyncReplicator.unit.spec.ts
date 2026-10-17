@@ -23,6 +23,60 @@ import {
 } from "@lib/replication/CentralCompatibility.ts";
 
 describe("LiveSyncCouchDBReplicator initialisation", () => {
+    it.each([false, true])(
+        "rejects NFC remote identity with legacy settings even when checks are skipped (%s)",
+        async (skipCheck) => {
+            const remoteDatabase = {
+                get: vi
+                    .fn()
+                    .mockResolvedValue({
+                        _id: VERSIONING_DOCID,
+                        type: "versioninfo",
+                        version: 13,
+                        used_features: ["nfc-path-identity-v1"],
+                    }),
+                close: vi.fn().mockResolvedValue(undefined),
+            };
+            const replicator = createOneShotReplicator(remoteDatabase);
+            vi.mocked(replicator.checkReplicationConnectivity).mockRestore();
+            replicator.isMobile = vi.fn().mockReturnValue(false);
+            replicator.env.services.API = { getAppVersion: () => "test", getPluginVersion: () => "test" } as never;
+            replicator.env.services.vault = { vaultName: () => "test", getVaultName: () => "test" } as never;
+            replicator.env.services.database.localNodeIdentity = { nodeId: "writer" } as never;
+            vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
+                db: remoteDatabase,
+                info: { update_seq: 0 },
+                close: remoteDatabase.close,
+            } as never);
+            const version = vi.spyOn(negotiation, "checkRemoteVersion").mockResolvedValue(true);
+            const admit = vi.spyOn(compatibility, "ensureDatabaseIsCompatible").mockResolvedValue("OK");
+            const declare = vi.spyOn(negotiation, "declareRemoteFeatures").mockResolvedValue(true);
+            try {
+                await expect(
+                    replicator.checkReplicationConnectivity(
+                        {
+                            versionUpFlash: "",
+                            couchDB_URI: "https://example.test",
+                            couchDB_DBNAME: "db",
+                            pathNormalizationVersion: 0,
+                            disableCheckingConfigMismatch: true,
+                        } as RemoteDBSettings,
+                        false,
+                        skipCheck,
+                        false
+                    )
+                ).resolves.toBe(false);
+                expect(admit).not.toHaveBeenCalled();
+                expect(declare).not.toHaveBeenCalled();
+                expect(remoteDatabase.close).toHaveBeenCalledOnce();
+            } finally {
+                version.mockRestore();
+                admit.mockRestore();
+                declare.mockRestore();
+            }
+        }
+    );
+
     it("rejects a mismatched remote document ID before declaring the feature", async () => {
         const remoteDatabase = { close: vi.fn().mockResolvedValue(undefined) };
         const replicator = createOneShotReplicator(remoteDatabase);
@@ -994,7 +1048,11 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
 });
 
 function createOneShotReplicator(remoteDatabase: { close: () => Promise<void> }) {
+    if (!("get" in remoteDatabase)) {
+        Object.assign(remoteDatabase, { get: vi.fn().mockRejectedValue({ status: 404, name: "not_found" }) });
+    }
     const localDatabase = {
+        get: vi.fn().mockRejectedValue({ status: 404, name: "not_found" }),
         info: vi.fn().mockResolvedValue({ update_seq: 7 }),
         sync: vi.fn(() => ({})),
         replicate: {
@@ -1033,6 +1091,7 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
         const connectionClose = vi.fn().mockResolvedValue(undefined);
         const sync = vi.fn(() => ({}));
         const localDatabase = {
+            get: vi.fn().mockRejectedValue({ status: 404, name: "not_found" }),
             info: vi.fn().mockResolvedValue({ update_seq: 7 }),
             sync,
         };
@@ -1313,8 +1372,12 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
     });
 
     it("closes a connection when connectivity checks cannot transfer ownership", async () => {
-        const remoteDatabase = { close: vi.fn().mockResolvedValue(undefined) };
+        const remoteDatabase = {
+            get: vi.fn().mockRejectedValue({ status: 404, name: "not_found" }),
+            close: vi.fn().mockResolvedValue(undefined),
+        };
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.env = { services: { database: { localDatabase: { localDatabase: remoteDatabase } } } } as never;
         replicator.translate = vi.fn((key) => key);
         replicator.isMobile = vi.fn().mockReturnValue(false);
         vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
@@ -1345,8 +1408,12 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
     });
 
     it("leaves a successful connection open for the caller that receives ownership", async () => {
-        const remoteDatabase = { close: vi.fn().mockResolvedValue(undefined) };
+        const remoteDatabase = {
+            get: vi.fn().mockRejectedValue({ status: 404, name: "not_found" }),
+            close: vi.fn().mockResolvedValue(undefined),
+        };
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.env = { services: { database: { localDatabase: { localDatabase: remoteDatabase } } } } as never;
         replicator.translate = vi.fn((key) => key);
         replicator.isMobile = vi.fn().mockReturnValue(false);
         vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({

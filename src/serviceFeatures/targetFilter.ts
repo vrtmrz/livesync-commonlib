@@ -7,6 +7,7 @@ import { Computed } from "octagonal-wheels/dataobject/Computed";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import type { IVaultService } from "@lib/services/base/IService";
 import { promiseWithResolvers } from "octagonal-wheels/promises";
+import { getPathNormalizationVersion, normalisePathForIdentity } from "@lib/common/pathNormalization";
 
 /**
  * This is a simple handler that accepts all files.
@@ -22,20 +23,19 @@ export function isAcceptedAlwaysFactory(host: NecessaryServices<never, never>, l
  * Check if a file is accepted based on filename duplication in the vault.
  */
 export function isAcceptedInFilenameDuplicationFactory(
-    host: NecessaryServices<"vault" | "fileProcessing", "storageAccess">,
+    host: NecessaryServices<"vault" | "fileProcessing" | "setting", "storageAccess">,
     log: LogFunction
 ) {
     const fileCountMapComputed = new Computed({
-        evaluation: async (fileEventCount: number) => {
+        evaluation: async (fileEventCount: number, version: number, caseInsensitive: boolean) => {
             const vaultFiles = (await host.serviceModules.storageAccess.getFileNames()).sort();
-            const fileCountMap: Record<string, number> = {};
+            const fileCountMap = new Map<string, string[]>();
             for (const file of vaultFiles) {
-                const lc = file.toLowerCase();
-                if (!fileCountMap[lc]) {
-                    fileCountMap[lc] = 1;
-                } else {
-                    fileCountMap[lc]++;
-                }
+                const normalised = normalisePathForIdentity(file, version);
+                const key = caseInsensitive ? normalised.toLowerCase() : normalised;
+                const paths = fileCountMap.get(key) ?? [];
+                paths.push(file);
+                fileCountMap.set(key, paths);
             }
             return fileCountMap;
         },
@@ -43,7 +43,7 @@ export function isAcceptedInFilenameDuplicationFactory(
             if (!previousResult) return true;
             if (previousResult instanceof Error) return true;
             if (!previousArgs) return true;
-            if (args[0] === previousArgs[0]) {
+            if (args.every((value, index) => value === previousArgs[index])) {
                 return false;
             }
             return true;
@@ -55,18 +55,23 @@ export function isAcceptedInFilenameDuplicationFactory(
         options?: Parameters<IVaultService["isTargetFile"]>[1]
     ): Promise<boolean> {
         if (options?.skipCaseCollisionCheck) return true;
+        const version = getPathNormalizationVersion(host.services.setting.currentSettings());
+        const caseInsensitive = host.services.vault.shouldCheckCaseInsensitively();
         const fileCountMap = (
-            await fileCountMapComputed.update(host.services.fileProcessing.totalStorageFileEventCount)
+            await fileCountMapComputed.update(
+                host.services.fileProcessing.totalStorageFileEventCount,
+                version,
+                caseInsensitive
+            )
         ).value;
 
         const filepath = getStoragePathFromUXFileInfo(file);
-        const lc = filepath.toLowerCase();
-
-        if (host.services.vault.shouldCheckCaseInsensitively()) {
-            if (lc in fileCountMap && fileCountMap[lc] > 1) {
-                log("File is duplicated (case-insensitive): " + filepath);
-                return false;
-            }
+        const normalised = normalisePathForIdentity(filepath, version);
+        const key = caseInsensitive ? normalised.toLowerCase() : normalised;
+        const duplicates = fileCountMap.get(key);
+        if (duplicates && duplicates.length > 1) {
+            log("File path identity collision: " + duplicates.map((path) => JSON.stringify(path)).join(", "));
+            return false;
         }
         log("File is not duplicated: " + filepath, LOG_LEVEL_DEBUG);
         return true;
@@ -191,7 +196,12 @@ export function useTargetFilters(
     // 1. Duplication Check
     const _isAcceptedFilenameDuplication = isAcceptedInFilenameDuplicationFactory(
         {
-            services: { context: services.context, vault: services.vault, fileProcessing: services.fileProcessing },
+            services: {
+                context: services.context,
+                vault: services.vault,
+                fileProcessing: services.fileProcessing,
+                setting: services.setting,
+            },
             serviceModules: { storageAccess: serviceModules.storageAccess },
         },
         logger
