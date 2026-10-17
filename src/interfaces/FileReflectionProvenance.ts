@@ -6,6 +6,10 @@ export type FileReflectionProvenanceRecord = {
     revision: string;
     /** Raw modification time of the saved snapshot or storage observed after reflection. */
     observedStorageMtime?: number;
+    /** Algorithm-tagged hash of the exact saved or reflected bytes, independent of revision retention. */
+    contentHash?: string;
+    /** Byte length of the hashed snapshot. Old records may omit both content fields. */
+    contentSize?: number;
 };
 
 export interface FileReflectionProvenance {

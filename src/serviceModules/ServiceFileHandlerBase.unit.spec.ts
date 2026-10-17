@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import type {
@@ -129,6 +130,7 @@ function createHandler(
     return {
         handler: new TestFileHandler(deps),
         remoteMeta,
+        storageFile,
         storageStub: storageStub as UXFileInfoStub,
         databaseFileAccess,
         storageAccess,
@@ -148,12 +150,47 @@ describe("ServiceFileHandlerBase.tryRecordUntrackedFileRevision", () => {
 
         await expect(handler.tryRecordUntrackedFileRevision(storageStub, "2-remote")).resolves.toBe(true);
 
-        expect(provenance.set).toHaveBeenCalledExactlyOnceWith("note.md", {
+        expect(provenance.set).toHaveBeenCalledExactlyOnceWith("note.md", expect.objectContaining({
             revision: "2-remote", observedStorageMtime: storageStub.stat.mtime,
-        });
+        }));
         expect(databaseFileAccess.storeWithBaseRevision).not.toHaveBeenCalled();
         expect(databaseFileAccess.storeIndependentRevision).not.toHaveBeenCalled();
         expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
+    });
+
+    it("upgrades a legacy record only after verifying its exact current revision", async () => {
+        const { handler, storageStub, provenance } = fixture();
+        provenance.get.mockResolvedValue({ revision: "2-remote", observedStorageMtime: 1 });
+        await expect(handler.tryRecordUntrackedFileRevision(storageStub, "2-remote")).resolves.toBe(true);
+        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+            revision: "2-remote", observedStorageMtime: storageStub.stat.mtime,
+            contentHash: "sha256:a636bd7cd42060a4d07fa1bfbcc010eb7794c2ba721e1e3e4c20335a15b66eaf",
+            contentSize: 12,
+        });
+    });
+
+    it("does not attach a legacy hash to bytes changed during hashing", async () => {
+        const { handler, storageStub, storageFile, storageAccess, provenance } = fixture();
+        provenance.get.mockResolvedValue({ revision: "2-remote" });
+        const read = storageFile.body.arrayBuffer.bind(storageFile.body);
+        vi.spyOn(storageFile.body, "arrayBuffer").mockImplementation(async () => {
+            storageAccess.getStub.mockResolvedValue(createStorageFile("note.md", "edited later"));
+            return await read();
+        });
+        await expect(handler.tryRecordUntrackedFileRevision(storageStub, "2-remote")).resolves.toBe(false);
+        expect(provenance.set).not.toHaveBeenCalled();
+    });
+
+    it("does not replace evidence changed on the same revision during hashing", async () => {
+        const { handler, storageStub, storageFile, provenance } = fixture();
+        provenance.get.mockResolvedValue({ revision: "2-remote" });
+        const read = storageFile.body.arrayBuffer.bind(storageFile.body);
+        vi.spyOn(storageFile.body, "arrayBuffer").mockImplementation(async () => {
+            provenance.get.mockResolvedValue({ revision: "2-remote", contentHash: "sha256:" + "a".repeat(64), contentSize: 12 });
+            return await read();
+        });
+        await expect(handler.tryRecordUntrackedFileRevision(storageStub, "2-remote")).resolves.toBe(false);
+        expect(provenance.set).not.toHaveBeenCalled();
     });
 
     it("keeps an existing displayed revision even when current bytes match another revision", async () => {
@@ -1257,10 +1294,10 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
         expect(databaseFileAccess.storeIndependentRevision).toHaveBeenCalledWith(
             expect.objectContaining({ path: "note.md" }), true
         );
-        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+        expect(provenance.set).toHaveBeenCalledWith("note.md", expect.objectContaining({
             revision: "1-independent",
             observedStorageMtime: storageStub.stat.mtime,
-        });
+        }));
     });
 
     it("applies a remote addition without conflict when local storage is an unmodified older copy (#994)", async () => {
@@ -1368,10 +1405,10 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
 
         expect(databaseFileAccess.storeAsConflictedRevisionWithResult).not.toHaveBeenCalled();
         expect(storageAccess.writeFileAuto).not.toHaveBeenCalled();
-        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+        expect(provenance.set).toHaveBeenCalledWith("note.md", expect.objectContaining({
             revision: remoteMeta._rev,
             observedStorageMtime: storageStub.stat.mtime,
-        });
+        }));
     });
 
     it("reflects the explicitly selected revision instead of refetching the winner", async () => {
@@ -1433,16 +1470,22 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
             data: "selected content",
         });
 
+        storageAccess.touched.mockImplementation(async () => {
+            storageAccess.readStubContent.mockResolvedValue(createStorageFile("note.md", "edited after reflection"));
+        });
+
         await expect(handler.dbToStorageWithSpecificRev(storageStub, selected._rev, true)).resolves.toBe(true);
 
         expect(storageAccess.writeFileAuto).toHaveBeenCalledWith("note.md", "selected content", {
             ctime: 1,
             mtime: 2,
         });
-        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+        expect(provenance.set).toHaveBeenCalledWith("note.md", expect.objectContaining({
             revision: selected._rev,
             observedStorageMtime: storageStub.stat.mtime,
-        });
+            contentHash: `sha256:${createHash("sha256").update("selected content").digest("hex")}`,
+            contentSize: byteLength("selected content"),
+        }));
     });
 
     it("restores an explicitly selected revision when the Vault file is missing", async () => {
@@ -1472,10 +1515,10 @@ describe("ServiceFileHandlerBase.dbToStorage", () => {
             ctime: 1,
             mtime: 2,
         });
-        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+        expect(provenance.set).toHaveBeenCalledWith("note.md", expect.objectContaining({
             revision: selected._rev,
             observedStorageMtime: 22,
-        });
+        }));
     });
 });
 
@@ -1513,9 +1556,9 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
         conflict.queueCheckFor.mockRejectedValueOnce(new Error("conflict callback failed"));
 
         await expect(handler.storeFileToDB(storageFile)).rejects.toThrow("conflict callback failed");
-        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+        expect(provenance.set).toHaveBeenCalledWith("note.md", expect.objectContaining({
             revision: "4-local-edit", observedStorageMtime: storageFile.stat.mtime
-        });
+        }));
         await expect(handler.deleteRevisionFromDB("note.md" as FilePath, "3-displayed")).resolves.toBe(true);
         expect(databaseFileAccess.delete).toHaveBeenCalledWith("note.md", "3-displayed");
     });
@@ -1790,9 +1833,9 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
         expect(databaseFileAccess.storeWithBaseRevision).toHaveBeenCalledWith(
             expect.objectContaining({ body: current.body }), "3-displayed", true
         );
-        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+        expect(provenance.set).toHaveBeenCalledWith("note.md", expect.objectContaining({
             revision: "4-local-edit", observedStorageMtime: current.stat.mtime
-        });
+        }));
         expect(storageAccess.triggerFileEvent).not.toHaveBeenCalled();
     });
 
@@ -1813,9 +1856,9 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
             expect.objectContaining({ body: current.body }), "3-displayed", true
         );
         expect(provenance.set).toHaveBeenCalledTimes(1);
-        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+        expect(provenance.set).toHaveBeenCalledWith("note.md", expect.objectContaining({
             revision: "4-local-edit", observedStorageMtime: current.stat.mtime
-        });
+        }));
     });
 
     it("reuses the current loaded entry when checking known current provenance", async () => {
@@ -1832,6 +1875,62 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
         expect(databaseFileAccess.findLiveContentRevisions).not.toHaveBeenCalled();
         expect(storageAccess.getStub).not.toHaveBeenCalled();
         expect(databaseFileAccess.storeWithBaseRevision).toHaveBeenCalledWith(storageFile, "3-winner", true);
+    });
+
+    it.each([
+        { provenanceKind: "legacy", changeDuringHash: false },
+        { provenanceKind: "legacy", changeDuringHash: true },
+        { provenanceKind: "matching-leaf", changeDuringHash: false },
+        { provenanceKind: "matching-leaf", changeDuringHash: true },
+    ])("rechecks restored storage after provenance hashing ($provenanceKind, changed=$changeDuringHash)", async ({ provenanceKind, changeDuringHash }) => {
+        const { processFileEvent, databaseFileAccess, provenance, storageAccess } = createConflictedOperationHandler();
+        const unchanged = createStorageFile("note.md", "winner");
+        let current = unchanged;
+        let recorded: { revision: string; observedStorageMtime?: number; contentHash?: string; contentSize?: number } | undefined =
+            provenanceKind === "legacy" ? { revision: "3-winner", observedStorageMtime: 2 } : undefined;
+        provenance.get.mockImplementation(async () => recorded);
+        provenance.set.mockImplementation(async (_path, record) => { recorded = record; });
+        databaseFileAccess.findLiveContentRevisions.mockImplementation(async (_file, body: Blob) =>
+            await body.text() === "winner" ? ["3-winner"] : []
+        );
+        databaseFileAccess.getConflictedRevs.mockResolvedValue([]);
+        storageAccess.getStub.mockImplementation(async () => {
+            const { body: _body, ...stub } = current;
+            return stub;
+        });
+        storageAccess.readStubContent.mockImplementation(async () => current);
+        const read = unchanged.body.arrayBuffer.bind(unchanged.body);
+        const hashing = vi.spyOn(unchanged.body, "arrayBuffer").mockImplementationOnce(async () => {
+            if (changeDuringHash) current = createStorageFile("note.md", "edited during provenance hashing");
+            return await read();
+        });
+
+        await expect(processFileEvent(createRestoredEvent("CHANGED", unchanged))).resolves.toBe(true);
+
+        expect(hashing).toHaveBeenCalledOnce();
+        if (changeDuringHash) {
+            const writes = [
+                ...databaseFileAccess.storeWithBaseRevision.mock.calls,
+                ...databaseFileAccess.storeIndependentRevision.mock.calls,
+            ];
+            expect(writes).toHaveLength(1);
+            expect(writes[0][0]).toBe(current);
+            if (provenanceKind === "legacy") {
+                expect(databaseFileAccess.storeWithBaseRevision).toHaveBeenCalledWith(current, "3-winner", true);
+            }
+            expect(recorded?.contentHash).toBe(
+                `sha256:${createHash("sha256").update("edited during provenance hashing").digest("hex")}`
+            );
+        } else {
+            expect(databaseFileAccess.storeWithBaseRevision).not.toHaveBeenCalled();
+            expect(databaseFileAccess.storeIndependentRevision).not.toHaveBeenCalled();
+            expect(storageAccess.readStubContent).toHaveBeenCalledTimes(2);
+            expect(provenance.set).toHaveBeenCalledWith("note.md", expect.objectContaining({
+                revision: "3-winner",
+                contentHash: `sha256:${createHash("sha256").update("winner").digest("hex")}`,
+            }));
+        }
+        expect(storageAccess.triggerFileEvent).not.toHaveBeenCalled();
     });
 
     it.each([
@@ -1891,9 +1990,11 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
             expect.objectContaining({ body: storageFile.body }), "3-displayed", true
         );
         expect(databaseFileAccess.storeIndependentRevision).not.toHaveBeenCalled();
-        expect(provenance.set).toHaveBeenCalledWith("note.md", {
-            revision: "4-local-edit", observedStorageMtime: storageFile.stat.mtime
-        });
+        expect(provenance.set).toHaveBeenCalledWith("note.md", expect.objectContaining({
+            revision: "4-local-edit", observedStorageMtime: storageFile.stat.mtime,
+            contentHash: `sha256:${createHash("sha256").update("edited displayed content").digest("hex")}`,
+            contentSize: byteLength("edited displayed content"),
+        }));
     });
 
     it("repairs chunks without consulting provenance or creating a document revision", async () => {
@@ -2018,10 +2119,10 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
         await expect(handler.storeFileToDBWithBaseRevision(storageFile, selectedRevision)).resolves.toBe(true);
 
         expect(databaseFileAccess.storeWithBaseRevision).toHaveBeenCalledWith(storageFile, selectedRevision, true);
-        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+        expect(provenance.set).toHaveBeenCalledWith("note.md", expect.objectContaining({
             revision: "4-local-edit",
             observedStorageMtime: storageFile.stat.mtime,
-        });
+        }));
         expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
     });
 
@@ -2053,10 +2154,10 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
         await expect(handler.storeFileToDBWithBaseRevision(storageFile, selectedRevision, false)).resolves.toBe(true);
 
         expect(databaseFileAccess.storeWithBaseRevision).not.toHaveBeenCalled();
-        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+        expect(provenance.set).toHaveBeenCalledWith("note.md", expect.objectContaining({
             revision: selectedRevision,
             observedStorageMtime: storageFile.stat.mtime,
-        });
+        }));
         expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
     });
 
@@ -2079,10 +2180,10 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
 
         expect(databaseFileAccess.storeWithBaseRevision).toHaveBeenCalledWith(storageFile, displayedRevision, true);
         expect(databaseFileAccess.store).not.toHaveBeenCalled();
-        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+        expect(provenance.set).toHaveBeenCalledWith("note.md", expect.objectContaining({
             revision: "4-local-edit",
             observedStorageMtime: storageFile.stat.mtime,
-        });
+        }));
     });
 
     it("keeps the recorded displayed branch when edited content also matches another branch", async () => {
@@ -2103,9 +2204,9 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
 
         expect(databaseFileAccess.storeWithBaseRevision).not.toHaveBeenCalled();
         expect(databaseFileAccess.storeIndependentRevision).not.toHaveBeenCalled();
-        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+        expect(provenance.set).toHaveBeenCalledWith("note.md", expect.objectContaining({
             revision: "3-reconstructed", observedStorageMtime: storageFile.stat.mtime
-        });
+        }));
     });
 
     it("preserves an edit as a new conflict when the displayed revision cannot be proved", async () => {
@@ -2146,9 +2247,9 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
         await expect(handler.storeFileToDB(storageFile)).resolves.toBe(true);
 
         expect(databaseFileAccess.storeIndependentRevision).toHaveBeenCalledWith(storageFile, true);
-        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+        expect(provenance.set).toHaveBeenCalledWith("note.md", expect.objectContaining({
             revision: "1-independent", observedStorageMtime: storageFile.stat.mtime
-        });
+        }));
         expect(conflict.queueCheckFor).toHaveBeenCalledWith("note.md");
     });
 
@@ -2184,10 +2285,10 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
         expect(databaseFileAccess.storeWithBaseRevision).toHaveBeenCalledWith(renamedFile, displayedRevision, true);
         expect(databaseFileAccess.delete).not.toHaveBeenCalled();
         expect(provenance.delete).toHaveBeenCalledWith("Note.md");
-        expect(provenance.set).toHaveBeenCalledWith("note.md", {
+        expect(provenance.set).toHaveBeenCalledWith("note.md", expect.objectContaining({
             revision: "4-local-edit",
             observedStorageMtime: renamedFile.stat.mtime,
-        });
+        }));
     });
 
     it("soft-deletes only the displayed source branch for a cross-path rename", async () => {

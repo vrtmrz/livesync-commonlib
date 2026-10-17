@@ -17,6 +17,7 @@ import {
     readAsBlob,
     readContent,
 } from "@lib/common/utils";
+import { computeFileContentHash } from "@lib/common/fileContentHash.ts";
 import { EVENT_CONFLICT_CANCELLED } from "@lib/events/coreEvents";
 import { shouldBeIgnored, stripAllPrefixes } from "@lib/string_and_binary/path";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
@@ -87,7 +88,22 @@ type RestoredFileEventAction =
     | { kind: "rename"; file: UXFileInfoStub; oldPath: FilePathWithPrefix };
 
 /** Storage bytes and the exact provenance observed with those bytes. */
-type StorageSnapshot = { file: UXFileInfo; revision: string | undefined };
+type StorageSnapshot = { file: UXFileInfo; revision: FileReflectionProvenanceRecord | undefined };
+
+function hasContentHash(record: FileReflectionProvenanceRecord | undefined): boolean {
+    return !!record && typeof record.contentHash === "string" &&
+        /^sha256:[0-9a-f]{64}$/.test(record.contentHash) &&
+        Number.isSafeInteger(record.contentSize) && record.contentSize! >= 0;
+}
+
+function sameProvenance(
+    left: FileReflectionProvenanceRecord | undefined,
+    right: FileReflectionProvenanceRecord | undefined
+): boolean {
+    return left?.revision === right?.revision &&
+        left?.observedStorageMtime === right?.observedStorageMtime &&
+        left?.contentHash === right?.contentHash && left?.contentSize === right?.contentSize;
+}
 
 /**
  * Result of protecting storage from an incoming database reflection.
@@ -111,6 +127,7 @@ export abstract class ServiceFileHandlerBase
     private setting: SettingService;
     private vault: VaultService;
     private fileReflectionProvenance?: FileReflectionProvenance;
+    private readonly contentHashes = new WeakMap<Blob, Promise<string>>();
     private readonly deferredConflictChecks = new Map<string, DeferredConflictCheck[]>();
     constructor(services: ServiceFileHandlerDependencies) {
         super(services);
@@ -141,7 +158,7 @@ export abstract class ServiceFileHandlerBase
             if (entry && !entry._deleted && !entry.deleted) {
                 return record;
             }
-            await this.fileReflectionProvenance.delete(path);
+            if (!hasContentHash(record)) await this.fileReflectionProvenance.delete(path);
         } catch (ex) {
             // Store readiness is owned by the host lifecycle. Do not wait or
             // retry here: that can hang failed initialisation or become
@@ -154,16 +171,36 @@ export abstract class ServiceFileHandlerBase
         return undefined;
     }
 
+    private async contentEvidence(content: Blob): Promise<Pick<FileReflectionProvenanceRecord, "contentHash" | "contentSize">> {
+        if (!this.fileReflectionProvenance) return {};
+        try {
+            let hash = this.contentHashes.get(content);
+            if (!hash) {
+                hash = computeFileContentHash(content);
+                this.contentHashes.set(content, hash);
+            }
+            return { contentHash: await hash, contentSize: content.size };
+        } catch (ex) {
+            this.contentHashes.delete(content);
+            this._log("Could not hash file reflection content", LOG_LEVEL_VERBOSE);
+            this._log(ex, LOG_LEVEL_VERBOSE);
+            return {};
+        }
+    }
+
     private async setProvenance(
         path: FilePathWithPrefix,
         revision: string | undefined,
-        observedStorageMtime?: number
+        observedStorageMtime: number | undefined,
+        content: Blob,
+        evidence?: Pick<FileReflectionProvenanceRecord, "contentHash" | "contentSize">
     ): Promise<void> {
         if (!this.fileReflectionProvenance || !revision) return;
         try {
             await this.fileReflectionProvenance.set(path, {
                 revision,
                 observedStorageMtime,
+                ...(evidence ?? await this.contentEvidence(content)),
             });
         } catch (ex) {
             this._log(`Could not record file reflection provenance for ${path}`, LOG_LEVEL_VERBOSE);
@@ -208,7 +245,7 @@ export abstract class ServiceFileHandlerBase
         }
         const matched = await this.findUniqueContentRevision(file);
         if (matched) {
-            await this.setProvenance(path, matched, file.stat.mtime);
+            await this.setProvenance(path, matched, file.stat.mtime, file.body);
             return matched;
         }
         return undefined;
@@ -223,14 +260,14 @@ export abstract class ServiceFileHandlerBase
      * identifies provenance; no match is `unknown`.
      * `preferredPath` selects the provenance key during a rename, and
      * `currentLoaded` supplies an already decoded candidate body when available.
-     * Missing chunks do not clear provenance unless their metadata is also
-     * missing or deleted.
+     * A valid saved content hash can prove unchanged bytes after revision
+     * pruning. It cannot reconstruct ancestry for an edited file.
      */
     private async classifyStorageContent(
         file: UXFileInfo,
         currentEntry: { _rev?: string; deleted?: boolean; _deleted?: boolean } | false,
         preferredPath?: FilePathWithPrefix,
-        recordedRevision?: string,
+        recorded?: FileReflectionProvenanceRecord,
         currentLoaded?: { _rev?: string; data: string | string[] | Blob | ArrayBuffer }
     ): Promise<
         | { kind: "unchanged" | "edited"; revision: string }
@@ -238,7 +275,12 @@ export abstract class ServiceFileHandlerBase
         | { kind: "unknown" }
     > {
         const path = (preferredPath ?? file.path) as FilePathWithPrefix;
+        const recordedRevision = recorded?.revision;
         if (recordedRevision) {
+            if (hasContentHash(recorded) && recorded.contentSize === file.body.size &&
+                (await this.contentEvidence(file.body)).contentHash === recorded.contentHash) {
+                return { kind: "unchanged", revision: recordedRevision };
+            }
             const loadedContentIsDecoded = currentLoaded?._rev === recordedRevision;
             const base = loadedContentIsDecoded
                 ? currentLoaded
@@ -251,11 +293,11 @@ export abstract class ServiceFileHandlerBase
                     : { kind: "edited", revision: recordedRevision };
             }
             // A missing body cannot establish whether storage was changed.
-            // Clear only metadata which is itself missing or deleted; missing chunks
-            // may recover later.
+            // Retain content evidence independently of revision retention.
+            // Missing chunks may also recover later.
             if (!base) {
                 const meta = await this.db.fetchEntryMeta(file, recordedRevision, true);
-                if (!meta || meta.deleted || meta._deleted) await this.deleteProvenance(path);
+                if ((!meta || meta.deleted || meta._deleted) && !hasContentHash(recorded)) await this.deleteProvenance(path);
             }
         }
         const matches = currentEntry ? await this.db.findLiveContentRevisions(file, file.body) : [];
@@ -266,8 +308,14 @@ export abstract class ServiceFileHandlerBase
     }
 
     /** Record provenance only when storage matches one unambiguous live leaf. */
-    private async rememberMatchingLeaf(path: FilePathWithPrefix, revision: string | undefined, mtime: number) {
-        if (revision) await this.setProvenance(path, revision, mtime);
+    private async rememberMatchingLeaf(
+        path: FilePathWithPrefix,
+        revision: string | undefined,
+        mtime: number,
+        content: Blob,
+        evidence?: Pick<FileReflectionProvenanceRecord, "contentHash" | "contentSize">
+    ) {
+        if (revision) await this.setProvenance(path, revision, mtime, content, evidence);
     }
 
     /**
@@ -275,9 +323,10 @@ export abstract class ServiceFileHandlerBase
      * Unlike `getProvenance`, this does not validate or remove the referenced
      * database revision; an unreadable value is represented as `undefined`.
      */
-    private async readProvenanceSnapshot(path: FilePathWithPrefix): Promise<string | undefined> {
+    private async readProvenanceSnapshot(path: FilePathWithPrefix): Promise<FileReflectionProvenanceRecord | undefined> {
         try {
-            return (await this.fileReflectionProvenance?.get(path))?.revision;
+            const record = await this.fileReflectionProvenance?.get(path);
+            return record ? { ...record } : undefined;
         } catch {
             return undefined;
         }
@@ -287,13 +336,13 @@ export abstract class ServiceFileHandlerBase
      * Check that storage still has the same path, bytes, timestamp, and
      * provenance as a previously captured snapshot.
      */
-    private async currentStorageSnapshotMatches(file: UXFileInfo, revision: string | undefined): Promise<boolean> {
+    private async currentStorageSnapshotMatches(file: UXFileInfo, revision: FileReflectionProvenanceRecord | undefined): Promise<boolean> {
         const current = await this.storage.getStub(file.path);
         if (!current || isFolderInfo(current) || current.path !== file.path) return false;
         const readCurrent = await this.readFileFromStub(current);
         return readCurrent.stat.mtime === file.stat.mtime &&
             await isDocContentSame(readCurrent.body, file.body) &&
-            (await this.readProvenanceSnapshot(file.path)) === revision;
+            sameProvenance(await this.readProvenanceSnapshot(file.path), revision);
     }
 
     /**
@@ -303,11 +352,12 @@ export abstract class ServiceFileHandlerBase
      */
     private async finaliseStoredRevision(
         file: UXFileInfo,
-        observedProvenance: string | undefined,
+        observedProvenance: FileReflectionProvenanceRecord | undefined,
         storedRevision: string
     ): Promise<boolean> {
+        const evidence = await this.contentEvidence(file.body);
         if (await this.currentStorageSnapshotMatches(file, observedProvenance)) {
-            await this.setProvenance(file.path, storedRevision, file.stat.mtime);
+            await this.setProvenance(file.path, storedRevision, file.stat.mtime, file.body, evidence);
             return true;
         } else {
             // The write is durable, but the storage changed before its provenance
@@ -364,7 +414,9 @@ export abstract class ServiceFileHandlerBase
                 const provenance = this.fileReflectionProvenance!;
                 // A recorded branch remains authoritative, even when its
                 // current bytes happen to match the database winner.
-                if (await provenance.get(path)) return false;
+                const existing = await provenance.get(path);
+                const observed = existing ? { ...existing } : undefined;
+                if (observed && (observed.revision !== expectedRevision || hasContentHash(observed))) return false;
                 const stub = await this.storage.getStub(path);
                 if (!stub || isFolderInfo(stub) || stub.path !== path) return false;
                 const file = await this.readFileFromStub(stub);
@@ -375,12 +427,14 @@ export abstract class ServiceFileHandlerBase
                 if (!entry || entry._rev !== expectedRevision || entry.deleted || entry._deleted) return false;
                 if (!await isDocContentSame(readContent(entry), file.body)) return false;
 
+                const evidence = await this.contentEvidence(file.body);
+                if (!evidence.contentHash) return false;
                 const latest = await this.db.fetchEntryMeta(path, undefined, true);
                 if (!latest || latest._rev !== expectedRevision || latest.deleted || latest._deleted) return false;
                 if ((await this.db.getConflictedRevs(path)).length > 0) return false;
-                if (!await this.currentStorageSnapshotMatches(file, undefined)) return false;
-                if (await provenance.get(path)) return false;
-                await provenance.set(path, { revision: expectedRevision, observedStorageMtime: file.stat.mtime });
+                if (!await this.currentStorageSnapshotMatches(file, observed)) return false;
+                if (!sameProvenance(await provenance.get(path), observed)) return false;
+                await provenance.set(path, { revision: expectedRevision, observedStorageMtime: file.stat.mtime, ...evidence });
                 return true;
             });
         } catch (ex) {
@@ -461,7 +515,7 @@ export abstract class ServiceFileHandlerBase
         if (!baseEntry.deleted && !baseEntry._deleted) {
             const loadedBase = await this.db.fetchEntry(file, baseRevision, true, true);
             if (loadedBase && (await isDocContentSame(getDocDataAsArray(loadedBase.data), readFile.body))) {
-                await this.setProvenance(file.path, baseRevision, readFile.stat.mtime);
+                await this.setProvenance(file.path, baseRevision, readFile.stat.mtime, readFile.body);
                 await this.queueConflictCheckFor(file.path);
                 return true;
             }
@@ -478,7 +532,7 @@ export abstract class ServiceFileHandlerBase
         if (storedRevision === false) {
             return false;
         }
-        await this.setProvenance(file.path, storedRevision, readFile.stat.mtime);
+        await this.setProvenance(file.path, storedRevision, readFile.stat.mtime, readFile.body);
         await this.queueConflictCheckFor(file.path);
         return true;
     }
@@ -535,7 +589,18 @@ export abstract class ServiceFileHandlerBase
                 readFile, currentEntry, preferredBasePath, observedProvenance,
                 entry ? { _rev: entry._rev, data: readContent(entry) } : undefined
             );
-            if (retryIfStorageChanges && !(await this.currentStorageSnapshotMatches(readFile, observedProvenance))) {
+            const upgradeCurrentRecord = classification.kind === "unchanged" && !isConflicted &&
+                classification.revision === currentEntry._rev && !hasContentHash(observedProvenance);
+            // Hash before the existing storage check so a restored event can
+            // retry edits made during hashing without another file read.
+            const evidence = upgradeCurrentRecord ||
+                (classification.kind === "matching-leaf" && classification.revision)
+                ? await this.contentEvidence(readFile.body)
+                : undefined;
+            const snapshotMatches = retryIfStorageChanges || upgradeCurrentRecord
+                ? await this.currentStorageSnapshotMatches(readFile, observedProvenance)
+                : true;
+            if (retryIfStorageChanges && !snapshotMatches) {
                 return await this.retryCurrentStorage(file.path, preferredBasePath, snapshotRetry);
             }
             if (classification.kind === "unchanged") {
@@ -545,12 +610,15 @@ export abstract class ServiceFileHandlerBase
                     if (!entry) return false;
                     return await this.dbToStorageCore(file.path as FilePathWithPrefix, file);
                 } else {
+                    if (upgradeCurrentRecord && snapshotMatches) {
+                        await this.setProvenance(file.path, classification.revision, readFile.stat.mtime, readFile.body, evidence);
+                    }
                     this.path.markChangesAreSame(readFile, readFile.stat.mtime, currentEntry.mtime);
                 }
                 return true;
             }
             if (classification.kind === "matching-leaf") {
-                await this.rememberMatchingLeaf(file.path, classification.revision, readFile.stat.mtime);
+                await this.rememberMatchingLeaf(file.path, classification.revision, readFile.stat.mtime, readFile.body, evidence);
                 if (isConflicted) await this.queueConflictCheckFor(file.path);
                 return true;
             }
@@ -563,7 +631,7 @@ export abstract class ServiceFileHandlerBase
                 !(await this.finaliseStoredRevision(readFile, observedProvenance, storedRevision))) {
                 return await this.retryCurrentStorage(file.path, preferredBasePath, snapshotRetry);
             }
-            if (!retryIfStorageChanges) await this.setProvenance(file.path, storedRevision, readFile.stat.mtime);
+            if (!retryIfStorageChanges) await this.setProvenance(file.path, storedRevision, readFile.stat.mtime, readFile.body);
             if (isConflicted || classification.kind === "unknown") await this.queueConflictCheckFor(file.path);
             return true;
         }
@@ -573,7 +641,7 @@ export abstract class ServiceFileHandlerBase
             if (baseRevision) {
                 const baseEntry = await this.db.fetchEntry(file, baseRevision, true, true);
                 if (baseEntry && (await isDocContentSame(getDocDataAsArray(baseEntry.data), readFile.body)) && !force) {
-                    await this.setProvenance(file.path, baseRevision, readFile.stat.mtime);
+                    await this.setProvenance(file.path, baseRevision, readFile.stat.mtime, readFile.body);
                     this._log(`File ${file.path} is not changed on its displayed conflict branch`, LOG_LEVEL_VERBOSE);
                     return true;
                 }
@@ -582,7 +650,7 @@ export abstract class ServiceFileHandlerBase
                 if (preferredBasePath && preferredBasePath !== file.path) {
                     await this.deleteProvenance(preferredBasePath);
                 }
-                await this.setProvenance(file.path, storedRevision, readFile.stat.mtime);
+                await this.setProvenance(file.path, storedRevision, readFile.stat.mtime, readFile.body);
                 await this.queueConflictCheckFor(file.path);
                 return true;
             }
@@ -608,7 +676,7 @@ export abstract class ServiceFileHandlerBase
             if (preferredBasePath && preferredBasePath !== file.path) {
                 await this.deleteProvenance(preferredBasePath);
             }
-            await this.setProvenance(file.path, storedRevision, readFile.stat.mtime);
+            await this.setProvenance(file.path, storedRevision, readFile.stat.mtime, readFile.body);
             await this.queueConflictCheckFor(file.path);
             return true;
         }
@@ -620,7 +688,7 @@ export abstract class ServiceFileHandlerBase
             if (preferredBasePath && preferredBasePath !== file.path) {
                 await this.deleteProvenance(preferredBasePath);
             }
-            await this.setProvenance(file.path, storedRevision, readFile.stat.mtime);
+            await this.setProvenance(file.path, storedRevision, readFile.stat.mtime, readFile.body);
             return true;
         }
 
@@ -647,7 +715,7 @@ export abstract class ServiceFileHandlerBase
             }
 
             if (!shouldApplied) {
-                await this.setProvenance(file.path, entry._rev, readFile.stat.mtime);
+                await this.setProvenance(file.path, entry._rev, readFile.stat.mtime, readFile.body);
                 this._log(`File ${file.path} is not changed`, LOG_LEVEL_VERBOSE);
                 return true;
             }
@@ -657,7 +725,7 @@ export abstract class ServiceFileHandlerBase
         if (preferredBasePath && preferredBasePath !== file.path) {
             await this.deleteProvenance(preferredBasePath);
         }
-        await this.setProvenance(file.path, storedRevision, readFile.stat.mtime);
+        await this.setProvenance(file.path, storedRevision, readFile.stat.mtime, readFile.body);
         return true;
     }
 
@@ -1116,11 +1184,13 @@ export abstract class ServiceFileHandlerBase
         }
 
         const docData = readContent(docRead);
+        const reflectedContent = readAsBlob(docRead);
+        const reflectedEvidence = await this.contentEvidence(reflectedContent);
 
         if (allowExistingConflicts && existDoc && !force) {
             const readFile = await this.readFileFromStub(existDoc);
             if (await isDocContentSame(docData, readFile.body)) {
-                await this.setProvenance(path, docEntry._rev, existDoc.stat.mtime);
+                await this.setProvenance(path, docEntry._rev, existDoc.stat.mtime, reflectedContent, reflectedEvidence);
                 this.path.markChangesAreSame(docRead, docRead.mtime, existDoc.stat.mtime);
                 return true;
             }
@@ -1158,7 +1228,7 @@ export abstract class ServiceFileHandlerBase
                 }
             }
             if (!shouldApplied) {
-                await this.setProvenance(path, docEntry._rev, existDoc.stat.mtime);
+                await this.setProvenance(path, docEntry._rev, existDoc.stat.mtime, reflectedContent, reflectedEvidence);
                 this._log(`File ${docRead.path} is not changed`, LOG_LEVEL_VERBOSE);
                 return true;
             }
@@ -1205,10 +1275,10 @@ export abstract class ServiceFileHandlerBase
             // Preserve that newer branch identity. A plain user edit leaves the
             // record unchanged, so the written revision remains its correct base.
             if (safeSnapshot &&
-                (await this.readProvenanceSnapshot(path)) !== safeSnapshot.revision) {
+                !sameProvenance(await this.readProvenanceSnapshot(path), safeSnapshot.revision)) {
                 return ret;
             }
-            await this.setProvenance(path, docEntry._rev, storedStat?.mtime);
+            await this.setProvenance(path, docEntry._rev, storedStat?.mtime, reflectedContent, reflectedEvidence);
         }
         return ret;
     }
@@ -1255,7 +1325,7 @@ export abstract class ServiceFileHandlerBase
             return { preserved: false, snapshot };
         }
         if (classification.kind === "matching-leaf") {
-            await this.rememberMatchingLeaf(path, classification.revision, readFile.stat.mtime);
+            await this.rememberMatchingLeaf(path, classification.revision, readFile.stat.mtime, readFile.body);
             await this.queueConflictCheckFor(path);
             return { preserved: true };
         }

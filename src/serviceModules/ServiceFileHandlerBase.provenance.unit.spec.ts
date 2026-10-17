@@ -1,7 +1,9 @@
+import type { FileReflectionProvenanceRecord } from "@lib/interfaces/FileReflectionProvenance";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { createHash } from "node:crypto";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
+import replication from "pouchdb-replication";
 import type { EntryDoc, FilePathWithPrefix, UXFileInfo } from "@lib/common/types";
 import { DEFAULT_SETTINGS } from "@lib/common/types";
 import { compareMTime, createTextBlob, isDocContentSame } from "@lib/common/utils";
@@ -12,6 +14,7 @@ import { ServiceDatabaseFileAccessBase, type ServiceDatabaseFileAccessDependenci
 import { ServiceFileHandlerBase, type ServiceFileHandlerDependencies } from "./ServiceFileHandlerBase";
 
 PouchDB.plugin(MemoryAdapter);
+PouchDB.plugin(replication);
 let nextDatabase = 0;
 const path = "issue994.md" as FilePathWithPrefix;
 const old = "# Note\nKeep\n\nTail\n";
@@ -30,9 +33,11 @@ function makeFile(body: string, mtime = oldTime): UXFileInfo {
     } as UXFileInfo;
 }
 
-async function fixture() {
-    const db = new PouchDB<EntryDoc>(`issue994-handler-${++nextDatabase}`, { adapter: "memory" });
-    const reflection = new Map<FilePathWithPrefix, { revision: string; observedStorageMtime?: number }>();
+async function fixture(revsLimit = 1000) {
+    const db = new PouchDB<EntryDoc>(`issue994-handler-${++nextDatabase}`, {
+        adapter: "memory", revs_limit: revsLimit, auto_compaction: false,
+    });
+    const reflection = new Map<FilePathWithPrefix, FileReflectionProvenanceRecord>();
     let storage = makeFile(old);
     const settings = { ...DEFAULT_SETTINGS, useOnlyLocalChunk: true, writeDocumentsIfConflicted: false };
     const setting = { currentSettings: () => settings };
@@ -106,7 +111,7 @@ async function fixture() {
         conflict,
         fileReflectionProvenance: {
             get: async (value: FilePathWithPrefix) => reflection.get(value),
-            set: async (value: FilePathWithPrefix, record: { revision: string }) => { reflection.set(value, record); },
+            set: async (value: FilePathWithPrefix, record: FileReflectionProvenanceRecord) => { reflection.set(value, record); },
             delete: async (value: FilePathWithPrefix) => { reflection.delete(value); },
         },
         fileProcessing: { processFileEvent: { addHandler: vi.fn() } },
@@ -123,7 +128,7 @@ async function fixture() {
     if (remoteRevision === false) throw new Error("Could not create the remote revision");
     reflection.set(path, { revision: oldRevision, observedStorageMtime: oldTime });
     return {
-        db, entries, access, handler, conflict, reflection, storageAccess, oldRevision, remoteRevision,
+        db, entries, access, handler, conflict, reflection, storageAccess, oldRevision, remoteRevision, services,
         getStorage: () => storage,
         setStorage: (file: UXFileInfo) => { storage = file; },
         merger: new ConflictManager({ database: db, entryManager: entries, pathService: pathService as EntryManagerOptions["pathService"] }),
@@ -133,6 +138,72 @@ async function fixture() {
 describe("file reflection provenance with real PouchDB revisions", () => {
     const databases: PouchDB.Database<EntryDoc>[] = [];
     afterEach(async () => { await Promise.all(databases.splice(0).map((db) => db.destroy())); });
+
+    it.each([
+        { updates: 99, limit: 100, mode: "unchanged" },
+        { updates: 100, limit: 100, mode: "unchanged" },
+        { updates: 599, limit: 100, mode: "unchanged" },
+        { updates: 599, limit: 1000, mode: "unchanged" },
+        ...["restart", "edited", "reverted", "legacy", "unsupported", "invalid-size"].map(mode => ({ updates: 100, limit: 100, mode })),
+    ])("reflects an unchanged file after $updates remote revisions with limit $limit ($mode, #1207)", async ({ updates, limit, mode }) => {
+        const f = await fixture(limit);
+        const source = new PouchDB<EntryDoc>(`issue1207-remote-${++nextDatabase}`, {
+            adapter: "memory", revs_limit: 1000, auto_compaction: false,
+        });
+        databases.push(f.db, source);
+        f.setStorage(makeFile(remote, remoteTime));
+        f.reflection.delete(path);
+        await expect(f.handler.tryRecordUntrackedFileRevision(f.getStorage(), f.remoteRevision)).resolves.toBe(true);
+        expect(f.reflection.get(path)).toEqual({
+            revision: f.remoteRevision, observedStorageMtime: remoteTime,
+            contentHash: `sha256:${createHash("sha256").update(remote).digest("hex")}`,
+            contentSize: new Blob([remote]).size,
+        });
+        const baseMeta = await f.db.get(path);
+        await f.db.replicate.to(source);
+
+        const incoming = `${remote}Another device edited this note\n`;
+        const chunkId = "h:issue1207-incoming";
+        await source.put({ _id: chunkId, type: "leaf", data: incoming } as EntryDoc);
+        let meta = await source.get(path);
+        for (let index = 0; index < updates; index++) {
+            const result = await source.put({
+                ...meta, children: [chunkId], size: new Blob([incoming]).size,
+                mtime: remoteTime + 10_000 + index, eden: {},
+            });
+            meta = { ...meta, _rev: result.rev };
+        }
+        await source.replicate.to(f.db);
+        expect(await f.access.getConflictedRevs(path)).toEqual([]);
+        expect(f.reflection.get(path)?.revision).toBe(f.remoteRevision);
+        const baseReadable = await f.access.fetchEntryMeta(path, f.remoteRevision, true);
+        expect(Boolean(baseReadable)).toBe(updates < limit);
+        for (const id of baseMeta.children) await expect(f.db.get(id)).resolves.toHaveProperty("type", "leaf");
+        const latest = await f.access.fetchEntryMeta(path, undefined, true);
+        if (!latest) throw new Error("Incoming metadata is missing");
+        if (mode === "edited") f.setStorage(makeFile(remote.replace("Keep", "Skip"), remoteTime));
+        if (mode === "reverted") f.setStorage(makeFile(old, remoteTime));
+        const record = f.reflection.get(path)!;
+        if (mode === "legacy") f.reflection.set(path, { revision: record.revision, observedStorageMtime: remoteTime });
+        if (mode === "unsupported") f.reflection.set(path, { ...record, contentHash: record.contentHash!.replace("sha256:", "other:") });
+        if (mode === "invalid-size") f.reflection.set(path, { ...record, contentSize: -1 });
+        const unchanged = mode === "unchanged" || mode === "restart";
+        const before = await f.getStorage().body.text();
+        const handler = mode === "restart" ? new TestHandler(f.services) : f.handler;
+        await expect(handler.dbToStorage(latest, f.getStorage())).resolves.toBe(true);
+        const conflicts = await f.access.getConflictedRevs(path);
+        console.info(JSON.stringify({
+            updates, limit, baseReadable: Boolean(baseReadable), conflicts,
+            provenanceAfter: f.reflection.get(path)?.revision,
+            oldBytesRetained: await isDocContentSame(f.getStorage().body, remote),
+        }));
+        expect(conflicts).toHaveLength(unchanged ? 0 : 1);
+        await expect(isDocContentSame(f.getStorage().body, unchanged ? incoming : before)).resolves.toBe(true);
+        if (!unchanged) expect(f.reflection.get(path)?.revision).toMatch(/^1-/);
+        expect(f.reflection.get(path)?.contentHash).toBe(
+            `sha256:${createHash("sha256").update(unchanged ? incoming : before).digest("hex")}`
+        );
+    });
 
     it("reflects a stale unchanged Vault file and keeps the remote addition", async () => {
         const f = await fixture();

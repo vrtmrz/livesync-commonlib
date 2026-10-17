@@ -26,7 +26,7 @@ The package is ESM-only and declares Node 20 or later. Browser entry points are 
 | -------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `@vrtmrz/livesync-commonlib`                       | `DirectFileManipulator` for integrations which access CouchDB directly            | Deliberately small, but its high-level lifecycle and file-operation semantics are not final |
 | `@vrtmrz/livesync-commonlib/context`               | Instance-owned events, translation injection, and host-neutral standard-I/O types | Focused, package-tested pre-1.0 contract                                                    |
-| `@vrtmrz/livesync-commonlib/hashing`               | Chunk ID calculation with the database's hash manager                            | Focused, package-tested pre-1.0 contract                                                    |
+| `@vrtmrz/livesync-commonlib/hashing`               | Chunk ID calculation and exact file-content hashing                            | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/browser`               | Rooted File System Access API storage                                             | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/node`                  | Rooted Node storage, Node standard I/O, and selected Node capabilities            | Supported platform façade; keeps Node-only dependencies behind an explicit boundary         |
 | `@vrtmrz/livesync-commonlib/p2p`                   | Host-composed P2P service views and composition helpers                           | Focused, package-tested pre-1.0 contract with a temporary compatibility façade              |
@@ -124,6 +124,10 @@ The focused Setup URI entry offers an Ephemeral mode bound to the current fixed 
 The `/hashing` entry exports `HashManager` and its `HashManagerCoreOptions` type. It uses the same implementation as database writes, including legacy algorithms and independent ID keys. Hosts supply their settings service and await `initialise()` before calling `computeHash(piece)`.
 
 `computeHash` returns the Chunk hash, including the `+` prefix when encryption is enabled; the database adds its `h:` namespace separately. Reuse a manager for repeated calculations with the same configuration, create a new manager when changing the legacy algorithm or passphrase, and call `clearCaches()` when retiring it. This releases retained key preparation; it does not erase existing settings or in-flight operations. The entry performs ID calculation and does not write Chunks to a database.
+
+## File content hashing
+
+`computeFileContentHash(content: Blob)` returns a `sha256:<lowercase hexadecimal>` digest of the exact bytes. It includes Blob reading and serialises concurrent hashes to limit whole-file buffer overlap. File-reflection provenance uses this helper to recognise unchanged content independently of retained revision history; it does not replace Chunk ID calculation.
 
 ## Remote connection profiles
 
