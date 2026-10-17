@@ -1878,6 +1878,62 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
     });
 
     it.each([
+        { provenanceKind: "legacy", changeDuringHash: false },
+        { provenanceKind: "legacy", changeDuringHash: true },
+        { provenanceKind: "matching-leaf", changeDuringHash: false },
+        { provenanceKind: "matching-leaf", changeDuringHash: true },
+    ])("rechecks restored storage after provenance hashing ($provenanceKind, changed=$changeDuringHash)", async ({ provenanceKind, changeDuringHash }) => {
+        const { processFileEvent, databaseFileAccess, provenance, storageAccess } = createConflictedOperationHandler();
+        const unchanged = createStorageFile("note.md", "winner");
+        let current = unchanged;
+        let recorded: { revision: string; observedStorageMtime?: number; contentHash?: string; contentSize?: number } | undefined =
+            provenanceKind === "legacy" ? { revision: "3-winner", observedStorageMtime: 2 } : undefined;
+        provenance.get.mockImplementation(async () => recorded);
+        provenance.set.mockImplementation(async (_path, record) => { recorded = record; });
+        databaseFileAccess.findLiveContentRevisions.mockImplementation(async (_file, body: Blob) =>
+            await body.text() === "winner" ? ["3-winner"] : []
+        );
+        databaseFileAccess.getConflictedRevs.mockResolvedValue([]);
+        storageAccess.getStub.mockImplementation(async () => {
+            const { body: _body, ...stub } = current;
+            return stub;
+        });
+        storageAccess.readStubContent.mockImplementation(async () => current);
+        const read = unchanged.body.arrayBuffer.bind(unchanged.body);
+        const hashing = vi.spyOn(unchanged.body, "arrayBuffer").mockImplementationOnce(async () => {
+            if (changeDuringHash) current = createStorageFile("note.md", "edited during provenance hashing");
+            return await read();
+        });
+
+        await expect(processFileEvent(createRestoredEvent("CHANGED", unchanged))).resolves.toBe(true);
+
+        expect(hashing).toHaveBeenCalledOnce();
+        if (changeDuringHash) {
+            const writes = [
+                ...databaseFileAccess.storeWithBaseRevision.mock.calls,
+                ...databaseFileAccess.storeIndependentRevision.mock.calls,
+            ];
+            expect(writes).toHaveLength(1);
+            expect(writes[0][0]).toBe(current);
+            if (provenanceKind === "legacy") {
+                expect(databaseFileAccess.storeWithBaseRevision).toHaveBeenCalledWith(current, "3-winner", true);
+            }
+            expect(recorded?.contentHash).toBe(
+                `sha256:${createHash("sha256").update("edited during provenance hashing").digest("hex")}`
+            );
+        } else {
+            expect(databaseFileAccess.storeWithBaseRevision).not.toHaveBeenCalled();
+            expect(databaseFileAccess.storeIndependentRevision).not.toHaveBeenCalled();
+            expect(storageAccess.readStubContent).toHaveBeenCalledTimes(2);
+            expect(provenance.set).toHaveBeenCalledWith("note.md", expect.objectContaining({
+                revision: "3-winner",
+                contentHash: `sha256:${createHash("sha256").update("winner").digest("hex")}`,
+            }));
+        }
+        expect(storageAccess.triggerFileEvent).not.toHaveBeenCalled();
+    });
+
+    it.each([
         { localBytes: [0, 255, 31], edited: false },
         { localBytes: [0, 255, 32], edited: true },
     ])("compares a binary Vault file with decoded known provenance (edited=$edited)", async ({ localBytes, edited }) => {

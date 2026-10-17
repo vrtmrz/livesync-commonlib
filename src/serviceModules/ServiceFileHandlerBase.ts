@@ -308,8 +308,14 @@ export abstract class ServiceFileHandlerBase
     }
 
     /** Record provenance only when storage matches one unambiguous live leaf. */
-    private async rememberMatchingLeaf(path: FilePathWithPrefix, revision: string | undefined, mtime: number, content: Blob) {
-        if (revision) await this.setProvenance(path, revision, mtime, content);
+    private async rememberMatchingLeaf(
+        path: FilePathWithPrefix,
+        revision: string | undefined,
+        mtime: number,
+        content: Blob,
+        evidence?: Pick<FileReflectionProvenanceRecord, "contentHash" | "contentSize">
+    ) {
+        if (revision) await this.setProvenance(path, revision, mtime, content, evidence);
     }
 
     /**
@@ -583,7 +589,18 @@ export abstract class ServiceFileHandlerBase
                 readFile, currentEntry, preferredBasePath, observedProvenance,
                 entry ? { _rev: entry._rev, data: readContent(entry) } : undefined
             );
-            if (retryIfStorageChanges && !(await this.currentStorageSnapshotMatches(readFile, observedProvenance))) {
+            const upgradeCurrentRecord = classification.kind === "unchanged" && !isConflicted &&
+                classification.revision === currentEntry._rev && !hasContentHash(observedProvenance);
+            // Hash before the existing storage check so a restored event can
+            // retry edits made during hashing without another file read.
+            const evidence = upgradeCurrentRecord ||
+                (classification.kind === "matching-leaf" && classification.revision)
+                ? await this.contentEvidence(readFile.body)
+                : undefined;
+            const snapshotMatches = retryIfStorageChanges || upgradeCurrentRecord
+                ? await this.currentStorageSnapshotMatches(readFile, observedProvenance)
+                : true;
+            if (retryIfStorageChanges && !snapshotMatches) {
                 return await this.retryCurrentStorage(file.path, preferredBasePath, snapshotRetry);
             }
             if (classification.kind === "unchanged") {
@@ -593,18 +610,15 @@ export abstract class ServiceFileHandlerBase
                     if (!entry) return false;
                     return await this.dbToStorageCore(file.path as FilePathWithPrefix, file);
                 } else {
-                    if (!hasContentHash(observedProvenance)) {
-                        const evidence = await this.contentEvidence(readFile.body);
-                        if (await this.currentStorageSnapshotMatches(readFile, observedProvenance)) {
-                            await this.setProvenance(file.path, classification.revision, readFile.stat.mtime, readFile.body, evidence);
-                        }
+                    if (upgradeCurrentRecord && snapshotMatches) {
+                        await this.setProvenance(file.path, classification.revision, readFile.stat.mtime, readFile.body, evidence);
                     }
                     this.path.markChangesAreSame(readFile, readFile.stat.mtime, currentEntry.mtime);
                 }
                 return true;
             }
             if (classification.kind === "matching-leaf") {
-                await this.rememberMatchingLeaf(file.path, classification.revision, readFile.stat.mtime, readFile.body);
+                await this.rememberMatchingLeaf(file.path, classification.revision, readFile.stat.mtime, readFile.body, evidence);
                 if (isConflicted) await this.queueConflictCheckFor(file.path);
                 return true;
             }

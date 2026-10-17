@@ -48,4 +48,6 @@ Hashing is serialised before Blob reading to limit simultaneous whole-file buffe
 
 Records keep an explicit algorithm prefix. Older records are upgraded only after their exact revision and bytes can be verified; unsupported evidence or a hashing failure retains conservative handling. A future algorithm change needs an explicit compatibility policy for persisted records. There is no user-selectable hash-method setting.
 
+When a restored startup event only needs to record provenance, the handler prepares its hash before the existing storage revalidation and reuses that evidence when recording the result. An edit during hashing therefore enters the existing bounded retry without adding another storage read. Document locks already serialise handler operations for the same file; they cannot prevent an editor or external application from changing storage during hashing.
+
 Revisit this choice if representative device or bulk-synchronisation measurements show that hashing or whole-file allocation is a material bottleneck. Compare alternatives through the same production-path benchmark, assess the overwrite consequence and persisted-record compatibility, and retain regression coverage for real edits and pruned history. The present measurements justify the accepted trade-off; they do not close off a later, evidence-based revision.
