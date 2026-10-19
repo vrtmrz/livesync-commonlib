@@ -1,7 +1,7 @@
 ---
-date: 2026-10-17
-commonlib-version: "0.1.41"
-self-hosted-livesync-version: "1.0.37"
+date: 2026-10-19
+commonlib-version: "0.1.42"
+self-hosted-livesync-version: "1.0.38"
 status: unreleased
 ---
 
@@ -12,6 +12,9 @@ Metadata document ID. An absent value or `0` preserves legacy behaviour. Value
 `1` applies Unicode NFC before the existing case and ID derivation rules. It
 does not alter the Metadata path or require physical files to be renamed.
 Unsupported values are rejected.
+
+NFC identity shipped in Commonlib `0.1.42` and Self-hosted LiveSync `1.0.38`.
+The deletion handling below is an unreleased refinement of reconstruction.
 
 ## Package contract
 
@@ -57,6 +60,17 @@ resetting either database. When the local database is not open, the storage
 check conservatively includes every listed file. A collision stops the
 operation; it never chooses a file to keep or merges separate histories.
 Ordinary synchronisation does not rename legacy document IDs in place.
+
+Full Rebuild, Standard Fetch, and Fast Fetch replace the local database. Their
+Metadata check requests conflict information and excludes a logically deleted
+document (`deleted: true`) only when it has no unresolved conflict leaves.
+A deleted winner with any unresolved conflict remains a collision candidate.
+Remote-only Rebuild retains logically deleted Metadata and still requires its
+stored document IDs to match the selected identity.
+
+A fully tombstoned document is already absent from ordinary Metadata
+enumeration. A deletion made only on the remote does not exclude a still
+non-deleted local document until that deletion has been replicated.
 
 The Setup URI shares `pathNormalizationVersion`; an absent value decodes as
 legacy mode, and unsupported versions are rejected. Importing a shared value

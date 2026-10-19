@@ -6,6 +6,21 @@ import { createLiveSyncEventHub } from "@lib/hub/hub";
 import { EVENT_DATABASE_REBUILT } from "@lib/events/coreEvents";
 import { REMOTE_RESOURCE_KINDS } from "@lib/replication";
 import { VERSIONING_DOCID } from "@lib/common/types";
+import PouchDB from "pouchdb-core";
+import MemoryAdapter from "pouchdb-adapter-memory";
+import { DEFAULT_SETTINGS, type EntryDoc } from "@lib/common/types";
+import { LiveSyncLocalDB } from "@lib/pouchdb/LiveSyncLocalDB";
+import { PathServiceCompat } from "@lib/services/implements/injectable/InjectablePathService";
+import { ServiceContext } from "@lib/services/base/ServiceBase";
+import type { ISettingService } from "@lib/services/base/IService";
+import {
+    composedPath,
+    decomposedPath,
+    pathIdentityDeletionCases,
+    seedPathIdentityDeletionCase,
+} from "../../test/pathIdentityDeletionCases";
+
+PouchDB.plugin(MemoryAdapter);
 
 const fetchChangesForInitialSyncMock = vi.hoisted(() => vi.fn());
 const checkRemoteFeaturesForInitialSyncMock = vi.hoisted(() => vi.fn(async () => undefined));
@@ -188,6 +203,88 @@ function createRebuilder(initialDatabaseSuffix = "") {
     };
 }
 
+let deletionDatabaseSequence = 0;
+
+describe.each(["Rebuild", "Standard Fetch", "Fast Fetch"] as const)(
+    "NFC Metadata deletion preflight: %s",
+    (operation) => {
+        it.each(pathIdentityDeletionCases)("handles $name before local database replacement", async (scenario) => {
+            const { rebuilder, services, settings, remoteDB } = createRebuilder();
+            settings.pathNormalizationVersion = 1;
+            const pathService = new PathServiceCompat(new ServiceContext(), {
+                settingService: {
+                    currentSettings: () => ({
+                        ...DEFAULT_SETTINGS,
+                        ...settings,
+                        handleFilenameCaseSensitive: false,
+                        encrypt: false,
+                        usePathObfuscation: false,
+                    }),
+                } as ISettingService,
+            });
+            services.path.path2id = vi.fn(pathService.path2id.bind(pathService)) as never;
+            const database = new PouchDB<EntryDoc>(`path-identity-deletion-${++deletionDatabaseSequence}`, {
+                adapter: "memory",
+            });
+            try {
+                await seedPathIdentityDeletionCase(database, scenario);
+                const subject = Object.create(LiveSyncLocalDB.prototype) as LiveSyncLocalDB;
+                Object.assign(subject, { localDatabase: database });
+                services.database.localDatabase = subject as never;
+                services.storageAccess.getFileNames.mockResolvedValue(
+                    scenario.name.startsWith("both ") ? [] : [composedPath]
+                );
+                remoteDB.get.mockResolvedValue({
+                    _id: VERSIONING_DOCID,
+                    type: "versioninfo",
+                    version: 13,
+                    used_features: ["nfc-path-identity-v1"],
+                } as never);
+
+                const enumerated: EntryDoc[] = [];
+                for await (const entry of subject.findAllDocs()) enumerated.push(entry);
+                expect(enumerated).toHaveLength(scenario.count);
+                if (scenario.name === "CouchDB tombstone") {
+                    expect(enumerated.map((entry) => entry._id)).toEqual([composedPath]);
+                    const leaves = await database.get(decomposedPath, { open_revs: "all" });
+                    expect(leaves).toEqual([
+                        expect.objectContaining({ ok: expect.objectContaining({ _deleted: true }) }),
+                    ]);
+                }
+                if (scenario.name.startsWith("logically deleted winner")) {
+                    expect(await database.get(decomposedPath, { conflicts: true })).toMatchObject({
+                        deleted: true,
+                        _conflicts: ["2-aaaa"],
+                    });
+                    expect(enumerated.find((entry) => entry._id === decomposedPath)).not.toHaveProperty("_conflicts");
+                }
+
+                const before = await database.info();
+                const resetBoundary = new Error("Reached the local database replacement boundary");
+                services.database.resetDatabaseForCurrentSettings.mockRejectedValueOnce(resetBoundary);
+                const invocation =
+                    operation === "Rebuild"
+                        ? rebuilder.rebuildEverything()
+                        : operation === "Standard Fetch"
+                          ? rebuilder.fetchLocal()
+                          : rebuilder.fetchLocalDBFast(false);
+                if (scenario.expectedCollision) {
+                    await expect(invocation).rejects.toThrow(/File path identity collision/);
+                    expect(services.database.resetDatabaseForCurrentSettings).not.toHaveBeenCalled();
+                } else {
+                    await expect(invocation).rejects.toBe(resetBoundary);
+                    expect(services.database.resetDatabaseForCurrentSettings).toHaveBeenCalledTimes(1);
+                }
+                expect(services.replication.markLocked).not.toHaveBeenCalled();
+                expect(services.replication.replicateAllToRemoteForRebuild).not.toHaveBeenCalled();
+                expect((await database.info()).update_seq).toBe(before.update_seq);
+            } finally {
+                await database.destroy();
+            }
+        });
+    }
+);
+
 describe("ServiceRebuilder scheduled restart flags", () => {
     it.each([
         ["Fetch", "scheduleFetch", FlagFilesHumanReadable.FETCH_ALL],
@@ -274,6 +371,30 @@ describe("ServiceRebuilder NFC path preflight", () => {
         expect(services.replication.replicateAllToRemote).not.toHaveBeenCalled();
     });
 
+    it("keeps logically deleted Metadata in the remote-only path identity check", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.pathNormalizationVersion = 1;
+        services.database.localDatabase.localDatabase.get = vi.fn(async () => ({
+            _id: VERSIONING_DOCID,
+            type: "versioninfo",
+            version: 13,
+            used_features: ["nfc-path-identity-v1"],
+        })) as never;
+        services.database.localDatabase.findAllDocs = vi.fn(async function* () {
+            yield {
+                _id: decomposedPath,
+                path: decomposedPath,
+                deleted: true,
+                _conflicts: [],
+            };
+        }) as never;
+
+        await expect(rebuilder.rebuildRemote()).rejects.toThrow(/stored document ID/);
+
+        expect(services.replication.markLocked).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllToRemote).not.toHaveBeenCalled();
+    });
+
     it("refuses to merge separate Metadata documents when rebuilding", async () => {
         const { rebuilder, services, settings } = createRebuilder();
         settings.pathNormalizationVersion = 1;
@@ -327,6 +448,18 @@ describe("ServiceRebuilder NFC path preflight", () => {
         expect(services.database.resetDatabaseForCurrentSettings).not.toHaveBeenCalled();
         expect(services.replication.markLocked).not.toHaveBeenCalled();
         expect(services.setting.suspendExtraSync).not.toHaveBeenCalled();
+    });
+
+    it("keeps version 0 reconstruction outside the NFC path preflight", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.pathNormalizationVersion = 0;
+        const resetBoundary = new Error("Reached the local database replacement boundary");
+        services.database.resetDatabaseForCurrentSettings.mockRejectedValueOnce(resetBoundary);
+
+        await expect(rebuilder.rebuildEverything()).rejects.toBe(resetBoundary);
+
+        expect(services.storageAccess.getFileNames).not.toHaveBeenCalled();
+        expect(services.database.resetDatabaseForCurrentSettings).toHaveBeenCalledTimes(1);
     });
 
     it.each([REMOTE_MINIO, REMOTE_P2P])(

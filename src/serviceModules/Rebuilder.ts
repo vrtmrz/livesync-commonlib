@@ -257,7 +257,7 @@ Please enable them from the settings screen after setup is complete.`,
         await assertUniqueStoragePathIdentities(selected, this.path);
         if (databaseReady) {
             await assertMetadataPathIdentities(
-                this.database.localDatabase.findAllDocs(),
+                this.database.localDatabase.findAllDocs({ conflicts: true }),
                 this.path,
                 requireMatchingIds
             );

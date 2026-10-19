@@ -279,6 +279,7 @@ async function copyStaticFiles() {
         "settings-lifecycle.md",
         "setup-uri.md",
         "storage-events-and-reflection.md",
+        "unicode-path-identity.md",
     ]) {
         await cp(resolve(root, "docs", document), resolve(packageDirectory, "docs", document));
     }
