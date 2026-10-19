@@ -1,6 +1,6 @@
 ---
 date: 2026-10-19
-commonlib_version: '0.1.43-next.0'
+commonlib_version: '0.1.43'
 livesync_version: '1.0.38'
 status: unreleased
 ---
