@@ -130,6 +130,10 @@ assert.ok(
     "The maintained-host evidence linked from the README must be included in the package."
 );
 assert.ok(
+    packed.files.some(({ path }) => path === "docs/unicode-path-identity.md"),
+    "The Unicode path identity guide linked from the README must be included in the package."
+);
+assert.ok(
     packed.files.some(({ path }) => path === "docs/storage-events-and-reflection.md"),
     "The storage-event contract linked from the developer guide must be included in the package."
 );

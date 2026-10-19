@@ -22,14 +22,22 @@ export async function assertUniqueStoragePathIdentities(
     }
 }
 
-/** Distinct Metadata documents must not be merged by a change of path identity. */
+/**
+ * Distinct Metadata documents must not be merged by a change of path identity.
+ * Callers must enumerate entries with `conflicts: true` so unresolved revisions remain visible.
+ * `requireMatchingIds: false` is reserved for preflight checks before replacing the local database;
+ * only that mode excludes conflict-free logical deletions from collision checks.
+ */
 export async function assertMetadataPathIdentities(
-    entries: AsyncIterable<EntryHasPath & { _id: string }> | Iterable<EntryHasPath & { _id: string }>,
+    entries:
+        | AsyncIterable<EntryHasPath & { _id: string; deleted?: boolean; _conflicts?: string[] }>
+        | Iterable<EntryHasPath & { _id: string; deleted?: boolean; _conflicts?: string[] }>,
     pathService: Pick<IPathService, "path2id">,
     requireMatchingIds: boolean
 ): Promise<void> {
     const identities = new Map<string, { path: string; id: string }>();
     for await (const entry of entries) {
+        if (!requireMatchingIds && entry.deleted === true && !entry._conflicts?.length) continue;
         const path = id2path_base(entry._id as Parameters<typeof id2path_base>[0], entry);
         const id = await pathService.path2id(path);
         const previous = identities.get(id);
