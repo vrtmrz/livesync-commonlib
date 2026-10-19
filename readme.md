@@ -26,6 +26,7 @@ The package is ESM-only and declares Node 20 or later. Browser entry points are 
 | -------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `@vrtmrz/livesync-commonlib`                       | `DirectFileManipulator` for integrations which access CouchDB directly            | Deliberately small, but its high-level lifecycle and file-operation semantics are not final |
 | `@vrtmrz/livesync-commonlib/context`               | Instance-owned events, translation injection, and host-neutral standard-I/O types | Focused, package-tested pre-1.0 contract                                                    |
+| `@vrtmrz/livesync-commonlib/diagnostics` | Read-only Usage and integrity inspection, name projection, and reports | Focused pre-1.0 diagnostic contract |
 | `@vrtmrz/livesync-commonlib/hashing`               | Chunk ID calculation and exact file-content hashing                            | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/browser`               | Rooted File System Access API storage                                             | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/node`                  | Rooted Node storage, Node standard I/O, and selected Node capabilities            | Supported platform façade; keeps Node-only dependencies behind an explicit boundary         |
@@ -118,6 +119,27 @@ See [the settings lifecycle guide](docs/settings-lifecycle.md) before initialisi
 ## Setup URI sharing
 
 The focused Setup URI entry offers an Ephemeral mode bound to the current fixed seven-day window and a Persistent mode compatible with existing readers. Both use the same URI structure. See [the Setup URI sharing guide](docs/setup-uri.md) for the availability boundary, import behaviour, and compatibility limits.
+
+## Database diagnostics
+
+The focused `/diagnostics` entry provides read-only Usage and integrity reports, with original names or temporary pseudonyms selected by the host for each run. Integrity inspection covers normal-file Metadata, current conflict branches, and content comparisons for suspect groups in the local database and CouchDB. See [Database diagnostics](docs/database-diagnostics.md) for coverage, cancellation, and privacy boundaries.
+
+```typescript
+import {
+    analyseDatabaseUsage,
+    createDiagnosticNameMapper,
+    createLocalDiagnosticSource,
+    formatUsageTSV,
+    projectUsageReport,
+} from '@vrtmrz/livesync-commonlib/diagnostics';
+
+const result = await analyseDatabaseUsage({ source: createLocalDiagnosticSource(localPouchDB) });
+const report = projectUsageReport(result, createDiagnosticNameMapper('pseudonym'));
+if (report.status === 'complete') {
+    const tsv = formatUsageTSV(report);
+    // Present the report through the host's own UI or output stream.
+}
+```
 
 ## Chunk ID calculation
 

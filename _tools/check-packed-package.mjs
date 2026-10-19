@@ -73,6 +73,8 @@ assert.ok(
     Object.hasOwn(generatedManifest.exports, "./hashing"),
     "Chunk hashing must be available through the focused hashing entry."
 );
+assert.ok(Object.hasOwn(generatedManifest.exports, "./diagnostics"), "Database diagnostics require a focused entry.");
+assert.ok(packed.files.some(({ path }) => path === "docs/database-diagnostics.md"));
 const declaredBinTargets = new Set(
     (typeof generatedManifest.bin === "string"
         ? [generatedManifest.bin]
@@ -230,6 +232,13 @@ import {
 } from "${packageName}/browser";
 import { splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
 import { HashManager, computeFileContentHash, type HashManagerCoreOptions } from "${packageName}/hashing";
+import { analyseDatabaseUsage, type DatabaseUsageSource } from "${packageName}/diagnostics";
+const diagnosticSource: DatabaseUsageSource = {
+    info: async () => ({ update_seq: 0 }),
+    enumerateIds: async function* () {},
+    get: async () => ({}),
+};
+void analyseDatabaseUsage({ source: diagnosticSource });
 import {
     NEW_VAULT_SETTINGS,
     SETTINGS_SCHEMA_DEFAULTS,
@@ -387,6 +396,18 @@ const contextApi = await import("${packageName}/context");
 const rootApi = await import("${packageName}");
 const settingsApi = await import("${packageName}/settings");
 const hashingApi = await import("${packageName}/hashing");
+const diagnosticsApi = await import("${packageName}/diagnostics");
+const usage = await diagnosticsApi.analyseDatabaseUsage({ source: {
+    info: async () => ({ update_seq: 0 }),
+    enumerateIds: async function* () {},
+    get: async () => { throw new Error("Unexpected read"); },
+} });
+assert.equal(usage.status, "complete");
+assert.equal(usage.rows.length, 1);
+assert.equal(usage.rows[0].id, "__orphan");
+const names = diagnosticsApi.createDiagnosticNameMapper("pseudonym");
+assert.equal(names.path("private.md"), "file-001");
+assert.equal(names.path("private.md"), "file-001");
 const setupUriApi = await import("${packageName}/setup-uri");
 const remoteConfigurationsApi = await import("${packageName}/remote-configurations");
 const p2pApi = await import("${packageName}/p2p");
@@ -515,6 +536,10 @@ await writeConsumerFile(
 `
 );
 await writeConsumerFile(
+    "browser-diagnostics.ts",
+    `export { analyseDatabaseUsage, analyseDatabaseIntegrity, createCouchDBDiagnosticSource, projectIntegrityReport } from "${packageName}/diagnostics";\n`
+);
+await writeConsumerFile(
     "browser-worker.ts",
     `export { initialiseWorkerModule, splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
 `
@@ -637,6 +662,23 @@ const hashingBundle = await build({
     write: false,
 });
 
+const diagnosticsBundle = await build({
+    absWorkingDir: consumerDirectory,
+    bundle: true,
+    conditions: ["browser"],
+    entryPoints: [resolve(consumerDirectory, "browser-diagnostics.ts")],
+    external: ["crypto"],
+    format: "esm",
+    logLevel: "silent",
+    metafile: true,
+    platform: "browser",
+    write: false,
+});
+assert.ok(
+    Object.keys(diagnosticsBundle.metafile.inputs).every((path) => !path.includes("/dist/platform/node/")),
+    "Diagnostics must not require Node-only host APIs."
+);
+
 const workerBundle = await build({
     absWorkingDir: consumerDirectory,
     bundle: true,
@@ -703,6 +745,7 @@ assert.deepEqual(
         ".",
         "./browser",
         "./context",
+        "./diagnostics",
         "./hashing",
         "./node",
         "./p2p",
@@ -715,7 +758,7 @@ assert.deepEqual(
     ],
     "The focused package surface must remain explicit."
 );
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 12);
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 13);
 
 console.log(
     JSON.stringify(

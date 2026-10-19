@@ -177,6 +177,7 @@ function createExports() {
         ".": exportTarget("index"),
         "./browser": exportTarget("platform/browser/index"),
         "./context": exportTarget("context"),
+        "./diagnostics": exportTarget("diagnostics/index"),
         "./hashing": exportTarget("hashing"),
         "./node": exportTarget("platform/node/index"),
         "./p2p": exportTarget("p2p/index"),
@@ -266,6 +267,7 @@ async function copyStaticFiles() {
     await mkdir(resolve(packageDirectory, "docs"), { recursive: true });
     for (const document of [
         "conflict-resolution.md",
+        "database-diagnostics.md",
         "development.md",
         "offline-scanner.md",
         "p2p-transport-lifecycle.md",

@@ -23,6 +23,7 @@ import { shouldBeIgnored, stripAllPrefixes } from "@lib/string_and_binary/path";
 import { getPathNormalizationVersion, normalisePathForIdentity } from "@lib/common/pathNormalization";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
+import type { IPathService } from "@lib/services/base/IService";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
 import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
@@ -156,7 +157,7 @@ export function getMetadataDocumentNamespace(value: string): MetadataDocumentNam
  * through ordinary path-based handling.
  */
 export async function inspectMetadataDocumentIdentity(
-    host: NecessaryServices<"path", never>,
+    host: { services: { path: Pick<IPathService, "getPath" | "path2id"> } },
     doc: MetaEntry
 ): Promise<MetadataDocumentIdentityInspection> {
     const actualDocumentId = doc._id;
@@ -596,7 +597,10 @@ export async function collectDeletedFiles(
  * @param doc Meta entry document
  * @returns Path string
  */
-export function getPathFromEntry(host: NecessaryServices<"path", never>, doc: MetaEntry): FilePathWithPrefix {
+export function getPathFromEntry(
+    host: { services: { path: Pick<IPathService, "getPath"> } },
+    doc: MetaEntry
+): FilePathWithPrefix {
     const path = host.services.path.getPath(doc);
     return path;
 }

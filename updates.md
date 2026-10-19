@@ -1,5 +1,14 @@
 # Updates
 
+## Unreleased
+
+### Added
+
+- We can inspect normal-file Metadata, current conflict branches, and related content in local databases and CouchDB without changing them.
+    - The focused `/diagnostics` entry supplies structured findings, coverage, cancellation, and JSON and Markdown reports. An unavailable remote retains the local evidence. Older revision history and other remote types remain outside integrity inspection.
+- We can offer temporary pseudonyms or original names for each diagnostic run while keeping file contents and credentials out of reports.
+    - Shared Usage analysis preserves the existing available-revision selection, Chunk accounting, and nine TSV columns. Hosts can retain incomplete results with their reasons in JSON.
+
 ## 0.1.42
 
 17th October, 2026

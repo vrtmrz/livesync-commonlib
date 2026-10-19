@@ -49,21 +49,22 @@ function getEncryptionVersion(data: EntryLeaf): EncryptionVersion {
 async function tryDecryptV1AsFallback(
     encryptedData: string,
     passphrase: string,
-    useDynamicIterationCount: boolean
+    useDynamicIterationCount: boolean,
+    log: typeof Logger = Logger
 ): Promise<string | false> {
     try {
         return await decrypt(encryptedData, passphrase, useDynamicIterationCount);
     } catch (ex) {
         try {
-            Logger(
+            log(
                 "Failed to decrypt with V1 method. Fallback to disable useDynamicIterationCount.",
                 LOG_LEVEL_VERBOSE
             );
-            Logger(ex, LOG_LEVEL_VERBOSE);
+            log(ex, LOG_LEVEL_VERBOSE);
             return await decrypt(encryptedData, passphrase, false);
         } catch (ex) {
-            Logger("Completely failed to decrypt with V1 method.", LOG_LEVEL_VERBOSE);
-            Logger(ex, LOG_LEVEL_VERBOSE);
+            log("Completely failed to decrypt with V1 method.", LOG_LEVEL_VERBOSE);
+            log(ex, LOG_LEVEL_VERBOSE);
             return false; // failed to decrypt
         }
     }
@@ -74,7 +75,7 @@ type EncryptedDocument<T> = T & {
 };
 
 const ENCRYPTED_META_PREFIX = "/\\:";
-function isEncryptedMeta<T extends AnyEntry>(doc: T) {
+export function isEncryptedMeta<T extends AnyEntry>(doc: T) {
     return "path" in doc && doc.path.startsWith(ENCRYPTED_META_PREFIX);
 }
 function isInternalObfuscatedEntry(doc: AnyEntry | EntryLeaf): doc is AnyEntry {
@@ -216,7 +217,8 @@ async function outgoingDecryptHKDF(
     decrypted: Map<DocumentID, boolean>,
     passphrase: string,
     useDynamicIterationCount: boolean,
-    getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>
+    getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>,
+    log: typeof Logger
 ): Promise<AnyEntry | EntryLeaf> {
     const loadDoc = {
         ...doc,
@@ -231,9 +233,14 @@ async function outgoingDecryptHKDF(
                 loadDoc.data = await decryptHKDF(loadDoc.data, passphrase, pbkdf2salt);
                 delete loadDoc.e_;
             } else if (encryptionVersion === EncryptionVersions.ENCRYPTED) {
-                const decryptedData = await tryDecryptV1AsFallback(loadDoc.data, passphrase, useDynamicIterationCount);
+                const decryptedData = await tryDecryptV1AsFallback(
+                    loadDoc.data,
+                    passphrase,
+                    useDynamicIterationCount,
+                    log
+                );
                 if (decryptedData === false) {
-                    Logger(MESSAGE_FALLBACK_DECRYPT_FAILED, LOG_LEVEL_NOTICE);
+                    log(MESSAGE_FALLBACK_DECRYPT_FAILED, LOG_LEVEL_NOTICE);
                     throw new Error(MESSAGE_FALLBACK_DECRYPT_FAILED);
                 }
                 loadDoc.data = decryptedData;
@@ -241,12 +248,12 @@ async function outgoingDecryptHKDF(
             } else if (encryptionVersion === EncryptionVersions.UNENCRYPTED) {
                 // not encrypted, no need to decrypt
             } else {
-                Logger("Unknown encryption version. Cannot decrypt.", LOG_LEVEL_NOTICE);
+                log("Unknown encryption version. Cannot decrypt.", LOG_LEVEL_NOTICE);
                 throw new Error("Unknown encryption version. Cannot decrypt.");
             }
         } catch (ex) {
-            Logger(DECRYPTION_HKDF_FAILED, LOG_LEVEL_NOTICE);
-            Logger(ex);
+            log(DECRYPTION_HKDF_FAILED, LOG_LEVEL_NOTICE);
+            log(ex);
             throw ex;
         }
     }
@@ -259,17 +266,17 @@ async function outgoingDecryptHKDF(
                     (loadDoc as unknown as Record<string, unknown>)[key] = metadata[key as keyof EncryptProps];
                 }
             } catch (ex) {
-                Logger(`${DECRYPTION_HKDF_FAILED} on Path`, LOG_LEVEL_NOTICE);
-                Logger(ex);
+                log(`${DECRYPTION_HKDF_FAILED} on Path`, LOG_LEVEL_NOTICE);
+                log(ex);
                 throw ex;
             }
         } else {
             const path = getPath(loadDoc);
             if (isPathProbablyObfuscated(path)) {
                 // As a fallback, try to decrypt with V1 method. This part will eventually be removed.
-                const decryptedPath = await tryDecryptV1AsFallback(path, passphrase, useDynamicIterationCount);
+                const decryptedPath = await tryDecryptV1AsFallback(path, passphrase, useDynamicIterationCount, log);
                 if (decryptedPath === false) {
-                    Logger(`${MESSAGE_FALLBACK_DECRYPT_FAILED} on Path`, LOG_LEVEL_NOTICE);
+                    log(`${MESSAGE_FALLBACK_DECRYPT_FAILED} on Path`, LOG_LEVEL_NOTICE);
                     throw new Error(MESSAGE_FALLBACK_DECRYPT_FAILED);
                 }
                 loadDoc.path = decryptedPath as FilePathWithPrefix;
@@ -284,7 +291,8 @@ async function outgoingDecryptHKDF(
             const decryptedEden = await tryDecryptV1AsFallback(
                 loadDoc.eden[EDEN_ENCRYPTED_KEY].data,
                 passphrase,
-                useDynamicIterationCount
+                useDynamicIterationCount,
+                log
             );
             if (decryptedEden === false) throw new Error(MESSAGE_FALLBACK_DECRYPT_FAILED);
             readEden = {
@@ -293,8 +301,8 @@ async function outgoingDecryptHKDF(
             };
             edenDecrypted = true;
         } catch (ex) {
-            Logger(`${DECRYPTION_FALLBACK_FAILED} on Eden`, LOG_LEVEL_NOTICE);
-            Logger(ex);
+            log(`${DECRYPTION_FALLBACK_FAILED} on Eden`, LOG_LEVEL_NOTICE);
+            log(ex);
             throw ex;
         }
     }
@@ -314,8 +322,8 @@ async function outgoingDecryptHKDF(
             };
             edenDecrypted = true;
         } catch (ex) {
-            Logger(`${DECRYPTION_HKDF_FAILED} on Eden`, LOG_LEVEL_NOTICE);
-            Logger(ex);
+            log(`${DECRYPTION_HKDF_FAILED} on Eden`, LOG_LEVEL_NOTICE);
+            log(ex);
             throw ex;
         }
     }
@@ -380,7 +388,8 @@ async function outgoingDecryptV1(
     migrationDecrypt: boolean,
     decrypted: Map<DocumentID, boolean>,
     passphrase: string,
-    useDynamicIterationCount: boolean
+    useDynamicIterationCount: boolean,
+    log: typeof Logger
 ): Promise<AnyEntry | EntryLeaf> {
     const loadDoc = {
         ...doc,
@@ -447,15 +456,15 @@ async function outgoingDecryptV1(
                     if (migrationDecrypt && ex instanceof SyntaxError) {
                         return loadDoc; // This logic will be removed in a while.
                     }
-                    Logger("Decryption failed.", LOG_LEVEL_NOTICE);
-                    Logger(ex, LOG_LEVEL_VERBOSE);
-                    Logger(`id:${loadDoc._id}-${loadDoc._rev?.substring(0, 10)}`, LOG_LEVEL_VERBOSE);
+                    log("Decryption failed.", LOG_LEVEL_NOTICE);
+                    log(ex, LOG_LEVEL_VERBOSE);
+                    log(`id:${loadDoc._id}-${loadDoc._rev?.substring(0, 10)}`, LOG_LEVEL_VERBOSE);
                     throw ex;
                 }
             } else {
-                Logger("Decryption failed.", LOG_LEVEL_NOTICE);
-                Logger(ex, LOG_LEVEL_VERBOSE);
-                Logger(`id:${loadDoc._id}-${loadDoc._rev?.substring(0, 10)}`, LOG_LEVEL_VERBOSE);
+                log("Decryption failed.", LOG_LEVEL_NOTICE);
+                log(ex, LOG_LEVEL_VERBOSE);
+                log(`id:${loadDoc._id}-${loadDoc._rev?.substring(0, 10)}`, LOG_LEVEL_VERBOSE);
                 throw ex;
             }
         }
@@ -475,7 +484,8 @@ export function getConfiguredFunctionsForEncryption(
     migrationDecrypt: boolean,
     getPBKDF2Salt: () => Promise<Uint8Array<ArrayBuffer>>,
     algorithm: E2EEAlgorithm,
-    encryptInternalMetadata = false
+    encryptInternalMetadata = false,
+    log: typeof Logger = Logger
 ): {
     incoming: (doc: AnyEntry | EntryLeaf) => Promise<AnyEntry | EntryLeaf>;
     outgoing: (doc: EntryDoc) => Promise<AnyEntry | EntryLeaf>;
@@ -494,9 +504,10 @@ export function getConfiguredFunctionsForEncryption(
                   decryptedCache,
                   passphrase,
                   useDynamicIterationCount,
-                  getPBKDF2Salt
+                  getPBKDF2Salt,
+                  log
               )
-            : outgoingDecryptV1(doc, migrationDecrypt, decryptedCache, passphrase, useDynamicIterationCount);
+            : outgoingDecryptV1(doc, migrationDecrypt, decryptedCache, passphrase, useDynamicIterationCount, log);
     return {
         incoming,
         outgoing,
