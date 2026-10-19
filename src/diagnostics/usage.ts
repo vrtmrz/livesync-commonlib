@@ -111,7 +111,11 @@ function getRevisionInfos(value: unknown): RevisionInfo[] {
 }
 
 function getChildren(value: unknown): Set<string> {
-    return new Set((value || []) as string[]);
+    const children: unknown = value ?? [];
+    if (!Array.isArray(children) || !children.every((child) => typeof child === "string")) {
+        throw new Error("invalid chunk references");
+    }
+    return new Set(children);
 }
 
 function getStringField(value: unknown): string {

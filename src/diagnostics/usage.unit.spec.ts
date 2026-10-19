@@ -51,6 +51,37 @@ function rowById(result: Awaited<ReturnType<typeof analyseDatabaseUsage>>, id: s
 }
 
 describe("analyseDatabaseUsage", () => {
+    it.each([{ children: "chunk-a" }, { children: ["chunk-a", 7] }, { children: false }])(
+        "marks malformed Chunk references as partial without treating the revision as inspected: $children",
+        async ({ children }) => {
+            const source = makeSource(["broken", "valid", "chunk-a"], {
+                broken: {
+                    revisions: [{ rev: "1-broken", status: "available" }],
+                    documents: {
+                        "1-broken": { _id: "broken", _rev: "1-broken", path: "broken.md", children },
+                    },
+                },
+                valid: {
+                    revisions: [{ rev: "1-valid", status: "available" }],
+                    documents: { "1-valid": metadata("valid", "1-valid", "valid.md", ["chunk-a"]) },
+                },
+                "chunk-a": {
+                    revisions: [{ rev: "1-chunk", status: "available" }],
+                    documents: { "1-chunk": chunk("chunk-a", "1-chunk", "retained") },
+                },
+            });
+
+            const result = await analyseDatabaseUsage({ source });
+
+            expect(result.status).toBe("partial");
+            expect(result.errors).toEqual([
+                { code: "revision_document_invalid", id: "broken", revision: "1-broken" },
+            ]);
+            expect(rowById(result, "broken")).toBeUndefined();
+            expect(rowById(result, "valid")).toMatchObject({ uniqueChunkCount: 1, uniqueChunkSize: 8 });
+        }
+    );
+
     it("deduplicates repeated references and classifies first references as unique", async () => {
         const source = makeSource(["note-a", "note-b", "chunk-shared", "chunk-a"], {
             "note-a": {
