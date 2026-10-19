@@ -1,6 +1,13 @@
 # Updates
 
-## Unreleased
+## 0.1.43
+
+19th October, 2026
+
+### Fixed
+
+- We can complete NFC Rebuild and Fetch when the local database contains logical deletions without unresolved conflicts.
+    - Full Rebuild, Standard Fetch, and Fast Fetch exclude those deletions from the identity check when replacing the local database. Non-deleted duplicates and unresolved conflicts still stop reconstruction, and remote-only Rebuild retains its ID check.
 
 ### Added
 
