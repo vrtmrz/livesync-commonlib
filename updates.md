@@ -1,5 +1,31 @@
 # Updates
 
+## 0.1.44
+
+20th October, 2026
+
+### Improved
+
+- We can inspect larger databases with fewer remote requests and see how the inspection is progressing.
+    - Integrity inspection uses bounded work and bulk CouchDB reads, with phase counts and timing callbacks. Hosts can exclude the remote for one run; remote inspection remains enabled by default, and reports distinguish exclusion from an unavailable source.
+- We can follow up on a reported file without sharing its original path or losing the relationship between reports.
+    - Path pseudonyms use a random public salt and SHA-256. The token parser and reusable mapper let hosts match exact local paths and retain the same pseudonyms for follow-up. Revision pseudonyms preserve their generation number. Public salts permit guessed-path checks; older ordinal pseudonyms cannot be looked up.
+- We can read large Integrity reports more easily while retaining every observation needed for troubleshooting.
+    - Compact Markdown adds state counts, a review index, and a field guide, and wraps the report for issue comments. The formatting preserves the projected JSON evidence. Review candidates do not establish corruption, and unchecked content remains distinct from healthy content.
+- We can compare recorded Metadata with size, time, and Chunk-reference evidence already available to the inspection.
+    - Findings include Metadata type, recorded size, Chunk-reference counts, case/NFC relationships, and available decoded-content and Vault measurements without additional database or Vault reads.
+- We can follow Usage analysis through revision discovery and accounting, and cancel either stage.
+    - The revision total can grow during discovery. Accounting yields between batches, and cancellation omits unfinished statistics while retaining the run's status and reasons.
+
+### Included from 0.1.43
+
+These changes were first published on `next` in 0.1.43 and are included for consumers upgrading from 0.1.42.
+
+- We can complete NFC Rebuild and Fetch when the local database contains logical deletions without unresolved conflicts.
+    - Operations which replace the local database exclude those deletions from the identity check. Non-deleted duplicates and unresolved conflicts still stop reconstruction, and remote-only Rebuild retains its ID check.
+- We can collect read-only Integrity and Usage reports through the focused `/diagnostics` entry.
+    - Reports retain available local evidence when a remote is unavailable, offer original names or pseudonyms, and omit file contents and credentials. Usage preserves the existing revision selection, Chunk accounting, and nine TSV columns.
+
 ## 0.1.43
 
 19th October, 2026

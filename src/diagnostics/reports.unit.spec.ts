@@ -21,6 +21,14 @@ const privateExpectedId = "expected-document-secret";
 const privateChunkId = "chunk-secret-319";
 const privateErrorText = "raw-error-with-secret-content";
 const privateUrl = "https://user:password@example.invalid/private";
+const privateMetadataValue = "raw-private-metadata-value";
+const privateGroupReference = "raw-private-group-reference";
+const privateMemberReference = "raw-private-member-reference";
+const reportSalt = "Report01";
+
+function pseudonymMapper(): DiagnosticNameMapper {
+    return createDiagnosticNameMapper("pseudonym", reportSalt);
+}
 
 function integrityResult(): DatabaseIntegrityResult {
     return {
@@ -252,6 +260,9 @@ function assertDoesNotContainSecrets(value: string): void {
         "another-private-revision",
         "another-private-hash",
         "raw-private-reference",
+        privateMetadataValue,
+        privateGroupReference,
+        privateMemberReference,
         "opaque-sequence-with-host-data",
     ]) {
         expect(value).not.toContain(secret);
@@ -272,34 +283,204 @@ function assertDoesNotContainSensitiveExtras(value: string): void {
 }
 
 describe("diagnostic report projection", () => {
+    it("projects safe Metadata evidence and path equivalence groups to JSON and Markdown", () => {
+        const input = integrityResult();
+        Object.assign(input.observations[1], {
+            metadata: {
+                type: privateMetadataValue,
+                recordedSize: Number.NaN,
+                chunkReferences: 2,
+                uniqueChunkReferences: 2,
+                embeddedChunkReferences: 0,
+                rawPath: privatePath,
+                privateField: privateErrorText,
+            },
+            pathEquivalenceGroup: privateGroupReference,
+        });
+        Object.assign(input.observations[2], { nfcEquivalentGroup: "nfc:1" });
+        Object.assign(input.observations[3], {
+            reference: privateMemberReference,
+            caseEquivalentGroup: "case:1",
+            nfcEquivalentGroup: privateGroupReference,
+            metadata: {
+                type: "plain",
+                recordedSize: 8,
+                chunkReferences: 4,
+                uniqueChunkReferences: 2,
+                embeddedChunkReferences: 2,
+                rawPath: privatePath,
+                privateField: privateMetadataValue,
+            },
+            content: {
+                status: "available",
+                chunksRead: 4,
+                unavailableChunks: [],
+                size: 6,
+                recordedSizeDifference: -2,
+                rawBytes: "private raw content",
+            },
+            vault: {
+                reference: "vault:local:2",
+                status: "available",
+                size: 5,
+                contentSizeDifference: -1,
+                mtimeDifferenceMs: 30,
+                privateField: privateErrorText,
+            },
+        });
+        Object.assign(input, {
+            pathEquivalenceGroups: [
+                {
+                    reference: "case:1",
+                    kind: "case",
+                    members: ["local:1", privateMemberReference],
+                    rawPath: privatePath,
+                    privateField: privateMetadataValue,
+                },
+                {
+                    reference: "nfc:1",
+                    kind: "nfc",
+                    members: ["remote:1", "local:2"],
+                    rawPath: privatePath,
+                    privateField: privateMetadataValue,
+                },
+                {
+                    reference: privateGroupReference,
+                    kind: "nfc",
+                    members: [privateMemberReference],
+                    rawPath: privatePath,
+                    privateField: privateErrorText,
+                },
+            ],
+        });
+
+        const mapper = pseudonymMapper();
+        const projected = projectIntegrityReport(input, mapper);
+        const json = formatDiagnosticJSON(projected);
+        const markdown = formatIntegrityMarkdown(projected);
+        type ProjectedEvidence = {
+            reference: string;
+            caseEquivalentGroup?: string;
+            nfcEquivalentGroup?: string;
+            metadata?: {
+                type: string;
+                recordedSize?: number;
+                chunkReferences: number;
+                uniqueChunkReferences: number;
+                embeddedChunkReferences: number;
+            };
+            vault: {
+                reference: string;
+                status: string;
+                size?: number;
+                contentSizeDifference?: number;
+                mtimeDifferenceMs?: number;
+            };
+            content: {
+                status: string;
+                size?: number;
+                recordedSizeDifference?: number;
+            };
+        };
+        type ProjectedPathGroup = { reference: string; kind: "case" | "nfc"; members: string[] };
+        const observations = projected.observations as unknown as ProjectedEvidence[];
+        const groups = (projected as unknown as { pathEquivalenceGroups?: ProjectedPathGroup[] }).pathEquivalenceGroups;
+
+        expect(observations[3].metadata).toEqual({
+            type: "plain",
+            recordedSize: 8,
+            chunkReferences: 4,
+            uniqueChunkReferences: 2,
+            embeddedChunkReferences: 2,
+        });
+        expect(observations[3].content).toMatchObject({ status: "available", size: 6, recordedSizeDifference: -2 });
+        expect(observations[3].vault).toMatchObject({
+            reference: "vault:local:2",
+            status: "available",
+            size: 5,
+            contentSizeDifference: -1,
+            mtimeDifferenceMs: 30,
+        });
+        expect(observations[1].metadata).toEqual({
+            type: "unknown",
+            chunkReferences: 2,
+            uniqueChunkReferences: 2,
+            embeddedChunkReferences: 0,
+        });
+        expect(observations[0]).not.toHaveProperty("metadata");
+        expect(observations[2]).not.toHaveProperty("metadata");
+        expect(observations[2].content).not.toHaveProperty("size");
+        expect(observations[2].vault).not.toHaveProperty("size");
+        expect(observations[2].nfcEquivalentGroup).toBe("nfc:1");
+        expect(observations[3].caseEquivalentGroup).toBe("case:1");
+
+        expect(groups).toHaveLength(3);
+        expect(groups?.[0]).toEqual({
+            reference: "case:1",
+            kind: "case",
+            members: ["local:1", observations[3].reference],
+        });
+        expect(groups?.[1]).toEqual({ reference: "nfc:1", kind: "nfc", members: ["remote:1", "local:2"] });
+        expect(groups?.[2].reference).toMatch(/^finding-[0-9]{3}$/);
+        expect(groups?.[2].members).toEqual([observations[3].reference]);
+        expect(observations[3].nfcEquivalentGroup).toBe(groups?.[2].reference);
+
+        const parsed = JSON.parse(json) as unknown as {
+            pathEquivalenceGroups?: ProjectedPathGroup[];
+            observations: ProjectedEvidence[];
+        };
+        expect(parsed.pathEquivalenceGroups).toEqual(groups);
+        expect(parsed.observations[3].metadata).toEqual(observations[3].metadata);
+        expect(markdown).toContain("-plain conflicts=");
+        expect(markdown).toContain("data: recorded=8B chunks=4/2/2 read=4");
+        expect(markdown).toContain("measure: content=6B vault=5B deltaContent=-2B deltaVault=-1B deltaMtime=+30ms");
+        expect(markdown).toContain("case:1");
+        expect(markdown).toContain("nfc:1");
+        assertDoesNotContainSecrets(json);
+        assertDoesNotContainSecrets(markdown);
+    });
+
+    it("retains the explicitly excluded remote scope in JSON and Markdown", () => {
+        const result = integrityResult();
+        result.scope.remote = "excluded";
+        result.coverage.remote.status = "not-checked";
+        const projected = projectIntegrityReport(result, createDiagnosticNameMapper("pseudonym"));
+        expect(projected.scope.remote).toBe("excluded");
+        expect(JSON.parse(formatDiagnosticJSON(projected)).coverage.remote.status).toBe("not-checked");
+        expect(formatIntegrityMarkdown(projected)).toContain("Remote database: excluded from this inspection");
+    });
+
     it("keeps exact path spelling and separates path, document, revision, and chunk aliases", () => {
-        const mapper = createDiagnosticNameMapper("pseudonym");
+        const mapper = pseudonymMapper();
         const nfc = "caf\u00e9.md";
         const nfd = "cafe\u0301.md";
         const upper = "Folder/NOTE.md";
         const lower = "Folder/note.md";
 
-        expect(mapper.path(nfc)).toBe("file-001");
-        expect(mapper.path(nfd)).toBe("file-002");
-        expect(mapper.path(upper)).toBe("file-003");
-        expect(mapper.path(lower)).toBe("file-004");
-        expect(mapper.path(nfc)).toBe("file-001");
+        const nfcAlias = mapper.path(nfc);
+        const nfdAlias = mapper.path(nfd);
+        expect(nfcAlias).toMatch(new RegExp(`^${reportSalt}\\$[0-9a-f]{32}$`));
+        expect(nfdAlias).toMatch(new RegExp(`^${reportSalt}\\$[0-9a-f]{32}$`));
+        expect(nfcAlias).not.toBe(nfdAlias);
+        expect(mapper.path(upper)).not.toBe(mapper.path(lower));
+        expect(mapper.path(nfc)).toBe(nfcAlias);
         expect(mapper.path(privatePath)).toBe(mapper.path(privatePath));
-        expect(mapper.id("same-path-id-a")).toBe("document-001");
-        expect(mapper.id("same-path-id-b")).toBe("document-002");
-        expect(mapper.revision("same-revision-value")).toBe("revision-001");
-        expect(mapper.chunk("same-revision-value")).toBe("chunk-001");
+        const firstIdAlias = mapper.id("same-path-id-a");
+        expect(firstIdAlias).toMatch(/^document-[0-9a-f]{32}$/);
+        expect(mapper.id("same-path-id-b")).not.toBe(firstIdAlias);
+        expect(mapper.revision("same-revision-value")).toMatch(/^psu[0-9a-f]{32}$/);
+        expect(mapper.chunk("same-revision-value")).toMatch(/^chunk-[0-9a-f]{32}$/);
 
-        const freshRun = createDiagnosticNameMapper("pseudonym");
-        expect(freshRun.path(nfc)).toBe("file-001");
-        expect(freshRun.id("same-path-id-a")).toBe("document-001");
+        const freshRun = pseudonymMapper();
+        expect(freshRun.path(nfc)).toBe(nfcAlias);
+        expect(freshRun.id("same-path-id-a")).toBe(firstIdAlias);
         expect(createDiagnosticNameMapper("original").path(nfc)).toBe(nfc);
         expect(createDiagnosticNameMapper("original").id("id\u0000verbatim")).toBe("id\u0000verbatim");
     });
 
     it("whitelists integrity fields in both modes and uses shared safe references", () => {
         const input = integrityResult();
-        const pseudonyms = createDiagnosticNameMapper("pseudonym");
+        const pseudonyms = pseudonymMapper();
         const projected = projectIntegrityReport(input, pseudonyms);
         const json = formatDiagnosticJSON(projected);
         const markdown = formatIntegrityMarkdown(projected);
@@ -320,12 +501,12 @@ describe("diagnostic report projection", () => {
         ]);
         expect(projected.observations[0]).toMatchObject({
             reference: "local:1",
-            id: "document-001",
-            revision: "revision-001",
-            path: "file-001",
-            expectedId: "document-002",
+            id: pseudonyms.id(privateId),
+            revision: pseudonyms.revision(privateRevision),
+            path: pseudonyms.path(privatePath),
+            expectedId: pseudonyms.id(privateExpectedId),
             content: {
-                unavailableChunks: [{ id: "chunk-001", status: "unreadable" }],
+                unavailableChunks: [{ id: pseudonyms.chunk(privateChunkId), status: "unreadable" }],
             },
             comparisons: [
                 { against: "remote:1", relation: "different" },
@@ -336,8 +517,8 @@ describe("diagnostic report projection", () => {
         });
         expect(projected.observations[1]).toMatchObject({
             reference: "remote:1",
-            id: "document-003",
-            path: "file-001",
+            id: pseudonyms.id("remote-document-secret"),
+            path: pseudonyms.path(privatePath),
             comparisons: [
                 { against: "local:1", relation: "different" },
                 { against: "finding-001", relation: "not-checked" },
@@ -347,25 +528,25 @@ describe("diagnostic report projection", () => {
         });
         expect(projected.observations[2]).toMatchObject({
             reference: "remote:2",
-            id: "document-004",
-            path: "file-002",
+            id: pseudonyms.id("remote-case-variant-document"),
+            path: pseudonyms.path("PRIVATE-FOLDER/Secret File.md"),
             otherSourceGroup: "missing",
             vault: { reference: "vault:remote:2", status: "not-checked" },
         });
         expect(projected.observations[3]).toMatchObject({
             reference: "local:2",
-            id: "document-005",
-            path: "file-003",
+            id: pseudonyms.id("local-unchecked-document"),
+            path: pseudonyms.path("Uninspected.md"),
             otherSourceGroup: "not-checked",
             vault: { reference: "vault:local:2", status: "not-checked" },
         });
         expect(projected.errors[0]).toEqual({
             source: "storage",
             reason: "content-unreadable",
-            id: "document-001",
-            revision: "revision-001",
-            path: "file-001",
-            chunkId: "chunk-001",
+            id: pseudonyms.id(privateId),
+            revision: pseudonyms.revision(privateRevision),
+            path: pseudonyms.path(privatePath),
+            chunkId: pseudonyms.chunk(privateChunkId),
         });
         expect(projected.errors[0].chunkId).toBe(projected.observations[0].content.unavailableChunks[0].id);
         expect(projected.errors[0].chunkId).not.toBe(projected.errors[0].id);
@@ -383,18 +564,15 @@ describe("diagnostic report projection", () => {
         expect(markdown).toContain("Missing or unreadable content observations: 1");
         expect(markdown).toContain("`local:1`: different");
         expect(markdown).toContain("`finding-001`: unavailable");
-        expect(markdown).toContain("Vault content status: missing (chunk-missing)");
-        expect(markdown).toContain("Vault content status: unreadable (content-unreadable)");
-        expect(markdown).toContain("Vault content status: not-checked");
-        expect(markdown).toContain("Other inspected database group: missing");
-        expect(markdown).toContain("Other inspected database group: present");
-        expect(markdown).toContain("Other inspected database group: not-checked");
-        expect(markdown).toContain("Vault reference: `vault:local:1`");
-        expect(markdown).toContain("Vault reference: `vault:remote:1`");
-        expect(markdown).toContain("Vault reference: `vault:remote:2`");
-        expect(markdown).toContain("Vault reference: `vault:local:2`");
+        expect(markdown).toContain("vault=missing(chunk-missing)@`vault:local:1`");
+        expect(markdown).toContain("vault=unreadable(content-unreadable)@`vault:remote:1`");
+        expect(markdown).toContain("vault=not-checked@`vault:remote:2`");
+        expect(markdown).toContain("vault=not-checked@`vault:local:2`");
+        expect(markdown).toContain("otherDB=missing");
+        expect(markdown).toContain("otherDB=present");
+        expect(markdown).toContain("otherDB=not-checked");
         expect(markdown).toContain("`finding-001`: not-checked");
-        expect(markdown).toContain("chunkId=`chunk-001`");
+        expect(markdown).toContain(`chunkId=\`${pseudonyms.chunk(privateChunkId)}\``);
 
         const original = projectIntegrityReport(input, createDiagnosticNameMapper("original"));
         const originalJson = formatDiagnosticJSON(original);
@@ -419,6 +597,73 @@ describe("diagnostic report projection", () => {
         expect(markdown).not.toContain("\nnext");
     });
 
+    it("folds the complete integrity Markdown report into a safe text code block", () => {
+        const input = integrityResult();
+        input.observations[0].path = "Project/File.md\n</details>\n``````\n<img src=x onerror=alert(1)>";
+        const projected = projectIntegrityReport(input, createDiagnosticNameMapper("original"));
+        const markdown = formatIntegrityMarkdown(projected);
+        const lines = markdown.split("\n");
+        const openingFenceLine = lines[3];
+
+        expect(lines[0]).toBe("<details>");
+        expect(lines[1]).toBe("<summary>Database integrity report (partial)</summary>");
+        expect(lines[2]).toBe("");
+        expect(openingFenceLine).toMatch(/^`{3,}text$/);
+
+        const openingFence = openingFenceLine!.slice(0, -"text".length);
+        const closingFenceIndex = lines.findIndex((line, index) => index > 3 && line === openingFence);
+        expect(closingFenceIndex).toBeGreaterThan(3);
+        expect(lines[closingFenceIndex + 1]).toBe("</details>");
+
+        const body = lines.slice(4, closingFenceIndex).join("\n");
+        const longestBacktickRun = Math.max(0, ...(body.match(/`+/g) ?? []).map((run) => run.length));
+        expect(openingFence.length).toBeGreaterThan(longestBacktickRun);
+        expect(body).toContain("# Database integrity report");
+        expect(body).toContain("## Versions");
+        expect(body).toContain("## Settings");
+        expect(body).toContain("## Scope");
+        expect(body).toContain("## Coverage");
+        expect(body).toContain("## Counts");
+        expect(body).toContain("## Findings");
+        expect(body).toContain("## Errors");
+        expect(body).toContain("| Local | partial | 2 | 2 | 1 | 1 | 1 | true |");
+        expect(body).toContain("| Remote | complete | 1 | 1 | 0 | 0 | 1 | false |");
+        expect(body).toContain("&lt;/details&gt;");
+        expect(body).toContain("&lt;img src=x onerror=alert(1)&gt;");
+        expect(body).not.toContain("</details>");
+        expect(body).not.toContain("<img");
+        assertDoesNotContainSensitiveExtras(markdown);
+    });
+
+    it("uses only a known status in the integrity report summary", () => {
+        const input = integrityResult();
+        (input as unknown as { status: string }).status = "partial</summary><img src=x onerror=alert(1)>";
+        const projected = projectIntegrityReport(input, createDiagnosticNameMapper("pseudonym"));
+        const markdown = formatIntegrityMarkdown(projected);
+
+        expect(markdown).toContain("<summary>Database integrity report (unknown)</summary>");
+        expect(markdown).not.toContain("<summary>Database integrity report (partial</summary>");
+    });
+
+    it("handles many backtick runs without exceeding the JavaScript argument limit", () => {
+        const input = integrityResult();
+        input.observations[0].path = "`x".repeat(150000);
+        const report = projectIntegrityReport(input, createDiagnosticNameMapper("original"));
+        expect(() => formatIntegrityMarkdown(report)).not.toThrow();
+    });
+
+    it("retains every observation in a large folded report", () => {
+        const input = integrityResult();
+        input.observations = Array.from({ length: 10000 }, (_, index) => ({
+            ...input.observations[0],
+            reference: `local:${index}`,
+        }));
+        const report = projectIntegrityReport(input, createDiagnosticNameMapper("pseudonym"));
+        const markdown = formatIntegrityMarkdown(report);
+        expect(markdown.match(/^### /gm)).toHaveLength(10000);
+        expect(markdown.endsWith("</details>")).toBe(true);
+    });
+
     it("keeps aliases containing Markdown syntax inert in integrity details", () => {
         const input = integrityResult();
         const aliasWithMarkdown = "alias` | [click](https://evil.invalid) <img src=x onerror=1>";
@@ -432,19 +677,25 @@ describe("diagnostic report projection", () => {
         const projected = projectIntegrityReport(input, mapper);
         const markdown = formatIntegrityMarkdown(projected);
 
-        expect(markdown).toContain("- Path: ``alias` | [click](https://evil.invalid) &lt;img src=x onerror=1&gt;``");
-        expect(markdown).toContain(
-            "- Document ID: ``alias` | [click](https://evil.invalid) &lt;img src=x onerror=1&gt;``"
-        );
+        expect(markdown).toContain("path: ``alias` | [click](https://evil.invalid) &lt;img src=x onerror=1&gt;``");
+        expect(markdown).toContain("doc: ``alias` | [click](https://evil.invalid) &lt;img src=x onerror=1&gt;``");
         expect(markdown).not.toContain("<img");
         assertDoesNotContainSecrets(markdown);
     });
 
     it("projects Usage aliases, titles, errors, and orphan values without changing counts", () => {
         const input = usageResult();
-        const projected = projectUsageReport(input, createDiagnosticNameMapper("pseudonym"));
+        const pseudonyms = pseudonymMapper();
+        const projected = projectUsageReport(input, pseudonyms);
         const json = formatDiagnosticJSON(projected);
         const tsv = formatUsageTSV(projected);
+        const firstPath = pseudonyms.path(privatePath);
+        const firstRevision = pseudonyms.revision(privateRevision);
+        const secondRevision = pseudonyms.revision("8-another-private-revision");
+        const firstRevisionHash = firstRevision.replace(/^7-/, "");
+        const secondRevisionHash = secondRevision.replace(/^8-/, "");
+        const firstId = pseudonyms.id(privateId);
+        const secondId = pseudonyms.id("second-private-document");
 
         expect(projected).toMatchObject({
             version: 1,
@@ -453,23 +704,23 @@ describe("diagnostic report projection", () => {
             changedDuringRun: true,
             rows: [
                 {
-                    title: "file-001 (revision-001)",
-                    id: "document-001",
-                    path: "file-001",
-                    revision: "revision-001",
+                    title: `${firstPath} (${firstRevision})`,
+                    id: firstId,
+                    path: firstPath,
+                    revision: firstRevision,
                     rev: "7",
-                    revHash: "revision-001",
+                    revHash: firstRevisionHash,
                     uniqueChunkCount: 2,
                     sharedChunkCount: 3,
                     uniqueChunkSize: 41,
                     sharedChunkSize: 59,
                 },
                 {
-                    title: "file-001 (revision-002)",
-                    id: "document-002",
-                    path: "file-001",
+                    title: `${firstPath} (${secondRevision})`,
+                    id: secondId,
+                    path: firstPath,
                     rev: "8",
-                    revHash: "revision-002",
+                    revHash: secondRevisionHash,
                     uniqueChunkCount: 5,
                     sharedChunkCount: 7,
                     uniqueChunkSize: 61,
@@ -488,12 +739,14 @@ describe("diagnostic report projection", () => {
                     sharedChunkSize: 0,
                 },
             ],
-            errors: [{ code: "revision_read_failed", id: "document-001", revision: "revision-001" }],
+            errors: [{ code: "revision_read_failed", id: firstId, revision: firstRevision }],
         });
         expect(tsv.split("\n")[0]).toBe(
             "Title\tDocument ID\tPath\tRevision No\tRevision Hash\tUnique Chunk Count\tShared Chunk Count\tUnique Chunk Size\tShared Chunk Size"
         );
-        expect(tsv).toContain("file-001 (revision-001)\tdocument-001\tfile-001\t7\trevision-001\t2\t3\t41\t59");
+        expect(tsv).toContain(
+            `${firstPath} (${firstRevision})\t${firstId}\t${firstPath}\t7\t${firstRevisionHash}\t2\t3\t41\t59`
+        );
         assertDoesNotContainSecrets(json);
         assertDoesNotContainSecrets(tsv);
         expect(json).not.toContain("another-private-revision");
@@ -557,7 +810,7 @@ describe("diagnostic report projection", () => {
             application: "1.0.38",
             privateUrl,
         };
-        const integrity = projectIntegrityReport(input, createDiagnosticNameMapper("pseudonym"), providedVersions);
+        const integrity = projectIntegrityReport(input, pseudonymMapper(), providedVersions);
         const json = formatDiagnosticJSON(integrity);
         const parsed = JSON.parse(json) as typeof integrity;
         const markdown = formatIntegrityMarkdown(integrity);
@@ -580,7 +833,7 @@ describe("diagnostic report projection", () => {
         expect(markdown).not.toContain(privateUrl);
 
         const partialVersions: DiagnosticReportVersions = { commonlib: "0.1.42" };
-        const usage = projectUsageReport(usageResult(), createDiagnosticNameMapper("pseudonym"), partialVersions);
+        const usage = projectUsageReport(usageResult(), pseudonymMapper(), partialVersions);
         const usageJson = formatDiagnosticJSON(usage);
         expect(usage.versions).toEqual({ commonlib: "0.1.42" });
         expect(Object.hasOwn(usage.versions, "plugin")).toBe(false);
@@ -588,8 +841,8 @@ describe("diagnostic report projection", () => {
         expect(usageJson).not.toContain('"plugin"');
         expect(usageJson).not.toContain('"application"');
 
-        const defaultIntegrity = projectIntegrityReport(input, createDiagnosticNameMapper("pseudonym"));
-        const defaultUsage = projectUsageReport(usageResult(), createDiagnosticNameMapper("pseudonym"));
+        const defaultIntegrity = projectIntegrityReport(input, pseudonymMapper());
+        const defaultUsage = projectUsageReport(usageResult(), pseudonymMapper());
         expect(defaultIntegrity.versions).toEqual({});
         expect(defaultUsage.versions).toEqual({});
         expect(formatUsageTSV(usage)).toBe(formatUsageTSV(defaultUsage));

@@ -24,13 +24,13 @@ describe("CouchDB diagnostic reader", () => {
             expect(options.method).toBe("GET");
             expect(options.cache).toBe("no-store");
             if (url.pathname.endsWith("/_all_docs")) return json({ rows: [{ id, value: { rev: "2-current" } }] });
-            if (url.pathname === "/diagnostic") return json({ update_seq: "5-seq" });
+            if (url.pathname === "/diagnostic") return json({ update_seq: "5-seq", doc_count: 1 });
             expect(decodeURIComponent(url.pathname)).toBe(`/diagnostic/${id}`);
             expect(url.searchParams.get("rev")).toBe("1-private-revision");
             return json({ _id: id, _rev: "1-private-revision", type: "plain", path: "private.md", children: [] });
         });
         const source = createCouchDBDiagnosticSource({ settings, fetch });
-        expect(await source.info()).toEqual({ update_seq: "5-seq" });
+        expect(await source.info()).toEqual({ update_seq: "5-seq", doc_count: 1 });
         const ids = [];
         for await (const entry of source.enumerateIds()) ids.push(entry);
         expect(ids).toEqual([id]);

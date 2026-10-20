@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { analyseDatabaseUsage, type DatabaseUsageGetOptions, type DatabaseUsageSource } from "./usage.ts";
+import {
+    analyseDatabaseUsage,
+    type DatabaseUsageGetOptions,
+    type DatabaseUsageProgress,
+    type DatabaseUsageSource,
+} from "./usage.ts";
 
 interface FakeRevisionInfo {
     rev: string;
@@ -51,6 +56,137 @@ function rowById(result: Awaited<ReturnType<typeof analyseDatabaseUsage>>, id: s
 }
 
 describe("analyseDatabaseUsage", () => {
+    it("reports growing available-revision progress through reading and accounting", async () => {
+        const source = makeSource(["first", "second"], {
+            first: {
+                revisions: [
+                    { rev: "1-first", status: "available" },
+                    { rev: "2-pruned", status: "pruned" },
+                    { rev: "3-missing", status: "missing" },
+                ],
+                documents: { "1-first": metadata("first", "1-first", "first.md", []) },
+            },
+            second: {
+                revisions: [
+                    { rev: "1-failed", status: "available" },
+                    { rev: "2-not-found", status: "available" },
+                ],
+                documents: {},
+            },
+        });
+        const get = source.get as ReturnType<typeof vi.fn>;
+        const originalGet = get.getMockImplementation();
+        get.mockImplementation(async (id: string, options?: DatabaseUsageGetOptions) => {
+            if (id === "second" && options?.rev === "1-failed") throw new Error("private failure");
+            if (id === "second" && options?.rev === "2-not-found") return null;
+            return originalGet?.(id, options) ?? null;
+        });
+        const progress: DatabaseUsageProgress[] = [];
+
+        const result = await analyseDatabaseUsage({ source, onProgress: (value) => progress.push(value) });
+
+        expect(progress[0]).toEqual({
+            phase: "reading",
+            idsProcessed: 0,
+            revisionsProcessed: 0,
+            processed: 0,
+            total: 0,
+            totalIsFinal: false,
+        });
+        const readingProgress = progress.filter(({ phase }) => phase === "reading");
+        expect(
+            readingProgress.some(
+                ({ processed, total, totalIsFinal }) => processed === 0 && total === 1 && totalIsFinal === false
+            )
+        ).toBe(true);
+        expect(
+            readingProgress.some(
+                ({ processed, total, totalIsFinal }) => processed === 1 && total === 3 && totalIsFinal === false
+            )
+        ).toBe(true);
+        expect(readingProgress.at(-1)).toMatchObject({
+            revisionsProcessed: 3,
+            processed: 3,
+            total: 3,
+            totalIsFinal: true,
+        });
+        const accountingProgress = progress.filter(({ phase }) => phase === "accounting");
+        expect(accountingProgress[0]).toMatchObject({ processed: 0, totalIsFinal: true });
+        expect(accountingProgress.at(-1)).toMatchObject({
+            processed: accountingProgress.at(-1)?.total,
+            totalIsFinal: true,
+        });
+        expect(result.errors).toEqual([
+            { code: "revision_read_failed", id: "second", revision: "1-failed" },
+            { code: "revision_not_found", id: "second", revision: "2-not-found" },
+        ]);
+        expect(source.get).not.toHaveBeenCalledWith("first", { rev: "2-pruned" });
+        expect(source.get).not.toHaveBeenCalledWith("first", { rev: "3-missing" });
+    });
+
+    it("keeps results equal when progress callbacks fail", async () => {
+        const makeFixture = () =>
+            makeSource(["entry"], {
+                entry: {
+                    revisions: [{ rev: "1-entry", status: "available" }],
+                    documents: { "1-entry": metadata("entry", "1-entry", "entry.md", []) },
+                },
+            });
+
+        const expected = await analyseDatabaseUsage({ source: makeFixture() });
+        const actual = await analyseDatabaseUsage({
+            source: makeFixture(),
+            onProgress: () => {
+                throw new Error("progress observer failed");
+            },
+        });
+
+        expect(actual).toEqual(expected);
+    });
+
+    it("yields during accounting and omits incomplete rows when cancelled", async () => {
+        const ids = Array.from({ length: 130 }, (_, index) => `entry-${index}`);
+        const entries: Record<string, FakeEntry> = Object.fromEntries(
+            ids.map((id, index) => {
+                const revision = `1-entry${index}`;
+                return [
+                    id,
+                    {
+                        revisions: [{ rev: revision, status: "available" }],
+                        documents: { [revision]: metadata(id, revision, `${id}.md`, []) },
+                    },
+                ] as const;
+            })
+        );
+        const source = makeSource(ids, entries);
+        const controller = new AbortController();
+        let cancelScheduled = false;
+        let eventLoopReached = false;
+        const progress: DatabaseUsageProgress[] = [];
+
+        const result = await analyseDatabaseUsage({
+            source,
+            signal: controller.signal,
+            onProgress: (value) => {
+                progress.push(value);
+                if (value.phase === "accounting" && value.processed === 0 && !cancelScheduled) {
+                    cancelScheduled = true;
+                    setTimeout(() => {
+                        eventLoopReached = true;
+                        controller.abort();
+                    }, 0);
+                }
+            },
+        });
+
+        expect(eventLoopReached).toBe(true);
+        expect(
+            progress.some(({ phase, processed, total }) => phase === "accounting" && processed > 0 && processed < total)
+        ).toBe(true);
+        expect(result.status).toBe("cancelled");
+        expect(result.rows).toEqual([]);
+    });
+
     it.each([{ children: "chunk-a" }, { children: ["chunk-a", 7] }, { children: false }])(
         "marks malformed Chunk references as partial without treating the revision as inspected: $children",
         async ({ children }) => {
@@ -74,9 +210,7 @@ describe("analyseDatabaseUsage", () => {
             const result = await analyseDatabaseUsage({ source });
 
             expect(result.status).toBe("partial");
-            expect(result.errors).toEqual([
-                { code: "revision_document_invalid", id: "broken", revision: "1-broken" },
-            ]);
+            expect(result.errors).toEqual([{ code: "revision_document_invalid", id: "broken", revision: "1-broken" }]);
             expect(rowById(result, "broken")).toBeUndefined();
             expect(rowById(result, "valid")).toMatchObject({ uniqueChunkCount: 1, uniqueChunkSize: 8 });
         }
@@ -309,7 +443,7 @@ describe("analyseDatabaseUsage", () => {
             return metadata("second", "1-second", "second.md", []);
         });
 
-        const progress: Array<{ idsProcessed: number; revisionsProcessed: number }> = [];
+        const progress: DatabaseUsageProgress[] = [];
         const result = await analyseDatabaseUsage({
             source,
             signal: controller.signal,
@@ -328,5 +462,11 @@ describe("analyseDatabaseUsage", () => {
                     Number.isInteger(idsProcessed) && Number.isInteger(revisionsProcessed)
             )
         ).toBe(true);
+        expect(progress.filter(({ phase }) => phase === "reading").at(-1)).toMatchObject({
+            revisionsProcessed: 1,
+            processed: 1,
+            total: 2,
+            totalIsFinal: false,
+        });
     });
 });

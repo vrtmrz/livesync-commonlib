@@ -236,7 +236,23 @@ import {
 } from "${packageName}/browser";
 import { splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
 import { HashManager, computeFileContentHash, type HashManagerCoreOptions } from "${packageName}/hashing";
-import { analyseDatabaseUsage, type DatabaseUsageSource } from "${packageName}/diagnostics";
+import {
+    analyseDatabaseUsage, type DatabaseUsageSource,
+    type DatabaseIntegrityOptions, type DatabaseIntegrityProgress, type DatabaseIntegrityLog,
+    type DiagnosticDatabaseSource, type DiagnosticDocumentReadResult,
+} from "${packageName}/diagnostics";
+const integrityCallbacks: Pick<DatabaseIntegrityOptions, "includeRemote" | "concurrency" | "onProgress" | "onLog"> = {
+    includeRemote: false,
+    concurrency: 4,
+    onProgress: (value: DatabaseIntegrityProgress) => { void value.total; },
+    onLog: (value: DatabaseIntegrityLog) => { void value.peakActiveReads; },
+};
+void integrityCallbacks;
+const readMany: NonNullable<DiagnosticDatabaseSource["getMany"]> = async (ids, options) => {
+    void options?.conflicts;
+    return ids.map((id): DiagnosticDocumentReadResult => ({ id, error: new Error("Unavailable") }));
+};
+void readMany;
 const diagnosticSource: DatabaseUsageSource = {
     info: async () => ({ update_seq: 0 }),
     enumerateIds: async function* () {},
@@ -410,8 +426,37 @@ assert.equal(usage.status, "complete");
 assert.equal(usage.rows.length, 1);
 assert.equal(usage.rows[0].id, "__orphan");
 const names = diagnosticsApi.createDiagnosticNameMapper("pseudonym");
-assert.equal(names.path("private.md"), "file-001");
-assert.equal(names.path("private.md"), "file-001");
+const pathToken = names.path("private.md");
+const parsedPathToken = diagnosticsApi.parseDiagnosticPathToken(pathToken);
+assert.ok(parsedPathToken);
+assert.equal(parsedPathToken.salt, names.salt);
+assert.equal(names.path("private.md"), pathToken);
+assert.equal(diagnosticsApi.createDiagnosticNameMapper("pseudonym", parsedPathToken.salt).path("private.md"), pathToken);
+assert.match(names.revision("7-private-revision"), /^7-psu[0-9a-f]{32}$/);
+const integrityProgress = [];
+const integrityLogs = [];
+const localIntegrity = await diagnosticsApi.analyseDatabaseIntegrity({
+    includeRemote: false,
+    remote: async () => { throw new Error("Excluded remote opened"); },
+    local: {
+        info: async () => ({ update_seq: 0, doc_count: 0 }),
+        enumerateIds: async function* () {},
+        get: async () => { throw new Error("Unexpected read"); },
+    },
+    path: { getPath: () => "", path2id: async () => "" },
+    settings: { encrypt: false, usePathObfuscation: false, handleFilenameCaseSensitive: true,
+        idDerivationVersion: 0, pathNormalizationVersion: 0 },
+    readStorage: async () => ({ status: "not-checked" }),
+    isConfigurationCurrent: () => true,
+    onProgress: (value) => integrityProgress.push(value),
+    onLog: (value) => integrityLogs.push(value),
+});
+assert.equal(integrityProgress[0].total, 0);
+assert.equal(localIntegrity.status, "complete");
+assert.equal(localIntegrity.scope.remote, "excluded");
+assert.equal(localIntegrity.coverage.remote.status, "not-checked");
+assert.equal(integrityProgress[0].source, "local");
+assert.ok(integrityLogs.some((value) => value.event === "completed" && value.concurrency === 4));
 const setupUriApi = await import("${packageName}/setup-uri");
 const remoteConfigurationsApi = await import("${packageName}/remote-configurations");
 const p2pApi = await import("${packageName}/p2p");
