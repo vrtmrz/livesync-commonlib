@@ -5,7 +5,10 @@ import { isPathProbablyObfuscated } from "octagonal-wheels/encryption/encryption
 import { decompressDoc } from "../pouchdb/compress.ts";
 import { AuthorizationHeaderGenerator, generateCredentialObject } from "../replication/httplib.ts";
 import { base64ToArrayBuffer } from "../string_and_binary/convert.ts";
-import { DiagnosticReadError, type DiagnosticDatabaseSource } from "./types.ts";
+import { DiagnosticReadError, type DiagnosticDatabaseSource, type DiagnosticDocumentReadResult } from "./types.ts";
+
+const MAX_BULK_DOCUMENTS = 64;
+const MAX_BULK_URL_LENGTH = 6000;
 
 export interface CouchDBDiagnosticSourceOptions {
     settings: RemoteDBSettings;
@@ -42,13 +45,16 @@ export function createCouchDBDiagnosticSource({
     const checkCancelled = () => {
         if (controller.signal.aborted) throw new DOMException("Diagnostic cancelled", "AbortError");
     };
-    const readJSON = async (path: string, parameters: Record<string, string> = {}): Promise<unknown> => {
-        checkCancelled();
+    const requestURL = (path: string, parameters: Record<string, string> = {}) => {
         const requestURL = new URL(`${root}${path}`);
         for (const [key, value] of Object.entries(parameters)) requestURL.searchParams.set(key, value);
+        return requestURL.toString();
+    };
+    const readJSON = async (path: string, parameters: Record<string, string> = {}): Promise<unknown> => {
+        checkCancelled();
         headers.set("authorization", await auth.getAuthorizationHeader(credentials));
         checkCancelled();
-        const response = await fetch(requestURL.toString(), {
+        const response = await fetch(requestURL(path, parameters), {
             method: "GET",
             headers,
             cache: "no-store",
@@ -87,10 +93,32 @@ export function createCouchDBDiagnosticSource({
               () => {}
           ).outgoing
         : async (doc: EntryDoc) => doc;
-    return {
+    const decode = async (id: string, value: unknown): Promise<EntryDoc> => {
+        if (
+            !value ||
+            typeof value !== "object" ||
+            !("_id" in value) ||
+            value._id !== id ||
+            !("_rev" in value) ||
+            typeof value._rev !== "string"
+        ) {
+            throw new DiagnosticReadError("document-unreadable");
+        }
+        const decoded = await decompressDoc(await decrypt(value as EntryDoc));
+        if (
+            ("e_" in decoded && decoded.e_ === true) ||
+            ("path" in decoded &&
+                typeof decoded.path === "string" &&
+                (isEncryptedMeta(decoded) || (isObfuscatedEntry(decoded) && isPathProbablyObfuscated(decoded.path))))
+        )
+            throw new DiagnosticReadError("document-unreadable");
+        checkCancelled();
+        return decoded;
+    };
+    const source: DiagnosticDatabaseSource & { close(): Promise<void> } = {
         async info() {
-            const info = (await readJSON("")) as { update_seq?: string | number };
-            return { update_seq: info.update_seq };
+            const info = (await readJSON("")) as { update_seq?: string | number; doc_count?: number };
+            return { update_seq: info.update_seq, doc_count: info.doc_count };
         },
         async *enumerateIds() {
             let previous: string | undefined;
@@ -122,22 +150,86 @@ export function createCouchDBDiagnosticSource({
             if (options.conflicts) parameters.conflicts = "true";
             if (options.revs) parameters.revs = "true";
             if (options.revs_info) parameters.revs_info = "true";
-            const raw = (await readJSON(`/${encodeURIComponent(id)}`, parameters)) as EntryDoc;
-            if (raw._id !== id || typeof raw._rev !== "string") {
-                throw new DiagnosticReadError("document-unreadable");
+            return await decode(id, await readJSON(`/${encodeURIComponent(id)}`, parameters));
+        },
+        async getMany(ids, options = {}) {
+            const result: DiagnosticDocumentReadResult[] = [];
+            const parameters = (keys: string[]) => ({
+                keys: JSON.stringify(keys),
+                include_docs: "true",
+                ...(options.conflicts ? { conflicts: "true" } : {}),
+            });
+            const readBatch = async (keys: string[]) => {
+                if (!keys.length) return;
+                let rows: {
+                    key?: string;
+                    id?: string;
+                    error?: unknown;
+                    value?: { deleted?: boolean };
+                    doc?: unknown;
+                }[];
+                try {
+                    const page = (await readJSON("/_all_docs", parameters(keys))) as { rows?: typeof rows };
+                    if (!Array.isArray(page.rows)) throw new DiagnosticReadError("document-unreadable");
+                    rows = page.rows;
+                } catch {
+                    checkCancelled();
+                    // An endpoint failure does not establish that any requested document is absent.
+                    result.push(...keys.map((id) => ({ id, error: new DiagnosticReadError("document-unreadable") })));
+                    return;
+                }
+                for (let offset = 0; offset < keys.length; offset += 4) {
+                    checkCancelled();
+                    const decoded = await Promise.allSettled(
+                        keys.slice(offset, offset + 4).map(async (id, index): Promise<DiagnosticDocumentReadResult> => {
+                            try {
+                                const row = rows[offset + index];
+                                if (!row || row.key !== id) throw new DiagnosticReadError("document-unreadable");
+                                if (row.error === "not_found" || row.value?.deleted)
+                                    throw new DiagnosticReadError("document-unreadable", true);
+                                if (row.error || row.id !== id) throw new DiagnosticReadError("document-unreadable");
+                                return { id, document: await decode(id, row.doc) };
+                            } catch (error) {
+                                checkCancelled();
+                                return {
+                                    id,
+                                    error:
+                                        error instanceof DiagnosticReadError
+                                            ? error
+                                            : new DiagnosticReadError("document-unreadable"),
+                                };
+                            }
+                        })
+                    );
+                    checkCancelled();
+                    for (const outcome of decoded) {
+                        if (outcome.status === "rejected") throw outcome.reason;
+                        result.push(outcome.value);
+                    }
+                }
+            };
+            let pending: string[] = [];
+            for (const id of ids) {
+                checkCancelled();
+                if (
+                    pending.length >= MAX_BULK_DOCUMENTS ||
+                    requestURL("/_all_docs", parameters([...pending, id])).length > MAX_BULK_URL_LENGTH
+                ) {
+                    await readBatch(pending);
+                    pending = [];
+                }
+                if (requestURL("/_all_docs", parameters([id])).length > MAX_BULK_URL_LENGTH) {
+                    try {
+                        result.push({ id, document: await source.get(id, options) });
+                    } catch (error) {
+                        checkCancelled();
+                        result.push({ id, error });
+                    }
+                } else pending.push(id);
             }
-            const decoded = await decompressDoc(await decrypt(raw));
-            if (
-                ("e_" in decoded && decoded.e_ === true) ||
-                ("path" in decoded &&
-                    typeof decoded.path === "string" &&
-                    (isEncryptedMeta(decoded) ||
-                        (isObfuscatedEntry(decoded) && isPathProbablyObfuscated(decoded.path))))
-            ) {
-                throw new DiagnosticReadError("document-unreadable");
-            }
+            await readBatch(pending);
             checkCancelled();
-            return decoded;
+            return result;
         },
         close() {
             signal?.removeEventListener("abort", abort);
@@ -145,4 +237,5 @@ export function createCouchDBDiagnosticSource({
             return Promise.resolve();
         },
     };
+    return source;
 }

@@ -122,7 +122,9 @@ The focused Setup URI entry offers an Ephemeral mode bound to the current fixed 
 
 ## Database diagnostics
 
-The focused `/diagnostics` entry provides read-only Usage and integrity reports, with original names or temporary pseudonyms selected by the host for each run. Integrity inspection covers normal-file Metadata, current conflict branches, and content comparisons for suspect groups in the local database and CouchDB. See [Database diagnostics](docs/database-diagnostics.md) for coverage, cancellation, and privacy boundaries.
+The focused `/diagnostics` entry provides read-only Usage and integrity reports, with original names or temporary pseudonyms selected by the host for each run. Integrity inspection covers normal-file Metadata, current conflict branches, and content comparisons for suspect groups in the local database and, by default, CouchDB; the host can exclude the remote source for one run. See [Database diagnostics](docs/database-diagnostics.md) for coverage, progress, cancellation, pseudonym lookup, and privacy boundaries.
+
+Integrity Markdown places a compact state summary and review index before all findings, while retaining each observation and its follow-up references. This formatting does not change the projected JSON data or schema; see [the Markdown field guide](docs/database-diagnostics.md#compact-integrity-markdown-report) for the meaning and limits of its review index.
 
 ```typescript
 import {
@@ -130,16 +132,32 @@ import {
     createDiagnosticNameMapper,
     createLocalDiagnosticSource,
     formatUsageTSV,
+    parseDiagnosticPathToken,
     projectUsageReport,
 } from '@vrtmrz/livesync-commonlib/diagnostics';
 
 const result = await analyseDatabaseUsage({ source: createLocalDiagnosticSource(localPouchDB) });
-const report = projectUsageReport(result, createDiagnosticNameMapper('pseudonym'));
+const mapper = createDiagnosticNameMapper('pseudonym');
+const report = projectUsageReport(result, mapper);
 if (report.status === 'complete') {
     const tsv = formatUsageTSV(report);
     // Present the report through the host's own UI or output stream.
 }
 ```
+
+Path pseudonyms include the report salt. A consumer can parse that token and supply its salt to a new mapper for a targeted follow-up against exact local Metadata paths:
+
+```typescript
+const pathToken = report.rows[0]?.path;
+const parsed = pathToken === undefined ? undefined : parseDiagnosticPathToken(pathToken);
+if (parsed) {
+    const followUpMapper = createDiagnosticNameMapper('pseudonym', parsed.salt);
+    const candidateToken = followUpMapper.path(storedVaultRelativePath);
+    // Compare this token with the path pseudonym on this device.
+}
+```
+
+The parser accepts only complete path tokens; it does not reverse them to recover a path. The salt is public, so a guessed path can be checked. Older ordinal pseudonyms have no corresponding lookup.
 
 ## Chunk ID calculation
 

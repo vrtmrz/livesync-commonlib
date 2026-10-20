@@ -12,6 +12,7 @@ export { createCouchDBDiagnosticSource } from "./couchdb.ts";
 export type { CouchDBDiagnosticSourceOptions } from "./couchdb.ts";
 export {
     createDiagnosticNameMapper,
+    parseDiagnosticPathToken,
     projectIntegrityReport,
     projectUsageReport,
     formatDiagnosticJSON,
@@ -32,12 +33,16 @@ export type {
     DiagnosticSourceName,
     DiagnosticReason,
     DiagnosticReadOptions,
+    DiagnosticDocumentReadResult,
     DiagnosticDatabaseSource,
     DiagnosticError,
     DiagnosticContent,
     DiagnosticCoverage,
     DiagnosticObservation,
+    DiagnosticPathEquivalenceGroup,
     DiagnosticIdentitySettings,
     DatabaseIntegrityResult,
     DatabaseIntegrityOptions,
+    DatabaseIntegrityProgress,
+    DatabaseIntegrityLog,
 } from "./types.ts";

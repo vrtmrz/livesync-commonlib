@@ -16,6 +16,7 @@ import {
 import { getConfiguredFunctionsForEncryption } from "../pouchdb/encryption.ts";
 import { path2id_base } from "../string_and_binary/path.ts";
 import { createCouchDBDiagnosticSource } from "./couchdb.ts";
+import { analyseDatabaseIntegrity } from "./integrity.ts";
 
 function loadEnvironment() {
     const loadEnvFile = (path: string) => (existsSync(path) ? parseEnv(readFileSync(path, "utf-8")) : {});
@@ -60,6 +61,106 @@ async function readDatabaseInfo(): Promise<{ update_seq?: string | number }> {
 }
 
 describe("CouchDB diagnostic reader integration", () => {
+    it("reduces HTTP requests while preserving the full individual-read inspection", async () => {
+        let created = false;
+        try {
+            await expectHttpSuccess(
+                await fetch(databaseUrl, { method: "PUT", headers: jsonHeaders }),
+                "CouchDB batch fixture database"
+            );
+            created = true;
+            const chunks = Array.from({ length: 130 }, (_, index) => ({
+                _id: `h:fixture-${index}`,
+                type: "leaf",
+                data: String(index),
+            }));
+            const notes = Array.from({ length: 65 }, (_, index) => ({
+                _id: `note-${index}.md`,
+                path: `note-${index}.md`,
+                type: "plain",
+                ctime: 1,
+                mtime: 1,
+                size: 1,
+                children: index === 0 ? chunks.map((chunk) => chunk._id) : [],
+                eden: {},
+            }));
+            const stored = await fetch(`${databaseUrl}/_bulk_docs`, {
+                method: "POST",
+                headers: jsonHeaders,
+                body: JSON.stringify({ docs: [...notes, ...chunks] }),
+            });
+            await expectHttpSuccess(stored, "CouchDB batch fixture documents");
+            expect(((await stored.json()) as { error?: unknown }[]).every((row) => !row.error)).toBe(true);
+            const sequence = (await readDatabaseInfo()).update_seq;
+            const inspect = async (bulk: boolean) => {
+                let requests = 0;
+                const report = await analyseDatabaseIntegrity({
+                    local: {
+                        info: async () => ({ update_seq: 0, doc_count: 0 }),
+                        enumerateIds: async function* () {},
+                        get: async () => {
+                            throw new Error("unexpected local read");
+                        },
+                    },
+                    remote: async () => {
+                        const source = createCouchDBDiagnosticSource({
+                            settings: {
+                                ...DEFAULT_SETTINGS,
+                                couchDB_URI: hostname,
+                                couchDB_DBNAME: databaseName,
+                                couchDB_USER: username,
+                                couchDB_PASSWORD: password,
+                                encrypt: false,
+                            },
+                            fetch: async (request, options) => {
+                                expect(options.method).toBe("GET");
+                                requests++;
+                                return await fetch(request, options);
+                            },
+                        });
+                        if (!bulk) source.getMany = undefined;
+                        return source;
+                    },
+                    path: {
+                        getPath: (entry) => (entry as PlainEntry).path,
+                        path2id: async (path) => path as DocumentID,
+                    },
+                    settings: {
+                        encrypt: false,
+                        usePathObfuscation: false,
+                        handleFilenameCaseSensitive: true,
+                        idDerivationVersion: 0,
+                        pathNormalizationVersion: 0,
+                    },
+                    readStorage: async () => ({ status: "not-checked" }),
+                    isConfigurationCurrent: () => true,
+                });
+                return { report, requests };
+            };
+            const individual = await inspect(false);
+            const bulk = await inspect(true);
+            expect(bulk.report).toEqual(individual.report);
+            expect(bulk.report.status).toBe("complete");
+            expect(individual.requests).toBe(198);
+            expect(bulk.requests).toBe(8);
+            expect((await readDatabaseInfo()).update_seq).toBe(sequence);
+            console.log(
+                JSON.stringify({
+                    individualHttpRequests: individual.requests,
+                    bulkHttpRequests: bulk.requests,
+                    metadata: 65,
+                    chunks: 130,
+                })
+            );
+        } finally {
+            if (created)
+                await expectHttpSuccess(
+                    await fetch(databaseUrl, { method: "DELETE", headers: jsonHeaders }),
+                    "CouchDB batch fixture cleanup"
+                );
+        }
+    }, 30_000);
+
     it("reads encrypted records with the existing Security Seed and stays read-only", async () => {
         const serverInfo = await getJSON<{ version?: string }>(new URL("/", hostname).toString());
         expect(serverInfo.version).toBe("3.5.0");
@@ -146,15 +247,43 @@ describe("CouchDB diagnostic reader integration", () => {
             expect(ids).not.toContain(DOCID_SYNC_PARAMETERS);
             expect(await source.get(metadata._id)).toMatchObject(metadata);
             expect(await source.get(chunkId)).toMatchObject(chunk);
+            const bulkStart = readerRequests.length;
+            const bulk = await source.getMany!([metadata._id, chunkId, "h:missing"], { conflicts: true });
+            expect(bulk[0]).toMatchObject({ id: metadata._id, document: metadata });
+            expect(bulk[1]).toMatchObject({ id: chunkId, document: chunk });
+            expect(bulk[2]).toMatchObject({ id: "h:missing", error: { missing: true } });
+            expect(readerRequests.length - bulkStart).toBe(1);
             const sequenceAfter = (await source.info()).update_seq;
             const seedAfter = await getJSON<Record<string, unknown>>(documentUrl(DOCID_SYNC_PARAMETERS));
             expect(sequenceAfter).toBe(sequenceBefore);
             expect(seedAfter).toEqual(storedSeed);
 
+            const conflictRevision = "1-00000000000000000000000000000001";
+            const conflictURL = new URL(documentUrl(metadata._id));
+            conflictURL.searchParams.set("new_edits", "false");
+            await expectHttpSuccess(
+                await fetch(conflictURL, {
+                    method: "PUT",
+                    headers: jsonHeaders,
+                    body: JSON.stringify({ ...encryptedMetadata, _rev: conflictRevision }),
+                }),
+                "CouchDB conflict fixture"
+            );
+            const conflictedSequence = (await source.info()).update_seq;
+            const winner = await source.get(metadata._id, { conflicts: true });
+            const conflicts = (winner as EntryDoc & { _conflicts: string[] })._conflicts;
+            expect(conflicts).toHaveLength(1);
+            expect(await source.getMany!([metadata._id], { conflicts: true })).toEqual([
+                { id: metadata._id, document: winner },
+            ]);
+            expect(await source.get(metadata._id, { rev: conflicts[0], conflicts: true })).toMatchObject(metadata);
+            expect((await source.info()).update_seq).toBe(conflictedSequence);
+
             await source.close();
             const requestCountAfterClose = readerRequests.length;
             await expect(source.info()).rejects.toMatchObject({ name: "AbortError" });
             await expect(source.get(metadata._id)).rejects.toMatchObject({ name: "AbortError" });
+            await expect(source.getMany!([metadata._id])).rejects.toMatchObject({ name: "AbortError" });
             expect(readerRequests).toHaveLength(requestCountAfterClose);
 
             const seedRevision = String(storedSeed._rev);
@@ -172,6 +301,10 @@ describe("CouchDB diagnostic reader integration", () => {
                 await expect(missingSeedSource.get(metadata._id)).rejects.toMatchObject({
                     reason: "security-seed-unavailable",
                 });
+                expect(await missingSeedSource.getMany!([metadata._id, chunkId])).toMatchObject([
+                    { error: { reason: "security-seed-unavailable" } },
+                    { error: { reason: "security-seed-unavailable" } },
+                ]);
             } finally {
                 await missingSeedSource.close();
             }

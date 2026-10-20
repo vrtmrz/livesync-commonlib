@@ -13,11 +13,14 @@ import {
 import type {
     DatabaseIntegrityOptions,
     DatabaseIntegrityResult,
+    DatabaseIntegrityLog,
     DiagnosticContent,
     DiagnosticCoverage,
     DiagnosticDatabaseSource,
+    DiagnosticDocumentReadResult,
     DiagnosticError,
     DiagnosticObservation,
+    DiagnosticPathEquivalenceGroup,
     DiagnosticReason,
     DiagnosticSourceName,
 } from "./types.ts";
@@ -88,6 +91,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return value !== null && typeof value === "object";
 }
 
+function isFiniteNumber(value: unknown): value is number {
+    return typeof value === "number" && Number.isFinite(value);
+}
+
+function isRecordedSize(value: unknown): value is number {
+    return isFiniteNumber(value) && value >= 0;
+}
+
 function isCurrentMetadata(value: unknown): value is CurrentMetadata {
     return isRecord(value) && (value.type === EntryTypes.NOTE_BINARY || value.type === EntryTypes.NOTE_PLAIN);
 }
@@ -125,11 +136,162 @@ function appendError(
     errors.push({ source, reason, ...details });
 }
 
-function progress(options: DatabaseIntegrityOptions, phase: "metadata" | "content", processed: number): void {
+function concurrencyLimit(options: DatabaseIntegrityOptions): number {
+    return Number.isFinite(options.concurrency) ? Math.max(1, Math.min(16, Math.floor(options.concurrency!))) : 4;
+}
+
+class InspectionPhase {
+    processed = 0;
+    total?: number;
+    private readonly started = performance.now();
+    private lastLog = this.started;
+    private activeReads = 0;
+    private peakActiveReads = 0;
+    private readOperations = 0;
+    private readDurationMs = 0;
+
+    constructor(
+        private readonly options: DatabaseIntegrityOptions,
+        private readonly phase: DatabaseIntegrityLog["phase"],
+        private readonly source?: DiagnosticSourceName
+    ) {
+        this.log("started");
+    }
+
+    async read<T>(read: () => Promise<T>, documents = 1): Promise<T> {
+        const started = performance.now();
+        this.readOperations += documents;
+        this.peakActiveReads = Math.max(this.peakActiveReads, ++this.activeReads);
+        try {
+            return await read();
+        } finally {
+            this.activeReads--;
+            this.readDurationMs += performance.now() - started;
+        }
+    }
+
+    update(): void {
+        if (this.total !== undefined) this.total = Math.max(this.total, this.processed);
+        if (this.phase !== "grouping") {
+            try {
+                this.options.onProgress?.({
+                    phase: this.phase,
+                    source: this.source,
+                    processed: this.processed,
+                    total: this.total,
+                    elapsedMs: Math.round(performance.now() - this.started),
+                });
+            } catch {
+                // Progress reporting is advisory and must not interrupt inspection.
+            }
+        }
+        if (performance.now() - this.lastLog >= 5000) this.log("progress");
+    }
+
+    log(event: DatabaseIntegrityLog["event"]): void {
+        this.lastLog = performance.now();
+        try {
+            this.options.onLog?.({
+                phase: this.phase,
+                source: this.source,
+                event,
+                processed: this.processed,
+                total: this.total,
+                elapsedMs: Math.round(this.lastLog - this.started),
+                concurrency: concurrencyLimit(this.options),
+                activeReads: this.activeReads,
+                peakActiveReads: this.peakActiveReads,
+                readOperations: this.readOperations,
+                readDurationMs: Math.round(this.readDurationMs),
+            });
+        } catch {
+            // Logging is advisory and must not interrupt inspection.
+        }
+    }
+}
+
+/** Bound both in-flight work and retained results, and drain reads before closing a source. */
+async function inspectBatches<T, R>(
+    items: AsyncIterable<T> | Iterable<T>,
+    options: DatabaseIntegrityOptions,
+    inspect: (item: T) => Promise<R>,
+    merge: (result: R) => void
+): Promise<boolean> {
+    const pending: Promise<R>[] = [];
+    const drain = async () => {
+        const results = await Promise.allSettled(pending.splice(0));
+        let failure: PromiseRejectedResult | undefined;
+        for (const result of results) {
+            if (result.status === "fulfilled") merge(result.value);
+            else failure ??= result;
+        }
+        if (failure) throw failure.reason;
+    };
     try {
-        options.onProgress?.({ phase, processed });
-    } catch {
-        // Progress reporting is advisory and must not interrupt inspection.
+        for await (const item of items) {
+            if (cancelled(options)) return false;
+            const task = inspect(item);
+            // Enumeration can await I/O before the batch drains.
+            void task.catch(() => {});
+            pending.push(task);
+            if (pending.length >= concurrencyLimit(options)) await drain();
+            if (cancelled(options)) return false;
+        }
+        return !cancelled(options);
+    } finally {
+        await drain();
+    }
+}
+
+const DOCUMENT_BATCH_SIZE = 64;
+
+async function* documentBatches(ids: AsyncIterable<string>, options: DatabaseIntegrityOptions) {
+    let pending: string[] = [];
+    let failure: { error: unknown } | undefined;
+    try {
+        for await (const id of ids) {
+            if (cancelled(options)) return;
+            pending.push(id);
+            if (pending.length === DOCUMENT_BATCH_SIZE) {
+                yield pending;
+                pending = [];
+            }
+        }
+    } catch (error) {
+        failure = { error };
+    }
+    if (pending.length && !cancelled(options)) yield pending;
+    if (failure) throw failure.error;
+}
+
+async function readMany(
+    source: DiagnosticDatabaseSource,
+    ids: string[],
+    phase: InspectionPhase,
+    options?: { conflicts?: boolean }
+): Promise<Map<string, DiagnosticDocumentReadResult>> {
+    if (!ids.length) return new Map();
+    try {
+        const results = await phase.read(() => source.getMany!(ids, options), ids.length);
+        const byId = new Map(results.map((result) => [result.id, result]));
+        return new Map(
+            ids.map((id) => [id, byId.get(id) ?? { id, error: new DiagnosticReadError("document-unreadable") }])
+        );
+    } catch (error) {
+        return new Map(ids.map((id) => [id, { id, error }]));
+    }
+}
+
+function readResult(result: DiagnosticDocumentReadResult): EntryDoc {
+    if ("error" in result) throw result.error;
+    return result.document;
+}
+
+function mergeSourceWork(target: SourceRun, work: SourceRun): void {
+    target.errors.push(...work.errors);
+    target.observations.push(...work.observations);
+    for (const key of ["documents", "metadata", "excluded", "conflictBranches", "contentReads"] as const) {
+        target.coverage[key] += work.coverage[key];
     }
 }
 
@@ -186,6 +348,7 @@ async function classifyObservation(
         }
 
         const rawPath = document.path as string;
+        const recordedSize = isRecordedSize(document.size) ? document.size : undefined;
         const mismatch =
             identity.status === MetadataDocumentIdentityStatuses.UNRESOLVED ? identity.diagnostic.reason : undefined;
         const report: DiagnosticObservation = {
@@ -212,6 +375,16 @@ async function classifyObservation(
             pathIsNFC: rawPath === rawPath.normalize("NFC"),
             caseEquivalentPaths: false,
             nfcEquivalentPaths: false,
+            metadata: {
+                type: document.type,
+                ...(recordedSize !== undefined ? { recordedSize } : {}),
+                chunkReferences: document.children.length,
+                uniqueChunkReferences: new Set(document.children).size,
+                embeddedChunkReferences: document.children.reduce(
+                    (count, child) => count + (getEdenChunk(document, child) !== undefined ? 1 : 0),
+                    0
+                ),
+            },
             content: {
                 status: "not-checked",
                 chunksRead: 0,
@@ -236,123 +409,143 @@ async function classifyObservation(
     }
 }
 
+async function inspectMetadataDocument(
+    options: DatabaseIntegrityOptions,
+    run: SourceRun,
+    id: string,
+    phase: InspectionPhase,
+    prefetched?: DiagnosticDocumentReadResult
+): Promise<void> {
+    if (cancelled(options)) return;
+    run.coverage.documents++;
+    if (isSkippedDocumentId(id)) {
+        run.coverage.excluded++;
+        return;
+    }
+    let winnerValue: EntryDoc;
+    try {
+        winnerValue =
+            prefetched === undefined
+                ? await phase.read(() => run.source.get(id, { conflicts: true }))
+                : readResult(prefetched);
+    } catch (error) {
+        if (cancelled(options)) return;
+        appendError(run.errors, run.name, reasonFromReadError(error, "document-unreadable"), { id });
+        return;
+    }
+    if (cancelled(options)) return;
+    if (!isRecord(winnerValue) || winnerValue._id !== id) {
+        appendError(run.errors, run.name, "invalid-metadata", { id });
+        return;
+    }
+
+    if (!isCurrentMetadata(winnerValue)) {
+        // Legacy notes and non-Metadata documents are deliberately outside this report.
+        run.coverage.excluded++;
+        return;
+    }
+
+    const winner = winnerValue;
+    if (!isValidCurrentMetadata(winner)) {
+        appendError(run.errors, run.name, "invalid-metadata", {
+            id,
+            revision: typeof winner._rev === "string" ? winner._rev : undefined,
+        });
+        return;
+    }
+
+    const conflictRevisions = Array.isArray(winner._conflicts)
+        ? winner._conflicts.filter((revision): revision is string => typeof revision === "string")
+        : [];
+    await classifyObservation(options, run, winner, "winner", conflictRevisions.length, "pending");
+    if (cancelled(options)) return;
+
+    for (const revision of conflictRevisions) {
+        if (cancelled(options)) return;
+        let branchValue: EntryDoc;
+        try {
+            branchValue = await phase.read(() => run.source.get(id, { rev: revision, conflicts: true }));
+        } catch (error) {
+            if (cancelled(options)) return;
+            appendError(run.errors, run.name, reasonFromReadError(error, "revision-unavailable"), {
+                id,
+                revision,
+            });
+            continue;
+        }
+        if (cancelled(options)) return;
+        if (!isRecord(branchValue) || branchValue._id !== id || branchValue._rev !== revision) {
+            appendError(run.errors, run.name, "revision-unavailable", { id, revision });
+            continue;
+        }
+        if (!isCurrentMetadata(branchValue)) {
+            // A legacy or non-Metadata branch is outside the current-file inspection scope.
+            run.coverage.excluded++;
+            continue;
+        }
+        await classifyObservation(options, run, branchValue, "conflict", conflictRevisions.length, "pending");
+    }
+}
+
 async function scanSource(
     options: DatabaseIntegrityOptions,
     run: SourceRun,
-    nextReference: (source: DiagnosticSourceName) => string,
-    metadataProgress: { processed: number }
+    nextReference: (source: DiagnosticSourceName) => string
 ): Promise<void> {
     if (cancelled(options)) return;
+    const phase = new InspectionPhase(options, "metadata", run.name);
     try {
         const info = await run.source.info();
         run.startSeq = info.update_seq;
+        if (Number.isSafeInteger(info.doc_count) && info.doc_count! >= 0) phase.total = info.doc_count;
         if (!hasUpdateSequence(run.startSeq)) appendError(run.errors, run.name, "source-unavailable");
     } catch {
         appendError(run.errors, run.name, "source-unavailable");
     }
-    if (cancelled(options)) return;
-
+    phase.update();
     let enumerationComplete = false;
+    const merge = (work: SourceRun) => {
+        for (const observation of work.observations) {
+            observation.report.reference = nextReference(run.name);
+            observation.report.vault.reference = `vault:${observation.report.reference}`;
+        }
+        mergeSourceWork(run, work);
+    };
+    const inspect = async (id: string, prefetched?: DiagnosticDocumentReadResult) => {
+        const work = makeSourceRun(run.name, run.source);
+        if (typeof id !== "string") appendError(work.errors, run.name, "source-unavailable");
+        else await inspectMetadataDocument(options, work, id, phase, prefetched);
+        if (!cancelled(options)) {
+            phase.processed++;
+            phase.update();
+        }
+        return work;
+    };
     try {
-        for await (const id of run.source.enumerateIds()) {
-            if (cancelled(options)) return;
-            if (typeof id !== "string") {
-                appendError(run.errors, run.name, "source-unavailable");
-                continue;
-            }
-            run.coverage.documents++;
-            metadataProgress.processed++;
-            progress(options, "metadata", metadataProgress.processed);
-
-            if (isSkippedDocumentId(id)) {
-                run.coverage.excluded++;
-                continue;
-            }
-            if (cancelled(options)) return;
-
-            let winnerValue: EntryDoc;
-            try {
-                winnerValue = await run.source.get(id, { conflicts: true });
-            } catch (error) {
-                if (cancelled(options)) return;
-                appendError(run.errors, run.name, reasonFromReadError(error, "document-unreadable"), { id });
-                continue;
-            }
-            if (cancelled(options)) return;
-            if (!isRecord(winnerValue) || winnerValue._id !== id) {
-                appendError(run.errors, run.name, "invalid-metadata", { id });
-                continue;
-            }
-
-            if (!isCurrentMetadata(winnerValue)) {
-                // Legacy notes and non-Metadata documents are deliberately outside this report.
-                run.coverage.excluded++;
-                continue;
-            }
-
-            const winner = winnerValue;
-            if (!isValidCurrentMetadata(winner)) {
-                appendError(run.errors, run.name, "invalid-metadata", {
-                    id,
-                    revision: typeof winner._rev === "string" ? winner._rev : undefined,
-                });
-                continue;
-            }
-
-            const conflictRevisions = Array.isArray(winner._conflicts)
-                ? winner._conflicts.filter((revision): revision is string => typeof revision === "string")
-                : [];
-            await classifyObservation(
-                options,
-                run,
-                winner,
-                "winner",
-                conflictRevisions.length,
-                nextReference(run.name)
-            );
-            if (cancelled(options)) return;
-
-            for (const revision of conflictRevisions) {
-                if (cancelled(options)) return;
-                let branchValue: EntryDoc;
-                try {
-                    branchValue = await run.source.get(id, { rev: revision, conflicts: true });
-                } catch (error) {
-                    if (cancelled(options)) return;
-                    appendError(run.errors, run.name, reasonFromReadError(error, "revision-unavailable"), {
-                        id,
-                        revision,
-                    });
-                    continue;
+        if (!cancelled(options)) {
+            if (run.source.getMany) {
+                for await (const ids of documentBatches(run.source.enumerateIds(), options)) {
+                    if (cancelled(options)) break;
+                    const targets = ids.filter((id) => typeof id === "string" && !isSkippedDocumentId(id));
+                    const prefetched = await readMany(run.source, targets, phase, { conflicts: true });
+                    if (cancelled(options)) break;
+                    await inspectBatches(ids, options, (id) => inspect(id, prefetched.get(id)), merge);
                 }
-                if (cancelled(options)) return;
-                if (!isRecord(branchValue) || branchValue._id !== id || branchValue._rev !== revision) {
-                    appendError(run.errors, run.name, "revision-unavailable", { id, revision });
-                    continue;
-                }
-                if (!isCurrentMetadata(branchValue)) {
-                    // A legacy or non-Metadata branch is outside the current-file inspection scope.
-                    run.coverage.excluded++;
-                    continue;
-                }
-                await classifyObservation(
-                    options,
-                    run,
-                    branchValue,
-                    "conflict",
-                    conflictRevisions.length,
-                    nextReference(run.name)
-                );
+                enumerationComplete = !cancelled(options);
+            } else {
+                enumerationComplete = await inspectBatches(run.source.enumerateIds(), options, inspect, merge);
             }
         }
-        enumerationComplete = true;
     } catch {
         if (!cancelled(options)) appendError(run.errors, run.name, "source-unavailable");
     }
-
-    if (cancelled(options)) return;
-    run.metadataScanComplete = enumerationComplete && run.errors.length === 0;
-    run.enumerationComplete = enumerationComplete;
+    if (!cancelled(options)) {
+        run.metadataScanComplete = enumerationComplete && run.errors.length === 0;
+        run.enumerationComplete = enumerationComplete;
+        if (enumerationComplete) phase.total = phase.processed;
+    }
+    phase.update();
+    phase.log(cancelled(options) ? "cancelled" : run.metadataScanComplete ? "completed" : "partial");
 }
 
 function groupObservations(runs: SourceRun[]): IntegrityGroup[] {
@@ -392,26 +585,51 @@ function groupObservations(runs: SourceRun[]): IntegrityGroup[] {
     return [...groupsByRoot.values()];
 }
 
-function markPathEquivalences(observations: InternalObservation[]): void {
-    const pathsByCaseFold = new Map<string, Set<string>>();
-    const pathsByNfc = new Map<string, Set<string>>();
+function markPathEquivalences(observations: InternalObservation[]): DiagnosticPathEquivalenceGroup[] {
+    const pathsByCaseFold = new Map<string, InternalObservation[]>();
+    const pathsByNfc = new Map<string, InternalObservation[]>();
     for (const observation of observations) {
         const path = observation.report.path;
         const caseFold = path.toLowerCase();
-        const casePaths = pathsByCaseFold.get(caseFold) ?? new Set<string>();
-        casePaths.add(path);
+        const casePaths = pathsByCaseFold.get(caseFold) ?? [];
+        casePaths.push(observation);
         pathsByCaseFold.set(caseFold, casePaths);
 
         const nfc = path.normalize("NFC");
-        const nfcPaths = pathsByNfc.get(nfc) ?? new Set<string>();
-        nfcPaths.add(path);
+        const nfcPaths = pathsByNfc.get(nfc) ?? [];
+        nfcPaths.push(observation);
         pathsByNfc.set(nfc, nfcPaths);
     }
-    for (const observation of observations) {
-        const path = observation.report.path;
-        observation.report.caseEquivalentPaths = (pathsByCaseFold.get(path.toLowerCase())?.size ?? 0) > 1;
-        observation.report.nfcEquivalentPaths = (pathsByNfc.get(path.normalize("NFC"))?.size ?? 0) > 1;
+
+    const equivalenceGroups: DiagnosticPathEquivalenceGroup[] = [];
+    for (const [kind, groups] of [
+        ["case", pathsByCaseFold],
+        ["nfc", pathsByNfc],
+    ] as const) {
+        let groupNumber = 0;
+        for (const members of groups.values()) {
+            const hasDifferentSpellings = new Set(members.map((observation) => observation.report.path)).size > 1;
+            if (kind === "case") {
+                for (const observation of members) observation.report.caseEquivalentPaths = hasDifferentSpellings;
+            } else {
+                for (const observation of members) observation.report.nfcEquivalentPaths = hasDifferentSpellings;
+            }
+            if (!hasDifferentSpellings) continue;
+
+            const reference = `${kind}:${++groupNumber}`;
+            if (kind === "case") {
+                for (const observation of members) observation.report.caseEquivalentGroup = reference;
+            } else {
+                for (const observation of members) observation.report.nfcEquivalentGroup = reference;
+            }
+            equivalenceGroups.push({
+                reference,
+                kind,
+                members: members.map((observation) => observation.report.reference),
+            });
+        }
     }
+    return equivalenceGroups;
 }
 
 function markSuspectGroups(groups: IntegrityGroup[], runs: SourceRun[]): void {
@@ -481,7 +699,8 @@ function getEdenChunk(document: CurrentMetadata, id: string): string | undefined
 async function readObservationContent(
     options: DatabaseIntegrityOptions,
     observation: InternalObservation,
-    run: SourceRun
+    run: SourceRun,
+    phase: InspectionPhase
 ): Promise<ContentReadOutcome> {
     run.coverage.contentReads++;
     const unavailableChunks: ContentReadOutcome["unavailableChunks"] = [];
@@ -501,54 +720,67 @@ async function readObservationContent(
         };
     }
 
-    for (const child of observation.document.children) {
+    for (let offset = 0; offset < observation.document.children.length; offset += DOCUMENT_BATCH_SIZE) {
         if (cancelled(options)) return { content: { status: "not-checked" }, chunksRead, unavailableChunks };
-        const eden = getEdenChunk(observation.document, child);
-        if (eden !== undefined) {
-            data.push(eden);
-            chunksRead++;
-            continue;
-        }
-        try {
-            const chunk = await observation.source.get(child);
+        const children = observation.document.children.slice(offset, offset + DOCUMENT_BATCH_SIZE);
+        const prefetched = observation.source.getMany
+            ? await readMany(
+                  observation.source,
+                  [...new Set(children.filter((child) => getEdenChunk(observation.document, child) === undefined))],
+                  phase
+              )
+            : undefined;
+        for (const child of children) {
             if (cancelled(options)) return { content: { status: "not-checked" }, chunksRead, unavailableChunks };
-            if (!isValidChunk(chunk, child) || (chunk as { _deleted?: boolean })._deleted === true) {
-                unavailableChunks.push({ id: child, status: "unreadable" });
-                appendError(run.errors, run.name, "chunk-unreadable", {
-                    id: observation.report.id,
-                    revision: observation.report.revision,
-                    path: observation.report.path,
-                    chunkId: child,
-                });
+            const eden = getEdenChunk(observation.document, child);
+            if (eden !== undefined) {
+                data.push(eden);
+                chunksRead++;
                 continue;
             }
-            data.push(chunk.data);
-            chunksRead++;
-        } catch (error) {
-            if (cancelled(options)) return { content: { status: "not-checked" }, chunksRead, unavailableChunks };
-            if (isMissingRead(error)) {
-                const eden = getEdenChunk(observation.document, child);
-                if (eden !== undefined) {
-                    data.push(eden);
-                    chunksRead++;
+            try {
+                const chunk = prefetched
+                    ? readResult(prefetched.get(child)!)
+                    : await phase.read(() => observation.source.get(child));
+                if (cancelled(options)) return { content: { status: "not-checked" }, chunksRead, unavailableChunks };
+                if (!isValidChunk(chunk, child) || (chunk as { _deleted?: boolean })._deleted === true) {
+                    unavailableChunks.push({ id: child, status: "unreadable" });
+                    appendError(run.errors, run.name, "chunk-unreadable", {
+                        id: observation.report.id,
+                        revision: observation.report.revision,
+                        path: observation.report.path,
+                        chunkId: child,
+                    });
                     continue;
                 }
-                unavailableChunks.push({ id: child, status: "missing" });
-                appendError(run.errors, run.name, reasonFromReadError(error, "chunk-missing"), {
+                data.push(chunk.data);
+                chunksRead++;
+            } catch (error) {
+                if (cancelled(options)) return { content: { status: "not-checked" }, chunksRead, unavailableChunks };
+                if (isMissingRead(error)) {
+                    const eden = getEdenChunk(observation.document, child);
+                    if (eden !== undefined) {
+                        data.push(eden);
+                        chunksRead++;
+                        continue;
+                    }
+                    unavailableChunks.push({ id: child, status: "missing" });
+                    appendError(run.errors, run.name, reasonFromReadError(error, "chunk-missing"), {
+                        id: observation.report.id,
+                        revision: observation.report.revision,
+                        path: observation.report.path,
+                        chunkId: child,
+                    });
+                    continue;
+                }
+                unavailableChunks.push({ id: child, status: "unreadable" });
+                appendError(run.errors, run.name, reasonFromReadError(error, "chunk-unreadable"), {
                     id: observation.report.id,
                     revision: observation.report.revision,
                     path: observation.report.path,
                     chunkId: child,
                 });
-                continue;
             }
-            unavailableChunks.push({ id: child, status: "unreadable" });
-            appendError(run.errors, run.name, reasonFromReadError(error, "chunk-unreadable"), {
-                id: observation.report.id,
-                revision: observation.report.revision,
-                path: observation.report.path,
-                chunkId: child,
-            });
         }
     }
 
@@ -609,11 +841,12 @@ function relation(
 async function readVaultContent(
     options: DatabaseIntegrityOptions,
     path: string,
-    errors: DiagnosticError[]
+    errors: DiagnosticError[],
+    phase: InspectionPhase
 ): Promise<DiagnosticContent> {
     if (cancelled(options)) return { status: "not-checked" };
     try {
-        const content = await options.readStorage(path);
+        const content = await phase.read(() => options.readStorage(path));
         if (cancelled(options)) return { status: "not-checked" };
         if (content.status === "unreadable" || content.reason) {
             appendError(errors, "storage", content.reason ?? "content-unreadable", { path });
@@ -632,7 +865,7 @@ async function inspectGroupContent(
     group: IntegrityGroup,
     runsByName: Map<DiagnosticSourceName, SourceRun>,
     errors: DiagnosticError[],
-    contentProgress: { processed: number }
+    phase: InspectionPhase
 ): Promise<void> {
     if (!group.suspect) return;
     const byRawPath = new Map<string, InternalObservation>();
@@ -659,33 +892,51 @@ async function inspectGroupContent(
         if (cancelled(options)) return;
         const run = runsByName.get(observation.report.source);
         if (!run) continue;
-        const outcome = await readObservationContent(options, observation, run);
+        const outcome = await readObservationContent(options, observation, run, phase);
+        const decodedSize = outcome.content.status === "available" ? outcome.content.bytes.length : undefined;
+        const recordedSize = observation.report.metadata?.recordedSize;
         observation.report.content = {
             status: outcome.content.status,
             ...(outcome.content.reason ? { reason: outcome.content.reason } : {}),
             chunksRead: outcome.chunksRead,
             unavailableChunks: outcome.unavailableChunks,
+            ...(decodedSize !== undefined
+                ? {
+                      size: decodedSize,
+                      ...(recordedSize !== undefined ? { recordedSizeDifference: decodedSize - recordedSize } : {}),
+                  }
+                : {}),
         };
         contentByObservation.set(observation, outcome.content);
         contentByReference.set(observation.report.reference, outcome.content);
-        contentProgress.processed++;
-        progress(options, "content", contentProgress.processed);
         if (cancelled(options)) return;
     }
 
     const vaultByPath = new Map<string, DiagnosticContent>();
     for (const [path] of byRawPath) {
         if (cancelled(options)) return;
-        const vaultContent = await readVaultContent(options, path, errors);
+        const vaultContent = await readVaultContent(options, path, errors, phase);
         vaultByPath.set(path, vaultContent);
         const vaultReference = vaultReferences.get(path);
         if (vaultReference) contentByReference.set(vaultReference, vaultContent);
         for (const observation of group.observations) {
             if (observation.report.path !== path) continue;
+            const observationContent = contentByObservation.get(observation);
             observation.report.vault = {
                 reference: vaultReference ?? `vault:${observation.report.reference}`,
                 status: vaultContent.status,
                 ...(vaultContent.reason ? { reason: vaultContent.reason } : {}),
+                ...(vaultContent.status === "available"
+                    ? {
+                          size: vaultContent.bytes.length,
+                          ...(observationContent?.status === "available"
+                              ? { contentSizeDifference: vaultContent.bytes.length - observationContent.bytes.length }
+                              : {}),
+                          ...(isFiniteNumber(vaultContent.mtime) && isFiniteNumber(observation.document.mtime)
+                              ? { mtimeDifferenceMs: vaultContent.mtime - observation.document.mtime }
+                              : {}),
+                      }
+                    : {}),
             };
         }
         if (cancelled(options)) return;
@@ -722,12 +973,11 @@ function determineStatus(
 export async function analyseDatabaseIntegrity(options: DatabaseIntegrityOptions): Promise<DatabaseIntegrityResult> {
     const errors: DiagnosticError[] = [];
     const runs: SourceRun[] = [];
-    const metadataProgress = { processed: 0 };
-    const contentProgress = { processed: 0 };
     const referenceNumbers: Record<DiagnosticSourceName, number> = { local: 0, remote: 0 };
     const nextReference = (source: DiagnosticSourceName) => `${source}:${++referenceNumbers[source]}`;
     let wasCancelled = cancelled(options);
     let configurationChanged = false;
+    let pathEquivalenceGroups: DiagnosticPathEquivalenceGroup[] = [];
     let ownedRemote: (DiagnosticDatabaseSource & { close(): Promise<void> }) | undefined;
 
     if (!wasCancelled && !isConfigurationCurrent(options)) {
@@ -739,8 +989,8 @@ export async function analyseDatabaseIntegrity(options: DatabaseIntegrityOptions
         if (!wasCancelled && !configurationChanged) {
             const localRun = makeSourceRun("local", options.local);
             runs.push(localRun);
-            await scanSource(options, localRun, nextReference, metadataProgress);
-            if (!cancelled(options)) {
+            await scanSource(options, localRun, nextReference);
+            if (!cancelled(options) && options.includeRemote !== false) {
                 if (!options.remote) {
                     const remoteRun = { ...makeSourceRun("remote", options.local), source: options.local };
                     remoteRun.coverage.status = "failed";
@@ -755,7 +1005,7 @@ export async function analyseDatabaseIntegrity(options: DatabaseIntegrityOptions
                         } else {
                             const remoteRun = makeSourceRun("remote", ownedRemote);
                             runs.push(remoteRun);
-                            await scanSource(options, remoteRun, nextReference, metadataProgress);
+                            await scanSource(options, remoteRun, nextReference);
                         }
                     } catch {
                         if (cancelled(options)) {
@@ -773,21 +1023,43 @@ export async function analyseDatabaseIntegrity(options: DatabaseIntegrityOptions
 
             if (cancelled(options)) wasCancelled = true;
             if (!wasCancelled) {
+                const grouping = new InspectionPhase(options, "grouping");
                 const groups = groupObservations(runs);
-                markPathEquivalences(runs.flatMap((run) => run.observations));
+                pathEquivalenceGroups = markPathEquivalences(runs.flatMap((run) => run.observations));
                 markSuspectGroups(groups, runs);
-                const runsByName = new Map(runs.map((run) => [run.name, run]));
-                for (const group of groups) {
-                    if (cancelled(options)) {
-                        wasCancelled = true;
-                        break;
+                grouping.processed = groups.length;
+                grouping.total = groups.length;
+                grouping.log("completed");
+                const suspects = groups.filter((group) => group.suspect);
+                const content = new InspectionPhase(options, "content");
+                content.total = suspects.length;
+                content.update();
+                await inspectBatches(
+                    suspects,
+                    options,
+                    async (group) => {
+                        const work = runs.map((run) => makeSourceRun(run.name, run.source));
+                        const groupErrors: DiagnosticError[] = [];
+                        await inspectGroupContent(
+                            options,
+                            group,
+                            new Map(work.map((run) => [run.name, run])),
+                            groupErrors,
+                            content
+                        );
+                        if (!cancelled(options)) {
+                            content.processed++;
+                            content.update();
+                        }
+                        return { work, groupErrors };
+                    },
+                    ({ work, groupErrors }) => {
+                        for (let index = 0; index < runs.length; index++) mergeSourceWork(runs[index], work[index]);
+                        errors.push(...groupErrors);
                     }
-                    await inspectGroupContent(options, group, runsByName, errors, contentProgress);
-                    if (cancelled(options)) {
-                        wasCancelled = true;
-                        break;
-                    }
-                }
+                );
+                if (cancelled(options)) wasCancelled = true;
+                content.log(wasCancelled ? "cancelled" : "completed");
             }
         }
 
@@ -860,8 +1132,10 @@ export async function analyseDatabaseIntegrity(options: DatabaseIntegrityOptions
         settings: { ...options.settings },
         coverage,
         observations: allObservations,
+        ...(pathEquivalenceGroups.length > 0 ? { pathEquivalenceGroups } : {}),
         errors,
         scope: {
+            remote: options.includeRemote === false ? "excluded" : "included",
             metadata: "normal-files-and-current-conflicts",
             content: "suspect-groups-only",
             history: "not-checked",

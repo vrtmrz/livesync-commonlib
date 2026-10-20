@@ -12,8 +12,12 @@ export interface DatabaseUsageSource {
 }
 
 export interface DatabaseUsageProgress {
+    phase: "reading" | "accounting";
     idsProcessed: number;
     revisionsProcessed: number;
+    processed: number;
+    total: number;
+    totalIsFinal: boolean;
 }
 
 export type DatabaseUsageStatus = "complete" | "partial" | "failed" | "cancelled";
@@ -83,12 +87,16 @@ interface DocumentRevision {
     chunks: Set<string>;
     uniqueChunks: Set<string>;
     sharedChunks: Set<string>;
+    uniqueChunkSize: number;
+    sharedChunkSize: number;
 }
 
 interface ChunkInfo {
     length: number;
     refCount: number;
 }
+
+const USAGE_ACCOUNTING_YIELD_EVERY = 64;
 
 function asRecord(value: object): UsageDocumentFields {
     return value as UsageDocumentFields;
@@ -132,13 +140,31 @@ export async function analyseDatabaseUsage(options: {
     const errors: DatabaseUsageError[] = [];
     const documentMap = new Map<string, DocumentRevision[]>();
     const chunkMap = new Map<string, ChunkInfo>();
-    const progress: DatabaseUsageProgress = { idsProcessed: 0, revisionsProcessed: 0 };
+    const progress: DatabaseUsageProgress = {
+        phase: "reading",
+        idsProcessed: 0,
+        revisionsProcessed: 0,
+        processed: 0,
+        total: 0,
+        totalIsFinal: false,
+    };
     let startUpdateSeq: string | number | undefined;
     let endUpdateSeq: string | number | undefined;
     let enumerationFailed = false;
-    const reportProgress = () => onProgress?.({ ...progress });
+    const reportProgress = () => {
+        try {
+            onProgress?.({ ...progress });
+        } catch {
+            // Progress observers do not participate in the analysis result.
+        }
+    };
     const isCancelled = () => signal?.aborted === true;
     let cancelled = isCancelled();
+    let documentRevisionCount = 0;
+    let referenceCount = 0;
+
+    reportProgress();
+    if (isCancelled()) cancelled = true;
 
     if (!cancelled) {
         try {
@@ -151,6 +177,7 @@ export async function analyseDatabaseUsage(options: {
         if (isCancelled()) cancelled = true;
     }
 
+    let enumerationFinished = false;
     try {
         if (!cancelled && !isCancelled()) {
             for await (const id of source.enumerateIds()) {
@@ -180,7 +207,16 @@ export async function analyseDatabaseUsage(options: {
                 }
 
                 progress.idsProcessed++;
+                for (const revisionInfo of revisionInfos) {
+                    if (revisionInfo.status === "available" && typeof revisionInfo.rev === "string") {
+                        progress.total++;
+                    }
+                }
                 reportProgress();
+                if (isCancelled()) {
+                    cancelled = true;
+                    break;
+                }
 
                 for (const revisionInfo of revisionInfos) {
                     if (isCancelled()) {
@@ -194,27 +230,28 @@ export async function analyseDatabaseUsage(options: {
                         continue;
                     }
 
-                    progress.revisionsProcessed++;
                     let rawDocument: object | null | undefined;
                     try {
                         rawDocument = await source.get(id, { rev: revision });
                     } catch {
                         if (isCancelled()) {
                             cancelled = true;
-                            reportProgress();
                             break;
                         }
                         errors.push({ code: "revision_read_failed", id, revision });
+                        progress.revisionsProcessed++;
+                        progress.processed++;
                         reportProgress();
                         continue;
                     }
                     if (isCancelled()) {
                         cancelled = true;
-                        reportProgress();
                         break;
                     }
                     if (!rawDocument) {
                         errors.push({ code: "revision_not_found", id, revision });
+                        progress.revisionsProcessed++;
+                        progress.processed++;
                         reportProgress();
                         continue;
                     }
@@ -234,8 +271,12 @@ export async function analyseDatabaseUsage(options: {
                                 chunks,
                                 uniqueChunks: new Set(),
                                 sharedChunks: new Set(),
+                                uniqueChunkSize: 0,
+                                sharedChunkSize: 0,
                             });
                             documentMap.set(documentId, revisions);
+                            documentRevisionCount++;
+                            referenceCount += chunks.size;
                         } else if (document.type === "leaf") {
                             const chunkId = getStringField(document._id);
                             if (!chunkMap.has(chunkId) && !document._deleted) {
@@ -246,12 +287,15 @@ export async function analyseDatabaseUsage(options: {
                     } catch {
                         errors.push({ code: "revision_document_invalid", id, revision });
                     }
+                    progress.revisionsProcessed++;
+                    progress.processed++;
                     reportProgress();
                 }
 
                 if (isCancelled()) cancelled = true;
                 if (cancelled) break;
             }
+            if (!cancelled && !isCancelled()) enumerationFinished = true;
         } else if (isCancelled()) {
             cancelled = true;
         }
@@ -263,64 +307,135 @@ export async function analyseDatabaseUsage(options: {
         }
     }
 
-    // Keep the historical first-reference unique and later-reference shared accounting.
-    for (const revisions of documentMap.values()) {
-        for (const document of revisions) {
-            for (const chunkId of document.chunks) {
-                const chunk = chunkMap.get(chunkId);
-                if (!chunk) continue;
-                if (chunk.refCount === 0) document.uniqueChunks.add(chunkId);
-                else document.sharedChunks.add(chunkId);
-                chunk.refCount++;
-            }
-        }
+    if (isCancelled()) cancelled = true;
+    if (enumerationFinished) {
+        progress.totalIsFinal = true;
+        reportProgress();
+        if (isCancelled()) cancelled = true;
     }
 
-    const totalSize = (ids: Set<string>) => {
-        let size = 0;
-        for (const id of ids) size += chunkMap.get(id)?.length ?? 0;
-        return size;
+    const readingWasCancelled = cancelled;
+    progress.phase = "accounting";
+    progress.processed = 0;
+    progress.total = referenceCount + documentRevisionCount + chunkMap.size;
+    progress.totalIsFinal = true;
+    reportProgress();
+
+    let accountingCancelled = !readingWasCancelled && isCancelled();
+    const rows: DatabaseUsageRow[] = [];
+    const accountingErrors: DatabaseUsageError[] = [];
+    const recordAccountingWork = () => {
+        progress.processed++;
+        return progress.processed % USAGE_ACCOUNTING_YIELD_EVERY === 0;
+    };
+    const yieldAfterAccountingBatch = async (): Promise<boolean> => {
+        reportProgress();
+        await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        return readingWasCancelled || !isCancelled();
     };
 
-    const rows: DatabaseUsageRow[] = [];
-    for (const revisions of documentMap.values()) {
-        for (const document of revisions) {
-            const revisionNumber = getRevisionNumber(document.revision);
-            let revisionHash: string;
-            try {
-                revisionHash = getRevisionHash(document.revision);
-            } catch {
-                errors.push({ code: "revision_document_invalid", id: document.id, revision: document.revision });
-                continue;
+    if (!readingWasCancelled && isCancelled()) accountingCancelled = true;
+
+    if (!accountingCancelled) {
+        // Keep the historical first-reference unique and later-reference shared accounting.
+        for (const revisions of documentMap.values()) {
+            for (const document of revisions) {
+                for (const chunkId of document.chunks) {
+                    const chunk = chunkMap.get(chunkId);
+                    if (chunk) {
+                        if (chunk.refCount === 0) {
+                            document.uniqueChunks.add(chunkId);
+                            document.uniqueChunkSize += chunk.length;
+                        } else {
+                            document.sharedChunks.add(chunkId);
+                            document.sharedChunkSize += chunk.length;
+                        }
+                        chunk.refCount++;
+                    }
+                    if (recordAccountingWork() && !(await yieldAfterAccountingBatch())) {
+                        accountingCancelled = true;
+                        break;
+                    }
+                }
+                if (accountingCancelled) break;
             }
-            rows.push({
-                title: `${document.path} (${document.revision})`,
-                id: document.id,
-                path: document.path,
-                revision: document.revision,
-                rev: revisionNumber,
-                revHash: revisionHash,
-                uniqueChunkCount: document.uniqueChunks.size,
-                sharedChunkCount: document.sharedChunks.size,
-                uniqueChunkSize: totalSize(document.uniqueChunks),
-                sharedChunkSize: totalSize(document.sharedChunks),
-            });
+            if (accountingCancelled) break;
         }
     }
 
-    const orphanChunks = [...chunkMap.entries()].filter(([, chunk]) => chunk.refCount === 0);
-    rows.push({
-        title: "__orphan",
-        id: "__orphan",
-        path: "__orphan",
-        revision: "1-xxxxx",
-        rev: "1",
-        revHash: "xxxxx",
-        uniqueChunkCount: orphanChunks.length,
-        sharedChunkCount: 0,
-        uniqueChunkSize: orphanChunks.reduce((size, [, chunk]) => size + chunk.length, 0),
-        sharedChunkSize: 0,
-    });
+    if (!accountingCancelled) {
+        for (const revisions of documentMap.values()) {
+            for (const document of revisions) {
+                const revisionNumber = getRevisionNumber(document.revision);
+                let revisionHash: string;
+                try {
+                    revisionHash = getRevisionHash(document.revision);
+                } catch {
+                    accountingErrors.push({
+                        code: "revision_document_invalid",
+                        id: document.id,
+                        revision: document.revision,
+                    });
+                    if (recordAccountingWork() && !(await yieldAfterAccountingBatch())) {
+                        accountingCancelled = true;
+                        break;
+                    }
+                    continue;
+                }
+                rows.push({
+                    title: `${document.path} (${document.revision})`,
+                    id: document.id,
+                    path: document.path,
+                    revision: document.revision,
+                    rev: revisionNumber,
+                    revHash: revisionHash,
+                    uniqueChunkCount: document.uniqueChunks.size,
+                    sharedChunkCount: document.sharedChunks.size,
+                    uniqueChunkSize: document.uniqueChunkSize,
+                    sharedChunkSize: document.sharedChunkSize,
+                });
+                if (recordAccountingWork() && !(await yieldAfterAccountingBatch())) {
+                    accountingCancelled = true;
+                    break;
+                }
+            }
+            if (accountingCancelled) break;
+        }
+    }
+
+    let orphanChunkCount = 0;
+    let orphanChunkSize = 0;
+    if (!accountingCancelled) {
+        for (const chunk of chunkMap.values()) {
+            if (chunk.refCount === 0) {
+                orphanChunkCount++;
+                orphanChunkSize += chunk.length;
+            }
+            if (recordAccountingWork() && !(await yieldAfterAccountingBatch())) {
+                accountingCancelled = true;
+                break;
+            }
+        }
+    }
+
+    if (accountingCancelled) {
+        cancelled = true;
+        rows.length = 0;
+    } else {
+        errors.push(...accountingErrors);
+        rows.push({
+            title: "__orphan",
+            id: "__orphan",
+            path: "__orphan",
+            revision: "1-xxxxx",
+            rev: "1",
+            revHash: "xxxxx",
+            uniqueChunkCount: orphanChunkCount,
+            sharedChunkCount: 0,
+            uniqueChunkSize: orphanChunkSize,
+            sharedChunkSize: 0,
+        });
+    }
 
     if (!cancelled && !isCancelled()) {
         try {
@@ -332,6 +447,8 @@ export async function analyseDatabaseUsage(options: {
         }
     }
 
+    if (isCancelled()) cancelled = true;
+    reportProgress();
     if (isCancelled()) cancelled = true;
     const changedDuringRun =
         startUpdateSeq === undefined || endUpdateSeq === undefined ? undefined : startUpdateSeq !== endUpdateSeq;
