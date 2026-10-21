@@ -46,6 +46,18 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
         expect(decoded.allowSleepDuringSynchronisationOnDesktop).toBe(false);
     });
 
+    it("does not transfer device-local SyncGuard settings in Setup URI data", () => {
+        const encoded = encodeSettingsToQRCodeData({
+            ...DEFAULT_SETTINGS,
+            syncGuardEnabled: true,
+            syncGuardMinimumFiles: 42,
+        });
+        const decoded = decodeSettingsFromQRCodeData(encoded);
+
+        expect(decoded.syncGuardEnabled).toBe(false);
+        expect(decoded.syncGuardMinimumFiles).toBe(20);
+    });
+
     it("preserves P2P transport compatibility settings in Setup URI data", () => {
         const encoded = encodeSettingsToQRCodeData({
             ...DEFAULT_SETTINGS,
@@ -250,6 +262,26 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
         const decoded = await decodeSettingsFromSetupURI(uri, "setup-pass");
         expect(decoded && decoded.P2P_roomID).toBe("manual-room");
         expect(decoded && "P2P_iceServers" in decoded).toBe(false);
+    });
+
+    it("omits device-local SyncGuard settings from encrypted Setup URIs", async () => {
+        const uri = await encodeSettingsToSetupURI(
+            { ...DEFAULT_SETTINGS, syncGuardEnabled: true, syncGuardMinimumFiles: 42 },
+            "setup-pass",
+            [],
+            false
+        );
+        const decoded = await decodeSettingsFromSetupURI(uri, "setup-pass");
+
+        expect(decoded).toBeTruthy();
+        expect(decoded).not.toHaveProperty("syncGuardEnabled");
+        expect(decoded).not.toHaveProperty("syncGuardMinimumFiles");
+
+        const injected = { ...DEFAULT_SETTINGS, syncGuardEnabled: true, syncGuardMinimumFiles: 42 };
+        const encrypted = await encryptString(JSON.stringify(injected), "setup-pass");
+        const received = await decodeSettingsFromSetupURI(`${configURIBase}${encodeURIComponent(encrypted)}`, "setup-pass");
+        expect(received).not.toHaveProperty("syncGuardEnabled");
+        expect(received).not.toHaveProperty("syncGuardMinimumFiles");
     });
 
     it("shares the derived ID key and version in Setup URIs without the persisted wrapper", async () => {

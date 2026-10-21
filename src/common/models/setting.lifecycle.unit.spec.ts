@@ -52,6 +52,17 @@ describe("prepareSettingsForLoad", () => {
         expect(NEW_VAULT_SETTINGS.remoteConfigurations).toEqual({});
     });
 
+    it("defaults SyncGuard off for new and legacy Vaults while preserving explicit preferences", () => {
+        expect(createNewVaultSettings()).toMatchObject({ syncGuardEnabled: false, syncGuardMinimumFiles: 20 });
+        expect(prepareSettingsForLoad({ liveSync: true }).settings).toMatchObject({
+            syncGuardEnabled: false,
+            syncGuardMinimumFiles: 20,
+        });
+        expect(
+            prepareSettingsForLoad({ liveSync: true, syncGuardEnabled: true, syncGuardMinimumFiles: 42 }).settings
+        ).toMatchObject({ syncGuardEnabled: true, syncGuardMinimumFiles: 42 });
+    });
+
     it("completes legacy settings while preserving explicit synchronisation choices", () => {
         const legacy: Partial<ObsidianLiveSyncSettings> = {
             liveSync: true,

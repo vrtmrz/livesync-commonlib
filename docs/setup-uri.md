@@ -4,6 +4,9 @@ The focused `@vrtmrz/livesync-commonlib/setup-uri` entry encodes and decodes
 encrypted Setup URIs. A Setup URI carries settings and remote credentials;
 share its URI and passphrase separately.
 
+Device-local SyncGuard preferences (`syncGuardEnabled` and `syncGuardMinimumFiles`)
+are excluded from Setup URI/QR data. Each device retains its own values.
+
 `encodeTimeBoundSetupURI` offers two generation modes. `ephemeral` is the
 default. It binds the URI to the current seven-day UTC window, anchored at the
 Unix epoch, and returns the exclusive end of that window as `usableUntil` in
