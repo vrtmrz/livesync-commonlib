@@ -41,6 +41,8 @@ export const SETTINGS_PROPERTY_POLICY = {
     syncOnStart: SettingPolicies.Default,
     syncOnFileOpen: SettingPolicies.Default,
     syncOnEditorSave: SettingPolicies.Default,
+    syncGuardEnabled: SettingPolicies.LocalOnly,
+    syncGuardMinimumFiles: SettingPolicies.LocalOnly,
     keepReplicationActiveInBackground: SettingPolicies.Default,
     allowSleepDuringSynchronisation: SettingPolicies.Default,
     allowSleepDuringSynchronisationOnDesktop: SettingPolicies.Default,

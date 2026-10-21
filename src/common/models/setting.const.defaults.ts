@@ -137,6 +137,8 @@ export const SETTINGS_SCHEMA_DEFAULTS: ObsidianLiveSyncSettings = {
     useIgnoreFiles: false,
     ignoreFiles: ".gitignore",
     syncOnEditorSave: false,
+    syncGuardEnabled: false,
+    syncGuardMinimumFiles: 20,
     keepReplicationActiveInBackground: false,
     allowSleepDuringSynchronisation: false,
     allowSleepDuringSynchronisationOnDesktop: true,

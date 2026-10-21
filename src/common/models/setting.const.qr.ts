@@ -55,6 +55,8 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     syncOnStart: 51,
     syncOnFileOpen: 52,
     syncOnEditorSave: 53,
+    syncGuardEnabled: -1, // Per-device safety preference; do not encode into the QR Code.
+    syncGuardMinimumFiles: -1,
     keepReplicationActiveInBackground: -1, // Desktop-only local preference; do not encode into the QR Code.
     allowSleepDuringSynchronisation: 161,
     allowSleepDuringSynchronisationOnDesktop: 162,

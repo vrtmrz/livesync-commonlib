@@ -245,6 +245,9 @@ export async function encodeSettingsToSetupURI(
     for (const prop of [...removeProperties]) {
         delete setting[prop];
     }
+    // SyncGuard is configured separately on each device.
+    delete setting.syncGuardEnabled;
+    delete setting.syncGuardMinimumFiles;
     for (const prop of necessaryErasureProperties) {
         //@ts-ignore
         setting[prop] = "";
@@ -313,6 +316,8 @@ export async function decodeSettingsFromSetupURI(uri: string, passphrase: string
     }
     try {
         const imported = JSON.parse(decrypted) as ObsidianLiveSyncSettings;
+        delete (imported as Partial<ObsidianLiveSyncSettings>).syncGuardEnabled;
+        delete (imported as Partial<ObsidianLiveSyncSettings>).syncGuardMinimumFiles;
         const settings = {
             ...imported,
             encryptInternalMetadata:
