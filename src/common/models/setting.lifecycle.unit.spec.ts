@@ -155,22 +155,35 @@ describe("prepareSettingsForLoad", () => {
         expect(deliberatelyUnsetKeys).toEqual(["autoAcceptCompatibleTweak", "isConfigured", "tweakModified"]);
     });
 
-    it("keeps remote-specific recommendations separate from the new-Vault base", () => {
+    it("uses one chunk-size recommendation for new setups while retaining remote-specific tuning", () => {
+        expect(SETTINGS_SCHEMA_DEFAULTS.customChunkSize).toBe(0);
+        expect(NEW_VAULT_SETTINGS.customChunkSize).toBe(0);
         expect(PREFERRED_SETTING_CLOUDANT).toMatchObject({
             customChunkSize: 0,
+            sendChunksBulkMaxSize: 1,
             concurrencyOfReadChunksOnline: 100,
             minimumIntervalOfReadChunksOnline: 333,
         });
         expect(PREFERRED_SETTING_SELF_HOSTED).toMatchObject({
-            customChunkSize: 60,
+            customChunkSize: 0,
+            sendChunksBulkMaxSize: 1,
             concurrencyOfReadChunksOnline: 30,
             minimumIntervalOfReadChunksOnline: 25,
         });
         expect(PREFERRED_JOURNAL_SYNC).toMatchObject({
-            customChunkSize: 10,
+            customChunkSize: 0,
             concurrencyOfReadChunksOnline: 30,
             minimumIntervalOfReadChunksOnline: 25,
         });
+    });
+
+    it("preserves an explicitly stored chunk-size choice during settings completion", () => {
+        const prepared = prepareSettingsForLoad({
+            settingVersion: CURRENT_SETTING_VERSION,
+            customChunkSize: 80,
+        });
+
+        expect(prepared.settings.customChunkSize).toBe(80);
     });
 
     it("does not expose the invariant chunk-revision policy as a tweak", () => {

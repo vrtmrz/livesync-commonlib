@@ -204,6 +204,7 @@ export const DoctorRegulationV1_0_33: DoctorRegulation = {
     version: "1.0.33",
     rules: {
         ...DoctorRegulationV1_0_0.rules,
+        customChunkSize: undefined,
         encryptInternalMetadata: {
             value: true,
             level: RuleLevel.Recommended,

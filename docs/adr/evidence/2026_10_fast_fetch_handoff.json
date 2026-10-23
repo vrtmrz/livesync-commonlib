@@ -1,0 +1,568 @@
+{
+  "date": "2026-10-23",
+  "status": "Investigation and disposable-fixture experiments only. No production handoff, policy, or settings changes.",
+  "provenance": {
+    "streamingFetchSha256": "f5e388bd45113326771afb6140e711b43b75a4f449b67dc3765006eff4b59a8b",
+    "harnessSha256": "5145a92f1a7d82762ae527e626d3c384de5f86e3bfa3ee8907a752f6d207935a",
+    "pouchdb": "9.0.0",
+    "resultsSha256": "4038adde10ca473033ae58d1cc4129798b5f7192ea3c10024244e38430caebfe",
+    "requestsSha256": "e524f380d7d13ca82d14873ed848643832a5d309ce3468f29a9749a10831d43f",
+    "packages": {
+      "pouchdb-core": {
+        "version": "9.0.0",
+        "libIndexSha256": "fda1a8aae3693763b875285a9b88c93e789c7e0ef2f00c280dd0975ed860b53b"
+      },
+      "pouchdb-adapter-http": {
+        "version": "9.0.0",
+        "libIndexSha256": "eb92fed66fcd4c85c4748278e5bbeb5576ec74d1ef64accbb0cc7437abe942fe"
+      },
+      "pouchdb-adapter-memory": {
+        "version": "9.0.0",
+        "libIndexSha256": "e8969b5d6d84e5509b2e822d08faab8e4e84bf2675a7083f2934550625395f06"
+      },
+      "pouchdb-replication": {
+        "version": "9.0.0",
+        "libIndexSha256": "ef8e0fb37b4832407a4700f86021bd07c57850cfe450567af9f938aab142636f"
+      },
+      "pouchdb-checkpointer": {
+        "version": "9.0.0",
+        "libIndexSha256": "1d59cd6336c8ca85c2b9de605bc5c0edb8ab7a21dd2bdb04177295a1a338730f"
+      },
+      "pouchdb-generate-replication-id": {
+        "version": "9.0.0",
+        "libIndexSha256": "6dc7171d93a051f60301817c977c26020879dcfd01ceb54774b0ff58b0d1e6d4"
+      }
+    },
+    "productSourcesSha256": {
+      "commonlib": {
+        "src/pouchdb/StreamingFetch.ts": "aba67928f070a0181df22853cfa1d970c45c7e6ad5bea601c806032db987537e",
+        "src/serviceModules/Rebuilder.ts": "260c5fee90c97446527274271eb502e67fa59eb949b4b264dbbdfee934506e02",
+        "src/serviceFeatures/offlineScanner.ts": "424e1d28bc328e2dc4c65be46db982737bd4140f18055c941f60d14390215991",
+        "src/replication/couchdb/LiveSyncReplicator.ts": "ab1aa08a93212f09b3b8c6f92e7b7ab65307ed1bf97168d95ba99c1a7816038d",
+        "src/common/models/setting.const.defaults.ts": "ee551baf7a7ea822104223a37a54bf643324df62792f856754afa51ca83188aa"
+      },
+      "livesync": {
+        "src/main.ts": "0bf0071d0e663219f7677bca2a3ac94c2545c997320027008ad1c7e76ab57772",
+        "src/serviceFeatures/redFlag.simpleFetch.ts": "400c08473f513612209f57b38b0aa6543949991cec5b7d0013f935dd6f429a26"
+      }
+    },
+    "couchdbImage": "couchdb:3.5.0@sha256:1c0a30a54535377bc9ae23f42efb1ca4e92abe796f78ec98b768ac1d5874cc1b"
+  },
+  "fixture": {
+    "couchdb": "3.5.0",
+    "shards": 2,
+    "replicas": 1,
+    "files": 4000,
+    "chunks": 40000,
+    "documents": 44000,
+    "rawChunkBytes": 1024,
+    "scope": "Calls the installed fetchChangesForInitialSync function, followed by real PouchDB bidirectional sync against HTTP CouchDB. Excludes the full rebuild wrapper, its preflights and control updates, decryption, filesystem scans, and reflection. Small artificial chunks isolate document-count work; these elapsed times do not model realistic multi-gigabyte content or mobile storage.",
+    "localAdapter": "pouchdb-adapter-memory",
+    "pullSelector": {
+      "type": {
+        "$ne": "leaf"
+      }
+    },
+    "ordinaryBatchesLimit": 25,
+    "localCheckpointTrialBatchesLimit": 2,
+    "repetitions": 1,
+    "resetMethod": "For each cold-audit comparison, remove only the two directional checkpoint documents on the owned local and remote fixture, retaining the imported bodies and database identities. Run batches in ascending size order; elapsed times are single samples with warmed caches, not medians.",
+    "rttInjection": "One artificial RTT per HTTP request: half before forwarding the intact request, half before forwarding response headers. Streaming bytes are not rate limited. Twenty milliseconds is an injected delay, not an Internet measurement.",
+    "checkpointComparison": "The local-only checkpoint trial also reduces batches_limit from 25 to two. Request removal is directly observed, but the elapsed-time difference does not isolate checkpoint mode as its sole cause."
+  },
+  "requestModel": {
+    "defaultKnownPush": "Kp = ceil(44000/b). Each non-empty batch sends _revs_diff and remote checkpoint GET then PUT: 3Kp requests and approximately 3Kp sequential RTTs. No bodies are sent when all revisions are known.",
+    "defaultKnownPull": "Kl = ceil(4000/b), with the leaf-excluding pull selector. Non-empty batches contribute _changes, asynchronous database info, and remote checkpoint GET then PUT: 4Kl requests. Read-ahead and asynchronous info overlap; this is not 4Kl serial RTTs.",
+    "observedTotal": "3Kp + 4Kl + 7 for this fixture. Fixed and terminal overhead depends on setup and scheduling; seven is not a universal constant.",
+    "wallTime": "Push and pull overlap. Use the dominant push waiting term 3KpR here, then account for startup, bytes, CPU, storage, and scheduling. Do not multiply total bidirectional requests by RTT.",
+    "fastFetch": "Five 10000-row continuous pages plus seven progress/status _changes requests, for twelve requests. This is the stream function only.",
+    "localCheckpointTrial": "Kp + 2Kl + 4 = 212 audit requests at b250, followed by eight publication/verification requests at zero injected RTT, including two remote checkpoint PUTs. The leading push wait becomes KpR, plus constant publication and other costs. Full revision comparison is retained.",
+    "limitations": "More matching control/tombstone rows, conflicts, missing bodies, concurrent writes, and failures change the work. A high update_seq number is not itself a count of changes-feed rows."
+  },
+  "coldAuditComparison": [
+    {
+      "batchSize": 25,
+      "pushBatches": 1760,
+      "pullBatches": 160,
+      "observedTotalRequests": 5927,
+      "observedLoopbackSeconds": 36.23255850300001,
+      "dominantPushSequentialRtts": 5280,
+      "logicalPushWaitSeconds": {
+        "10": 52.8,
+        "50": 264.0,
+        "100": 528.0,
+        "200": 1056.0
+      }
+    },
+    {
+      "batchSize": 100,
+      "pushBatches": 440,
+      "pullBatches": 40,
+      "observedTotalRequests": 1487,
+      "observedLoopbackSeconds": 13.107337845999995,
+      "dominantPushSequentialRtts": 1320,
+      "logicalPushWaitSeconds": {
+        "10": 13.2,
+        "50": 66.0,
+        "100": 132.0,
+        "200": 264.0
+      }
+    },
+    {
+      "batchSize": 250,
+      "pushBatches": 176,
+      "pullBatches": 16,
+      "observedTotalRequests": 599,
+      "observedLoopbackSeconds": 9.532848568999995,
+      "dominantPushSequentialRtts": 528,
+      "logicalPushWaitSeconds": {
+        "10": 5.28,
+        "50": 26.4,
+        "100": 52.8,
+        "200": 105.6
+      }
+    },
+    {
+      "batchSize": 500,
+      "pushBatches": 88,
+      "pullBatches": 8,
+      "observedTotalRequests": 303,
+      "observedLoopbackSeconds": 8.39685636199999,
+      "dominantPushSequentialRtts": 264,
+      "logicalPushWaitSeconds": {
+        "10": 2.64,
+        "50": 13.2,
+        "100": 26.4,
+        "200": 52.8
+      }
+    },
+    {
+      "batchSize": 1000,
+      "pushBatches": 44,
+      "pullBatches": 4,
+      "observedTotalRequests": 155,
+      "observedLoopbackSeconds": 7.903900420000006,
+      "dominantPushSequentialRtts": 132,
+      "logicalPushWaitSeconds": {
+        "10": 1.32,
+        "50": 6.6,
+        "100": 13.2,
+        "200": 26.4
+      }
+    }
+  ],
+  "phases": [
+    {
+      "name": "fast-fetch-44000",
+      "rttMs": 0,
+      "elapsedMs": 11513.421193999999,
+      "requests": 12,
+      "byOperation": {
+        "changes": 7,
+        "changes-stream": 5
+      },
+      "requestBytes": 0,
+      "responseBytes": 76169810,
+      "revisionIdsChecked": 0,
+      "missingRevisionIds": 0
+    },
+    {
+      "name": "normal-first-b25",
+      "rttMs": 0,
+      "elapsedMs": 36232.55850300001,
+      "requests": 5927,
+      "byOperation": {
+        "server-info": 2,
+        "checkpoint-get": 1922,
+        "database-or-document": 161,
+        "changes": 161,
+        "revs-diff": 1760,
+        "checkpoint-put": 1921
+      },
+      "requestBytes": 5095667,
+      "responseBytes": 1646039,
+      "revisionIdsChecked": 44000,
+      "missingRevisionIds": 0,
+      "push": {
+        "docsRead": 0,
+        "docsWritten": 0
+      },
+      "pull": {
+        "docsRead": 0,
+        "docsWritten": 0
+      }
+    },
+    {
+      "name": "normal-warm-b25",
+      "rttMs": 0,
+      "elapsedMs": 21.857915999993565,
+      "requests": 8,
+      "byOperation": {
+        "server-info": 2,
+        "checkpoint-get": 4,
+        "database-or-document": 1,
+        "changes": 1
+      },
+      "requestBytes": 36,
+      "responseBytes": 2682,
+      "revisionIdsChecked": 0,
+      "missingRevisionIds": 0,
+      "push": {
+        "docsRead": 0,
+        "docsWritten": 0
+      },
+      "pull": {
+        "docsRead": 0,
+        "docsWritten": 0
+      }
+    },
+    {
+      "name": "batch-only-change-25-to-1000",
+      "rttMs": 0,
+      "elapsedMs": 17.825501999999688,
+      "requests": 8,
+      "byOperation": {
+        "server-info": 2,
+        "checkpoint-get": 4,
+        "database-or-document": 1,
+        "changes": 1
+      },
+      "requestBytes": 36,
+      "responseBytes": 2682,
+      "revisionIdsChecked": 0,
+      "missingRevisionIds": 0,
+      "push": {
+        "docsRead": 0,
+        "docsWritten": 0
+      },
+      "pull": {
+        "docsRead": 0,
+        "docsWritten": 0
+      }
+    },
+    {
+      "name": "normal-first-b100",
+      "rttMs": 0,
+      "elapsedMs": 13107.337845999995,
+      "requests": 1487,
+      "byOperation": {
+        "server-info": 2,
+        "checkpoint-get": 482,
+        "database-or-document": 41,
+        "changes": 41,
+        "revs-diff": 440,
+        "checkpoint-put": 481
+      },
+      "requestBytes": 4709004,
+      "responseBytes": 1081887,
+      "revisionIdsChecked": 44000,
+      "missingRevisionIds": 0,
+      "push": {
+        "docsRead": 0,
+        "docsWritten": 0
+      },
+      "pull": {
+        "docsRead": 0,
+        "docsWritten": 0
+      }
+    },
+    {
+      "name": "normal-first-b250",
+      "rttMs": 0,
+      "elapsedMs": 9532.848568999994,
+      "requests": 599,
+      "byOperation": {
+        "server-info": 2,
+        "database-or-document": 17,
+        "checkpoint-get": 194,
+        "changes": 17,
+        "revs-diff": 176,
+        "checkpoint-put": 193
+      },
+      "requestBytes": 4631850,
+      "responseBytes": 969552,
+      "revisionIdsChecked": 44000,
+      "missingRevisionIds": 0,
+      "push": {
+        "docsRead": 0,
+        "docsWritten": 0
+      },
+      "pull": {
+        "docsRead": 0,
+        "docsWritten": 0
+      }
+    },
+    {
+      "name": "normal-first-b500",
+      "rttMs": 0,
+      "elapsedMs": 8396.856361999991,
+      "requests": 303,
+      "byOperation": {
+        "server-info": 2,
+        "checkpoint-get": 98,
+        "database-or-document": 9,
+        "changes": 9,
+        "revs-diff": 88,
+        "checkpoint-put": 97
+      },
+      "requestBytes": 4606131,
+      "responseBytes": 930621,
+      "revisionIdsChecked": 44000,
+      "missingRevisionIds": 0,
+      "push": {
+        "docsRead": 0,
+        "docsWritten": 0
+      },
+      "pull": {
+        "docsRead": 0,
+        "docsWritten": 0
+      }
+    },
+    {
+      "name": "normal-first-b1000",
+      "rttMs": 0,
+      "elapsedMs": 7903.900420000005,
+      "requests": 155,
+      "byOperation": {
+        "server-info": 2,
+        "database-or-document": 5,
+        "checkpoint-get": 50,
+        "changes": 5,
+        "revs-diff": 44,
+        "checkpoint-put": 49
+      },
+      "requestBytes": 4593319,
+      "responseBytes": 912746,
+      "revisionIdsChecked": 44000,
+      "missingRevisionIds": 0,
+      "push": {
+        "docsRead": 0,
+        "docsWritten": 0
+      },
+      "pull": {
+        "docsRead": 0,
+        "docsWritten": 0
+      }
+    },
+    {
+      "name": "normal-first-b250-rtt20",
+      "rttMs": 20,
+      "elapsedMs": 18012.834874000007,
+      "requests": 599,
+      "byOperation": {
+        "server-info": 2,
+        "checkpoint-get": 194,
+        "database-or-document": 17,
+        "changes": 17,
+        "revs-diff": 176,
+        "checkpoint-put": 193
+      },
+      "requestBytes": 4631844,
+      "responseBytes": 968723,
+      "revisionIdsChecked": 44000,
+      "missingRevisionIds": 0,
+      "push": {
+        "docsRead": 0,
+        "docsWritten": 0
+      },
+      "pull": {
+        "docsRead": 0,
+        "docsWritten": 0
+      }
+    },
+    {
+      "name": "selector-change-to-all-b500",
+      "rttMs": 0,
+      "elapsedMs": 3611.1916139999958,
+      "requests": 358,
+      "byOperation": {
+        "server-info": 2,
+        "database-or-document": 89,
+        "checkpoint-get": 90,
+        "changes": 89,
+        "checkpoint-put": 88
+      },
+      "requestBytes": 44071,
+      "responseBytes": 12107124,
+      "revisionIdsChecked": 0,
+      "missingRevisionIds": 0,
+      "push": {
+        "docsRead": 0,
+        "docsWritten": 0
+      },
+      "pull": {
+        "docsRead": 0,
+        "docsWritten": 0
+      }
+    },
+    {
+      "name": "local-checkpoints-b250-rtt20",
+      "rttMs": 20,
+      "elapsedMs": 9597.828927999988,
+      "requests": 212,
+      "byOperation": {
+        "server-info": 2,
+        "database-or-document": 17,
+        "revs-diff": 176,
+        "changes": 17
+      },
+      "requestBytes": 4580788,
+      "responseBytes": 903786,
+      "revisionIdsChecked": 44000,
+      "missingRevisionIds": 0,
+      "push": {
+        "docsRead": 0,
+        "docsWritten": 0
+      },
+      "pull": {
+        "docsRead": 0,
+        "docsWritten": 0
+      }
+    },
+    {
+      "name": "publish-checkpoints-b250",
+      "rttMs": 0,
+      "elapsedMs": 34.52408000000287,
+      "requests": 8,
+      "byOperation": {
+        "server-info": 2,
+        "checkpoint-get": 4,
+        "checkpoint-put": 2
+      },
+      "requestBytes": 714,
+      "responseBytes": 1444,
+      "revisionIdsChecked": 0,
+      "missingRevisionIds": 0
+    },
+    {
+      "name": "restore-both-checkpoints-b25",
+      "rttMs": 0,
+      "elapsedMs": 17.65762199999881,
+      "requests": 8,
+      "byOperation": {
+        "server-info": 2,
+        "checkpoint-get": 4,
+        "database-or-document": 1,
+        "changes": 1
+      },
+      "requestBytes": 36,
+      "responseBytes": 2672,
+      "revisionIdsChecked": 0,
+      "missingRevisionIds": 0,
+      "push": {
+        "docsRead": 0,
+        "docsWritten": 0
+      },
+      "pull": {
+        "docsRead": 0,
+        "docsWritten": 0
+      }
+    },
+    {
+      "name": "post-audit-two-way-edits",
+      "rttMs": 0,
+      "elapsedMs": 53.27174399999785,
+      "requests": 15,
+      "byOperation": {
+        "server-info": 2,
+        "checkpoint-get": 4,
+        "database-or-document": 2,
+        "revs-diff": 1,
+        "changes": 2,
+        "bulk-docs": 1,
+        "bulk-get": 1,
+        "checkpoint-put": 2
+      },
+      "requestBytes": 1450,
+      "responseBytes": 4052,
+      "revisionIdsChecked": 1,
+      "missingRevisionIds": 1,
+      "push": {
+        "docsRead": 1,
+        "docsWritten": 1
+      },
+      "pull": {
+        "docsRead": 1,
+        "docsWritten": 1
+      }
+    },
+    {
+      "name": "conflict-fast-fetch",
+      "rttMs": 0,
+      "elapsedMs": 21.256872999976622,
+      "requests": 4,
+      "byOperation": {
+        "changes": 3,
+        "changes-stream": 1
+      },
+      "requestBytes": 0,
+      "responseBytes": 1297,
+      "revisionIdsChecked": 0,
+      "missingRevisionIds": 0
+    },
+    {
+      "name": "conflict-unsafe-since-bridge",
+      "rttMs": 0,
+      "elapsedMs": 36.209565999975894,
+      "requests": 8,
+      "byOperation": {
+        "server-info": 1,
+        "checkpoint-get": 3,
+        "checkpoint-put": 2,
+        "database-or-document": 1,
+        "changes": 1
+      },
+      "requestBytes": 961,
+      "responseBytes": 1995,
+      "revisionIdsChecked": 0,
+      "missingRevisionIds": 0,
+      "docsWritten": 0
+    },
+    {
+      "name": "conflict-ordinary-reconciliation",
+      "rttMs": 0,
+      "elapsedMs": 29.50538200000301,
+      "requests": 8,
+      "byOperation": {
+        "server-info": 1,
+        "database-or-document": 2,
+        "changes": 2,
+        "bulk-get": 1,
+        "checkpoint-get": 1,
+        "checkpoint-put": 1
+      },
+      "requestBytes": 587,
+      "responseBytes": 2145,
+      "revisionIdsChecked": 0,
+      "missingRevisionIds": 0,
+      "docsWritten": 1
+    }
+  ],
+  "checkpointIdentity": {
+    "batchAndReadAheadChangesPreserveIdentity": true,
+    "selectorChangesPullOnly": true
+  },
+  "conflictCursorCounterexample": {
+    "remoteLeaves": 2,
+    "fetchedLeaves": 1,
+    "leavesAfterUnsafeCursorBridge": 1,
+    "reconciledLeaves": 2
+  },
+  "improvementStatus": {
+    "batchOnly": "Batch and read-ahead changes preserve the PouchDB 9.0.0 identity. Recreate replication with the same databases and selectors; stop/restart is separate from checkpoint reset. Large missing-body batches still need payload and memory bounds.",
+    "localThenBoth": "Use push checkpoint=source and pull checkpoint=target during the audit so only the local database is checkpointed. On successful completion, publish each verified local last_seq and its existing session_id to the normal pair using Checkpointer. Restoring ordinary both-sided checkpoints and b25 then performed no all-ID push rescan, and new edits propagated both ways.",
+    "remainingDesignWork": "Interrupted audit, cancellation, publication failure or partial publication, permissions, concurrent local/remote writes, conflict/tombstone completeness, realistic large documents, mobile resources, and provider payload limits need explicit recovery design and tests before production implementation. No new persistent handoff state has been introduced.",
+    "unsafeBridge": "Passing the Fast Fetch cursor as pull since left one of two conflict leaves missing. Ordinary reconciliation from its own checkpoint recovered the missing leaf. Stream durability alone is not full revision completeness."
+  },
+  "historicalDecision": "The maintainer recalls choosing a large value to reduce the very expensive initial download before Fast Fetch. That is a rational historical explanation, not independently established Git history. Fast Fetch improves body download but does not eliminate the measured first ordinary revision audit. Retiring universal value 60 therefore needs a bounded catch-up policy, while binary-heavy immutable Vaults retain document-count advantages from larger chunks.",
+  "verification": {
+    "measuredPhases": 17,
+    "requestsComplete": true,
+    "coldRequestFormulaMatchesAllFiveBatches": true,
+    "allColdAuditsCheck44000RevisionsWithoutBodyWrites": true,
+    "batchChangeAndRestoredModeAvoidRescan": true,
+    "postPublicationTwoWayEditsPropagate": true,
+    "conflictCounterexampleReproduced": true,
+    "temporaryContainerOomKilled": false
+  }
+}

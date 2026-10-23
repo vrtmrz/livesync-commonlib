@@ -11,7 +11,13 @@ import {
     REMOTE_P2P,
 } from "./types";
 import { configurationNames, LEVEL_ADVANCED } from "./models/shared.definition.configNames";
-import { checkUnsuitableValues, DoctorRegulation, performDoctorConsultation, RebuildOptions } from "./configForDoc";
+import {
+    checkUnsuitableValues,
+    DoctorRegulation,
+    DoctorRegulationV0_24_30,
+    performDoctorConsultation,
+    RebuildOptions,
+} from "./configForDoc";
 
 describe("Doctor translation boundary", () => {
     it("classifies Data Compression as advanced rather than experimental", () => {
@@ -59,16 +65,30 @@ describe("Doctor translation boundary", () => {
         expect(result.rules.customChunkSize).toBeUndefined();
     });
 
-    it("applies the chunk-size recommendation to matching CouchDB settings", () => {
+    it.each([0, 20, 60])("does not recommend a chunk-size change for CouchDB value %s", (customChunkSize) => {
         const result = checkUnsuitableValues({
+            ...DEFAULT_SETTINGS,
+            remoteType: REMOTE_COUCHDB,
+            chunkSplitterVersion: "v3-rabin-karp",
+            customChunkSize,
+            couchDB_URI: "https://couchdb.example.test/database",
+        });
+
+        expect(DoctorRegulation.rules.customChunkSize).toBeUndefined();
+        expect(result.rules.customChunkSize).toBeUndefined();
+    });
+
+    it("retains the historical V0.24.30 chunk-size recommendation for callers using that regulation", () => {
+        const settings = {
             ...DEFAULT_SETTINGS,
             remoteType: REMOTE_COUCHDB,
             chunkSplitterVersion: "v3-rabin-karp",
             customChunkSize: 20,
             couchDB_URI: "https://couchdb.example.test/database",
-        });
+        };
 
-        expect(result.rules.customChunkSize).toBeDefined();
+        expect(DoctorRegulationV0_24_30.rules.customChunkSize).toMatchObject({ value: 60 });
+        expect(checkUnsuitableValues(settings, DoctorRegulationV0_24_30).rules.customChunkSize).toBeDefined();
     });
 
     it("does not apply the CouchDB chunk-size recommendation to P2P", () => {

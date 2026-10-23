@@ -8,6 +8,28 @@ The code paths below identify the maintained Self-hosted LiveSync composition po
 
 ## Obsidian plug-in
 
+The unreleased V3 Rabin–Karp correction uses proportional binary thresholds,
+including at values 0 and 1. Regression tests cover natural boundaries, suffix
+reuse, forced caps, explicit minima, EOF tails, and large UTF-8 text. The packed
+old/new CLI matrix verifies 810 file-stage digests over CouchDB, Journal, and
+P2P in both directions. Separate revision tests retain conflict coverage.
+The Linux Obsidian manual-setup workflow verifies value 0, eight 32 KiB binary
+pieces, unchanged Metadata revision and complete local Chunk inventory after
+restart, exact binary reception through Fast Fetch, and a bidirectional note
+round-trip. These checks use the unpublished local candidate with LiveSync
+1.0.39; they do not establish mobile or Cloudant-service behaviour.
+
+Unreleased Fast Fetch tests verify all current conflict leaves, including deleted
+leaves, before advancing the durable stream cursor. CouchDB 3.5.0 integration
+tests exercise revision ancestry retrieval and a fresh-import handoff to the
+ordinary PouchDB checkpoints, followed by a batch-size change and receipt of a
+new revision in LiveSync mode. Unit tests cover unimported local writes, missing
+or replaced checkpoint guards, partial publication, and exclusion of persisted
+resume cursors. The handoff requires an empty local database, suspended local
+writers, and a remote database which is not replaced during the operation.
+These package-owned tests do not establish arbitrary-time fast-forwarding,
+On Demand repair, or real Obsidian runtime behaviour.
+
 Unreleased remote-inspection tests compare individual and bulk reads against CouchDB 3.5.0. A fixture with 65 Metadata documents and 130 Chunks produces identical integrity reports while reducing HTTP requests from 198 to 8. Encrypted bulk reads preserve current conflicts, exact revision access, missing-document evidence, and unchanged database and Security Seed state. Unit tests cover bounded GET batches, encoded URL limits, per-document failures, cancellation, and explicitly excluded remote coverage. These counts describe the fixture; they do not establish large-Vault elapsed-time improvements.
 
 Unreleased [database diagnostics](database-diagnostics.md) tests cover preserved Usage accounting, normal-file identity classification, current conflict branches, byte comparisons, embedded Chunks, missing and unreadable content, cancellation, concurrent changes, and consistent pseudonyms. Real in-memory PouchDB tests verify pagination and conflict revision reads while retaining the original database handle. A CouchDB 3.5.0 integration test verifies GET-only access, encrypted Metadata and Chunk reads with an existing Security Seed, missing-seed failure without initialisation, and unchanged database update sequences and Seed documents. Focused tests also reject ciphertext which remains undecoded after an ID mismatch. Commonlib owns the result contract and compact Integrity Markdown formatter; Self-hosted LiveSync owns the serviceFeature, run-time name choice, dialogue lifecycle, and report copy and download controls. Its real Obsidian 1.12.7 test on Linux verifies cancellation before a run, both name modes, the nine-column Usage report, copy and download payloads, local integrity findings when CouchDB is unavailable, and unchanged settings, database update sequences, and Vault file names. Mobile emulation verifies the choice dialogue's viewport, safe-area, and touch-target layout; native iOS and Android behaviour remains unverified.

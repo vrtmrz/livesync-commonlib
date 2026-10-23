@@ -60,6 +60,8 @@ export type {
 export { CAPABILITY_SUPPORT_KINDS, CAPABILITY_UNAVAILABLE_REASONS } from "./ProviderCapability.ts";
 export { NO_REMOTE_RESOURCE_CAPABILITIES, REMOTE_RESOURCE_KINDS } from "./RemoteResource.ts";
 export type {
+    InitialFetchFastForwardResource,
+    InitialFetchFastForwardResourceFactory,
     ConnectionProbeFactory,
     PreferredTweakProbe,
     PreferredTweakProbeFactory,
@@ -75,6 +77,7 @@ export type {
     SynchronisationInformationResource,
     SynchronisationInformationResourceFactory,
 } from "./RemoteResource.ts";
+export type { InitialFetchFastForward } from "./couchdb/FastForward.ts";
 export {
     CENTRAL_REMOTE_ADMINISTRATION_ACTIONS,
     CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS,

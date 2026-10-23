@@ -41,6 +41,8 @@ import { requiredRemoteFeatures, usesEncryptedInternalMetadata } from "@lib/pouc
 import { assessRemoteDocumentIds } from "@lib/pouchdb/remoteIdCompatibility.ts";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import { preprocessOutgoing } from "@lib/pouchdb/encryption.ts";
+import { prepareInitialFetchFastForward } from "./FastForward.ts";
+import type { InitialFetchFastForwardResource } from "../RemoteResource.ts";
 
 import { ensureDatabaseIsCompatible, getEffectiveTweakValues } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import {
@@ -208,6 +210,44 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     constructor(env: LiveSyncCouchDBReplicatorEnv) {
         super(env);
         this.env = env;
+    }
+
+    /** Own the checkpoint handoff for one fresh, suspended Fast Fetch only. */
+    createInitialFetchFastForwardResource(setting: RemoteDBSettings): InitialFetchFastForwardResource {
+        const snapshot = { ...setting };
+        const identity = (value: RemoteDBSettings) => JSON.stringify([
+            value.couchDB_URI, value.couchDB_DBNAME, value.couchDB_USER, value.couchDB_PASSWORD,
+            value.couchDB_CustomHeaders, value.useJWT, value.jwtAlgorithm, value.jwtKey,
+            value.jwtExpDuration, value.jwtKid, value.jwtSub, value.encrypt, value.passphrase,
+            value.E2EEAlgorithm, value.enableCompression, value.pathNormalizationVersion,
+            value.readChunksOnline, value.useRequestAPI,
+        ]);
+        const binding = identity(snapshot);
+        let connection: OwnedCouchDBConnection<EntryDoc> | undefined;
+        let prepared = false;
+        let disposed = false;
+        return {
+            prepare: async () => {
+                if (prepared || disposed) return undefined;
+                prepared = true;
+                if (this.currentSettings.doNotSuspendOnFetching || snapshot.useRequestAPI) return undefined;
+                const local = this.rawDatabase;
+                const isCurrent = () => !disposed && this.rawDatabase === local &&
+                    this.currentSettings.suspendFileWatching && this.currentSettings.suspendParseReplicationResult &&
+                    identity(this.currentSettings) === binding;
+                if (!isCurrent()) return undefined;
+                connection = await this.openOwnedConnection<EntryDoc>(snapshot);
+                return await prepareInitialFetchFastForward(local, connection.db, {
+                    push: {},
+                    ...(snapshot.readChunksOnline ? { pull: { ...selectorOnDemandPull } } : {}),
+                }, isCurrent);
+            },
+            dispose: async () => {
+                if (disposed) return;
+                disposed = true;
+                if (connection) await connection.close();
+            },
+        };
     }
 
     getInitialSyncParameters(setting: RemoteDBSettings): Promise<SyncParameters> {

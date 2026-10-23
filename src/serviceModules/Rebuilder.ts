@@ -38,6 +38,7 @@ import { isRemediationModeActive, parseHeaderValues } from "@lib/common/utils";
 import { sizeToHumanReadable } from "octagonal-wheels/number";
 import { REMOTE_RESOURCE_KINDS } from "@lib/replication";
 import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
+import type { InitialFetchFastForward, InitialFetchFastForwardResource } from "@lib/replication";
 
 const FAST_FETCH_CHECKPOINT_KEY = "fast-fetch-checkpoint";
 const FAST_FETCH_RETRY_DELAYS = [2000, 5000, 10000, 20000];
@@ -590,6 +591,7 @@ Are you sure you wish to proceed?`;
         await this.suspendReflectingDatabase();
         await this.control.applySettings();
         let since = checkpoint?.sequence ?? "0";
+        let startsFresh = !checkpoint;
         if (checkpoint) {
             this._log(
                 `Resuming fast database fetch from sequence: ${checkpoint.sequence}`,
@@ -621,11 +623,14 @@ Are you sure you wish to proceed?`;
             await delay(1000);
             localDB = this.database.localDatabase.localDatabase;
             since = "0";
+            startsFresh = true;
         }
         const securitySeed = await this.replicator.createRemoteResource(REMOTE_RESOURCE_KINDS.SECURITY_SEED, settings);
         if (!securitySeed) {
             throw new Error("The selected provider cannot supply a Security Seed for Fast Fetch.");
         }
+        let fastForwardResource: InitialFetchFastForwardResource | undefined;
+        let fastForward: InitialFetchFastForward | undefined;
         try {
             const enc = getConfiguredFunctionsForEncryption(
                 settings.passphrase,
@@ -634,6 +639,14 @@ Are you sure you wish to proceed?`;
                 () => securitySeed.read(),
                 settings.E2EEAlgorithm
             );
+
+            if (startsFresh && !settings.doNotSuspendOnFetching && (await localDB.info()).doc_count === 0) {
+                fastForwardResource = await this.replicator.createRemoteResource(
+                    REMOTE_RESOURCE_KINDS.INITIAL_FETCH_FAST_FORWARD,
+                    this.setting.currentSettings()
+                );
+                fastForward = await fastForwardResource?.prepare();
+            }
 
             for (let attempt = 0; ; attempt++) {
                 try {
@@ -650,8 +663,12 @@ Are you sure you wish to proceed?`;
                                 "fetch-init-progress"
                             );
                         },
-                        (sequence) => this.saveFastFetchCheckpoint(remote, sequence),
-                        customHeaders
+                        (sequence) => {
+                            this.saveFastFetchCheckpoint(remote, sequence);
+                            fastForward?.recordCheckpoint(sequence);
+                        },
+                        customHeaders,
+                        fastForward?.recordStoredRevisions
                     );
                     break;
                 } catch (ex) {
@@ -672,6 +689,16 @@ Are you sure you wish to proceed?`;
                 }
             }
 
+            if (fastForward) {
+                const advanced = await fastForward.fastForward();
+                this._log(
+                    advanced
+                        ? "Advanced the ordinary replication checkpoints through the verified initial Fast Fetch."
+                        : "The initial Fast Fetch did not advance ordinary replication checkpoints.",
+                    LOG_LEVEL_VERBOSE
+                );
+            }
+
             const allDocs = await localDB.allDocs({ include_docs: false });
             this._log(
                 `Fast database fetch completed. Total documents in local database: ${allDocs.total_rows}`,
@@ -687,7 +714,11 @@ Are you sure you wish to proceed?`;
             }
             this.clearFastFetchCheckpoint();
         } finally {
-            await securitySeed.dispose();
+            try {
+                await fastForwardResource?.dispose();
+            } finally {
+                await securitySeed.dispose();
+            }
         }
     }
 

@@ -18,7 +18,7 @@ import { createNewVaultSettings } from "@vrtmrz/livesync-commonlib/settings";
 const initialSettings = createNewVaultSettings();
 ```
 
-The recommended base currently selects a 50 MB maximum synchronised file size, Rabin–Karp chunk splitting, Plug-in Sync V2, case-insensitive file-name handling, and E2EE V2. Chunk revisions are always derived from their content; the obsolete `doNotUseFixedRevisionForChunks` stored key is retained only for compatibility and is not a recommendation or tweak. The recommended base does not enable synchronisation or encryption on behalf of the user.
+The recommended base currently selects a 50 MB maximum synchronised file size, a `customChunkSize` value of 0, Rabin–Karp chunk splitting, Plug-in Sync V2, case-insensitive file-name handling, and E2EE V2. Chunk revisions are always derived from their content; the obsolete `doNotUseFixedRevisionForChunks` stored key is retained only for compatibility and is not a recommendation or tweak. The recommended base does not enable synchronisation or encryption on behalf of the user.
 
 Compared with the conservative stored-setting fallbacks, the current new-Vault object has exactly two semantic differences:
 
@@ -27,15 +27,15 @@ Compared with the conservative stored-setting fallbacks, the current new-Vault o
 | `usePluginSyncV2` | `false` | `true` |
 | `handleFilenameCaseSensitive` | normalised from the legacy absent value to `false` | `false` |
 
-The other headline recommendations are already the conservative fallbacks: `syncMaxSizeInMB` is 50, `chunkSplitterVersion` is `v3-rabin-karp`, and `E2EEAlgorithm` is `v2`. Data Compression, Eden, V1 dynamic iteration, the legacy IndexedDB adapter, Hidden File Sync, and automatic synchronisation remain disabled when their stored values are absent. Explicit stored values take precedence.
+The other headline recommendations are already the conservative fallbacks: `syncMaxSizeInMB` is 50, `customChunkSize` is 0, `chunkSplitterVersion` is `v3-rabin-karp`, and `E2EEAlgorithm` is `v2`. Data Compression, Eden, V1 dynamic iteration, the legacy IndexedDB adapter, Hidden File Sync, and automatic synchronisation remain disabled when their stored values are absent. Explicit stored values take precedence.
 
-Apply a remote-specific preferred object only while configuring that remote. Do not merge it into an existing stored configuration merely because the remote type can be inferred. The self-hosted CouchDB profile uses a chunk-size coefficient of 60, matching the Doctor check for Rabin–Karp databases; Cloudant retains its service-specific value of 0.
+Apply a remote-specific preferred object only while configuring that remote. Do not merge it into an existing stored configuration merely because the remote type can be inferred. Cloudant, self-hosted CouchDB, and Journal Sync setup all use the common `customChunkSize` value of 0. Their unrelated request and bulk settings remain service-specific. The current Doctor regulation no longer recommends changing the value to 60 universally, and existing explicit values remain valid.
 
 | Explicitly selected remote | `customChunkSize` | `concurrencyOfReadChunksOnline` | `minimumIntervalOfReadChunksOnline` |
 | --- | ---: | ---: | ---: |
 | Cloudant | 0 | 100 | 333 |
-| Self-hosted CouchDB | 60 | 30 | 25 |
-| Object Storage | 10 | 30 | 25 |
+| Self-hosted CouchDB | 0 | 30 | 25 |
+| Journal Sync (Object Storage) | 0 | 30 | 25 |
 
 These are setup-time recommendations, not upgrade migrations. Selecting or detecting a remote does not apply them to an existing configuration unless the person is actively configuring that remote.
 

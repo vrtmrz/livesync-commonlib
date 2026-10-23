@@ -4,7 +4,9 @@ import type {
     RemoteResourceCapabilities,
     RemoteResourceKind,
     RemoteResourceMap,
+    RemoteResourceFactoryMap,
 } from "@lib/replication/RemoteResource.ts";
+import type { CapabilitySupport } from "@lib/replication/ProviderCapability.ts";
 
 /** Resolve one ReplicatorService-owned finite resource without adding a method per role. */
 export async function resolveRemoteResource<TKind extends RemoteResourceKind>(
@@ -12,9 +14,9 @@ export async function resolveRemoteResource<TKind extends RemoteResourceKind>(
     kind: TKind,
     setting: RemoteDBSettings
 ): Promise<RemoteResourceMap[TKind] | undefined> {
-    const capability = capabilities[kind];
-    if (capability.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
+    const capability = capabilities[kind] as CapabilitySupport<RemoteResourceFactoryMap[TKind]> | undefined;
+    if (capability?.kind !== CAPABILITY_SUPPORT_KINDS.SUPPORTED) {
         return undefined;
     }
-    return await capability.run(setting);
+    return await capability.run(setting) as RemoteResourceMap[TKind];
 }

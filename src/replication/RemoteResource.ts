@@ -1,6 +1,7 @@
 import type { RemoteDBSettings, RemotePreferredTweakResult } from "@lib/common/types.ts";
 import type { RemoteDBStatus } from "./LiveSyncAbstractReplicator.ts";
 import { CAPABILITY_NOT_APPLICABLE, type CapabilitySupport } from "./ProviderCapability.ts";
+import type { InitialFetchFastForward } from "./couchdb/FastForward.ts";
 
 /** Stable machine identifiers for finite provider-owned remote resources. */
 export const REMOTE_RESOURCE_KINDS = Object.freeze({
@@ -8,6 +9,7 @@ export const REMOTE_RESOURCE_KINDS = Object.freeze({
     PREFERRED_TWEAK: "preferred-tweak",
     SECURITY_SEED: "security-seed",
     SYNCHRONISATION_INFORMATION: "synchronisation-information",
+    INITIAL_FETCH_FAST_FORWARD: "initial-fetch-fast-forward",
 } as const);
 
 export type RemoteResourceKind = (typeof REMOTE_RESOURCE_KINDS)[keyof typeof REMOTE_RESOURCE_KINDS];
@@ -68,21 +70,30 @@ export interface SynchronisationInformationResource {
     dispose(): Promise<void>;
 }
 
+/** Checkpoint handoff owned exclusively by one fresh Fast Fetch. */
+export interface InitialFetchFastForwardResource {
+    prepare(): Promise<InitialFetchFastForward | undefined>;
+    dispose(): Promise<void>;
+}
+
 export type RemoteResourceMap = {
     readonly [REMOTE_RESOURCE_KINDS.CONNECTION]: RemoteConnectionProbe;
     readonly [REMOTE_RESOURCE_KINDS.PREFERRED_TWEAK]: PreferredTweakProbe;
     readonly [REMOTE_RESOURCE_KINDS.SECURITY_SEED]: SecuritySeedResource;
     readonly [REMOTE_RESOURCE_KINDS.SYNCHRONISATION_INFORMATION]: SynchronisationInformationResource;
+    readonly [REMOTE_RESOURCE_KINDS.INITIAL_FETCH_FAST_FORWARD]: InitialFetchFastForwardResource;
 };
 
 export type RemoteResourceFactoryMap = {
     readonly [K in RemoteResourceKind]: (setting: RemoteDBSettings) => Promise<RemoteResourceMap[K]>;
 };
 
-/** Exhaustive resource support catalogue supplied by one provider. */
+/** Resource support catalogue; older hosts may omit the initial-fetch optimisation. */
 export type RemoteResourceCapabilities = {
-    readonly [K in RemoteResourceKind]: CapabilitySupport<RemoteResourceFactoryMap[K]>;
-};
+    readonly [K in Exclude<RemoteResourceKind, typeof REMOTE_RESOURCE_KINDS.INITIAL_FETCH_FAST_FORWARD>]:
+        CapabilitySupport<RemoteResourceFactoryMap[K]>;
+} & { readonly [REMOTE_RESOURCE_KINDS.INITIAL_FETCH_FAST_FORWARD]?:
+    CapabilitySupport<RemoteResourceFactoryMap[typeof REMOTE_RESOURCE_KINDS.INITIAL_FETCH_FAST_FORWARD]> };
 
 /** Explicit catalogue for providers which own no finite remote resources. */
 export const NO_REMOTE_RESOURCE_CAPABILITIES: RemoteResourceCapabilities = Object.freeze({
@@ -90,10 +101,13 @@ export const NO_REMOTE_RESOURCE_CAPABILITIES: RemoteResourceCapabilities = Objec
     [REMOTE_RESOURCE_KINDS.PREFERRED_TWEAK]: CAPABILITY_NOT_APPLICABLE,
     [REMOTE_RESOURCE_KINDS.SECURITY_SEED]: CAPABILITY_NOT_APPLICABLE,
     [REMOTE_RESOURCE_KINDS.SYNCHRONISATION_INFORMATION]: CAPABILITY_NOT_APPLICABLE,
+    [REMOTE_RESOURCE_KINDS.INITIAL_FETCH_FAST_FORWARD]: CAPABILITY_NOT_APPLICABLE,
 });
 
 export type ConnectionProbeFactory = RemoteResourceFactoryMap[typeof REMOTE_RESOURCE_KINDS.CONNECTION];
 export type PreferredTweakProbeFactory = RemoteResourceFactoryMap[typeof REMOTE_RESOURCE_KINDS.PREFERRED_TWEAK];
 export type SecuritySeedResourceFactory = RemoteResourceFactoryMap[typeof REMOTE_RESOURCE_KINDS.SECURITY_SEED];
+export type InitialFetchFastForwardResourceFactory =
+    RemoteResourceFactoryMap[typeof REMOTE_RESOURCE_KINDS.INITIAL_FETCH_FAST_FORWARD];
 export type SynchronisationInformationResourceFactory =
     RemoteResourceFactoryMap[typeof REMOTE_RESOURCE_KINDS.SYNCHRONISATION_INFORMATION];

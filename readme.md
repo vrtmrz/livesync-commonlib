@@ -20,6 +20,13 @@ Treat every `compat/*` subpath as a migration-only interface. A source-directory
 
 The package is ESM-only and declares Node 20 or later. Browser entry points are built with browser conditions, but the host remains responsible for checking the availability of browser capabilities such as the File System Access API.
 
+Fast Fetch imports all current leaf revisions listed by CouchDB, including
+deleted conflict leaves. A host may supply the optional
+`initial-fetch-fast-forward` resource to hand a fresh, complete import to
+ordinary replication before resuming local writers. Existing hosts can omit
+this optimisation. Resume cursors retain their existing meaning; this resource
+does not provide an arbitrary-time checkpoint jump or On Demand repair.
+
 ## Package entry points
 
 | Entry point                                        | Intended use                                                                      | Current contract status                                                                     |

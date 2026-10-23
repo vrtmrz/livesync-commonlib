@@ -218,6 +218,90 @@ describe("StreamingFetch - fetchChangesForInitialSync integration", () => {
         await expectCheckpointHasNoPendingChanges(checkpoints.at(-1));
     });
 
+    it("fetches every current live and deleted conflict leaf from CouchDB", async () => {
+        const id = "conflicted-leaf-document";
+        const winner = {
+            _id: id,
+            _rev: "3-a1b2c3",
+            _revisions: { start: 3, ids: ["a1b2c3", "a1b2", "a1"] },
+            type: "plain",
+            data: "winning body",
+        };
+        const liveConflict = {
+            _id: id,
+            _rev: "2-b2c3d4",
+            _revisions: { start: 2, ids: ["b2c3d4", "a1"] },
+            type: "plain",
+            data: "live conflict body",
+        };
+        const deletedConflict = {
+            _id: id,
+            _rev: "2-c3d4e5",
+            _deleted: true,
+            _revisions: { start: 2, ids: ["c3d4e5", "a1"] },
+        };
+        await remoteDB.bulkDocs([winner, liveConflict, deletedConflict] as any, { new_edits: false });
+
+        const remoteChanges = await remoteDB.changes({
+            since: "0",
+            style: "all_docs",
+            include_docs: true,
+            conflicts: true,
+            revs: true,
+        } as any);
+        const remoteRow = remoteChanges.results.find((row) => row.id === id);
+        expect(remoteRow?.changes.map(({ rev }) => rev)).toEqual(
+            expect.arrayContaining([winner._rev, liveConflict._rev, deletedConflict._rev])
+        );
+        expect(remoteRow?.doc?._rev).toBe(winner._rev);
+
+        const checkpoints: Array<string | number> = [];
+        await fetchChangesForInitialSync(
+            localDB,
+            remoteDbUrl,
+            authHeader,
+            (doc) => Promise.resolve(doc as any),
+            "0",
+            () => {},
+            (sequence) => checkpoints.push(sequence)
+        );
+
+        await expect(localDB.get(id, { rev: liveConflict._rev })).resolves.toMatchObject({
+            data: "live conflict body",
+        });
+        await expect(
+            localDB.revsDiff({ [id]: [winner._rev, liveConflict._rev, deletedConflict._rev] })
+        ).resolves.toEqual({});
+        await expectCheckpointHasNoPendingChanges(checkpoints.at(-1));
+    });
+
+    it("does not rewrite an included revision already present in the local database", async () => {
+        await remoteDB.put({ _id: "already-present-document", type: "plain", data: "keep" });
+        await fetchChangesForInitialSync(
+            localDB,
+            remoteDbUrl,
+            authHeader,
+            (doc) => Promise.resolve(doc as any),
+            "0"
+        );
+        const localBulkDocs = vi.spyOn(localDB, "bulkDocs");
+        const checkpoints: Array<string | number> = [];
+
+        await fetchChangesForInitialSync(
+            localDB,
+            remoteDbUrl,
+            authHeader,
+            (doc) => Promise.resolve(doc as any),
+            "0",
+            () => {},
+            (sequence) => checkpoints.push(sequence)
+        );
+
+        expect(localBulkDocs).not.toHaveBeenCalled();
+        await expect(localDB.get("already-present-document")).resolves.toMatchObject({ data: "keep" });
+        await expectCheckpointHasNoPendingChanges(checkpoints.at(-1));
+    });
+
     it("should count a deletion tombstone as one bounded changes row", async () => {
         await remoteDB.put({ _id: "retained-document", type: "plain", data: "keep" });
         const deletedDocument = await remoteDB.put({ _id: "deleted-document", type: "plain", data: "remove" });
