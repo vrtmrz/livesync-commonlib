@@ -20,6 +20,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Setup Node.js
@@ -34,6 +35,19 @@ jobs:
       - name: Verify package
         run: npm run verify:package
 
+      - name: Create commit package preview
+        id: package-preview
+        run: npm run preview:package -- "$RUNNER_TEMP/commonlib-package-preview"
+
+      - name: Upload commit package preview
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: package-preview-${{ steps.package-preview.outputs.sha }}-${{ github.run_attempt }}
+          path: ${{ steps.package-preview.outputs.directory }}
+          if-no-files-found: error
+          retention-days: 14
+          overwrite: false
+
   integration-tests:
     name: Integration tests
     runs-on: ubuntu-latest
@@ -43,6 +57,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
 
       - name: Setup Node.js

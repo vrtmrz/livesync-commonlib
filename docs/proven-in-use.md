@@ -170,6 +170,8 @@ Commonlib tests the result and lifecycle contracts of the real implementations i
 
 This is a boundary rule, not a requirement to build mock and spy infrastructure before LiveSync 1.0. Add a substitution seam only when a current consumer-owned test needs one. Exact-package downstream checks and focused real-runtime E2E remain the integration proof that the real Commonlib implementation and host composition work together.
 
+Package CI also stores a short-lived preview artefact for the exact validated package tarball, identified by source SHA and SHA-256. A consumer may accept it only when the complete source workflow succeeds, including integration tests. The artefact supports exact-commit package checks; it does not add evidence of a downstream composition or real-runtime use by itself.
+
 ## What a new consumer should copy
 
 A new integration should start with the focused entries, not by reproducing Self-hosted LiveSync's compatibility imports:

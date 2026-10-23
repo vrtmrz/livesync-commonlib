@@ -29,7 +29,7 @@ npm run verify:package
 
 Inspect the lockfile diff before committing it. A dependency-only maintenance change must not alter the source package version, and lockfile normalisation must not be described as a package upgrade when resolved versions and integrity values are unchanged. When the workflow selects a newer reviewed npm CLI, update this example in the same change.
 
-Before publication, run the downstream workflow against an exact Self-hosted LiveSync ref which already consumes the package. The workflow installs the tarball produced from the selected Commonlib commit, then runs LiveSync type checks, unit tests, plug-in and application builds, and CLI E2E. Real Obsidian E2E remains local-only and is required when the changed boundary affects actual plug-in composition, storage, UI, or platform behaviour.
+Before publication, run `downstream-ci.yml` with `consumer_sha` set to a full Self-hosted LiveSync commit SHA which already consumes the package. First require successful Package CI and its unexpired preview artefact for the selected Commonlib commit. The workflow delegates to LiveSync's pinned consumer workflow, which verifies and installs that exact preview tarball, then runs LiveSync type checks, unit tests, plug-in and application builds, and CLI E2E. Optional `kit_sha` selects a matching Fancy Kit preview. Real Obsidian E2E remains local-only and is required when the changed boundary affects actual plug-in composition, storage, UI, or platform behaviour.
 
 ## Preparing a release
 

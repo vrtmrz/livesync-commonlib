@@ -24,6 +24,7 @@
     "check:types": "tsc --noEmit -p tsconfig.check.json",
     "test": "vitest run",
     "test:boundary": "node --test _tools/check-package-boundary.test.mjs _tools/compatibility-classification.test.mjs _tools/update-downstream-import-inventory.test.mjs",
+    "test:package-preview": "node --test --test-concurrency=1 _tools/create-package-preview.test.mjs",
     "test:contract:context": "vitest run src/services/base/ServiceContext.unit.spec.ts",
     "test:contract:platform-storage": "vitest run src/platform/storage.contract.unit.test.ts",
     "test:contract:standard-io": "vitest run src/platform/standardIo.unit.spec.ts",
@@ -31,9 +32,10 @@
     "test:integration": "node _tools/run-integration-tests.mjs",
     "test:integration:managed": "node _tools/run-integration-tests.mjs --manage-services",
     "test:package": "node _tools/run-package-test.mjs",
+    "preview:package": "node _tools/create-package-preview.mjs",
     "test:release": "node --test _tools/prepare-github-release.test.mjs _tools/validate-release-selection.test.mjs",
     "update:downstream-import-inventory": "node _tools/update-downstream-import-inventory.mjs",
-    "verify:package": "npm run check:types && npm test && npm run test:boundary && npm run test:release && npm run check:boundary && npm run test:package"
+    "verify:package": "npm run check:types && npm test && npm run test:boundary && npm run test:release && npm run test:package-preview && npm run check:boundary && npm run test:package"
   },
   "dependencies": {
     "@aws-crypto/sha256-js": "5.2.0",

@@ -70,6 +70,10 @@ npm run test:package
 
 `test:package` builds the compiled package, packs it, installs the tarball into a clean consumer fixture, exercises Node imports, type-checks public entry points, and creates representative browser bundles. It also verifies that browser and context entry points do not pull in Node-only code, Svelte, or the complete language catalogue unintentionally.
 
+Package CI creates a commit preview after `verify:package` succeeds. The 14-day Actions artefact contains the exact validated Commonlib tarball and a `preview.json` manifest with the checked-out commit SHA and tarball SHA-256. The artefact name includes that full source SHA and the package-build attempt number, so reruns do not overwrite an earlier upload. Pull-request builds check out the PR head commit explicitly, and consumers accept a preview only after the complete workflow, including integration tests, succeeds. This is a CI package snapshot, not an npm publication or a new package version.
+
+`downstream-ci.yml` calls Self-hosted LiveSync's independently pinned `library-preview.yml` workflow. Set `consumer_sha` to the full lowercase LiveSync commit SHA and, optionally, `kit_sha` to a Fancy Kit source SHA. The Commonlib source is the exact commit selected when dispatching this workflow. Its Package CI preview must already exist and the complete producer workflow must have succeeded. The consumer owns its type checks, unit tests, application builds, and CLI contract test; Commonlib no longer copies those commands into its own workflow.
+
 `test:contracts` runs the host-neutral result contracts which are intended to be reusable while implementations move:
 
 - `test:contract:context` verifies event delivery, default instance isolation, translation results, and host extension of `ServiceContextContract`;
