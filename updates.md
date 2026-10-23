@@ -15,6 +15,7 @@
 
 - New Vault recommendations use `customChunkSize: 0` for each supported remote type.
     - Doctor no longer applies the former universal value of `60`. Explicit saved values and values agreed with a remote retain their existing adoption behaviour.
+    - Historical Doctor rules and previous dismissals remain effective. An explicit forced rescan still checks the remaining recommendations.
 
 ### Added
 
