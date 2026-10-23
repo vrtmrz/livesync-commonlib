@@ -4,6 +4,8 @@ import {
     type EntryMilestoneInfo,
     VER,
     MILESTONE_DOCID,
+    NODEINFO_DOCID,
+    type EntryNodeInfo,
     type ChunkVersionRange,
     type RemoteDBSettings,
     type EntryLeaf,
@@ -41,6 +43,8 @@ import { requiredRemoteFeatures, usesEncryptedInternalMetadata } from "@lib/pouc
 import { assessRemoteDocumentIds } from "@lib/pouchdb/remoteIdCompatibility.ts";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import { preprocessOutgoing } from "@lib/pouchdb/encryption.ts";
+import { prepareInitialFetchFastForward } from "./fastForward.ts";
+import type { InitialFetchFastForwardResource } from "../RemoteResource.ts";
 
 import { ensureDatabaseIsCompatible, getEffectiveTweakValues } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
 import {
@@ -77,6 +81,13 @@ import {
     replicationFailed,
     type ReplicationOutcome,
 } from "@lib/replication/ReplicatorProvider.ts";
+import {
+    forgetJoinedDevice as forgetJoinedDeviceFromStore,
+    projectJoinedDevices,
+    type ForgetJoinedDeviceResult,
+    type JoinedDevicesSnapshot,
+    type JoinedDevicesStore,
+} from "@lib/replication/joinedDevices.ts";
 
 export type { OwnedCouchDBConnection, RemoteConnectionOpenOptions } from "@lib/services/base/RemoteConnection.ts";
 
@@ -208,6 +219,49 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     constructor(env: LiveSyncCouchDBReplicatorEnv) {
         super(env);
         this.env = env;
+    }
+
+    /** Own the checkpoint handoff for one fresh, suspended Fast Fetch only. */
+    createInitialFetchFastForwardResource(setting: RemoteDBSettings): InitialFetchFastForwardResource {
+        const snapshot = { ...setting };
+        const identity = (value: RemoteDBSettings) => JSON.stringify([
+            value.couchDB_URI, value.couchDB_DBNAME, value.couchDB_USER, value.couchDB_PASSWORD,
+            value.couchDB_CustomHeaders, value.useJWT, value.jwtAlgorithm, value.jwtKey,
+            value.jwtExpDuration, value.jwtKid, value.jwtSub, value.encrypt, value.passphrase,
+            value.E2EEAlgorithm, value.enableCompression, value.pathNormalizationVersion,
+            value.readChunksOnline, value.useRequestAPI,
+        ]);
+        const binding = identity(snapshot);
+        let connection: OwnedCouchDBConnection<EntryDoc> | undefined;
+        let prepared = false;
+        let disposed = false;
+        return {
+            prepare: async () => {
+                if (prepared || disposed) return undefined;
+                prepared = true;
+                if (this.currentSettings.doNotSuspendOnFetching || snapshot.useRequestAPI) return undefined;
+                const local = this.rawDatabase;
+                const isCurrent = () => !disposed && this.rawDatabase === local &&
+                    this.currentSettings.suspendFileWatching && this.currentSettings.suspendParseReplicationResult &&
+                    identity(this.currentSettings) === binding;
+                if (!isCurrent()) return undefined;
+                const openedConnection = await this.openOwnedConnection<EntryDoc>(snapshot);
+                if (disposed) {
+                    await openedConnection.close();
+                    return undefined;
+                }
+                connection = openedConnection;
+                return await prepareInitialFetchFastForward(local, connection.db, {
+                    push: {},
+                    ...(snapshot.readChunksOnline ? { pull: { ...selectorOnDemandPull } } : {}),
+                }, isCurrent);
+            },
+            dispose: async () => {
+                if (disposed) return;
+                disposed = true;
+                if (connection) await connection.close();
+            },
+        };
     }
 
     getInitialSyncParameters(setting: RemoteDBSettings): Promise<SyncParameters> {
@@ -1188,6 +1242,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     vault_name: this.env.services.vault.vaultName(),
                     device_name: this.env.services.vault.getVaultName(),
                     progress: progress,
+                    platform: this.env.services.API.getPlatform(),
                 } satisfies DeviceInfo;
 
                 let tweakAssessment: TweakAssessment | undefined;
@@ -1966,6 +2021,82 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             return false;
         }
         return await this.withRemoteConnection(dbRet, countCompromisedChunks);
+    }
+
+    private async connectForJoinedDevices(setting: RemoteDBSettings): Promise<OwnedCouchDBConnection<EntryDoc>> {
+        let result: string | OwnedCouchDBConnection<EntryDoc>;
+        try {
+            result = await this.connectRemoteCouchDBWithSetting(setting, this.isMobile(), false);
+        } catch {
+            throw new Error("Could not connect to remote CouchDB for joined-device management.");
+        }
+        if (typeof result === "string") {
+            throw new Error("Could not connect to remote CouchDB for joined-device management.");
+        }
+        return result;
+    }
+
+    private async getOwnJoinedDeviceId(): Promise<string> {
+        const nodeInfo = await this.rawDatabase.get<EntryNodeInfo>(NODEINFO_DOCID);
+        const nodeId = nodeInfo?.nodeid;
+        if (typeof nodeId !== "string" || nodeId.trim().length === 0) {
+            throw new Error("The local node identity is unavailable.");
+        }
+        return nodeId;
+    }
+
+    async getJoinedDevices(setting: RemoteDBSettings): Promise<JoinedDevicesSnapshot> {
+        const connection = await this.connectForJoinedDevices(setting);
+        return await this.withRemoteConnection(connection, async (db) => {
+            let milestone: EntryMilestoneInfo | undefined;
+            try {
+                milestone = (await db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
+            } catch (ex) {
+                if (!isErrorOfMissingDoc(ex)) throw ex;
+            }
+            return projectJoinedDevices(milestone);
+        });
+    }
+
+    async forgetJoinedDevice(setting: RemoteDBSettings, deviceId: string): Promise<ForgetJoinedDeviceResult> {
+        const ownDeviceId = await this.getOwnJoinedDeviceId();
+        const connection = await this.connectForJoinedDevices(setting);
+        return await this.withRemoteConnection(connection, async (db) => {
+            const store: JoinedDevicesStore = {
+                read: async () => {
+                    let milestone: EntryMilestoneInfo;
+                    try {
+                        milestone = (await db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
+                    } catch (ex) {
+                        if (isErrorOfMissingDoc(ex)) return undefined;
+                        throw ex;
+                    }
+                    return { milestone, revision: milestone._rev };
+                },
+                write: async (milestone, revision) => {
+                    try {
+                        await db.put({ ...milestone, _rev: revision });
+                    } catch (ex) {
+                        if (ex && typeof ex === "object" && (ex as { status?: number }).status === 409) {
+                            return "conflict";
+                        }
+                        throw ex;
+                    }
+
+                    let verifiedMilestone: EntryMilestoneInfo;
+                    try {
+                        verifiedMilestone = (await db.get(MILESTONE_DOCID)) as EntryMilestoneInfo;
+                    } catch {
+                        throw new Error("Could not verify joined-device removal.");
+                    }
+                    if (projectJoinedDevices(verifiedMilestone).devices.some((device) => device.id === deviceId)) {
+                        throw new Error("Could not verify joined-device removal.");
+                    }
+                    return "updated";
+                },
+            };
+            return await forgetJoinedDeviceFromStore(store, deviceId, ownDeviceId);
+        });
     }
 
     async getConnectedDeviceList(

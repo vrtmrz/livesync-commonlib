@@ -155,6 +155,7 @@ describe("LiveSyncJournalReplicator replication compatibility state", () => {
                 API: {
                     getAppVersion: () => "app-version",
                     getPluginVersion: () => "plugin-version",
+                    getPlatform: () => "test-platform",
                 },
                 context: createServiceContext(),
                 database: { localNodeIdentity: { nodeId: "device-node" } },
@@ -256,6 +257,7 @@ describe("LiveSyncJournalReplicator compatibility milestone", () => {
                 API: {
                     getAppVersion: vi.fn(() => "app-version"),
                     getPluginVersion: vi.fn(() => "plugin-version"),
+                    getPlatform: vi.fn(() => "test-platform"),
                 },
                 vault: {
                     getVaultName: vi.fn(() => "device-name"),

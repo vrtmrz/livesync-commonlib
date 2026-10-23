@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { promiseWithResolvers } from "octagonal-wheels/promises";
 import { REMOTE_COUCHDB, REMOTE_MINIO, REMOTE_P2P } from "@lib/common/models/setting.const";
 import { FlagFilesHumanReadable } from "@lib/common/models/redflag.const";
 import { ServiceRebuilder } from "./Rebuilder";
@@ -94,15 +95,17 @@ function createRebuilder(initialDatabaseSuffix = "") {
                 Object.assign(settings, partial);
             }),
             saveSettingData: vi.fn(async () => undefined),
-            getSmallConfig: vi.fn(
-                (key: string) => smallConfig.get(`${settings.additionalSuffixOfDatabaseName}-${key}`) ?? ""
-            ),
-            setSmallConfig: vi.fn((key: string, value: string) => {
-                smallConfig.set(`${settings.additionalSuffixOfDatabaseName}-${key}`, value);
-            }),
-            deleteSmallConfig: vi.fn((key: string) => {
-                smallConfig.delete(`${settings.additionalSuffixOfDatabaseName}-${key}`);
-            }),
+            config: {
+                getValue: vi.fn(
+                    async (key: string) => smallConfig.get(`${settings.additionalSuffixOfDatabaseName}-${key}`) ?? ""
+                ),
+                setValue: vi.fn(async (key: string, value: string) => {
+                    smallConfig.set(`${settings.additionalSuffixOfDatabaseName}-${key}`, value);
+                }),
+                delete: vi.fn(async (key: string) => {
+                    smallConfig.delete(`${settings.additionalSuffixOfDatabaseName}-${key}`);
+                }),
+            },
         },
         control: {
             applySettings: vi.fn(async () => undefined),
@@ -338,12 +341,12 @@ describe("ServiceRebuilder scheduled restart flags", () => {
 });
 
 describe("ServiceRebuilder NFC path preflight", () => {
-    it("does not resume a Fast Fetch checkpoint from a different path identity mode", () => {
+    it("does not resume a Fast Fetch checkpoint from a different path identity mode", async () => {
         const { rebuilder, settings } = createRebuilder();
-        (rebuilder as any).saveFastFetchCheckpoint("https://example.com/db", "legacy-sequence");
+        await (rebuilder as any).saveFastFetchCheckpoint("https://example.com/db", "legacy-sequence");
         settings.pathNormalizationVersion = 1;
 
-        expect((rebuilder as any).getFastFetchCheckpoint("https://example.com/db")).toBeUndefined();
+        expect(await (rebuilder as any).getFastFetchCheckpoint("https://example.com/db")).toBeUndefined();
     });
 
     it("rejects a remote-only rebuild before reset if local Metadata still uses legacy identity", async () => {
@@ -525,25 +528,28 @@ describe("ServiceRebuilder event isolation", () => {
 });
 
 describe("ServiceRebuilder fast fetch admission", () => {
-    it.each([false, true])("rejects unknown features before changing the local database (resume: %s)", async (resume) => {
-        const { rebuilder, services } = createRebuilder();
-        if (resume) {
-            (rebuilder as any).saveFastFetchCheckpoint("https://example.com/db", "previous-sequence");
+    it.each([false, true])(
+        "rejects unknown features before changing the local database (resume: %s)",
+        async (resume) => {
+            const { rebuilder, services } = createRebuilder();
+            if (resume) {
+                (rebuilder as any).saveFastFetchCheckpoint("https://example.com/db", "previous-sequence");
+            }
+            fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
+            const rejection = new Error("Unknown features are in use: future-feature");
+            checkRemoteFeaturesForInitialSyncMock.mockRejectedValueOnce(rejection);
+
+            await expect(rebuilder.$fetchLocalDBFast(false)).rejects.toBe(rejection);
+
+            expect(services.appLifecycle.resetIsReady).not.toHaveBeenCalled();
+            expect(services.database.resetDatabaseForCurrentSettings).not.toHaveBeenCalled();
+            expect(services.database.resetDatabase).not.toHaveBeenCalled();
+            expect(services.database.openDatabase).not.toHaveBeenCalled();
+            expect(fetchChangesForInitialSyncMock).not.toHaveBeenCalled();
+            expect(services.replication.markResolved).not.toHaveBeenCalled();
+            expect(services.setting.config.delete).not.toHaveBeenCalled();
         }
-        fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
-        const rejection = new Error("Unknown features are in use: future-feature");
-        checkRemoteFeaturesForInitialSyncMock.mockRejectedValueOnce(rejection);
-
-        await expect(rebuilder.$fetchLocalDBFast(false)).rejects.toBe(rejection);
-
-        expect(services.appLifecycle.resetIsReady).not.toHaveBeenCalled();
-        expect(services.database.resetDatabaseForCurrentSettings).not.toHaveBeenCalled();
-        expect(services.database.resetDatabase).not.toHaveBeenCalled();
-        expect(services.database.openDatabase).not.toHaveBeenCalled();
-        expect(fetchChangesForInitialSyncMock).not.toHaveBeenCalled();
-        expect(services.replication.markResolved).not.toHaveBeenCalled();
-        expect(services.setting.deleteSmallConfig).not.toHaveBeenCalled();
-    });
+    );
 });
 
 describe("ServiceRebuilder fast fetch retry", () => {
@@ -584,7 +590,7 @@ describe("ServiceRebuilder fast fetch retry", () => {
         expect(fetchChangesForInitialSyncMock).toHaveBeenCalledOnce();
         expect(services.replication.markResolved).not.toHaveBeenCalled();
         expect(services.vault.scanVault).not.toHaveBeenCalled();
-        expect(services.setting.deleteSmallConfig).not.toHaveBeenCalledWith("fast-fetch-checkpoint");
+        expect(services.setting.config.delete).not.toHaveBeenCalledWith("fast-fetch-checkpoint");
     });
 
     it("keeps reflection resumption and checkpoint removal inside a successful fast-fetch activity", async () => {
@@ -594,11 +600,11 @@ describe("ServiceRebuilder fast fetch retry", () => {
         await rebuilder.$fetchLocalDBFast(true);
 
         expect(services.vault.scanVault).toHaveBeenCalledWith(true);
-        expect(services.setting.deleteSmallConfig).toHaveBeenCalledWith("fast-fetch-checkpoint");
+        expect(services.setting.config.delete).toHaveBeenCalledWith("fast-fetch-checkpoint");
         expect(services.vault.scanVault.mock.invocationCallOrder[0]).toBeLessThan(
-            services.setting.deleteSmallConfig.mock.invocationCallOrder[0]
+            services.setting.config.delete.mock.invocationCallOrder[0]
         );
-        expect(services.setting.deleteSmallConfig.mock.invocationCallOrder[0]).toBeLessThan(
+        expect(services.setting.config.delete.mock.invocationCallOrder[0]).toBeLessThan(
             activityFinished.mock.invocationCallOrder[0]
         );
     });
@@ -618,6 +624,131 @@ describe("ServiceRebuilder fast fetch retry", () => {
 });
 
 describe("ServiceRebuilder fast fetch resource ownership", () => {
+    function enableHandoff(services: ReturnType<typeof createRebuilder>["services"]) {
+        const session = {
+            recordStoredRevisions: vi.fn(),
+            recordCheckpoint: vi.fn(),
+            fastForward: vi.fn(async () => true),
+        };
+        const resource = { prepare: vi.fn(async () => session), dispose: vi.fn(async () => undefined) };
+        const original = services.replicator.createRemoteResource.getMockImplementation()!;
+        services.replicator.createRemoteResource.mockImplementation(async (kind: string) =>
+            kind === REMOTE_RESOURCE_KINDS.INITIAL_FETCH_FAST_FORWARD ? (resource as never) : original(kind)
+        );
+        return { session, resource };
+    }
+
+    it("hands off a fresh full import before marking it resolved or resuming writers", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        services.database.localDatabase.localDatabase.info.mockResolvedValue({ doc_count: 0 });
+        const { session, resource } = enableHandoff(services);
+        fetchChangesForInitialSyncMock.mockReset().mockImplementation(async (...args: any[]) => {
+            await args[8]([{ id: "file", rev: "1-imported" }]);
+            await args[6]("verified-remote-sequence");
+        });
+        await rebuilder.$fetchLocalDBFast(false);
+        expect(session.recordStoredRevisions).toHaveBeenCalledWith([{ id: "file", rev: "1-imported" }]);
+        expect(session.recordCheckpoint).toHaveBeenCalledWith("verified-remote-sequence");
+        expect(session.fastForward).toHaveBeenCalledOnce();
+        expect(session.fastForward.mock.invocationCallOrder[0]).toBeLessThan(
+            services.replication.markResolved.mock.invocationCallOrder[0]
+        );
+        expect(settings.suspendFileWatching).toBe(true);
+        expect(settings.suspendParseReplicationResult).toBe(true);
+        expect(resource.dispose).toHaveBeenCalledOnce();
+        expect(services.replication.replicateAllFromRemote).not.toHaveBeenCalled();
+        expect(services.replication.replicateAllToRemote).not.toHaveBeenCalled();
+    });
+
+    it("waits for checkpoint persistence before handoff and completion", async () => {
+        const { rebuilder, services } = createRebuilder();
+        services.database.localDatabase.localDatabase.info.mockResolvedValue({ doc_count: 0 });
+        const { session } = enableHandoff(services);
+        const writeStarted = promiseWithResolvers<void>();
+        const writeAllowed = promiseWithResolvers<void>();
+        const persisted = vi.fn();
+        services.setting.config.setValue.mockImplementationOnce(async () => {
+            writeStarted.resolve();
+            await writeAllowed.promise;
+            persisted();
+        });
+        fetchChangesForInitialSyncMock.mockReset().mockImplementation(async (...args: any[]) => {
+            await args[6]("durable-remote-sequence");
+        });
+
+        const fetching = rebuilder.$fetchLocalDBFast(false);
+        try {
+            await writeStarted.promise;
+            expect(session.recordCheckpoint).not.toHaveBeenCalled();
+            expect(session.fastForward).not.toHaveBeenCalled();
+            expect(services.replication.markResolved).not.toHaveBeenCalled();
+            expect(services.setting.config.delete).not.toHaveBeenCalled();
+        } finally {
+            writeAllowed.resolve();
+            await fetching;
+        }
+
+        expect(session.recordCheckpoint).toHaveBeenCalledWith("durable-remote-sequence");
+        expect(persisted.mock.invocationCallOrder[0]).toBeLessThan(
+            session.recordCheckpoint.mock.invocationCallOrder[0]
+        );
+        expect(session.fastForward).toHaveBeenCalledOnce();
+        expect(services.replication.markResolved).toHaveBeenCalledOnce();
+        expect(services.setting.config.delete).toHaveBeenCalledWith("fast-fetch-checkpoint");
+    });
+
+    it("stops handoff and checkpoint removal when checkpoint persistence fails", async () => {
+        const { rebuilder, services } = createRebuilder();
+        services.database.localDatabase.localDatabase.info.mockResolvedValue({ doc_count: 0 });
+        const { session, resource } = enableHandoff(services);
+        const failure = new Error("checkpoint storage failed");
+        services.setting.config.setValue.mockRejectedValueOnce(failure);
+        fetchChangesForInitialSyncMock.mockReset().mockImplementation(async (...args: any[]) => {
+            await args[6]("unstored-remote-sequence");
+        });
+
+        await expect(rebuilder.$fetchLocalDBFast(false)).rejects.toBe(failure);
+
+        expect(session.recordCheckpoint).not.toHaveBeenCalled();
+        expect(session.fastForward).not.toHaveBeenCalled();
+        expect(services.replication.markResolved).not.toHaveBeenCalled();
+        expect(services.setting.config.delete).not.toHaveBeenCalled();
+        expect(resource.dispose).toHaveBeenCalledOnce();
+    });
+
+    it("keeps an old resume cursor outside the fresh-import handoff", async () => {
+        fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
+        const { rebuilder, services } = createRebuilder();
+        await (rebuilder as any).saveFastFetchCheckpoint("https://example.com/db", "old-cursor");
+        const { session, resource } = enableHandoff(services);
+        await rebuilder.$fetchLocalDBFast(false);
+        expect(fetchChangesForInitialSyncMock.mock.calls[0][4]).toBe("old-cursor");
+        expect(resource.prepare).not.toHaveBeenCalled();
+        expect(session.fastForward).not.toHaveBeenCalled();
+    });
+
+    it("does not create a handoff when the workflow leaves writers enabled", async () => {
+        fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.doNotSuspendOnFetching = true;
+        services.database.localDatabase.localDatabase.info.mockResolvedValue({ doc_count: 0 });
+        const { resource } = enableHandoff(services);
+        await rebuilder.$fetchLocalDBFast(false);
+        expect(resource.prepare).not.toHaveBeenCalled();
+    });
+
+    it("disposes the handoff without advancing it after an incomplete fetch", async () => {
+        const failure = new Error("incomplete import");
+        fetchChangesForInitialSyncMock.mockReset().mockRejectedValue(failure);
+        const { rebuilder, services } = createRebuilder();
+        services.database.localDatabase.localDatabase.info.mockResolvedValue({ doc_count: 0 });
+        const { session, resource } = enableHandoff(services);
+        await expect(rebuilder.$fetchLocalDBFast(false)).rejects.toBe(failure);
+        expect(session.fastForward).not.toHaveBeenCalled();
+        expect(resource.dispose).toHaveBeenCalledOnce();
+        expect(services.replication.markResolved).not.toHaveBeenCalled();
+    });
+
     it("does not use the general Replicator factory solely to prepare Fast Fetch", async () => {
         fetchChangesForInitialSyncMock.mockReset().mockResolvedValue(undefined);
         const { rebuilder, services, settings } = createRebuilder();
@@ -809,7 +940,7 @@ describe("ServiceRebuilder bounded remote activity", () => {
         const { rebuilder, services, settings, runBoundedRemoteActivity } = createRebuilder();
         settings.useRequestAPI = true;
         settings.additionalSuffixOfDatabaseName = "app";
-        services.setting.setSmallConfig(
+        await services.setting.config.setValue(
             "fast-fetch-checkpoint",
             JSON.stringify({ remote: "https://example.com/db", sequence: "10-g1" })
         );
@@ -819,9 +950,9 @@ describe("ServiceRebuilder bounded remote activity", () => {
         expect(fetchChangesForInitialSyncMock).not.toHaveBeenCalled();
         expect(services.replication.replicateAllFromRemote).not.toHaveBeenCalled();
         expect(services.replication.replicateAllFromRemoteForRebuild).toHaveBeenCalledTimes(2);
-        expect(services.setting.deleteSmallConfig).toHaveBeenCalledWith("fast-fetch-checkpoint");
+        expect(services.setting.config.delete).toHaveBeenCalledWith("fast-fetch-checkpoint");
         expect(services.database.resetDatabaseForCurrentSettings.mock.invocationCallOrder[0]).toBeLessThan(
-            services.setting.deleteSmallConfig.mock.invocationCallOrder[0]
+            services.setting.config.delete.mock.invocationCallOrder[0]
         );
         expect(runBoundedRemoteActivity).toHaveBeenCalledTimes(1);
         expect(runBoundedRemoteActivity).toHaveBeenCalledWith(expect.any(Function), {

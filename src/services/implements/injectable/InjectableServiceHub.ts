@@ -1,4 +1,4 @@
-import type { ConfigService } from "@lib/services/base/ConfigService";
+import type { IConfigService } from "@lib/services/base/IService";
 import { ControlService } from "@lib/services/base/ControlService";
 import type { KeyValueDBService } from "@lib/services/base/KeyValueDBService";
 import { PathService } from "@lib/services/base/PathService";
@@ -37,7 +37,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
     protected readonly _vault: InjectableVaultService<T>;
     protected readonly _test: InjectableTestService<T>;
     protected readonly _ui: UIService<T>;
-    protected readonly _config: ConfigService<T>;
+    protected readonly _config: IConfigService;
     protected readonly _keyValueDB: KeyValueDBService<T>;
     protected readonly _control: ControlService<T>;
 
@@ -95,7 +95,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
     override get UI(): UIService<T> {
         return this._ui;
     }
-    override get config(): ConfigService<T> {
+    override get config(): IConfigService {
         return this._config;
     }
 
@@ -107,7 +107,7 @@ export class InjectableServiceHub<T extends ServiceContext = ServiceContext> ext
             path: PathService<T>;
             API: InjectableAPIService<T>;
             ui: UIService<T>;
-            config: ConfigService<T>;
+            config: IConfigService;
             database: DatabaseService<T>;
             remote: InjectableRemoteService<T>;
             vault: InjectableVaultService<T>;

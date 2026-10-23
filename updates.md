@@ -1,5 +1,57 @@
 # Updates
 
+## 0.2.0
+
+23rd October, 2026
+
+The minor version bump to 0.2.0 mostly just means that we have moved on from 0.1.
+
+### Changed
+
+- We can choose device-local storage for each host and await its reads, writes, and deletions.
+    - Service compositions now require an explicit `ValueStore & ValueDeleter` from `@vrtmrz/value-store@0.1.0`. The host owns the adapter and its persistence; separately injected stores remain isolated.
+    - `setting.deviceValues` uses exact local keys, while `setting.config` and the Service Hub `config` share the existing Vault and database-suffix scope. Existing key names and stored values retain their format.
+- We can rely on a defined compatibility policy when updating within the 0.2 line.
+    - Commonlib preserves published APIs, types, behaviour, supported persisted data, and exported `compat/*` paths within 0.2.x. Intentional breaking changes use 0.3.0. This policy starts with 0.2.0 and does not retroactively apply to 0.1.x.
+    - Consumers may use a range such as `^0.2.0`, with a lockfile and `npm ci` for reproducible installation.
+
+- New Vault recommendations use `customChunkSize: 0` for each supported remote type.
+    - Doctor no longer applies the former universal value of `60`. Explicit saved values and values agreed with a remote retain their existing adoption behaviour.
+    - Historical Doctor rules and previous dismissals remain effective. An explicit forced rescan still checks the remaining recommendations.
+
+### Added
+
+- We can inspect joined-device records and remove obsolete records from CouchDB and Object Storage remotes.
+    - The focused `/replication` entry exposes recorded platform, version, acceptance, and connection information, including legacy records with missing fields. Removal preserves other devices and remote state, and rejects removal of the current device.
+    - CouchDB verifies removal after saving; its local documents still permit concurrent overwrites. Object Storage uses ETag conditional writes and reports unsupported servers without an unconditional fallback.
+- Hosts can open the same UI action from settings, notifications, and commands through typed, instance-owned handlers.
+    - The `/ui-commands` entry supplies declarations, typed results, explicit unavailability, and registration disposal. `UIService` owns the registry and disposes it on unload.
+
+- We can opt into Hidden File Sync through `DirectFileManipulatorV2`.
+    - Set `syncInternalFiles: true` in the direct client options. Existing clients retain the disabled default.
+
+### Improved
+
+- Fresh Fast Fetch can hand its completed import to ordinary replication without repeating the initial revision scan.
+    - Hosts may provide the optional `INITIAL_FETCH_FAST_FORWARD` resource. It applies only to a fresh, empty local database with writers suspended and no existing replication checkpoints; resumed imports retain ordinary replication reconciliation.
+    - Disposing the resource during connection preparation closes any connection which arrives afterwards.
+
+### Fixed
+
+- We can store and read Hidden File Sync documents while a normal-file allow-list is set.
+    - The `i:` document prefix bypasses `syncOnlyRegEx`. Hidden-file enablement and `syncIgnoreRegEx` retain their existing behaviour.
+- V3 Chunk boundaries retain a continuous rolling window across splits, improving reuse after local edits.
+    - Binary splitting uses minimum and candidate sizes proportional to the Chunk size limit, while preserving explicit small minimum sizes and UTF-8 boundaries. Existing stored Chunks remain readable; installation does not rewrite unchanged files.
+- Fast Fetch retains all current revision leaves, including deleted conflicts, and their revision ancestry.
+    - Revision reads and writes are batched, and the resume cursor advances only after the required documents and the device-local checkpoint have been stored. A checkpoint write failure stops the fetch before completion or checkpoint handoff.
+
+### Migration from 0.1.x
+
+- Hosts which compose the setting service, `BrowserServiceHub`, or `HeadlessServiceHub` must supply `deviceValues` explicitly. See [Settings lifecycle](docs/settings-lifecycle.md#host-storage-for-device-values-and-configuration) for the Web Storage adapter and preserved key mapping.
+- Replace `getDeviceLocalConfig`, `setDeviceLocalConfig`, and `deleteDeviceLocalConfig` with awaited `setting.deviceValues.getValue`, `setValue`, and `delete` calls. Replace `getSmallConfig`, `setSmallConfig`, and `deleteSmallConfig` with the corresponding awaited operations on `setting.config` or the Service Hub `config`.
+    - A missing value is `null`. Use `getObject` and `setObject` for JSON values, and use `delete` for explicit removal. Await `saveDeviceAndVaultName()` as well.
+- The `compat/services/base/ConfigService` and `compat/services/implements/browser/ConfigServiceBrowserCompat` exports are removed. Use the setting service's `config` view instead of constructing a separate configuration service.
+
 ## 0.1.44
 
 20th October, 2026

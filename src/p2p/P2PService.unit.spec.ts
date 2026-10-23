@@ -71,7 +71,7 @@ function createServiceHarness() {
                 },
             },
             keyValueDB: { openSimpleStore: () => simpleStore },
-            config: { getSmallConfig: () => "device-a" },
+            config: { getValue: async () => "device-a" },
             vault: { getVaultName: () => "vault-a" },
             API: { getPlatform: () => "test", confirm: {} },
             replicator: {
@@ -644,7 +644,7 @@ describe("P2P service room ownership", () => {
                     setting: { currentSettings: () => settings },
                     database: { localDatabase: { localDatabase: { name: "db" } } },
                     keyValueDB: { openSimpleStore: () => ({}) },
-                    config: { getSmallConfig: () => "device" },
+                    config: { getValue: async () => "device" },
                     vault: { getVaultName: () => "vault" },
                     API: { getPlatform: () => "test", confirm: {} },
                     replicator: { runFiniteReplicationActivity: async (task: () => unknown) => await task() },

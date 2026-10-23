@@ -230,6 +230,7 @@ import {
     type DirectFileManipulatorOptions,
     type DirectFileManipulatorRuntimeOptions,
 } from "${packageName}";
+import { declareUICommand, UICommandRegistry } from "${packageName}/ui-commands";
 import {
     createFileSystemAccessStorage,
     type CreateFileSystemAccessStorageOptions,
@@ -285,6 +286,9 @@ import {
     type CentralRemoteAdministrationRequest,
     type CentralRemoteAdministrationResult,
     type RemoteResourceCapabilities,
+    type JoinedDevicesResource,
+    type JoinedDevicesSnapshot,
+    type ForgetJoinedDeviceResult,
     type ReplicationOutcome,
 } from "${packageName}/replication";
 import type {
@@ -336,6 +340,34 @@ const configurationIdentity: ReplicatorConfigurationIdentity = "profile-a";
 const activeReplicatorLifecycle = (replicator: ReplicatorInstance): Promise<void> =>
     Promise.resolve(replicator.closeReplication());
 const remoteResourceCapabilities: RemoteResourceCapabilities = NO_REMOTE_RESOURCE_CAPABILITIES;
+const joinedDevicesResourceKind: "joined-devices" = REMOTE_RESOURCE_KINDS.JOINED_DEVICES;
+const readJoinedDevices = (resource: JoinedDevicesResource): Promise<JoinedDevicesSnapshot> => resource.read();
+const forgetJoinedDevice = (resource: JoinedDevicesResource): Promise<ForgetJoinedDeviceResult> => resource.forget("old-device");
+async function checkUICommandTypes() {
+    const command = declareUICommand<{ deviceId: string }, { accepted: boolean }>("consumer:join-device");
+    const registry = new UICommandRegistry();
+    const unregister: () => void = registry.register(command, async (request) => ({ accepted: request.deviceId.length > 0 }));
+    const result = await registry.invoke(command, { deviceId: "device-1" });
+    if (result.status === "handled") {
+        const accepted: boolean = result.value.accepted;
+        void accepted;
+        // @ts-expect-error The published result retains the declared property type.
+        const invalidResult: string = result.value.accepted;
+        void invalidResult;
+    }
+    // @ts-expect-error A command requires its declared request shape.
+    registry.invoke(command, { deviceId: 1 });
+    // @ts-expect-error A handler cannot replace the declared request type.
+    registry.register(command, (request: { unrelated: string }) => ({ accepted: true }));
+    // @ts-expect-error A handler must return the declared result type.
+    registry.register(command, () => ({ accepted: "yes" }));
+    unregister();
+    registry.dispose();
+}
+void joinedDevicesResourceKind;
+void readJoinedDevices;
+void forgetJoinedDevice;
+void checkUICommandTypes;
 const centralRemoteAdministrationRequest: CentralRemoteAdministrationRequest = {
     action: CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.LOCK,
 };
@@ -509,6 +541,15 @@ assert.equal(p2pApi.ACTIVE_P2P_RELAY_BINDING_CONFLICT, "active-p2p-relay-binding
 assert.equal(replicationApi.NO_INTERACTION.kind, "forbidden");
 assert.equal(replicationApi.CENTRAL_COMPATIBILITY_REJECTION_REASONS.NODE_LOCKED, "node-locked");
 assert.equal(replicationApi.REMOTE_RESOURCE_KINDS.SECURITY_SEED, "security-seed");
+assert.equal(replicationApi.REMOTE_RESOURCE_KINDS.JOINED_DEVICES, "joined-devices");
+const { declareUICommand, UICommandRegistry } = await import("${packageName}/ui-commands");
+const uiCommand = declareUICommand("package-test");
+const uiCommands = new UICommandRegistry();
+assert.deepEqual(await uiCommands.invoke(uiCommand, 2), { status: "unavailable" });
+const unregisterUICommand = uiCommands.register(uiCommand, (value) => value + 1);
+assert.deepEqual(await uiCommands.invoke(uiCommand, 2), { status: "handled", value: 3 });
+unregisterUICommand();
+uiCommands.dispose();
 assert.equal(replicationApi.CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.LOCK, "lock");
 assert.equal(replicationApi.CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS.POSTCONDITION_MISMATCH, "postcondition-mismatch");
 assert.equal(typeof replicationApi.isReplicationCompleted, "function");
@@ -804,10 +845,11 @@ assert.deepEqual(
         "./rpc",
         "./settings",
         "./setup-uri",
+        "./ui-commands",
     ],
     "The focused package surface must remain explicit."
 );
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 13);
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 14);
 
 console.log(
     JSON.stringify(

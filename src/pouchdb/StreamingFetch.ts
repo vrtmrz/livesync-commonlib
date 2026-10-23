@@ -20,10 +20,91 @@ interface AnyDecryptedDoc {
 
 type DBSequence = number | string;
 
+interface RevisionRef {
+    id: string;
+    rev: string;
+}
+
+function isObject(value: unknown): value is Record<string, unknown> {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function revisionRefKey(ref: RevisionRef): string {
+    return `${ref.id}\u0000${ref.rev}`;
+}
+
+function parseRevisionIdentifier(rev: string): { generation: number; hash: string } | undefined {
+    const separator = rev.indexOf("-");
+    if (separator <= 0) return undefined;
+    const generationText = rev.slice(0, separator);
+    const hash = rev.slice(separator + 1);
+    if (!/^[1-9]\d*$/.test(generationText) || hash.length === 0 || hash.trim() !== hash) return undefined;
+    const generation = Number(generationText);
+    if (!Number.isSafeInteger(generation)) return undefined;
+    return { generation, hash };
+}
+
+function ensureRevisionIdentity(value: unknown, ref: RevisionRef): Record<string, unknown> {
+    if (!isObject(value) || value._id !== ref.id || value._rev !== ref.rev) {
+        throw new StreamingFetchFailure(
+            "protocol",
+            `Fast Fetch received an invalid body for revision ${ref.id}@${ref.rev}.`,
+            false
+        );
+    }
+    if (value._deleted !== undefined && value._deleted !== true) {
+        throw new StreamingFetchFailure(
+            "protocol",
+            `Fast Fetch received an invalid deletion marker for revision ${ref.id}@${ref.rev}.`,
+            false
+        );
+    }
+    return value;
+}
+
+function hasValidRevisionAncestry(value: Record<string, unknown>, revision: { generation: number; hash: string }): boolean {
+    const revisions = value._revisions;
+    return (
+        isObject(revisions) &&
+        Number.isSafeInteger(revisions.start) &&
+        revisions.start === revision.generation &&
+        Array.isArray(revisions.ids) &&
+        revisions.ids.length > 0 &&
+        revisions.ids.length <= revision.generation &&
+        revisions.ids[0] === revision.hash &&
+        revisions.ids.every((id) => typeof id === "string" && id.length > 0)
+    );
+}
+
+function ensureRevisionDocument(value: unknown, ref: RevisionRef): EntryDoc {
+    const document = ensureRevisionIdentity(value, ref);
+    const revision = parseRevisionIdentifier(ref.rev);
+    if (
+        revision === undefined ||
+        !hasValidRevisionAncestry(document, revision)
+    ) {
+        throw new StreamingFetchFailure(
+            "protocol",
+            `Fast Fetch received revision ${ref.id}@${ref.rev} without valid revision ancestry.`,
+            false
+        );
+    }
+    return document as unknown as EntryDoc;
+}
+
+class BulkGetResponseTooLargeError extends Error {
+    override readonly name = "BulkGetResponseTooLargeError";
+}
+
 // This bounds one HTTP response without changing the smaller PouchDB write
 // batches. Each completed page returns an opaque `last_seq` marker, which is
 // the only page boundary Fast Fetch needs to persist and replay.
 const FAST_FETCH_CHANGES_PAGE_LIMIT = 10_000;
+
+// Keep revision lookup requests and their response bodies small while allowing
+// conflicts from several changes rows to share one _bulk_get request.
+const FAST_FETCH_REVISION_GROUP_LIMIT = 100;
+const FAST_FETCH_REVISION_GROUP_BYTE_LIMIT = 512 * 1024;
 
 // A heartbeat keeps a continuous feed open after its finite limit on CouchDB
 // 3.2. Without a heartbeat, this timeout closes the feed after CouchDB has
@@ -143,6 +224,54 @@ async function readResponseText(response: Response, operation: string): Promise<
     }
 }
 
+async function readResponseTextBounded(
+    response: Response,
+    operation: string,
+    maxBytes: number
+): Promise<{ text: string; byteLength: number }> {
+    if (!response.body) {
+        const text = await readResponseText(response, operation);
+        const byteLength = new TextEncoder().encode(text).byteLength;
+        if (byteLength > maxBytes) throw new BulkGetResponseTooLargeError();
+        return { text, byteLength };
+    }
+
+    const reader = response.body.getReader();
+    const chunks: Uint8Array[] = [];
+    let byteLength = 0;
+    try {
+        while (true) {
+            let result: ReadableStreamReadResult<Uint8Array>;
+            try {
+                result = await reader.read();
+            } catch (error) {
+                throw transportFailure(operation, error);
+            }
+            if (result.done) break;
+            byteLength += result.value.byteLength;
+            if (byteLength > maxBytes) {
+                try {
+                    await reader.cancel();
+                } catch {
+                    // The response may already have ended while the size was checked.
+                }
+                throw new BulkGetResponseTooLargeError();
+            }
+            chunks.push(result.value);
+        }
+    } finally {
+        reader.releaseLock();
+    }
+
+    const bytes = new Uint8Array(byteLength);
+    let offset = 0;
+    for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+    }
+    return { text: new TextDecoder().decode(bytes), byteLength };
+}
+
 /** Check remote feature requirements before Fast Fetch opens or resets the local database. */
 export async function checkRemoteFeaturesForInitialSync(
     remoteDbUrl: string,
@@ -198,49 +327,64 @@ async function saveCheckpoint(
 function generatePouchDBBatchWriter(
     downloadToDB: PouchDB.Database,
     decryptFunction: (doc: EntryDoc) => Promise<AnyEntry | EntryLeaf>,
-    onCheckpoint?: (sequence: DBSequence) => void | Promise<void>
+    onCheckpoint?: (sequence: DBSequence) => void | Promise<void>,
+    onStoredRevisions?: (revisions: readonly { id: string; rev: string }[]) => void | Promise<void>
 ) {
-    // The buffered documents and batchLastSequence form one persistence unit.
-    // A checkpoint may describe this unit only after every document has been
-    // accepted by PouchDB, preserving a contiguous durable prefix of the feed.
+    // The buffered documents and checkpoint candidate form one persistence unit.
+    // A checkpoint may describe it only after every document has been accepted by
+    // PouchDB, preserving a contiguous durable prefix of the feed.
     let batchBuffer: AnyDecryptedDoc[] = [];
+    let batchStoredRevisions: Array<{ id: string; rev: string }> = [];
+    let batchRevisionKeys = new Set<string>();
     let currentBatchSizeBytes = 0;
-    let batchLastSequence: DBSequence | undefined;
+    let batchCheckpointSequence: DBSequence | undefined;
 
     const BATCH_ITEM_LIMIT = 100;
     const BATCH_SIZE_LIMIT = 2 * 1024 * 1024;
 
     const flush = async () => {
-        if (batchBuffer.length === 0) return;
-
         const documents = batchBuffer;
-        const checkpoint = batchLastSequence;
-        let results: Array<PouchDB.Core.Response | PouchDB.Core.Error>;
-        try {
-            results = await downloadToDB.bulkDocs(documents, { new_edits: false });
-        } catch (error) {
-            throw new StreamingFetchFailure(
-                "storage",
-                `Fast Fetch could not write a batch to the local database: ${errorMessage(error)}`,
-                false,
-                { cause: error }
-            );
-        }
+        const storedRevisions = batchStoredRevisions;
+        const checkpoint = batchCheckpointSequence;
+        if (documents.length > 0) {
+            let results: Array<PouchDB.Core.Response | PouchDB.Core.Error>;
+            try {
+                results = await downloadToDB.bulkDocs(documents, { new_edits: false });
+            } catch (error) {
+                throw new StreamingFetchFailure(
+                    "storage",
+                    `Fast Fetch could not write a batch to the local database: ${errorMessage(error)}`,
+                    false,
+                    { cause: error }
+                );
+            }
 
-        // With new_edits:false, PouchDB may omit successful results and return an
-        // empty array. Inspect every returned item for an error instead of expecting
-        // one success result per input document.
-        const failedResult = results.find(
-            (result): result is PouchDB.Core.Error => "error" in result && Boolean(result.error)
-        );
-        if (failedResult) {
-            const detail = failedResult.message || failedResult.name || "the local database rejected a document";
-            throw new StreamingFetchFailure(
-                "storage",
-                `Fast Fetch could not write a batch to the local database: ${detail}`,
-                false,
-                { cause: failedResult }
+            // With new_edits:false, PouchDB may omit successful results and return an
+            // empty array. Inspect every returned item for an error instead of expecting
+            // one success result per input document.
+            const failedResult = results.find(
+                (result): result is PouchDB.Core.Error => "error" in result && Boolean(result.error)
             );
+            if (failedResult) {
+                const detail = failedResult.message || failedResult.name || "the local database rejected a document";
+                throw new StreamingFetchFailure(
+                    "storage",
+                    `Fast Fetch could not write a batch to the local database: ${detail}`,
+                    false,
+                    { cause: failedResult }
+                );
+            }
+
+            try {
+                await onStoredRevisions?.(storedRevisions);
+            } catch (error) {
+                throw new StreamingFetchFailure(
+                    "storage",
+                    `Fast Fetch could not record stored revision identities: ${errorMessage(error)}`,
+                    false,
+                    { cause: error }
+                );
+            }
         }
 
         if (checkpoint !== undefined) {
@@ -250,67 +394,93 @@ function generatePouchDBBatchWriter(
         // the checkpoint fails, a later invocation safely replays the already-written
         // revisions because new_edits:false is idempotent for those revisions.
         batchBuffer = [];
+        batchStoredRevisions = [];
+        batchRevisionKeys = new Set();
         currentBatchSizeBytes = 0;
-        batchLastSequence = undefined;
+        batchCheckpointSequence = undefined;
     };
 
-    return {
-        async write(doc: EntryDoc, sequence: DBSequence) {
-            let decryptedDoc: AnyEntry | EntryLeaf;
-            if (doc._deleted) {
-                // A deletion tombstone carries no encrypted payload to decrypt.
-                // Pass it through unchanged so the local database records the
-                // deletion. Some decryption implementations require a path on
-                // obfuscated entries (f: ids) and throw for tombstones, which
-                // would otherwise abort the whole fetch at the first deleted
-                // document in the feed.
-                decryptedDoc = doc as unknown as AnyEntry;
-            } else {
-                try {
-                    decryptedDoc = await decryptFunction(doc);
-                } catch (error) {
-                    throw new StreamingFetchFailure(
-                        "decryption",
-                        `Fast Fetch could not decrypt a document: ${errorMessage(error)}`,
-                        false,
-                        { cause: error }
-                    );
-                }
-            }
-
-            let serialisedDoc: string;
+    const prepare = async (doc: EntryDoc): Promise<{ document: AnyEntry | EntryLeaf; serialisedSize: number }> => {
+        let decryptedDoc: AnyEntry | EntryLeaf;
+        if (doc._deleted) {
+            // A deletion tombstone carries no encrypted payload to decrypt.
+            // Pass it through unchanged so the local database records the
+            // deletion. Some decryption implementations require a path on
+            // obfuscated entries (f: ids) and throw for tombstones, which
+            // would otherwise abort the whole fetch at the first deleted
+            // document in the feed.
+            decryptedDoc = doc as unknown as AnyEntry;
+        } else {
             try {
-                const serialised = JSON.stringify(decryptedDoc);
-                if (serialised === undefined) throw new Error("the decrypted value is not a document");
-                serialisedDoc = serialised;
+                decryptedDoc = await decryptFunction(doc);
             } catch (error) {
                 throw new StreamingFetchFailure(
                     "decryption",
-                    `Fast Fetch produced an invalid decrypted document: ${errorMessage(error)}`,
+                    `Fast Fetch could not decrypt a document: ${errorMessage(error)}`,
                     false,
                     { cause: error }
                 );
             }
-            batchBuffer.push(decryptedDoc);
-            currentBatchSizeBytes += serialisedDoc.length;
-            batchLastSequence = sequence;
+        }
 
-            if (batchBuffer.length >= BATCH_ITEM_LIMIT || currentBatchSizeBytes >= BATCH_SIZE_LIMIT) {
-                await flush();
-            }
-        },
-        async flushThrough(sequence: DBSequence) {
-            // A changes row may legitimately have no included document. Earlier
-            // buffered rows must still become durable before its sequence can be
-            // recorded, otherwise the checkpoint would jump over unwritten content.
+        let serialisedDoc: string;
+        try {
+            const serialised = JSON.stringify(decryptedDoc);
+            if (serialised === undefined) throw new Error("the decrypted value is not a document");
+            serialisedDoc = serialised;
+        } catch (error) {
+            throw new StreamingFetchFailure(
+                "decryption",
+                `Fast Fetch produced an invalid decrypted document: ${errorMessage(error)}`,
+                false,
+                { cause: error }
+            );
+        }
+        return { document: decryptedDoc, serialisedSize: serialisedDoc.length };
+    };
+
+    const writePrepared = async (
+        prepared: { document: AnyEntry | EntryLeaf; serialisedSize: number },
+        revision: RevisionRef
+    ) => {
+        const key = revisionRefKey(revision);
+        if (batchRevisionKeys.has(key)) return;
+        batchBuffer.push(prepared.document);
+        batchStoredRevisions.push({ id: revision.id, rev: revision.rev });
+        batchRevisionKeys.add(key);
+        currentBatchSizeBytes += prepared.serialisedSize;
+
+        if (batchBuffer.length >= BATCH_ITEM_LIMIT || currentBatchSizeBytes >= BATCH_SIZE_LIMIT) {
             await flush();
-            await saveCheckpoint(onCheckpoint, sequence);
+        }
+    };
+
+    const write = async (doc: EntryDoc, revision: RevisionRef) => {
+        await writePrepared(await prepare(doc), revision);
+    };
+
+    return {
+        prepare,
+        writePrepared,
+        write,
+        async advanceCheckpoint(sequence: DBSequence) {
+            // Revision bodies for one changes row may be fetched in several bounded
+            // groups. The caller advances this candidate only after every leaf in
+            // that row is known to be present locally. A threshold-triggered flush
+            // during a later, incomplete row therefore cannot checkpoint past it.
+            batchCheckpointSequence = sequence;
+            if (batchBuffer.length === 0) await flush();
+        },
+        hasPendingRevision(revision: RevisionRef) {
+            return batchRevisionKeys.has(revisionRefKey(revision));
         },
         flush,
         abort() {
             batchBuffer = [];
+            batchStoredRevisions = [];
+            batchRevisionKeys = new Set();
             currentBatchSizeBytes = 0;
-            batchLastSequence = undefined;
+            batchCheckpointSequence = undefined;
         },
     };
 }
@@ -403,6 +573,7 @@ function parseChangesFeedLine(line: string): ParsedChangesFeedLine {
  * @param decryptFunction Function to decrypt each document.
  * @param since Sequence ID to start fetching changes from (default is '0').
  * @param customHeaders Additional request headers required by the CouchDB endpoint or its reverse proxy.
+ * @param onStoredRevisions Observes revision identities after their complete local batch is persisted.
  */
 export async function fetchChangesForInitialSync(
     downloadToDB: PouchDB.Database,
@@ -412,7 +583,8 @@ export async function fetchChangesForInitialSync(
     since: number | string = "0",
     onProgress?: (progress: FetchChangesForInitialSyncProgress) => void,
     onCheckpoint?: (sequence: DBSequence) => void | Promise<void>,
-    customHeaders?: Record<string, string>
+    customHeaders?: Record<string, string>,
+    onStoredRevisions?: (revisions: readonly { id: string; rev: string }[]) => void | Promise<void>
 ): Promise<void> {
     let totalFetched = 0;
     let totalValidFetched = 0;
@@ -431,6 +603,8 @@ export async function fetchChangesForInitialSync(
     // names through Headers prevents a differently-cased custom key from
     // overriding them.
     fetchHeaders.set("Authorization", authHeader);
+    const bulkGetHeaders = new Headers(fetchHeaders);
+    bulkGetHeaders.set("Content-Type", "application/json");
 
     // Capture a progress target from _changes itself. This is deliberately only a
     // progress hint: a clustered row `seq` and a feed-level `last_seq` can represent
@@ -459,7 +633,7 @@ export async function fetchChangesForInitialSync(
         );
     }
 
-    const batchWriter = generatePouchDBBatchWriter(downloadToDB, decryptFunction, onCheckpoint);
+    const batchWriter = generatePouchDBBatchWriter(downloadToDB, decryptFunction, onCheckpoint, onStoredRevisions);
     let docsToFetch = 0;
     let lastProgress = 0;
     let lastReportTime = Date.now();
@@ -475,6 +649,347 @@ export async function fetchChangesForInitialSync(
             docsToFetch,
             totalBytes,
         });
+    };
+
+    interface ChangeRowProgress {
+        sequence: DBSequence;
+        pendingRevisions: number;
+        complete: boolean;
+    }
+
+    interface PendingRevision {
+        ref: RevisionRef;
+        rows: Set<ChangeRowProgress>;
+        includedDocument?: { document: AnyEntry | EntryLeaf; serialisedSize: number };
+    }
+
+    const rowProgress: ChangeRowProgress[] = [];
+    let nextCheckpointRow = 0;
+    const pendingRevisions = new Map<string, PendingRevision>();
+    let pendingRevisionBytes = 0;
+    const pendingRemoteRevisions = new Map<string, PendingRevision>();
+    let pendingRemoteRevisionBytes = 0;
+
+    const releaseCompletedRows = async () => {
+        while (nextCheckpointRow < rowProgress.length && rowProgress[nextCheckpointRow].complete) {
+            await batchWriter.advanceCheckpoint(rowProgress[nextCheckpointRow].sequence);
+            nextCheckpointRow++;
+        }
+    };
+
+    const settleRevision = (revision: PendingRevision) => {
+        for (const row of revision.rows) {
+            row.pendingRevisions--;
+            if (row.pendingRevisions === 0) row.complete = true;
+        }
+    };
+
+    const markRevisionDurable = async (revision: PendingRevision, doc: EntryDoc) => {
+        await batchWriter.write(doc, revision.ref);
+        settleRevision(revision);
+    };
+
+    const markPreparedRevisionDurable = async (
+        revision: PendingRevision,
+        prepared: { document: AnyEntry | EntryLeaf; serialisedSize: number }
+    ) => {
+        await batchWriter.writePrepared(prepared, revision.ref);
+        settleRevision(revision);
+    };
+
+    const makeBulkGetURL = () => {
+        const url = new URL(`${remoteDbUrl}/_bulk_get`);
+        url.searchParams.set("revs", "true");
+        return url;
+    };
+
+    const parseBulkGetDocuments = (source: string, refs: PendingRevision[]): Map<string, EntryDoc> => {
+        let parsed: unknown;
+        try {
+            parsed = JSON.parse(source);
+        } catch (cause) {
+            throw new StreamingFetchFailure("protocol", "Fast Fetch received an invalid _bulk_get response.", false, {
+                cause,
+            });
+        }
+        if (!isObject(parsed) || !Array.isArray(parsed.results)) {
+            throw new StreamingFetchFailure("protocol", "Fast Fetch received an invalid _bulk_get response.", false);
+        }
+
+        const expected = new Map(refs.map((revision) => [revisionRefKey(revision.ref), revision.ref]));
+        const documents = new Map<string, EntryDoc>();
+        for (const result of parsed.results) {
+            if (!isObject(result) || typeof result.id !== "string" || !Array.isArray(result.docs)) {
+                throw new StreamingFetchFailure(
+                    "protocol",
+                    "Fast Fetch received a malformed _bulk_get result.",
+                    false
+                );
+            }
+            for (const item of result.docs) {
+                if (!isObject(item)) {
+                    throw new StreamingFetchFailure(
+                        "protocol",
+                        "Fast Fetch received a malformed _bulk_get document result.",
+                        false
+                    );
+                }
+                if ("ok" in item) {
+                    const body = item.ok;
+                    if (!isObject(body) || typeof body._rev !== "string") {
+                        throw new StreamingFetchFailure(
+                            "protocol",
+                            "Fast Fetch received a malformed _bulk_get document.",
+                            false
+                        );
+                    }
+                    const ref = { id: result.id, rev: body._rev };
+                    const key = revisionRefKey(ref);
+                    if (!expected.has(key) || documents.has(key)) {
+                        throw new StreamingFetchFailure(
+                            "protocol",
+                            "Fast Fetch received an unexpected or duplicate _bulk_get document.",
+                            false
+                        );
+                    }
+                    documents.set(key, ensureRevisionDocument(body, ref));
+                    continue;
+                }
+
+                if (typeof item.error === "string") {
+                    if (item.error === "forbidden" || item.error === "unauthorized") {
+                        throw new StreamingFetchFailure(
+                            "authentication",
+                            `Fast Fetch could not read revision ${result.id}: CouchDB denied access.`,
+                            false
+                        );
+                    }
+                    throw new StreamingFetchFailure(
+                        "protocol",
+                        `Fast Fetch could not read a required revision for ${result.id}: ${String(item.reason ?? item.error)}.`,
+                        false
+                    );
+                }
+                throw new StreamingFetchFailure(
+                    "protocol",
+                    "Fast Fetch received a malformed _bulk_get document result.",
+                    false
+                );
+            }
+        }
+
+        for (const revision of refs) {
+            if (!documents.has(revisionRefKey(revision.ref))) {
+                throw new StreamingFetchFailure(
+                    "protocol",
+                    `Fast Fetch did not receive required revision ${revision.ref.id}@${revision.ref.rev}.`,
+                    false
+                );
+            }
+        }
+        return documents;
+    };
+
+    const fetchAndWriteBulkGetGroup = async (revisions: PendingRevision[]): Promise<void> => {
+        const refs = revisions.map(({ ref }) => ref);
+        const requestBody = JSON.stringify({ docs: refs });
+        const response = await fetchResponse(
+            makeBulkGetURL().toString(),
+            { method: "POST", headers: bulkGetHeaders, body: requestBody },
+            "read missing revisions"
+        );
+
+        let responseText: string;
+        try {
+            const responseBody = await readResponseTextBounded(
+                response,
+                "read missing revisions",
+                revisions.length === 1 ? Number.MAX_SAFE_INTEGER : FAST_FETCH_REVISION_GROUP_BYTE_LIMIT
+            );
+            responseText = responseBody.text;
+            totalBytes += responseBody.byteLength;
+        } catch (error) {
+            if (error instanceof BulkGetResponseTooLargeError && revisions.length > 1) {
+                const midpoint = Math.ceil(revisions.length / 2);
+                await fetchAndWriteBulkGetGroup(revisions.slice(0, midpoint));
+                await fetchAndWriteBulkGetGroup(revisions.slice(midpoint));
+                return;
+            }
+            throw error;
+        }
+
+        const documents = parseBulkGetDocuments(responseText, revisions);
+        for (const revision of revisions) {
+            const document = documents.get(revisionRefKey(revision.ref));
+            if (!document) {
+                throw new StreamingFetchFailure(
+                    "protocol",
+                    `Fast Fetch did not receive required revision ${revision.ref.id}@${revision.ref.rev}.`,
+                    false
+                );
+            }
+            await markRevisionDurable(revision, document);
+        }
+    };
+
+    const flushPendingRemoteRevisions = async () => {
+        if (pendingRemoteRevisions.size === 0) return;
+        const revisions = [...pendingRemoteRevisions.values()];
+        pendingRemoteRevisions.clear();
+        pendingRemoteRevisionBytes = 0;
+        for (let index = 0; index < revisions.length; index += FAST_FETCH_REVISION_GROUP_LIMIT) {
+            await fetchAndWriteBulkGetGroup(revisions.slice(index, index + FAST_FETCH_REVISION_GROUP_LIMIT));
+        }
+    };
+
+    const enqueueRemoteRevision = async (revision: PendingRevision) => {
+        const key = revisionRefKey(revision.ref);
+        const existing = pendingRemoteRevisions.get(key);
+        if (existing) {
+            for (const row of revision.rows) existing.rows.add(row);
+            return;
+        }
+
+        const estimatedBytes = new TextEncoder().encode(JSON.stringify({ docs: [revision.ref] })).byteLength;
+        if (
+            pendingRemoteRevisions.size > 0 &&
+            (pendingRemoteRevisions.size >= FAST_FETCH_REVISION_GROUP_LIMIT ||
+                pendingRemoteRevisionBytes + estimatedBytes > FAST_FETCH_REVISION_GROUP_BYTE_LIMIT)
+        ) {
+            await flushPendingRemoteRevisions();
+        }
+
+        pendingRemoteRevisions.set(key, revision);
+        pendingRemoteRevisionBytes += estimatedBytes;
+        if (
+            pendingRemoteRevisions.size >= FAST_FETCH_REVISION_GROUP_LIMIT ||
+            pendingRemoteRevisionBytes >= FAST_FETCH_REVISION_GROUP_BYTE_LIMIT
+        ) {
+            await flushPendingRemoteRevisions();
+        }
+    };
+
+    const flushPendingRevisions = async (flushRemoteRemainder = false) => {
+        if (pendingRevisions.size > 0) {
+            const revisions = [...pendingRevisions.values()];
+            pendingRevisions.clear();
+            pendingRevisionBytes = 0;
+
+            const revisionsToCheck: PendingRevision[] = [];
+            for (const revision of revisions) {
+                if (batchWriter.hasPendingRevision(revision.ref)) {
+                    settleRevision(revision);
+                } else {
+                    revisionsToCheck.push(revision);
+                }
+            }
+
+            if (revisionsToCheck.length > 0) {
+                const revisionDiff = Object.create(null) as PouchDB.Core.RevisionDiffOptions;
+                for (const { ref } of revisionsToCheck) {
+                    const existing = revisionDiff[ref.id] ?? [];
+                    existing.push(ref.rev);
+                    revisionDiff[ref.id] = existing;
+                }
+
+                let difference: PouchDB.Core.RevisionDiffResponse;
+                try {
+                    difference = await downloadToDB.revsDiff(revisionDiff);
+                } catch (error) {
+                    throw new StreamingFetchFailure(
+                        "storage",
+                        `Fast Fetch could not check local revision history: ${errorMessage(error)}`,
+                        false,
+                        { cause: error }
+                    );
+                }
+                if (!isObject(difference)) {
+                    throw new StreamingFetchFailure(
+                        "protocol",
+                        "Fast Fetch received an invalid local revision check.",
+                        false
+                    );
+                }
+
+                for (const revision of revisionsToCheck) {
+                    const item = Object.prototype.hasOwnProperty.call(difference, revision.ref.id)
+                        ? difference[revision.ref.id]
+                        : undefined;
+                    if (item !== undefined && (!isObject(item) || !Array.isArray(item.missing))) {
+                        throw new StreamingFetchFailure(
+                            "protocol",
+                            "Fast Fetch received an invalid local revision check.",
+                            false
+                        );
+                    }
+                    const isMissing = item !== undefined && item.missing.includes(revision.ref.rev);
+                    if (!isMissing) {
+                        settleRevision(revision);
+                    } else if (revision.includedDocument) {
+                        await markPreparedRevisionDurable(revision, revision.includedDocument);
+                    } else {
+                        await enqueueRemoteRevision(revision);
+                    }
+                }
+            }
+        }
+
+        if (
+            flushRemoteRemainder ||
+            pendingRemoteRevisions.size >= FAST_FETCH_REVISION_GROUP_LIMIT ||
+            pendingRemoteRevisionBytes >= FAST_FETCH_REVISION_GROUP_BYTE_LIMIT
+        ) {
+            await flushPendingRemoteRevisions();
+        }
+        await releaseCompletedRows();
+    };
+
+    const enqueueRevision = async (
+        ref: RevisionRef,
+        row: ChangeRowProgress,
+        includedDocument?: { document: AnyEntry | EntryLeaf; serialisedSize: number }
+    ) => {
+        const key = revisionRefKey(ref);
+        const remoteExisting = pendingRemoteRevisions.get(key);
+        if (remoteExisting) {
+            remoteExisting.rows.add(row);
+            if (includedDocument !== undefined) {
+                pendingRemoteRevisions.delete(key);
+                pendingRemoteRevisionBytes -= new TextEncoder().encode(JSON.stringify({ docs: [ref] })).byteLength;
+                await markPreparedRevisionDurable(remoteExisting, includedDocument);
+            }
+            return;
+        }
+        const existing = pendingRevisions.get(key);
+        if (existing) {
+            existing.rows.add(row);
+            if (existing.includedDocument === undefined && includedDocument !== undefined) {
+                existing.includedDocument = includedDocument;
+            }
+            return;
+        }
+
+        const estimatedBytes = new TextEncoder().encode(JSON.stringify({ ref, includedDocument })).byteLength;
+        if (
+            pendingRevisions.size > 0 &&
+            (pendingRevisions.size >= FAST_FETCH_REVISION_GROUP_LIMIT ||
+                pendingRevisionBytes + estimatedBytes > FAST_FETCH_REVISION_GROUP_BYTE_LIMIT)
+        ) {
+            await flushPendingRevisions();
+        }
+
+        pendingRevisions.set(key, {
+            ref,
+            rows: new Set([row]),
+            ...(includedDocument === undefined ? {} : { includedDocument }),
+        });
+        pendingRevisionBytes += estimatedBytes;
+        if (
+            pendingRevisions.size >= FAST_FETCH_REVISION_GROUP_LIMIT ||
+            pendingRevisionBytes >= FAST_FETCH_REVISION_GROUP_BYTE_LIMIT
+        ) {
+            await flushPendingRevisions();
+        }
     };
 
     const readAvailableChanges = async (pageSince: DBSequence): Promise<number> => {
@@ -528,6 +1043,11 @@ export async function fetchChangesForInitialSync(
     };
 
     const fetchPage = async (pageSince: DBSequence, pageLimit: number): Promise<DBSequence> => {
+        if (pendingRevisions.size > 0 || pendingRemoteRevisions.size > 0) {
+            throw new StreamingFetchFailure("protocol", "Fast Fetch began a page with unresolved revisions.", false);
+        }
+        rowProgress.length = 0;
+        nextCheckpointRow = 0;
         const controller = new AbortController();
         let reader: ReadableStreamDefaultReader<string> | undefined;
         let buffer = "";
@@ -547,6 +1067,15 @@ export async function fetchChangesForInitialSync(
                 // snapshot. A valid page may therefore be shorter than the estimate.
                 // Make its documents durable, persist its opaque terminator verbatim,
                 // and let the next normal probe establish whether more work remains.
+                await flushPendingRevisions(true);
+                await releaseCompletedRows();
+                if (nextCheckpointRow !== rowProgress.length) {
+                    throw new StreamingFetchFailure(
+                        "protocol",
+                        "Fast Fetch reached a page terminator with unresolved leaf revisions.",
+                        false
+                    );
+                }
                 await batchWriter.flush();
                 await saveCheckpoint(onCheckpoint, parsed.lastSequence);
                 reportProgress(true);
@@ -567,12 +1096,65 @@ export async function fetchChangesForInitialSync(
             // it requires a local document write.
             fetchedRows++;
             totalFetched++;
-            if (change.doc) {
-                await batchWriter.write(change.doc, change.seq);
-                totalValidFetched++;
-            } else {
-                await batchWriter.flushThrough(change.seq);
+
+            if (
+                typeof change.id !== "string" ||
+                change.id.length === 0 ||
+                !Array.isArray(change.changes) ||
+                change.changes.length === 0 ||
+                change.changes.some((entry) => !isObject(entry) || typeof entry.rev !== "string" || entry.rev.length === 0)
+            ) {
+                throw new StreamingFetchFailure(
+                    "protocol",
+                    "Fast Fetch received a changes row without valid leaf revisions.",
+                    false
+                );
             }
+            const leafRevisions = [...new Set(change.changes.map(({ rev }) => rev))];
+            let includedDocument: { document: AnyEntry | EntryLeaf; serialisedSize: number } | undefined;
+            if (change.doc !== undefined) {
+                if (!isObject(change.doc) || typeof change.doc._rev !== "string" || !leafRevisions.includes(change.doc._rev)) {
+                    throw new StreamingFetchFailure(
+                        "protocol",
+                        "Fast Fetch received a changes row with an invalid included document.",
+                        false
+                    );
+                }
+                const includedRef = { id: change.id, rev: change.doc._rev };
+                const includedBody = ensureRevisionIdentity(change.doc, includedRef);
+                const revision = parseRevisionIdentifier(includedRef.rev);
+                if (revision === undefined) {
+                    throw new StreamingFetchFailure(
+                        "protocol",
+                        `Fast Fetch received an invalid revision identifier for ${includedRef.id}.`,
+                        false
+                    );
+                }
+                if (revision.generation === 1) {
+                    // A generation-one revision has no parents. Build its complete
+                    // ancestry from the exact validated revision returned by CouchDB.
+                    const revisionDocument = ensureRevisionDocument(
+                        { ...includedBody, _revisions: { start: 1, ids: [revision.hash] } },
+                        includedRef
+                    );
+                    includedDocument = await batchWriter.prepare(revisionDocument);
+                } else if (hasValidRevisionAncestry(includedBody, revision)) {
+                    const revisionDocument = ensureRevisionDocument(includedBody, includedRef);
+                    includedDocument = await batchWriter.prepare(revisionDocument);
+                }
+            }
+
+            totalValidFetched++;
+            const row = { sequence: change.seq, pendingRevisions: leafRevisions.length, complete: false };
+            rowProgress.push(row);
+            for (const rev of leafRevisions) {
+                await enqueueRevision(
+                    { id: change.id, rev },
+                    row,
+                    change.doc?._rev === rev ? includedDocument : undefined
+                );
+            }
+            await releaseCompletedRows();
             reportProgress();
             return undefined;
         };
@@ -696,6 +1278,8 @@ export async function fetchChangesForInitialSync(
             // batch may already be partly applied; the retained older checkpoint makes
             // replay explicit and idempotent on the next invocation.
             try {
+                await flushPendingRevisions(true);
+                await releaseCompletedRows();
                 await batchWriter.flush();
             } catch (flushError) {
                 batchWriter.abort();

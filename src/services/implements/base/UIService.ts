@@ -1,4 +1,6 @@
 import type { Confirm } from "@lib/interfaces/Confirm";
+import { EVENT_PLUGIN_UNLOADED } from "@lib/events/coreEvents";
+import { UICommandRegistry } from "@lib/uiCommands";
 import type { ComponentHasResult, SvelteDialogManager } from "@lib/services/implements/base/SvelteDialog";
 import type { IAPIService, IUIService } from "@lib/services/base/IService";
 
@@ -19,11 +21,14 @@ export abstract class UIService<T extends ServiceContext = ServiceContext>
     extends ServiceBase<T>
     implements IUIService
 {
+    readonly commands: UICommandRegistry;
     private _dialogManager: SvelteDialogManager<T>;
     protected _APIService: IAPIService;
     abstract get dialogToCopy(): ComponentHasResult<DialogResult, DialogParams>;
     constructor(context: T, dependents: UIServiceDependencies<T>) {
         super(context);
+        this.commands = new UICommandRegistry();
+        this.context.events.once(EVENT_PLUGIN_UNLOADED, () => this.commands.dispose());
         this._dialogManager = dependents.dialogManager;
         this._APIService = dependents.APIService;
     }

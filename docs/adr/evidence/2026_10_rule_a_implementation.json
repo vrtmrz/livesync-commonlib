@@ -1,0 +1,129 @@
+{
+  "date": "2026-10-23",
+  "status": "implemented-unreleased",
+  "commonlibBaseRevision": "b435ba3270d76c6ddd67ff0269c334434a2e029e",
+  "livesyncBaseRevision": "ce0524d49f4e1c840689d83d3f8f18fce383effb",
+  "splitter": "v3-rabin-karp",
+  "binaryPolicy": "A: proportional minimum and fixed probability",
+  "newSetupCustomChunkSize": 0,
+  "schemaFallbackCustomChunkSize": 0,
+  "existingExplicitValuesPreserved": true,
+  "automaticRechunkMigration": false,
+  "sourceSha256": {
+    "src/string_and_binary/chunks.ts": "b1159702cc99c1dc45afa08bceb74bb1ecbc4c4ebb3d3ae30a83830b46881ea2",
+    "src/common/models/setting.const.preferred.ts": "fee50b9e13d74acacd6243da2b9d27a28d7a902082eaf9367121d1c481f93d91",
+    "src/common/configForDoc.ts": "7a7d0480b4d046df636c038ec0b489f037069ffd970c2d4e050ca602de4b32a6",
+    "src/pouchdb/StreamingFetch.ts": "f87556cecd50b71748ec487d94dcd817e94340ad7d7acf609026189b6009930a",
+    "src/replication/couchdb/FastForward.ts": "d88aaddee309c78d97650604e5c18126db8c1c63dd78d6d43caca27fcf63c6e5",
+    "src/serviceModules/Rebuilder.ts": "6c80c535bbc53971d290db882ae55d5dff8c9610b802821252e2738310881f19"
+  },
+  "testedRuntimeTarballSha256": "64ff0be0bf9d835e264813d5387002a6f6feddcfd013b9fea0b59ac9541fa696",
+  "regressionFailuresBeforeProductionEdits": {
+    "splitter": 3,
+    "setupAndDoctor": 4
+  },
+  "verification": {
+    "commonlibUnitTests": 2454,
+    "commonlibRealCouchdbIntegrationTests": 11,
+    "commonlibBoundaryAndPackageGate": "passed",
+    "npm10CleanInstall": "passed",
+    "normalNpmCleanInstall": "passed",
+    "livesyncCheck": "passed",
+    "livesyncUnitTestsPassed": 1299,
+    "livesyncUnitTestsSkipped": 1,
+    "excludedGeneratedExperimentSources": ".bench/**",
+    "pluginCliWebappWebpeerBuilds": "passed",
+    "workerMessageAndDirectParity": "passed",
+    "mixedWriterMatrix": [
+      {
+        "direction": "old-to-new",
+        "transport": "couchdb+journal",
+        "sizes": [
+          0,
+          1,
+          4
+        ],
+        "fileStageDigestChecks": 270,
+        "sourceCliSha256": "a369887cbb9a79e019284dce6a4097e5d6f51d6afb1c7ad7d6270dbe1878e0b2",
+        "targetCliSha256": "c453a9a5a59ba65058b58e736742ca251641b34bd5c11bf0e462ea766714bd9a"
+      },
+      {
+        "direction": "new-to-old",
+        "transport": "couchdb+journal",
+        "sizes": [
+          0,
+          1,
+          4
+        ],
+        "fileStageDigestChecks": 270,
+        "sourceCliSha256": "c453a9a5a59ba65058b58e736742ca251641b34bd5c11bf0e462ea766714bd9a",
+        "targetCliSha256": "a369887cbb9a79e019284dce6a4097e5d6f51d6afb1c7ad7d6270dbe1878e0b2"
+      },
+      {
+        "direction": "old-to-new",
+        "transport": "p2p",
+        "sizes": [
+          0,
+          1,
+          4
+        ],
+        "fileStageDigestChecks": 135,
+        "sourceCliSha256": "a369887cbb9a79e019284dce6a4097e5d6f51d6afb1c7ad7d6270dbe1878e0b2",
+        "targetCliSha256": "c453a9a5a59ba65058b58e736742ca251641b34bd5c11bf0e462ea766714bd9a"
+      },
+      {
+        "direction": "new-to-old",
+        "transport": "p2p",
+        "sizes": [
+          0,
+          1,
+          4
+        ],
+        "fileStageDigestChecks": 135,
+        "sourceCliSha256": "c453a9a5a59ba65058b58e736742ca251641b34bd5c11bf0e462ea766714bd9a",
+        "targetCliSha256": "a369887cbb9a79e019284dce6a4097e5d6f51d6afb1c7ad7d6270dbe1878e0b2"
+      }
+    ],
+    "initialChunkCountsMatchingPrototype": {
+      "0": 1170,
+      "1": 1033,
+      "4": 949
+    },
+    "linuxObsidian": {
+      "scenario": "couchdb-manual-setup-workflow",
+      "passed": true,
+      "assertions": [
+        "manual setup retains size 0",
+        "binary uses eight 32 KiB content-defined pieces",
+        "unchanged binary Metadata revision across restart",
+        "unchanged complete local Chunk inventory across restart",
+        "exact binary bytes received after Fast Fetch",
+        "bidirectional note transfer"
+      ]
+    },
+    "standaloneDenoGeneratorTests": {
+      "pinnedRelease": "0.1.34",
+      "pinnedTestsPassed": 8,
+      "candidateTestsPassed": 8,
+      "candidateResolvedFromInstalledLocalTarball": true,
+      "publicationFollowup": "Update facade pins, version constant, and lockfile together to the reviewed immutable Commonlib release."
+    },
+    "finalTarballCleanInstall": "npm10 and normal npm passed",
+    "finalTarballFocusedConsumerTests": 56
+  },
+  "limits": {
+    "cloudantServiceMeasured": false,
+    "mobileRuntimeMeasured": false,
+    "mixedMatrixCreatesConflicts": false,
+    "conflictRetention": "Separate existing revision and full-leaf test suites",
+    "initialP2pInterruption": "One non-PTY harness received SIGTERM; owned remaining processes were stopped. Both directions completed in PTY reruns. Signal origin was not established.",
+    "initialObsidianFailure": "Disposable CouchDB missed documented server settings; maintained provisioning script fixed fixture and same scenario passed without production changes."
+  },
+  "fixtures": {
+    "couchdb": "couchdb:3.5.0@sha256:1c0a30a54535377bc9ae23f42efb1ca4e92abe796f78ec98b768ac1d5874cc1b",
+    "objectStorage": "rustfs/rustfs@sha256:8cc9801755448b71a786705ce76692c77e14936cccd87cf2fc31842e58f4d1ff",
+    "relay": "ghcr.io/hoytech/strfry@sha256:36f1886d185a88ca57c66ebe52e6e9e8428dac2486eea0a5d50ff934f18b60c3"
+  },
+  "finalTarballSha256": "b8a04a476bd96d6947eb02d81c336042164d4387d6c2253dfa5b23299f29e9a7",
+  "finalTarballRuntimeIdenticalToTestedCandidate": true
+}

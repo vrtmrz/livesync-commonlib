@@ -1,5 +1,5 @@
+import type { IConfigService } from "@lib/services/base/IService";
 import type { UIService } from "./implements/base/UIService.ts";
-import type { ConfigService } from "@lib/services/base/ConfigService.ts";
 import type { TestService } from "@lib/services/base/TestService.ts";
 import type { VaultService } from "@lib/services/base/VaultService.ts";
 import type { TweakValueService } from "@lib/services/base/TweakValueService.ts";
@@ -35,7 +35,7 @@ export type ServiceInstances<T extends ServiceContext = ServiceContext> = {
     vault?: VaultService<T>;
     test?: TestService<T>;
     ui?: UIService<T>;
-    config?: ConfigService<T>;
+    config?: IConfigService;
     keyValueDB?: KeyValueDBService<T>;
     control?: ControlService<T>;
 };
@@ -58,7 +58,7 @@ export abstract class ServiceHub<T extends ServiceContext = ServiceContext> impl
     protected abstract _vault: VaultService<T>;
     protected abstract _test: TestService<T>;
     protected abstract _ui: UIService<T>;
-    protected abstract _config: ConfigService<T>;
+    protected abstract _config: IConfigService;
     protected abstract _keyValueDB: KeyValueDBService<T>;
     protected abstract _control: ControlService<T>;
     protected _injected: ServiceInstances<T> = {};
@@ -113,7 +113,7 @@ export abstract class ServiceHub<T extends ServiceContext = ServiceContext> impl
     get UI(): UIService<T> {
         return this._injected.ui || this._ui;
     }
-    get config(): ConfigService<T> {
+    get config(): IConfigService {
         return this._injected.config || this._config;
     }
     get keyValueDB(): KeyValueDBService<T> {

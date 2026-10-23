@@ -1,0 +1,2243 @@
+{
+  "date": "2026-10-23",
+  "status": "Unreleased experiment. Neither candidate is implemented in the product. Size defaults remain undecided.",
+  "source": {
+    "commonlibVersion": "0.1.44",
+    "commonlibBase": "b435ba3270d76c6ddd67ff0269c334434a2e029e",
+    "livesyncBase": "ce0524d49f4e1c840689d83d3f8f18fce383effb",
+    "installedSplitterSha256": "6448acd63f536d115a620bada21df29178b503c5945ff457d68caaae490ba864",
+    "corpusManifestSha256": "6b673f9b1605520382859f64c6599ed57d1931175ef60d32e0010a80a0b97379",
+    "candidateSourceSha256": "5ab9154b5ae08d70dd0756b2d1e04d425a53799f24055deb378475592efc3cee",
+    "comparisonSourceSha256": "38199c054b977bc280cfb96ed0833da02a034642c9521eea43bfc6f43ac33023"
+  },
+  "artefactSha256": {
+    "candidates.mjs": "5ab9154b5ae08d70dd0756b2d1e04d425a53799f24055deb378475592efc3cee",
+    "candidates.test.mjs": "c4a012891fff1c3f4a00bd124cd203e92ba85b6492be16008940eb5e50bbe97a",
+    "compare.mjs": "38199c054b977bc280cfb96ed0833da02a034642c9521eea43bfc6f43ac33023",
+    "summarise.mjs": "ec45fc3a8aa4b899a72f96e8222d98bce81a3ee9fef74e66c6c7cfcf30f17728",
+    "follow-up.mjs": "d7b2c30b0de5f9da7b9a554d84d3490e576a9820bb90480e1a3728fbf45b8f3f",
+    "results.json": "d0cbffd95780991cd2e246218ff84d07a909ca39235e732267a960c774de6023",
+    "follow-up.json": "83a71a1a1f6f62701d1a35d231ab24ad3538fc248bf095201b835054cb58ad0d",
+    "tests-direct.tap": "4ac9247053c897dce1eaef94bcfcd17cefd8289e176def397d475697ce2a79d4"
+  },
+  "environment": {
+    "node": "v24.18.0",
+    "platform": "linux",
+    "architecture": "arm64",
+    "cpu": "Neoverse-N1",
+    "timingRepetitions": 3,
+    "parallelWorkers": 1
+  },
+  "definitions": {
+    "maximum": "M = min(4 MiB, max(30 KiB, 102400 * (customChunkSize + 1))). The existing UTF-8 safeguard can add up to three bytes for text.",
+    "proportional": "Binary mode only: minimum M/4, constant candidate gap M/4, hard maximum M.",
+    "normalised": "Binary mode only: minimum M/4; gap M/2 before length M/2, then M/8; hard maximum M. All tested divisors are exact and predicates are nested.",
+    "smallText": "The existing adaptive text policy is preserved for text shorter than 4 MiB. Larger text uses binary-mode thresholds with UTF-8-safe cuts.",
+    "identity": "SHA-256 of raw content with its storage encoding. Equality represents reusable content, not a measured keyed ID or encrypted document.",
+    "forcedFraction": "Cuts caused solely by the hard maximum, with the natural predicate false, divided by non-tail chunks. A natural candidate at the maximum is not forced.",
+    "resynchronisationBytes": "Bytes after the changed region before the earliest boundary of a completely identical, offset-aligned trailing chunk sequence. Null means no such complete chunk before EOF.",
+    "corpusNewBytes": "Unique raw content bytes absent from all earlier corpus stages, deduplicated across files and within the current stage.",
+    "stressNewBytes": "Unique raw content bytes absent from that fixture's unedited state; each edit starts independently from that state.",
+    "timing": "Boundary-only synchronous prototype, including rolling hashes and chunk-boundary allocation; excludes encoding, encryption, ID derivation, I/O, and networking."
+  },
+  "theory": {
+    "assumptions": "Independent, uniformly distributed hashes; exponential approximation; no UTF-8 adjustment; final tail excluded.",
+    "proportional": {
+      "forcedFraction": 0.04978706836786395,
+      "meanFractionOfMaximum": 0.487553232908034
+    },
+    "normalised": {
+      "forcedFraction": 0.011108996538242306,
+      "meanFractionOfMaximum": 0.5211623780404822
+    }
+  },
+  "fixtures": [
+    {
+      "name": "random-0",
+      "family": "random",
+      "seed": 3529777407,
+      "bytes": 4194304,
+      "sha256": "a6c9ecbd53b6dc9c132c86868ebb42d174cbeb175921a6c2f1bd8969af634811"
+    },
+    {
+      "name": "random-1",
+      "family": "random",
+      "seed": 1883089452,
+      "bytes": 4194304,
+      "sha256": "c0d8ad3554b62d8b0de095dfbb2a2259364536952f3c1b81bced00660d55e782"
+    },
+    {
+      "name": "random-2",
+      "family": "random",
+      "seed": 2532652125,
+      "bytes": 4194304,
+      "sha256": "7ab9e61230c3ad86526b6435381bdf46272d7c0ee86860a9265810b20b12e48b"
+    },
+    {
+      "name": "random-3",
+      "family": "random",
+      "seed": 881770378,
+      "bytes": 4194304,
+      "sha256": "ff08c3bae6acb17b1761def9df07ad659c89909113b16d055c8800d444f88896"
+    },
+    {
+      "name": "random-4",
+      "family": "random",
+      "seed": 1531328827,
+      "bytes": 4194304,
+      "sha256": "1fb884abc8c74468eb8a03bea82007ae71aa9e73e288d00035597e328e12b893"
+    },
+    {
+      "name": "random-5",
+      "family": "random",
+      "seed": 4179592040,
+      "bytes": 4194304,
+      "sha256": "1fb9804479ea834380883be92a9d45064ed03518c69ff3ece68d312c52973d93"
+    },
+    {
+      "name": "zero",
+      "family": "zero",
+      "bytes": 4194304,
+      "sha256": "bb9f8df61474d25e71fa00722318cd387396ca1736605e1248821cc0de3d3af8"
+    },
+    {
+      "name": "period-256",
+      "family": "periodic",
+      "bytes": 4194304,
+      "sha256": "2b07811057df887086f06a67edc6ebf911de8b6741156e7a2eb1416a4b8b1b2e"
+    },
+    {
+      "name": "periodic-utf8-as-binary",
+      "family": "periodic",
+      "bytes": 4194304,
+      "sha256": "4fba45d9cf020342930c6fe7817d5e70a18be76bd74e1536d3890b3d545c9cdc"
+    }
+  ],
+  "sampling": {
+    "randomInitialStreams": 6,
+    "bytesPerStream": 4194304,
+    "insertionFractions": [
+      0,
+      0.25,
+      0.5,
+      0.75
+    ],
+    "insertionSizes": [
+      1,
+      4096
+    ],
+    "insertionCasesPerRuleAndSize": 48,
+    "overwriteAndDeletion": "One 4096-byte overwrite and one deletion at 25% in each stream; each edit starts from the unedited state.",
+    "dependence": "Insertion cases share six underlying streams. Means differ between rules; this is not an equal-mean comparison.",
+    "insertPayloadSeed": "(0x7f4a7c15 ^ Math.imul(editIndex + 1, 0x85ebca6b)) >>> 0; insertion order is fraction ascending, size ascending.",
+    "randomGenerator": "Xorshift32, shifts 13, 17, and 5; four little-endian output bytes per state."
+  },
+  "verification": {
+    "manifestFilesChecked": 45,
+    "baselineComparisons": 555,
+    "reconstructionChecks": 2160,
+    "deterministicChecks": 15,
+    "actualBaselineNote": "At every cap and stage, current-model boundaries match the installed window-fixed splitter. Both candidate policies also match it on every small-text file.",
+    "focusedHarnessTests": 6,
+    "focusedHarnessFailures": 0
+  },
+  "randomSummary": [
+    {
+      "cap": 0,
+      "policy": "current",
+      "actualMeanKiB": 99.9,
+      "forcedPercent": 100,
+      "meanNewKiB": 2598,
+      "p50NewKiB": 2100,
+      "p95NewKiB": 4100,
+      "maxNewKiB": 4100,
+      "p50ResyncKiB": null,
+      "p95ResyncKiB": null,
+      "noStableSuffix": 48,
+      "cases": 48
+    },
+    {
+      "cap": 0,
+      "policy": "proportional",
+      "actualMeanKiB": 48.96,
+      "forcedPercent": 3.629,
+      "meanNewKiB": 80.73,
+      "p50NewKiB": 67.55,
+      "p95NewKiB": 144.57,
+      "maxNewKiB": 194.44,
+      "p50ResyncKiB": 47.57,
+      "p95ResyncKiB": 134.8,
+      "noStableSuffix": 0,
+      "cases": 48
+    },
+    {
+      "cap": 0,
+      "policy": "normalised",
+      "actualMeanKiB": 51.52,
+      "forcedPercent": 1.062,
+      "meanNewKiB": 74.26,
+      "p50NewKiB": 59.92,
+      "p95NewKiB": 135.74,
+      "maxNewKiB": 430.83,
+      "p50ResyncKiB": 44.3,
+      "p95ResyncKiB": 101.61,
+      "noStableSuffix": 0,
+      "cases": 48
+    },
+    {
+      "cap": 1,
+      "policy": "current",
+      "actualMeanKiB": 195.05,
+      "forcedPercent": 100,
+      "meanNewKiB": 2598,
+      "p50NewKiB": 2100,
+      "p95NewKiB": 4100,
+      "maxNewKiB": 4100,
+      "p50ResyncKiB": null,
+      "p95ResyncKiB": null,
+      "noStableSuffix": 48,
+      "cases": 48
+    },
+    {
+      "cap": 1,
+      "policy": "proportional",
+      "actualMeanKiB": 96.76,
+      "forcedPercent": 4.839,
+      "meanNewKiB": 119.76,
+      "p50NewKiB": 106.01,
+      "p95NewKiB": 194.61,
+      "maxNewKiB": 304.26,
+      "p50ResyncKiB": 74.66,
+      "p95ResyncKiB": 189.25,
+      "noStableSuffix": 0,
+      "cases": 48
+    },
+    {
+      "cap": 1,
+      "policy": "normalised",
+      "actualMeanKiB": 102.83,
+      "forcedPercent": 0.858,
+      "meanNewKiB": 136.46,
+      "p50NewKiB": 124.02,
+      "p95NewKiB": 296.57,
+      "maxNewKiB": 379.67,
+      "p50ResyncKiB": 93.04,
+      "p95ResyncKiB": 232.7,
+      "noStableSuffix": 0,
+      "cases": 48
+    },
+    {
+      "cap": 2,
+      "policy": "current",
+      "actualMeanKiB": 292.57,
+      "forcedPercent": 80.769,
+      "meanNewKiB": 1254.29,
+      "p50NewKiB": 1109.92,
+      "p95NewKiB": 2695.98,
+      "maxNewKiB": 3209.92,
+      "p50ResyncKiB": 741.28,
+      "p95ResyncKiB": 2691.98,
+      "noStableSuffix": 13,
+      "cases": 48
+    },
+    {
+      "cap": 2,
+      "policy": "proportional",
+      "actualMeanKiB": 138.85,
+      "forcedPercent": 1.754,
+      "meanNewKiB": 185.52,
+      "p50NewKiB": 134.17,
+      "p95NewKiB": 410.9,
+      "maxNewKiB": 517.49,
+      "p50ResyncKiB": 92.52,
+      "p95ResyncKiB": 278.38,
+      "noStableSuffix": 0,
+      "cases": 48
+    },
+    {
+      "cap": 2,
+      "policy": "normalised",
+      "actualMeanKiB": 151.7,
+      "forcedPercent": 0,
+      "meanNewKiB": 178.72,
+      "p50NewKiB": 161.72,
+      "p95NewKiB": 289.48,
+      "maxNewKiB": 297.34,
+      "p50ResyncKiB": 137.47,
+      "p95ResyncKiB": 200.01,
+      "noStableSuffix": 0,
+      "cases": 48
+    },
+    {
+      "cap": 3,
+      "policy": "current",
+      "actualMeanKiB": 366.81,
+      "forcedPercent": 68.852,
+      "meanNewKiB": 1276.37,
+      "p50NewKiB": 1078.35,
+      "p95NewKiB": 2718.23,
+      "maxNewKiB": 3518.23,
+      "p50ResyncKiB": 832.69,
+      "p95ResyncKiB": 3514.23,
+      "noStableSuffix": 10,
+      "cases": 48
+    },
+    {
+      "cap": 3,
+      "policy": "proportional",
+      "actualMeanKiB": 192,
+      "forcedPercent": 3.279,
+      "meanNewKiB": 258.38,
+      "p50NewKiB": 221.78,
+      "p95NewKiB": 538.15,
+      "maxNewKiB": 782.02,
+      "p50ResyncKiB": 125.92,
+      "p95ResyncKiB": 346.01,
+      "noStableSuffix": 0,
+      "cases": 48
+    },
+    {
+      "cap": 3,
+      "policy": "normalised",
+      "actualMeanKiB": 204.8,
+      "forcedPercent": 0,
+      "meanNewKiB": 232.03,
+      "p50NewKiB": 225.78,
+      "p95NewKiB": 316.86,
+      "maxNewKiB": 371.5,
+      "p50ResyncKiB": 166.69,
+      "p95ResyncKiB": 300.26,
+      "noStableSuffix": 0,
+      "cases": 48
+    },
+    {
+      "cap": 4,
+      "policy": "current",
+      "actualMeanKiB": 438.86,
+      "forcedPercent": 68,
+      "meanNewKiB": 1338.26,
+      "p50NewKiB": 996.65,
+      "p95NewKiB": 3107.35,
+      "maxNewKiB": 3325.46,
+      "p50ResyncKiB": 766.65,
+      "p95ResyncKiB": 3321.46,
+      "noStableSuffix": 12,
+      "cases": 48
+    },
+    {
+      "cap": 4,
+      "policy": "proportional",
+      "actualMeanKiB": 227.56,
+      "forcedPercent": 1.961,
+      "meanNewKiB": 252.37,
+      "p50NewKiB": 215.15,
+      "p95NewKiB": 456.54,
+      "maxNewKiB": 696.76,
+      "p50ResyncKiB": 157.91,
+      "p95ResyncKiB": 424.14,
+      "noStableSuffix": 0,
+      "cases": 48
+    },
+    {
+      "cap": 4,
+      "policy": "normalised",
+      "actualMeanKiB": 250.78,
+      "forcedPercent": 1.087,
+      "meanNewKiB": 337.18,
+      "p50NewKiB": 267.59,
+      "p95NewKiB": 764.53,
+      "maxNewKiB": 1204.61,
+      "p50ResyncKiB": 202.64,
+      "p95ResyncKiB": 424.14,
+      "noStableSuffix": 0,
+      "cases": 48
+    }
+  ],
+  "corpusSummary": [
+    {
+      "cap": 0,
+      "policy": "current",
+      "initialUniqueChunkDocs": 1026,
+      "overwriteNewKiB": 137.61,
+      "insertNewKiB": 11330.18,
+      "randomInsertNewKiB": 6196,
+      "largeTextInsertNewKiB": 5132.16,
+      "binaryResyncKiB": null,
+      "allMissingCouchBatches25": 42,
+      "allMissingCouchBatches100": 11
+    },
+    {
+      "cap": 0,
+      "policy": "proportional",
+      "initialUniqueChunkDocs": 1170,
+      "overwriteNewKiB": 81.6,
+      "insertNewKiB": 75.45,
+      "randomInsertNewKiB": 47.99,
+      "largeTextInsertNewKiB": 25.45,
+      "binaryResyncKiB": 36.7,
+      "allMissingCouchBatches25": 48,
+      "allMissingCouchBatches100": 12
+    },
+    {
+      "cap": 0,
+      "policy": "normalised",
+      "initialUniqueChunkDocs": 1152,
+      "overwriteNewKiB": 90.66,
+      "insertNewKiB": 111.6,
+      "randomInsertNewKiB": 57.05,
+      "largeTextInsertNewKiB": 52.54,
+      "binaryResyncKiB": 21.86,
+      "allMissingCouchBatches25": 47,
+      "allMissingCouchBatches100": 12
+    },
+    {
+      "cap": 1,
+      "policy": "current",
+      "initialUniqueChunkDocs": 959,
+      "overwriteNewKiB": 237.61,
+      "insertNewKiB": 11330.18,
+      "randomInsertNewKiB": 6196,
+      "largeTextInsertNewKiB": 5132.16,
+      "binaryResyncKiB": null,
+      "allMissingCouchBatches25": 39,
+      "allMissingCouchBatches100": 10
+    },
+    {
+      "cap": 1,
+      "policy": "proportional",
+      "initialUniqueChunkDocs": 1033,
+      "overwriteNewKiB": 148.33,
+      "insertNewKiB": 169.27,
+      "randomInsertNewKiB": 114.71,
+      "largeTextInsertNewKiB": 52.54,
+      "binaryResyncKiB": 79.52,
+      "allMissingCouchBatches25": 42,
+      "allMissingCouchBatches100": 11
+    },
+    {
+      "cap": 1,
+      "policy": "normalised",
+      "initialUniqueChunkDocs": 1024,
+      "overwriteNewKiB": 170.37,
+      "insertNewKiB": 191.31,
+      "randomInsertNewKiB": 136.75,
+      "largeTextInsertNewKiB": 52.54,
+      "binaryResyncKiB": 36.7,
+      "allMissingCouchBatches25": 42,
+      "allMissingCouchBatches100": 11
+    },
+    {
+      "cap": 2,
+      "policy": "current",
+      "initialUniqueChunkDocs": 938,
+      "overwriteNewKiB": 337.61,
+      "insertNewKiB": 10829.92,
+      "randomInsertNewKiB": 5695.74,
+      "largeTextInsertNewKiB": 5132.16,
+      "binaryResyncKiB": 5443.74,
+      "allMissingCouchBatches25": 39,
+      "allMissingCouchBatches100": 10
+    },
+    {
+      "cap": 2,
+      "policy": "proportional",
+      "initialUniqueChunkDocs": 1003,
+      "overwriteNewKiB": 304.38,
+      "insertNewKiB": 402.09,
+      "randomInsertNewKiB": 270.76,
+      "largeTextInsertNewKiB": 129.31,
+      "binaryResyncKiB": 186.9,
+      "allMissingCouchBatches25": 41,
+      "allMissingCouchBatches100": 11
+    },
+    {
+      "cap": 2,
+      "policy": "normalised",
+      "initialUniqueChunkDocs": 995,
+      "overwriteNewKiB": 304.38,
+      "insertNewKiB": 402.09,
+      "randomInsertNewKiB": 270.76,
+      "largeTextInsertNewKiB": 129.31,
+      "binaryResyncKiB": 186.9,
+      "allMissingCouchBatches25": 41,
+      "allMissingCouchBatches100": 11
+    },
+    {
+      "cap": 3,
+      "policy": "current",
+      "initialUniqueChunkDocs": 932,
+      "overwriteNewKiB": 407.62,
+      "insertNewKiB": 643.81,
+      "randomInsertNewKiB": 374.01,
+      "largeTextInsertNewKiB": 267.79,
+      "binaryResyncKiB": 194.04,
+      "allMissingCouchBatches25": 38,
+      "allMissingCouchBatches100": 10
+    },
+    {
+      "cap": 3,
+      "policy": "proportional",
+      "initialUniqueChunkDocs": 982,
+      "overwriteNewKiB": 270.52,
+      "insertNewKiB": 399.09,
+      "randomInsertNewKiB": 236.91,
+      "largeTextInsertNewKiB": 160.17,
+      "binaryResyncKiB": 166.13,
+      "allMissingCouchBatches25": 40,
+      "allMissingCouchBatches100": 10
+    },
+    {
+      "cap": 3,
+      "policy": "normalised",
+      "initialUniqueChunkDocs": 979,
+      "overwriteNewKiB": 270.52,
+      "insertNewKiB": 399.09,
+      "randomInsertNewKiB": 236.91,
+      "largeTextInsertNewKiB": 160.17,
+      "binaryResyncKiB": 166.13,
+      "allMissingCouchBatches25": 40,
+      "allMissingCouchBatches100": 10
+    },
+    {
+      "cap": 4,
+      "policy": "current",
+      "initialUniqueChunkDocs": 927,
+      "overwriteNewKiB": 311.53,
+      "insertNewKiB": 547.73,
+      "randomInsertNewKiB": 277.92,
+      "largeTextInsertNewKiB": 267.79,
+      "binaryResyncKiB": 166.13,
+      "allMissingCouchBatches25": 38,
+      "allMissingCouchBatches100": 10
+    },
+    {
+      "cap": 4,
+      "policy": "proportional",
+      "initialUniqueChunkDocs": 949,
+      "overwriteNewKiB": 209.28,
+      "insertNewKiB": 337.85,
+      "randomInsertNewKiB": 175.66,
+      "largeTextInsertNewKiB": 160.17,
+      "binaryResyncKiB": 79.52,
+      "allMissingCouchBatches25": 39,
+      "allMissingCouchBatches100": 10
+    },
+    {
+      "cap": 4,
+      "policy": "normalised",
+      "initialUniqueChunkDocs": 949,
+      "overwriteNewKiB": 209.28,
+      "insertNewKiB": 337.85,
+      "randomInsertNewKiB": 175.66,
+      "largeTextInsertNewKiB": 160.17,
+      "binaryResyncKiB": 79.52,
+      "allMissingCouchBatches25": 39,
+      "allMissingCouchBatches100": 10
+    }
+  ],
+  "pairedInsertionSummary": [
+    {
+      "cap": 0,
+      "cases": 48,
+      "normalisedFewerNewBytes": 25,
+      "normalisedMoreNewBytes": 11,
+      "normalisedMinusProportionalKiB": {
+        "count": 48,
+        "min": -102.84,
+        "mean": -6.47,
+        "p50": -0.76,
+        "p95": 55.59,
+        "max": 236.39
+      }
+    },
+    {
+      "cap": 1,
+      "cases": 48,
+      "normalisedFewerNewBytes": 16,
+      "normalisedMoreNewBytes": 22,
+      "normalisedMinusProportionalKiB": {
+        "count": 48,
+        "min": -175.3,
+        "mean": 16.7,
+        "p50": 0,
+        "p95": 133.08,
+        "max": 271.13
+      }
+    },
+    {
+      "cap": 2,
+      "cases": 48,
+      "normalisedFewerNewBytes": 15,
+      "normalisedMoreNewBytes": 27,
+      "normalisedMinusProportionalKiB": {
+        "count": 48,
+        "min": -220.14,
+        "mean": -6.8,
+        "p50": 7.06,
+        "p95": 112.02,
+        "max": 129.45
+      }
+    },
+    {
+      "cap": 3,
+      "cases": 48,
+      "normalisedFewerNewBytes": 16,
+      "normalisedMoreNewBytes": 19,
+      "normalisedMinusProportionalKiB": {
+        "count": 48,
+        "min": -465.16,
+        "mean": -26.35,
+        "p50": 0,
+        "p95": 111.22,
+        "max": 128.6
+      }
+    },
+    {
+      "cap": 4,
+      "cases": 48,
+      "normalisedFewerNewBytes": 6,
+      "normalisedMoreNewBytes": 28,
+      "normalisedMinusProportionalKiB": {
+        "count": 48,
+        "min": -188.95,
+        "mean": 84.8,
+        "p50": 61.02,
+        "p95": 291.9,
+        "max": 883.16
+      }
+    }
+  ],
+  "lowEntropySummary": [
+    {
+      "family": "zero",
+      "operation": "initial",
+      "cap": 0,
+      "policy": "current",
+      "cases": 1,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "zero",
+      "operation": "initial",
+      "cap": 0,
+      "policy": "proportional",
+      "cases": 1,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "zero",
+      "operation": "initial",
+      "cap": 0,
+      "policy": "normalised",
+      "cases": 1,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "zero",
+      "operation": "initial",
+      "cap": 1,
+      "policy": "current",
+      "cases": 1,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "zero",
+      "operation": "initial",
+      "cap": 1,
+      "policy": "proportional",
+      "cases": 1,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "zero",
+      "operation": "initial",
+      "cap": 1,
+      "policy": "normalised",
+      "cases": 1,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "zero",
+      "operation": "initial",
+      "cap": 2,
+      "policy": "current",
+      "cases": 1,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "zero",
+      "operation": "initial",
+      "cap": 2,
+      "policy": "proportional",
+      "cases": 1,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "zero",
+      "operation": "initial",
+      "cap": 2,
+      "policy": "normalised",
+      "cases": 1,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "zero",
+      "operation": "initial",
+      "cap": 3,
+      "policy": "current",
+      "cases": 1,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "zero",
+      "operation": "initial",
+      "cap": 3,
+      "policy": "proportional",
+      "cases": 1,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "zero",
+      "operation": "initial",
+      "cap": 3,
+      "policy": "normalised",
+      "cases": 1,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "zero",
+      "operation": "initial",
+      "cap": 4,
+      "policy": "current",
+      "cases": 1,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "zero",
+      "operation": "initial",
+      "cap": 4,
+      "policy": "proportional",
+      "cases": 1,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "zero",
+      "operation": "initial",
+      "cap": 4,
+      "policy": "normalised",
+      "cases": 1,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "zero",
+      "operation": "insert",
+      "cap": 0,
+      "policy": "current",
+      "cases": 8,
+      "forcedPercent": 100,
+      "meanNewKiB": 148,
+      "noStableSuffix": 8
+    },
+    {
+      "family": "zero",
+      "operation": "insert",
+      "cap": 0,
+      "policy": "proportional",
+      "cases": 8,
+      "forcedPercent": 99.691,
+      "meanNewKiB": 160.5,
+      "noStableSuffix": 8
+    },
+    {
+      "family": "zero",
+      "operation": "insert",
+      "cap": 0,
+      "policy": "normalised",
+      "cases": 8,
+      "forcedPercent": 99.691,
+      "meanNewKiB": 160.5,
+      "noStableSuffix": 8
+    },
+    {
+      "family": "zero",
+      "operation": "insert",
+      "cap": 1,
+      "policy": "current",
+      "cases": 8,
+      "forcedPercent": 100,
+      "meanNewKiB": 298,
+      "noStableSuffix": 8
+    },
+    {
+      "family": "zero",
+      "operation": "insert",
+      "cap": 1,
+      "policy": "proportional",
+      "cases": 8,
+      "forcedPercent": 100,
+      "meanNewKiB": 298,
+      "noStableSuffix": 8
+    },
+    {
+      "family": "zero",
+      "operation": "insert",
+      "cap": 1,
+      "policy": "normalised",
+      "cases": 8,
+      "forcedPercent": 100,
+      "meanNewKiB": 298,
+      "noStableSuffix": 8
+    },
+    {
+      "family": "zero",
+      "operation": "insert",
+      "cap": 2,
+      "policy": "current",
+      "cases": 8,
+      "forcedPercent": 100,
+      "meanNewKiB": 498,
+      "noStableSuffix": 8
+    },
+    {
+      "family": "zero",
+      "operation": "insert",
+      "cap": 2,
+      "policy": "proportional",
+      "cases": 8,
+      "forcedPercent": 100,
+      "meanNewKiB": 498,
+      "noStableSuffix": 8
+    },
+    {
+      "family": "zero",
+      "operation": "insert",
+      "cap": 2,
+      "policy": "normalised",
+      "cases": 8,
+      "forcedPercent": 100,
+      "meanNewKiB": 498,
+      "noStableSuffix": 8
+    },
+    {
+      "family": "zero",
+      "operation": "insert",
+      "cap": 3,
+      "policy": "current",
+      "cases": 8,
+      "forcedPercent": 100,
+      "meanNewKiB": 498,
+      "noStableSuffix": 8
+    },
+    {
+      "family": "zero",
+      "operation": "insert",
+      "cap": 3,
+      "policy": "proportional",
+      "cases": 8,
+      "forcedPercent": 100,
+      "meanNewKiB": 498,
+      "noStableSuffix": 8
+    },
+    {
+      "family": "zero",
+      "operation": "insert",
+      "cap": 3,
+      "policy": "normalised",
+      "cases": 8,
+      "forcedPercent": 100,
+      "meanNewKiB": 498,
+      "noStableSuffix": 8
+    },
+    {
+      "family": "zero",
+      "operation": "insert",
+      "cap": 4,
+      "policy": "current",
+      "cases": 8,
+      "forcedPercent": 100,
+      "meanNewKiB": 598,
+      "noStableSuffix": 8
+    },
+    {
+      "family": "zero",
+      "operation": "insert",
+      "cap": 4,
+      "policy": "proportional",
+      "cases": 8,
+      "forcedPercent": 100,
+      "meanNewKiB": 598,
+      "noStableSuffix": 8
+    },
+    {
+      "family": "zero",
+      "operation": "insert",
+      "cap": 4,
+      "policy": "normalised",
+      "cases": 8,
+      "forcedPercent": 100,
+      "meanNewKiB": 598,
+      "noStableSuffix": 8
+    },
+    {
+      "family": "periodic",
+      "operation": "initial",
+      "cap": 0,
+      "policy": "current",
+      "cases": 2,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "periodic",
+      "operation": "initial",
+      "cap": 0,
+      "policy": "proportional",
+      "cases": 2,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "periodic",
+      "operation": "initial",
+      "cap": 0,
+      "policy": "normalised",
+      "cases": 2,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "periodic",
+      "operation": "initial",
+      "cap": 1,
+      "policy": "current",
+      "cases": 2,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "periodic",
+      "operation": "initial",
+      "cap": 1,
+      "policy": "proportional",
+      "cases": 2,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "periodic",
+      "operation": "initial",
+      "cap": 1,
+      "policy": "normalised",
+      "cases": 2,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "periodic",
+      "operation": "initial",
+      "cap": 2,
+      "policy": "current",
+      "cases": 2,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "periodic",
+      "operation": "initial",
+      "cap": 2,
+      "policy": "proportional",
+      "cases": 2,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "periodic",
+      "operation": "initial",
+      "cap": 2,
+      "policy": "normalised",
+      "cases": 2,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "periodic",
+      "operation": "initial",
+      "cap": 3,
+      "policy": "current",
+      "cases": 2,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "periodic",
+      "operation": "initial",
+      "cap": 3,
+      "policy": "proportional",
+      "cases": 2,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "periodic",
+      "operation": "initial",
+      "cap": 3,
+      "policy": "normalised",
+      "cases": 2,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "periodic",
+      "operation": "initial",
+      "cap": 4,
+      "policy": "current",
+      "cases": 2,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "periodic",
+      "operation": "initial",
+      "cap": 4,
+      "policy": "proportional",
+      "cases": 2,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "periodic",
+      "operation": "initial",
+      "cap": 4,
+      "policy": "normalised",
+      "cases": 2,
+      "forcedPercent": 100,
+      "meanNewKiB": null,
+      "noStableSuffix": null
+    },
+    {
+      "family": "periodic",
+      "operation": "insert",
+      "cap": 0,
+      "policy": "current",
+      "cases": 16,
+      "forcedPercent": 100,
+      "meanNewKiB": 923,
+      "noStableSuffix": 16
+    },
+    {
+      "family": "periodic",
+      "operation": "insert",
+      "cap": 0,
+      "policy": "proportional",
+      "cases": 16,
+      "forcedPercent": 99.691,
+      "meanNewKiB": 841.75,
+      "noStableSuffix": 16
+    },
+    {
+      "family": "periodic",
+      "operation": "insert",
+      "cap": 0,
+      "policy": "normalised",
+      "cases": 16,
+      "forcedPercent": 99.691,
+      "meanNewKiB": 841.75,
+      "noStableSuffix": 16
+    },
+    {
+      "family": "periodic",
+      "operation": "insert",
+      "cap": 1,
+      "policy": "current",
+      "cases": 16,
+      "forcedPercent": 100,
+      "meanNewKiB": 1448,
+      "noStableSuffix": 16
+    },
+    {
+      "family": "periodic",
+      "operation": "insert",
+      "cap": 1,
+      "policy": "proportional",
+      "cases": 16,
+      "forcedPercent": 100,
+      "meanNewKiB": 1448,
+      "noStableSuffix": 16
+    },
+    {
+      "family": "periodic",
+      "operation": "insert",
+      "cap": 1,
+      "policy": "normalised",
+      "cases": 16,
+      "forcedPercent": 100,
+      "meanNewKiB": 1448,
+      "noStableSuffix": 16
+    },
+    {
+      "family": "periodic",
+      "operation": "insert",
+      "cap": 2,
+      "policy": "current",
+      "cases": 16,
+      "forcedPercent": 100,
+      "meanNewKiB": 1660.5,
+      "noStableSuffix": 16
+    },
+    {
+      "family": "periodic",
+      "operation": "insert",
+      "cap": 2,
+      "policy": "proportional",
+      "cases": 16,
+      "forcedPercent": 100,
+      "meanNewKiB": 1660.5,
+      "noStableSuffix": 16
+    },
+    {
+      "family": "periodic",
+      "operation": "insert",
+      "cap": 2,
+      "policy": "normalised",
+      "cases": 16,
+      "forcedPercent": 100,
+      "meanNewKiB": 1660.5,
+      "noStableSuffix": 16
+    },
+    {
+      "family": "periodic",
+      "operation": "insert",
+      "cap": 3,
+      "policy": "current",
+      "cases": 16,
+      "forcedPercent": 100,
+      "meanNewKiB": 1698,
+      "noStableSuffix": 16
+    },
+    {
+      "family": "periodic",
+      "operation": "insert",
+      "cap": 3,
+      "policy": "proportional",
+      "cases": 16,
+      "forcedPercent": 100,
+      "meanNewKiB": 1698,
+      "noStableSuffix": 16
+    },
+    {
+      "family": "periodic",
+      "operation": "insert",
+      "cap": 3,
+      "policy": "normalised",
+      "cases": 16,
+      "forcedPercent": 100,
+      "meanNewKiB": 1698,
+      "noStableSuffix": 16
+    },
+    {
+      "family": "periodic",
+      "operation": "insert",
+      "cap": 4,
+      "policy": "current",
+      "cases": 16,
+      "forcedPercent": 100,
+      "meanNewKiB": 1723,
+      "noStableSuffix": 16
+    },
+    {
+      "family": "periodic",
+      "operation": "insert",
+      "cap": 4,
+      "policy": "proportional",
+      "cases": 16,
+      "forcedPercent": 100,
+      "meanNewKiB": 1723,
+      "noStableSuffix": 16
+    },
+    {
+      "family": "periodic",
+      "operation": "insert",
+      "cap": 4,
+      "policy": "normalised",
+      "cases": 16,
+      "forcedPercent": 100,
+      "meanNewKiB": 1723,
+      "noStableSuffix": 16
+    }
+  ],
+  "localBoundaryTiming": [
+    {
+      "file": "benchmark/generated-large.md",
+      "cap": 0,
+      "policy": "current",
+      "wallMs": {
+        "count": 3,
+        "min": 28.570135,
+        "mean": 28.612548333333336,
+        "p50": 28.610695,
+        "p95": 28.656815,
+        "max": 28.656815
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 28.582,
+        "mean": 28.649333333333335,
+        "p50": 28.6,
+        "p95": 28.766,
+        "max": 28.766
+      }
+    },
+    {
+      "file": "benchmark/generated-large.md",
+      "cap": 0,
+      "policy": "proportional",
+      "wallMs": {
+        "count": 3,
+        "min": 186.097819,
+        "mean": 186.23596566666666,
+        "p50": 186.142219,
+        "p95": 186.467859,
+        "max": 186.467859
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 186.111,
+        "mean": 186.236,
+        "p50": 186.134,
+        "p95": 186.463,
+        "max": 186.463
+      }
+    },
+    {
+      "file": "benchmark/generated-large.md",
+      "cap": 0,
+      "policy": "normalised",
+      "wallMs": {
+        "count": 3,
+        "min": 184.420173,
+        "mean": 184.90941466666666,
+        "p50": 184.931015,
+        "p95": 185.377056,
+        "max": 185.377056
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 184.404,
+        "mean": 184.89666666666668,
+        "p50": 184.925,
+        "p95": 185.361,
+        "max": 185.361
+      }
+    },
+    {
+      "file": "benchmark/generated-large.md",
+      "cap": 1,
+      "policy": "current",
+      "wallMs": {
+        "count": 3,
+        "min": 28.608855,
+        "mean": 28.682841999999997,
+        "p50": 28.665255,
+        "p95": 28.774416,
+        "max": 28.774416
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 28.596,
+        "mean": 28.683666666666667,
+        "p50": 28.681,
+        "p95": 28.774,
+        "max": 28.774
+      }
+    },
+    {
+      "file": "benchmark/generated-large.md",
+      "cap": 1,
+      "policy": "proportional",
+      "wallMs": {
+        "count": 3,
+        "min": 166.475913,
+        "mean": 166.9651683333333,
+        "p50": 166.918635,
+        "p95": 167.500957,
+        "max": 167.500957
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 166.425,
+        "mean": 166.66566666666668,
+        "p50": 166.662,
+        "p95": 166.91,
+        "max": 166.91
+      }
+    },
+    {
+      "file": "benchmark/generated-large.md",
+      "cap": 1,
+      "policy": "normalised",
+      "wallMs": {
+        "count": 3,
+        "min": 177.329229,
+        "mean": 177.52795,
+        "p50": 177.42035,
+        "p95": 177.834271,
+        "max": 177.834271
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 177.335,
+        "mean": 177.52,
+        "p50": 177.406,
+        "p95": 177.819,
+        "max": 177.819
+      }
+    },
+    {
+      "file": "benchmark/generated-large.md",
+      "cap": 2,
+      "policy": "current",
+      "wallMs": {
+        "count": 3,
+        "min": 68.256346,
+        "mean": 68.488134,
+        "p50": 68.339507,
+        "p95": 68.868549,
+        "max": 68.868549
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 68.259,
+        "mean": 68.48700000000001,
+        "p50": 68.338,
+        "p95": 68.864,
+        "max": 68.864
+      }
+    },
+    {
+      "file": "benchmark/generated-large.md",
+      "cap": 2,
+      "policy": "proportional",
+      "wallMs": {
+        "count": 3,
+        "min": 120.16684,
+        "mean": 120.28244,
+        "p50": 120.17788,
+        "p95": 120.5026,
+        "max": 120.5026
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 120.14,
+        "mean": 120.26766666666667,
+        "p50": 120.171,
+        "p95": 120.492,
+        "max": 120.492
+      }
+    },
+    {
+      "file": "benchmark/generated-large.md",
+      "cap": 2,
+      "policy": "normalised",
+      "wallMs": {
+        "count": 3,
+        "min": 115.673345,
+        "mean": 116.09761300000001,
+        "p50": 116.303467,
+        "p95": 116.316027,
+        "max": 116.316027
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 115.647,
+        "mean": 116.06733333333334,
+        "p50": 116.256,
+        "p95": 116.299,
+        "max": 116.299
+      }
+    },
+    {
+      "file": "benchmark/generated-large.md",
+      "cap": 3,
+      "policy": "current",
+      "wallMs": {
+        "count": 3,
+        "min": 82.450394,
+        "mean": 82.697435,
+        "p50": 82.469554,
+        "p95": 83.172357,
+        "max": 83.172357
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 82.453,
+        "mean": 82.697,
+        "p50": 82.464,
+        "p95": 83.174,
+        "max": 83.174
+      }
+    },
+    {
+      "file": "benchmark/generated-large.md",
+      "cap": 3,
+      "policy": "proportional",
+      "wallMs": {
+        "count": 3,
+        "min": 52.677215,
+        "mean": 52.976176,
+        "p50": 53.041056,
+        "p95": 53.210257,
+        "max": 53.210257
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 52.677,
+        "mean": 52.98466666666666,
+        "p50": 53.053,
+        "p95": 53.224,
+        "max": 53.224
+      }
+    },
+    {
+      "file": "benchmark/generated-large.md",
+      "cap": 3,
+      "policy": "normalised",
+      "wallMs": {
+        "count": 3,
+        "min": 51.511451,
+        "mean": 51.71642500000001,
+        "p50": 51.529131,
+        "p95": 52.108693,
+        "max": 52.108693
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 51.512,
+        "mean": 51.713,
+        "p50": 51.53,
+        "p95": 52.097,
+        "max": 52.097
+      }
+    },
+    {
+      "file": "benchmark/generated-large.md",
+      "cap": 4,
+      "policy": "current",
+      "wallMs": {
+        "count": 3,
+        "min": 81.306511,
+        "mean": 81.49676466666666,
+        "p50": 81.347511,
+        "p95": 81.836272,
+        "max": 81.836272
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 81.317,
+        "mean": 81.48966666666666,
+        "p50": 81.357,
+        "p95": 81.795,
+        "max": 81.795
+      }
+    },
+    {
+      "file": "benchmark/generated-large.md",
+      "cap": 4,
+      "policy": "proportional",
+      "wallMs": {
+        "count": 3,
+        "min": 136.456934,
+        "mean": 136.79026833333333,
+        "p50": 136.853415,
+        "p95": 137.060456,
+        "max": 137.060456
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 136.446,
+        "mean": 136.785,
+        "p50": 136.857,
+        "p95": 137.052,
+        "max": 137.052
+      }
+    },
+    {
+      "file": "benchmark/generated-large.md",
+      "cap": 4,
+      "policy": "normalised",
+      "wallMs": {
+        "count": 3,
+        "min": 137.858178,
+        "mean": 138.43232666666668,
+        "p50": 138.709181,
+        "p95": 138.729621,
+        "max": 138.729621
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 137.859,
+        "mean": 138.293,
+        "p50": 138.472,
+        "p95": 138.548,
+        "max": 138.548
+      }
+    },
+    {
+      "file": "benchmark/random-8m.bin",
+      "cap": 0,
+      "policy": "current",
+      "wallMs": {
+        "count": 3,
+        "min": 45.614712,
+        "mean": 46.235794,
+        "p50": 46.492155,
+        "p95": 46.600515,
+        "max": 46.600515
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 45.635,
+        "mean": 46.24466666666667,
+        "p50": 46.506,
+        "p95": 46.593,
+        "max": 46.593
+      }
+    },
+    {
+      "file": "benchmark/random-8m.bin",
+      "cap": 0,
+      "policy": "proportional",
+      "wallMs": {
+        "count": 3,
+        "min": 305.124415,
+        "mean": 308.5357333333333,
+        "p50": 308.770508,
+        "p95": 311.712277,
+        "max": 311.712277
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 305.087,
+        "mean": 307.53,
+        "p50": 307.591,
+        "p95": 309.912,
+        "max": 309.912
+      }
+    },
+    {
+      "file": "benchmark/random-8m.bin",
+      "cap": 0,
+      "policy": "normalised",
+      "wallMs": {
+        "count": 3,
+        "min": 326.293405,
+        "mean": 329.31389566666667,
+        "p50": 328.408693,
+        "p95": 333.239589,
+        "max": 333.239589
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 326.137,
+        "mean": 328.6666666666667,
+        "p50": 328.323,
+        "p95": 331.54,
+        "max": 331.54
+      }
+    },
+    {
+      "file": "benchmark/random-8m.bin",
+      "cap": 1,
+      "policy": "current",
+      "wallMs": {
+        "count": 3,
+        "min": 45.593071,
+        "mean": 46.24947366666667,
+        "p50": 45.655232,
+        "p95": 47.500118,
+        "max": 47.500118
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 45.59,
+        "mean": 45.98933333333334,
+        "p50": 45.651,
+        "p95": 46.727,
+        "max": 46.727
+      }
+    },
+    {
+      "file": "benchmark/random-8m.bin",
+      "cap": 1,
+      "policy": "proportional",
+      "wallMs": {
+        "count": 3,
+        "min": 299.791797,
+        "mean": 301.51973666666663,
+        "p50": 299.867238,
+        "p95": 304.900175,
+        "max": 304.900175
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 299.795,
+        "mean": 301.33099999999996,
+        "p50": 299.813,
+        "p95": 304.385,
+        "max": 304.385
+      }
+    },
+    {
+      "file": "benchmark/random-8m.bin",
+      "cap": 1,
+      "policy": "normalised",
+      "wallMs": {
+        "count": 3,
+        "min": 306.986942,
+        "mean": 309.28742933333336,
+        "p50": 307.552744,
+        "p95": 313.322602,
+        "max": 313.322602
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 306.97,
+        "mean": 308.8833333333334,
+        "p50": 307.49,
+        "p95": 312.19,
+        "max": 312.19
+      }
+    },
+    {
+      "file": "benchmark/random-8m.bin",
+      "cap": 2,
+      "policy": "current",
+      "wallMs": {
+        "count": 3,
+        "min": 106.180193,
+        "mean": 107.376344,
+        "p50": 106.969796,
+        "p95": 108.979043,
+        "max": 108.979043
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 106.15,
+        "mean": 107.16466666666668,
+        "p50": 106.742,
+        "p95": 108.602,
+        "max": 108.602
+      }
+    },
+    {
+      "file": "benchmark/random-8m.bin",
+      "cap": 2,
+      "policy": "proportional",
+      "wallMs": {
+        "count": 3,
+        "min": 255.60061,
+        "mean": 257.41894966666666,
+        "p50": 255.829891,
+        "p95": 260.826348,
+        "max": 260.826348
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 255.334,
+        "mean": 256.924,
+        "p50": 255.83,
+        "p95": 259.608,
+        "max": 259.608
+      }
+    },
+    {
+      "file": "benchmark/random-8m.bin",
+      "cap": 2,
+      "policy": "normalised",
+      "wallMs": {
+        "count": 3,
+        "min": 284.050385,
+        "mean": 286.1002853333333,
+        "p50": 284.789427,
+        "p95": 289.461044,
+        "max": 289.461044
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 284.047,
+        "mean": 285.7863333333333,
+        "p50": 284.607,
+        "p95": 288.705,
+        "max": 288.705
+      }
+    },
+    {
+      "file": "benchmark/random-8m.bin",
+      "cap": 3,
+      "policy": "current",
+      "wallMs": {
+        "count": 3,
+        "min": 179.914758,
+        "mean": 181.07228233333333,
+        "p50": 180.057279,
+        "p95": 183.24481,
+        "max": 183.24481
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 179.92,
+        "mean": 181.04166666666666,
+        "p50": 180.069,
+        "p95": 183.136,
+        "max": 183.136
+      }
+    },
+    {
+      "file": "benchmark/random-8m.bin",
+      "cap": 3,
+      "policy": "proportional",
+      "wallMs": {
+        "count": 3,
+        "min": 283.326102,
+        "mean": 284.92698766666666,
+        "p50": 283.440263,
+        "p95": 288.014598,
+        "max": 288.014598
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 283.299,
+        "mean": 284.7233333333333,
+        "p50": 283.442,
+        "p95": 287.429,
+        "max": 287.429
+      }
+    },
+    {
+      "file": "benchmark/random-8m.bin",
+      "cap": 3,
+      "policy": "normalised",
+      "wallMs": {
+        "count": 3,
+        "min": 295.583463,
+        "mean": 298.47848666666664,
+        "p50": 296.862548,
+        "p95": 302.989449,
+        "max": 302.989449
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 295.432,
+        "mean": 297.5073333333333,
+        "p50": 295.935,
+        "p95": 301.155,
+        "max": 301.155
+      }
+    },
+    {
+      "file": "benchmark/random-8m.bin",
+      "cap": 4,
+      "policy": "current",
+      "wallMs": {
+        "count": 3,
+        "min": 232.693254,
+        "mean": 234.39121999999998,
+        "p50": 232.815135,
+        "p95": 237.665271,
+        "max": 237.665271
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 232.697,
+        "mean": 234.2253333333333,
+        "p50": 232.791,
+        "p95": 237.188,
+        "max": 237.188
+      }
+    },
+    {
+      "file": "benchmark/random-8m.bin",
+      "cap": 4,
+      "policy": "proportional",
+      "wallMs": {
+        "count": 3,
+        "min": 304.693693,
+        "mean": 308.9206543333333,
+        "p50": 310.040992,
+        "p95": 312.027278,
+        "max": 312.027278
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 304.42,
+        "mean": 306.2963333333334,
+        "p50": 304.827,
+        "p95": 309.642,
+        "max": 309.642
+      }
+    },
+    {
+      "file": "benchmark/random-8m.bin",
+      "cap": 4,
+      "policy": "normalised",
+      "wallMs": {
+        "count": 3,
+        "min": 291.56709,
+        "mean": 293.492363,
+        "p50": 291.76001,
+        "p95": 297.149989,
+        "max": 297.149989
+      },
+      "cpuMs": {
+        "count": 3,
+        "min": 291.489,
+        "mean": 293.334,
+        "p50": 291.749,
+        "p95": 296.764,
+        "max": 296.764
+      }
+    }
+  ],
+  "firstRewriteContentSetComparison": [
+    {
+      "cap": 0,
+      "policy": "proportional",
+      "firstRewriteOfAllInitialFilesRawBytes": 13736416,
+      "newChunks": 279,
+      "binaryModeRawBytes": 13736416,
+      "note": "Local content-set comparison against the window-fixed current policy at the same cap. No edit, migration, or network transfer was performed."
+    },
+    {
+      "cap": 0,
+      "policy": "normalised",
+      "firstRewriteOfAllInitialFilesRawBytes": 13736416,
+      "newChunks": 261,
+      "binaryModeRawBytes": 13736416,
+      "note": "Local content-set comparison against the window-fixed current policy at the same cap. No edit, migration, or network transfer was performed."
+    },
+    {
+      "cap": 1,
+      "policy": "proportional",
+      "firstRewriteOfAllInitialFilesRawBytes": 13736416,
+      "newChunks": 142,
+      "binaryModeRawBytes": 13736416,
+      "note": "Local content-set comparison against the window-fixed current policy at the same cap. No edit, migration, or network transfer was performed."
+    },
+    {
+      "cap": 1,
+      "policy": "normalised",
+      "firstRewriteOfAllInitialFilesRawBytes": 13736416,
+      "newChunks": 133,
+      "binaryModeRawBytes": 13736416,
+      "note": "Local content-set comparison against the window-fixed current policy at the same cap. No edit, migration, or network transfer was performed."
+    },
+    {
+      "cap": 2,
+      "policy": "proportional",
+      "firstRewriteOfAllInitialFilesRawBytes": 13736416,
+      "newChunks": 112,
+      "binaryModeRawBytes": 13736416,
+      "note": "Local content-set comparison against the window-fixed current policy at the same cap. No edit, migration, or network transfer was performed."
+    },
+    {
+      "cap": 2,
+      "policy": "normalised",
+      "firstRewriteOfAllInitialFilesRawBytes": 13736416,
+      "newChunks": 104,
+      "binaryModeRawBytes": 13736416,
+      "note": "Local content-set comparison against the window-fixed current policy at the same cap. No edit, migration, or network transfer was performed."
+    },
+    {
+      "cap": 3,
+      "policy": "proportional",
+      "firstRewriteOfAllInitialFilesRawBytes": 13621960,
+      "newChunks": 89,
+      "binaryModeRawBytes": 13621960,
+      "note": "Local content-set comparison against the window-fixed current policy at the same cap. No edit, migration, or network transfer was performed."
+    },
+    {
+      "cap": 3,
+      "policy": "normalised",
+      "firstRewriteOfAllInitialFilesRawBytes": 13621960,
+      "newChunks": 86,
+      "binaryModeRawBytes": 13621960,
+      "note": "Local content-set comparison against the window-fixed current policy at the same cap. No edit, migration, or network transfer was performed."
+    },
+    {
+      "cap": 4,
+      "policy": "proportional",
+      "firstRewriteOfAllInitialFilesRawBytes": 13621960,
+      "newChunks": 56,
+      "binaryModeRawBytes": 13621960,
+      "note": "Local content-set comparison against the window-fixed current policy at the same cap. No edit, migration, or network transfer was performed."
+    },
+    {
+      "cap": 4,
+      "policy": "normalised",
+      "firstRewriteOfAllInitialFilesRawBytes": 13621960,
+      "newChunks": 56,
+      "binaryModeRawBytes": 13621960,
+      "note": "Local content-set comparison against the window-fixed current policy at the same cap. No edit, migration, or network transfer was performed."
+    }
+  ],
+  "tracedInsertion": {
+    "fixture": {
+      "name": "random-1",
+      "family": "random",
+      "seed": 1883089452,
+      "bytes": 4194304,
+      "sha256": "c0d8ad3554b62d8b0de095dfbb2a2259364536952f3c1b81bced00660d55e782"
+    },
+    "cap": 4,
+    "operation": "insert",
+    "offset": 2097152,
+    "size": 4096,
+    "trace": [
+      {
+        "policy": "proportional",
+        "limits": {
+          "plain": false,
+          "min": 128000,
+          "max": 512000,
+          "switchAt": 512001,
+          "earlyGap": 128000,
+          "lateGap": 128000
+        },
+        "metrics": {
+          "uniqueNewBytes": 329165,
+          "uniqueNewChunks": 2,
+          "stableSuffixBytes": 1889958,
+          "stableSuffixChunks": 8,
+          "resynchronisationBytes": 207194,
+          "remainingUnchangedBytes": 2097152
+        },
+        "missedOldBoundaries": [],
+        "oldBoundaries": [
+          {
+            "start": 1539640,
+            "end": 1825059,
+            "reason": "content-early"
+          },
+          {
+            "start": 1825059,
+            "end": 1979277,
+            "reason": "content-early"
+          },
+          {
+            "start": 1979277,
+            "end": 2304346,
+            "reason": "content-early"
+          },
+          {
+            "start": 2304346,
+            "end": 2648499,
+            "reason": "content-early"
+          },
+          {
+            "start": 2648499,
+            "end": 3013094,
+            "reason": "content-early"
+          },
+          {
+            "start": 3013094,
+            "end": 3162930,
+            "reason": "content-early"
+          },
+          {
+            "start": 3162930,
+            "end": 3293764,
+            "reason": "content-early"
+          },
+          {
+            "start": 3293764,
+            "end": 3600601,
+            "reason": "content-early"
+          },
+          {
+            "start": 3600601,
+            "end": 3840040,
+            "reason": "content-early"
+          },
+          {
+            "start": 3840040,
+            "end": 4071513,
+            "reason": "content-early"
+          },
+          {
+            "start": 4071513,
+            "end": 4194304,
+            "reason": "tail"
+          }
+        ],
+        "newBoundaries": [
+          {
+            "start": 1539640,
+            "end": 1825059,
+            "reason": "content-early"
+          },
+          {
+            "start": 1825059,
+            "end": 1979277,
+            "reason": "content-early"
+          },
+          {
+            "start": 1979277,
+            "end": 2107706,
+            "reason": "content-early"
+          },
+          {
+            "start": 2107706,
+            "end": 2308442,
+            "reason": "content-early"
+          },
+          {
+            "start": 2308442,
+            "end": 2652595,
+            "reason": "content-early"
+          },
+          {
+            "start": 2652595,
+            "end": 3017190,
+            "reason": "content-early"
+          },
+          {
+            "start": 3017190,
+            "end": 3167026,
+            "reason": "content-early"
+          },
+          {
+            "start": 3167026,
+            "end": 3297860,
+            "reason": "content-early"
+          },
+          {
+            "start": 3297860,
+            "end": 3604697,
+            "reason": "content-early"
+          },
+          {
+            "start": 3604697,
+            "end": 3844136,
+            "reason": "content-early"
+          },
+          {
+            "start": 3844136,
+            "end": 4075609,
+            "reason": "content-early"
+          },
+          {
+            "start": 4075609,
+            "end": 4198400,
+            "reason": "tail"
+          }
+        ]
+      },
+      {
+        "policy": "normalised",
+        "limits": {
+          "plain": false,
+          "min": 128000,
+          "max": 512000,
+          "switchAt": 256000,
+          "earlyGap": 256000,
+          "lateGap": 64000
+        },
+        "metrics": {
+          "uniqueNewBytes": 1233519,
+          "uniqueNewChunks": 5,
+          "stableSuffixBytes": 1031374,
+          "stableSuffixChunks": 3,
+          "resynchronisationBytes": 1065778,
+          "remainingUnchangedBytes": 2097152
+        },
+        "missedOldBoundaries": [
+          {
+            "oldEnd": 2304346,
+            "mappedEnd": 2308442,
+            "oldReason": "content-late",
+            "oldChunkLength": 370839,
+            "newLengthAtSameContent": 210594,
+            "oldLate": true,
+            "newLate": false,
+            "newMinimumEligible": true,
+            "matchesEarly": false,
+            "matchesLate": true
+          },
+          {
+            "oldEnd": 2605055,
+            "mappedEnd": 2609151,
+            "oldReason": "content-late",
+            "oldChunkLength": 300709,
+            "newLengthAtSameContent": 179209,
+            "oldLate": true,
+            "newLate": false,
+            "newMinimumEligible": true,
+            "matchesEarly": false,
+            "matchesLate": true
+          },
+          {
+            "oldEnd": 2904331,
+            "mappedEnd": 2908427,
+            "oldReason": "content-late",
+            "oldChunkLength": 299276,
+            "newLengthAtSameContent": 255832,
+            "oldLate": true,
+            "newLate": false,
+            "newMinimumEligible": true,
+            "matchesEarly": false,
+            "matchesLate": true
+          }
+        ],
+        "oldBoundaries": [
+          {
+            "start": 1392794,
+            "end": 1649294,
+            "reason": "content-late"
+          },
+          {
+            "start": 1649294,
+            "end": 1933507,
+            "reason": "content-late"
+          },
+          {
+            "start": 1933507,
+            "end": 2304346,
+            "reason": "content-late"
+          },
+          {
+            "start": 2304346,
+            "end": 2605055,
+            "reason": "content-late"
+          },
+          {
+            "start": 2605055,
+            "end": 2904331,
+            "reason": "content-late"
+          },
+          {
+            "start": 2904331,
+            "end": 3162930,
+            "reason": "content-late"
+          },
+          {
+            "start": 3162930,
+            "end": 3573457,
+            "reason": "content-late"
+          },
+          {
+            "start": 3573457,
+            "end": 3830534,
+            "reason": "content-late"
+          },
+          {
+            "start": 3830534,
+            "end": 4194304,
+            "reason": "tail"
+          }
+        ],
+        "newBoundaries": [
+          {
+            "start": 1392794,
+            "end": 1649294,
+            "reason": "content-late"
+          },
+          {
+            "start": 1649294,
+            "end": 1933507,
+            "reason": "content-late"
+          },
+          {
+            "start": 1933507,
+            "end": 2097848,
+            "reason": "content-early"
+          },
+          {
+            "start": 2097848,
+            "end": 2429942,
+            "reason": "content-late"
+          },
+          {
+            "start": 2429942,
+            "end": 2652595,
+            "reason": "content-early"
+          },
+          {
+            "start": 2652595,
+            "end": 3000202,
+            "reason": "content-late"
+          },
+          {
+            "start": 3000202,
+            "end": 3167026,
+            "reason": "content-early"
+          },
+          {
+            "start": 3167026,
+            "end": 3577553,
+            "reason": "content-late"
+          },
+          {
+            "start": 3577553,
+            "end": 3834630,
+            "reason": "content-late"
+          },
+          {
+            "start": 3834630,
+            "end": 4198400,
+            "reason": "tail"
+          }
+        ]
+      }
+    ]
+  },
+  "limitations": [
+    "Raw content equality is a deduplication proxy, not a measured keyed identifier, stored encrypted document, or remote payload.",
+    "No candidate-policy network transfer, packed consumer validation, mobile timing, or migration was performed.",
+    "Both candidates preserve the tested raw cap, with the existing UTF-8 allowance, but do not establish Cloudant JSON document or bulk-request compliance.",
+    "EOF-censored resynchronisation cases are reported separately; percentiles omit null recovery distances.",
+    "The earlier transport measurements continue to describe the existing window-fixed policy, rather than these two candidate policies."
+  ]
+}

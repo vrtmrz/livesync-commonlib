@@ -99,7 +99,9 @@ export async function ensureRemoteIsCompatible(
 
     const preferred_tweak = remoteMilestone.tweak_values?.[DEVICE_ID_PREFERRED] ?? currentTweakValues;
     const tweakAssessment = assessTweakCompatibility(currentTweakValues, preferred_tweak);
-    if (tweakAssessment.entries.some(({ key, relation }) => key === "idDerivationVersion" && relation === "different")) {
+    if (
+        tweakAssessment.entries.some(({ key, relation }) => key === "idDerivationVersion" && relation === "different")
+    ) {
         return "ID_KEY_MISMATCH";
     }
 
@@ -140,6 +142,10 @@ export async function ensureRemoteIsCompatible(
             remoteMilestone.node_info[deviceNodeID][key] = nodeDeviceInfo[key];
             writeMilestone = true;
         }
+    }
+    if (nodeDeviceInfo.platform !== undefined && info.platform !== nodeDeviceInfo.platform) {
+        remoteMilestone.node_info[deviceNodeID].platform = nodeDeviceInfo.platform;
+        writeMilestone = true;
     }
 
     const diffLastConnected = now - (remoteMilestone.node_info[deviceNodeID].last_connected || 0);

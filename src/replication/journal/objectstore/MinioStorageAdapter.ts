@@ -18,6 +18,7 @@ import type { RemoteDBStatus } from "@lib/replication/LiveSyncAbstractReplicator
 import {
     JournalStorageReadStatuses,
     type IJournalStorage,
+    type JournalStorageConditionalWriteResult,
     type JournalStorageReadResult,
 } from "./JournalStorageAdapter.ts";
 import { parseHeaderValues } from "@lib/common/utils.ts";
@@ -147,6 +148,32 @@ export class MinioStorageAdapter implements IJournalStorage {
         return false;
     }
 
+    async uploadIfUnchanged(
+        key: string,
+        data: Uint8Array,
+        mime: string,
+        revision: string
+    ): Promise<JournalStorageConditionalWriteResult> {
+        if (revision.trim().length === 0) {
+            throw new TypeError("A non-empty revision is required for a conditional upload");
+        }
+        const client = this._getClient();
+        const cmd = new PutObjectCommand({
+            Bucket: this._settings.bucket,
+            Key: `${this._settings.bucketPrefix}${key}`,
+            Body: data,
+            ContentType: mime,
+            IfMatch: revision,
+        });
+        try {
+            await this.runTrackedRequest(() => client.send(cmd));
+            return "updated";
+        } catch (ex) {
+            if (isConditionalWriteConflict(ex)) return "conflict";
+            throw ex;
+        }
+    }
+
     async downloadWithResult(key: string, ignoreCache: boolean = false): Promise<JournalStorageReadResult<Uint8Array>> {
         const client = this._getClient();
         const cmd = new GetObjectCommand({
@@ -165,6 +192,7 @@ export class MinioStorageAdapter implements IJournalStorage {
                     return {
                         status: JournalStorageReadStatuses.AVAILABLE,
                         value: new Uint8Array(await r.Body.transformToByteArray()),
+                        ...(r.ETag?.trim() ? { revision: r.ETag } : {}),
                     };
                 }
                 return {
@@ -260,6 +288,12 @@ export class MinioStorageAdapter implements IJournalStorage {
             return false;
         }
     }
+}
+
+function isConditionalWriteConflict(error: unknown): boolean {
+    if (!error || typeof error !== "object") return false;
+    const { httpStatusCode } = (error as { $metadata?: { httpStatusCode?: number } }).$metadata ?? {};
+    return httpStatusCode === 409 || httpStatusCode === 412;
 }
 
 function isMissingObjectError(error: unknown): boolean {

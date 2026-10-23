@@ -186,6 +186,7 @@ function createExports() {
         "./remote-configurations": exportTarget("remoteConfigurations"),
         "./settings": exportTarget("settings"),
         "./setup-uri": exportTarget("setupUri"),
+        "./ui-commands": exportTarget("uiCommands"),
     };
     for (const sourcePath of inventory.compatibility) {
         exports[`./compat/${sourcePath}`] =

@@ -115,6 +115,97 @@ describe("MinioStorageAdapter physical request activity", () => {
         await expect(adapter.downloadWithResult("missing.json")).resolves.toEqual({ status: "not-found" });
     });
 
+    it("returns a non-empty ETag as the available object's revision", async () => {
+        const responseBody = new TextEncoder().encode("control");
+        const send = vi.fn(() =>
+            Promise.resolve({
+                ETag: '"object-revision"',
+                Body: {
+                    transformToByteArray: async () => responseBody,
+                },
+            })
+        );
+        const { adapter } = createAdapter({ send });
+
+        await expect(adapter.downloadWithResult("control.json")).resolves.toEqual({
+            status: "available",
+            value: responseBody,
+            revision: '"object-revision"',
+        });
+    });
+
+    it("preserves the available result shape when the response has no ETag", async () => {
+        const responseBody = new TextEncoder().encode("control");
+        const send = vi.fn(() =>
+            Promise.resolve({
+                Body: {
+                    transformToByteArray: async () => responseBody,
+                },
+            })
+        );
+        const { adapter } = createAdapter({ send });
+
+        await expect(adapter.downloadWithResult("control.json")).resolves.toEqual({
+            status: "available",
+            value: responseBody,
+        });
+    });
+
+    it("uploads with the bucket prefix and IfMatch revision", async () => {
+        const body = new TextEncoder().encode('{"forgotten":true}');
+        const send = vi.fn(() => Promise.resolve({}));
+        const { adapter } = createAdapter({ send });
+
+        await expect(
+            adapter.uploadIfUnchanged("devices/node.json", body, "application/json", '"etag-1"')
+        ).resolves.toBe("updated");
+
+        expect(send).toHaveBeenCalledOnce();
+        const command = send.mock.calls[0][0] as PutObjectCommand;
+        expect(command).toBeInstanceOf(PutObjectCommand);
+        expect(command.input).toMatchObject({
+            Bucket: "bucket",
+            Key: "test/devices/node.json",
+            Body: body,
+            ContentType: "application/json",
+            IfMatch: '"etag-1"',
+        });
+    });
+
+    it.each([409, 412])("reports HTTP %s from a conditional upload as a conflict", async (status) => {
+        const conflict = Object.assign(new Error("conditional write rejected"), {
+            $metadata: { httpStatusCode: status },
+        });
+        const send = vi.fn(() => Promise.reject(conflict));
+        const { adapter } = createAdapter({ send });
+
+        await expect(
+            adapter.uploadIfUnchanged("node.json", new Uint8Array(), "application/json", '"etag-1"')
+        ).resolves.toBe("conflict");
+        expect(send).toHaveBeenCalledOnce();
+    });
+
+    it("propagates non-conflict errors from a conditional upload", async () => {
+        const failure = new Error("network failed");
+        const send = vi.fn(() => Promise.reject(failure));
+        const { adapter } = createAdapter({ send });
+
+        await expect(
+            adapter.uploadIfUnchanged("node.json", new Uint8Array(), "application/json", '"etag-1"')
+        ).rejects.toBe(failure);
+        expect(send).toHaveBeenCalledOnce();
+    });
+
+    it("rejects an empty conditional revision before sending a request", async () => {
+        const send = vi.fn(() => Promise.resolve({}));
+        const { adapter } = createAdapter({ send });
+
+        await expect(adapter.uploadIfUnchanged("node.json", new Uint8Array(), "application/json", " ")).rejects.toThrow(
+            TypeError
+        );
+        expect(send).not.toHaveBeenCalled();
+    });
+
     it("preserves an object-store failure in the detailed download result", async () => {
         const failure = new Error("network failed");
         const { adapter } = createAdapter({ send: vi.fn(() => Promise.reject(failure)) });

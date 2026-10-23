@@ -521,19 +521,22 @@ export async function splitPiecesRabinKarp(
 
     const chunkUnitBinary = 256 * 1024; // 256KB for binary
 
-    // Use fixed target sizes to keep chunking predictable and avoid overly small binary chunks.
-
-    const fixedAvgChunkSize = plainSplit ? chunkUnitPlain * 4 : chunkUnitBinary * 4; // 256B (in unit) for text, 1MB for binary
     const fixedMaxChunkSize = plainSplit ? chunkUnitPlain * 16 : chunkUnitBinary * 16; // 1KB for text, 4MB for binary
     // 4BM is enough. The file might be smaller than 4GB, hence splitting into 4MB chunks will produce at most 4000 chunks, or around.
-    const fixedMinChunkSize = plainSplit ? chunkUnitPlain * 2 : chunkUnitBinary; // 128B for text, 256KB for binary
     // 30KB is the absolute minimum for Rabin-Karp to work efficiently, as the hash window is 48 bytes and we need enough data to find boundaries.
     const rkAbsoluteMaxPieceSizeFloor = 30 * 1024;
 
     const effectiveAbsoluteMaxPieceSize = Math.max(absoluteMaxPieceSize, rkAbsoluteMaxPieceSizeFloor);
     const maxChunkSize = Math.min(fixedMaxChunkSize, effectiveAbsoluteMaxPieceSize);
-    const minChunkSize = Math.min(Math.max(fixedMinChunkSize, minimumChunkSize), maxChunkSize);
-    const avgChunkSize = Math.min(Math.max(fixedAvgChunkSize, minChunkSize), maxChunkSize);
+    // Scale binary candidates with the cap so small caps still have content-defined boundaries.
+    const proportionalGap = Math.max(1, Math.floor(maxChunkSize / 4));
+    const minChunkSize = Math.min(
+        Math.max(plainSplit ? chunkUnitPlain * 2 : proportionalGap, minimumChunkSize),
+        maxChunkSize
+    );
+    const avgChunkSize = plainSplit
+        ? Math.min(Math.max(chunkUnitPlain * 4, minChunkSize), maxChunkSize)
+        : proportionalGap;
 
     const windowSize = 48;
 
@@ -594,8 +597,8 @@ export async function splitPiecesRabinKarp(
             // Process the internal buffer byte by byte.
             const byte = buffer[pos];
 
-            // Update the rolling hash.
-            if (pos >= start + windowSize) {
+            // Keep the rolling window continuous across chunk boundaries.
+            if (pos >= windowSize) {
                 const oldByte = buffer[pos - windowSize];
                 const oldByteTerm = Math.imul(oldByte, P_pow_w);
                 hash = (hash - oldByteTerm) | 0;

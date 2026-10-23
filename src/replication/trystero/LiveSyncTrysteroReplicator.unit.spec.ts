@@ -24,7 +24,7 @@ function createLifecycleReplicator(settings: Record<string, unknown> = { P2P_Ena
                 openSimpleStore: () => ({}),
             },
             database: { localDatabase: { localDatabase: {} } },
-            config: { getSmallConfig: () => "device-a" },
+            config: { getValue: async () => "device-a" },
             vault: { getVaultName: () => "vault-a" },
             API: { getPlatform: () => "test", confirm: {} },
             replicator: {

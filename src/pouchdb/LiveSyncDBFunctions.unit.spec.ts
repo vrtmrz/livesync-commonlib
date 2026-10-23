@@ -1,11 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-import type {
-    DeviceInfo,
-    EntryMilestoneInfo,
-    RemoteDBSettings,
-    TweakValues,
+import type { DeviceInfo, EntryMilestoneInfo, RemoteDBSettings, TweakValues } from "@lib/common/types.ts";
+import {
+    DEVICE_ID_PREFERRED,
+    E2EEAlgorithms,
+    MILESTONE_DOCID,
+    REMOTE_COUCHDB,
+    REMOTE_MINIO,
 } from "@lib/common/types.ts";
-import { DEVICE_ID_PREFERRED, E2EEAlgorithms, MILESTONE_DOCID, REMOTE_COUCHDB, REMOTE_MINIO } from "@lib/common/types.ts";
 import { ensureRemoteIsCompatible } from "./LiveSyncDBFunctions.ts";
 
 const VERSION_RANGE = { min: 0, max: 2 } as const;
@@ -148,6 +149,38 @@ describe("ensureRemoteIsCompatible", () => {
                 vi.fn(async () => {})
             )
         ).resolves.toBe("OK");
+    });
+
+    it("preserves a stored platform when the host omits platform information", async () => {
+        const remote = milestone({});
+        remote.node_info.local.platform = "existing-platform";
+
+        await ensureRemoteIsCompatible(
+            remote,
+            { disableCheckingConfigMismatch: true } as RemoteDBSettings,
+            "local",
+            VERSION_RANGE,
+            DEVICE_INFO,
+            vi.fn(async () => {})
+        );
+
+        expect(remote.node_info.local.platform).toBe("existing-platform");
+    });
+
+    it("updates platform information when the host supplies it", async () => {
+        const remote = milestone({});
+        remote.node_info.local.platform = "old-platform";
+
+        await ensureRemoteIsCompatible(
+            remote,
+            { disableCheckingConfigMismatch: true } as RemoteDBSettings,
+            "local",
+            VERSION_RANGE,
+            { ...DEVICE_INFO, platform: "new-platform" },
+            vi.fn(async () => {})
+        );
+
+        expect(remote.node_info.local.platform).toBe("new-platform");
     });
 
     it.each([

@@ -6,7 +6,6 @@ import { EVENT_REQUEST_RELOAD_SETTING_TAB } from "@lib/events/coreEvents";
 import type { ObsidianLiveSyncSettings } from "@lib/common/types";
 import type { PersistedSettings } from "@lib/common/models/setting.policy";
 import { handlers } from "@lib/services/lib/HandlerUtils";
-import { compatGlobal } from "@lib/common/coreEnvFunctions";
 
 export class InjectableSettingService<T extends ServiceContext> extends SettingService<T> {
     constructor(context: T, dependencies: SettingServiceDependencies) {
@@ -20,18 +19,6 @@ export class InjectableSettingService<T extends ServiceContext> extends SettingS
             return Promise.resolve(true);
         });
     }
-    protected setItem(key: string, value: string) {
-        return compatGlobal.localStorage.setItem(key, value);
-    }
-    protected getItem(key: string): string {
-        return compatGlobal.localStorage.getItem(key) ?? "";
-    }
-    protected deleteItem(key: string): void {
-        compatGlobal.localStorage.removeItem(key);
-    }
-
-    // override currentSettings = handlers<SettingService<T>>().binder("currentSettings");
-
     public saveData = handlers<{ saveData: (data: PersistedSettings) => Promise<void> }>().binder("saveData");
     public loadData = handlers<{ loadData: () => Promise<ObsidianLiveSyncSettings | undefined> }>().binder("loadData");
 }

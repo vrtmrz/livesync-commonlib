@@ -7,7 +7,10 @@ import {
     type EntryMilestoneInfo,
     type RemoteDBSettings,
 } from "@lib/common/types.ts";
-import { CENTRAL_COMPATIBILITY_REJECTION_REASONS, type CentralCompatibilityDecision } from "@lib/replication/CentralCompatibility.ts";
+import {
+    CENTRAL_COMPATIBILITY_REJECTION_REASONS,
+    type CentralCompatibilityDecision,
+} from "@lib/replication/CentralCompatibility.ts";
 import { LiveSyncJournalReplicator } from "../LiveSyncJournalReplicator.ts";
 import type { LiveSyncJournalReplicatorEnv } from "../LiveSyncJournalReplicatorEnv.ts";
 import { MinioStorageAdapter } from "./MinioStorageAdapter.ts";
@@ -48,6 +51,7 @@ function makeReplicator(setting: RemoteDBSettings, nodeId: string): LiveSyncJour
             API: {
                 getAppVersion: () => "integration-test",
                 getPluginVersion: () => "integration-test",
+                getPlatform: () => "integration-test",
                 getCustomFetchHandler: () => undefined,
                 requestCount: reactiveSource(0),
                 responseCount: reactiveSource(0),
@@ -77,7 +81,11 @@ function makeReplicator(setting: RemoteDBSettings, nodeId: string): LiveSyncJour
 
 async function withRemote(
     usePathObfuscation: boolean,
-    run: (setting: RemoteDBSettings, admin: MinioStorageAdapter, track: (replicator: LiveSyncJournalReplicator) => LiveSyncJournalReplicator) => Promise<void>
+    run: (
+        setting: RemoteDBSettings,
+        admin: MinioStorageAdapter,
+        track: (replicator: LiveSyncJournalReplicator) => LiveSyncJournalReplicator
+    ) => Promise<void>
 ): Promise<void> {
     const bucketPrefix = "id-derivation-" + Date.now() + "-" + Math.random().toString(36).slice(2) + "/";
     const setting = settings(bucketPrefix, firstKey, usePathObfuscation);
@@ -149,9 +157,9 @@ describe("Journal ID-key agreement against real Object Storage", () => {
 
             const differentSettings = { ...setting, idDerivationKey: secondKey };
             const different = track(makeReplicator(differentSettings, "chunk-different"));
-            await expect(
-                different.checkReplicationConnectivity(false, false, false, differentSettings)
-            ).resolves.toBe(true);
+            await expect(different.checkReplicationConnectivity(false, false, false, differentSettings)).resolves.toBe(
+                true
+            );
         });
     });
 });

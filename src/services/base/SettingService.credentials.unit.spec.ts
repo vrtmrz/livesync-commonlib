@@ -3,17 +3,25 @@ import { DEFAULT_SETTINGS, REMOTE_MINIO, type ObsidianLiveSyncSettings } from "@
 import { SettingService } from "./SettingService";
 import { ServiceContext } from "./ServiceBase";
 
+function createMapBackedValueStore(values = new Map<string, string>()) {
+    return {
+        values,
+        getValue: async (key: string) => values.get(key) ?? null,
+        setValue: async (key: string, value: string) => {
+            values.set(key, value);
+        },
+        delete: async (key: string) => {
+            values.delete(key);
+        },
+    };
+}
+
+type MapBackedValueStore = ReturnType<typeof createMapBackedValueStore>;
+
 class CapturingSettingService extends SettingService<ServiceContext> {
     saved?: ObsidianLiveSyncSettings;
-    readonly localItems = new Map<string, string>();
-    protected setItem(key: string, value: string) {
-        this.localItems.set(key, value);
-    }
-    protected getItem(key: string) {
-        return this.localItems.get(key) ?? "";
-    }
-    protected deleteItem(key: string) {
-        this.localItems.delete(key);
+    constructor(context: ServiceContext, dependencies: any, deviceValues: MapBackedValueStore) {
+        super(context, { ...dependencies, deviceValues } as any);
     }
     protected async saveData(settings: ObsidianLiveSyncSettings) {
         this.saved = structuredClone(settings);
@@ -24,14 +32,21 @@ class CapturingSettingService extends SettingService<ServiceContext> {
 }
 
 function createService(couchDB_URI = "") {
-    const service = new CapturingSettingService(new ServiceContext(), {
-        APIService: {
-            getSystemVaultName: () => "synthetic-vault",
-            getAppID: () => "synthetic-app",
-            confirm: { askString: vi.fn(async () => "") },
-            addLog: vi.fn(),
-        } as any,
-    });
+    const deviceValues = createMapBackedValueStore(
+        new Map([["ls-setting-passphrase", "synthetic-configuration-passphrase"]])
+    );
+    const service = new CapturingSettingService(
+        new ServiceContext(),
+        {
+            APIService: {
+                getSystemVaultName: () => "synthetic-vault",
+                getAppID: () => "synthetic-app",
+                confirm: { askString: vi.fn(async () => "") },
+                addLog: vi.fn(),
+            } as any,
+        },
+        deviceValues
+    );
     service.settings = {
         ...structuredClone(DEFAULT_SETTINGS),
         remoteConfigurations: {},
@@ -47,7 +62,6 @@ function createService(couchDB_URI = "") {
         accessKey: "synthetic-object-access-key",
         secretKey: "synthetic-object-secret-key",
     };
-    service.setDeviceLocalConfig("ls-setting-passphrase", "synthetic-configuration-passphrase");
     return service;
 }
 
@@ -157,14 +171,14 @@ describe("SettingService settings persistence", () => {
         await writer.saveSettingData();
         const encryptedCouchDBConnection = writer.saved!.encryptedCouchDBConnection;
         const reader = createService();
-        reader.setDeviceLocalConfig("ls-setting-passphrase", "synthetic-incorrect-passphrase");
+        await reader.deviceValues.setValue("ls-setting-passphrase", "synthetic-incorrect-passphrase");
         reader.settings = await reader.decryptSettings(structuredClone(writer.saved!));
         expect(reader.settings.accessKey).toBe("");
         expect(reader.settings.secretKey).toBe("");
         await reader.saveSettingData();
         expect(reader.saved?.encryptedCouchDBConnection).toBe(encryptedCouchDBConnection);
 
-        reader.setDeviceLocalConfig("ls-setting-passphrase", "synthetic-configuration-passphrase");
+        await reader.deviceValues.setValue("ls-setting-passphrase", "synthetic-configuration-passphrase");
         reader.clearUsedPassphrase();
         const restored = await reader.decryptSettings(structuredClone(reader.saved!));
         expect(restored.accessKey).toBe(writer.settings.accessKey);

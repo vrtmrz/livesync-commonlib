@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
-import { E2EEAlgorithms, VERSIONING_DOCID, type DocumentID, type FilePathWithPrefix, type PlainEntry } from "@lib/common/types";
+import {
+    E2EEAlgorithms,
+    VERSIONING_DOCID,
+    type DocumentID,
+    type FilePathWithPrefix,
+    type PlainEntry,
+} from "@lib/common/types";
 import { getConfiguredFunctionsForEncryption } from "./encryption";
 import { checkRemoteFeaturesForInitialSync, fetchChangesForInitialSync } from "./StreamingFetch";
 
@@ -61,11 +67,18 @@ function streamWhichFailsAfterCurrentRows(lines: string[], error: Error) {
 }
 
 function changeLine(sequence: string | number, id: string, value?: string): string {
+    const revisionHash = id.replace(/[^a-zA-Z0-9]/g, "") || "revision";
+    const rev = `1-${revisionHash}`;
     return JSON.stringify({
         seq: sequence,
         id,
-        changes: [{ rev: `1-${id}` }],
-        ...(value === undefined ? {} : { doc: { _id: id, _rev: `1-${id}`, value } }),
+        changes: [{ rev }],
+        doc: {
+            _id: id,
+            _rev: rev,
+            _revisions: { start: 1, ids: [revisionHash] },
+            ...(value === undefined ? {} : { value }),
+        },
     });
 }
 
@@ -79,14 +92,16 @@ function changesStatus(available: number, lastSequence: string | number) {
 }
 
 function remoteFeatureResponse(document?: unknown, totalRows = 1): Response {
-    return new Response(JSON.stringify({
-        total_rows: totalRows,
-        rows: [
-            document === undefined
-                ? { key: VERSIONING_DOCID, error: "not_found" }
-                : { key: VERSIONING_DOCID, doc: document },
-        ],
-    }));
+    return new Response(
+        JSON.stringify({
+            total_rows: totalRows,
+            rows: [
+                document === undefined
+                    ? { key: VERSIONING_DOCID, error: "not_found" }
+                    : { key: VERSIONING_DOCID, doc: document },
+            ],
+        })
+    );
 }
 
 function queueChangesFeed(
@@ -106,21 +121,54 @@ function queueChangesFeed(
         .mockResolvedValueOnce(new Response(JSON.stringify(changesStatus(0, pageTerminator))));
 }
 
+function queueChangesFeedWithBulkGet(
+    changeRows: string[],
+    pageTerminator: string,
+    bulkGetResponse: (requested: Array<{ id: string; rev: string }>) => unknown
+) {
+    const bulkGetRequests: Array<{ url: URL; init: RequestInit; requested: Array<{ id: string; rev: string }> }> = [];
+    let statusProbe = 0;
+    fetchMock.mockImplementation(async (input: string | URL | Request, init?: RequestInit) => {
+        const url = new URL(input.toString());
+        if (url.pathname.endsWith("/_bulk_get")) {
+            const requested = JSON.parse(String(init?.body ?? "{}")).docs;
+            bulkGetRequests.push({ url, init: init ?? {}, requested });
+            const result = bulkGetResponse(requested);
+            return result instanceof Response ? result : new Response(JSON.stringify(result));
+        }
+        if (url.searchParams.get("since") === "now") {
+            return new Response(JSON.stringify({ last_seq: pageTerminator }));
+        }
+        if (url.searchParams.get("feed") === "normal") {
+            const available = statusProbe++ === 0 ? changeRows.length : 0;
+            return new Response(JSON.stringify(changesStatus(available, pageTerminator)));
+        }
+        if (url.searchParams.get("feed") === "continuous") {
+            return new Response(textStream([...changeRows, JSON.stringify({ last_seq: pageTerminator })]));
+        }
+        throw new Error(`Unexpected Fast Fetch request: ${url}`);
+    });
+    return bulkGetRequests;
+}
+
 function fetchInitial(
     localDatabase: PouchDB.Database,
     decrypt = (doc: any) => Promise.resolve(doc),
     onCheckpoint?: (sequence: string | number) => void,
-    customHeaders?: Record<string, string>
+    customHeaders?: Record<string, string>,
+    onStoredRevisions?: (revisions: readonly { id: string; rev: string }[]) => void | Promise<void>,
+    since: string | number = "0"
 ): Promise<void> {
     return fetchChangesForInitialSync(
         localDatabase,
         remoteDbUrl,
         "Basic test",
         decrypt,
-        "0",
+        since,
         undefined,
         onCheckpoint,
-        customHeaders
+        customHeaders,
+        onStoredRevisions
     );
 }
 
@@ -160,7 +208,7 @@ describe("fetchChangesForInitialSync", () => {
                 seq: 1,
                 id: document._id,
                 changes: [{ rev: "1-test" }],
-                doc: { ...encrypted, _rev: "1-test" },
+                doc: { ...encrypted, _rev: "1-test", _revisions: { start: 1, ids: ["test"] } },
             }),
         ]);
         const checkpoints: Array<string | number> = [];
@@ -400,15 +448,672 @@ describe("fetchChangesForInitialSync", () => {
         expect(fetchMock).toHaveBeenCalledTimes(3);
     });
 
-    it("flushes preceding documents before checkpointing a row without a document", async () => {
+    it("fetches revisions from a changes row without an included document", async () => {
         const localDB = createLocalDatabase("streaming-fetch-docless-checkpoint");
         const checkpointSequences: Array<string | number> = [];
-        queueChangesFeed(2, 2, [changeLine(1, "doc1", "one"), changeLine(2, "doc2")]);
+        const missingDocument = {
+            _id: "doc2",
+            _rev: "1-doc2",
+            _revisions: { start: 1, ids: ["doc2"] },
+            value: "two from _bulk_get",
+        };
+        const bulkGetRequests = queueChangesFeedWithBulkGet(
+            [
+                changeLine(1, "doc1", "one"),
+                JSON.stringify({ seq: 2, id: "doc2", changes: [{ rev: missingDocument._rev }] }),
+            ],
+            "docless-page",
+            (requested) => ({
+                results: [
+                    {
+                        id: "doc2",
+                        docs: requested.map(({ rev }) => ({
+                            ok: rev === missingDocument._rev ? missingDocument : undefined,
+                        })),
+                    },
+                ],
+            })
+        );
 
         await fetchInitial(localDB, undefined, (sequence) => checkpointSequences.push(sequence));
 
-        expect(checkpointSequences).toEqual([1, 2, 2]);
         await expect(localDB.get("doc1")).resolves.toMatchObject({ value: "one" });
+        await expect(localDB.get("doc2")).resolves.toMatchObject({ value: "two from _bulk_get" });
+        expect(bulkGetRequests).toHaveLength(1);
+        expect(bulkGetRequests[0].requested).toEqual([{ id: "doc2", rev: "1-doc2" }]);
+        expect(checkpointSequences.at(-1)).toBe("docless-page");
+    });
+
+    it("reconstructs generation-one ancestry from an included revision without _revisions", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-generation-one-without-ancestry");
+        const document = { _id: "generation-one", _rev: "1-winner", value: "included winner" };
+        const row = JSON.stringify({
+            seq: "generation-one-row",
+            id: document._id,
+            changes: [{ rev: document._rev }],
+            doc: document,
+        });
+        const bulkGetRequests = queueChangesFeedWithBulkGet([row], "generation-one-page", () => ({ results: [] }));
+
+        await fetchInitial(localDB);
+
+        await expect(localDB.get(document._id, { revs: true })).resolves.toMatchObject({
+            _revisions: { start: 1, ids: ["winner"] },
+            value: "included winner",
+        });
+        expect(bulkGetRequests).toHaveLength(0);
+    });
+
+    it("fetches actual ancestry for a generation-two included revision without _revisions", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-generation-two-without-ancestry");
+        const id = "generation-two";
+        const feedDocument = { _id: id, _rev: "2-winner", value: "included winner" };
+        const storedDocument = {
+            ...feedDocument,
+            _revisions: { start: 2, ids: ["winner", "root"] },
+        };
+        const row = JSON.stringify({
+            seq: "generation-two-row",
+            id,
+            changes: [{ rev: feedDocument._rev }],
+            doc: feedDocument,
+        });
+        const bulkGetRequests = queueChangesFeedWithBulkGet([row], "generation-two-page", (requested) => ({
+            results: [
+                {
+                    id,
+                    docs: requested.map(({ rev }) => ({
+                        ok: rev === storedDocument._rev ? storedDocument : undefined,
+                    })),
+                },
+            ],
+        }));
+        const customHeaders = { "X-Proxy-Identity": "generation-two" };
+
+        await fetchInitial(localDB, undefined, undefined, customHeaders);
+
+        await expect(localDB.get(id, { revs: true })).resolves.toMatchObject({
+            _revisions: storedDocument._revisions,
+            value: "included winner",
+        });
+        expect(bulkGetRequests).toHaveLength(1);
+        expect(bulkGetRequests[0].requested).toEqual([{ id, rev: feedDocument._rev }]);
+        expect(bulkGetRequests[0].url.searchParams.get("revs")).toBe("true");
+        const headers = new Headers(bulkGetRequests[0].init.headers);
+        expect(headers.get("Authorization")).toBe("Basic test");
+        expect(headers.get("X-Proxy-Identity")).toBe("generation-two");
+    });
+
+    it("fetches every current leaf revision, including a deleted conflict", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-conflict-leaves");
+        const winner = {
+            _id: "conflicted",
+            _rev: "3-winner",
+            _revisions: { start: 3, ids: ["winner", "parent", "root"] },
+            value: "winner",
+        };
+        const liveConflict = {
+            _id: "conflicted",
+            _rev: "2-live",
+            _revisions: { start: 2, ids: ["live", "root"] },
+            value: "live conflict",
+        };
+        const deletedConflict = {
+            _id: "conflicted",
+            _rev: "2-deleted",
+            _deleted: true,
+            _revisions: { start: 2, ids: ["deleted", "root"] },
+        };
+        const secondWinner = {
+            _id: "second-conflicted",
+            _rev: "2-secondwinner",
+            _revisions: { start: 2, ids: ["secondwinner", "root"] },
+            value: "second winner",
+        };
+        const secondConflict = {
+            _id: "second-conflicted",
+            _rev: "2-secondconflict",
+            _revisions: { start: 2, ids: ["secondconflict", "root"] },
+            value: "second conflict",
+        };
+        const row = JSON.stringify({
+            seq: "conflict-row",
+            id: "conflicted",
+            changes: [{ rev: winner._rev }, { rev: liveConflict._rev }, { rev: deletedConflict._rev }],
+            doc: winner,
+        });
+        const secondRow = JSON.stringify({
+            seq: "second-conflict-row",
+            id: "second-conflicted",
+            changes: [{ rev: secondWinner._rev }, { rev: secondConflict._rev }],
+            doc: secondWinner,
+        });
+        const bodies = new Map([
+            [winner._rev, winner],
+            [liveConflict._rev, liveConflict],
+            [deletedConflict._rev, deletedConflict],
+            [secondWinner._rev, secondWinner],
+            [secondConflict._rev, secondConflict],
+        ]);
+        const bulkGetRequests = queueChangesFeedWithBulkGet([row, secondRow], "conflict-page", (requested) => {
+            const byId = new Map<string, Array<{ ok: unknown }>>();
+            for (const ref of requested) {
+                const docs = byId.get(ref.id) ?? [];
+                docs.push({ ok: bodies.get(ref.rev) });
+                byId.set(ref.id, docs);
+            }
+            return { results: [...byId].map(([id, docs]) => ({ id, docs })) };
+        });
+        const checkpoints: Array<string | number> = [];
+        const storedRevisionBatches: Array<readonly { id: string; rev: string }[]> = [];
+        const eventOrder: string[] = [];
+        const customHeaders = { "X-Proxy-Identity": "fast-fetch", authorization: "Bearer ignored" };
+
+        await fetchInitial(
+            localDB,
+            undefined,
+            (sequence) => {
+                checkpoints.push(sequence);
+                eventOrder.push("checkpoint");
+            },
+            customHeaders,
+            (revisions) => {
+                storedRevisionBatches.push(revisions);
+                eventOrder.push("stored");
+            }
+        );
+
+        const diff = await localDB.revsDiff({
+            conflicted: [winner._rev, liveConflict._rev, deletedConflict._rev],
+            "second-conflicted": [secondWinner._rev, secondConflict._rev],
+        });
+        expect(diff).toEqual({});
+        await expect(localDB.get("conflicted", { rev: liveConflict._rev })).resolves.toMatchObject({
+            value: "live conflict",
+        });
+        await expect(localDB.get("second-conflicted", { rev: secondConflict._rev })).resolves.toMatchObject({
+            value: "second conflict",
+        });
+        expect(bulkGetRequests).toHaveLength(1);
+        expect(bulkGetRequests[0].url.pathname).toBe("/db/_bulk_get");
+        expect(bulkGetRequests[0].url.searchParams.get("revs")).toBe("true");
+        const bulkGetHeaders = new Headers(bulkGetRequests[0].init.headers);
+        expect(bulkGetRequests[0].init.method).toBe("POST");
+        expect(bulkGetHeaders.get("Authorization")).toBe("Basic test");
+        expect(bulkGetHeaders.get("X-Proxy-Identity")).toBe("fast-fetch");
+        expect(bulkGetHeaders.get("Content-Type")).toBe("application/json");
+        expect(bulkGetRequests[0].requested).toContainEqual({ id: "conflicted", rev: liveConflict._rev });
+        expect(bulkGetRequests[0].requested).toContainEqual({ id: "conflicted", rev: deletedConflict._rev });
+        expect(bulkGetRequests[0].requested).toContainEqual({ id: "second-conflicted", rev: secondConflict._rev });
+        expect(storedRevisionBatches.flat()).toEqual(
+            expect.arrayContaining([
+                { id: "conflicted", rev: winner._rev },
+                { id: "conflicted", rev: liveConflict._rev },
+                { id: "conflicted", rev: deletedConflict._rev },
+                { id: "second-conflicted", rev: secondWinner._rev },
+                { id: "second-conflicted", rev: secondConflict._rev },
+            ])
+        );
+        expect(eventOrder.indexOf("stored")).toBeLessThan(eventOrder.indexOf("checkpoint"));
+        expect(checkpoints.at(-1)).toBe("conflict-page");
+    });
+
+    it("groups missing generation-two winners across inline generation-one rows", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-grouped-missing-winners");
+        const missingWinners = [
+            { id: "metadata-a", rev: "2-leafa", value: "metadata a" },
+            { id: "metadata-b", rev: "2-leafb", value: "metadata b" },
+        ];
+        const missingWinnerBodies = new Map(
+            missingWinners.map(({ id, rev, value }) => [
+                `${id}\u0000${rev}`,
+                { _id: id, _rev: rev, _revisions: { start: 2, ids: [rev.slice(2), "parent"] }, value },
+            ])
+        );
+        const winnerRows = missingWinners.map(({ id, rev, value }, index) =>
+            JSON.stringify({ seq: `metadata-${index}`, id, changes: [{ rev }], doc: { _id: id, _rev: rev, value } })
+        );
+        const inlineRows = (group: string, start: number) =>
+            Array.from({ length: 99 }, (_, index) => {
+                const id = `chunk-${group}-${index}`;
+                const rev = `1-${id.replace(/-/g, "")}`;
+                return JSON.stringify({
+                    seq: `chunk-${start + index}`,
+                    id,
+                    changes: [{ rev }],
+                    doc: { _id: id, _rev: rev, _revisions: { start: 1, ids: [id] }, value: "chunk" },
+                });
+            });
+        const rows = [winnerRows[0], ...inlineRows("a", 0), winnerRows[1], ...inlineRows("b", 99)];
+        const bulkGetRequests = queueChangesFeedWithBulkGet(rows, "grouped-winners-page", (requested) => ({
+            results: requested.map(({ id, rev }) => ({
+                id,
+                docs: [{ ok: missingWinnerBodies.get(`${id}\u0000${rev}`) }],
+            })),
+        }));
+
+        await fetchInitial(localDB);
+
+        expect(bulkGetRequests).toHaveLength(1);
+        expect(bulkGetRequests[0].requested).toEqual(missingWinners.map(({ id, rev }) => ({ id, rev })));
+        expect(bulkGetRequests[0].requested.length).toBeLessThanOrEqual(100);
+        expect((await localDB.allDocs()).rows).toHaveLength(rows.length);
+    });
+
+    it("splits an oversized multi-revision response and allows a large singleton response", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-split-large-bulk-get");
+        const largeData = "x".repeat(550 * 1024);
+        const winner = {
+            _id: "large-conflicted",
+            _rev: "1-winner",
+            _revisions: { start: 1, ids: ["winner"] },
+            value: "winner",
+        };
+        const liveConflict = {
+            _id: "large-conflicted",
+            _rev: "1-live",
+            _revisions: { start: 1, ids: ["live"] },
+            value: largeData,
+        };
+        const secondConflict = {
+            _id: "large-conflicted",
+            _rev: "1-second",
+            _revisions: { start: 1, ids: ["second"] },
+            value: largeData,
+        };
+        const bodies = new Map([
+            [liveConflict._rev, liveConflict],
+            [secondConflict._rev, secondConflict],
+        ]);
+        const row = JSON.stringify({
+            seq: "large-conflict-row",
+            id: winner._id,
+            changes: [{ rev: winner._rev }, { rev: liveConflict._rev }, { rev: secondConflict._rev }],
+            doc: winner,
+        });
+        const bulkGetRequests = queueChangesFeedWithBulkGet([row], "large-conflict-page", (requested) => ({
+            results: [
+                {
+                    id: winner._id,
+                    docs: requested.map(({ rev }) => ({ ok: bodies.get(rev) })),
+                },
+            ],
+        }));
+
+        await fetchInitial(localDB);
+
+        expect(bulkGetRequests).toHaveLength(3);
+        expect(bulkGetRequests.map(({ requested }) => requested.length)).toEqual([2, 1, 1]);
+        await expect(localDB.get(winner._id, { rev: liveConflict._rev })).resolves.toMatchObject({
+            value: largeData,
+        });
+        await expect(
+            localDB.revsDiff({ [winner._id]: [winner._rev, liveConflict._rev, secondConflict._rev] })
+        ).resolves.toEqual({});
+    });
+
+    it("keeps the checkpoint at the completed prefix after a wide conflict row fails and replays missing leaves", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-wide-conflict-late-bulk-get-failure");
+        const conflictId = "wide-conflict";
+        const leafRevisions = [
+            "1-winner",
+            ...Array.from({ length: 101 }, (_, index) => `1-leaf${String(index).padStart(3, "0")}`),
+        ];
+        const revisionDocument = (id: string, rev: string) => ({
+            _id: id,
+            _rev: rev,
+            _revisions: { start: 1, ids: [rev.slice(2)] },
+            value: rev,
+        });
+        const conflictRow = JSON.stringify({
+            seq: "conflict-row",
+            id: conflictId,
+            changes: leafRevisions.map((rev) => ({ rev })),
+            doc: revisionDocument(conflictId, leafRevisions[0]),
+        });
+        const rows = [
+            changeLine("before-conflict", "before-conflict", "before"),
+            conflictRow,
+            changeLine("after-conflict", "after-conflict", "after"),
+        ];
+        const bulkGetResponse = (requested: Array<{ id: string; rev: string }>) => ({
+            results: requested.map(({ id, rev }) => ({
+                id,
+                docs: [{ ok: revisionDocument(id, rev) }],
+            })),
+        });
+        const checkpoints: Array<string | number> = [];
+        const checkpointSnapshots: Array<{ sequence: string | number; missingConflictRevisions: string[] }> = [];
+        const storedBatches: Array<Array<{ id: string; rev: string }>> = [];
+        let lastPersistedCursor: string | number = "0";
+        let bulkGetCount = 0;
+        const failedRequests = queueChangesFeedWithBulkGet(rows, "failed-conflict-page", (requested) => {
+            bulkGetCount++;
+            return bulkGetCount === 2 ? new Response("not JSON") : bulkGetResponse(requested);
+        });
+
+        await expect(
+            fetchInitial(
+                localDB,
+                undefined,
+                async (sequence) => {
+                    checkpoints.push(sequence);
+                    lastPersistedCursor = sequence;
+                    const difference = await localDB.revsDiff({ [conflictId]: leafRevisions });
+                    checkpointSnapshots.push({
+                        sequence,
+                        missingConflictRevisions: difference[conflictId]?.missing ?? [],
+                    });
+                },
+                undefined,
+                async (revisions) => {
+                    const batch = [...revisions];
+                    for (const { id, rev } of batch) {
+                        await expect(localDB.get(id, { rev })).resolves.toMatchObject({ _id: id, _rev: rev });
+                    }
+                    storedBatches.push(batch);
+                }
+            )
+        ).rejects.toMatchObject({ stage: "protocol", retryable: false });
+
+        expect(failedRequests.map(({ requested }) => requested.length)).toEqual([100, 1]);
+        expect(checkpoints).toContain("before-conflict");
+        expect(checkpoints).not.toContain("conflict-row");
+        expect(checkpoints).not.toContain("after-conflict");
+        expect(lastPersistedCursor).toBe("before-conflict");
+        expect(
+            checkpointSnapshots.find(({ sequence }) => sequence === "before-conflict")?.missingConflictRevisions.length
+        ).toBeGreaterThan(0);
+        expect(storedBatches.some((batch) => batch.length === 100)).toBe(true);
+        expect(storedBatches.flat()).toContainEqual({ id: "before-conflict", rev: "1-beforeconflict" });
+        expect(storedBatches.flat()).toContainEqual({ id: conflictId, rev: leafRevisions[0] });
+
+        const partialDifference = await localDB.revsDiff({ [conflictId]: leafRevisions });
+        expect(partialDifference[conflictId]?.missing.length).toBeGreaterThan(0);
+        expect(partialDifference[conflictId]?.missing.length).toBeLessThan(leafRevisions.length);
+
+        const revisionsMissingBeforeReplay = partialDifference[conflictId]?.missing ?? [];
+        const replayRows = [conflictRow, changeLine("after-conflict", "after-conflict", "after")];
+        const replayRequests = queueChangesFeedWithBulkGet(replayRows, "replay-page", bulkGetResponse);
+        const replayCheckpoints: Array<string | number> = [];
+        const replayCheckpointSnapshots: Array<{ sequence: string | number; missingConflictRevisions: string[] }> = [];
+
+        await fetchInitial(
+            localDB,
+            undefined,
+            async (sequence) => {
+                replayCheckpoints.push(sequence);
+                const difference = await localDB.revsDiff({ [conflictId]: leafRevisions });
+                replayCheckpointSnapshots.push({
+                    sequence,
+                    missingConflictRevisions: difference[conflictId]?.missing ?? [],
+                });
+            },
+            undefined,
+            async (revisions) => {
+                for (const { id, rev } of revisions) {
+                    await expect(localDB.get(id, { rev })).resolves.toMatchObject({ _id: id, _rev: rev });
+                }
+            },
+            lastPersistedCursor
+        );
+
+        expect(replayRequests).toHaveLength(1);
+        expect(replayRequests[0].requested).toEqual(
+            revisionsMissingBeforeReplay.map((rev) => ({ id: conflictId, rev }))
+        );
+        expect(replayCheckpoints).toContain("replay-page");
+        expect(
+            replayCheckpointSnapshots.find(({ sequence }) => sequence === "replay-page")?.missingConflictRevisions
+        ).toEqual([]);
+        const replayContinuousRequests = fetchMock.mock.calls
+            .map(([input]) => new URL(String(input)))
+            .filter((url) => url.searchParams.get("feed") === "continuous");
+        expect(replayContinuousRequests.at(-1)?.searchParams.get("since")).toBe(String(lastPersistedCursor));
+        await expect(localDB.revsDiff({ [conflictId]: leafRevisions })).resolves.toEqual({});
+        await expect(localDB.get("after-conflict")).resolves.toMatchObject({ value: "after" });
+    });
+
+    it("does not checkpoint a conflict row when the second singleton from a split response fails", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-split-bulk-get-late-failure");
+        const id = "split-conflict";
+        const largeValue = "x".repeat(270 * 1024);
+        const leafRevisions = ["1-winner", "1-first", "1-second"];
+        const revisionDocument = (rev: string) => ({
+            _id: id,
+            _rev: rev,
+            _revisions: { start: 1, ids: [rev.slice(2)] },
+            value: largeValue,
+        });
+        const row = JSON.stringify({
+            seq: "split-conflict-row",
+            id,
+            changes: leafRevisions.map((rev) => ({ rev })),
+            doc: { ...revisionDocument(leafRevisions[0]), value: "winner" },
+        });
+        let splitResponseBytes = 0;
+        const requests = queueChangesFeedWithBulkGet([row], "split-failure-page", (requested) => {
+            if (requested.length === 2) {
+                const response = JSON.stringify({
+                    results: requested.map(({ rev }) => ({
+                        id,
+                        docs: [{ ok: revisionDocument(rev) }],
+                    })),
+                });
+                splitResponseBytes = new TextEncoder().encode(response).byteLength;
+                return new Response(response);
+            }
+            if (requested[0].rev === leafRevisions[1]) {
+                return new Response(
+                    JSON.stringify({
+                        results: [{ id, docs: [{ ok: revisionDocument(leafRevisions[1]) }] }],
+                    })
+                );
+            }
+            return new Response(
+                JSON.stringify({
+                    results: [{ id, docs: [{ error: "not_found", reason: "second split group is unavailable" }] }],
+                })
+            );
+        });
+        const checkpoints: Array<string | number> = [];
+        const storedBatches: Array<Array<{ id: string; rev: string }>> = [];
+
+        await expect(
+            fetchInitial(
+                localDB,
+                undefined,
+                (sequence) => checkpoints.push(sequence),
+                undefined,
+                async (revisions) => {
+                    const batch = [...revisions];
+                    for (const { id: storedId, rev } of batch) {
+                        await expect(localDB.get(storedId, { rev })).resolves.toMatchObject({
+                            _id: storedId,
+                            _rev: rev,
+                        });
+                    }
+                    storedBatches.push(batch);
+                }
+            )
+        ).rejects.toMatchObject({ stage: "protocol", retryable: false });
+
+        expect(splitResponseBytes).toBeGreaterThan(512 * 1024);
+        expect(requests.map(({ requested }) => requested.length)).toEqual([2, 1, 1]);
+        expect(requests.map(({ requested }) => requested[0].rev)).toEqual([
+            leafRevisions[1],
+            leafRevisions[1],
+            leafRevisions[2],
+        ]);
+        expect(checkpoints).toEqual([]);
+        const storedSplitRevisions = new Set(
+            storedBatches
+                .flat()
+                .filter(({ id: storedId }) => storedId === id)
+                .map(({ rev }) => rev)
+        );
+        expect(storedSplitRevisions.has(leafRevisions[1])).toBe(true);
+        const difference = await localDB.revsDiff({ [id]: leafRevisions });
+        expect(difference[id]?.missing).toContain(leafRevisions[2]);
+        expect(difference[id]?.missing).not.toContain(leafRevisions[1]);
+    });
+
+    it("waits for stored revision observers to finish before checkpointing", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-delayed-stored-revision-observer");
+        const row = changeLine("delayed-observer-row", "delayed-observer", "stored");
+        const document = JSON.parse(row).doc;
+        const checkpoints: Array<string | number> = [];
+        let signalObserverStarted!: () => void;
+        const observerStarted = new Promise<void>((resolve) => {
+            signalObserverStarted = resolve;
+        });
+        let releaseObserver!: () => void;
+        const observerGate = new Promise<void>((resolve) => {
+            releaseObserver = resolve;
+        });
+        queueChangesFeed(1, 1, [row]);
+
+        const fetchPromise = fetchInitial(
+            localDB,
+            undefined,
+            (sequence) => checkpoints.push(sequence),
+            undefined,
+            async (revisions) => {
+                expect(revisions).toEqual([{ id: document._id, rev: document._rev }]);
+                await expect(localDB.get(document._id, { rev: document._rev })).resolves.toMatchObject({
+                    _id: document._id,
+                    _rev: document._rev,
+                });
+                signalObserverStarted();
+                await observerGate;
+            }
+        );
+
+        await observerStarted;
+        const checkpointsBeforeObserverRelease = [...checkpoints];
+        releaseObserver();
+        await fetchPromise;
+
+        expect(checkpointsBeforeObserverRelease).toEqual([]);
+        expect(checkpoints).toContain("delayed-observer-row");
+    });
+
+    it("does not checkpoint when stored revision observers reject", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-rejected-stored-revision-observer");
+        const row = changeLine("rejected-observer-row", "rejected-observer", "stored");
+        const document = JSON.parse(row).doc;
+        const checkpoints: Array<string | number> = [];
+        queueChangesFeed(1, 1, [row]);
+
+        await expect(
+            fetchInitial(
+                localDB,
+                undefined,
+                (sequence) => checkpoints.push(sequence),
+                undefined,
+                async (revisions) => {
+                    expect(revisions).toEqual([{ id: document._id, rev: document._rev }]);
+                    await expect(localDB.get(document._id, { rev: document._rev })).resolves.toMatchObject({
+                        _id: document._id,
+                        _rev: document._rev,
+                    });
+                    throw new Error("identity store unavailable");
+                }
+            )
+        ).rejects.toMatchObject({
+            stage: "storage",
+            retryable: false,
+            message: expect.stringContaining("identity store unavailable"),
+        });
+
+        expect(checkpoints).toEqual([]);
+        await expect(localDB.get(document._id, { rev: document._rev })).resolves.toMatchObject({
+            _id: document._id,
+            _rev: document._rev,
+        });
+    });
+
+    it("does not checkpoint a row whose missing leaf revision cannot be fetched", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-missing-conflict-leaf");
+        const row = JSON.stringify({
+            seq: "incomplete-row",
+            id: "conflicted",
+            changes: [{ rev: "1-winner" }, { rev: "1-missing" }],
+            doc: {
+                _id: "conflicted",
+                _rev: "1-winner",
+                _revisions: { start: 1, ids: ["winner"] },
+                value: "winner",
+            },
+        });
+        const checkpoints: Array<string | number> = [];
+        queueChangesFeedWithBulkGet([row], "incomplete-page", (requested) => ({
+            results: requested.map(({ id, rev }) => ({
+                id,
+                docs: [{ error: "not_found", reason: `missing ${rev}` }],
+            })),
+        }));
+
+        await expect(fetchInitial(localDB, undefined, (sequence) => checkpoints.push(sequence))).rejects.toMatchObject({
+            stage: "protocol",
+            retryable: false,
+        });
+        expect(checkpoints).not.toContain("incomplete-row");
+        expect(checkpoints).not.toContain("incomplete-page");
+    });
+
+    it.each([
+        {
+            label: "malformed response",
+            stage: "protocol",
+            response: () => new Response("not JSON"),
+        },
+        {
+            label: "HTTP forbidden response",
+            stage: "authentication",
+            response: () => new Response("forbidden", { status: 403 }),
+        },
+        {
+            label: "forbidden revision result",
+            stage: "authentication",
+            response: () => ({ results: [{ id: "conflicted", docs: [{ error: "forbidden" }] }] }),
+        },
+    ])("does not checkpoint when _bulk_get returns a $label", async ({ stage, response }) => {
+        const localDB = createLocalDatabase(`streaming-fetch-${stage}-bulk-get`);
+        const row = JSON.stringify({
+            seq: "incomplete-row",
+            id: "conflicted",
+            changes: [{ rev: "1-winner" }, { rev: "1-missing" }],
+            doc: {
+                _id: "conflicted",
+                _rev: "1-winner",
+                _revisions: { start: 1, ids: ["winner"] },
+                value: "winner",
+            },
+        });
+        const checkpoints: Array<string | number> = [];
+        queueChangesFeedWithBulkGet([row], "incomplete-page", () => response());
+
+        await expect(fetchInitial(localDB, undefined, (sequence) => checkpoints.push(sequence))).rejects.toMatchObject({
+            stage,
+            retryable: false,
+        });
+        expect(checkpoints).not.toContain("incomplete-row");
+        expect(checkpoints).not.toContain("incomplete-page");
+    });
+
+    it("skips writing an included revision that is already present locally", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-existing-leaf");
+        const document = JSON.parse(changeLine(1, "already-stored", "existing body")).doc;
+        await localDB.bulkDocs([document], { new_edits: false });
+        const localBulkDocs = vi.spyOn(localDB, "bulkDocs");
+        const checkpoints: Array<string | number> = [];
+        queueChangesFeed(1, 1, [changeLine(1, "already-stored", "existing body")]);
+
+        await fetchInitial(localDB, undefined, (sequence) => checkpoints.push(sequence));
+
+        expect(localBulkDocs).not.toHaveBeenCalled();
+        expect(checkpoints.at(-1)).toBe(1);
     });
 
     it("classifies an authentication response as terminal", async () => {
@@ -566,9 +1271,9 @@ describe("checkRemoteFeaturesForInitialSync", () => {
     });
 
     it("rejects any unknown feature name, including beside a known feature", async () => {
-        fetchMock.mockResolvedValueOnce(remoteFeatureResponse(
-            versionInfo(13, ["encrypted-internal-metadata-v1", "future-index-v2"])
-        ));
+        fetchMock.mockResolvedValueOnce(
+            remoteFeatureResponse(versionInfo(13, ["encrypted-internal-metadata-v1", "future-index-v2"]))
+        );
 
         await expect(checkRemoteFeaturesForInitialSync(remoteDbUrl, "Basic test")).rejects.toMatchObject({
             stage: "protocol",

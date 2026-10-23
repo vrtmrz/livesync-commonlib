@@ -31,6 +31,7 @@ import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEn
 import {
     JournalStorageReadStatuses,
     type IJournalStorage,
+    type JournalStorageConditionalWriteResult,
     type JournalStorageReadResult,
 } from "./objectstore/JournalStorageAdapter.ts";
 
@@ -161,6 +162,7 @@ export class JournalSyncCore {
             return {
                 status: JournalStorageReadStatuses.AVAILABLE,
                 value: JSON.parse(new TextDecoder().decode(result.value)) as T,
+                ...(result.revision === undefined ? {} : { revision: result.revision }),
             };
         } catch (ex) {
             Logger(`Could not parse downloaded json ${key}`);
@@ -170,6 +172,20 @@ export class JournalSyncCore {
                 error: ex,
             };
         }
+    }
+
+    async uploadJsonIfUnchanged<T>(
+        key: string,
+        body: T,
+        revision: string
+    ): Promise<JournalStorageConditionalWriteResult> {
+        if (revision.trim().length === 0) {
+            throw new TypeError("A non-empty revision is required for a conditional upload");
+        }
+        const uploadIfUnchanged = this.storage.uploadIfUnchanged;
+        if (!uploadIfUnchanged) return "unsupported";
+        const data = new TextEncoder().encode(JSON.stringify(body));
+        return await uploadIfUnchanged.call(this.storage, key, data, "application/json", revision);
     }
 
     async uploadJson<T>(key: string, body: T): Promise<boolean> {
