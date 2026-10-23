@@ -507,7 +507,7 @@ Are you sure you wish to proceed?`;
         await this.suspendReflectingDatabase(!autoResume);
         await this.control.applySettings();
         await this.resetLocalDatabase();
-        this.clearFastFetchCheckpoint();
+        await this.clearFastFetchCheckpoint();
         await delay(1000);
         if (isRemediationModeActive(this.setting.currentSettings())) {
             // Remediation mode restores an earlier state, so the files in storage are not staged
@@ -586,7 +586,7 @@ Are you sure you wish to proceed?`;
         await checkRemoteFeaturesForInitialSync(remote, authHeader, customHeaders, settings);
 
         this.appLifecycle.resetIsReady();
-        let checkpoint = this.getFastFetchCheckpoint(remote);
+        let checkpoint = await this.getFastFetchCheckpoint(remote);
 
         await this.suspendReflectingDatabase();
         await this.control.applySettings();
@@ -618,7 +618,7 @@ Are you sure you wish to proceed?`;
                 LOG_LEVEL_NOTICE,
                 "fetch-init-resume"
             );
-            this.clearFastFetchCheckpoint();
+            await this.clearFastFetchCheckpoint();
             await this.resetLocalDatabase();
             await delay(1000);
             localDB = this.database.localDatabase.localDatabase;
@@ -663,8 +663,8 @@ Are you sure you wish to proceed?`;
                                 "fetch-init-progress"
                             );
                         },
-                        (sequence) => {
-                            this.saveFastFetchCheckpoint(remote, sequence);
+                        async (sequence) => {
+                            await this.saveFastFetchCheckpoint(remote, sequence);
                             fastForward?.recordCheckpoint(sequence);
                         },
                         customHeaders,
@@ -678,7 +678,7 @@ Are you sure you wish to proceed?`;
                     // consuming the retry budget. Each retry resumes from the latest
                     // contiguous checkpoint persisted by the previous attempt.
                     if (!isRetryableStreamingFetchFailure(ex) || attempt >= FAST_FETCH_RETRY_DELAYS.length) throw ex;
-                    checkpoint = this.getFastFetchCheckpoint(remote);
+                    checkpoint = await this.getFastFetchCheckpoint(remote);
                     since = checkpoint?.sequence ?? since;
                     this._log(
                         `Fast fetch interrupted. Retrying from sequence: ${since}`,
@@ -712,7 +712,7 @@ Are you sure you wish to proceed?`;
                     throw new Error("Fast Fetch could not be finalised.");
                 }
             }
-            this.clearFastFetchCheckpoint();
+            await this.clearFastFetchCheckpoint();
         } finally {
             try {
                 await fastForwardResource?.dispose();
@@ -793,8 +793,8 @@ Are you sure you wish to proceed?`;
         this.events.emitEvent(EVENT_DATABASE_REBUILT);
     }
 
-    private getFastFetchCheckpoint(remote: string): FastFetchCheckpoint | undefined {
-        const rawCheckpoint = this.setting.getSmallConfig(FAST_FETCH_CHECKPOINT_KEY);
+    private async getFastFetchCheckpoint(remote: string): Promise<FastFetchCheckpoint | undefined> {
+        const rawCheckpoint = await this.setting.config.getValue(FAST_FETCH_CHECKPOINT_KEY);
         if (!rawCheckpoint) return undefined;
 
         try {
@@ -812,12 +812,12 @@ Are you sure you wish to proceed?`;
         } catch {
             // Ignore invalid checkpoints and start cleanly.
         }
-        this.clearFastFetchCheckpoint();
+        await this.clearFastFetchCheckpoint();
         return undefined;
     }
 
-    private saveFastFetchCheckpoint(remote: string, sequence: number | string) {
-        this.setting.setSmallConfig(
+    private async saveFastFetchCheckpoint(remote: string, sequence: number | string): Promise<void> {
+        await this.setting.config.setValue(
             FAST_FETCH_CHECKPOINT_KEY,
             JSON.stringify({
                 remote,
@@ -827,7 +827,7 @@ Are you sure you wish to proceed?`;
         );
     }
 
-    private clearFastFetchCheckpoint() {
-        this.setting.deleteSmallConfig(FAST_FETCH_CHECKPOINT_KEY);
+    private async clearFastFetchCheckpoint(): Promise<void> {
+        await this.setting.config.delete(FAST_FETCH_CHECKPOINT_KEY);
     }
 }

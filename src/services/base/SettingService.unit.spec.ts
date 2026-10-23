@@ -6,17 +6,35 @@ import type { ObsidianLiveSyncSettings } from "@lib/common/types";
 import { ConnectionStringParser } from "@lib/common/ConnectionString";
 import { encryptString } from "@lib/encryption/stringEncryption";
 
+function createMapBackedValueStore(values = new Map<string, string>()) {
+    return {
+        values,
+        getValue: async (key: string) => values.get(key) ?? null,
+        setValue: async (key: string, value: string) => {
+            values.set(key, value);
+        },
+        delete: async (key: string) => {
+            values.delete(key);
+        },
+    };
+}
+
+type MapBackedValueStore = ReturnType<typeof createMapBackedValueStore>;
+
+function deferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    const promise = new Promise<T>((resolvePromise) => {
+        resolve = resolvePromise;
+    });
+    return { promise, resolve };
+}
+
 class TestSettingService extends SettingService<ServiceContext> {
     lastSavedSetting?: ObsidianLiveSyncSettings;
-    readonly localItems = new Map<string, string>();
-    protected setItem(key: string, value: string): void {
-        this.localItems.set(key, value);
-    }
-    protected getItem(key: string): string {
-        return this.localItems.get(key) ?? "";
-    }
-    protected deleteItem(key: string): void {
-        this.localItems.delete(key);
+    readonly localItems: Map<string, string>;
+    constructor(context: ServiceContext, dependencies: any, deviceValues: MapBackedValueStore) {
+        super(context, { ...dependencies, deviceValues } as any);
+        this.localItems = deviceValues.values;
     }
     protected saveData(setting: ObsidianLiveSyncSettings): Promise<void> {
         this.lastSavedSetting = JSON.parse(JSON.stringify(setting));
@@ -27,18 +45,26 @@ class TestSettingService extends SettingService<ServiceContext> {
     }
 }
 
-function createService(onDisplayLanguageChanged?: (language: ObsidianLiveSyncSettings["displayLanguage"]) => void) {
-    const service = new TestSettingService(new ServiceContext(), {
-        APIService: {
-            getSystemVaultName: vi.fn(() => "vault"),
-            getAppID: vi.fn(() => "app"),
-            confirm: {
-                askString: vi.fn(() => Promise.resolve("")),
-            },
-            addLog: vi.fn(),
+function createService(
+    onDisplayLanguageChanged?: (language: ObsidianLiveSyncSettings["displayLanguage"]) => void,
+    options: { vaultName?: string; deviceValues?: MapBackedValueStore } = {}
+) {
+    const deviceValues = options.deviceValues ?? createMapBackedValueStore();
+    const service = new TestSettingService(
+        new ServiceContext(),
+        {
+            APIService: {
+                getSystemVaultName: vi.fn(() => options.vaultName ?? "vault"),
+                getAppID: vi.fn(() => "app"),
+                confirm: {
+                    askString: vi.fn(() => Promise.resolve("")),
+                },
+                addLog: vi.fn(),
+            } as any,
+            onDisplayLanguageChanged,
         } as any,
-        onDisplayLanguageChanged,
-    } as any);
+        deviceValues
+    );
     service.settings = {
         ...DEFAULT_SETTINGS,
         remoteConfigurations: {},
@@ -178,17 +204,90 @@ describe("SettingService", () => {
         expect(onDisplayLanguageChanged).toHaveBeenCalledWith("ja");
     });
 
-    it("exposes exact device-local configuration without placing it in the settings document", () => {
+    it("exposes exact device-local values without placing them in the settings document", async () => {
         const service = createService();
 
-        service.setDeviceLocalConfig("legacy-version-marker", "12");
+        await service.deviceValues.setValue("legacy-version-marker", "12");
 
-        expect(service.getDeviceLocalConfig("legacy-version-marker")).toBe("12");
+        expect(await service.deviceValues.getValue("legacy-version-marker")).toBe("12");
         expect(service.localItems.get("legacy-version-marker")).toBe("12");
         expect(service.currentSettings()).not.toHaveProperty("legacy-version-marker");
 
-        service.deleteDeviceLocalConfig("legacy-version-marker");
-        expect(service.getDeviceLocalConfig("legacy-version-marker")).toBe("");
+        await service.deviceValues.delete("legacy-version-marker");
+        expect(await service.deviceValues.getValue("legacy-version-marker")).toBeNull();
+    });
+
+    it("preserves Vault and changing database-suffix config keys", async () => {
+        const service = createService(undefined, { vaultName: "synthetic-vault" });
+
+        await service.config.setValue("checkpoint", "empty-suffix-value");
+
+        expect(service.localItems.get("synthetic-vault--checkpoint")).toBe("empty-suffix-value");
+        service.settings.additionalSuffixOfDatabaseName = "first";
+
+        await service.config.setValue("checkpoint", "first-value");
+
+        expect(service.localItems.get("synthetic-vault-first-checkpoint")).toBe("first-value");
+        service.settings.additionalSuffixOfDatabaseName = "second";
+        expect(await service.config.getValue("checkpoint")).toBeNull();
+
+        await service.config.setValue("checkpoint", "second-value");
+
+        expect(service.localItems.get("synthetic-vault-second-checkpoint")).toBe("second-value");
+        expect(await service.config.getValue("checkpoint")).toBe("second-value");
+    });
+
+    it("keeps config values isolated between independently injected service instances", async () => {
+        const first = createService(undefined, {
+            vaultName: "synthetic-vault",
+            deviceValues: createMapBackedValueStore(),
+        });
+        const second = createService(undefined, {
+            vaultName: "synthetic-vault",
+            deviceValues: createMapBackedValueStore(),
+        });
+        first.settings.additionalSuffixOfDatabaseName = "first";
+        second.settings.additionalSuffixOfDatabaseName = "first";
+
+        await first.config.setValue("checkpoint", "first-instance");
+
+        expect(await first.config.getValue("checkpoint")).toBe("first-instance");
+        expect(await second.config.getValue("checkpoint")).toBeNull();
+
+        await second.config.setValue("checkpoint", "second-instance");
+
+        expect(await first.config.getValue("checkpoint")).toBe("first-instance");
+        expect(await second.config.getValue("checkpoint")).toBe("second-instance");
+    });
+
+    it("waits for a deferred device-value write before committing settings", async () => {
+        const deviceValues = createMapBackedValueStore();
+        const writeStarted = deferred<void>();
+        const heldWrite = deferred<void>();
+        const setValue = deviceValues.setValue;
+        deviceValues.setValue = async (key, value) => {
+            await setValue(key, value);
+            if (key.startsWith("obsidian-live-sync-vaultanddevicename-")) {
+                writeStarted.resolve();
+                await heldWrite.promise;
+            }
+        };
+        const service = createService(undefined, { deviceValues });
+        const previousTweak = service.settings.tweakModified;
+        service.onBeforeSaveSettingData.addHandler(async () => ({ tweakModified: 123 }));
+        const saveData = vi.spyOn(service as any, "saveData");
+
+        const saving = service.saveSettingData();
+        await writeStarted.promise;
+
+        expect(saveData).not.toHaveBeenCalled();
+        expect(service.settings.tweakModified).toBe(previousTweak);
+
+        heldWrite.resolve();
+        await saving;
+
+        expect(saveData).toHaveBeenCalledOnce();
+        expect(service.settings.tweakModified).toBe(123);
     });
 
     it("adjustSettings should migrate legacy remote settings into remoteConfigurations", async () => {

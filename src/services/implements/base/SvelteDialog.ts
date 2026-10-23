@@ -1,4 +1,4 @@
-import type { ConfigService } from "@lib/services/base/ConfigService";
+import type { IConfigService } from "@lib/services/base/IService";
 import type { AppLifecycleService } from "@lib/services/base/AppLifecycleService";
 import type { ReplicatorService } from "@lib/services/base/ReplicatorService";
 import type { Confirm } from "@lib/interfaces/Confirm";
@@ -14,7 +14,7 @@ import type { Constructor } from "@lib/common/utils.type";
 export type SvelteDialogManagerDependencies<T extends ServiceContext = ServiceContext> = {
     appLifecycle: AppLifecycleService<T>;
     replicator: ReplicatorService<T>;
-    config: ConfigService<T>;
+    config: IConfigService;
     confirm: Confirm;
     control: IControlService;
 };

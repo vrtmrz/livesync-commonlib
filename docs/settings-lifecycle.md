@@ -72,6 +72,30 @@ Two other values deliberately remain unset until their owning lifecycle supplies
 
 The standard Commonlib `SettingService` performs this preparation automatically. Hosts which use that service can inspect `getSettingsMigrationState()` after `loadSettings()` instead of calling the function themselves.
 
+## Host storage for device values and configuration
+
+The host selects an asynchronous `ValueStore & ValueDeleter` for each application instance and injects it into the setting service as `deviceValues`. Commonlib does not discover `globalThis.localStorage`, create module-global storage, or fall back to another store. `setting.deviceValues` exposes the injected exact-key root. `setting.config` is an asynchronous view over the same root, scoped to the current Vault name and `additionalSuffixOfDatabaseName`; the Service Hub `config` property refers to that same view.
+
+For an existing Web Storage layout, pass the selected storage object explicitly and use an empty adapter prefix so the service can address existing raw keys:
+
+```ts
+import { createWebStorageValueStore } from "@vrtmrz/value-store/web-storage";
+
+const deviceValues = createWebStorageValueStore(window.localStorage, { prefix: "" });
+// Supply deviceValues as the setting service's required composition dependency.
+```
+
+Use `deviceValues` for exact device-local keys, including existing keys such as `ls-setting-passphrase`. Use `config` for logical configuration keys; the service retains the established Vault and database-suffix key format. For example, the `checkpoint` key for Vault `notes` remains `notes--checkpoint` with an empty suffix and `notes-team-checkpoint` with suffix `team`. Keep the existing key names and await every read, write, and deletion:
+
+```ts
+const passphrase = await setting.deviceValues.getValue("ls-setting-passphrase");
+const checkpoint = await setting.config.getValue("checkpoint");
+await setting.config.setValue("checkpoint", "revision-42");
+await setting.config.delete("checkpoint");
+```
+
+`getValue` returns `null` when a key is absent. Use `getObject` and `setObject` for values stored as JSON; Commonlib does not automatically reinterpret old strings or migrate entries between the exact-key root and the scoped view.
+
 ## Preparing settings for persistence and Markdown
 
 The existing `SettingService` provides `changeConfigurationEncryption(store, passphrase?)` for hosts which edit the configuration encryption mode or device-local custom key. Await it before marking those edits as saved. It prepares one wrapper key for connection credentials, the E2EE passphrase, remote profile URIs, and the independent ID key, and serialises the change with ordinary settings saves. It rejects empty keys and unreadable existing protected items. A failed write attempts to restore the previous device key and does not send a success event. The device key and settings document use separate host writes, so this is not a guarantee of rollback after process termination or an uncertain persistence error.

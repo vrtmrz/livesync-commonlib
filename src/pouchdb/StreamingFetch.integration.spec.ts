@@ -5,7 +5,13 @@ import MemoryAdapter from "pouchdb-adapter-memory";
 import HttpAdapter from "pouchdb-adapter-http";
 import { existsSync, readFileSync } from "node:fs";
 import { parseEnv } from "node:util";
-import { E2EEAlgorithms, REMOTE_COUCHDB, VERSIONING_DOCID, type FilePathWithPrefix, type PlainEntry } from "@lib/common/types";
+import {
+    E2EEAlgorithms,
+    REMOTE_COUCHDB,
+    VERSIONING_DOCID,
+    type FilePathWithPrefix,
+    type PlainEntry,
+} from "@lib/common/types";
 import { createLiveSyncEventHub } from "@lib/hub/hub";
 import { REMOTE_RESOURCE_KINDS } from "@lib/replication";
 import { path2id_base } from "@lib/string_and_binary/path";
@@ -112,9 +118,15 @@ function createFastFetchRebuilder(localDatabase: PouchDB.Database) {
             suspendAllSync: { addHandler: vi.fn() },
             applyPartial: vi.fn(async (partial: Record<string, unknown>) => Object.assign(settings, partial)),
             saveSettingData: vi.fn(async () => undefined),
-            getSmallConfig: vi.fn((key: string) => smallConfig.get(key) ?? ""),
-            setSmallConfig: vi.fn((key: string, value: string) => smallConfig.set(key, value)),
-            deleteSmallConfig: vi.fn((key: string) => smallConfig.delete(key)),
+            config: {
+                getValue: vi.fn(async (key: string) => smallConfig.get(key) ?? null),
+                setValue: vi.fn(async (key: string, value: string) => {
+                    smallConfig.set(key, value);
+                }),
+                delete: vi.fn(async (key: string) => {
+                    smallConfig.delete(key);
+                }),
+            },
         },
         remote: {},
         databaseEvents: {},
@@ -144,9 +156,7 @@ function createFastFetchRebuilder(localDatabase: PouchDB.Database) {
     const resetLocalDatabase = vi.spyOn(rebuilder, "resetLocalDatabase").mockImplementation(async () => {
         const existing = await localDatabase.allDocs({ include_docs: true });
         await Promise.all(
-            existing.rows.flatMap((row) =>
-                row.doc ? [localDatabase.remove(row.doc._id, row.doc._rev)] : []
-            )
+            existing.rows.flatMap((row) => (row.doc ? [localDatabase.remove(row.doc._id, row.doc._rev)] : []))
         );
     });
     return { rebuilder, services, settings, passphrase, salt, resetLocalDatabase };
@@ -328,7 +338,12 @@ describe("StreamingFetch - fetchChangesForInitialSync integration", () => {
 
     it("should tolerate a tombstone whose id is an obfuscated entry", async () => {
         await remoteDB.put({ _id: "f:retained-file", type: "file", path: "notes/keep.md", data: "keep" });
-        const deletedFile = await remoteDB.put({ _id: "f:deleted-file", type: "file", path: "notes/remove.md", data: "remove" });
+        const deletedFile = await remoteDB.put({
+            _id: "f:deleted-file",
+            type: "file",
+            path: "notes/remove.md",
+            data: "remove",
+        });
         await remoteDB.remove("f:deleted-file", deletedFile.rev);
         const checkpoints: Array<string | number> = [];
 

@@ -1,3 +1,4 @@
+import { MemoryValueStore } from "@vrtmrz/value-store";
 /**
  * The API for manipulating files stored in the CouchDB by Self-hosted LiveSync or its families.
  */
@@ -210,6 +211,7 @@ export class DirectFileManipulator implements LiveSyncLocalDBEnv {
         const getSettings = () => this.settings;
         const context = new ServiceContext();
         this.services = new HeadlessServiceHub(context, {
+            deviceValues: new MemoryValueStore(),
             pouchDB: PouchDB,
             database: this.getBoundDatabaseService(() => this.options, this.runtimeOptions),
             getPathObfuscationPassphrase: () => this.options.obfuscatePassphrase ?? false,

@@ -13,22 +13,57 @@ const LOCAL_KEY = "ls-setting-passphrase";
 const CUSTOM_KEY = "synthetic-custom-configuration-key";
 const ID_KEY = "ab".repeat(32);
 
+function createMapBackedValueStore(values = new Map<string, string>()) {
+    const controls: {
+        failLocalWrites: number;
+        beforeGet?: (key: string) => Promise<void>;
+    } = { failLocalWrites: 0 };
+    return {
+        values,
+        controls,
+        getValue: async (key: string) => {
+            await controls.beforeGet?.(key);
+            return values.get(key) ?? null;
+        },
+        setValue: async (key: string, value: string) => {
+            values.set(key, value);
+            if (key === LOCAL_KEY && controls.failLocalWrites-- > 0) {
+                throw new Error("synthetic local write failure");
+            }
+        },
+        delete: async (key: string) => {
+            values.delete(key);
+        },
+    };
+}
+
+type MapBackedValueStore = ReturnType<typeof createMapBackedValueStore>;
+
+function deferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    const promise = new Promise<T>((resolvePromise) => {
+        resolve = resolvePromise;
+    });
+    return { promise, resolve };
+}
+
 class ConfigurationSettingService extends SettingService<ServiceContext> {
     saved?: ObsidianLiveSyncSettings;
     readonly writes: ObsidianLiveSyncSettings[] = [];
-    readonly localItems = new Map<string, string>();
-    failLocalWrites = 0;
+    readonly localItems: Map<string, string>;
+    private readonly valueStore: MapBackedValueStore;
+    get failLocalWrites(): number {
+        return this.valueStore.controls.failLocalWrites;
+    }
+    set failLocalWrites(value: number) {
+        this.valueStore.controls.failLocalWrites = value;
+    }
     failDataWrites = 0;
 
-    protected setItem(key: string, value: string): void {
-        this.localItems.set(key, value);
-        if (key === LOCAL_KEY && this.failLocalWrites-- > 0) throw new Error("synthetic local write failure");
-    }
-    protected getItem(key: string): string {
-        return this.localItems.get(key) ?? "";
-    }
-    protected deleteItem(key: string): void {
-        this.localItems.delete(key);
+    constructor(context: ServiceContext, dependencies: any, deviceValues: MapBackedValueStore) {
+        super(context, { ...dependencies, deviceValues } as any);
+        this.valueStore = deviceValues;
+        this.localItems = deviceValues.values;
     }
     protected async saveData(settings: ObsidianLiveSyncSettings): Promise<void> {
         if (this.failDataWrites-- > 0) throw new Error("synthetic settings write failure");
@@ -40,17 +75,21 @@ class ConfigurationSettingService extends SettingService<ServiceContext> {
     }
 }
 
-function createService(version: 0 | 1 = 1) {
+function createService(version: 0 | 1 = 1, deviceValues = createMapBackedValueStore()) {
     const askString = vi.fn<(...args: any[]) => Promise<string | false>>(async () => false);
     const addLog = vi.fn();
-    const service = new ConfigurationSettingService(new ServiceContext(), {
-        APIService: {
-            getSystemVaultName: () => "synthetic-vault",
-            getAppID: () => "synthetic-app",
-            confirm: { askString },
-            addLog,
-        } as any,
-    });
+    const service = new ConfigurationSettingService(
+        new ServiceContext(),
+        {
+            APIService: {
+                getSystemVaultName: () => "synthetic-vault",
+                getAppID: () => "synthetic-app",
+                confirm: { askString },
+                addLog,
+            } as any,
+        },
+        deviceValues
+    );
     service.settings = {
         ...structuredClone(DEFAULT_SETTINGS),
         settingVersion: CURRENT_SETTING_VERSION,
@@ -96,7 +135,7 @@ describe("SettingService configuration encryption", () => {
             await writer.saveSettingData();
             const { service, askString } = createService(version);
             service.saved = structuredClone(writer.saved!);
-            service.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+            await service.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
 
             await service.loadSettings();
             expectSecrets(service.settings, expected);
@@ -107,12 +146,12 @@ describe("SettingService configuration encryption", () => {
 
             const fresh = createService(version);
             fresh.service.saved = structuredClone(service.saved!);
-            fresh.service.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+            await fresh.service.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
             await fresh.service.loadSettings();
             expectSecrets(fresh.service.settings, expected);
             expect(fresh.service.settings.configPassphraseStore).toBe("");
             expect(fresh.askString).not.toHaveBeenCalled();
-            expect(service.getDeviceLocalConfig(LOCAL_KEY)).toBe(CUSTOM_KEY);
+            expect(await service.deviceValues.getValue(LOCAL_KEY)).toBe(CUSTOM_KEY);
         }
     );
 
@@ -122,24 +161,57 @@ describe("SettingService configuration encryption", () => {
             const { service } = createService(version);
             const expected = structuredClone(service.settings);
             await service.saveSettingData();
-            service.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+            await service.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
             service.settings.configPassphraseStore = "LOCALSTORAGE";
 
             await service.saveSettingData();
 
             const reader = createService(version).service;
-            reader.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+            await reader.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
             const restored = await reader.decryptSettings(structuredClone(service.saved!));
             expectSecrets(restored, expected);
         }
     );
+
+    it("waits for a deferred stored-key read before loading protected settings", async () => {
+        const writer = createService(0).service;
+        writer.settings.configPassphraseStore = "LOCALSTORAGE";
+        await writer.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
+        await writer.saveSettingData();
+
+        const deviceValues = createMapBackedValueStore();
+        const { service, askString } = createService(0, deviceValues);
+        await service.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
+        const originalRuntime = structuredClone(service.settings);
+        const readStarted = deferred<void>();
+        const heldRead = deferred<void>();
+        deviceValues.controls.beforeGet = async (key) => {
+            if (key === LOCAL_KEY) {
+                readStarted.resolve();
+                await heldRead.promise;
+            }
+        };
+        service.saved = structuredClone(writer.saved!);
+
+        const loading = service.loadSettings();
+        await readStarted.promise;
+
+        expect(service.settings).toEqual(originalRuntime);
+        expect(askString).not.toHaveBeenCalled();
+
+        heldRead.resolve();
+        await loading;
+
+        expectSecrets(service.settings, writer.settings);
+        expect(askString).not.toHaveBeenCalled();
+    });
 
     it.each([0, 1] as const)(
         "asks for a missing custom key before loading protected settings (ID version %s)",
         async (version) => {
             const writer = createService(version).service;
             writer.settings.configPassphraseStore = "LOCALSTORAGE";
-            writer.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+            await writer.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
             await writer.saveSettingData();
             const { service, askString } = createService(version);
             service.saved = structuredClone(writer.saved!);
@@ -151,7 +223,7 @@ describe("SettingService configuration encryption", () => {
             expect(askString).toHaveBeenCalledOnce();
             expect(askString.mock.calls[0][3]).toBe(true);
             expectSecrets(service.settings, writer.settings);
-            expect(service.getDeviceLocalConfig(LOCAL_KEY)).toBe(CUSTOM_KEY);
+            expect(await service.deviceValues.getValue(LOCAL_KEY)).toBe(CUSTOM_KEY);
             expect(service.saved).toEqual(original);
             expect(service.writes).toHaveLength(0);
         }
@@ -173,7 +245,7 @@ describe("SettingService configuration encryption", () => {
     ] as const)("rewraps all protected values for ID %s, %s to %s", async (version, from, to) => {
         const { service, askString } = createService(version);
         service.settings.configPassphraseStore = from;
-        service.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+        await service.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
         askString.mockResolvedValue(CUSTOM_KEY);
         const expected = structuredClone(service.settings);
         await service.saveSettingData();
@@ -187,9 +259,9 @@ describe("SettingService configuration encryption", () => {
         expect(service.writes).toHaveLength(2);
         expect(saved).toHaveBeenCalledOnce();
         expect(service.settings.configPassphraseStore).toBe(to);
-        expect(service.getDeviceLocalConfig(LOCAL_KEY)).toBe(to === "LOCALSTORAGE" ? nextKey : CUSTOM_KEY);
+        expect(await service.deviceValues.getValue(LOCAL_KEY)).toBe(to === "LOCALSTORAGE" ? nextKey : CUSTOM_KEY);
         const reader = createService(version);
-        reader.service.setDeviceLocalConfig(LOCAL_KEY, nextKey);
+        await reader.service.deviceValues.setValue(LOCAL_KEY, nextKey);
         reader.askString.mockResolvedValue(nextKey);
         expectSecrets(await reader.service.decryptSettings(structuredClone(service.saved!)), expected);
         if (to === "ASK_AT_LAUNCH") {
@@ -217,14 +289,14 @@ describe("SettingService configuration encryption", () => {
     it("rejects an empty custom key without discarding the current key", async () => {
         const { service } = createService();
         service.settings.configPassphraseStore = "LOCALSTORAGE";
-        service.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+        await service.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
         await service.saveSettingData();
         const original = structuredClone(service.saved);
 
         await expect(service.changeConfigurationEncryption("LOCALSTORAGE", "")).rejects.toThrow("required");
 
         expect(service.saved).toEqual(original);
-        expect(service.getDeviceLocalConfig(LOCAL_KEY)).toBe(CUSTOM_KEY);
+        expect(await service.deviceValues.getValue(LOCAL_KEY)).toBe(CUSTOM_KEY);
         expect(service.writes).toHaveLength(1);
     });
 
@@ -233,7 +305,7 @@ describe("SettingService configuration encryption", () => {
         async (failure) => {
             const { service } = createService();
             service.settings.configPassphraseStore = "LOCALSTORAGE";
-            service.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+            await service.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
             await service.saveSettingData();
             const original = structuredClone(service.saved);
             const runtime = structuredClone(service.settings);
@@ -252,7 +324,7 @@ describe("SettingService configuration encryption", () => {
 
             expect(service.saved).toEqual(original);
             expect(service.settings).toEqual(runtime);
-            expect(service.getDeviceLocalConfig(LOCAL_KEY)).toBe(CUSTOM_KEY);
+            expect(await service.deviceValues.getValue(LOCAL_KEY)).toBe(CUSTOM_KEY);
             expect(service.writes).toHaveLength(1);
             expect(saved).not.toHaveBeenCalled();
         }
@@ -261,7 +333,7 @@ describe("SettingService configuration encryption", () => {
     it("reports a failed key rollback without notifying success", async () => {
         const { service, addLog } = createService();
         service.settings.configPassphraseStore = "LOCALSTORAGE";
-        service.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+        await service.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
         await service.saveSettingData();
         const original = structuredClone(service.saved);
         const saved = vi.fn(async () => true);
@@ -281,7 +353,7 @@ describe("SettingService configuration encryption", () => {
     it("permits manual recovery when a settings write completed before reporting an error", async () => {
         const { service } = createService();
         service.settings.configPassphraseStore = "LOCALSTORAGE";
-        service.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+        await service.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
         await service.saveSettingData();
         vi.spyOn(service as any, "saveData").mockImplementation(async (settings: any) => {
             service.saved = structuredClone(settings);
@@ -291,10 +363,10 @@ describe("SettingService configuration encryption", () => {
         await expect(service.changeConfigurationEncryption("LOCALSTORAGE", "synthetic-new-key")).rejects.toThrow(
             "uncertain write"
         );
-        expect(service.getDeviceLocalConfig(LOCAL_KEY)).toBe(CUSTOM_KEY);
+        expect(await service.deviceValues.getValue(LOCAL_KEY)).toBe(CUSTOM_KEY);
         const reader = createService();
         reader.service.saved = structuredClone(service.saved!);
-        reader.service.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+        await reader.service.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
         reader.askString.mockResolvedValue("synthetic-new-key");
         await reader.service.loadSettings();
         expectSecrets(reader.service.settings, service.settings);
@@ -304,10 +376,10 @@ describe("SettingService configuration encryption", () => {
     it("refuses to rewrap an unreadable existing payload while ordinary saves retain it", async () => {
         const writer = createService(0).service;
         writer.settings.configPassphraseStore = "LOCALSTORAGE";
-        writer.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+        await writer.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
         await writer.saveSettingData();
         const reader = createService(0).service;
-        reader.setDeviceLocalConfig(LOCAL_KEY, "synthetic-wrong-key");
+        await reader.deviceValues.setValue(LOCAL_KEY, "synthetic-wrong-key");
         reader.settings = await reader.decryptSettings(structuredClone(writer.saved!));
         reader.saved = structuredClone(writer.saved!);
         const original = structuredClone(reader.saved);
@@ -316,7 +388,7 @@ describe("SettingService configuration encryption", () => {
             "could not be decrypted"
         );
         expect(reader.saved).toEqual(original);
-        expect(reader.getDeviceLocalConfig(LOCAL_KEY)).toBe("synthetic-wrong-key");
+        expect(await reader.deviceValues.getValue(LOCAL_KEY)).toBe("synthetic-wrong-key");
         await reader.saveSettingData();
         expect(reader.saved?.encryptedCouchDBConnection).toBe(original!.encryptedCouchDBConnection);
     });
@@ -326,14 +398,14 @@ describe("SettingService configuration encryption", () => {
         async (item) => {
             const writer = createService(0).service;
             writer.settings.configPassphraseStore = "LOCALSTORAGE";
-            writer.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+            await writer.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
             await writer.saveSettingData();
             const { service, askString } = createService(0);
             service.saved = structuredClone(writer.saved!);
             if (item === "profile") service.saved.remoteConfigurations.inactive.uri = "synthetic-damaged-ciphertext";
             else service.saved.encryptedPassphrase = "synthetic-damaged-ciphertext";
             const original = structuredClone(service.saved);
-            service.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+            await service.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
 
             await service.loadSettings();
 
@@ -370,13 +442,13 @@ describe("SettingService configuration encryption", () => {
         const ordinary = service.saveSettingData();
         await started;
         const change = service.changeConfigurationEncryption("LOCALSTORAGE", CUSTOM_KEY);
-        expect(service.getDeviceLocalConfig(LOCAL_KEY)).toBe("");
+        expect(await service.deviceValues.getValue(LOCAL_KEY)).toBeNull();
         release();
         await Promise.all([ordinary, change]);
 
         expect(service.writes.map((settings) => settings.configPassphraseStore)).toEqual(["", "", "LOCALSTORAGE"]);
         const reader = createService().service;
-        reader.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+        await reader.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
         expectSecrets(await reader.decryptSettings(structuredClone(service.saved!)), service.settings);
     });
 
@@ -391,7 +463,7 @@ describe("SettingService configuration encryption", () => {
         await expect(service.changeConfigurationEncryption("LOCALSTORAGE", "")).rejects.toThrow();
         await service.saveSettingData();
         const reader = createService().service;
-        reader.setDeviceLocalConfig(LOCAL_KEY, "synthetic-second-key");
+        await reader.deviceValues.setValue(LOCAL_KEY, "synthetic-second-key");
         expectSecrets(await reader.decryptSettings(structuredClone(service.saved!)), service.settings);
     });
 
@@ -411,14 +483,14 @@ describe("SettingService configuration encryption", () => {
     it.each([0, 1] as const)("validates retry inputs before replacing the stored key (ID %s)", async (version) => {
         const writer = createService(version).service;
         writer.settings.configPassphraseStore = "LOCALSTORAGE";
-        writer.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+        await writer.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
         await writer.saveSettingData();
         const { service, askString } = createService(version);
         service.saved = structuredClone(writer.saved!);
-        service.setDeviceLocalConfig(LOCAL_KEY, "synthetic-stored-wrong-key");
+        await service.deviceValues.setValue(LOCAL_KEY, "synthetic-stored-wrong-key");
         const original = structuredClone(service.saved);
         askString.mockResolvedValueOnce("synthetic-entered-wrong-key").mockImplementationOnce(async () => {
-            expect(service.getDeviceLocalConfig(LOCAL_KEY)).toBe("synthetic-stored-wrong-key");
+            expect(await service.deviceValues.getValue(LOCAL_KEY)).toBe("synthetic-stored-wrong-key");
             expect(service.saved).toEqual(original);
             return CUSTOM_KEY;
         });
@@ -427,20 +499,20 @@ describe("SettingService configuration encryption", () => {
 
         expect(askString).toHaveBeenCalledTimes(2);
         expectSecrets(service.settings, writer.settings);
-        expect(service.getDeviceLocalConfig(LOCAL_KEY)).toBe(CUSTOM_KEY);
+        expect(await service.deviceValues.getValue(LOCAL_KEY)).toBe(CUSTOM_KEY);
         expect(service.writes).toHaveLength(0);
     });
 
     it.each([0, 1] as const)("retains settings and the old key when retry is cancelled (ID %s)", async (version) => {
         const writer = createService(version).service;
         writer.settings.configPassphraseStore = "LOCALSTORAGE";
-        writer.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+        await writer.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
         await writer.saveSettingData();
         const { service, askString } = createService(version);
         service.saved = structuredClone(writer.saved!);
         const original = structuredClone(service.saved);
         const runtime = structuredClone(service.settings);
-        service.setDeviceLocalConfig(LOCAL_KEY, "synthetic-stored-wrong-key");
+        await service.deviceValues.setValue(LOCAL_KEY, "synthetic-stored-wrong-key");
         askString.mockResolvedValueOnce("synthetic-wrong-key").mockResolvedValueOnce(false);
         const loaded = vi.fn(async () => true);
         service.onSettingLoaded.addHandler(loaded);
@@ -449,7 +521,7 @@ describe("SettingService configuration encryption", () => {
 
         expect(service.saved).toEqual(original);
         expect(service.settings).toEqual(runtime);
-        expect(service.getDeviceLocalConfig(LOCAL_KEY)).toBe("synthetic-stored-wrong-key");
+        expect(await service.deviceValues.getValue(LOCAL_KEY)).toBe("synthetic-stored-wrong-key");
         expect(service.writes).toHaveLength(0);
         expect(loaded).not.toHaveBeenCalled();
     });
@@ -457,7 +529,7 @@ describe("SettingService configuration encryption", () => {
     it("stops immediately when a headless-style prompt declines a missing key", async () => {
         const writer = createService().service;
         writer.settings.configPassphraseStore = "LOCALSTORAGE";
-        writer.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+        await writer.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
         await writer.saveSettingData();
         const { service, askString } = createService();
         service.saved = structuredClone(writer.saved!);
@@ -470,7 +542,7 @@ describe("SettingService configuration encryption", () => {
     it("stops when a validated key cannot be stored and permits a clean retry", async () => {
         const writer = createService().service;
         writer.settings.configPassphraseStore = "LOCALSTORAGE";
-        writer.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+        await writer.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
         await writer.saveSettingData();
         const { service, askString } = createService();
         service.saved = structuredClone(writer.saved!);
@@ -488,11 +560,11 @@ describe("SettingService configuration encryption", () => {
         async (kind) => {
             const writer = createService().service;
             writer.settings.configPassphraseStore = "LOCALSTORAGE";
-            writer.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+            await writer.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
             await writer.saveSettingData();
             const { service, askString } = createService();
             service.saved = structuredClone(writer.saved!);
-            service.setDeviceLocalConfig(LOCAL_KEY, CUSTOM_KEY);
+            await service.deviceValues.setValue(LOCAL_KEY, CUSTOM_KEY);
             if (kind === "missing") service.saved.encryptedIdDerivationKey = "";
             if (kind === "unsupported") service.saved.idDerivationVersion = 2 as any;
             if (kind === "invalid") {

@@ -38,6 +38,7 @@ type P2PRoomSessionFactory = (env: ReplicatorHostEnv) => P2PRoomSession;
 
 type PendingP2PSettingsPreparation = {
     readonly signature: string;
+    readonly configurationIdentity: string;
     readonly controller: AbortController;
 };
 
@@ -124,7 +125,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         } else if (active && !supportsPathIdentity) {
             Logger("P2P does not support NFC path identity.", LOG_LEVEL_NOTICE);
         }
-        this.fencePreparationForCurrentSettings(enabled);
+        await this.fencePreparationForCurrentSettings(enabled);
         await this.reconcileTransport();
     }
 
@@ -144,8 +145,8 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         }
         const demand = Symbol("p2p-finite-room-demand");
         this.finiteDemands.add(demand);
-        this.fencePreparationForCurrentSettings(true);
         try {
+            await this.fencePreparationForCurrentSettings(true);
             await this.reconcileTransport();
             if (!this.finiteDemands.has(demand)) {
                 throw new Error("The P2P room demand was retired before the operation started.");
@@ -203,7 +204,8 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
                 await this.closeTransport();
                 return;
             }
-            const binding = this.getEffectiveBinding();
+            const binding = await this.getEffectiveBinding();
+            if (!binding.enabled || !this.hasRoomDemand()) return;
             if (
                 this.current?.host.isServing &&
                 this.bindingsMatch(this.activeBinding, binding) &&
@@ -221,7 +223,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
             const operationGeneration = this.runtimeGeneration;
             try {
                 const connectionSettings = await this.prepareConnectionSettings(binding, operationGeneration);
-                this.assertReconciliationCurrent(binding, operationGeneration, connectionSettings);
+                await this.assertReconciliationCurrent(binding, operationGeneration, connectionSettings);
                 const connectionBinding = { ...binding, settings: connectionSettings };
                 candidate = this.createSession(this.buildSessionEnv(connectionBinding));
                 if (hasManagedP2PTurnConfiguration(binding.settings)) {
@@ -232,7 +234,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
                 if (!candidate.host.isServing) {
                     throw new Error("The P2P room did not start serving.");
                 }
-                const currentBinding = this.getEffectiveBinding();
+                const currentBinding = await this.getEffectiveBinding();
                 if (
                     !currentBinding.enabled ||
                     !this.hasRoomDemand() ||
@@ -321,15 +323,24 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         return Number.isFinite(expiresAt) && expiresAt > Date.now() + P2P_ICE_SERVER_EXPIRY_MARGIN_MS;
     }
 
-    private fencePreparationForCurrentSettings(enabled: boolean): void {
+    private async fencePreparationForCurrentSettings(enabled: boolean): Promise<void> {
         if (!enabled) {
             this.invalidatePreparation();
             return;
         }
-        const pendingChanged =
-            this.pendingPreparation !== undefined &&
-            this.pendingPreparation.signature !== this.getEffectiveBinding().signature;
-        if (pendingChanged) this.invalidatePreparation();
+        const pending = this.pendingPreparation;
+        if (!pending) return;
+        if (
+            pending.configurationIdentity !==
+            getP2PReplicatorConfigurationIdentity(this.env.services.setting.currentSettings())
+        ) {
+            this.invalidatePreparation();
+            return;
+        }
+        const binding = await this.getEffectiveBinding();
+        if (this.pendingPreparation === pending && pending.signature !== binding.signature) {
+            this.invalidatePreparation();
+        }
     }
 
     private invalidatePreparation(): void {
@@ -355,6 +366,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         const controller = new AbortController();
         const pending: PendingP2PSettingsPreparation = {
             signature: binding.signature,
+            configurationIdentity: getP2PReplicatorConfigurationIdentity(binding.settings),
             controller,
         };
         this.pendingPreparation = pending;
@@ -374,7 +386,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
             if (!this.connectionSettingsRemainUsable(connectionSettings)) {
                 throw new Error("The prepared managed TURN settings are missing usable ICE servers or expiry.");
             }
-            this.assertReconciliationCurrent(binding, operationGeneration, connectionSettings);
+            await this.assertReconciliationCurrent(binding, operationGeneration, connectionSettings);
             return connectionSettings;
         } finally {
             if (this.pendingPreparation === pending) {
@@ -464,15 +476,18 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         }
     }
 
-    private assertReconciliationCurrent(
+    private async assertReconciliationCurrent(
         binding: P2PRoomSessionBinding | undefined,
         operationGeneration: number,
         connectionSettings?: P2PSyncSetting
-    ): void {
+    ): Promise<void> {
         if (operationGeneration !== this.runtimeGeneration || !this.hasRoomDemand()) {
             throw new StaleRoomReconciliationError();
         }
-        const currentBinding = this.getEffectiveBinding();
+        const currentBinding = await this.getEffectiveBinding();
+        if (operationGeneration !== this.runtimeGeneration || !this.hasRoomDemand()) {
+            throw new StaleRoomReconciliationError();
+        }
         if (!currentBinding.enabled) throw new StaleRoomReconciliationError();
         if (binding && !this.bindingsMatch(binding, currentBinding)) throw new StaleRoomReconciliationError();
         if (connectionSettings && !this.connectionSettingsRemainUsable(connectionSettings)) {
@@ -480,14 +495,14 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         }
     }
 
-    /** Capture immutable session inputs while keeping policy live. */
-    private getEffectiveBinding(): P2PRoomSessionBinding {
+    /** Read the device identity before capturing the current synchronous session inputs. */
+    private async getEffectiveBinding(): Promise<P2PRoomSessionBinding> {
+        const deviceName =
+            (await this.env.services.config.getValue(SETTING_KEY_P2P_DEVICE_NAME)) ||
+            this.env.services.vault.getVaultName();
         const settings = omitP2PRuntimeSettings({
             ...this.env.services.setting.currentSettings(),
         }) as ObsidianLiveSyncSettings;
-        const deviceName =
-            this.env.services.config.getSmallConfig(SETTING_KEY_P2P_DEVICE_NAME) ||
-            this.env.services.vault.getVaultName();
         const database = this.env.services.database.localDatabase.localDatabase;
         this.automationCoordinator.reconcileIdentity(
             JSON.stringify([

@@ -1,3 +1,4 @@
+import type { ValueStore, ValueDeleter } from "@vrtmrz/value-store";
 import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import { type LOG_LEVEL } from "octagonal-wheels/common/logger";
 import type {
@@ -481,19 +482,12 @@ export interface ISettingService {
 
     setDeviceAndVaultName(name: string): void;
 
-    saveDeviceAndVaultName(): void;
+    saveDeviceAndVaultName(): Promise<void>;
 
-    /**
-     * Read host-provided, device-local configuration by its exact key.
-     * This storage is not part of the synchronised settings document.
-     */
-    getDeviceLocalConfig(key: string): string | null;
-
-    /** Store host-provided, device-local configuration by its exact key. */
-    setDeviceLocalConfig(key: string, value: string): void;
-
-    /** Delete host-provided, device-local configuration by its exact key. */
-    deleteDeviceLocalConfig(key: string): void;
+    /** Exact-key host storage; values are local to this application instance. */
+    readonly deviceValues: ValueStore & ValueDeleter;
+    /** Storage scoped by the current Vault and database suffix. */
+    readonly config: IConfigService;
 
     onBeforeSaveSettingData(
         nextSettings: ObsidianLiveSyncSettings,
@@ -517,12 +511,6 @@ export interface ISettingService {
     onSettingLoaded(settings: ObsidianLiveSyncSettings): Promise<boolean>;
     onSettingChanged(settings: ObsidianLiveSyncSettings): Promise<boolean>;
     onSettingSaved(settings: ObsidianLiveSyncSettings): Promise<boolean>;
-
-    getSmallConfig(key: string): string | null;
-
-    setSmallConfig(key: string, value: string): void;
-
-    deleteSmallConfig(key: string): void;
 }
 export interface ITweakValueService {
     fetchRemotePreferred(trialSetting: RemoteDBSettings): Promise<RemotePreferredTweakResult>;
@@ -595,13 +583,8 @@ export interface IUIService {
 
     get confirm(): Confirm;
 }
-export interface IConfigService {
-    getSmallConfig(key: string): string | null;
-
-    setSmallConfig(key: string, value: string): void;
-
-    deleteSmallConfig(key: string): void;
-}
+/** Asynchronous device configuration selected by the host composition. */
+export type IConfigService = ValueStore & ValueDeleter;
 
 export interface IServiceHub {
     API: IAPIService;

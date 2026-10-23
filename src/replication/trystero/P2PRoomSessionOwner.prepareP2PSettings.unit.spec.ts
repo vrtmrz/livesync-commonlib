@@ -34,13 +34,14 @@ function createOwnerHarness(
 ) {
     const settings = createSettings();
     const sessions: FakeSession[] = [];
+    const getValue = vi.fn(async () => "device-a");
     const env = {
         services: {
             context: { events: {}, translate: (key: string) => key },
             setting: { currentSettings: () => settings },
             keyValueDB: { openSimpleStore: () => ({}) },
             database: { localDatabase: { localDatabase: {} } },
-            config: { getSmallConfig: () => "device-a" },
+            config: { getValue },
             vault: { getVaultName: () => "vault-a" },
             API: { getPlatform: () => "test", confirm: {} },
             replicator: { runFiniteReplicationActivity: async (task: () => unknown) => await task() },
@@ -57,7 +58,7 @@ function createOwnerHarness(
         return session as any;
     });
     const owner = new P2PRoomSessionOwner(env, createSession, { prepareP2PSettings });
-    return { createSession, owner, sessions, settings };
+    return { createSession, owner, sessions, settings, getValue };
 }
 
 class FakeSession {
@@ -93,6 +94,46 @@ afterEach(() => {
 });
 
 describe("P2PRoomSessionOwner prepared settings lifecycle", () => {
+    it("waits for the stored identity before creating a room", async () => {
+        const { owner, settings, getValue, createSession } = createOwnerHarness();
+        settings.P2P_managedType = "";
+        const identity = createDeferred<string>();
+        getValue.mockReturnValue(identity.promise);
+        const opening = owner.open();
+        await vi.waitFor(() => expect(getValue).toHaveBeenCalledOnce());
+        expect(createSession).not.toHaveBeenCalled();
+        identity.resolve("loaded-device");
+        await opening;
+        expect(createSession.mock.calls[0][0].deviceName).toBe("loaded-device");
+        await owner.close();
+    });
+
+    it("does not publish a room if demand is withdrawn during the identity read", async () => {
+        const { owner, settings, getValue, createSession } = createOwnerHarness();
+        settings.P2P_managedType = "";
+        const identity = createDeferred<string>();
+        getValue.mockReturnValue(identity.promise);
+        const opening = owner.open();
+        await vi.waitFor(() => expect(getValue).toHaveBeenCalledOnce());
+        const closing = owner.close();
+        identity.resolve("loaded-device");
+        await Promise.all([opening, closing]);
+        expect(createSession).not.toHaveBeenCalled();
+        expect(owner.isConnected).toBe(false);
+    });
+
+    it("releases finite demand when the identity cannot be read", async () => {
+        const { owner, settings, getValue, createSession } = createOwnerHarness();
+        settings.P2P_managedType = "";
+        const failure = new Error("device storage unavailable");
+        getValue.mockRejectedValueOnce(failure);
+        const task = vi.fn();
+        await expect(owner.runWithFiniteDemand(task)).rejects.toBe(failure);
+        await owner.setPersistentDemand("explicit", false);
+        expect(task).not.toHaveBeenCalled();
+        expect(createSession).not.toHaveBeenCalled();
+    });
+
     it("retires an existing room and rejects finite demand when path identity changes to NFC", async () => {
         const { owner, sessions, settings } = createOwnerHarness();
         settings.P2P_managedType = "";
@@ -171,7 +212,9 @@ describe("P2PRoomSessionOwner prepared settings lifecycle", () => {
 
     it("bounds preparation waiting and aborts a hook which does not settle", async () => {
         vi.useFakeTimers();
-        const prepare = vi.fn((_settings: Readonly<P2PSyncSetting>, _signal: AbortSignal) => new Promise<never>(() => undefined));
+        const prepare = vi.fn(
+            (_settings: Readonly<P2PSyncSetting>, _signal: AbortSignal) => new Promise<never>(() => undefined)
+        );
         const { createSession, owner } = createOwnerHarness(prepare);
 
         const opening = owner.open();

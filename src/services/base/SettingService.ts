@@ -1,3 +1,4 @@
+import { createDeletableValueStore, type ValueStore, type ValueDeleter } from "@vrtmrz/value-store";
 import {
     ChunkAlgorithmNames,
     LOG_LEVEL_NOTICE,
@@ -44,6 +45,8 @@ import {
 
 export interface SettingServiceDependencies {
     APIService: IAPIService;
+    /** Host-owned exact-key storage, created once for this application instance. */
+    deviceValues: ValueStore & ValueDeleter;
     /** Optional host hook for applying the loaded display language to its catalogue. */
     onDisplayLanguageChanged?: (language: ObsidianLiveSyncSettings["displayLanguage"]) => void;
 }
@@ -65,9 +68,10 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     protected APIService: IAPIService;
     private readonly onDisplayLanguageChanged?: SettingServiceDependencies["onDisplayLanguageChanged"];
 
-    protected abstract setItem(key: string, value: string): void;
-    protected abstract getItem(key: string): string;
-    protected abstract deleteItem(key: string): void;
+    /** Exact-key device values, including legacy keys outside the Vault namespace. */
+    readonly deviceValues: ValueStore & ValueDeleter;
+    /** Device values scoped by the current Vault name and database suffix. */
+    readonly config: ValueStore & ValueDeleter;
 
     _settings!: ObsidianLiveSyncSettings;
 
@@ -96,6 +100,12 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     constructor(context: T, dependencies: SettingServiceDependencies) {
         super(context);
         this.APIService = dependencies.APIService;
+        this.deviceValues = dependencies.deviceValues;
+        this.config = createDeletableValueStore({
+            get: (key) => this.deviceValues.getValue(this.getKey(key)),
+            set: (key, value) => this.deviceValues.setValue(this.getKey(key), value),
+            delete: (key) => this.deviceValues.delete(this.getKey(key)),
+        });
         this.onDisplayLanguageChanged = dependencies.onDisplayLanguageChanged;
         this._log = createInstanceLogFunction("SettingService", this.APIService);
     }
@@ -164,32 +174,12 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     /**
      * Save the current device and vault name to settings, aside from the main settings.
      */
-    saveDeviceAndVaultName(): void {
+    async saveDeviceAndVaultName(): Promise<void> {
         const lsKey =
             "obsidian-live-sync-vaultanddevicename-" +
             this.APIService.getSystemVaultName() +
             this.additionalSuffixOfDatabaseName();
-        this.setDeviceLocalConfig(lsKey, this.deviceAndVaultName);
-    }
-
-    /**
-     * Read an exact key from the host's device-local configuration store.
-     *
-     * Unlike the main settings document, this state is not synchronised. Callers
-     * which need Vault namespacing should normally use {@link getSmallConfig}.
-     */
-    getDeviceLocalConfig(key: string): string | null {
-        return this.getItem(key);
-    }
-
-    /** Store an exact key in the host's non-synchronised configuration store. */
-    setDeviceLocalConfig(key: string, value: string): void {
-        this.setItem(key, value);
-    }
-
-    /** Delete an exact key from the host's non-synchronised configuration store. */
-    deleteDeviceLocalConfig(key: string): void {
-        this.deleteItem(key);
+        await this.deviceValues.setValue(lsKey, this.deviceAndVaultName);
     }
 
     private additionalSuffixOfDatabaseName() {
@@ -204,19 +194,6 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         const keyMain = this.APIService.getSystemVaultName();
         const addSuffix = this.additionalSuffixOfDatabaseName();
         return `${keyMain}${addSuffix}-${key}`;
-    }
-
-    setSmallConfig(key: string, value: string): void {
-        const dbKey = this.getKey(key);
-        this.setDeviceLocalConfig(dbKey, value);
-    }
-    getSmallConfig(key: string): string {
-        const dbKey = this.getKey(key);
-        return this.getDeviceLocalConfig(dbKey) ?? "";
-    }
-    deleteSmallConfig(key: string): void {
-        const dbKey = this.getKey(key);
-        this.deleteDeviceLocalConfig(dbKey);
     }
 
     /**
@@ -242,7 +219,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             if (store !== "" && store !== "LOCALSTORAGE" && store !== "ASK_AT_LAUNCH") {
                 throw new Error("The configuration passphrase storage mode is unsupported.");
             }
-            const oldLocalKey = this.getDeviceLocalConfig("ls-setting-passphrase");
+            const oldLocalKey = await this.deviceValues.getValue("ls-setting-passphrase");
             const settings = this.cloneSettings(this.settings);
             let targetKey: string | false;
             if (store === "LOCALSTORAGE") {
@@ -261,10 +238,10 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             const prepared = await this.prepareSettingSave(settings, targetKey);
             const changesLocalKey = store === "LOCALSTORAGE" && targetKey !== oldLocalKey;
             try {
-                if (changesLocalKey) this.setDeviceLocalConfig("ls-setting-passphrase", targetKey);
+                if (changesLocalKey) await this.deviceValues.setValue("ls-setting-passphrase", targetKey);
                 await this.writePreparedSettings(prepared);
             } catch (error) {
-                if (changesLocalKey) this.restoreConfigurationPassphrase(oldLocalKey, error);
+                if (changesLocalKey) await this.restoreConfigurationPassphrase(oldLocalKey, error);
                 throw error;
             }
             this.settings.configPassphraseStore = store;
@@ -276,10 +253,10 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         });
     }
 
-    private restoreConfigurationPassphrase(previous: string | null, cause: unknown): void {
+    private async restoreConfigurationPassphrase(previous: string | null, cause: unknown): Promise<void> {
         try {
-            if (previous) this.setDeviceLocalConfig("ls-setting-passphrase", previous);
-            else this.deleteDeviceLocalConfig("ls-setting-passphrase");
+            if (previous) await this.deviceValues.setValue("ls-setting-passphrase", previous);
+            else await this.deviceValues.delete("ls-setting-passphrase");
         } catch {
             const message = this.context.translate("SettingService.ConfigurationPassphraseRollbackFailed");
             this._log(message, LOG_LEVEL_URGENT);
@@ -423,9 +400,9 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     }
 
     private async writePreparedSettings(prepared: PreparedSettingSave): Promise<void> {
-        this.saveDeviceAndVaultName();
+        await this.saveDeviceAndVaultName();
         if (prepared.runtime.P2P_DevicePeerName?.trim()) {
-            this.setSmallConfig(SETTING_KEY_P2P_DEVICE_NAME, prepared.runtime.P2P_DevicePeerName.trim());
+            await this.config.setValue(SETTING_KEY_P2P_DEVICE_NAME, prepared.runtime.P2P_DevicePeerName.trim());
         }
         await this.saveData(prepared.persisted);
     }
@@ -629,7 +606,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
     getPassphrase(settings: ObsidianLiveSyncSettings) {
         const methods: Record<ConfigPassphraseStore, () => Promise<string | false>> = {
             "": () => Promise.resolve("*"),
-            LOCALSTORAGE: () => Promise.resolve(this.getDeviceLocalConfig("ls-setting-passphrase") ?? false),
+            LOCALSTORAGE: () => this.deviceValues.getValue("ls-setting-passphrase", ""),
             ASK_AT_LAUNCH: () =>
                 this.APIService.confirm.askString(
                     this.context.translate("SettingService.ConfigurationPassphraseTitle"),
@@ -828,7 +805,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
         } else {
             configuredIdKey(settings);
         }
-        const previous = this.getDeviceLocalConfig("ls-setting-passphrase");
+        const previous = await this.deviceValues.getValue("ls-setting-passphrase");
         let candidate: string | false = previous || false;
         let retry = false;
         while (true) {
@@ -838,9 +815,9 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
                     if (result.verified) {
                         if (candidate !== previous) {
                             try {
-                                this.setDeviceLocalConfig("ls-setting-passphrase", candidate);
+                                await this.deviceValues.setValue("ls-setting-passphrase", candidate);
                             } catch (error) {
-                                this.restoreConfigurationPassphrase(previous, error);
+                                await this.restoreConfigurationPassphrase(previous, error);
                                 throw error;
                             }
                         }
@@ -936,9 +913,9 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             this.APIService.getSystemVaultName() +
             this.additionalSuffixOfDatabaseName();
         if (this.settings.deviceAndVaultName != "") {
-            if (!this.getDeviceLocalConfig(lsKey)) {
+            if (!(await this.deviceValues.getValue(lsKey))) {
                 this.setDeviceAndVaultName(this.settings.deviceAndVaultName);
-                this.saveDeviceAndVaultName();
+                await this.saveDeviceAndVaultName();
                 this.settings.deviceAndVaultName = "";
             }
         }
@@ -949,7 +926,7 @@ export abstract class SettingService<T extends ServiceContext = ServiceContext>
             );
             this.settings.customChunkSize = 0;
         }
-        this.setDeviceAndVaultName(this.getDeviceLocalConfig(lsKey) || "");
+        this.setDeviceAndVaultName((await this.deviceValues.getValue(lsKey)) || "");
         if (this.getDeviceAndVaultName() == "") {
             if (this.settings.usePluginSync) {
                 this._log("Device name missing. Disabling plug-in sync.", LOG_LEVEL_NOTICE);

@@ -14,7 +14,7 @@ This package is primarily for maintainers of those clients and for integrations 
 
 ## Status and versioning
 
-The package is pre-1.0. Pin an exact reviewed version, and review changes before upgrading. An entry in the package export map means that the import is deliberate and package-tested; it does not make every semantic detail of that entry a final 1.0 guarantee.
+Commonlib is pre-1.0. The compatibility policy described here begins with 0.2.0 and does not retroactively apply to published 0.1.x versions. Within 0.2.x, Commonlib preserves published APIs, types, behaviour, supported persisted data, and exported `compat/*` paths; intentional breaking changes use 0.3.0. Consumers may declare ranges such as `^0.2.0`; retain a lockfile and use `npm ci` for reproducible installs. An entry in the package export map means that the import is deliberate and package-tested; it does not make every semantic detail of that entry a final 1.0 guarantee.
 
 Treat every `compat/*` subpath as a migration-only interface. A source-directory import, Git submodule, or consumer-defined TypeScript alias is not a supported package boundary.
 
@@ -43,7 +43,7 @@ does not provide an arbitrary-time checkpoint jump or On Demand repair.
 | `@vrtmrz/livesync-commonlib/remote-configurations` | Multiple-remote profile creation, naming, and selection                           | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/settings`              | New-Vault defaults, stored-setting fallbacks, and settings migration results      | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/setup-uri`             | Encrypted Setup URI generation, availability, and import                          | Focused, package-tested pre-1.0 contract                                                    |
-| `@vrtmrz/livesync-commonlib/compat/*`              | Exact legacy imports still required by existing clients                           | Migration-only; paths may be removed as consumers migrate                                   |
+| `@vrtmrz/livesync-commonlib/compat/*`              | Exact legacy imports still required by existing clients                           | Migration-only; retained within 0.2.x, with removals treated as 0.3.0 breaking changes       |
 | `@vrtmrz/livesync-commonlib/package.json`          | Package metadata for tooling                                                      | Metadata export, not a runtime API                                                          |
 
 Import only the entry point required by the current runtime. Browser code must not import the Node entry.
@@ -198,11 +198,11 @@ The accepted replacement direction is an asynchronously created file client with
 
 Package developers should read [the developer guide](docs/development.md). The focused contracts are described in [the storage guide](docs/platform-storage.md), [the standard-I/O guide](docs/platform-standard-io.md), [the settings lifecycle guide](docs/settings-lifecycle.md), [the remote configuration profile guide](docs/remote-configurations.md), [the remote feature compatibility contract](docs/remote-feature-compatibility.md), [the conflict-resolution guide](docs/conflict-resolution.md), and [the P2P transport lifecycle guide](docs/p2p-transport-lifecycle.md).
 
-## Proven in maintained hosts
+## Maintained-host examples and evidence
 
 The package boundary is exercised by Self-hosted LiveSync's Obsidian plug-in, CLI, WebApp, and WebPeer compositions. Their validation is not uniform: the Obsidian plug-in and CLI have the strongest device and long-running synchronisation evidence, while WebApp and WebPeer have focused adapter and runtime tests, browser smoke tests, a cross-application P2P scenario ending at the production CLI, and public Pages smoke validation.
 
-See [Proven in maintained hosts](docs/proven-in-use.md) for the actual composition points, downstream tests, and remaining limits. The examples deliberately separate focused public entries which a new consumer may copy from `compat/*` imports which exist to migrate the current application.
+See [Maintained-host examples and evidence](docs/proven-in-use.md) for composition points, downstream tests, and remaining limits. This optional page records examples and evidence; it does not define package support or create a release or adoption requirement. The examples deliberately separate focused public entries which a new consumer may copy from `compat/*` imports which exist to migrate the current application.
 
 ## Licence
 

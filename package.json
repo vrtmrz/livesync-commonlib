@@ -1,6 +1,6 @@
 {
   "name": "@vrtmrz/livesync-commonlib",
-  "version": "0.1.44",
+  "version": "0.2.0",
   "description": "Shared data, storage, and replication primitives for Self-hosted LiveSync clients.",
   "private": true,
   "type": "module",
@@ -44,6 +44,7 @@
     "@smithy/types": "^4.14.3",
     "@smithy/util-retry": "^4.4.5",
     "@trystero-p2p/nostr": "0.25.3",
+    "@vrtmrz/value-store": "0.1.0",
     "diff-match-patch": "^1.0.5",
     "events": "^3.3.0",
     "fflate": "^0.8.2",
