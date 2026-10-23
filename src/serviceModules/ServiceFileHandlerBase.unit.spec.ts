@@ -9,6 +9,7 @@ import type {
     UXFileInfo,
     UXFileInfoStub,
 } from "@lib/common/types";
+import * as contentUtils from "@lib/common/utils";
 import { createBinaryBlob, createTextBlob } from "@lib/common/utils";
 import { encodeBinary } from "@lib/string_and_binary/convert";
 import { ServiceFileHandlerBase, type ServiceFileHandlerDependencies } from "./ServiceFileHandlerBase";
@@ -981,6 +982,26 @@ describe("ServiceFileHandlerBase restored storage events", () => {
 });
 
 describe("ServiceFileHandlerBase.dbToStorage", () => {
+    it("reuses decoded binary content for validation and reflection evidence", async () => {
+        const fixture = createHandler("old", "unused", false);
+        const bytes = new Uint8Array([0, 255, 31, 128]);
+        const path = "attachment.bin";
+        const meta = { ...createMeta(path, ""), type: "newnote", datatype: "newnote", size: bytes.byteLength };
+        fixture.storageStub.path = path as FilePath;
+        fixture.storageStub.name = path;
+        fixture.databaseFileAccess.fetchEntryMeta.mockResolvedValue(meta);
+        fixture.databaseFileAccess.fetchEntryFromMeta.mockResolvedValue({ ...meta, data: await encodeBinary(bytes) });
+        const reconstruct = vi.spyOn(contentUtils, "readAsBlob");
+        try {
+            await expect(fixture.handler.dbToStorageWithSpecificRev(fixture.storageStub, meta._rev, true)).resolves.toBe(true);
+            expect(reconstruct).not.toHaveBeenCalled();
+            const written = fixture.storageAccess.writeFileAuto.mock.calls[0]?.[1] as ArrayBuffer;
+            expect(new Uint8Array(written)).toEqual(bytes);
+        } finally {
+            reconstruct.mockRestore();
+        }
+    });
+
     it.each(["touched", "stat"] as const)(
         "does not replace newer provenance set while an earlier reflection awaits %s",
         async (pauseAt) => {
