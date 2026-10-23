@@ -1,7 +1,7 @@
 import type { RemoteDBSettings, RemotePreferredTweakResult } from "@lib/common/types.ts";
 import type { RemoteDBStatus } from "./LiveSyncAbstractReplicator.ts";
 import { CAPABILITY_NOT_APPLICABLE, type CapabilitySupport } from "./ProviderCapability.ts";
-import type { InitialFetchFastForward } from "./couchdb/FastForward.ts";
+import type { InitialFetchFastForward } from "./couchdb/fastForward.ts";
 
 /** Stable machine identifiers for finite provider-owned remote resources. */
 export const REMOTE_RESOURCE_KINDS = Object.freeze({

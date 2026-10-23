@@ -4,7 +4,7 @@ import MemoryAdapter from "pouchdb-adapter-memory";
 import HttpAdapter from "pouchdb-adapter-http";
 import Replication from "pouchdb-replication";
 import { fetchChangesForInitialSync } from "@lib/pouchdb/StreamingFetch.ts";
-import { prepareInitialFetchFastForward } from "./FastForward.ts";
+import { prepareInitialFetchFastForward } from "./fastForward.ts";
 import type { EntryDoc } from "@lib/common/types.ts";
 
 PouchDB.plugin(MemoryAdapter).plugin(HttpAdapter).plugin(Replication);

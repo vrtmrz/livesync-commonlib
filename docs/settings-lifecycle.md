@@ -31,6 +31,14 @@ The other headline recommendations are already the conservative fallbacks: `sync
 
 Apply a remote-specific preferred object only while configuring that remote. Do not merge it into an existing stored configuration merely because the remote type can be inferred. Cloudant, self-hosted CouchDB, and Journal Sync setup all use the common `customChunkSize` value of 0. Their unrelated request and bulk settings remain service-specific. The current Doctor regulation no longer recommends changing the value to 60 universally, and existing explicit values remain valid.
 
+The new Doctor rule set inherits 1.0.33 and withdraws the Chunk-size rule with
+`customChunkSize: undefined`. Historical regulations keep their original rules.
+This removes the recommendation, rather than deleting a stored setting or
+forcing it to 0. Its consultation version deliberately remains 1.0.33: removing
+a recommendation does not require users to review unchanged recommendations
+again. Existing dismissals remain effective; an explicit forced rescan still
+checks the remaining rules.
+
 | Explicitly selected remote | `customChunkSize` | `concurrencyOfReadChunksOnline` | `minimumIntervalOfReadChunksOnline` |
 | --- | ---: | ---: | ---: |
 | Cloudant | 0 | 100 | 333 |
