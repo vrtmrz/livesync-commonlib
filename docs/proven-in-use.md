@@ -25,7 +25,9 @@ tests exercise revision ancestry retrieval and a fresh-import handoff to the
 ordinary PouchDB checkpoints, followed by a batch-size change and receipt of a
 new revision in LiveSync mode. Unit tests cover unimported local writes, missing
 or replaced checkpoint guards, partial publication, and exclusion of persisted
-resume cursors. Rebuilder tests also delay and reject device-local checkpoint
+resume cursors. A controlled connection delay also verifies that disposing the
+resource during preparation closes the connection when it arrives. Rebuilder
+tests also delay and reject device-local checkpoint
 writes, verifying that handoff, completion, and checkpoint removal wait for
 successful persistence. The handoff requires an empty local database, suspended local
 writers, and a remote database which is not replaced during the operation.

@@ -245,7 +245,12 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     this.currentSettings.suspendFileWatching && this.currentSettings.suspendParseReplicationResult &&
                     identity(this.currentSettings) === binding;
                 if (!isCurrent()) return undefined;
-                connection = await this.openOwnedConnection<EntryDoc>(snapshot);
+                const openedConnection = await this.openOwnedConnection<EntryDoc>(snapshot);
+                if (disposed) {
+                    await openedConnection.close();
+                    return undefined;
+                }
+                connection = openedConnection;
                 return await prepareInitialFetchFastForward(local, connection.db, {
                     push: {},
                     ...(snapshot.readChunksOnline ? { pull: { ...selectorOnDemandPull } } : {}),

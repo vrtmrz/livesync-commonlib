@@ -1262,6 +1262,34 @@ describe("LiveSyncCouchDBReplicator initial-fetch Fast Forward ownership", () =>
         }
     });
 
+    it("closes a connection which arrives after disposal during preparation", async () => {
+        const local = createInitialFetchFastForwardDatabase();
+        const remote = createInitialFetchFastForwardDatabase();
+        const fixture = createInitialFetchFastForwardResourceFixture(local, remote);
+        const releaseConnection = Promise.withResolvers<void>();
+        fixture.openOwnedConnection.mockImplementation(async () => {
+            await releaseConnection.promise;
+            return { db: remote, info: { update_seq: 0 }, close: fixture.connectionClose };
+        });
+        const preparing = fixture.resource.prepare();
+
+        try {
+            expect(fixture.openOwnedConnection).toHaveBeenCalledOnce();
+            await fixture.resource.dispose();
+            releaseConnection.resolve();
+            await expect(preparing).resolves.toBeUndefined();
+            await fixture.resource.dispose();
+
+            expect(fixture.connectionClose).toHaveBeenCalledOnce();
+        } finally {
+            releaseConnection.resolve();
+            await preparing.catch(() => undefined);
+            await fixture.resource.dispose();
+            await local.destroy();
+            await remote.destroy();
+        }
+    });
+
     it("does not open a connection after disposal before preparation", async () => {
         const local = createInitialFetchFastForwardDatabase();
         const remote = createInitialFetchFastForwardDatabase();

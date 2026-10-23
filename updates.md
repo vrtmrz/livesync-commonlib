@@ -34,6 +34,7 @@ The minor version bump to 0.2.0 mostly just means that we have moved on from 0.1
 
 - Fresh Fast Fetch can hand its completed import to ordinary replication without repeating the initial revision scan.
     - Hosts may provide the optional `INITIAL_FETCH_FAST_FORWARD` resource. It applies only to a fresh, empty local database with writers suspended and no existing replication checkpoints; resumed imports retain ordinary replication reconciliation.
+    - Disposing the resource during connection preparation closes any connection which arrives afterwards.
 
 ### Fixed
 
