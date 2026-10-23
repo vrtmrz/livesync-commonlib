@@ -15,6 +15,7 @@ import {
     checkUnsuitableValues,
     DoctorRegulation,
     DoctorRegulationV0_24_30,
+    DoctorRegulationV1_0_33,
     performDoctorConsultation,
     RebuildOptions,
 } from "./configForDoc";
@@ -34,7 +35,6 @@ describe("Doctor translation boundary", () => {
             enableCompression: true,
         });
 
-        expect(DoctorRegulation.version).toBe("1.0.33");
         expect(result.rules.enableCompression).toBeUndefined();
     });
 
@@ -78,7 +78,10 @@ describe("Doctor translation boundary", () => {
         expect(result.rules.customChunkSize).toBeUndefined();
     });
 
-    it("retains the historical V0.24.30 chunk-size recommendation for callers using that regulation", () => {
+    it.each([
+        ["0.24.30", DoctorRegulationV0_24_30],
+        ["1.0.33", DoctorRegulationV1_0_33],
+    ])("retains the historical %s chunk-size recommendation for callers using that regulation", (_version, regulation) => {
         const settings = {
             ...DEFAULT_SETTINGS,
             remoteType: REMOTE_COUCHDB,
@@ -87,8 +90,53 @@ describe("Doctor translation boundary", () => {
             couchDB_URI: "https://couchdb.example.test/database",
         };
 
-        expect(DoctorRegulationV0_24_30.rules.customChunkSize).toMatchObject({ value: 60 });
-        expect(checkUnsuitableValues(settings, DoctorRegulationV0_24_30).rules.customChunkSize).toBeDefined();
+        expect(regulation.rules.customChunkSize).toMatchObject({ value: 60 });
+        expect(checkUnsuitableValues(settings, regulation).rules.customChunkSize).toBeDefined();
+    });
+
+    it("withdraws the chunk-size recommendation while retaining the consultation revision", () => {
+        const settings = {
+            ...NEW_VAULT_SETTINGS,
+            customChunkSize: 20,
+            couchDB_URI: "https://couchdb.example.test/database",
+        };
+
+        expect(DoctorRegulation.version).toBe("1.0.33");
+        expect(checkUnsuitableValues(settings).version).toBe("1.0.33");
+        expect(checkUnsuitableValues(settings).rules.customChunkSize).toBeUndefined();
+    });
+
+    it.each([false, true])("preserves the previous dismissal unless a rescan is forced (%s)", async (forceRescan) => {
+        const settings = {
+            ...NEW_VAULT_SETTINGS,
+            encrypt: true,
+            usePathObfuscation: true,
+            encryptInternalMetadata: false,
+            customChunkSize: 20,
+            doctorProcessedVersion: "1.0.33",
+        };
+        const confirm = {
+            askSelectStringDialogue: vi.fn(async (_message: string, options: string[]) => options[0]),
+            askYesNoDialog: vi.fn(),
+        };
+
+        const result = await performDoctorConsultation(
+            { confirm: confirm as never, translate: ((key: string) => key) as never },
+            settings,
+            {
+                localRebuild: RebuildOptions.AutomaticAcceptable,
+                remoteRebuild: RebuildOptions.AutomaticAcceptable,
+                forceRescan,
+            }
+        );
+
+        expect(confirm.askSelectStringDialogue).toHaveBeenCalledTimes(forceRescan ? 2 : 0);
+        expect(result.settings.encryptInternalMetadata).toBe(forceRescan);
+        expect(result.settings.customChunkSize).toBe(20);
+        expect(result.settings.doctorProcessedVersion).toBe("1.0.33");
+        expect(result.isModified).toBe(forceRescan);
+        expect(result.shouldRebuild).toBe(false);
+        expect(result.shouldRebuildLocal).toBe(false);
     });
 
     it("does not apply the CouchDB chunk-size recommendation to P2P", () => {

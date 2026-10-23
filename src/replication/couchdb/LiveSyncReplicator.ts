@@ -41,7 +41,7 @@ import { requiredRemoteFeatures, usesEncryptedInternalMetadata } from "@lib/pouc
 import { assessRemoteDocumentIds } from "@lib/pouchdb/remoteIdCompatibility.ts";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
 import { preprocessOutgoing } from "@lib/pouchdb/encryption.ts";
-import { prepareInitialFetchFastForward } from "./FastForward.ts";
+import { prepareInitialFetchFastForward } from "./fastForward.ts";
 import type { InitialFetchFastForwardResource } from "../RemoteResource.ts";
 
 import { ensureDatabaseIsCompatible, getEffectiveTweakValues } from "@lib/pouchdb/LiveSyncDBFunctions.ts";

@@ -129,6 +129,13 @@ Keep storage-policy selection distinct from runtime batch settings.
 | Existing compatible tweak auto-alignment | Preserve timestamp, opt-out, and adoption semantics; the default change grants no new authority to overwrite agreed values |
 | Load an existing Cloudant configuration | Retain the existing Cloudant-specific constraint in this change; do not describe it as proof that old documents fit |
 
+Define the new Doctor rule set by inheriting 1.0.33 and setting
+`customChunkSize: undefined`. Preserve the historical 1.0.33 rule and deliberately
+retain its consultation version. Withdrawing a recommendation does not warrant
+repeating unchanged recommendations after dismissal. An explicit forced rescan
+still checks remaining rules; neither path deletes or rewrites the user's
+Chunk-size setting.
+
 Primary owners are
 [preferred settings](../../src/common/models/setting.const.preferred.ts),
 [schema fallbacks](../../src/common/models/setting.const.defaults.ts),
@@ -223,7 +230,7 @@ incarnation identifier. Session and revision guards reject observed replacement
 but cannot atomically prevent deletion/recreation racing checkpoint writes.
 This is an explicit scope boundary, not a solved fencing mechanism.
 
-Owners: [FastForward](../../src/replication/couchdb/FastForward.ts),
+Owners: [fresh-import handoff](../../src/replication/couchdb/fastForward.ts),
 [CouchDB Replicator](../../src/replication/couchdb/LiveSyncReplicator.ts),
 [resource contract](../../src/replication/RemoteResource.ts), and
 [Rebuilder](../../src/serviceModules/Rebuilder.ts).
@@ -295,10 +302,19 @@ retaining the earlier rolling-window scenarios and explicit-setting coverage.
 | Package boundary | Packed Commonlib passes its package gate and the exact downstream consumer checks |
 | Host flow | Focused real-Obsidian fresh setup, suspension, file reflection, and restart checks exercise the exact candidate |
 
-The current candidate passes 2,454 Commonlib unit tests, 11 focused real-CouchDB
+The initial candidate passed 2,454 Commonlib unit tests, 11 focused real-CouchDB
 integration tests, package checks, and the downstream check/build gate with
 1,299 unit tests passing and one skipped. The downstream suite excludes the
 retained generated source copy under `.bench/**`.
+
+The subsequent PR follow-up passes 2,458 Commonlib unit tests, types, boundary
+checks, the packed-package gate, and the downstream check and unit suite
+(1,299 passed, one skipped) against its exact tarball. It restores the
+historical Doctor rules, preserves consultation
+version 1.0.33, and renames the function module to `fastForward.ts`. Its
+[separate evidence](../adr/evidence/2026_10_rule_a_pr_followup.json) preserves
+the source and artefact identities without rewriting earlier measurement
+snapshots.
 
 The mixed CLI matrix checks 810 file-stage digests over three size values,
 three stages, three transports, and both writer directions. Those fixtures

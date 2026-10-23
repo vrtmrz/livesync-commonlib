@@ -18,6 +18,16 @@ The source tree is larger than the supported package surface. Consumers may impo
 
 Files elsewhere under `src` are implementation details unless a focused entry re-exports them or the compatibility inventory names them. Do not use the source layout, TypeScript path aliases, or the presence of generated declarations as evidence of a supported consumer import.
 
+## Module filenames
+
+For new or renamed TypeScript and JavaScript source modules, start the filename
+with an upper-case letter when the file contains a class with the same name,
+such as `ServiceHub.ts`. Use a lower-case initial when the module primarily
+exports functions, such as `fastForward.ts`. Follow the surrounding filename
+style for the rest of the basename. Corresponding test files use the same
+basename, such as `fastForward.unit.spec.ts`. Retain established names for
+unrelated files and separate conventions for components or other file types.
+
 ## Service composition and state ownership
 
 Commonlib uses four related forms of composition. Choose between them by ownership and dependency direction, not merely by whether an implementation has mutable state.

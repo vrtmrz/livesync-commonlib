@@ -109,6 +109,11 @@ tweak-resolution flow. Current Cloudant-specific enforcement remains a
 separate existing constraint, rather than evidence that every stored document
 fits Cloudant.
 
+Preserve the historical Doctor rule sets and withdraw this rule in a new
+inherited definition. Deliberately keep consultation version 1.0.33, because
+removing a recommendation does not justify repeating unchanged recommendations
+for users who already dismissed that version. A forced rescan remains available.
+
 ### Complete initial reception before advancing checkpoints
 
 A changes cursor alone does not prove all current revision bodies are present.
@@ -205,10 +210,21 @@ work; this decision adds no persistent Cloudant-intent question.
 
 The small-cap regressions failed in three cases before the threshold change;
 the setup/Doctor regressions failed in four cases before alignment. They pass
-after their respective fixes. The candidate passes 2,454 Commonlib unit tests,
+after their respective fixes. The initial candidate passed 2,454 Commonlib unit tests,
 11 focused real-CouchDB integration tests, boundary and package gates, and
 downstream LiveSync checks, with 1,299 unit tests passing and one skipped.
 The plug-in, CLI, WebApp, and WebPeer builds pass.
+
+A PR follow-up preserves the historical 1.0.33 Doctor rules while keeping the
+current consultation version deliberately unchanged. Its regression failed
+against the initial PR implementation, then passed with dismissal and forced
+rescan coverage. The renamed `fastForward.ts` follows the documented filename
+convention. The follow-up passes 2,458 Commonlib unit tests, type checks,
+boundary checks, and the packed-package gate. The exact resulting tarball also
+passes the downstream check and unit suite, with 1,299 passed and one skipped.
+The separately dated
+[follow-up evidence](evidence/2026_10_rule_a_pr_followup.json) records its source
+and artefact identities; earlier measurement JSON remains unchanged.
 
 The packed old/new CLI matrix verifies 810 file-stage digests across CouchDB,
 Journal, and P2P, in both directions, at values 0, 1, and 4. Initial candidate

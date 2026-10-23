@@ -34,6 +34,12 @@ and its implementation evidence.
 - JSON evidence files below are preserved unchanged. Their proposal/status text
   records the experiment date; later decisions are recorded in the ADR.
 
+The decision record and the tables here provide the human-readable explanation.
+The dated JSON files preserve measurement conditions, source identities, and
+recorded results for comparison or recalculation. Treat them as historical
+snapshots: do not rewrite them to match a later implementation or decision.
+Add a separately dated record when new measurements are needed.
+
 ## Analysis model
 
 ### Evaluate three synchronisation stages in three directions

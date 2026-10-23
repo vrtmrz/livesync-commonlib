@@ -4,7 +4,7 @@ import MemoryAdapter from "pouchdb-adapter-memory";
 import Replication from "pouchdb-replication";
 import generateReplicationId from "pouchdb-generate-replication-id";
 import Checkpointer from "pouchdb-checkpointer";
-import { prepareInitialFetchFastForward } from "./FastForward.ts";
+import { prepareInitialFetchFastForward } from "./fastForward.ts";
 import type { EntryDoc } from "@lib/common/types.ts";
 
 PouchDB.plugin(MemoryAdapter).plugin(Replication);

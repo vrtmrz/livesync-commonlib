@@ -1,0 +1,72 @@
+{
+  "date": "2026-10-23",
+  "status": "implemented-unreleased-pr-followup",
+  "initialPrRevision": "72059c7447dd449099dfafacfb07f51817674440",
+  "previousEvidence": "2026_10_rule_a_implementation.json",
+  "changes": {
+    "doctor": {
+      "newDefinition": "DoctorRegulationV1_0_40",
+      "consultationVersion": "1.0.33",
+      "historicalRulesPreserved": true,
+      "currentCustomChunkSizeRule": "undefined",
+      "existingDismissalsRetained": true,
+      "forcedRescanRetained": true,
+      "reason": "Withdrawing one recommendation does not warrant repeating unchanged recommendations."
+    },
+    "moduleRename": {
+      "from": "src/replication/couchdb/FastForward.ts",
+      "to": "src/replication/couchdb/fastForward.ts",
+      "implementationBytesChanged": false
+    },
+    "filenameConventionDocumented": true,
+    "historicalEvidencePolicy": "Preserve dated JSON snapshots; add separate records for new measurements or validation."
+  },
+  "sourceSha256": {
+    "src/common/configForDoc.ts": "41e2c0caba61c828a86795058b01755ebf71331b4f8b2f2f31c64d70fbc9b7fc",
+    "src/string_and_binary/chunks.ts": "b1159702cc99c1dc45afa08bceb74bb1ecbc4c4ebb3d3ae30a83830b46881ea2",
+    "src/common/models/setting.const.preferred.ts": "fee50b9e13d74acacd6243da2b9d27a28d7a902082eaf9367121d1c481f93d91",
+    "src/pouchdb/StreamingFetch.ts": "f87556cecd50b71748ec487d94dcd817e94340ad7d7acf609026189b6009930a",
+    "src/replication/couchdb/fastForward.ts": "d88aaddee309c78d97650604e5c18126db8c1c63dd78d6d43caca27fcf63c6e5",
+    "src/replication/couchdb/LiveSyncReplicator.ts": "177a753205f4e8b9db1f0c2664081d60c69f2b0c339689b0d58dbb83c1eacb11",
+    "src/replication/RemoteResource.ts": "ca194294542a45516257b256ed2fae6284acc270f8fa0f59b371c7aa64ea7653",
+    "src/replication/index.ts": "0259a4a4a4ccd37866f8c067d502db337bef4f1bedb1f4b180fb28822a2474ad"
+  },
+  "regression": {
+    "testFile": "src/common/configForDoc.unit.spec.ts",
+    "baselineRevision": "72059c7447dd449099dfafacfb07f51817674440",
+    "failedBeforeFix": 1,
+    "passedBeforeFix": 23,
+    "failure": "Historical 1.0.33 chunk-size rule had been overwritten.",
+    "finalFocusedTestsPassed": 117
+  },
+  "verification": {
+    "commonlibUnitTestsPassed": 2458,
+    "commonlibTypes": "passed",
+    "boundaryTests": "passed",
+    "releaseToolTests": "passed",
+    "packedPackageGate": "passed",
+    "normalNpmCleanInstall": "passed",
+    "livesyncCheck": "passed",
+    "livesyncUnitTestsPassed": 1299,
+    "livesyncUnitTestsSkipped": 1,
+    "excludedGeneratedExperimentSources": ".bench/**",
+    "installedDoctorContract": "passed"
+  },
+  "packedCandidate": {
+    "filename": "vrtmrz-livesync-commonlib-0.1.44-rule-a-pr-ed5ebfdb1248.tgz",
+    "sha256": "ed5ebfdb1248aea5929b1566da771db01771d767983bf1477c58c6a8e9abe198",
+    "integrity": "sha512-QXGHj77Q3iBfgEU+gRA/kHqafevMYORJWWbFFhdHhvwl7tmpfzict4Hfcx6B0lu3cuQQf8T5FBHOuqXw79f7fQ==",
+    "runtimeCandidateVersion": "0.1.44"
+  },
+  "retainedEarlierCoverage": {
+    "mixedWriterFileStageDigests": 810,
+    "commonlibFocusedRealCouchdbIntegrationTests": 11,
+    "realLinuxObsidianWorkflow": "passed against the earlier measured candidate",
+    "reason": "Chunking, StreamingFetch, preferred settings, and the renamed handoff implementation have identical source bytes to the earlier measured candidate."
+  },
+  "limits": [
+    "Earlier transport, conflict, and real-Obsidian evidence keeps its original artefact identity; those measurements were not rerun for the naming and Doctor-history follow-up.",
+    "The integrated Commonlib 0.2.0 consumer remains a separate release gate.",
+    "No mobile runtime or IBM Cloudant service measurement."
+  ]
+}

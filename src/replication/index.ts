@@ -77,7 +77,7 @@ export type {
     SynchronisationInformationResource,
     SynchronisationInformationResourceFactory,
 } from "./RemoteResource.ts";
-export type { InitialFetchFastForward } from "./couchdb/FastForward.ts";
+export type { InitialFetchFastForward } from "./couchdb/fastForward.ts";
 export {
     CENTRAL_REMOTE_ADMINISTRATION_ACTIONS,
     CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS,

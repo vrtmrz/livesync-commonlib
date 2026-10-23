@@ -204,7 +204,6 @@ export const DoctorRegulationV1_0_33: DoctorRegulation = {
     version: "1.0.33",
     rules: {
         ...DoctorRegulationV1_0_0.rules,
-        customChunkSize: undefined,
         encryptInternalMetadata: {
             value: true,
             level: RuleLevel.Recommended,
@@ -218,7 +217,17 @@ export const DoctorRegulationV1_0_33: DoctorRegulation = {
     },
 };
 
-export const DoctorRegulation = DoctorRegulationV1_0_33;
+export const DoctorRegulationV1_0_40: DoctorRegulation = {
+    // Only withdraw a recommendation. Retain the consultation version so users
+    // who dismissed 1.0.33 are not prompted again for unchanged recommendations.
+    version: DoctorRegulationV1_0_33.version,
+    rules: {
+        ...DoctorRegulationV1_0_33.rules,
+        customChunkSize: undefined,
+    },
+};
+
+export const DoctorRegulation = DoctorRegulationV1_0_40;
 
 export function checkUnsuitableValues(
     setting: Partial<ObsidianLiveSyncSettings>,
