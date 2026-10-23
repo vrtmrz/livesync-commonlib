@@ -4,6 +4,8 @@
 
 23rd October, 2026
 
+The minor version bump to 0.2.0 mostly just means that we have moved on from 0.1.
+
 ### Changed
 
 - We can choose device-local storage for each host and await its reads, writes, and deletions.
