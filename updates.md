@@ -1,5 +1,12 @@
 # Updates
 
+## Unreleased
+
+### Fixed
+
+- We can store and read Hidden File Sync documents while a normal-file allow-list is set.
+    - The `i:` document prefix bypasses `syncOnlyRegEx`. Hidden-file enablement and `syncIgnoreRegEx` retain their existing behaviour.
+
 ## 0.1.44
 
 20th October, 2026

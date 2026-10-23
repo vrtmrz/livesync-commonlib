@@ -326,7 +326,8 @@ async function putDBEntryInternal(
 }
 export function isTargetFile(host: NecessaryServicesInterfaces<"setting", never>, filenameSrc: string) {
     const settings = host.services.setting.currentSettings();
-    const file = filenameSrc.startsWith(ICHeader) ? filenameSrc.substring(ICHeader.length) : filenameSrc;
+    const isInternalFile = filenameSrc.startsWith(ICHeader);
+    const file = isInternalFile ? filenameSrc.substring(ICHeader.length) : filenameSrc;
     if (file.startsWith(ICXHeader)) return true;
     if (file.startsWith(PSCHeader)) return true;
     if (file.startsWith(IDPrefixes.Chunk) || file.startsWith(IDPrefixes.Obfuscated)) {
@@ -337,7 +338,7 @@ export function isTargetFile(host: NecessaryServicesInterfaces<"setting", never>
             return false;
         }
     }
-    if (settings.syncOnlyRegEx) {
+    if (!isInternalFile && settings.syncOnlyRegEx) {
         const syncOnly = getFileRegExp(settings, "syncOnlyRegEx");
         if (syncOnly.length > 0 && !syncOnly.some((e) => e.test(file))) return false;
     }
