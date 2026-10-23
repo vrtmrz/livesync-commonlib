@@ -86,13 +86,72 @@ describe("fresh Fast Fetch checkpoint handoff", () => {
         expect(await prepareInitialFetchFastForward(local, create(), options, () => true)).toBeUndefined();
     });
 
+    it.each([
+        ["local", true, false],
+        ["remote", false, true],
+    ] as const)(
+        "refuses to prepare when a native push checkpoint already exists on the %s",
+        async (owner, writeSourceCheckpoint, writeTargetCheckpoint) => {
+            const local = create();
+            const remote = create();
+            const pushId = await generateReplicationId(local, remote, options);
+            const previous = new Checkpointer(
+                local,
+                remote,
+                pushId,
+                { cancelled: false },
+                { writeSourceCheckpoint, writeTargetCheckpoint }
+            );
+            await previous.writeCheckpoint(12, "previous-session");
+            const checkpointOwner = owner === "local" ? local : remote;
+
+            await expect(prepareInitialFetchFastForward(local, remote, options, () => true)).resolves.toBeUndefined();
+            await expect(checkpointOwner.get(pushId)).resolves.toMatchObject({
+                last_seq: 12,
+                session_id: "previous-session",
+            });
+
+            const pullId = await generateReplicationId(remote, local, { ...options, ...options.pull });
+            await expect(local.get(pullId)).rejects.toMatchObject({ status: 404 });
+            await expect(remote.get(pullId)).rejects.toMatchObject({ status: 404 });
+        }
+    );
+
+    it("keeps ordinary replication available when the imported revision budget is exceeded", async () => {
+        const { local, remote, session } = await fixture();
+        await remote.put({ _id: "ordinary-stream-change", type: "plain", value: "after cursor" } as never);
+        for (let start = 0; start < 100_001; start += 1_000) {
+            const length = Math.min(1_000, 100_001 - start);
+            session.recordStoredRevisions(
+                Array.from({ length }, (_value, index) => ({
+                    id: `imported-${start + index}`,
+                    rev: "1-a",
+                }))
+            );
+        }
+
+        expect(await session.fastForward()).toBe(false);
+        const pushId = await generateReplicationId(local, remote, options);
+        const pullId = await generateReplicationId(remote, local, { ...options, ...options.pull });
+        await expect(new Checkpointer(local, remote, pushId, { cancelled: false }).getCheckpoint()).resolves.toBe(0);
+        await expect(new Checkpointer(remote, local, pullId, { cancelled: false }).getCheckpoint()).resolves.toBe(0);
+        await expect(local.get("ordinary-stream-change")).rejects.toMatchObject({ status: 404 });
+
+        await local.sync(remote, options);
+
+        await expect(local.get("ordinary-stream-change")).resolves.toMatchObject({
+            _id: "ordinary-stream-change",
+            value: "after cursor",
+        });
+    });
+
     it("does not recreate a lost remote checkpoint while publishing an imported prefix", async () => {
         const { local, remote, session } = await fixture();
         const id = await generateReplicationId(local, remote, options);
         await remote.remove(await remote.get(id));
         await expect(session.fastForward()).rejects.toThrow("no longer available");
         await expect(remote.get(id)).rejects.toMatchObject({ status: 404 });
-        expect((await local.get(id) as any).last_seq).toBe(0);
+        expect(((await local.get(id)) as any).last_seq).toBe(0);
     });
 
     it("rejects a replacement checkpoint even when its local revision number is reused", async () => {
@@ -103,7 +162,7 @@ describe("fresh Fast Fetch checkpoint handoff", () => {
         await remote.put({ _id: id, last_seq: 0, session_id: "another-import", version: 1 } as never);
         expect((await remote.get(id))._rev).toBe(initial._rev);
         await expect(session.fastForward()).rejects.toThrow("changed before");
-        expect((await local.get(id) as any).last_seq).toBe(0);
+        expect(((await local.get(id)) as any).last_seq).toBe(0);
     });
 
     it("retains ordinary recovery after publication fails between the two directional pairs", async () => {
@@ -111,7 +170,8 @@ describe("fresh Fast Fetch checkpoint handoff", () => {
         const pullId = await generateReplicationId(remote, local, { ...options, ...options.pull });
         const originalPut = remote.put.bind(remote);
         const put = vi.spyOn(remote, "put").mockImplementation((document: any, ...args: any[]) => {
-            if (document._id === pullId) return Promise.reject(Object.assign(new Error("publication interrupted"), { status: 500 }));
+            if (document._id === pullId)
+                return Promise.reject(Object.assign(new Error("publication interrupted"), { status: 500 }));
             return (originalPut as any)(document, ...args);
         });
         await expect(session.fastForward()).rejects.toThrow("publication interrupted");

@@ -1,7 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import PouchDB from "pouchdb-core";
 import MemoryAdapter from "pouchdb-adapter-memory";
-import { E2EEAlgorithms, VERSIONING_DOCID, type DocumentID, type FilePathWithPrefix, type PlainEntry } from "@lib/common/types";
+import {
+    E2EEAlgorithms,
+    VERSIONING_DOCID,
+    type DocumentID,
+    type FilePathWithPrefix,
+    type PlainEntry,
+} from "@lib/common/types";
 import { getConfiguredFunctionsForEncryption } from "./encryption";
 import { checkRemoteFeaturesForInitialSync, fetchChangesForInitialSync } from "./StreamingFetch";
 
@@ -86,14 +92,16 @@ function changesStatus(available: number, lastSequence: string | number) {
 }
 
 function remoteFeatureResponse(document?: unknown, totalRows = 1): Response {
-    return new Response(JSON.stringify({
-        total_rows: totalRows,
-        rows: [
-            document === undefined
-                ? { key: VERSIONING_DOCID, error: "not_found" }
-                : { key: VERSIONING_DOCID, doc: document },
-        ],
-    }));
+    return new Response(
+        JSON.stringify({
+            total_rows: totalRows,
+            rows: [
+                document === undefined
+                    ? { key: VERSIONING_DOCID, error: "not_found" }
+                    : { key: VERSIONING_DOCID, doc: document },
+            ],
+        })
+    );
 }
 
 function queueChangesFeed(
@@ -136,9 +144,7 @@ function queueChangesFeedWithBulkGet(
             return new Response(JSON.stringify(changesStatus(available, pageTerminator)));
         }
         if (url.searchParams.get("feed") === "continuous") {
-            return new Response(
-                textStream([...changeRows, JSON.stringify({ last_seq: pageTerminator })])
-            );
+            return new Response(textStream([...changeRows, JSON.stringify({ last_seq: pageTerminator })]));
         }
         throw new Error(`Unexpected Fast Fetch request: ${url}`);
     });
@@ -150,14 +156,15 @@ function fetchInitial(
     decrypt = (doc: any) => Promise.resolve(doc),
     onCheckpoint?: (sequence: string | number) => void,
     customHeaders?: Record<string, string>,
-    onStoredRevisions?: (revisions: readonly { id: string; rev: string }[]) => void | Promise<void>
+    onStoredRevisions?: (revisions: readonly { id: string; rev: string }[]) => void | Promise<void>,
+    since: string | number = "0"
 ): Promise<void> {
     return fetchChangesForInitialSync(
         localDatabase,
         remoteDbUrl,
         "Basic test",
         decrypt,
-        "0",
+        since,
         undefined,
         onCheckpoint,
         customHeaders,
@@ -460,7 +467,9 @@ describe("fetchChangesForInitialSync", () => {
                 results: [
                     {
                         id: "doc2",
-                        docs: requested.map(({ rev }) => ({ ok: rev === missingDocument._rev ? missingDocument : undefined })),
+                        docs: requested.map(({ rev }) => ({
+                            ok: rev === missingDocument._rev ? missingDocument : undefined,
+                        })),
                     },
                 ],
             })
@@ -513,7 +522,9 @@ describe("fetchChangesForInitialSync", () => {
             results: [
                 {
                     id,
-                    docs: requested.map(({ rev }) => ({ ok: rev === storedDocument._rev ? storedDocument : undefined })),
+                    docs: requested.map(({ rev }) => ({
+                        ok: rev === storedDocument._rev ? storedDocument : undefined,
+                    })),
                 },
             ],
         }));
@@ -684,9 +695,7 @@ describe("fetchChangesForInitialSync", () => {
         await fetchInitial(localDB);
 
         expect(bulkGetRequests).toHaveLength(1);
-        expect(bulkGetRequests[0].requested).toEqual(
-            missingWinners.map(({ id, rev }) => ({ id, rev }))
-        );
+        expect(bulkGetRequests[0].requested).toEqual(missingWinners.map(({ id, rev }) => ({ id, rev })));
         expect(bulkGetRequests[0].requested.length).toBeLessThanOrEqual(100);
         expect((await localDB.allDocs()).rows).toHaveLength(rows.length);
     });
@@ -738,9 +747,290 @@ describe("fetchChangesForInitialSync", () => {
         await expect(localDB.get(winner._id, { rev: liveConflict._rev })).resolves.toMatchObject({
             value: largeData,
         });
-        await expect(localDB.revsDiff({ [winner._id]: [winner._rev, liveConflict._rev, secondConflict._rev] })).resolves.toEqual(
-            {}
+        await expect(
+            localDB.revsDiff({ [winner._id]: [winner._rev, liveConflict._rev, secondConflict._rev] })
+        ).resolves.toEqual({});
+    });
+
+    it("keeps the checkpoint at the completed prefix after a wide conflict row fails and replays missing leaves", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-wide-conflict-late-bulk-get-failure");
+        const conflictId = "wide-conflict";
+        const leafRevisions = [
+            "1-winner",
+            ...Array.from({ length: 101 }, (_, index) => `1-leaf${String(index).padStart(3, "0")}`),
+        ];
+        const revisionDocument = (id: string, rev: string) => ({
+            _id: id,
+            _rev: rev,
+            _revisions: { start: 1, ids: [rev.slice(2)] },
+            value: rev,
+        });
+        const conflictRow = JSON.stringify({
+            seq: "conflict-row",
+            id: conflictId,
+            changes: leafRevisions.map((rev) => ({ rev })),
+            doc: revisionDocument(conflictId, leafRevisions[0]),
+        });
+        const rows = [
+            changeLine("before-conflict", "before-conflict", "before"),
+            conflictRow,
+            changeLine("after-conflict", "after-conflict", "after"),
+        ];
+        const bulkGetResponse = (requested: Array<{ id: string; rev: string }>) => ({
+            results: requested.map(({ id, rev }) => ({
+                id,
+                docs: [{ ok: revisionDocument(id, rev) }],
+            })),
+        });
+        const checkpoints: Array<string | number> = [];
+        const checkpointSnapshots: Array<{ sequence: string | number; missingConflictRevisions: string[] }> = [];
+        const storedBatches: Array<Array<{ id: string; rev: string }>> = [];
+        let lastPersistedCursor: string | number = "0";
+        let bulkGetCount = 0;
+        const failedRequests = queueChangesFeedWithBulkGet(rows, "failed-conflict-page", (requested) => {
+            bulkGetCount++;
+            return bulkGetCount === 2 ? new Response("not JSON") : bulkGetResponse(requested);
+        });
+
+        await expect(
+            fetchInitial(
+                localDB,
+                undefined,
+                async (sequence) => {
+                    checkpoints.push(sequence);
+                    lastPersistedCursor = sequence;
+                    const difference = await localDB.revsDiff({ [conflictId]: leafRevisions });
+                    checkpointSnapshots.push({
+                        sequence,
+                        missingConflictRevisions: difference[conflictId]?.missing ?? [],
+                    });
+                },
+                undefined,
+                async (revisions) => {
+                    const batch = [...revisions];
+                    for (const { id, rev } of batch) {
+                        await expect(localDB.get(id, { rev })).resolves.toMatchObject({ _id: id, _rev: rev });
+                    }
+                    storedBatches.push(batch);
+                }
+            )
+        ).rejects.toMatchObject({ stage: "protocol", retryable: false });
+
+        expect(failedRequests.map(({ requested }) => requested.length)).toEqual([100, 1]);
+        expect(checkpoints).toContain("before-conflict");
+        expect(checkpoints).not.toContain("conflict-row");
+        expect(checkpoints).not.toContain("after-conflict");
+        expect(lastPersistedCursor).toBe("before-conflict");
+        expect(
+            checkpointSnapshots.find(({ sequence }) => sequence === "before-conflict")?.missingConflictRevisions.length
+        ).toBeGreaterThan(0);
+        expect(storedBatches.some((batch) => batch.length === 100)).toBe(true);
+        expect(storedBatches.flat()).toContainEqual({ id: "before-conflict", rev: "1-beforeconflict" });
+        expect(storedBatches.flat()).toContainEqual({ id: conflictId, rev: leafRevisions[0] });
+
+        const partialDifference = await localDB.revsDiff({ [conflictId]: leafRevisions });
+        expect(partialDifference[conflictId]?.missing.length).toBeGreaterThan(0);
+        expect(partialDifference[conflictId]?.missing.length).toBeLessThan(leafRevisions.length);
+
+        const revisionsMissingBeforeReplay = partialDifference[conflictId]?.missing ?? [];
+        const replayRows = [conflictRow, changeLine("after-conflict", "after-conflict", "after")];
+        const replayRequests = queueChangesFeedWithBulkGet(replayRows, "replay-page", bulkGetResponse);
+        const replayCheckpoints: Array<string | number> = [];
+        const replayCheckpointSnapshots: Array<{ sequence: string | number; missingConflictRevisions: string[] }> = [];
+
+        await fetchInitial(
+            localDB,
+            undefined,
+            async (sequence) => {
+                replayCheckpoints.push(sequence);
+                const difference = await localDB.revsDiff({ [conflictId]: leafRevisions });
+                replayCheckpointSnapshots.push({
+                    sequence,
+                    missingConflictRevisions: difference[conflictId]?.missing ?? [],
+                });
+            },
+            undefined,
+            async (revisions) => {
+                for (const { id, rev } of revisions) {
+                    await expect(localDB.get(id, { rev })).resolves.toMatchObject({ _id: id, _rev: rev });
+                }
+            },
+            lastPersistedCursor
         );
+
+        expect(replayRequests).toHaveLength(1);
+        expect(replayRequests[0].requested).toEqual(
+            revisionsMissingBeforeReplay.map((rev) => ({ id: conflictId, rev }))
+        );
+        expect(replayCheckpoints).toContain("replay-page");
+        expect(
+            replayCheckpointSnapshots.find(({ sequence }) => sequence === "replay-page")?.missingConflictRevisions
+        ).toEqual([]);
+        const replayContinuousRequests = fetchMock.mock.calls
+            .map(([input]) => new URL(String(input)))
+            .filter((url) => url.searchParams.get("feed") === "continuous");
+        expect(replayContinuousRequests.at(-1)?.searchParams.get("since")).toBe(String(lastPersistedCursor));
+        await expect(localDB.revsDiff({ [conflictId]: leafRevisions })).resolves.toEqual({});
+        await expect(localDB.get("after-conflict")).resolves.toMatchObject({ value: "after" });
+    });
+
+    it("does not checkpoint a conflict row when the second singleton from a split response fails", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-split-bulk-get-late-failure");
+        const id = "split-conflict";
+        const largeValue = "x".repeat(270 * 1024);
+        const leafRevisions = ["1-winner", "1-first", "1-second"];
+        const revisionDocument = (rev: string) => ({
+            _id: id,
+            _rev: rev,
+            _revisions: { start: 1, ids: [rev.slice(2)] },
+            value: largeValue,
+        });
+        const row = JSON.stringify({
+            seq: "split-conflict-row",
+            id,
+            changes: leafRevisions.map((rev) => ({ rev })),
+            doc: { ...revisionDocument(leafRevisions[0]), value: "winner" },
+        });
+        let splitResponseBytes = 0;
+        const requests = queueChangesFeedWithBulkGet([row], "split-failure-page", (requested) => {
+            if (requested.length === 2) {
+                const response = JSON.stringify({
+                    results: requested.map(({ rev }) => ({
+                        id,
+                        docs: [{ ok: revisionDocument(rev) }],
+                    })),
+                });
+                splitResponseBytes = new TextEncoder().encode(response).byteLength;
+                return new Response(response);
+            }
+            if (requested[0].rev === leafRevisions[1]) {
+                return new Response(
+                    JSON.stringify({
+                        results: [{ id, docs: [{ ok: revisionDocument(leafRevisions[1]) }] }],
+                    })
+                );
+            }
+            return new Response(
+                JSON.stringify({
+                    results: [{ id, docs: [{ error: "not_found", reason: "second split group is unavailable" }] }],
+                })
+            );
+        });
+        const checkpoints: Array<string | number> = [];
+        const storedBatches: Array<Array<{ id: string; rev: string }>> = [];
+
+        await expect(
+            fetchInitial(
+                localDB,
+                undefined,
+                (sequence) => checkpoints.push(sequence),
+                undefined,
+                async (revisions) => {
+                    const batch = [...revisions];
+                    for (const { id: storedId, rev } of batch) {
+                        await expect(localDB.get(storedId, { rev })).resolves.toMatchObject({
+                            _id: storedId,
+                            _rev: rev,
+                        });
+                    }
+                    storedBatches.push(batch);
+                }
+            )
+        ).rejects.toMatchObject({ stage: "protocol", retryable: false });
+
+        expect(splitResponseBytes).toBeGreaterThan(512 * 1024);
+        expect(requests.map(({ requested }) => requested.length)).toEqual([2, 1, 1]);
+        expect(requests.map(({ requested }) => requested[0].rev)).toEqual([
+            leafRevisions[1],
+            leafRevisions[1],
+            leafRevisions[2],
+        ]);
+        expect(checkpoints).toEqual([]);
+        const storedSplitRevisions = new Set(
+            storedBatches
+                .flat()
+                .filter(({ id: storedId }) => storedId === id)
+                .map(({ rev }) => rev)
+        );
+        expect(storedSplitRevisions.has(leafRevisions[1])).toBe(true);
+        const difference = await localDB.revsDiff({ [id]: leafRevisions });
+        expect(difference[id]?.missing).toContain(leafRevisions[2]);
+        expect(difference[id]?.missing).not.toContain(leafRevisions[1]);
+    });
+
+    it("waits for stored revision observers to finish before checkpointing", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-delayed-stored-revision-observer");
+        const row = changeLine("delayed-observer-row", "delayed-observer", "stored");
+        const document = JSON.parse(row).doc;
+        const checkpoints: Array<string | number> = [];
+        let signalObserverStarted!: () => void;
+        const observerStarted = new Promise<void>((resolve) => {
+            signalObserverStarted = resolve;
+        });
+        let releaseObserver!: () => void;
+        const observerGate = new Promise<void>((resolve) => {
+            releaseObserver = resolve;
+        });
+        queueChangesFeed(1, 1, [row]);
+
+        const fetchPromise = fetchInitial(
+            localDB,
+            undefined,
+            (sequence) => checkpoints.push(sequence),
+            undefined,
+            async (revisions) => {
+                expect(revisions).toEqual([{ id: document._id, rev: document._rev }]);
+                await expect(localDB.get(document._id, { rev: document._rev })).resolves.toMatchObject({
+                    _id: document._id,
+                    _rev: document._rev,
+                });
+                signalObserverStarted();
+                await observerGate;
+            }
+        );
+
+        await observerStarted;
+        const checkpointsBeforeObserverRelease = [...checkpoints];
+        releaseObserver();
+        await fetchPromise;
+
+        expect(checkpointsBeforeObserverRelease).toEqual([]);
+        expect(checkpoints).toContain("delayed-observer-row");
+    });
+
+    it("does not checkpoint when stored revision observers reject", async () => {
+        const localDB = createLocalDatabase("streaming-fetch-rejected-stored-revision-observer");
+        const row = changeLine("rejected-observer-row", "rejected-observer", "stored");
+        const document = JSON.parse(row).doc;
+        const checkpoints: Array<string | number> = [];
+        queueChangesFeed(1, 1, [row]);
+
+        await expect(
+            fetchInitial(
+                localDB,
+                undefined,
+                (sequence) => checkpoints.push(sequence),
+                undefined,
+                async (revisions) => {
+                    expect(revisions).toEqual([{ id: document._id, rev: document._rev }]);
+                    await expect(localDB.get(document._id, { rev: document._rev })).resolves.toMatchObject({
+                        _id: document._id,
+                        _rev: document._rev,
+                    });
+                    throw new Error("identity store unavailable");
+                }
+            )
+        ).rejects.toMatchObject({
+            stage: "storage",
+            retryable: false,
+            message: expect.stringContaining("identity store unavailable"),
+        });
+
+        expect(checkpoints).toEqual([]);
+        await expect(localDB.get(document._id, { rev: document._rev })).resolves.toMatchObject({
+            _id: document._id,
+            _rev: document._rev,
+        });
     });
 
     it("does not checkpoint a row whose missing leaf revision cannot be fetched", async () => {
@@ -981,9 +1271,9 @@ describe("checkRemoteFeaturesForInitialSync", () => {
     });
 
     it("rejects any unknown feature name, including beside a known feature", async () => {
-        fetchMock.mockResolvedValueOnce(remoteFeatureResponse(
-            versionInfo(13, ["encrypted-internal-metadata-v1", "future-index-v2"])
-        ));
+        fetchMock.mockResolvedValueOnce(
+            remoteFeatureResponse(versionInfo(13, ["encrypted-internal-metadata-v1", "future-index-v2"]))
+        );
 
         await expect(checkRemoteFeaturesForInitialSync(remoteDbUrl, "Basic test")).rejects.toMatchObject({
             stage: "protocol",
