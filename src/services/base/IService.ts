@@ -55,6 +55,7 @@ import type {
 } from "@lib/replication/CentralRemoteAdministration.ts";
 import type { MultipleHandlerFunction } from "@lib/services/lib/HandlerUtils.ts";
 import type { VaultScanResult } from "./VaultScanResult.ts";
+import type { UICommandRegistry } from "@lib/uiCommands";
 
 declare global {
     interface OPTIONAL_SYNC_FEATURES {
@@ -573,6 +574,8 @@ export interface ITestService {
     addTestResult(name: string, key: string, result: boolean, summary?: string, message?: string): void;
 }
 export interface IUIService {
+    readonly commands: UICommandRegistry;
+
     promptCopyToClipboard(title: string, value: string): Promise<boolean>;
 
     showMarkdownDialog<T extends string[]>(

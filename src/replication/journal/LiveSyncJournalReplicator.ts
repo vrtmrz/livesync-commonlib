@@ -1,5 +1,7 @@
 import {
     type EntryMilestoneInfo,
+    NODEINFO_DOCID,
+    type EntryNodeInfo,
     type RemoteDBSettings,
     LOG_LEVEL_NOTICE,
     type ChunkVersionRange,
@@ -43,6 +45,13 @@ import {
     replicationFailed,
     type ReplicationOutcome,
 } from "@lib/replication/ReplicatorProvider.ts";
+import {
+    forgetJoinedDevice as forgetJoinedDeviceFromStore,
+    projectJoinedDevices,
+    type ForgetJoinedDeviceResult,
+    type JoinedDevicesSnapshot,
+    type JoinedDevicesStore,
+} from "@lib/replication/joinedDevices.ts";
 
 const MILSTONE_DOCID = "_00000000-milestone.json";
 
@@ -161,6 +170,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
                 vault_name: this.env.services.vault.vaultName(),
                 device_name: this.env.services.vault.getVaultName(),
                 progress: progress,
+                platform: this.env.services.API.getPlatform(),
             },
             async (info) => {
                 if (encryptedProof) info.encrypted_id_derivation_proof = encryptedProof;
@@ -696,6 +706,59 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     private assertLegacyPathIdentity(setting: RemoteDBSettings): void {
         if (!this.supportsLegacyPathIdentity(setting)) {
             throw new Error("Object Storage does not support NFC path identity.");
+        }
+    }
+
+    private async getOwnJoinedDeviceId(): Promise<string> {
+        const nodeInfo = await this.rawDatabase.get<EntryNodeInfo>(NODEINFO_DOCID);
+        const nodeId = nodeInfo?.nodeid;
+        if (typeof nodeId !== "string" || nodeId.trim().length === 0) {
+            throw new Error("The local node identity is unavailable.");
+        }
+        return nodeId;
+    }
+
+    async getJoinedDevices(setting: RemoteDBSettings): Promise<JoinedDevicesSnapshot> {
+        this.assertLegacyPathIdentity(setting);
+        const trialClient = new JournalSyncCore(
+            setting,
+            this.simpleStore,
+            this.env,
+            new MinioStorageAdapter(setting, this.env)
+        );
+        try {
+            const result = await trialClient.downloadJsonWithResult<EntryMilestoneInfo>(MILSTONE_DOCID);
+            if (result.status === JournalStorageReadStatuses.NOT_FOUND) return projectJoinedDevices(undefined);
+            if (result.status === JournalStorageReadStatuses.UNAVAILABLE) throw result.error;
+            return projectJoinedDevices(result.value);
+        } finally {
+            trialClient.dispose();
+        }
+    }
+
+    async forgetJoinedDevice(setting: RemoteDBSettings, deviceId: string): Promise<ForgetJoinedDeviceResult> {
+        this.assertLegacyPathIdentity(setting);
+        const ownDeviceId = await this.getOwnJoinedDeviceId();
+        const trialClient = new JournalSyncCore(
+            setting,
+            this.simpleStore,
+            this.env,
+            new MinioStorageAdapter(setting, this.env)
+        );
+        try {
+            const store: JoinedDevicesStore = {
+                read: async () => {
+                    const result = await trialClient.downloadJsonWithResult<EntryMilestoneInfo>(MILSTONE_DOCID);
+                    if (result.status === JournalStorageReadStatuses.NOT_FOUND) return undefined;
+                    if (result.status === JournalStorageReadStatuses.UNAVAILABLE) throw result.error;
+                    return { milestone: result.value, revision: result.revision };
+                },
+                write: async (milestone, revision) =>
+                    await trialClient.uploadJsonIfUnchanged(MILSTONE_DOCID, milestone, revision),
+            };
+            return await forgetJoinedDeviceFromStore(store, deviceId, ownDeviceId);
+        } finally {
+            trialClient.dispose();
         }
     }
 

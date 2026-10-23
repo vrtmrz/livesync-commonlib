@@ -509,6 +509,15 @@ assert.equal(p2pApi.ACTIVE_P2P_RELAY_BINDING_CONFLICT, "active-p2p-relay-binding
 assert.equal(replicationApi.NO_INTERACTION.kind, "forbidden");
 assert.equal(replicationApi.CENTRAL_COMPATIBILITY_REJECTION_REASONS.NODE_LOCKED, "node-locked");
 assert.equal(replicationApi.REMOTE_RESOURCE_KINDS.SECURITY_SEED, "security-seed");
+assert.equal(replicationApi.REMOTE_RESOURCE_KINDS.JOINED_DEVICES, "joined-devices");
+const { declareUICommand, UICommandRegistry } = await import("${packageName}/ui-commands");
+const uiCommand = declareUICommand("package-test");
+const uiCommands = new UICommandRegistry();
+assert.deepEqual(await uiCommands.invoke(uiCommand, 2), { status: "unavailable" });
+const unregisterUICommand = uiCommands.register(uiCommand, (value) => value + 1);
+assert.deepEqual(await uiCommands.invoke(uiCommand, 2), { status: "handled", value: 3 });
+unregisterUICommand();
+uiCommands.dispose();
 assert.equal(replicationApi.CENTRAL_REMOTE_ADMINISTRATION_ACTIONS.LOCK, "lock");
 assert.equal(replicationApi.CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS.POSTCONDITION_MISMATCH, "postcondition-mismatch");
 assert.equal(typeof replicationApi.isReplicationCompleted, "function");
@@ -804,10 +813,11 @@ assert.deepEqual(
         "./rpc",
         "./settings",
         "./setup-uri",
+        "./ui-commands",
     ],
     "The focused package surface must remain explicit."
 );
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 13);
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 14);
 
 console.log(
     JSON.stringify(

@@ -21,6 +21,12 @@ The minor version bump to 0.2.0 mostly just means that we have moved on from 0.1
 
 ### Added
 
+- We can inspect joined-device records and remove obsolete records from CouchDB and Object Storage remotes.
+    - The focused `/replication` entry exposes recorded platform, version, acceptance, and connection information, including legacy records with missing fields. Removal preserves other devices and remote state, and rejects removal of the current device.
+    - CouchDB verifies removal after saving; its local documents still permit concurrent overwrites. Object Storage uses ETag conditional writes and reports unsupported servers without an unconditional fallback.
+- Hosts can open the same UI action from settings, notifications, and commands through typed, instance-owned handlers.
+    - The `/ui-commands` entry supplies declarations, typed results, explicit unavailability, and registration disposal. `UIService` owns the registry and disposes it on unload.
+
 - We can opt into Hidden File Sync through `DirectFileManipulatorV2`.
     - Set `syncInternalFiles: true` in the direct client options. Existing clients retain the disabled default.
 

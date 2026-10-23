@@ -43,6 +43,7 @@ does not provide an arbitrary-time checkpoint jump or On Demand repair.
 | `@vrtmrz/livesync-commonlib/remote-configurations` | Multiple-remote profile creation, naming, and selection                           | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/settings`              | New-Vault defaults, stored-setting fallbacks, and settings migration results      | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/setup-uri`             | Encrypted Setup URI generation, availability, and import                          | Focused, package-tested pre-1.0 contract                                                    |
+| `@vrtmrz/livesync-commonlib/ui-commands` | Instance-owned typed UI command declarations and handlers | Focused, package-tested contract |
 | `@vrtmrz/livesync-commonlib/compat/*`              | Exact legacy imports still required by existing clients                           | Migration-only; retained within 0.2.x, with removals treated as 0.3.0 breaking changes       |
 | `@vrtmrz/livesync-commonlib/package.json`          | Package metadata for tooling                                                      | Metadata export, not a runtime API                                                          |
 
@@ -81,6 +82,31 @@ Context construction does not select storage, connect to a database, start repli
 After the Self-hosted LiveSync 1.0 work, the planned high-level composition is a narrow `createLiveSyncFileClient` factory for direct database integrations, not a general factory which exposes Commonlib's internal Service Hub. It will resolve only after its private context, services, database, and protocol settings are ready, and its returned file client will own its watches, reconnect work, and orderly disposal. Obsidian, CLI, Webapp, and other full hosts retain their host-specific compositions.
 
 The factory is not implemented yet. Until it is available, service implementations exposed under `compat/*` retain their owning client's lifecycle rather than becoming a general public composition API.
+
+## UI commands
+
+Import `declareUICommand` and `UICommandRegistry` from `@vrtmrz/livesync-commonlib/ui-commands`. A declaration binds a stable command ID to its request and result types. Each `UIService` owns its own `commands` registry; declarations do not register global handlers.
+
+```ts
+import { declareUICommand } from "@vrtmrz/livesync-commonlib/ui-commands";
+
+const showDevices = declareUICommand<void, 'closed'>('example:show-devices');
+const unregister = services.UI.commands.register(showDevices, async () => {
+    await openHostDeviceDialogue();
+    return 'closed';
+});
+const result = await services.UI.commands.invoke(showDevices, undefined);
+// result is { status: 'handled', value: 'closed' } or { status: 'unavailable' }.
+unregister();
+```
+
+A feature releases its handler when it unloads. The host dialogue owner remains responsible for active UI work. Duplicate handlers and conflicting declarations with the same ID are rejected; handler failures propagate. Calling an unavailable or disposed registry settles immediately. `UIService` disposes its registry on the context's plug-in-unloaded event.
+
+## Joined device records
+
+The `/replication` entry includes the `joined-devices` finite resource contract. A provider binds each resource to one settings snapshot; its owner calls `dispose()` in `finally`. `read()` returns recorded device IDs, acceptance, versions, platform, and connection times where available. An absent milestone is explicit. Joined-device operations never initialise a missing CouchDB database. These records do not establish online presence.
+
+`forget(id)` removes one other device from all participation maps and the accepted list, while retaining the lock state, preferred tweaks, and unknown fields. The CouchDB implementation rereads the existing milestone before editing and verifies removal after saving. CouchDB local documents do not reject stale revisions, so concurrent changes to other device records can be overwritten. A failed verification is reported to the caller for manual refresh and retry. Object Storage checks ETags with conditional writes and retries conflicts a bounded number of times. Missing records, unsupported conditional writes, and exhausted conflicts have distinct results. Forgetting is not credential revocation: an unlocked remote permits a returning device to register again.
 
 ## Rooted storage
 

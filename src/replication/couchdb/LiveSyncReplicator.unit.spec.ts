@@ -27,20 +27,22 @@ describe("LiveSyncCouchDBReplicator initialisation", () => {
         "rejects NFC remote identity with legacy settings even when checks are skipped (%s)",
         async (skipCheck) => {
             const remoteDatabase = {
-                get: vi
-                    .fn()
-                    .mockResolvedValue({
-                        _id: VERSIONING_DOCID,
-                        type: "versioninfo",
-                        version: 13,
-                        used_features: ["nfc-path-identity-v1"],
-                    }),
+                get: vi.fn().mockResolvedValue({
+                    _id: VERSIONING_DOCID,
+                    type: "versioninfo",
+                    version: 13,
+                    used_features: ["nfc-path-identity-v1"],
+                }),
                 close: vi.fn().mockResolvedValue(undefined),
             };
             const replicator = createOneShotReplicator(remoteDatabase);
             vi.mocked(replicator.checkReplicationConnectivity).mockRestore();
             replicator.isMobile = vi.fn().mockReturnValue(false);
-            replicator.env.services.API = { getAppVersion: () => "test", getPluginVersion: () => "test" } as never;
+            replicator.env.services.API = {
+                getAppVersion: () => "test",
+                getPluginVersion: () => "test",
+                getPlatform: () => "test",
+            } as never;
             replicator.env.services.vault = { vaultName: () => "test", getVaultName: () => "test" } as never;
             replicator.env.services.database.localNodeIdentity = { nodeId: "writer" } as never;
             vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
@@ -85,6 +87,7 @@ describe("LiveSyncCouchDBReplicator initialisation", () => {
             isMobile: () => false,
             getAppVersion: () => "test",
             getPluginVersion: () => "test",
+            getPlatform: () => "test",
         } as never;
         replicator.env.services.vault = { vaultName: () => "test", getVaultName: () => "test" } as never;
         replicator.env.services.database.localNodeIdentity = { nodeId: "writer" } as never;
@@ -137,6 +140,7 @@ describe("LiveSyncCouchDBReplicator initialisation", () => {
                 isMobile: () => false,
                 getAppVersion: () => "test",
                 getPluginVersion: () => "test",
+                getPlatform: () => "test",
             } as never;
             replicator.env.services.vault = { vaultName: () => "test", getVaultName: () => "test" } as never;
             replicator.env.services.database.localNodeIdentity = { nodeId: "writer" } as never;
@@ -1101,6 +1105,7 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
                 API: {
                     getAppVersion: () => "app-version",
                     getPluginVersion: () => "plugin-version",
+                    getPlatform: () => "test-platform",
                     isMobile: () => false,
                 },
                 context: createServiceContext(),

@@ -63,6 +63,8 @@ export type {
     InitialFetchFastForwardResource,
     InitialFetchFastForwardResourceFactory,
     ConnectionProbeFactory,
+    JoinedDevicesResource,
+    JoinedDevicesResourceFactory,
     PreferredTweakProbe,
     PreferredTweakProbeFactory,
     RemoteConnectionProbe,
@@ -112,3 +114,5 @@ export {
     usesEncryptedInternalMetadata,
 } from "../pouchdb/remoteFeatureCompatibility.ts";
 export type { RemoteFeatureAssessment } from "../pouchdb/remoteFeatureCompatibility.ts";
+
+export type { JoinedDevice, JoinedDevicesSnapshot, ForgetJoinedDeviceResult } from "./joinedDevices.ts";
