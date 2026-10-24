@@ -125,6 +125,12 @@ interface SyncMethodSettings {
      */
     syncOnEditorSave: boolean;
 
+    /** Enable host-owned SyncGuard protection during synchronisation. Default false. */
+    syncGuardEnabled: boolean;
+
+    /** Minimum Vault file count for SyncGuard to apply. Default 20; validated by the host UI. */
+    syncGuardMinimumFiles: number;
+
     /**
      * Desktop only, opt-in. Keep replication running while the window is hidden or minimised,
      * instead of suspending it until the window becomes visible again. The trigger is

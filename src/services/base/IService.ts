@@ -284,6 +284,8 @@ export interface IReplicatorService {
     boundedRemoteActivityCount: ReactiveSource<number>;
     /** Number of finite replication operations which can still deliver database documents. */
     finiteReplicationActivityCount: ReactiveSource<number>;
+    /** Active initial pull-only catch-ups for CouchDB Continuous replication; excludes P2P. */
+    couchDbCatchUpActivityCount: ReactiveSource<number>;
     /** Runs a finite remote operation within the host activity policy. */
     runBoundedRemoteActivity<T>(task: () => T | PromiseLike<T>, options?: AsyncActivityOptions): Promise<T>;
     /** Runs finite replication which may place documents in the local database. */

@@ -21,6 +21,7 @@ import * as negotiation from "@lib/pouchdb/negotiation.ts";
 import * as remoteIds from "@lib/pouchdb/remoteIdCompatibility.ts";
 import { clearHandlers } from "@lib/replication/SyncParamsHandler.ts";
 import { createServiceContext } from "@lib/services/base/ServiceBase";
+import { reactiveSource } from "octagonal-wheels/dataobject/reactive";
 import { LiveSyncCouchDBReplicator } from "./LiveSyncReplicator.ts";
 import {
     CENTRAL_COMPATIBILITY_REJECTION_REASONS,
@@ -716,21 +717,69 @@ describe("LiveSyncCouchDBReplicator remote preferred tweak values", () => {
 
 function createContinuousTestReplicator(localDatabase: object) {
     const runFiniteReplicationActivity = vi.fn(async <T>(task: () => Promise<T>) => await task());
+    const couchDbCatchUpActivityCount = reactiveSource(0);
     const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
     replicator.env = {
         services: {
             context: createServiceContext(),
             database: { localDatabase: { localDatabase } },
-            replicator: { runFiniteReplicationActivity },
+            replicator: { runFiniteReplicationActivity, couchDbCatchUpActivityCount },
         },
     } as unknown as LiveSyncCouchDBReplicator["env"];
     replicator.docArrived = 0;
     replicator.docSent = 0;
     replicator.updateInfo = vi.fn();
-    return { replicator, runFiniteReplicationActivity };
+    return { replicator, runFiniteReplicationActivity, couchDbCatchUpActivityCount };
 }
 
 describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
+    it("exposes the pull-only transfer independently of the live connection phase", async () => {
+        const { replicator, runFiniteReplicationActivity, couchDbCatchUpActivityCount } =
+            createContinuousTestReplicator({});
+        const observedCounts: number[] = [];
+        couchDbCatchUpActivityCount.onChanged((value) => observedCounts.push(value.value));
+        const pullStarted = Promise.withResolvers<void>();
+        const releasePull = Promise.withResolvers<void>();
+        const catchUp = vi.spyOn(replicator, "openOneShotReplication").mockImplementation(async () => {
+            pullStarted.resolve();
+            await releasePull.promise;
+            return true;
+        });
+        const connect = vi.spyOn(replicator, "checkReplicationConnectivity").mockImplementation(async () => {
+            expect(couchDbCatchUpActivityCount.value).toBe(0);
+            return false;
+        });
+
+        const continuous = replicator.openContinuousReplication({} as RemoteDBSettings, false, false);
+        await pullStarted.promise;
+        try {
+            expect(couchDbCatchUpActivityCount.value).toBe(1);
+            expect(runFiniteReplicationActivity).toHaveBeenCalledOnce();
+        } finally {
+            releasePull.resolve();
+            await expect(continuous).resolves.toBe(false);
+        }
+
+        expect(catchUp).toHaveBeenCalledWith({}, false, false, "pullOnly", false, undefined, expect.any(Function));
+        expect(connect).toHaveBeenCalledOnce();
+        expect(couchDbCatchUpActivityCount.value).toBe(0);
+        expect(observedCounts).toEqual([1, 0]);
+    });
+
+    it("releases CouchDB catch-up activity when the finite pull rejects", async () => {
+        const { replicator, couchDbCatchUpActivityCount } = createContinuousTestReplicator({});
+        const observedCounts: number[] = [];
+        couchDbCatchUpActivityCount.onChanged((value) => observedCounts.push(value.value));
+        vi.spyOn(replicator, "openOneShotReplication").mockRejectedValue(new Error("catch-up failed"));
+
+        await expect(replicator.openContinuousReplication({} as RemoteDBSettings, false, false)).rejects.toThrow(
+            "catch-up failed"
+        );
+
+        expect(couchDbCatchUpActivityCount.value).toBe(0);
+        expect(observedCounts).toEqual([1, 0]);
+    });
+
     it("does not start a connection after continuous replication is stopped before its live controller exists", async () => {
         let markCatchUpStarted!: () => void;
         const catchUpStarted = new Promise<void>((resolve) => {
@@ -751,6 +800,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
                 },
                 replicator: {
                     runFiniteReplicationActivity: vi.fn(async <T>(task: () => Promise<T>) => await task()),
+                    couchDbCatchUpActivityCount: reactiveSource(0),
                 },
             },
         } as unknown as LiveSyncCouchDBReplicator["env"];
@@ -789,6 +839,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
                 database: { localDatabase: { localDatabase: {} } },
                 replicator: {
                     runFiniteReplicationActivity: vi.fn(async <T>(task: () => Promise<T>) => await task()),
+                    couchDbCatchUpActivityCount: reactiveSource(0),
                 },
             },
         } as unknown as LiveSyncCouchDBReplicator["env"];
@@ -828,6 +879,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
                 database: { localDatabase: { localDatabase: {} } },
                 replicator: {
                     runFiniteReplicationActivity: vi.fn(async <T>(task: () => Promise<T>) => await task()),
+                    couchDbCatchUpActivityCount: reactiveSource(0),
                 },
             },
         } as unknown as LiveSyncCouchDBReplicator["env"];
@@ -928,6 +980,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
 
     it("exposes the initial pull-only catch-up as finite replication activity", async () => {
         const runFiniteReplicationActivity = vi.fn(async <T>(task: () => Promise<T>) => await task());
+        const couchDbCatchUpActivityCount = reactiveSource(0);
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
         replicator.env = {
             services: {
@@ -939,6 +992,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
                 },
                 replicator: {
                     runFiniteReplicationActivity,
+                    couchDbCatchUpActivityCount,
                 },
             },
         } as unknown as LiveSyncCouchDBReplicator["env"];
@@ -955,6 +1009,9 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
     it("starts another finite catch-up when the live channel retries with smaller batches", async () => {
         const events: string[] = [];
         const runFiniteReplicationActivity = vi.fn(async <T>(task: () => Promise<T>) => await task());
+        const couchDbCatchUpActivityCount = reactiveSource(0);
+        const observedCounts: number[] = [];
+        couchDbCatchUpActivityCount.onChanged((value) => observedCounts.push(value.value));
         const remoteDatabase = {
             close: vi.fn(async () => {
                 events.push("closed");
@@ -971,7 +1028,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
                 database: {
                     localDatabase: { localDatabase },
                 },
-                replicator: { runFiniteReplicationActivity },
+                replicator: { runFiniteReplicationActivity, couchDbCatchUpActivityCount },
             },
         } as unknown as LiveSyncCouchDBReplicator["env"];
         replicator.docArrived = 0;
@@ -1022,6 +1079,8 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             expect.any(Function)
         );
         expect(events).toEqual(["closed", "restarted"]);
+        expect(couchDbCatchUpActivityCount.value).toBe(0);
+        expect(observedCounts).toEqual([1, 0, 1, 0]);
     });
 
     it("closes the live remote database when continuous replication settles", async () => {
@@ -1037,6 +1096,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
                 database: { localDatabase: { localDatabase } },
                 replicator: {
                     runFiniteReplicationActivity: vi.fn(async <T>(task: () => Promise<T>) => await task()),
+                    couchDbCatchUpActivityCount: reactiveSource(0),
                 },
             },
         } as unknown as LiveSyncCouchDBReplicator["env"];

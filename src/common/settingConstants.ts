@@ -132,6 +132,14 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         name: "Sync on Editor Save",
         desc: "When you save a file in the editor, start a sync automatically",
     },
+    syncGuardEnabled: {
+        name: "Enable SyncGuard",
+        desc: "Enable device-local SyncGuard protection during synchronisation.",
+    },
+    syncGuardMinimumFiles: {
+        name: "SyncGuard minimum files",
+        desc: "Minimum number of Vault files required for SyncGuard protection to apply.",
+    },
     keepReplicationActiveInBackground: {
         name: "Keep replication active in the background",
         desc: "Desktop only; uses more battery and network.",

@@ -80,6 +80,22 @@ describe("settings property policy", () => {
         expect(output).not.toHaveProperty("unexpectedCredential");
     });
 
+    it("keeps SyncGuard settings local across Markdown export, import, and persistence", () => {
+        const original = { ...DEFAULT_SETTINGS, syncGuardEnabled: true, syncGuardMinimumFiles: 42 };
+        for (const includeCredentials of [false, true]) {
+            const exported = createMarkdownSettings(original, includeCredentials);
+            expect(exported).not.toHaveProperty("syncGuardEnabled");
+            expect(exported).not.toHaveProperty("syncGuardMinimumFiles");
+        }
+
+        const imported = mergeMarkdownSettings({ syncGuardEnabled: false, syncGuardMinimumFiles: 20 }, original);
+        expect(imported).toMatchObject({ syncGuardEnabled: true, syncGuardMinimumFiles: 42 });
+        expect(prepareSettingsForPersistence({ ...original })).toMatchObject({
+            syncGuardEnabled: true,
+            syncGuardMinimumFiles: 42,
+        });
+    });
+
     it("shares path identity settings under the existing credential-sharing option", () => {
         const original = { ...settings(), idDerivationVersion: 1 as const, pathNormalizationVersion: 1 as const };
         const withoutCredentials = createMarkdownSettings(original, false);

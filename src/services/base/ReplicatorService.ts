@@ -59,6 +59,7 @@ export abstract class ReplicatorService<T extends ServiceContext = ServiceContex
 {
     readonly boundedRemoteActivityCount = reactiveSource(0);
     readonly finiteReplicationActivityCount = reactiveSource(0);
+    readonly couchDbCatchUpActivityCount = reactiveSource(0);
     _log = createInstanceLogFunction("ReplicatorService");
 
     private settingService: SettingService;
