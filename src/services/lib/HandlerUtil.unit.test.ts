@@ -12,7 +12,13 @@ import {
     FirstResultHandler,
     bindableFunction,
     allFunction,
+    allSettledFunction,
+    allParallelFunction,
+    bailFirstFailureFunction,
     bailFirstFailureWithResultFunction,
+    firstResultFunction,
+    dispatchParallelFunction,
+    lazyBindableFunction,
     anySuccessFunction,
     handlers,
 } from "./HandlerUtils";
@@ -826,5 +832,138 @@ describe("handlers", () => {
         const result = await priorityAll("test");
         expect(result).toBe(true);
         expect(results).toEqual(["handler0", "handler1", "handler3", "handler3.1", "handler2"]);
+    });
+});
+
+describe("unnamed handler factories", () => {
+    type Callback = (input: string) => Promise<boolean>;
+    const cases = [
+        { name: "allFunction", create: () => allFunction<Callback>(), result: false, laterCalls: 0, empty: true },
+        {
+            name: "allSettledFunction",
+            create: () => allSettledFunction<Callback>(),
+            result: false,
+            laterCalls: 1,
+            empty: true,
+        },
+        {
+            name: "bailFirstFailureFunction",
+            create: () => bailFirstFailureFunction<Callback>(),
+            result: false,
+            laterCalls: 0,
+            empty: true,
+        },
+        {
+            name: "allParallelFunction",
+            create: () => allParallelFunction<Callback>(),
+            result: false,
+            laterCalls: 1,
+            empty: true,
+        },
+        {
+            name: "anySuccessFunction",
+            create: () => anySuccessFunction<Callback>(),
+            result: true,
+            laterCalls: 1,
+            empty: false,
+        },
+    ];
+
+    it.each(cases)(
+        "$name preserves its result policy and supports unregistration",
+        async ({ create, result, laterCalls, empty }) => {
+            const handler = create();
+            const first = vi.fn<Callback>(async () => false);
+            const later = vi.fn<Callback>(async () => true);
+            const unregister = handler.addHandler(first);
+            handler.addHandler(later);
+
+            await expect(handler("first call")).resolves.toBe(result);
+            expect(first).toHaveBeenCalledExactlyOnceWith("first call");
+            expect(later).toHaveBeenCalledTimes(laterCalls);
+            unregister();
+            await expect(handler("after unregistration")).resolves.toBe(true);
+            expect(first).toHaveBeenCalledTimes(1);
+            expect(later).toHaveBeenLastCalledWith("after unregistration");
+            handler.removeHandler(later);
+            await expect(handler("empty")).resolves.toBe(empty);
+            expect(later).toHaveBeenCalledTimes(laterCalls + 1);
+        }
+    );
+
+    it("firstResultFunction returns a falsy result value and can remove its provider", async () => {
+        const handler = firstResultFunction<(input: number) => Promise<number | undefined>>();
+        const skip = vi.fn(async () => undefined);
+        const value = vi.fn(async (input: number) => input);
+        handler.addHandler(skip);
+        const unregister = handler.addHandler(value);
+        await expect(handler(0)).resolves.toBe(0);
+        expect(skip).toHaveBeenCalledExactlyOnceWith(0);
+        expect(value).toHaveBeenCalledExactlyOnceWith(0);
+        unregister();
+        await expect(handler(1)).resolves.toBe(false);
+        expect(value).toHaveBeenCalledTimes(1);
+    });
+
+    it("dispatchParallelFunction collects results and honours removal", async () => {
+        const handler = dispatchParallelFunction<(input: number) => Promise<number[]>>();
+        const first = vi.fn(async (input: number) => [input]);
+        const second = vi.fn(async (input: number) => [input + 1]);
+        handler.addHandler(first);
+        handler.addHandler(second);
+        await expect(handler(2)).resolves.toEqual([[2], [3]]);
+        expect(first).toHaveBeenCalledExactlyOnceWith(2);
+        expect(second).toHaveBeenCalledExactlyOnceWith(2);
+        handler.removeHandler(first);
+        await expect(handler(4)).resolves.toEqual([[5]]);
+        expect(first).toHaveBeenCalledTimes(1);
+    });
+
+    it("bindableFunction reports an unassigned callback and invokes an assigned one", () => {
+        const handler = bindableFunction<(input: number) => number>();
+        expect(() => handler(2)).toThrow(/not assigned/);
+        const callback = vi.fn((input: number) => input * 2);
+        handler.setHandler(callback);
+        expect(handler(2)).toBe(4);
+        expect(callback).toHaveBeenCalledExactlyOnceWith(2);
+    });
+
+    it("lazyBindableFunction waits for assignment and forwards the original arguments", async () => {
+        const handler = lazyBindableFunction<(input: number) => Promise<number>>();
+        let settled = false;
+        const invocation = handler(3).then((value) => {
+            settled = true;
+            return value;
+        });
+        await Promise.resolve();
+        expect(settled).toBe(false);
+        const callback = vi.fn(async (input: number) => input * 2);
+        handler.setHandler(callback);
+        await expect(invocation).resolves.toBe(6);
+        expect(callback).toHaveBeenCalledExactlyOnceWith(3);
+    });
+});
+
+describe("dispatcher exception values", () => {
+    it.each([
+        { name: "Dispatch", create: () => new Dispatch<[], string>("exceptions") },
+        { name: "DispatchParallel", create: () => new DispatchParallel<[], string>("exceptions") },
+    ])("$name converts non-Error failures and retains other results", async ({ create }) => {
+        const handler = create();
+        const existingError = new Error("existing failure");
+        handler.addHandler(() => {
+            throw "synchronous failure";
+        });
+        handler.addHandler(() => Promise.reject(0));
+        handler.addHandler(() => Promise.reject(existingError));
+        const following = vi.fn(() => "completed");
+        handler.addHandler(following);
+
+        const results = await handler.dispatch();
+        expect(results).toEqual([new Error("synchronous failure"), new Error("0"), existingError, "completed"]);
+        expect(results[0]).toBeInstanceOf(Error);
+        expect(results[1]).toBeInstanceOf(Error);
+        expect(results[2]).toBe(existingError);
+        expect(following).toHaveBeenCalledTimes(1);
     });
 });

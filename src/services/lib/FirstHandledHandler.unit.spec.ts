@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import { FirstHandledHandler, firstHandledFunction, HandlerOutcome, handlers } from "./HandlerUtils";
 
 describe("HandlerOutcome", () => {
@@ -105,6 +105,33 @@ describe("FirstHandledHandler", () => {
         }
     });
 
+    it.each([{ kind: "completed" }, { kind: "veto" }] as const)(
+        "waits for a payload-free $kind outcome and stops",
+        async (outcome) => {
+            const handler = new FirstHandledHandler<[]>("void outcome");
+            let release!: (result: HandlerOutcome) => void;
+            const pending = new Promise<HandlerOutcome>((resolve) => {
+                release = resolve;
+            });
+            const later = vi.fn((): HandlerOutcome => ({ kind: "completed" }));
+            handler.addHandler(() => ({ kind: "not-applicable" }));
+            handler.addHandler(() => pending);
+            handler.addHandler(later);
+            let settled = false;
+            const invocation = handler.invoke().then((result) => {
+                settled = true;
+                return result;
+            });
+
+            await Promise.resolve();
+            expect(settled).toBe(false);
+            expect(later).not.toHaveBeenCalled();
+            release(outcome);
+            await expect(invocation).resolves.toBe(outcome);
+            expect(later).not.toHaveBeenCalled();
+        }
+    );
+
     it.each(["throw", "reject"] as const)("propagates a %s unchanged and stops", async (failureMode) => {
         const failure = { message: "handler failure" };
         const handler = new FirstHandledHandler<[], HandlerOutcome<number, string>>(failureMode);
@@ -142,8 +169,108 @@ describe("FirstHandledHandler", () => {
         await expect(handler.invoke()).resolves.toEqual({ kind: "completed", value: 0 });
         expect(laterCalled).toBe(true);
         expect(handler.hasHandlers).toBe(true);
+        laterCalled = false;
+        await expect(handler.invoke()).resolves.toEqual({ kind: "not-applicable" });
+        expect(laterCalled).toBe(false);
         unregisterFirst();
         expect(handler.hasHandlers).toBe(false);
+    });
+
+    it("runs a callback once per invocation and honours repeated unregistration", async () => {
+        const handler = new FirstHandledHandler<[]>("registration");
+        const skip = vi.fn((): HandlerOutcome => ({ kind: "not-applicable" }));
+        const complete = vi.fn((): HandlerOutcome => ({ kind: "completed" }));
+        const unregisterSkip = handler.use(skip);
+        handler.addHandler(skip);
+        const unregisterComplete = handler.addHandler(complete);
+
+        await expect(handler.invoke()).resolves.toEqual({ kind: "completed" });
+        await expect(handler.invoke()).resolves.toEqual({ kind: "completed" });
+        expect(skip).toHaveBeenCalledTimes(2);
+        expect(complete).toHaveBeenCalledTimes(2);
+
+        unregisterSkip();
+        unregisterSkip();
+        handler.removeHandler(() => ({ kind: "veto" }));
+        await expect(handler.invoke()).resolves.toEqual({ kind: "completed" });
+        expect(skip).toHaveBeenCalledTimes(2);
+        expect(complete).toHaveBeenCalledTimes(3);
+        expect(handler.hasHandlers).toBe(true);
+        unregisterComplete();
+        expect(handler.hasHandlers).toBe(false);
+        await expect(handler.invoke()).resolves.toEqual({ kind: "not-applicable" });
+    });
+
+    it("defers registrations made during an asynchronous invocation until the next invocation", async () => {
+        const handler = new FirstHandledHandler<[], HandlerOutcome<string>>("new registration");
+        let release!: () => void;
+        const gate = new Promise<void>((resolve) => {
+            release = resolve;
+        });
+        const first = vi.fn(async (): Promise<HandlerOutcome<string>> => {
+            await gate;
+            return { kind: "not-applicable" };
+        });
+        const original = vi.fn((): HandlerOutcome<string> => ({ kind: "completed", value: "original" }));
+        const added = vi.fn((): HandlerOutcome<string> => ({ kind: "completed", value: "added" }));
+        handler.addHandler(first);
+        handler.addHandler(original, 10);
+
+        const invocation = handler.invoke();
+        expect(first).toHaveBeenCalledTimes(1);
+        handler.addHandler(added, -1);
+        release();
+        await expect(invocation).resolves.toEqual({ kind: "completed", value: "original" });
+        expect(added).not.toHaveBeenCalled();
+
+        await expect(handler.invoke()).resolves.toEqual({ kind: "completed", value: "added" });
+        expect(added).toHaveBeenCalledTimes(1);
+        expect(first).toHaveBeenCalledTimes(1);
+        expect(original).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps concurrent invocations and their results independent", async () => {
+        const handler = new FirstHandledHandler<[string], HandlerOutcome<string>>("concurrent");
+        const releases = new Map<string, () => void>();
+        const completed: string[] = [];
+        handler.addHandler(async (input) => {
+            await new Promise<void>((resolve) => {
+                releases.set(input, resolve);
+            });
+            return { kind: "not-applicable" };
+        });
+        handler.addHandler((input) => {
+            completed.push(input);
+            return { kind: "completed", value: input };
+        });
+
+        const first = handler.invoke("first");
+        const second = handler.invoke("second");
+        expect([...releases.keys()]).toEqual(["first", "second"]);
+        releases.get("second")!();
+        await expect(second).resolves.toEqual({ kind: "completed", value: "second" });
+        expect(completed).toEqual(["second"]);
+        releases.get("first")!();
+        await expect(first).resolves.toEqual({ kind: "completed", value: "first" });
+        expect(completed).toEqual(["second", "first"]);
+    });
+
+    it("can invoke the same registrations again after a rejected invocation", async () => {
+        const handler = new FirstHandledHandler<[], HandlerOutcome<number>>("retry");
+        const failure = new Error("first invocation failed");
+        const first = vi
+            .fn<() => Promise<HandlerOutcome<number>>>()
+            .mockRejectedValueOnce(failure)
+            .mockResolvedValueOnce({ kind: "not-applicable" });
+        const next = vi.fn((): HandlerOutcome<number> => ({ kind: "completed", value: 7 }));
+        handler.addHandler(first);
+        handler.addHandler(next);
+
+        await expect(handler.invoke()).rejects.toBe(failure);
+        expect(next).not.toHaveBeenCalled();
+        await expect(handler.invoke()).resolves.toEqual({ kind: "completed", value: 7 });
+        expect(first).toHaveBeenCalledTimes(2);
+        expect(next).toHaveBeenCalledTimes(1);
     });
 });
 
@@ -160,6 +287,33 @@ describe("firstHandledFunction", () => {
         await expect(handler(1)).resolves.toEqual({ kind: "completed", value: true });
         unregister();
         expect(handler.hasHandlers).toBe(false);
+    });
+
+    it("forwards priorities and every argument without replacing referenced values", async () => {
+        type Payload = { text: string };
+        type Callback = (path: string, payload: Payload, ...positions: number[]) => HandlerOutcome<Payload>;
+        const handler = firstHandledFunction<Callback>("arguments");
+        const payload = { text: "content" };
+        const order: string[] = [];
+        const late = vi.fn<Callback>(() => {
+            order.push("late");
+            return { kind: "completed", value: payload };
+        });
+        const early = vi.fn<Callback>(() => {
+            order.push("early");
+            return { kind: "not-applicable" };
+        });
+        handler.addHandler(late, 10);
+        handler.addHandler(early, -1);
+
+        const result = await handler("note.md", payload, 0, 4);
+        expect(order).toEqual(["early", "late"]);
+        expect(early).toHaveBeenCalledExactlyOnceWith("note.md", payload, 0, 4);
+        expect(late).toHaveBeenCalledExactlyOnceWith("note.md", payload, 0, 4);
+        expect(early.mock.calls[0][1]).toBe(payload);
+        expect(late.mock.calls[0][1]).toBe(payload);
+        expect(result).toEqual({ kind: "completed", value: payload });
+        if (result.kind === "completed") expect(result.value).toBe(payload);
     });
 
     it("returns a promise for synchronous callbacks and retains registration methods", async () => {
