@@ -1,31 +1,44 @@
 # Updates
 
-## Unreleased
+## 0.2.1
+
+25th October, 2026
+
+With this release, we strengthen the foundations of Commonlib and open up new possibilities for the applications that use it.
 
 ### Added
 
-- Hosts can distinguish completed optional file saves, explicit refusals, and notifications outside a provider's responsibility.
+- We can distinguish completed optional file saves, explicit refusals, and notifications outside a provider's responsibility.
     - `HandlerOutcome` and `firstHandled` preserve success values and veto reasons, and propagate errors. `processOptionalFileEventWithResult` waits for the actual optional save; hosts migrate their providers together.
     - Hosts using only the legacy optional notification API retain its boolean contract. A declined notification no longer blocks later updates as though its save had failed.
-
-- Hosts can offer an explicit choice to batch local database updates in LiveSync mode.
+- We can choose to batch local database updates in LiveSync mode.
     - `batchSaveInLiveSync` defaults to `false` for existing settings and new Vaults. Older configurations with `liveSync: true, batchSave: true` remain immediate. Other modes retain `batchSave`, and both choices share the existing delay settings.
     - The new property is optional in the public settings type and participates in the Markdown and QR settings policies.
-
 - We can observe revision-comparison progress even while no documents are received.
     - Optional CouchDB statistics expose catch-up and continuous stages, direction-specific entry and batch counts, and opaque processed positions. Existing transfer counts retain their meanings.
     - Progress notifications are batched, with final values flushed when an attempt pauses or ends. These observations do not establish that Vault reflection has finished.
+
+### Improved
+
+- We can reflect file contents with fewer decoding passes.
+    - Size validation, storage writing, and content-hash calculation reuse the decoded content.
+
+### Security
+
+- We require a patched Markdown parser and use patched test tooling.
+    - Raised the `markdown-it` minimum to `14.3.3`, updated Vitest to `4.1.12`, and refreshed Vite to `8.1.6` in the development lockfile.
 
 ### Fixed
 
 - Accepted file operations remain recoverable while buffered, waiting, or saving to the database.
     - The existing snapshot format now retains operations through successful processing, with ordered writes and safe replay. Failed handlers or persistence attempts remain visible as failures; releasing a batch delay no longer acknowledges a save.
-- Hosts can wait for a finite set of accepted local saves before synchronisation or settings application proceeds.
+- We can wait for a finite set of accepted local saves before synchronisation or settings application proceeds.
     - `commitPendingFileEvents()` includes buffered and already running work. Later edits do not extend the boundary indefinitely. Waiting timers no longer occupy processing slots needed by unrelated ready files.
     - Before unload, the maintained file-access service stops event admission and completes work or persists pending records. Failed unload preparation reaches the caller after resource cleanup; synchronous host callbacks should handle the returned promise's rejection.
 - Equal-time offline scans preserve unsaved edits and their revision ancestry through content and provenance checks.
     - The scanner uses non-forced saves with bounded revalidation. Required content or provenance which cannot be read remains unresolved, and existing partial-scan and strict-caller policies remain in effect.
-
+- We can reflect text correctly when a surrogate pair spans text Chunks.
+    - Size validation and the recorded content hash use the joined text written to storage.
 
 ## 0.2.0
 
