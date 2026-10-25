@@ -290,6 +290,9 @@ import {
     type JoinedDevicesSnapshot,
     type ForgetJoinedDeviceResult,
     type ReplicationOutcome,
+    type ReplicationStatics,
+    type CouchDBReplicationProgress,
+    type ReplicationCheckpointProgress,
 } from "${packageName}/replication";
 import type {
     P2PConnectionProbeAdmission,
@@ -336,6 +339,15 @@ const replicationConnection = {} as CouchDBReplicationConnection;
 type LegacyRemoteDatabase = Awaited<ReturnType<LiveSyncCouchDBReplicator["_ensureConnection"]>>;
 const readLegacyRemoteDatabase = (database: LegacyRemoteDatabase) => database.get("document-id");
 const completedOutcome: ReplicationOutcome = { status: "completed" };
+const checkpointProgress: ReplicationCheckpointProgress = {
+    checkedChanges: 30, completedBatches: 2, lastSeq: "opaque-position", checking: true,
+};
+const couchDBProgress: CouchDBReplicationProgress = { phase: "catch-up", pull: checkpointProgress };
+const replicationStatics: ReplicationStatics = {
+    sent: 0, arrived: 0, maxPullSeq: 0, maxPushSeq: 0,
+    lastSyncPullSeq: 0, lastSyncPushSeq: 0, syncStatus: "CONNECTED", couchDB: couchDBProgress,
+};
+void replicationStatics;
 const configurationIdentity: ReplicatorConfigurationIdentity = "profile-a";
 const activeReplicatorLifecycle = (replicator: ReplicatorInstance): Promise<void> =>
     Promise.resolve(replicator.closeReplication());

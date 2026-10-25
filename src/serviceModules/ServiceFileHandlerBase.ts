@@ -12,9 +12,9 @@ import type {
     UXInternalFileInfoStub,
 } from "@lib/common/types";
 import {
+    createBlob,
     getDocDataAsArray,
     isDocContentSame,
-    readAsBlob,
     readContent,
 } from "@lib/common/utils";
 import { computeFileContentHash } from "@lib/common/fileContentHash.ts";
@@ -1224,21 +1224,21 @@ export abstract class ServiceFileHandlerBase
             this._log(`File ${path} is not exist on the database`, LOG_LEVEL_VERBOSE);
             return false;
         }
+        const docData = readContent(docRead);
+        const reflectedContent = createBlob(docData);
         // If we want to process size mismatched files -- in case of having files created by some integrations, enable the toggle.
         if (!settings.processSizeMismatchedFiles) {
             // Check the file is not corrupted
             // (Zero is a special case, may be created by some APIs and it might be acceptable).
-            if (docRead.size != 0 && docRead.size !== readAsBlob(docRead).size) {
+            if (docRead.size != 0 && docRead.size !== reflectedContent.size) {
                 this._log(
-                    `File ${path} seems to be corrupted! Writing prevented. (${docRead.size} != ${readAsBlob(docRead).size})`,
+                    `File ${path} seems to be corrupted! Writing prevented. (${docRead.size} != ${reflectedContent.size})`,
                     LOG_LEVEL_NOTICE
                 );
                 return false;
             }
         }
 
-        const docData = readContent(docRead);
-        const reflectedContent = readAsBlob(docRead);
         const reflectedEvidence = await this.contentEvidence(reflectedContent);
 
         if (allowExistingConflicts && existDoc && !force) {

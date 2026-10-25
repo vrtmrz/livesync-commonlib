@@ -12,6 +12,10 @@
     - `batchSaveInLiveSync` defaults to `false` for existing settings and new Vaults. Older configurations with `liveSync: true, batchSave: true` remain immediate. Other modes retain `batchSave`, and both choices share the existing delay settings.
     - The new property is optional in the public settings type and participates in the Markdown and QR settings policies.
 
+- We can observe revision-comparison progress even while no documents are received.
+    - Optional CouchDB statistics expose catch-up and continuous stages, direction-specific entry and batch counts, and opaque processed positions. Existing transfer counts retain their meanings.
+    - Progress notifications are batched, with final values flushed when an attempt pauses or ends. These observations do not establish that Vault reflection has finished.
+
 ### Fixed
 
 - Accepted file operations remain recoverable while buffered, waiting, or saving to the database.

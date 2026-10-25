@@ -1,4 +1,6 @@
 import type PouchDB from "pouchdb-core";
+import type { CouchDBReplicationProgress, ReplicationStatics } from "@lib/common/models/shared.definition.ts";
+import { observeReplicationProgress } from "./replicationProgress.ts";
 import {
     type EntryDoc,
     type EntryMilestoneInfo,
@@ -211,6 +213,27 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
     private continuousTask: Promise<boolean> | undefined;
     private continuousStopWaiter: Promise<void> | undefined;
     private continuousStopRequested = false;
+    private continuousPhase?: "catch-up" | "continuous";
+    private couchDBProgress?: CouchDBReplicationProgress;
+
+    protected override getReplicationStatics(): ReplicationStatics {
+        return {
+            ...super.getReplicationStatics(),
+            ...(this.couchDBProgress ? { couchDB: this.couchDBProgress } : {}),
+        };
+    }
+
+    private publishPreparationPhase(phase: "catch-up" | "continuous") {
+        this.continuousPhase = phase;
+        this.couchDBProgress = { phase };
+        this.updateInfo();
+    }
+
+    private finishReplicationProgress() {
+        if (!this.couchDBProgress || this.couchDBProgress.phase === "idle") return;
+        this.couchDBProgress = { ...this.couchDBProgress, phase: "idle" };
+        this.updateInfo();
+    }
 
     isMobile() {
         return this.env.services.API.isMobile();
@@ -330,6 +353,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             this.continuousStopRequested = true;
         }
         this.abortController();
+        this.finishReplicationProgress();
         if (!task) {
             return Promise.resolve();
         }
@@ -489,6 +513,17 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             this.controller.abort();
         }
         this.controller = controller;
+        const progress = observeReplicationProgress(
+            syncHandler,
+            syncMode,
+            this.continuousPhase ?? "one-shot",
+            controller.signal,
+            (snapshot) => {
+                if (this.controller !== controller) return;
+                this.couchDBProgress = snapshot;
+                this.updateInfo();
+            }
+        );
         const gen = genReplication(syncHandler, controller.signal);
         try {
             for await (const [type, e] of gen) {
@@ -499,6 +534,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                     return "FAILED";
                 }
                 releaser();
+                if (controller.signal.aborted || this.controller !== controller) break;
                 switch (type) {
                     case "change":
                         if ("direction" in e) {
@@ -582,8 +618,9 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             Logger(ex, LOG_LEVEL_VERBOSE);
             return "FAILED";
         } finally {
-            this.abortController();
-            this.controller = undefined;
+            progress.dispose();
+            controller.abort();
+            if (this.controller === controller) this.controller = undefined;
         }
     }
 
@@ -1383,6 +1420,8 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
         if (this.continuousTask !== task) {
             return;
         }
+        this.finishReplicationProgress();
+        this.continuousPhase = undefined;
         this.continuousTask = undefined;
         this.continuousStopWaiter = undefined;
         this.continuousStopRequested = false;
@@ -1401,6 +1440,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 );
                 return false;
             }
+            this.publishPreparationPhase("catch-up");
             const localDB = this.rawDatabase;
             Logger(this.translate("liveSyncReplicator.beforeLiveSync"));
             const caughtUp = await this.env.services.replicator.runFiniteReplicationActivity(
@@ -1417,6 +1457,7 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
                 { label: "replication" }
             );
             if (caughtUp && !this.continuousStopRequested) {
+                this.publishPreparationPhase("continuous");
                 Logger(this.translate("liveSyncReplicator.liveSyncBegin"));
                 const ret = await this.checkReplicationConnectivity(setting, true, false, showResult);
                 if (ret === false || this.continuousStopRequested) {

@@ -116,3 +116,10 @@ export {
 export type { RemoteFeatureAssessment } from "../pouchdb/remoteFeatureCompatibility.ts";
 
 export type { JoinedDevice, JoinedDevicesSnapshot, ForgetJoinedDeviceResult } from "./joinedDevices.ts";
+
+export type {
+    ReplicationStatics,
+    CouchDBReplicationPhase,
+    CouchDBReplicationProgress,
+    ReplicationCheckpointProgress,
+} from "../common/models/shared.definition.ts";
