@@ -17,4 +17,12 @@ export abstract class StorageEventManager {
     abstract isWaiting(filename: FilePath): boolean;
     abstract waitForIdle(): Promise<void>;
     abstract restoreState(): Promise<void>;
+
+    /**
+     * Complete accepted work before its storage closes. Custom hosts must stop
+     * their watcher admission before invoking this default implementation.
+     */
+    stopWatching?(): Promise<void> {
+        return this.waitForIdle();
+    }
 }

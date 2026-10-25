@@ -629,8 +629,9 @@ export async function syncFileBetweenDBandStorage(
         case BASE_IS_NEW:
             if (!host.services.vault.isFileSizeTooLarge(file.stat.size)) {
                 log("STORAGE -> DB :" + file.path);
-                await host.serviceModules.fileHandler.storeFileToDB(file);
-                return FilePairProcessResults.COMPLETED;
+                return (await host.serviceModules.fileHandler.storeFileToDB(file))
+                    ? FilePairProcessResults.COMPLETED
+                    : FilePairProcessResults.FAILED;
             } else {
                 log(
                     `STORAGE -> DB : ${file.path} has been skipped due to file size exceeding the limit`,
@@ -659,11 +660,24 @@ export async function syncFileBetweenDBandStorage(
                 return FilePairProcessResults.SKIPPED;
             }
         case EVEN:
-            if (doc._rev) {
-                await host.serviceModules.fileHandler.tryRecordUntrackedFileRevision(file, doc._rev);
+            if (host.services.vault.isFileSizeTooLarge(file.stat.size) || host.services.vault.isFileSizeTooLarge(doc.size)) {
+                log(`STORAGE ? DB : ${file.path} has been skipped due to file size exceeding the limit`, LOG_LEVEL_NOTICE);
+                return FilePairProcessResults.SKIPPED;
             }
-            log("STORAGE == DB :" + file.path + "", LOG_LEVEL_DEBUG);
-            return FilePairProcessResults.COMPLETED;
+            if (doc._rev && (await host.serviceModules.fileHandler.tryRecordUntrackedFileRevision(file, doc._rev))) {
+                log("STORAGE == DB :" + file.path, LOG_LEVEL_DEBUG);
+                return FilePairProcessResults.COMPLETED;
+            }
+            log("STORAGE ? DB :" + file.path + " Checking content", LOG_LEVEL_DEBUG);
+            try {
+                return (await host.serviceModules.fileHandler.storeFileToDB(file, false, false, { revalidateStorage: true }))
+                    ? FilePairProcessResults.COMPLETED
+                    : FilePairProcessResults.FAILED;
+            } catch (error) {
+                log(`STORAGE ? DB : Could not reconcile ${file.path}`, LOG_LEVEL_NOTICE);
+                log(error, LOG_LEVEL_VERBOSE);
+                return FilePairProcessResults.FAILED;
+            }
         default:
             log("STORAGE ?? DB :" + file.path + " Something got weird");
             return FilePairProcessResults.FAILED;
@@ -840,7 +854,9 @@ export async function updateToDatabase(
 ): Promise<FilePairProcessResult> {
     if (!host.services.vault.isFileSizeTooLarge(file.stat.size)) {
         const path = file.path;
-        await host.serviceModules.fileHandler.storeFileToDB(file);
+        if (!(await host.serviceModules.fileHandler.storeFileToDB(file))) {
+            return FilePairProcessResults.FAILED;
+        }
         host.services.context.events.emitEvent("event-file-changed", { file: path, automated: true });
         return FilePairProcessResults.COMPLETED;
     } else {

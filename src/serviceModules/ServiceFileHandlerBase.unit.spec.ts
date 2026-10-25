@@ -326,7 +326,7 @@ function createRenameHandler(caseInsensitive: boolean, oldEntry: MetaEntry | fal
         events: createLiveSyncEventHub(),
         API: { addLog: vi.fn() },
         databaseFileAccess,
-        storageAccess: { getStub: vi.fn().mockResolvedValue(null) },
+        storageAccess: { getStub: vi.fn().mockResolvedValue(null), normalisePath: (path: string) => path },
         fileProcessing: {
             processFileEvent: {
                 addHandler: vi.fn((handler: (item: FileEventItem) => Promise<boolean>) => {
@@ -338,11 +338,11 @@ function createRenameHandler(caseInsensitive: boolean, oldEntry: MetaEntry | fal
         conflict: {},
         path: pathService,
         setting: { currentSettings: vi.fn().mockReturnValue({}) },
-        vault: { isTargetFile: vi.fn().mockResolvedValue(true) },
+        vault: { isTargetFile: vi.fn().mockResolvedValue(true), isFileSizeTooLarge: () => false },
     } as unknown as ServiceFileHandlerDependencies;
     const handler = new TestFileHandler(deps);
     if (!processFileEvent) throw new Error("File event handler was not registered");
-    return { handler, processFileEvent, databaseFileAccess, pathService };
+    return { handler, processFileEvent, databaseFileAccess, pathService, storageAccess: deps.storageAccess };
 }
 
 function createRestoredEvent(type: FileEventItem["type"], file: UXFileInfoStub, oldPath?: string): FileEventItem {
@@ -358,6 +358,7 @@ function createRestoredEventHandler(
     options: {
         currentItems?: Record<string, UXFileInfoStub | { path: FilePath; isFolder: true } | null>;
         caseInsensitiveIds?: boolean;
+        databaseEntries?: Record<string, MetaEntry | false>;
         isTargetFile?: (path: string) => boolean;
         isTargetFileWithoutDuplication?: (path: string) => boolean;
         isFileSizeTooLarge?: (size: number) => boolean;
@@ -371,6 +372,7 @@ function createRestoredEventHandler(
     };
     const pathService = {
         path2id: vi.fn(async (path: string) => (options.caseInsensitiveIds ? path.toLowerCase() : path)),
+        getPath: (entry: MetaEntry) => entry.path,
     };
     const vault = {
         isTargetFile: vi.fn(async (path: string, check?: { skipCaseCollisionCheck?: boolean }) =>
@@ -383,7 +385,11 @@ function createRestoredEventHandler(
     const dependencies = {
         events: createLiveSyncEventHub(),
         API: { addLog: vi.fn() },
-        databaseFileAccess: {},
+        databaseFileAccess: {
+            fetchEntryMeta: vi.fn(async (path: string) =>
+                options.databaseEntries?.[path] ?? createMeta(path, "stored content")
+            ),
+        },
         storageAccess,
         fileProcessing: {
             processFileEvent: {
@@ -612,7 +618,7 @@ describe("ServiceFileHandlerBase.renameFileInDB", () => {
     });
 
     it("serialises case variants by their canonical document ID", async () => {
-        const { handler, processFileEvent } = createRenameHandler(true);
+        const { handler, processFileEvent, storageAccess } = createRenameHandler(true);
         let notifyDeleteStarted: (() => void) | undefined;
         let releaseDelete: (() => void) | undefined;
         const deleteStarted = new Promise<void>((resolve) => {
@@ -636,6 +642,8 @@ describe("ServiceFileHandlerBase.renameFileInDB", () => {
 
         const deletePromise = processFileEvent({ type: "DELETE", args: { file: oldFile }, key: "delete" });
         await deleteStarted;
+        // The recreated file exists while its event waits for the old deletion.
+        vi.mocked(storageAccess.getStub).mockResolvedValue(newFile);
         const createPromise = processFileEvent({ type: "CREATE", args: { file: newFile }, key: "create" });
         await new Promise((resolve) => setTimeout(resolve, 10));
 
@@ -694,7 +702,8 @@ describe("ServiceFileHandlerBase current storage deletions", () => {
         const { processFileEvent, storageAccess, deleteFileFromDB } = createRestoredEventHandler();
         storageAccess.getStub.mockRejectedValue(new Error("Storage inspection failed"));
 
-        await processFileEvent({ type: "DELETE", args: { file: saved }, key: "unverified-delete" });
+        await expect(processFileEvent({ type: "DELETE", args: { file: saved }, key: "unverified-delete" }))
+            .resolves.toBe(false);
 
         expect(deleteFileFromDB).not.toHaveBeenCalled();
     });
@@ -840,7 +849,7 @@ describe("ServiceFileHandlerBase restored storage events", () => {
         const { processFileEvent, storageAccess, deleteFileFromDB } = createRestoredEventHandler();
         storageAccess.getStub.mockRejectedValueOnce(new Error("storage unavailable"));
 
-        await expect(processFileEvent(createRestoredEvent("DELETE", saved))).resolves.toBe(true);
+        await expect(processFileEvent(createRestoredEvent("DELETE", saved))).resolves.toBe(false);
 
         expect(deleteFileFromDB).not.toHaveBeenCalled();
     });
@@ -921,6 +930,7 @@ describe("ServiceFileHandlerBase restored storage events", () => {
         const { processFileEvent, renameFileInDB } = createRestoredEventHandler({
             currentItems: { "note.md": current, "Note.md": current },
             caseInsensitiveIds: true,
+            databaseEntries: { "note.md": createMeta("Note.md", "saved") },
         });
 
         await expect(processFileEvent(createRestoredEvent("RENAME", saved, "Note.md"))).resolves.toBe(true);
@@ -951,7 +961,7 @@ describe("ServiceFileHandlerBase restored storage events", () => {
             return current;
         });
 
-        await expect(processFileEvent(createRestoredEvent("RENAME", saved, "old.md"))).resolves.toBe(true);
+        await expect(processFileEvent(createRestoredEvent("RENAME", saved, "old.md"))).resolves.toBe(false);
 
         expect(storeFileToDB).toHaveBeenCalledWith(current);
         expect(deleteFileFromDB).not.toHaveBeenCalled();
@@ -963,7 +973,7 @@ describe("ServiceFileHandlerBase restored storage events", () => {
         const { processFileEvent, storageAccess, deleteFileFromDB } = createRestoredEventHandler();
         storageAccess.getStub.mockRejectedValueOnce(new Error("target unavailable"));
 
-        await expect(processFileEvent(createRestoredEvent("RENAME", saved, "old.md"))).resolves.toBe(true);
+        await expect(processFileEvent(createRestoredEvent("RENAME", saved, "old.md"))).resolves.toBe(false);
 
         expect(deleteFileFromDB).not.toHaveBeenCalled();
     });
@@ -2468,5 +2478,40 @@ describe("ServiceFileHandlerBase conflicted storage operations", () => {
         expect(databaseFileAccess.storeDeletionWithBaseRevision).not.toHaveBeenCalled();
         expect(databaseFileAccess.delete).not.toHaveBeenCalled();
         expect(conflict.queueCheckFor).toHaveBeenCalledWith("old.md");
+    });
+});
+
+
+describe("ServiceFileHandlerBase event completion decisions", () => {
+    it("completes an explicitly deselected ordinary event without writing", async () => {
+        const file = createStorageStub("excluded.md", "saved");
+        const { processFileEvent, storeFileToDB } = createRestoredEventHandler({ isTargetFile: () => false });
+        await expect(processFileEvent({ type: "CHANGED", args: { file }, key: "excluded" })).resolves.toBe(true);
+        expect(storeFileToDB).not.toHaveBeenCalled();
+    });
+
+    it("retains an ordinary event rejected only by a current path collision", async () => {
+        const file = createStorageStub("collision.md", "saved");
+        const { processFileEvent, storeFileToDB } = createRestoredEventHandler({
+            isTargetFile: () => false,
+            isTargetFileWithoutDuplication: () => true,
+        });
+        await expect(processFileEvent({ type: "CHANGED", args: { file }, key: "collision" })).resolves.toBe(false);
+        expect(storeFileToDB).not.toHaveBeenCalled();
+    });
+
+    it("completes an ordinary content event when current storage proves its file is gone", async () => {
+        const file = createStorageStub("deleted-before-save.md", "saved");
+        const { processFileEvent, storeFileToDB } = createRestoredEventHandler();
+        await expect(processFileEvent({ type: "CHANGED", args: { file }, key: "superseded" })).resolves.toBe(true);
+        expect(storeFileToDB).not.toHaveBeenCalled();
+    });
+
+    it("retains a restored deletion when selection cannot be inspected", async () => {
+        const file = createStorageStub("note.md", "saved");
+        const { processFileEvent, vault, deleteFileFromDB } = createRestoredEventHandler();
+        vault.isTargetFile.mockRejectedValue(new Error("Selection unavailable"));
+        await expect(processFileEvent(createRestoredEvent("DELETE", file))).resolves.toBe(false);
+        expect(deleteFileFromDB).not.toHaveBeenCalled();
     });
 });

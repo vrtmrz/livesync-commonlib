@@ -60,7 +60,7 @@ describe("ServiceFileAccessBase deletion recursion", () => {
 
         const service = new ServiceFileAccessBase<any>({
             API: { addLog: vi.fn() } as any,
-            appLifecycle: { onFirstInitialise: { addHandler: vi.fn() } } as any,
+            appLifecycle: { onFirstInitialise: { addHandler: vi.fn() }, onBeforeUnload: { addHandler: vi.fn() } } as any,
             fileProcessing: { commitPendingFileEvents: { addHandler: vi.fn() } } as any,
             vault: { isTargetFile: vi.fn().mockResolvedValue(true) } as any,
             setting: {
@@ -100,7 +100,7 @@ describe("ServiceFileAccessBase readFileAuto", () => {
 
         const service = new ServiceFileAccessBase<any>({
             API: { addLog: vi.fn() } as any,
-            appLifecycle: { onFirstInitialise: { addHandler: vi.fn() } } as any,
+            appLifecycle: { onFirstInitialise: { addHandler: vi.fn() }, onBeforeUnload: { addHandler: vi.fn() } } as any,
             fileProcessing: { commitPendingFileEvents: { addHandler: vi.fn() } } as any,
             vault: { isTargetFile: vi.fn().mockResolvedValue(true) } as any,
             setting: {
@@ -181,7 +181,7 @@ describe("ServiceFileAccessBase renameFile", () => {
         };
         const service = new ServiceFileAccessBase<any>({
             API: { addLog: vi.fn() } as any,
-            appLifecycle: { onFirstInitialise: { addHandler: vi.fn() } } as any,
+            appLifecycle: { onFirstInitialise: { addHandler: vi.fn() }, onBeforeUnload: { addHandler: vi.fn() } } as any,
             fileProcessing: { commitPendingFileEvents: { addHandler: vi.fn() } } as any,
             vault: { isTargetFile: vi.fn().mockResolvedValue(true) } as any,
             setting: { currentSettings: vi.fn().mockReturnValue({}) } as any,
@@ -202,5 +202,58 @@ describe("ServiceFileAccessBase renameFile", () => {
 
         expect(vaultAccess.vaultRename).toHaveBeenCalledWith(nativeFile, "calculus.md");
         expect(vaultAccess.touch).toHaveBeenCalledWith("calculus.md");
+    });
+});
+
+
+describe("ServiceFileAccessBase local completion lifecycle", () => {
+    function fixture(stopWatching?: () => Promise<void>) {
+        const waitForIdle = vi.fn(async () => {});
+        let beforeUnload: (() => Promise<boolean>) | undefined;
+        const service = new ServiceFileAccessBase<any>({
+            API: { addLog: vi.fn() } as any,
+            appLifecycle: {
+                onFirstInitialise: { addHandler: vi.fn() },
+                onBeforeUnload: { addHandler: vi.fn((handler) => { beforeUnload = handler; }) },
+            } as any,
+            fileProcessing: { commitPendingFileEvents: { addHandler: vi.fn() } } as any,
+            vault: {} as any,
+            setting: {} as any,
+            storageEventManager: { stopWatching, waitForIdle } as any,
+            storageAccessManager: {} as any,
+            vaultAccess: {} as any,
+        });
+        return { service, waitForIdle, getBeforeUnload: () => beforeUnload };
+    }
+
+    it("retains completion for existing custom managers without the optional shutdown method", async () => {
+        const { waitForIdle, getBeforeUnload } = fixture();
+        await expect(getBeforeUnload()!()).resolves.toBe(true);
+        expect(waitForIdle).toHaveBeenCalledOnce();
+    });
+
+    it("awaits watcher shutdown before permitting lifecycle storage closure", async () => {
+        let finish!: () => void;
+        const pending = new Promise<void>((resolve) => { finish = resolve; });
+        const stop = vi.fn(() => pending);
+        const { getBeforeUnload } = fixture(stop);
+        const beforeUnload = getBeforeUnload();
+        expect(beforeUnload).toBeDefined();
+        let settled = false;
+        const unloading = beforeUnload!().then(() => { settled = true; });
+        try {
+            await Promise.resolve();
+            expect(stop).toHaveBeenCalledOnce();
+            expect(settled).toBe(false);
+        } finally {
+            finish();
+            await unloading;
+        }
+    });
+
+    it("preserves a snapshot-write failure at the lifecycle boundary", async () => {
+        const { getBeforeUnload } = fixture(async () => { throw new Error("Snapshot unavailable"); });
+        expect(getBeforeUnload()).toBeDefined();
+        await expect(getBeforeUnload()!()).rejects.toThrow("Snapshot unavailable");
     });
 });

@@ -90,6 +90,23 @@ describe("settings property policy", () => {
         expect(withCredentials).toMatchObject({ idDerivationVersion: 1, pathNormalizationVersion: 1 });
     });
 
+    it.each([false, true])("exports and imports an explicit LiveSync batching choice of %s", (value) => {
+        const original = { ...settings(), batchSaveInLiveSync: value };
+        const exported = createMarkdownSettings(original, false);
+        const imported = mergeMarkdownSettings(exported, settings());
+
+        expect(exported.batchSaveInLiveSync).toBe(value);
+        expect(imported.batchSaveInLiveSync).toBe(value);
+    });
+
+    it("does not infer LiveSync batching when importing legacy batch-save settings", () => {
+        const current = { ...settings(), batchSaveInLiveSync: false };
+        const imported = mergeMarkdownSettings({ liveSync: true, batchSave: true }, current);
+
+        expect(imported.batchSave).toBe(true);
+        expect(imported.batchSaveInLiveSync).toBe(false);
+    });
+
     it("retains named profile IDs when connection sharing is enabled", () => {
         const original = { ...settings(), remoteConfigurations: profilesWithSpecialIds() };
         const output = createMarkdownSettings(original, true);
@@ -158,5 +175,13 @@ describe("settings property policy", () => {
 
     it("requires prepared settings before persistence", () => {
         expect(() => prepareSettingsForPersistence(settings())).toThrow("not prepared for persistence");
+    });
+
+    it("persists the LiveSync batching choice with connection credentials cleared", () => {
+        const persisted = prepareSettingsForPersistence({ ...DEFAULT_SETTINGS, batchSaveInLiveSync: true });
+
+        expect(persisted.batchSaveInLiveSync).toBe(true);
+        expect(persisted.couchDB_PASSWORD).toBe("");
+        expect(persisted.secretKey).toBe("");
     });
 });

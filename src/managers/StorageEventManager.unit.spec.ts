@@ -200,7 +200,7 @@ function createMockDependencies(): StorageEventManagerBaseDependencies {
         onStorageFileEvent: vi.fn(),
         isFileProcessing: vi.fn(() => false),
         processFileEvent: vi.fn(() => Promise.resolve(true)),
-        processOptionalFileEvent: vi.fn(() => Promise.resolve()),
+        processOptionalFileEvent: vi.fn(() => Promise.resolve(true)),
     } as unknown as FileProcessingService;
 
     const storageAccessManager = {
@@ -1073,7 +1073,7 @@ describe("StorageEventManagerBase", () => {
                 cancelled: true,
             };
 
-            await manager["handleFileEvent"](item);
+            await expect(manager["handleFileEvent"](item)).rejects.toThrow("no confirmed result");
 
             // Should not process cancelled events
             expect(dependencies.fileProcessing.processFileEvent).not.toHaveBeenCalled();
@@ -1350,7 +1350,7 @@ describe("StorageEventManagerBase", () => {
                 key: "fail-key",
             };
 
-            await manager["handleFileEvent"](item);
+            await expect(manager["handleFileEvent"](item)).rejects.toThrow("Storage operation failed");
 
             expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalled();
         });
@@ -1683,9 +1683,9 @@ describe("StorageEventManagerBase", () => {
                 key: "cancel-key",
             };
 
-            const processPromise = manager["processFileEvent"](item);
+            const processPromise = expect(manager["processFileEvent"](item)).rejects.toThrow("without a successor");
 
-            // Cancel waiting to cause early return
+            // A cancelled gate alone does not establish successful completion.
             await new Promise((resolve) => {
                 setTimeout(() => {
                     manager["_cancelWaiting"](file.path);
@@ -1695,8 +1695,10 @@ describe("StorageEventManagerBase", () => {
 
             await processPromise;
 
-            // When cancelled (canProceed = false), processing should return early
+            // The failed operation remains available for a later restart.
             expect(manager["_waitingMap"].has(file.path)).toBe(false);
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+            await expect(manager.waitForIdle()).rejects.toThrow("without a successor");
         }, 10000);
 
         it("should restore previous waiting since for batch timeout calculation", async () => {
@@ -1776,7 +1778,7 @@ describe("StorageEventManagerBase", () => {
             expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalledTimes(2);
         }, 10000);
 
-        it("resumes an unrelated file after hot-file waiters release the processing slots", async () => {
+        it("processes an unrelated file while hot-file predecessors are still running", async () => {
             let releaseHotFile!: () => void;
             const hotGate = new Promise<void>((resolve) => { releaseHotFile = resolve; });
             const process = vi.mocked(dependencies.fileProcessing.processFileEvent);
@@ -1795,11 +1797,9 @@ describe("StorageEventManagerBase", () => {
             );
             const unrelated = manager.processFileEvent(event("unrelated-queue.md", 5));
             try {
-                // The host counts lock waiters against its existing global limit.
-                // This records the limitation separately from per-document locking.
                 await vi.waitFor(() => {
-                    expect(manager["concurrentProcessing"].waiting).toBe(1);
-                    expect(process).toHaveBeenCalledTimes(1);
+                    expect(process).toHaveBeenCalledTimes(2);
+                    expect(process.mock.calls.some(([item]) => item.args.file.path === "unrelated-queue.md")).toBe(true);
                 });
                 expect(process.mock.calls[0][0].args.file.path).toBe("hot-queue.md");
             } finally {
@@ -1834,5 +1834,113 @@ describe("StorageEventManagerBase", () => {
             // Semaphore should still be released (handled by finally block)
             expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalled();
         }, 10000);
+    });
+
+    describe("durable local completion", () => {
+        function event(path: string, key = path): FileEventItem {
+            return {
+                type: "CHANGED",
+                key,
+                skipBatchWait: true,
+                args: { file: adapter.converter.toFileInfo(createMockFile(path, path)) },
+            };
+        }
+
+        it("includes watcher admission already under way when flush is requested", async () => {
+            let release!: (result: boolean) => void;
+            vi.mocked(dependencies.fileProcessing.processFileEvent).mockReturnValue(
+                new Promise<boolean>((resolve) => { release = resolve; })
+            );
+            const file = adapter.converter.toFileInfo(createMockFile("admitting.md", "admitting.md"));
+            const admission = manager.appendQueue([{ type: "CHANGED", file, skipBatchWait: true }]);
+            let settled = false;
+            const flush = manager.waitForIdle().then(() => { settled = true; });
+            try {
+                await admission;
+                await vi.waitFor(() => expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalled());
+                expect(settled).toBe(false);
+            } finally {
+                release(true);
+                await flush;
+                await vi.waitFor(() => expect(adapter.status.processing).toBe(0));
+            }
+        });
+
+        it("stops new watcher admission while draining accepted operations", async () => {
+            let release!: (result: boolean) => void;
+            const process = vi.mocked(dependencies.fileProcessing.processFileEvent).mockReturnValue(
+                new Promise<boolean>((resolve) => { release = resolve; })
+            );
+            const item = event("before-stop.md");
+            manager.enqueue(item);
+            await vi.waitFor(() => expect(process).toHaveBeenCalledOnce());
+            let stopped = false;
+            const stopping = manager.stopWatching().then(() => { stopped = true; });
+            try {
+                const file = adapter.converter.toFileInfo(createMockFile("after-stop.md", "after-stop.md"));
+                await manager.appendQueue([{ type: "CHANGED", file, skipBatchWait: true }]);
+                expect(stopped).toBe(false);
+                expect(process).toHaveBeenCalledOnce();
+                expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+            } finally {
+                release(true);
+                await stopping;
+            }
+            expect(adapter.persistence.getStoredSnapshot()).toEqual([]);
+        });
+
+        it("preserves failed operations before orderly shutdown finishes", async () => {
+            vi.mocked(dependencies.fileProcessing.processFileEvent).mockResolvedValue(false);
+            const item = event("failed-at-stop.md");
+            manager.enqueue(item);
+            await expect(manager.stopWatching()).resolves.toBeUndefined();
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+        });
+
+        it("retains an event in the snapshot throughout its database write", async () => {
+            let release!: (result: boolean) => void;
+            vi.mocked(dependencies.fileProcessing.processFileEvent).mockReturnValue(
+                new Promise<boolean>((resolve) => { release = resolve; })
+            );
+            const item = event("in-progress.md");
+            manager.enqueue(item);
+            try {
+                await vi.waitFor(() => expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalled());
+                await manager._takeSnapshot();
+                expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+            } finally {
+                release(true);
+                await vi.waitFor(() => expect(adapter.status.processing).toBe(0));
+            }
+        });
+
+        it("waits for an in-progress write even when no batch timer remains", async () => {
+            let release!: (result: boolean) => void;
+            vi.mocked(dependencies.fileProcessing.processFileEvent).mockReturnValue(
+                new Promise<boolean>((resolve) => { release = resolve; })
+            );
+            manager.enqueue(event("flush-running.md"));
+            let settled = false;
+            let flush: Promise<void> | undefined;
+            try {
+                await vi.waitFor(() => expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalled());
+                flush = manager.waitForIdle().then(() => { settled = true; });
+                await new Promise((resolve) => setTimeout(resolve, 20));
+                expect(settled).toBe(false);
+            } finally {
+                release(true);
+                await flush;
+                await vi.waitFor(() => expect(adapter.status.processing).toBe(0));
+            }
+        });
+
+        it("reports a false handler result and retains the failed operation", async () => {
+            vi.mocked(dependencies.fileProcessing.processFileEvent).mockResolvedValue(false);
+            const item = event("failed-write.md");
+            manager.enqueue(item);
+            await vi.waitFor(() => expect(dependencies.fileProcessing.processFileEvent).toHaveBeenCalled());
+            await expect(manager.waitForIdle()).rejects.toThrow();
+            expect(adapter.persistence.getStoredSnapshot()).toContainEqual(item);
+        });
     });
 });

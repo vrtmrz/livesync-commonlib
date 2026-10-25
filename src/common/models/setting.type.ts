@@ -106,6 +106,8 @@ interface SyncMethodSettings {
      * Synchronise in Live. This is an exclusive setting against other sync methods.
      */
     liveSync: boolean;
+    /** Explicitly enable batched local database updates in LiveSync mode; an absent value is false. */
+    batchSaveInLiveSync?: boolean;
     /**
      * automatically run sync on save.
      * File modification will trigger the sync, even if the file is not changed on the editor.

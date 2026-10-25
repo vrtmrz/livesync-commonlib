@@ -49,6 +49,7 @@ export const SETTINGS_SCHEMA_DEFAULTS: ObsidianLiveSyncSettings = {
     couchDB_PASSWORD: "",
     couchDB_DBNAME: "",
     liveSync: false,
+    batchSaveInLiveSync: false,
     syncOnSave: false,
     syncOnStart: false,
     savingDelay: 200,

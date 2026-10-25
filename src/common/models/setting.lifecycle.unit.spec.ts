@@ -32,6 +32,7 @@ describe("prepareSettingsForLoad", () => {
 
         expect(prepared.isNewVault).toBe(true);
         expect(prepared.changed).toBe(false);
+        expect(prepared.settings.batchSaveInLiveSync).toBe(false);
         expect(prepared.settings).toEqual(NEW_VAULT_SETTINGS);
         expect(prepared.settings).not.toBe(NEW_VAULT_SETTINGS);
         expect(prepared.settings.remoteConfigurations).not.toBe(NEW_VAULT_SETTINGS.remoteConfigurations);
@@ -72,6 +73,30 @@ describe("prepareSettingsForLoad", () => {
         expect(prepared.settings.lessInformationInLog).toBe(SETTINGS_SCHEMA_DEFAULTS.lessInformationInLog);
         expect(prepared.settings.allowSleepDuringSynchronisation).toBe(false);
         expect(prepared.settings.allowSleepDuringSynchronisationOnDesktop).toBe(true);
+    });
+
+    it("does not infer LiveSync batching from the legacy batch-save preference", () => {
+        const prepared = prepareSettingsForLoad({
+            liveSync: true,
+            batchSave: true,
+        });
+
+        expect(prepared.settings.batchSave).toBe(true);
+        expect(prepared.settings.batchSaveInLiveSync).toBe(false);
+    });
+
+    it("preserves an explicit LiveSync batching choice across repeated loads", () => {
+        const first = prepareSettingsForLoad({
+            liveSync: true,
+            batchSave: true,
+            batchSaveInLiveSync: true,
+        });
+        const second = prepareSettingsForLoad(first.settings);
+
+        expect(first.settings.batchSaveInLiveSync).toBe(true);
+        expect(second.settings.batchSaveInLiveSync).toBe(true);
+        expect(second.changed).toBe(false);
+        expect(second.settings).toEqual(first.settings);
     });
 
     it("adds P2P transport compatibility defaults when stored settings predate them", () => {

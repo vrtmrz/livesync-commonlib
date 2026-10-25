@@ -1,5 +1,24 @@
 # Updates
 
+## Unreleased
+
+### Added
+
+- Hosts can offer an explicit choice to batch local database updates in LiveSync mode.
+    - `batchSaveInLiveSync` defaults to `false` for existing settings and new Vaults. Older configurations with `liveSync: true, batchSave: true` remain immediate. Other modes retain `batchSave`, and both choices share the existing delay settings.
+    - The new property is optional in the public settings type and participates in the Markdown and QR settings policies.
+
+### Fixed
+
+- Accepted file operations remain recoverable while buffered, waiting, or saving to the database.
+    - The existing snapshot format now retains operations through successful processing, with ordered writes and safe replay. Failed handlers or persistence attempts remain visible as failures; releasing a batch delay no longer acknowledges a save.
+- Hosts can wait for a finite set of accepted local saves before synchronisation or settings application proceeds.
+    - `commitPendingFileEvents()` includes buffered and already running work. Later edits do not extend the boundary indefinitely. Waiting timers no longer occupy processing slots needed by unrelated ready files.
+    - Before unload, the maintained file-access service stops event admission and completes work or persists pending records. Failed unload preparation reaches the caller after resource cleanup; synchronous host callbacks should handle the returned promise's rejection.
+- Equal-time offline scans preserve unsaved edits and their revision ancestry through content and provenance checks.
+    - The scanner uses non-forced saves with bounded revalidation. Required content or provenance which cannot be read remains unresolved, and existing partial-scan and strict-caller policies remain in effect.
+
+
 ## 0.2.0
 
 23rd October, 2026
