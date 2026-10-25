@@ -1,3 +1,4 @@
+import type { ReplicationStatics } from "@lib/common/models/shared.definition.ts";
 import {
     type EntryDoc,
     type DatabaseConnectingStatus,
@@ -164,8 +165,8 @@ export abstract class LiveSyncAbstractReplicator implements ReplicatorInstance {
         ignoreCleanLock: boolean
     ): Promise<void | boolean>;
 
-    updateInfo: () => void = () => {
-        this.env.services.replicator.replicationStatics.value = {
+    protected getReplicationStatics(): ReplicationStatics {
+        return {
             sent: this.docSent,
             arrived: this.docArrived,
             maxPullSeq: this.maxPullSeq,
@@ -174,6 +175,10 @@ export abstract class LiveSyncAbstractReplicator implements ReplicatorInstance {
             lastSyncPushSeq: this.lastSyncPushSeq,
             syncStatus: this.syncStatus,
         };
+    }
+
+    updateInfo: () => void = () => {
+        this.env.services.replicator.replicationStatics.value = this.getReplicationStatics();
     };
 
     abstract tryConnectRemote(setting: RemoteDBSettings, showResult?: boolean): Promise<boolean>;

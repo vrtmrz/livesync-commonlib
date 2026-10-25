@@ -108,6 +108,49 @@ The `/replication` entry includes the `joined-devices` finite resource contract.
 
 `forget(id)` removes one other device from all participation maps and the accepted list, while retaining the lock state, preferred tweaks, and unknown fields. The CouchDB implementation rereads the existing milestone before editing and verifies removal after saving. CouchDB local documents do not reject stale revisions, so concurrent changes to other device records can be overwritten. A failed verification is reported to the caller for manual refresh and retry. Object Storage checks ETags with conditional writes and retries conflicts a bounded number of times. Missing records, unsupported conditional writes, and exhausted conflicts have distinct results. Forgetting is not credential revocation: an unlocked remote permits a returning device to register again.
 
+## Replication statistics
+
+Hosts can read the latest `services.replicator.replicationStatics.value` and
+subscribe to that reactive source. The focused `/replication` entry exports
+`ReplicationStatics`, `CouchDBReplicationProgress`, and
+`ReplicationCheckpointProgress`. Existing transfer counters and `syncStatus`
+retain their meanings.
+
+The optional `couchDB` snapshot describes the ordinary CouchDB replication
+attempt. Other providers omit it. Its `phase` distinguishes `one-shot`,
+`catch-up` (the pull preceding each continuous start or reconnect),
+`continuous`, and `idle`. Preparation can expose a phase before directional
+progress is available. This is independent of activity, pause, or failure in
+`syncStatus`; entering `continuous` does not establish that Vault reflection
+has finished or that editing is safe.
+
+Optional `pull` and `push` observations each contain:
+
+- `checkedChanges`: changes-feed entries presented for revision comparison,
+  including both existing and missing revisions. One entry with several
+  revisions counts once; repeated entries during retries can count again.
+  This is neither a Vault file count nor an exact count of skipped transfers.
+- `completedBatches`: batches which reached PouchDB's checkpoint notification,
+  including batches which transferred no documents.
+- `lastSeq`: the last processed checkpoint position, preserved as a number or
+  an opaque string. It is not a remaining-work estimate, percentage, or proof
+  that a checkpoint was durably written.
+- `checking`: observed revision comparison in the current batch, cleared by
+  a transfer notification, pause, or termination. It does not establish that
+  network transfer has not begun.
+
+Counts and positions reset for each underlying PouchDB handler, including the
+transition from catch-up to continuous replication and a replacement attempt.
+Completion, failure, and cancellation retain final values with `phase: 'idle'`
+and `checking: false`. Replacing the provider clears its previous snapshot.
+
+Checkpoint events are accumulated internally and published periodically
+(currently about 200 ms). Transfer, pause, and terminal boundaries flush
+pending observations promptly. The interval is an implementation detail.
+The observer releases its timer and listeners on termination; late callbacks
+cannot publish into the next attempt. These observations do not modify the
+replication options, received documents, or native checkpoints.
+
 ## Rooted storage
 
 Both platform storage factories receive an existing root from the host. They never select a directory, request browser permission, infer a process directory, or persist a handle.

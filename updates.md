@@ -1,5 +1,13 @@
 # Updates
 
+## Unreleased
+
+### Added
+
+- We can observe revision-comparison progress even while no documents are received.
+    - Optional CouchDB statistics expose catch-up and continuous stages, direction-specific entry and batch counts, and opaque processed positions. Existing transfer counts retain their meanings.
+    - Progress notifications are batched, with final values flushed when an attempt pauses or ends. These observations do not establish that Vault reflection has finished.
+
 ## 0.2.0
 
 23rd October, 2026

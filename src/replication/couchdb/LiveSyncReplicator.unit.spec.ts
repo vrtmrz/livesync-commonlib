@@ -741,6 +741,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             releaseCatchUp = resolve;
         });
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
                 context: createServiceContext(),
@@ -783,6 +784,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             releaseSeedPreparation = resolve;
         });
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
                 context: createServiceContext(),
@@ -822,6 +824,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             releaseCatchUp = resolve;
         });
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
                 context: createServiceContext(),
@@ -929,6 +932,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
     it("exposes the initial pull-only catch-up as finite replication activity", async () => {
         const runFiniteReplicationActivity = vi.fn(async <T>(task: () => Promise<T>) => await task());
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
                 context: createServiceContext(),
@@ -965,6 +969,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             sync: vi.fn(() => ({})),
         };
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
                 context: createServiceContext(),
@@ -1031,6 +1036,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             sync: vi.fn(() => ({})),
         };
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
                 context: createServiceContext(),
