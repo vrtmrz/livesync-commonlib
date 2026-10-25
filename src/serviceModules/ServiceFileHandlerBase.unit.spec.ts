@@ -982,6 +982,46 @@ describe("ServiceFileHandlerBase restored storage events", () => {
 });
 
 describe("ServiceFileHandlerBase.dbToStorage", () => {
+    it.each([
+        { name: "complete surrogate pairs", chunks: ["prefix ", "🙂", " suffix"], skipSizeCheck: false },
+        { name: "split surrogate pairs", chunks: ["prefix \uD83D", "\uDE42 suffix"], skipSizeCheck: false },
+        {
+            name: "split surrogate pairs with size checking disabled",
+            chunks: ["prefix \uD83D", "\uDE42 suffix"],
+            skipSizeCheck: true,
+        },
+    ])("reflects text and records matching byte evidence for $name", async ({ chunks, skipSizeCheck }) => {
+        const content = "prefix 🙂 suffix";
+        const {
+            handler,
+            remoteMeta,
+            storageStub,
+            storageFile,
+            databaseFileAccess,
+            storageAccess,
+            provenance,
+            setting,
+        } = createHandler("old", content, false, TARGET_IS_NEW, true);
+        setting.currentSettings.mockReturnValue({
+            ...setting.currentSettings(),
+            processSizeMismatchedFiles: skipSizeCheck,
+        });
+        databaseFileAccess.fetchEntryFromMeta.mockResolvedValue({ ...remoteMeta, data: chunks });
+
+        await expect(handler.dbToStorageWithSpecificRev(storageStub, remoteMeta._rev, true)).resolves.toBe(true);
+
+        expect(storageAccess.writeFileAuto).toHaveBeenCalledExactlyOnceWith("note.md", content, {
+            ctime: remoteMeta.ctime,
+            mtime: remoteMeta.mtime,
+        });
+        expect(provenance.set).toHaveBeenCalledExactlyOnceWith("note.md", {
+            revision: remoteMeta._rev,
+            observedStorageMtime: storageFile.stat.mtime,
+            contentSize: Buffer.byteLength(content, "utf8"),
+            contentHash: `sha256:${createHash("sha256").update(content, "utf8").digest("hex")}`,
+        });
+    });
+
     it("reuses decoded binary content for validation and reflection evidence", async () => {
         const fixture = createHandler("old", "unused", false);
         const bytes = new Uint8Array([0, 255, 31, 128]);
