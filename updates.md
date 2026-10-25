@@ -23,6 +23,11 @@ With this release, we strengthen the foundations of Commonlib and open up new po
 - We can reflect file contents with fewer decoding passes.
     - Size validation, storage writing, and content-hash calculation reuse the decoded content.
 
+### Security
+
+- We require a patched Markdown parser and use patched test tooling.
+    - Raised the `markdown-it` minimum to `14.3.3`, updated Vitest to `4.1.12`, and refreshed Vite to `8.1.6` in the development lockfile.
+
 ### Fixed
 
 - Accepted file operations remain recoverable while buffered, waiting, or saving to the database.

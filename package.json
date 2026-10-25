@@ -49,7 +49,7 @@
     "events": "^3.3.0",
     "fflate": "^0.8.2",
     "idb": "^8.0.3",
-    "markdown-it": "^14.3.2",
+    "markdown-it": "^14.3.3",
     "minimatch": "^10.2.6",
     "octagonal-wheels": "^0.1.55",
     "pouchdb-adapter-http": "^9.0.0",
@@ -87,7 +87,7 @@
     "svelte": "5.56.3",
     "tinyglobby": "^0.2.15",
     "typescript": "5.9.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.12"
   },
   "engines": {
     "node": ">=20"
