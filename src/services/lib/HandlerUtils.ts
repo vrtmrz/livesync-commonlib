@@ -809,7 +809,7 @@ type FunctionKeys<T> = Extract<
 type FirstHandledFunctionKeys<T> = Extract<
     {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- used to identify callable handler properties, including optional ones.
-        [K in keyof T]: NonNullable<T[K]> extends (...args: any[]) => any ? K : never;
+        [K in keyof T]: NonNullable<T[K]> extends (...args: any[]) => AnyHandlerOutcome | Promise<AnyHandlerOutcome> ? K : never;
     }[keyof T],
     string
 >;
