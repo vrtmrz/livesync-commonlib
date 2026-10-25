@@ -13,8 +13,7 @@ import {
 } from "@lib/common/types.ts";
 import { delay, fireAndForget, isRemediationModeActive, throttle } from "@lib/common/utils.ts";
 import { type FileEventItem } from "@lib/common/types.ts";
-import { serialized, skipIfDuplicated } from "octagonal-wheels/concurrency/lock";
-import { isWaitingForTimeout } from "octagonal-wheels/concurrency/task";
+import { serialized } from "octagonal-wheels/concurrency/lock";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
 import type { IStorageAccessManager } from "@lib/interfaces/StorageAccess.ts";
 import { promiseWithResolvers, type PromiseWithResolvers } from "octagonal-wheels/promises";
@@ -38,6 +37,31 @@ type FileEventItemSentinelFlush = {
     type: typeof TYPE_SENTINEL_FLUSH;
 };
 export type FileEventItemSentinel = FileEventItemSentinelFlush;
+type OperationResult = { ok: true } | { ok: false; error: unknown };
+type PendingFileEvent = {
+    event: FileEventItem;
+    sequence: number;
+    acceptedAt: number;
+    completion: PromiseWithResolvers<OperationResult>;
+    prerequisites: Set<PendingFileEvent>;
+    started: boolean;
+    flushRequested: boolean;
+    flushSignal?: PromiseWithResolvers<void>;
+    successor?: PendingFileEvent;
+    result?: OperationResult;
+};
+type EventAdmission = {
+    acceptedAt: number;
+    completion: Promise<void>;
+    operations: PendingFileEvent[];
+    flushRequested: boolean;
+};
+type PendingSnapshotEntry = {
+    event: FileEventItem | FileEventItemSentinel;
+    sequence: number;
+    completed: boolean;
+    operation?: PendingFileEvent;
+};
 type RunQueuedEventsOptions = {
     waitForProcessing?: boolean;
 };
@@ -79,7 +103,8 @@ export abstract class StorageEventManagerBase<
     protected adapter: TAdapter;
 
     protected get shouldBatchSave() {
-        return this.settings?.batchSave && this.settings?.liveSync != true;
+        const settings = this.settings;
+        return settings?.liveSync === true ? settings.batchSaveInLiveSync === true : settings?.batchSave;
     }
     protected get batchSaveMinimumDelay(): number {
         return this.settings?.batchSaveMinimumDelay ?? DEFAULT_SETTINGS.batchSaveMinimumDelay;
@@ -123,16 +148,10 @@ export abstract class StorageEventManagerBase<
     }
 
     protected updateStatus(): void {
-        const allFileEventItems = this.bufferedQueuedItems.filter((e): e is FileEventItem => "args" in e);
-        const allItems = allFileEventItems.filter((e) => !e.cancelled);
-        const totalItems = allItems.length + this.concurrentProcessing.waiting;
-        const processing = this.processingCount;
-        const batchedCount = this._waitingMap.size;
-
         this.adapter.status.updateStatus({
-            batched: batchedCount,
-            processing: processing,
-            totalQueued: totalItems + batchedCount + processing,
+            batched: this._waitingMap.size,
+            processing: this.processingCount,
+            totalQueued: [...this.pendingSnapshot.values()].filter((entry) => entry.operation && !entry.completed).length,
         });
     }
 
@@ -149,7 +168,25 @@ export abstract class StorageEventManagerBase<
         this.snapShotRestored = this._restoreFromSnapshot();
         return this.snapShotRestored;
     }
-    async appendQueue(params: FileEvent[], ctx?: unknown) {
+    private acceptingEvents = true;
+    private admissions = new Set<EventAdmission>();
+
+    appendQueue(params: FileEvent[], ctx?: unknown): Promise<void> {
+        if (!this.acceptingEvents) return Promise.resolve();
+        const admission: EventAdmission = { acceptedAt: Date.now(), completion: Promise.resolve(), operations: [], flushRequested: false };
+        this.admissions.add(admission);
+        admission.completion = this.appendQueueInternal(params, ctx, admission);
+        void admission.completion.then(
+            () => this.admissions.delete(admission),
+            (error) => {
+                this.admissions.delete(admission);
+                this.reportOperationFailure(error);
+            }
+        );
+        return admission.completion;
+    }
+
+    private async appendQueueInternal(params: FileEvent[], ctx: unknown, admission: EventAdmission) {
         const settings = this.settings;
         if (!settings.isConfigured) return;
         if (settings.suspendFileWatching) return;
@@ -242,7 +279,7 @@ export abstract class StorageEventManagerBase<
             if (param.cachedData) {
                 cache = param.cachedData;
             }
-            void this.enqueue({
+            const item: FileEventItem = {
                 type,
                 args: {
                     file: file,
@@ -253,79 +290,138 @@ export abstract class StorageEventManagerBase<
                 },
                 skipBatchWait: param.skipBatchWait,
                 key: atomicKey,
-            });
+            };
+            this.enqueue(item);
+            const operation = this.operations.get(item);
+            if (operation) {
+                operation.acceptedAt = admission.acceptedAt;
+                if (admission.flushRequested) this.releaseOperations([operation]);
+                admission.operations.push(operation);
+            }
         }
     }
     // Cache file and waiting to can be proceed.
 
     protected bufferedQueuedItems = [] as (FileEventItem | FileEventItemSentinel)[];
+    private pendingSnapshot = new Map<FileEventItem | FileEventItemSentinel, PendingSnapshotEntry>();
+    private operations = new WeakMap<FileEventItem, PendingFileEvent>();
+    private latestByPath = new Map<string, PendingFileEvent>();
+    private nextSequence = 0;
+    private snapshotTail: Promise<void> = Promise.resolve();
+    private dispatching: Promise<void> | null = null;
+
+    private retainEvent(event: FileEventItem | FileEventItemSentinel): PendingSnapshotEntry {
+        const existing = this.pendingSnapshot.get(event);
+        if (existing) return existing;
+        const entry: PendingSnapshotEntry = { event, sequence: ++this.nextSequence, completed: false };
+        if (event.type !== TYPE_SENTINEL_FLUSH) {
+            const operation = this.operations.get(event) ?? {
+                event,
+                sequence: entry.sequence,
+                acceptedAt: Date.now(),
+                completion: promiseWithResolvers<OperationResult>(),
+                prerequisites: new Set<PendingFileEvent>(),
+                started: false,
+                flushRequested: false,
+            };
+            entry.operation = operation;
+            this.operations.set(event, operation);
+        }
+        this.pendingSnapshot.set(event, entry);
+        return entry;
+    }
+
+    private reportOperationFailure(error: unknown) {
+        this._log("Storage operation remains pending after a failure", LOG_LEVEL_NOTICE);
+        this._log(error, LOG_LEVEL_VERBOSE);
+    }
+
+    private failOperation(operation: PendingFileEvent, error: unknown) {
+        if (operation.result) return;
+        operation.result = { ok: false, error };
+        operation.completion.resolve(operation.result);
+        this.reportOperationFailure(error);
+        this.updateStatus();
+    }
 
     enqueue(newItem: FileEventItem) {
-        if (newItem.type == "DELETE" || newItem.type == "RENAME") {
-            // If the sentinel pushed, the runQueuedEvents will wait for idle before processing delete or rename.
-            this.bufferedQueuedItems.push({
-                type: TYPE_SENTINEL_FLUSH,
-            });
+        if (newItem.type === "DELETE" || newItem.type === "RENAME") {
+            const sentinel: FileEventItemSentinel = { type: TYPE_SENTINEL_FLUSH };
+            this.retainEvent(sentinel);
+            this.bufferedQueuedItems.push(sentinel);
         }
-        this.updateStatus();
+        const operation = this.retainEvent(newItem).operation!;
         this.bufferedQueuedItems.push(newItem);
-
-        fireAndForget(() => this._takeSnapshot().then(() => this.runQueuedEvents()));
+        this.updateStatus();
+        fireAndForget(async () => {
+            try {
+                await this._takeSnapshot();
+                await this.runQueuedEvents();
+            } catch (error) {
+                this.failOperation(operation, error);
+            }
+        });
     }
 
-    /**
-     * Immediately take snapshot.
-     */
     private _triggerTakeSnapshot() {
-        void this._takeSnapshot();
+        fireAndForget(() => this._takeSnapshot().catch((error) => this.reportOperationFailure(error)));
     }
-    /**
-     * Trigger taking snapshot after throttled period.
-     */
     triggerTakeSnapshot = throttle(() => this._triggerTakeSnapshot(), 100);
 
-    // Limit concurrent processing to reduce the IO load. file-processing + scheduler (1), so file events can be processed in 4 slots.
+    // Waiting timers do not occupy a processing slot.
     protected concurrentProcessing = Semaphore(5);
-
     protected _waitingMap = new Map<string, WaitInfo>();
-    private _waitForIdle: Promise<void> | null = null;
+
+    private pendingOperations(before = Number.POSITIVE_INFINITY): PendingFileEvent[] {
+        return [...this.pendingSnapshot.values()].flatMap((entry) =>
+            entry.operation && entry.sequence < before ? [entry.operation] : []
+        );
+    }
+
+    private releaseOperations(operations: PendingFileEvent[]) {
+        for (const operation of operations) {
+            operation.flushRequested = true;
+            operation.flushSignal?.resolve();
+            const path = operation.event.args.file.path;
+            if (this._waitingMap.get(path)?.event === operation.event) this._proceedWaiting(path);
+        }
+    }
+
+    private async waitForOperations(operations: PendingFileEvent[]): Promise<OperationResult[]> {
+        this.releaseOperations(operations);
+        return await Promise.all(operations.map((operation) => operation.completion.promise));
+    }
 
     /**
-     * Wait until all queued events are processed.
-     * Subsequent new events will not be waited, but new events will not be added.
-     * @returns
+     * Complete the finite set of operations accepted before this call.
+     * Later edits cannot replace or extend that set while it is being flushed.
      */
-    waitForIdle(): Promise<void> {
-        if (this._waitingMap.size === 0) {
-            return Promise.resolve();
+    async waitForIdle(): Promise<void> {
+        const admissions = [...this.admissions];
+        for (const admission of admissions) admission.flushRequested = true;
+        for (const item of this.bufferedQueuedItems) this.retainEvent(item);
+        const operations = this.pendingOperations();
+        this.releaseOperations(operations);
+        const admitted = await Promise.allSettled(admissions.map((admission) => admission.completion));
+        const boundary = [...new Set([...operations, ...admissions.flatMap((admission) => admission.operations)])];
+        this.releaseOperations(boundary);
+        fireAndForget(this.runQueuedEvents().catch((error) => this.reportOperationFailure(error)));
+        const results = await this.waitForOperations(boundary);
+        const admissionFailure = admitted.find((result) => result.status === "rejected");
+        if (admissionFailure?.status === "rejected") throw admissionFailure.reason;
+        const failure = results.find((result) => !result.ok);
+        if (failure?.ok === false) throw failure.error;
+    }
+
+    /** Stop watcher admission before draining or preserving accepted work. */
+    override async stopWatching(): Promise<void> {
+        this.acceptingEvents = false;
+        try {
+            await this.waitForIdle();
+        } catch (error) {
+            this.reportOperationFailure(error);
         }
-        if (this._waitForIdle) {
-            return this._waitForIdle;
-        }
-        const promises = [...this._waitingMap.entries()].map(([key, waitInfo]) => {
-            return new Promise<void>((resolve) => {
-                waitInfo.canProceed.promise
-                    .then(() => {
-                        this._log(`Processing ${key}: Wait for idle completed`, LOG_LEVEL_DEBUG);
-                        // No op
-                    })
-                    .catch((e) => {
-                        this._log(`Processing ${key}: Wait for idle error`, LOG_LEVEL_INFO);
-                        this._log(e, LOG_LEVEL_VERBOSE);
-                        //no op
-                    })
-                    .finally(() => {
-                        resolve();
-                    });
-                this._proceedWaiting(key);
-            });
-        });
-        const waitPromise = Promise.all(promises).then(() => {
-            this._waitForIdle = null;
-            this._log(`All wait for idle completed`, LOG_LEVEL_VERBOSE);
-        });
-        this._waitForIdle = waitPromise;
-        return waitPromise;
+        await this._takeSnapshot();
     }
 
     /**
@@ -365,11 +461,13 @@ export abstract class StorageEventManagerBase<
         }
         const resolver = promiseWithResolvers<boolean>();
         const now = Date.now();
-        const since = waitedSince ?? now;
+        const acceptedAt = this.operations.get(event)?.acceptedAt ?? now;
+        const since = waitedSince ?? acceptedAt;
         const elapsed = now - since;
         const maxDelay = this.batchSaveMaximumDelay * 1000;
         const remainingDelay = Math.max(0, maxDelay - elapsed);
-        const nextDelay = Math.min(remainingDelay, this.batchSaveMinimumDelay * 1000);
+        const quietDelay = Math.max(0, this.batchSaveMinimumDelay * 1000 - (now - acceptedAt));
+        const nextDelay = Math.min(remainingDelay, quietDelay);
         // x*<------- maxDelay --------->*
         // x*<-- minDelay -->*
         // x*       x<-- nextDelay -->*
@@ -407,85 +505,98 @@ export abstract class StorageEventManagerBase<
      * Process the given file event.
      */
     async processFileEvent(fei: FileEventItem) {
-        const releaser = await this.concurrentProcessing.acquire();
+        const entry = this.retainEvent(fei);
+        const operation = entry.operation!;
+        if (operation.started || operation.result) {
+            const result = await operation.completion.promise;
+            if (result.ok === false) throw result.error;
+            return;
+        }
+        operation.started = true;
+        const path = fei.args.file.path;
+        const relatedPath = fei.type === "RENAME" ? fei.args.oldPath : fei.args.renameTarget;
+        const paths = relatedPath ? [path, relatedPath] : [path];
+        const waiting = this._waitingMap.get(path);
+        let since = operation.acceptedAt;
+        for (const eventPath of paths) {
+            const previous = this.latestByPath.get(eventPath);
+            if (!previous || previous.result?.ok) continue;
+            const canReplace = waiting?.event === previous.event && !previous.flushRequested &&
+                (previous.event.type === fei.type || fei.type === "DELETE");
+            if (canReplace) {
+                since = waiting.since;
+                previous.successor = operation;
+                for (const dependency of previous.prerequisites) operation.prerequisites.add(dependency);
+                this._cancelWaiting(eventPath);
+            } else {
+                operation.prerequisites.add(previous);
+                if (this._waitingMap.get(eventPath)?.event === previous.event) this._proceedWaiting(eventPath);
+            }
+        }
+        // Direct callers may have supplied a waiting gate without dispatching its
+        // event. Keep that gate ordered too; ordinary events have an owner above.
+        if (this._waitingMap.get(path) === waiting && waiting) this._proceedWaiting(path);
+        for (const eventPath of paths) this.latestByPath.set(eventPath, operation);
+        if (operation.flushRequested) this.releaseOperations([...operation.prerequisites]);
+        const shouldWait = this.shouldBatchSave && !fei.skipBatchWait && !operation.flushRequested &&
+            (fei.type === "CREATE" || fei.type === "CHANGED");
+        const gate = shouldWait ? this._addWaiting(path, fei, since).canProceed.promise : Promise.resolve(true);
         try {
-            this.updateStatus();
-            const filename = fei.args.file.path;
-            const waitingKey = `${filename}`;
-            const previous = this._waitingMap.get(waitingKey);
-            let isShouldBeCancelled = fei.skipBatchWait || false;
-            let previousPromise: Promise<boolean> = Promise.resolve(true);
-            let waitPromise: Promise<boolean> = Promise.resolve(true);
-            // 1. Check if there is previous waiting for the same file
-            if (previous) {
-                previousPromise = previous.canProceed.promise;
-                if (isShouldBeCancelled) {
-                    this._log(
-                        `Processing ${filename}: Requested to perform immediately, cancelling previous waiting: ${fei.type}`,
-                        LOG_LEVEL_DEBUG
-                    );
-                }
-                if (!isShouldBeCancelled && fei.type === "DELETE") {
-                    // For DELETE, cancel any previous waiting and proceed immediately
-                    // That because when deleting, we cannot read the file anymore.
-                    this._log(
-                        `Processing ${filename}: DELETE requested, cancelling previous waiting: ${fei.type}`,
-                        LOG_LEVEL_DEBUG
-                    );
-                    isShouldBeCancelled = true;
-                }
-                if (!isShouldBeCancelled && previous.type === fei.type) {
-                    // For the same type, we can cancel the previous waiting and proceed immediately.
-                    this._log(`Processing ${filename}: Cancelling previous waiting: ${fei.type}`, LOG_LEVEL_DEBUG);
-                    isShouldBeCancelled = true;
-                }
-                // 2. wait for the previous to complete
-                if (isShouldBeCancelled) {
-                    this._cancelWaiting(waitingKey);
-                    this._log(`Processing ${filename}: Previous cancelled: ${fei.type}`, LOG_LEVEL_DEBUG);
-                    isShouldBeCancelled = true;
-                }
-                if (!isShouldBeCancelled) {
-                    this._log(`Processing ${filename}: Waiting for previous to complete: ${fei.type}`, LOG_LEVEL_DEBUG);
-                    this._proceedWaiting(waitingKey);
-                    this._log(`Processing ${filename}: Previous completed: ${fei.type}`, LOG_LEVEL_DEBUG);
-                }
-            }
-            await previousPromise;
-            // 3. Check if shouldBatchSave is true
-            if (this.shouldBatchSave && !fei.skipBatchWait) {
-                // if type is CREATE or CHANGED, set waiting
-                if (fei.type == "CREATE" || fei.type == "CHANGED") {
-                    // 3.2. If true, set the queue, and wait for the waiting, or until timeout
-                    // (since is copied from previous waiting if exists to limit the maximum wait time)
-                    // console.warn(`Since:`, previous?.since);
-                    const info = this._addWaiting(waitingKey, fei, previous?.since);
-                    waitPromise = info.canProceed.promise;
-                } else if (fei.type == "DELETE") {
-                    // For DELETE, cancel any previous waiting and proceed immediately
-                }
-                this._log(`Processing ${filename}: Waiting for batch save: ${fei.type}`, LOG_LEVEL_DEBUG);
-                const canProceed = await waitPromise;
-                if (!canProceed) {
-                    // 3.2.1. If cancelled by new queue, cancel subsequent process.
-                    this._log(`Processing ${filename}: Cancelled by new queue: ${fei.type}`, LOG_LEVEL_DEBUG);
-                    return;
-                }
-            }
-            // await this.handleFileEvent(fei);
-            await this.requestProcessQueue(fei);
-        } finally {
+            // Persist admission before any handler can change the database.
             await this._takeSnapshot();
-            releaser();
+            const canProceed = await gate;
+            if (!canProceed) {
+                if (!operation.successor) throw new Error(`Storage operation cancelled without a successor: ${path}`);
+                const result = await operation.successor.completion.promise;
+                if (result.ok === false) throw result.error;
+            } else {
+                for (const prerequisite of operation.prerequisites) {
+                    const result = await prerequisite.completion.promise;
+                    if (result.ok === false) throw result.error;
+                }
+                const release = await this.concurrentProcessing.acquire();
+                try {
+                    await this.requestProcessQueue(fei);
+                } finally {
+                    release();
+                }
+            }
+            entry.completed = true;
+            try {
+                await this._takeSnapshot();
+            } catch (error) {
+                entry.completed = false;
+                throw error;
+            }
+            operation.result = { ok: true };
+            operation.completion.resolve(operation.result);
+            for (const eventPath of paths) {
+                if (this.latestByPath.get(eventPath) === operation) this.latestByPath.delete(eventPath);
+            }
+        } catch (error) {
+            if (this._waitingMap.get(path)?.event === fei) this._cancelWaiting(path);
+            this.failOperation(operation, error);
+            throw error;
+        } finally {
+            this.updateStatus();
         }
     }
 
     async _takeSnapshot() {
-        const processingEvents = [...this._waitingMap.values()].map((e) => e.event);
-        const waitingEvents = this.bufferedQueuedItems;
-        const snapShot = [...processingEvents, ...waitingEvents];
-        await this._saveSnapshot(snapShot);
-        this.updateStatus();
+        // Register entries supplied by snapshot restoration before dispatch.
+        for (const event of this.bufferedQueuedItems) this.retainEvent(event);
+        for (const waiting of this._waitingMap.values()) this.retainEvent(waiting.event);
+        const save = this.snapshotTail.then(async () => {
+            const entries = [...this.pendingSnapshot.values()];
+            const completed = entries.filter((entry) => entry.completed);
+            const snapshot = entries.filter((entry) => !entry.completed).map((entry) => entry.event);
+            await this._saveSnapshot(snapshot);
+            for (const entry of completed) this.pendingSnapshot.delete(entry.event);
+            this.updateStatus();
+        });
+        // A failed adapter write must not break ordering for later attempts.
+        this.snapshotTail = save.catch(() => {});
+        await save;
     }
 
     async _restoreFromSnapshot() {
@@ -521,123 +632,85 @@ export abstract class StorageEventManagerBase<
      * An individual restored operation failure is logged but does not prevent the
      * following Offline Scanner from reconciling the resulting current state.
      */
-    protected runQueuedEvents(options: RunQueuedEventsOptions = {}) {
-        const waitForProcessing = options.waitForProcessing ?? false;
-        return skipIfDuplicated("storage-event-manager-run-queued-events", async () => {
-            let dispatched: { path: string; processing: Promise<void> }[] = [];
-            const waitForDispatched = async () => {
-                if (dispatched.length === 0) return;
-                const pending = dispatched;
-                dispatched = [];
-                const results = await Promise.allSettled(pending.map(({ processing }) => processing));
-                for (const [index, result] of results.entries()) {
-                    if (result.status === "rejected") {
-                        this._log(
-                            `Restored storage operation failed for ${pending[index].path}; the Offline Scanner will reconcile the current state`,
-                            LOG_LEVEL_NOTICE
-                        );
-                        this._log(result.reason, LOG_LEVEL_VERBOSE);
+    protected async runQueuedEvents(options: RunQueuedEventsOptions = {}) {
+        for (const event of this.bufferedQueuedItems) this.retainEvent(event);
+        const accepted = this.pendingOperations();
+        if (!this.dispatching) {
+            const dispatch = async () => {
+                while (this.bufferedQueuedItems.length > 0) {
+                    const event = this.bufferedQueuedItems.shift()!;
+                    const entry = this.retainEvent(event);
+                    if (event.type === TYPE_SENTINEL_FLUSH) {
+                        // This boundary includes predecessors only. Waiting for
+                        // global idleness here would include its own successors.
+                        const results = await this.waitForOperations(this.pendingOperations(entry.sequence));
+                        if (results.every((result) => result.ok)) {
+                            entry.completed = true;
+                            try {
+                                await this._takeSnapshot();
+                            } catch (error) {
+                                entry.completed = false;
+                                this.reportOperationFailure(error);
+                            }
+                        }
+                    } else if (!entry.operation!.result) {
+                        fireAndForget(this.processFileEvent(event).catch(() => {}));
                     }
                 }
             };
-            do {
-                if (this.bufferedQueuedItems.length === 0) {
-                    break;
-                }
-                // 1. Get the first queued item
-
-                const fei = this.bufferedQueuedItems.shift()!;
-                await this._takeSnapshot();
-                this.updateStatus();
-                // 2. Consume 1 semaphore slot to enqueue processing. Then release immediately.
-                // (Just to limit the total concurrent processing count, because skipping batch handles at processFileEvent).
-                const releaser = await this.concurrentProcessing.acquire();
-                releaser();
-                this.updateStatus();
-                // 3. Check if sentinel flush
-                //    If sentinel, wait for idle and continue.
-                if (fei.type === TYPE_SENTINEL_FLUSH) {
-                    this._log(`Waiting for idle`, LOG_LEVEL_VERBOSE);
-                    if (waitForProcessing) {
-                        await waitForDispatched();
-                    }
-                    // Flush all waiting batch queues
-                    await this.waitForIdle();
-                    this.updateStatus();
-                    continue;
-                }
-                // 4. Process the event, this should be fire-and-forget to not block the queue processing in each file.
-                const processing = this.processFileEvent(fei);
-                if (waitForProcessing) {
-                    dispatched.push({ path: fei.args.file.path, processing });
-                } else {
-                    fireAndForget(processing);
-                }
-            } while (this.bufferedQueuedItems.length > 0);
-            if (waitForProcessing) {
-                await waitForDispatched();
+            this.dispatching = dispatch().finally(() => { this.dispatching = null; });
+        }
+        await this.dispatching;
+        if (options.waitForProcessing) {
+            const results = await this.waitForOperations(accepted);
+            for (const result of results) {
+                if (result.ok === false) this.reportOperationFailure(result.error);
             }
-        });
+        }
     }
 
     protected processingCount = 0;
     protected async requestProcessQueue(fei: FileEventItem) {
         try {
             this.processingCount++;
-            // this.bufferedQueuedItems.remove(fei);
             this.updateStatus();
-            // this.waitedSince.delete(fei.args.file.path);
             await this.handleFileEvent(fei);
-            await this._takeSnapshot();
         } finally {
             this.processingCount--;
             this.updateStatus();
         }
     }
     isWaiting(filename: FilePath) {
-        return isWaitingForTimeout(`storage-event-manager-batchsave-${filename}`);
+        return this._waitingMap.has(filename);
     }
 
     protected async handleFileEvent(queue: FileEventItem): Promise<void> {
         const file = queue.args.file;
-        const lockKey = `handleFile:${file.path}`;
-        await serialized(lockKey, async () => {
-            if (queue.cancelled) {
-                this._log(`File event cancelled before processing: ${file.path}`, LOG_LEVEL_INFO);
-                return;
-            }
-            if (queue.type == "INTERNAL" || file.isInternal) {
-                await this.fileProcessing.processOptionalFileEvent(file.path as unknown as FilePath);
-            } else {
-                // const key = `file-last-proc-${queue.type}-${file.path}`;
-                // const last = Number((await this.core.kvDB.get(key)) || 0);
-                const last = 0; // TODO: When did I remove this? Check later.
-                if (queue.type == "DELETE") {
-                    await this.fileProcessing.processFileEvent(queue);
+        await serialized(`handleFile:${file.path}`, async () => {
+            if (queue.cancelled) throw new Error(`Storage operation has no confirmed result: ${file.path}`);
+            if (queue.type === "INTERNAL" || file.isInternal) {
+                const handler = this.fileProcessing.processOptionalFileEventWithResult;
+                if (handler && handler.hasHandlers !== false) {
+                    const operation = this.operations.get(queue);
+                    let whenFlushRequested: Promise<void> | undefined;
+                    if (operation) {
+                        operation.flushSignal ??= promiseWithResolvers<void>();
+                        if (operation.flushRequested) operation.flushSignal.resolve();
+                        whenFlushRequested = operation.flushSignal.promise;
+                    }
+                    const outcome = await handler(file.path as FilePath, { whenFlushRequested });
+                    if (outcome.kind === "veto") {
+                        throw new Error(`Optional storage operation declined: ${file.path} (${outcome.value})`);
+                    }
                 } else {
-                    if (file.stat.mtime == last) {
-                        this._log(
-                            `File has been already scanned on ${queue.type}, skip: ${file.path}`,
-                            LOG_LEVEL_VERBOSE
-                        );
-                        // Should Cancel the relative operations? (e.g. rename)
-                        // this.cancelRelativeEvent(queue);
-                        return;
-                    }
-                    if (!(await this.fileProcessing.processFileEvent(queue))) {
-                        this._log(
-                            `STORAGE -> DB: Handler failed, cancel the relative operations: ${file.path}`,
-                            LOG_LEVEL_INFO
-                        );
-                        // cancel running queues and remove one of atomic operation (e.g. rename)
-                        this.cancelRelativeEvent(queue);
-                        return;
-                    }
+                    // Legacy providers report notification handling, not persistence.
+                    await this.fileProcessing.processOptionalFileEvent(file.path as FilePath);
                 }
+            } else if (!(await this.fileProcessing.processFileEvent(queue))) {
+                throw new Error(`Storage operation failed: ${file.path}`);
             }
         });
         this.updateStatus();
-        return;
     }
 
     protected cancelRelativeEvent(item: FileEventItem): void {

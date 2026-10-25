@@ -71,7 +71,9 @@ export class ControlService<T extends ServiceContext = ServiceContext>
         await this.services.appLifecycleService.onSuspending();
         await this.services.settingService.onBeforeRealiseSetting();
         this.services.databaseService.localDatabase.refreshSettings();
-        await this.services.fileProcessingService.commitPendingFileEvents();
+        if (!(await this.services.fileProcessingService.commitPendingFileEvents())) {
+            throw new Error("Pending local file operations could not be completed before applying settings");
+        }
         await this.services.settingService.onRealiseSetting();
         // disable all sync temporary.
         if (this.services.appLifecycleService.isSuspended()) return;
@@ -82,7 +84,8 @@ export class ControlService<T extends ServiceContext = ServiceContext>
 
     private async _onLiveSyncUnload(): Promise<void> {
         this.context.events.emitEvent(EVENT_PLUGIN_UNLOADED);
-        await this.services.appLifecycleService.onBeforeUnload();
+        const prepared = await this.services.appLifecycleService.onBeforeUnload();
+        if (!prepared) this._log("Unload preparation failed; pending storage work may require recovery", LOG_LEVEL_URGENT);
         await Promise.resolve(this.services.appLifecycleService.onAppUnload());
         cancelAllPeriodicTask();
         cancelAllTasks();
@@ -97,6 +100,7 @@ export class ControlService<T extends ServiceContext = ServiceContext>
         this.context.events.emitEvent(EVENT_PLATFORM_UNLOADED);
         this.context.events.offAll();
         this._log(this.context.translate("moduleLiveSyncMain.logUnloadingPlugin"));
+        if (!prepared) throw new Error("Unload preparation failed");
         return;
     }
 

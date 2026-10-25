@@ -68,6 +68,8 @@ if (prepared.requiresSyncReview) {
 
 Explicit stored values take precedence over every fallback. A migration therefore preserves synchronisation switches and other user choices unless a migration step documents a deliberate transformation.
 
+`batchSaveInLiveSync` is a separate explicit choice for bounded local database batching in LiveSync mode. Both new and existing settings default to `false`; the legacy pair `liveSync: true, batchSave: true` does not enable it. The public setting property is optional for existing host settings shapes, and a missing value remains disabled. Other modes continue to use `batchSave`. Markdown settings and QR data preserve the explicit choice, while older imports without the property do not infer it from `batchSave`. Hosts should preserve both choices during ordinary mode changes and use the shared minimum and maximum delays.
+
 The sleep preferences are included in Setup URI encoding. When an older Setup URI or stored setting does not contain either key, `allowSleepDuringSynchronisation` defaults to `false`, while `allowSleepDuringSynchronisationOnDesktop` defaults to `true`. The maintained Obsidian host therefore retains best-effort screen-awake protection on mobile but allows normal automatic sleep on desktop unless the user selects otherwise.
 
 An existing settings store without an explicit `handleFilenameCaseSensitive` value is normalised to `false` and saved. This preserves the effective behaviour of earlier releases, where an absent value followed the case-insensitive branch. An explicit `true` or `false` value is preserved. New Vaults also select case-insensitive handling (`false`).

@@ -1,16 +1,18 @@
 ---
-date: 2026-09-05
-commonlib-version: "0.1.23"
-self-hosted-livesync-version: "1.0.25"
+date: 2026-10-25
+commonlib-version: "0.2.0"
+self-hosted-livesync-version: "1.0.40"
+status: unreleased
 ---
 
 # Storage events and database-to-storage reflection
 
 This note separates storage-to-database event handling from
-database-to-storage reflection. It describes the Commonlib 0.1.23 guard against
-a stale `DELETE` notification logically deleting Metadata while the same file
-is still present in storage. The version fields identify the reviewed source
-versions.
+database-to-storage reflection. It documents the current guard against a stale
+`DELETE` notification logically deleting Metadata while the same file is still
+present in storage, and the accepted local completion contract for queued file
+operations. The version fields identify the reviewed source versions; these
+changes remain unreleased.
 
 ## Processing directions
 
@@ -45,6 +47,101 @@ obtains a storage stub, and calls `dbToStorage`. Logical deletion, conflicts,
 and unsynchronised storage content retain their existing reflection rules.
 The watcher guard does not intercept this path or general explicit database
 deletion operations.
+
+## Pending operations and local completion
+
+Once admitted, a file operation remains pending while buffered, waiting for its
+batch boundary, or running in a handler. The manager includes all three states
+in its existing event snapshot. It saves snapshots in order, so an older write
+cannot replace a newer view of pending work. The manager acknowledges an
+ordinary file operation only after its effect is durable locally, current state proves the
+effect is already represented or safely covered by a successful successor, or
+the handler returns a skip explicitly allowed by policy. A handler
+failure or exception leaves the saved operation pending. A failed initial
+snapshot prevents the handler from starting; a later snapshot failure is
+reported and cannot be treated as completion. Completion of an older operation
+cannot remove a newer operation for the same path.
+
+The event snapshot records operation intent, not authoritative current file
+content. Admission does not read a file body merely to wait. When a `CREATE` or
+`CHANGED` operation becomes eligible, the handler rechecks the current path and
+obtains its current content for processing. Restored events are revalidated
+against current storage and selection before they can affect the database. The
+saved stub and any optional cache are not used as a historical file version.
+The current-storage deletion checks and rename-exclusion rules below continue to
+apply.
+
+A restored deletion whose database entry is already absent or deleted completes
+without another revision. A restored rename whose source deletion is already
+represented reconciles the current target through the ordinary non-forced
+handler. The same applies to a case-only rename when Metadata already records
+the target spelling. Replaying either completed operation preserves later local
+edits. If the source is still live and a target already exists, the existing
+collision refusal remains in force: the snapshot does not prove that this
+rename created that target, so the unresolved operation remains pending.
+
+`commitPendingFileEvents()` requests immediate processing of the finite set of
+operations accepted before the call, including work which is buffered,
+waiting, or already in a handler. It waits for each actual handler result and
+for the ordered snapshot update which records that result; releasing a timer is
+not completion. Later events do not extend that captured boundary. A newer
+coalesced operation satisfies an earlier one only when its successful result
+covers the earlier intent. A failed handler or snapshot update is reported to
+the caller and leaves unresolved work in the snapshot. This boundary covers
+local completion under the selected handler contract only; it does not prove replication or receipt by another
+Vault.
+
+A `DELETE` or `RENAME` ordering sentinel waits for its predecessors only. It
+must not wait for itself or events which follow it in the dispatch queue. Batch
+timers make work eligible to run; they do not perform it. The quiet period
+follows the latest eligible content update, while the maximum intentional delay
+is measured from the first uncommitted update, starting when the queue call is
+accepted and before asynchronous filtering or the touched-file check. Waiting
+timers do not occupy a processing slot, and time spent waiting for a slot does
+not restart the maximum delay. Once due, the operation acquires a slot and reads
+current content for processing.
+
+## Optional file handlers
+
+`INTERNAL` events and files marked `isInternal` use their owning feature's
+contract. Hosts can register `processOptionalFileEventWithResult` handlers with
+`firstHandled`. `HandlerOutcome<TValue = void, TVetoReason = void>` carries a
+success value and a veto reason independently; a non-void payload is required
+in its branch. Dispatch follows priority and registration order:
+
+| Outcome | Dispatch and completion |
+| --- | --- |
+| `not-applicable` | Try the next provider. If none applies, complete the policy-approved skip. |
+| `completed` | Stop and complete the event after the provider's actual save or verified no-op. |
+| `veto` | Stop and retain the event with a reported refusal reason. |
+| Exception or rejection | Propagate the original error and retain the event. |
+
+A completed result stops dispatch immediately; a later provider cannot veto
+it. Empty registration returns `not-applicable`. False or zero payloads remain
+valid values. Providers must resolve their promise only after the operation
+finishes. Snapshot acknowledgement still follows the handler result, and a
+snapshot failure keeps the event recoverable.
+
+The optional `whenFlushRequested` promise resolves when a finite completion
+boundary includes this event. A provider which debounces saves uses it to
+release that event's captured delay. It must wait for the corresponding save,
+settle all notifications coalesced into that save, and keep later groups outside
+the captured boundary. This signal is runtime state; it does not change the
+persisted snapshot format.
+
+Migrate all optional providers in a host together. Once the first typed provider
+is registered, the manager uses the typed chain exclusively, even when every
+provider returns `not-applicable`. A host without a registered typed provider
+retains `processOptionalFileEvent` as a legacy notification contract. Its
+boolean does not confirm persistence: a resolved notification completes only
+that dispatch, while a rejection which reaches the manager is still retained.
+The existing boolean aggregators and ordinary file contract are unchanged.
+
+During start-up replay and settings or unload flushes, providers use actual
+database readiness and initialise their required local state before saving.
+They must not wait for an application-ready or resume event which occurs only
+after that same flush. An unavailable prerequisite returns a veto; the manager
+does not introduce an automatic retry loop for a failed operation.
 
 ## Event intent and current storage state
 
@@ -92,9 +189,11 @@ incoming logical deletion can still remove unchanged storage content.
 
 These tests do not establish the native watcher event sequence reported in
 Issue 1168. Real-runtime verification belongs to the host and must distinguish
-observed events from inferred causes. This change does not promise path-case
-convergence or full folder-rename support. It does not rewrite the queue,
-introduce a retry subsystem, or change the database schema.
+observed events from inferred causes. The watcher guard does not promise
+path-case convergence or full folder-rename support. Focused manager tests cover
+finite completion boundaries, ordered snapshots, retained failures, replay, and
+batch timing. This work adds no second journal, unbounded retry loop, or
+database-schema change.
 
 The maintained host's real-runtime comparison is recorded in
 [Proven in maintained hosts](proven-in-use.md#obsidian-plug-in), separately

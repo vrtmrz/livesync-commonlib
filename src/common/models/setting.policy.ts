@@ -37,6 +37,7 @@ export type SettingPropertyPolicy = (typeof SettingPolicies)[keyof typeof Settin
 /** Every schema property requires an explicit export and persistence policy. */
 export const SETTINGS_PROPERTY_POLICY = {
     liveSync: SettingPolicies.Default,
+    batchSaveInLiveSync: SettingPolicies.Default,
     syncOnSave: SettingPolicies.Default,
     syncOnStart: SettingPolicies.Default,
     syncOnFileOpen: SettingPolicies.Default,

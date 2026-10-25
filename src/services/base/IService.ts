@@ -53,7 +53,7 @@ import type {
     CentralRemoteAdministrationRequest,
     CentralRemoteAdministrationResult,
 } from "@lib/replication/CentralRemoteAdministration.ts";
-import type { MultipleHandlerFunction } from "@lib/services/lib/HandlerUtils.ts";
+import type { HandlerOutcome, MultipleHandlerFunction } from "@lib/services/lib/HandlerUtils.ts";
 import type { VaultScanResult } from "./VaultScanResult.ts";
 import type { UICommandRegistry } from "@lib/uiCommands";
 
@@ -194,10 +194,23 @@ export interface IKeyValueDBService {
     openSimpleStore<T>(kind: string): SimpleStore<T>;
     simpleStore: SimpleStore<unknown>;
 }
+/** Options for completing an admitted optional file event. */
+export interface OptionalFileEventOptions {
+    /** Resolves when a finite flush needs this event to finish without its debounce delay. */
+    whenFlushRequested?: Promise<void>;
+}
+
 export interface IFileProcessingService {
     processFileEvent(item: FileEventItem): Promise<boolean>;
 
+    /** Legacy notification contract; its boolean does not confirm persistence. */
     processOptionalFileEvent(path: FilePath): Promise<boolean>;
+
+    /** Complete the actual optional file operation, or explain why it is not completed. */
+    processOptionalFileEventWithResult?(
+        path: FilePath,
+        options?: OptionalFileEventOptions
+    ): Promise<HandlerOutcome<void, string>>;
 
     commitPendingFileEvents(): Promise<boolean>;
     batched: ReactiveSource<number>;

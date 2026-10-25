@@ -16,10 +16,19 @@ export class FileProcessingService<T extends ServiceContext = ServiceContext>
     readonly processFileEvent = handlers<IFileProcessingService>().anySuccess("processFileEvent");
 
     /**
-     * Process a file event item optionally, if any handler is registered.
+     * Dispatch a legacy optional notification, without confirming persistence.
      * i.e., hidden files synchronisation or customisation sync.
      */
     readonly processOptionalFileEvent = handlers<IFileProcessingService>().anySuccess("processOptionalFileEvent");
+
+    /**
+     * Complete optional file operations through the first applicable handler.
+     * Hosts migrate all optional providers together. Once any typed provider is
+     * registered, dispatch uses this contract exclusively.
+     */
+    readonly processOptionalFileEventWithResult? = handlers<IFileProcessingService>().firstHandled(
+        "processOptionalFileEventWithResult"
+    );
 
     /**
      * Commit any pending file events that have been queued for processing.

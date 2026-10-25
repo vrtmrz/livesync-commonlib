@@ -12,6 +12,7 @@ import { configURIBase, DEFAULT_SETTINGS } from "@lib/common/types";
 import type { RemoteConfiguration } from "@lib/common/models/setting.type";
 import { decryptString, encryptString } from "@lib/encryption/stringEncryption";
 import { defaultLogger, setGlobalLogFunction } from "octagonal-wheels/common/logger";
+import { decodeAnyArray, encodeAnyArray } from "octagonal-wheels/object";
 
 describe("QR Codec Round-Trip Test with Real Data", () => {
     it("shares the NFC path identity version in QR data", () => {
@@ -22,6 +23,21 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
             })
         );
         expect(decoded.pathNormalizationVersion).toBe(1);
+    });
+
+    it.each([false, true])("round-trips the LiveSync batching choice %s in QR data", (batchSaveInLiveSync) => {
+        const decoded = decodeSettingsFromQRCodeData(
+            encodeSettingsToQRCodeData({ ...DEFAULT_SETTINGS, batchSaveInLiveSync })
+        );
+
+        expect(decoded.batchSaveInLiveSync).toBe(batchSaveInLiveSync);
+    });
+
+    it("defaults the LiveSync batching choice to false when decoding legacy short QR data", () => {
+        const currentValues = decodeAnyArray(encodeSettingsToQRCodeData({ ...DEFAULT_SETTINGS }));
+        const legacyValues = currentValues.slice(0, 169);
+
+        expect(decodeSettingsFromQRCodeData(encodeAnyArray(legacyValues)).batchSaveInLiveSync).toBe(false);
     });
 
     it("rejects an unknown path identity before encoding QR data", () => {
