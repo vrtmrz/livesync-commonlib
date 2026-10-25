@@ -6,6 +6,20 @@ import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger";
 type HandlerFunc<TArg extends unknown[], TResult> = (...args: TArg) => TResult | Promise<TResult>;
 
 /**
+ * The outcome of a handler.
+ *
+ * A completed outcome carries a value when `TValue` is not void, and a veto
+ * carries a reason when `TVetoReason` is not void. Not-applicable outcomes
+ * always continue to the next registered handler.
+ */
+export type HandlerOutcome<TValue = void, TVetoReason = void> =
+    | { kind: "not-applicable" }
+    | ([TValue] extends [void] ? { kind: "completed" } : { kind: "completed"; value: TValue })
+    | ([TVetoReason] extends [void] ? { kind: "veto" } : { kind: "veto"; value: TVetoReason });
+
+type AnyHandlerOutcome = HandlerOutcome | HandlerOutcome<unknown, unknown>;
+
+/**
  * A function type that returns a boolean or a Promise of boolean.
  */
 type BooleanHandlerFunc<TArg extends unknown[], U = boolean> = (...args: TArg) => U | Promise<U>;
@@ -493,6 +507,41 @@ export class FirstResultHandler<T extends unknown[], U> extends MultiBinder<Bool
 }
 
 /**
+ * Invokes registered handlers in priority and registration order until one
+ * completes or vetoes. Each invocation uses a snapshot of registrations.
+ * Callback errors and rejections propagate unchanged, and registrations are
+ * owned by this handler.
+ */
+export class FirstHandledHandler<T extends unknown[], U extends AnyHandlerOutcome = HandlerOutcome>
+    extends MultiBinder<HandlerFunc<T, U>>
+    implements InvokableHandler<T, U | { kind: "not-applicable" }>
+{
+    /**
+     * Whether at least one callback is currently registered.
+     */
+    get hasHandlers(): boolean {
+        return this._callbackMap.size > 0;
+    }
+
+    /**
+     * Invokes handlers until one returns a completed or veto outcome.
+     * @param args The arguments to pass to the handlers.
+     * @returns The first handled outcome, or a not-applicable outcome when no handler applies.
+     * @throws Any synchronous callback error or rejected callback value, unchanged.
+     */
+    async invoke(...args: T): Promise<U | { kind: "not-applicable" }> {
+        const callbacks = [...this._callbacks];
+        for (const callback of callbacks) {
+            const outcome = await Promise.resolve(callback(...args));
+            if (outcome.kind !== "not-applicable") {
+                return outcome;
+            }
+        }
+        return { kind: "not-applicable" };
+    }
+}
+
+/**
  * A function type that can be used as a handler with assignable functionality.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- covariant in return type, so cannot be generic.
@@ -550,6 +599,14 @@ export interface MultipleHandlerFunction<TFunc extends (...args: any[]) => U | P
      */
     removeHandler: (callback: TFunc) => void;
 }
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- matches the callback signature accepted by the other multiple-handler helpers.
+export type FirstHandledFunction<TFunc extends (...args: any[]) => AnyHandlerOutcome | Promise<AnyHandlerOutcome>> = ((
+    ...args: Parameters<TFunc>
+) => Promise<Awaited<ReturnType<TFunc>> | { kind: "not-applicable" }>) &
+    Pick<MultipleHandlerFunction<TFunc>, "addHandler" | "removeHandler"> & {
+        readonly hasHandlers: boolean;
+    };
 
 /**
  * A function type that can be used as a value-collecting handler with add/remove functionality.
@@ -687,6 +744,28 @@ export function firstResultFunction<TFunc extends (...args: any[]) => Promise<un
     return getMultipleBound(handler) as MultipleHandlerFunction<TFunc>;
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- matches the callback signature accepted by the other multiple-handler helpers.
+export function firstHandledFunction<TFunc extends (...args: any[]) => AnyHandlerOutcome | Promise<AnyHandlerOutcome>>(
+    name?: string
+): FirstHandledFunction<TFunc> {
+    const handler = new FirstHandledHandler<Parameters<TFunc>, Awaited<ReturnType<TFunc>>>(
+        name ?? "firstHandledFunction"
+    );
+    /**
+     * Re-expresses the callback after `Awaited` for the handler's stored type.
+     * The callback constraint guarantees the value or promise return shape;
+     * TypeScript does not correlate that shape with the generic `Awaited` type.
+     */
+    const toHandlerCallback = (callback: TFunc): HandlerFunc<Parameters<TFunc>, Awaited<ReturnType<TFunc>>> =>
+        callback as unknown as HandlerFunc<Parameters<TFunc>, Awaited<ReturnType<TFunc>>>;
+    const bound = (...args: Parameters<TFunc>) => handler.invoke(...args);
+    bound.addHandler = (callback: TFunc, priority?: number) =>
+        handler.addHandler(toHandlerCallback(callback), priority);
+    bound.removeHandler = (callback: TFunc) => handler.removeHandler(toHandlerCallback(callback));
+    Object.defineProperty(bound, "hasHandlers", { get: () => handler.hasHandlers });
+    return bound as FirstHandledFunction<TFunc>;
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- covariant in return type, so cannot be generic.
 export function dispatchParallelFunction<TFunc extends (...args: any[]) => Promise<unknown[]>>(
     name?: string
@@ -723,6 +802,14 @@ type FunctionKeys<T> = Extract<
     {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any -- covariant in return type, so cannot be generic.
         [K in keyof T]: T[K] extends (...args: any[]) => any ? K : never;
+    }[keyof T],
+    string
+>;
+
+type FirstHandledFunctionKeys<T> = Extract<
+    {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any -- used to identify callable handler properties, including optional ones.
+        [K in keyof T]: NonNullable<T[K]> extends (...args: any[]) => any ? K : never;
     }[keyof T],
     string
 >;
@@ -817,6 +904,23 @@ export function handlers<T extends object>() {
         ): MultipleHandlerFunction<Extract<T[K], (...args: any[]) => Promise<unknown>>> {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any -- covariant in return type, so cannot be generic.
             return firstResultFunction<Extract<T[K], (...args: any[]) => Promise<unknown>>>(String(name));
+        },
+        /**
+         * Create a handler that invokes registered handlers until one completes or vetoes.
+         * Callback errors and rejections propagate unchanged.
+         * @param name The name of the callback on `T`.
+         * @returns A bound handler with a live `hasHandlers` property.
+         */
+        firstHandled<K extends FirstHandledFunctionKeys<T>>(
+            name: K
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- follows the existing callback-selection pattern.
+        ): FirstHandledFunction<
+            Extract<NonNullable<T[K]>, (...args: any[]) => AnyHandlerOutcome | Promise<AnyHandlerOutcome>>
+        > {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any -- follows the existing callback-selection pattern.
+            return firstHandledFunction<
+                Extract<NonNullable<T[K]>, (...args: any[]) => AnyHandlerOutcome | Promise<AnyHandlerOutcome>>
+            >(String(name));
         },
         /**
          * Create a handler that invokes all added handler functions in parallel.

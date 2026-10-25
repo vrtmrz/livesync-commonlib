@@ -65,6 +65,8 @@ The ordinary `prepareDatabaseForUse()` sequence is:
 
 `commitPendingFileEvents()` defines a finite local completion boundary. It captures admissions and file operations accepted before the call, including buffered, waiting for a timer, and already running work, releases their delays, and waits for actual handler outcomes and the ordered snapshot writes which record completion. Timer release alone is not completion. Later events do not extend the boundary, although a newer operation may satisfy an earlier one when its successful result covers the earlier intent. Handler or persistence failure is returned to the caller, and unresolved operations remain in the snapshot. The boundary does not claim a globally empty queue or remote replication.
 
+Optional file completion follows the [selected optional handler contract](storage-events-and-reflection.md#optional-file-handlers). Typed providers wait for their actual save and receive a finite-flush signal to release captured debounce delays. Hosts which retain only the legacy boolean notification API complete notification dispatch without a new persistence guarantee. Start-up replay occurs before application readiness; optional providers must use physical database readiness and prepare their required local state without awaiting a later resume hook.
+
 ### Offline scan and stored storage-event operations
 
 The maintained `scanVault()` handler is `performFullScan()`. Its pair states, action matrix, identity checks, and result contract are specified in [Full offline scan](offline-scanner.md).

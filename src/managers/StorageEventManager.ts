@@ -46,6 +46,7 @@ type PendingFileEvent = {
     prerequisites: Set<PendingFileEvent>;
     started: boolean;
     flushRequested: boolean;
+    flushSignal?: PromiseWithResolvers<void>;
     successor?: PendingFileEvent;
     result?: OperationResult;
 };
@@ -294,7 +295,7 @@ export abstract class StorageEventManagerBase<
             const operation = this.operations.get(item);
             if (operation) {
                 operation.acceptedAt = admission.acceptedAt;
-                operation.flushRequested = admission.flushRequested;
+                if (admission.flushRequested) this.releaseOperations([operation]);
                 admission.operations.push(operation);
             }
         }
@@ -380,6 +381,7 @@ export abstract class StorageEventManagerBase<
     private releaseOperations(operations: PendingFileEvent[]) {
         for (const operation of operations) {
             operation.flushRequested = true;
+            operation.flushSignal?.resolve();
             const path = operation.event.args.file.path;
             if (this._waitingMap.get(path)?.event === operation.event) this._proceedWaiting(path);
         }
@@ -686,10 +688,27 @@ export abstract class StorageEventManagerBase<
         const file = queue.args.file;
         await serialized(`handleFile:${file.path}`, async () => {
             if (queue.cancelled) throw new Error(`Storage operation has no confirmed result: ${file.path}`);
-            const succeeded = queue.type === "INTERNAL" || file.isInternal
-                ? await this.fileProcessing.processOptionalFileEvent(file.path as FilePath)
-                : await this.fileProcessing.processFileEvent(queue);
-            if (!succeeded) throw new Error(`Storage operation failed: ${file.path}`);
+            if (queue.type === "INTERNAL" || file.isInternal) {
+                const handler = this.fileProcessing.processOptionalFileEventWithResult;
+                if (handler && handler.hasHandlers !== false) {
+                    const operation = this.operations.get(queue);
+                    let whenFlushRequested: Promise<void> | undefined;
+                    if (operation) {
+                        operation.flushSignal ??= promiseWithResolvers<void>();
+                        if (operation.flushRequested) operation.flushSignal.resolve();
+                        whenFlushRequested = operation.flushSignal.promise;
+                    }
+                    const outcome = await handler(file.path as FilePath, { whenFlushRequested });
+                    if (outcome.kind === "veto") {
+                        throw new Error(`Optional storage operation declined: ${file.path} (${outcome.value})`);
+                    }
+                } else {
+                    // Legacy providers report notification handling, not persistence.
+                    await this.fileProcessing.processOptionalFileEvent(file.path as FilePath);
+                }
+            } else if (!(await this.fileProcessing.processFileEvent(queue))) {
+                throw new Error(`Storage operation failed: ${file.path}`);
+            }
         });
         this.updateStatus();
     }

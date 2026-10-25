@@ -211,7 +211,7 @@ await writeConsumerFile(
                 skipLibCheck: true,
                 types: [],
             },
-            include: ["type-smoke.ts"],
+            include: ["type-smoke.ts", "handler-outcome-types.ts"],
         },
         null,
         2
@@ -633,6 +633,11 @@ await writeConsumerFile(
     "browser-worker.ts",
     `export { initialiseWorkerModule, splitPieces2Worker } from "${packageName}/compat/worker/bgWorker";
 `
+);
+
+await writeConsumerFile(
+    "handler-outcome-types.ts",
+    await readFile(resolve(root, "_tools/fixtures/handler-outcome-types.ts"), "utf8")
 );
 
 run(

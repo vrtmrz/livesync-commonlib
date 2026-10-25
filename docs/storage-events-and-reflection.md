@@ -54,7 +54,7 @@ Once admitted, a file operation remains pending while buffered, waiting for its
 batch boundary, or running in a handler. The manager includes all three states
 in its existing event snapshot. It saves snapshots in order, so an older write
 cannot replace a newer view of pending work. The manager acknowledges an
-operation only after its effect is durable locally, current state proves the
+ordinary file operation only after its effect is durable locally, current state proves the
 effect is already represented or safely covered by a successful successor, or
 the handler returns a skip explicitly allowed by policy. A handler
 failure or exception leaves the saved operation pending. A failed initial
@@ -88,7 +88,7 @@ not completion. Later events do not extend that captured boundary. A newer
 coalesced operation satisfies an earlier one only when its successful result
 covers the earlier intent. A failed handler or snapshot update is reported to
 the caller and leaves unresolved work in the snapshot. This boundary covers
-local completion only; it does not prove replication or receipt by another
+local completion under the selected handler contract only; it does not prove replication or receipt by another
 Vault.
 
 A `DELETE` or `RENAME` ordering sentinel waits for its predecessors only. It
@@ -100,6 +100,48 @@ accepted and before asynchronous filtering or the touched-file check. Waiting
 timers do not occupy a processing slot, and time spent waiting for a slot does
 not restart the maximum delay. Once due, the operation acquires a slot and reads
 current content for processing.
+
+## Optional file handlers
+
+`INTERNAL` events and files marked `isInternal` use their owning feature's
+contract. Hosts can register `processOptionalFileEventWithResult` handlers with
+`firstHandled`. `HandlerOutcome<TValue = void, TVetoReason = void>` carries a
+success value and a veto reason independently; a non-void payload is required
+in its branch. Dispatch follows priority and registration order:
+
+| Outcome | Dispatch and completion |
+| --- | --- |
+| `not-applicable` | Try the next provider. If none applies, complete the policy-approved skip. |
+| `completed` | Stop and complete the event after the provider's actual save or verified no-op. |
+| `veto` | Stop and retain the event with a reported refusal reason. |
+| Exception or rejection | Propagate the original error and retain the event. |
+
+A completed result stops dispatch immediately; a later provider cannot veto
+it. Empty registration returns `not-applicable`. False or zero payloads remain
+valid values. Providers must resolve their promise only after the operation
+finishes. Snapshot acknowledgement still follows the handler result, and a
+snapshot failure keeps the event recoverable.
+
+The optional `whenFlushRequested` promise resolves when a finite completion
+boundary includes this event. A provider which debounces saves uses it to
+release that event's captured delay. It must wait for the corresponding save,
+settle all notifications coalesced into that save, and keep later groups outside
+the captured boundary. This signal is runtime state; it does not change the
+persisted snapshot format.
+
+Migrate all optional providers in a host together. Once the first typed provider
+is registered, the manager uses the typed chain exclusively, even when every
+provider returns `not-applicable`. A host without a registered typed provider
+retains `processOptionalFileEvent` as a legacy notification contract. Its
+boolean does not confirm persistence: a resolved notification completes only
+that dispatch, while a rejection which reaches the manager is still retained.
+The existing boolean aggregators and ordinary file contract are unchanged.
+
+During start-up replay and settings or unload flushes, providers use actual
+database readiness and initialise their required local state before saving.
+They must not wait for an application-ready or resume event which occurs only
+after that same flush. An unavailable prerequisite returns a veto; the manager
+does not introduce an automatic retry loop for a failed operation.
 
 ## Event intent and current storage state
 

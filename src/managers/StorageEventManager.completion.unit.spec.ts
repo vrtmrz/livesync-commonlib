@@ -18,6 +18,8 @@ import type {
     IStorageEventWatchAdapter,
 } from "./adapters";
 
+import { firstHandledFunction, type HandlerOutcome } from "@lib/services/lib/HandlerUtils";
+
 type SnapshotItem = FileEventItem | FileEventItemSentinel;
 
 function deferred<T>() {
@@ -198,6 +200,129 @@ function keys(snapshot: SnapshotItem[] | null): string[] {
 }
 
 describe("StorageEventManager local completion boundaries", () => {
+    it("allows later internal updates after an optional handler declines an unchanged notification", async () => {
+        const { adapter, dependencies, manager } = createHarness({ syncInternalFiles: true });
+        const optionalHandler = vi.mocked(dependencies.fileProcessing.processOptionalFileEvent);
+        optionalHandler.mockResolvedValueOnce(false).mockResolvedValue(true);
+
+        const firstResult = await manager.processFileEvent(
+            event(".obsidian/app.json", "unchanged-internal", "INTERNAL")
+        ).catch((error: unknown) => error);
+        const completionResult = await manager.waitForIdle().catch((error: unknown) => error);
+        const laterResult = await manager.processFileEvent(
+            event(".obsidian/app.json", "changed-internal", "INTERNAL")
+        ).catch((error: unknown) => error);
+
+        expect({
+            firstResult,
+            completionResult,
+            laterResult,
+            calls: optionalHandler.mock.calls.length,
+            pending: keys(adapter.persistence.snapshot),
+        }).toEqual({
+            firstResult: undefined,
+            completionResult: undefined,
+            laterResult: undefined,
+            calls: 2,
+            pending: [],
+        });
+    });
+
+    it("waits for typed optional storage completion and dispatches only that contract", async () => {
+        const { adapter, dependencies, manager } = createHarness();
+        const save = deferred<HandlerOutcome<void, string>>();
+        const optional = firstHandledFunction<() => Promise<HandlerOutcome<void, string>>>();
+        const handler = vi.fn(() => save.promise);
+        optional.addHandler(handler);
+        Object.assign(dependencies.fileProcessing, { processOptionalFileEventWithResult: optional });
+        let settled = false;
+        const operation = manager.processFileEvent(event(".obsidian/app.json", "typed", "INTERNAL"));
+        void operation.then(() => { settled = true; });
+        await pumpMicrotasks();
+        expect(handler).toHaveBeenCalledOnce();
+        expect(settled).toBe(false);
+        expect(keys(adapter.persistence.snapshot)).toEqual(["typed"]);
+        expect(dependencies.fileProcessing.processOptionalFileEvent).not.toHaveBeenCalled();
+        save.resolve({ kind: "completed" });
+        await operation;
+        expect(keys(adapter.persistence.snapshot)).toEqual([]);
+    });
+
+    it.each(["not-applicable", "completed"] as const)("completes a typed %s without legacy fallback", async (kind) => {
+        const { adapter, dependencies, manager } = createHarness();
+        const optional = firstHandledFunction<() => HandlerOutcome<void, string>>();
+        optional.addHandler(() => ({ kind }));
+        Object.assign(dependencies.fileProcessing, { processOptionalFileEventWithResult: optional });
+        await manager.processFileEvent(event(".obsidian/app.json", "typed", "INTERNAL"));
+        expect(dependencies.fileProcessing.processOptionalFileEvent).not.toHaveBeenCalled();
+        expect(keys(adapter.persistence.snapshot)).toEqual([]);
+    });
+
+    it.each(["veto", "throw"] as const)("retains a typed optional %s", async (kind) => {
+        const { adapter, dependencies, manager } = createHarness();
+        const failure = new Error("save failed");
+        const optional = firstHandledFunction<() => HandlerOutcome<void, string>>();
+        optional.addHandler(() => {
+            if (kind === "throw") throw failure;
+            return { kind: "veto", value: "database-not-ready" };
+        });
+        Object.assign(dependencies.fileProcessing, { processOptionalFileEventWithResult: optional });
+        const result = await manager.processFileEvent(event(".obsidian/app.json", "failed", "INTERNAL"))
+            .catch((error: unknown) => error);
+        if (kind === "throw") expect(result).toBe(failure);
+        else expect(result).toEqual(expect.objectContaining({ message: expect.stringContaining("database-not-ready") }));
+        await expect(manager.waitForIdle()).rejects.toBe(result);
+        expect(keys(adapter.persistence.snapshot)).toEqual(["failed"]);
+        expect(dependencies.fileProcessing.processOptionalFileEvent).not.toHaveBeenCalled();
+    });
+
+    it("uses the legacy notification contract when no typed handlers are registered", async () => {
+        const { dependencies, manager } = createHarness();
+        const optional = firstHandledFunction<() => HandlerOutcome<void, string>>();
+        Object.assign(dependencies.fileProcessing, { processOptionalFileEventWithResult: optional });
+        vi.mocked(dependencies.fileProcessing.processOptionalFileEvent).mockResolvedValue(false);
+        const internal = event(".obsidian/app.json", "flagged");
+        internal.args.file.isInternal = true;
+        await manager.processFileEvent(internal);
+        expect(dependencies.fileProcessing.processOptionalFileEvent).toHaveBeenCalledOnce();
+        expect(dependencies.fileProcessing.processFileEvent).not.toHaveBeenCalled();
+    });
+
+    it.each([false, true])("releases optional delay through the finite flush boundary (already started: %s)", async (alreadyStarted) => {
+        const { adapter, dependencies, manager } = createHarness();
+        type OptionalHandler = (path: FilePath, options?: { whenFlushRequested?: Promise<void> }) => Promise<HandlerOutcome<void, string>>;
+        const optional = firstHandledFunction<OptionalHandler>();
+        const save = deferred<void>();
+        let flushReceived = false;
+        const handler = vi.fn<OptionalHandler>(async (_path, options) => {
+            await options?.whenFlushRequested;
+            flushReceived = true;
+            await save.promise;
+            return { kind: "completed" };
+        });
+        optional.addHandler(handler);
+        Object.assign(dependencies.fileProcessing, { processOptionalFileEventWithResult: optional });
+        const first = event(".obsidian/app.json", "first", "INTERNAL");
+        let operation: Promise<void> | undefined;
+        if (alreadyStarted) {
+            operation = manager.processFileEvent(first);
+            await pumpMicrotasks();
+            expect(handler).toHaveBeenCalledOnce();
+            expect(flushReceived).toBe(false);
+        } else {
+            manager.enqueue(first);
+        }
+        let settled = false;
+        const flush = manager.waitForIdle().then(() => { settled = true; });
+        await pumpMicrotasks();
+        expect(handler).toHaveBeenCalledOnce();
+        expect(flushReceived).toBe(true);
+        expect(settled).toBe(false);
+        save.resolve();
+        await Promise.all([operation, flush]);
+        expect(keys(adapter.persistence.snapshot)).toEqual([]);
+    });
+
     it.each([
         { liveSync: true, batchSave: true, batchSaveInLiveSync: false, waiting: false },
         { liveSync: true, batchSave: false, batchSaveInLiveSync: true, waiting: true },

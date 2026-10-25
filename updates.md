@@ -4,6 +4,10 @@
 
 ### Added
 
+- Hosts can distinguish completed optional file saves, explicit refusals, and notifications outside a provider's responsibility.
+    - `HandlerOutcome` and `firstHandled` preserve success values and veto reasons, and propagate errors. `processOptionalFileEventWithResult` waits for the actual optional save; hosts migrate their providers together.
+    - Hosts using only the legacy optional notification API retain its boolean contract. A declined notification no longer blocks later updates as though its save had failed.
+
 - Hosts can offer an explicit choice to batch local database updates in LiveSync mode.
     - `batchSaveInLiveSync` defaults to `false` for existing settings and new Vaults. Older configurations with `liveSync: true, batchSave: true` remain immediate. Other modes retain `batchSave`, and both choices share the existing delay settings.
     - The new property is optional in the public settings type and participates in the Markdown and QR settings policies.
