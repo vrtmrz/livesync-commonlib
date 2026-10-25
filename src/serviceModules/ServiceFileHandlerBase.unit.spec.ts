@@ -9,6 +9,7 @@ import type {
     UXFileInfo,
     UXFileInfoStub,
 } from "@lib/common/types";
+import * as contentUtils from "@lib/common/utils";
 import { createBinaryBlob, createTextBlob } from "@lib/common/utils";
 import { encodeBinary } from "@lib/string_and_binary/convert";
 import { ServiceFileHandlerBase, type ServiceFileHandlerDependencies } from "./ServiceFileHandlerBase";
@@ -981,6 +982,66 @@ describe("ServiceFileHandlerBase restored storage events", () => {
 });
 
 describe("ServiceFileHandlerBase.dbToStorage", () => {
+    it.each([
+        { name: "complete surrogate pairs", chunks: ["prefix ", "🙂", " suffix"], skipSizeCheck: false },
+        { name: "split surrogate pairs", chunks: ["prefix \uD83D", "\uDE42 suffix"], skipSizeCheck: false },
+        {
+            name: "split surrogate pairs with size checking disabled",
+            chunks: ["prefix \uD83D", "\uDE42 suffix"],
+            skipSizeCheck: true,
+        },
+    ])("reflects text and records matching byte evidence for $name", async ({ chunks, skipSizeCheck }) => {
+        const content = "prefix 🙂 suffix";
+        const {
+            handler,
+            remoteMeta,
+            storageStub,
+            storageFile,
+            databaseFileAccess,
+            storageAccess,
+            provenance,
+            setting,
+        } = createHandler("old", content, false, TARGET_IS_NEW, true);
+        setting.currentSettings.mockReturnValue({
+            ...setting.currentSettings(),
+            processSizeMismatchedFiles: skipSizeCheck,
+        });
+        databaseFileAccess.fetchEntryFromMeta.mockResolvedValue({ ...remoteMeta, data: chunks });
+
+        await expect(handler.dbToStorageWithSpecificRev(storageStub, remoteMeta._rev, true)).resolves.toBe(true);
+
+        expect(storageAccess.writeFileAuto).toHaveBeenCalledExactlyOnceWith("note.md", content, {
+            ctime: remoteMeta.ctime,
+            mtime: remoteMeta.mtime,
+        });
+        expect(provenance.set).toHaveBeenCalledExactlyOnceWith("note.md", {
+            revision: remoteMeta._rev,
+            observedStorageMtime: storageFile.stat.mtime,
+            contentSize: Buffer.byteLength(content, "utf8"),
+            contentHash: `sha256:${createHash("sha256").update(content, "utf8").digest("hex")}`,
+        });
+    });
+
+    it("reuses decoded binary content for validation and reflection evidence", async () => {
+        const fixture = createHandler("old", "unused", false);
+        const bytes = new Uint8Array([0, 255, 31, 128]);
+        const path = "attachment.bin";
+        const meta = { ...createMeta(path, ""), type: "newnote", datatype: "newnote", size: bytes.byteLength };
+        fixture.storageStub.path = path as FilePath;
+        fixture.storageStub.name = path;
+        fixture.databaseFileAccess.fetchEntryMeta.mockResolvedValue(meta);
+        fixture.databaseFileAccess.fetchEntryFromMeta.mockResolvedValue({ ...meta, data: await encodeBinary(bytes) });
+        const reconstruct = vi.spyOn(contentUtils, "readAsBlob");
+        try {
+            await expect(fixture.handler.dbToStorageWithSpecificRev(fixture.storageStub, meta._rev, true)).resolves.toBe(true);
+            expect(reconstruct).not.toHaveBeenCalled();
+            const written = fixture.storageAccess.writeFileAuto.mock.calls[0]?.[1] as ArrayBuffer;
+            expect(new Uint8Array(written)).toEqual(bytes);
+        } finally {
+            reconstruct.mockRestore();
+        }
+    });
+
     it.each(["touched", "stat"] as const)(
         "does not replace newer provenance set while an earlier reflection awaits %s",
         async (pauseAt) => {
