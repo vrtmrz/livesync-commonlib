@@ -11,4 +11,10 @@ export const VaultScanResults = {
     COMPLETED_WITH_FILE_FAILURES: "completed-with-file-failures",
 } as const;
 
+/** Optional policy for an ordinary scan; omitted options retain strict content checks. */
+export interface VaultScanOptions {
+    /** False permits unchanged tracked files to be skipped using storage and revision metadata. */
+    strictContentCheck?: boolean;
+}
+
 export type VaultScanResult = (typeof VaultScanResults)[keyof typeof VaultScanResults];

@@ -33,6 +33,14 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
         expect(decoded.batchSaveInLiveSync).toBe(batchSaveInLiveSync);
     });
 
+    it("omits the installation-local startup content-check preference from QR data", () => {
+        const decoded = decodeSettingsFromQRCodeData(
+            encodeSettingsToQRCodeData({ ...DEFAULT_SETTINGS, strictContentCheckOnStartup: true })
+        );
+
+        expect(decoded.strictContentCheckOnStartup).toBe(DEFAULT_SETTINGS.strictContentCheckOnStartup);
+    });
+
     it("defaults the LiveSync batching choice to false when decoding legacy short QR data", () => {
         const currentValues = decodeAnyArray(encodeSettingsToQRCodeData({ ...DEFAULT_SETTINGS }));
         const legacyValues = currentValues.slice(0, 169);

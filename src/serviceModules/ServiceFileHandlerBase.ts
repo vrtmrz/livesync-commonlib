@@ -425,6 +425,35 @@ export abstract class ServiceFileHandlerBase
         return readFile;
     }
 
+    async canSkipUnchangedFile(info: UXFileInfoStub, expected: MetaEntry): Promise<boolean> {
+        const path = getStoragePathFromUXFileInfo(info);
+        const provenance = this.fileReflectionProvenance;
+        if (!provenance || !expected._rev || expected.deleted || expected._deleted ||
+            expected._conflicts?.length || this.storage.hasPendingFileEvent?.(path as FilePath) !== false) return false;
+        try {
+            return await this.serializedByFileEventPaths([path], async () => {
+                const provenancePath = this.getProvenancePath(path);
+                const record = await provenance.get(provenancePath);
+                if (!record || !hasContentHash(record) || record.revision !== expected._rev ||
+                    !Number.isFinite(record.observedStorageMtime) ||
+                    record.observedStorageMtime !== info.stat.mtime || record.contentSize !== info.stat.size) return false;
+                const current = await this.db.fetchEntryMeta(path, undefined, true);
+                if (!current || current._rev !== record.revision || current.deleted || current._deleted ||
+                    (await this.db.getConflictedRevs(path)).length > 0) return false;
+                const stat = await this.storage.stat(path);
+                if (!stat || stat.type !== "file" || stat.mtime !== record.observedStorageMtime ||
+                    stat.size !== record.contentSize) return false;
+                // This skips a scan, but does not create content evidence for a later write.
+                return sameProvenance(await provenance.get(provenancePath), record) &&
+                    this.storage.hasPendingFileEvent?.(path as FilePath) === false;
+            });
+        } catch (error) {
+            this._log(`Could not inspect unchanged file metadata for ${path}`, LOG_LEVEL_VERBOSE);
+            this._log(error, LOG_LEVEL_VERBOSE);
+            return false;
+        }
+    }
+
     async tryRecordUntrackedFileRevision(
         info: UXFileInfoStub | UXFileInfo,
         expectedRevision: string

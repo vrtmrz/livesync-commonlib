@@ -1,6 +1,6 @@
 ---
-date: 2026-10-25
-commonlib-version: "0.2.0"
+date: 2026-10-26
+commonlib-version: "0.2.1"
 self-hosted-livesync-version: "1.0.40"
 status: unreleased
 ---
@@ -47,6 +47,10 @@ obtains a storage stub, and calls `dbToStorage`. Logical deletion, conflicts,
 and unsynchronised storage content retain their existing reflection rules.
 The watcher guard does not intercept this path or general explicit database
 deletion operations.
+
+## Startup scans and pending operations
+
+The full scanner's optional `strictContentCheck: false` path is gated by the host's file-operation state. Any related queued, running, or failed operation blocks the `canSkipUnchangedFile` hint. The host must provide an available query before the scanner can establish that no related work exists; without that query or other required evidence, strict content comparison remains active. The hint is considered only after normal freshness comparison reaches `EVEN`, and requires the raw mtime to exactly match the recorded provenance value; a match within the platform comparison bucket is insufficient. `BASE_IS_NEW` and `TARGET_IS_NEW` retain their timestamp-directed reflection and last-seen bookkeeping. A pair returned as `SKIPPED` by this hint does not acknowledge or remove a saved event. Event work continues to follow the snapshot and handler-completion contract below. This option affects only the full-scan same-stat check; ordinary watcher `CREATE` and `CHANGED` handling, replicated writes, and logical-deletion protection retain their existing rules. See [Full offline scan](offline-scanner.md#startup-content-checking) for the full option and eligibility conditions.
 
 ## Pending operations and local completion
 

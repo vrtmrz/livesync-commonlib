@@ -200,6 +200,33 @@ function keys(snapshot: SnapshotItem[] | null): string[] {
 }
 
 describe("StorageEventManager local completion boundaries", () => {
+    it("reports queued and running rename work for both paths until completion", async () => {
+        const { adapter, manager, processFileEvent } = createHarness();
+        const write = deferred<boolean>();
+        processFileEvent.mockImplementation(() => write.promise);
+        adapter.persistence.blockWrite(1);
+        manager.enqueue(event("new.md", "rename", "RENAME", { oldPath: "old.md" }));
+        expect(manager.hasPendingFileEvent("old.md" as FilePath)).toBe(true);
+        expect(manager.hasPendingFileEvent("new.md" as FilePath)).toBe(true);
+        expect(manager.hasPendingFileEvent("other.md" as FilePath)).toBe(false);
+        adapter.persistence.releaseWrite(1);
+        await waitUntil(() => processFileEvent.mock.calls.length === 1, "rename handler");
+        expect(manager.isWaiting("new.md" as FilePath)).toBe(false);
+        expect(manager.hasPendingFileEvent("new.md" as FilePath)).toBe(true);
+        write.resolve(true);
+        await manager.waitForIdle();
+        expect(manager.hasPendingFileEvent("old.md" as FilePath)).toBe(false);
+        expect(manager.hasPendingFileEvent("new.md" as FilePath)).toBe(false);
+    });
+
+    it("keeps failed work visible to metadata-only scans", async () => {
+        const { manager, processFileEvent } = createHarness();
+        processFileEvent.mockRejectedValueOnce(new Error("write failed"));
+        await expect(manager.processFileEvent(event("failed.md", "failed"))).rejects.toThrow("write failed");
+        expect(manager.isWaiting("failed.md" as FilePath)).toBe(false);
+        expect(manager.hasPendingFileEvent("failed.md" as FilePath)).toBe(true);
+    });
+
     it("allows later internal updates after an optional handler declines an unchanged notification", async () => {
         const { adapter, dependencies, manager } = createHarness({ syncInternalFiles: true });
         const optionalHandler = vi.mocked(dependencies.fileProcessing.processOptionalFileEvent);

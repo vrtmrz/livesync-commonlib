@@ -152,6 +152,10 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         name: "Sync on Startup",
         desc: "Automatically Sync all files when opening Obsidian.",
     },
+    strictContentCheckOnStartup: {
+        name: "Strict content check on startup",
+        desc: "Compare file contents even when modification time and size match. This can slow startup in large vaults.",
+    },
     syncAfterMerge: {
         name: "Sync after merging file",
         desc: "Sync automatically after merging files",

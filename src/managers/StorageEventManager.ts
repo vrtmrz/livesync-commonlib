@@ -680,6 +680,17 @@ export abstract class StorageEventManagerBase<
             this.updateStatus();
         }
     }
+    override hasPendingFileEvent(filename: FilePath): boolean {
+        for (const entry of this.pendingSnapshot.values()) {
+            if (entry.completed || entry.event.type === TYPE_SENTINEL_FLUSH) continue;
+            const event = entry.event;
+            const relatedPath = event.type === "RENAME" ? event.args.oldPath : event.args.renameTarget;
+            if ([event.args.file.path, relatedPath].some((path) =>
+                path && (filename === path || filename.startsWith(`${path}/`)))) return true;
+        }
+        return false;
+    }
+
     isWaiting(filename: FilePath) {
         return this._waitingMap.has(filename);
     }

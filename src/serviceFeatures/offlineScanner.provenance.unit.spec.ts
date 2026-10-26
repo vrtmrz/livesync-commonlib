@@ -92,6 +92,7 @@ async function createScenario(scenario: Scenario, revsLimit = 1000) {
                 return storage;
             },
             getFileStub: async () => storage,
+            hasPendingFileEvent: () => false,
             readStubContent: async () => storage,
             ensureDir: async () => true,
             writeFileAuto: vi.fn(async (_path: string, body: string, times: { mtime: number }) => {
@@ -234,6 +235,94 @@ async function allLeaves(fixture: Awaited<ReturnType<typeof createScenario>>) {
 function contentHash(body: string): string {
     return `sha256:${createHash("sha256").update(body).digest("hex")}`;
 }
+
+describe("optional startup content checks", () => {
+    async function trackedFixture() {
+        const fixture = await createScenario("recorded-unchanged");
+        fixture.provenance.set(path, {
+            revision: fixture.baseRevision,
+            observedStorageMtime: originalMtime,
+            contentSize: new Blob([original]).size,
+            contentHash: contentHash(original),
+        });
+        return fixture;
+    }
+
+    it("skips unchanged file bodies and database chunks only when explicitly requested", async () => {
+        const fixture = await trackedFixture();
+        try {
+            const readStorage = vi.spyOn(fixture.handler, "readFileFromStub");
+            const readDatabase = vi.spyOn(fixture.access, "fetchEntry");
+            const record = { ...fixture.provenance.get(path)! };
+            const result = await syncStorageAndDatabase(
+                fixture.host, vi.fn(), fixture.getStorage(), LOG_LEVEL_INFO, fixture.previousMetadata,
+                { strictContentCheck: false }
+            );
+            expect(readStorage).not.toHaveBeenCalled();
+            expect(readDatabase).not.toHaveBeenCalled();
+            expect(result).toBe("skipped");
+            expect(fixture.provenance.get(path)).toEqual(record);
+            expect((await fixture.db.get(path))._rev).toBe(fixture.baseRevision);
+        } finally { await fixture.dispose(); }
+    });
+
+    it("keeps timestamp-directed reconciliation when a reflected file has a different raw storage time", async () => {
+        const fixture = await trackedFixture();
+        try {
+            fixture.setStorage(makeFile(original, originalMtime - 10_000));
+            fixture.provenance.get(path)!.observedStorageMtime = originalMtime - 10_000;
+            const reflect = vi.spyOn(fixture.handler, "dbToStorage");
+            const result = await syncStorageAndDatabase(
+                fixture.host, vi.fn(), fixture.getStorage(), LOG_LEVEL_INFO, fixture.previousMetadata,
+                { strictContentCheck: false }
+            );
+            expect(reflect).toHaveBeenCalled();
+            expect(result).toBe("completed");
+        } finally { await fixture.dispose(); }
+    });
+
+    it.each([undefined, true, false])("retains the agreed same-stat edit boundary with strict=%s", async (strictContentCheck) => {
+        const fixture = await trackedFixture();
+        try {
+            const changed = original.replace("Original", "Modified");
+            fixture.setStorage(makeFile(changed));
+            await syncStorageAndDatabase(
+                fixture.host, vi.fn(), fixture.getStorage(), LOG_LEVEL_INFO, fixture.previousMetadata,
+                { strictContentCheck }
+            );
+            const stored = await fixture.access.fetchEntry(path, undefined, true, true, true);
+            expect(stored && (await new Blob(stored.data).text())).toBe(strictContentCheck === false ? original : changed);
+            expect(await fixture.getStorage().body.text()).toBe(changed);
+            if (strictContentCheck === false) {
+                await advanceDatabase(fixture, [incoming]);
+                await fixture.handler.dbToStorage(path, path, false);
+                expect(await fixture.getStorage().body.text()).toBe(changed);
+                expect(await liveLeaves(fixture)).toHaveLength(2);
+            }
+        } finally { await fixture.dispose(); }
+    });
+
+    it.each(["mtime", "size", "untracked", "incomplete", "pending", "unknown-pending", "database-advanced"] as const)(
+        "checks contents when %s prevents the fast path", async (reason) => {
+            const fixture = await trackedFixture();
+            try {
+                if (reason === "mtime") fixture.setStorage(makeFile(original, originalMtime + 1));
+                if (reason === "size") fixture.setStorage(makeFile(original + "extra"));
+                if (reason === "untracked") fixture.provenance.delete(path);
+                if (reason === "incomplete") fixture.provenance.set(path, { revision: fixture.baseRevision });
+                if (reason === "pending") fixture.storageAccess.hasPendingFileEvent = () => true;
+                if (reason === "unknown-pending") Reflect.deleteProperty(fixture.storageAccess, "hasPendingFileEvent");
+                if (reason === "database-advanced") await advanceDatabase(fixture, [incoming]);
+                const readStorage = vi.spyOn(fixture.handler, "readFileFromStub");
+                await syncStorageAndDatabase(
+                    fixture.host, vi.fn(), fixture.getStorage(), LOG_LEVEL_INFO, fixture.previousMetadata,
+                    { strictContentCheck: false }
+                );
+                expect(readStorage).toHaveBeenCalled();
+            } finally { await fixture.dispose(); }
+        }
+    );
+});
 
 describe("equal-time scan and later incoming revision", () => {
     it.each<Scenario>([

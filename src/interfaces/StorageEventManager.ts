@@ -15,6 +15,11 @@ export abstract class StorageEventManager {
     abstract appendQueue(items: FileEvent[], ctx?: unknown): Promise<void>;
 
     abstract isWaiting(filename: FilePath): boolean;
+
+    /** Compatibility hosts without an ownership view must retain content checks. */
+    hasPendingFileEvent?(_filename: FilePath): boolean {
+        return true;
+    }
     abstract waitForIdle(): Promise<void>;
     abstract restoreState(): Promise<void>;
 
