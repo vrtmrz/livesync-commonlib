@@ -16,6 +16,9 @@ export interface IFileHandler {
      */
     tryRecordUntrackedFileRevision(info: UXFileInfoStub | UXFileInfo, expectedRevision: string): Promise<boolean>;
 
+    /** Metadata-only scan hint; never certifies content equality or changes provenance. */
+    canSkipUnchangedFile?(info: UXFileInfoStub, expected: MetaEntry): Promise<boolean>;
+
     storeFileToDB(
         info: UXFileInfoStub | UXFileInfo | UXInternalFileInfoStub | FilePathWithPrefix,
         force?: boolean,

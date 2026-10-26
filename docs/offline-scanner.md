@@ -1,6 +1,6 @@
 ---
-date: 2026-10-25
-commonlib-version: "0.2.0"
+date: 2026-10-26
+commonlib-version: "0.2.1"
 self-hosted-livesync-version: "1.0.40"
 status: unreleased
 ---
@@ -28,6 +28,14 @@ The tables below cover only paths which remain after identity validation, the ho
 5. collect and process the selected storage and database entries;
 6. after the first permitted invocation reaches its aggregate-result boundary, record `initialized = true`; and
 7. return the aggregate pair result under the caller's selected handling of file failures.
+
+### Startup content checking
+
+`VaultScanOptions.strictContentCheck` is optional. `initialiseDatabase` accepts `VaultScanOptions` as its optional fifth argument, and `scanVault` accepts it as its optional fourth argument and forwards it. `performFullScan` exposes the same option through `FullScanOptions`. Omitting the option, or setting it to `true`, retains strict content comparison. Only an explicit `false` permits the scanner to pass the `canSkipUnchangedFile` hint to the file handler. Commonlib does not read a host setting or global storage; a host may select this option from a per-installation startup preference.
+
+The hint is considered only when the normal freshness comparison reaches `EVEN`, replacing the additional body comparison at that point. It never bypasses `BASE_IS_NEW` or `TARGET_IS_NEW`; those branches retain their timestamp-directed reflection and last-seen bookkeeping. Inside `EVEN`, the hint is allowed only for a tracked file whose raw modification time exactly equals the recorded provenance mtime (not merely a value in the same platform comparison bucket), whose byte size matches the recorded value, whose tracked revision is the current live database revision, and which has no live conflicts or related queued, running, or failed file work. If tracking evidence is missing, or the host cannot establish pending-work state, the existing strict byte-comparison path remains. When the hint is accepted, the pair result is `SKIPPED`; it does not compare or claim equal bytes, write provenance, or introduce Commonlib persistent state. Incoming content, conflict handling, and logical-deletion protection retain their existing rules.
+
+A local edit which preserves the tracked modification time and byte size may be missed by a scan using explicit `false`. Existing same-stat edit checks exercise the omitted-option strict path.
 
 The `initialized` marker records that a full-scan invocation has reached its aggregate-result boundary and that later invocations may restore stored storage-event operations. It is not a successful-scan marker: the first invocation records it after an aggregate `false` result, `true`, or an accepted partial result. An exception before the aggregate result is produced does not reach that write.
 
@@ -140,7 +148,7 @@ Self-hosted LiveSync enables this policy only for ordinary Obsidian start-up, wh
 
 ## Files in the same timestamp bucket
 
-For a `both` pair which selects `NEWER_WINS` (`sync-newer`), equal raw modification times and distinct times within the platform tolerance do not establish that the storage file is unchanged. The scanner first asks the file handler to record provenance for the current database revision only when current storage and one unambiguous live revision have matching content. The handler checks the storage bytes and database revision under the document lock, then revalidates the storage snapshot, current revision, and absent provenance before writing the record. This check writes neither storage content nor a database revision. The existing selection, file-size, and conflict policies still apply, and the `DB_APPLY` action remains unchanged.
+For a `both` pair which selects `NEWER_WINS` (`sync-newer`), the normal freshness comparison can reach `EVEN` for equal raw modification times or distinct times within the platform tolerance; those timestamps alone do not establish that the storage file is unchanged. Under the omitted-option strict path, the scanner asks the file handler to record provenance for the current database revision only when current storage and one unambiguous live revision have matching content. The handler checks the storage bytes and database revision under the document lock, then revalidates the storage snapshot, current revision, and absent provenance before writing the record. This check writes neither storage content nor a database revision. With explicit `strictContentCheck: false`, the scanner may request `canSkipUnchangedFile` only in the `EVEN` branch, and only when the raw mtime exactly matches the recorded provenance mtime; a value merely in the same tolerance bucket does not qualify. The `BASE_IS_NEW` and `TARGET_IS_NEW` branches retain their existing timestamp-directed reflection and last-seen bookkeeping. The existing selection, file-size, and conflict policies still apply, and the `DB_APPLY` action remains unchanged.
 
 The result of `tryRecordUntrackedFileRevision()` is not an edit predicate. Its `false` can mean that provenance already exists, content differs, history conflicts, required content or provenance is unavailable, or state changed during verification. When it returns `false`, the scanner uses the ordinary, non-forced `storeFileToDB` path with bounded storage revalidation; it does not force the Vault file into the current database winner. The file handler retains a known branch when readable provenance identifies it, applies newer database state when the storage bytes match that recorded older revision, and saves a genuine edit on its recorded branch.
 
@@ -158,7 +166,7 @@ Focused two-pass coverage starts with a `DB_APPLY` reflection whose file handler
 
 Full-scan coverage also verifies that the strict default returns `false`, an ordinary-start-up scan which explicitly continues returns `completed-with-file-failures` while logging the affected path at verbose level, and a later clean scan returns `true`.
 
-The equal-time regression uses real in-memory PouchDB and the file handler. It checks missing and recorded provenance with unchanged files and genuine local edits at both identical raw timestamps and distinct raw timestamps within one comparison bucket. It verifies that edits are preserved during the scan, then advances the database and checks that an incoming revision retains the local branch. It also verifies that a matching saved hash remains useful after its database revision is pruned, while edited bytes with an unhashed pruned base and no matching live leaf are preserved independently. Focused scanner tests verify that a failed ordinary save returns a failed pair. Focused handler tests cover provenance read and write failures, unavailable recorded-base content, an existing conflict, and storage or database changes during verification.
+The equal-time regression uses real in-memory PouchDB and the file handler with `strictContentCheck` omitted, keeping its same-stat edit assertions on the strict default path. It checks missing and recorded provenance with unchanged files and genuine local edits at both identical raw timestamps and distinct raw timestamps within one comparison bucket. It verifies that edits are preserved during the scan, then advances the database and checks that an incoming revision retains the local branch. It also verifies that a matching saved hash remains useful after its database revision is pruned, while edited bytes with an unhashed pruned base and no matching live leaf are preserved independently. Focused scanner tests verify that a failed ordinary save returns a failed pair. Focused handler tests cover provenance read and write failures, unavailable recorded-base content, an existing conflict, and storage or database changes during verification.
 
 A second two-pass case starts with a `db-only` entry skipped by the size limit. It then removes that limit and verifies that the entry is reflected to storage rather than misclassified as an offline local deletion. Coverage for an existing storage file verifies that a failed `sync-newer` reflection retains the observed storage mtime, and full-scan coverage verifies that the aggregate failure reaches its caller after scanner initialisation completes.
 

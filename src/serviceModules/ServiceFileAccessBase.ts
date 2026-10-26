@@ -58,6 +58,10 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
         });
     }
 
+    hasPendingFileEvent(path: FilePath): boolean {
+        return this.vaultManager.hasPendingFileEvent?.(path) ?? true;
+    }
+
     restoreState() {
         return this.vaultManager.restoreState();
     }

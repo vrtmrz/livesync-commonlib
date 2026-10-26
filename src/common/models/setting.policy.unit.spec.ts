@@ -99,6 +99,17 @@ describe("settings property policy", () => {
         expect(imported.batchSaveInLiveSync).toBe(value);
     });
 
+    it.each([false, true])("keeps strict startup content checks local and persisted when set to %s", (value) => {
+        const original = { ...settings(), strictContentCheckOnStartup: value };
+        const exported = createMarkdownSettings(original);
+        const imported = mergeMarkdownSettings(exported, original);
+        const persisted = prepareSettingsForPersistence({ ...DEFAULT_SETTINGS, strictContentCheckOnStartup: value });
+
+        expect(exported).not.toHaveProperty("strictContentCheckOnStartup");
+        expect(imported).toHaveProperty("strictContentCheckOnStartup", value);
+        expect(persisted).toHaveProperty("strictContentCheckOnStartup", value);
+    });
+
     it("does not infer LiveSync batching when importing legacy batch-save settings", () => {
         const current = { ...settings(), batchSaveInLiveSync: false };
         const imported = mergeMarkdownSettings({ liveSync: true, batchSave: true }, current);

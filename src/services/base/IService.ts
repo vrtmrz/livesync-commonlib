@@ -54,7 +54,7 @@ import type {
     CentralRemoteAdministrationResult,
 } from "@lib/replication/CentralRemoteAdministration.ts";
 import type { HandlerOutcome, MultipleHandlerFunction } from "@lib/services/lib/HandlerUtils.ts";
-import type { VaultScanResult } from "./VaultScanResult.ts";
+import type { VaultScanResult, VaultScanOptions } from "./VaultScanResult.ts";
 import type { UICommandRegistry } from "@lib/uiCommands";
 
 declare global {
@@ -187,7 +187,8 @@ export interface IDatabaseEventService {
         showingNotice?: boolean,
         reopenDatabase?: boolean,
         ignoreSuspending?: boolean,
-        continueOnFileFailure?: boolean
+        continueOnFileFailure?: boolean,
+        scanOptions?: VaultScanOptions
     ): Promise<VaultScanResult>;
 }
 export interface IKeyValueDBService {
@@ -557,7 +558,8 @@ export interface IVaultService {
     scanVault(
         showingNotice?: boolean,
         ignoreSuspending?: boolean,
-        continueOnFileFailure?: boolean
+        continueOnFileFailure?: boolean,
+        scanOptions?: VaultScanOptions
     ): Promise<VaultScanResult>;
 
     isIgnoredByIgnoreFile(file: string | UXFileInfoStub): Promise<boolean>;

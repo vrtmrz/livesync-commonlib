@@ -2,7 +2,7 @@ import { LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
 import type { NecessaryServices } from "@lib/interfaces/ServiceModule";
 import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
 import { createInstanceLogFunction, type LogFunction } from "@lib/services/lib/logUtils";
-import { VaultScanResults, type VaultScanResult } from "@lib/services/base/VaultScanResult.ts";
+import { VaultScanResults, type VaultScanResult, type VaultScanOptions } from "@lib/services/base/VaultScanResult.ts";
 
 function reportPreparationFailure(log: LogFunction, message: string): false {
     log(message, LOG_LEVEL_VERBOSE);
@@ -18,6 +18,7 @@ function reportPreparationFailure(log: LogFunction, message: string): false {
  * @param reopenDatabase Whether to reopen the database connection
  * @param ignoreSuspending Whether to ignore suspension settings
  * @param continueOnFileFailure Whether individual file failures may satisfy application readiness
+ * @param scanOptions Optional content-check policy; omitted options keep strict checks
  * @returns The initialisation outcome, including accepted individual file failures
  */
 
@@ -31,7 +32,8 @@ export async function prepareDatabaseForUse(
     showingNotice: boolean = false,
     reopenDatabase: boolean = true,
     ignoreSuspending: boolean = false,
-    continueOnFileFailure: boolean = false
+    continueOnFileFailure: boolean = false,
+    scanOptions?: VaultScanOptions
 ): Promise<VaultScanResult> {
     const appLifecycle = host.services.appLifecycle;
     appLifecycle.resetIsReady();
@@ -55,7 +57,7 @@ export async function prepareDatabaseForUse(
                 "Database preparation stopped because the local database is not ready."
             );
         }
-        const scanResult = await host.services.vault.scanVault(showingNotice, ignoreSuspending, continueOnFileFailure);
+        const scanResult = await host.services.vault.scanVault(showingNotice, ignoreSuspending, continueOnFileFailure, scanOptions);
         if (scanResult === VaultScanResults.FAILED) {
             return reportPreparationFailure(log, "Database preparation stopped because the Vault scan failed.");
         }
@@ -113,7 +115,8 @@ export function usePrepareDatabaseForUse(
         showingNotice: boolean = false,
         reopenDatabase: boolean = true,
         ignoreSuspending: boolean = false,
-        continueOnFileFailure: boolean = false
+        continueOnFileFailure: boolean = false,
+        scanOptions?: VaultScanOptions
     ): Promise<VaultScanResult> => {
         return await prepareDatabaseForUse(
             host,
@@ -122,7 +125,8 @@ export function usePrepareDatabaseForUse(
             showingNotice,
             reopenDatabase,
             ignoreSuspending,
-            continueOnFileFailure
+            continueOnFileFailure,
+            scanOptions
         );
     };
 

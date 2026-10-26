@@ -40,6 +40,7 @@ export const SETTINGS_PROPERTY_POLICY = {
     batchSaveInLiveSync: SettingPolicies.Default,
     syncOnSave: SettingPolicies.Default,
     syncOnStart: SettingPolicies.Default,
+    strictContentCheckOnStartup: SettingPolicies.LocalOnly,
     syncOnFileOpen: SettingPolicies.Default,
     syncOnEditorSave: SettingPolicies.Default,
     keepReplicationActiveInBackground: SettingPolicies.Default,

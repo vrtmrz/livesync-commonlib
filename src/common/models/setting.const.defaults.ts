@@ -52,6 +52,7 @@ export const SETTINGS_SCHEMA_DEFAULTS: ObsidianLiveSyncSettings = {
     batchSaveInLiveSync: false,
     syncOnSave: false,
     syncOnStart: false,
+    strictContentCheckOnStartup: false,
     savingDelay: 200,
     lessInformationInLog: false,
     gcDelay: 300,

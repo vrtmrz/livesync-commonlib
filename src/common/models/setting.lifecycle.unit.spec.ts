@@ -99,6 +99,22 @@ describe("prepareSettingsForLoad", () => {
         expect(second.settings).toEqual(first.settings);
     });
 
+    it("defaults strict startup content checks off and preserves explicit stored choices", () => {
+        expect(prepareSettingsForLoad(undefined).settings).toHaveProperty("strictContentCheckOnStartup", false);
+        expect(
+            prepareSettingsForLoad({ settingVersion: CURRENT_SETTING_VERSION, liveSync: true }).settings
+        ).toHaveProperty("strictContentCheckOnStartup", false);
+
+        for (const value of [false, true]) {
+            const prepared = prepareSettingsForLoad({
+                settingVersion: CURRENT_SETTING_VERSION,
+                liveSync: true,
+                strictContentCheckOnStartup: value,
+            });
+            expect(prepared.settings).toHaveProperty("strictContentCheckOnStartup", value);
+        }
+    });
+
     it("adds P2P transport compatibility defaults when stored settings predate them", () => {
         const prepared = prepareSettingsForLoad({
             settingVersion: CURRENT_SETTING_VERSION,

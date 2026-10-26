@@ -53,6 +53,7 @@ export const KeyIndexOfSettings: Record<keyof ObsidianLiveSyncSettings, number> 
     liveSync: 49,
     syncOnSave: 50,
     syncOnStart: 51,
+    strictContentCheckOnStartup: -1, // Installation-local preference; do not encode into the QR Code.
     syncOnFileOpen: 52,
     syncOnEditorSave: 53,
     keepReplicationActiveInBackground: -1, // Desktop-only local preference; do not encode into the QR Code.
