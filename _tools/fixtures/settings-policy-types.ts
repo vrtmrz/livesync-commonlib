@@ -16,9 +16,12 @@ type StorageEventManager = StorageAccessBaseDependencies<any>["storageEventManag
 
 declare const legacySettings: Omit<ObsidianLiveSyncSettings, "batchSaveInLiveSync">;
 const compatibleSettings: ObsidianLiveSyncSettings = legacySettings;
+declare const legacyStartupSettings: Omit<ObsidianLiveSyncSettings, "strictContentCheckOnStartup">;
+const compatibleStartupSettings: ObsidianLiveSyncSettings = legacyStartupSettings;
 declare const legacyManager: Omit<StorageEventManager, "stopWatching">;
 const compatibleManager: StorageEventManager = legacyManager;
 void compatibleSettings;
+void compatibleStartupSettings;
 void compatibleManager;
 
 const defaultPolicy: SettingPropertyPolicy = SettingPolicies.Default;
