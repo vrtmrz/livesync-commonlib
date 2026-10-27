@@ -1348,26 +1348,19 @@ export class LiveSyncCouchDBReplicator extends LiveSyncAbstractReplicator {
             }
             const localDB = this.rawDatabase;
             Logger(this.translate("liveSyncReplicator.beforeLiveSync"));
-            const catchUpActivity = this.env.services.replicator.couchDbCatchUpActivityCount;
-            catchUpActivity.value++;
-            let caughtUp: boolean;
-            try {
-                caughtUp = await this.env.services.replicator.runFiniteReplicationActivity(
-                    () =>
-                        this.openOneShotReplication(
-                            setting,
-                            showResult,
-                            false,
-                            "pullOnly",
-                            false,
-                            undefined,
-                            () => this.continuousStopRequested
-                        ),
-                    { label: "replication" }
-                );
-            } finally {
-                catchUpActivity.value--;
-            }
+            const caughtUp = await this.env.services.replicator.runFiniteReplicationActivity(
+                () =>
+                    this.openOneShotReplication(
+                        setting,
+                        showResult,
+                        false,
+                        "pullOnly",
+                        false,
+                        undefined,
+                        () => this.continuousStopRequested
+                    ),
+                { label: "replication" }
+            );
             if (caughtUp && !this.continuousStopRequested) {
                 Logger(this.translate("liveSyncReplicator.liveSyncBegin"));
                 const ret = await this.checkReplicationConnectivity(setting, true, false, showResult);
