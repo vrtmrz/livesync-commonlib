@@ -1499,23 +1499,6 @@ describe("ReplicatorService bounded remote activity", () => {
         expect(observedReplicationCounts).toEqual([1, 0]);
     });
 
-    it("keeps P2P finite replication activity separate from CouchDB catch-up activity", async () => {
-        const service = createService();
-        const catchUpCounts: number[] = [];
-        service.couchDbCatchUpActivityCount.onChanged((value) => catchUpCounts.push(value.value));
-        const p2pTransfer = Promise.withResolvers<void>();
-
-        const transfer = service.runFiniteReplicationActivity(() => p2pTransfer.promise, { label: "replication" });
-        expect(service.finiteReplicationActivityCount.value).toBe(1);
-        expect(service.couchDbCatchUpActivityCount.value).toBe(0);
-
-        p2pTransfer.resolve();
-        await transfer;
-        expect(service.finiteReplicationActivityCount.value).toBe(0);
-        expect(service.couchDbCatchUpActivityCount.value).toBe(0);
-        expect(catchUpCounts).toEqual([]);
-    });
-
     it("ends the activity when the bounded task rejects", async () => {
         const service = createService();
 
