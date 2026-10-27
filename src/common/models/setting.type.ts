@@ -120,7 +120,7 @@ interface SyncMethodSettings {
     /**
      * Compare file contents during startup checks when modification time and size match.
      */
-    strictContentCheckOnStartup: boolean;
+    strictContentCheckOnStartup?: boolean;
     /**
      * automatically run sync on opening a file.
      */
