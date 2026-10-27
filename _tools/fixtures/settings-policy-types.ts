@@ -11,6 +11,19 @@ import {
 import type { ServiceContext } from "@vrtmrz/livesync-commonlib/context";
 import type { InjectableSettingService } from "@vrtmrz/livesync-commonlib/compat/services/implements/injectable/InjectableSettingService";
 
+import type { StorageAccessBaseDependencies } from "@vrtmrz/livesync-commonlib/compat/serviceModules/ServiceFileAccessBase";
+type StorageEventManager = StorageAccessBaseDependencies<any>["storageEventManager"];
+
+declare const legacySettings: Omit<ObsidianLiveSyncSettings, "batchSaveInLiveSync">;
+const compatibleSettings: ObsidianLiveSyncSettings = legacySettings;
+declare const legacyStartupSettings: Omit<ObsidianLiveSyncSettings, "strictContentCheckOnStartup">;
+const compatibleStartupSettings: ObsidianLiveSyncSettings = legacyStartupSettings;
+declare const legacyManager: Omit<StorageEventManager, "stopWatching">;
+const compatibleManager: StorageEventManager = legacyManager;
+void compatibleSettings;
+void compatibleStartupSettings;
+void compatibleManager;
+
 const defaultPolicy: SettingPropertyPolicy = SettingPolicies.Default;
 // @ts-expect-error Additional policy combinations require a definition.
 const unsupportedPolicy = { markdown: "omit", persistence: "connection" } satisfies SettingPropertyPolicy;

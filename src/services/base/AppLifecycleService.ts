@@ -82,7 +82,7 @@ export abstract class AppLifecycleService<T extends ServiceContext = ServiceCont
      * Event triggered before the plug-in is unloaded.
      * This is typically used to perform any necessary cleanup or save state before the plug-in is unloaded.
      */
-    readonly onBeforeUnload = handlers<IAppLifecycleService>().all("onBeforeUnload");
+    readonly onBeforeUnload = handlers<IAppLifecycleService>().allSettled("onBeforeUnload");
 
     /**
      * Event triggered when the plug-in is being unloaded.

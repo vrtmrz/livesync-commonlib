@@ -8,14 +8,22 @@ export const JournalStorageReadStatuses = {
 } as const;
 
 export type JournalStorageReadResult<T> =
-    | { status: typeof JournalStorageReadStatuses.AVAILABLE; value: T }
+    | { status: typeof JournalStorageReadStatuses.AVAILABLE; value: T; readonly revision?: string }
     | { status: typeof JournalStorageReadStatuses.NOT_FOUND }
     | { status: typeof JournalStorageReadStatuses.UNAVAILABLE; error: unknown };
+
+export type JournalStorageConditionalWriteResult = "updated" | "conflict" | "unsupported";
 
 export interface IJournalStorage {
     /** Release transport resources retained by this adapter, when any. */
     dispose?(): void;
     upload(key: string, data: Uint8Array, mime: string): Promise<boolean>;
+    uploadIfUnchanged?(
+        key: string,
+        data: Uint8Array,
+        mime: string,
+        revision: string
+    ): Promise<JournalStorageConditionalWriteResult>;
     download(key: string, ignoreCache?: boolean): Promise<Uint8Array | false>;
     downloadWithResult(key: string, ignoreCache?: boolean): Promise<JournalStorageReadResult<Uint8Array>>;
     listFiles(from: string, limit?: number): Promise<string[]>;

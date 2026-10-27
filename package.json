@@ -1,6 +1,6 @@
 {
   "name": "@vrtmrz/livesync-commonlib",
-  "version": "0.1.44",
+  "version": "0.2.2",
   "description": "Shared data, storage, and replication primitives for Self-hosted LiveSync clients.",
   "private": true,
   "type": "module",
@@ -44,20 +44,23 @@
     "@smithy/types": "^4.14.3",
     "@smithy/util-retry": "^4.4.5",
     "@trystero-p2p/nostr": "0.25.3",
+    "@vrtmrz/value-store": "0.1.0",
     "diff-match-patch": "^1.0.5",
     "events": "^3.3.0",
     "fflate": "^0.8.2",
     "idb": "^8.0.3",
-    "markdown-it": "^14.3.2",
+    "markdown-it": "^14.3.3",
     "minimatch": "^10.2.6",
     "octagonal-wheels": "^0.1.55",
     "pouchdb-adapter-http": "^9.0.0",
     "pouchdb-adapter-idb": "^9.0.0",
     "pouchdb-adapter-indexeddb": "^9.0.0",
     "pouchdb-adapter-memory": "^9.0.0",
+    "pouchdb-checkpointer": "9.0.0",
     "pouchdb-core": "^9.0.0",
     "pouchdb-errors": "^9.0.0",
     "pouchdb-find": "^9.0.0",
+    "pouchdb-generate-replication-id": "9.0.0",
     "pouchdb-mapreduce": "^9.0.0",
     "pouchdb-merge": "^9.0.0",
     "pouchdb-replication": "^9.0.0",
@@ -84,7 +87,7 @@
     "svelte": "5.56.3",
     "tinyglobby": "^0.2.15",
     "typescript": "5.9.3",
-    "vitest": "^4.1.8"
+    "vitest": "^4.1.12"
   },
   "engines": {
     "node": ">=20"

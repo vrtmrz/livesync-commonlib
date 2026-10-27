@@ -1,3 +1,4 @@
+import type { IConfigService } from "@lib/services/base/IService";
 import { type AppLifecycleService, type AppLifecycleServiceDependencies } from "@lib/services/base/AppLifecycleService";
 
 import { InjectableAppLifecycleService } from "@lib/services/implements/injectable/InjectableAppLifecycleService";
@@ -12,7 +13,6 @@ import { InjectableTestService } from "@lib/services/implements/injectable/Injec
 import { InjectableTweakValueService } from "@lib/services/implements/injectable/InjectableTweakValueService";
 import { InjectableVaultServiceCompat } from "@lib/services/implements/injectable/InjectableVaultService";
 import { ServiceContext } from "@lib/services/base/ServiceBase";
-import { ConfigServiceBrowserCompat } from "@lib/services/implements/browser/ConfigServiceBrowserCompat";
 import { InjectableServiceHub } from "@lib/services/implements/injectable/InjectableServiceHub";
 import type { ServiceInstances } from "@lib/services/ServiceHub";
 
@@ -74,6 +74,8 @@ export class HeadlessServiceHub<T extends ServiceContext> extends InjectableServ
         overrideServiceConstructor: {
             /** PouchDB with the adapters required by this headless runtime. */
             pouchDB: PouchDBConstructor;
+            /** Exact-key storage selected and owned by the application. */
+            deviceValues: IConfigService;
             database?: Constructor<DatabaseService<T>>;
             openKeyValueDatabase?: KeyValueDatabaseFactory;
             onDisplayLanguageChanged?: (language: ObsidianLiveSyncSettings["displayLanguage"]) => void;
@@ -92,6 +94,7 @@ export class HeadlessServiceHub<T extends ServiceContext> extends InjectableServ
 
         const setting = new InjectableSettingService(context, {
             APIService: API,
+            deviceValues: overrideServiceConstructor.deviceValues,
             onDisplayLanguageChanged: overrideServiceConstructor.onDisplayLanguageChanged,
         });
         const appLifecycle = new HeadlessAppLifecycleService<T>(context, {
@@ -121,10 +124,7 @@ export class HeadlessServiceHub<T extends ServiceContext> extends InjectableServ
             vault: vault,
             setting: setting,
         });
-        const config = new ConfigServiceBrowserCompat<T>(context, {
-            settingService: setting,
-            APIService: API,
-        });
+        const config = setting.config;
         const replicator = new InjectableReplicatorService(context, {
             settingService: setting,
             appLifecycleService: appLifecycle,

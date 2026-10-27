@@ -1,4 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
+import PouchDB from "pouchdb-core";
+import MemoryAdapter from "pouchdb-adapter-memory";
+import Checkpointer from "pouchdb-checkpointer";
+import generateReplicationId from "pouchdb-generate-replication-id";
 import {
     DEFAULT_SYNC_PARAMETERS,
     DEVICE_ID_PREFERRED,
@@ -6,6 +10,7 @@ import {
     MILESTONE_DOCID,
     VER,
     VERSIONING_DOCID,
+    type EntryDoc,
     type DocumentID,
     type EntryLeaf,
     type RemoteDBSettings,
@@ -21,26 +26,31 @@ import {
     CENTRAL_COMPATIBILITY_REJECTION_REASONS,
     centralCompatibilityRejected,
 } from "@lib/replication/CentralCompatibility.ts";
+import type { InitialFetchFastForward } from "./fastForward.ts";
+
+PouchDB.plugin(MemoryAdapter);
 
 describe("LiveSyncCouchDBReplicator initialisation", () => {
     it.each([false, true])(
         "rejects NFC remote identity with legacy settings even when checks are skipped (%s)",
         async (skipCheck) => {
             const remoteDatabase = {
-                get: vi
-                    .fn()
-                    .mockResolvedValue({
-                        _id: VERSIONING_DOCID,
-                        type: "versioninfo",
-                        version: 13,
-                        used_features: ["nfc-path-identity-v1"],
-                    }),
+                get: vi.fn().mockResolvedValue({
+                    _id: VERSIONING_DOCID,
+                    type: "versioninfo",
+                    version: 13,
+                    used_features: ["nfc-path-identity-v1"],
+                }),
                 close: vi.fn().mockResolvedValue(undefined),
             };
             const replicator = createOneShotReplicator(remoteDatabase);
             vi.mocked(replicator.checkReplicationConnectivity).mockRestore();
             replicator.isMobile = vi.fn().mockReturnValue(false);
-            replicator.env.services.API = { getAppVersion: () => "test", getPluginVersion: () => "test" } as never;
+            replicator.env.services.API = {
+                getAppVersion: () => "test",
+                getPluginVersion: () => "test",
+                getPlatform: () => "test",
+            } as never;
             replicator.env.services.vault = { vaultName: () => "test", getVaultName: () => "test" } as never;
             replicator.env.services.database.localNodeIdentity = { nodeId: "writer" } as never;
             vi.spyOn(replicator, "connectRemoteCouchDBWithSetting").mockResolvedValue({
@@ -85,6 +95,7 @@ describe("LiveSyncCouchDBReplicator initialisation", () => {
             isMobile: () => false,
             getAppVersion: () => "test",
             getPluginVersion: () => "test",
+            getPlatform: () => "test",
         } as never;
         replicator.env.services.vault = { vaultName: () => "test", getVaultName: () => "test" } as never;
         replicator.env.services.database.localNodeIdentity = { nodeId: "writer" } as never;
@@ -137,6 +148,7 @@ describe("LiveSyncCouchDBReplicator initialisation", () => {
                 isMobile: () => false,
                 getAppVersion: () => "test",
                 getPluginVersion: () => "test",
+                getPlatform: () => "test",
             } as never;
             replicator.env.services.vault = { vaultName: () => "test", getVaultName: () => "test" } as never;
             replicator.env.services.database.localNodeIdentity = { nodeId: "writer" } as never;
@@ -729,6 +741,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             releaseCatchUp = resolve;
         });
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
                 context: createServiceContext(),
@@ -771,6 +784,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             releaseSeedPreparation = resolve;
         });
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
                 context: createServiceContext(),
@@ -810,6 +824,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             releaseCatchUp = resolve;
         });
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
                 context: createServiceContext(),
@@ -917,6 +932,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
     it("exposes the initial pull-only catch-up as finite replication activity", async () => {
         const runFiniteReplicationActivity = vi.fn(async <T>(task: () => Promise<T>) => await task());
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
                 context: createServiceContext(),
@@ -953,6 +969,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             sync: vi.fn(() => ({})),
         };
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
                 context: createServiceContext(),
@@ -1019,6 +1036,7 @@ describe("LiveSyncCouchDBReplicator continuous catch-up", () => {
             sync: vi.fn(() => ({})),
         };
         const replicator = Object.create(LiveSyncCouchDBReplicator.prototype) as LiveSyncCouchDBReplicator;
+        replicator.updateInfo = vi.fn();
         replicator.env = {
             services: {
                 context: createServiceContext(),
@@ -1081,6 +1099,222 @@ function createOneShotReplicator(remoteDatabase: { close: () => Promise<void> })
     return replicator;
 }
 
+function createInitialFetchFastForwardDatabase(): PouchDB.Database<EntryDoc> {
+    return new PouchDB<EntryDoc>(crypto.randomUUID(), { adapter: "memory" });
+}
+
+function initialFetchFastForwardSettings(overrides: Partial<RemoteDBSettings> = {}): RemoteDBSettings {
+    return {
+        couchDB_URI: "https://example.test",
+        couchDB_DBNAME: "remote",
+        useRequestAPI: false,
+        readChunksOnline: false,
+        doNotSuspendOnFetching: false,
+        suspendFileWatching: true,
+        suspendParseReplicationResult: true,
+        ...overrides,
+    } as RemoteDBSettings;
+}
+
+function createInitialFetchFastForwardResourceFixture(
+    local: PouchDB.Database<EntryDoc>,
+    remote: PouchDB.Database<EntryDoc>,
+    settingOverrides: Partial<RemoteDBSettings> = {}
+) {
+    const setting = initialFetchFastForwardSettings(settingOverrides);
+    const currentSettings = { ...setting };
+    const replicator = createOneShotReplicator(remote as unknown as { close: () => Promise<void> });
+    const services = replicator.env.services as unknown as Record<string, any>;
+    services.database.localDatabase.localDatabase = local;
+    services.setting = { currentSettings: () => currentSettings };
+    const connectionClose = vi.fn().mockResolvedValue(undefined);
+    const openOwnedConnection = vi.spyOn(replicator as any, "openOwnedConnection").mockResolvedValue({
+        db: remote,
+        info: { update_seq: 0 },
+        close: connectionClose,
+    });
+    const resource = replicator.createInitialFetchFastForwardResource(setting);
+    return {
+        currentSettings,
+        openOwnedConnection,
+        connectionClose,
+        replicator,
+        resource,
+        setLocalDatabase(database: PouchDB.Database<EntryDoc>) {
+            services.database.localDatabase.localDatabase = database;
+        },
+    };
+}
+
+async function importInitialFetchFastForwardDocument(
+    local: PouchDB.Database<EntryDoc>,
+    remote: PouchDB.Database<EntryDoc>,
+    session: InitialFetchFastForward
+) {
+    const document = await remote.get("imported-note", { revs: true });
+    await local.bulkDocs([document], { new_edits: false });
+    session.recordStoredRevisions([{ id: document._id, rev: document._rev }]);
+    session.recordCheckpoint((await remote.info()).update_seq);
+}
+
+async function getInitialFetchFastForwardCheckpoint(
+    source: PouchDB.Database<EntryDoc>,
+    target: PouchDB.Database<EntryDoc>
+) {
+    const options = { push: {} };
+    const id = await generateReplicationId(source, target, options);
+    return await new Checkpointer(source, target, id, { cancelled: false }).getCheckpoint();
+}
+
+describe("LiveSyncCouchDBReplicator initial-fetch Fast Forward ownership", () => {
+    it("prepares one handoff, advances its native checkpoints, and closes the private connection once", async () => {
+        const local = createInitialFetchFastForwardDatabase();
+        const remote = createInitialFetchFastForwardDatabase();
+        const fixture = createInitialFetchFastForwardResourceFixture(local, remote);
+
+        try {
+            await remote.put({ _id: "imported-note", type: "plain", value: "imported" } as never);
+            const session = await fixture.resource.prepare();
+            expect(session).toBeDefined();
+            await expect(fixture.resource.prepare()).resolves.toBeUndefined();
+            await importInitialFetchFastForwardDocument(local, remote, session!);
+
+            expect(await session!.fastForward()).toBe(true);
+            const localSequence = (await local.info()).update_seq;
+            const remoteSequence = (await remote.info()).update_seq;
+            await expect(getInitialFetchFastForwardCheckpoint(local, remote)).resolves.toBe(localSequence);
+            await expect(getInitialFetchFastForwardCheckpoint(remote, local)).resolves.toBe(remoteSequence);
+
+            await fixture.resource.dispose();
+            await fixture.resource.dispose();
+            expect(fixture.openOwnedConnection).toHaveBeenCalledOnce();
+            expect(fixture.connectionClose).toHaveBeenCalledOnce();
+        } finally {
+            await fixture.resource.dispose();
+            await local.destroy();
+            await remote.destroy();
+        }
+    });
+
+    it.each([
+        ["native Request API", { useRequestAPI: true }],
+        ["fetch without writer suspension", { doNotSuspendOnFetching: true }],
+    ] as const)("does not prepare or open a private connection for %s", async (_reason, overrides) => {
+        const local = createInitialFetchFastForwardDatabase();
+        const remote = createInitialFetchFastForwardDatabase();
+        const fixture = createInitialFetchFastForwardResourceFixture(local, remote, overrides);
+
+        try {
+            await expect(fixture.resource.prepare()).resolves.toBeUndefined();
+            await fixture.resource.dispose();
+            await fixture.resource.dispose();
+
+            expect(fixture.openOwnedConnection).not.toHaveBeenCalled();
+            expect(fixture.connectionClose).not.toHaveBeenCalled();
+        } finally {
+            await fixture.resource.dispose();
+            await local.destroy();
+            await remote.destroy();
+        }
+    });
+
+    it.each([
+        "settings binding",
+        "local database",
+        "file-watching suspension",
+        "replication-result suspension",
+        "resource disposal",
+    ] as const)("does not advance imported checkpoints after %s changes", async (reason) => {
+        const local = createInitialFetchFastForwardDatabase();
+        const remote = createInitialFetchFastForwardDatabase();
+        const replacement = createInitialFetchFastForwardDatabase();
+        const fixture = createInitialFetchFastForwardResourceFixture(local, remote);
+
+        try {
+            await remote.put({ _id: "imported-note", type: "plain", value: "imported" } as never);
+            const session = await fixture.resource.prepare();
+            expect(session).toBeDefined();
+            await importInitialFetchFastForwardDocument(local, remote, session!);
+            switch (reason) {
+                case "settings binding":
+                    fixture.currentSettings.couchDB_DBNAME = "another-remote";
+                    break;
+                case "local database":
+                    fixture.setLocalDatabase(replacement);
+                    break;
+                case "file-watching suspension":
+                    fixture.currentSettings.suspendFileWatching = false;
+                    break;
+                case "replication-result suspension":
+                    fixture.currentSettings.suspendParseReplicationResult = false;
+                    break;
+                case "resource disposal":
+                    await fixture.resource.dispose();
+                    break;
+            }
+
+            expect(await session!.fastForward()).toBe(false);
+            await expect(getInitialFetchFastForwardCheckpoint(local, remote)).resolves.toBe(0);
+            await expect(getInitialFetchFastForwardCheckpoint(remote, local)).resolves.toBe(0);
+
+            await fixture.resource.dispose();
+            await fixture.resource.dispose();
+            expect(fixture.connectionClose).toHaveBeenCalledOnce();
+        } finally {
+            await fixture.resource.dispose();
+            await local.destroy();
+            await remote.destroy();
+            await replacement.destroy();
+        }
+    });
+
+    it("closes a connection which arrives after disposal during preparation", async () => {
+        const local = createInitialFetchFastForwardDatabase();
+        const remote = createInitialFetchFastForwardDatabase();
+        const fixture = createInitialFetchFastForwardResourceFixture(local, remote);
+        const releaseConnection = Promise.withResolvers<void>();
+        fixture.openOwnedConnection.mockImplementation(async () => {
+            await releaseConnection.promise;
+            return { db: remote, info: { update_seq: 0 }, close: fixture.connectionClose };
+        });
+        const preparing = fixture.resource.prepare();
+
+        try {
+            expect(fixture.openOwnedConnection).toHaveBeenCalledOnce();
+            await fixture.resource.dispose();
+            releaseConnection.resolve();
+            await expect(preparing).resolves.toBeUndefined();
+            await fixture.resource.dispose();
+
+            expect(fixture.connectionClose).toHaveBeenCalledOnce();
+        } finally {
+            releaseConnection.resolve();
+            await preparing.catch(() => undefined);
+            await fixture.resource.dispose();
+            await local.destroy();
+            await remote.destroy();
+        }
+    });
+
+    it("does not open a connection after disposal before preparation", async () => {
+        const local = createInitialFetchFastForwardDatabase();
+        const remote = createInitialFetchFastForwardDatabase();
+        const fixture = createInitialFetchFastForwardResourceFixture(local, remote);
+
+        try {
+            await fixture.resource.dispose();
+            await expect(fixture.resource.prepare()).resolves.toBeUndefined();
+
+            expect(fixture.openOwnedConnection).not.toHaveBeenCalled();
+            expect(fixture.connectionClose).not.toHaveBeenCalled();
+        } finally {
+            await fixture.resource.dispose();
+            await local.destroy();
+            await remote.destroy();
+        }
+    });
+});
+
 describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
     it("passes its prepared owned remote database into the transfer before disposal", async () => {
         const missingMilestone = { status: 404 };
@@ -1101,6 +1335,7 @@ describe("LiveSyncCouchDBReplicator one-shot connection ownership", () => {
                 API: {
                     getAppVersion: () => "app-version",
                     getPluginVersion: () => "plugin-version",
+                    getPlatform: () => "test-platform",
                     isMobile: () => false,
                 },
                 context: createServiceContext(),

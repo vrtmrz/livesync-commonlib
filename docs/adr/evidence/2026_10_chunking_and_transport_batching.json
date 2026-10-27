@@ -1,0 +1,6073 @@
+{
+  "recorded_date": "2026-10-23",
+  "status": "unreleased candidate; proposed settings remain unapplied",
+  "versions": {
+    "livesync": "1.0.39",
+    "livesync_revision": "ce0524d49f4e1c840689d83d3f8f18fce383effb",
+    "commonlib_label": "0.1.44",
+    "commonlib_published": false,
+    "commonlib_base_revision": "b435ba3270d76c6ddd67ff0269c334434a2e029e",
+    "commonlib_tarball_integrity": "sha512-WAuoaf3VDjngtKYcZ9gwu7960XkDTw0vaDdDxneoz3xeJLMKbcxIBIoDWiXL8SrnDnGp/30+YdzFDJsom18KRg==",
+    "installed_chunks_js_sha256": "6448acd63f536d115a620bada21df29178b503c5945ff457d68caaae490ba864",
+    "pouchdb": "9.0.0"
+  },
+  "corpus": {
+    "seed": 1280530766,
+    "manifestSha256": "8ca4ee9b3488a93d355f53ad4e641bb2e2cdbba684fc788ce580160d0209abfb",
+    "fileCount": 15,
+    "stages": [
+      {
+        "name": "initial",
+        "directory": "initial",
+        "fileCount": 15,
+        "sourceBytes": 14503896
+      },
+      {
+        "name": "overwrite",
+        "directory": "overwrite",
+        "fileCount": 15,
+        "sourceBytes": 14447869
+      },
+      {
+        "name": "insert",
+        "directory": "insert",
+        "fileCount": 15,
+        "sourceBytes": 14452203
+      }
+    ]
+  },
+  "fixed_settings": {
+    "splitter": "Rabin-Karp V3",
+    "minimumChunkSize": 20,
+    "E2EEAlgorithm": "V2",
+    "idDerivationVersion": 1,
+    "path_obfuscation": true,
+    "internal_metadata_encryption": true,
+    "chunk_compression": false,
+    "eden": false,
+    "readChunksOnline": false,
+    "http_batch_size": 25,
+    "http_batches_limit": 25
+  },
+  "measurement_boundaries": {
+    "repeats_per_condition": 3,
+    "host": "Linux arm64, Neoverse-N1, 3 logical CPUs, Node 24.18.0",
+    "http": "Request/response body bytes; excludes headers and TLS; local services without injected WAN delay or loss",
+    "p2p": "Host RTCDataChannel payload; includes RPC controls and application retries; excludes signalling, lower-layer headers, and lower-layer retries",
+    "elapsed": "CLI process elapsed; excludes prior file mirroring and subsequent digest verification; P2P includes discovery and connection",
+    "cross_transport_byte_totals_are_not_identical_measurement_layers": true,
+    "cloudant": "Local CouchDB constraint model and synthetic boundary probes; no IBM service benchmark"
+  },
+  "measured_local": [
+    {
+      "customChunkSize": 0,
+      "stage": "initial",
+      "rawCeilingBytes": 102400,
+      "allChunks": 1026,
+      "binaryChunks": 84,
+      "randomBinaryChunks": 82,
+      "randomBinaryCpuMs": 203.253,
+      "binaryNewRawBytes": 8516516,
+      "markdownNewRawBytes": 5987380,
+      "splitAndIdCpuMs": 467.785
+    },
+    {
+      "customChunkSize": 0,
+      "stage": "overwrite",
+      "rawCeilingBytes": 102400,
+      "allChunks": 1026,
+      "binaryChunks": 84,
+      "randomBinaryChunks": 82,
+      "randomBinaryCpuMs": 174.173,
+      "binaryNewRawBytes": 138966,
+      "markdownNewRawBytes": 1951,
+      "splitAndIdCpuMs": 414.014
+    },
+    {
+      "customChunkSize": 0,
+      "stage": "insert",
+      "rawCeilingBytes": 102400,
+      "allChunks": 1026,
+      "binaryChunks": 84,
+      "randomBinaryChunks": 82,
+      "randomBinaryCpuMs": 172.096,
+      "binaryNewRawBytes": 6344704,
+      "markdownNewRawBytes": 5257399,
+      "splitAndIdCpuMs": 457.847
+    },
+    {
+      "customChunkSize": 1,
+      "stage": "initial",
+      "rawCeilingBytes": 204800,
+      "allChunks": 959,
+      "binaryChunks": 43,
+      "randomBinaryChunks": 41,
+      "randomBinaryCpuMs": 196.365,
+      "binaryNewRawBytes": 8516516,
+      "markdownNewRawBytes": 5987380,
+      "splitAndIdCpuMs": 424.818
+    },
+    {
+      "customChunkSize": 1,
+      "stage": "overwrite",
+      "rawCeilingBytes": 204800,
+      "allChunks": 959,
+      "binaryChunks": 43,
+      "randomBinaryChunks": 41,
+      "randomBinaryCpuMs": 166.437,
+      "binaryNewRawBytes": 241366,
+      "markdownNewRawBytes": 1951,
+      "splitAndIdCpuMs": 427.4440000000001
+    },
+    {
+      "customChunkSize": 1,
+      "stage": "insert",
+      "rawCeilingBytes": 204800,
+      "allChunks": 959,
+      "binaryChunks": 43,
+      "randomBinaryChunks": 41,
+      "randomBinaryCpuMs": 169.896,
+      "binaryNewRawBytes": 6344704,
+      "markdownNewRawBytes": 5257399,
+      "splitAndIdCpuMs": 424.42999999999995
+    },
+    {
+      "customChunkSize": 4,
+      "stage": "initial",
+      "rawCeilingBytes": 512000,
+      "allChunks": 927,
+      "binaryChunks": 20,
+      "randomBinaryChunks": 18,
+      "randomBinaryCpuMs": 366.989,
+      "binaryNewRawBytes": 8516516,
+      "markdownNewRawBytes": 5987380,
+      "splitAndIdCpuMs": 707.8679999999999
+    },
+    {
+      "customChunkSize": 4,
+      "stage": "overwrite",
+      "rawCeilingBytes": 512000,
+      "allChunks": 927,
+      "binaryChunks": 20,
+      "randomBinaryChunks": 18,
+      "randomBinaryCpuMs": 367.484,
+      "binaryNewRawBytes": 317060,
+      "markdownNewRawBytes": 1951,
+      "splitAndIdCpuMs": 679.7750000000001
+    },
+    {
+      "customChunkSize": 4,
+      "stage": "insert",
+      "rawCeilingBytes": 512000,
+      "allChunks": 927,
+      "binaryChunks": 20,
+      "randomBinaryChunks": 18,
+      "randomBinaryCpuMs": 368.487,
+      "binaryNewRawBytes": 284590,
+      "markdownNewRawBytes": 276284,
+      "splitAndIdCpuMs": 702.807
+    },
+    {
+      "customChunkSize": 10,
+      "stage": "initial",
+      "rawCeilingBytes": 1126400,
+      "allChunks": 908,
+      "binaryChunks": 13,
+      "randomBinaryChunks": 11,
+      "randomBinaryCpuMs": 451.857,
+      "binaryNewRawBytes": 8516516,
+      "markdownNewRawBytes": 5987380,
+      "splitAndIdCpuMs": 952.173
+    },
+    {
+      "customChunkSize": 10,
+      "stage": "overwrite",
+      "rawCeilingBytes": 1126400,
+      "allChunks": 908,
+      "binaryChunks": 13,
+      "randomBinaryChunks": 11,
+      "randomBinaryCpuMs": 455.901,
+      "binaryNewRawBytes": 1162966,
+      "markdownNewRawBytes": 1951,
+      "splitAndIdCpuMs": 900.555
+    },
+    {
+      "customChunkSize": 10,
+      "stage": "insert",
+      "rawCeilingBytes": 1126400,
+      "allChunks": 908,
+      "binaryChunks": 13,
+      "randomBinaryChunks": 11,
+      "randomBinaryCpuMs": 456.535,
+      "binaryNewRawBytes": 1603235,
+      "markdownNewRawBytes": 957862,
+      "splitAndIdCpuMs": 897.768
+    },
+    {
+      "customChunkSize": 20,
+      "stage": "initial",
+      "rawCeilingBytes": 2150400,
+      "allChunks": 904,
+      "binaryChunks": 11,
+      "randomBinaryChunks": 9,
+      "randomBinaryCpuMs": 477.716,
+      "binaryNewRawBytes": 8516516,
+      "markdownNewRawBytes": 5987380,
+      "splitAndIdCpuMs": 947.338
+    },
+    {
+      "customChunkSize": 20,
+      "stage": "overwrite",
+      "rawCeilingBytes": 2150400,
+      "allChunks": 904,
+      "binaryChunks": 11,
+      "randomBinaryChunks": 9,
+      "randomBinaryCpuMs": 483.309,
+      "binaryNewRawBytes": 2186966,
+      "markdownNewRawBytes": 1951,
+      "splitAndIdCpuMs": 960.3190000000001
+    },
+    {
+      "customChunkSize": 20,
+      "stage": "insert",
+      "rawCeilingBytes": 2150400,
+      "allChunks": 904,
+      "binaryChunks": 11,
+      "randomBinaryChunks": 9,
+      "randomBinaryCpuMs": 488.742,
+      "binaryNewRawBytes": 2729635,
+      "markdownNewRawBytes": 957862,
+      "splitAndIdCpuMs": 972.796
+    },
+    {
+      "customChunkSize": 40,
+      "stage": "initial",
+      "rawCeilingBytes": 4198400,
+      "allChunks": 902,
+      "binaryChunks": 9,
+      "randomBinaryChunks": 7,
+      "randomBinaryCpuMs": 513.458,
+      "binaryNewRawBytes": 8516516,
+      "markdownNewRawBytes": 5987380,
+      "splitAndIdCpuMs": 986.02
+    },
+    {
+      "customChunkSize": 40,
+      "stage": "overwrite",
+      "rawCeilingBytes": 4198400,
+      "allChunks": 902,
+      "binaryChunks": 9,
+      "randomBinaryChunks": 7,
+      "randomBinaryCpuMs": 512.612,
+      "binaryNewRawBytes": 2762105,
+      "markdownNewRawBytes": 1951,
+      "splitAndIdCpuMs": 977.7769999999999
+    },
+    {
+      "customChunkSize": 40,
+      "stage": "insert",
+      "rawCeilingBytes": 4198400,
+      "allChunks": 902,
+      "binaryChunks": 9,
+      "randomBinaryChunks": 7,
+      "randomBinaryCpuMs": 533.423,
+      "binaryNewRawBytes": 2729635,
+      "markdownNewRawBytes": 957862,
+      "splitAndIdCpuMs": 1014.609
+    },
+    {
+      "customChunkSize": 60,
+      "stage": "initial",
+      "rawCeilingBytes": 6246400,
+      "allChunks": 902,
+      "binaryChunks": 9,
+      "randomBinaryChunks": 7,
+      "randomBinaryCpuMs": 530.643,
+      "binaryNewRawBytes": 8516516,
+      "markdownNewRawBytes": 5987380,
+      "splitAndIdCpuMs": 1005.2239999999999
+    },
+    {
+      "customChunkSize": 60,
+      "stage": "overwrite",
+      "rawCeilingBytes": 6246400,
+      "allChunks": 902,
+      "binaryChunks": 9,
+      "randomBinaryChunks": 7,
+      "randomBinaryCpuMs": 508.02,
+      "binaryNewRawBytes": 2762105,
+      "markdownNewRawBytes": 1951,
+      "splitAndIdCpuMs": 971.079
+    },
+    {
+      "customChunkSize": 60,
+      "stage": "insert",
+      "rawCeilingBytes": 6246400,
+      "allChunks": 902,
+      "binaryChunks": 9,
+      "randomBinaryChunks": 7,
+      "randomBinaryCpuMs": 517.678,
+      "binaryNewRawBytes": 2729635,
+      "markdownNewRawBytes": 957862,
+      "splitAndIdCpuMs": 1000.44
+    }
+  ],
+  "measured_http": [
+    {
+      "provider": "couchdb",
+      "customChunkSize": 0,
+      "stage": "initial",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 23670335,
+        "min": 23670334,
+        "max": 23670335
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 24233904,
+        "min": 24075443,
+        "max": 24580868
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 200,
+        "min": 200,
+        "max": 200
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 245,
+        "min": 243,
+        "max": 247
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 3990.6532219999995,
+        "min": 3809.9491469999775,
+        "max": 5133.340609000064
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 3590.385588000063,
+        "min": 3530.812949,
+        "max": 4696.819098000065
+      }
+    },
+    {
+      "provider": "couchdb",
+      "customChunkSize": 0,
+      "stage": "overwrite",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 324638,
+        "min": 324504,
+        "max": 324694
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 330334,
+        "min": 330310,
+        "max": 330334
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 192,
+        "min": 192,
+        "max": 192
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 151,
+        "min": 151,
+        "max": 151
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1868.2293109999991,
+        "min": 1840.0002480000257,
+        "max": 2595.704824999906
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 2272.8435519999985,
+        "min": 2148.0506349999923,
+        "max": 2816.407468999969
+      }
+    },
+    {
+      "provider": "couchdb",
+      "customChunkSize": 0,
+      "stage": "insert",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 18389593,
+        "min": 18389589,
+        "max": 18389593
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 18445851,
+        "min": 18445685,
+        "max": 18579921
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 41,
+        "min": 41,
+        "max": 41
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 48,
+        "min": 48,
+        "max": 50
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1968.9728950000135,
+        "min": 1833.8033910000013,
+        "max": 2231.1766429999843
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 2060.839493000065,
+        "min": 1958.9423449999958,
+        "max": 2264.314636999974
+      }
+    },
+    {
+      "provider": "couchdb",
+      "customChunkSize": 4,
+      "stage": "initial",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 23618568,
+        "min": 23618568,
+        "max": 23618596
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 28187335,
+        "min": 26325903,
+        "max": 29601360
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 184,
+        "min": 184,
+        "max": 184
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 221,
+        "min": 217,
+        "max": 221
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 3639.080482999998,
+        "min": 3585.1434899999294,
+        "max": 3724.8152520000003
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 3344.731983999998,
+        "min": 3292.106394000002,
+        "max": 3525.620444
+      }
+    },
+    {
+      "provider": "couchdb",
+      "customChunkSize": 4,
+      "stage": "overwrite",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 632639,
+        "min": 632589,
+        "max": 633151
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 639846,
+        "min": 639475,
+        "max": 639846
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 176,
+        "min": 176,
+        "max": 176
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 142,
+        "min": 139,
+        "max": 142
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1783.1212119999109,
+        "min": 1779.7383240000054,
+        "max": 1823.6037929999875
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 2173.8027680000087,
+        "min": 2121.2423829999752,
+        "max": 2319.470509000006
+      }
+    },
+    {
+      "provider": "couchdb",
+      "customChunkSize": 4,
+      "stage": "insert",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 916865,
+        "min": 916865,
+        "max": 916865
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 935797,
+        "min": 935797,
+        "max": 935797
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 25,
+        "min": 25,
+        "max": 25
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 26,
+        "min": 26,
+        "max": 26
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1097.0514390000026,
+        "min": 1034.025539000053,
+        "max": 1241.0577370000537
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 1072.7101529999636,
+        "min": 1063.9161640000093,
+        "max": 1482.7483729999512
+      }
+    },
+    {
+      "provider": "couchdb",
+      "customChunkSize": 10,
+      "stage": "initial",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 23608622,
+        "min": 23608622,
+        "max": 23608650
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 28265927,
+        "min": 23912069,
+        "max": 32708445
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 180,
+        "min": 180,
+        "max": 180
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 212,
+        "min": 210,
+        "max": 217
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 3639.208924000006,
+        "min": 3551.7787750000134,
+        "max": 4453.948576999945
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 3405.243468000088,
+        "min": 3356.6425850000087,
+        "max": 4045.996204999974
+      }
+    },
+    {
+      "provider": "couchdb",
+      "customChunkSize": 10,
+      "stage": "overwrite",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 2135800,
+        "min": 2135774,
+        "max": 2136332
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 2143033,
+        "min": 2143033,
+        "max": 2143404
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 176,
+        "min": 176,
+        "max": 176
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 142,
+        "min": 142,
+        "max": 145
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1894.2660780000733,
+        "min": 1851.9388130000007,
+        "max": 2254.67520399997
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 2308.117190000019,
+        "min": 2161.390485000011,
+        "max": 2327.2032559999498
+      }
+    },
+    {
+      "provider": "couchdb",
+      "customChunkSize": 10,
+      "stage": "insert",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 4168531,
+        "min": 4168531,
+        "max": 4168531
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 4187726,
+        "min": 4187726,
+        "max": 4187726
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 25,
+        "min": 25,
+        "max": 25
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 26,
+        "min": 26,
+        "max": 26
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1187.909112000023,
+        "min": 1159.994257000013,
+        "max": 1262.541409999947
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 1211.7539549999638,
+        "min": 1190.8712839999935,
+        "max": 1232.79254699999
+      }
+    },
+    {
+      "provider": "couchdb",
+      "customChunkSize": 20,
+      "stage": "initial",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 23606606,
+        "min": 23606578,
+        "max": 23606606
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 24653861,
+        "min": 23982772,
+        "max": 24798814
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 180,
+        "min": 180,
+        "max": 180
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 220,
+        "min": 213,
+        "max": 224
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 4423.990235000034,
+        "min": 4002.614022000009,
+        "max": 4568.70429299993
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 4779.427825000021,
+        "min": 3270.525644999987,
+        "max": 5023.703988999943
+      }
+    },
+    {
+      "provider": "couchdb",
+      "customChunkSize": 20,
+      "stage": "overwrite",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 3955852,
+        "min": 3955368,
+        "max": 3955916
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 3962549,
+        "min": 3962549,
+        "max": 3962920
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 172,
+        "min": 172,
+        "max": 172
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 136,
+        "min": 136,
+        "max": 139
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1864.9204960000934,
+        "min": 1838.2730829999782,
+        "max": 1886.6572129999986
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 2146.1724290000275,
+        "min": 2074.916065999976,
+        "max": 2773.3364399999846
+      }
+    },
+    {
+      "provider": "couchdb",
+      "customChunkSize": 20,
+      "stage": "insert",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 6170651,
+        "min": 6170651,
+        "max": 6170651
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 6189846,
+        "min": 6189846,
+        "max": 6189846
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 25,
+        "min": 25,
+        "max": 25
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 26,
+        "min": 26,
+        "max": 26
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1664.824922000058,
+        "min": 1220.6080270000093,
+        "max": 2178.34142000007
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 1269.363836000004,
+        "min": 1264.82913800003,
+        "max": 1453.9784729999956
+      }
+    },
+    {
+      "provider": "couchdb",
+      "customChunkSize": 40,
+      "stage": "initial",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 23605556,
+        "min": 23605556,
+        "max": 23605556
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 30981010,
+        "min": 23919825,
+        "max": 31022765
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 180,
+        "min": 180,
+        "max": 180
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 216,
+        "min": 214,
+        "max": 218
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 3785.5081090000167,
+        "min": 3520.766106999945,
+        "max": 4698.797824000008
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 3469.4583339999954,
+        "min": 3197.1642670000438,
+        "max": 4332.35875600006
+      }
+    },
+    {
+      "provider": "couchdb",
+      "customChunkSize": 40,
+      "stage": "overwrite",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 4977678,
+        "min": 4977666,
+        "max": 4977680
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 4985200,
+        "min": 4984829,
+        "max": 4985200
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 172,
+        "min": 172,
+        "max": 172
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 139,
+        "min": 136,
+        "max": 139
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 2334.111719000037,
+        "min": 1969.611739999993,
+        "max": 4613.838609999977
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 2280.4836169999908,
+        "min": 2119.81869799993,
+        "max": 2666.0505879999837
+      }
+    },
+    {
+      "provider": "couchdb",
+      "customChunkSize": 40,
+      "stage": "insert",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 6170044,
+        "min": 6170044,
+        "max": 6170044
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 6188980,
+        "min": 6188980,
+        "max": 6188980
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 25,
+        "min": 25,
+        "max": 25
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 26,
+        "min": 26,
+        "max": 26
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1274.6425719999243,
+        "min": 1189.118677999999,
+        "max": 1549.318002999993
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 1498.361106999917,
+        "min": 1296.1416880000033,
+        "max": 1643.596528999973
+      }
+    },
+    {
+      "provider": "s3",
+      "customChunkSize": 0,
+      "stage": "initial",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 10744728,
+        "min": 10743490,
+        "max": 10744768
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 10746413,
+        "min": 10745175,
+        "max": 10746453
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 14,
+        "min": 14,
+        "max": 14
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 10,
+        "min": 10,
+        "max": 10
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 3120.377839999972,
+        "min": 2983.957729000016,
+        "max": 3323.816468999983
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 2824.496017999947,
+        "min": 2818.764956000028,
+        "max": 2922.0483589999785
+      }
+    },
+    {
+      "provider": "s3",
+      "customChunkSize": 0,
+      "stage": "overwrite",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 164800,
+        "min": 164792,
+        "max": 164803
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 165918,
+        "min": 165910,
+        "max": 165921
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1122.0232049999759,
+        "min": 1095.2439109999686,
+        "max": 1159.667614000151
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 1629.3915620000043,
+        "min": 1606.8936819999944,
+        "max": 1787.800067000091
+      }
+    },
+    {
+      "provider": "s3",
+      "customChunkSize": 0,
+      "stage": "insert",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 8201931,
+        "min": 8198121,
+        "max": 8201936
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 8203266,
+        "min": 8199456,
+        "max": 8203271
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 7,
+        "min": 7,
+        "max": 7
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 7,
+        "min": 7,
+        "max": 7
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 2502.7595459999866,
+        "min": 2384.4262549999403,
+        "max": 2683.1059269998223
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 2481.172068999964,
+        "min": 2437.405839999992,
+        "max": 2836.4232579998206
+      }
+    },
+    {
+      "provider": "s3",
+      "customChunkSize": 4,
+      "stage": "initial",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 10732415,
+        "min": 10732387,
+        "max": 10733686
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 10734100,
+        "min": 10733858,
+        "max": 10735371
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 14,
+        "min": 13,
+        "max": 14
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 10,
+        "min": 9,
+        "max": 10
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 3029.3907690000196,
+        "min": 2971.2717670000275,
+        "max": 3295.257284999825
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 2741.991052999976,
+        "min": 2721.059141000005,
+        "max": 3023.61282499996
+      }
+    },
+    {
+      "provider": "s3",
+      "customChunkSize": 4,
+      "stage": "overwrite",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 345550,
+        "min": 345547,
+        "max": 345557
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 346668,
+        "min": 346665,
+        "max": 346675
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1160.3165380000137,
+        "min": 1128.8389480000478,
+        "max": 1201.0430769999512
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 1605.062436999986,
+        "min": 1521.6816279999912,
+        "max": 1773.8595000000205
+      }
+    },
+    {
+      "provider": "s3",
+      "customChunkSize": 4,
+      "stage": "insert",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 402450,
+        "min": 402444,
+        "max": 402457
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 403568,
+        "min": 403562,
+        "max": 403575
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1187.2799109999905,
+        "min": 1135.2829700000002,
+        "max": 1228.5499720000662
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 1732.0012370000477,
+        "min": 1649.7668709999998,
+        "max": 1770.8272889999207
+      }
+    },
+    {
+      "provider": "s3",
+      "customChunkSize": 10,
+      "stage": "initial",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 10724724,
+        "min": 10723677,
+        "max": 10726150
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 10726410,
+        "min": 10725363,
+        "max": 10727836
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 14,
+        "min": 14,
+        "max": 14
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 10,
+        "min": 10,
+        "max": 10
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 2942.4733869999764,
+        "min": 2935.662123999966,
+        "max": 3448.803697000025
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 2629.0241829999723,
+        "min": 2582.97342200001,
+        "max": 4402.540918000042
+      }
+    },
+    {
+      "provider": "s3",
+      "customChunkSize": 10,
+      "stage": "overwrite",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 1218482,
+        "min": 1218477,
+        "max": 1218488
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 1219602,
+        "min": 1219597,
+        "max": 1219608
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1247.205356999999,
+        "min": 1246.345076000027,
+        "max": 1350.3370740001556
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 1711.8140839999542,
+        "min": 1543.0907419999712,
+        "max": 1729.9650300000212
+      }
+    },
+    {
+      "provider": "s3",
+      "customChunkSize": 10,
+      "stage": "insert",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 1971068,
+        "min": 1971066,
+        "max": 1971069
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 1972188,
+        "min": 1972186,
+        "max": 1972189
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1436.075131999969,
+        "min": 1418.4279509999906,
+        "max": 2013.955690999981
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 1749.4109370000078,
+        "min": 1711.5978060000343,
+        "max": 2790.534498000052
+      }
+    },
+    {
+      "provider": "s3",
+      "customChunkSize": 20,
+      "stage": "initial",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 10725039,
+        "min": 10721188,
+        "max": 10726459
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 10726725,
+        "min": 10722874,
+        "max": 10728145
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 14,
+        "min": 14,
+        "max": 14
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 10,
+        "min": 10,
+        "max": 10
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 3001.3104320000275,
+        "min": 2889.7062840000144,
+        "max": 3890.4987060001586
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 2591.8557729999884,
+        "min": 2564.6868400000385,
+        "max": 3432.864962000167
+      }
+    },
+    {
+      "provider": "s3",
+      "customChunkSize": 20,
+      "stage": "overwrite",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 2274521,
+        "min": 2274521,
+        "max": 2274524
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 2275641,
+        "min": 2275641,
+        "max": 2275644
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1452.8631900000037,
+        "min": 1435.6248100000084,
+        "max": 1824.6727550001815
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 1724.0337690000306,
+        "min": 1613.5485459999763,
+        "max": 2284.1038260001224
+      }
+    },
+    {
+      "provider": "s3",
+      "customChunkSize": 20,
+      "stage": "insert",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 3133305,
+        "min": 3133304,
+        "max": 3133305
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 3134425,
+        "min": 3134424,
+        "max": 3134425
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1489.5846770000062,
+        "min": 1441.8806319999858,
+        "max": 1745.7812030001078
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 1782.59889199998,
+        "min": 1757.482484999986,
+        "max": 2333.329035999952
+      }
+    },
+    {
+      "provider": "s3",
+      "customChunkSize": 40,
+      "stage": "initial",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 10723063,
+        "min": 10723059,
+        "max": 10725267
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 10724749,
+        "min": 10724745,
+        "max": 10726953
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 14,
+        "min": 14,
+        "max": 14
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 10,
+        "min": 10,
+        "max": 10
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 2902.4888890000293,
+        "min": 2899.7798390000244,
+        "max": 3881.609435000224
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 2657.107359000016,
+        "min": 2591.1645700000226,
+        "max": 3220.5064670001157
+      }
+    },
+    {
+      "provider": "s3",
+      "customChunkSize": 40,
+      "stage": "overwrite",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 2867975,
+        "min": 2867970,
+        "max": 2867979
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 2869095,
+        "min": 2869090,
+        "max": 2869099
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1480.6762860000017,
+        "min": 1438.407779000001,
+        "max": 1720.6433949999046
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 1652.489840000053,
+        "min": 1640.229839000036,
+        "max": 2137.3171180000063
+      }
+    },
+    {
+      "provider": "s3",
+      "customChunkSize": 40,
+      "stage": "insert",
+      "repeats": 3,
+      "upload_requestBodyBytes": {
+        "n": 3,
+        "median": 3133163,
+        "min": 3133154,
+        "max": 3133164
+      },
+      "download_responseBodyBytes": {
+        "n": 3,
+        "median": 3134283,
+        "min": 3134274,
+        "max": 3134284
+      },
+      "upload_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "download_requests": {
+        "n": 3,
+        "median": 6,
+        "min": 6,
+        "max": 6
+      },
+      "upload_elapsedMs": {
+        "n": 3,
+        "median": 1521.5506670000032,
+        "min": 1467.8129620000254,
+        "max": 1970.9566610001493
+      },
+      "download_elapsedMs": {
+        "n": 3,
+        "median": 1780.4314440000453,
+        "min": 1774.8457849998958,
+        "max": 2660.930409999797
+      }
+    }
+  ],
+  "measured_p2p": [
+    {
+      "provider": "p2p",
+      "customChunkSize": 0,
+      "stage": "initial",
+      "repeats": 3,
+      "host_payloadBytesSent": {
+        "n": 3,
+        "median": 18628326,
+        "min": 18628268,
+        "max": 20001395
+      },
+      "elapsedMs": {
+        "n": 3,
+        "median": 9431.569536000025,
+        "min": 9342.229215,
+        "max": 9736.67070399999
+      },
+      "host_userCpuMs": {
+        "n": 3,
+        "median": 7475.89,
+        "min": 7320.11,
+        "max": 7795.941
+      },
+      "target_userCpuMs": {
+        "n": 3,
+        "median": 7224.299,
+        "min": 7132.119,
+        "max": 7559.39
+      },
+      "paths": [
+        "host<->host"
+      ]
+    },
+    {
+      "provider": "p2p",
+      "customChunkSize": 0,
+      "stage": "overwrite",
+      "repeats": 3,
+      "host_payloadBytesSent": {
+        "n": 3,
+        "median": 234338,
+        "min": 234311,
+        "max": 234441
+      },
+      "elapsedMs": {
+        "n": 3,
+        "median": 2133.562385000001,
+        "min": 2113.777530000021,
+        "max": 2313.982047999976
+      },
+      "host_userCpuMs": {
+        "n": 3,
+        "median": 1409.773,
+        "min": 1395.507,
+        "max": 1520.641
+      },
+      "target_userCpuMs": {
+        "n": 3,
+        "median": 1574.096,
+        "min": 1564.557,
+        "max": 1669.719
+      },
+      "paths": [
+        "host<->host"
+      ]
+    },
+    {
+      "provider": "p2p",
+      "customChunkSize": 0,
+      "stage": "insert",
+      "repeats": 3,
+      "host_payloadBytesSent": {
+        "n": 3,
+        "median": 17668443,
+        "min": 14355759,
+        "max": 19368855
+      },
+      "elapsedMs": {
+        "n": 3,
+        "median": 8505.513587999973,
+        "min": 7803.887315,
+        "max": 9622.137733000003
+      },
+      "host_userCpuMs": {
+        "n": 3,
+        "median": 6835.107,
+        "min": 6272.362,
+        "max": 7864.047
+      },
+      "target_userCpuMs": {
+        "n": 3,
+        "median": 6495.325,
+        "min": 6109.859,
+        "max": 7780.7
+      },
+      "paths": [
+        "host<->host"
+      ]
+    },
+    {
+      "provider": "p2p",
+      "customChunkSize": 4,
+      "stage": "initial",
+      "repeats": 3,
+      "host_payloadBytesSent": {
+        "n": 3,
+        "median": 18570080,
+        "min": 18569982,
+        "max": 18570665
+      },
+      "elapsedMs": {
+        "n": 3,
+        "median": 9257.860966000007,
+        "min": 9217.555185999954,
+        "max": 9274.630612
+      },
+      "host_userCpuMs": {
+        "n": 3,
+        "median": 7331.031,
+        "min": 7148.781,
+        "max": 7488.621
+      },
+      "target_userCpuMs": {
+        "n": 3,
+        "median": 7077.722,
+        "min": 6948.746,
+        "max": 7323.391
+      },
+      "paths": [
+        "host<->host"
+      ]
+    },
+    {
+      "provider": "p2p",
+      "customChunkSize": 4,
+      "stage": "overwrite",
+      "repeats": 3,
+      "host_payloadBytesSent": {
+        "n": 3,
+        "median": 496652,
+        "min": 472905,
+        "max": 646467
+      },
+      "elapsedMs": {
+        "n": 3,
+        "median": 2439.044426999986,
+        "min": 2330.417083999986,
+        "max": 2470.341444000005
+      },
+      "host_userCpuMs": {
+        "n": 3,
+        "median": 1660.727,
+        "min": 1405.389,
+        "max": 1681.213
+      },
+      "target_userCpuMs": {
+        "n": 3,
+        "median": 1716.176,
+        "min": 1684.559,
+        "max": 1751.154
+      },
+      "paths": [
+        "host<->host"
+      ]
+    },
+    {
+      "provider": "p2p",
+      "customChunkSize": 4,
+      "stage": "insert",
+      "repeats": 3,
+      "host_payloadBytesSent": {
+        "n": 3,
+        "median": 720985,
+        "min": 720958,
+        "max": 1123797
+      },
+      "elapsedMs": {
+        "n": 3,
+        "median": 2529.6506640000152,
+        "min": 2373.532300000006,
+        "max": 2714.5229910000926
+      },
+      "host_userCpuMs": {
+        "n": 3,
+        "median": 1941.17,
+        "min": 1629.254,
+        "max": 2166.105
+      },
+      "target_userCpuMs": {
+        "n": 3,
+        "median": 1901.943,
+        "min": 1897.072,
+        "max": 2064.386
+      },
+      "paths": [
+        "host<->host"
+      ]
+    },
+    {
+      "provider": "p2p",
+      "customChunkSize": 10,
+      "stage": "initial",
+      "repeats": 3,
+      "host_payloadBytesSent": {
+        "n": 3,
+        "median": 18557238,
+        "min": 18557048,
+        "max": 18557334
+      },
+      "elapsedMs": {
+        "n": 3,
+        "median": 9476.306547999993,
+        "min": 9105.944970000011,
+        "max": 9508.458282000007
+      },
+      "host_userCpuMs": {
+        "n": 3,
+        "median": 7281.728,
+        "min": 7259.718,
+        "max": 7305.595
+      },
+      "target_userCpuMs": {
+        "n": 3,
+        "median": 7409.515,
+        "min": 7090.168,
+        "max": 7419.791
+      },
+      "paths": [
+        "host<->host"
+      ]
+    },
+    {
+      "provider": "p2p",
+      "customChunkSize": 10,
+      "stage": "overwrite",
+      "repeats": 3,
+      "host_payloadBytesSent": {
+        "n": 3,
+        "median": 1628842,
+        "min": 1628815,
+        "max": 2659120
+      },
+      "elapsedMs": {
+        "n": 3,
+        "median": 2784.794853999978,
+        "min": 2769.321140999993,
+        "max": 3991.6264819999924
+      },
+      "host_userCpuMs": {
+        "n": 3,
+        "median": 2291.515,
+        "min": 2055.61,
+        "max": 3116.865
+      },
+      "target_userCpuMs": {
+        "n": 3,
+        "median": 2199.473,
+        "min": 2122.395,
+        "max": 3098.288
+      },
+      "paths": [
+        "host<->host"
+      ]
+    },
+    {
+      "provider": "p2p",
+      "customChunkSize": 10,
+      "stage": "insert",
+      "repeats": 3,
+      "host_payloadBytesSent": {
+        "n": 3,
+        "median": 3245775,
+        "min": 3245775,
+        "max": 3245802
+      },
+      "elapsedMs": {
+        "n": 3,
+        "median": 3686.528446000011,
+        "min": 3404.720588999975,
+        "max": 4225.687784000009
+      },
+      "host_userCpuMs": {
+        "n": 3,
+        "median": 2719.37,
+        "min": 2718.139,
+        "max": 2773.822
+      },
+      "target_userCpuMs": {
+        "n": 3,
+        "median": 2664.842,
+        "min": 2587.861,
+        "max": 2688.598
+      },
+      "paths": [
+        "host<->host"
+      ]
+    },
+    {
+      "provider": "p2p",
+      "customChunkSize": 40,
+      "stage": "initial",
+      "repeats": 3,
+      "host_payloadBytesSent": {
+        "n": 3,
+        "median": 31708666,
+        "min": 26314041,
+        "max": 34276235
+      },
+      "elapsedMs": {
+        "n": 3,
+        "median": 14282.153873000003,
+        "min": 11760.06318300002,
+        "max": 14410.081947999948
+      },
+      "host_userCpuMs": {
+        "n": 3,
+        "median": 10502.879,
+        "min": 9986.996,
+        "max": 11300.632
+      },
+      "target_userCpuMs": {
+        "n": 3,
+        "median": 9435.236,
+        "min": 9283.852,
+        "max": 10577.212
+      },
+      "paths": [
+        "host<->host"
+      ]
+    },
+    {
+      "provider": "p2p",
+      "customChunkSize": 40,
+      "stage": "overwrite",
+      "repeats": 3,
+      "host_payloadBytesSent": {
+        "n": 3,
+        "median": 3814773,
+        "min": 3814643,
+        "max": 7164544
+      },
+      "elapsedMs": {
+        "n": 3,
+        "median": 3818.497774999996,
+        "min": 3602.8315970000112,
+        "max": 4848.633121000021
+      },
+      "host_userCpuMs": {
+        "n": 3,
+        "median": 2952.705,
+        "min": 2868.966,
+        "max": 3776.694
+      },
+      "target_userCpuMs": {
+        "n": 3,
+        "median": 2948.089,
+        "min": 2655.748,
+        "max": 3794.378
+      },
+      "paths": [
+        "host<->host"
+      ]
+    },
+    {
+      "provider": "p2p",
+      "customChunkSize": 40,
+      "stage": "insert",
+      "repeats": 3,
+      "host_payloadBytesSent": {
+        "n": 3,
+        "median": 4784573,
+        "min": 4784546,
+        "max": 4784573
+      },
+      "elapsedMs": {
+        "n": 3,
+        "median": 4032.0379289999837,
+        "min": 3886.2895900000003,
+        "max": 4088.8212850000127
+      },
+      "host_userCpuMs": {
+        "n": 3,
+        "median": 3313.277,
+        "min": 3086.299,
+        "max": 3346.089
+      },
+      "target_userCpuMs": {
+        "n": 3,
+        "median": 3123.575,
+        "min": 2891.213,
+        "max": 3222.806
+      },
+      "paths": [
+        "host<->host"
+      ]
+    }
+  ],
+  "measured_initial_couch_request_counts": [
+    {
+      "customChunkSize": 0,
+      "documents": 1042,
+      "batch_size": 25,
+      "batches": 42,
+      "http_requests": 200
+    },
+    {
+      "customChunkSize": 4,
+      "documents": 943,
+      "batch_size": 25,
+      "batches": 38,
+      "http_requests": 184
+    },
+    {
+      "customChunkSize": 10,
+      "documents": 924,
+      "batch_size": 25,
+      "batches": 37,
+      "http_requests": 180
+    },
+    {
+      "customChunkSize": 20,
+      "documents": 920,
+      "batch_size": 25,
+      "batches": 37,
+      "http_requests": 180
+    },
+    {
+      "customChunkSize": 40,
+      "documents": 918,
+      "batch_size": 25,
+      "batches": 37,
+      "http_requests": 180
+    }
+  ],
+  "analytical": {
+    "assumptions": {
+      "batch_processing": "serial; Couch changes feed may overlap",
+      "matrix_wire_document_bytes": 32768,
+      "matrix_offline_s3_documents_per_historical_pack": 20,
+      "excluded": [
+        "connection establishment",
+        "fixed protocol controls",
+        "local CPU and storage",
+        "file reflection",
+        "polling and debounce",
+        "conflicts",
+        "loss and retries",
+        "service quotas"
+      ],
+      "observed_payload_proxy": "body bytes held constant when batch_size changes; envelope overhead not recalculated",
+      "couch_mixed_range": "overlapped versus serial independent-direction references, not guaranteed bounds; echo may add work",
+      "p2p_mixed": "old local rows precede imported echo rows; target revision comparison suppresses echo bodies",
+      "p2p_direction": "sync() initiator viewpoint; pull-only watchers use the separate one-way pull column"
+    },
+    "chunk_count_estimates": [
+      {
+        "customChunkSize": 0,
+        "raw_cap_bytes": 102400,
+        "binary_min_bytes": 102400,
+        "binary_modulus_bytes": 102400,
+        "binary_max_bytes": 102400,
+        "expected_binary_bytes": 102400.0,
+        "approx_chunks_per_gib": 10486,
+        "couch_push_batches_25_per_gib": 420,
+        "couch_push_rtt_seconds_100ms_per_gib": 168.0,
+        "p2p_batches_33_per_gib": 318
+      },
+      {
+        "customChunkSize": 1,
+        "raw_cap_bytes": 204800,
+        "binary_min_bytes": 204800,
+        "binary_modulus_bytes": 204800,
+        "binary_max_bytes": 204800,
+        "expected_binary_bytes": 204800.0,
+        "approx_chunks_per_gib": 5243,
+        "couch_push_batches_25_per_gib": 210,
+        "couch_push_rtt_seconds_100ms_per_gib": 84.0,
+        "p2p_batches_33_per_gib": 159
+      },
+      {
+        "customChunkSize": 4,
+        "raw_cap_bytes": 512000,
+        "binary_min_bytes": 262144,
+        "binary_modulus_bytes": 512000,
+        "binary_max_bytes": 512000,
+        "expected_binary_bytes": 459851.0926349185,
+        "approx_chunks_per_gib": 2335,
+        "couch_push_batches_25_per_gib": 94,
+        "couch_push_rtt_seconds_100ms_per_gib": 37.6,
+        "p2p_batches_33_per_gib": 71
+      },
+      {
+        "customChunkSize": 10,
+        "raw_cap_bytes": 1126400,
+        "binary_min_bytes": 262144,
+        "binary_modulus_bytes": 1048576,
+        "binary_max_bytes": 1126400,
+        "expected_binary_bytes": 850837.7814828245,
+        "approx_chunks_per_gib": 1262,
+        "couch_push_batches_25_per_gib": 51,
+        "couch_push_rtt_seconds_100ms_per_gib": 20.4,
+        "p2p_batches_33_per_gib": 39
+      },
+      {
+        "customChunkSize": 20,
+        "raw_cap_bytes": 2150400,
+        "binary_min_bytes": 262144,
+        "binary_modulus_bytes": 1048576,
+        "binary_max_bytes": 2150400,
+        "expected_binary_bytes": 1137526.226838547,
+        "approx_chunks_per_gib": 944,
+        "couch_push_batches_25_per_gib": 38,
+        "couch_push_rtt_seconds_100ms_per_gib": 15.2,
+        "p2p_batches_33_per_gib": 29
+      },
+      {
+        "customChunkSize": 40,
+        "raw_cap_bytes": 4198400,
+        "binary_min_bytes": 262144,
+        "binary_modulus_bytes": 1048576,
+        "binary_max_bytes": 4194304,
+        "expected_binary_bytes": 1286058.9237347553,
+        "approx_chunks_per_gib": 835,
+        "couch_push_batches_25_per_gib": 34,
+        "couch_push_rtt_seconds_100ms_per_gib": 13.6,
+        "p2p_batches_33_per_gib": 26
+      },
+      {
+        "customChunkSize": 60,
+        "raw_cap_bytes": 6246400,
+        "binary_min_bytes": 262144,
+        "binary_modulus_bytes": 1048576,
+        "binary_max_bytes": 4194304,
+        "expected_binary_bytes": 1286058.9237347553,
+        "approx_chunks_per_gib": 835,
+        "couch_push_batches_25_per_gib": 34,
+        "couch_push_rtt_seconds_100ms_per_gib": 13.6,
+        "p2p_batches_33_per_gib": 26
+      }
+    ],
+    "initial_couch_push_100ms_10mib_s": [
+      {
+        "customChunkSize": 0,
+        "batch_size": 25,
+        "documents": 1042,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23670335,
+        "batches": 42,
+        "rtt_component_seconds": 16.8,
+        "byte_component_seconds": 2.2573790550231934,
+        "model_network_seconds": 19.057379055023194,
+        "wire_throughput_mib_s": 1.184517056886785,
+        "source_goodput_mib_s": 0.7258077337440308
+      },
+      {
+        "customChunkSize": 0,
+        "batch_size": 50,
+        "documents": 1042,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23670335,
+        "batches": 21,
+        "rtt_component_seconds": 8.4,
+        "byte_component_seconds": 2.2573790550231934,
+        "model_network_seconds": 10.657379055023194,
+        "wire_throughput_mib_s": 2.118137154893831,
+        "source_goodput_mib_s": 1.2978794346728095
+      },
+      {
+        "customChunkSize": 0,
+        "batch_size": 100,
+        "documents": 1042,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23670335,
+        "batches": 11,
+        "rtt_component_seconds": 4.4,
+        "byte_component_seconds": 2.2573790550231934,
+        "model_network_seconds": 6.657379055023194,
+        "wire_throughput_mib_s": 3.3907924370326077,
+        "source_goodput_mib_s": 2.077693486987298
+      },
+      {
+        "customChunkSize": 0,
+        "batch_size": 200,
+        "documents": 1042,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23670335,
+        "batches": 6,
+        "rtt_component_seconds": 2.4,
+        "byte_component_seconds": 2.2573790550231934,
+        "model_network_seconds": 4.657379055023194,
+        "wire_throughput_mib_s": 4.846887119029979,
+        "source_goodput_mib_s": 2.969909242862445
+      },
+      {
+        "customChunkSize": 4,
+        "batch_size": 25,
+        "documents": 943,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23618568,
+        "batches": 38,
+        "rtt_component_seconds": 15.2,
+        "byte_component_seconds": 2.252442169189453,
+        "model_network_seconds": 17.452442169189453,
+        "wire_throughput_mib_s": 1.2906171797354042,
+        "source_goodput_mib_s": 0.7925534414573995
+      },
+      {
+        "customChunkSize": 4,
+        "batch_size": 50,
+        "documents": 943,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23618568,
+        "batches": 19,
+        "rtt_component_seconds": 7.6,
+        "byte_component_seconds": 2.252442169189453,
+        "model_network_seconds": 9.852442169189452,
+        "wire_throughput_mib_s": 2.2861764936142315,
+        "source_goodput_mib_s": 1.4039151781355024
+      },
+      {
+        "customChunkSize": 4,
+        "batch_size": 100,
+        "documents": 943,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23618568,
+        "batches": 10,
+        "rtt_component_seconds": 4.0,
+        "byte_component_seconds": 2.252442169189453,
+        "model_network_seconds": 6.252442169189453,
+        "wire_throughput_mib_s": 3.6024998044587315,
+        "source_goodput_mib_s": 2.2122544645335727
+      },
+      {
+        "customChunkSize": 4,
+        "batch_size": 200,
+        "documents": 943,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23618568,
+        "batches": 5,
+        "rtt_component_seconds": 2.0,
+        "byte_component_seconds": 2.252442169189453,
+        "model_network_seconds": 4.252442169189453,
+        "wire_throughput_mib_s": 5.296820226055621,
+        "source_goodput_mib_s": 3.2527175097748184
+      },
+      {
+        "customChunkSize": 10,
+        "batch_size": 25,
+        "documents": 924,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23608622,
+        "batches": 37,
+        "rtt_component_seconds": 14.8,
+        "byte_component_seconds": 2.2514936447143556,
+        "model_network_seconds": 17.051493644714355,
+        "wire_throughput_mib_s": 1.320408459004573,
+        "source_goodput_mib_s": 0.811189529271238
+      },
+      {
+        "customChunkSize": 10,
+        "batch_size": 50,
+        "documents": 924,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23608622,
+        "batches": 19,
+        "rtt_component_seconds": 7.6,
+        "byte_component_seconds": 2.2514936447143556,
+        "model_network_seconds": 9.851493644714356,
+        "wire_throughput_mib_s": 2.2854337889385477,
+        "source_goodput_mib_s": 1.4040503503190762
+      },
+      {
+        "customChunkSize": 10,
+        "batch_size": 100,
+        "documents": 924,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23608622,
+        "batches": 10,
+        "rtt_component_seconds": 4.0,
+        "byte_component_seconds": 2.2514936447143556,
+        "model_network_seconds": 6.251493644714356,
+        "wire_throughput_mib_s": 3.6015291267519656,
+        "source_goodput_mib_s": 2.2125901247172037
+      },
+      {
+        "customChunkSize": 10,
+        "batch_size": 200,
+        "documents": 924,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23608622,
+        "batches": 5,
+        "rtt_component_seconds": 2.0,
+        "byte_component_seconds": 2.2514936447143556,
+        "model_network_seconds": 4.251493644714356,
+        "wire_throughput_mib_s": 5.295770928679411,
+        "source_goodput_mib_s": 3.253443203478356
+      },
+      {
+        "customChunkSize": 20,
+        "batch_size": 25,
+        "documents": 920,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23606606,
+        "batches": 37,
+        "rtt_component_seconds": 14.8,
+        "byte_component_seconds": 2.251301383972168,
+        "model_network_seconds": 17.05130138397217,
+        "wire_throughput_mib_s": 1.3203105928843293,
+        "source_goodput_mib_s": 0.8111986757813746
+      },
+      {
+        "customChunkSize": 20,
+        "batch_size": 50,
+        "documents": 920,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23606606,
+        "batches": 19,
+        "rtt_component_seconds": 7.6,
+        "byte_component_seconds": 2.251301383972168,
+        "model_network_seconds": 9.851301383972167,
+        "wire_throughput_mib_s": 2.2852832293152474,
+        "source_goodput_mib_s": 1.404077752156854
+      },
+      {
+        "customChunkSize": 20,
+        "batch_size": 100,
+        "documents": 920,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23606606,
+        "batches": 10,
+        "rtt_component_seconds": 4.0,
+        "byte_component_seconds": 2.251301383972168,
+        "model_network_seconds": 6.251301383972168,
+        "wire_throughput_mib_s": 3.6013323397658015,
+        "source_goodput_mib_s": 2.2126581736230886
+      },
+      {
+        "customChunkSize": 20,
+        "batch_size": 200,
+        "documents": 920,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23606606,
+        "batches": 5,
+        "rtt_component_seconds": 2.0,
+        "byte_component_seconds": 2.251301383972168,
+        "model_network_seconds": 4.251301383972168,
+        "wire_throughput_mib_s": 5.295558184747381,
+        "source_goodput_mib_s": 3.253590337108384
+      },
+      {
+        "customChunkSize": 40,
+        "batch_size": 25,
+        "documents": 918,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23605556,
+        "batches": 37,
+        "rtt_component_seconds": 14.8,
+        "byte_component_seconds": 2.2512012481689454,
+        "model_network_seconds": 17.051201248168947,
+        "wire_throughput_mib_s": 1.320259620072628,
+        "source_goodput_mib_s": 0.8112034396704279
+      },
+      {
+        "customChunkSize": 40,
+        "batch_size": 50,
+        "documents": 918,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23605556,
+        "batches": 19,
+        "rtt_component_seconds": 7.6,
+        "byte_component_seconds": 2.2512012481689454,
+        "model_network_seconds": 9.851201248168945,
+        "wire_throughput_mib_s": 2.285204810517275,
+        "source_goodput_mib_s": 1.4040920243709685
+      },
+      {
+        "customChunkSize": 40,
+        "batch_size": 100,
+        "documents": 918,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23605556,
+        "batches": 10,
+        "rtt_component_seconds": 4.0,
+        "byte_component_seconds": 2.2512012481689454,
+        "model_network_seconds": 6.251201248168945,
+        "wire_throughput_mib_s": 3.601229841749776,
+        "source_goodput_mib_s": 2.212693617419357
+      },
+      {
+        "customChunkSize": 40,
+        "batch_size": 200,
+        "documents": 918,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "payload_bytes_proxy": 23605556,
+        "batches": 5,
+        "rtt_component_seconds": 2.0,
+        "byte_component_seconds": 2.2512012481689454,
+        "model_network_seconds": 4.251201248168945,
+        "wire_throughput_mib_s": 5.295447372995035,
+        "source_goodput_mib_s": 3.253666974478093
+      }
+    ],
+    "nine_cases_100ms_10mib_s": [
+      {
+        "phase": "initial",
+        "direction": "send",
+        "documents_per_active_direction": 10000,
+        "bytes_per_active_direction": 327680000,
+        "couch_batch_size": 50,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s_per_direction": 10,
+        "couch_core_low_seconds": 111.25,
+        "couch_core_serial_seconds": 111.25,
+        "p2p_core_seconds": 92.25,
+        "p2p_oneway_pull_core_seconds": 92.15,
+        "p2p_no_echo_mixed_reference_seconds": 92.15,
+        "s3_upload_packs": 40,
+        "s3_download_packs": 0,
+        "s3_core_seconds": 35.35,
+        "fast_fetch_stream_core_seconds": null
+      },
+      {
+        "phase": "initial",
+        "direction": "receive",
+        "documents_per_active_direction": 10000,
+        "bytes_per_active_direction": 327680000,
+        "couch_batch_size": 50,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s_per_direction": 10,
+        "couch_core_low_seconds": 91.35,
+        "couch_core_serial_seconds": 111.25,
+        "p2p_core_seconds": 122.65,
+        "p2p_oneway_pull_core_seconds": 92.15,
+        "p2p_no_echo_mixed_reference_seconds": 92.15,
+        "s3_upload_packs": 0,
+        "s3_download_packs": 40,
+        "s3_core_seconds": 35.35,
+        "fast_fetch_stream_core_seconds": 31.65
+      },
+      {
+        "phase": "initial",
+        "direction": "mixed",
+        "documents_per_active_direction": 10000,
+        "bytes_per_active_direction": 327680000,
+        "couch_batch_size": 50,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s_per_direction": 10,
+        "couch_core_low_seconds": 111.25,
+        "couch_core_serial_seconds": 222.5,
+        "p2p_core_seconds": 214.6,
+        "p2p_oneway_pull_core_seconds": 92.15,
+        "p2p_no_echo_mixed_reference_seconds": 184.3,
+        "s3_upload_packs": 40,
+        "s3_download_packs": 40,
+        "s3_core_seconds": 70.6,
+        "fast_fetch_stream_core_seconds": null
+      },
+      {
+        "phase": "steady",
+        "direction": "send",
+        "documents_per_active_direction": 20,
+        "bytes_per_active_direction": 655360,
+        "couch_batch_size": 50,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s_per_direction": 10,
+        "couch_core_low_seconds": 0.4625,
+        "couch_core_serial_seconds": 0.4625,
+        "p2p_core_seconds": 0.4625,
+        "p2p_oneway_pull_core_seconds": 0.3625,
+        "p2p_no_echo_mixed_reference_seconds": 0.3625,
+        "s3_upload_packs": 1,
+        "s3_download_packs": 0,
+        "s3_core_seconds": 0.2625,
+        "fast_fetch_stream_core_seconds": null
+      },
+      {
+        "phase": "steady",
+        "direction": "receive",
+        "documents_per_active_direction": 20,
+        "bytes_per_active_direction": 655360,
+        "couch_batch_size": 50,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s_per_direction": 10,
+        "couch_core_low_seconds": 0.4625,
+        "couch_core_serial_seconds": 0.4625,
+        "p2p_core_seconds": 0.5625,
+        "p2p_oneway_pull_core_seconds": 0.3625,
+        "p2p_no_echo_mixed_reference_seconds": 0.3625,
+        "s3_upload_packs": 0,
+        "s3_download_packs": 1,
+        "s3_core_seconds": 0.2625,
+        "fast_fetch_stream_core_seconds": null
+      },
+      {
+        "phase": "steady",
+        "direction": "mixed",
+        "documents_per_active_direction": 20,
+        "bytes_per_active_direction": 655360,
+        "couch_batch_size": 50,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s_per_direction": 10,
+        "couch_core_low_seconds": 0.4625,
+        "couch_core_serial_seconds": 0.925,
+        "p2p_core_seconds": 0.825,
+        "p2p_oneway_pull_core_seconds": 0.3625,
+        "p2p_no_echo_mixed_reference_seconds": 0.725,
+        "s3_upload_packs": 1,
+        "s3_download_packs": 1,
+        "s3_core_seconds": 0.425,
+        "fast_fetch_stream_core_seconds": null
+      },
+      {
+        "phase": "offline",
+        "direction": "send",
+        "documents_per_active_direction": 5000,
+        "bytes_per_active_direction": 163840000,
+        "couch_batch_size": 50,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s_per_direction": 10,
+        "couch_core_low_seconds": 55.625,
+        "couch_core_serial_seconds": 55.625,
+        "p2p_core_seconds": 46.225,
+        "p2p_oneway_pull_core_seconds": 46.125,
+        "p2p_no_echo_mixed_reference_seconds": 46.125,
+        "s3_upload_packs": 20,
+        "s3_download_packs": 0,
+        "s3_core_seconds": 17.725,
+        "fast_fetch_stream_core_seconds": null
+      },
+      {
+        "phase": "offline",
+        "direction": "receive",
+        "documents_per_active_direction": 5000,
+        "bytes_per_active_direction": 163840000,
+        "couch_batch_size": 50,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s_per_direction": 10,
+        "couch_core_low_seconds": 45.725,
+        "couch_core_serial_seconds": 55.625,
+        "p2p_core_seconds": 61.425,
+        "p2p_oneway_pull_core_seconds": 46.125,
+        "p2p_no_echo_mixed_reference_seconds": 46.125,
+        "s3_upload_packs": 0,
+        "s3_download_packs": 250,
+        "s3_core_seconds": 40.725,
+        "fast_fetch_stream_core_seconds": null
+      },
+      {
+        "phase": "offline",
+        "direction": "mixed",
+        "documents_per_active_direction": 5000,
+        "bytes_per_active_direction": 163840000,
+        "couch_batch_size": 50,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s_per_direction": 10,
+        "couch_core_low_seconds": 55.625,
+        "couch_core_serial_seconds": 111.25,
+        "p2p_core_seconds": 107.45,
+        "p2p_oneway_pull_core_seconds": 46.125,
+        "p2p_no_echo_mixed_reference_seconds": 92.25,
+        "s3_upload_packs": 20,
+        "s3_download_packs": 250,
+        "s3_core_seconds": 58.35,
+        "fast_fetch_stream_core_seconds": null
+      }
+    ],
+    "p2p_batch_hypotheses_100ms": [
+      {
+        "batch_size": 33,
+        "used_by_current_implementation": true,
+        "documents": 10000,
+        "mean_wire_document_bytes": 32768,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "rtt_waves_including_final_empty_changes": 609,
+        "oneway_core_seconds": 92.15,
+        "wire_throughput_mib_s": 3.391209983722192
+      },
+      {
+        "batch_size": 64,
+        "used_by_current_implementation": false,
+        "documents": 10000,
+        "mean_wire_document_bytes": 32768,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "rtt_waves_including_final_empty_changes": 315,
+        "oneway_core_seconds": 62.75,
+        "wire_throughput_mib_s": 4.9800796812749
+      },
+      {
+        "batch_size": 128,
+        "used_by_current_implementation": false,
+        "documents": 10000,
+        "mean_wire_document_bytes": 32768,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "rtt_waves_including_final_empty_changes": 159,
+        "oneway_core_seconds": 47.15,
+        "wire_throughput_mib_s": 6.6277836691410394
+      },
+      {
+        "batch_size": 256,
+        "used_by_current_implementation": false,
+        "documents": 10000,
+        "mean_wire_document_bytes": 32768,
+        "rtt_ms": 100,
+        "effective_bandwidth_mib_s": 10,
+        "rtt_waves_including_final_empty_changes": 81,
+        "oneway_core_seconds": 39.35,
+        "wire_throughput_mib_s": 7.941550190597204
+      }
+    ],
+    "cloudant_request_budgets": [
+      {
+        "document_class": "encrypted_binary_cap4",
+        "document_wire_bytes": 910529,
+        "batch_size": 16,
+        "estimated_request_bytes_with_20000_envelope_allowance": 14588480,
+        "under_64000000_request_bytes": true,
+        "under_51200000_planning_budget_bytes": true,
+        "single_document_service_accounting_not_inferred_from_wire_bytes": true
+      },
+      {
+        "document_class": "encrypted_binary_cap4",
+        "document_wire_bytes": 910529,
+        "batch_size": 20,
+        "estimated_request_bytes_with_20000_envelope_allowance": 18230600,
+        "under_64000000_request_bytes": true,
+        "under_51200000_planning_budget_bytes": true,
+        "single_document_service_accounting_not_inferred_from_wire_bytes": true
+      },
+      {
+        "document_class": "encrypted_binary_cap4",
+        "document_wire_bytes": 910529,
+        "batch_size": 25,
+        "estimated_request_bytes_with_20000_envelope_allowance": 22783250,
+        "under_64000000_request_bytes": true,
+        "under_51200000_planning_budget_bytes": true,
+        "single_document_service_accounting_not_inferred_from_wire_bytes": true
+      },
+      {
+        "document_class": "encrypted_binary_cap4",
+        "document_wire_bytes": 910529,
+        "batch_size": 50,
+        "estimated_request_bytes_with_20000_envelope_allowance": 45546500,
+        "under_64000000_request_bytes": true,
+        "under_51200000_planning_budget_bytes": true,
+        "single_document_service_accounting_not_inferred_from_wire_bytes": true
+      },
+      {
+        "document_class": "encrypted_binary_cap4",
+        "document_wire_bytes": 910529,
+        "batch_size": 100,
+        "estimated_request_bytes_with_20000_envelope_allowance": 91073000,
+        "under_64000000_request_bytes": false,
+        "under_51200000_planning_budget_bytes": false,
+        "single_document_service_accounting_not_inferred_from_wire_bytes": true
+      },
+      {
+        "document_class": "unencrypted_nul_cap4",
+        "document_wire_bytes": 3072213,
+        "batch_size": 16,
+        "estimated_request_bytes_with_20000_envelope_allowance": 49175424,
+        "under_64000000_request_bytes": true,
+        "under_51200000_planning_budget_bytes": true,
+        "single_document_service_accounting_not_inferred_from_wire_bytes": true
+      },
+      {
+        "document_class": "unencrypted_nul_cap4",
+        "document_wire_bytes": 3072213,
+        "batch_size": 20,
+        "estimated_request_bytes_with_20000_envelope_allowance": 61464280,
+        "under_64000000_request_bytes": true,
+        "under_51200000_planning_budget_bytes": false,
+        "single_document_service_accounting_not_inferred_from_wire_bytes": true
+      },
+      {
+        "document_class": "unencrypted_nul_cap4",
+        "document_wire_bytes": 3072213,
+        "batch_size": 25,
+        "estimated_request_bytes_with_20000_envelope_allowance": 76825350,
+        "under_64000000_request_bytes": false,
+        "under_51200000_planning_budget_bytes": false,
+        "single_document_service_accounting_not_inferred_from_wire_bytes": true
+      },
+      {
+        "document_class": "unencrypted_nul_cap4",
+        "document_wire_bytes": 3072213,
+        "batch_size": 50,
+        "estimated_request_bytes_with_20000_envelope_allowance": 153630700,
+        "under_64000000_request_bytes": false,
+        "under_51200000_planning_budget_bytes": false,
+        "single_document_service_accounting_not_inferred_from_wire_bytes": true
+      },
+      {
+        "document_class": "unencrypted_nul_cap4",
+        "document_wire_bytes": 3072213,
+        "batch_size": 100,
+        "estimated_request_bytes_with_20000_envelope_allowance": 307241400,
+        "under_64000000_request_bytes": false,
+        "under_51200000_planning_budget_bytes": false,
+        "single_document_service_accounting_not_inferred_from_wire_bytes": true
+      }
+    ]
+  },
+  "verification": {
+    "regressions_failed_before_fix": 3,
+    "regressions_passed_after_fix": 3,
+    "commonlib_unit_tests_passed": 2416,
+    "livesync_unit_tests_passed": 1297,
+    "livesync_unit_tests_skipped": 1,
+    "transport_file_stage_digests": 1890,
+    "persisted_configurations_checked": 84,
+    "mixed_version_file_stage_digests": 90,
+    "new_wan_benchmarks": false,
+    "production_settings_changed": false
+  },
+  "sources": {
+    "issue": "https://github.com/vrtmrz/obsidian-livesync/issues/1180#issuecomment-6261651086",
+    "cloudant_limits": "https://cloud.ibm.com/docs/Cloudant?topic=Cloudant-limits",
+    "cloudant_throughput": "https://cloud.ibm.com/docs/Cloudant?topic=Cloudant-faq-provisioned-throughput-capacity-model",
+    "pouchdb_api": "https://pouchdb.com/api.html#replication"
+  },
+  "window_fix_comparison": {
+    "afterVariant": "rolling-window-fixed",
+    "corpusSha256": "8ca4ee9b3488a93d355f53ad4e641bb2e2cdbba684fc788ce580160d0209abfb",
+    "local": [
+      {
+        "customChunkSize": 0,
+        "stage": "initial",
+        "binaryNewRawBytes": {
+          "before": 8516516,
+          "after": 8516516
+        },
+        "markdownNewRawBytes": {
+          "before": 5987380,
+          "after": 5987380
+        },
+        "allChunks": {
+          "before": 1039,
+          "after": 1026
+        },
+        "binaryChunks": {
+          "before": 84,
+          "after": 84
+        },
+        "splitAndIdCpuMs": {
+          "before": 447.28099999999995,
+          "after": 467.785
+        }
+      },
+      {
+        "customChunkSize": 0,
+        "stage": "overwrite",
+        "binaryNewRawBytes": {
+          "before": 138966,
+          "after": 138966
+        },
+        "markdownNewRawBytes": {
+          "before": 1951,
+          "after": 1951
+        },
+        "allChunks": {
+          "before": 1039,
+          "after": 1026
+        },
+        "binaryChunks": {
+          "before": 84,
+          "after": 84
+        },
+        "splitAndIdCpuMs": {
+          "before": 447.92400000000004,
+          "after": 414.014
+        }
+      },
+      {
+        "customChunkSize": 0,
+        "stage": "insert",
+        "binaryNewRawBytes": {
+          "before": 6344704,
+          "after": 6344704
+        },
+        "markdownNewRawBytes": {
+          "before": 5257399,
+          "after": 5257399
+        },
+        "allChunks": {
+          "before": 1039,
+          "after": 1026
+        },
+        "binaryChunks": {
+          "before": 84,
+          "after": 84
+        },
+        "splitAndIdCpuMs": {
+          "before": 452.694,
+          "after": 457.847
+        }
+      },
+      {
+        "customChunkSize": 1,
+        "stage": "initial",
+        "binaryNewRawBytes": {
+          "before": 8516516,
+          "after": 8516516
+        },
+        "markdownNewRawBytes": {
+          "before": 5987380,
+          "after": 5987380
+        },
+        "allChunks": {
+          "before": 972,
+          "after": 959
+        },
+        "binaryChunks": {
+          "before": 43,
+          "after": 43
+        },
+        "splitAndIdCpuMs": {
+          "before": 448.361,
+          "after": 424.818
+        }
+      },
+      {
+        "customChunkSize": 1,
+        "stage": "overwrite",
+        "binaryNewRawBytes": {
+          "before": 241366,
+          "after": 241366
+        },
+        "markdownNewRawBytes": {
+          "before": 1951,
+          "after": 1951
+        },
+        "allChunks": {
+          "before": 972,
+          "after": 959
+        },
+        "binaryChunks": {
+          "before": 43,
+          "after": 43
+        },
+        "splitAndIdCpuMs": {
+          "before": 439.46000000000004,
+          "after": 427.4440000000001
+        }
+      },
+      {
+        "customChunkSize": 1,
+        "stage": "insert",
+        "binaryNewRawBytes": {
+          "before": 6344704,
+          "after": 6344704
+        },
+        "markdownNewRawBytes": {
+          "before": 5257399,
+          "after": 5257399
+        },
+        "allChunks": {
+          "before": 972,
+          "after": 959
+        },
+        "binaryChunks": {
+          "before": 43,
+          "after": 43
+        },
+        "splitAndIdCpuMs": {
+          "before": 416.72099999999995,
+          "after": 424.42999999999995
+        }
+      },
+      {
+        "customChunkSize": 4,
+        "stage": "initial",
+        "binaryNewRawBytes": {
+          "before": 8516516,
+          "after": 8516516
+        },
+        "markdownNewRawBytes": {
+          "before": 5987380,
+          "after": 5987380
+        },
+        "allChunks": {
+          "before": 936,
+          "after": 927
+        },
+        "binaryChunks": {
+          "before": 21,
+          "after": 20
+        },
+        "splitAndIdCpuMs": {
+          "before": 805.0139999999999,
+          "after": 707.8679999999999
+        }
+      },
+      {
+        "customChunkSize": 4,
+        "stage": "overwrite",
+        "binaryNewRawBytes": {
+          "before": 548566,
+          "after": 317060
+        },
+        "markdownNewRawBytes": {
+          "before": 1951,
+          "after": 1951
+        },
+        "allChunks": {
+          "before": 936,
+          "after": 927
+        },
+        "binaryChunks": {
+          "before": 21,
+          "after": 20
+        },
+        "splitAndIdCpuMs": {
+          "before": 759.3789999999999,
+          "after": 679.7750000000001
+        }
+      },
+      {
+        "customChunkSize": 4,
+        "stage": "insert",
+        "binaryNewRawBytes": {
+          "before": 6344704,
+          "after": 284590
+        },
+        "markdownNewRawBytes": {
+          "before": 276284,
+          "after": 276284
+        },
+        "allChunks": {
+          "before": 935,
+          "after": 927
+        },
+        "binaryChunks": {
+          "before": 20,
+          "after": 20
+        },
+        "splitAndIdCpuMs": {
+          "before": 743.211,
+          "after": 702.807
+        }
+      },
+      {
+        "customChunkSize": 10,
+        "stage": "initial",
+        "binaryNewRawBytes": {
+          "before": 8516516,
+          "after": 8516516
+        },
+        "markdownNewRawBytes": {
+          "before": 5987380,
+          "after": 5987380
+        },
+        "allChunks": {
+          "before": 922,
+          "after": 908
+        },
+        "binaryChunks": {
+          "before": 12,
+          "after": 13
+        },
+        "splitAndIdCpuMs": {
+          "before": 999.6489999999999,
+          "after": 952.173
+        }
+      },
+      {
+        "customChunkSize": 10,
+        "stage": "overwrite",
+        "binaryNewRawBytes": {
+          "before": 1162966,
+          "after": 1162966
+        },
+        "markdownNewRawBytes": {
+          "before": 1951,
+          "after": 1951
+        },
+        "allChunks": {
+          "before": 922,
+          "after": 908
+        },
+        "binaryChunks": {
+          "before": 12,
+          "after": 13
+        },
+        "splitAndIdCpuMs": {
+          "before": 896.2090000000001,
+          "after": 900.555
+        }
+      },
+      {
+        "customChunkSize": 10,
+        "stage": "insert",
+        "binaryNewRawBytes": {
+          "before": 6869792,
+          "after": 1603235
+        },
+        "markdownNewRawBytes": {
+          "before": 957862,
+          "after": 957862
+        },
+        "allChunks": {
+          "before": 923,
+          "after": 908
+        },
+        "binaryChunks": {
+          "before": 13,
+          "after": 13
+        },
+        "splitAndIdCpuMs": {
+          "before": 883.8439999999999,
+          "after": 897.768
+        }
+      },
+      {
+        "customChunkSize": 20,
+        "stage": "initial",
+        "binaryNewRawBytes": {
+          "before": 8516516,
+          "after": 8516516
+        },
+        "markdownNewRawBytes": {
+          "before": 5987380,
+          "after": 5987380
+        },
+        "allChunks": {
+          "before": 917,
+          "after": 904
+        },
+        "binaryChunks": {
+          "before": 8,
+          "after": 11
+        },
+        "splitAndIdCpuMs": {
+          "before": 1039.524,
+          "after": 947.338
+        }
+      },
+      {
+        "customChunkSize": 20,
+        "stage": "overwrite",
+        "binaryNewRawBytes": {
+          "before": 2186966,
+          "after": 2186966
+        },
+        "markdownNewRawBytes": {
+          "before": 1951,
+          "after": 1951
+        },
+        "allChunks": {
+          "before": 917,
+          "after": 904
+        },
+        "binaryChunks": {
+          "before": 8,
+          "after": 11
+        },
+        "splitAndIdCpuMs": {
+          "before": 954.7649999999999,
+          "after": 960.3190000000001
+        }
+      },
+      {
+        "customChunkSize": 20,
+        "stage": "insert",
+        "binaryNewRawBytes": {
+          "before": 7996192,
+          "after": 2729635
+        },
+        "markdownNewRawBytes": {
+          "before": 957862,
+          "after": 957862
+        },
+        "allChunks": {
+          "before": 919,
+          "after": 904
+        },
+        "binaryChunks": {
+          "before": 10,
+          "after": 11
+        },
+        "splitAndIdCpuMs": {
+          "before": 950.108,
+          "after": 972.796
+        }
+      },
+      {
+        "customChunkSize": 40,
+        "stage": "initial",
+        "binaryNewRawBytes": {
+          "before": 8516516,
+          "after": 8516516
+        },
+        "markdownNewRawBytes": {
+          "before": 5987380,
+          "after": 5987380
+        },
+        "allChunks": {
+          "before": 918,
+          "after": 902
+        },
+        "binaryChunks": {
+          "before": 9,
+          "after": 9
+        },
+        "splitAndIdCpuMs": {
+          "before": 934.6190000000001,
+          "after": 986.02
+        }
+      },
+      {
+        "customChunkSize": 40,
+        "stage": "overwrite",
+        "binaryNewRawBytes": {
+          "before": 2891771,
+          "after": 2762105
+        },
+        "markdownNewRawBytes": {
+          "before": 1951,
+          "after": 1951
+        },
+        "allChunks": {
+          "before": 918,
+          "after": 902
+        },
+        "binaryChunks": {
+          "before": 9,
+          "after": 9
+        },
+        "splitAndIdCpuMs": {
+          "before": 942.962,
+          "after": 977.7769999999999
+        }
+      },
+      {
+        "customChunkSize": 40,
+        "stage": "insert",
+        "binaryNewRawBytes": {
+          "before": 7996192,
+          "after": 2729635
+        },
+        "markdownNewRawBytes": {
+          "before": 957862,
+          "after": 957862
+        },
+        "allChunks": {
+          "before": 914,
+          "after": 902
+        },
+        "binaryChunks": {
+          "before": 5,
+          "after": 9
+        },
+        "splitAndIdCpuMs": {
+          "before": 1032.889,
+          "after": 1014.609
+        }
+      },
+      {
+        "customChunkSize": 60,
+        "stage": "initial",
+        "binaryNewRawBytes": {
+          "before": 8516516,
+          "after": 8516516
+        },
+        "markdownNewRawBytes": {
+          "before": 5987380,
+          "after": 5987380
+        },
+        "allChunks": {
+          "before": 918,
+          "after": 902
+        },
+        "binaryChunks": {
+          "before": 9,
+          "after": 9
+        },
+        "splitAndIdCpuMs": {
+          "before": 975.5900000000001,
+          "after": 1005.2239999999999
+        }
+      },
+      {
+        "customChunkSize": 60,
+        "stage": "overwrite",
+        "binaryNewRawBytes": {
+          "before": 2891771,
+          "after": 2762105
+        },
+        "markdownNewRawBytes": {
+          "before": 1951,
+          "after": 1951
+        },
+        "allChunks": {
+          "before": 918,
+          "after": 902
+        },
+        "binaryChunks": {
+          "before": 9,
+          "after": 9
+        },
+        "splitAndIdCpuMs": {
+          "before": 934.567,
+          "after": 971.079
+        }
+      },
+      {
+        "customChunkSize": 60,
+        "stage": "insert",
+        "binaryNewRawBytes": {
+          "before": 7996192,
+          "after": 2729635
+        },
+        "markdownNewRawBytes": {
+          "before": 957862,
+          "after": 957862
+        },
+        "allChunks": {
+          "before": 914,
+          "after": 902
+        },
+        "binaryChunks": {
+          "before": 5,
+          "after": 9
+        },
+        "splitAndIdCpuMs": {
+          "before": 1000.8259999999999,
+          "after": 1000.44
+        }
+      }
+    ],
+    "cutover": [
+      {
+        "customChunkSize": 40,
+        "totalNewAlgorithmUniqueRawBytes": 14503896,
+        "bytesNotPresentInOldAlgorithmInitialChunks": 13017633,
+        "freshUniqueChunks": 887,
+        "totalUniqueChunks": 902,
+        "unchangedFileSplits": [
+          "assets/cloudant-setup.png",
+          "assets/quick-setup-first-setup-uri.png"
+        ]
+      },
+      {
+        "customChunkSize": 60,
+        "totalNewAlgorithmUniqueRawBytes": 14503896,
+        "bytesNotPresentInOldAlgorithmInitialChunks": 13017633,
+        "freshUniqueChunks": 887,
+        "totalUniqueChunks": 902,
+        "unchangedFileSplits": [
+          "assets/cloudant-setup.png",
+          "assets/quick-setup-first-setup-uri.png"
+        ]
+      }
+    ],
+    "remote": [
+      {
+        "provider": "couchdb",
+        "customChunkSize": 0,
+        "stage": "initial",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 23677335,
+            "min": 23677335,
+            "max": 23677335
+          },
+          "after": {
+            "n": 3,
+            "median": 23670335,
+            "min": 23670334,
+            "max": 23670335
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 24787549,
+            "min": 24641584,
+            "max": 25008779
+          },
+          "after": {
+            "n": 3,
+            "median": 24233904,
+            "min": 24075443,
+            "max": 24580868
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 204,
+            "min": 204,
+            "max": 204
+          },
+          "after": {
+            "n": 3,
+            "median": 200,
+            "min": 200,
+            "max": 200
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 3884.194060000009,
+            "min": 3788.3372170000803,
+            "max": 6819.423736999999
+          },
+          "after": {
+            "n": 3,
+            "median": 3990.6532219999995,
+            "min": 3809.9491469999775,
+            "max": 5133.340609000064
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 3535.762303999858,
+            "min": 3494.7196260000346,
+            "max": 5971.005503
+          },
+          "after": {
+            "n": 3,
+            "median": 3590.385588000063,
+            "min": 3530.812949,
+            "max": 4696.819098000065
+          }
+        }
+      },
+      {
+        "provider": "couchdb",
+        "customChunkSize": 0,
+        "stage": "overwrite",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 323850,
+            "min": 323850,
+            "max": 323854
+          },
+          "after": {
+            "n": 3,
+            "median": 324638,
+            "min": 324504,
+            "max": 324694
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 328753,
+            "min": 328753,
+            "max": 329124
+          },
+          "after": {
+            "n": 3,
+            "median": 330334,
+            "min": 330310,
+            "max": 330334
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 196,
+            "min": 196,
+            "max": 196
+          },
+          "after": {
+            "n": 3,
+            "median": 192,
+            "min": 192,
+            "max": 192
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2101.0589850000106,
+            "min": 1879.2650910000084,
+            "max": 3221.3403710000057
+          },
+          "after": {
+            "n": 3,
+            "median": 1868.2293109999991,
+            "min": 1840.0002480000257,
+            "max": 2595.704824999906
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2524.531689999858,
+            "min": 2206.737308999989,
+            "max": 3782.8960850000003
+          },
+          "after": {
+            "n": 3,
+            "median": 2272.8435519999985,
+            "min": 2148.0506349999923,
+            "max": 2816.407468999969
+          }
+        }
+      },
+      {
+        "provider": "couchdb",
+        "customChunkSize": 0,
+        "stage": "insert",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 18388101,
+            "min": 18388101,
+            "max": 18388101
+          },
+          "after": {
+            "n": 3,
+            "median": 18389593,
+            "min": 18389589,
+            "max": 18389593
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 18443899,
+            "min": 18440438,
+            "max": 18443899
+          },
+          "after": {
+            "n": 3,
+            "median": 18445851,
+            "min": 18445685,
+            "max": 18579921
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 41,
+            "min": 41,
+            "max": 41
+          },
+          "after": {
+            "n": 3,
+            "median": 41,
+            "min": 41,
+            "max": 41
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2051.4509339998476,
+            "min": 1792.3001889999723,
+            "max": 3226.908390999997
+          },
+          "after": {
+            "n": 3,
+            "median": 1968.9728950000135,
+            "min": 1833.8033910000013,
+            "max": 2231.1766429999843
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2143.4570929999463,
+            "min": 1886.2213549999287,
+            "max": 3175.898331999997
+          },
+          "after": {
+            "n": 3,
+            "median": 2060.839493000065,
+            "min": 1958.9423449999958,
+            "max": 2264.314636999974
+          }
+        }
+      },
+      {
+        "provider": "couchdb",
+        "customChunkSize": 4,
+        "stage": "initial",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 23623530,
+            "min": 23623530,
+            "max": 23623530
+          },
+          "after": {
+            "n": 3,
+            "median": 23618568,
+            "min": 23618568,
+            "max": 23618596
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 28443544,
+            "min": 28403532,
+            "max": 31262329
+          },
+          "after": {
+            "n": 3,
+            "median": 28187335,
+            "min": 26325903,
+            "max": 29601360
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 188,
+            "min": 188,
+            "max": 188
+          },
+          "after": {
+            "n": 3,
+            "median": 184,
+            "min": 184,
+            "max": 184
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 3684.947608999908,
+            "min": 3607.2479950000998,
+            "max": 6072.208171999999
+          },
+          "after": {
+            "n": 3,
+            "median": 3639.080482999998,
+            "min": 3585.1434899999294,
+            "max": 3724.8152520000003
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 3413.888986999984,
+            "min": 3305.0975510000717,
+            "max": 5130.262533000001
+          },
+          "after": {
+            "n": 3,
+            "median": 3344.731983999998,
+            "min": 3292.106394000002,
+            "max": 3525.620444
+          }
+        }
+      },
+      {
+        "provider": "couchdb",
+        "customChunkSize": 4,
+        "stage": "overwrite",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 1043451,
+            "min": 1043431,
+            "max": 1043459
+          },
+          "after": {
+            "n": 3,
+            "median": 632639,
+            "min": 632589,
+            "max": 633151
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 1049923,
+            "min": 1049552,
+            "max": 1049923
+          },
+          "after": {
+            "n": 3,
+            "median": 639846,
+            "min": 639475,
+            "max": 639846
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 180,
+            "min": 180,
+            "max": 180
+          },
+          "after": {
+            "n": 3,
+            "median": 176,
+            "min": 176,
+            "max": 176
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1812.127698999946,
+            "min": 1784.1137310001068,
+            "max": 2730.161460000003
+          },
+          "after": {
+            "n": 3,
+            "median": 1783.1212119999109,
+            "min": 1779.7383240000054,
+            "max": 1823.6037929999875
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2121.4768540000077,
+            "min": 2095.4173679999076,
+            "max": 4343.906915
+          },
+          "after": {
+            "n": 3,
+            "median": 2173.8027680000087,
+            "min": 2121.2423829999752,
+            "max": 2319.470509000006
+          }
+        }
+      },
+      {
+        "provider": "couchdb",
+        "customChunkSize": 4,
+        "stage": "insert",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 11693860,
+            "min": 11693860,
+            "max": 11693860
+          },
+          "after": {
+            "n": 3,
+            "median": 916865,
+            "min": 916865,
+            "max": 916865
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 11715695,
+            "min": 11715695,
+            "max": 11715695
+          },
+          "after": {
+            "n": 3,
+            "median": 935797,
+            "min": 935797,
+            "max": 935797
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 25,
+            "min": 25,
+            "max": 25
+          },
+          "after": {
+            "n": 3,
+            "median": 25,
+            "min": 25,
+            "max": 25
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1383.9862679999787,
+            "min": 1376.9689460000955,
+            "max": 2022.7920379999996
+          },
+          "after": {
+            "n": 3,
+            "median": 1097.0514390000026,
+            "min": 1034.025539000053,
+            "max": 1241.0577370000537
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1342.7674850001931,
+            "min": 1320.4992700000294,
+            "max": 2673.6036230000027
+          },
+          "after": {
+            "n": 3,
+            "median": 1072.7101529999636,
+            "min": 1063.9161640000093,
+            "max": 1482.7483729999512
+          }
+        }
+      },
+      {
+        "provider": "couchdb",
+        "customChunkSize": 10,
+        "stage": "initial",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 23616135,
+            "min": 23616134,
+            "max": 23616135
+          },
+          "after": {
+            "n": 3,
+            "median": 23608622,
+            "min": 23608622,
+            "max": 23608650
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 28894128,
+            "min": 24175406,
+            "max": 32211027
+          },
+          "after": {
+            "n": 3,
+            "median": 28265927,
+            "min": 23912069,
+            "max": 32708445
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 184,
+            "min": 184,
+            "max": 184
+          },
+          "after": {
+            "n": 3,
+            "median": 180,
+            "min": 180,
+            "max": 180
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 3803.2761399999727,
+            "min": 3649.5710449999897,
+            "max": 6448.01483499998
+          },
+          "after": {
+            "n": 3,
+            "median": 3639.208924000006,
+            "min": 3551.7787750000134,
+            "max": 4453.948576999945
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 3371.648039000109,
+            "min": 3306.5223719999194,
+            "max": 5002.900125999993
+          },
+          "after": {
+            "n": 3,
+            "median": 3405.243468000088,
+            "min": 3356.6425850000087,
+            "max": 4045.996204999974
+          }
+        }
+      },
+      {
+        "provider": "couchdb",
+        "customChunkSize": 10,
+        "stage": "overwrite",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 2134206,
+            "min": 2134078,
+            "max": 2134218
+          },
+          "after": {
+            "n": 3,
+            "median": 2135800,
+            "min": 2135774,
+            "max": 2136332
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 2140985,
+            "min": 2140955,
+            "max": 2140985
+          },
+          "after": {
+            "n": 3,
+            "median": 2143033,
+            "min": 2143033,
+            "max": 2143404
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 176,
+            "min": 176,
+            "max": 176
+          },
+          "after": {
+            "n": 3,
+            "median": 176,
+            "min": 176,
+            "max": 176
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1808.8740070000058,
+            "min": 1795.760881000082,
+            "max": 3198.529488
+          },
+          "after": {
+            "n": 3,
+            "median": 1894.2660780000733,
+            "min": 1851.9388130000007,
+            "max": 2254.67520399997
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2088.7715000000317,
+            "min": 2077.1071389999706,
+            "max": 3261.8794280000147
+          },
+          "after": {
+            "n": 3,
+            "median": 2308.117190000019,
+            "min": 2161.390485000011,
+            "max": 2327.2032559999498
+          }
+        }
+      },
+      {
+        "provider": "couchdb",
+        "customChunkSize": 10,
+        "stage": "insert",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 13532932,
+            "min": 13532930,
+            "max": 13532932
+          },
+          "after": {
+            "n": 3,
+            "median": 4168531,
+            "min": 4168531,
+            "max": 4168531
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 13553468,
+            "min": 13553422,
+            "max": 13553476
+          },
+          "after": {
+            "n": 3,
+            "median": 4187726,
+            "min": 4187726,
+            "max": 4187726
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 25,
+            "min": 25,
+            "max": 25
+          },
+          "after": {
+            "n": 3,
+            "median": 25,
+            "min": 25,
+            "max": 25
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1436.9505549999885,
+            "min": 1419.0068119999487,
+            "max": 1990.560044999991
+          },
+          "after": {
+            "n": 3,
+            "median": 1187.909112000023,
+            "min": 1159.994257000013,
+            "max": 1262.541409999947
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1396.555093999952,
+            "min": 1363.1406969999662,
+            "max": 2436.645836999989
+          },
+          "after": {
+            "n": 3,
+            "median": 1211.7539549999638,
+            "min": 1190.8712839999935,
+            "max": 1232.79254699999
+          }
+        }
+      },
+      {
+        "provider": "couchdb",
+        "customChunkSize": 20,
+        "stage": "initial",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 23613595,
+            "min": 23613572,
+            "max": 23613600
+          },
+          "after": {
+            "n": 3,
+            "median": 23606606,
+            "min": 23606578,
+            "max": 23606606
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 27727657,
+            "min": 23946345,
+            "max": 32089102
+          },
+          "after": {
+            "n": 3,
+            "median": 24653861,
+            "min": 23982772,
+            "max": 24798814
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 184,
+            "min": 184,
+            "max": 184
+          },
+          "after": {
+            "n": 3,
+            "median": 180,
+            "min": 180,
+            "max": 180
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 3663.1744130000006,
+            "min": 3617.791014000075,
+            "max": 4950.17490100002
+          },
+          "after": {
+            "n": 3,
+            "median": 4423.990235000034,
+            "min": 4002.614022000009,
+            "max": 4568.70429299993
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 3261.7470960000064,
+            "min": 3233.6688389999326,
+            "max": 4464.770451999997
+          },
+          "after": {
+            "n": 3,
+            "median": 4779.427825000021,
+            "min": 3270.525644999987,
+            "max": 5023.703988999943
+          }
+        }
+      },
+      {
+        "provider": "couchdb",
+        "customChunkSize": 20,
+        "stage": "overwrite",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 3954594,
+            "min": 3954264,
+            "max": 3954810
+          },
+          "after": {
+            "n": 3,
+            "median": 3955852,
+            "min": 3955368,
+            "max": 3955916
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 3960686,
+            "min": 3960686,
+            "max": 3961027
+          },
+          "after": {
+            "n": 3,
+            "median": 3962549,
+            "min": 3962549,
+            "max": 3962920
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 176,
+            "min": 176,
+            "max": 176
+          },
+          "after": {
+            "n": 3,
+            "median": 172,
+            "min": 172,
+            "max": 172
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1890.7231310000643,
+            "min": 1814.6936680000508,
+            "max": 3227.0015060000005
+          },
+          "after": {
+            "n": 3,
+            "median": 1864.9204960000934,
+            "min": 1838.2730829999782,
+            "max": 1886.6572129999986
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2140.7604000000283,
+            "min": 2103.7933529999573,
+            "max": 4075.3609359999828
+          },
+          "after": {
+            "n": 3,
+            "median": 2146.1724290000275,
+            "min": 2074.916065999976,
+            "max": 2773.3364399999846
+          }
+        }
+      },
+      {
+        "provider": "couchdb",
+        "customChunkSize": 20,
+        "stage": "insert",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 15534198,
+            "min": 15534196,
+            "max": 15534198
+          },
+          "after": {
+            "n": 3,
+            "median": 6170651,
+            "min": 6170651,
+            "max": 6170651
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 15554224,
+            "min": 15554178,
+            "max": 15554224
+          },
+          "after": {
+            "n": 3,
+            "median": 6189846,
+            "min": 6189846,
+            "max": 6189846
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 25,
+            "min": 25,
+            "max": 25
+          },
+          "after": {
+            "n": 3,
+            "median": 25,
+            "min": 25,
+            "max": 25
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1485.3856420000084,
+            "min": 1415.6447600000538,
+            "max": 1733.2559889999975
+          },
+          "after": {
+            "n": 3,
+            "median": 1664.824922000058,
+            "min": 1220.6080270000093,
+            "max": 2178.34142000007
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1551.0797499998007,
+            "min": 1386.2281779999612,
+            "max": 1701.9497600000177
+          },
+          "after": {
+            "n": 3,
+            "median": 1269.363836000004,
+            "min": 1264.82913800003,
+            "max": 1453.9784729999956
+          }
+        }
+      },
+      {
+        "provider": "couchdb",
+        "customChunkSize": 40,
+        "stage": "initial",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 23614087,
+            "min": 23614087,
+            "max": 23614115
+          },
+          "after": {
+            "n": 3,
+            "median": 23605556,
+            "min": 23605556,
+            "max": 23605556
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 28443056,
+            "min": 28193041,
+            "max": 31189725
+          },
+          "after": {
+            "n": 3,
+            "median": 30981010,
+            "min": 23919825,
+            "max": 31022765
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 184,
+            "min": 184,
+            "max": 184
+          },
+          "after": {
+            "n": 3,
+            "median": 180,
+            "min": 180,
+            "max": 180
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 3598.2974270000122,
+            "min": 3556.6774119997863,
+            "max": 6883.224982999993
+          },
+          "after": {
+            "n": 3,
+            "median": 3785.5081090000167,
+            "min": 3520.766106999945,
+            "max": 4698.797824000008
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 3295.761135000037,
+            "min": 3294.012904000003,
+            "max": 4280.014448000031
+          },
+          "after": {
+            "n": 3,
+            "median": 3469.4583339999954,
+            "min": 3197.1642670000438,
+            "max": 4332.35875600006
+          }
+        }
+      },
+      {
+        "provider": "couchdb",
+        "customChunkSize": 40,
+        "stage": "overwrite",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 5207370,
+            "min": 5207332,
+            "max": 5207894
+          },
+          "after": {
+            "n": 3,
+            "median": 4977678,
+            "min": 4977666,
+            "max": 4977680
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 5214133,
+            "min": 5213762,
+            "max": 5214133
+          },
+          "after": {
+            "n": 3,
+            "median": 4985200,
+            "min": 4984829,
+            "max": 4985200
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 176,
+            "min": 176,
+            "max": 176
+          },
+          "after": {
+            "n": 3,
+            "median": 172,
+            "min": 172,
+            "max": 172
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1872.1750669999747,
+            "min": 1863.8749230001122,
+            "max": 3007.5463800000143
+          },
+          "after": {
+            "n": 3,
+            "median": 2334.111719000037,
+            "min": 1969.611739999993,
+            "max": 4613.838609999977
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2188.7378069999395,
+            "min": 2106.499520999845,
+            "max": 3635.876086000004
+          },
+          "after": {
+            "n": 3,
+            "median": 2280.4836169999908,
+            "min": 2119.81869799993,
+            "max": 2666.0505879999837
+          }
+        }
+      },
+      {
+        "provider": "couchdb",
+        "customChunkSize": 40,
+        "stage": "insert",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 15531643,
+            "min": 15531643,
+            "max": 15531643
+          },
+          "after": {
+            "n": 3,
+            "median": 6170044,
+            "min": 6170044,
+            "max": 6170044
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 15550374,
+            "min": 15550374,
+            "max": 15550374
+          },
+          "after": {
+            "n": 3,
+            "median": 6188980,
+            "min": 6188980,
+            "max": 6188980
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 25,
+            "min": 25,
+            "max": 25
+          },
+          "after": {
+            "n": 3,
+            "median": 25,
+            "min": 25,
+            "max": 25
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1462.7129369999748,
+            "min": 1456.8583439999493,
+            "max": 2266.6507240000064
+          },
+          "after": {
+            "n": 3,
+            "median": 1274.6425719999243,
+            "min": 1189.118677999999,
+            "max": 1549.318002999993
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1420.6014709998854,
+            "min": 1392.6834400000516,
+            "max": 1976.5570750000188
+          },
+          "after": {
+            "n": 3,
+            "median": 1498.361106999917,
+            "min": 1296.1416880000033,
+            "max": 1643.596528999973
+          }
+        }
+      },
+      {
+        "provider": "s3",
+        "customChunkSize": 0,
+        "stage": "initial",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 10746068,
+            "min": 10743267,
+            "max": 10748059
+          },
+          "after": {
+            "n": 3,
+            "median": 10744728,
+            "min": 10743490,
+            "max": 10744768
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 10747754,
+            "min": 10744953,
+            "max": 10749745
+          },
+          "after": {
+            "n": 3,
+            "median": 10746413,
+            "min": 10745175,
+            "max": 10746453
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 14,
+            "min": 14,
+            "max": 14
+          },
+          "after": {
+            "n": 3,
+            "median": 14,
+            "min": 14,
+            "max": 14
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 3046.359106999822,
+            "min": 3028.3139669999946,
+            "max": 4427.596838999947
+          },
+          "after": {
+            "n": 3,
+            "median": 3120.377839999972,
+            "min": 2983.957729000016,
+            "max": 3323.816468999983
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2795.4792780000716,
+            "min": 2778.0776970000006,
+            "max": 4563.666552999988
+          },
+          "after": {
+            "n": 3,
+            "median": 2824.496017999947,
+            "min": 2818.764956000028,
+            "max": 2922.0483589999785
+          }
+        }
+      },
+      {
+        "provider": "s3",
+        "customChunkSize": 0,
+        "stage": "overwrite",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 164154,
+            "min": 164145,
+            "max": 164154
+          },
+          "after": {
+            "n": 3,
+            "median": 164800,
+            "min": 164792,
+            "max": 164803
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 165272,
+            "min": 165263,
+            "max": 165272
+          },
+          "after": {
+            "n": 3,
+            "median": 165918,
+            "min": 165910,
+            "max": 165921
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 6,
+            "min": 6,
+            "max": 6
+          },
+          "after": {
+            "n": 3,
+            "median": 6,
+            "min": 6,
+            "max": 6
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1124.0575869999593,
+            "min": 1081.3456639999058,
+            "max": 1734.9628340000054
+          },
+          "after": {
+            "n": 3,
+            "median": 1122.0232049999759,
+            "min": 1095.2439109999686,
+            "max": 1159.667614000151
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1608.045230000047,
+            "min": 1583.5117620001547,
+            "max": 2545.199171000044
+          },
+          "after": {
+            "n": 3,
+            "median": 1629.3915620000043,
+            "min": 1606.8936819999944,
+            "max": 1787.800067000091
+          }
+        }
+      },
+      {
+        "provider": "s3",
+        "customChunkSize": 0,
+        "stage": "insert",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 8197506,
+            "min": 8197501,
+            "max": 8201307
+          },
+          "after": {
+            "n": 3,
+            "median": 8201931,
+            "min": 8198121,
+            "max": 8201936
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 8198841,
+            "min": 8198836,
+            "max": 8202642
+          },
+          "after": {
+            "n": 3,
+            "median": 8203266,
+            "min": 8199456,
+            "max": 8203271
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 7,
+            "min": 7,
+            "max": 7
+          },
+          "after": {
+            "n": 3,
+            "median": 7,
+            "min": 7,
+            "max": 7
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2437.66559400002,
+            "min": 2435.7255540001206,
+            "max": 2777.037618000002
+          },
+          "after": {
+            "n": 3,
+            "median": 2502.7595459999866,
+            "min": 2384.4262549999403,
+            "max": 2683.1059269998223
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2471.390671000001,
+            "min": 2433.0207450001035,
+            "max": 3043.1745829999563
+          },
+          "after": {
+            "n": 3,
+            "median": 2481.172068999964,
+            "min": 2437.405839999992,
+            "max": 2836.4232579998206
+          }
+        }
+      },
+      {
+        "provider": "s3",
+        "customChunkSize": 4,
+        "stage": "initial",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 10728033,
+            "min": 10727966,
+            "max": 10728515
+          },
+          "after": {
+            "n": 3,
+            "median": 10732415,
+            "min": 10732387,
+            "max": 10733686
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 10729718,
+            "min": 10729651,
+            "max": 10730200
+          },
+          "after": {
+            "n": 3,
+            "median": 10734100,
+            "min": 10733858,
+            "max": 10735371
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 14,
+            "min": 14,
+            "max": 14
+          },
+          "after": {
+            "n": 3,
+            "median": 14,
+            "min": 13,
+            "max": 14
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 3276.177550000022,
+            "min": 2977.7482719998807,
+            "max": 3928.504821999988
+          },
+          "after": {
+            "n": 3,
+            "median": 3029.3907690000196,
+            "min": 2971.2717670000275,
+            "max": 3295.257284999825
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 3235.8845699999947,
+            "min": 2677.0237900000066,
+            "max": 3237.732019999996
+          },
+          "after": {
+            "n": 3,
+            "median": 2741.991052999976,
+            "min": 2721.059141000005,
+            "max": 3023.61282499996
+          }
+        }
+      },
+      {
+        "provider": "s3",
+        "customChunkSize": 4,
+        "stage": "overwrite",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 584144,
+            "min": 584138,
+            "max": 584150
+          },
+          "after": {
+            "n": 3,
+            "median": 345550,
+            "min": 345547,
+            "max": 345557
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 585262,
+            "min": 585256,
+            "max": 585268
+          },
+          "after": {
+            "n": 3,
+            "median": 346668,
+            "min": 346665,
+            "max": 346675
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 6,
+            "min": 6,
+            "max": 6
+          },
+          "after": {
+            "n": 3,
+            "median": 6,
+            "min": 6,
+            "max": 6
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1288.6410000000615,
+            "min": 1126.5705409999937,
+            "max": 1723.5377929999959
+          },
+          "after": {
+            "n": 3,
+            "median": 1160.3165380000137,
+            "min": 1128.8389480000478,
+            "max": 1201.0430769999512
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1830.141961999936,
+            "min": 1531.1995030001272,
+            "max": 3107.647047000006
+          },
+          "after": {
+            "n": 3,
+            "median": 1605.062436999986,
+            "min": 1521.6816279999912,
+            "max": 1773.8595000000205
+          }
+        }
+      },
+      {
+        "provider": "s3",
+        "customChunkSize": 4,
+        "stage": "insert",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 6653867,
+            "min": 6653858,
+            "max": 6653877
+          },
+          "after": {
+            "n": 3,
+            "median": 402450,
+            "min": 402444,
+            "max": 402457
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 6654986,
+            "min": 6654977,
+            "max": 6654996
+          },
+          "after": {
+            "n": 3,
+            "median": 403568,
+            "min": 403562,
+            "max": 403575
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 6,
+            "min": 6,
+            "max": 6
+          },
+          "after": {
+            "n": 3,
+            "median": 6,
+            "min": 6,
+            "max": 6
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2161.9912760000443,
+            "min": 1827.2005680000875,
+            "max": 2386.362057999999
+          },
+          "after": {
+            "n": 3,
+            "median": 1187.2799109999905,
+            "min": 1135.2829700000002,
+            "max": 1228.5499720000662
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2387.604940999998,
+            "min": 1934.1742190001532,
+            "max": 3626.93317199999
+          },
+          "after": {
+            "n": 3,
+            "median": 1732.0012370000477,
+            "min": 1649.7668709999998,
+            "max": 1770.8272889999207
+          }
+        }
+      },
+      {
+        "provider": "s3",
+        "customChunkSize": 10,
+        "stage": "initial",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 10722818,
+            "min": 10722772,
+            "max": 10726701
+          },
+          "after": {
+            "n": 3,
+            "median": 10724724,
+            "min": 10723677,
+            "max": 10726150
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 10724504,
+            "min": 10724458,
+            "max": 10728387
+          },
+          "after": {
+            "n": 3,
+            "median": 10726410,
+            "min": 10725363,
+            "max": 10727836
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 14,
+            "min": 14,
+            "max": 14
+          },
+          "after": {
+            "n": 3,
+            "median": 14,
+            "min": 14,
+            "max": 14
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2957.7679229999194,
+            "min": 2900.7031549999956,
+            "max": 5376.228815000039
+          },
+          "after": {
+            "n": 3,
+            "median": 2942.4733869999764,
+            "min": 2935.662123999966,
+            "max": 3448.803697000025
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2693.166082999902,
+            "min": 2632.144346000161,
+            "max": 4004.0311230000225
+          },
+          "after": {
+            "n": 3,
+            "median": 2629.0241829999723,
+            "min": 2582.97342200001,
+            "max": 4402.540918000042
+          }
+        }
+      },
+      {
+        "provider": "s3",
+        "customChunkSize": 10,
+        "stage": "overwrite",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 1217587,
+            "min": 1217586,
+            "max": 1217590
+          },
+          "after": {
+            "n": 3,
+            "median": 1218482,
+            "min": 1218477,
+            "max": 1218488
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 1218707,
+            "min": 1218706,
+            "max": 1218710
+          },
+          "after": {
+            "n": 3,
+            "median": 1219602,
+            "min": 1219597,
+            "max": 1219608
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 6,
+            "min": 6,
+            "max": 6
+          },
+          "after": {
+            "n": 3,
+            "median": 6,
+            "min": 6,
+            "max": 6
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1428.6160060000839,
+            "min": 1227.9458490000106,
+            "max": 1829.3388810000033
+          },
+          "after": {
+            "n": 3,
+            "median": 1247.205356999999,
+            "min": 1246.345076000027,
+            "max": 1350.3370740001556
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1983.5558160000946,
+            "min": 1547.5761149998289,
+            "max": 2242.9799590000184
+          },
+          "after": {
+            "n": 3,
+            "median": 1711.8140839999542,
+            "min": 1543.0907419999712,
+            "max": 1729.9650300000212
+          }
+        }
+      },
+      {
+        "provider": "s3",
+        "customChunkSize": 10,
+        "stage": "insert",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 7403717,
+            "min": 7403713,
+            "max": 7403722
+          },
+          "after": {
+            "n": 3,
+            "median": 1971068,
+            "min": 1971066,
+            "max": 1971069
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 7404837,
+            "min": 7404833,
+            "max": 7404842
+          },
+          "after": {
+            "n": 3,
+            "median": 1972188,
+            "min": 1972186,
+            "max": 1972189
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 6,
+            "min": 6,
+            "max": 6
+          },
+          "after": {
+            "n": 3,
+            "median": 6,
+            "min": 6,
+            "max": 6
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2182.1524660000578,
+            "min": 1914.5758250001818,
+            "max": 2481.861869000015
+          },
+          "after": {
+            "n": 3,
+            "median": 1436.075131999969,
+            "min": 1418.4279509999906,
+            "max": 2013.955690999981
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2397.183173999889,
+            "min": 1987.4321970001329,
+            "max": 2841.6531609999947
+          },
+          "after": {
+            "n": 3,
+            "median": 1749.4109370000078,
+            "min": 1711.5978060000343,
+            "max": 2790.534498000052
+          }
+        }
+      },
+      {
+        "provider": "s3",
+        "customChunkSize": 20,
+        "stage": "initial",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 10725036,
+            "min": 10724201,
+            "max": 10725342
+          },
+          "after": {
+            "n": 3,
+            "median": 10725039,
+            "min": 10721188,
+            "max": 10726459
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 10726722,
+            "min": 10725887,
+            "max": 10727028
+          },
+          "after": {
+            "n": 3,
+            "median": 10726725,
+            "min": 10722874,
+            "max": 10728145
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 14,
+            "min": 14,
+            "max": 14
+          },
+          "after": {
+            "n": 3,
+            "median": 14,
+            "min": 14,
+            "max": 14
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 3135.6635809999425,
+            "min": 2916.5775319999084,
+            "max": 4574.298825000005
+          },
+          "after": {
+            "n": 3,
+            "median": 3001.3104320000275,
+            "min": 2889.7062840000144,
+            "max": 3890.4987060001586
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2619.8687470000004,
+            "min": 2603.959330999991,
+            "max": 3245.172963000019
+          },
+          "after": {
+            "n": 3,
+            "median": 2591.8557729999884,
+            "min": 2564.6868400000385,
+            "max": 3432.864962000167
+          }
+        }
+      },
+      {
+        "provider": "s3",
+        "customChunkSize": 20,
+        "stage": "overwrite",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 2273716,
+            "min": 2273713,
+            "max": 2273720
+          },
+          "after": {
+            "n": 3,
+            "median": 2274521,
+            "min": 2274521,
+            "max": 2274524
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 2274836,
+            "min": 2274833,
+            "max": 2274840
+          },
+          "after": {
+            "n": 3,
+            "median": 2275641,
+            "min": 2275641,
+            "max": 2275644
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 6,
+            "min": 6,
+            "max": 6
+          },
+          "after": {
+            "n": 3,
+            "median": 6,
+            "min": 6,
+            "max": 6
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1669.9986059999792,
+            "min": 1361.4877920001745,
+            "max": 1944.579402000003
+          },
+          "after": {
+            "n": 3,
+            "median": 1452.8631900000037,
+            "min": 1435.6248100000084,
+            "max": 1824.6727550001815
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2096.8360889999894,
+            "min": 1628.6660359997768,
+            "max": 2262.024064999947
+          },
+          "after": {
+            "n": 3,
+            "median": 1724.0337690000306,
+            "min": 1613.5485459999763,
+            "max": 2284.1038260001224
+          }
+        }
+      },
+      {
+        "provider": "s3",
+        "customChunkSize": 20,
+        "stage": "insert",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 8564989,
+            "min": 8564983,
+            "max": 8564990
+          },
+          "after": {
+            "n": 3,
+            "median": 3133305,
+            "min": 3133304,
+            "max": 3133305
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 8566324,
+            "min": 8566318,
+            "max": 8566325
+          },
+          "after": {
+            "n": 3,
+            "median": 3134425,
+            "min": 3134424,
+            "max": 3134425
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 7,
+            "min": 7,
+            "max": 7
+          },
+          "after": {
+            "n": 3,
+            "median": 6,
+            "min": 6,
+            "max": 6
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2300.2419969999464,
+            "min": 2030.5443880001549,
+            "max": 2503.634304999956
+          },
+          "after": {
+            "n": 3,
+            "median": 1489.5846770000062,
+            "min": 1441.8806319999858,
+            "max": 1745.7812030001078
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2478.165214000037,
+            "min": 2093.872647000011,
+            "max": 2912.7935679999646
+          },
+          "after": {
+            "n": 3,
+            "median": 1782.59889199998,
+            "min": 1757.482484999986,
+            "max": 2333.329035999952
+          }
+        }
+      },
+      {
+        "provider": "s3",
+        "customChunkSize": 40,
+        "stage": "initial",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 10724175,
+            "min": 10723941,
+            "max": 10724948
+          },
+          "after": {
+            "n": 3,
+            "median": 10723063,
+            "min": 10723059,
+            "max": 10725267
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 10725861,
+            "min": 10725627,
+            "max": 10726634
+          },
+          "after": {
+            "n": 3,
+            "median": 10724749,
+            "min": 10724745,
+            "max": 10726953
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 14,
+            "min": 14,
+            "max": 14
+          },
+          "after": {
+            "n": 3,
+            "median": 14,
+            "min": 14,
+            "max": 14
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2978.061551999999,
+            "min": 2876.6166769999545,
+            "max": 3297.40546499996
+          },
+          "after": {
+            "n": 3,
+            "median": 2902.4888890000293,
+            "min": 2899.7798390000244,
+            "max": 3881.609435000224
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2654.8789490000345,
+            "min": 2590.302125999937,
+            "max": 3228.6705050000455
+          },
+          "after": {
+            "n": 3,
+            "median": 2657.107359000016,
+            "min": 2591.1645700000226,
+            "max": 3220.5064670001157
+          }
+        }
+      },
+      {
+        "provider": "s3",
+        "customChunkSize": 40,
+        "stage": "overwrite",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 3000800,
+            "min": 3000796,
+            "max": 3000804
+          },
+          "after": {
+            "n": 3,
+            "median": 2867975,
+            "min": 2867970,
+            "max": 2867979
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 3001920,
+            "min": 3001916,
+            "max": 3001924
+          },
+          "after": {
+            "n": 3,
+            "median": 2869095,
+            "min": 2869090,
+            "max": 2869099
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 6,
+            "min": 6,
+            "max": 6
+          },
+          "after": {
+            "n": 3,
+            "median": 6,
+            "min": 6,
+            "max": 6
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1456.3175429999828,
+            "min": 1445.6288850000128,
+            "max": 1751.3495289999992
+          },
+          "after": {
+            "n": 3,
+            "median": 1480.6762860000017,
+            "min": 1438.407779000001,
+            "max": 1720.6433949999046
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 1694.9579320000485,
+            "min": 1674.116115000099,
+            "max": 1921.4237999999896
+          },
+          "after": {
+            "n": 3,
+            "median": 1652.489840000053,
+            "min": 1640.229839000036,
+            "max": 2137.3171180000063
+          }
+        }
+      },
+      {
+        "provider": "s3",
+        "customChunkSize": 40,
+        "stage": "insert",
+        "upload_requestBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 8563276,
+            "min": 8563270,
+            "max": 8563277
+          },
+          "after": {
+            "n": 3,
+            "median": 3133163,
+            "min": 3133154,
+            "max": 3133164
+          }
+        },
+        "download_responseBodyBytes": {
+          "before": {
+            "n": 3,
+            "median": 8564610,
+            "min": 8564604,
+            "max": 8564611
+          },
+          "after": {
+            "n": 3,
+            "median": 3134283,
+            "min": 3134274,
+            "max": 3134284
+          }
+        },
+        "upload_requests": {
+          "before": {
+            "n": 3,
+            "median": 7,
+            "min": 7,
+            "max": 7
+          },
+          "after": {
+            "n": 3,
+            "median": 6,
+            "min": 6,
+            "max": 6
+          }
+        },
+        "upload_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2180.407939000055,
+            "min": 2054.112751000095,
+            "max": 2304.0438910000958
+          },
+          "after": {
+            "n": 3,
+            "median": 1521.5506670000032,
+            "min": 1467.8129620000254,
+            "max": 1970.9566610001493
+          }
+        },
+        "download_elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2036.351090000011,
+            "min": 2029.7466149999527,
+            "max": 2468.094980999944
+          },
+          "after": {
+            "n": 3,
+            "median": 1780.4314440000453,
+            "min": 1774.8457849998958,
+            "max": 2660.930409999797
+          }
+        }
+      }
+    ],
+    "p2p": [
+      {
+        "provider": "p2p",
+        "customChunkSize": 0,
+        "stage": "initial",
+        "host_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 18636320,
+            "min": 18636293,
+            "max": 18636320
+          },
+          "after": {
+            "n": 3,
+            "median": 18628326,
+            "min": 18628268,
+            "max": 20001395
+          }
+        },
+        "target_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 346307,
+            "min": 346307,
+            "max": 346334
+          },
+          "after": {
+            "n": 3,
+            "median": 342602,
+            "min": 342602,
+            "max": 344089
+          }
+        },
+        "elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 9273.026378999988,
+            "min": 8954.762815,
+            "max": 9597.22450999997
+          },
+          "after": {
+            "n": 3,
+            "median": 9431.569536000025,
+            "min": 9342.229215,
+            "max": 9736.67070399999
+          }
+        }
+      },
+      {
+        "provider": "p2p",
+        "customChunkSize": 0,
+        "stage": "overwrite",
+        "host_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 233159,
+            "min": 233159,
+            "max": 233186
+          },
+          "after": {
+            "n": 3,
+            "median": 234338,
+            "min": 234311,
+            "max": 234441
+          }
+        },
+        "target_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 9469,
+            "min": 9442,
+            "max": 9469
+          },
+          "after": {
+            "n": 3,
+            "median": 9442,
+            "min": 9442,
+            "max": 9469
+          }
+        },
+        "elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2274.8742160000256,
+            "min": 2130.6890740000526,
+            "max": 2287.7584549999992
+          },
+          "after": {
+            "n": 3,
+            "median": 2133.562385000001,
+            "min": 2113.777530000021,
+            "max": 2313.982047999976
+          }
+        }
+      },
+      {
+        "provider": "p2p",
+        "customChunkSize": 0,
+        "stage": "insert",
+        "host_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 14354607,
+            "min": 14354607,
+            "max": 14354634
+          },
+          "after": {
+            "n": 3,
+            "median": 17668443,
+            "min": 14355759,
+            "max": 19368855
+          }
+        },
+        "target_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 45214,
+            "min": 45187,
+            "max": 45214
+          },
+          "after": {
+            "n": 3,
+            "median": 48643,
+            "min": 45214,
+            "max": 49707
+          }
+        },
+        "elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 7413.131129999994,
+            "min": 7383.984449999996,
+            "max": 7709.093152999994
+          },
+          "after": {
+            "n": 3,
+            "median": 8505.513587999973,
+            "min": 7803.887315,
+            "max": 9622.137733000003
+          }
+        }
+      },
+      {
+        "provider": "p2p",
+        "customChunkSize": 4,
+        "stage": "initial",
+        "host_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 18573882,
+            "min": 18573659,
+            "max": 22832304
+          },
+          "after": {
+            "n": 3,
+            "median": 18570080,
+            "min": 18569982,
+            "max": 18570665
+          }
+        },
+        "target_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 313171,
+            "min": 313144,
+            "max": 317498
+          },
+          "after": {
+            "n": 3,
+            "median": 310615,
+            "min": 310588,
+            "max": 310615
+          }
+        },
+        "elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 9523.009932999965,
+            "min": 9266.963941000002,
+            "max": 10252.270529000001
+          },
+          "after": {
+            "n": 3,
+            "median": 9257.860966000007,
+            "min": 9217.555185999954,
+            "max": 9274.630612
+          }
+        }
+      },
+      {
+        "provider": "p2p",
+        "customChunkSize": 4,
+        "stage": "overwrite",
+        "host_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 788181,
+            "min": 788181,
+            "max": 828315
+          },
+          "after": {
+            "n": 3,
+            "median": 496652,
+            "min": 472905,
+            "max": 646467
+          }
+        },
+        "target_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 9453,
+            "min": 9453,
+            "max": 10059
+          },
+          "after": {
+            "n": 3,
+            "median": 9939,
+            "min": 9453,
+            "max": 9939
+          }
+        },
+        "elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 2552.1775729999936,
+            "min": 2417.939188999997,
+            "max": 2690.1669770000735
+          },
+          "after": {
+            "n": 3,
+            "median": 2439.044426999986,
+            "min": 2330.417083999986,
+            "max": 2470.341444000005
+          }
+        }
+      },
+      {
+        "provider": "p2p",
+        "customChunkSize": 4,
+        "stage": "insert",
+        "host_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 9011528,
+            "min": 9011528,
+            "max": 25141929
+          },
+          "after": {
+            "n": 3,
+            "median": 720985,
+            "min": 720958,
+            "max": 1123797
+          }
+        },
+        "target_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 13118,
+            "min": 13118,
+            "max": 21930
+          },
+          "after": {
+            "n": 3,
+            "median": 9453,
+            "min": 9426,
+            "max": 10032
+          }
+        },
+        "elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 5280.544995999997,
+            "min": 5202.59713800007,
+            "max": 10071.74986499999
+          },
+          "after": {
+            "n": 3,
+            "median": 2529.6506640000152,
+            "min": 2373.532300000006,
+            "max": 2714.5229910000926
+          }
+        }
+      },
+      {
+        "provider": "p2p",
+        "customChunkSize": 10,
+        "stage": "initial",
+        "host_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 18565264,
+            "min": 18565168,
+            "max": 18565264
+          },
+          "after": {
+            "n": 3,
+            "median": 18557238,
+            "min": 18557048,
+            "max": 18557334
+          }
+        },
+        "target_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 309170,
+            "min": 309170,
+            "max": 309170
+          },
+          "after": {
+            "n": 3,
+            "median": 303950,
+            "min": 303950,
+            "max": 303950
+          }
+        },
+        "elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 9221.770435999992,
+            "min": 9144.095398000005,
+            "max": 9296.69090300001
+          },
+          "after": {
+            "n": 3,
+            "median": 9476.306547999993,
+            "min": 9105.944970000011,
+            "max": 9508.458282000007
+          }
+        }
+      },
+      {
+        "provider": "p2p",
+        "customChunkSize": 10,
+        "stage": "overwrite",
+        "host_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 2680496,
+            "min": 1627618,
+            "max": 2780239
+          },
+          "after": {
+            "n": 3,
+            "median": 1628842,
+            "min": 1628815,
+            "max": 2659120
+          }
+        },
+        "target_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 10695,
+            "min": 9428,
+            "max": 10968
+          },
+          "after": {
+            "n": 3,
+            "median": 9455,
+            "min": 9428,
+            "max": 10100
+          }
+        },
+        "elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 3451.0162509999936,
+            "min": 2725.199498000031,
+            "max": 4708.112415999989
+          },
+          "after": {
+            "n": 3,
+            "median": 2784.794853999978,
+            "min": 2769.321140999993,
+            "max": 3991.6264819999924
+          }
+        }
+      },
+      {
+        "provider": "p2p",
+        "customChunkSize": 10,
+        "stage": "insert",
+        "host_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 10449309,
+            "min": 10449282,
+            "max": 20554064
+          },
+          "after": {
+            "n": 3,
+            "median": 3245775,
+            "min": 3245775,
+            "max": 3245802
+          }
+        },
+        "target_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 11727,
+            "min": 11700,
+            "max": 22603
+          },
+          "after": {
+            "n": 3,
+            "median": 9739,
+            "min": 9712,
+            "max": 9739
+          }
+        },
+        "elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 6369.082214000009,
+            "min": 6254.311782000004,
+            "max": 8897.349318000022
+          },
+          "after": {
+            "n": 3,
+            "median": 3686.528446000011,
+            "min": 3404.720588999975,
+            "max": 4225.687784000009
+          }
+        }
+      },
+      {
+        "provider": "p2p",
+        "customChunkSize": 40,
+        "stage": "initial",
+        "host_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 18565708,
+            "min": 18564314,
+            "max": 26737524
+          },
+          "after": {
+            "n": 3,
+            "median": 31708666,
+            "min": 26314041,
+            "max": 34276235
+          }
+        },
+        "target_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 308034,
+            "min": 308034,
+            "max": 316655
+          },
+          "after": {
+            "n": 3,
+            "median": 314207,
+            "min": 312212,
+            "max": 318973
+          }
+        },
+        "elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 9322.70443599997,
+            "min": 9185.105424000008,
+            "max": 11465.517744999961
+          },
+          "after": {
+            "n": 3,
+            "median": 14282.153873000003,
+            "min": 11760.06318300002,
+            "max": 14410.081947999948
+          }
+        }
+      },
+      {
+        "provider": "p2p",
+        "customChunkSize": 40,
+        "stage": "overwrite",
+        "host_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 7020532,
+            "min": 3990647,
+            "max": 7650466
+          },
+          "after": {
+            "n": 3,
+            "median": 3814773,
+            "min": 3814643,
+            "max": 7164544
+          }
+        },
+        "target_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 11168,
+            "min": 9455,
+            "max": 13273
+          },
+          "after": {
+            "n": 3,
+            "median": 9455,
+            "min": 9428,
+            "max": 13013
+          }
+        },
+        "elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 5384.747604999982,
+            "min": 3898.9266120000393,
+            "max": 5585.896257999993
+          },
+          "after": {
+            "n": 3,
+            "median": 3818.497774999996,
+            "min": 3602.8315970000112,
+            "max": 4848.633121000021
+          }
+        }
+      },
+      {
+        "provider": "p2p",
+        "customChunkSize": 40,
+        "stage": "insert",
+        "host_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 11985241,
+            "min": 11985241,
+            "max": 11985268
+          },
+          "after": {
+            "n": 3,
+            "median": 4784573,
+            "min": 4784546,
+            "max": 4784573
+          }
+        },
+        "target_payloadBytesSent": {
+          "before": {
+            "n": 3,
+            "median": 9739,
+            "min": 9712,
+            "max": 9739
+          },
+          "after": {
+            "n": 3,
+            "median": 9428,
+            "min": 9428,
+            "max": 9455
+          }
+        },
+        "elapsedMs": {
+          "before": {
+            "n": 3,
+            "median": 6749.19061999995,
+            "min": 6703.184424999985,
+            "max": 6890.6410259999975
+          },
+          "after": {
+            "n": 3,
+            "median": 4032.0379289999837,
+            "min": 3886.2895900000003,
+            "max": 4088.8212850000127
+          }
+        }
+      }
+    ]
+  }
+}

@@ -29,7 +29,7 @@ import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManage
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
 import { serialized } from "octagonal-wheels/concurrency/lock";
-import { VaultScanResults, type VaultScanResult } from "@lib/services/base/VaultScanResult.ts";
+import { VaultScanResults, type VaultScanResult, type VaultScanOptions } from "@lib/services/base/VaultScanResult.ts";
 
 export { VaultScanResults };
 export type { VaultScanResult };
@@ -616,7 +616,8 @@ export async function syncFileBetweenDBandStorage(
     host: NecessaryServices<"setting" | "vault" | "path", "storageAccess" | "fileHandler">,
     log: LogFunction,
     file: UXFileInfoStub,
-    doc: MetaEntry
+    doc: MetaEntry,
+    scanOptions?: VaultScanOptions
 ): Promise<FilePairProcessResult> {
     const docPath = getPathFromEntry(host, doc);
     if (!doc) {
@@ -629,8 +630,9 @@ export async function syncFileBetweenDBandStorage(
         case BASE_IS_NEW:
             if (!host.services.vault.isFileSizeTooLarge(file.stat.size)) {
                 log("STORAGE -> DB :" + file.path);
-                await host.serviceModules.fileHandler.storeFileToDB(file);
-                return FilePairProcessResults.COMPLETED;
+                return (await host.serviceModules.fileHandler.storeFileToDB(file))
+                    ? FilePairProcessResults.COMPLETED
+                    : FilePairProcessResults.FAILED;
             } else {
                 log(
                     `STORAGE -> DB : ${file.path} has been skipped due to file size exceeding the limit`,
@@ -659,11 +661,29 @@ export async function syncFileBetweenDBandStorage(
                 return FilePairProcessResults.SKIPPED;
             }
         case EVEN:
-            if (doc._rev) {
-                await host.serviceModules.fileHandler.tryRecordUntrackedFileRevision(file, doc._rev);
+            if (host.services.vault.isFileSizeTooLarge(file.stat.size) || host.services.vault.isFileSizeTooLarge(doc.size)) {
+                log(`STORAGE ? DB : ${file.path} has been skipped due to file size exceeding the limit`, LOG_LEVEL_NOTICE);
+                return FilePairProcessResults.SKIPPED;
             }
-            log("STORAGE == DB :" + file.path + "", LOG_LEVEL_DEBUG);
-            return FilePairProcessResults.COMPLETED;
+            if (scanOptions?.strictContentCheck === false &&
+                await host.serviceModules.fileHandler.canSkipUnchangedFile?.(file, doc)) {
+                log(`STORAGE ? DB : ${file.path} skipped using unchanged storage and revision metadata`, LOG_LEVEL_DEBUG);
+                return FilePairProcessResults.SKIPPED;
+            }
+            if (doc._rev && (await host.serviceModules.fileHandler.tryRecordUntrackedFileRevision(file, doc._rev))) {
+                log("STORAGE == DB :" + file.path, LOG_LEVEL_DEBUG);
+                return FilePairProcessResults.COMPLETED;
+            }
+            log("STORAGE ? DB :" + file.path + " Checking content", LOG_LEVEL_DEBUG);
+            try {
+                return (await host.serviceModules.fileHandler.storeFileToDB(file, false, false, { revalidateStorage: true }))
+                    ? FilePairProcessResults.COMPLETED
+                    : FilePairProcessResults.FAILED;
+            } catch (error) {
+                log(`STORAGE ? DB : Could not reconcile ${file.path}`, LOG_LEVEL_NOTICE);
+                log(error, LOG_LEVEL_VERBOSE);
+                return FilePairProcessResults.FAILED;
+            }
         default:
             log("STORAGE ?? DB :" + file.path + " Something got weird");
             return FilePairProcessResults.FAILED;
@@ -840,7 +860,9 @@ export async function updateToDatabase(
 ): Promise<FilePairProcessResult> {
     if (!host.services.vault.isFileSizeTooLarge(file.stat.size)) {
         const path = file.path;
-        await host.serviceModules.fileHandler.storeFileToDB(file);
+        if (!(await host.serviceModules.fileHandler.storeFileToDB(file))) {
+            return FilePairProcessResults.FAILED;
+        }
         host.services.context.events.emitEvent("event-file-changed", { file: path, automated: true });
         return FilePairProcessResults.COMPLETED;
     } else {
@@ -893,7 +915,8 @@ export async function syncStorageAndDatabase(
     log: LogFunction,
     file: UXFileInfoStub,
     logLevel: LOG_LEVEL,
-    doc: MetaEntry
+    doc: MetaEntry,
+    scanOptions?: VaultScanOptions
 ): Promise<FilePairProcessResult> {
     // Prevent applying the conflicted state to the storage.
     if ((doc._conflicts?.length ?? 0) > 0) {
@@ -901,7 +924,7 @@ export async function syncStorageAndDatabase(
         return FilePairProcessResults.SKIPPED;
     }
     if (!host.services.vault.isFileSizeTooLarge(file.stat.size) && !host.services.vault.isFileSizeTooLarge(doc.size)) {
-        return await syncFileBetweenDBandStorage(host, log, file, doc);
+        return await syncFileBetweenDBandStorage(host, log, file, doc, scanOptions);
     } else {
         log(
             `SYNC DATABASE AND STORAGE: ${getPathFromEntry(host, doc)} has been skipped due to file size exceeding the limit`,
@@ -943,7 +966,7 @@ export const ExtraOnLocal = {
     APPEND_STORAGE_ONLY: "append-storage-only",
 } as const;
 
-export interface FullScanOptions {
+export interface FullScanOptions extends VaultScanOptions {
     mode: FullScanMode;
     extraOnLocal?: (typeof ExtraOnLocal)[keyof typeof ExtraOnLocal];
     extraOnRemote?: (typeof ExtraOnRemote)[keyof typeof ExtraOnRemote];
@@ -1100,7 +1123,7 @@ async function processFilePair(
                 if (!file || !doc) {
                     throw new Error(`Cannot compare freshness for ${path}`);
                 }
-                const syncResult = await syncStorageAndDatabase(host, log, file, LOG_LEVEL_INFO, doc);
+                const syncResult = await syncStorageAndDatabase(host, log, file, LOG_LEVEL_INFO, doc, options);
                 if (syncResult === FilePairProcessResults.COMPLETED) {
                     updateFileMTimeInMap(host, fileMapKey, Math.max(file.stat.mtime, doc.mtime));
                 }
@@ -1450,12 +1473,14 @@ export function useOfflineScanner(
     const handleScanVault = async (
         showingNotice?: boolean,
         ignoreSuspending: boolean = false,
-        continueOnFileFailure: boolean = false
+        continueOnFileFailure: boolean = false,
+        scanOptions?: VaultScanOptions
     ): Promise<VaultScanResult> => {
         return await performFullScan(host, log, errorManager, {
             showingNotice,
             ignoreSuspending,
             continueOnFileFailure,
+            strictContentCheck: scanOptions?.strictContentCheck,
         });
     };
     // Bind handlers to lifecycle events

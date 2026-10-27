@@ -1,6 +1,11 @@
 import type { FilePath, FilePathWithPrefix, MetaEntry } from "@lib/common/models/db.type";
 import type { UXFileInfo, UXFileInfoStub, UXInternalFileInfoStub } from "@lib/common/models/fileaccess.type";
 
+export interface StoreFileOptions {
+    /** Recheck storage and provenance, with bounded retries for recovery scans. */
+    revalidateStorage?: boolean;
+}
+
 export interface IFileHandler {
     readFileFromStub(file: UXFileInfoStub | UXFileInfo): Promise<UXFileInfo>;
 
@@ -11,10 +16,14 @@ export interface IFileHandler {
      */
     tryRecordUntrackedFileRevision(info: UXFileInfoStub | UXFileInfo, expectedRevision: string): Promise<boolean>;
 
+    /** Metadata-only scan hint; never certifies content equality or changes provenance. */
+    canSkipUnchangedFile?(info: UXFileInfoStub, expected: MetaEntry): Promise<boolean>;
+
     storeFileToDB(
         info: UXFileInfoStub | UXFileInfo | UXInternalFileInfoStub | FilePathWithPrefix,
         force?: boolean,
-        onlyChunks?: boolean
+        onlyChunks?: boolean,
+        options?: StoreFileOptions
     ): Promise<boolean>;
 
     /**

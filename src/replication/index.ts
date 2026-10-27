@@ -60,7 +60,11 @@ export type {
 export { CAPABILITY_SUPPORT_KINDS, CAPABILITY_UNAVAILABLE_REASONS } from "./ProviderCapability.ts";
 export { NO_REMOTE_RESOURCE_CAPABILITIES, REMOTE_RESOURCE_KINDS } from "./RemoteResource.ts";
 export type {
+    InitialFetchFastForwardResource,
+    InitialFetchFastForwardResourceFactory,
     ConnectionProbeFactory,
+    JoinedDevicesResource,
+    JoinedDevicesResourceFactory,
     PreferredTweakProbe,
     PreferredTweakProbeFactory,
     RemoteConnectionProbe,
@@ -75,6 +79,7 @@ export type {
     SynchronisationInformationResource,
     SynchronisationInformationResourceFactory,
 } from "./RemoteResource.ts";
+export type { InitialFetchFastForward } from "./couchdb/fastForward.ts";
 export {
     CENTRAL_REMOTE_ADMINISTRATION_ACTIONS,
     CENTRAL_REMOTE_ADMINISTRATION_FAILURE_REASONS,
@@ -109,3 +114,12 @@ export {
     usesEncryptedInternalMetadata,
 } from "../pouchdb/remoteFeatureCompatibility.ts";
 export type { RemoteFeatureAssessment } from "../pouchdb/remoteFeatureCompatibility.ts";
+
+export type { JoinedDevice, JoinedDevicesSnapshot, ForgetJoinedDeviceResult } from "./joinedDevices.ts";
+
+export type {
+    ReplicationStatics,
+    CouchDBReplicationPhase,
+    CouchDBReplicationProgress,
+    ReplicationCheckpointProgress,
+} from "../common/models/shared.definition.ts";

@@ -51,6 +51,15 @@ export class ServiceFileAccessBase<TAdapter extends IFileSystemAdapter<any, any,
         this.vaultAccess = services.vaultAccess;
         services.appLifecycle.onFirstInitialise.addHandler(this._everyOnFirstInitialize.bind(this));
         services.fileProcessing.commitPendingFileEvents.addHandler(this._everyCommitPendingFileEvent.bind(this));
+        services.appLifecycle.onBeforeUnload.addHandler(async () => {
+            if (this.vaultManager.stopWatching) await this.vaultManager.stopWatching();
+            else await this.vaultManager.waitForIdle();
+            return true;
+        });
+    }
+
+    hasPendingFileEvent(path: FilePath): boolean {
+        return this.vaultManager.hasPendingFileEvent?.(path) ?? true;
     }
 
     restoreState() {

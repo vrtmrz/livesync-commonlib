@@ -1,0 +1,253 @@
+{
+  "date": "2026-10-23",
+  "commonlibVersion": "0.1.44",
+  "selfHostedLiveSyncVersion": "1.0.39",
+  "status": "unpublished candidate; rule A and new setup defaults are not applied",
+  "commonlibBaseRevision": "b435ba3270d76c6ddd67ff0269c334434a2e029e",
+  "packedTarballSha256": "46cb510ea5de3fe7005d4180e51ca4343e6ad221fffc81553eab3982628dca8c",
+  "fixture": {
+    "files": 4000,
+    "chunks": 40000,
+    "documents": 44000,
+    "updatedGenerationTwoMetadata": 4000,
+    "extraLeaves": 40,
+    "extraDeletedLeaves": 1,
+    "rawChunkBytes": 1024,
+    "couchdb": "3.5.0",
+    "pouchdb": "9.0.0",
+    "shards": 2,
+    "replicas": 1
+  },
+  "scope": "Fresh Fast Fetch only. Full-leaf completion and normal checkpoint handoff; no arbitrary-time operation, On Demand repair, or automatic fallback. Artificial small payloads and a memory adapter isolate counts; not full Vault or mobile timings.",
+  "sources": {
+    "streamingFetchSha256": "5601e31dad8a568ec56c83f147a3d4ba66294c6bf100e729adf365f9fd6c83c8",
+    "fastForwardSha256": "14ac6fce3f415c1f244c2166fb12f12dcd4b0f16facda779aeda1c3bae54e905",
+    "harnessSha256": "d7218f5daa1f82f9b5535dee437be0f108937fe4d1bf651fd40eb4ae3b014fab"
+  },
+  "validation": {
+    "importedRevisionsPerFetch": 44040,
+    "allFortyConflictPairsPresent": true,
+    "zeroNormalBodyWritesAfterImport": true,
+    "zeroPushIdScanAfterHandoff": true,
+    "batchChangePreservesProgress": true,
+    "subsequentTwoWayEditsPropagate": true
+  },
+  "phases": [
+    {
+      "name": "full-leaf-fast-fetch-without-handoff",
+      "rttMs": 0,
+      "elapsedMs": 12266.501218999998,
+      "requests": 54,
+      "byOperation": {
+        "changes": 7,
+        "changes-stream": 5,
+        "bulk-get": 42
+      },
+      "requestBytes": 267060,
+      "responseBytes": 80236307,
+      "revisionIdsChecked": 0,
+      "requestedRevisions": 4040,
+      "missingRevisionIds": 0,
+      "result": {
+        "storedRevisions": 44040,
+        "cursor": "48040-g1AAAACReJzLYWBgYMpgTmHgzcvPy09JdcjLz8gvLskBCScyJNX___8_K4M5iYEhNiQXKMZubJJmYWiYjK4ehwl5LECSoQFI_YcbFAcxyMQ02TwxzRhdWxYAKsMr5g"
+      }
+    },
+    {
+      "name": "first-normal-b25-without-handoff",
+      "rttMs": 0,
+      "elapsedMs": 37351.94605499999,
+      "requests": 5925,
+      "byOperation": {
+        "server-info": 2,
+        "checkpoint-get": 1921,
+        "database-or-document": 161,
+        "changes": 161,
+        "revs-diff": 1760,
+        "checkpoint-put": 1920
+      },
+      "requestBytes": 5096516,
+      "responseBytes": 1645529,
+      "revisionIdsChecked": 44000,
+      "requestedRevisions": 0,
+      "missingRevisionIds": 0,
+      "result": {
+        "push": {
+          "docsWritten": 0
+        },
+        "pull": {
+          "docsWritten": 0
+        }
+      }
+    },
+    {
+      "name": "prepare-fresh-handoff-rtt100",
+      "rttMs": 100,
+      "elapsedMs": 1161.4965950000042,
+      "requests": 11,
+      "byOperation": {
+        "server-info": 3,
+        "checkpoint-get": 6,
+        "checkpoint-put": 2
+      },
+      "requestBytes": 440,
+      "responseBytes": 1499,
+      "revisionIdsChecked": 0,
+      "requestedRevisions": 0,
+      "missingRevisionIds": 0,
+      "result": {
+        "prepared": true
+      }
+    },
+    {
+      "name": "full-leaf-fast-fetch-rtt100",
+      "rttMs": 100,
+      "elapsedMs": 15321.423872,
+      "requests": 53,
+      "byOperation": {
+        "changes": 7,
+        "changes-stream": 5,
+        "bulk-get": 41
+      },
+      "requestBytes": 267050,
+      "responseBytes": 80227292,
+      "revisionIdsChecked": 0,
+      "requestedRevisions": 4040,
+      "missingRevisionIds": 0,
+      "result": {
+        "storedRevisions": 44040,
+        "cursor": "48040-g1AAAACReJzLYWBgYMpgTmHgzcvPy09JdcjLz8gvLskBCScyJNX___8_K4M5iYEhNiQXKMZubJJmYWiYjK4ehwl5LECSoQFI_YcbFAcxyMQ02TwxzRhdWxYAKsMr5g"
+      }
+    },
+    {
+      "name": "publish-fresh-handoff-rtt100",
+      "rttMs": 100,
+      "elapsedMs": 2209.461995999998,
+      "requests": 5,
+      "byOperation": {
+        "server-info": 1,
+        "checkpoint-get": 2,
+        "checkpoint-put": 2
+      },
+      "requestBytes": 740,
+      "responseBytes": 841,
+      "revisionIdsChecked": 0,
+      "requestedRevisions": 0,
+      "missingRevisionIds": 0,
+      "result": {
+        "advanced": true
+      }
+    },
+    {
+      "name": "first-normal-b25-after-handoff-rtt100",
+      "rttMs": 100,
+      "elapsedMs": 526.5933490000025,
+      "requests": 8,
+      "byOperation": {
+        "server-info": 2,
+        "checkpoint-get": 4,
+        "database-or-document": 1,
+        "changes": 1
+      },
+      "requestBytes": 36,
+      "responseBytes": 2672,
+      "revisionIdsChecked": 0,
+      "requestedRevisions": 0,
+      "missingRevisionIds": 0,
+      "result": {
+        "push": {
+          "docsWritten": 0
+        },
+        "pull": {
+          "docsWritten": 0
+        }
+      }
+    },
+    {
+      "name": "batch-change-to1000-after-handoff-rtt100",
+      "rttMs": 100,
+      "elapsedMs": 526.9008310000063,
+      "requests": 8,
+      "byOperation": {
+        "server-info": 2,
+        "checkpoint-get": 4,
+        "database-or-document": 1,
+        "changes": 1
+      },
+      "requestBytes": 36,
+      "responseBytes": 2672,
+      "revisionIdsChecked": 0,
+      "requestedRevisions": 0,
+      "missingRevisionIds": 0,
+      "result": {
+        "push": {
+          "docsWritten": 0
+        },
+        "pull": {
+          "docsWritten": 0
+        }
+      }
+    },
+    {
+      "name": "post-handoff-two-way-edits",
+      "rttMs": 0,
+      "elapsedMs": 56.3784760000126,
+      "requests": 15,
+      "byOperation": {
+        "server-info": 2,
+        "checkpoint-get": 4,
+        "database-or-document": 2,
+        "revs-diff": 1,
+        "changes": 2,
+        "bulk-docs": 1,
+        "bulk-get": 1,
+        "checkpoint-put": 2
+      },
+      "requestBytes": 1433,
+      "responseBytes": 4033,
+      "revisionIdsChecked": 1,
+      "requestedRevisions": 1,
+      "missingRevisionIds": 1,
+      "result": {
+        "push": {
+          "docsWritten": 1
+        },
+        "pull": {
+          "docsWritten": 1
+        }
+      }
+    }
+  ],
+  "interpretation": {
+    "additionalFetchedBodies": "4,000 updated Metadata winners need ancestry; 40 extra current leaves include one deleted leaf",
+    "fullFetchHttpRequests": [
+      54,
+      53
+    ],
+    "bulkGetHttpRequests": [
+      42,
+      41
+    ],
+    "requestedRevisionBodiesPerFetch": 4040,
+    "withoutHandoffOrdinarySyncHttpRequests": 5925,
+    "withHandoffOrdinarySyncHttpRequests": 8,
+    "withHandoffPushRevisionIdsChecked": 0,
+    "separatePreparationHttpRequests": 11,
+    "separatePublicationHttpRequests": 5,
+    "baselineRttMs": 0,
+    "handoffRttMs": 100,
+    "timingComparability": "Single samples in order, with warmed caches and different injected RTTs. Do not treat the elapsed-time ratio as an isolated speedup.",
+    "requestCountVariation": "Page boundaries and sharded changes ordering can split a partially filled revision group. Counts also depend on connection setup state.",
+    "excluded": [
+      "rebuild preflights and control writes",
+      "filesystem scan and reflection",
+      "encryption and decryption",
+      "bandwidth limitation",
+      "Cloudant service behaviour",
+      "mobile execution",
+      "arbitrary-time fast-forwarding",
+      "automatic fallback",
+      "remote database replacement during import and handoff"
+    ]
+  }
+}

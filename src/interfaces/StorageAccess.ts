@@ -22,6 +22,9 @@ export interface StorageAccess {
 
     restoreState(): Promise<void>;
 
+    /** Includes queued, running, and failed work; absence requires a conservative content check. */
+    hasPendingFileEvent?(path: FilePath): boolean;
+
     deleteVaultItem(file: FilePathWithPrefix | UXFileInfoStub | UXFolderInfo): Promise<void>;
 
     renameFile(file: UXFileInfoStub | FilePathWithPrefix, newPath: FilePathWithPrefix): Promise<UXFileInfoStub | null>;

@@ -18,7 +18,7 @@ import { createNewVaultSettings } from "@vrtmrz/livesync-commonlib/settings";
 const initialSettings = createNewVaultSettings();
 ```
 
-The recommended base currently selects a 50 MB maximum synchronised file size, Rabin–Karp chunk splitting, Plug-in Sync V2, case-insensitive file-name handling, and E2EE V2. Chunk revisions are always derived from their content; the obsolete `doNotUseFixedRevisionForChunks` stored key is retained only for compatibility and is not a recommendation or tweak. The recommended base does not enable synchronisation or encryption on behalf of the user.
+The recommended base currently selects a 50 MB maximum synchronised file size, a `customChunkSize` value of 0, Rabin–Karp chunk splitting, Plug-in Sync V2, case-insensitive file-name handling, and E2EE V2. Chunk revisions are always derived from their content; the obsolete `doNotUseFixedRevisionForChunks` stored key is retained only for compatibility and is not a recommendation or tweak. The recommended base does not enable synchronisation or encryption on behalf of the user.
 
 Compared with the conservative stored-setting fallbacks, the current new-Vault object has exactly two semantic differences:
 
@@ -27,15 +27,23 @@ Compared with the conservative stored-setting fallbacks, the current new-Vault o
 | `usePluginSyncV2` | `false` | `true` |
 | `handleFilenameCaseSensitive` | normalised from the legacy absent value to `false` | `false` |
 
-The other headline recommendations are already the conservative fallbacks: `syncMaxSizeInMB` is 50, `chunkSplitterVersion` is `v3-rabin-karp`, and `E2EEAlgorithm` is `v2`. Data Compression, Eden, V1 dynamic iteration, the legacy IndexedDB adapter, Hidden File Sync, and automatic synchronisation remain disabled when their stored values are absent. Explicit stored values take precedence.
+The other headline recommendations are already the conservative fallbacks: `syncMaxSizeInMB` is 50, `customChunkSize` is 0, `chunkSplitterVersion` is `v3-rabin-karp`, and `E2EEAlgorithm` is `v2`. Data Compression, Eden, V1 dynamic iteration, the legacy IndexedDB adapter, Hidden File Sync, and automatic synchronisation remain disabled when their stored values are absent. Explicit stored values take precedence.
 
-Apply a remote-specific preferred object only while configuring that remote. Do not merge it into an existing stored configuration merely because the remote type can be inferred. The self-hosted CouchDB profile uses a chunk-size coefficient of 60, matching the Doctor check for Rabin–Karp databases; Cloudant retains its service-specific value of 0.
+Apply a remote-specific preferred object only while configuring that remote. Do not merge it into an existing stored configuration merely because the remote type can be inferred. Cloudant, self-hosted CouchDB, and Journal Sync setup all use the common `customChunkSize` value of 0. Their unrelated request and bulk settings remain service-specific. The current Doctor regulation no longer recommends changing the value to 60 universally, and existing explicit values remain valid.
+
+The new Doctor rule set inherits 1.0.33 and withdraws the Chunk-size rule with
+`customChunkSize: undefined`. Historical regulations keep their original rules.
+This removes the recommendation, rather than deleting a stored setting or
+forcing it to 0. Its consultation version deliberately remains 1.0.33: removing
+a recommendation does not require users to review unchanged recommendations
+again. Existing dismissals remain effective; an explicit forced rescan still
+checks the remaining rules.
 
 | Explicitly selected remote | `customChunkSize` | `concurrencyOfReadChunksOnline` | `minimumIntervalOfReadChunksOnline` |
 | --- | ---: | ---: | ---: |
 | Cloudant | 0 | 100 | 333 |
-| Self-hosted CouchDB | 60 | 30 | 25 |
-| Object Storage | 10 | 30 | 25 |
+| Self-hosted CouchDB | 0 | 30 | 25 |
+| Journal Sync (Object Storage) | 0 | 30 | 25 |
 
 These are setup-time recommendations, not upgrade migrations. Selecting or detecting a remote does not apply them to an existing configuration unless the person is actively configuring that remote.
 
@@ -60,6 +68,8 @@ if (prepared.requiresSyncReview) {
 
 Explicit stored values take precedence over every fallback. A migration therefore preserves synchronisation switches and other user choices unless a migration step documents a deliberate transformation.
 
+`batchSaveInLiveSync` is a separate explicit choice for bounded local database batching in LiveSync mode. Both new and existing settings default to `false`; the legacy pair `liveSync: true, batchSave: true` does not enable it. The public setting property is optional for existing host settings shapes, and a missing value remains disabled. Other modes continue to use `batchSave`. Markdown settings and QR data preserve the explicit choice, while older imports without the property do not infer it from `batchSave`. Hosts should preserve both choices during ordinary mode changes and use the shared minimum and maximum delays.
+
 The sleep preferences are included in Setup URI encoding. When an older Setup URI or stored setting does not contain either key, `allowSleepDuringSynchronisation` defaults to `false`, while `allowSleepDuringSynchronisationOnDesktop` defaults to `true`. The maintained Obsidian host therefore retains best-effort screen-awake protection on mobile but allows normal automatic sleep on desktop unless the user selects otherwise.
 
 SyncGuard preferences are device-local. `syncGuardEnabled` defaults to `false` for both new and existing Vaults, and `syncGuardMinimumFiles` defaults to `20`. Commonlib persists explicit local values but excludes both preferences from Markdown exports and Setup URI/QR data. Hosts own SyncGuard behaviour and minimum-file-count validation.
@@ -73,6 +83,30 @@ Two other values deliberately remain unset until their owning lifecycle supplies
 `SettingsMigrationReviewCodes.FilenameCaseSensitivityUnresolved` remains as a deprecated compatibility export for release-candidate consumers, but `prepareSettingsForLoad` no longer emits it.
 
 The standard Commonlib `SettingService` performs this preparation automatically. Hosts which use that service can inspect `getSettingsMigrationState()` after `loadSettings()` instead of calling the function themselves.
+
+## Host storage for device values and configuration
+
+The host selects an asynchronous `ValueStore & ValueDeleter` for each application instance and injects it into the setting service as `deviceValues`. Commonlib does not discover `globalThis.localStorage`, create module-global storage, or fall back to another store. `setting.deviceValues` exposes the injected exact-key root. `setting.config` is an asynchronous view over the same root, scoped to the current Vault name and `additionalSuffixOfDatabaseName`; the Service Hub `config` property refers to that same view.
+
+For an existing Web Storage layout, pass the selected storage object explicitly and use an empty adapter prefix so the service can address existing raw keys:
+
+```ts
+import { createWebStorageValueStore } from "@vrtmrz/value-store/web-storage";
+
+const deviceValues = createWebStorageValueStore(window.localStorage, { prefix: "" });
+// Supply deviceValues as the setting service's required composition dependency.
+```
+
+Use `deviceValues` for exact device-local keys, including existing keys such as `ls-setting-passphrase`. Use `config` for logical configuration keys; the service retains the established Vault and database-suffix key format. For example, the `checkpoint` key for Vault `notes` remains `notes--checkpoint` with an empty suffix and `notes-team-checkpoint` with suffix `team`. Keep the existing key names and await every read, write, and deletion:
+
+```ts
+const passphrase = await setting.deviceValues.getValue("ls-setting-passphrase");
+const checkpoint = await setting.config.getValue("checkpoint");
+await setting.config.setValue("checkpoint", "revision-42");
+await setting.config.delete("checkpoint");
+```
+
+`getValue` returns `null` when a key is absent. Use `getObject` and `setObject` for values stored as JSON; Commonlib does not automatically reinterpret old strings or migrate entries between the exact-key root and the scoped view.
 
 ## Preparing settings for persistence and Markdown
 

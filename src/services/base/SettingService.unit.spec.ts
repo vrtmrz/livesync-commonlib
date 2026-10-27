@@ -1,22 +1,51 @@
 import { describe, expect, it, vi } from "vitest";
-import { CURRENT_SETTING_VERSION, DEFAULT_SETTINGS, REMOTE_COUCHDB, SALT_OF_PASSPHRASE } from "@lib/common/types";
+import { ValueStoreError } from "@vrtmrz/value-store";
+import {
+    CURRENT_SETTING_VERSION,
+    DEFAULT_SETTINGS,
+    REMOTE_COUCHDB,
+    SALT_OF_PASSPHRASE,
+    SETTING_KEY_P2P_DEVICE_NAME,
+} from "@lib/common/types";
 import { SettingService } from "./SettingService";
 import { ServiceContext } from "./ServiceBase";
 import type { ObsidianLiveSyncSettings } from "@lib/common/types";
 import { ConnectionStringParser } from "@lib/common/ConnectionString";
 import { encryptString } from "@lib/encryption/stringEncryption";
 
+function createMapBackedValueStore(values = new Map<string, string>()) {
+    return {
+        values,
+        getValue: async (key: string) => values.get(key) ?? null,
+        setValue: async (key: string, value: string) => {
+            values.set(key, value);
+        },
+        delete: async (key: string) => {
+            values.delete(key);
+        },
+    };
+}
+
+type MapBackedValueStore = ReturnType<typeof createMapBackedValueStore>;
+
+function deferred<T>() {
+    let resolve!: (value: T | PromiseLike<T>) => void;
+    const promise = new Promise<T>((resolvePromise) => {
+        resolve = resolvePromise;
+    });
+    return { promise, resolve };
+}
+
+function deviceNameStoreKey(suffix = DEFAULT_SETTINGS.additionalSuffixOfDatabaseName): string {
+    return `obsidian-live-sync-vaultanddevicename-vault${typeof suffix === "undefined" ? "" : `-${suffix}`}`;
+}
+
 class TestSettingService extends SettingService<ServiceContext> {
     lastSavedSetting?: ObsidianLiveSyncSettings;
-    readonly localItems = new Map<string, string>();
-    protected setItem(key: string, value: string): void {
-        this.localItems.set(key, value);
-    }
-    protected getItem(key: string): string {
-        return this.localItems.get(key) ?? "";
-    }
-    protected deleteItem(key: string): void {
-        this.localItems.delete(key);
+    readonly localItems: Map<string, string>;
+    constructor(context: ServiceContext, dependencies: any, deviceValues: MapBackedValueStore) {
+        super(context, { ...dependencies, deviceValues } as any);
+        this.localItems = deviceValues.values;
     }
     protected saveData(setting: ObsidianLiveSyncSettings): Promise<void> {
         this.lastSavedSetting = JSON.parse(JSON.stringify(setting));
@@ -27,18 +56,26 @@ class TestSettingService extends SettingService<ServiceContext> {
     }
 }
 
-function createService(onDisplayLanguageChanged?: (language: ObsidianLiveSyncSettings["displayLanguage"]) => void) {
-    const service = new TestSettingService(new ServiceContext(), {
-        APIService: {
-            getSystemVaultName: vi.fn(() => "vault"),
-            getAppID: vi.fn(() => "app"),
-            confirm: {
-                askString: vi.fn(() => Promise.resolve("")),
-            },
-            addLog: vi.fn(),
+function createService(
+    onDisplayLanguageChanged?: (language: ObsidianLiveSyncSettings["displayLanguage"]) => void,
+    options: { vaultName?: string; deviceValues?: MapBackedValueStore } = {}
+) {
+    const deviceValues = options.deviceValues ?? createMapBackedValueStore();
+    const service = new TestSettingService(
+        new ServiceContext(),
+        {
+            APIService: {
+                getSystemVaultName: vi.fn(() => options.vaultName ?? "vault"),
+                getAppID: vi.fn(() => "app"),
+                confirm: {
+                    askString: vi.fn(() => Promise.resolve("")),
+                },
+                addLog: vi.fn(),
+            } as any,
+            onDisplayLanguageChanged,
         } as any,
-        onDisplayLanguageChanged,
-    } as any);
+        deviceValues
+    );
     service.settings = {
         ...DEFAULT_SETTINGS,
         remoteConfigurations: {},
@@ -178,17 +215,218 @@ describe("SettingService", () => {
         expect(onDisplayLanguageChanged).toHaveBeenCalledWith("ja");
     });
 
-    it("exposes exact device-local configuration without placing it in the settings document", () => {
+    it("exposes exact device-local values without placing them in the settings document", async () => {
         const service = createService();
 
-        service.setDeviceLocalConfig("legacy-version-marker", "12");
+        await service.deviceValues.setValue("legacy-version-marker", "12");
 
-        expect(service.getDeviceLocalConfig("legacy-version-marker")).toBe("12");
+        expect(await service.deviceValues.getValue("legacy-version-marker")).toBe("12");
         expect(service.localItems.get("legacy-version-marker")).toBe("12");
         expect(service.currentSettings()).not.toHaveProperty("legacy-version-marker");
 
-        service.deleteDeviceLocalConfig("legacy-version-marker");
-        expect(service.getDeviceLocalConfig("legacy-version-marker")).toBe("");
+        await service.deviceValues.delete("legacy-version-marker");
+        expect(await service.deviceValues.getValue("legacy-version-marker")).toBeNull();
+    });
+
+    it("preserves Vault and changing database-suffix config keys", async () => {
+        const service = createService(undefined, { vaultName: "synthetic-vault" });
+
+        await service.config.setValue("checkpoint", "empty-suffix-value");
+
+        expect(service.localItems.get("synthetic-vault--checkpoint")).toBe("empty-suffix-value");
+        service.settings.additionalSuffixOfDatabaseName = "first";
+
+        await service.config.setValue("checkpoint", "first-value");
+
+        expect(service.localItems.get("synthetic-vault-first-checkpoint")).toBe("first-value");
+        service.settings.additionalSuffixOfDatabaseName = "second";
+        expect(await service.config.getValue("checkpoint")).toBeNull();
+
+        await service.config.setValue("checkpoint", "second-value");
+
+        expect(service.localItems.get("synthetic-vault-second-checkpoint")).toBe("second-value");
+        expect(await service.config.getValue("checkpoint")).toBe("second-value");
+    });
+
+    it("keeps config values isolated between independently injected service instances", async () => {
+        const first = createService(undefined, {
+            vaultName: "synthetic-vault",
+            deviceValues: createMapBackedValueStore(),
+        });
+        const second = createService(undefined, {
+            vaultName: "synthetic-vault",
+            deviceValues: createMapBackedValueStore(),
+        });
+        first.settings.additionalSuffixOfDatabaseName = "first";
+        second.settings.additionalSuffixOfDatabaseName = "first";
+
+        await first.config.setValue("checkpoint", "first-instance");
+
+        expect(await first.config.getValue("checkpoint")).toBe("first-instance");
+        expect(await second.config.getValue("checkpoint")).toBeNull();
+
+        await second.config.setValue("checkpoint", "second-instance");
+
+        expect(await first.config.getValue("checkpoint")).toBe("first-instance");
+        expect(await second.config.getValue("checkpoint")).toBe("second-instance");
+    });
+
+    it("waits for a deferred device-value write before committing settings", async () => {
+        const deviceValues = createMapBackedValueStore();
+        const writeStarted = deferred<void>();
+        const heldWrite = deferred<void>();
+        const setValue = deviceValues.setValue;
+        deviceValues.setValue = async (key, value) => {
+            await setValue(key, value);
+            if (key.startsWith("obsidian-live-sync-vaultanddevicename-")) {
+                writeStarted.resolve();
+                await heldWrite.promise;
+            }
+        };
+        const service = createService(undefined, { deviceValues });
+        const previousTweak = service.settings.tweakModified;
+        service.onBeforeSaveSettingData.addHandler(async () => ({ tweakModified: 123 }));
+        const saveData = vi.spyOn(service as any, "saveData");
+
+        const saving = service.saveSettingData();
+        await writeStarted.promise;
+
+        expect(saveData).not.toHaveBeenCalled();
+        expect(service.settings.tweakModified).toBe(previousTweak);
+
+        heldWrite.resolve();
+        await saving;
+
+        expect(saveData).toHaveBeenCalledOnce();
+        expect(service.settings.tweakModified).toBe(123);
+    });
+
+    it.each([
+        {
+            description: "device-name root",
+            shouldFail: (key: string) => key.startsWith("obsidian-live-sync-vaultanddevicename-"),
+            makeError: () => new Error("device-value write failed"),
+            expectedError: { message: "device-value write failed" },
+        },
+        {
+            description: "P2P-scoped name",
+            shouldFail: (key: string) => key.endsWith(`-${SETTING_KEY_P2P_DEVICE_NAME}`),
+            makeError: () => new ValueStoreError("operation-failed"),
+            expectedError: { code: "operation-failed" },
+        },
+    ])(
+        "does not commit settings when the $description write fails",
+        async ({ shouldFail, makeError, expectedError }) => {
+            const deviceValues = createMapBackedValueStore();
+            const setValue = deviceValues.setValue;
+            deviceValues.setValue = async (key, value) => {
+                if (shouldFail(key)) throw makeError();
+                await setValue(key, value);
+            };
+            const service = createService(undefined, { deviceValues });
+            service.settings.tweakModified = 42;
+            service.settings.P2P_DevicePeerName = "new-peer-name";
+            service.setDeviceAndVaultName("new-device-name");
+            service.onBeforeSaveSettingData.addHandler(async () => ({ tweakModified: 123 }));
+            const saveData = vi.spyOn(service as any, "saveData");
+            const onSettingSaved = vi.fn();
+            service.onSettingSaved.addHandler(onSettingSaved);
+
+            await expect(service.saveSettingData()).rejects.toMatchObject(expectedError);
+
+            expect(saveData).not.toHaveBeenCalled();
+            expect(onSettingSaved).not.toHaveBeenCalled();
+            expect(service.settings.tweakModified).toBe(42);
+            expect(service.settings.P2P_DevicePeerName).toBe("new-peer-name");
+            expect(service.getDeviceAndVaultName()).toBe("new-device-name");
+        }
+    );
+
+    it("moves a legacy device name to the exact-key root before clearing the settings field", async () => {
+        const deviceValues = createMapBackedValueStore();
+        const service = createService(undefined, { deviceValues });
+        vi.spyOn(service as any, "loadData").mockResolvedValue({
+            ...DEFAULT_SETTINGS,
+            deviceAndVaultName: "legacy-device-name",
+        });
+        vi.spyOn(service, "saveSettingData").mockResolvedValue();
+
+        await service.loadSettings();
+
+        expect(deviceValues.values.get(deviceNameStoreKey())).toBe("legacy-device-name");
+        expect(service.settings.deviceAndVaultName).toBe("");
+        expect(service.getDeviceAndVaultName()).toBe("legacy-device-name");
+    });
+
+    it("keeps an existing exact-key device name ahead of the legacy settings field", async () => {
+        const deviceNameKey = deviceNameStoreKey();
+        const deviceValues = createMapBackedValueStore(new Map([[deviceNameKey, "stored-device-name"]]));
+        const service = createService(undefined, { deviceValues });
+        vi.spyOn(service as any, "loadData").mockResolvedValue({
+            ...DEFAULT_SETTINGS,
+            deviceAndVaultName: "legacy-device-name",
+        });
+        vi.spyOn(service, "saveSettingData").mockResolvedValue();
+
+        await service.loadSettings();
+
+        expect(deviceValues.values.get(deviceNameKey)).toBe("stored-device-name");
+        expect(service.getDeviceAndVaultName()).toBe("stored-device-name");
+    });
+
+    it("keeps the legacy device name until its exact-key write completes", async () => {
+        const deviceNameKey = deviceNameStoreKey();
+        const deviceValues = createMapBackedValueStore();
+        const writeStarted = deferred<void>();
+        const heldWrite = deferred<void>();
+        const setValue = deviceValues.setValue;
+        deviceValues.setValue = async (key, value) => {
+            await setValue(key, value);
+            if (key === deviceNameKey) {
+                writeStarted.resolve();
+                await heldWrite.promise;
+            }
+        };
+        const service = createService(undefined, { deviceValues });
+        vi.spyOn(service as any, "loadData").mockResolvedValue({
+            ...DEFAULT_SETTINGS,
+            deviceAndVaultName: "legacy-device-name",
+        });
+        vi.spyOn(service, "saveSettingData").mockResolvedValue();
+
+        const loading = service.loadSettings();
+        await writeStarted.promise;
+
+        try {
+            expect(service.settings.deviceAndVaultName).toBe("legacy-device-name");
+        } finally {
+            heldWrite.resolve();
+        }
+        await loading;
+
+        expect(service.settings.deviceAndVaultName).toBe("");
+        expect(deviceValues.values.get(deviceNameKey)).toBe("legacy-device-name");
+    });
+
+    it("preserves and reports a legacy device name when its exact-key write fails", async () => {
+        const deviceNameKey = deviceNameStoreKey();
+        const deviceValues = createMapBackedValueStore();
+        const setValue = deviceValues.setValue;
+        deviceValues.setValue = async (key, value) => {
+            if (key === deviceNameKey) throw new Error("legacy device-name write failed");
+            await setValue(key, value);
+        };
+        const service = createService(undefined, { deviceValues });
+        vi.spyOn(service as any, "loadData").mockResolvedValue({
+            ...DEFAULT_SETTINGS,
+            deviceAndVaultName: "legacy-device-name",
+        });
+        vi.spyOn(service, "saveSettingData").mockResolvedValue();
+
+        await expect(service.loadSettings()).rejects.toThrow("legacy device-name write failed");
+
+        expect(service.settings.deviceAndVaultName).toBe("legacy-device-name");
+        expect(deviceValues.values.has(deviceNameKey)).toBe(false);
     });
 
     it("adjustSettings should migrate legacy remote settings into remoteConfigurations", async () => {

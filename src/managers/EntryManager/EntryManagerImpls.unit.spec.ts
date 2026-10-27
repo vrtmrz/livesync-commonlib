@@ -206,6 +206,36 @@ describe("EntryManagerImpls", () => {
             expect(isTargetFile(host, "notallowed/file.md")).toBe(false);
         });
 
+        it.each([".obsidian/plugins/example/main.js", ".obsidian/snippets/example.css", ".obsidian/settings.json"])(
+            "uses the normal-file allow-list only for the unprefixed path: %s",
+            (path) => {
+                const services = createMockServices({ syncInternalFiles: true, syncOnlyRegEx: "\\.(?:md|png|pdf)$" });
+                const host = createHost(services.mockSettingService);
+                expect(isTargetFile(host, path)).toBe(false);
+                expect(isTargetFile(host, `${ICHeader}${path}`)).toBe(true);
+            }
+        );
+
+        it("compatibility: keeps the normal-file ignore-list effective for hidden documents", () => {
+            const services = createMockServices({
+                syncInternalFiles: true,
+                syncOnlyRegEx: "\\.(?:md|png|pdf)$",
+                syncIgnoreRegEx: "^\\.obsidian/plugins/",
+            });
+            const host = createHost(services.mockSettingService);
+            expect(isTargetFile(host, "i:.obsidian/plugins/example/main.js")).toBe(false);
+            expect(isTargetFile(host, "i:.obsidian/plugins/example/readme.md")).toBe(false);
+        });
+
+        it.each([ICXHeader, PSCHeader])("preserves the %s selection exception", (prefix) => {
+            const services = createMockServices({
+                syncInternalFiles: false,
+                syncOnlyRegEx: "\\.md$",
+                syncIgnoreRegEx: ".*",
+            });
+            expect(isTargetFile(createHost(services.mockSettingService), `${prefix}device/CONFIG/app.json`)).toBe(true);
+        });
+
         it("should respect syncIgnoreRegEx setting", () => {
             const services = createMockServices({
                 syncIgnoreRegEx: "^ignored/.*" as any,

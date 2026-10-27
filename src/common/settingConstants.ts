@@ -160,6 +160,10 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
         name: "Sync on Startup",
         desc: "Automatically Sync all files when opening Obsidian.",
     },
+    strictContentCheckOnStartup: {
+        name: "Strict content check on startup",
+        desc: "Compare file contents even when modification time and size match. This can slow startup in large vaults.",
+    },
     syncAfterMerge: {
         name: "Sync after merging file",
         desc: "Sync automatically after merging files",
@@ -199,6 +203,10 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
     batchSave: {
         name: "Batch database update",
         desc: "Reducing the frequency with which on-disk changes are reflected into the DB",
+    },
+    batchSaveInLiveSync: {
+        name: "Batch database updates in LiveSync mode",
+        desc: "Wait for a bounded local quiet period before processing file updates in LiveSync mode, reducing intermediate database updates while delaying their reflection to remote devices.",
     },
     readChunksOnline: {
         name: "Fetch chunks on demand",
@@ -369,11 +377,11 @@ export const SettingInformation: Partial<Record<keyof AllSettings, Configuration
     },
     batchSaveMinimumDelay: {
         name: "Minimum delay for batch database updating",
-        desc: "Seconds. Saving to the local database will be delayed until this value after we stop typing or saving.",
+        desc: "Seconds. The quiet period after the latest pending update before local database processing becomes due.",
     },
     batchSaveMaximumDelay: {
         name: "Maximum delay for batch database updating",
-        desc: "Saving will be performed forcefully after this number of seconds.",
+        desc: "Seconds. The maximum intentional wait from the first pending update before local database processing becomes due. This does not guarantee when database processing, network delivery, or reflection to another device will complete.",
     },
     notifyThresholdOfRemoteStorageSize: {
         name: "Notify when the estimated remote storage size exceeds on start up",

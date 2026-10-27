@@ -262,6 +262,26 @@ describe("DirectFileManipulator", () => {
         expect(settings.usePathObfuscation).toBe(true);
     });
 
+    it.each([
+        { syncInternalFiles: true, expected: true },
+        { syncInternalFiles: false, expected: false },
+        { syncInternalFiles: undefined, expected: false },
+    ])("propagates syncInternalFiles option $syncInternalFiles to settings", ({ syncInternalFiles, expected }) => {
+        const options: DirectFileManipulatorOptions = {
+            url: "https://example.com/couchdb",
+            database: "vault",
+            username: "alice",
+            password: "secret",
+            passphrase: undefined,
+            obfuscatePassphrase: undefined,
+            ...(syncInternalFiles === undefined ? {} : { syncInternalFiles }),
+        };
+        const getSettings = Object.getOwnPropertyDescriptor(DirectFileManipulator.prototype, "settings")?.get;
+        if (!getSettings) throw new Error("DirectFileManipulator.settings getter is unavailable");
+
+        expect(getSettings.call({ options } as DirectFileManipulator).syncInternalFiles).toBe(expected);
+    });
+
     it("uses the dedicated path-obfuscation passphrase when it differs from the encryption passphrase", async () => {
         const options: DirectFileManipulatorOptions = {
             url: "https://example.com/couchdb",

@@ -32,6 +32,7 @@ describe("prepareSettingsForLoad", () => {
 
         expect(prepared.isNewVault).toBe(true);
         expect(prepared.changed).toBe(false);
+        expect(prepared.settings.batchSaveInLiveSync).toBe(false);
         expect(prepared.settings).toEqual(NEW_VAULT_SETTINGS);
         expect(prepared.settings).not.toBe(NEW_VAULT_SETTINGS);
         expect(prepared.settings.remoteConfigurations).not.toBe(NEW_VAULT_SETTINGS.remoteConfigurations);
@@ -83,6 +84,46 @@ describe("prepareSettingsForLoad", () => {
         expect(prepared.settings.lessInformationInLog).toBe(SETTINGS_SCHEMA_DEFAULTS.lessInformationInLog);
         expect(prepared.settings.allowSleepDuringSynchronisation).toBe(false);
         expect(prepared.settings.allowSleepDuringSynchronisationOnDesktop).toBe(true);
+    });
+
+    it("does not infer LiveSync batching from the legacy batch-save preference", () => {
+        const prepared = prepareSettingsForLoad({
+            liveSync: true,
+            batchSave: true,
+        });
+
+        expect(prepared.settings.batchSave).toBe(true);
+        expect(prepared.settings.batchSaveInLiveSync).toBe(false);
+    });
+
+    it("preserves an explicit LiveSync batching choice across repeated loads", () => {
+        const first = prepareSettingsForLoad({
+            liveSync: true,
+            batchSave: true,
+            batchSaveInLiveSync: true,
+        });
+        const second = prepareSettingsForLoad(first.settings);
+
+        expect(first.settings.batchSaveInLiveSync).toBe(true);
+        expect(second.settings.batchSaveInLiveSync).toBe(true);
+        expect(second.changed).toBe(false);
+        expect(second.settings).toEqual(first.settings);
+    });
+
+    it("defaults strict startup content checks off and preserves explicit stored choices", () => {
+        expect(prepareSettingsForLoad(undefined).settings).toHaveProperty("strictContentCheckOnStartup", false);
+        expect(
+            prepareSettingsForLoad({ settingVersion: CURRENT_SETTING_VERSION, liveSync: true }).settings
+        ).toHaveProperty("strictContentCheckOnStartup", false);
+
+        for (const value of [false, true]) {
+            const prepared = prepareSettingsForLoad({
+                settingVersion: CURRENT_SETTING_VERSION,
+                liveSync: true,
+                strictContentCheckOnStartup: value,
+            });
+            expect(prepared.settings).toHaveProperty("strictContentCheckOnStartup", value);
+        }
     });
 
     it("adds P2P transport compatibility defaults when stored settings predate them", () => {
@@ -166,22 +207,35 @@ describe("prepareSettingsForLoad", () => {
         expect(deliberatelyUnsetKeys).toEqual(["autoAcceptCompatibleTweak", "isConfigured", "tweakModified"]);
     });
 
-    it("keeps remote-specific recommendations separate from the new-Vault base", () => {
+    it("uses one chunk-size recommendation for new setups while retaining remote-specific tuning", () => {
+        expect(SETTINGS_SCHEMA_DEFAULTS.customChunkSize).toBe(0);
+        expect(NEW_VAULT_SETTINGS.customChunkSize).toBe(0);
         expect(PREFERRED_SETTING_CLOUDANT).toMatchObject({
             customChunkSize: 0,
+            sendChunksBulkMaxSize: 1,
             concurrencyOfReadChunksOnline: 100,
             minimumIntervalOfReadChunksOnline: 333,
         });
         expect(PREFERRED_SETTING_SELF_HOSTED).toMatchObject({
-            customChunkSize: 60,
+            customChunkSize: 0,
+            sendChunksBulkMaxSize: 1,
             concurrencyOfReadChunksOnline: 30,
             minimumIntervalOfReadChunksOnline: 25,
         });
         expect(PREFERRED_JOURNAL_SYNC).toMatchObject({
-            customChunkSize: 10,
+            customChunkSize: 0,
             concurrencyOfReadChunksOnline: 30,
             minimumIntervalOfReadChunksOnline: 25,
         });
+    });
+
+    it("preserves an explicitly stored chunk-size choice during settings completion", () => {
+        const prepared = prepareSettingsForLoad({
+            settingVersion: CURRENT_SETTING_VERSION,
+            customChunkSize: 80,
+        });
+
+        expect(prepared.settings.customChunkSize).toBe(80);
     });
 
     it("does not expose the invariant chunk-revision policy as a tweak", () => {

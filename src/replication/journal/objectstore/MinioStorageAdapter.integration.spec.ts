@@ -132,6 +132,7 @@ describe("MinioStorageAdapter Integration Tests", () => {
                 API: {
                     getAppVersion: () => "integration-test",
                     getPluginVersion: () => "integration-test",
+                    getPlatform: () => "integration-test",
                     getCustomFetchHandler: () => undefined,
                     requestCount,
                     responseCount,

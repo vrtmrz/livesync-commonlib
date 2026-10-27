@@ -35,6 +35,7 @@ export interface DeviceInfo {
      */
     plugin_version: string;
     progress: string;
+    platform?: string;
 }
 export interface NodeData extends DeviceInfo {
     /**

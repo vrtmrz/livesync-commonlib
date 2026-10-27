@@ -1,3 +1,4 @@
+import type { ValueStore, ValueDeleter } from "@vrtmrz/value-store";
 import type { FetchHttpHandler } from "@smithy/fetch-http-handler";
 import { type LOG_LEVEL } from "octagonal-wheels/common/logger";
 import type {
@@ -52,8 +53,9 @@ import type {
     CentralRemoteAdministrationRequest,
     CentralRemoteAdministrationResult,
 } from "@lib/replication/CentralRemoteAdministration.ts";
-import type { MultipleHandlerFunction } from "@lib/services/lib/HandlerUtils.ts";
-import type { VaultScanResult } from "./VaultScanResult.ts";
+import type { HandlerOutcome, MultipleHandlerFunction } from "@lib/services/lib/HandlerUtils.ts";
+import type { VaultScanResult, VaultScanOptions } from "./VaultScanResult.ts";
+import type { UICommandRegistry } from "@lib/uiCommands";
 
 declare global {
     interface OPTIONAL_SYNC_FEATURES {
@@ -185,17 +187,31 @@ export interface IDatabaseEventService {
         showingNotice?: boolean,
         reopenDatabase?: boolean,
         ignoreSuspending?: boolean,
-        continueOnFileFailure?: boolean
+        continueOnFileFailure?: boolean,
+        scanOptions?: VaultScanOptions
     ): Promise<VaultScanResult>;
 }
 export interface IKeyValueDBService {
     openSimpleStore<T>(kind: string): SimpleStore<T>;
     simpleStore: SimpleStore<unknown>;
 }
+/** Options for completing an admitted optional file event. */
+export interface OptionalFileEventOptions {
+    /** Resolves when a finite flush needs this event to finish without its debounce delay. */
+    whenFlushRequested?: Promise<void>;
+}
+
 export interface IFileProcessingService {
     processFileEvent(item: FileEventItem): Promise<boolean>;
 
+    /** Legacy notification contract; its boolean does not confirm persistence. */
     processOptionalFileEvent(path: FilePath): Promise<boolean>;
+
+    /** Complete the actual optional file operation, or explain why it is not completed. */
+    processOptionalFileEventWithResult?(
+        path: FilePath,
+        options?: OptionalFileEventOptions
+    ): Promise<HandlerOutcome<void, string>>;
 
     commitPendingFileEvents(): Promise<boolean>;
     batched: ReactiveSource<number>;
@@ -481,19 +497,12 @@ export interface ISettingService {
 
     setDeviceAndVaultName(name: string): void;
 
-    saveDeviceAndVaultName(): void;
+    saveDeviceAndVaultName(): Promise<void>;
 
-    /**
-     * Read host-provided, device-local configuration by its exact key.
-     * This storage is not part of the synchronised settings document.
-     */
-    getDeviceLocalConfig(key: string): string | null;
-
-    /** Store host-provided, device-local configuration by its exact key. */
-    setDeviceLocalConfig(key: string, value: string): void;
-
-    /** Delete host-provided, device-local configuration by its exact key. */
-    deleteDeviceLocalConfig(key: string): void;
+    /** Exact-key host storage; values are local to this application instance. */
+    readonly deviceValues: ValueStore & ValueDeleter;
+    /** Storage scoped by the current Vault and database suffix. */
+    readonly config: IConfigService;
 
     onBeforeSaveSettingData(
         nextSettings: ObsidianLiveSyncSettings,
@@ -517,12 +526,6 @@ export interface ISettingService {
     onSettingLoaded(settings: ObsidianLiveSyncSettings): Promise<boolean>;
     onSettingChanged(settings: ObsidianLiveSyncSettings): Promise<boolean>;
     onSettingSaved(settings: ObsidianLiveSyncSettings): Promise<boolean>;
-
-    getSmallConfig(key: string): string | null;
-
-    setSmallConfig(key: string, value: string): void;
-
-    deleteSmallConfig(key: string): void;
 }
 export interface ITweakValueService {
     fetchRemotePreferred(trialSetting: RemoteDBSettings): Promise<RemotePreferredTweakResult>;
@@ -555,7 +558,8 @@ export interface IVaultService {
     scanVault(
         showingNotice?: boolean,
         ignoreSuspending?: boolean,
-        continueOnFileFailure?: boolean
+        continueOnFileFailure?: boolean,
+        scanOptions?: VaultScanOptions
     ): Promise<VaultScanResult>;
 
     isIgnoredByIgnoreFile(file: string | UXFileInfoStub): Promise<boolean>;
@@ -585,6 +589,8 @@ export interface ITestService {
     addTestResult(name: string, key: string, result: boolean, summary?: string, message?: string): void;
 }
 export interface IUIService {
+    readonly commands: UICommandRegistry;
+
     promptCopyToClipboard(title: string, value: string): Promise<boolean>;
 
     showMarkdownDialog<T extends string[]>(
@@ -595,13 +601,8 @@ export interface IUIService {
 
     get confirm(): Confirm;
 }
-export interface IConfigService {
-    getSmallConfig(key: string): string | null;
-
-    setSmallConfig(key: string, value: string): void;
-
-    deleteSmallConfig(key: string): void;
-}
+/** Asynchronous device configuration selected by the host composition. */
+export type IConfigService = ValueStore & ValueDeleter;
 
 export interface IServiceHub {
     API: IAPIService;

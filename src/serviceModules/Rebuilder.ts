@@ -38,6 +38,7 @@ import { isRemediationModeActive, parseHeaderValues } from "@lib/common/utils";
 import { sizeToHumanReadable } from "octagonal-wheels/number";
 import { REMOTE_RESOURCE_KINDS } from "@lib/replication";
 import type { ReplicatorInstance } from "@lib/replication/ReplicatorInstance.ts";
+import type { InitialFetchFastForward, InitialFetchFastForwardResource } from "@lib/replication";
 
 const FAST_FETCH_CHECKPOINT_KEY = "fast-fetch-checkpoint";
 const FAST_FETCH_RETRY_DELAYS = [2000, 5000, 10000, 20000];
@@ -506,7 +507,7 @@ Are you sure you wish to proceed?`;
         await this.suspendReflectingDatabase(!autoResume);
         await this.control.applySettings();
         await this.resetLocalDatabase();
-        this.clearFastFetchCheckpoint();
+        await this.clearFastFetchCheckpoint();
         await delay(1000);
         if (isRemediationModeActive(this.setting.currentSettings())) {
             // Remediation mode restores an earlier state, so the files in storage are not staged
@@ -585,11 +586,12 @@ Are you sure you wish to proceed?`;
         await checkRemoteFeaturesForInitialSync(remote, authHeader, customHeaders, settings);
 
         this.appLifecycle.resetIsReady();
-        let checkpoint = this.getFastFetchCheckpoint(remote);
+        let checkpoint = await this.getFastFetchCheckpoint(remote);
 
         await this.suspendReflectingDatabase();
         await this.control.applySettings();
         let since = checkpoint?.sequence ?? "0";
+        let startsFresh = !checkpoint;
         if (checkpoint) {
             this._log(
                 `Resuming fast database fetch from sequence: ${checkpoint.sequence}`,
@@ -616,16 +618,19 @@ Are you sure you wish to proceed?`;
                 LOG_LEVEL_NOTICE,
                 "fetch-init-resume"
             );
-            this.clearFastFetchCheckpoint();
+            await this.clearFastFetchCheckpoint();
             await this.resetLocalDatabase();
             await delay(1000);
             localDB = this.database.localDatabase.localDatabase;
             since = "0";
+            startsFresh = true;
         }
         const securitySeed = await this.replicator.createRemoteResource(REMOTE_RESOURCE_KINDS.SECURITY_SEED, settings);
         if (!securitySeed) {
             throw new Error("The selected provider cannot supply a Security Seed for Fast Fetch.");
         }
+        let fastForwardResource: InitialFetchFastForwardResource | undefined;
+        let fastForward: InitialFetchFastForward | undefined;
         try {
             const enc = getConfiguredFunctionsForEncryption(
                 settings.passphrase,
@@ -634,6 +639,14 @@ Are you sure you wish to proceed?`;
                 () => securitySeed.read(),
                 settings.E2EEAlgorithm
             );
+
+            if (startsFresh && !settings.doNotSuspendOnFetching && (await localDB.info()).doc_count === 0) {
+                fastForwardResource = await this.replicator.createRemoteResource(
+                    REMOTE_RESOURCE_KINDS.INITIAL_FETCH_FAST_FORWARD,
+                    this.setting.currentSettings()
+                );
+                fastForward = await fastForwardResource?.prepare();
+            }
 
             for (let attempt = 0; ; attempt++) {
                 try {
@@ -650,8 +663,12 @@ Are you sure you wish to proceed?`;
                                 "fetch-init-progress"
                             );
                         },
-                        (sequence) => this.saveFastFetchCheckpoint(remote, sequence),
-                        customHeaders
+                        async (sequence) => {
+                            await this.saveFastFetchCheckpoint(remote, sequence);
+                            fastForward?.recordCheckpoint(sequence);
+                        },
+                        customHeaders,
+                        fastForward?.recordStoredRevisions
                     );
                     break;
                 } catch (ex) {
@@ -661,7 +678,7 @@ Are you sure you wish to proceed?`;
                     // consuming the retry budget. Each retry resumes from the latest
                     // contiguous checkpoint persisted by the previous attempt.
                     if (!isRetryableStreamingFetchFailure(ex) || attempt >= FAST_FETCH_RETRY_DELAYS.length) throw ex;
-                    checkpoint = this.getFastFetchCheckpoint(remote);
+                    checkpoint = await this.getFastFetchCheckpoint(remote);
                     since = checkpoint?.sequence ?? since;
                     this._log(
                         `Fast fetch interrupted. Retrying from sequence: ${since}`,
@@ -670,6 +687,16 @@ Are you sure you wish to proceed?`;
                     );
                     await delay(FAST_FETCH_RETRY_DELAYS[attempt]);
                 }
+            }
+
+            if (fastForward) {
+                const advanced = await fastForward.fastForward();
+                this._log(
+                    advanced
+                        ? "Advanced the ordinary replication checkpoints through the verified initial Fast Fetch."
+                        : "The initial Fast Fetch did not advance ordinary replication checkpoints.",
+                    LOG_LEVEL_VERBOSE
+                );
             }
 
             const allDocs = await localDB.allDocs({ include_docs: false });
@@ -685,9 +712,13 @@ Are you sure you wish to proceed?`;
                     throw new Error("Fast Fetch could not be finalised.");
                 }
             }
-            this.clearFastFetchCheckpoint();
+            await this.clearFastFetchCheckpoint();
         } finally {
-            await securitySeed.dispose();
+            try {
+                await fastForwardResource?.dispose();
+            } finally {
+                await securitySeed.dispose();
+            }
         }
     }
 
@@ -762,8 +793,8 @@ Are you sure you wish to proceed?`;
         this.events.emitEvent(EVENT_DATABASE_REBUILT);
     }
 
-    private getFastFetchCheckpoint(remote: string): FastFetchCheckpoint | undefined {
-        const rawCheckpoint = this.setting.getSmallConfig(FAST_FETCH_CHECKPOINT_KEY);
+    private async getFastFetchCheckpoint(remote: string): Promise<FastFetchCheckpoint | undefined> {
+        const rawCheckpoint = await this.setting.config.getValue(FAST_FETCH_CHECKPOINT_KEY);
         if (!rawCheckpoint) return undefined;
 
         try {
@@ -781,12 +812,12 @@ Are you sure you wish to proceed?`;
         } catch {
             // Ignore invalid checkpoints and start cleanly.
         }
-        this.clearFastFetchCheckpoint();
+        await this.clearFastFetchCheckpoint();
         return undefined;
     }
 
-    private saveFastFetchCheckpoint(remote: string, sequence: number | string) {
-        this.setting.setSmallConfig(
+    private async saveFastFetchCheckpoint(remote: string, sequence: number | string): Promise<void> {
+        await this.setting.config.setValue(
             FAST_FETCH_CHECKPOINT_KEY,
             JSON.stringify({
                 remote,
@@ -796,7 +827,7 @@ Are you sure you wish to proceed?`;
         );
     }
 
-    private clearFastFetchCheckpoint() {
-        this.setting.deleteSmallConfig(FAST_FETCH_CHECKPOINT_KEY);
+    private async clearFastFetchCheckpoint(): Promise<void> {
+        await this.setting.config.delete(FAST_FETCH_CHECKPOINT_KEY);
     }
 }

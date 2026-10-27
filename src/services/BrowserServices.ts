@@ -1,3 +1,4 @@
+import type { IConfigService } from "@lib/services/base/IService";
 import { InjectableAppLifecycleService } from "@lib/services/implements/injectable/InjectableAppLifecycleService";
 import { InjectableConflictService } from "@lib/services/implements/injectable/InjectableConflictService";
 import { InjectableDatabaseEventService } from "@lib/services/implements/injectable/InjectableDatabaseEventService";
@@ -11,13 +12,11 @@ import { InjectableTestService } from "@lib/services/implements/injectable/Injec
 import { InjectableTweakValueService } from "@lib/services/implements/injectable/InjectableTweakValueService";
 import { InjectableVaultServiceCompat } from "@lib/services/implements/injectable/InjectableVaultService";
 import { ServiceContext } from "@lib/services/base/ServiceBase";
-import { ConfigServiceBrowserCompat } from "@lib/services/implements/browser/ConfigServiceBrowserCompat";
 import { InjectableServiceHub } from "@lib/services/implements/injectable/InjectableServiceHub";
 import type { ServiceInstances } from "@lib/services/ServiceHub";
 import { BrowserDatabaseService, BrowserKeyValueDBService } from "./implements/browser/BrowserDatabaseService";
 import { ControlService } from "./base/ControlService";
 import type { AppLifecycleService, AppLifecycleServiceDependencies } from "./base/AppLifecycleService";
-import type { ConfigService } from "./base/ConfigService";
 import type { ReplicatorService } from "./base/ReplicatorService";
 import type { UIService } from "./implements/base/UIService";
 import type { InjectableAPIService } from "./implements/injectable/InjectableAPIService";
@@ -35,7 +34,7 @@ class BrowserAppLifecycleService<T extends ServiceContext> extends InjectableApp
 export type BrowserServiceHostDependencies<T extends ServiceContext> = {
     API: InjectableAPIService<T>;
     appLifecycle: AppLifecycleService<T>;
-    config: ConfigService<T>;
+    config: IConfigService;
     control: ControlService<T>;
     replicator: ReplicatorService<T>;
 };
@@ -54,6 +53,8 @@ export interface BrowserServiceHost<T extends ServiceContext> {
 export type BrowserServiceHubOptions<T extends ServiceContext> = {
     context?: T;
     host: BrowserServiceHost<T>;
+    /** Exact-key storage selected and owned by the application. */
+    deviceValues: IConfigService;
     openKeyValueDatabase?: KeyValueDatabaseFactory;
     onDisplayLanguageChanged?: (language: ObsidianLiveSyncSettings["displayLanguage"]) => void;
 };
@@ -71,6 +72,7 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
 
         const setting = new InjectableSettingService(context, {
             APIService: API,
+            deviceValues: options.deviceValues,
             onDisplayLanguageChanged: options.onDisplayLanguageChanged,
         });
         const appLifecycle = new BrowserAppLifecycleService(context, { settingService: setting });
@@ -97,10 +99,7 @@ export class BrowserServiceHub<T extends ServiceContext> extends InjectableServi
             setting: setting,
             API: API,
         });
-        const config = new ConfigServiceBrowserCompat<T>(context, {
-            settingService: setting,
-            APIService: API,
-        });
+        const config = setting.config;
         const replicator = new InjectableReplicatorService(context, {
             settingService: setting,
             appLifecycleService: appLifecycle,

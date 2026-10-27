@@ -54,3 +54,15 @@ describe("AppLifecycleService readiness", () => {
         expect(otherChannelEvents).toBe(0);
     });
 });
+
+
+describe("AppLifecycleService pending storage shutdown", () => {
+    it("runs later pending-work cleanup even when an earlier unload preparation fails", async () => {
+        const { lifecycle } = setup();
+        const calls: string[] = [];
+        lifecycle.onBeforeUnload.addHandler(async () => { calls.push("failed"); return false; });
+        lifecycle.onBeforeUnload.addHandler(async () => { calls.push("pending-storage"); return true; });
+        await expect(lifecycle.onBeforeUnload()).resolves.toBe(false);
+        expect(calls).toEqual(["failed", "pending-storage"]);
+    });
+});

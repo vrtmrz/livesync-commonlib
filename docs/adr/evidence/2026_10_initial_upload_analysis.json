@@ -1,0 +1,276 @@
+{
+  "date": "2026-10-23",
+  "decision": "Retain the existing Replicator and paired checkpoints. Dedicated bulk upload and source-only upload checkpoints are deferred; larger temporary batches are an unimplemented bounded-tuning hypothesis.",
+  "status": "Analysis and proposal only; no upload implementation or settings changed.",
+  "fixtureAssumptions": {
+    "files": 4000,
+    "chunks": 40000,
+    "documents": 44000,
+    "allMissing": true,
+    "conflicts": false,
+    "rttMsForExamples": 100,
+    "serialisedWireBytesExample": 1073741824,
+    "bandwidthBytesPerSecondExample": 10485760,
+    "wireTransferSecondsExample": 102.4
+  },
+  "definitions": {
+    "pairedPush": "4K sequential waits: revs_diff, bulk_docs, checkpoint GET and PUT. Source changes and reads are local.",
+    "sourceOnlyPushProposal": "2K waits: retain native revs_diff and bulk_docs; checkpoint source locally; final paired publication is separate and not yet implemented.",
+    "countsNotOptima": "Larger batches require a final-wire-byte and memory bound. These are logical values, not new WAN measurements.",
+    "knownPull": "Upload checkpoints do not certify a reverse pull cursor. Default readChunksOnline=true excludes leaf documents in pull. With it disabled, all imported documents can be scanned.",
+    "wireBytes": "JSON and encryption included; not raw Vault size. Add the byte-transfer term, controls, local work, quotas and failures separately."
+  },
+  "verification": {
+    "priorMeasuredInitialSamplesChecked": 15,
+    "priorFormula": "4K+32",
+    "sourceOnlyNewMeasurement": false
+  },
+  "push": [
+    {
+      "documents": 44000,
+      "batchSize": 25,
+      "checkpointMode": "paired",
+      "batches": 1760,
+      "rttWaves": 7040,
+      "rttSeconds": {
+        "50": 352.0,
+        "100": 704.0,
+        "200": 1408.0
+      }
+    },
+    {
+      "documents": 44000,
+      "batchSize": 25,
+      "checkpointMode": "source-only-deferred",
+      "batches": 1760,
+      "rttWaves": 3520,
+      "rttSeconds": {
+        "50": 176.0,
+        "100": 352.0,
+        "200": 704.0
+      }
+    },
+    {
+      "documents": 44000,
+      "batchSize": 50,
+      "checkpointMode": "paired",
+      "batches": 880,
+      "rttWaves": 3520,
+      "rttSeconds": {
+        "50": 176.0,
+        "100": 352.0,
+        "200": 704.0
+      }
+    },
+    {
+      "documents": 44000,
+      "batchSize": 50,
+      "checkpointMode": "source-only-deferred",
+      "batches": 880,
+      "rttWaves": 1760,
+      "rttSeconds": {
+        "50": 88.0,
+        "100": 176.0,
+        "200": 352.0
+      }
+    },
+    {
+      "documents": 44000,
+      "batchSize": 100,
+      "checkpointMode": "paired",
+      "batches": 440,
+      "rttWaves": 1760,
+      "rttSeconds": {
+        "50": 88.0,
+        "100": 176.0,
+        "200": 352.0
+      }
+    },
+    {
+      "documents": 44000,
+      "batchSize": 100,
+      "checkpointMode": "source-only-deferred",
+      "batches": 440,
+      "rttWaves": 880,
+      "rttSeconds": {
+        "50": 44.0,
+        "100": 88.0,
+        "200": 176.0
+      }
+    },
+    {
+      "documents": 44000,
+      "batchSize": 250,
+      "checkpointMode": "paired",
+      "batches": 176,
+      "rttWaves": 704,
+      "rttSeconds": {
+        "50": 35.2,
+        "100": 70.4,
+        "200": 140.8
+      }
+    },
+    {
+      "documents": 44000,
+      "batchSize": 250,
+      "checkpointMode": "source-only-deferred",
+      "batches": 176,
+      "rttWaves": 352,
+      "rttSeconds": {
+        "50": 17.6,
+        "100": 35.2,
+        "200": 70.4
+      }
+    },
+    {
+      "documents": 220000,
+      "batchSize": 25,
+      "checkpointMode": "paired",
+      "batches": 8800,
+      "rttWaves": 35200,
+      "rttSeconds": {
+        "50": 1760.0,
+        "100": 3520.0,
+        "200": 7040.0
+      }
+    },
+    {
+      "documents": 220000,
+      "batchSize": 25,
+      "checkpointMode": "source-only-deferred",
+      "batches": 8800,
+      "rttWaves": 17600,
+      "rttSeconds": {
+        "50": 880.0,
+        "100": 1760.0,
+        "200": 3520.0
+      }
+    },
+    {
+      "documents": 220000,
+      "batchSize": 50,
+      "checkpointMode": "paired",
+      "batches": 4400,
+      "rttWaves": 17600,
+      "rttSeconds": {
+        "50": 880.0,
+        "100": 1760.0,
+        "200": 3520.0
+      }
+    },
+    {
+      "documents": 220000,
+      "batchSize": 50,
+      "checkpointMode": "source-only-deferred",
+      "batches": 4400,
+      "rttWaves": 8800,
+      "rttSeconds": {
+        "50": 440.0,
+        "100": 880.0,
+        "200": 1760.0
+      }
+    },
+    {
+      "documents": 220000,
+      "batchSize": 100,
+      "checkpointMode": "paired",
+      "batches": 2200,
+      "rttWaves": 8800,
+      "rttSeconds": {
+        "50": 440.0,
+        "100": 880.0,
+        "200": 1760.0
+      }
+    },
+    {
+      "documents": 220000,
+      "batchSize": 100,
+      "checkpointMode": "source-only-deferred",
+      "batches": 2200,
+      "rttWaves": 4400,
+      "rttSeconds": {
+        "50": 220.0,
+        "100": 440.0,
+        "200": 880.0
+      }
+    },
+    {
+      "documents": 220000,
+      "batchSize": 250,
+      "checkpointMode": "paired",
+      "batches": 880,
+      "rttWaves": 3520,
+      "rttSeconds": {
+        "50": 176.0,
+        "100": 352.0,
+        "200": 704.0
+      }
+    },
+    {
+      "documents": 220000,
+      "batchSize": 250,
+      "checkpointMode": "source-only-deferred",
+      "batches": 880,
+      "rttWaves": 1760,
+      "rttSeconds": {
+        "50": 88.0,
+        "100": 176.0,
+        "200": 352.0
+      }
+    }
+  ],
+  "laterKnownPull": [
+    {
+      "rows": 4000,
+      "batchSize": 25,
+      "rttMs": 100,
+      "httpRequestsMainTerm": 640,
+      "leadingWaitSecondsPipelined": 32.1,
+      "leadingWaitSecondsWithoutChangesOverlap": 48.0,
+      "note": "Known-only pull: remote changes and asynchronous source.info plus remote checkpoint GET/PUT. Startup, terminal and local work excluded."
+    },
+    {
+      "rows": 44000,
+      "batchSize": 25,
+      "rttMs": 100,
+      "httpRequestsMainTerm": 7040,
+      "leadingWaitSecondsPipelined": 352.1,
+      "leadingWaitSecondsWithoutChangesOverlap": 528.0,
+      "note": "Known-only pull: remote changes and asynchronous source.info plus remote checkpoint GET/PUT. Startup, terminal and local work excluded."
+    }
+  ],
+  "directBulkLowerBound": {
+    "status": "Unimplemented design comparison, not an achievable end-to-end timing guarantee.",
+    "wireBytes": 1073741824,
+    "targetBytes": 8388608,
+    "maximumDocumentsPerBatchExample": 500,
+    "minimumBulkRequests": 128,
+    "rttSecondsAt100msSerialLowerBound": 12.8,
+    "excludes": [
+      "partial packing",
+      "chunks-before-Metadata phase boundary",
+      "enumeration",
+      "errors and retry",
+      "checkpoint publication",
+      "later pull",
+      "quota",
+      "local work"
+    ]
+  },
+  "history": {
+    "introduced": "c9af24e (2024-09-07)",
+    "oomBuffering": "469b61c5f3084e701142d970e340aed107b1f7d3 (2024-09-24)",
+    "defaultOff": "3108e3e3dba518d4dd85c18982bb2bab7ecee9ee (2024-09-24)",
+    "automaticRemoval": "ed2b0c00fcf98a0fad185e204fbc044e302f9ea1 (2024-10-16)",
+    "maintainerExplanation": "https://github.com/vrtmrz/obsidian-livesync/issues/505#issuecomment-2419243551"
+  },
+  "sourceSha256": {
+    "src/serviceModules/Rebuilder.ts": "6c80c535bbc53971d290db882ae55d5dff8c9610b802821252e2738310881f19",
+    "src/services/base/ReplicationService.ts": "2d657044fa9ac1cceb08049c95f1ea034e7c474919162537cfacf4c85a17cd89",
+    "src/replication/couchdb/LiveSyncReplicator.ts": "d754b98f62a8f5879b91943952e091c7bb93e47daec38e265326e19db4fb6d0c",
+    "node_modules/pouchdb-replication/lib/index.js": "ef8e0fb37b4832407a4700f86021bd07c57850cfe450567af9f938aab142636f",
+    "src/common/models/setting.const.defaults.ts": "ee551baf7a7ea822104223a37a54bf643324df62792f856754afa51ca83188aa"
+  },
+  "priorObservedCountsSha256": "fed29ca589a516a1b01bd891bf7c3f5e3a5b90aac4393e34f5d48aacff9e2af1",
+  "modelSha256": "6bf059f3e6f01ba5ed27ac3899bef416e09155464c16f0d763ef5f4fe687713e"
+}

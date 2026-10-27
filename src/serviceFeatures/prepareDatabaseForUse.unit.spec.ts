@@ -100,6 +100,15 @@ describe("prepareDatabaseForUse readiness", () => {
         return { errorManager, host, isReady: () => ready, timeline };
     }
 
+    it("forwards an explicit startup content-check policy without relaxing event completion", async () => {
+        const { errorManager, host, timeline } = createPreparation();
+        await prepareDatabaseForUse(host, vi.fn(), errorManager as any, false, true, false, true,
+            { strictContentCheck: false });
+        expect(host.services.vault.scanVault).toHaveBeenCalledWith(false, false, true,
+            { strictContentCheck: false });
+        expect(timeline.slice(-2)).toEqual(["commit-pending-events", "mark-ready"]);
+    });
+
     it("marks the application ready only after the scan, post-scan hook, and current event batch succeed", async () => {
         const { errorManager, host, isReady, timeline } = createPreparation();
 
@@ -127,7 +136,7 @@ describe("prepareDatabaseForUse readiness", () => {
             "completed-with-file-failures"
         );
 
-        expect(host.services.vault.scanVault).toHaveBeenCalledWith(false, false, true);
+        expect(host.services.vault.scanVault).toHaveBeenCalledWith(false, false, true, undefined);
         expect(isReady()).toBe(true);
     });
 

@@ -18,6 +18,16 @@ The source tree is larger than the supported package surface. Consumers may impo
 
 Files elsewhere under `src` are implementation details unless a focused entry re-exports them or the compatibility inventory names them. Do not use the source layout, TypeScript path aliases, or the presence of generated declarations as evidence of a supported consumer import.
 
+## Module filenames
+
+For new or renamed TypeScript and JavaScript source modules, start the filename
+with an upper-case letter when the file contains a class with the same name,
+such as `ServiceHub.ts`. Use a lower-case initial when the module primarily
+exports functions, such as `fastForward.ts`. Follow the surrounding filename
+style for the rest of the basename. Corresponding test files use the same
+basename, such as `fastForward.unit.spec.ts`. Retain established names for
+unrelated files and separate conventions for components or other file types.
+
 ## Service composition and state ownership
 
 Commonlib uses four related forms of composition. Choose between them by ownership and dependency direction, not merely by whether an implementation has mutable state.
@@ -28,6 +38,8 @@ Commonlib uses four related forms of composition. Choose between them by ownersh
 - An **AbstractModule** is the legacy application module layer. Existing modules may continue to own application behaviour, but new composition should not acquire the broad core merely to gain lifecycle access or shared dependencies.
 
 When a feature needs state, separate the component which owns that state, its transitions, and its invariants from the code which connects it to application lifecycle events and downstream effects. Give the stateful component narrow collaborators or callbacks rather than the complete Service Hub or application core. Keep application-level handler registration and host-specific presentation in the surrounding serviceFeature. A handler or effect which is part of the state contract, such as querying unresolved errors or reporting their first occurrence, may remain inside the stateful component when its input and output ports are explicit and bounded.
+
+Settings storage follows the same ownership boundary. Each host selects one exact-key asynchronous `ValueStore & ValueDeleter` at its composition root and supplies it as the setting service's required `deviceValues` dependency. `setting.deviceValues` is that root; `setting.config` wraps it with the existing Vault and database-suffix scope, and the Service Hub `config` property aliases the same view. Commonlib does not discover browser globals or provide a module-global fallback. Keep existing local keys on the exact-key root, preserve configuration key names, and await Value Store operations. See [Settings lifecycle](settings-lifecycle.md#host-storage-for-device-values-and-configuration) for the key mapping and host example.
 
 Existing features illustrate this direction:
 
@@ -127,15 +139,15 @@ The compatibility event bridge delegates lifecycle and status requests to the st
 
 The physical room, WebRTC peer, and relay-socket boundaries are documented in [P2P transport lifecycle](p2p-transport-lifecycle.md). In particular, normal shutdown leaves the Trystero room without closing raw peer connections directly.
 
-Self-hosted LiveSync remains the principal downstream consumer. A Commonlib change is not ready for publication until the exact packed artefact has also passed the applicable LiveSync type checks, unit and integration tests, application builds, CLI E2E, and focused real-Obsidian E2E.
+Self-hosted LiveSync remains a principal maintained consumer. Commonlib's normal publication gate is its own type, unit, integration, and packed-boundary checks, as described in [the release runbook](releasing.md). Run targeted downstream or real-runtime checks against the exact packed artefact when a named host-specific risk is not established by those owner tests; consumer adoption and downstream test completion are not general release prerequisites.
 
 Commonlib owner tests exercise the real implementation behind each focused result and lifecycle contract. A consumer-owned unit test may inject the smallest structural capability it uses and provide its own fake or spy when that current test needs isolation. Do not publish Vitest-specific mocks, expose private service constructors, or refactor a production boundary merely to create possible future test infrastructure. Mock and spy helpers are not a prerequisite for the LiveSync 1.0 package-boundary work; add them only with the consumer test which requires them, or after that release work.
 
-Prefer an object or callback injected at the host composition boundary over replacing an ESM module namespace. If a proposed focused API would require global mutation, import-order coupling, hidden construction, or private nominal types to substitute later, stop and review the production design before stabilising it. Exact-package downstream checks and focused real-runtime E2E remain responsible for proving the real package and host composition together.
+Prefer an object or callback injected at the host composition boundary over replacing an ESM module namespace. If a proposed focused API would require global mutation, import-order coupling, hidden construction, or private nominal types to substitute later, stop and review the production design before stabilising it. Use exact-package downstream checks and focused real-runtime E2E for named host-specific risks which the owner tests cannot establish.
 
 Commonlib publishes the typed English messages which it owns and uses them when a host does not provide a translator. A host may inject a translator through `ServiceContext`; the full multilingual catalogue and language-selection state belong to that host and are not part of the Commonlib package.
 
-Keep [the maintained-host evidence](proven-in-use.md) aligned with the downstream source and gates. If a host no longer consumes a focused entry, a test is retired, or a compatibility path receives a reviewed replacement, update the consumer-facing account as part of the same maintenance rather than leaving historical adoption as a current support claim.
+The [maintained-host examples and evidence](proven-in-use.md) are optional context, not a support entitlement or release or adoption gate. When that page is updated, distinguish current use, historical use, Commonlib-owned results, downstream tests, and real-runtime observations, and keep each claim within the evidence.
 
 ## Integration tests
 

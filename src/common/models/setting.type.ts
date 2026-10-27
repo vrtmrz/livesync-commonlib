@@ -106,6 +106,8 @@ interface SyncMethodSettings {
      * Synchronise in Live. This is an exclusive setting against other sync methods.
      */
     liveSync: boolean;
+    /** Explicitly enable batched local database updates in LiveSync mode; an absent value is false. */
+    batchSaveInLiveSync?: boolean;
     /**
      * automatically run sync on save.
      * File modification will trigger the sync, even if the file is not changed on the editor.
@@ -115,6 +117,10 @@ interface SyncMethodSettings {
      * automatically run sync on starting the plug-in.
      */
     syncOnStart: boolean;
+    /**
+     * Compare file contents during startup checks when modification time and size match.
+     */
+    strictContentCheckOnStartup?: boolean;
     /**
      * automatically run sync on opening a file.
      */

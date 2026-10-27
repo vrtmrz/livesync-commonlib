@@ -1,6 +1,6 @@
+import type { IConfigService } from "@lib/services/base/IService";
 import { type ServiceInstances } from "@lib/services/ServiceHub.ts";
 import type { UIService } from "@lib/services/implements/base/UIService.ts";
-import type { ConfigService } from "@lib/services/base/ConfigService.ts";
 import type { ServiceContext } from "@lib/services/base/ServiceBase.ts";
 
 import type { InjectableAPIService } from "./InjectableAPIService";
@@ -34,5 +34,5 @@ export type InjectableServiceInstances<T extends ServiceContext> = ServiceInstan
     vault?: InjectableVaultService<T>;
     test?: InjectableTestService<T>;
     ui?: UIService<T>;
-    config?: ConfigService<T>;
+    config?: IConfigService;
 };

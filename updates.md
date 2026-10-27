@@ -1,5 +1,142 @@
 # Updates
 
+## 0.2.2
+
+26th October, 2026
+
+These notes cover changes since 0.2.0, including those first published on the `next` dist-tag in 0.2.1.
+
+### Added
+
+- We can reduce startup reads for files whose recorded state is unchanged.
+    - Hosts can explicitly pass `strictContentCheck: false` to the initialisation or scan APIs. Omitting the option retains strict content comparison for existing callers.
+    - The device-local `strictContentCheckOnStartup` setting defaults to `false` and is optional in the public settings type, so existing configuration objects remain compatible. Hosts choose when to apply it; explicit manual scans and recovery can retain strict checks.
+    - Content reads are skipped only when stored provenance, exact modification time, byte size, and the current database revision agree, with no conflicts or unfinished file events. Missing or uncertain evidence falls back to content comparison.
+    - This faster check can miss an unrecorded edit which preserves both modification time and size. Strict checks still detect it. Incoming changes and deletions retain their content safeguards.
+- We can distinguish completed optional file saves, explicit refusals, and notifications outside a provider's responsibility.
+    - `HandlerOutcome` and `firstHandled` preserve success values and veto reasons, and propagate errors. `processOptionalFileEventWithResult` waits for the actual optional save; hosts migrate their providers together.
+    - Hosts using only the legacy optional notification API retain its boolean contract. A declined notification no longer blocks later updates as though its save had failed.
+- We can choose to batch local database updates in LiveSync mode.
+    - `batchSaveInLiveSync` defaults to `false` for existing settings and new Vaults. Older configurations with `liveSync: true, batchSave: true` remain immediate. Other modes retain `batchSave`, and both choices share the existing delay settings.
+    - The new property is optional in the public settings type and participates in the Markdown and QR settings policies.
+- We can observe revision-comparison progress even while no documents are received.
+    - Optional CouchDB statistics expose catch-up and continuous stages, direction-specific entry and batch counts, and opaque processed positions. Existing transfer counts retain their meanings.
+    - Progress notifications are batched, with final values flushed when an attempt pauses or ends. These observations do not establish that Vault reflection has finished.
+
+### Improved
+
+- We can reflect file contents with fewer decoding passes.
+    - Size validation, storage writing, and content-hash calculation reuse the decoded content.
+
+### Security
+
+- We require a patched Markdown parser and use patched test tooling.
+    - Raised the `markdown-it` minimum to `14.3.3`, updated Vitest to `4.1.12`, and refreshed Vite to `8.1.6` in the development lockfile.
+
+### Fixed
+
+- Accepted file operations remain recoverable while buffered, waiting, or saving to the database.
+    - The existing snapshot format now retains operations through successful processing, with ordered writes and safe replay. Failed handlers or persistence attempts remain visible as failures; releasing a batch delay no longer acknowledges a save.
+- We can wait for a finite set of accepted local saves before synchronisation or settings application proceeds.
+    - `commitPendingFileEvents()` includes buffered and already running work. Later edits do not extend the boundary indefinitely. Waiting timers no longer occupy processing slots needed by unrelated ready files.
+    - Before unload, the maintained file-access service stops event admission and completes work or persists pending records. Failed unload preparation reaches the caller after resource cleanup; synchronous host callbacks should handle the returned promise's rejection.
+- Equal-time offline scans preserve unsaved edits and their revision ancestry through content and provenance checks.
+    - The scanner uses non-forced saves with bounded revalidation. Required content or provenance which cannot be read remains unresolved, and existing partial-scan and strict-caller policies remain in effect.
+- We can reflect text correctly when a surrogate pair spans text Chunks.
+    - Size validation and the recorded content hash use the joined text written to storage.
+
+## 0.2.1
+
+25th October, 2026
+
+With this release, we strengthen the foundations of Commonlib and open up new possibilities for the applications that use it.
+
+### Added
+
+- We can distinguish completed optional file saves, explicit refusals, and notifications outside a provider's responsibility.
+    - `HandlerOutcome` and `firstHandled` preserve success values and veto reasons, and propagate errors. `processOptionalFileEventWithResult` waits for the actual optional save; hosts migrate their providers together.
+    - Hosts using only the legacy optional notification API retain its boolean contract. A declined notification no longer blocks later updates as though its save had failed.
+- We can choose to batch local database updates in LiveSync mode.
+    - `batchSaveInLiveSync` defaults to `false` for existing settings and new Vaults. Older configurations with `liveSync: true, batchSave: true` remain immediate. Other modes retain `batchSave`, and both choices share the existing delay settings.
+    - The new property is optional in the public settings type and participates in the Markdown and QR settings policies.
+- We can observe revision-comparison progress even while no documents are received.
+    - Optional CouchDB statistics expose catch-up and continuous stages, direction-specific entry and batch counts, and opaque processed positions. Existing transfer counts retain their meanings.
+    - Progress notifications are batched, with final values flushed when an attempt pauses or ends. These observations do not establish that Vault reflection has finished.
+
+### Improved
+
+- We can reflect file contents with fewer decoding passes.
+    - Size validation, storage writing, and content-hash calculation reuse the decoded content.
+
+### Security
+
+- We require a patched Markdown parser and use patched test tooling.
+    - Raised the `markdown-it` minimum to `14.3.3`, updated Vitest to `4.1.12`, and refreshed Vite to `8.1.6` in the development lockfile.
+
+### Fixed
+
+- Accepted file operations remain recoverable while buffered, waiting, or saving to the database.
+    - The existing snapshot format now retains operations through successful processing, with ordered writes and safe replay. Failed handlers or persistence attempts remain visible as failures; releasing a batch delay no longer acknowledges a save.
+- We can wait for a finite set of accepted local saves before synchronisation or settings application proceeds.
+    - `commitPendingFileEvents()` includes buffered and already running work. Later edits do not extend the boundary indefinitely. Waiting timers no longer occupy processing slots needed by unrelated ready files.
+    - Before unload, the maintained file-access service stops event admission and completes work or persists pending records. Failed unload preparation reaches the caller after resource cleanup; synchronous host callbacks should handle the returned promise's rejection.
+- Equal-time offline scans preserve unsaved edits and their revision ancestry through content and provenance checks.
+    - The scanner uses non-forced saves with bounded revalidation. Required content or provenance which cannot be read remains unresolved, and existing partial-scan and strict-caller policies remain in effect.
+- We can reflect text correctly when a surrogate pair spans text Chunks.
+    - Size validation and the recorded content hash use the joined text written to storage.
+
+## 0.2.0
+
+23rd October, 2026
+
+The minor version bump to 0.2.0 mostly just means that we have moved on from 0.1.
+
+### Changed
+
+- We can choose device-local storage for each host and await its reads, writes, and deletions.
+    - Service compositions now require an explicit `ValueStore & ValueDeleter` from `@vrtmrz/value-store@0.1.0`. The host owns the adapter and its persistence; separately injected stores remain isolated.
+    - `setting.deviceValues` uses exact local keys, while `setting.config` and the Service Hub `config` share the existing Vault and database-suffix scope. Existing key names and stored values retain their format.
+- We can rely on a defined compatibility policy when updating within the 0.2 line.
+    - Commonlib preserves published APIs, types, behaviour, supported persisted data, and exported `compat/*` paths within 0.2.x. Intentional breaking changes use 0.3.0. This policy starts with 0.2.0 and does not retroactively apply to 0.1.x.
+    - Consumers may use a range such as `^0.2.0`, with a lockfile and `npm ci` for reproducible installation.
+
+- New Vault recommendations use `customChunkSize: 0` for each supported remote type.
+    - Doctor no longer applies the former universal value of `60`. Explicit saved values and values agreed with a remote retain their existing adoption behaviour.
+    - Historical Doctor rules and previous dismissals remain effective. An explicit forced rescan still checks the remaining recommendations.
+
+### Added
+
+- We can inspect joined-device records and remove obsolete records from CouchDB and Object Storage remotes.
+    - The focused `/replication` entry exposes recorded platform, version, acceptance, and connection information, including legacy records with missing fields. Removal preserves other devices and remote state, and rejects removal of the current device.
+    - CouchDB verifies removal after saving; its local documents still permit concurrent overwrites. Object Storage uses ETag conditional writes and reports unsupported servers without an unconditional fallback.
+- Hosts can open the same UI action from settings, notifications, and commands through typed, instance-owned handlers.
+    - The `/ui-commands` entry supplies declarations, typed results, explicit unavailability, and registration disposal. `UIService` owns the registry and disposes it on unload.
+
+- We can opt into Hidden File Sync through `DirectFileManipulatorV2`.
+    - Set `syncInternalFiles: true` in the direct client options. Existing clients retain the disabled default.
+
+### Improved
+
+- Fresh Fast Fetch can hand its completed import to ordinary replication without repeating the initial revision scan.
+    - Hosts may provide the optional `INITIAL_FETCH_FAST_FORWARD` resource. It applies only to a fresh, empty local database with writers suspended and no existing replication checkpoints; resumed imports retain ordinary replication reconciliation.
+    - Disposing the resource during connection preparation closes any connection which arrives afterwards.
+
+### Fixed
+
+- We can store and read Hidden File Sync documents while a normal-file allow-list is set.
+    - The `i:` document prefix bypasses `syncOnlyRegEx`. Hidden-file enablement and `syncIgnoreRegEx` retain their existing behaviour.
+- V3 Chunk boundaries retain a continuous rolling window across splits, improving reuse after local edits.
+    - Binary splitting uses minimum and candidate sizes proportional to the Chunk size limit, while preserving explicit small minimum sizes and UTF-8 boundaries. Existing stored Chunks remain readable; installation does not rewrite unchanged files.
+- Fast Fetch retains all current revision leaves, including deleted conflicts, and their revision ancestry.
+    - Revision reads and writes are batched, and the resume cursor advances only after the required documents and the device-local checkpoint have been stored. A checkpoint write failure stops the fetch before completion or checkpoint handoff.
+
+### Migration from 0.1.x
+
+- Hosts which compose the setting service, `BrowserServiceHub`, or `HeadlessServiceHub` must supply `deviceValues` explicitly. See [Settings lifecycle](docs/settings-lifecycle.md#host-storage-for-device-values-and-configuration) for the Web Storage adapter and preserved key mapping.
+- Replace `getDeviceLocalConfig`, `setDeviceLocalConfig`, and `deleteDeviceLocalConfig` with awaited `setting.deviceValues.getValue`, `setValue`, and `delete` calls. Replace `getSmallConfig`, `setSmallConfig`, and `deleteSmallConfig` with the corresponding awaited operations on `setting.config` or the Service Hub `config`.
+    - A missing value is `null`. Use `getObject` and `setObject` for JSON values, and use `delete` for explicit removal. Await `saveDeviceAndVaultName()` as well.
+- The `compat/services/base/ConfigService` and `compat/services/implements/browser/ConfigServiceBrowserCompat` exports are removed. Use the setting service's `config` view instead of constructing a separate configuration service.
+
 ## 0.1.44
 
 20th October, 2026
