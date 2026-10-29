@@ -552,6 +552,19 @@ describe("TrysteroReplicator automatic remote activity", () => {
         await expect(result).resolves.toEqual({ status: "cancelled" });
     });
 
+    it.each(["autoSyncPeers", "autoWatchPeers"] as const)("preserves peer-pattern matching for %s", (property) => {
+        const patterns = " Device A , , ~tablet, phone. ";
+        const { replicator } = createReplicator({ P2P_AutoSyncPeers: patterns, P2P_AutoWatchPeers: patterns });
+        const matches = (name: string) => replicator[property].some((pattern) => pattern.test(name));
+        expect(["device a", "old TABLET backup", "phone1"].map(matches)).toEqual([true, true, true]);
+        expect(["prefix Device A", "DeviceA", "phone12", ""].map(matches)).toEqual([false, false, false, false]);
+    });
+
+    it.each(["autoSyncPeers", "autoWatchPeers"] as const)("propagates invalid patterns from %s", (property) => {
+        const { replicator } = createReplicator({ P2P_AutoSyncPeers: "[", P2P_AutoWatchPeers: "[" });
+        expect(() => replicator[property]).toThrow(SyntaxError);
+    });
+
     it("tracks automatic synchronisation when a configured peer is discovered", async () => {
         const { replicator, runFiniteReplicationActivity } = createReplicator({
             P2P_AutoSyncPeers: "peer-a",

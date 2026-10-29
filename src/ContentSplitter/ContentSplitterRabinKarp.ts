@@ -14,26 +14,9 @@ export class ContentSplitterRabinKarp extends ContentSplitterBase {
     async processSplit(
         options: SplitOptions
     ): Promise<AsyncGenerator<string, void, unknown> | Generator<string, void, unknown>> {
-        if (options.useWorker) {
-            return (
-                await splitPieces2WorkerRabinKarp(
-                    options.blob,
-                    options.pieceSize,
-                    options.plainSplit,
-                    options.minimumChunkSize,
-                    options.path
-                )
-            )();
-        } else {
-            return (
-                await splitPiecesRabinKarp(
-                    options.blob,
-                    options.pieceSize,
-                    options.plainSplit,
-                    options.minimumChunkSize,
-                    options.path
-                )
-            )();
-        }
+        const split = options.useWorker ? splitPieces2WorkerRabinKarp : splitPiecesRabinKarp;
+        return (
+            await split(options.blob, options.pieceSize, options.plainSplit, options.minimumChunkSize, options.path)
+        )();
     }
 }

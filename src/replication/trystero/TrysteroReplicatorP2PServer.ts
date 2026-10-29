@@ -1,3 +1,4 @@
+import { parsePeerPatterns } from "./peerPatterns";
 import { type Room, selfId, joinRoom } from "@trystero-p2p/nostr";
 import { AutoAccepting, LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, type P2PSyncSetting } from "@lib/common/types";
 import { LOG_LEVEL_VERBOSE, Logger } from "@lib/common/logger";
@@ -361,20 +362,12 @@ You can chose as follows:
     }
     _acceptablePeers = new Computed({
         evaluation: (settings: P2PSyncSetting) => {
-            return `${settings?.P2P_AutoAcceptingPeers ?? ""}`
-                .split(",")
-                .map((e) => e.trim())
-                .filter((e) => !!e)
-                .map((e) => (e.startsWith("~") ? new RegExp(e.substring(1), "i") : new RegExp(`^${e}$`, "i")));
+            return parsePeerPatterns(`${settings?.P2P_AutoAcceptingPeers ?? ""}`);
         },
     });
     _shouldDenyPeers = new Computed({
         evaluation: (settings: P2PSyncSetting) => {
-            return `${settings?.P2P_AutoDenyingPeers ?? ""}`
-                .split(",")
-                .map((e) => e.trim())
-                .filter((e) => !!e)
-                .map((e) => (e.startsWith("~") ? new RegExp(e.substring(1), "i") : new RegExp(`^${e}$`, "i")));
+            return parsePeerPatterns(`${settings?.P2P_AutoDenyingPeers ?? ""}`);
         },
     });
 
