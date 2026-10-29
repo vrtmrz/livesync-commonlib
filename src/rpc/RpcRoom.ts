@@ -1,4 +1,9 @@
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
+import {
+    createDeferredAction,
+    type DeferredAction,
+    type TimeoutScheduler,
+} from "octagonal-wheels/concurrency/deferredAction";
 import { IncomingChunkBuffer, estimateBytes, splitIntoChunks } from "./chunking";
 import { asRpcErrorShape, RpcError } from "./errors";
 import { RpcSession } from "./RpcSession";
@@ -9,9 +14,11 @@ import {
     type RpcCallOptions,
     type RpcCancellationAwareMethodHandler,
     type RpcEnvelope,
+    type RpcErrorShape,
     type RpcMethodHandler,
     type RpcRegisterOptions,
     type RpcRequestContext,
+    type RpcRequestEnvelope,
     type RpcRoomOptions,
     type RpcWireMessage,
 } from "./types";
@@ -21,9 +28,7 @@ type PendingInvocation = {
     method: string;
     resolve: (value: JsonLike) => void;
     reject: (reason?: unknown) => void;
-    timeoutHandle?: number;
-    signal?: AbortSignal;
-    abortListener?: () => void;
+    releaseWait: () => void;
     requestSent: boolean;
     cancelRequested: boolean;
 };
@@ -53,6 +58,11 @@ function validNamespacedMethod(method: string) {
     return method.includes(".") || method.includes("/");
 }
 
+const scheduleRpcTimeout: TimeoutScheduler = (callback, delayMs) => {
+    const handle = compatGlobal.setTimeout(callback, delayMs);
+    return () => compatGlobal.clearTimeout(handle);
+};
+
 export class RpcRoom {
     private options: Required<Pick<RpcRoomOptions, "maxWirePayloadBytes" | "chunkMissingRetryMs">> & RpcRoomOptions;
     private pending = new Map<string, PendingInvocation>();
@@ -62,7 +72,7 @@ export class RpcRoom {
     private sessions = new Map<string, RpcSession>();
     private outgoingChunkMap = new Map<string, OutgoingChunkState>();
     private incomingChunkMap = new Map<string, IncomingChunkBuffer>();
-    private incomingChunkTimers = new Map<string, number>();
+    private incomingChunkWaits = new Map<string, DeferredAction>();
     private peerVersion = new Map<string, { major: number; minor: number }>();
     private disposers: Array<() => void> = [];
     private closed = false;
@@ -126,8 +136,8 @@ export class RpcRoom {
         this.sessions.clear();
         this.outgoingChunkMap.clear();
         this.incomingChunkMap.clear();
-        this.incomingChunkTimers.forEach((h) => compatGlobal.clearTimeout(h));
-        this.incomingChunkTimers.clear();
+        this.incomingChunkWaits.forEach((wait) => wait.dispose());
+        this.incomingChunkWaits.clear();
     }
 
     session(peerId: string) {
@@ -215,32 +225,37 @@ export class RpcRoom {
         const requestId = newId("req");
         let pending!: PendingInvocation;
         const p = new Promise<JsonLike>((resolve, reject) => {
+            const signal = options.signal;
+            const onAbort = () => {
+                const current = this.pending.get(requestId);
+                if (!current) return;
+                this.rejectPending(requestId, new RpcError("CANCELLED", `RPC cancelled: ${method}`), true);
+            };
+            const deadline =
+                timeoutMs > 0
+                    ? createDeferredAction(() => {
+                          this.rejectPending(requestId, new RpcError("TIMEOUT", `RPC timed out: ${method}`), true);
+                      }, scheduleRpcTimeout)
+                    : undefined;
             pending = {
                 peerId,
                 method,
                 resolve,
                 reject,
-                signal: options.signal,
+                releaseWait: () => {
+                    deadline?.dispose();
+                    signal?.removeEventListener("abort", onAbort);
+                },
                 requestSent: false,
                 cancelRequested: false,
             };
-            if (timeoutMs > 0) {
-                pending.timeoutHandle = compatGlobal.setTimeout(() => {
-                    this.rejectPending(requestId, new RpcError("TIMEOUT", `RPC timed out: ${method}`), true);
-                }, timeoutMs);
-            }
+            deadline?.schedule(timeoutMs);
             this.pending.set(requestId, pending);
-            if (options.signal) {
-                const onAbort = () => {
-                    const current = this.pending.get(requestId);
-                    if (!current) return;
-                    this.rejectPending(requestId, new RpcError("CANCELLED", `RPC cancelled: ${method}`), true);
-                };
-                pending.abortListener = onAbort;
-                options.signal.addEventListener("abort", onAbort, { once: true });
+            if (signal) {
+                signal.addEventListener("abort", onAbort, { once: true });
                 // The signal can be aborted between the check above and the
                 // listener registration in an embedding host.
-                if (options.signal.aborted) onAbort();
+                if (signal.aborted) onAbort();
             }
         });
 
@@ -296,12 +311,7 @@ export class RpcRoom {
         const pending = this.pending.get(requestId);
         if (!pending) return undefined;
         this.pending.delete(requestId);
-        if (pending.timeoutHandle !== undefined) {
-            compatGlobal.clearTimeout(pending.timeoutHandle);
-        }
-        if (pending.signal && pending.abortListener) {
-            pending.signal.removeEventListener("abort", pending.abortListener);
-        }
+        pending.releaseWait();
         return pending;
     }
 
@@ -338,29 +348,28 @@ export class RpcRoom {
         const chunks = splitIntoChunks(serialized, this.options.maxWirePayloadBytes);
         this.outgoingChunkMap.set(streamId, { peerId, chunks });
         for (let i = 0; i < chunks.length; i++) {
-            await this.options.transport.send(
-                {
-                    wire: "chunk",
-                    streamId,
-                    index: i,
-                    total: chunks.length,
-                    payload: chunks[i],
-                },
-                peerId
-            );
+            await this.sendChunk(peerId, streamId, chunks.length, i, chunks[i]);
         }
     }
 
+    private sendChunk(peerId: string, streamId: string, total: number, index: number, payload: string) {
+        return this.options.transport.send({ wire: "chunk", streamId, index, total, payload }, peerId);
+    }
+
+    private sendErrorResponse(peerId: string, requestId: string, error: RpcErrorShape) {
+        return this.sendEnvelope(peerId, { kind: "response", requestId, ok: false, error });
+    }
+
     private scheduleMissingAck(streamId: string, peerId: string) {
-        const existing = this.incomingChunkTimers.get(streamId);
-        if (existing) compatGlobal.clearTimeout(existing);
-        const handle = compatGlobal.setTimeout(() => {
+        this.incomingChunkWaits.get(streamId)?.dispose();
+        const wait = createDeferredAction(() => {
             const state = this.incomingChunkMap.get(streamId);
             if (!state || state.isComplete()) return;
             const missing = state.missingIndices();
             void this.options.transport.send({ wire: "chunk-ack", streamId, missing }, peerId);
-        }, this.options.chunkMissingRetryMs);
-        this.incomingChunkTimers.set(streamId, handle);
+        }, scheduleRpcTimeout);
+        wait.schedule(this.options.chunkMissingRetryMs);
+        this.incomingChunkWaits.set(streamId, wait);
     }
 
     private async onWireMessage(message: RpcWireMessage, peerId: string) {
@@ -377,9 +386,8 @@ export class RpcRoom {
             state.add(message.index, message.payload);
             this.scheduleMissingAck(message.streamId, peerId);
             if (state.isComplete()) {
-                const timer = this.incomingChunkTimers.get(message.streamId);
-                if (timer) compatGlobal.clearTimeout(timer);
-                this.incomingChunkTimers.delete(message.streamId);
+                this.incomingChunkWaits.get(message.streamId)?.dispose();
+                this.incomingChunkWaits.delete(message.streamId);
                 this.incomingChunkMap.delete(message.streamId);
                 await this.options.transport.send(
                     { wire: "chunk-ack", streamId: message.streamId, missing: [] },
@@ -398,16 +406,7 @@ export class RpcRoom {
         for (const index of message.missing) {
             const payload = state.chunks[index];
             if (payload === undefined) continue;
-            await this.options.transport.send(
-                {
-                    wire: "chunk",
-                    streamId: message.streamId,
-                    index,
-                    total: state.chunks.length,
-                    payload,
-                },
-                state.peerId
-            );
+            await this.sendChunk(state.peerId, message.streamId, state.chunks.length, index, payload);
         }
     }
 
@@ -448,6 +447,10 @@ export class RpcRoom {
             return;
         }
 
+        return this.onRequest(envelope, peerId);
+    }
+
+    private async onRequest(envelope: RpcRequestEnvelope, peerId: string) {
         // Register the request context before admission can await. A caller
         // may cancel while admission performs asynchronous policy checks.
         const controller = new AbortController();
@@ -460,12 +463,7 @@ export class RpcRoom {
         } catch (ex) {
             this.inboundCalls.delete(envelope.requestId);
             if (!ctx.signal.aborted && !this.closed) {
-                await this.sendEnvelope(peerId, {
-                    kind: "response",
-                    requestId: envelope.requestId,
-                    ok: false,
-                    error: asRpcErrorShape(ex),
-                });
+                await this.sendErrorResponse(peerId, envelope.requestId, asRpcErrorShape(ex));
             }
             return;
         }
@@ -482,14 +480,9 @@ export class RpcRoom {
         const version = this.peerVersion.get(peerId);
         if (version && version.major !== RPC_VERSION_MAJOR) {
             if (!ctx.signal.aborted && !this.closed) {
-                await this.sendEnvelope(peerId, {
-                    kind: "response",
-                    requestId: envelope.requestId,
-                    ok: false,
-                    error: {
-                        code: "REMOTE_ERROR",
-                        message: `RPC major mismatch: local=${RPC_VERSION_MAJOR}, remote=${version.major}`,
-                    },
+                await this.sendErrorResponse(peerId, envelope.requestId, {
+                    code: "REMOTE_ERROR",
+                    message: `RPC major mismatch: local=${RPC_VERSION_MAJOR}, remote=${version.major}`,
                 });
             }
             this.inboundCalls.delete(envelope.requestId);
@@ -505,62 +498,59 @@ export class RpcRoom {
         const method = this.methods.get(envelope.method);
         if (!method) {
             if (!ctx.signal.aborted && !this.closed) {
-                await this.sendEnvelope(peerId, {
-                    kind: "response",
-                    requestId: envelope.requestId,
-                    ok: false,
-                    error: {
-                        code: "REMOTE_ERROR",
-                        message: `Method not found: ${envelope.method}`,
-                    },
+                await this.sendErrorResponse(peerId, envelope.requestId, {
+                    code: "REMOTE_ERROR",
+                    message: `Method not found: ${envelope.method}`,
                 });
             }
             this.inboundCalls.delete(envelope.requestId);
             return;
         }
 
-        const runner = async () => {
-            try {
-                if (ctx.signal.aborted || this.closed) return;
-                // Private registration stores this flag with the matching
-                // handler arm, so it is the discriminant for invocation here.
-                const data = method.cancellationAware
-                    ? await (method.handler as RpcCancellationAwareMethodHandler<JsonLike[], JsonLike>)(
-                          ctx,
-                          peerId,
-                          ...envelope.args
-                      )
-                    : await (method.handler as RpcMethodHandler<JsonLike[], JsonLike>)(peerId, ...envelope.args);
-                if (ctx.signal.aborted || this.closed) return;
-                await this.sendEnvelope(peerId, {
-                    kind: "response",
-                    requestId: envelope.requestId,
-                    ok: true,
-                    data,
-                });
-            } catch (ex) {
-                // A cancellation-aware handler may reject after observing its
-                // signal. The caller already has the cancellation outcome, so
-                // never send a stale response in that case.
-                if (ctx.signal.aborted || this.closed) return;
-                await this.sendEnvelope(peerId, {
-                    kind: "response",
-                    requestId: envelope.requestId,
-                    ok: false,
-                    error: asRpcErrorShape(ex),
-                });
-            } finally {
-                if (this.inboundCalls.get(envelope.requestId) === ctx) {
-                    this.inboundCalls.delete(envelope.requestId);
-                }
-            }
-        };
+        const runner = () => this.runMethod(method, envelope, peerId, ctx);
 
         if (method.serial) {
             method.queue = method.queue.then(runner, runner);
             await method.queue;
         } else {
             await runner();
+        }
+    }
+
+    private async runMethod(
+        method: RegisteredMethod<JsonLike[], JsonLike>,
+        envelope: RpcRequestEnvelope,
+        peerId: string,
+        ctx: InboundCallContext
+    ) {
+        try {
+            if (ctx.signal.aborted || this.closed) return;
+            // Private registration stores this flag with the matching
+            // handler arm, so it is the discriminant for invocation here.
+            const data = method.cancellationAware
+                ? await (method.handler as RpcCancellationAwareMethodHandler<JsonLike[], JsonLike>)(
+                      ctx,
+                      peerId,
+                      ...envelope.args
+                  )
+                : await (method.handler as RpcMethodHandler<JsonLike[], JsonLike>)(peerId, ...envelope.args);
+            if (ctx.signal.aborted || this.closed) return;
+            await this.sendEnvelope(peerId, {
+                kind: "response",
+                requestId: envelope.requestId,
+                ok: true,
+                data,
+            });
+        } catch (ex) {
+            // A cancellation-aware handler may reject after observing its
+            // signal. The caller already has the cancellation outcome, so
+            // never send a stale response in that case.
+            if (ctx.signal.aborted || this.closed) return;
+            await this.sendErrorResponse(peerId, envelope.requestId, asRpcErrorShape(ex));
+        } finally {
+            if (this.inboundCalls.get(envelope.requestId) === ctx) {
+                this.inboundCalls.delete(envelope.requestId);
+            }
         }
     }
 }
