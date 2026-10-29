@@ -268,3 +268,16 @@ unpublished dependency candidate. Source tests cover the internal copy adapter.
 LiveSync continues to use the existing compatibility entry points, including
 duration labels in ConfigSync and tagged lists in settings. Source and packed
 checks do not establish real-Obsidian rendering or device behaviour.
+
+
+## Shared multi-key locking: candidate integration
+
+The unreleased candidate imports `serializedByKeys` directly from
+`octagonal-wheels/concurrency/lock` for offline Metadata repair and file-event
+processing. Commonlib retains the `processFileEvent-` namespace, unique sorted
+document IDs, and conflict hooks deferred until every lock has been released.
+The [file-handler tests](../src/serviceModules/ServiceFileHandlerBase.unit.spec.ts)
+exercise a rename alongside Metadata repair, including independent keys,
+reversed and repeated input IDs, and callback failure. These are Commonlib-owned
+composition checks using the selected dependency; Octagonal Wheels owns the
+primitive's lock acquisition, result propagation, and release contracts.

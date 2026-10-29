@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Offline scan and database-preparation host types now match their operation and composition boundaries.
+    - Offline composition drops `databaseEvents`, `fileProcessing`, and `replicator`; scan operations drop `fileProcessing`, and database preparation drops `setting` and `path`.
+- Remote-configuration internals use narrower private host types while retaining the broad exported `RemoteConfigHost` for existing callers.
+
+- Service-feature dependencies can now select their Service Hub source, and `createServiceFeature()` preserves the supplied callback's complete signature and result type.
+    - Annotate a feature's host parameter when a narrow contract is intended; unannotated legacy callbacks retain the default `ServiceHub` contract.
+
+- Handler registrations through the existing compatibility helpers can now be removed without clearing a replacement.
+    - Each `setHandler()` call returns an `UnregisterFunction` which removes only its own current assignment; stale and repeated removals are no-ops, including when an override uses the same callback. Existing callers may ignore the return value.
+
 - Delegated the duration formatter, tagged delimiter-list helpers, and JSON-based copy helper to focused Octagonal Wheels utilities. Compatibility names, tagged types, string coercion, and native JSON conversions are retained while validating the unpublished dependency candidate.
 
 ### Maintenance

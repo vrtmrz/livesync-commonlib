@@ -224,6 +224,7 @@ await writeConsumerFile(
                 "handler-outcome-types.ts",
                 "blob-compatibility-types.ts",
                 "runtime-tools-types.ts",
+                "service-feature-types.ts",
             ],
         },
         null,
@@ -670,6 +671,7 @@ for (const filename of [
     "blob-compatibility-runtime.mjs",
     "runtime-tools-types.ts",
     "runtime-tools-runtime.mjs",
+    "service-feature-types.ts",
 ]) {
     await writeConsumerFile(filename, await readFile(resolve(root, "_tools/fixtures", filename), "utf8"));
 }

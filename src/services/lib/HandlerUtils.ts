@@ -101,17 +101,24 @@ export class Binder<T extends (...args: any[]) => any>
         }
     }
     private _callback: T | null = null;
+    private _registrationToken: symbol | null = null;
 
     /**
      * Assigns a new handler function.
      * @param callback The new handler function to assign.
      */
-    assign(callback: T, override: boolean = false) {
+    assign(callback: T, override: boolean = false): UnregisterFunction {
         if (this._callback && !override) {
             throw new Error(`Handler ${this._name} is already assigned.`);
         }
+        const registrationToken = Symbol();
+        this._registrationToken = registrationToken;
         this._callback = callback;
         return () => {
+            if (this._registrationToken !== registrationToken) {
+                return;
+            }
+            this._registrationToken = null;
             this._callback = null;
         };
     }
@@ -142,6 +149,7 @@ export class LazyBinder<T extends (...args: any[]) => any>
     private _name: string;
     private _callbackPromise = promiseWithResolvers<void>();
     private _callback: T | null = null;
+    private _registrationToken: symbol | null = null;
 
     /**
      * Creates a new LazyBinder instance.
@@ -155,13 +163,19 @@ export class LazyBinder<T extends (...args: any[]) => any>
             this._callbackPromise.resolve();
         }
     }
-    assign(callback: T, override: boolean = false) {
+    assign(callback: T, override: boolean = false): UnregisterFunction {
         if (this._callback && !override) {
             throw new Error(`Handler ${this._name} is already assigned.`);
         }
+        const registrationToken = Symbol();
+        this._registrationToken = registrationToken;
         this._callback = callback;
         this._callbackPromise.resolve();
         return () => {
+            if (this._registrationToken !== registrationToken) {
+                return;
+            }
+            this._registrationToken = null;
             this._callback = null;
             this._callbackPromise = promiseWithResolvers<void>();
         };
@@ -555,9 +569,9 @@ export interface HandlerFunction<TFunc extends (...args: any[]) => U | Promise<U
      * Assigns a new handler function.
      * @param callback The new handler function to assign.
      * @param override Whether to override the existing handler if one is already assigned.
-     * @returns A function to unregister the assigned handler.
+     * @returns A function that unregisters this registration if it is still current.
      */
-    setHandler: (callback: TFunc, override?: boolean) => void;
+    setHandler: (callback: TFunc, override?: boolean) => UnregisterFunction;
 }
 /**
  * A function type that can be used as a handler with assignable functionality.
@@ -573,9 +587,9 @@ export interface LazyHandlerFunction<TFunc extends (...args: any[]) => U | Promi
      * Assigns a new handler function.
      * @param callback The new handler function to assign.
      * @param override Whether to override the existing handler if one is already assigned.
-     * @returns A function to unregister the assigned handler.
+     * @returns A function that unregisters this registration if it is still current.
      */
-    setHandler: (callback: TFunc, override?: boolean) => void;
+    setHandler: (callback: TFunc, override?: boolean) => UnregisterFunction;
 }
 /**
  * A function type that can be used as a multiple handler with add/remove functionality.

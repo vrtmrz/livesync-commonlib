@@ -1,5 +1,5 @@
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
-import { serialized } from "octagonal-wheels/concurrency/lock";
+import { serializedByKeys } from "octagonal-wheels/concurrency/lock";
 import type {
     AnyEntry,
     FileEventItem,
@@ -64,13 +64,6 @@ export interface ServiceFileHandlerDependencies {
      * waiting for readiness.
      */
     fileReflectionProvenance?: FileReflectionProvenance;
-}
-
-/** Acquire every key before running the callback; callers supply sorted, unique keys. */
-async function serializedByKeys<T>(keys: readonly string[], callback: () => Promise<T>): Promise<T> {
-    const [key, ...remainingKeys] = keys;
-    if (key === undefined) return await callback();
-    return await serialized(key, () => serializedByKeys(remainingKeys, callback));
 }
 
 function getParentPath(path: string): string {

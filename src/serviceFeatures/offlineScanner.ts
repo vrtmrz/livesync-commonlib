@@ -28,7 +28,7 @@ import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.cons
 import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
-import { serialized } from "octagonal-wheels/concurrency/lock";
+import { serialized, serializedByKeys } from "octagonal-wheels/concurrency/lock";
 import { VaultScanResults, type VaultScanResult, type VaultScanOptions } from "@lib/services/base/VaultScanResult.ts";
 
 export { VaultScanResults };
@@ -349,7 +349,8 @@ export async function inspectMetadataDocumentIdentities(
             const targetMetadata = target && isMetaEntry(target) ? target : undefined;
             targetAlreadyPresent = Boolean(targetMetadata && isExactMetadataCopy(doc, targetMetadata));
             const targetIsAvailable =
-                (!row || row.error === "not_found") ||
+                !row ||
+                row.error === "not_found" ||
                 (targetAlreadyPresent &&
                     !row?.value?.deleted &&
                     !targetMetadata?._deleted &&
@@ -412,21 +413,14 @@ async function serializedByMetadataDocumentIds<T>(
     callback: () => Promise<T>
 ): Promise<T> {
     const lockKeys = [...new Set(documentIds)].sort().map((documentId) => `processFileEvent-${documentId}`);
-    const acquire = async (index: number): Promise<T> => {
-        const key = lockKeys[index];
-        if (key === undefined) return await callback();
-        return await serialized(key, () => acquire(index + 1));
-    };
-    return await acquire(0);
+    return await serializedByKeys(lockKeys, callback);
 }
 
 function findRepairEntry(
     entries: readonly MetadataDocumentIdentityIssue[],
     actualDocumentId: DocumentID
 ): MetadataDocumentIdentityIssue | undefined {
-    return entries.find(
-        ({ inspection }) => inspection.diagnostic.actualDocumentId === actualDocumentId
-    );
+    return entries.find(({ inspection }) => inspection.diagnostic.actualDocumentId === actualDocumentId);
 }
 
 /**
@@ -746,6 +740,13 @@ export function convertCase<T extends FilePathWithPrefix>(
     return normalisedPath.toLowerCase() as FilePathWithPrefixLC;
 }
 
+function createComparisonPathLookup(settings: ObsidianLiveSyncSettings, paths: readonly FilePathWithPrefix[]) {
+    return Object.fromEntries(paths.map((path) => [convertCase(settings, path), path])) as Record<
+        FilePathWithPrefixLC,
+        FilePathWithPrefix
+    >;
+}
+
 export async function collectFilesOnStorage(
     host: NecessaryServices<"vault", "storageAccess">,
     settings: ObsidianLiveSyncSettings,
@@ -767,12 +768,7 @@ export async function collectFilesOnStorage(
 
     const storageFileNames = Object.keys(storageFileNameMap) as FilePathWithPrefix[];
 
-    const storageFileNameCapsPair = storageFileNames.map((e) => [e, convertCase(settings, e)]);
-
-    const storageFileNameCI2CS = Object.fromEntries(storageFileNameCapsPair.map((e) => [e[1], e[0]])) as Record<
-        FilePathWithPrefixLC,
-        FilePathWithPrefix
-    >;
+    const storageFileNameCI2CS = createComparisonPathLookup(settings, storageFileNames);
     return { storageFileNameMap, storageFileNames, storageFileNameCI2CS };
 }
 
@@ -832,11 +828,7 @@ export async function collectDatabaseFiles(
         MetaEntry
     >;
     const databaseFileNames = Object.keys(databaseFileNameMap) as FilePathWithPrefix[];
-    const databaseFileNameCapsPair = databaseFileNames.map((e) => [e, convertCase(settings, e)] as const);
-    const databaseFileNameCI2CS = Object.fromEntries(databaseFileNameCapsPair.map((e) => [e[1], e[0]])) as Record<
-        FilePathWithPrefixLC,
-        FilePathWithPrefix
-    >;
+    const databaseFileNameCI2CS = createComparisonPathLookup(settings, databaseFileNames);
 
     // A stale enumerated document must not suppress the established path-based
     // resolution flow. Quarantine the storage path only when no consistent,
@@ -1181,10 +1173,7 @@ async function processFilePair(
  * @returns The scan result for all file pairs
  */
 export async function synchroniseAllFilesBetweenDBandStorage(
-    host: NecessaryServices<
-        "setting" | "vault" | "path" | "fileProcessing" | "database" | "keyValueDB",
-        "storageAccess" | "fileHandler"
-    >,
+    host: NecessaryServices<"setting" | "vault" | "path" | "database" | "keyValueDB", "storageAccess" | "fileHandler">,
     log: LogFunction,
     errorManager: UnresolvedErrorManager,
     options: FullScanOptions
@@ -1193,8 +1182,12 @@ export async function synchroniseAllFilesBetweenDBandStorage(
     const showingNotice = options.showingNotice ?? false;
     await loadFileStatus(host);
     const { storageFileNameMap, storageFileNameCI2CS } = await collectFilesOnStorage(host, settings, log);
-    const { databaseFileNameMap, databaseFileNameCI2CS, quarantinedFileNamesLC } =
-        await collectDatabaseFiles(host, settings, log, showingNotice);
+    const { databaseFileNameMap, databaseFileNameCI2CS, quarantinedFileNamesLC } = await collectDatabaseFiles(
+        host,
+        settings,
+        log,
+        showingNotice
+    );
 
     const pairs: FilePair[] = [];
     for (const fileNameLC of unique([
@@ -1385,29 +1378,20 @@ function getFileMTimeFromMap(key: string): number | undefined {
  * @returns The scan outcome, including accepted individual file failures
  */
 export async function performFullScan(
-    host: NecessaryServices<
-        "setting" | "vault" | "path" | "fileProcessing" | "database" | "keyValueDB",
-        "storageAccess" | "fileHandler"
-    >,
+    host: NecessaryServices<"setting" | "vault" | "path" | "database" | "keyValueDB", "storageAccess" | "fileHandler">,
     log: LogFunction,
     errorManager: UnresolvedErrorManager,
     options?: Partial<FullScanOptions>
 ): Promise<VaultScanResult>;
 export async function performFullScan(
-    host: NecessaryServices<
-        "setting" | "vault" | "path" | "fileProcessing" | "database" | "keyValueDB",
-        "storageAccess" | "fileHandler"
-    >,
+    host: NecessaryServices<"setting" | "vault" | "path" | "database" | "keyValueDB", "storageAccess" | "fileHandler">,
     log: LogFunction,
     errorManager: UnresolvedErrorManager,
     showingNotice?: boolean,
     ignoreSuspending?: boolean
 ): Promise<VaultScanResult>;
 export async function performFullScan(
-    host: NecessaryServices<
-        "setting" | "vault" | "path" | "fileProcessing" | "database" | "keyValueDB",
-        "storageAccess" | "fileHandler"
-    >,
+    host: NecessaryServices<"setting" | "vault" | "path" | "database" | "keyValueDB", "storageAccess" | "fileHandler">,
     log: LogFunction,
     errorManager: UnresolvedErrorManager,
     showingNoticeOrOptions: Partial<FullScanOptions> | boolean = false,
@@ -1453,16 +1437,7 @@ export async function performFullScan(
  */
 export function useOfflineScanner(
     host: NecessaryServices<
-        | "API"
-        | "appLifecycle"
-        | "setting"
-        | "vault"
-        | "path"
-        | "database"
-        | "databaseEvents"
-        | "fileProcessing"
-        | "keyValueDB"
-        | "replicator",
+        "API" | "appLifecycle" | "setting" | "vault" | "path" | "database" | "keyValueDB",
         "storageAccess" | "fileHandler"
     >
 ) {
