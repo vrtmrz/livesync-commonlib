@@ -149,6 +149,33 @@ Commonlib publishes the typed English messages which it owns and uses them when 
 
 The [maintained-host examples and evidence](proven-in-use.md) are optional context, not a support entitlement or release or adoption gate. When that page is updated, distinguish current use, historical use, Commonlib-owned results, downstream tests, and real-runtime observations, and keep each claim within the evidence.
 
+### Testing an unpublished Octagonal Wheels dependency
+
+Keep the repository dependency declaration and lockfile separate from a local
+candidate check. After building and packing Octagonal Wheels, install that
+exact tarball for source checks without saving it to either manifest:
+
+```bash
+npm ci
+npm install --no-save --ignore-scripts /path/to/octagonal-wheels-candidate.tgz
+npm run check:types
+npm test -- --maxWorkers=1 --fileParallelism=false
+npm run test:package -- --octagonal-wheels-tarball /path/to/octagonal-wheels-candidate.tgz
+```
+
+The package checker adds the selected tarball and an explicit npm override
+only to its disposable consumer fixture. It reports the tarball's SHA-256 and
+checks that Commonlib resolves that same installed package. The generated
+Commonlib package retains its original dependency declaration. The option
+does not publish a package or select a future release version.
+
+The Blob migration's source tests cover legacy construction and Commonlib's
+document interpretation. Its packed fixtures compile the old imports and
+exercise the generated runtime. A passing candidate check qualifies that
+combination of artefacts; before publication, update the declared dependency
+to a released version containing the new entry, regenerate the lockfile, and
+run the ordinary package gate without the candidate override.
+
 ## Integration tests
 
 The integration suite owns Commonlib's direct CouchDB and S3-compatible storage checks. Run it with managed, disposable CouchDB and RustFS containers:
@@ -211,3 +238,11 @@ The command recognises both the former `@lib/*` source aliases and current `@vrt
 The classification in `docs/migration/compatibility-classification.json` is accepted for LiveSync 1.0 planning. A destination still requires its own result and lifecycle contract before it becomes a stable public entry. Remove obsolete paths rather than documenting accidental layout as API.
 
 Release preparation and staged-publication checks are documented in [the maintainer runbook](releasing.md).
+
+
+The shared value extraction uses the same explicit candidate path. Its
+`utils.runtime-tools.unit.spec.ts` tests preserve the legacy adapter contracts;
+`runtime-tools-types.ts` and `runtime-tools-runtime.mjs` check the installed
+package's public duration and delimiter helpers; source tests cover the
+internal JSON copy adapter. Keep these checks tied to the
+same Octagonal Wheels tarball used by the downstream consumer.

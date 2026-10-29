@@ -55,6 +55,32 @@ The RPC entry exists only while the maintained LiveSync P2P composition depends 
 
 The P2P entry exposes eight focused views over one service owner, together with the maintained host-composition helpers. New consumers select only the lifecycle, peer-directory, peer-admission, targeted-transfer, change-relay, configuration-exchange, diagnostic, or connection-probe-admission view which they need. The composition result still carries a deprecated concrete Replicator façade while existing panes migrate; new consumers must not depend on that property or reach through it to a raw room or host.
 
+## Blob helper migration
+
+The unreleased Blob extraction retains `createBlob`, `createTextBlob`, and
+`createBinaryBlob` through the existing `compat/common/utils` entry. Existing
+callers can keep those imports. `createBlob` preserves an existing Blob's
+identity and MIME type; text and binary inputs produce new Blobs with
+`text/plain` and `application/octet-stream` respectively.
+
+New code which only needs Blob conversion or byte comparison should use the focused
+`octagonal-wheels/binary/blob` entry once a release containing it is available.
+Its normalisation function is named `toBlob`; its creation functions retain
+`createTextBlob` and `createBinaryBlob`. Its `isBlobContentEqual` function
+compares two Blobs in bounded parts and accepts an optional synchronous or
+asynchronous ArrayBuffer equality predicate. See the
+[Octagonal Wheels Blob guide](https://github.com/vrtmrz/fancy-kit/blob/main/packages/octagonal-wheels/guides/imports-and-runtime.md#blob-creation-and-normalisation)
+for input and runtime contracts. This migration is currently verified against
+an unpublished candidate, not the registry's existing 0.1.55 release.
+
+Commonlib continues to own document classification, decoding in `readAsBlob`,
+and content-comparison policy. The legacy `isDocContentSame` retains its
+IndexedDB selection and native receiver. Its fallback delegates bounded reads
+to `isBlobContentEqual`, using the existing Commonlib Base64 encoder and host
+Buffer fallback. The compatibility import retains its existing
+environment initialisation; the focused Octagonal Wheels entry does not
+initialise fetch or DOM services.
+
 ## Host context and initialisation
 
 One service context belongs to one independently composed Commonlib client. It owns that client's event hub and translator. Creating a context without options creates a fresh event hub and renders Commonlib's typed canonical English messages. A host may inject a translator to provide another language:
@@ -276,3 +302,22 @@ See [Maintained-host examples and evidence](docs/proven-in-use.md) for compositi
 ## Licence
 
 MIT
+
+
+## Shared value helper migration
+
+The unreleased extraction keeps `timeDeltaToHumanReadable`,
+`splitCustomRegExpList`, and `constructCustomRegExpList` at the existing
+`compat/common/utils` entry. They delegate to `formatDuration` in
+`octagonal-wheels/notation/duration` and the delimiter helpers in
+`octagonal-wheels/string`. Commonlib's internal `asCopy` helper delegates to
+`cloneViaJSON` in `octagonal-wheels/encoding/json`; it does not add a Commonlib
+public entry. New general-purpose callers can use the focused Octagonal Wheels
+entries once a release containing them is available.
+
+Duration units and rounding remain unchanged. The delimiter adapters retain
+their tagged types and string coercion; splitting removes empty parts and
+does not interpret escapes. `asCopy<T>` retains its existing type signature
+for compatibility, while `cloneViaJSON` returns `unknown` because native JSON
+conversion can change the value's shape. Neither helper promises to preserve
+Dates, prototypes, undefined fields, or arbitrary object identity.

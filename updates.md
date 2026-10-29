@@ -1,5 +1,15 @@
 # Updates
 
+## Unreleased
+
+- Delegated the duration formatter, tagged delimiter-list helpers, and JSON-based copy helper to focused Octagonal Wheels utilities. Compatibility names, tagged types, string coercion, and native JSON conversions are retained while validating the unpublished dependency candidate.
+
+### Maintenance
+
+- Delegated the sliced fallback of `isDocContentSame` to the new Octagonal Wheels Blob comparison helper. The compatibility entry retains IndexedDB selection, its receiver, Commonlib's Base64 and Buffer fallbacks, and unchanged read errors. This remains an unpublished-candidate integration.
+
+- Blob creation delegates to the focused Octagonal Wheels helpers while retaining the existing Commonlib imports and `createBlob` name. Existing Blob identity, MIME types, transparent line endings, binary view ranges, and document decoding retain their contracts. The dependency migration is being validated with an unpublished Octagonal Wheels candidate; its released dependency version remains to be selected.
+
 ## 0.2.2
 
 26th October, 2026

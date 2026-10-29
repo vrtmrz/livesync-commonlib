@@ -4,9 +4,13 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
+import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 import { build } from "esbuild";
+import { loadOctagonalWheelsCandidate } from "./packed-dependency-candidate.mjs";
+
+const octagonalWheelsCandidate = await loadOctagonalWheelsCandidate(process.argv.slice(2));
 
 const root = resolve(new URL("..", import.meta.url).pathname);
 const packageDirectory = resolve(root, ".package");
@@ -188,7 +192,11 @@ await writeConsumerFile(
             name: "commonlib-package-consumer",
             private: true,
             type: "module",
-            dependencies: { [packageName]: pathToFileURL(tarballPath).href },
+            dependencies: {
+                [packageName]: pathToFileURL(tarballPath).href,
+                ...(octagonalWheelsCandidate ? { "octagonal-wheels": octagonalWheelsCandidate.url } : {}),
+            },
+            ...(octagonalWheelsCandidate ? { overrides: { "octagonal-wheels": "$octagonal-wheels" } } : {}),
         },
         null,
         2
@@ -211,7 +219,12 @@ await writeConsumerFile(
                 skipLibCheck: true,
                 types: [],
             },
-            include: ["type-smoke.ts", "handler-outcome-types.ts"],
+            include: [
+                "type-smoke.ts",
+                "handler-outcome-types.ts",
+                "blob-compatibility-types.ts",
+                "runtime-tools-types.ts",
+            ],
         },
         null,
         2
@@ -652,6 +665,22 @@ await writeConsumerFile(
     await readFile(resolve(root, "_tools/fixtures/handler-outcome-types.ts"), "utf8")
 );
 
+for (const filename of [
+    "blob-compatibility-types.ts",
+    "blob-compatibility-runtime.mjs",
+    "runtime-tools-types.ts",
+    "runtime-tools-runtime.mjs",
+]) {
+    await writeConsumerFile(filename, await readFile(resolve(root, "_tools/fixtures", filename), "utf8"));
+}
+if (octagonalWheelsCandidate) {
+    console.log(
+        "Checking a local Octagonal Wheels candidate (SHA-256 " +
+            octagonalWheelsCandidate.sha256 +
+            "); the packed dependency declaration is unchanged."
+    );
+}
+
 run(
     "npm",
     [
@@ -665,6 +694,22 @@ run(
     ],
     { cwd: consumerDirectory, capture: false }
 );
+if (octagonalWheelsCandidate) {
+    const consumerRequire = createRequire(resolve(consumerDirectory, "package.json"));
+    const commonlibRequire = createRequire(consumerRequire.resolve(packageName + "/compat/common/utils"));
+    const selectedManifest = consumerRequire.resolve("octagonal-wheels/package.json");
+    assert.equal(
+        commonlibRequire.resolve("octagonal-wheels/package.json"),
+        selectedManifest,
+        "Commonlib must resolve the explicitly installed Octagonal Wheels candidate."
+    );
+    assert.equal(JSON.parse(await readFile(selectedManifest, "utf8")).name, "octagonal-wheels");
+}
+run(process.execPath, [resolve(consumerDirectory, "runtime-tools-runtime.mjs")], { cwd: consumerDirectory });
+run(process.execPath, [resolve(consumerDirectory, "blob-compatibility-runtime.mjs")], {
+    cwd: consumerDirectory,
+    capture: false,
+});
 run(process.execPath, [resolve(consumerDirectory, "node-smoke.mjs")], {
     cwd: consumerDirectory,
     capture: false,

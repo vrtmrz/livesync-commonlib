@@ -26,10 +26,13 @@ import {
 } from "./types.ts";
 import { normaliseP2PConnectionPath, normaliseP2PMaxWirePayloadBytes } from "./models/setting.p2p.ts";
 import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
-import { replaceAll, replaceAllPairs } from "octagonal-wheels/string";
+import { joinDelimitedList, replaceAll, replaceAllPairs, splitDelimitedList } from "octagonal-wheels/string";
+import { formatDuration } from "octagonal-wheels/notation/duration";
 export { replaceAll, replaceAllPairs };
 import { concatUInt8Array } from "octagonal-wheels/binary";
 export { concatUInt8Array };
+import { createBinaryBlob, createTextBlob, isBlobContentEqual, toBlob } from "octagonal-wheels/binary/blob";
+export { createBinaryBlob, createTextBlob };
 
 import { delay, fireAndForget } from "octagonal-wheels/promises";
 export { delay, fireAndForget };
@@ -94,17 +97,22 @@ export function getDocDataAsArrayBuffer(doc: string | string[] | ArrayBuffer) {
 export function isTextBlob(blob: Blob) {
     return blob.type === "text/plain";
 }
-export function createTextBlob(data: string | string[]) {
-    const d = Array.isArray(data) ? data : [data];
-    return new Blob(d, { endings: "transparent", type: "text/plain" });
-}
-export function createBinaryBlob(data: Uint8Array<ArrayBuffer> | ArrayBuffer) {
-    return new Blob([data], { endings: "transparent", type: "application/octet-stream" });
-}
-export function createBlob(data: string | string[] | Uint8Array<ArrayBuffer> | ArrayBuffer | Blob) {
-    if (data instanceof Blob) return data;
-    if (data instanceof Uint8Array || data instanceof ArrayBuffer) return createBinaryBlob(data);
-    return createTextBlob(data);
+/**
+ * Normalises content to a Blob through the legacy Commonlib entry point.
+ *
+ * @param data - Text, ordered text parts, binary bytes, or an existing Blob.
+ * @returns The original Blob, or a new text or binary Blob for other inputs.
+ * @remarks
+ * This compatibility wrapper retains the `createBlob` name and delegates to
+ * `toBlob` from `octagonal-wheels/binary/blob`. Existing Blob instances retain
+ * their identity and MIME type. Text retains transparent line endings; binary
+ * views contribute only their visible bytes. Calls use the current realm's
+ * Blob constructor. Document classification and decoding remain in
+ * {@link readAsBlob}; importing this legacy module retains its existing
+ * environment initialisation.
+ */
+export function createBlob(data: string | string[] | Uint8Array<ArrayBuffer> | ArrayBuffer | Blob): Blob {
+    return toBlob(data);
 }
 
 export function isTextDocument(doc: LoadedEntry) {
@@ -131,28 +139,37 @@ export function readContent(doc: LoadedEntry) {
 
 const isIndexDBCmpExist = typeof compatGlobal?.indexedDB?.cmp !== "undefined";
 
+async function isArrayBufferContentEqual(left: ArrayBuffer, right: ArrayBuffer): Promise<boolean> {
+    return (await arrayBufferToBase64Single(left)) === (await arrayBufferToBase64Single(right));
+}
+
+/**
+ * Tests whether legacy document-content inputs represent equal bytes.
+ *
+ * @param docA - Text, ordered text parts, a Blob, or binary bytes.
+ * @param docB - The second content value in any supported representation.
+ * @returns Whether the normalised inputs contain equal bytes, ignoring MIME types.
+ * @remarks
+ * Inputs are normalised with {@link createBlob}. Different sizes return false
+ * without reading content. IndexedDB comparison availability is selected at
+ * module import; that path resolves the current method and receiver before
+ * reading both complete Blobs sequentially, including empty inputs.
+ * Otherwise, `isBlobContentEqual` from `octagonal-wheels/binary/blob` reads
+ * pairs of parts of at most 10,000 bytes, using Commonlib's Base64 encoder and
+ * its existing host Buffer fallback. Empty inputs on this path return true
+ * without reads. Read and comparison failures propagate unchanged.
+ */
 export async function isDocContentSame(
     docA: string | string[] | Blob | ArrayBuffer,
     docB: string | string[] | Blob | ArrayBuffer
 ) {
     const blob1 = createBlob(docA);
     const blob2 = createBlob(docB);
-    if (blob1.size != blob2.size) return false;
     if (isIndexDBCmpExist) {
+        if (blob1.size != blob2.size) return false;
         return compatGlobal.indexedDB.cmp(await blob1.arrayBuffer(), await blob2.arrayBuffer()) === 0;
     }
-    const checkQuantum = 10000;
-    const length = blob1.size;
-
-    let i = 0;
-
-    while (i < length) {
-        const ab1 = await blob1.slice(i, i + checkQuantum).arrayBuffer();
-        const ab2 = await blob2.slice(i, i + checkQuantum).arrayBuffer();
-        i += checkQuantum;
-        if ((await arrayBufferToBase64Single(ab1)) != (await arrayBufferToBase64Single(ab2))) return false;
-    }
-    return true;
+    return isBlobContentEqual(blob1, blob2, isArrayBufferContentEqual);
 }
 
 export function isObfuscatedEntry(doc: DatabaseEntry): doc is AnyEntry {
@@ -376,24 +393,7 @@ export function escapeMarkdownValue<T>(value: T): T {
 }
 
 export function timeDeltaToHumanReadable(delta: number) {
-    const sec = delta / 1000;
-    if (sec < 60) {
-        return `${sec.toFixed(2)}s`;
-    }
-    const min = sec / 60;
-    if (min < 60) {
-        return `${min.toFixed(2)}m`;
-    }
-    const hour = min / 60;
-    if (hour < 24) {
-        return `${hour.toFixed(2)}h`;
-    }
-    const day = hour / 24;
-    if (day < 365) {
-        return `${day.toFixed(2)}d`;
-    }
-    const year = day / 365;
-    return `${year.toFixed(2)}y`;
+    return formatDuration(delta);
 }
 
 export async function wrapException<T>(func: () => Promise<Awaited<T>>): Promise<Awaited<T> | Error> {
@@ -515,12 +515,10 @@ export function constructCustomRegExpList<D extends string>(
     items: CustomRegExpSource[],
     delimiter: D
 ): CustomRegExpSourceList<D> {
-    return items.map((e) => `${e}`).join(`${delimiter}`) as CustomRegExpSourceList<D>;
+    return joinDelimitedList(items.map((e) => `${e}`), `${delimiter}`) as CustomRegExpSourceList<D>;
 }
 export function splitCustomRegExpList<D extends string>(list: CustomRegExpSourceList<D>, delimiter: D) {
-    const d = delimiter;
-    const source = `${list ?? ""}`;
-    return source.split(d).filter((e) => e as CustomRegExpSource) as CustomRegExpSource[];
+    return splitDelimitedList(`${list ?? ""}`, delimiter) as CustomRegExpSource[];
 }
 
 export class CustomRegExp {

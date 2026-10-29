@@ -12,7 +12,8 @@ const root = fileURLToPath(new URL("..", import.meta.url));
 process.umask(0o077);
 
 for (const script of ["build-package.mjs", "check-packed-package.mjs"]) {
-    execFileSync(process.execPath, [resolve(root, "_tools", script)], {
+    const args = script === "check-packed-package.mjs" ? process.argv.slice(2) : [];
+    execFileSync(process.execPath, [resolve(root, "_tools", script), ...args], {
         cwd: root,
         env: process.env,
         stdio: "inherit",
