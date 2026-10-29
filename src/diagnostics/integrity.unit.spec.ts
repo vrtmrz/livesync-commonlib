@@ -138,6 +138,37 @@ describe("analyseDatabaseIntegrity", () => {
         expect(result.observations[0].content.status).toBe("not-checked");
     });
 
+    it("awaits closing an owned remote before resolving the report", async () => {
+        let releaseClose!: () => void;
+        let markCloseStarted!: () => void;
+        const closeGate = new Promise<void>((resolve) => {
+            releaseClose = resolve;
+        });
+        const closeStarted = new Promise<void>((resolve) => {
+            markCloseStarted = resolve;
+        });
+        const remote = createSource();
+        const close = vi.fn(async () => {
+            markCloseStarted();
+            await closeGate;
+        });
+        let reportResolved = false;
+        const report = analyseDatabaseIntegrity(
+            makeOptions(createSource().source, {
+                remote: async () => ({ ...remote.source, close }),
+            })
+        ).then((result) => {
+            reportResolved = true;
+            return result;
+        });
+
+        await closeStarted;
+        expect(reportResolved).toBe(false);
+        expect(close).toHaveBeenCalledOnce();
+        releaseClose();
+        expect((await report).status).toBe("complete");
+    });
+
     it("batches Metadata and required Chunks without changing individual-read results or conflict coverage", async () => {
         const ids = Array.from({ length: 65 }, (_, index) => `private-${index}`);
         const children = ["h:a", "h:missing", "h:bad", "h:eden", "h:a"];
@@ -850,6 +881,52 @@ describe("analyseDatabaseIntegrity", () => {
         expect(remote.info).toHaveBeenCalledTimes(1);
         expect(close).toHaveBeenCalledTimes(1);
         expect(local.info).toHaveBeenCalledTimes(1);
+    });
+
+    it("closes a remote acquired while cancellation occurs and retains local evidence", async () => {
+        const controller = new AbortController();
+        const local = createSource({
+            ids: ["expected:/local.md"],
+            documents: { "expected:/local.md": metadata("expected:/local.md", "/local.md") },
+        });
+        const remote = createSource({ ids: ["expected:/remote.md"] });
+        const close = vi.fn(async () => {});
+        const result = await analyseDatabaseIntegrity(
+            makeOptions(local.source, {
+                signal: controller.signal,
+                remote: async () => {
+                    controller.abort();
+                    return { ...remote.source, close };
+                },
+            })
+        );
+
+        expect(result.status).toBe("cancelled");
+        expect(result.observations.map((observation) => observation.id)).toEqual(["expected:/local.md"]);
+        expect(remote.get).not.toHaveBeenCalled();
+        expect(close).toHaveBeenCalledOnce();
+    });
+
+    it("records an owned remote close failure without discarding collected evidence", async () => {
+        const local = createSource({
+            ids: ["expected:/local.md"],
+            documents: { "expected:/local.md": metadata("expected:/local.md", "/local.md") },
+        });
+        const remote = createSource();
+        const close = vi.fn(async () => {
+            throw new Error("private close failure");
+        });
+        const result = await analyseDatabaseIntegrity(
+            makeOptions(local.source, {
+                remote: async () => ({ ...remote.source, close }),
+            })
+        );
+
+        expect(result.status).toBe("partial");
+        expect(result.observations.map((observation) => observation.id)).toEqual(["expected:/local.md"]);
+        expect(result.errors).toContainEqual({ source: "remote", reason: "source-unavailable" });
+        expect(JSON.stringify(result)).not.toContain("private close failure");
+        expect(close).toHaveBeenCalledOnce();
     });
 
     it("marks sequence and configuration changes as partial", async () => {
