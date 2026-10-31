@@ -49,6 +49,14 @@ does not provide an arbitrary-time checkpoint jump or On Demand repair.
 
 The existing `compat/services/lib` boundary retains `bindableFunction` and `lazyBindableFunction` for current clients. Their `setHandler()` methods return an `UnregisterFunction` which removes only its own current assignment; stale removers, including after an override with the same callback, and repeated removals are no-ops. Existing callers may ignore the return value. These helpers remain a migration boundary, not a general-purpose SDK integration surface.
 
+The `compat/pouchdb/chunks` entry retains the obsolete `transferChunks`,
+`balanceChunkPurgedDBs`, and `fetchAllUsedChunks` helpers for existing consumers.
+The unreleased Self-hosted LiveSync integration removes its purge-based cleanup
+recovery and uses the standard locked-remote recovery dialogue. Garbage
+Collection V3 propagates ordinary deletion revisions and does not use these
+helpers. Their compatibility exports and existing transfer behaviour remain
+available; new integrations should not adopt this obsolete cleanup path.
+
 Import only the entry point required by the current runtime. Browser code must not import the Node entry.
 
 The Node and browser entries are platform façades. They keep platform-specific adapters and capabilities behind package-owned boundaries, so a consumer does not have to reproduce those imports or their build and review exceptions. The Node entry's selected built-in-module exports are deliberate parts of that façade. Package checks ensure that the root, context, and browser entries do not load the Node implementation.

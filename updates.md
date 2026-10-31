@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- The purge-based cleanup helpers `transferChunks`, `balanceChunkPurgedDBs`, and `fetchAllUsedChunks` are now marked obsolete.
+    - Their `compat/pouchdb/chunks` exports and transfer behaviour remain available for existing consumers. The accompanying Self-hosted LiveSync integration uses its standard locked-remote recovery flow; Garbage Collection V3 does not use these helpers.
+
 - Positive infinite durations now display as `∞y` through the shared formatter and the existing `timeDeltaToHumanReadable` entry. Other duration cases retain their previous formatting.
 
 - Offline scan and database-preparation host types now match their operation and composition boundaries.

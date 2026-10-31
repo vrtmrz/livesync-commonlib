@@ -80,6 +80,13 @@ export async function purgeUnreferencedChunks(
     Logger(`Cleaning ${connSetting ? "remote" : "local"} database up: Done`, LOG_LEVEL_NOTICE);
     return resultCount;
 }
+/**
+ * Copy chunks missing from the destination, preserving their source revisions.
+ *
+ * @deprecated Obsolete purge-based cleanup compatibility helper. Retained for
+ * existing package consumers; current Self-hosted LiveSync no longer calls it.
+ * Garbage Collection V3 propagates ordinary deletion revisions instead.
+ */
 export function transferChunks(
     key: string,
     label: string,
@@ -146,7 +153,11 @@ export function transferChunks(
         .startPipeline()
         .waitForAllDoneAndTerminate();
 }
-// Complement unbalanced chunks between databases which were separately cleaned up.
+/**
+ * Complement chunks between databases which were separately purged.
+ * @deprecated Obsolete cleanup compatibility wrapper around transferChunks.
+ * Current Self-hosted LiveSync uses its standard locked-remote recovery flow.
+ */
 
 export async function balanceChunkPurgedDBs(local: PouchDB.Database, remote: PouchDB.Database) {
     Logger(`Complement missing chunks between databases`, LOG_LEVEL_NOTICE);
@@ -163,6 +174,10 @@ export async function balanceChunkPurgedDBs(local: PouchDB.Database, remote: Pou
     }
     Logger("Complement completed!", LOG_LEVEL_NOTICE);
 }
+/**
+ * @deprecated Obsolete transferChunks compatibility wrapper with no callers in
+ * the current Commonlib or Self-hosted LiveSync source trees.
+ */
 export async function fetchAllUsedChunks(local: PouchDB.Database, remote: PouchDB.Database) {
     try {
         const chunksOnRemote = await collectChunks(remote, "INUSE");
