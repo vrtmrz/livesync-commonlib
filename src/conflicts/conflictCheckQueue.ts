@@ -1,7 +1,7 @@
 import type { FilePathWithPrefix } from "../common/types.ts";
 import { createKeyedPendingWork } from "../concurrency/keyedPendingWork.ts";
 import { createNotifier } from "octagonal-wheels/concurrency/notifier";
-import { forEachInScope } from "octagonal-wheels/concurrency/scopedIteration";
+import { forEachInScope } from "octagonal-wheels/concurrency/scoped.iteration";
 import { withScope, type Awaitable, type Scope } from "octagonal-wheels/resource/scope";
 
 /** Host-owned conflict processing and observation for one queue. */
