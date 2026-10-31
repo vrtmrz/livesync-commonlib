@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { timeDeltaToHumanReadable, splitCustomRegExpList, constructCustomRegExpList } from "@vrtmrz/livesync-commonlib/compat/common/utils";
 import { bindableFunction, lazyBindableFunction } from "@vrtmrz/livesync-commonlib/compat/services/lib/HandlerUtils";
 
-for (const [value, expected] of [[0,"0.00s"],[60000,"1.00m"],[86400000,"1.00d"],[31536000000,"1.00y"],[-1000,"-1.00s"],[NaN,"NaNy"],[Infinity,"Infinityy"]]) {
+for (const [value, expected] of [[0,"0.00s"],[60000,"1.00m"],[86400000,"1.00d"],[31536000000,"1.00y"],[-1000,"-1.00s"],[NaN,"NaNy"],[Infinity,"∞y"]]) {
     assert.equal(timeDeltaToHumanReadable(value), expected);
 }
 assert.deepEqual(splitCustomRegExpList("|a||b|", "|"), ["a", "b"]);

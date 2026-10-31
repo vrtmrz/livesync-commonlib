@@ -28,7 +28,7 @@ import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.cons
 import { UnresolvedErrorManager } from "@lib/services/base/UnresolvedErrorManager";
 import { compatGlobal } from "@lib/common/coreEnvFunctions";
 import { ICHeader, ICXHeader, PSCHeader } from "@lib/common/models/fileaccess.const";
-import { serialized, serializedByKeys } from "octagonal-wheels/concurrency/lock";
+import { serialized, withLocks } from "octagonal-wheels/concurrency/lock";
 import { VaultScanResults, type VaultScanResult, type VaultScanOptions } from "@lib/services/base/VaultScanResult.ts";
 
 export { VaultScanResults };
@@ -413,7 +413,7 @@ async function serializedByMetadataDocumentIds<T>(
     callback: () => Promise<T>
 ): Promise<T> {
     const lockKeys = [...new Set(documentIds)].sort().map((documentId) => `processFileEvent-${documentId}`);
-    return await serializedByKeys(lockKeys, callback);
+    return await withLocks(lockKeys, callback);
 }
 
 function findRepairEntry(

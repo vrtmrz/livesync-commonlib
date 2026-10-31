@@ -308,6 +308,8 @@ MIT
 
 ## Shared value helper migration
 
+The shared formatter displays positive infinity as `∞y`, including through the existing `timeDeltaToHumanReadable` entry. Other duration formatting cases retain their previous behaviour.
+
 The unreleased extraction keeps `timeDeltaToHumanReadable`,
 `splitCustomRegExpList`, and `constructCustomRegExpList` at the existing
 `compat/common/utils` entry. They delegate to `formatDuration` in
@@ -320,6 +322,8 @@ entries once a release containing them is available.
 Duration units and rounding remain unchanged. The delimiter adapters retain
 their tagged types and string coercion; splitting removes empty parts and
 does not interpret escapes. `asCopy<T>` retains its existing type signature
-for compatibility, while `cloneViaJSON` returns `unknown` because native JSON
-conversion can change the value's shape. Neither helper promises to preserve
-Dates, prototypes, undefined fields, or arbitrary object identity.
+for compatibility. The typed `cloneViaJSON` entry instead constrains its input
+to JSON-compatible types and defaults its output type to that input shape.
+Explicit output types are caller assertions, not runtime validation. The legacy
+adapter still follows native JSON behaviour for Dates, undefined fields, and
+toJSON hooks; neither entry preserves prototypes or shared object identity.

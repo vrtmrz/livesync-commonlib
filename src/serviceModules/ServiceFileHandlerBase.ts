@@ -1,5 +1,5 @@
 import { LOG_LEVEL_INFO, LOG_LEVEL_NOTICE, LOG_LEVEL_VERBOSE } from "octagonal-wheels/common/logger";
-import { serializedByKeys } from "octagonal-wheels/concurrency/lock";
+import { withLocks } from "octagonal-wheels/concurrency/lock";
 import type {
     AnyEntry,
     FileEventItem,
@@ -1592,7 +1592,7 @@ export abstract class ServiceFileHandlerBase
         let failed = false;
         let failure: unknown;
         try {
-            result = await serializedByKeys(lockKeys, async () => {
+            result = await withLocks(lockKeys, async () => {
                 for (const id of uniqueIds) this.deferredConflictChecks.set(id, pending);
                 try {
                     return await callback(documentIds.length === 2 && documentIds[0] === documentIds[1]);

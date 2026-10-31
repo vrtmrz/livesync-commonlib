@@ -272,7 +272,7 @@ checks do not establish real-Obsidian rendering or device behaviour.
 
 ## Shared multi-key locking: candidate integration
 
-The unreleased candidate imports `serializedByKeys` directly from
+The unreleased candidate imports `withLocks` directly from
 `octagonal-wheels/concurrency/lock` for offline Metadata repair and file-event
 processing. Commonlib retains the `processFileEvent-` namespace, unique sorted
 document IDs, and conflict hooks deferred until every lock has been released.

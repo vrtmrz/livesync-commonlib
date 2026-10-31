@@ -13,7 +13,7 @@ describe("timeDeltaToHumanReadable", () => {
         [31_536_000_000, "1.00y"],
         [-1_000, "-1.00s"],
         [Number.NaN, "NaNy"],
-        [Number.POSITIVE_INFINITY, "Infinityy"],
+        [Number.POSITIVE_INFINITY, "∞y"],
     ])("formats %s milliseconds as %s", (delta, expected) => {
         expect(timeDeltaToHumanReadable(delta)).toBe(expected);
     });

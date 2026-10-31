@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Positive infinite durations now display as `∞y` through the shared formatter and the existing `timeDeltaToHumanReadable` entry. Other duration cases retain their previous formatting.
+
 - Offline scan and database-preparation host types now match their operation and composition boundaries.
     - Offline composition drops `databaseEvents`, `fileProcessing`, and `replicator`; scan operations drop `fileProcessing`, and database preparation drops `setting` and `path`.
 - Remote-configuration internals use narrower private host types while retaining the broad exported `RemoteConfigHost` for existing callers.
