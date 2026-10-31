@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { VERSIONING_DOCID, type EntryDoc, type FilePathWithPrefix } from "@lib/common/types.ts";
+import { DOCID_SYNC_PARAMETERS, VERSIONING_DOCID, type EntryDoc, type EntryLeaf, type FilePathWithPrefix } from "@lib/common/types.ts";
 import { PouchDB } from "@lib/pouchdb/pouchdb-http.ts";
 import { DirectFileManipulator, type DirectFileManipulatorOptions } from "./DirectFileManipulatorV2.ts";
 
@@ -66,4 +66,87 @@ describe("direct CouchDB access with an independent ID key", () => {
             await remote.destroy();
         }
     });
+});
+
+describe("direct CouchDB access with encrypted late chunks", () => {
+    it("delivers chunks arriving after their metadata decrypted", async () => {
+        const database = "direct-late-" + Date.now() + "-" + Math.random().toString(36).slice(2);
+        const options: DirectFileManipulatorOptions = {
+            url,
+            username,
+            password,
+            database,
+            passphrase: "late-chunk-integration-passphrase",
+            obfuscatePassphrase: "late-chunk-integration-passphrase",
+            idDerivationVersion: 1,
+            idDerivationKey: firstKey,
+            useEden: false,
+        };
+        const source = new PouchDB<EntryDoc>(url.replace(/\/$/u, "") + "/" + database, {
+            auth: { username, password },
+        });
+        const destination = new PouchDB<EntryDoc>(url.replace(/\/$/u, "") + "/" + database + "-reader", {
+            auth: { username, password },
+        });
+        const writer = new DirectFileManipulator(options);
+        let reader: DirectFileManipulator | undefined;
+        let unsubscribe: (() => void) | undefined;
+        const path = "notes/late-chunks.md" as FilePathWithPrefix;
+        const text = Array.from({ length: 1500 }, (_, index) => `Line ${index}: known synthetic note content.\n`).join("");
+
+        try {
+            await writer.ready.promise;
+            const now = Date.now();
+            await expect(writer.put(path, text, { ctime: now, mtime: now, size: text.length })).resolves.toBe(true);
+            const documents = (await source.allDocs({ include_docs: true })).rows.flatMap((row) =>
+                row.doc && !row.id.startsWith("_design/") ? [row.doc] : []
+            );
+            const chunks = documents.filter((doc): doc is EntryLeaf => doc.type === "leaf");
+            expect(chunks.length).toBeGreaterThan(1);
+            for (const chunk of chunks) {
+                expect(chunk).toMatchObject({ e_: true });
+                expect(chunk.data).toMatch(/^%=/u);
+            }
+
+            // CouchDB excludes the local encryption parameters from allDocs and replication.
+            const { _rev: sourceRevision, ...parameters } = await source.get(DOCID_SYNC_PARAMETERS);
+            await destination.put(parameters);
+            const metadataResults = await destination.bulkDocs(documents.filter((doc) => doc.type !== "leaf"), {
+                new_edits: false,
+            });
+            expect(metadataResults.every((result) => !("error" in result))).toBe(true);
+            reader = new DirectFileManipulator({ ...options, database: database + "-reader" });
+            await reader.ready.promise;
+            const metadata = await reader.get(path, true);
+            if (!metadata || !("children" in metadata)) throw new Error("The note metadata is missing.");
+            expect(metadata.children.length).toBeGreaterThan(1);
+            const chunkIds = new Set(chunks.map((chunk) => chunk._id));
+            expect(metadata.children.every((id) => chunkIds.has(id))).toBe(true);
+
+            const arrived = new Map<string, EntryLeaf>();
+            const onChange = (change: PouchDB.Core.ChangesResponseChange<EntryDoc>) => {
+                if (change.doc?.type === "leaf" && chunkIds.has(change.doc._id)) {
+                    arrived.set(change.doc._id, change.doc);
+                }
+            };
+            unsubscribe = reader.liveSyncLocalDB.managers.changeManager.addCallback(onChange);
+            const chunkResults = await destination.bulkDocs(chunks, { new_edits: false });
+            expect(chunkResults.every((result) => !("error" in result))).toBe(true);
+            await expect.poll(() => arrived.size, { timeout: 5000 }).toBe(chunks.length);
+
+            for (const chunk of arrived.values()) {
+                expect(chunk).not.toMatchObject({ e_: true });
+                expect(chunk.data).not.toMatch(/^%=/u);
+            }
+            expect(metadata.children.map((id) => arrived.get(id)?.data).join("")).toBe(text);
+            const note = await reader.get(path);
+            if (!note || !("data" in note)) throw new Error("The note content is missing.");
+            expect(note.data.join("")).toBe(text);
+        } finally {
+            unsubscribe?.();
+            await reader?.close().catch(() => undefined);
+            await writer.close().catch(() => undefined);
+            await Promise.all([source.destroy(), destination.destroy()]);
+        }
+    }, 30000);
 });
