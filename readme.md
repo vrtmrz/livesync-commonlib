@@ -32,6 +32,7 @@ does not provide an arbitrary-time checkpoint jump or On Demand repair.
 | Entry point                                        | Intended use                                                                      | Current contract status                                                                     |
 | -------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `@vrtmrz/livesync-commonlib`                       | `DirectFileManipulator` for integrations which access CouchDB directly            | Deliberately small, but its high-level lifecycle and file-operation semantics are not final |
+| `@vrtmrz/livesync-commonlib/conflicts` | Keyed conflict-check scheduling with bounded concurrency and explicit completion | Focused, package-tested pre-1.0 contract |
 | `@vrtmrz/livesync-commonlib/context`               | Instance-owned events, translation injection, and host-neutral standard-I/O types | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/diagnostics` | Read-only Usage and integrity inspection, name projection, and reports | Focused pre-1.0 diagnostic contract |
 | `@vrtmrz/livesync-commonlib/hashing`               | Chunk ID calculation and exact file-content hashing                            | Focused, package-tested pre-1.0 contract                                                    |

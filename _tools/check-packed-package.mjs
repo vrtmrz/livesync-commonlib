@@ -245,6 +245,7 @@ import {
     type DirectFileManipulatorRuntimeOptions,
 } from "${packageName}";
 import { declareUICommand, UICommandRegistry } from "${packageName}/ui-commands";
+import { createConflictCheckQueue, type ConflictCheckQueue, type FilePathWithPrefix } from "${packageName}/conflicts";
 import {
     createFileSystemAccessStorage,
     type CreateFileSystemAccessStorageOptions,
@@ -369,6 +370,29 @@ const remoteResourceCapabilities: RemoteResourceCapabilities = NO_REMOTE_RESOURC
 const joinedDevicesResourceKind: "joined-devices" = REMOTE_RESOURCE_KINDS.JOINED_DEVICES;
 const readJoinedDevices = (resource: JoinedDevicesResource): Promise<JoinedDevicesSnapshot> => resource.read();
 const forgetJoinedDevice = (resource: JoinedDevicesResource): Promise<ForgetJoinedDeviceResult> => resource.forget("old-device");
+async function checkConflictQueueTypes() {
+    const queue: ConflictCheckQueue = createConflictCheckQueue({
+        concurrency: 2,
+        process(path, scope) {
+            const typedPath: FilePathWithPrefix = path;
+            scope.defer(() => undefined);
+            void typedPath;
+        },
+        onProgress(remaining) {
+            const count: number = remaining;
+            void count;
+        },
+    });
+    queue.enqueue("conflicted.md" as FilePathWithPrefix);
+    const complete: boolean = await queue.waitForIdle();
+    const pending: readonly FilePathWithPrefix[] = await queue.abort();
+    // @ts-expect-error Conflict input requires a branded file path.
+    queue.enqueue(12);
+    // @ts-expect-error The returned snapshot is read-only.
+    pending.push("another.md" as FilePathWithPrefix);
+    void complete;
+}
+void checkConflictQueueTypes;
 async function checkUICommandTypes() {
     const command = declareUICommand<{ deviceId: string }, { accepted: boolean }>("consumer:join-device");
     const registry = new UICommandRegistry();
@@ -568,6 +592,30 @@ assert.equal(replicationApi.NO_INTERACTION.kind, "forbidden");
 assert.equal(replicationApi.CENTRAL_COMPATIBILITY_REJECTION_REASONS.NODE_LOCKED, "node-locked");
 assert.equal(replicationApi.REMOTE_RESOURCE_KINDS.SECURITY_SEED, "security-seed");
 assert.equal(replicationApi.REMOTE_RESOURCE_KINDS.JOINED_DEVICES, "joined-devices");
+const { createConflictCheckQueue } = await import("${packageName}/conflicts");
+const checkedPaths = [];
+let requeued = false;
+const conflictQueue = createConflictCheckQueue({
+    concurrency: 1,
+    process(path, scope) {
+        checkedPaths.push(path);
+        scope.defer(() => { checkedPaths.push("cleaned:" + path); });
+        if (!requeued) {
+            requeued = true;
+            conflictQueue.enqueue(path);
+        }
+    },
+});
+conflictQueue.enqueue("first.md");
+conflictQueue.enqueue("second.md");
+conflictQueue.enqueue("first.md");
+assert.equal(await conflictQueue.waitForIdle(), true);
+assert.deepEqual(checkedPaths, [
+    "second.md", "cleaned:second.md", "first.md", "cleaned:first.md", "second.md", "cleaned:second.md",
+]);
+assert.equal(conflictQueue.remaining, 0);
+assert.equal(await conflictQueue.close(), true);
+assert.throws(() => conflictQueue.enqueue("closed.md"), /closed/);
 const { declareUICommand, UICommandRegistry } = await import("${packageName}/ui-commands");
 const uiCommand = declareUICommand("package-test");
 const uiCommands = new UICommandRegistry();
@@ -898,6 +946,7 @@ assert.deepEqual(
     [
         ".",
         "./browser",
+        "./conflicts",
         "./context",
         "./diagnostics",
         "./hashing",
@@ -913,7 +962,7 @@ assert.deepEqual(
     ],
     "The focused package surface must remain explicit."
 );
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 14);
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 15);
 
 console.log(
     JSON.stringify(

@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- Hosts can schedule conflict checks with bounded concurrency while coalescing pending duplicates and preserving checks requeued by running work.
+    - The new `/conflicts` entry provides `createConflictCheckQueue`, with separate admission, idle waiting, draining closure, and abort operations. Started work and cleanup settle before completion or failure is reported.
+    - Concurrency defaults to ten; pending paths have no fixed capacity. Hosts retain conflict decisions, error-continuation policy, and recovery. This entry is being validated with the unpublished Octagonal Wheels candidate.
+
 - The purge-based cleanup helpers `transferChunks`, `balanceChunkPurgedDBs`, and `fetchAllUsedChunks` are now marked obsolete.
     - Their `compat/pouchdb/chunks` exports and transfer behaviour remain available for existing consumers. The accompanying Self-hosted LiveSync integration uses its standard locked-remote recovery flow; Garbage Collection V3 does not use these helpers.
 

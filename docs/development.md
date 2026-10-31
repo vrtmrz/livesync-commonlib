@@ -7,6 +7,7 @@ This document is for Commonlib developers. Package consumers should begin with t
 The source tree is larger than the supported package surface. Consumers may import only paths in the generated package export map:
 
 - `src/index.ts`, `src/context.ts`, `src/settings.ts`, `src/remoteConfigurations.ts`, `src/p2p/index.ts`, `src/platform/browser/index.ts`, and `src/platform/node/index.ts` define the focused entries;
+- `src/conflicts.ts` defines the host-owned conflict-check queue contract; `src/concurrency/keyedPendingWork.ts` remains package-private;
 - `src/replication/index.ts` defines the focused provider-capability and interaction contract for hosts which compose replication;
 - `src/diagnostics/index.ts` defines read-only Usage and integrity inspection, report projection, and formatting; hosts own the run dialogue and output destination;
 - `src/rpc/index.ts` defines a transitional entry for the existing LiveSync P2P composition, not a stable Commonlib 1.0 contract;
