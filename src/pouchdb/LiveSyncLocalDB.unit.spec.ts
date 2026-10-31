@@ -13,6 +13,7 @@ const managerLifecycle = vi.hoisted(() => ({
 
 vi.mock("@lib/managers/LiveSyncManagers.ts", () => ({
     LiveSyncManagers: class {
+        changeManager = { restartWatch: vi.fn() };
         chunkManager = { emitEvent: vi.fn() };
         initialise = managerLifecycle.initialise;
         teardownManagers = managerLifecycle.teardown;
