@@ -1,3 +1,5 @@
+import { repairMetadataDocumentIdentity } from "@lib/serviceFeatures/offlineScanner";
+import type { DocumentID } from "@lib/common/types";
 import { createHash } from "node:crypto";
 import { describe, expect, it, vi } from "vitest";
 import { BASE_IS_NEW, EVEN, TARGET_IS_NEW } from "@lib/common/models/shared.const.symbols";
@@ -544,6 +546,42 @@ describe("ServiceFileHandlerBase.renameFileInDB", () => {
         }
         await expect(Promise.all([forward, backward])).resolves.toEqual([true, true]);
         expect(renameCore).toHaveBeenCalledTimes(2);
+    });
+
+    it.each([false, true])("shares document locks with Metadata repair and releases them on failure=%s", async (fail) => {
+        const { handler } = createRenameHandler(false);
+        let release!: () => void;
+        let started!: () => void;
+        const gate = new Promise<void>((resolve) => { release = resolve; });
+        const entered = new Promise<void>((resolve) => { started = resolve; });
+        const failure = new Error("Rename failed");
+        vi.spyOn(handler as unknown as { renameFileInDBCore: () => Promise<boolean> }, "renameFileInDBCore")
+            .mockImplementationOnce(async () => { started(); await gate; if (fail) throw failure; return true; });
+        const rename = handler.renameFileInDB(createStorageFile("shared-b.md", "body"), "shared-a.md" as FilePath);
+        const renameResult = rename.then(value => ({ value }), error => ({ error }));
+        await entered;
+        const repairs = (ids: [string, string]) => {
+            const enumerate = vi.fn(() => []);
+            const host = {
+                services: { database: { localDatabase: { findAllNormalDocs: enumerate } },
+                    setting: { currentSettings: () => ({}) } },
+            } as unknown as Parameters<typeof repairMetadataDocumentIdentity>[0];
+            return { enumerate, result: repairMetadataDocumentIdentity(host, {
+                actualDocumentId: ids[0] as DocumentID,
+                expectedDocumentId: ids[1] as DocumentID,
+                sourceRevision: "1-inspected",
+            }) };
+        };
+        const overlap = repairs(["shared-b.md", "shared-a.md"]);
+        const independent = repairs(["independent.md", "independent.md"]);
+        try {
+            await independent.result;
+            expect(independent.enumerate).toHaveBeenCalledOnce();
+            expect(overlap.enumerate).not.toHaveBeenCalled();
+        } finally { release(); }
+        await expect(renameResult).resolves.toEqual(fail ? { error: failure } : { value: true });
+        await overlap.result;
+        expect(overlap.enumerate).toHaveBeenCalledOnce();
     });
 
     it("updates one document without deleting it for a case-only rename", async () => {

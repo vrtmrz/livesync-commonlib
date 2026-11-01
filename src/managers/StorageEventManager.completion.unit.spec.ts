@@ -743,4 +743,114 @@ describe("StorageEventManager local completion boundaries", () => {
             vi.useRealTimers();
         }
     });
+
+    it("releases each path after its latest quiet period and retains batched snapshots until processing completes", async () => {
+        vi.useFakeTimers();
+        const { adapter, manager, processFileEvent } = createHarness({ batchSave: true });
+        const latestWrite = deferred<boolean>();
+        processFileEvent.mockImplementation(async (item) => {
+            return item.key === "latest" ? await latestWrite.promise : true;
+        });
+        try {
+            manager.enqueue(event("edited.md", "first", "CHANGED", { skipBatchWait: false }));
+            await waitUntil(() => adapter.status.batched === 1, "the first wait");
+            await vi.advanceTimersByTimeAsync(400);
+            manager.enqueue(event("other.md", "other", "CHANGED", { skipBatchWait: false }));
+            await waitUntil(() => adapter.status.batched === 2, "the independent wait");
+            await vi.advanceTimersByTimeAsync(200);
+            manager.enqueue(event("edited.md", "latest", "CHANGED", { skipBatchWait: false }));
+            await pumpMicrotasks();
+
+            await vi.advanceTimersByTimeAsync(799);
+            expect(processFileEvent).not.toHaveBeenCalled();
+            await vi.advanceTimersByTimeAsync(1);
+            expect(processFileEvent.mock.calls.map(([item]) => item.key)).toEqual(["other"]);
+            expect(adapter.status.batched).toBe(1);
+            await vi.advanceTimersByTimeAsync(199);
+            expect(processFileEvent).toHaveBeenCalledOnce();
+            await vi.advanceTimersByTimeAsync(1);
+            expect(processFileEvent.mock.calls.map(([item]) => item.key)).toEqual(["other", "latest"]);
+            expect(adapter.status.batched).toBe(0);
+            await vi.advanceTimersByTimeAsync(100);
+            expect(vi.getTimerCount()).toBe(0);
+            expect(keys(adapter.persistence.snapshot)).toEqual(["first", "latest"]);
+            expect(manager.hasPendingFileEvent("edited.md" as FilePath)).toBe(true);
+
+            latestWrite.resolve(true);
+            await manager.waitForIdle();
+            expect(adapter.persistence.snapshot).toEqual([]);
+            expect(manager.hasPendingFileEvent("edited.md" as FilePath)).toBe(false);
+        } finally {
+            latestWrite.resolve(true);
+            await manager.waitForIdle().catch(() => {});
+            await vi.runOnlyPendingTimersAsync();
+            vi.useRealTimers();
+        }
+    });
+
+    it("cancels a flushed deadline without releasing a later same-path wait", async () => {
+        vi.useFakeTimers();
+        const { adapter, manager, processFileEvent } = createHarness({ batchSave: true });
+        try {
+            manager.enqueue(event("edited.md", "flushed", "CHANGED", { skipBatchWait: false }));
+            await waitUntil(() => adapter.status.batched === 1, "the first wait");
+            await vi.advanceTimersByTimeAsync(200);
+            await manager.waitForIdle();
+            expect(processFileEvent.mock.calls.map(([item]) => item.key)).toEqual(["flushed"]);
+            await vi.advanceTimersByTimeAsync(200);
+            expect(vi.getTimerCount()).toBe(0);
+
+            manager.enqueue(event("edited.md", "later", "CHANGED", { skipBatchWait: false }));
+            await waitUntil(() => adapter.status.batched === 1, "the later wait");
+            await vi.advanceTimersByTimeAsync(600);
+            expect(processFileEvent).toHaveBeenCalledOnce();
+            expect(adapter.status.batched).toBe(1);
+            await vi.advanceTimersByTimeAsync(399);
+            expect(processFileEvent).toHaveBeenCalledOnce();
+            await vi.advanceTimersByTimeAsync(1);
+            expect(processFileEvent.mock.calls.map(([item]) => item.key)).toEqual(["flushed", "later"]);
+            await manager.waitForIdle();
+            expect(adapter.persistence.snapshot).toEqual([]);
+            await vi.advanceTimersByTimeAsync(100);
+            expect(vi.getTimerCount()).toBe(0);
+        } finally {
+            await manager.waitForIdle().catch(() => {});
+            await vi.runOnlyPendingTimersAsync();
+            vi.useRealTimers();
+        }
+    });
+
+    it.each([true, false])("stops an active batch wait and preserves its completion result: %s", async (success) => {
+        vi.useFakeTimers();
+        const { adapter, manager, processFileEvent } = createHarness({ batchSave: true });
+        const write = deferred<boolean>();
+        processFileEvent.mockImplementation(() => write.promise);
+        let stopped = false;
+        let stopping: Promise<void> | undefined;
+        try {
+            manager.enqueue(event("accepted.md", "accepted", "CHANGED", { skipBatchWait: false }));
+            await waitUntil(() => adapter.status.batched === 1, "the accepted batch wait");
+            stopping = manager.stopWatching().then(() => { stopped = true; });
+            await waitUntil(() => processFileEvent.mock.calls.length === 1, "the released handler");
+            await manager.appendQueue([{ type: "CHANGED", file: file("after-stop.md") }]);
+            await vi.advanceTimersByTimeAsync(6_000);
+            expect(stopped).toBe(false);
+            expect(adapter.status.batched).toBe(0);
+            expect(processFileEvent.mock.calls.map(([item]) => item.key)).toEqual(["accepted"]);
+            expect(keys(adapter.persistence.snapshot)).toEqual(["accepted"]);
+            expect(vi.getTimerCount()).toBe(0);
+
+            write.resolve(success);
+            await stopping;
+            expect(stopped).toBe(true);
+            expect(keys(adapter.persistence.snapshot)).toEqual(success ? [] : ["accepted"]);
+            expect(manager.hasPendingFileEvent("accepted.md" as FilePath)).toBe(!success);
+        } finally {
+            write.resolve(success);
+            await stopping;
+            await manager.waitForIdle().catch(() => {});
+            await vi.runOnlyPendingTimersAsync();
+            vi.useRealTimers();
+        }
+    });
 });

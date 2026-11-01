@@ -176,6 +176,7 @@ function createExports() {
     const exports = {
         ".": exportTarget("index"),
         "./browser": exportTarget("platform/browser/index"),
+        "./conflicts": exportTarget("conflicts"),
         "./context": exportTarget("context"),
         "./diagnostics": exportTarget("diagnostics/index"),
         "./hashing": exportTarget("hashing"),

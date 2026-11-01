@@ -24,7 +24,7 @@ function reportPreparationFailure(log: LogFunction, message: string): false {
 
 export async function prepareDatabaseForUse(
     host: NecessaryServices<
-        "appLifecycle" | "setting" | "vault" | "path" | "database" | "databaseEvents" | "fileProcessing" | "replicator",
+        "appLifecycle" | "vault" | "database" | "databaseEvents" | "fileProcessing" | "replicator",
         never
     >,
     log: LogFunction,
@@ -95,15 +95,7 @@ export async function prepareDatabaseForUse(
  */
 export function usePrepareDatabaseForUse(
     host: NecessaryServices<
-        | "API"
-        | "appLifecycle"
-        | "setting"
-        | "vault"
-        | "path"
-        | "database"
-        | "databaseEvents"
-        | "fileProcessing"
-        | "replicator",
+        "API" | "appLifecycle" | "vault" | "database" | "databaseEvents" | "fileProcessing" | "replicator",
         never
     >
 ) {

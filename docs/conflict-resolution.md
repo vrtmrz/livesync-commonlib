@@ -72,6 +72,36 @@ Each duplicate collapse, conservative merge, or host-directed manual choice is c
 
 A host must not apply a dialogue result after either compared revision has ceased to be the current pair. It should discard that stale result, refresh its warning or dialogue state, and queue the path again when conflicts remain.
 
+## Scheduling conflict checks
+
+The unreleased `@vrtmrz/livesync-commonlib/conflicts` entry exports
+`createConflictCheckQueue`. The host supplies a `process(path, scope)` callback
+and may observe pending plus active checks through `onProgress`. Concurrency
+defaults to ten and includes each item's deferred cleanup. The host continues
+to own active-file filtering, optional conflict handlers, revision decisions,
+and serialisation of shared user interactions.
+
+`enqueue(path)` accepts work synchronously. A duplicate pending path replaces
+its earlier entry and moves to the tail; an executing check is unchanged.
+An executing check may enqueue its path again, including while every execution
+slot is occupied. Pending paths have no fixed capacity, and there is no delay
+or batching policy.
+
+`waitForIdle()` waits until accepted work, new arrivals, requeued checks, and
+cleanup have finished. It leaves admission open for later checks and returns
+`true` on quiescence. `close()` stops admission and drains accepted work.
+`abort()` stops admission and further dispatch, waits for started work and
+cleanup, and returns a snapshot of the unstarted paths. It does not forcibly
+cancel a running callback; `waitForIdle()` returns `false` after abort.
+A processor must not await its own queue's completion, closure, or abort.
+
+An unhandled processing, cleanup, or progress-observer error stops dispatch.
+Completion methods reject only after started work and cleanup settle, while
+`pending` retains the unstarted paths for inspection. Catch and report an item
+error inside `process` when the host deliberately intends to continue with
+later items. The queue performs no implicit retry, logging, persistence, or
+recovery. Enqueueing after close, abort, or failure throws.
+
 ## File-reflection provenance
 
 The compatibility implementation accepts an injected, device-local `FileReflectionProvenance` capability owned by the database-to-storage composition rather than by a filesystem adapter. Maintained hosts persist:

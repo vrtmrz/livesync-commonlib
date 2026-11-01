@@ -10,6 +10,11 @@ export type RemoteConfigHost = NecessaryServices<
     never
 >;
 
+type RemoteConfigMigrationHost = NecessaryServices<"setting" | "API", never>;
+type RemoteConfigMigrationFeatureHost = NecessaryServices<"setting" | "API" | "appLifecycle", never>;
+type RemoteConfigSwitchHost = NecessaryServices<"setting" | "UI" | "control" | "API", never>;
+type RemoteConfigReplicationHost = NecessaryServices<"setting" | "UI" | "replication" | "control" | "API", never>;
+
 export function migrateLegacyRemoteConfigurationsInPlace(
     settings: ObsidianLiveSyncSettings,
     log?: (message: string, level?: LOG_LEVEL) => void
@@ -266,7 +271,7 @@ export function migrateP2PActiveRemoteConfigurationIdInPlace(settings: ObsidianL
 /**
  * Migrates existing flat settings to the new multiple remote configurations list.
  */
-export async function migrateToMultipleRemoteConfigurations(host: RemoteConfigHost): Promise<boolean> {
+export async function migrateToMultipleRemoteConfigurations(host: RemoteConfigMigrationHost): Promise<boolean> {
     const log = createInstanceLogFunction("SF:RemoteConfig", host.services.API);
     const settings = host.services.setting.currentSettings();
     if (migrateLegacyRemoteConfigurationsInPlace(settings, log)) {
@@ -337,7 +342,7 @@ export function activateP2PRemoteConfiguration(
 /**
  * Command: Switch active connection
  */
-export async function commandSwitchActiveRemote(host: RemoteConfigHost): Promise<void> {
+export async function commandSwitchActiveRemote(host: RemoteConfigSwitchHost): Promise<void> {
     const settings = host.services.setting.currentSettings();
     const configs = settings.remoteConfigurations;
     if (!configs || Object.keys(configs).length === 0) {
@@ -380,7 +385,7 @@ export async function commandSwitchActiveRemote(host: RemoteConfigHost): Promise
 /**
  * Command: Sync with a saved connection
  */
-export async function commandReplicateWithSpecificRemote(host: RemoteConfigHost): Promise<void> {
+export async function commandReplicateWithSpecificRemote(host: RemoteConfigReplicationHost): Promise<void> {
     const settings = host.services.setting.currentSettings();
     const configs = settings.remoteConfigurations;
     if (!configs || Object.keys(configs).length === 0) {
@@ -431,7 +436,7 @@ export async function commandReplicateWithSpecificRemote(host: RemoteConfigHost)
 /**
  * Migration feature to be used during initialisation.
  */
-export function useRemoteConfigurationMigration(host: RemoteConfigHost) {
+export function useRemoteConfigurationMigration(host: RemoteConfigMigrationFeatureHost) {
     host.services.appLifecycle.onSettingLoaded.addHandler(async () => {
         try {
             await migrateToMultipleRemoteConfigurations(host);
@@ -450,7 +455,7 @@ export function useRemoteConfigurationMigration(host: RemoteConfigHost) {
 /**
  * Hook to set up remote configuration features (Commands).
  */
-export function useRemoteConfiguration(host: RemoteConfigHost) {
+export function useRemoteConfiguration(host: RemoteConfigReplicationHost) {
     // Register commands
     host.services.API.addCommand({
         id: "livesync-switch-remote",

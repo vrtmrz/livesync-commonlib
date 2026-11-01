@@ -15,6 +15,11 @@ import { delay, fireAndForget, isRemediationModeActive, throttle } from "@lib/co
 import { type FileEventItem } from "@lib/common/types.ts";
 import { serialized } from "octagonal-wheels/concurrency/lock";
 import { Semaphore } from "octagonal-wheels/concurrency/semaphore";
+import {
+    createDeferredAction,
+    type DeferredAction,
+    type TimeoutScheduler,
+} from "octagonal-wheels/concurrency/deferredAction";
 import type { IStorageAccessManager } from "@lib/interfaces/StorageAccess.ts";
 import { promiseWithResolvers, type PromiseWithResolvers } from "octagonal-wheels/promises";
 import { StorageEventManager, type FileEvent } from "@lib/interfaces/StorageEventManager.ts";
@@ -23,15 +28,20 @@ import type { SettingService } from "@lib/services/base/SettingService.ts";
 import type { FileProcessingService } from "@lib/services/base/FileProcessingService.ts";
 import { createInstanceLogFunction } from "@lib/services/lib/logUtils";
 import type { IStorageEventManagerAdapter } from "./adapters";
-import { compatGlobal, type CompatTimeoutHandle } from "@lib/common/coreEnvFunctions";
+import { compatGlobal } from "@lib/common/coreEnvFunctions";
 
 type WaitInfo = {
     since: number;
     type: FileEventType;
     canProceed: PromiseWithResolvers<boolean>;
-    timerHandler: CompatTimeoutHandle;
+    deadline: DeferredAction;
     event: FileEventItem;
 };
+const scheduleStorageTimeout: TimeoutScheduler = (callback, delayMs) => {
+    const handle = compatGlobal.setTimeout(callback, delayMs);
+    return () => compatGlobal.clearTimeout(handle);
+};
+
 const TYPE_SENTINEL_FLUSH = "SENTINEL_FLUSH";
 type FileEventItemSentinelFlush = {
     type: typeof TYPE_SENTINEL_FLUSH;
@@ -431,7 +441,7 @@ export abstract class StorageEventManagerBase<
         const waitInfo = this._waitingMap.get(key);
         if (waitInfo) {
             waitInfo.canProceed.resolve(true);
-            compatGlobal.clearTimeout(waitInfo.timerHandler);
+            waitInfo.deadline.dispose();
             this._waitingMap.delete(key);
         }
         this.triggerTakeSnapshot();
@@ -443,7 +453,7 @@ export abstract class StorageEventManagerBase<
         const waitInfo = this._waitingMap.get(key);
         if (waitInfo) {
             waitInfo.canProceed.resolve(false);
-            compatGlobal.clearTimeout(waitInfo.timerHandler);
+            waitInfo.deadline.dispose();
             this._waitingMap.delete(key);
         }
         this.triggerTakeSnapshot();
@@ -486,16 +496,18 @@ export abstract class StorageEventManagerBase<
                 LOG_LEVEL_DEBUG
             );
         }
+        const deadline = createDeferredAction(() => {
+            this._log(`Processing ${key}: Batch save timeout reached: ${event.type}`, LOG_LEVEL_DEBUG);
+            this._proceedWaiting(key);
+        }, scheduleStorageTimeout);
         const waitInfo: WaitInfo = {
             since: since,
             type: event.type,
             event: event,
             canProceed: resolver,
-            timerHandler: compatGlobal.setTimeout(() => {
-                this._log(`Processing ${key}: Batch save timeout reached: ${event.type}`, LOG_LEVEL_DEBUG);
-                this._proceedWaiting(key);
-            }, nextDelay),
+            deadline,
         };
+        deadline.schedule(nextDelay);
         this._waitingMap.set(key, waitInfo);
         this.triggerTakeSnapshot();
         return waitInfo;

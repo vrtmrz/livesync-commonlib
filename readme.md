@@ -32,6 +32,7 @@ does not provide an arbitrary-time checkpoint jump or On Demand repair.
 | Entry point                                        | Intended use                                                                      | Current contract status                                                                     |
 | -------------------------------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | `@vrtmrz/livesync-commonlib`                       | `DirectFileManipulator` for integrations which access CouchDB directly            | Deliberately small, but its high-level lifecycle and file-operation semantics are not final |
+| `@vrtmrz/livesync-commonlib/conflicts` | Keyed conflict-check scheduling with bounded concurrency and explicit completion | Focused, package-tested pre-1.0 contract |
 | `@vrtmrz/livesync-commonlib/context`               | Instance-owned events, translation injection, and host-neutral standard-I/O types | Focused, package-tested pre-1.0 contract                                                    |
 | `@vrtmrz/livesync-commonlib/diagnostics` | Read-only Usage and integrity inspection, name projection, and reports | Focused pre-1.0 diagnostic contract |
 | `@vrtmrz/livesync-commonlib/hashing`               | Chunk ID calculation and exact file-content hashing                            | Focused, package-tested pre-1.0 contract                                                    |
@@ -47,6 +48,16 @@ does not provide an arbitrary-time checkpoint jump or On Demand repair.
 | `@vrtmrz/livesync-commonlib/compat/*`              | Exact legacy imports still required by existing clients                           | Migration-only; retained within 0.2.x, with removals treated as 0.3.0 breaking changes       |
 | `@vrtmrz/livesync-commonlib/package.json`          | Package metadata for tooling                                                      | Metadata export, not a runtime API                                                          |
 
+The existing `compat/services/lib` boundary retains `bindableFunction` and `lazyBindableFunction` for current clients. Their `setHandler()` methods return an `UnregisterFunction` which removes only its own current assignment; stale removers, including after an override with the same callback, and repeated removals are no-ops. Existing callers may ignore the return value. These helpers remain a migration boundary, not a general-purpose SDK integration surface.
+
+The `compat/pouchdb/chunks` entry retains the obsolete `transferChunks`,
+`balanceChunkPurgedDBs`, and `fetchAllUsedChunks` helpers for existing consumers.
+The unreleased Self-hosted LiveSync integration removes its purge-based cleanup
+recovery and uses the standard locked-remote recovery dialogue. Garbage
+Collection V3 propagates ordinary deletion revisions and does not use these
+helpers. Their compatibility exports and existing transfer behaviour remain
+available; new integrations should not adopt this obsolete cleanup path.
+
 Import only the entry point required by the current runtime. Browser code must not import the Node entry.
 
 The Node and browser entries are platform façades. They keep platform-specific adapters and capabilities behind package-owned boundaries, so a consumer does not have to reproduce those imports or their build and review exceptions. The Node entry's selected built-in-module exports are deliberate parts of that façade. Package checks ensure that the root, context, and browser entries do not load the Node implementation.
@@ -54,6 +65,32 @@ The Node and browser entries are platform façades. They keep platform-specific 
 The RPC entry exists only while the maintained LiveSync P2P composition depends on the current implementation. Its draft wire protocol and PouchDB bridge are not stable Commonlib 1.0 contracts. RPC is planned to move to Fancy Kit as an independently owned rewrite; new Commonlib consumers should not adopt the transitional entry.
 
 The P2P entry exposes eight focused views over one service owner, together with the maintained host-composition helpers. New consumers select only the lifecycle, peer-directory, peer-admission, targeted-transfer, change-relay, configuration-exchange, diagnostic, or connection-probe-admission view which they need. The composition result still carries a deprecated concrete Replicator façade while existing panes migrate; new consumers must not depend on that property or reach through it to a raw room or host.
+
+## Blob helper migration
+
+The unreleased Blob extraction retains `createBlob`, `createTextBlob`, and
+`createBinaryBlob` through the existing `compat/common/utils` entry. Existing
+callers can keep those imports. `createBlob` preserves an existing Blob's
+identity and MIME type; text and binary inputs produce new Blobs with
+`text/plain` and `application/octet-stream` respectively.
+
+New code which only needs Blob conversion or byte comparison should use the focused
+`octagonal-wheels/binary/blob` entry once a release containing it is available.
+Its normalisation function is named `toBlob`; its creation functions retain
+`createTextBlob` and `createBinaryBlob`. Its `isBlobContentEqual` function
+compares two Blobs in bounded parts and accepts an optional synchronous or
+asynchronous ArrayBuffer equality predicate. See the
+[Octagonal Wheels Blob guide](https://github.com/vrtmrz/fancy-kit/blob/main/packages/octagonal-wheels/guides/imports-and-runtime.md#blob-creation-and-normalisation)
+for input and runtime contracts. This migration is currently verified against
+an unpublished candidate, not the registry's existing 0.1.55 release.
+
+Commonlib continues to own document classification, decoding in `readAsBlob`,
+and content-comparison policy. The legacy `isDocContentSame` retains its
+IndexedDB selection and native receiver. Its fallback delegates bounded reads
+to `isBlobContentEqual`, using the existing Commonlib Base64 encoder and host
+Buffer fallback. The compatibility import retains its existing
+environment initialisation; the focused Octagonal Wheels entry does not
+initialise fetch or DOM services.
 
 ## Host context and initialisation
 
@@ -276,3 +313,26 @@ See [Maintained-host examples and evidence](docs/proven-in-use.md) for compositi
 ## Licence
 
 MIT
+
+
+## Shared value helper migration
+
+The shared formatter displays positive infinity as `∞y`, including through the existing `timeDeltaToHumanReadable` entry. Other duration formatting cases retain their previous behaviour.
+
+The unreleased extraction keeps `timeDeltaToHumanReadable`,
+`splitCustomRegExpList`, and `constructCustomRegExpList` at the existing
+`compat/common/utils` entry. They delegate to `formatDuration` in
+`octagonal-wheels/notation/duration` and the delimiter helpers in
+`octagonal-wheels/string`. Commonlib's internal `asCopy` helper delegates to
+`cloneViaJSON` in `octagonal-wheels/encoding/json`; it does not add a Commonlib
+public entry. New general-purpose callers can use the focused Octagonal Wheels
+entries once a release containing them is available.
+
+Duration units and rounding remain unchanged. The delimiter adapters retain
+their tagged types and string coercion; splitting removes empty parts and
+does not interpret escapes. `asCopy<T>` retains its existing type signature
+for compatibility. The typed `cloneViaJSON` entry instead constrains its input
+to JSON-compatible types and defaults its output type to that input shape.
+Explicit output types are caller assertions, not runtime validation. The legacy
+adapter still follows native JSON behaviour for Dates, undefined fields, and
+toJSON hooks; neither entry preserves prototypes or shared object identity.

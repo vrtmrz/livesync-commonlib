@@ -1,3 +1,4 @@
+import { withScope } from "octagonal-wheels/resource/scope";
 import {
     DOCID_SYNC_PARAMETERS,
     EntryTypes,
@@ -978,14 +979,13 @@ export async function analyseDatabaseIntegrity(options: DatabaseIntegrityOptions
     let wasCancelled = cancelled(options);
     let configurationChanged = false;
     let pathEquivalenceGroups: DiagnosticPathEquivalenceGroup[] = [];
-    let ownedRemote: (DiagnosticDatabaseSource & { close(): Promise<void> }) | undefined;
 
     if (!wasCancelled && !isConfigurationCurrent(options)) {
         configurationChanged = true;
         appendError(errors, "configuration", "configuration-changed");
     }
 
-    try {
+    await withScope(undefined, async (scope) => {
         if (!wasCancelled && !configurationChanged) {
             const localRun = makeSourceRun("local", options.local);
             runs.push(localRun);
@@ -999,7 +999,14 @@ export async function analyseDatabaseIntegrity(options: DatabaseIntegrityOptions
                     runs.push(remoteRun);
                 } else {
                     try {
-                        ownedRemote = await options.remote();
+                        const ownedRemote = await options.remote();
+                        scope.defer(async () => {
+                            try {
+                                await ownedRemote.close();
+                            } catch {
+                                appendError(errors, "remote", "source-unavailable");
+                            }
+                        });
                         if (cancelled(options)) {
                             wasCancelled = true;
                         } else {
@@ -1084,15 +1091,7 @@ export async function analyseDatabaseIntegrity(options: DatabaseIntegrityOptions
                 }
             }
         }
-    } finally {
-        if (ownedRemote) {
-            try {
-                await ownedRemote.close();
-            } catch {
-                appendError(errors, "remote", "source-unavailable");
-            }
-        }
-    }
+    });
 
     if (cancelled(options)) wasCancelled = true;
     if (!wasCancelled && !configurationChanged && !isConfigurationCurrent(options)) {

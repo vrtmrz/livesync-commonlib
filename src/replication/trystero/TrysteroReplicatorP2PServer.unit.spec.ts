@@ -190,6 +190,32 @@ describe("P2PHost transport configuration and ownership", () => {
         expect(confirmUserToAccept).not.toHaveBeenCalled();
     });
 
+    it.each(["_acceptablePeers", "_shouldDenyPeers"] as const)(
+        "preserves peer-pattern matching for %s",
+        async (property) => {
+            const host = new P2PHost({ events: createLiveSyncEventHub(), simpleStore: {}, settings: {} } as any);
+            const patterns = " Device A , , ~tablet, phone. ";
+            const settings = { P2P_AutoAcceptingPeers: patterns, P2P_AutoDenyingPeers: patterns } as any;
+            const result = await host[property].update(settings);
+            const matches = (name: string) => result.value.some((pattern) => pattern.test(name));
+            expect(["device a", "old TABLET backup", "phone1"].map(matches)).toEqual([true, true, true]);
+            expect(["prefix Device A", "DeviceA", "phone12", ""].map(matches)).toEqual([false, false, false, false]);
+        }
+    );
+
+    it.each(["_acceptablePeers", "_shouldDenyPeers"] as const)(
+        "retains empty defaults and invalid-pattern rejection for %s",
+        async (property) => {
+            const host = new P2PHost({ events: createLiveSyncEventHub(), simpleStore: {}, settings: {} } as any);
+            expect((await host[property].update({} as any)).value).toEqual([]);
+            const invalid = await host[property].update({
+                P2P_AutoAcceptingPeers: "[",
+                P2P_AutoDenyingPeers: "[",
+            } as any);
+            expect(() => invalid.value).toThrow(SyntaxError);
+        }
+    );
+
     it("reports persisted, temporary, automatic, denied, and unknown peer acceptance explicitly", async () => {
         const decisions = new Map<string, boolean>([["Persisted device", true]]);
         const host = new P2PHost({
