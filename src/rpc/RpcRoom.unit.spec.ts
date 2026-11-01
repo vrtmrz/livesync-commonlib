@@ -79,6 +79,15 @@ function waitForAbort(signal: AbortSignal): Promise<void> {
     });
 }
 
+function readRawEnvelope(message: RpcWireMessage) {
+    if (message.wire !== "raw") return undefined;
+    return JSON.parse(message.payload) as { kind?: string; method?: string; requestId?: string };
+}
+
+function flushUnhandledRejectionEvents() {
+    return new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 describe("RpcRoom", () => {
     it("calls registered namespaced method", async () => {
         const { roomA, roomB } = createPair();
@@ -556,6 +565,97 @@ describe("RpcRoom", () => {
             await p.catch(() => undefined);
         }
     });
+
+    it.each(["admission", "handler"] as const)(
+        "consumes a late %s rejection after caller cancellation and keeps the room usable",
+        async (rejectionSource) => {
+            let workStarted!: () => void;
+            const started = new Promise<void>((resolve) => {
+                workStarted = resolve;
+            });
+            let rejectWork!: (reason: unknown) => void;
+            const workGate = new Promise<void>((_resolve, reject) => {
+                rejectWork = reject;
+            });
+
+            const tA = new MockTransport("peer-a");
+            const tB = new MockTransport("peer-b");
+            tA.attach(tB);
+            tB.attach(tA);
+            const cancelledMethod = `job.${rejectionSource}-reject-after-cancel`;
+            let cancelledRequestId: string | undefined;
+            const responseRequestIds: string[] = [];
+            const sendA = tA.send.bind(tA);
+            tA.send = (message, peerId) => {
+                const envelope = readRawEnvelope(message);
+                if (envelope?.kind === "request" && envelope.method === cancelledMethod && !cancelledRequestId) {
+                    cancelledRequestId = envelope.requestId;
+                }
+                return sendA(message, peerId);
+            };
+            const sendB = tB.send.bind(tB);
+            tB.send = (message, peerId) => {
+                const envelope = readRawEnvelope(message);
+                if (envelope?.kind === "response" && envelope.requestId) responseRequestIds.push(envelope.requestId);
+                return sendB(message, peerId);
+            };
+
+            let inboundSignal!: AbortSignal;
+            let admissionCalls = 0;
+            let handlerCalls = 0;
+            const roomA = new RpcRoom({ transport: tA });
+            const roomB = new RpcRoom({
+                transport: tB,
+                canAcceptRequest: async (_peerId, method, context) => {
+                    if (rejectionSource === "admission" && method === cancelledMethod && admissionCalls++ === 0) {
+                        inboundSignal = context.signal;
+                        workStarted();
+                        await workGate;
+                    }
+                    return true;
+                },
+            });
+            roomB.registerCancellable(cancelledMethod, async ({ signal }) => {
+                handlerCalls++;
+                if (rejectionSource === "handler" && handlerCalls === 1) {
+                    inboundSignal = signal;
+                    workStarted();
+                    await workGate;
+                }
+                return "usable";
+            });
+
+            const controller = new AbortController();
+            const cancelledCall = roomA
+                .session("peer-b")
+                .call(cancelledMethod, [], { signal: controller.signal, timeoutMs: 1000 });
+            void cancelledCall.catch(() => undefined);
+            let usableCall: Promise<unknown> | undefined;
+
+            try {
+                await started;
+                controller.abort();
+                await expect(cancelledCall).rejects.toMatchObject({ code: "CANCELLED" });
+                expect(inboundSignal.aborted).toBe(true);
+
+                rejectWork(new Error(`late ${rejectionSource} rejection`));
+                usableCall = roomA.session("peer-b").call(cancelledMethod, [], 1000);
+                await expect(usableCall).resolves.toBe("usable");
+                await flushUnhandledRejectionEvents();
+
+                expect(cancelledRequestId).toBeDefined();
+                expect(responseRequestIds).toHaveLength(1);
+                expect(responseRequestIds).not.toContain(cancelledRequestId);
+                expect(handlerCalls).toBe(rejectionSource === "admission" ? 1 : 2);
+            } finally {
+                rejectWork(new Error(`test cleanup ${rejectionSource} rejection`));
+                roomA.close();
+                roomB.close();
+                await cancelledCall.catch(() => undefined);
+                await usableCall?.catch(() => undefined);
+            }
+        }
+    );
 
     it("notifies a cancellation-aware handler when the caller times out", async () => {
         let handlerStarted!: () => void;

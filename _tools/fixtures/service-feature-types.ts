@@ -131,6 +131,34 @@ const legacyCallbackBuilder = serviceFeature<"appLifecycle", never>().create<Leg
 );
 type LegacyCallbackResult = Assert<Equal<ReturnType<typeof legacyCallbackBuilder>, LegacyCallback>>;
 
+const legacyContextualBuilder = serviceFeature<"appLifecycle", never>()
+    .withContext((host) => ({ _log: dependencies.log, suspended: host.services.appLifecycle.isSuspended() }))
+    .create<boolean>((host, context) => {
+        context._log("checking suspension");
+        return context.suspended && host.services.appLifecycle.isSuspended();
+    });
+type LegacyContextualHost = Assert<
+    Equal<Parameters<typeof legacyContextualBuilder>[0], NecessaryServices<"appLifecycle", never>>
+>;
+type LegacyContextualResult = Assert<Equal<ReturnType<typeof legacyContextualBuilder>, boolean>>;
+const contextualResult: boolean = legacyContextualBuilder(dependencies, { _log: dependencies.log, suspended: false });
+// @ts-expect-error Context properties required by the factory remain part of the invocation contract.
+legacyContextualBuilder(dependencies, { _log: dependencies.log });
+
+const selectedContextualBuilder = serviceFeature<"conflict", never, SelectedHub>()
+    .withContext((host) => ({ _log: dependencies.log, notices: host.services.context.notices }))
+    .create((host, context) => {
+        context.notices.clear();
+        return host.services.conflict.queueCheckFor;
+    });
+type SelectedContextualHost = Assert<
+    Equal<Parameters<typeof selectedContextualBuilder>[0], NecessaryServices<"conflict", never, SelectedHub>>
+>;
+type SelectedContextualResult = Assert<
+    Equal<ReturnType<typeof selectedContextualBuilder>, SelectedHub["conflict"]["queueCheckFor"]>
+>;
+void contextualResult;
+
 type SelectedFeatureAlias = ServiceFeatureFunction<"conflict", never, void, SelectedHub>;
 const selectedFeature: SelectedFeatureAlias = (host) => {
     host.services.conflict.queueCheckFor.setHandler(async () => {});

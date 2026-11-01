@@ -929,6 +929,30 @@ describe("analyseDatabaseIntegrity", () => {
         expect(close).toHaveBeenCalledOnce();
     });
 
+    it("reports a stale configuration without starting database or Vault reads", async () => {
+        const id = "expected:/note.md";
+        const local = createSource({ ids: [id], documents: { [id]: metadata(id, "/note.md") } });
+        const remote = vi.fn(async () => ({ ...createSource().source, close: async () => {} }));
+        const readStorage = vi.fn(async () => ({ status: "not-checked" as const }));
+        const isConfigurationCurrent = vi.fn(() => false);
+
+        const result = await analyseDatabaseIntegrity(
+            makeOptions(local.source, { remote, readStorage, isConfigurationCurrent })
+        );
+
+        expect(result.status).toBe("partial");
+        expect(result.errors).toEqual([{ source: "configuration", reason: "configuration-changed" }]);
+        expect(result.observations).toEqual([]);
+        expect(result.coverage.local.status).toBe("not-checked");
+        expect(result.coverage.remote.status).toBe("not-checked");
+        expect(isConfigurationCurrent).toHaveBeenCalledOnce();
+        expect(local.info).not.toHaveBeenCalled();
+        expect(local.enumerateIds).not.toHaveBeenCalled();
+        expect(local.get).not.toHaveBeenCalled();
+        expect(remote).not.toHaveBeenCalled();
+        expect(readStorage).not.toHaveBeenCalled();
+    });
+
     it("marks sequence and configuration changes as partial", async () => {
         const id = "expected:/stable.md";
         const localSeqs = [1, 2];

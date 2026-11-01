@@ -20,6 +20,7 @@
 
 - Handler registrations through the existing compatibility helpers can now be removed without clearing a replacement.
     - Each `setHandler()` call returns an `UnregisterFunction` which removes only its own current assignment; stale and repeated removals are no-ops, including when an override uses the same callback. Existing callers may ignore the return value.
+    - The public `HandlerFunction.setHandler` and `LazyHandlerFunction.setHandler` return types now declare `UnregisterFunction` instead of `void`, matching the existing runtime return. This is a source compatibility change for custom implementations and test doubles whose setters return `void`; these must now return an unregister function.
 
 - Delegated the duration formatter, tagged delimiter-list helpers, and JSON-based copy helper to focused Octagonal Wheels utilities. Compatibility names, tagged types, string coercion, and native JSON conversions are retained with Octagonal Wheels 0.1.56.
 

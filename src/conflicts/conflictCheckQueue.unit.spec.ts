@@ -587,6 +587,73 @@ describe("createConflictCheckQueue", () => {
         expect(calls).toEqual([active]);
     });
 
+    it("retains processor and progress failures after waiting for item cleanup", async () => {
+        const active = asPath("active.md");
+        const pending = asPath("pending.md");
+        const processorFailure = new Error("processor failed");
+        const progressFailure = new Error("progress failed after cleanup");
+        const processStarted = deferred();
+        const processGate = deferred();
+        const cleanupStarted = deferred();
+        const cleanupGate = deferred();
+        const calls: FilePathWithPrefix[] = [];
+        let cleaned = false;
+        const queue = makeQueue(
+            (path, scope) => {
+                calls.push(path);
+                processStarted.resolve();
+                scope.defer(async () => {
+                    cleanupStarted.resolve();
+                    await cleanupGate.promise;
+                    cleaned = true;
+                });
+                return processGate.promise;
+            },
+            {
+                concurrency: 1,
+                onProgress() {
+                    if (cleaned) throw progressFailure;
+                },
+            }
+        );
+
+        queue.enqueue(active);
+        await processStarted.promise;
+        queue.enqueue(pending);
+        let settled = false;
+        const outcome = queue.waitForIdle().then(
+            () => {
+                settled = true;
+                return undefined;
+            },
+            (error: unknown) => {
+                settled = true;
+                return error;
+            }
+        );
+
+        processGate.reject(processorFailure);
+        await cleanupStarted.promise;
+        try {
+            expect(settled).toBe(false);
+            expect(cleaned).toBe(false);
+            expect(queue.remaining).toBe(2);
+            expect(queue.pending).toEqual([pending]);
+            expect(() => queue.enqueue(asPath("rejected.md"))).toThrow("closed");
+        } finally {
+            cleanupGate.resolve();
+        }
+
+        const failure = await outcome;
+        expect(cleaned).toBe(true);
+        expect(failure).toBeInstanceOf(AggregateError);
+        expect((failure as AggregateError).errors).toHaveLength(2);
+        expect((failure as AggregateError).errors).toEqual(expect.arrayContaining([processorFailure, progressFailure]));
+        expect(queue.pending).toEqual([pending]);
+        expect(queue.remaining).toBe(1);
+        expect(calls).toEqual([active]);
+    });
+
     it.each([0, -1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1])(
         "rejects invalid concurrency %s",
         (concurrency) => {
