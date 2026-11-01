@@ -265,6 +265,7 @@ export class LiveSyncLocalDB {
                 this._log("Database initialisation was rejected by a required module.", LOG_LEVEL_NOTICE);
                 return false;
             }
+            manager.changeManager.restartWatch();
             this._log("Opening Database...");
             this._log("Database info", LOG_LEVEL_VERBOSE);
             this._log(JSON.stringify(await openedDatabase.info(), null, 2), LOG_LEVEL_VERBOSE);

@@ -53,7 +53,7 @@ The ordinary `prepareDatabaseForUse()` sequence is:
 
 1. clear application readiness;
 2. select the settings-selected local database, and create its physical handle and managers when reopening was requested;
-3. dispatch `onDatabaseInitialisation()`;
+3. dispatch `onDatabaseInitialisation()` and, after it succeeds, restart the managers' change feed so it uses the transforms installed by the preparation hooks;
 4. inspect the physical database;
 5. initialise the managers and install the database handlers;
 6. expose `LiveSyncLocalDB.isReady` provisionally, dispatch `onDatabaseHasReady()`, and accept the physical transition only when that hook succeeds;
@@ -62,6 +62,8 @@ The ordinary `prepareDatabaseForUse()` sequence is:
 9. dispatch `onDatabaseInitialised()`;
 10. complete the finite set of accepted local file operations; and
 11. set application readiness, which emits `EVENT_APPLICATION_READY`.
+
+`ChangeManager` opens a changes feed during construction, before preparation hooks can install transforms such as E2EE decryption. Restarting the feed after those hooks preserves its registered callbacks and ensures later arrivals are transformed before delivery. The restart uses `since: "now"`; it does not replay earlier events or provide an atomic delivery boundary while the preparation hooks are running. `DirectFileManipulatorV2.integration.spec.ts` covers encrypted chunks arriving after their Metadata has been read by a ready client.
 
 `commitPendingFileEvents()` defines a finite local completion boundary. It captures admissions and file operations accepted before the call, including buffered, waiting for a timer, and already running work, releases their delays, and waits for actual handler outcomes and the ordered snapshot writes which record completion. Timer release alone is not completion. Later events do not extend the boundary, although a newer operation may satisfy an earlier one when its successful result covers the earlier intent. Handler or persistence failure is returned to the caller, and unresolved operations remain in the snapshot. The boundary does not claim a globally empty queue or remote replication.
 
