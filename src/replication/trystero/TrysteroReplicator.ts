@@ -1,3 +1,4 @@
+import { parsePeerPatterns } from "./peerPatterns";
 import type PouchDB from "pouchdb-core";
 import {
     TweakValuesShouldMatchedTemplate,
@@ -287,18 +288,10 @@ export class TrysteroReplicator {
         }
     }
     get autoSyncPeers() {
-        const peers = this.currentSettings.P2P_AutoSyncPeers.split(",")
-            .map((e) => e.trim())
-            .filter((e) => e.length > 0)
-            .map((e) => (e.startsWith("~") ? new RegExp(e.substring(1), "i") : new RegExp(`^${e}$`, "i")));
-        return peers;
+        return parsePeerPatterns(this.currentSettings.P2P_AutoSyncPeers);
     }
     get autoWatchPeers() {
-        const peers = this.currentSettings.P2P_AutoWatchPeers.split(",")
-            .map((e) => e.trim())
-            .filter((e) => e.length > 0)
-            .map((e) => (e.startsWith("~") ? new RegExp(e.substring(1), "i") : new RegExp(`^${e}$`, "i")));
-        return peers;
+        return parsePeerPatterns(this.currentSettings.P2P_AutoWatchPeers);
     }
     async onNewPeer(peer: Advertisement) {
         const peerName = peer.name;

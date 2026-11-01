@@ -1,7 +1,7 @@
 ---
-date: 2026-09-04
-commonlib-version: "0.1.21"
-self-hosted-livesync-version: "1.0.24"
+date: 2026-10-25
+commonlib-version: "0.2.0"
+self-hosted-livesync-version: "1.0.40"
 status: unreleased
 ---
 
@@ -24,7 +24,7 @@ The choice is primarily about dependency direction and ownership. Mutable state 
 
 ## Declare dependencies at the boundary
 
-Use `NecessaryServices` to state the exact Services and ServiceModules which a feature consumes:
+Use `NecessaryServices` to state the exact Services and ServiceModules which a feature consumes. Its type parameters select service keys, module keys, and the Service Hub source; the source defaults to `ServiceHub`. The selected Services retain `context` when that source exposes it. The `NecessaryServicesInterfaces` alias continues to use `IServiceHub` without adding an implicit context to that interface contract.
 
 ```typescript
 type IndexFeatureHost = NecessaryServices<"appLifecycle" | "API", "storageAccess">;
@@ -40,6 +40,20 @@ export const useIndexFeature = createServiceFeature((host: IndexFeatureHost) => 
     });
 });
 ```
+
+Select a more specific host when a feature needs an injectable handler type or host-extended context. Collaborators outside the Service Hub and ServiceModules, such as a borrowed logger, belong in the feature's own dependency type:
+
+```typescript
+type FeatureHost = NecessaryServices<
+    "appLifecycle" | "conflict",
+    never,
+    InjectableServiceHub
+> & {
+    readonly log: LogFunction;
+};
+```
+
+`createServiceFeature()` returns the supplied function unchanged. Its declared host type, optional or additional arguments, generic or overloaded signature, and result type, including a `Promise` or focused view, remain available to callers. Dependency keys are not inferred from the callback body. An unannotated legacy callback retains the full default `ServiceHub` contract for compatibility, so annotate the host parameter when a narrow contract is intended. Existing `createServiceFeature<T, U, Result>(...)` calls remain supported. The `serviceFeature<T, U, THub>().create(...)` builder also selects a source and preserves the supplied function type. Its existing `.create<Result>(...)` call shape and `withContext()` behaviour are unchanged.
 
 This signature is both documentation and a compile-time boundary. Adding an unrelated Service to the host object does not make it available to the feature. If the operation needs another collaborator, add it deliberately to the declared contract.
 
@@ -65,13 +79,17 @@ When an operation has meaningful sequencing or failure behaviour, keep it indepe
 `prepareDatabaseForUse.ts` follows this split. Its operation accepts explicit collaborators and returns the application result:
 
 ```typescript
-type PrepareDatabaseHost = NecessaryServices<
-    "appLifecycle" | "setting" | "vault" | "path" | "database" | "databaseEvents" | "fileProcessing" | "replicator",
+type PrepareDatabaseOperationHost = NecessaryServices<
+    "appLifecycle" | "vault" | "database" | "databaseEvents" | "fileProcessing" | "replicator",
+    never
+>;
+type PrepareDatabaseFeatureHost = NecessaryServices<
+    "API" | "appLifecycle" | "vault" | "database" | "databaseEvents" | "fileProcessing" | "replicator",
     never
 >;
 
 export async function prepareDatabaseForUse(
-    host: PrepareDatabaseHost,
+    host: PrepareDatabaseOperationHost,
     log: LogFunction,
     errorManager: UnresolvedErrorManager,
     showingNotice = false,
@@ -83,10 +101,10 @@ export async function prepareDatabaseForUse(
 }
 ```
 
-The corresponding composition constructs the owned error manager and registers one adapter function:
+The operation does not need `setting` or `path`. The corresponding composition adds `API` to create the instance logger, constructs the owned error manager, and registers one adapter function:
 
 ```typescript
-export function usePrepareDatabaseForUse(host: PrepareDatabaseHost): void {
+export function usePrepareDatabaseForUse(host: PrepareDatabaseFeatureHost): void {
     const log = createInstanceLogFunction("SF:prepareDatabaseForUse", host.services.API);
     const errorManager = new UnresolvedErrorManager(host.services.appLifecycle, host.services.context.events);
 
@@ -106,6 +124,35 @@ export function usePrepareDatabaseForUse(host: PrepareDatabaseHost): void {
 ```
 
 Test the operation's sequencing and failure short-circuiting separately from the handler registration. This keeps a lifecycle rename from forcing every domain test through an application-shaped fixture.
+
+The offline scanner follows the same split. A full-scan operation uses only the file and database dependencies, while the composer adds `API` for its logger and `appLifecycle` for its error manager and handler registration:
+
+```typescript
+type FullScanHost = NecessaryServices<
+    "setting" | "vault" | "path" | "database" | "keyValueDB",
+    "storageAccess" | "fileHandler"
+>;
+
+type OfflineScannerFeatureHost = NecessaryServices<
+    "API" | "appLifecycle" | "setting" | "vault" | "path" | "database" | "keyValueDB",
+    "storageAccess" | "fileHandler"
+>;
+```
+
+`performFullScan` uses the full-scan host, and its scan operations declare their own narrower service sets; none requires `fileProcessing`. `useOfflineScanner` binds the `vault.scanVault` handler with the composer host. The scanner does not require `databaseEvents` or `replicator`.
+
+### Separate remote-configuration operation and composition hosts
+
+`RemoteConfigHost` remains the broad exported compatibility type for existing callers. The implementation uses private host types so each operation or composer declares only its required Services:
+
+| Implementation boundary | Private host type | Required Services |
+| --- | --- | --- |
+| Remote configuration migration operation | `RemoteConfigMigrationHost` | `setting`, `API` |
+| Migration feature composer | `RemoteConfigMigrationFeatureHost` | `setting`, `API`, `appLifecycle` |
+| Switch-connection command | `RemoteConfigSwitchHost` | `setting`, `UI`, `control`, `API` |
+| Replication command and feature composer | `RemoteConfigReplicationHost` | `setting`, `UI`, `replication`, `control`, `API` |
+
+Keep the broad export for compatibility and use the focused private types inside the implementation.
 
 Database preparation and full scanning remain strict by default. A host may set `continueOnFileFailure` only when its ordinary start-up policy deliberately permits readiness after individual file-pair failures. In that case, the operation returns `completed-with-file-failures` after all later initialisation steps succeed; it does not collapse the result into `true`. That option does not admit a failed scan precondition or a later initialisation step, and explicit recovery workflows retain the default.
 

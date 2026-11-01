@@ -18,28 +18,16 @@ export class ContentSplitterV2 extends ContentSplitterBase {
     async processSplit(
         options: SplitOptions
     ): Promise<AsyncGenerator<string, void, unknown> | Generator<string, void, unknown>> {
-        if (options.useWorker) {
-            return (
-                await splitPieces2WorkerV2(
-                    options.blob,
-                    options.pieceSize,
-                    options.plainSplit,
-                    options.minimumChunkSize,
-                    options.path,
-                    options.useSegmenter
-                )
-            )();
-        } else {
-            return (
-                await splitPieces2V2(
-                    options.blob,
-                    options.pieceSize,
-                    options.plainSplit,
-                    options.minimumChunkSize,
-                    options.path,
-                    options.useSegmenter
-                )
-            )();
-        }
+        const split = options.useWorker ? splitPieces2WorkerV2 : splitPieces2V2;
+        return (
+            await split(
+                options.blob,
+                options.pieceSize,
+                options.plainSplit,
+                options.minimumChunkSize,
+                options.path,
+                options.useSegmenter
+            )
+        )();
     }
 }

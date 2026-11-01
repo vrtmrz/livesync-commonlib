@@ -4,9 +4,13 @@ import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdir, open, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, relative, resolve } from "node:path";
+import { createRequire } from "node:module";
 import { pathToFileURL } from "node:url";
 
 import { build } from "esbuild";
+import { loadOctagonalWheelsCandidate } from "./packed-dependency-candidate.mjs";
+
+const octagonalWheelsCandidate = await loadOctagonalWheelsCandidate(process.argv.slice(2));
 
 const root = resolve(new URL("..", import.meta.url).pathname);
 const packageDirectory = resolve(root, ".package");
@@ -188,7 +192,11 @@ await writeConsumerFile(
             name: "commonlib-package-consumer",
             private: true,
             type: "module",
-            dependencies: { [packageName]: pathToFileURL(tarballPath).href },
+            dependencies: {
+                [packageName]: pathToFileURL(tarballPath).href,
+                ...(octagonalWheelsCandidate ? { "octagonal-wheels": octagonalWheelsCandidate.url } : {}),
+            },
+            ...(octagonalWheelsCandidate ? { overrides: { "octagonal-wheels": "$octagonal-wheels" } } : {}),
         },
         null,
         2
@@ -211,7 +219,13 @@ await writeConsumerFile(
                 skipLibCheck: true,
                 types: [],
             },
-            include: ["type-smoke.ts", "handler-outcome-types.ts"],
+            include: [
+                "type-smoke.ts",
+                "handler-outcome-types.ts",
+                "blob-compatibility-types.ts",
+                "runtime-tools-types.ts",
+                "service-feature-types.ts",
+            ],
         },
         null,
         2
@@ -231,6 +245,7 @@ import {
     type DirectFileManipulatorRuntimeOptions,
 } from "${packageName}";
 import { declareUICommand, UICommandRegistry } from "${packageName}/ui-commands";
+import { createConflictCheckQueue, type ConflictCheckQueue, type FilePathWithPrefix } from "${packageName}/conflicts";
 import {
     createFileSystemAccessStorage,
     type CreateFileSystemAccessStorageOptions,
@@ -355,6 +370,29 @@ const remoteResourceCapabilities: RemoteResourceCapabilities = NO_REMOTE_RESOURC
 const joinedDevicesResourceKind: "joined-devices" = REMOTE_RESOURCE_KINDS.JOINED_DEVICES;
 const readJoinedDevices = (resource: JoinedDevicesResource): Promise<JoinedDevicesSnapshot> => resource.read();
 const forgetJoinedDevice = (resource: JoinedDevicesResource): Promise<ForgetJoinedDeviceResult> => resource.forget("old-device");
+async function checkConflictQueueTypes() {
+    const queue: ConflictCheckQueue = createConflictCheckQueue({
+        concurrency: 2,
+        process(path, scope) {
+            const typedPath: FilePathWithPrefix = path;
+            scope.defer(() => undefined);
+            void typedPath;
+        },
+        onProgress(remaining) {
+            const count: number = remaining;
+            void count;
+        },
+    });
+    queue.enqueue("conflicted.md" as FilePathWithPrefix);
+    const complete: boolean = await queue.waitForIdle();
+    const pending: readonly FilePathWithPrefix[] = await queue.abort();
+    // @ts-expect-error Conflict input requires a branded file path.
+    queue.enqueue(12);
+    // @ts-expect-error The returned snapshot is read-only.
+    pending.push("another.md" as FilePathWithPrefix);
+    void complete;
+}
+void checkConflictQueueTypes;
 async function checkUICommandTypes() {
     const command = declareUICommand<{ deviceId: string }, { accepted: boolean }>("consumer:join-device");
     const registry = new UICommandRegistry();
@@ -554,6 +592,30 @@ assert.equal(replicationApi.NO_INTERACTION.kind, "forbidden");
 assert.equal(replicationApi.CENTRAL_COMPATIBILITY_REJECTION_REASONS.NODE_LOCKED, "node-locked");
 assert.equal(replicationApi.REMOTE_RESOURCE_KINDS.SECURITY_SEED, "security-seed");
 assert.equal(replicationApi.REMOTE_RESOURCE_KINDS.JOINED_DEVICES, "joined-devices");
+const { createConflictCheckQueue } = await import("${packageName}/conflicts");
+const checkedPaths = [];
+let requeued = false;
+const conflictQueue = createConflictCheckQueue({
+    concurrency: 1,
+    process(path, scope) {
+        checkedPaths.push(path);
+        scope.defer(() => { checkedPaths.push("cleaned:" + path); });
+        if (!requeued) {
+            requeued = true;
+            conflictQueue.enqueue(path);
+        }
+    },
+});
+conflictQueue.enqueue("first.md");
+conflictQueue.enqueue("second.md");
+conflictQueue.enqueue("first.md");
+assert.equal(await conflictQueue.waitForIdle(), true);
+assert.deepEqual(checkedPaths, [
+    "second.md", "cleaned:second.md", "first.md", "cleaned:first.md", "second.md", "cleaned:second.md",
+]);
+assert.equal(conflictQueue.remaining, 0);
+assert.equal(await conflictQueue.close(), true);
+assert.throws(() => conflictQueue.enqueue("closed.md"), /closed/);
 const { declareUICommand, UICommandRegistry } = await import("${packageName}/ui-commands");
 const uiCommand = declareUICommand("package-test");
 const uiCommands = new UICommandRegistry();
@@ -652,6 +714,23 @@ await writeConsumerFile(
     await readFile(resolve(root, "_tools/fixtures/handler-outcome-types.ts"), "utf8")
 );
 
+for (const filename of [
+    "blob-compatibility-types.ts",
+    "blob-compatibility-runtime.mjs",
+    "runtime-tools-types.ts",
+    "runtime-tools-runtime.mjs",
+    "service-feature-types.ts",
+]) {
+    await writeConsumerFile(filename, await readFile(resolve(root, "_tools/fixtures", filename), "utf8"));
+}
+if (octagonalWheelsCandidate) {
+    console.log(
+        "Checking a local Octagonal Wheels candidate (SHA-256 " +
+            octagonalWheelsCandidate.sha256 +
+            "); the packed dependency declaration is unchanged."
+    );
+}
+
 run(
     "npm",
     [
@@ -665,6 +744,22 @@ run(
     ],
     { cwd: consumerDirectory, capture: false }
 );
+if (octagonalWheelsCandidate) {
+    const consumerRequire = createRequire(resolve(consumerDirectory, "package.json"));
+    const commonlibRequire = createRequire(consumerRequire.resolve(packageName + "/compat/common/utils"));
+    const selectedManifest = consumerRequire.resolve("octagonal-wheels/package.json");
+    assert.equal(
+        commonlibRequire.resolve("octagonal-wheels/package.json"),
+        selectedManifest,
+        "Commonlib must resolve the explicitly installed Octagonal Wheels candidate."
+    );
+    assert.equal(JSON.parse(await readFile(selectedManifest, "utf8")).name, "octagonal-wheels");
+}
+run(process.execPath, [resolve(consumerDirectory, "runtime-tools-runtime.mjs")], { cwd: consumerDirectory });
+run(process.execPath, [resolve(consumerDirectory, "blob-compatibility-runtime.mjs")], {
+    cwd: consumerDirectory,
+    capture: false,
+});
 run(process.execPath, [resolve(consumerDirectory, "node-smoke.mjs")], {
     cwd: consumerDirectory,
     capture: false,
@@ -851,6 +946,7 @@ assert.deepEqual(
     [
         ".",
         "./browser",
+        "./conflicts",
         "./context",
         "./diagnostics",
         "./hashing",
@@ -866,7 +962,7 @@ assert.deepEqual(
     ],
     "The focused package surface must remain explicit."
 );
-assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 14);
+assert.equal(Object.keys(manifest.exports).length, inventory.compatibility.length + 15);
 
 console.log(
     JSON.stringify(

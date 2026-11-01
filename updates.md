@@ -1,5 +1,41 @@
 # Updates
 
+## Unreleased
+
+- Hosts can schedule conflict checks with bounded concurrency while coalescing pending duplicates and preserving checks requeued by running work.
+    - The new `/conflicts` entry provides `createConflictCheckQueue`, with separate admission, idle waiting, draining closure, and abort operations. Started work and cleanup settle before completion or failure is reported.
+    - Concurrency defaults to ten; pending paths have no fixed capacity. Hosts retain conflict decisions, error-continuation policy, and recovery. This entry uses Octagonal Wheels 0.1.56.
+
+- The purge-based cleanup helpers `transferChunks`, `balanceChunkPurgedDBs`, and `fetchAllUsedChunks` are now marked obsolete.
+    - Their `compat/pouchdb/chunks` exports and transfer behaviour remain available for existing consumers. The accompanying Self-hosted LiveSync integration uses its standard locked-remote recovery flow; Garbage Collection V3 does not use these helpers.
+
+- Positive infinite durations now display as `∞y` through the shared formatter and the existing `timeDeltaToHumanReadable` entry. Other duration cases retain their previous formatting.
+
+- Offline scan and database-preparation host types now match their operation and composition boundaries.
+    - Offline composition drops `databaseEvents`, `fileProcessing`, and `replicator`; scan operations drop `fileProcessing`, and database preparation drops `setting` and `path`.
+- Remote-configuration internals use narrower private host types while retaining the broad exported `RemoteConfigHost` for existing callers.
+
+- Service-feature dependencies can now select their Service Hub source, and `createServiceFeature()` preserves the supplied callback's complete signature and result type.
+    - Annotate a feature's host parameter when a narrow contract is intended; unannotated legacy callbacks retain the default `ServiceHub` contract.
+
+- Handler registrations through the existing compatibility helpers can now be removed without clearing a replacement.
+    - Each `setHandler()` call returns an `UnregisterFunction` which removes only its own current assignment; stale and repeated removals are no-ops, including when an override uses the same callback. Existing callers may ignore the return value.
+    - The public `HandlerFunction.setHandler` and `LazyHandlerFunction.setHandler` return types now declare `UnregisterFunction` instead of `void`, matching the existing runtime return. This is a source compatibility change for custom implementations and test doubles whose setters return `void`; these must now return an unregister function.
+
+- Delegated the duration formatter, tagged delimiter-list helpers, and JSON-based copy helper to focused Octagonal Wheels utilities. Compatibility names, tagged types, string coercion, and native JSON conversions are retained with Octagonal Wheels 0.1.56.
+
+### Maintenance
+
+- Delegated the sliced fallback of `isDocContentSame` to the new Octagonal Wheels Blob comparison helper. The compatibility entry retains IndexedDB selection, its receiver, Commonlib's Base64 and Buffer fallbacks, and unchanged read errors. This unreleased Commonlib integration uses Octagonal Wheels 0.1.56.
+
+- Blob creation delegates to the focused Octagonal Wheels helpers while retaining the existing Commonlib imports and `createBlob` name. Existing Blob identity, MIME types, transparent line endings, binary view ranges, and document decoding retain their contracts. The dependency is pinned to the published Octagonal Wheels 0.1.56 release.
+
+### Fixed
+
+- Journal replication preserves Chunk data containing a raw unit separator (`U+001F`).
+    - The receiver separates the Chunk ID from its data at the first delimiter and retains the complete payload, including existing batches written by earlier versions. The serialised format is unchanged.
+    - This prevents truncation during reception; it does not repair Chunks already stored in a local database. Affected hosts need recovery from a verified intact source after updating all participating clients.
+
 ## 0.2.2
 
 26th October, 2026

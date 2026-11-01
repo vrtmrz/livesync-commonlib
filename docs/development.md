@@ -7,6 +7,7 @@ This document is for Commonlib developers. Package consumers should begin with t
 The source tree is larger than the supported package surface. Consumers may import only paths in the generated package export map:
 
 - `src/index.ts`, `src/context.ts`, `src/settings.ts`, `src/remoteConfigurations.ts`, `src/p2p/index.ts`, `src/platform/browser/index.ts`, and `src/platform/node/index.ts` define the focused entries;
+- `src/conflicts.ts` defines the host-owned conflict-check queue contract; `src/concurrency/keyedPendingWork.ts` remains package-private;
 - `src/replication/index.ts` defines the focused provider-capability and interaction contract for hosts which compose replication;
 - `src/diagnostics/index.ts` defines read-only Usage and integrity inspection, report projection, and formatting; hosts own the run dialogue and output destination;
 - `src/rpc/index.ts` defines a transitional entry for the existing LiveSync P2P composition, not a stable Commonlib 1.0 contract;
@@ -36,6 +37,10 @@ Commonlib uses four related forms of composition. Choose between them by ownersh
 - A **serviceFeature** is a typed composition function. It accepts only the Services and ServiceModules named by `NecessaryServices`, then registers handlers, commands, lifecycle bindings, or other host glue. It is not added to a runtime registry. A serviceFeature may return a focused view or controller, and may retain bounded private state when that state belongs only to the composed feature.
 - A **ServiceModule** is a long-lived stateful or resource-owning object constructed by the host and shared through the typed `ServiceModules` record. Use one when several consumers need the same operational capability or lifecycle, such as storage access, file handling, or database rebuilding. State alone does not make a ServiceModule necessary.
 - An **AbstractModule** is the legacy application module layer. Existing modules may continue to own application behaviour, but new composition should not acquire the broad core merely to gain lifecycle access or shared dependencies.
+
+`NecessaryServices<T, U, THub>` selects dependencies from a chosen Service Hub source, defaulting to `ServiceHub`, and retains `context` only when that source exposes it. Declare additional collaborators in the feature's own dependency type. `createServiceFeature()` preserves the supplied function's complete signature and result, but does not infer dependency keys from its body; annotate the host parameter when a narrow dependency contract is intended. Unannotated legacy callbacks retain the default `ServiceHub` contract for compatibility.
+
+Keep operation host types focused on the dependencies the operation uses, and let the composer add the Services required for logging, lifecycle access, or handler registration. Where an exported compatibility host must remain broad, use narrower private host types for the implementation. The examples in [Service feature composition](service-feature-composition.md) show these separate boundaries.
 
 When a feature needs state, separate the component which owns that state, its transitions, and its invariants from the code which connects it to application lifecycle events and downstream effects. Give the stateful component narrow collaborators or callbacks rather than the complete Service Hub or application core. Keep application-level handler registration and host-specific presentation in the surrounding serviceFeature. A handler or effect which is part of the state contract, such as querying unresolved errors or reporting their first occurrence, may remain inside the stateful component when its input and output ports are explicit and bounded.
 
@@ -149,6 +154,37 @@ Commonlib publishes the typed English messages which it owns and uses them when 
 
 The [maintained-host examples and evidence](proven-in-use.md) are optional context, not a support entitlement or release or adoption gate. When that page is updated, distinguish current use, historical use, Commonlib-owned results, downstream tests, and real-runtime observations, and keep each claim within the evidence.
 
+### Testing an unpublished Octagonal Wheels dependency
+
+The current integration pins the published Octagonal Wheels 0.1.56 release and
+uses the ordinary package gate. The override below is for future unpublished
+dependency changes.
+
+Keep the repository dependency declaration and lockfile separate from a local
+candidate check. After building and packing Octagonal Wheels, install that
+exact tarball for source checks without saving it to either manifest:
+
+```bash
+npm ci
+npm install --no-save --ignore-scripts /path/to/octagonal-wheels-candidate.tgz
+npm run check:types
+npm test -- --maxWorkers=1 --fileParallelism=false
+npm run test:package -- --octagonal-wheels-tarball /path/to/octagonal-wheels-candidate.tgz
+```
+
+The package checker adds the selected tarball and an explicit npm override
+only to its disposable consumer fixture. It reports the tarball's SHA-256 and
+checks that Commonlib resolves that same installed package. The generated
+Commonlib package retains its original dependency declaration. The option
+does not publish a package or select a future release version.
+
+The Blob migration's source tests cover legacy construction and Commonlib's
+document interpretation. Its packed fixtures compile the old imports and
+exercise the generated runtime. A passing candidate check qualifies that
+combination of artefacts; before publication, update the declared dependency
+to a released version containing the new entry, regenerate the lockfile, and
+run the ordinary package gate without the candidate override.
+
 ## Integration tests
 
 The integration suite owns Commonlib's direct CouchDB and S3-compatible storage checks. Run it with managed, disposable CouchDB and RustFS containers:
@@ -200,6 +236,8 @@ The platform and RPC ownership decisions are accepted:
 
 The package build records each compatibility path explicitly. Do not add a wildcard export. A new compatibility path requires a real downstream import, a packed-consumer or downstream test, and a migration plan towards a focused public entry or the owning package.
 
+The existing `compat/services/lib` helpers `bindableFunction` and `lazyBindableFunction` return an `UnregisterFunction` from `setHandler()`. It removes only the assignment made by that registration while it remains current; a stale remover, including after an override with the same callback, and repeated removals are no-ops. Existing callers may ignore the return value, but implementations and test doubles of the handler interfaces must return a remover. Keep this contract within the existing compatibility boundary rather than presenting it as a general SDK pattern.
+
 After the reviewed Self-hosted LiveSync revision changes, inspect its current compatibility imports with:
 
 ```bash
@@ -211,3 +249,11 @@ The command recognises both the former `@lib/*` source aliases and current `@vrt
 The classification in `docs/migration/compatibility-classification.json` is accepted for LiveSync 1.0 planning. A destination still requires its own result and lifecycle contract before it becomes a stable public entry. Remove obsolete paths rather than documenting accidental layout as API.
 
 Release preparation and staged-publication checks are documented in [the maintainer runbook](releasing.md).
+
+
+The shared value extraction uses the declared Octagonal Wheels dependency. Its
+`utils.runtime-tools.unit.spec.ts` tests preserve the legacy adapter contracts;
+`runtime-tools-types.ts` and `runtime-tools-runtime.mjs` check the installed
+package's public duration and delimiter helpers; source tests cover the
+internal JSON copy adapter. When testing a future unpublished dependency, keep
+these checks tied to the same Octagonal Wheels tarball used by the downstream consumer.

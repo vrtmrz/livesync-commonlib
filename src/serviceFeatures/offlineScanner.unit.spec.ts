@@ -743,6 +743,31 @@ describe("collectDatabaseFiles", () => {
     });
 });
 
+describe("collector comparison path lookup", () => {
+    it.each([true, false])("keeps original paths and last colliding entry, case-sensitive=%s", async (caseSensitive) => {
+        const paths = ["Folder/Note.md", "folder/note.md", "__proto__"];
+        const files = paths.map(path => ({ path, name: path, stat: { type: "file", size: 1, ctime: 1, mtime: 1 } }));
+        const docs = paths.map(path => ({ _id: path, path, type: "plain", size: 1, ctime: 1, mtime: 1, children: [] }));
+        const settings = { handleFilenameCaseSensitive: caseSensitive } as ObsidianLiveSyncSettings;
+        const host = {
+            services: {
+                vault: { isTargetFile: async () => true, isValidPath: () => true },
+                database: { localDatabase: { findAllNormalDocs: () => docs } },
+                path: { getPath: (doc: { path: string }) => doc.path, path2id: async (path: string) => path },
+            },
+            serviceModules: { storageAccess: { getFiles: async () => files } },
+        } as unknown as Parameters<typeof collectDatabaseFiles>[0] & Parameters<typeof collectFilesOnStorage>[0];
+        const storage = await collectFilesOnStorage(host, settings, vi.fn());
+        const database = await collectDatabaseFiles(host, settings, vi.fn(), false);
+        const expected = Object.fromEntries(caseSensitive
+            ? paths.map(path => [path, path])
+            : [["folder/note.md", "folder/note.md"], ["__proto__", "__proto__"]]);
+        expect(storage.storageFileNameCI2CS).toEqual(expected);
+        expect(database.databaseFileNameCI2CS).toEqual(expected);
+        expect(Object.hasOwn(storage.storageFileNameCI2CS, "__proto__")).toBe(true);
+    });
+});
+
 describe("updateToDatabase", () => {
     let logger: LogFunction;
 
