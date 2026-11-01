@@ -2,9 +2,17 @@
 
 ## Unreleased
 
+## 0.2.3
+
+1st November, 2026
+
+### Added
+
 - Hosts can schedule conflict checks with bounded concurrency while coalescing pending duplicates and preserving checks requeued by running work.
     - The new `/conflicts` entry provides `createConflictCheckQueue`, with separate admission, idle waiting, draining closure, and abort operations. Started work and cleanup settle before completion or failure is reported.
     - Concurrency defaults to ten; pending paths have no fixed capacity. Hosts retain conflict decisions, error-continuation policy, and recovery. This entry uses Octagonal Wheels 0.1.56.
+
+### Changed
 
 - The purge-based cleanup helpers `transferChunks`, `balanceChunkPurgedDBs`, and `fetchAllUsedChunks` are now marked obsolete.
     - Their `compat/pouchdb/chunks` exports and transfer behaviour remain available for existing consumers. The accompanying Self-hosted LiveSync integration uses its standard locked-remote recovery flow; Garbage Collection V3 does not use these helpers.
@@ -26,11 +34,17 @@
 
 ### Maintenance
 
-- Delegated the sliced fallback of `isDocContentSame` to the new Octagonal Wheels Blob comparison helper. The compatibility entry retains IndexedDB selection, its receiver, Commonlib's Base64 and Buffer fallbacks, and unchanged read errors. This unreleased Commonlib integration uses Octagonal Wheels 0.1.56.
+- RPC deadlines, waits for incoming RPC chunks, file-event completion waits, and diagnostic remote cleanup now use shared lifetime utilities. Existing cancellation, timeout, and completion contracts are retained.
+
+- Delegated the sliced fallback of `isDocContentSame` to the new Octagonal Wheels Blob comparison helper. The compatibility entry retains IndexedDB selection, its receiver, Commonlib's Base64 and Buffer fallbacks, and unchanged read errors. This integration requires Octagonal Wheels 0.1.56.
 
 - Blob creation delegates to the focused Octagonal Wheels helpers while retaining the existing Commonlib imports and `createBlob` name. Existing Blob identity, MIME types, transparent line endings, binary view ranges, and document decoding retain their contracts. The dependency is pinned to the published Octagonal Wheels 0.1.56 release.
 
 ### Fixed
+
+- Ready clients receive decrypted data for encrypted Chunks which arrive after their Metadata.
+    - The database change feed restarts after initialisation hooks install the decryption transforms, preserving its registered callbacks. Thank you to @AdrianNicu for [#191](https://github.com/vrtmrz/livesync-commonlib/pull/191).
+    - The restart uses `since: "now"`; it does not replay earlier events or make delivery atomic while preparation hooks are running.
 
 - Journal replication preserves Chunk data containing a raw unit separator (`U+001F`).
     - The receiver separates the Chunk ID from its data at the first delimiter and retains the complete payload, including existing batches written by earlier versions. The serialised format is unchanged.
