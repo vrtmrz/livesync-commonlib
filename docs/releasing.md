@@ -38,6 +38,8 @@ When a named host-specific risk is not established by the Commonlib owner checks
 
 The Commonlib 0.2 policy begins with 0.2.0 and does not retroactively change compatibility expectations for published 0.1.x versions. Within 0.2.x, preserve published APIs, types, behaviour, supported persisted data, and exported `compat/*` paths. Intentional breaking changes belong in 0.3.0. Consumers may declare a range such as `^0.2.0`; lockfiles and `npm ci` remain the reproducible install path.
 
+For 0.2.3, the documented exceptions are the `HandlerFunction.setHandler` and `LazyHandlerFunction.setHandler` return types changing from `void` to `UnregisterFunction`, and `timeDeltaToHumanReadable(Infinity)` returning `∞y` instead of `Infinityy`. The setter types now describe the existing runtime return. Custom implementations and test doubles whose setters return `void` must provide an unregister function; ordinary callers may continue to ignore the result. These are the specific 0.2.3 exceptions to the policy.
+
 ## Preparing a release
 
 Choose the version explicitly. For the 0.2 line, start at 0.2.0. A stable candidate can use its final version on the `next` dist-tag, then be checked by exact source revision and tarball SHA-256 before the same version is promoted to `latest`. No `-next.N` or `-rc.N` version is required; use a separate prerelease version only when it is useful for a distinct candidate. Package-proof versions are local artefacts and cannot be staged.
