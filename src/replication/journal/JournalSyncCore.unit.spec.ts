@@ -6,6 +6,7 @@ import type { IJournalStorage } from "./objectstore/JournalStorageAdapter.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 import {
     DEFAULT_SETTINGS,
+    VERSIONING_DOCID,
     type BucketSyncSetting,
     type EntryDoc,
     ProtocolVersions,
@@ -109,6 +110,34 @@ describe("JournalSyncCore", () => {
     afterEach(async () => {
         await localDB.destroy();
     });
+
+    it.each(["sendLocalJournal", "receiveRemoteJournal"] as const)(
+        "%s rejects incompatible local identity before a Journal transfer",
+        async (operation) => {
+            await localDB.put({
+                _id: VERSIONING_DOCID,
+                type: "versioninfo",
+                version: 13,
+                used_features: ["nfc-path-identity-v1"],
+            } as EntryDoc);
+
+            await expect(core[operation]()).rejects.toThrow(/path identity/);
+            expect(mockStorage.upload).not.toHaveBeenCalled();
+            expect(mockStorage.listFiles).not.toHaveBeenCalled();
+        }
+    );
+
+    it.each(["sendLocalJournal", "receiveRemoteJournal"] as const)(
+        "%s requires Rebuild for legacy local Metadata before NFC transfer",
+        async (operation) => {
+            env.services.setting.currentSettings = () => ({ ...DEFAULT_SETTINGS, pathNormalizationVersion: 1 });
+            await localDB.put({ _id: "cafe\u0301.md", type: "plain", path: "cafe\u0301.md" } as EntryDoc);
+
+            await expect(core[operation]()).rejects.toThrow(/path identity/);
+            expect(mockStorage.upload).not.toHaveBeenCalled();
+            expect(mockStorage.listFiles).not.toHaveBeenCalled();
+        }
+    );
 
     describe("getSyncParameters", () => {
         it("throws SyncParamsNotFoundError if sync parameters do not exist in storage", async () => {
@@ -466,6 +495,39 @@ describe("JournalSyncCore", () => {
     });
 
     describe("resetBucket", () => {
+        it.each([false, true])("resets transfer progress after clearing a bucket (populated: %s)", async (populated) => {
+            let checkpoint = { ...CheckPointInfoDefault };
+            vi.spyOn(core.store, "get").mockImplementation(async () => checkpoint);
+            vi.spyOn(core.store, "set").mockImplementation(async (_key, value) => {
+                checkpoint = value;
+            });
+            await core.updateCheckPointInfo(() => ({
+                lastLocalSeq: 42,
+                journalEpoch: "old-epoch",
+                knownIDs: new Set(["known"]),
+                sentIDs: new Set(["sent"]),
+                receivedFiles: new Set(["received.jsonl.gz"]),
+                sentFiles: new Set(["sent.jsonl.gz"]),
+            }));
+            if (populated) virtualStorage.set("journal.jsonl.gz", new Uint8Array([1]));
+            mockStorage.deleteFiles = vi.fn(async (files) => {
+                for (const file of files) virtualStorage.delete(file);
+                return true;
+            });
+
+            await expect(core.resetBucket()).resolves.toBe(true);
+
+            expect(await core.getCheckpointInfo()).toEqual({
+                lastLocalSeq: 0,
+                journalEpoch: "",
+                knownIDs: new Set(),
+                sentIDs: new Set(),
+                receivedFiles: new Set(),
+                sentFiles: new Set(),
+            });
+            expect(virtualStorage.size).toBe(0);
+        });
+
         it("reports failure when deleting listed files returns false", async () => {
             const listFiles = vi
                 .spyOn(mockStorage, "listFiles")

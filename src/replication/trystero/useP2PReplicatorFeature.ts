@@ -124,10 +124,11 @@ export function useP2PReplicatorFeature(
                 kind: REMOTE_P2P,
                 diagnosticName: "P2P",
                 readiness: PEER_REPLICATION_READINESS,
-                isConfigured: (settings) =>
-                    settings.remoteType === REMOTE_P2P &&
-                    settings.P2P_Enabled &&
-                    getPathNormalizationVersion(settings) === 0,
+                isConfigured: (settings) => {
+                    if (settings.remoteType !== REMOTE_P2P || !settings.P2P_Enabled) return false;
+                    getPathNormalizationVersion(settings);
+                    return true;
+                },
                 configurationIdentity: getP2PReplicatorConfigurationIdentity,
                 create: createP2PReplicator,
                 remoteResources: NO_REMOTE_RESOURCE_CAPABILITIES,

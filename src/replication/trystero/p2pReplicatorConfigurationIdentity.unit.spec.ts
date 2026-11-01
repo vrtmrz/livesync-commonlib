@@ -82,6 +82,17 @@ describe("P2P Replicator configuration identity", () => {
         ).toBe(getP2PReplicatorConfigurationIdentity(noTurn));
     });
 
+    it("treats a path identity mode change as a new room binding", () => {
+        const settings = configuredSettings({ pathNormalizationVersion: 0 });
+
+        expect(
+            getP2PReplicatorConfigurationIdentity({
+                ...settings,
+                pathNormalizationVersion: 1,
+            })
+        ).not.toBe(getP2PReplicatorConfigurationIdentity(settings));
+    });
+
     it("does not replace the active adapter for profile selection, demand, or dynamic policy changes", () => {
         const settings = configuredSettings();
         const identity = getP2PReplicatorConfigurationIdentity(settings);

@@ -136,8 +136,12 @@ function createRebuilder(initialDatabaseSuffix = "") {
             getActiveReplicator: vi.fn(() => ({
                 getReplicationPBKDF2Salt: vi.fn(async () => "salt"),
                 tryResetRemoteDatabase: vi.fn(async () => undefined),
+                markRemoteLockedForRebuild: vi.fn(async () => undefined),
             })),
-            getNewReplicator: vi.fn(),
+            getNewReplicator: vi.fn().mockResolvedValue({
+                assertRemotePathIdentity: vi.fn(async () => undefined),
+                closeReplication: vi.fn(async () => undefined),
+            }),
             createRemoteResource: vi.fn(async (kind: string) =>
                 kind === REMOTE_RESOURCE_KINDS.SECURITY_SEED
                     ? {
@@ -465,19 +469,18 @@ describe("ServiceRebuilder NFC path preflight", () => {
         expect(services.database.resetDatabaseForCurrentSettings).toHaveBeenCalledTimes(1);
     });
 
-    it.each([REMOTE_MINIO, REMOTE_P2P])(
-        "refuses NFC reconstruction for unsupported transport %s",
-        async (remoteType) => {
-            const { rebuilder, services, settings } = createRebuilder();
-            settings.pathNormalizationVersion = 1;
-            settings.remoteType = remoteType;
+    it.each([REMOTE_MINIO, REMOTE_P2P])("reconstructs NFC identity for supported transport %s", async (remoteType) => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.pathNormalizationVersion = 1;
+        settings.remoteType = remoteType;
 
-            await expect(rebuilder.rebuildEverything()).rejects.toThrow(/CouchDB/);
-
-            expect(services.database.resetDatabaseForCurrentSettings).not.toHaveBeenCalled();
-            expect(services.replication.markLocked).not.toHaveBeenCalled();
-        }
-    );
+        const resetBoundary = new Error("Reached the local database replacement boundary");
+        services.database.resetDatabaseForCurrentSettings.mockRejectedValueOnce(resetBoundary);
+        await expect(rebuilder.rebuildEverything()).rejects.toBe(resetBoundary);
+        expect(services.storageAccess.getFileNames).toHaveBeenCalledOnce();
+        expect(services.database.resetDatabaseForCurrentSettings).toHaveBeenCalledOnce();
+        expect(services.replication.markLocked).not.toHaveBeenCalled();
+    });
 
     it("refuses Standard Fetch before resetting local data when storage identities collide", async () => {
         const { rebuilder, services, settings } = createRebuilder();
@@ -1268,5 +1271,62 @@ describe("ServiceRebuilder readiness boundary", () => {
         expect(services.databaseEvents.onDatabaseInitialised).not.toHaveBeenCalled();
         expect(services.fileProcessing.commitPendingFileEvents).toHaveBeenCalledOnce();
         expect(services.appLifecycle.markIsReady).toHaveBeenCalledOnce();
+    });
+});
+
+describe("Journal Fetch path identity preflight", () => {
+    it("rejects an incompatible Journal before local reset or remote admission", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.remoteType = REMOTE_MINIO;
+        const trial = {
+            assertRemotePathIdentity: vi.fn(async () => {
+                throw new Error("different path identity");
+            }),
+            closeReplication: vi.fn(async () => undefined),
+        };
+        services.replicator.getNewReplicator.mockResolvedValue(trial);
+        await expect(rebuilder.fetchLocal()).rejects.toThrow(/path identity/);
+        expect(trial.assertRemotePathIdentity).toHaveBeenCalledWith(settings);
+        expect(trial.closeReplication).toHaveBeenCalledOnce();
+        expect(services.database.resetDatabaseForCurrentSettings).not.toHaveBeenCalled();
+        expect(services.replication.markResolved).not.toHaveBeenCalled();
+        expect(services.setting.applyPartial).not.toHaveBeenCalled();
+    });
+
+    it("closes the matching trial before resetting and fetching", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.remoteType = REMOTE_MINIO;
+        const trial = {
+            assertRemotePathIdentity: vi.fn(async () => undefined),
+            closeReplication: vi.fn(async () => undefined),
+        };
+        services.replicator.getNewReplicator.mockResolvedValue(trial);
+        await rebuilder.fetchLocal(false, true);
+        expect(trial.assertRemotePathIdentity).toHaveBeenCalledOnce();
+        expect(trial.closeReplication).toHaveBeenCalledOnce();
+        expect(trial.closeReplication.mock.invocationCallOrder[0]).toBeLessThan(
+            services.database.resetDatabaseForCurrentSettings.mock.invocationCallOrder[0]
+        );
+        expect(services.replication.replicateAllFromRemoteForRebuild).toHaveBeenCalledTimes(2);
+    });
+
+    it("uses the rebuild lock before deletion and declares the new identity afterwards", async () => {
+        const { rebuilder, services, settings } = createRebuilder();
+        settings.remoteType = REMOTE_MINIO;
+        settings.pathNormalizationVersion = 1;
+        const journal = {
+            markRemoteLockedForRebuild: vi.fn(async () => undefined),
+            tryResetRemoteDatabase: vi.fn(async () => undefined),
+        };
+        services.replicator.getActiveReplicator.mockReturnValue(journal as never);
+        await rebuilder.rebuildEverything();
+        expect(journal.markRemoteLockedForRebuild).toHaveBeenCalledWith(settings);
+        expect(services.replication.markLocked).toHaveBeenCalledOnce();
+        expect(journal.markRemoteLockedForRebuild.mock.invocationCallOrder[0]).toBeLessThan(
+            journal.tryResetRemoteDatabase.mock.invocationCallOrder[0]
+        );
+        expect(journal.tryResetRemoteDatabase.mock.invocationCallOrder[0]).toBeLessThan(
+            services.replication.markLocked.mock.invocationCallOrder[0]
+        );
     });
 });

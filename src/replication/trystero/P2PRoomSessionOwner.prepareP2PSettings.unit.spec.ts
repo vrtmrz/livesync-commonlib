@@ -134,21 +134,38 @@ describe("P2PRoomSessionOwner prepared settings lifecycle", () => {
         expect(createSession).not.toHaveBeenCalled();
     });
 
-    it("retires an existing room and rejects finite demand when path identity changes to NFC", async () => {
+    it("replaces an existing room and revalidates automation when path identity changes to NFC", async () => {
         const { owner, sessions, settings } = createOwnerHarness();
         settings.P2P_managedType = "";
 
         await owner.open();
         expect(sessions).toHaveLength(1);
+        const coordinator = (sessions[0] as any).env.automationCoordinator;
+        const baseline = vi.fn(async () => ({ status: "completed" as const, ok: true as const }));
+        await coordinator.runBaseline("peer-a", baseline);
+        expect(baseline).toHaveBeenCalledOnce();
 
         settings.pathNormalizationVersion = 1;
         await owner.setPersistentDemand("explicit", true);
 
-        expect(sessions).toHaveLength(1);
+        expect(sessions).toHaveLength(2);
         expect(sessions[0].retire).toHaveBeenCalledOnce();
-        await expect(owner.runWithFiniteDemand(async () => undefined)).rejects.toThrow(
-            "P2P does not support NFC path identity."
-        );
+        const nextBaseline = vi.fn(async () => ({ status: "completed" as const, ok: true as const }));
+        await (sessions[1] as any).env.automationCoordinator.runBaseline("peer-a", nextBaseline);
+        expect(nextBaseline).toHaveBeenCalledOnce();
+
+        settings.pathNormalizationVersion = 0;
+        await owner.setPersistentDemand("explicit", true);
+        expect(sessions).toHaveLength(3);
+        expect(sessions[1].retire).toHaveBeenCalledOnce();
+        const legacyBaseline = vi.fn(async () => ({ status: "completed" as const, ok: true as const }));
+        await (sessions[2] as any).env.automationCoordinator.runBaseline("peer-a", legacyBaseline);
+        expect(legacyBaseline).toHaveBeenCalledOnce();
+
+        const task = vi.fn(async () => undefined);
+        await expect(owner.runWithFiniteDemand(task)).resolves.toBeUndefined();
+        expect(task).toHaveBeenCalledOnce();
+        await owner.close();
     });
 
     it("reuses an equivalent serving room while its prepared settings remain usable", async () => {

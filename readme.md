@@ -292,7 +292,7 @@ See [the remote configuration profile guide](docs/remote-configurations.md) for 
 
 CouchDB stores the representations already in use as feature identifiers in its version document. Assess that document before synchronisation or direct file operations, and retain unknown identifiers for host diagnostics. See [the remote feature compatibility contract](docs/remote-feature-compatibility.md) for the wire format, update rules, and recovery boundaries.
 
-The maintained CLI and Obsidian hosts can opt into [Unicode NFC path identity](docs/unicode-path-identity.md) with CouchDB. Existing databases require an explicit Rebuild or Fetch migration before using it.
+The maintained CLI and Obsidian hosts can opt into [Unicode NFC path identity](docs/unicode-path-identity.md) with CouchDB, Object Storage, and P2P in the unreleased transport extension. Existing databases require an explicit Rebuild or Fetch migration before using it. P2P participants must all be updated and migrated.
 
 ## Contract scope
 

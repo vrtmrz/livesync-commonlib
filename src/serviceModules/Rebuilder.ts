@@ -58,6 +58,28 @@ function canResetCentralRemote(replicator: ReplicatorInstance): replicator is Ce
     return "tryResetRemoteDatabase" in replicator && typeof replicator.tryResetRemoteDatabase === "function";
 }
 
+/** Read-only Journal facet used before Fetch replaces the local database. */
+interface JournalPathIdentityChecker extends ReplicatorInstance {
+    assertRemotePathIdentity(setting: ReturnType<SettingService["currentSettings"]>): Promise<void>;
+}
+
+function canCheckJournalPathIdentity(replicator: ReplicatorInstance): replicator is JournalPathIdentityChecker {
+    return "assertRemotePathIdentity" in replicator && typeof replicator.assertRemotePathIdentity === "function";
+}
+
+/** Pre-reset lock which preserves the identity of the journals being replaced. */
+interface JournalRebuildLocker extends CentralRemoteResetter {
+    markRemoteLockedForRebuild(setting: ReturnType<SettingService["currentSettings"]>): Promise<void>;
+}
+
+function canLockJournalForRebuild(replicator: ReplicatorInstance): replicator is JournalRebuildLocker {
+    return (
+        canResetCentralRemote(replicator) &&
+        "markRemoteLockedForRebuild" in replicator &&
+        typeof replicator.markRemoteLockedForRebuild === "function"
+    );
+}
+
 export interface ServiceRebuilderDependencies {
     events: LiveSyncEventHub;
     appLifecycle: AppLifecycleService;
@@ -160,7 +182,7 @@ Please enable them from the settings screen after setup is complete.`,
         // this.core.settings.isConfigured = true;
         // this.core.settings.notifyThresholdOfRemoteStorageSize = DEFAULT_SETTINGS.notifyThresholdOfRemoteStorageSize;
         await this.control.applySettings();
-        await this.replication.markLocked();
+        await this.markRemoteLockedForRebuild();
         await this._tryResetRemoteDatabase();
         await this.replication.markLocked();
         await delay(500);
@@ -216,7 +238,7 @@ Please enable them from the settings screen after setup is complete.`,
             }
             return;
         }
-        await this.replication.markLocked();
+        await this.markRemoteLockedForRebuild();
         await this._tryResetRemoteDatabase();
         await this.replication.markLocked();
         await delay(500);
@@ -245,9 +267,6 @@ Please enable them from the settings screen after setup is complete.`,
             await assertDatabasePathIdentity(this.database.localDatabase.localDatabase, settings);
         }
         if (getPathNormalizationVersion(settings) === 0) return;
-        if (settings.remoteType !== REMOTE_COUCHDB) {
-            throw new Error("NFC path identity is supported only with CouchDB. No database has been reset.");
-        }
         const paths = await this.storageAccess.getFileNames();
         const selected = [];
         const databaseReady = this.database.isDatabaseReady();
@@ -267,6 +286,19 @@ Please enable them from the settings screen after setup is complete.`,
 
     private async checkRemotePathIdentityBeforeFetch(): Promise<void> {
         const settings = this.setting.currentSettings();
+        if (settings.remoteType === REMOTE_MINIO) {
+            const trial = await this.replicator.getNewReplicator(settings);
+            if (!trial) throw new Error("Could not create a Journal replicator for the Fetch identity check.");
+            try {
+                if (!canCheckJournalPathIdentity(trial)) {
+                    throw new Error("The Journal replicator does not support the Fetch identity check.");
+                }
+                await trial.assertRemotePathIdentity(settings);
+            } finally {
+                await trial.closeReplication();
+            }
+            return;
+        }
         if (settings.remoteType !== REMOTE_COUCHDB) return;
         const remote =
             settings.couchDB_URI.replace(/\/+$/, "") +
@@ -346,6 +378,19 @@ Please enable them from the settings screen after setup is complete.`,
 
     scheduleFetch(prepareBeforeRestart?: () => Promise<void>): Promise<boolean> {
         return this.scheduleInitialisation(FlagFilesHumanReadable.FETCH_ALL, prepareBeforeRestart);
+    }
+
+    private async markRemoteLockedForRebuild(): Promise<void> {
+        const settings = this.setting.currentSettings();
+        if (settings.remoteType !== REMOTE_MINIO) {
+            await this.replication.markLocked();
+            return;
+        }
+        const replicator = this.replicator.getActiveReplicator();
+        if (!replicator || !canLockJournalForRebuild(replicator)) {
+            throw new Error("The active Journal replicator does not support safe reconstruction.");
+        }
+        await replicator.markRemoteLockedForRebuild(settings);
     }
 
     private async _tryResetRemoteDatabase(): Promise<void> {

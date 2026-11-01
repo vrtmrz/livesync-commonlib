@@ -8,6 +8,7 @@ import {
     splitP2PTurnServerUrls,
 } from "@lib/common/models/setting.p2p.ts";
 import type { RemoteDBSettings } from "@lib/common/types.ts";
+import { getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
 
 /**
  * Project only values which fix the effective P2P transport generation.
@@ -39,11 +40,10 @@ export function getP2PReplicatorConfigurationIdentity(settings: RemoteDBSettings
         splitP2PRelayUrls(settings.P2P_relays),
         managedTurnSelected ? undefined : turnServers,
         turnAuthentication,
-        managedTurnSelected
-            ? [settings.P2P_managedType, settings.P2P_managedId, settings.P2P_managedToken]
-            : undefined,
+        managedTurnSelected ? [settings.P2P_managedType, settings.P2P_managedId, settings.P2P_managedToken] : undefined,
         normaliseP2PMaxWirePayloadBytes(settings.P2P_maxWirePayloadBytes),
         effectivePath,
+        getPathNormalizationVersion(settings),
         settings.P2P_useDiagRTC ?? false,
     ]);
 }

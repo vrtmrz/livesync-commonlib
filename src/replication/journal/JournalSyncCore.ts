@@ -49,6 +49,8 @@ import {
     decryptBinary as decryptBinaryHKDF,
 } from "octagonal-wheels/encryption/hkdf";
 
+import { assertDatabasePathIdentity } from "@lib/pouchdb/pathIdentityCompatibility.ts";
+
 const RECORD_SPLIT = `\n`;
 const UNIT_SPLIT = `\u001f`;
 type ProcessingEntry = PouchDB.Core.PutDocument<EntryDoc> & PouchDB.Core.GetMeta;
@@ -264,7 +266,13 @@ export class JournalSyncCore {
     }
 
     async resetCheckpointInfo() {
-        await this.updateCheckPointInfo((info) => ({ ...CheckPointInfoDefault }));
+        await this.updateCheckPointInfo(() => ({
+            ...CheckPointInfoDefault,
+            knownIDs: new Set<string>(),
+            sentIDs: new Set<string>(),
+            receivedFiles: new Set<string>(),
+            sentFiles: new Set<string>(),
+        }));
     }
 
     private getJournalEpochFromSyncParams(params: SyncParameters): string {
@@ -352,6 +360,7 @@ export class JournalSyncCore {
 
         const journals = await this._getRemoteJournals();
         if (journals.length == 0) {
+            await this.resetCheckpointInfo();
             Logger("Nothing to delete!", LOG_LEVEL_NOTICE);
             return true;
         }
@@ -626,6 +635,7 @@ export class JournalSyncCore {
     }
 
     async sendLocalJournal(showMessage = false) {
+        await assertDatabasePathIdentity(this.db, this.currentSettings);
         this.updateInfo({ syncStatus: "JOURNAL_SEND" });
         return await shareRunningResult("send_journal_stream", async () => {
             this.requestedStop = false;
@@ -671,6 +681,10 @@ export class JournalSyncCore {
                 return false;
             }
         });
+    }
+
+    async hasRemoteJournals(): Promise<boolean> {
+        return (await this.storage.listFiles("", 1)).some((key) => !key.startsWith("_"));
     }
 
     async _getRemoteJournals() {
@@ -884,6 +898,7 @@ export class JournalSyncCore {
     }
 
     async receiveRemoteJournal(showMessage = false) {
+        await assertDatabasePathIdentity(this.db, this.currentSettings);
         this.updateInfo({ syncStatus: "JOURNAL_RECEIVE" });
         return await shareRunningResult("receive_journal_stream", async () => {
             this.requestedStop = false;

@@ -13,6 +13,7 @@ import {
 } from "@lib/common/types.ts";
 import { extractObject, isObjectDifferent, resolveWithIgnoreKnownError } from "@lib/common/utils.ts";
 import { assessTweakCompatibility } from "@lib/common/models/tweak.compatibility.ts";
+import { getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
 import { usesEncryptedInternalMetadata } from "./remoteFeatureCompatibility.ts";
 
 export function getEffectiveTweakValues(setting: RemoteDBSettings): TweakValues {
@@ -103,6 +104,11 @@ export async function ensureRemoteIsCompatible(
         tweakAssessment.entries.some(({ key, relation }) => key === "idDerivationVersion" && relation === "different")
     ) {
         return "ID_KEY_MISMATCH";
+    }
+
+    if (getPathNormalizationVersion(currentTweakValues) !== getPathNormalizationVersion(preferred_tweak)) {
+        recordTweakAssessment?.(tweakAssessment);
+        return ["MISMATCHED", preferred_tweak];
     }
 
     if (!setting.disableCheckingConfigMismatch) {
