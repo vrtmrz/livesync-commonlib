@@ -13,6 +13,7 @@ import {
     type DocumentID,
     type FilePathWithPrefix,
     type PlainEntry,
+    type EntryLeaf,
 } from "@lib/common/types.ts";
 import { type SimpleStore, pickBucketSyncSettings } from "@lib/common/utils.ts";
 import { CheckPointInfoDefault, type CheckPointInfo } from "./JournalSyncTypes.ts";
@@ -324,7 +325,101 @@ describe("JournalSyncCore", () => {
         });
     });
 
+    describe("chunk data round trips", () => {
+        it.each([
+            ["empty data", ""],
+            ["ordinary text", "plain chunk data"],
+            ["literal escape sequences", String.raw`before\x1f\u001fafter`],
+            ["a leading unit separator", "\u001fbefore"],
+            ["an embedded unit separator", "before\u001fafter"],
+            ["a trailing unit separator", "before\u001f"],
+            ["consecutive unit separators", "before\u001f\u001fafter"],
+            ["newlines, backslashes, and Unicode", "先頭\n\r\\\u001f末尾😀\u001f\n"],
+            ["the reported chunk dimensions", "a".repeat(503) + "\u001f" + "b".repeat(3912)],
+        ])("preserves %s through upload and reception", async (_description, data) => {
+            const chunkId = `h:round-trip-${dbCounter}` as DocumentID;
+            const chunk: EntryLeaf = { _id: chunkId, type: "leaf", data };
+            await localDB.put(chunk);
+            await expect(core.sendLocalJournal()).resolves.toBe(true);
+
+            const receiverDB = new PouchDB<EntryDoc>(`receiver_db_${dbCounter}`, { adapter: "memory" });
+            let checkpoint: CheckPointInfo = {
+                ...CheckPointInfoDefault,
+                knownIDs: new Set(),
+                sentIDs: new Set(),
+                receivedFiles: new Set(),
+                sentFiles: new Set(),
+            };
+            const receiverStore: SimpleStore<CheckPointInfo> = {
+                get: async () => checkpoint,
+                set: async (_key, value) => {
+                    checkpoint = value;
+                },
+                keys: async () => [],
+                delete: async () => {},
+            };
+            const receiverEnv = {
+                services: {
+                    ...env.services,
+                    database: { localDatabase: { localDatabase: receiverDB } },
+                },
+            } as unknown as LiveSyncJournalReplicatorEnv;
+            const receiver = new JournalSyncCore(core._settings, receiverStore, receiverEnv, mockStorage);
+            receiver.processReplication = async () => true;
+            try {
+                await expect(receiver.receiveRemoteJournal()).resolves.toBe(true);
+                const received = await receiverDB.get<EntryLeaf>(chunkId);
+                expect(received.type).toBe("leaf");
+                expect(new TextEncoder().encode(received.data)).toEqual(new TextEncoder().encode(data));
+            } finally {
+                await receiverDB.destroy();
+            }
+        });
+    });
+
     describe("receiveRemoteJournal", () => {
+        it("rejects a chunk record without its ID separator without acknowledging the batch", async () => {
+            virtualStorage.set(
+                `malformed-${dbCounter}.jsonl.gz`,
+                await wrappedDeflate(new TextEncoder().encode("~h:missing-separator\n"), {})
+            );
+            core.processReplication = async () => true;
+
+            await expect(core.receiveRemoteJournal()).resolves.toBe(false);
+
+            expect((await localDB.allDocs()).rows).toEqual([]);
+            expect(core.store.set).not.toHaveBeenCalled();
+        });
+
+        it("preserves unit separators in an existing batch alongside escaped and JSON records", async () => {
+            const firstId = `h:legacy-raw-${dbCounter}`;
+            const secondId = `h:legacy-escaped-${dbCounter}`;
+            const metadata = {
+                _id: `legacy-file-${dbCounter}`,
+                _rev: "1-legacy",
+                type: "plain",
+                path: "legacy.md",
+                children: [firstId, secondId],
+                _revisions: { start: 1, ids: ["legacy"] },
+            };
+            const rawBatch =
+                `~${firstId}\u001fbefore\u001fafter\u001f\n` +
+                `~${secondId}\u001f\\fline\\n\\r\\\\\u001ftail\n` +
+                JSON.stringify(metadata) +
+                "\n";
+            virtualStorage.set(
+                `legacy-${dbCounter}.jsonl.gz`,
+                await wrappedDeflate(new TextEncoder().encode(rawBatch), {})
+            );
+            core.processReplication = async () => true;
+
+            await expect(core.receiveRemoteJournal()).resolves.toBe(true);
+
+            expect((await localDB.get<EntryLeaf>(firstId)).data).toBe("before\u001fafter\u001f");
+            expect((await localDB.get<EntryLeaf>(secondId)).data).toBe("line\n\r\\\u001ftail");
+            expect(await localDB.get(metadata._id, { revs: true })).toMatchObject(metadata);
+        });
+
         it("should parse and apply incoming documents with new_edits: false", async () => {
             // Put a mock compressed chunk into virtual storage
             const mockDoc = {

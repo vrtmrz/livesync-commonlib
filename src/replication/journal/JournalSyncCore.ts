@@ -834,7 +834,12 @@ export class JournalSyncCore {
                         const piece = decompressed.slice(idxFrom, idxTo);
                         const strPiece = d.decode(piece);
                         if (strPiece.startsWith("~")) {
-                            const [idPart, dataPart] = strPiece.substring(1).split(UNIT_SPLIT);
+                            const separatorIndex = strPiece.indexOf(UNIT_SPLIT);
+                            if (separatorIndex === -1) {
+                                throw new Error("Invalid journal chunk record: missing separator");
+                            }
+                            const idPart = strPiece.substring(1, separatorIndex);
+                            const dataPart = strPiece.substring(separatorIndex + 1);
                             result.push({
                                 _id: idPart as DocumentID,
                                 data: unescapeNewLineFromString(dataPart),
