@@ -1,5 +1,13 @@
 # Updates
 
+## Unreleased
+
+### Fixed
+
+- Journal replication preserves Chunk data containing a raw unit separator (`U+001F`).
+    - The receiver separates the Chunk ID from its data at the first delimiter and retains the complete payload, including existing batches written by earlier versions. The serialised format is unchanged.
+    - This prevents truncation during reception; it does not repair Chunks already stored in a local database. Affected hosts need recovery from a verified intact source after updating all participating clients.
+
 ## 0.2.2
 
 26th October, 2026
