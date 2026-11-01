@@ -156,6 +156,10 @@ The [maintained-host examples and evidence](proven-in-use.md) are optional conte
 
 ### Testing an unpublished Octagonal Wheels dependency
 
+The current integration pins the published Octagonal Wheels 0.1.56 release and
+uses the ordinary package gate. The override below is for future unpublished
+dependency changes.
+
 Keep the repository dependency declaration and lockfile separate from a local
 candidate check. After building and packing Octagonal Wheels, install that
 exact tarball for source checks without saving it to either manifest:
@@ -247,9 +251,9 @@ The classification in `docs/migration/compatibility-classification.json` is acce
 Release preparation and staged-publication checks are documented in [the maintainer runbook](releasing.md).
 
 
-The shared value extraction uses the same explicit candidate path. Its
+The shared value extraction uses the declared Octagonal Wheels dependency. Its
 `utils.runtime-tools.unit.spec.ts` tests preserve the legacy adapter contracts;
 `runtime-tools-types.ts` and `runtime-tools-runtime.mjs` check the installed
 package's public duration and delimiter helpers; source tests cover the
-internal JSON copy adapter. Keep these checks tied to the
-same Octagonal Wheels tarball used by the downstream consumer.
+internal JSON copy adapter. When testing a future unpublished dependency, keep
+these checks tied to the same Octagonal Wheels tarball used by the downstream consumer.

@@ -30,10 +30,10 @@ absence on the native path. The
 [runtime fixture](../_tools/fixtures/blob-compatibility-runtime.mjs) exercise
 the existing Commonlib imports after packaging.
 
-Candidate checks explicitly install the selected unpublished Octagonal
-Wheels tarball in the disposable consumer. They do not establish that the
-existing registry dependency contains the new entry. The released dependency
-pin remains a separate step. Self-hosted LiveSync tests its hidden-file
+Earlier candidate checks explicitly installed the selected unpublished Octagonal
+Wheels tarball in the disposable consumer. The current unreleased Commonlib
+integration pins the published Octagonal Wheels 0.1.56 dependency and uses the
+ordinary package gate without a candidate override. Self-hosted LiveSync tests its hidden-file
 loading and revision handling through the legacy entry with matching
 candidate tarballs. Those consumer checks are distinct from Commonlib-owned
 compatibility contracts; real-Obsidian and mobile validation of this extraction
@@ -263,8 +263,9 @@ internal `asCopy<T>` signature. Replication services use that internal adapter
 to detach settings before an operation. The shared package owns the value
 operations. The packed [type fixture](../_tools/fixtures/runtime-tools-types.ts) and
 [runtime fixture](../_tools/fixtures/runtime-tools-runtime.mjs) exercise those
-public duration and delimiter compatibility entries with the selected
-unpublished dependency candidate. Source tests cover the internal copy adapter.
+public duration and delimiter compatibility entries. The original checks used an
+unpublished dependency candidate; the current integration pins the published
+Octagonal Wheels 0.1.56 release. Source tests cover the internal copy adapter.
 LiveSync continues to use the existing compatibility entry points, including
 duration labels in ConfigSync and tagged lists in settings. Source and packed
 checks do not establish real-Obsidian rendering or device behaviour.

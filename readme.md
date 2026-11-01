@@ -75,14 +75,14 @@ identity and MIME type; text and binary inputs produce new Blobs with
 `text/plain` and `application/octet-stream` respectively.
 
 New code which only needs Blob conversion or byte comparison should use the focused
-`octagonal-wheels/binary/blob` entry once a release containing it is available.
+`octagonal-wheels/binary/blob` entry in Octagonal Wheels 0.1.56 or later.
 Its normalisation function is named `toBlob`; its creation functions retain
 `createTextBlob` and `createBinaryBlob`. Its `isBlobContentEqual` function
 compares two Blobs in bounded parts and accepts an optional synchronous or
 asynchronous ArrayBuffer equality predicate. See the
 [Octagonal Wheels Blob guide](https://github.com/vrtmrz/fancy-kit/blob/main/packages/octagonal-wheels/guides/imports-and-runtime.md#blob-creation-and-normalisation)
-for input and runtime contracts. This migration is currently verified against
-an unpublished candidate, not the registry's existing 0.1.55 release.
+for input and runtime contracts. This unreleased Commonlib integration now pins
+the published Octagonal Wheels 0.1.56 dependency.
 
 Commonlib continues to own document classification, decoding in `readAsBlob`,
 and content-comparison policy. The legacy `isDocContentSame` retains its
