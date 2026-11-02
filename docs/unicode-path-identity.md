@@ -26,6 +26,24 @@ implementation for Metadata IDs rather than add a host-specific normalisation
 rule. Host storage adapters remain responsible for mapping a logical path back
 to its existing physical entry.
 
+## Initial host settings
+
+Commonlib's shared new-Vault and stored-setting defaults retain version `0`.
+The maintained CLI and Obsidian hosts use version `1` for newly created
+synchronisation settings in the unreleased extension, while retaining `0` for
+old settings and Setup URIs which omit the field. This policy does not enable
+NFC for WebApp or WebPeer, and does not migrate existing databases.
+
+The focused replication entry exports `inspectDatabasePathIdentity` and
+`PathIdentityInspection`. The existing `RemoteConnectionProbe` may expose
+`inspectPathIdentity` for read-only initial setup. Inspection distinguishes a
+confirmed empty remote from an existing declaration; unavailable or unsupported
+state rejects. Hosts use the existing declaration before first participation,
+and keep source Rebuild and configured startup explicit. Journal inspection
+reads milestone evidence without writing a node, Security Seed, or checkpoint.
+A P2P signalling probe does not establish peer database identity; Setup URIs
+carry the selected mode, and manual configuration must match the source.
+
 ## Database compatibility
 
 Version `1` uses `nfc-path-identity-v1` in the existing generation-13
@@ -91,8 +109,9 @@ Journal uses compatibility range `4` for NFC identity, independently of
 encryption and path obfuscation. Legacy ranges remain unchanged. The existing
 stored node ranges and required Tweak reject a different identity even when
 ordinary mismatch warnings are disabled. Removing preferred Tweaks does not
-remove the range check. A missing milestone over existing journals requires
-Rebuild; it is not permission to declare a new identity. Older clients must be
+remove the range check or an existing document-ID agreement proof. The existing
+ID check is also reused before Fetch and ordinary milestone updates. A missing
+milestone over existing journals requires Rebuild; it is not permission to declare a new identity. Older clients must be
 updated before migration; their explicit version-check override is outside
 this compatibility guarantee.
 

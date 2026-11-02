@@ -2,6 +2,7 @@ import { VERSIONING_DOCID, type EntryDoc } from "@lib/common/types";
 import { getPathNormalizationVersion } from "@lib/common/pathNormalization";
 import {
     assessRemoteFeatureDocument,
+    describeRemoteFeatureRejection,
     NFC_PATH_IDENTITY_FEATURE,
     REMOTE_FEATURE_GENERATION,
 } from "./remoteFeatureCompatibility";
@@ -9,6 +10,32 @@ import { isErrorOfMissingDoc } from "./utils_couchdb";
 import { bumpRemoteVersion } from "./negotiation";
 
 type PathIdentitySettings = { pathNormalizationVersion?: number };
+
+export type PathIdentityInspection =
+    | { readonly status: "empty" }
+    | { readonly status: "configured"; readonly pathNormalizationVersion: 0 | 1 };
+
+/** Read the existing declaration without changing a remote or declaring a new identity. */
+export async function inspectDatabasePathIdentity(
+    database: PouchDB.Database<EntryDoc>
+): Promise<PathIdentityInspection> {
+    let document: EntryDoc;
+    try {
+        document = await database.get(VERSIONING_DOCID);
+    } catch (error) {
+        if (!isErrorOfMissingDoc(error)) throw error;
+        return (await database.info()).doc_count === 0
+            ? { status: "empty" }
+            : { status: "configured", pathNormalizationVersion: 0 };
+    }
+    const assessment = assessRemoteFeatureDocument(document);
+    if (assessment.status === "older-generation") return { status: "configured", pathNormalizationVersion: 0 };
+    if (assessment.status !== "supported") throw new Error(describeRemoteFeatureRejection(assessment));
+    return {
+        status: "configured",
+        pathNormalizationVersion: assessment.usedFeatures.includes(NFC_PATH_IDENTITY_FEATURE) ? 1 : 0,
+    };
+}
 
 export function assertMatchingPathIdentityFeature(document: unknown, settings: PathIdentitySettings): void {
     const assessment = assessRemoteFeatureDocument(document);

@@ -369,6 +369,77 @@ describe("LiveSyncJournalReplicator compatibility milestone", () => {
         expect(uploadJson).toHaveBeenCalledOnce();
     });
 
+    async function createKeyedJournalWithClearedTweaks(pathNormalizationVersion: 0 | 1) {
+        const keyed = {
+            ...DEFAULT_SETTINGS,
+            pathNormalizationVersion,
+            encrypt: true,
+            passphrase: "content-passphrase",
+            usePathObfuscation: true,
+            idDerivationVersion: 1,
+            idDerivationKey: "ab".repeat(32),
+        } as RemoteDBSettings;
+        const keyedRange =
+            pathNormalizationVersion === 1 ? { min: 4, max: 4, current: 4 } : { min: 3, max: 3, current: 3 };
+        const initial = createReplicator({ status: "not-found" });
+        Object.assign(initial.replicator.setupJournalSyncClient(), {
+            hasRemoteJournals: vi.fn(async () => false),
+        });
+        await expect(initial.replicator.ensureBucketIsCompatible("keyed", keyedRange, keyed)).resolves.toBe("OK");
+        const milestone = initial.uploadJson.mock.calls[0][1] as EntryMilestoneInfo;
+        expect(milestone.encrypted_id_derivation_proof).toBeTruthy();
+        initial.downloadJson.mockResolvedValue(milestone as never);
+        await initial.replicator.resetRemoteTweakSettings(keyed);
+        expect(milestone.tweak_values).toEqual({});
+        expect(milestone.encrypted_id_derivation_proof).toBeTruthy();
+        return { keyed, milestone };
+    }
+
+    it.each([
+        [0, false],
+        [0, true],
+        [1, false],
+        [1, true],
+    ] as const)(
+        "rejects unkeyed document IDs after clearing Tweaks (path %s, warnings disabled %s)",
+        async (pathNormalizationVersion, disableCheckingConfigMismatch) => {
+            const { keyed, milestone } = await createKeyedJournalWithClearedTweaks(pathNormalizationVersion);
+            const incoming = createReplicator({ status: "available", value: milestone });
+            const unkeyed = {
+                ...keyed,
+                idDerivationVersion: 0,
+                idDerivationKey: "",
+                disableCheckingConfigMismatch,
+            } as RemoteDBSettings;
+            const unkeyedRange =
+                pathNormalizationVersion === 1 ? { min: 4, max: 4, current: 4 } : { min: 0, max: 2, current: 2 };
+            const result = await incoming.replicator.ensureBucketIsCompatible("unkeyed", unkeyedRange, unkeyed);
+            expect(result).not.toBe("OK");
+            expect(incoming.uploadJson).not.toHaveBeenCalled();
+        }
+    );
+
+    it.each(["inspect", "resolve", "lock", "unlock"] as const)(
+        "rejects incompatible document IDs before Journal %s",
+        async (operation) => {
+            const { keyed, milestone } = await createKeyedJournalWithClearedTweaks(1);
+            const before = structuredClone(milestone);
+            const unkeyed = { ...keyed, idDerivationVersion: 0, idDerivationKey: "" } as RemoteDBSettings;
+            const incoming = createReplicator({ status: "available", value: milestone });
+            incoming.replicator.nodeid = "unkeyed";
+            const attempt =
+                operation === "inspect"
+                    ? incoming.replicator.assertRemotePathIdentity(unkeyed)
+                    : operation === "resolve"
+                      ? incoming.replicator.markRemoteResolved(unkeyed)
+                      : incoming.replicator.markRemoteLocked(unkeyed, operation === "lock", false);
+            await expect(attempt).rejects.toThrow(/ID derivation/i);
+            expect(incoming.uploadJson).not.toHaveBeenCalled();
+            expect(incoming.getCheckpointInfo).not.toHaveBeenCalled();
+            expect(milestone).toEqual(before);
+        }
+    );
+
     it("encrypts the first ID proof and rejects a different key on the next connection", async () => {
         const key = "ab".repeat(32);
         const setting = {
@@ -1154,6 +1225,26 @@ describe("Journal path identity before recovery mutations", () => {
         vi.spyOn(replicator, "setupJournalSyncClient").mockReturnValue(client as never);
         return { replicator, setting, client, snapshot: () => structuredClone(milestone) };
     }
+
+    it.each([0, 1])("inspects Journal path identity without admitting a new node: %s", async (remoteVersion) => {
+        const { replicator, setting, client, snapshot } = createJournal(1, remoteVersion);
+        const before = snapshot();
+        await expect(replicator.inspectRemotePathIdentity(setting)).resolves.toEqual({
+            status: "configured",
+            pathNormalizationVersion: remoteVersion,
+        });
+        expect(snapshot()).toEqual(before);
+        expect(client.uploadJson).not.toHaveBeenCalled();
+        expect(client.getCheckpointInfo).not.toHaveBeenCalled();
+    });
+
+    it("does not infer a fresh Journal from missing compatibility evidence over existing data", async () => {
+        const existing = createJournal(1);
+        await expect(existing.replicator.inspectRemotePathIdentity(existing.setting)).rejects.toThrow(/missing/i);
+        const empty = createJournal(1, undefined, false);
+        await expect(empty.replicator.inspectRemotePathIdentity(empty.setting)).resolves.toEqual({ status: "empty" });
+        expect(empty.client.uploadJson).not.toHaveBeenCalled();
+    });
 
     it.each([0, 1])(
         "rejects a different identity before resolving or locking a peer (local %s)",

@@ -1,3 +1,4 @@
+import type { PathIdentityInspection } from "../pouchdb/pathIdentityCompatibility.ts";
 import type { RemoteDBSettings, RemotePreferredTweakResult } from "@lib/common/types.ts";
 import type { JoinedDevicesSnapshot, ForgetJoinedDeviceResult } from "./joinedDevices.ts";
 import type { RemoteDBStatus } from "./LiveSyncAbstractReplicator.ts";
@@ -36,6 +37,8 @@ export type RemoteConnectionProbeResult = { readonly ok: true } | { readonly ok:
 export interface RemoteConnectionProbe {
     check(options?: RemoteConnectionProbeOptions): Promise<RemoteConnectionProbeResult>;
     getStatus(): Promise<false | RemoteDBStatus>;
+    /** Inspect a central remote before choosing initial host settings. */
+    inspectPathIdentity?(): Promise<PathIdentityInspection>;
     dispose(): Promise<void>;
 }
 
@@ -100,10 +103,15 @@ export type RemoteResourceFactoryMap = {
 
 /** Resource support catalogue; older hosts may omit the initial-fetch optimisation. */
 export type RemoteResourceCapabilities = {
-    readonly [K in Exclude<RemoteResourceKind, typeof REMOTE_RESOURCE_KINDS.INITIAL_FETCH_FAST_FORWARD>]:
-        CapabilitySupport<RemoteResourceFactoryMap[K]>;
-} & { readonly [REMOTE_RESOURCE_KINDS.INITIAL_FETCH_FAST_FORWARD]?:
-    CapabilitySupport<RemoteResourceFactoryMap[typeof REMOTE_RESOURCE_KINDS.INITIAL_FETCH_FAST_FORWARD]> };
+    readonly [K in Exclude<
+        RemoteResourceKind,
+        typeof REMOTE_RESOURCE_KINDS.INITIAL_FETCH_FAST_FORWARD
+    >]: CapabilitySupport<RemoteResourceFactoryMap[K]>;
+} & {
+    readonly [REMOTE_RESOURCE_KINDS.INITIAL_FETCH_FAST_FORWARD]?: CapabilitySupport<
+        RemoteResourceFactoryMap[typeof REMOTE_RESOURCE_KINDS.INITIAL_FETCH_FAST_FORWARD]
+    >;
+};
 
 /** Explicit catalogue for providers which own no finite remote resources. */
 export const NO_REMOTE_RESOURCE_CAPABILITIES: RemoteResourceCapabilities = Object.freeze({

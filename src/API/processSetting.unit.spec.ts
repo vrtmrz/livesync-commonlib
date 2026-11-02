@@ -316,6 +316,20 @@ describe("QR Codec Round-Trip Test with Real Data", () => {
         expect(decoded && decoded.idDerivationKey).toBe("");
     });
 
+    it("defaults an omitted path identity version in an old Setup URI to zero", async () => {
+        const payload: Partial<typeof DEFAULT_SETTINGS> = { ...DEFAULT_SETTINGS };
+        delete payload.pathNormalizationVersion;
+        expect(payload).not.toHaveProperty("pathNormalizationVersion");
+
+        const encrypted = await encryptString(JSON.stringify(payload), "setup-pass");
+        const decoded = await decodeSettingsFromSetupURI(
+            `${configURIBase}${encodeURIComponent(encrypted)}`,
+            "setup-pass"
+        );
+
+        expect(decoded && decoded.pathNormalizationVersion).toBe(0);
+    });
+
     it("rejects a Setup URI with a version but no derived key", async () => {
         const payload: Partial<typeof DEFAULT_SETTINGS> = { ...DEFAULT_SETTINGS, idDerivationVersion: 1 };
         delete payload.idDerivationKey;
