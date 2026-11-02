@@ -65,6 +65,10 @@ function serializeDoc(doc: EntryDoc): Uint8Array {
     return te.encode(JSON.stringify(doc) + RECORD_SPLIT);
 }
 
+function isJournalKey(key: string): boolean {
+    return !key.startsWith("_");
+}
+
 export class JournalSyncCore {
     _settings: BucketSyncSetting;
     storage: IJournalStorage;
@@ -353,8 +357,8 @@ export class JournalSyncCore {
                     if (nextFrom <= from) {
                         throw new Error("Journal reset listing did not advance. Control documents have been retained.");
                     }
-                    skippedFiles.push(...files.filter((key) => key.startsWith("_")));
-                    const journals = files.filter((key) => !key.startsWith("_"));
+                    skippedFiles.push(...files.filter((key) => !isJournalKey(key)));
+                    const journals = files.filter(isJournalKey);
                     if (journals.length > 0 && !(await this.storage.deleteFiles(journals))) return false;
                     from = nextFrom;
                 }
@@ -686,7 +690,7 @@ export class JournalSyncCore {
     }
 
     async hasRemoteJournals(): Promise<boolean> {
-        return (await this.storage.listFiles("", 1)).some((key) => !key.startsWith("_"));
+        return (await this.storage.listFiles("", 1)).some(isJournalKey);
     }
 
     async _getRemoteJournals() {
@@ -694,7 +698,7 @@ export class JournalSyncCore {
         const StartAfter = [...checkPointInfo.receivedFiles.keys()].sort((a, b) =>
             b.localeCompare(a, undefined, { numeric: true })
         )[0];
-        const files = (await this.storage.listFiles(StartAfter)).filter((e) => !e.startsWith("_"));
+        const files = (await this.storage.listFiles(StartAfter)).filter(isJournalKey);
         if (!files) return [];
         return files.sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
     }

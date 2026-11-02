@@ -20,7 +20,7 @@ import {
 } from "@lib/replication";
 import { getP2PReplicatorConfigurationIdentity } from "./p2pReplicatorConfigurationIdentity.ts";
 import type { PrepareP2PSettings } from "@lib/p2p/P2PService.ts";
-import { getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
+import { assertSupportedPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
 
 /**
  * Factory type: given the compatibility Replicator and the stable service
@@ -126,7 +126,7 @@ export function useP2PReplicatorFeature(
                 readiness: PEER_REPLICATION_READINESS,
                 isConfigured: (settings) => {
                     if (settings.remoteType !== REMOTE_P2P || !settings.P2P_Enabled) return false;
-                    getPathNormalizationVersion(settings);
+                    assertSupportedPathNormalizationVersion(settings.pathNormalizationVersion);
                     return true;
                 },
                 configurationIdentity: getP2PReplicatorConfigurationIdentity,

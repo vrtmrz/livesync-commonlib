@@ -18,7 +18,7 @@ import type { ReplicatorHostEnv } from "./types";
 import { P2PAutomationCoordinator } from "./P2PAutomationCoordinator";
 import { PEER_REPLICATION_READINESS } from "@lib/replication/ReplicatorProvider";
 import { getP2PReplicatorConfigurationIdentity } from "./p2pReplicatorConfigurationIdentity";
-import { getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
+import { assertSupportedPathNormalizationVersion, getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
 import {
     ACTIVE_P2P_RELAY_BINDING_CONFLICT,
     activeP2PRelayBindingCovers,
@@ -113,7 +113,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
     /** Reconcile one long-lived reason for keeping the room available. */
     async setPersistentDemand(demand: P2PPersistentRoomDemand, active: boolean): Promise<void> {
         const settings = this.env.services.setting.currentSettings();
-        getPathNormalizationVersion(settings);
+        assertSupportedPathNormalizationVersion(settings.pathNormalizationVersion);
         const enabled = settings.P2P_Enabled;
         if (active && enabled) {
             this.persistentDemands.add(demand);
@@ -135,7 +135,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
      */
     async runWithFiniteDemand<T>(task: (session: P2PRoomSession) => T | PromiseLike<T>): Promise<T> {
         const settings = this.env.services.setting.currentSettings();
-        getPathNormalizationVersion(settings);
+        assertSupportedPathNormalizationVersion(settings.pathNormalizationVersion);
         if (!settings.P2P_Enabled) {
             throw new Error("P2P is not enabled.");
         }
@@ -165,7 +165,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
         runOwnedTrial: () => Promise<T>
     ): Promise<P2PConnectionProbeAdmissionResult<T>> {
         try {
-            getPathNormalizationVersion(this.env.services.setting.currentSettings());
+            assertSupportedPathNormalizationVersion(this.env.services.setting.currentSettings().pathNormalizationVersion);
         } catch (error) {
             return Promise.reject(error);
         }
@@ -194,7 +194,7 @@ export class P2PRoomSessionOwner implements P2PRoomSessionAccess {
     private async reconcileTransport(): Promise<void> {
         await this.enqueueLifecycleOperation(async () => {
             const settings = this.env.services.setting.currentSettings();
-            getPathNormalizationVersion(settings);
+            assertSupportedPathNormalizationVersion(settings.pathNormalizationVersion);
             if (!settings.P2P_Enabled) {
                 this.persistentDemands.clear();
                 this.finiteDemands.clear();

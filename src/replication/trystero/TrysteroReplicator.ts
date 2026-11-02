@@ -37,14 +37,8 @@ import { compatGlobal, type CompatTimeoutHandle } from "@lib/common/coreEnvFunct
 import { computeKeyedId, configuredIdKey } from "@lib/common/idDerivation.ts";
 import { getWebCrypto } from "@lib/mods.ts";
 import { uint8ArrayToHexString } from "@lib/string_and_binary/convert.ts";
-import { VERSIONING_DOCID } from "@lib/common/models/db.const.ts";
 import { getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
-import {
-    assessRemoteFeatureDocument,
-    describeRemoteFeatureRejection,
-    NFC_PATH_IDENTITY_FEATURE,
-} from "@lib/pouchdb/remoteFeatureCompatibility.ts";
-import { isErrorOfMissingDoc } from "@lib/pouchdb/utils_couchdb.ts";
+import { readLocalP2PPathIdentity, readRemoteP2PPathIdentity } from "./TrysteroReplicator.pathIdentity.ts";
 import { assertDatabasePathIdentity } from "@lib/pouchdb/pathIdentityCompatibility.ts";
 import {
     fromP2PReplicationWireResult,
@@ -792,80 +786,11 @@ export class TrysteroReplicator {
             const connection = this.server.getConnection(remotePeer);
             const remoteDB = connection.getRemoteDB(signal);
             const pathNormalizationVersion = getPathNormalizationVersion(this.currentSettings);
-            type PathIdentityDocumentRead = { kind: "found"; document: unknown } | { kind: "missing" };
-            const readLocalPathIdentityDocument = async (): Promise<PathIdentityDocumentRead> => {
-                try {
-                    return { kind: "found", document: await this.db.get(VERSIONING_DOCID) };
-                } catch (error) {
-                    if (!isErrorOfMissingDoc(error)) throw error;
-                    return { kind: "missing" };
-                }
-            };
-            const isRecord = (value: unknown): value is Record<string, unknown> =>
-                typeof value === "object" && value !== null && !Array.isArray(value);
-            const readRemotePathIdentityDocument = async (): Promise<PathIdentityDocumentRead> => {
-                const response: unknown = await remoteDB.bulkGet({ docs: [{ id: VERSIONING_DOCID }] });
-                const results = isRecord(response) ? response.results : undefined;
-                if (!Array.isArray(results) || results.length !== 1) {
-                    throw new Error("P2P remote versioninfo response is malformed.");
-                }
-                const [result] = results;
-                if (
-                    !isRecord(result) ||
-                    result.id !== VERSIONING_DOCID ||
-                    !Array.isArray(result.docs) ||
-                    result.docs.length !== 1
-                ) {
-                    throw new Error("P2P remote versioninfo response is malformed.");
-                }
-                const [documentResult] = result.docs;
-                if (!isRecord(documentResult)) {
-                    throw new Error("P2P remote versioninfo response is malformed.");
-                }
-                if (Object.prototype.hasOwnProperty.call(documentResult, "ok")) {
-                    const document = documentResult.ok;
-                    if (!isRecord(document) || document._id !== VERSIONING_DOCID) {
-                        throw new Error("P2P remote versioninfo response is malformed.");
-                    }
-                    return { kind: "found", document };
-                }
-                if (Object.prototype.hasOwnProperty.call(documentResult, "error")) {
-                    const error = documentResult.error;
-                    const errorDetails = isRecord(error) ? error : undefined;
-                    const status = errorDetails?.status ?? documentResult.status;
-                    const errorName = errorDetails?.name ?? documentResult.name;
-                    const errorCode = typeof error === "string" ? error : errorDetails?.error;
-                    if (
-                        status === 404 ||
-                        (status === undefined && (errorName === "not_found" || errorCode === "not_found"))
-                    ) {
-                        return { kind: "missing" };
-                    }
-                }
-                throw new Error("P2P remote versioninfo could not be read.");
-            };
-            const readDatabasePathIdentity = async (
-                readDocument: () => Promise<PathIdentityDocumentRead>
-            ): Promise<0 | 1> => {
-                const result = await readDocument();
-                if (result.kind === "missing") {
-                    if (pathNormalizationVersion === 0) return 0;
-                    throw new Error("P2P NFC database is missing path identity version information.");
-                }
-
-                const assessment = assessRemoteFeatureDocument(result.document);
-                if (assessment.status === "older-generation" && pathNormalizationVersion === 0) return 0;
-                if (assessment.status !== "supported") {
-                    throw new Error(describeRemoteFeatureRejection(assessment));
-                }
-                return assessment.usedFeatures.includes(NFC_PATH_IDENTITY_FEATURE) ? 1 : 0;
-            };
             const [localPathIdentity, remotePathIdentity] = await Promise.all([
-                readDatabasePathIdentity(readLocalPathIdentityDocument),
-                readDatabasePathIdentity(readRemotePathIdentityDocument),
+                readLocalP2PPathIdentity(this.db, pathNormalizationVersion),
+                readRemoteP2PPathIdentity(remoteDB, pathNormalizationVersion),
             ]);
-            const pathIdentityMatches = (identity: 0 | 1) => identity === pathNormalizationVersion;
-            if (!pathIdentityMatches(localPathIdentity) || !pathIdentityMatches(remotePathIdentity)) {
+            if (localPathIdentity !== pathNormalizationVersion || remotePathIdentity !== pathNormalizationVersion) {
                 const error = new Error("P2P database path identity does not match the configured path identity.");
                 Logger(error.message, logLevel, "p2p-replicator");
                 return p2pReplicationFailed(error);

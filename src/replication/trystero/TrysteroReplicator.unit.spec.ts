@@ -171,6 +171,70 @@ describe("TrysteroReplicator configuration import", () => {
 });
 
 describe("TrysteroReplicator tweak compatibility", () => {
+    const legacyVersionInfo = { _id: VERSIONING_DOCID, type: "versioninfo", version: 13, used_features: [] };
+    const versionInfoResponse = (documentResult: unknown) => ({
+        results: [{ id: VERSIONING_DOCID, docs: [documentResult] }],
+    });
+
+    it.each([
+        ["a current document", versionInfoResponse({ ok: legacyVersionInfo }), true],
+        ["a flat missing error", versionInfoResponse({ error: "not_found", status: 404 }), true],
+        ["a nested missing error", versionInfoResponse({ error: { status: 404 } }), true],
+        ["a missing error without status", versionInfoResponse({ error: "not_found" }), true],
+        ["a nested missing name", versionInfoResponse({ error: { name: "not_found" } }), true],
+        ["a nested missing code", versionInfoResponse({ error: { error: "not_found" } }), true],
+        [
+            "a null-prototype result",
+            versionInfoResponse(Object.assign(Object.create(null), { ok: legacyVersionInfo })),
+            true,
+        ],
+        ["an overridden hasOwnProperty", versionInfoResponse({ ok: legacyVersionInfo, hasOwnProperty: null }), true],
+        ["an inherited document", versionInfoResponse(Object.create({ ok: legacyVersionInfo })), false],
+        ["an inherited missing error", versionInfoResponse(Object.create({ error: "not_found", status: 404 })), false],
+        ["an unreadable document", versionInfoResponse({ error: "not_found", status: 403 }), false],
+        [
+            "an invalid success with a missing error",
+            versionInfoResponse({ ok: null, error: "not_found", status: 404 }),
+            false,
+        ],
+        ["a different document", versionInfoResponse({ ok: { ...legacyVersionInfo, _id: "another-id" } }), false],
+        ["a null document result", versionInfoResponse(null), false],
+        ["an empty result list", { results: [] }, false],
+        ["an empty document list", { results: [{ id: VERSIONING_DOCID, docs: [] }] }, false],
+        ["a wrong result ID", { results: [{ id: "another-id", docs: [{ ok: legacyVersionInfo }] }] }, false],
+    ] as const)("handles %s before starting metadata transfer", async (_case, response, canReplicate) => {
+        const { replicator } = createReplicator({ pathNormalizationVersion: 0 });
+        const localDB = installControlOnlyPathIdentityDatabase(replicator, 13);
+        await localDB.put(legacyVersionInfo);
+        const { replicator: remote } = createReplicator();
+        const remoteDB = installControlOnlyPathIdentityDatabase(remote, 13);
+        remoteDB.bulkGet.mockResolvedValue(response as any);
+        vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+        vi.spyOn(replicator, "checkTweakValues").mockResolvedValue(true);
+        (replicator as any).server = {
+            knownAdvertisements: [],
+            serverPeerId: "local-peer",
+            getConnection: vi.fn(() => ({
+                invokeRemoteFunction: vi.fn(async () => undefined),
+                getRemoteDB: vi.fn(() => remoteDB),
+            })),
+        };
+
+        const result = await replicator.replicateFrom("peer-id");
+
+        expect(result.status).toBe(canReplicate ? "completed" : "failed");
+        expect(remoteDB.bulkGet).toHaveBeenCalledWith({ docs: [{ id: VERSIONING_DOCID }] });
+        if (canReplicate) {
+            expect(remoteDB.changes).toHaveBeenCalledOnce();
+        } else {
+            expect(result).toMatchObject({
+                error: expect.objectContaining({ message: expect.stringContaining("P2P remote versioninfo") }),
+            });
+            expect(remoteDB.changes).not.toHaveBeenCalled();
+            expect(remoteDB.info).not.toHaveBeenCalled();
+        }
+    });
+
     it("reports an absent path identity setting as legacy mode", async () => {
         const { replicator } = createReplicator({ encrypt: false, usePathObfuscation: false });
 

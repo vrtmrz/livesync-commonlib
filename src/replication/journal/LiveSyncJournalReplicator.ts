@@ -27,7 +27,7 @@ import type { CheckPointInfo } from "./JournalSyncTypes.ts";
 import type { SimpleStore } from "@lib/common/utils.ts";
 
 import { getEffectiveTweakValues } from "@lib/pouchdb/LiveSyncDBFunctions.ts";
-import { getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
+import { assertSupportedPathNormalizationVersion, getPathNormalizationVersion } from "@lib/common/pathNormalization.ts";
 import type { LiveSyncJournalReplicatorEnv } from "./LiveSyncJournalReplicatorEnv.ts";
 import { JournalStorageReadStatuses } from "./objectstore/JournalStorageAdapter.ts";
 import { computeKeyedId, configuredIdKey } from "@lib/common/idDerivation.ts";
@@ -104,7 +104,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     setupJournalSyncClient(settings: RemoteDBSettings = this.currentSettings) {
-        getPathNormalizationVersion(settings);
+        assertSupportedPathNormalizationVersion(settings.pathNormalizationVersion);
         if (this._client) {
             this._client.applyNewConfig(settings, this.simpleStore, this.env);
         } else {
@@ -224,7 +224,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
 
     /** Lock existing journals for replacement without declaring the replacement's identity. */
     async markRemoteLockedForRebuild(setting: RemoteDBSettings): Promise<void> {
-        getPathNormalizationVersion(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         const client = this.setupJournalSyncClient(setting);
         const milestone = await readRemoteMilestone(client);
         // A missing declaration must remain missing if deletion fails or is interrupted.
@@ -493,7 +493,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         recordCompatibilityDecision?: CentralCompatibilityDecisionRecorder
     ) {
         recordCompatibilityDecision?.(CENTRAL_COMPATIBILITY_NOT_ASSESSED);
-        getPathNormalizationVersion(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         const activeClient = client ?? this.setupJournalSyncClient(setting);
         if (!(await activeClient.isAvailable())) {
             return false;
@@ -597,7 +597,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async tryResetRemoteDatabase(setting: RemoteDBSettings) {
-        getPathNormalizationVersion(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         this.closeReplication();
         try {
             if (!(await this.client.resetBucket())) {
@@ -613,7 +613,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async tryCreateRemoteDatabase(setting: RemoteDBSettings) {
-        getPathNormalizationVersion(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         this.closeReplication();
         Logger("Remote Database Created or Connected", LOG_LEVEL_NOTICE);
         if (!(await this.ensurePBKDF2Salt(setting, true, false))) {
@@ -630,7 +630,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async markRemoteLocked(setting: RemoteDBSettings, locked: boolean, lockByClean: boolean) {
-        getPathNormalizationVersion(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         const defInitPoint: EntryMilestoneInfo = {
             _id: MILSTONE_DOCID as DocumentID,
             type: "milestoneinfo",
@@ -666,7 +666,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         }
     }
     async markRemoteResolved(setting: RemoteDBSettings) {
-        getPathNormalizationVersion(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         const defInitPoint: EntryMilestoneInfo = {
             _id: MILSTONE_DOCID as DocumentID,
             type: "milestoneinfo",
@@ -699,7 +699,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         const endpoint = setting.endpoint;
         let testClient: MinioStorageAdapter | undefined;
         try {
-            getPathNormalizationVersion(setting);
+            assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
             testClient = new MinioStorageAdapter(setting, this.env);
             await testClient.listFiles("", 1);
             Logger(`Connected to ${endpoint} successfully!`, LOG_LEVEL_NOTICE);
@@ -714,7 +714,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async resetRemoteTweakSettings(setting: RemoteDBSettings) {
-        getPathNormalizationVersion(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         try {
             const remoteMilestone = await this.client.downloadJson<EntryMilestoneInfo>(MILSTONE_DOCID);
             if (!remoteMilestone) {
@@ -731,7 +731,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async setPreferredRemoteTweakSettings(setting: RemoteDBSettings): Promise<void> {
-        getPathNormalizationVersion(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         // Preferred-tweak writes are finite trial-settings operations. Do not
         // borrow or reconfigure the active Journal client.
         const trialClient = new JournalSyncCore(
@@ -760,7 +760,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getRemotePreferredTweakValues(setting: RemoteDBSettings): Promise<RemotePreferredTweakResult> {
-        getPathNormalizationVersion(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         // Preferred-tweak inspection is a finite trial-settings operation. Do
         // not borrow or reconfigure the active Journal client.
         const trialClient = new JournalSyncCore(
@@ -800,7 +800,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getRemoteStatus(setting: RemoteDBSettings): Promise<false | RemoteDBStatus> {
-        getPathNormalizationVersion(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         const testClient = new MinioStorageAdapter(setting, this.env);
         try {
             return await testClient.getUsage();
@@ -819,7 +819,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async getJoinedDevices(setting: RemoteDBSettings): Promise<JoinedDevicesSnapshot> {
-        getPathNormalizationVersion(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         const trialClient = new JournalSyncCore(
             setting,
             this.simpleStore,
@@ -837,7 +837,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     }
 
     async forgetJoinedDevice(setting: RemoteDBSettings, deviceId: string): Promise<ForgetJoinedDeviceResult> {
-        getPathNormalizationVersion(setting);
+        assertSupportedPathNormalizationVersion(setting.pathNormalizationVersion);
         const ownDeviceId = await this.getOwnJoinedDeviceId();
         const trialClient = new JournalSyncCore(
             setting,

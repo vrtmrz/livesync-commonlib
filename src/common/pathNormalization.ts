@@ -1,10 +1,18 @@
 import type { PathNormalizationVersion } from "./models/setting.type.ts";
 
+/** Reject unsupported path identity versions while allowing an absent legacy value. */
+export function assertSupportedPathNormalizationVersion(
+    version: number | undefined
+): asserts version is PathNormalizationVersion | undefined {
+    if (version === undefined || version === 0 || version === 1) return;
+    throw new Error(`Unsupported path normalisation version: ${version}`);
+}
+
 /** Resolve the stored path identity version, treating an absent legacy value as version zero. */
 export function getPathNormalizationVersion(settings: { pathNormalizationVersion?: number }): PathNormalizationVersion {
     const version = settings.pathNormalizationVersion === undefined ? 0 : settings.pathNormalizationVersion;
-    if (version === 0 || version === 1) return version;
-    throw new Error(`Unsupported path normalisation version: ${version}`);
+    assertSupportedPathNormalizationVersion(version);
+    return version;
 }
 
 /** Normalise a logical path for document ID derivation without changing its stored path. */
