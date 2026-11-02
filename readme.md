@@ -14,6 +14,13 @@ This package is primarily for maintainers of those clients and for integrations 
 
 ## Status and versioning
 
+Commonlib [0.2.3](https://github.com/vrtmrz/livesync-commonlib/releases/tag/0.2.3)
+is published on npm through both `latest` and `next`. Self-hosted LiveSync
+[1.0.44](https://github.com/vrtmrz/obsidian-livesync/releases/tag/1.0.44)
+uses that exact version. See the [0.2.3 release notes](updates.md#023) for the
+handler-setter source compatibility change and positive-infinity formatting
+exception.
+
 Commonlib is pre-1.0. The compatibility policy described here begins with 0.2.0 and does not retroactively apply to published 0.1.x versions. Within 0.2.x, Commonlib preserves published APIs, types, behaviour, supported persisted data, and exported `compat/*` paths; intentional breaking changes use 0.3.0. Consumers may declare ranges such as `^0.2.0`; retain a lockfile and use `npm ci` for reproducible installs. An entry in the package export map means that the import is deliberate and package-tested; it does not make every semantic detail of that entry a final 1.0 guarantee.
 
 Treat every `compat/*` subpath as a migration-only interface. A source-directory import, Git submodule, or consumer-defined TypeScript alias is not a supported package boundary.
@@ -52,8 +59,8 @@ The existing `compat/services/lib` boundary retains `bindableFunction` and `lazy
 
 The `compat/pouchdb/chunks` entry retains the obsolete `transferChunks`,
 `balanceChunkPurgedDBs`, and `fetchAllUsedChunks` helpers for existing consumers.
-The unreleased Self-hosted LiveSync integration removes its purge-based cleanup
-recovery and uses the standard locked-remote recovery dialogue. Garbage
+Self-hosted LiveSync 1.0.44 uses the standard locked-remote recovery dialogue
+in place of its purge-based cleanup recovery. Garbage
 Collection V3 propagates ordinary deletion revisions and does not use these
 helpers. Their compatibility exports and existing transfer behaviour remain
 available; new integrations should not adopt this obsolete cleanup path.
@@ -68,7 +75,7 @@ The P2P entry exposes eight focused views over one service owner, together with 
 
 ## Blob helper migration
 
-The unreleased Blob extraction retains `createBlob`, `createTextBlob`, and
+Commonlib 0.2.3 retains `createBlob`, `createTextBlob`, and
 `createBinaryBlob` through the existing `compat/common/utils` entry. Existing
 callers can keep those imports. `createBlob` preserves an existing Blob's
 identity and MIME type; text and binary inputs produce new Blobs with
@@ -81,8 +88,8 @@ Its normalisation function is named `toBlob`; its creation functions retain
 compares two Blobs in bounded parts and accepts an optional synchronous or
 asynchronous ArrayBuffer equality predicate. See the
 [Octagonal Wheels Blob guide](https://github.com/vrtmrz/fancy-kit/blob/main/packages/octagonal-wheels/guides/imports-and-runtime.md#blob-creation-and-normalisation)
-for input and runtime contracts. This unreleased Commonlib integration now pins
-the published Octagonal Wheels 0.1.56 dependency.
+for input and runtime contracts. Commonlib 0.2.3 pins the published
+Octagonal Wheels 0.1.56 dependency.
 
 Commonlib continues to own document classification, decoding in `readAsBlob`,
 and content-comparison policy. The legacy `isDocContentSame` retains its
@@ -319,14 +326,14 @@ MIT
 
 The shared formatter displays positive infinity as `∞y`, including through the existing `timeDeltaToHumanReadable` entry. Other duration formatting cases retain their previous behaviour.
 
-The unreleased extraction keeps `timeDeltaToHumanReadable`,
+Commonlib 0.2.3 keeps `timeDeltaToHumanReadable`,
 `splitCustomRegExpList`, and `constructCustomRegExpList` at the existing
 `compat/common/utils` entry. They delegate to `formatDuration` in
 `octagonal-wheels/notation/duration` and the delimiter helpers in
 `octagonal-wheels/string`. Commonlib's internal `asCopy` helper delegates to
 `cloneViaJSON` in `octagonal-wheels/encoding/json`; it does not add a Commonlib
 public entry. New general-purpose callers can use the focused Octagonal Wheels
-entries once a release containing them is available.
+entries in Octagonal Wheels 0.1.56 or later.
 
 Duration units and rounding remain unchanged. The delimiter adapters retain
 their tagged types and string coercion; splitting removes empty parts and

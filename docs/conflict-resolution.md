@@ -74,7 +74,7 @@ A host must not apply a dialogue result after either compared revision has cease
 
 ## Scheduling conflict checks
 
-The unreleased `@vrtmrz/livesync-commonlib/conflicts` entry exports
+The `@vrtmrz/livesync-commonlib/conflicts` entry, published in Commonlib 0.2.3, exports
 `createConflictCheckQueue`. The host supplies a `process(path, scope)` callback
 and may observe pending plus active checks through `onProgress`. Concurrency
 defaults to ten and includes each item's deferred cleanup. The host continues
