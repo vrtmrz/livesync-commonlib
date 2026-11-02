@@ -79,6 +79,21 @@ function journalVersionRange(setting: RemoteDBSettings): ChunkVersionRange {
         : currentVersionRange;
 }
 
+function pathIdentityFromJournalRange(range: ChunkVersionRange | undefined): 0 | 1 {
+    if (range?.min === 4 && range?.max === 4) return 1;
+    if (!range) return 0;
+    if (
+        Number.isSafeInteger(range.min) &&
+        Number.isSafeInteger(range.max) &&
+        range.min >= 0 &&
+        range.max <= 3 &&
+        range.min <= range.max
+    ) {
+        return 0;
+    }
+    throw new Error("The Journal declares an unsupported path identity range.");
+}
+
 export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
     declare env: LiveSyncJournalReplicatorEnv;
 
@@ -195,18 +210,7 @@ export class LiveSyncJournalReplicator extends LiveSyncAbstractReplicator {
         const ranges = milestone?.node_chunk_info ?? {};
         const nodes = new Set([...(milestone?.accepted_nodes ?? []), ...Object.keys(ranges)]);
         for (const node of nodes) {
-            const range = ranges[node];
-            if (range?.min === 4 && range?.max === 4) versions.add(1);
-            else if (
-                !range ||
-                (Number.isSafeInteger(range.min) &&
-                    Number.isSafeInteger(range.max) &&
-                    range.min >= 0 &&
-                    range.max <= 3 &&
-                    range.min <= range.max)
-            )
-                versions.add(0);
-            else throw new Error("The Journal declares an unsupported path identity range.");
+            versions.add(pathIdentityFromJournalRange(ranges[node]));
         }
         const preferred = milestone?.tweak_values?.[DEVICE_ID_PREFERRED];
         if (preferred) versions.add(getPathNormalizationVersion(preferred));

@@ -663,10 +663,7 @@ describe("TrysteroReplicator path identity database compatibility", () => {
         const { roomA, roomB } = createRpcRoomPair();
         try {
             const localDocuments = new Map<string, Record<string, unknown>>([
-                [
-                    VERSIONING_DOCID,
-                    { _id: VERSIONING_DOCID, type: "versioninfo", version: 13, used_features: [] },
-                ],
+                [VERSIONING_DOCID, { _id: VERSIONING_DOCID, type: "versioninfo", version: 13, used_features: [] }],
             ]);
             const localDB = {
                 info: vi.fn(async () => ({ db_name: "local-db", update_seq: 0, doc_count: localDocuments.size })),
@@ -708,7 +705,9 @@ describe("TrysteroReplicator path identity database compatibility", () => {
                 if (document) return document;
                 throw new Error("missing");
             });
-            roomB.register("db.bulkGet", (_peerId, options) => remoteBulkGet(options as { docs: Array<{ id: string }> }));
+            roomB.register("db.bulkGet", (_peerId, options) =>
+                remoteBulkGet(options as { docs: Array<{ id: string }> })
+            );
             roomB.register("db.put", (_peerId, document) => {
                 const doc = document as Record<string, unknown> & { _id: string };
                 remoteDocuments.set(doc._id, doc);
@@ -800,6 +799,96 @@ describe("TrysteroReplicator path identity database compatibility", () => {
         expect(localDB.allDocs).toHaveBeenCalledOnce();
         expect(remoteDB.allDocs).toHaveBeenCalledOnce();
         expect(remoteDB.changes).toHaveBeenCalledOnce();
+    });
+});
+
+describe("TrysteroReplicator replication failure boundaries", () => {
+    it.each([
+        ["authentication", false],
+        ["authentication", true],
+        ["tweak check", false],
+        ["tweak check", true],
+    ] as const)("preserves a rejected %s with cancellation=%s", async (stage, abort) => {
+        const { replicator } = createReplicator();
+        const controller = new AbortController();
+        const failure = new Error(`${stage} failed`);
+        const reject = async () => {
+            if (abort) controller.abort();
+            throw failure;
+        };
+        const authenticate = vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+        const checkTweaks = vi.spyOn(replicator, "checkTweakValues").mockResolvedValue(true);
+        const getConnection = vi.fn();
+        replicator.server!.getConnection = getConnection;
+        const dispatchStatus = vi.spyOn(replicator, "dispatchStatus");
+        if (stage === "authentication") authenticate.mockImplementation(reject);
+        else checkTweaks.mockImplementation(reject);
+
+        const result = replicator.replicateFrom("peer-id", false, false, false, controller.signal);
+
+        if (stage === "tweak check" && abort) {
+            await expect(result).resolves.toEqual({ status: "cancelled" });
+        } else {
+            await expect(result).rejects.toBe(failure);
+        }
+        if (stage === "authentication") expect(checkTweaks).not.toHaveBeenCalled();
+        expect(getConnection).not.toHaveBeenCalled();
+        expect(dispatchStatus).not.toHaveBeenCalled();
+        expect(replicator._replicateFromPeers.size).toBe(0);
+    });
+
+    it.each(["authentication", "tweak check"] as const)(
+        "preserves cancellation when %s returns false",
+        async (stage) => {
+            const { replicator } = createReplicator();
+            const controller = new AbortController();
+            const reject = async () => {
+                controller.abort();
+                return false;
+            };
+            const authenticate = vi.spyOn(replicator, "requestAuthenticate").mockResolvedValue(true);
+            const checkTweaks = vi.spyOn(replicator, "checkTweakValues").mockResolvedValue(true);
+            if (stage === "authentication") authenticate.mockImplementation(reject);
+            else checkTweaks.mockImplementation(reject);
+
+            await expect(replicator.replicateFrom("peer-id", false, false, false, controller.signal)).resolves.toEqual({
+                status: "cancelled",
+            });
+            if (stage === "authentication") expect(checkTweaks).not.toHaveBeenCalled();
+            expect(replicator._replicateFromPeers.size).toBe(0);
+        }
+    );
+
+    it.each([false, true])("releases peer ownership after a transfer failure with cancellation=%s", async (abort) => {
+        const { replicator } = createReplicator();
+        const controller = new AbortController();
+        const failure = new Error("Remote database is unavailable");
+        const order: string[] = [];
+        vi.spyOn(replicator, "requestAuthenticate").mockImplementation(async () => {
+            order.push("authentication");
+            return true;
+        });
+        vi.spyOn(replicator, "checkTweakValues").mockImplementation(async () => {
+            order.push("tweaks");
+            return true;
+        });
+        vi.spyOn(replicator, "dispatchStatus").mockImplementation(() => {
+            order.push(replicator._replicateFromPeers.has("peer-id") ? "active" : "released");
+        });
+        replicator.server!.getConnection = vi.fn(() => ({
+            getRemoteDB: (signal: AbortSignal) => {
+                expect(signal).toBe(controller.signal);
+                order.push("database");
+                if (abort) controller.abort();
+                throw failure;
+            },
+        })) as never;
+
+        const result = await replicator.replicateFrom("peer-id", false, false, false, controller.signal);
+
+        expect(result).toEqual(abort ? { status: "cancelled" } : { status: "failed", error: failure });
+        expect(order).toEqual(["authentication", "tweaks", "active", "database", "released"]);
+        expect(replicator._replicateFromPeers.size).toBe(0);
     });
 });
 

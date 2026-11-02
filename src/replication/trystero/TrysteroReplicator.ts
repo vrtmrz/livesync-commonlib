@@ -746,6 +746,35 @@ export class TrysteroReplicator {
         }
         if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
         const logLevel = showNotice ? LOG_LEVEL_NOTICE : LOG_LEVEL_INFO;
+        const rejection = await this.checkPeerForReplication(remotePeer, logLevel, signal);
+        if (rejection) return rejection;
+
+        Logger(`P2P Replicating from ${remotePeer}`, logLevel, "p2p-replicator");
+        if (this._replicateFromPeers.has(remotePeer)) {
+            Logger(`Replication from ${remotePeer} is already in progress`, logLevel, "p2p-replicator");
+            return p2pReplicationFailed(new Error("Replication from this peer is already in progress"));
+        }
+        this._replicateFromPeers.add(remotePeer);
+        this.dispatchStatus();
+
+        try {
+            return await this.transferFromPeer(remotePeer, fromStart, logLevel, signal);
+        } catch (e) {
+            if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
+            Logger("Error while P2P replicating", logLevel, "p2p-replicator");
+            Logger(e, LOG_LEVEL_VERBOSE);
+            return p2pReplicationFailed(e);
+        } finally {
+            this._replicateFromPeers.delete(remotePeer);
+            this.dispatchStatus();
+        }
+    }
+
+    private async checkPeerForReplication(
+        remotePeer: string,
+        logLevel: LOG_LEVEL,
+        signal?: AbortSignal
+    ): Promise<P2PReplicationResult | undefined> {
         Logger(`P2P Requesting Authentication to ${remotePeer}`, logLevel, "p2p-replicator");
         const authenticated = signal
             ? await this.requestAuthenticate(remotePeer, signal)
@@ -770,80 +799,70 @@ export class TrysteroReplicator {
             Logger("Tweak values are not matched", logLevel, "p2p-replicator");
             return p2pReplicationFailed(new Error("Tweak values are not matched"));
         }
+        return undefined;
+    }
 
-        Logger(`P2P Replicating from ${remotePeer}`, logLevel, "p2p-replicator");
-        if (this._replicateFromPeers.has(remotePeer)) {
-            Logger(`Replication from ${remotePeer} is already in progress`, logLevel, "p2p-replicator");
-            return p2pReplicationFailed(new Error("Replication from this peer is already in progress"));
+    private async transferFromPeer(
+        remotePeer: string,
+        fromStart: boolean,
+        logLevel: LOG_LEVEL,
+        signal?: AbortSignal
+    ): Promise<P2PReplicationResult> {
+        if (!this.server) {
+            throw new Error("Server is not available");
         }
-        this._replicateFromPeers.add(remotePeer);
-        this.dispatchStatus();
-
-        try {
-            if (!this.server) {
-                throw new Error("Server is not available");
-            }
-            const connection = this.server.getConnection(remotePeer);
-            const remoteDB = connection.getRemoteDB(signal);
-            const pathNormalizationVersion = getPathNormalizationVersion(this.currentSettings);
-            const [localPathIdentity, remotePathIdentity] = await Promise.all([
-                readLocalP2PPathIdentity(this.db, pathNormalizationVersion),
-                readRemoteP2PPathIdentity(remoteDB, pathNormalizationVersion),
-            ]);
-            if (localPathIdentity !== pathNormalizationVersion || remotePathIdentity !== pathNormalizationVersion) {
-                const error = new Error("P2P database path identity does not match the configured path identity.");
-                Logger(error.message, logLevel, "p2p-replicator");
-                return p2pReplicationFailed(error);
-            }
-            Logger(`P2P replicateFrom preparing remote DB info for ${remotePeer}`, LOG_LEVEL_VERBOSE, "p2p-replicator");
-            const remoteDBInfo = await remoteDB.info();
-            Logger(
-                `P2P replicateFrom remote DB info for ${remotePeer}: ${remoteDBInfo.db_name} seq=${remoteDBInfo.update_seq}`,
-                LOG_LEVEL_VERBOSE,
-                "p2p-replicator"
-            );
-            const localDBInfo = await this.db.info();
-            Logger(
-                `P2P replicateFrom local DB info for ${remotePeer}: ${localDBInfo.db_name} seq=${localDBInfo.update_seq}`,
-                LOG_LEVEL_VERBOSE,
-                "p2p-replicator"
-            );
-            Logger(`P2P replicateFrom entering replicateShim for ${remotePeer}`, LOG_LEVEL_VERBOSE, "p2p-replicator");
-            // const batchSize = 8;
-            const outcome = await replicateShim(
-                this.db,
-                remoteDB,
-                async (docs, info) => {
-                    await this._env.processReplicatedDocs(docs as Array<PouchDB.Core.ExistingDocument<EntryDoc>>);
-                    void this.dispatchReplicationProgress(remotePeer, info);
-                    void this.acknowledgeProgress(remotePeer, info);
-                    void this.notifyProgress(remotePeer);
-                    Logger(
-                        `P2P Replication from ${remotePeer}\n${info.lastSeq} / ${info.maxSeqInBatch})`,
-                        logLevel,
-                        "p2p-replicator"
-                    );
-                },
-                { live: false, rewind: fromStart, signal /*, batch_size: batchSize */ }
-            );
-            Logger(`P2P replicateFrom replicateShim returned for ${remotePeer}`, LOG_LEVEL_VERBOSE, "p2p-replicator");
-            void this.acknowledgeProgress(remotePeer, undefined);
-            if (outcome.status === "cancelled") {
-                Logger(`P2P Replication from ${remotePeer} has been cancelled`, logLevel, "p2p-replicator");
-                return P2P_REPLICATION_CANCELLED;
-            }
-            Logger(`P2P Replication from ${remotePeer} has been completed`, logLevel, "p2p-replicator");
-        } catch (e) {
-            if (signal?.aborted) return P2P_REPLICATION_CANCELLED;
-            Logger("Error while P2P replicating", logLevel, "p2p-replicator");
-            Logger(e, LOG_LEVEL_VERBOSE);
-            return p2pReplicationFailed(e);
-        } finally {
-            this._replicateFromPeers.delete(remotePeer);
-            this.dispatchStatus();
+        const connection = this.server.getConnection(remotePeer);
+        const remoteDB = connection.getRemoteDB(signal);
+        const pathNormalizationVersion = getPathNormalizationVersion(this.currentSettings);
+        const [localPathIdentity, remotePathIdentity] = await Promise.all([
+            readLocalP2PPathIdentity(this.db, pathNormalizationVersion),
+            readRemoteP2PPathIdentity(remoteDB, pathNormalizationVersion),
+        ]);
+        if (localPathIdentity !== pathNormalizationVersion || remotePathIdentity !== pathNormalizationVersion) {
+            const error = new Error("P2P database path identity does not match the configured path identity.");
+            Logger(error.message, logLevel, "p2p-replicator");
+            return p2pReplicationFailed(error);
         }
+        Logger(`P2P replicateFrom preparing remote DB info for ${remotePeer}`, LOG_LEVEL_VERBOSE, "p2p-replicator");
+        const remoteDBInfo = await remoteDB.info();
+        Logger(
+            `P2P replicateFrom remote DB info for ${remotePeer}: ${remoteDBInfo.db_name} seq=${remoteDBInfo.update_seq}`,
+            LOG_LEVEL_VERBOSE,
+            "p2p-replicator"
+        );
+        const localDBInfo = await this.db.info();
+        Logger(
+            `P2P replicateFrom local DB info for ${remotePeer}: ${localDBInfo.db_name} seq=${localDBInfo.update_seq}`,
+            LOG_LEVEL_VERBOSE,
+            "p2p-replicator"
+        );
+        Logger(`P2P replicateFrom entering replicateShim for ${remotePeer}`, LOG_LEVEL_VERBOSE, "p2p-replicator");
+        const outcome = await replicateShim(
+            this.db,
+            remoteDB,
+            async (docs, info) => {
+                await this._env.processReplicatedDocs(docs as Array<PouchDB.Core.ExistingDocument<EntryDoc>>);
+                void this.dispatchReplicationProgress(remotePeer, info);
+                void this.acknowledgeProgress(remotePeer, info);
+                void this.notifyProgress(remotePeer);
+                Logger(
+                    `P2P Replication from ${remotePeer}\n${info.lastSeq} / ${info.maxSeqInBatch})`,
+                    logLevel,
+                    "p2p-replicator"
+                );
+            },
+            { live: false, rewind: fromStart, signal }
+        );
+        Logger(`P2P replicateFrom replicateShim returned for ${remotePeer}`, LOG_LEVEL_VERBOSE, "p2p-replicator");
+        void this.acknowledgeProgress(remotePeer, undefined);
+        if (outcome.status === "cancelled") {
+            Logger(`P2P Replication from ${remotePeer} has been cancelled`, logLevel, "p2p-replicator");
+            return P2P_REPLICATION_CANCELLED;
+        }
+        Logger(`P2P Replication from ${remotePeer} has been completed`, logLevel, "p2p-replicator");
         return P2P_REPLICATION_COMPLETED;
     }
+
     notifyProgress(excludePeerId?: string) {
         if (!this._isBroadcasting) return;
         if (!this.server) return;

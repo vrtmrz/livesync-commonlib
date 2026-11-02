@@ -1276,6 +1276,81 @@ describe("Journal path identity before recovery mutations", () => {
         expect(client.getCheckpointInfo).not.toHaveBeenCalled();
     });
 
+    it.each([
+        ["undeclared legacy range", undefined, 0],
+        ["earliest legacy range", { min: 0, max: 0, current: 0 }, 0],
+        ["mixed legacy range", { min: 0, max: 3, current: 3 }, 0],
+        ["keyed legacy range", { min: 3, max: 3, current: 3 }, 0],
+        ["NFC range", { min: 4, max: 4, current: 4 }, 1],
+    ] as const)("inspects a %s without writing remote state", async (_label, range, expectedVersion) => {
+        const { replicator, setting, client, snapshot } = createJournal(0, 0);
+        const milestone = snapshot()!;
+        milestone.node_chunk_info = range ? { existing: range } : {};
+        client.downloadJsonWithResult.mockResolvedValue({ status: "available", value: milestone });
+
+        await expect(replicator.inspectRemotePathIdentity(setting)).resolves.toEqual({
+            status: "configured",
+            pathNormalizationVersion: expectedVersion,
+        });
+        expect(client.hasRemoteJournals).not.toHaveBeenCalled();
+        expect(client.uploadJson).not.toHaveBeenCalled();
+        expect(client.getCheckpointInfo).not.toHaveBeenCalled();
+    });
+
+    it.each([
+        ["negative", -1, 2],
+        ["fractional", 0, 2.5],
+        ["reversed", 3, 2],
+        ["mixed legacy and NFC", 0, 4],
+        ["future", 5, 5],
+        ["unsafe integer", 0, Number.MAX_SAFE_INTEGER + 1],
+    ] as const)("rejects a %s Journal range before further inspection", async (_label, min, max) => {
+        const { replicator, setting, client, snapshot } = createJournal(0, 0);
+        const milestone = snapshot()!;
+        milestone.node_chunk_info = { existing: { min, max, current: max } };
+        client.downloadJsonWithResult.mockResolvedValue({ status: "available", value: milestone });
+
+        await expect(replicator.inspectRemotePathIdentity(setting)).rejects.toThrow(
+            "The Journal declares an unsupported path identity range."
+        );
+        expect(client.hasRemoteJournals).not.toHaveBeenCalled();
+        expect(client.uploadJson).not.toHaveBeenCalled();
+    });
+
+    it("inspects retained ranges after accepted nodes have been cleared", async () => {
+        const { replicator, setting, client, snapshot } = createJournal(0, 1);
+        const milestone = snapshot()!;
+        milestone.accepted_nodes = [];
+        client.downloadJsonWithResult.mockResolvedValue({ status: "available", value: milestone });
+
+        await expect(replicator.inspectRemotePathIdentity(setting)).resolves.toEqual({
+            status: "configured",
+            pathNormalizationVersion: 1,
+        });
+        expect(client.hasRemoteJournals).not.toHaveBeenCalled();
+        expect(client.uploadJson).not.toHaveBeenCalled();
+    });
+
+    it.each(["retained range", "preferred setting"] as const)(
+        "rejects a conflicting %s before inspecting Journal files",
+        async (source) => {
+            const { replicator, setting, client, snapshot } = createJournal(0, 0);
+            const milestone = snapshot()!;
+            if (source === "retained range") {
+                milestone.node_chunk_info.retired = { min: 4, max: 4, current: 4 };
+            } else {
+                milestone.tweak_values = { [DEVICE_ID_PREFERRED]: { pathNormalizationVersion: 1 } };
+            }
+            client.downloadJsonWithResult.mockResolvedValue({ status: "available", value: milestone });
+
+            await expect(replicator.inspectRemotePathIdentity(setting)).rejects.toThrow(
+                "The Journal has conflicting path identity declarations."
+            );
+            expect(client.hasRemoteJournals).not.toHaveBeenCalled();
+            expect(client.uploadJson).not.toHaveBeenCalled();
+        }
+    );
+
     it.each([0, 1])("does not infer a fresh Journal from missing evidence in mode %s", async (localVersion) => {
         const existing = createJournal(localVersion);
         await expect(existing.replicator.inspectRemotePathIdentity(existing.setting)).rejects.toThrow(/missing/i);
