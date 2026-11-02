@@ -40,6 +40,8 @@ The Commonlib 0.2 policy begins with 0.2.0 and does not retroactively change com
 
 For 0.2.3, the documented exceptions are the `HandlerFunction.setHandler` and `LazyHandlerFunction.setHandler` return types changing from `void` to `UnregisterFunction`, and `timeDeltaToHumanReadable(Infinity)` returning `∞y` instead of `Infinityy`. The setter types now describe the existing runtime return. Custom implementations and test doubles whose setters return `void` must provide an unregister function; ordinary callers may continue to ignore the result. These are the specific 0.2.3 exceptions to the policy.
 
+Version 0.3.0 introduces a source compatibility change: the custom client passed to `LiveSyncJournalReplicator.ensureBucketIsCompatible` must provide `hasRemoteJournals(): Promise<boolean>`. The operation distinguishes an empty bucket from Journal files left without an identifying milestone. Keeping it required makes missing client capability a type error. The standard `JournalSyncCore` client already supplies it. This change uses the next minor version under the policy above.
+
 ## Preparing a release
 
 Choose the version explicitly. For the 0.2 line, start at 0.2.0. A stable candidate can use its final version on the `next` dist-tag, then be checked by exact source revision and tarball SHA-256 before the same version is promoted to `latest`. No `-next.N` or `-rc.N` version is required; use a separate prerelease version only when it is useful for a distinct candidate. Package-proof versions are local artefacts and cannot be staged.

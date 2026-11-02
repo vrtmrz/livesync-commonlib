@@ -1,18 +1,34 @@
 # Updates
 
-## Unreleased
+## 0.3.0
+
+2nd November, 2026
+
+### Breaking changes
+
+- Custom clients passed as the fourth argument to `LiveSyncJournalReplicator.ensureBucketIsCompatible` must implement `hasRemoteJournals(): Promise<boolean>`.
+    - When the milestone is missing or has no recorded nodes, this check distinguishes an empty remote from existing Journal files whose identity cannot be established. Inspect the same bucket and prefix, return `false` only when no Journal files remain, and propagate inspection failures.
+    - The standard `JournalSyncCore` client already implements this method. Callers which omit the client argument require no adapter change.
 
 ### Fixed
 
 - Direct CouchDB integrations can receive files whose Chunks arrive after their Metadata, using shared Chunk waiting and retries without writing fetched content back to the source.
-- Direct database watches retain unreadable files and rejected deliveries for retry while allowing other files to proceed. Newer changes supersede pending reads, and the optional `onCheckpoint` callback lets hosts save a resume position which does not skip unfinished work. This addresses [LiveSync Bridge #88](https://github.com/vrtmrz/livesync-bridge/issues/88); it does not replay files already skipped by a previously saved checkpoint.
+- Direct database watches retain unreadable files and rejected deliveries for retry while allowing other files to proceed. Newer changes supersede pending reads.
+    - The optional `onCheckpoint` callback lets hosts persist a resume position which does not skip unfinished work. Hosts must tolerate replay after reconnect or restart.
+    - This addresses [LiveSync Bridge #88](https://github.com/vrtmrz/livesync-bridge/issues/88); it does not replay files already skipped by a previously saved checkpoint.
 
 ### Added
 
-- Maintained CLI and Obsidian hosts can use Unicode NFC path identity with Journal and P2P replication.
-    - Journal uses compatibility range `4` and checks identity before Fetch resets local data or ordinary administration updates the milestone. Rebuild retains the old identity until the remote journals have been deleted, including after a partial deletion failure, then declares the replacement identity and resets transfer progress. Existing journals without a compatibility milestone require Rebuild in both legacy and NFC modes.
-    - P2P reuses its Tweak exchange and database feature declarations to check both peers before transfer, including when ordinary configuration-mismatch warnings are disabled.
-    - Existing databases require coordinated Rebuild and Fetch. Physical file names, stored path spelling, Chunk IDs, and file contents retain their existing contracts. Every participating client must be updated and migrated.
+- Maintained CLI and Obsidian host integrations can use Unicode NFC path identity with Journal and P2P replication.
+    - Journal checks identity before Fetch resets local data or administration updates the milestone. Rebuild preserves the old identity until remote journal deletion succeeds, then declares the replacement identity and resets transfer progress. Existing journals without a compatibility milestone require Rebuild in both legacy and NFC modes.
+    - P2P checks both peers before transfer, including when ordinary configuration-mismatch warnings are disabled.
+    - Changing an existing database's path identity uses a coordinated source Rebuild and Fetch on receiving devices. Update every participating client and preserve a complete, authoritative Vault before migration. Physical file names, stored path spelling, Chunk IDs, and file contents retain their existing contracts.
+    - Commonlib defaults remain legacy (`pathNormalizationVersion: 0`). Direct file access, including LiveSync Bridge, remains legacy-only; this extension does not enable NFC for WebApp or WebPeer.
+- Hosts can inspect a central remote's path identity before initial participation, distinguishing an empty remote from an existing declaration without changing remote state. Hosts retain settings persistence and the choice to Fetch or Rebuild.
+
+### Miscellaneous
+
+- Updated dependencies.
 
 ## 0.2.3
 
