@@ -21,6 +21,12 @@ uses that exact version. See the [0.2.3 release notes](updates.md#023) for the
 handler-setter source compatibility change and positive-infinity formatting
 exception.
 
+Version 0.3.0 requires custom clients passed to
+`LiveSyncJournalReplicator.ensureBucketIsCompatible` to implement
+`hasRemoteJournals(): Promise<boolean>`. The standard Journal client already
+provides this operation. See the [0.3.0 release notes](updates.md#030) for the
+custom-client requirement and path identity migration conditions.
+
 Commonlib is pre-1.0. The compatibility policy described here begins with 0.2.0 and does not retroactively apply to published 0.1.x versions. Within 0.2.x, Commonlib preserves published APIs, types, behaviour, supported persisted data, and exported `compat/*` paths; intentional breaking changes use 0.3.0. Consumers may declare ranges such as `^0.2.0`; retain a lockfile and use `npm ci` for reproducible installs. An entry in the package export map means that the import is deliberate and package-tested; it does not make every semantic detail of that entry a final 1.0 guarantee.
 
 Treat every `compat/*` subpath as a migration-only interface. A source-directory import, Git submodule, or consumer-defined TypeScript alias is not a supported package boundary.
