@@ -301,6 +301,18 @@ CouchDB stores the representations already in use as feature identifiers in its 
 
 The maintained CLI and Obsidian hosts can opt into [Unicode NFC path identity](docs/unicode-path-identity.md) with CouchDB, Object Storage, and P2P in the unreleased transport extension. Existing databases require an explicit Rebuild or Fetch migration before using it. P2P participants must all be updated and migrated.
 
+## Direct database watches
+
+Direct CouchDB reads use the same Chunk arrival waiting and bounded retry processing as application replication. They retrieve missing Chunks through the prepared source connection, including its decryption transforms, without writing fetched Chunks back to that source.
+
+Existing integrations can use `DirectFileManipulator.beginWatch(callback, checkIsInterested?, onCheckpoint?)`. The file callback retains its `(doc: ReadyEntry, seq?: string | number)` signature. Resolving it acknowledges delivery. An incomplete read or rejected delivery remains pending and retries after delays from one second up to 30 seconds, while other documents continue. At most four file-processing operations run concurrently. A newer change for the same document supersedes its pending read, including deletion, rename, or exclusion by `checkIsInterested`.
+
+The optional third callback, `(seq: string | number) => Promise<void> | void`, receives the completed feed position before the first unfinished change. Persist that checkpoint before resolving the callback. Commonlib retries rejected checkpoint notifications and advances `since` only after acknowledgement. A successful file callback can have a later sequence than this safe checkpoint; do not save its sequence independently. Sequence tokens are opaque. Without a checkpoint callback, `since` advances in memory.
+
+Reconnects replay from `since`; a new process must restore the host's saved checkpoint before starting its watch. There is no persistent retry queue, so consumers must tolerate repeated delivery after reconnect or restart. `endWatch()` cancels watch retry and reconnect timers and prevents pending reads from delivering into a stopped or replacement watch. `close()` also retires the Chunk fetcher. Already-invoked host callbacks finish their own work, and callbacks for the same document remain serialised across stop and restart. Outstanding transport reads occupy a processing slot until they settle. A disconnected watch still owns its scheduled reconnect and rejects a duplicate `beginWatch()` call.
+
+Logical deletions and note-shaped tombstones are delivered with empty `data` without loading deleted Chunks. A bare tombstone can reuse pending note metadata; without known metadata it remains ignored because an obfuscated document ID does not supply a file path.
+
 ## Contract scope
 
 The package is currently an infrastructure and compatibility boundary. The context, rooted-storage, standard-I/O, and revision-tree safety contracts have focused cross-platform, instance-isolation, or real-PouchDB tests. Platform details which cannot be shared, such as file timestamp fidelity and browser permission handling, remain host concerns and are documented separately.

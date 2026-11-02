@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DOCID_SYNC_PARAMETERS, VERSIONING_DOCID, type EntryDoc, type EntryLeaf, type FilePathWithPrefix } from "@lib/common/types.ts";
 import { PouchDB } from "@lib/pouchdb/pouchdb-http.ts";
+import { EVENT_MISSING_CHUNKS } from "@lib/managers/ChunkFetcher.ts";
 import { DirectFileManipulator, type DirectFileManipulatorOptions } from "./DirectFileManipulatorV2.ts";
 
 const url = process.env.hostname ?? "http://127.0.0.1:5989/";
@@ -69,7 +70,7 @@ describe("direct CouchDB access with an independent ID key", () => {
 });
 
 describe("direct CouchDB access with encrypted late chunks", () => {
-    it("delivers chunks arriving after their metadata decrypted", async () => {
+    it.each(["before reading", "while reading"])("delivers encrypted chunks arriving %s without writing them back", async (arrival) => {
         const database = "direct-late-" + Date.now() + "-" + Math.random().toString(36).slice(2);
         const options: DirectFileManipulatorOptions = {
             url,
@@ -130,6 +131,22 @@ describe("direct CouchDB access with encrypted late chunks", () => {
                 }
             };
             unsubscribe = reader.liveSyncLocalDB.managers.changeManager.addCallback(onChange);
+            const readerDatabase = reader.liveSyncLocalDB.localDatabase;
+            const writes = vi.spyOn(readerDatabase, "bulkDocs");
+            const puts = vi.spyOn(readerDatabase, "put");
+            let settled = false;
+            let missingRequests = 0;
+            reader.liveSyncLocalDB.managers.chunkManager.addListener(EVENT_MISSING_CHUNKS, () => missingRequests++);
+            const read = () => reader!.get(path).then(
+                (value) => { settled = true; return { value }; },
+                (error: unknown) => { settled = true; return { error }; }
+            );
+            const pending = arrival === "while reading" ? read() : undefined;
+            if (pending) {
+                await expect.poll(() => missingRequests).toBeGreaterThan(0);
+                await new Promise((resolve) => setTimeout(resolve, 50));
+                expect(settled, "A missing chunk must leave the original read waiting for delivery").toBe(false);
+            }
             const chunkResults = await destination.bulkDocs(chunks, { new_edits: false });
             expect(chunkResults.every((result) => !("error" in result))).toBe(true);
             await expect.poll(() => arrived.size, { timeout: 5000 }).toBe(chunks.length);
@@ -139,7 +156,11 @@ describe("direct CouchDB access with encrypted late chunks", () => {
                 expect(chunk.data).not.toMatch(/^%=/u);
             }
             expect(metadata.children.map((id) => arrived.get(id)?.data).join("")).toBe(text);
-            const note = await reader.get(path);
+            const result = await (pending ?? read());
+            if ("error" in result) throw result.error;
+            const note = result.value;
+            expect(writes).not.toHaveBeenCalled();
+            expect(puts).not.toHaveBeenCalled();
             if (!note || !("data" in note)) throw new Error("The note content is missing.");
             expect(note.data.join("")).toBe(text);
         } finally {
